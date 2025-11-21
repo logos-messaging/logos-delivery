@@ -5,7 +5,6 @@ import libp2p/peerid
 import
   ../waku_core/peers,
   ../node/peer_manager,
-  ../node/delivery_monitor/publish_observer,
   ../utils/requests,
   ../waku_core,
   ./common,
@@ -19,7 +18,6 @@ logScope:
 type WakuLegacyLightPushClient* = ref object
   peerManager*: PeerManager
   rng*: ref rand.HmacDrbgContext
-  publishObservers: seq[PublishObserver]
 
 proc new*(
     T: type WakuLegacyLightPushClient,
@@ -27,9 +25,6 @@ proc new*(
     rng: ref rand.HmacDrbgContext,
 ): T =
   WakuLegacyLightPushClient(peerManager: peerManager, rng: rng)
-
-proc addPublishObserver*(wl: WakuLegacyLightPushClient, obs: PublishObserver) =
-  wl.publishObservers.add(obs)
 
 proc sendPushRequest(
     wl: WakuLegacyLightPushClient, req: PushRequest, peer: PeerId | RemotePeerInfo
@@ -86,9 +81,6 @@ proc publish*(
   let pushRequest = PushRequest(pubSubTopic: pubSubTopic, message: message)
   ?await wl.sendPushRequest(pushRequest, peer)
 
-  for obs in wl.publishObservers:
-    obs.onMessagePublished(pubSubTopic, message)
-
   notice "publishing message with lightpush",
     pubsubTopic = pubsubTopic,
     contentTopic = message.contentTopic,
@@ -110,8 +102,5 @@ proc publishToAny*(
 
   let pushRequest = PushRequest(pubSubTopic: pubSubTopic, message: message)
   ?await wl.sendPushRequest(pushRequest, peer)
-
-  for obs in wl.publishObservers:
-    obs.onMessagePublished(pubSubTopic, message)
 
   return ok()

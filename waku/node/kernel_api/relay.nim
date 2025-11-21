@@ -165,7 +165,7 @@ proc unsubscribe*(
 
 proc publish*(
     node: WakuNode, pubsubTopicOp: Option[PubsubTopic], message: WakuMessage
-): Future[Result[void, string]] {.async, gcsafe.} =
+): Future[Result[int, string]] {.async, gcsafe.} =
   ## Publish a `WakuMessage`. Pubsub topic contains; none, a named or static shard.
   ## `WakuMessage` should contain a `contentTopic` field for light node functionality.
   ## It is also used to determine the shard.
@@ -184,16 +184,20 @@ proc publish*(
       let msg = "Autosharding error: " & error
       return err(msg)
 
-  #TODO instead of discard return error when 0 peers received the message
-  discard await node.wakuRelay.publish(pubsubTopic, message)
+  let numPeers = (await node.wakuRelay.publish(pubsubTopic, message)).valueOr:
+    warn "waku.relay did not publish", error = error
+    # Todo: If NoPeersToPublish, we might want to return ok(0) instead!!!
+    return err($error)
 
   notice "waku.relay published",
     peerId = node.peerId,
     pubsubTopic = pubsubTopic,
     msg_hash = pubsubTopic.computeMessageHash(message).to0xHex(),
-    publishTime = getNowInNanosecondTime()
+    publishTime = getNowInNanosecondTime(),
+    numPeers = numPeers
 
-  return ok()
+  # TODO: investigate if we can return error in case numPeers is 0
+  ok(numPeers)
 
 proc mountRelay*(
     node: WakuNode,

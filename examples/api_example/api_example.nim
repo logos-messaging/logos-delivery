@@ -7,6 +7,22 @@ type CliArgs = object
     defaultValue: "", desc: "ETH RPC Endpoint, if passed, RLN is enabled"
   .}: string
 
+proc periodicSender(w: Waku): Future[void] {.async.} =
+  ## Periodically sends a Waku message every 30 seconds
+  var counter = 0
+  while true:
+    let envelope = MessageEnvelope.init(
+      contentTopic = "example/content/topic",
+      payload = "Hello Waku! Message number: " & $counter,
+    )
+
+    let sendRequestId = (await w.send(envelope)).valueOr:
+      echo "Failed to send message: ", error
+      quit(QuitFailure)
+
+    counter += 1
+    await sleepAsync(30.seconds)
+
 when isMainModule:
   let args = CliArgs.load()
 
@@ -21,7 +37,7 @@ when isMainModule:
       )
     else:
       # Connect to TWN, use ETH RPC Endpoint for RLN
-      NodeConfig.init(ethRpcEndpoints = @[args.ethRpcEndpoint])
+      NodeConfig.init(mode = WakuMode.Core, ethRpcEndpoints = @[args.ethRpcEndpoint])
 
   # Create the node using the library API's createNode function
   let node = (waitFor createNode(config)).valueOr:
@@ -36,5 +52,7 @@ when isMainModule:
     quit(QuitFailure)
 
   echo "Node started successfully!"
+
+  asyncSpawn periodicSender(node)
 
   runForever()

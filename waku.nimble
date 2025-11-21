@@ -176,6 +176,10 @@ task lightpushwithmix, "Build lightpushwithmix":
   let name = "lightpush_publisher_mix"
   buildBinary name, "examples/lightpush_mix/"
 
+task api_example, "Build api_example":
+  let name = "api_example"
+  buildBinary name, "examples/api_example/"
+
 task buildone, "Build custom target":
   let filepath = paramStr(paramCount())
   discard buildModule filepath

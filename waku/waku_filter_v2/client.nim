@@ -10,9 +10,7 @@ import
   bearssl/rand,
   stew/byteutils
 import
-  ../node/peer_manager,
-  ../node/delivery_monitor/subscriptions_observer,
-  ../waku_core,
+  waku/[node/peer_manager, waku_core, events/delivery_events],
   ./common,
   ./protocol_metrics,
   ./rpc_codec,
@@ -25,15 +23,11 @@ type WakuFilterClient* = ref object of LPProtocol
   rng: ref HmacDrbgContext
   peerManager: PeerManager
   pushHandlers: seq[FilterPushHandler]
-  subscrObservers: seq[SubscriptionObserver]
 
 func generateRequestId(rng: ref HmacDrbgContext): string =
   var bytes: array[10, byte]
   hmacDrbgGenerate(rng[], bytes)
   return toHex(bytes)
-
-proc addSubscrObserver*(wfc: WakuFilterClient, obs: SubscriptionObserver) =
-  wfc.subscrObservers.add(obs)
 
 proc sendSubscribeRequest(
     wfc: WakuFilterClient,
@@ -132,8 +126,7 @@ proc subscribe*(
 
   ?await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
 
-  for obs in wfc.subscrObservers:
-    obs.onSubscribe(pubSubTopic, contentTopicSeq)
+  OnFilterSubscribeEvent.emit(pubSubTopic, contentTopicSeq)
 
   return ok()
 
@@ -156,8 +149,7 @@ proc unsubscribe*(
 
   ?await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
 
-  for obs in wfc.subscrObservers:
-    obs.onUnsubscribe(pubSubTopic, contentTopicSeq)
+  OnFilterUnSubscribeEvent.emit(pubSubTopic, contentTopicSeq)
 
   return ok()
 

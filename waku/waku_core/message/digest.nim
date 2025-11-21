@@ -19,6 +19,11 @@ func shortLog*(hash: WakuMessageHash): string =
 func `$`*(hash: WakuMessageHash): string =
   shortLog(hash)
 
+func toString*(hash: WakuMessageHash): string =
+  var hexhash = newStringOfCap(64)
+  hexhash &= hash.toOpenArray(hash.low, hash.high).to0xHex()
+  hexhash
+
 const EmptyWakuMessageHash*: WakuMessageHash = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,
   0, 0, 0,

@@ -151,7 +151,7 @@ NIM_PARAMS := $(NIM_PARAMS) -d:disable_libbacktrace
 endif
 
 # enable experimental exit is dest feature in libp2p mix
-NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest 
+NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest
 
 libbacktrace:
 	+ $(MAKE) -C vendor/nim-libbacktrace --no-print-directory BUILD_CXX_LIB=0
@@ -269,6 +269,10 @@ liteprotocoltester: | build deps librln
 lightpushwithmix: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(ENV_SCRIPT) nim lightpushwithmix $(NIM_PARAMS) waku.nims
+
+api_example: | build deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) waku.nims
 
 build/%: | build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \

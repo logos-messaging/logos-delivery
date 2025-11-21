@@ -131,8 +131,9 @@ proc toWakuConf*(nodeConfig: NodeConfig): Result[WakuConf, string] =
 
     b.rateLimitConf.withRateLimits(@["filter:100/1s", "lightpush:5/1s", "px:5/1s"])
   of Edge:
-    return err("Edge mode is not implemented")
-
+    # All client side protocols are mounted by default
+    # Peer exchange client is always enabled and start_node will start the px loop
+    discard
   ## Network Conf
   let protocolsConfig = nodeConfig.protocolsConfig
 

@@ -25,7 +25,7 @@ import
   ../node/peer_manager,
   ../node/health_monitor,
   ../node/waku_metrics,
-  ../node/delivery_monitor/delivery_monitor,
+  ../node/delivery_service/delivery_service,
   ../rest_api/message_cache,
   ../rest_api/endpoint/server,
   ../rest_api/endpoint/builder as rest_server_builder,
@@ -66,7 +66,7 @@ type Waku* = ref object
 
   healthMonitor*: NodeHealthMonitor
 
-  deliveryMonitor: DeliveryMonitor
+  deliveryService*: DeliveryService
 
   restServer*: WakuRestServerRef
   metricsServer*: MetricsHttpServerRef
@@ -197,16 +197,10 @@ proc new*(
     return err("Failed setting up app callbacks: " & $error)
 
   ## Delivery Monitor
-  var deliveryMonitor: DeliveryMonitor
-  if wakuConf.p2pReliability:
-    if wakuConf.remoteStoreNode.isNone():
-      return err("A storenode should be set when reliability mode is on")
-
-    let deliveryMonitor = DeliveryMonitor.new(
-      node.wakuStoreClient, node.wakuRelay, node.wakuLightpushClient,
-      node.wakuFilterClient,
-    ).valueOr:
-      return err("could not create delivery monitor: " & $error)
+  let deliveryService = DeliveryService.new(
+    wakuConf.p2pReliability, node,
+  ).valueOr:
+    return err("could not create delivery service: " & $error)
 
   var waku = Waku(
     version: git_version,
@@ -215,7 +209,7 @@ proc new*(
     key: wakuConf.nodeKey,
     node: node,
     healthMonitor: healthMonitor,
-    deliveryMonitor: deliveryMonitor,
+    deliveryService: deliveryService,
     appCallbacks: appCallbacks,
     restServer: restServer,
   )
@@ -400,8 +394,8 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
       return err("failed to start waku discovery v5: " & $error)
 
   ## Reliability
-  if not waku[].deliveryMonitor.isNil():
-    waku[].deliveryMonitor.startDeliveryMonitor()
+  if not waku[].deliveryService.isNil():
+    waku[].deliveryService.startDeliveryService()
 
   ## Health Monitor
   waku[].healthMonitor.startHealthMonitor().isOkOr:
@@ -460,3 +454,16 @@ proc stop*(waku: Waku): Future[void] {.async: (raises: [Exception]).} =
 
   if not waku.restServer.isNil():
     await waku.restServer.stop()
+
+proc isModeCoreAvailable*(waku: Waku): bool =
+  return not waku.node.wakuRelay.isNil()
+
+proc isModeEdgeAvailable*(waku: Waku): bool =
+  return
+    waku.node.wakuRelay.isNil() and not waku.node.wakuStoreClient.isNil() and
+    not waku.node.wakuFilterClient.isNil() and not waku.node.wakuLightPushClient.isNil()
+
+proc isP2PReliabilityEnabled*(waku: Waku): bool =
+  return not waku.deliveryService.isNil()
+
+{.pop.}
