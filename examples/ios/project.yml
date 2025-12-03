@@ -1,0 +1,47 @@
+name: WakuExample
+options:
+  bundleIdPrefix: org.waku
+  deploymentTarget:
+    iOS: "14.0"
+  xcodeVersion: "15.0"
+
+settings:
+  SWIFT_VERSION: "5.0"
+  SUPPORTED_PLATFORMS: "iphoneos iphonesimulator"
+  SUPPORTS_MACCATALYST: "NO"
+
+targets:
+  WakuExample:
+    type: application
+    platform: iOS
+    supportedDestinations: [iOS]
+    sources:
+      - WakuExample
+    settings:
+      INFOPLIST_FILE: WakuExample/Info.plist
+      PRODUCT_BUNDLE_IDENTIFIER: org.waku.example
+      SWIFT_OBJC_BRIDGING_HEADER: WakuExample/WakuExample-Bridging-Header.h
+      HEADER_SEARCH_PATHS:
+        - "$(PROJECT_DIR)/WakuExample"
+      "LIBRARY_SEARCH_PATHS[sdk=iphoneos*]":
+        - "$(PROJECT_DIR)/../../build/ios/iphoneos-arm64"
+      "LIBRARY_SEARCH_PATHS[sdk=iphonesimulator*]":
+        - "$(PROJECT_DIR)/../../build/ios/iphonesimulator-arm64"
+      OTHER_LDFLAGS:
+        - "-lc++"
+        - "-lwaku"
+      IPHONEOS_DEPLOYMENT_TARGET: "14.0"
+    info:
+      path: WakuExample/Info.plist
+      properties:
+        CFBundleName: WakuExample
+        CFBundleDisplayName: Waku Example
+        CFBundleIdentifier: org.waku.example
+        CFBundleVersion: "1"
+        CFBundleShortVersionString: "1.0"
+        UILaunchScreen: {}
+        UISupportedInterfaceOrientations:
+          - UIInterfaceOrientationPortrait
+        NSAppTransportSecurity:
+          NSAllowsArbitraryLoads: true
+

@@ -504,6 +504,51 @@ libwaku-android:
 # It's likely this architecture is not used so we might just not support it.
 #	$(MAKE) libwaku-android-arm
 
+#################
+## iOS Bindings #
+#################
+.PHONY: libwaku-ios-precheck \
+				libwaku-ios-device \
+				libwaku-ios-simulator \
+				libwaku-ios
+
+IOS_DEPLOYMENT_TARGET ?= 18.0
+
+# Get SDK paths dynamically using xcrun
+define get_ios_sdk_path
+$(shell xcrun --sdk $(1) --show-sdk-path 2>/dev/null)
+endef
+
+libwaku-ios-precheck:
+ifeq ($(detected_OS),Darwin)
+	@command -v xcrun >/dev/null 2>&1 || { echo "Error: Xcode command line tools not installed"; exit 1; }
+else
+	$(error iOS builds are only supported on macOS)
+endif
+
+# Build for iOS architecture 
+build-libwaku-for-ios-arch:
+	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) $(ENV_SCRIPT) nim libWakuIOS $(NIM_PARAMS) waku.nims
+
+# iOS device (arm64)
+libwaku-ios-device: IOS_ARCH=arm64
+libwaku-ios-device: IOS_SDK=iphoneos
+libwaku-ios-device: IOS_SDK_PATH=$(call get_ios_sdk_path,iphoneos)
+libwaku-ios-device: | libwaku-ios-precheck build deps
+	$(MAKE) build-libwaku-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
+
+# iOS simulator (arm64 - Apple Silicon Macs)
+libwaku-ios-simulator: IOS_ARCH=arm64
+libwaku-ios-simulator: IOS_SDK=iphonesimulator
+libwaku-ios-simulator: IOS_SDK_PATH=$(call get_ios_sdk_path,iphonesimulator)
+libwaku-ios-simulator: | libwaku-ios-precheck build deps
+	$(MAKE) build-libwaku-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
+
+# Build all iOS targets
+libwaku-ios:
+	$(MAKE) libwaku-ios-device
+	$(MAKE) libwaku-ios-simulator
+
 cwaku_example: | build libwaku
 	echo -e $(BUILD_MSG) "build/$@" && \
 		cc -o "build/$@" \
