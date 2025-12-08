@@ -26,9 +26,10 @@ else
         curl -fsSL https://get.pnpm.io/install.sh | sh -
     fi
 
-    # Add pnpm to PATH for this script session
-    export PNPM_HOME="${PNPM_HOME:-$HOME/.local/share/pnpm}"
-    export PATH="$PNPM_HOME:$PATH"
+    # Source bashrc to load pnpm configuration
+    if [ -f "$HOME/.bashrc" ]; then
+        source "$HOME/.bashrc"
+    fi
 
     # Verify pnpm was installed
     if ! command -v pnpm >/dev/null 2>&1; then
