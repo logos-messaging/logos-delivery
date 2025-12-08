@@ -26,9 +26,17 @@ else
         curl -fsSL https://get.pnpm.io/install.sh | sh -
     fi
 
-    # Source bashrc to load pnpm configuration
-    if [ -f "$HOME/.bashrc" ]; then
-        source "$HOME/.bashrc"
+    # Set PNPM_HOME and add to PATH (same as what the installer adds to .bashrc)
+    export PNPM_HOME="$HOME/.local/share/pnpm"
+    case ":$PATH:" in
+        *":$PNPM_HOME:"*) ;;
+        *) export PATH="$PNPM_HOME:$PATH" ;;
+    esac
+
+    # If running in GitHub Actions, persist the PATH change
+    if [ -n "$GITHUB_PATH" ]; then
+        echo "$PNPM_HOME" >> "$GITHUB_PATH"
+        echo "Added $PNPM_HOME to GITHUB_PATH"
     fi
 
     # Verify pnpm was installed
