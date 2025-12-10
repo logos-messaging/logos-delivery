@@ -121,9 +121,8 @@ proc createRLNInstance*(): RLNResult =
 
 proc sha256*(data: openArray[byte]): RlnRelayResult[MerkleNode] =
   ## a thin layer on top of the Nim wrapper of the sha256 hasher
-  var lenPrefData = encodeLengthPrefix(data)
   var
-    hashInputBuffer = lenPrefData.toBuffer()
+    hashInputBuffer = data.toBuffer()
     outputBuffer: Buffer # will holds the hash output
 
   trace "sha256 hash input buffer length", bufflen = hashInputBuffer.len
@@ -181,8 +180,12 @@ proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnRelayResult[seq[seq[byt
   return ok(leaves)
 
 proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
-  let externalNullifier = poseidon(@[@(proof.epoch), @(proof.rlnIdentifier)]).valueOr:
-    return err("could not construct the external nullifier")
+  let epochHash = sha256(@(proof.epoch)).valueOr:
+    return err("Failed to compute epoch hash: " & error)
+  let rlnIdentifierHash = sha256(@(proof.rlnIdentifier)).valueOr:
+    return err("Failed to compute rln identifier hash: " & error)
+  let externalNullifier = poseidon(@[@(epochHash), @(rlnIdentifierHash)]).valueOr:
+    return err("Failed to compute external nullifier: " & error)
   return ok(
     ProofMetadata(
       nullifier: proof.nullifier,
