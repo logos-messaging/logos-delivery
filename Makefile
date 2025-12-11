@@ -119,8 +119,8 @@ endif
 ##################
 .PHONY: deps libbacktrace
 
-FOUNDRY_VERSION := 1.4.2
-PNPM_VERSION := 10.0.0
+FOUNDRY_VERSION := 1.5.0
+PNPM_VERSION := 10.23.0
 
 
 rustup:
