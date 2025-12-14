@@ -8,6 +8,29 @@ type CliArgs = object
   .}: string
 
 proc periodicSender(w: Waku): Future[void] {.async.} =
+  let sentListener = MessageSentEvent.listen(
+    proc(event: MessageSentEvent) {.async: (raises: []).} =
+      echo "Message sent with request ID: ",
+        event.requestId, " hash: ", event.messageHash
+  )
+
+  let errorListener = MessageErrorEvent.listen(
+    proc(event: MessageErrorEvent) {.async: (raises: []).} =
+      echo "Message failed to send with request ID: ",
+        event.requestId, " error: ", event.error
+  )
+
+  let propagatedListener = MessagePropagatedEvent.listen(
+    proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
+      echo "Message propagated with request ID: ",
+        event.requestId, " hash: ", event.messageHash
+  )
+
+  defer:
+    MessageSentEvent.dropListener(sentListener)
+    MessageErrorEvent.dropListener(errorListener)
+    MessagePropagatedEvent.dropListener(propagatedListener)
+
   ## Periodically sends a Waku message every 30 seconds
   var counter = 0
   while true:
@@ -19,6 +42,8 @@ proc periodicSender(w: Waku): Future[void] {.async.} =
     let sendRequestId = (await w.send(envelope)).valueOr:
       echo "Failed to send message: ", error
       quit(QuitFailure)
+
+    echo "Sending message with request ID: ", sendRequestId, " counter: ", counter
 
     counter += 1
     await sleepAsync(30.seconds)

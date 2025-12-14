@@ -133,7 +133,15 @@ proc toWakuConf*(nodeConfig: NodeConfig): Result[WakuConf, string] =
   of Edge:
     # All client side protocols are mounted by default
     # Peer exchange client is always enabled and start_node will start the px loop
-    discard
+    # Metadata is always mounted
+    b.withPeerExchange(true)
+    # switch off all service side protocols and relay
+    b.withRelay(false)
+    b.filterServiceConf.withEnabled(false)
+    b.withLightPush(false)
+    b.storeServiceConf.withEnabled(false)
+    # Leave discv5 and rendezvous for user choice
+
   ## Network Conf
   let protocolsConfig = nodeConfig.protocolsConfig
 
