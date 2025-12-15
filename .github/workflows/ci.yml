@@ -143,7 +143,7 @@ jobs:
 
   nwaku-nwaku-interop-tests:
     needs: build-docker-image
-    uses: logos-messaging/logos-messaging-interop-tests/.github/workflows/nim_waku_PR.yml@SMOKE_TEST_0.0.1
+    uses: logos-messaging/logos-messaging-interop-tests/.github/workflows/nim_waku_PR.yml@6027bd8a458dd5c41b00a8345f50c15366e16926
     with:
       node_nwaku: ${{ needs.build-docker-image.outputs.image }}
 
