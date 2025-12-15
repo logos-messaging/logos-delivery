@@ -67,7 +67,8 @@ suite "Waku API - Send":
 
     (await lightpushNode.mountRelay()).isOkOr:
       raiseAssert "Failed to mount relay"
-    await lightpushNode.mountLightPush()
+    (await lightpushNode.mountLightPush()).isOkOr:
+      raiseAssert "Failed to mount lightpush"
 
     (await storeNode.mountRelay()).isOkOr:
       raiseAssert "Failed to mount relay"
