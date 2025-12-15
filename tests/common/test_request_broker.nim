@@ -59,7 +59,7 @@ suite "RequestBroker macro (async mode)":
 
   test "zero-argument request errors when unset":
     let res = waitFor SimpleResponse.request()
-    check res.isErr
+    check res.isErr()
     check res.error.contains("no zero-arg provider")
 
   test "serves input-based providers":
@@ -96,7 +96,7 @@ suite "RequestBroker macro (async mode)":
 
   test "input request errors when unset":
     let res = waitFor KeyedResponse.request("foo", 2)
-    check res.isErr
+    check res.isErr()
     check res.error.contains("input signature")
 
   test "supports both provider types simultaneously":
@@ -115,11 +115,11 @@ suite "RequestBroker macro (async mode)":
     .isOk()
 
     let noInput = waitFor DualResponse.request()
-    check noInput.isOk
+    check noInput.isOk()
     check noInput.value.note == "base"
 
     let withInput = waitFor DualResponse.request("-extra")
-    check withInput.isOk
+    check withInput.isOk()
     check withInput.value.note == "base-extra"
     check withInput.value.count == 6
 
@@ -135,7 +135,7 @@ suite "RequestBroker macro (async mode)":
     DualResponse.clearProvider()
 
     let res = waitFor DualResponse.request()
-    check res.isErr
+    check res.isErr()
 
   test "implicit zero-argument provider works by default":
     check ImplicitResponse
@@ -146,14 +146,14 @@ suite "RequestBroker macro (async mode)":
     .isOk()
 
     let res = waitFor ImplicitResponse.request()
-    check res.isOk
+    check res.isOk()
 
     ImplicitResponse.clearProvider()
     check res.value.note == "auto"
 
   test "implicit zero-argument request errors when unset":
     let res = waitFor ImplicitResponse.request()
-    check res.isErr
+    check res.isErr()
     check res.error.contains("no zero-arg provider")
 
   test "no provider override":
@@ -177,7 +177,7 @@ suite "RequestBroker macro (async mode)":
     check DualResponse.setProvider(overrideProc).isErr()
 
     let noInput = waitFor DualResponse.request()
-    check noInput.isOk
+    check noInput.isOk()
     check noInput.value.note == "base"
 
     let stillResponse = waitFor DualResponse.request(" still works")
@@ -197,7 +197,7 @@ suite "RequestBroker macro (async mode)":
     check DualResponse.setProvider(overrideProc).isOk()
 
     let nowSuccWithOverride = waitFor DualResponse.request()
-    check nowSuccWithOverride.isOk
+    check nowSuccWithOverride.isOk()
     check nowSuccWithOverride.value.note == "something else"
     check nowSuccWithOverride.value.count == 1
 
@@ -259,7 +259,7 @@ suite "RequestBroker macro (sync mode)":
 
   test "zero-argument request errors when unset (sync)":
     let res = SimpleResponseSync.request()
-    check res.isErr
+    check res.isErr()
     check res.error.contains("no zero-arg provider")
 
   test "serves input-based providers (sync)":
@@ -296,7 +296,7 @@ suite "RequestBroker macro (sync mode)":
 
   test "input request errors when unset (sync)":
     let res = KeyedResponseSync.request("foo", 2)
-    check res.isErr
+    check res.isErr()
     check res.error.contains("input signature")
 
   test "supports both provider types simultaneously (sync)":
@@ -315,11 +315,11 @@ suite "RequestBroker macro (sync mode)":
     .isOk()
 
     let noInput = DualResponseSync.request()
-    check noInput.isOk
+    check noInput.isOk()
     check noInput.value.note == "base"
 
     let withInput = DualResponseSync.request("-extra")
-    check withInput.isOk
+    check withInput.isOk()
     check withInput.value.note == "base-extra"
     check withInput.value.count == 6
 
@@ -335,7 +335,7 @@ suite "RequestBroker macro (sync mode)":
     DualResponseSync.clearProvider()
 
     let res = DualResponseSync.request()
-    check res.isErr
+    check res.isErr()
 
   test "implicit zero-argument provider works by default (sync)":
     check ImplicitResponseSync
@@ -346,14 +346,14 @@ suite "RequestBroker macro (sync mode)":
     .isOk()
 
     let res = ImplicitResponseSync.request()
-    check res.isOk
+    check res.isOk()
 
     ImplicitResponseSync.clearProvider()
     check res.value.note == "auto"
 
   test "implicit zero-argument request errors when unset (sync)":
     let res = ImplicitResponseSync.request()
-    check res.isErr
+    check res.isErr()
     check res.error.contains("no zero-arg provider")
 
   test "implicit zero-argument provider raises error (sync)":
@@ -365,7 +365,7 @@ suite "RequestBroker macro (sync mode)":
     .isOk()
 
     let res = ImplicitResponseSync.request()
-    check res.isErr
+    check res.isErr()
     check res.error.contains("simulated failure")
 
     ImplicitResponseSync.clearProvider()
@@ -484,15 +484,15 @@ suite "RequestBroker macro (POD/external types)":
 
     let resA = DistinctStringResponseA.request()
     let resB = DistinctStringResponseB.request()
-    check resA.isOk
-    check resB.isOk
+    check resA.isOk()
+    check resB.isOk()
     check string(resA.value) == "a"
     check string(resB.value) == "b"
 
     let resEA = ExternalDistinctResponseA.request()
     let resEB = ExternalDistinctResponseB.request()
-    check resEA.isOk
-    check resEB.isOk
+    check resEA.isOk()
+    check resEB.isOk()
     check ExternalDefinedTypeShared(resEA.value).label == "ea"
     check ExternalDefinedTypeShared(resEB.value).label == "eb"
 

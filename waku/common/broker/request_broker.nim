@@ -6,8 +6,15 @@
 ## Worth considering using it in a single provider, many requester scenario.
 ##
 ## Provides a declarative way to define an immutable value type together with a
-## thread-local broker that can register an asynchronous provider, dispatch typed
-## requests and clear provider.
+## thread-local broker that can register an asynchronous or synchronous provider,
+## dispatch typed requests and clear provider.
+##
+## For consideration use `sync` mode RequestBroker when you need to provide simple value(s)
+## where there is no long-running async operation involved.
+## Typically it act as a accessor for the local state of generic setting.
+##
+## `async` mode is better to be used when you request date that may involve some long IO operation
+## or action.
 ##
 ## Usage:
 ## Declare your desired request type inside a `RequestBroker` macro, add any number of fields.
@@ -36,7 +43,7 @@
 ##   proc signature*(arg1: ArgType): Result[TypeName, string]
 ## ```
 ##
-## Note: When the request type is declared as a POD / alias / externally-defined
+## Note: When the request type is declared as a native type / alias / externally-defined
 ## type (i.e. not an inline `object` / `ref object` definition), RequestBroker
 ## will wrap it in `distinct` automatically unless you already used `distinct`.
 ## This avoids overload ambiguity when multiple brokers share the same
@@ -46,7 +53,7 @@
 ## - construct values with an explicit cast/constructor, e.g. `MyType("x")`
 ## - unwrap with a cast when needed, e.g. `string(myVal)` or `BaseType(myVal)`
 ##
-## Example (POD response type):
+## Example (native response type):
 ## ```nim
 ## RequestBroker(sync):
 ##   type MyCount = int   # exported as: `distinct int`
@@ -113,7 +120,7 @@
 ##
 ##
 ## ...
-## # using POD type as response for a synchronous request.
+## # using native type as response for a synchronous request.
 ## RequestBroker(sync):
 ##   type NeedThatInfo = string
 ##
@@ -220,9 +227,9 @@ proc parseMode(modeNode: NimNode): RequestBrokerMode =
   ## Supported spellings: `sync` / `async` (case-insensitive).
   let raw = ($modeNode).strip().toLowerAscii()
   case raw
-  of "sync", "rbsync":
+  of "sync":
     rbSync
-  of "async", "rbasync":
+  of "async":
     rbAsync
   else:
     error("RequestBroker mode must be `sync` or `async` (default is async)", modeNode)
