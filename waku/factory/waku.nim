@@ -197,9 +197,7 @@ proc new*(
     return err("Failed setting up app callbacks: " & $error)
 
   ## Delivery Monitor
-  let deliveryService = DeliveryService.new(
-    wakuConf.p2pReliability, node,
-  ).valueOr:
+  let deliveryService = DeliveryService.new(wakuConf.p2pReliability, node).valueOr:
     return err("could not create delivery service: " & $error)
 
   var waku = Waku(
@@ -347,7 +345,7 @@ proc startDnsDiscoveryRetryLoop(waku: ptr Waku): Future[void] {.async.} =
       error "failed to connect to dynamic bootstrap nodes: " & getCurrentExceptionMsg()
     return
 
-proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
+proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if waku[].node.started:
     warn "startWaku: waku node already started"
     return ok()
@@ -357,9 +355,15 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
 
   if conf.dnsDiscoveryConf.isSome():
     let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()
-    let dynamicBootstrapNodesRes = await waku_dnsdisc.retrieveDynamicBootstrapNodes(
-      dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
-    )
+    let dynamicBootstrapNodesRes =
+      try:
+        await waku_dnsdisc.retrieveDynamicBootstrapNodes(
+          dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
+        )
+      except CatchableError:
+        Result[seq[RemotePeerInfo], string].err(
+          "Retrieving dynamic bootstrap nodes failed: " & getCurrentExceptionMsg()
+        )
 
     if dynamicBootstrapNodesRes.isErr():
       error "Retrieving dynamic bootstrap nodes failed",
@@ -373,8 +377,11 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
     return err("error while calling startNode: " & $error)
 
   ## Update waku data that is set dynamically on node start
-  (await updateWaku(waku)).isOkOr:
-    return err("Error in updateApp: " & $error)
+  try:
+    (await updateWaku(waku)).isOkOr:
+      return err("Error in updateApp: " & $error)
+  except CatchableError:
+    return err("Error in updateApp: " & getCurrentExceptionMsg())
 
   ## Discv5
   if conf.discv5Conf.isSome():
@@ -416,44 +423,54 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
       return err ("Starting protocols support REST server failed: " & $error)
 
   if conf.metricsServerConf.isSome():
-    waku[].metricsServer = (
-      await (
-        waku_metrics.startMetricsServerAndLogging(
-          conf.metricsServerConf.get(), conf.portsShift
+    try:
+      waku[].metricsServer = (
+        await (
+          waku_metrics.startMetricsServerAndLogging(
+            conf.metricsServerConf.get(), conf.portsShift
+          )
         )
+      ).valueOr:
+        return err("Starting monitoring and external interfaces failed: " & error)
+    except CatchableError:
+      return err(
+        "Starting monitoring and external interfaces failed: " & getCurrentExceptionMsg()
       )
-    ).valueOr:
-      return err("Starting monitoring and external interfaces failed: " & error)
-
   waku[].healthMonitor.setOverallHealth(HealthStatus.READY)
 
   return ok()
 
-proc stop*(waku: Waku): Future[void] {.async: (raises: [Exception]).} =
+proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## Waku shutdown
 
   if not waku.node.started:
     warn "stop: attempting to stop node that isn't running"
 
-  waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
+  try:
+    waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
 
-  if not waku.metricsServer.isNil():
-    await waku.metricsServer.stop()
+    if not waku.metricsServer.isNil():
+      await waku.metricsServer.stop()
 
-  if not waku.wakuDiscv5.isNil():
-    await waku.wakuDiscv5.stop()
+    if not waku.wakuDiscv5.isNil():
+      await waku.wakuDiscv5.stop()
 
-  if not waku.node.isNil():
-    await waku.node.stop()
+    if not waku.node.isNil():
+      await waku.node.stop()
 
-  if not waku.dnsRetryLoopHandle.isNil():
-    await waku.dnsRetryLoopHandle.cancelAndWait()
+    if not waku.dnsRetryLoopHandle.isNil():
+      await waku.dnsRetryLoopHandle.cancelAndWait()
 
-  if not waku.healthMonitor.isNil():
-    await waku.healthMonitor.stopHealthMonitor()
+    if not waku.healthMonitor.isNil():
+      await waku.healthMonitor.stopHealthMonitor()
 
-  if not waku.restServer.isNil():
-    await waku.restServer.stop()
+    if not waku.restServer.isNil():
+      await waku.restServer.stop()
+  except Exception:
+    error "waku stop failed: " & getCurrentExceptionMsg()
+    return err("waku stop failed: " & getCurrentExceptionMsg())
+
+  return ok()
 
 proc isModeCoreAvailable*(waku: Waku): bool =
   return not waku.node.wakuRelay.isNil()
