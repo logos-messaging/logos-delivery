@@ -61,27 +61,21 @@ proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   exec "nim " & lang & " --out:build/" & name & " --mm:refc " & extra_params & " " &
     srcDir & name & ".nim"
 
-proc buildLibrary(name: string, srcDir = "./", params = "", `type` = "static") =
+proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static") =
   if not dirExists "build":
     mkDir "build"
   # allow something like "nim nimbus --verbosity:0 --hints:off nimbus.nims"
   var extra_params = params
-  for i in 2 ..< paramCount():
+  for i in 2 ..< (paramCount() - 1):
     extra_params &= " " & paramStr(i)
   if `type` == "static":
-    exec "nim c" & " --out:build/" & name &
-      ".a --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
-      extra_params & " " & srcDir & name & ".nim"
+    exec "nim c" & " --out:build/" & lib_name &
+      " --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
+      extra_params & " " & srcDir & "libwaku.nim"
   else:
-    let lib_name = (when defined(windows): toDll(name) else: name & ".so")
-    when defined(windows):
-      exec "nim c" & " --out:build/" & lib_name &
-        " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-        extra_params & " " & srcDir & name & ".nim"
-    else:
-      exec "nim c" & " --out:build/" & lib_name &
-        " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
-        extra_params & " " & srcDir & name & ".nim"
+    exec "nim c" & " --out:build/" & lib_name &
+      " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      extra_params & " " & srcDir & "libwaku.nim"
 
 proc buildMobileAndroid(srcDir = ".", params = "") =
   let cpu = getEnv("CPU")
@@ -206,12 +200,12 @@ let chroniclesParams =
   "--warning:UnusedImport:on " & "-d:chronicles_log_level=TRACE"
 
 task libwakuStatic, "Build the cbindings waku node library":
-  let name = "libwaku"
-  buildLibrary name, "library/", chroniclesParams, "static"
+  let lib_name = paramStr(paramCount())
+  buildLibrary lib_name, "library/", chroniclesParams, "static"
 
 task libwakuDynamic, "Build the cbindings waku node library":
-  let name = "libwaku"
-  buildLibrary name, "library/", chroniclesParams, "dynamic"
+  let lib_name = paramStr(paramCount())
+  buildLibrary lib_name, "library/", chroniclesParams, "dynamic"
 
 ### Mobile Android
 task libWakuAndroid, "Build the mobile bindings for Android":
