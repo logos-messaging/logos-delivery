@@ -1425,7 +1425,6 @@ proc containsAnyPartition*(self: PostgresDriver): bool =
 proc waitForPartition*(
     self: PostgresDriver, timeout = chronos.seconds(5)
 ): Future[ArchiveDriverResult[void]] {.async.} =
-
   let pollInterval = chronos.milliseconds(100)
   var elapsed = chronos.milliseconds(0)
 
