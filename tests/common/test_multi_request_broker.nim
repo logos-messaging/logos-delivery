@@ -211,7 +211,6 @@ suite "MultiRequestBroker":
     let firstHandler = NoArgResponse.setProvider(
       proc(): Future[Result[NoArgResponse, string]] {.async.} =
         raise newException(ValueError, "first handler raised")
-        ok(NoArgResponse(label: "any"))
     )
 
     discard NoArgResponse.setProvider(
