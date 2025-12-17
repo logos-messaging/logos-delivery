@@ -6,7 +6,8 @@ import
   stew/[arrayops, byteutils, endians2],
   stint,
   results,
-  std/[sequtils, strutils, tables]
+  std/[sequtils, strutils, tables],
+  nimcrypto/keccak as keccak
 
 import ./rln_interface, ../conversion_utils, ../protocol_types, ../protocol_metrics
 import ../../waku_core, ../../waku_keystore
@@ -119,23 +120,6 @@ proc createRLNInstance*(): RLNResult =
     res = createRLNInstanceLocal()
   return res
 
-proc sha256*(data: openArray[byte]): RlnRelayResult[MerkleNode] =
-  ## a thin layer on top of the Nim wrapper of the sha256 hasher
-  var
-    hashInputBuffer = data.toBuffer()
-    outputBuffer: Buffer # will holds the hash output
-
-  trace "sha256 hash input buffer length", bufflen = hashInputBuffer.len
-  let hashSuccess = sha256(addr hashInputBuffer, addr outputBuffer, true)
-
-  # check whether the hash call is done successfully
-  if not hashSuccess:
-    return err("error in sha256 hash")
-
-  let output = cast[ptr MerkleNode](outputBuffer.`ptr`)[]
-
-  return ok(output)
-
 proc poseidon*(data: seq[seq[byte]]): RlnRelayResult[array[32, byte]] =
   ## a thin layer on top of the Nim wrapper of the poseidon hasher
   var inputBytes = serialize(data)
@@ -180,10 +164,8 @@ proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnRelayResult[seq[seq[byt
   return ok(leaves)
 
 proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
-  let epochHash = sha256(@(proof.epoch)).valueOr:
-    return err("Failed to compute epoch hash: " & error)
-  let rlnIdentifierHash = sha256(@(proof.rlnIdentifier)).valueOr:
-    return err("Failed to compute rln identifier hash: " & error)
+  let epochHash = keccak.keccak256.digest(@(proof.epoch))
+  let rlnIdentifierHash = keccak.keccak256.digest(@(proof.rlnIdentifier))
   let externalNullifier = poseidon(@[@(epochHash), @(rlnIdentifierHash)]).valueOr:
     return err("Failed to compute external nullifier: " & error)
   return ok(

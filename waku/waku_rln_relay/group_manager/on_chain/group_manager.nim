@@ -379,10 +379,8 @@ method generateProof*(
 
   let x = keccak.keccak256.digest(data)
 
-  let epochHash = sha256(@(epoch)).valueOr:
-    return err("Failed to compute epoch hash: " & error)
-  let rlnIdentifierHash = sha256(@(rlnIdentifier)).valueOr:
-    return err("Failed to compute rln identifier hash: " & error)
+  let epochHash = keccak.keccak256.digest(@(epoch))
+  let rlnIdentifierHash = keccak.keccak256.digest(@(rlnIdentifier))
   let extNullifier = poseidon(@[@(epochHash), @(rlnIdentifierHash)]).valueOr:
     return err("Failed to compute external nullifier: " & error)
 
@@ -461,10 +459,8 @@ method verifyProof*(
 
   var normalizedProof = proof
 
-  let epochHash = sha256(@(proof.epoch)).valueOr:
-    return err("Failed to compute epoch hash: " & error)
-  let rlnIdentifierHash = sha256(@(proof.rlnIdentifier)).valueOr:
-    return err("Failed to compute rln identifier hash: " & error)
+  let epochHash = keccak.keccak256.digest(@(proof.epoch))
+  let rlnIdentifierHash = keccak.keccak256.digest(@(proof.rlnIdentifier))
   let externalNullifier = poseidon(@[@(epochHash), @(rlnIdentifierHash)]).valueOr:
     return err("Failed to compute external nullifier: " & error)
   normalizedProof.externalNullifier = externalNullifier
