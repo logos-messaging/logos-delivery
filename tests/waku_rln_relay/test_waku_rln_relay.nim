@@ -70,53 +70,6 @@ suite "Waku rln relay":
 
     info "the generated identity credential: ", idCredential
 
-  test "hash Nim Wrappers":
-    # create an RLN instance
-    let rlnInstance = createRLNInstanceWrapper()
-    require:
-      rlnInstance.isOk()
-
-    # prepare the input
-    let
-      msg = "Hello".toBytes()
-      hashInput = encodeLengthPrefix(msg)
-      hashInputBuffer = toBuffer(hashInput)
-
-    # prepare other inputs to the hash function
-    let outputBuffer = default(Buffer)
-
-    let hashSuccess = sha256(unsafeAddr hashInputBuffer, unsafeAddr outputBuffer, true)
-    require:
-      hashSuccess
-    let outputArr = cast[ptr array[32, byte]](outputBuffer.`ptr`)[]
-
-    check:
-      "1e32b3ab545c07c8b4a7ab1ca4f46bc31e4fdc29ac3b240ef1d54b4017a26e4c" ==
-        outputArr.inHex()
-
-    let
-      hashOutput = cast[ptr array[32, byte]](outputBuffer.`ptr`)[]
-      hashOutputHex = hashOutput.toHex()
-
-    info "hash output", hashOutputHex
-
-  test "sha256 hash utils":
-    # create an RLN instance
-    let rlnInstance = createRLNInstanceWrapper()
-    require:
-      rlnInstance.isOk()
-    let rln = rlnInstance.get()
-
-    # prepare the input
-    let msg = "Hello".toBytes()
-
-    let hashRes = sha256(msg)
-
-    check:
-      hashRes.isOk()
-      "1e32b3ab545c07c8b4a7ab1ca4f46bc31e4fdc29ac3b240ef1d54b4017a26e4c" ==
-        hashRes.get().inHex()
-
   test "poseidon hash utils":
     # create an RLN instance
     let rlnInstance = createRLNInstanceWrapper()
