@@ -54,9 +54,11 @@ else
         echo "Please update the submodule to ${rln_version}"
         exit 1
     fi
+    echo "build with cargo"
     # if submodule version = version in Makefile, build rln
     cargo build --release -p rln --manifest-path "${build_dir}/rln/Cargo.toml" --features arkzkey
 
+    echo "build with cargo"
     echo "Contents of target/release:"
     ls -lh "${build_dir}/target/release"
 
