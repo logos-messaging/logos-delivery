@@ -62,5 +62,9 @@ else
     echo "Contents of target/release:"
     ls -lh "${build_dir}/target/release"
 
-    cp "${build_dir}/target/release/librln.a" "${output_filename}"
+    if [[ "${output_filename}" == *.lib ]]; then
+        cp "${build_dir}/target/release/rln.lib" "${output_filename}"
+    else
+        cp "${build_dir}/target/release/librln.a" "${output_filename}"
+    fi
 fi
