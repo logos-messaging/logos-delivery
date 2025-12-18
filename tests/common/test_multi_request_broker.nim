@@ -280,8 +280,8 @@ suite "MultiRequestBroker":
 
   test "context-aware providers are isolated":
     NoArgResponse.clearProviders()
-    let ctxA = NewBrokerContext()
-    let ctxB = NewBrokerContext()
+    let ctxA = newBrokerContext()
+    let ctxB = newBrokerContext()
 
     discard NoArgResponse.setProvider(
       ctxA,
