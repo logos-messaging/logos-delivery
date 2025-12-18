@@ -56,5 +56,7 @@ else
     fi
     # if submodule version = version in Makefile, build rln
     cargo build --release -p rln --manifest-path "${build_dir}/rln/Cargo.toml" --features arkzkey
+    echo "Contents of target/release:"
+    ls -lh "${build_dir}/target/release"
     cp "${build_dir}/target/release/librln.a" "${output_filename}"
 fi
