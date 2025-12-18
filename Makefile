@@ -186,6 +186,7 @@ LIBRLN_FILE := librln_$(LIBRLN_VERSION).a
 endif
 
 $(LIBRLN_FILE):
+	@echo "LIBRLN_FILE is: $(LIBRLN_FILE)"
 	echo -e $(BUILD_MSG) "$@" && \
 		./scripts/build_rln.sh $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(LIBRLN_FILE)
 
