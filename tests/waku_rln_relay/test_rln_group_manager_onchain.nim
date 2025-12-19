@@ -86,10 +86,8 @@ suite "Onchain group manager":
 
     let merkleRootBefore = waitFor manager.fetchMerkleRoot()
 
-    try:
-      waitFor manager.register(credentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      raiseAssert "Failed to register: " & error
 
     discard waitFor withTimeout(trackRootChanges(manager), 15.seconds)
 
@@ -110,13 +108,11 @@ suite "Onchain group manager":
 
     let merkleRootBefore = waitFor manager.fetchMerkleRoot()
 
-    try:
-      for i in 0 ..< credentials.len():
-        info "Registering credential", index = i, credential = credentials[i]
-        waitFor manager.register(credentials[i], UserMessageLimit(20))
-        discard waitFor manager.updateRoots()
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    for i in 0 ..< credentials.len():
+      info "Registering credential", index = i, credential = credentials[i]
+      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
+        raiseAssert "Failed to register credential " & $i & ": " & error
+      discard waitFor manager.updateRoots()
 
     let merkleRootAfter = waitFor manager.fetchMerkleRoot()
 
@@ -127,16 +123,15 @@ suite "Onchain group manager":
   test "register: should guard against uninitialized state":
     let dummyCommitment = default(IDCommitment)
 
-    try:
-      waitFor manager.register(
-        RateCommitment(
-          idCommitment: dummyCommitment, userMessageLimit: UserMessageLimit(20)
-        )
+    let res = waitFor manager.register(
+      RateCommitment(
+        idCommitment: dummyCommitment, userMessageLimit: UserMessageLimit(20)
       )
-    except CatchableError:
-      assert true
-    except Exception:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    )
+
+    check:
+      res.isErr()
+      res.error == "Not initialized: OnchainGroupManager is not initialized"
 
   test "register: should register successfully":
     # TODO :- similar to ```trackRootChanges: should fetch history correctly```
@@ -146,9 +141,7 @@ suite "Onchain group manager":
     let idCredentials = generateCredentials()
     let merkleRootBefore = waitFor manager.fetchMerkleRoot()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false,
         "exception raised when calling register: " & getCurrentExceptionMsg()
 
