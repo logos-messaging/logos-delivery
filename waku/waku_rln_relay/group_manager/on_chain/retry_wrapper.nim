@@ -1,36 +1,33 @@
-import ../../../common/error_handling
 import chronos
 import results
 
+const
+  DefaultRetryDelay* = 4000.millis
+  DefaultRetryCount* = 15'u
+
 type RetryStrategy* = object
-  shouldRetry*: bool
   retryDelay*: Duration
   retryCount*: uint
 
 proc new*(T: type RetryStrategy): RetryStrategy =
-  return RetryStrategy(shouldRetry: true, retryDelay: 4000.millis, retryCount: 15)
+  return RetryStrategy(retryDelay: DefaultRetryDelay, retryCount: DefaultRetryCount)
 
-template retryWrapper*(
-    res: auto,
+proc retryWrapper*[T](
     retryStrategy: RetryStrategy,
     errStr: string,
-    errCallback: OnFatalErrorHandler,
-    body: untyped,
-): auto =
-  if errCallback == nil:
-    raise newException(CatchableError, "Ensure that the errCallback is set")
+    body: proc(): Future[T] {.async.},
+): Future[Result[T, string]] {.async.} =
   var retryCount = retryStrategy.retryCount
-  var shouldRetry = retryStrategy.shouldRetry
-  var exceptionMessage = ""
+  var lastError = ""
 
-  while shouldRetry and retryCount > 0:
+  while retryCount > 0:
     try:
-      res = body
-      shouldRetry = false
-    except:
+      let value = await body()
+      return ok(value)
+    except CatchableError as e:
       retryCount -= 1
-      exceptionMessage = getCurrentExceptionMsg()
-      await sleepAsync(retryStrategy.retryDelay)
-  if shouldRetry:
-    errCallback(errStr & ": " & exceptionMessage)
-    return
+      lastError = e.msg
+      if retryCount > 0:
+        await sleepAsync(retryStrategy.retryDelay)
+
+  return err(errStr & ": " & lastError)
