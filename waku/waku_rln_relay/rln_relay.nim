@@ -64,7 +64,7 @@ type WakuRLNRelay* = ref object of RootObj
   onFatalErrorAction*: OnFatalErrorHandler
   nonceManager*: NonceManager
   epochMonitorFuture*: Future[void]
-  rootChangesFuture*: Future[void]
+  rootChangesFuture*: Future[Result[void, string]]
 
 proc calcEpoch*(rlnPeer: WakuRLNRelay, t: float64): Epoch =
   ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
