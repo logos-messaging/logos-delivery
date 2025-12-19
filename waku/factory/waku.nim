@@ -13,7 +13,6 @@ import
   libp2p/services/autorelayservice,
   libp2p/services/hpservice,
   libp2p/peerid,
-  libp2p/discovery/discoverymngr,
   libp2p/discovery/rendezvousinterface,
   eth/keys,
   eth/p2p/discoveryv5/enr,
@@ -63,7 +62,6 @@ type Waku* = ref object
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
-  discoveryMngr: DiscoveryManager
 
   node*: WakuNode
 
