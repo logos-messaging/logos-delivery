@@ -32,7 +32,8 @@ requires "nim >= 2.2.4",
   "db_connector",
   "minilru",
   "lsquic",
-  "jwt"
+  "jwt",
+  "ffi"
 
 ### Helper functions
 proc buildModule(filePath, params = "", lang = "c"): bool =

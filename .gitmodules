@@ -190,3 +190,8 @@
 [submodule "vendor/nim-jwt"]
 	path = vendor/nim-jwt
 	url = https://github.com/vacp2p/nim-jwt.git
+[submodule "vendor/nim-ffi"]
+	path = vendor/nim-ffi
+	url = https://github.com/logos-messaging/nim-ffi/
+	ignore = untracked
+	branch = master
