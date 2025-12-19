@@ -102,8 +102,8 @@ print("Waku Relay enabled: {}".format(args.relay))
 # Set the event callback
 callback = callback_type(handle_event) # This line is important so that the callback is not gc'ed
 
-libwaku.waku_set_event_callback.argtypes = [callback_type, ctypes.c_void_p]
-libwaku.waku_set_event_callback(callback, ctypes.c_void_p(0))
+libwaku.set_event_callback.argtypes = [callback_type, ctypes.c_void_p]
+libwaku.set_event_callback(callback, ctypes.c_void_p(0))
 
 # Start the node
 libwaku.waku_start.argtypes = [ctypes.c_void_p,
@@ -117,32 +117,32 @@ libwaku.waku_start(ctx,
 
 # Subscribe to the default pubsub topic
 libwaku.waku_relay_subscribe.argtypes = [ctypes.c_void_p,
-                                         ctypes.c_char_p,
                                          callback_type,
-                                         ctypes.c_void_p]
+                                         ctypes.c_void_p,
+                                         ctypes.c_char_p]
 libwaku.waku_relay_subscribe(ctx,
-                             default_pubsub_topic.encode('utf-8'),
                              callback_type(
                                     #onErrCb
                                     lambda ret, msg, len:
                                         print("Error calling waku_relay_subscribe: %s" %
                                                 msg.decode('utf-8'))
                              ),
-                             ctypes.c_void_p(0))
+                             ctypes.c_void_p(0),
+                             default_pubsub_topic.encode('utf-8'))
 
 libwaku.waku_connect.argtypes = [ctypes.c_void_p,
-                                 ctypes.c_char_p,
-                                 ctypes.c_int,
                                  callback_type,
-                                 ctypes.c_void_p]
+                                 ctypes.c_void_p,
+                                 ctypes.c_char_p,
+                                 ctypes.c_int]
 libwaku.waku_connect(ctx,
-                     args.peer.encode('utf-8'),
-                     10000,
                      # onErrCb
                      callback_type(
                          lambda ret, msg, len:
                            print("Error calling waku_connect: %s" % msg.decode('utf-8'))),
-                     ctypes.c_void_p(0))
+                     ctypes.c_void_p(0),
+                     args.peer.encode('utf-8'),
+                     10000)
 
 # app = Flask(__name__)
 # @app.route("/")

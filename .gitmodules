@@ -184,3 +184,8 @@
 	url = https://github.com/logos-messaging/waku-rlnv2-contract.git
 	ignore = untracked
 	branch = master
+[submodule "vendor/nim-ffi"]
+	path = vendor/nim-ffi
+	url = https://github.com/logos-messaging/nim-ffi/
+	ignore = untracked
+	branch = master

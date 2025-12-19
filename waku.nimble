@@ -30,7 +30,8 @@ requires "nim >= 2.2.4",
   "regex",
   "results",
   "db_connector",
-  "minilru"
+  "minilru",
+  "ffi"
 
 ### Helper functions
 proc buildModule(filePath, params = "", lang = "c"): bool =
