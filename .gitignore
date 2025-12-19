@@ -5,6 +5,7 @@
 
 # Nimble packages
 /vendor/.nimble
+nimbledeps
 
 # Generated Files
 *.generated.nim

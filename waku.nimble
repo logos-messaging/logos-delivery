@@ -8,6 +8,7 @@ version = "0.36.0"
 author = "Status Research & Development GmbH"
 description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
+srcDir = "waku"
 #bin           = @["build/waku"]
 
 ### Dependencies
@@ -30,7 +31,8 @@ requires "nim >= 2.2.4",
   "regex",
   "results",
   "db_connector",
-  "minilru"
+  "minilru",
+  "https://github.com/vacp2p/mix#v0.1.0"
 
 ### Helper functions
 proc buildModule(filePath, params = "", lang = "c"): bool =

@@ -1,0 +1,53 @@
+name: Test Nimble Installation
+
+on:
+  pull_request:
+  push:
+    branches:
+      - simpler-deps
+
+jobs:
+  test-nimble-install:
+    continue-on-error: true # Some runs get oddly cancelled
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-latest] # TODO: Windows
+        nim-version: ['2.2.4'] # TODO: tests with more versions
+
+    runs-on: ${{ matrix.os }}
+
+    steps:
+    - name: Checkout repository
+      uses: actions/checkout@v4
+      with:
+        submodules: "true" # Needed to pull RLN script
+
+    - uses: nim-lang/setup-nimble-action@v1
+      with:
+        nimble-version: "0.20.1"
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Display Nimble version
+      run: nimble --version
+
+    - name: Run nimble install on waku
+      run: nimble install
+      timeout-minutes: 60
+
+    - name: Run nimble check on waku
+      run: nimble check -l
+      timeout-minutes: 60
+
+    - name: Build example project
+      working-directory: examples/nimble
+      run: |
+        echo "Building example project..."
+        nimble --verbose build
+
+    - name: Run example project
+      working-directory: examples/nimble
+      run: |
+        echo "Running example project..."
+        # nimble --verbose run # TODO: Use nimble run
+        ./example

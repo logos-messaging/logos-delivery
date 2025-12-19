@@ -19,7 +19,7 @@ host_triplet=$(rustc --version --verbose | awk '/host:/{print $2}')
 
 tarball="${host_triplet}"
 
-tarball+="-rln.tar.gz"
+tarball+="-default-rln.tar.gz"
 
 # Download the prebuilt rln library if it is available
 if curl --silent --fail-with-body -L \

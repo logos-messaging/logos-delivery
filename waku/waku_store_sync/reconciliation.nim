@@ -79,7 +79,7 @@ proc messageIngress*(
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
   self.storage.insert(id, pubsubTopic, msg.contentTopic).isOkOr:
-    error "failed to insert new message", msg_hash = $id.hash.toHex(), error = $error
+    error "failed to insert new message", msg_hash = $byteutils.toHex(id.hash), error = $error
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -87,7 +87,7 @@ proc messageIngress*(
     pubsubTopic: PubsubTopic,
     msg: WakuMessage,
 ) =
-  trace "message ingress", msg_hash = msgHash.toHex(), msg = msg
+  trace "message ingress", msg_hash = byteutils.toHex(msgHash), msg = msg
 
   if msg.ephemeral:
     return
@@ -95,7 +95,7 @@ proc messageIngress*(
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
   self.storage.insert(id, pubsubTopic, msg.contentTopic).isOkOr:
-    error "failed to insert new message", msg_hash = $id.hash.toHex(), error = $error
+    error "failed to insert new message", msg_hash = $byteutils.toHex(id.hash), error = $error
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -104,7 +104,7 @@ proc messageIngress*(
     contentTopic: ContentTopic,
 ) =
   self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
-    error "failed to insert new message", msg_hash = $id.hash.toHex(), error = $error
+    error "failed to insert new message", msg_hash = $byteutils.toHex(id.hash), error = $error
 
 proc preProcessPayload(
     self: SyncReconciliation, payload: RangesData
