@@ -13,7 +13,8 @@ export token_bucket, setting, service_metrics
 
 proc newTokenBucket*(
     setting: Option[RateLimitSetting],
-    replenishMode: ReplenishMode = ReplenishMode.Continuous,
+    replenishMode: static[ReplenishMode] = ReplenishMode.Continuous,
+    startTime: Moment = Moment.now(),
 ): Option[TokenBucket] =
   if setting.isNone():
     return none[TokenBucket]()
@@ -25,7 +26,8 @@ proc newTokenBucket*(
     TokenBucket.new(
       capacity = setting.get().volume,
       fillDuration = setting.get().period,
-      mode = Continuous,
+      startTime = startTime,
+      mode = replenishMode,
     )
   )
 
