@@ -147,29 +147,43 @@ suite "Waku Filter - DOS protection":
 
   asyncTest "Ensure normal usage allowed":
     # Given
+    # Rate limit setting is (3 requests / 1000ms) per peer.
+    # In a token-bucket model this means:
+    # - capacity = 3 tokens
+    # - refill rate = 3 tokens / second => ~1 token every ~333ms
+    # - each request consumes 1 token (including UNSUBSCRIBE)
     check client1.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
       none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId)
 
-    await sleepAsync(500.milliseconds)
-    check client1.ping(serverRemotePeerInfo) == none(FilterSubscribeErrorKind)
-    check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId)
+    # Expected remaining tokens (approx): 2
 
     await sleepAsync(500.milliseconds)
     check client1.ping(serverRemotePeerInfo) == none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId)
+
+    # After ~500ms, ~1 token refilled; PING consumes 1 => expected remaining: 2
+
+    await sleepAsync(500.milliseconds)
+    check client1.ping(serverRemotePeerInfo) == none(FilterSubscribeErrorKind)
+    check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId)
+
+    # After another ~500ms, ~1 token refilled; PING consumes 1 => expected remaining: 2
 
     await sleepAsync(50.milliseconds)
     check client1.unsubscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
       none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId) == false
 
+    # ~50ms is not enough to refill a token at 3/sec; UNSUBSCRIBE consumes 1 => expected remaining: 1
+
     await sleepAsync(50.milliseconds)
     check client1.ping(serverRemotePeerInfo) == some(FilterSubscribeErrorKind.NOT_FOUND)
-    check client1.ping(serverRemotePeerInfo) == some(FilterSubscribeErrorKind.NOT_FOUND)
-    await sleepAsync(50.milliseconds)
+    # PING consumes the last token => expected remaining: 0
+
     check client1.ping(serverRemotePeerInfo) ==
       some(FilterSubscribeErrorKind.TOO_MANY_REQUESTS)
+    # Immediate second PING has no token available => expected remaining: 0
 
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
       none(FilterSubscribeErrorKind)
