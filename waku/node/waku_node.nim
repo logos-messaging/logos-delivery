@@ -525,9 +525,6 @@ proc stop*(node: WakuNode) {.async.} =
   if not node.wakuStoreTransfer.isNil():
     node.wakuStoreTransfer.stop()
 
-  if not node.wakuPeerExchange.isNil() and not node.wakuPeerExchange.pxLoopHandle.isNil():
-    await node.wakuPeerExchange.pxLoopHandle.cancelAndWait()
-
   if not node.wakuPeerExchangeClient.isNil() and
       not node.wakuPeerExchangeClient.pxLoopHandle.isNil():
     await node.wakuPeerExchangeClient.pxLoopHandle.cancelAndWait()

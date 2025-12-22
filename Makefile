@@ -119,6 +119,10 @@ endif
 ##################
 .PHONY: deps libbacktrace
 
+FOUNDRY_VERSION := 1.5.0
+PNPM_VERSION := 10.23.0
+
+
 rustup:
 ifeq (, $(shell which cargo))
 # Install Rustup if it's not installed
@@ -128,7 +132,7 @@ ifeq (, $(shell which cargo))
 endif
 
 rln-deps: rustup
-	./scripts/install_rln_tests_dependencies.sh
+	./scripts/install_rln_tests_dependencies.sh $(FOUNDRY_VERSION) $(PNPM_VERSION)
 
 deps: | deps-common nat-libs waku.nims
 
@@ -426,18 +430,27 @@ docker-liteprotocoltester-push:
 .PHONY: cbindings cwaku_example libwaku
 
 STATIC ?= 0
+BUILD_COMMAND ?= libwakuDynamic
+
+ifeq ($(detected_OS),Windows)
+	LIB_EXT_DYNAMIC = dll
+	LIB_EXT_STATIC = lib
+else ifeq ($(detected_OS),Darwin)
+	LIB_EXT_DYNAMIC = dylib
+	LIB_EXT_STATIC = a
+else ifeq ($(detected_OS),Linux)
+	LIB_EXT_DYNAMIC = so
+	LIB_EXT_STATIC = a
+endif
+
+LIB_EXT := $(LIB_EXT_DYNAMIC)
+ifeq ($(STATIC), 1)
+	LIB_EXT = $(LIB_EXT_STATIC)
+	BUILD_COMMAND = libwakuStatic
+endif
 
 libwaku: | build deps librln
-	rm -f build/libwaku*
-
-ifeq ($(STATIC), 1)
-	echo -e $(BUILD_MSG) "build/$@.a" && $(ENV_SCRIPT) nim libwakuStatic $(NIM_PARAMS) waku.nims
-else ifeq ($(detected_OS),Windows)
-	make -f scripts/libwaku_windows_setup.mk windows-setup
-	echo -e $(BUILD_MSG) "build/$@.dll" && $(ENV_SCRIPT) nim libwakuDynamic $(NIM_PARAMS) waku.nims
-else
-	echo -e $(BUILD_MSG) "build/$@.so" && $(ENV_SCRIPT) nim libwakuDynamic $(NIM_PARAMS) waku.nims
-endif
+	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
 
 #####################
 ## Mobile Bindings ##
@@ -594,4 +607,3 @@ release-notes:
 			sed -E 's@#([0-9]+)@[#\1](https://github.com/waku-org/nwaku/issues/\1)@g'
 # I could not get the tool to replace issue ids with links, so using sed for now,
 # asked here: https://github.com/bvieira/sv4git/discussions/101
-

@@ -1,28 +1,16 @@
 import std/[json, sugar, strutils, options]
-import chronos, chronicles, results, stew/byteutils
+import chronos, chronicles, results, stew/byteutils, ffi
 import
-  ../../../../waku/factory/waku,
-  ../../../alloc,
-  ../../../utils,
-  ../../../../waku/waku_core/peers,
-  ../../../../waku/waku_core/time,
-  ../../../../waku/waku_core/message/digest,
-  ../../../../waku/waku_store/common,
-  ../../../../waku/waku_store/client,
-  ../../../../waku/common/paging
+  waku/factory/waku,
+  library/utils,
+  waku/waku_core/peers,
+  waku/waku_core/message/digest,
+  waku/waku_store/common,
+  waku/waku_store/client,
+  waku/common/paging,
+  library/declare_lib
 
-type StoreReqType* = enum
-  REMOTE_QUERY ## to perform a query to another Store node
-
-type StoreRequest* = object
-  operation: StoreReqType
-  jsonQuery: cstring
-  peerAddr: cstring
-  timeoutMs: cint
-
-func fromJsonNode(
-    T: type StoreRequest, jsonContent: JsonNode
-): Result[StoreQueryRequest, string] =
+func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
   var contentTopics: seq[string]
   if jsonContent.contains("contentTopics"):
     contentTopics = collect(newSeq):
@@ -78,54 +66,29 @@ func fromJsonNode(
     )
   )
 
-proc createShared*(
-    T: type StoreRequest,
-    op: StoreReqType,
+proc waku_store_query(
+    ctx: ptr FFIContext[Waku],
+    callback: FFICallBack,
+    userData: pointer,
     jsonQuery: cstring,
     peerAddr: cstring,
     timeoutMs: cint,
-): ptr type T =
-  var ret = createShared(T)
-  ret[].operation = op
-  ret[].timeoutMs = timeoutMs
-  ret[].jsonQuery = jsonQuery.alloc()
-  ret[].peerAddr = peerAddr.alloc()
-  return ret
-
-proc destroyShared(self: ptr StoreRequest) =
-  deallocShared(self[].jsonQuery)
-  deallocShared(self[].peerAddr)
-  deallocShared(self)
-
-proc process_remote_query(
-    self: ptr StoreRequest, waku: ptr Waku
-): Future[Result[string, string]] {.async.} =
+) {.ffi.} =
   let jsonContentRes = catch:
-    parseJson($self[].jsonQuery)
+    parseJson($jsonQuery)
 
   if jsonContentRes.isErr():
     return err("StoreRequest failed parsing store request: " & jsonContentRes.error.msg)
 
-  let storeQueryRequest = ?StoreRequest.fromJsonNode(jsonContentRes.get())
+  let storeQueryRequest = ?fromJsonNode(jsonContentRes.get())
 
-  let peer = peers.parsePeerInfo(($self[].peerAddr).split(",")).valueOr:
+  let peer = peers.parsePeerInfo(($peerAddr).split(",")).valueOr:
     return err("StoreRequest failed to parse peer addr: " & $error)
 
-  let queryResponse = (await waku.node.wakuStoreClient.query(storeQueryRequest, peer)).valueOr:
+  let queryResponse = (
+    await ctx.myLib[].node.wakuStoreClient.query(storeQueryRequest, peer)
+  ).valueOr:
     return err("StoreRequest failed store query: " & $error)
 
   let res = $(%*(queryResponse.toHex()))
   return ok(res) ## returning the response in json format
-
-proc process*(
-    self: ptr StoreRequest, waku: ptr Waku
-): Future[Result[string, string]] {.async.} =
-  defer:
-    deallocShared(self)
-
-  case self.operation
-  of REMOTE_QUERY:
-    return await self.process_remote_query(waku)
-
-  error "store request not handled at all"
-  return err("store request not handled at all")

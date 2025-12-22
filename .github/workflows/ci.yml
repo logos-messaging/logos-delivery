@@ -76,6 +76,9 @@ jobs:
             .git/modules
           key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
 
+      - name: Make update
+        run: make update
+
       - name: Build binaries
         run: make V=1 QUICK_AND_DIRTY_COMPILER=1 all tools
 
@@ -94,7 +97,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 90
+    timeout-minutes: 45
 
     name: test-${{ matrix.os }}
     steps:
@@ -114,6 +117,9 @@ jobs:
             .git/modules
           key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
 
+      - name: Make update
+        run: make update
+
       - name: Run tests
         run: |
           postgres_enabled=0
@@ -132,12 +138,12 @@ jobs:
   build-docker-image:
     needs: changes
     if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' || needs.changes.outputs.docker == 'true' }}
-    uses: logos-messaging/nwaku/.github/workflows/container-image.yml@master
+    uses: logos-messaging/logos-messaging-nim/.github/workflows/container-image.yml@10dc3d3eb4b6a3d4313f7b2cc4a85a925e9ce039
     secrets: inherit
 
   nwaku-nwaku-interop-tests:
     needs: build-docker-image
-    uses: logos-messaging/waku-interop-tests/.github/workflows/nim_waku_PR.yml@SMOKE_TEST_0.0.1
+    uses: logos-messaging/logos-messaging-interop-tests/.github/workflows/nim_waku_PR.yml@SMOKE_TEST_STABLE
     with:
       node_nwaku: ${{ needs.build-docker-image.outputs.image }}
 

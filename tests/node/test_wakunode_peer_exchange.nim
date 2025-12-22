@@ -66,15 +66,17 @@ suite "Waku Peer Exchange":
 
   suite "fetchPeerExchangePeers":
     var node2 {.threadvar.}: WakuNode
+    var node3 {.threadvar.}: WakuNode
 
     asyncSetup:
       node = newTestWakuNode(generateSecp256k1Key(), bindIp, bindPort)
       node2 = newTestWakuNode(generateSecp256k1Key(), bindIp, bindPort)
+      node3 = newTestWakuNode(generateSecp256k1Key(), bindIp, bindPort)
 
-      await allFutures(node.start(), node2.start())
+      await allFutures(node.start(), node2.start(), node3.start())
 
     asyncTeardown:
-      await allFutures(node.stop(), node2.stop())
+      await allFutures(node.stop(), node2.stop(), node3.stop())
 
     asyncTest "Node fetches without mounting peer exchange":
       # When a node, without peer exchange mounted, fetches peers
@@ -104,12 +106,10 @@ suite "Waku Peer Exchange":
       await allFutures([node.mountPeerExchangeClient(), node2.mountPeerExchange()])
       check node.peerManager.switch.peerStore.peers.len == 0
 
-      # Mock that we discovered a node (to avoid running discv5)
-      var enr = enr.Record()
-      assert enr.fromUri(
-        "enr:-Iu4QGNuTvNRulF3A4Kb9YHiIXLr0z_CpvWkWjWKU-o95zUPR_In02AWek4nsSk7G_-YDcaT4bDRPzt5JIWvFqkXSNcBgmlkgnY0gmlwhE0WsGeJc2VjcDI1NmsxoQKp9VzU2FAh7fwOwSpg1M_Ekz4zzl0Fpbg6po2ZwgVwQYN0Y3CC6mCFd2FrdTIB"
-      ), "Failed to parse ENR"
-      node2.wakuPeerExchange.enrCache.add(enr)
+      # Simulate node2 discovering node3 via Discv5
+      var rpInfo = node3.peerInfo.toRemotePeerInfo()
+      rpInfo.enr = some(node3.enr)
+      node2.peerManager.addPeer(rpInfo, PeerOrigin.Discv5)
 
       # Set node2 as service peer (default one) for px protocol
       node.peerManager.addServicePeer(
@@ -121,10 +121,8 @@ suite "Waku Peer Exchange":
       check res.tryGet() == 1
 
       # Check that the peer ended up in the peerstore
-      let rpInfo = enr.toRemotePeerInfo.get()
       check:
         node.peerManager.switch.peerStore.peers.anyIt(it.peerId == rpInfo.peerId)
-        node.peerManager.switch.peerStore.peers.anyIt(it.addrs == rpInfo.addrs)
 
   suite "setPeerExchangePeer":
     var node2 {.threadvar.}: WakuNode

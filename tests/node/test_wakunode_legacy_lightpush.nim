@@ -13,6 +13,7 @@ import
     node/peer_manager,
     node/waku_node,
     node/kernel_api,
+    node/kernel_api/lightpush,
     waku_lightpush_legacy,
     waku_lightpush_legacy/common,
     waku_lightpush_legacy/protocol_metrics,
@@ -56,7 +57,7 @@ suite "Waku Legacy Lightpush - End To End":
     (await server.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
 
-    await server.mountLegacyLightpush() # without rln-relay
+    check (await server.mountLegacyLightpush()).isOk() # without rln-relay
     client.mountLegacyLightpushClient()
 
     serverRemotePeerInfo = server.peerInfo.toRemotePeerInfo()
@@ -135,8 +136,8 @@ suite "RLN Proofs as a Lightpush Service":
     server = newTestWakuNode(serverKey, parseIpAddress("0.0.0.0"), Port(0))
     client = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(0))
 
-    anvilProc = runAnvil()
-    manager = waitFor setupOnchainGroupManager()
+    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
     # mount rln-relay
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
@@ -147,7 +148,7 @@ suite "RLN Proofs as a Lightpush Service":
     (await server.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
     await server.mountRlnRelay(wakuRlnConfig)
-    await server.mountLegacyLightPush()
+    check (await server.mountLegacyLightPush()).isOk()
     client.mountLegacyLightPushClient()
 
     let manager1 = cast[OnchainGroupManager](server.wakuRlnRelay.groupManager)
@@ -213,7 +214,7 @@ suite "Waku Legacy Lightpush message delivery":
       assert false, "Failed to mount relay"
     (await bridgeNode.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    await bridgeNode.mountLegacyLightPush()
+    check (await bridgeNode.mountLegacyLightPush()).isOk()
     lightNode.mountLegacyLightPushClient()
 
     discard await lightNode.peerManager.dialPeer(
@@ -249,3 +250,19 @@ suite "Waku Legacy Lightpush message delivery":
 
     ## Cleanup
     await allFutures(lightNode.stop(), bridgeNode.stop(), destNode.stop())
+
+suite "Waku Legacy Lightpush mounting behavior":
+  asyncTest "fails to mount when relay is not mounted":
+    ## Given a node without Relay mounted
+    let
+      key = generateSecp256k1Key()
+      node = newTestWakuNode(key, parseIpAddress("0.0.0.0"), Port(0))
+
+    # Do not mount Relay on purpose
+    check node.wakuRelay.isNil()
+
+    ## Then mounting Legacy Lightpush must fail
+    let res = await node.mountLegacyLightPush()
+    check:
+      res.isErr()
+      res.error == MountWithoutRelayError

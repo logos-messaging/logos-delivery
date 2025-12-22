@@ -1,4 +1,10 @@
-## v0.37.0 (2025-10-01)
+## v0.37.1-beta (2025-12-10)
+
+### Bug Fixes
+
+- Remove ENR cache from peer exchange ([#3652](https://github.com/logos-messaging/logos-messaging-nim/pull/3652)) ([7920368a](https://github.com/logos-messaging/logos-messaging-nim/commit/7920368a36687cd5f12afa52d59866792d8457ca))
+
+## v0.37.0-beta (2025-10-01)
 
 ### Notes
 

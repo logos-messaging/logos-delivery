@@ -22,7 +22,6 @@ export WakuPeerExchangeCodec
 
 declarePublicGauge waku_px_peers_received_unknown,
   "number of previously unknown ENRs received via peer exchange"
-declarePublicGauge waku_px_peers_cached, "number of peer exchange peer ENRs cached"
 declarePublicCounter waku_px_errors, "number of peer exchange errors", ["type"]
 declarePublicCounter waku_px_peers_sent,
   "number of ENRs sent to peer exchange requesters"
@@ -32,11 +31,9 @@ logScope:
 
 type WakuPeerExchange* = ref object of LPProtocol
   peerManager*: PeerManager
-  enrCache*: seq[enr.Record]
   cluster*: Option[uint16]
     # todo: next step: ring buffer; future: implement cache satisfying https://rfc.vac.dev/spec/34/
   requestRateLimiter*: RequestRateLimiter
-  pxLoopHandle*: Future[void]
 
 proc respond(
     wpx: WakuPeerExchange, enrs: seq[enr.Record], conn: Connection
@@ -79,61 +76,50 @@ proc respondError(
 
   return ok()
 
-proc getEnrsFromCache(
-    wpx: WakuPeerExchange, numPeers: uint64
-): seq[enr.Record] {.gcsafe.} =
-  if wpx.enrCache.len() == 0:
-    info "peer exchange ENR cache is empty"
-    return @[]
+proc poolFilter*(
+    cluster: Option[uint16], origin: PeerOrigin, enr: enr.Record
+): Result[void, string] =
+  if origin != Discv5:
+    trace "peer not from discv5", origin = $origin
+    return err("peer not from discv5: " & $origin)
+  if cluster.isSome() and enr.isClusterMismatched(cluster.get()):
+    trace "peer has mismatching cluster"
+    return err("peer has mismatching cluster")
+  return ok()
 
-  # copy and shuffle
-  randomize()
-  var shuffledCache = wpx.enrCache
-  shuffledCache.shuffle()
-
-  # return numPeers or less if cache is smaller
-  return shuffledCache[0 ..< min(shuffledCache.len.int, numPeers.int)]
-
-proc poolFilter*(cluster: Option[uint16], peer: RemotePeerInfo): bool =
-  if peer.origin != Discv5:
-    trace "peer not from discv5", peer = $peer, origin = $peer.origin
-    return false
-
+proc poolFilter*(cluster: Option[uint16], peer: RemotePeerInfo): Result[void, string] =
   if peer.enr.isNone():
     info "peer has no ENR", peer = $peer
-    return false
+    return err("peer has no ENR: " & $peer)
+  return poolFilter(cluster, peer.origin, peer.enr.get())
 
-  if cluster.isSome() and peer.enr.get().isClusterMismatched(cluster.get()):
-    info "peer has mismatching cluster", peer = $peer
-    return false
-
-  return true
-
-proc populateEnrCache(wpx: WakuPeerExchange) =
-  # share only peers that i) are reachable ii) come from discv5 iii) share cluster
-  let withEnr = wpx.peerManager.switch.peerStore.getReachablePeers().filterIt(
-      poolFilter(wpx.cluster, it)
-    )
-
-  # either what we have or max cache size
-  var newEnrCache = newSeq[enr.Record](0)
-  for i in 0 ..< min(withEnr.len, MaxPeersCacheSize):
-    newEnrCache.add(withEnr[i].enr.get())
-
-  # swap cache for new
-  wpx.enrCache = newEnrCache
-  trace "ENR cache populated"
-
-proc updatePxEnrCache(wpx: WakuPeerExchange) {.async.} =
-  # try more aggressively to fill the cache at startup
-  var attempts = 50
-  while wpx.enrCache.len < MaxPeersCacheSize and attempts > 0:
-    attempts -= 1
-    wpx.populateEnrCache()
-    await sleepAsync(1.seconds)
-
-  heartbeat "Updating px enr cache", CacheRefreshInterval:
-    wpx.populateEnrCache()
+proc getEnrsFromStore(
+    wpx: WakuPeerExchange, numPeers: uint64
+): seq[enr.Record] {.gcsafe.} =
+  # Reservoir sampling (Algorithm R)
+  var i = 0
+  let k = min(MaxPeersCacheSize, numPeers.int)
+  let enrStoreLen = wpx.peerManager.switch.peerStore[ENRBook].len
+  var enrs = newSeqOfCap[enr.Record](min(k, enrStoreLen))
+  wpx.peerManager.switch.peerStore.forEnrPeers(
+    peerId, peerConnectedness, peerOrigin, peerEnrRecord
+  ):
+    if peerConnectedness == CannotConnect:
+      debug "Could not retrieve ENR because cannot connect to peer",
+        remotePeerId = peerId
+      continue
+    poolFilter(wpx.cluster, peerOrigin, peerEnrRecord).isOkOr:
+      debug "Could not get ENR because no peer matched pool", error = error
+      continue
+    if i < k:
+      enrs.add(peerEnrRecord)
+    else:
+      # Add some randomness
+      let j = rand(i)
+      if j < k:
+        enrs[j] = peerEnrRecord
+    inc(i)
+  return enrs
 
 proc initProtocolHandler(wpx: WakuPeerExchange) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
@@ -174,7 +160,8 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
           error "Failed to respond with BAD_REQUEST:", error = $error
         return
 
-      let enrs = wpx.getEnrsFromCache(decBuf.request.numPeers)
+      let enrs = wpx.getEnrsFromStore(decBuf.request.numPeers)
+
       info "peer exchange request received"
       trace "px enrs to respond", enrs = $enrs
       try:
@@ -214,5 +201,4 @@ proc new*(
   )
   wpx.initProtocolHandler()
   setServiceLimitMetric(WakuPeerExchangeCodec, rateLimitSetting)
-  asyncSpawn wpx.updatePxEnrCache()
   return wpx

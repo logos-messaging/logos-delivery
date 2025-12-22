@@ -227,3 +227,17 @@ proc getPeersByCapability*(
 ): seq[RemotePeerInfo] =
   return
     peerStore.peers.filterIt(it.enr.isSome() and it.enr.get().supportsCapability(cap))
+
+template forEnrPeers*(
+    peerStore: PeerStore,
+    peerId, peerConnectedness, peerOrigin, peerEnrRecord, body: untyped,
+) =
+  let enrBook = peerStore[ENRBook]
+  let connBook = peerStore[ConnectionBook]
+  let sourceBook = peerStore[SourceBook]
+  for pid, enrRecord in tables.pairs(enrBook.book):
+    let peerId {.inject.} = pid
+    let peerConnectedness {.inject.} = connBook.book.getOrDefault(pid, NotConnected)
+    let peerOrigin {.inject.} = sourceBook.book.getOrDefault(pid, UnknownOrigin)
+    let peerEnrRecord {.inject.} = enrRecord
+    body

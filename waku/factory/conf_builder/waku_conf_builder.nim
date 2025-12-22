@@ -606,7 +606,7 @@ proc build*(
   let relayShardedPeerManagement = builder.relayShardedPeerManagement.get(false)
 
   let wakuFlags = CapabilitiesBitfield.init(
-    lightpush = lightPush,
+    lightpush = lightPush and relay,
     filter = filterServiceConf.isSome,
     store = storeServiceConf.isSome,
     relay = relay,

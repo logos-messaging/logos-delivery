@@ -61,7 +61,7 @@ proc init(
     assert false, "Failed to mount relay: " & $error
   (await testSetup.serviceNode.mountRelay()).isOkOr:
     assert false, "Failed to mount relay: " & $error
-  await testSetup.serviceNode.mountLightPush(rateLimit)
+  check (await testSetup.serviceNode.mountLightPush(rateLimit)).isOk()
   testSetup.pushNode.mountLightPushClient()
 
   testSetup.serviceNode.peerManager.addServicePeer(

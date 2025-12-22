@@ -142,9 +142,13 @@ suite "Waku Peer Exchange":
           newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
         node2 =
           newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node3 =
+          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node4 =
+          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
 
       # Start and mount peer exchange
-      await allFutures([node1.start(), node2.start()])
+      await allFutures([node1.start(), node2.start(), node3.start(), node4.start()])
       await allFutures([node1.mountPeerExchange(), node2.mountPeerExchangeClient()])
 
       # Create connection
@@ -154,18 +158,15 @@ suite "Waku Peer Exchange":
       require:
         connOpt.isSome
 
-      # Create some enr and add to peer exchange (simulating disv5)
-      var enr1, enr2 = enr.Record()
-      check enr1.fromUri(
-        "enr:-Iu4QGNuTvNRulF3A4Kb9YHiIXLr0z_CpvWkWjWKU-o95zUPR_In02AWek4nsSk7G_-YDcaT4bDRPzt5JIWvFqkXSNcBgmlkgnY0gmlwhE0WsGeJc2VjcDI1NmsxoQKp9VzU2FAh7fwOwSpg1M_Ekz4zzl0Fpbg6po2ZwgVwQYN0Y3CC6mCFd2FrdTIB"
-      )
-      check enr2.fromUri(
-        "enr:-Iu4QGJllOWlviPIh_SGR-VVm55nhnBIU5L-s3ran7ARz_4oDdtJPtUs3Bc5aqZHCiPQX6qzNYF2ARHER0JPX97TFbEBgmlkgnY0gmlwhE0WsGeJc2VjcDI1NmsxoQP3ULycvday4EkvtVu0VqbBdmOkbfVLJx8fPe0lE_dRkIN0Y3CC6mCFd2FrdTIB"
-      )
+      # Simulate node1 discovering node3 via Discv5
+      var info3 = node3.peerInfo.toRemotePeerInfo()
+      info3.enr = some(node3.enr)
+      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
 
-      # Mock that we have discovered these enrs
-      node1.wakuPeerExchange.enrCache.add(enr1)
-      node1.wakuPeerExchange.enrCache.add(enr2)
+      # Simulate node1 discovering node4 via Discv5
+      var info4 = node4.peerInfo.toRemotePeerInfo()
+      info4.enr = some(node4.enr)
+      node1.peerManager.addPeer(info4, PeerOrigin.Discv5)
 
       # Request 2 peer from px. Test all request variants
       let response1 = await node2.wakuPeerExchangeClient.request(2)
@@ -185,12 +186,12 @@ suite "Waku Peer Exchange":
         response3.get().peerInfos.len == 2
 
         # Since it can return duplicates test that at least one of the enrs is in the response
-        response1.get().peerInfos.anyIt(it.enr == enr1.raw) or
-          response1.get().peerInfos.anyIt(it.enr == enr2.raw)
-        response2.get().peerInfos.anyIt(it.enr == enr1.raw) or
-          response2.get().peerInfos.anyIt(it.enr == enr2.raw)
-        response3.get().peerInfos.anyIt(it.enr == enr1.raw) or
-          response3.get().peerInfos.anyIt(it.enr == enr2.raw)
+        response1.get().peerInfos.anyIt(it.enr == node3.enr.raw) or
+          response1.get().peerInfos.anyIt(it.enr == node4.enr.raw)
+        response2.get().peerInfos.anyIt(it.enr == node3.enr.raw) or
+          response2.get().peerInfos.anyIt(it.enr == node4.enr.raw)
+        response3.get().peerInfos.anyIt(it.enr == node3.enr.raw) or
+          response3.get().peerInfos.anyIt(it.enr == node4.enr.raw)
 
     asyncTest "Request fails gracefully":
       let
@@ -265,8 +266,8 @@ suite "Waku Peer Exchange":
       peerInfo2.origin = PeerOrigin.Discv5
 
       check:
-        not poolFilter(cluster, peerInfo1)
-        poolFilter(cluster, peerInfo2)
+        poolFilter(cluster, peerInfo1).isErr()
+        poolFilter(cluster, peerInfo2).isOk()
 
     asyncTest "Request 0 peers, with 1 peer in PeerExchange":
       # Given two valid nodes with PeerExchange
@@ -275,9 +276,11 @@ suite "Waku Peer Exchange":
           newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
         node2 =
           newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node3 =
+          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
 
       # Start and mount peer exchange
-      await allFutures([node1.start(), node2.start()])
+      await allFutures([node1.start(), node2.start(), node3.start()])
       await allFutures([node1.mountPeerExchange(), node2.mountPeerExchangeClient()])
 
       # Connect the nodes
@@ -286,12 +289,10 @@ suite "Waku Peer Exchange":
       )
       assert dialResponse.isSome
 
-      # Mock that we have discovered one enr
-      var record = enr.Record()
-      check record.fromUri(
-        "enr:-Iu4QGNuTvNRulF3A4Kb9YHiIXLr0z_CpvWkWjWKU-o95zUPR_In02AWek4nsSk7G_-YDcaT4bDRPzt5JIWvFqkXSNcBgmlkgnY0gmlwhE0WsGeJc2VjcDI1NmsxoQKp9VzU2FAh7fwOwSpg1M_Ekz4zzl0Fpbg6po2ZwgVwQYN0Y3CC6mCFd2FrdTIB"
-      )
-      node1.wakuPeerExchange.enrCache.add(record)
+      # Simulate node1 discovering node3 via Discv5
+      var info3 = node3.peerInfo.toRemotePeerInfo()
+      info3.enr = some(node3.enr)
+      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
 
       # When requesting 0 peers
       let response = await node2.wakuPeerExchangeClient.request(0)
@@ -311,13 +312,6 @@ suite "Waku Peer Exchange":
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start()])
       await allFutures([node1.mountPeerExchangeClient(), node2.mountPeerExchange()])
-
-      # Mock that we have discovered one enr
-      var record = enr.Record()
-      check record.fromUri(
-        "enr:-Iu4QGNuTvNRulF3A4Kb9YHiIXLr0z_CpvWkWjWKU-o95zUPR_In02AWek4nsSk7G_-YDcaT4bDRPzt5JIWvFqkXSNcBgmlkgnY0gmlwhE0WsGeJc2VjcDI1NmsxoQKp9VzU2FAh7fwOwSpg1M_Ekz4zzl0Fpbg6po2ZwgVwQYN0Y3CC6mCFd2FrdTIB"
-      )
-      node2.wakuPeerExchange.enrCache.add(record)
 
       # When making any request with an invalid peer info
       var remotePeerInfo2 = node2.peerInfo.toRemotePeerInfo()
@@ -362,17 +356,17 @@ suite "Waku Peer Exchange":
           newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
         node2 =
           newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node3 =
+          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
 
       # Start and mount peer exchange
-      await allFutures([node1.start(), node2.start()])
+      await allFutures([node1.start(), node2.start(), node3.start()])
       await allFutures([node1.mountPeerExchange(), node2.mountPeerExchange()])
 
-      # Mock that we have discovered these enrs
-      var enr1 = enr.Record()
-      check enr1.fromUri(
-        "enr:-Iu4QGNuTvNRulF3A4Kb9YHiIXLr0z_CpvWkWjWKU-o95zUPR_In02AWek4nsSk7G_-YDcaT4bDRPzt5JIWvFqkXSNcBgmlkgnY0gmlwhE0WsGeJc2VjcDI1NmsxoQKp9VzU2FAh7fwOwSpg1M_Ekz4zzl0Fpbg6po2ZwgVwQYN0Y3CC6mCFd2FrdTIB"
-      )
-      node1.wakuPeerExchange.enrCache.add(enr1)
+      # Simulate node1 discovering node3 via Discv5
+      var info3 = node3.peerInfo.toRemotePeerInfo()
+      info3.enr = some(node3.enr)
+      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
 
       # Create connection
       let connOpt = await node2.peerManager.dialPeer(
@@ -396,7 +390,7 @@ suite "Waku Peer Exchange":
       check:
         decodedBuff.get().response.status_code == PeerExchangeResponseStatusCode.SUCCESS
         decodedBuff.get().response.peerInfos.len == 1
-        decodedBuff.get().response.peerInfos[0].enr == enr1.raw
+        decodedBuff.get().response.peerInfos[0].enr == node3.enr.raw
 
     asyncTest "RateLimit as expected":
       let
@@ -404,9 +398,11 @@ suite "Waku Peer Exchange":
           newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
         node2 =
           newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node3 =
+          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
 
       # Start and mount peer exchange
-      await allFutures([node1.start(), node2.start()])
+      await allFutures([node1.start(), node2.start(), node3.start()])
       await allFutures(
         [
           node1.mountPeerExchange(rateLimit = (1, 150.milliseconds)),
@@ -414,25 +410,17 @@ suite "Waku Peer Exchange":
         ]
       )
 
+      # Simulate node1 discovering nodeA via Discv5
+      var info3 = node3.peerInfo.toRemotePeerInfo()
+      info3.enr = some(node3.enr)
+      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
+
       # Create connection
       let connOpt = await node2.peerManager.dialPeer(
         node1.switch.peerInfo.toRemotePeerInfo(), WakuPeerExchangeCodec
       )
       require:
         connOpt.isSome
-
-      # Create some enr and add to peer exchange (simulating disv5)
-      var enr1, enr2 = enr.Record()
-      check enr1.fromUri(
-        "enr:-Iu4QGNuTvNRulF3A4Kb9YHiIXLr0z_CpvWkWjWKU-o95zUPR_In02AWek4nsSk7G_-YDcaT4bDRPzt5JIWvFqkXSNcBgmlkgnY0gmlwhE0WsGeJc2VjcDI1NmsxoQKp9VzU2FAh7fwOwSpg1M_Ekz4zzl0Fpbg6po2ZwgVwQYN0Y3CC6mCFd2FrdTIB"
-      )
-      check enr2.fromUri(
-        "enr:-Iu4QGJllOWlviPIh_SGR-VVm55nhnBIU5L-s3ran7ARz_4oDdtJPtUs3Bc5aqZHCiPQX6qzNYF2ARHER0JPX97TFbEBgmlkgnY0gmlwhE0WsGeJc2VjcDI1NmsxoQP3ULycvday4EkvtVu0VqbBdmOkbfVLJx8fPe0lE_dRkIN0Y3CC6mCFd2FrdTIB"
-      )
-
-      # Mock that we have discovered these enrs
-      node1.wakuPeerExchange.enrCache.add(enr1)
-      node1.wakuPeerExchange.enrCache.add(enr2)
 
       await sleepAsync(150.milliseconds)
 
