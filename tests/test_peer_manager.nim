@@ -997,6 +997,7 @@ procSuite "Peer Manager":
         .build(),
       maxFailedAttempts = 1,
       storage = nil,
+      maxConnections = 20,
     )
 
     # Create 30 peers and add them to the peerstore
@@ -1063,6 +1064,7 @@ procSuite "Peer Manager":
       backoffFactor = 2,
       maxFailedAttempts = 10,
       storage = nil,
+      maxConnections = 20,
     )
     var p1: PeerId
     require p1.init("QmeuZJbXrszW2jdT7GdduSjQskPU3S7vvGWKtKgDfkDvW" & "1")
@@ -1116,6 +1118,7 @@ procSuite "Peer Manager":
           .build(),
         maxFailedAttempts = 150,
         storage = nil,
+        maxConnections = 20,
       )
 
     # Should result in backoff > 1 week
@@ -1131,6 +1134,7 @@ procSuite "Peer Manager":
           .build(),
         maxFailedAttempts = 10,
         storage = nil,
+        maxConnections = 20,
       )
 
     let pm = PeerManager.new(
@@ -1144,6 +1148,7 @@ procSuite "Peer Manager":
         .build(),
       maxFailedAttempts = 5,
       storage = nil,
+      maxConnections = 20,
     )
 
   asyncTest "colocationLimit is enforced by pruneConnsByIp()":
