@@ -585,15 +585,10 @@ proc build*(
       warn "Peer persistence not specified, defaulting to false"
       false
 
-  var maxConnections: int
-  if builder.maxConnections.isSome():
-    maxConnections = builder.maxConnections.get()
-    if maxConnections < 150:
-      warn "max-connections less than 150; we suggest using 150 or more for better connectivity",
-        provided = maxConnections
-  else:
-    warn "Max Connections was not specified, defaulting to 150"
-    maxConnections = 150
+  let maxConnections = builder.maxConnections.get()
+  if maxConnections < 150:
+    warn "max-connections less than 150; we suggest using 150 or more for better connectivity",
+      provided = maxConnections
 
   # TODO: Do the git version thing here
   let agentString = builder.agentString.get("nwaku")
