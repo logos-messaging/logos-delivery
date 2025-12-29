@@ -23,7 +23,7 @@ let
 
 in stdenv.mkDerivation rec {
 
-  pname = "nwaku";
+  pname = "logos-messaging-nim";
 
   version = "1.0.0-${revision}";
 
@@ -72,6 +72,20 @@ in stdenv.mkDerivation rec {
     "USE_SYSTEM_NIM=${if useSystemNim then "1" else "0"}"
   ];
 
+  postPatch = ''
+    cat > scripts/build_rln.sh << 'EOF'
+    #!/usr/bin/env bash
+    set -e
+    build_dir=$1
+    rln_version=$2
+    output_filename=$3
+    # Just copy the library we already have
+    cp ${zerokitRln}/lib/librln.a "$output_filename" 2>/dev/null || \
+    cp ${zerokitRln}/target/release/librln.a "$output_filename"
+    EOF
+    chmod +x scripts/build_rln.sh
+  '';
+
   configurePhase = ''
     patchShebangs . vendor/nimbus-build-system > /dev/null
     make nimbus-build-system-paths
@@ -80,17 +94,25 @@ in stdenv.mkDerivation rec {
 
   preBuild = ''
     ln -s waku.nimble waku.nims
+    
+    ${lib.optionalString (!useSystemNim) ''
     pushd vendor/nimbus-build-system/vendor/Nim
+
     mkdir dist
-    cp -r ${callPackage ./nimble.nix {}}    dist/nimble
-    cp -r ${callPackage ./checksums.nix {}} dist/checksums
-    cp -r ${callPackage ./csources.nix {}}  csources_v2
+    mkdir -p dist/nimble/vendor/sat
+    mkdir -p dist/nimble/vendor/checksums
+    mkdir -p dist/nimble/vendor/zippy
+
+    cp -r ${callPackage ./nimble.nix {}}/.    dist/nimble
+    cp -r ${callPackage ./checksums.nix {}}/. dist/checksums
+    cp -r ${callPackage ./csources.nix {}}/.  csources_v2
+    cp -r ${callPackage ./sat.nix {}}/.       dist/nimble/vendor/sat
+    cp -r ${callPackage ./checksums.nix {}}/. dist/nimble/vendor/checksums
+    cp -r ${callPackage ./zippy.nix {}}/.     dist/nimble/vendor/zippy
     chmod 777 -R dist/nimble csources_v2
+
     popd
-    cp -r ${zerokitRln}/target vendor/zerokit/
-    find vendor/zerokit/target
-    # FIXME
-    cp vendor/zerokit/target/*/release/librln.a librln_v${zerokitRln.version}.a
+    ''}
   '';
 
   installPhase = if abidir != null then ''
@@ -99,8 +121,18 @@ in stdenv.mkDerivation rec {
     echo '${androidManifest}' > $out/jni/AndroidManifest.xml
     cd $out && zip -r libwaku.aar *
   '' else ''
-    mkdir -p $out/bin
-    cp -r build/* $out/bin
+    mkdir -p $out/bin $out/include
+    
+    # Copy library files
+    cp build/*.so $out/bin/ 2>/dev/null || true
+    cp build/*.a $out/bin/ 2>/dev/null || true
+    
+    # Copy the compiler-generated header
+    cp nimcache/debug/libwaku/libwaku.h $out/include/ 2>/dev/null || \
+    cp nimcache/release/libwaku/libwaku.h $out/include/
+
+    # Copy Nim's nimbase.h (required by libwaku.h)
+    cp vendor/nimbus-build-system/vendor/Nim/lib/nimbase.h $out/include/
   '';
 
   meta = with pkgs.lib; {
