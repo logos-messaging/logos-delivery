@@ -6,7 +6,7 @@ import
   metrics,
   libp2p/protocols/protocol,
   libp2p/crypto/crypto,
-  eth/p2p/discoveryv5/enr
+  eth/enr/enr
 import
   ../common/nimchronos,
   ../node/peer_manager,

@@ -10,7 +10,7 @@ import
   nimcrypto,
   bearssl/rand,
   stew/byteutils,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/[multiaddress, multicodec],

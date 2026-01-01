@@ -4,7 +4,7 @@ import
   std/[options, net],
   results,
   eth/keys as eth_keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/crypto/crypto as libp2p_crypto
 
 import ./typed_record
@@ -49,7 +49,7 @@ proc addFieldPair*[V](builder: var EnrBuilder, key: string, value: V) =
 
 proc build*(builder: EnrBuilder): EnrResult[enr.Record] =
   # Note that nim-eth's `Record.init` does not deduplicate the field pairs.
-  # See: https://github.com/status-im/nim-eth/blob/4b22fcd/eth/p2p/discoveryv5/enr.nim#L143-L144
+  # See: https://github.com/status-im/nim-eth/blob/4b22fcd/eth/enr/enr.nim#L143-L144
   enr.Record.init(
     seqNum = builder.seqNumber,
     pk = builder.privateKey,
@@ -69,7 +69,7 @@ proc addAddressAndPorts(
   builder.udpPort = udpPort.toOpt()
 
 proc addPorts(builder: var EnrBuilder, tcp, udp: Option[Port]) =
-  # Based on: https://github.com/status-im/nim-eth/blob/4b22fcd/eth/p2p/discoveryv5/enr.nim#L166
+  # Based on: https://github.com/status-im/nim-eth/blob/4b22fcd/eth/enr/enr.nim#L166
   builder.tcpPort = tcp.toOpt()
   builder.udpPort = udp.toOpt()
 

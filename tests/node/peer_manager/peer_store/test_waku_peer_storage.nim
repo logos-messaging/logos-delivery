@@ -4,7 +4,7 @@ import
   libp2p/[multiaddress, peerid],
   libp2p/crypto/crypto,
   eth/keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   nimcrypto/utils
 
 import waku/waku_core/peers, waku/node/peer_manager/peer_store/waku_peer_storage

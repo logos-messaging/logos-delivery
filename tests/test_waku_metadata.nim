@@ -11,7 +11,7 @@ import
   libp2p/multistream,
   libp2p/muxers/muxer,
   eth/keys,
-  eth/p2p/discoveryv5/enr
+  eth/enr/enr
 import
   waku/
     [

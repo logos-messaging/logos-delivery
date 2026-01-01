@@ -11,7 +11,7 @@ import
   libp2p/protocols/mix/curve25519,
   libp2p/multiaddress,
   eth/keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   metrics,
   metrics/chronos_httpserver
 

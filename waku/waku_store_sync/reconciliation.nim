@@ -11,7 +11,7 @@ import
   libp2p/protocols/protocol,
   libp2p/stream/connection,
   libp2p/crypto/crypto,
-  eth/p2p/discoveryv5/enr
+  eth/enr/enr
 import
   ../common/nimchronos,
   ../common/protobuf,

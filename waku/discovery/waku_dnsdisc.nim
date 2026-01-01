@@ -11,7 +11,7 @@ import
   chronos,
   metrics,
   eth/keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/crypto/crypto,
   libp2p/crypto/secp,
   libp2p/multiaddress,

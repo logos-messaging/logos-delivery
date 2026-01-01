@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, testutils/unittests, eth/p2p/discoveryv5/enr, libp2p/crypto/crypto
+import std/options, testutils/unittests, eth/enr/enr, libp2p/crypto/crypto
 import
   waku/[
     common/databases/db_sqlite,

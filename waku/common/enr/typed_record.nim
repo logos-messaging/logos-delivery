@@ -2,7 +2,7 @@
 
 import std/options, results, eth/keys as eth_keys, libp2p/crypto/crypto as libp2p_crypto
 
-import eth/p2p/discoveryv5/enr except TypedRecord, toTypedRecord
+import eth/enr/enr except TypedRecord, toTypedRecord
 
 ## Since enr changed to result.Opt[T] from Option[T] for intercompatibility introduce a conversion between
 func toOpt*[T](o: Option[T]): Opt[T] =

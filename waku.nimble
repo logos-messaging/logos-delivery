@@ -21,6 +21,7 @@ requires "nim >= 2.2.4",
   "libbacktrace",
   "nimcrypto",
   "serialization",
+  "toml_serialization",
   "stew",
   "stint",
   "metrics",
@@ -31,9 +32,19 @@ requires "nim >= 2.2.4",
   "results",
   "db_connector",
   "minilru",
-  "ffi"
+  "unittest2",
+  "testutils"
 
 ### Helper functions
+
+# Get nimble package paths for compilation
+proc getNimblePkgDir(): string =
+  # Get nimble's package directory
+  when defined(windows):
+    getEnv("USERPROFILE") / ".nimble" / "pkgs2"
+  else:
+    getEnv("HOME") / ".nimble" / "pkgs2"
+
 proc buildModule(filePath, params = "", lang = "c"): bool =
   if not dirExists "build":
     mkDir "build"
@@ -55,12 +66,10 @@ proc buildModule(filePath, params = "", lang = "c"): bool =
 proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   if not dirExists "build":
     mkDir "build"
-  # allow something like "nim nimbus --verbosity:0 --hints:off nimbus.nims"
-  var extra_params = params
-  for i in 2 ..< paramCount():
-    extra_params &= " " & paramStr(i)
-  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & extra_params & " " &
-    srcDir & name & ".nim"
+  # Use nimble c command which automatically handles package paths
+  # Add vendor/nim-ffi explicitly since it's a submodule
+  let nimbleCmd = "nimble c --out:build/" & name & " --mm:refc --path:vendor/nim-ffi " & params & " " & srcDir & name & ".nim"
+  exec nimbleCmd
 
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static") =
   if not dirExists "build":
@@ -217,6 +226,23 @@ task libWakuAndroid, "Build the mobile bindings for Android":
 ### Mobile iOS
 import std/sequtils
 
+# Helper to get nimble package path
+proc getNimblePkgPath(pkgName: string): string =
+  let (output, exitCode) = gorgeEx("nimble path " & pkgName)
+  if exitCode != 0:
+    quit "Error: Could not find nimble package: " & pkgName
+  result = output.strip()
+
+# Helper to get Nim lib path
+proc getNimLibPath(): string =
+  let (output, exitCode) = gorgeEx("nim --verbosity:0 --hints:off dump --dump.format:json 2>/dev/null | grep -o '\"libpath\":\"[^\"]*\"' | cut -d'\"' -f4")
+  if exitCode != 0 or output.strip().len == 0:
+    # Fallback: try to find it relative to nim binary
+    let (nimPath, _) = gorgeEx("which nim")
+    result = nimPath.strip().parentDir().parentDir() / "lib"
+  else:
+    result = output.strip()
+
 proc buildMobileIOS(srcDir = ".", params = "") =
   echo "Building iOS libwaku library"
 
@@ -265,12 +291,18 @@ proc buildMobileIOS(srcDir = ".", params = "") =
       " " & extra_params &
       " " & srcDir & "/libwaku.nim"
 
-  # Compile vendor C libraries for iOS
+  # Get nimble package paths
+  let bearSslPkgDir = getNimblePkgPath("bearssl")
+  let secp256k1PkgDir = getNimblePkgPath("secp256k1")
+  let natTraversalPkgDir = getNimblePkgPath("nat_traversal")
+  let nimLibDir = getNimLibPath()
+
+  # Compile C libraries for iOS
 
   # --- BearSSL ---
   echo "Compiling BearSSL for iOS..."
-  let bearSslSrcDir = "./vendor/nim-bearssl/bearssl/csources/src"
-  let bearSslIncDir = "./vendor/nim-bearssl/bearssl/csources/inc"
+  let bearSslSrcDir = bearSslPkgDir / "bearssl/csources/src"
+  let bearSslIncDir = bearSslPkgDir / "bearssl/csources/inc"
   for path in walkDirRec(bearSslSrcDir):
     if path.endsWith(".c"):
       let relPath = path.replace(bearSslSrcDir & "/", "").replace("/", "_")
@@ -281,7 +313,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   # --- secp256k1 ---
   echo "Compiling secp256k1 for iOS..."
-  let secp256k1Dir = "./vendor/nim-secp256k1/vendor/secp256k1"
+  let secp256k1Dir = secp256k1PkgDir / "vendor/secp256k1"
   let secp256k1Flags = " -I" & secp256k1Dir & "/include" &
         " -I" & secp256k1Dir & "/src" &
         " -I" & secp256k1Dir &
@@ -306,9 +338,9 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   # --- miniupnpc ---
   echo "Compiling miniupnpc for iOS..."
-  let miniupnpcSrcDir = "./vendor/nim-nat-traversal/vendor/miniupnp/miniupnpc/src"
-  let miniupnpcIncDir = "./vendor/nim-nat-traversal/vendor/miniupnp/miniupnpc/include"
-  let miniupnpcBuildDir = "./vendor/nim-nat-traversal/vendor/miniupnp/miniupnpc/build"
+  let miniupnpcSrcDir = natTraversalPkgDir / "vendor/miniupnp/miniupnpc/src"
+  let miniupnpcIncDir = natTraversalPkgDir / "vendor/miniupnp/miniupnpc/include"
+  let miniupnpcBuildDir = natTraversalPkgDir / "vendor/miniupnp/miniupnpc/build"
   let miniupnpcFiles = @[
     "addr_is_reserved.c", "connecthostport.c", "igd_desc_parse.c",
     "minisoap.c", "minissdpc.c", "miniupnpc.c", "miniwget.c",
@@ -329,7 +361,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   # --- libnatpmp ---
   echo "Compiling libnatpmp for iOS..."
-  let natpmpSrcDir = "./vendor/nim-nat-traversal/vendor/libnatpmp-upstream"
+  let natpmpSrcDir = natTraversalPkgDir / "vendor/libnatpmp-upstream"
   # Only compile natpmp.c - getgateway.c uses net/route.h which is not available on iOS
   let natpmpObj = vendorObjDir / "natpmp_natpmp.o"
   if not fileExists(natpmpObj):
@@ -363,13 +395,13 @@ proc buildMobileIOS(srcDir = ".", params = "") =
     let oFile = objDir / baseName
     exec clangBase &
         " -DENABLE_STRNATPMPERR" &
-        " -I./vendor/nimbus-build-system/vendor/Nim/lib/" &
-        " -I./vendor/nim-bearssl/bearssl/csources/inc/" &
-        " -I./vendor/nim-bearssl/bearssl/csources/tools/" &
-        " -I./vendor/nim-bearssl/bearssl/abi/" &
-        " -I./vendor/nim-secp256k1/vendor/secp256k1/include/" &
-        " -I./vendor/nim-nat-traversal/vendor/miniupnp/miniupnpc/include/" &
-        " -I./vendor/nim-nat-traversal/vendor/libnatpmp-upstream/" &
+        " -I" & nimLibDir & "/" &
+        " -I" & bearSslPkgDir & "/bearssl/csources/inc/" &
+        " -I" & bearSslPkgDir & "/bearssl/csources/tools/" &
+        " -I" & bearSslPkgDir & "/bearssl/abi/" &
+        " -I" & secp256k1PkgDir & "/vendor/secp256k1/include/" &
+        " -I" & natTraversalPkgDir & "/vendor/miniupnp/miniupnpc/include/" &
+        " -I" & natTraversalPkgDir & "/vendor/libnatpmp-upstream/" &
         " -I" & nimcacheDir &
         " -c " & cFile &
         " -o " & oFile

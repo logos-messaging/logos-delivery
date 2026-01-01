@@ -9,11 +9,7 @@ if defined(windows):
   switch("passL", "rln.lib")
   switch("define", "postgres=false")
 
-  # Automatically add all vendor subdirectories
-  for dir in walkDir("./vendor"):
-    if dir.kind == pcDir:
-      switch("path", dir.path)
-      switch("path", dir.path / "src")
+  # Dependencies are now managed via nimble, no vendor paths needed
 
   # disable timestamps in Windows PE headers - https://wiki.debian.org/ReproducibleBuilds/TimestampsInPEBinaries
   switch("passL", "-Wl,--no-insert-timestamp")
@@ -117,7 +113,6 @@ if defined(android):
   var clang = getEnv("ANDROID_COMPILER")
   var ndk_home = getEnv("ANDROID_TOOLCHAIN_DIR")
   var sysroot = ndk_home & "/sysroot"
-  var cincludes = sysroot & "/usr/include/" & getEnv("ANDROID_ARCH")
 
   switch("clang.path", ndk_home & "/bin")
   switch("clang.exe", clang)

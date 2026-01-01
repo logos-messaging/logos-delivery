@@ -21,6 +21,12 @@ These instructions are generic. For more detailed instructions, see the source c
 
 The standard developer tools, including a C compiler, GNU Make, Bash, and Git. More information on these installations can be found [here](https://docs.waku.org/guides/nwaku/build-source#install-dependencies).
 
+**Nimble 0.99.0** or later is required for dependency management. Verify your version with:
+```bash
+nimble -v
+# Expected output: 0.99.0 or higher
+```
+
 > In some distributions (Fedora linux for example), you may need to install `which` utility separately. Nimbus build system is relying on it.
 
 You'll also need an installation of Rust and its toolchain (specifically `rustc` and `cargo`).
@@ -100,17 +106,17 @@ If `wakunode2.exe` isn't generated:
 
 ### Developing
 
-#### Nim Runtime
-This repository is bundled with a Nim runtime that includes the necessary dependencies for the project.
-
-Before you can utilize the runtime you'll need to build the project, as detailed in a previous section.
-This will generate a `vendor` directory containing various dependencies, including the `nimbus-build-system` which has the bundled nim runtime.
-
-After successfully building the project, you may bring the bundled runtime into scope by running:
+#### Dependencies
+This project uses **Nimble** for dependency management. All dependencies are automatically installed when you run:
 ```bash
-source env.sh
+make deps
+# or directly:
+nimble install -y
 ```
-If everything went well, you should see your prompt suffixed with `[Nimbus env]$`. Now you can run `nim` commands as usual.
+
+The only vendor submodules kept are:
+- `vendor/zerokit` - RLN (Rate Limiting Nullifier) library
+- `vendor/waku-rlnv2-contract` - Smart contract for RLN tests
 
 ### Test Suite
 

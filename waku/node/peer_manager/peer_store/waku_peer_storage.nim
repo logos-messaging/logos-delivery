@@ -4,7 +4,7 @@ import
   std/[sets, options],
   results,
   sqlite3_abi,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/protobuf/minprotobuf
 import
   ../../../common/databases/db_sqlite,

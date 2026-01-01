@@ -9,7 +9,7 @@ import
   libp2p/peerId,
   libp2p/crypto/crypto,
   eth/keys,
-  eth/p2p/discoveryv5/enr
+  eth/enr/enr
 
 import
   waku/[

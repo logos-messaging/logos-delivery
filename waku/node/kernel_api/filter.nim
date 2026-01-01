@@ -9,7 +9,7 @@ import
   stew/byteutils,
   eth/keys,
   nimcrypto,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/crypto/crypto,
   libp2p/protocols/ping,
   libp2p/protocols/pubsub/gossipsub,

@@ -8,7 +8,7 @@ import
   testutils/unittests,
   libp2p/crypto/crypto as libp2p_keys,
   eth/keys as eth_keys,
-  eth/p2p/discoveryv5/enr as ethEnr,
+  eth/enr/enr as ethEnr,
   libp2p/crypto/secp,
   libp2p/protocols/rendezvous
 

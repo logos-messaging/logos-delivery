@@ -4,33 +4,42 @@
 # - MIT license
 # at your option. This file may not be copied, modified, or distributed except
 # according to those terms.
-export BUILD_SYSTEM_DIR := vendor/nimbus-build-system
-export EXCLUDED_NIM_PACKAGES := vendor/nim-dnsdisc/vendor
+
+# Nimble-only build system (no vendor dependencies except zerokit)
+SHELL := bash
 LINK_PCRE := 0
 FORMAT_MSG := "\\x1B[95mFormatting:\\x1B[39m"
-# we don't want an error here, so we can handle things later, in the ".DEFAULT" target
--include $(BUILD_SYSTEM_DIR)/makefiles/variables.mk
+BUILD_MSG := "\\x1B[92mBuilding:\\x1B[39m"
 
+# Compiler settings
+CC ?= gcc
+NIMC ?= nim
+NIM_PARAMS := $(NIMFLAGS)
 
-ifeq ($(NIM_PARAMS),)
-# "variables.mk" was not included, so we update the submodules.
-GIT_SUBMODULE_UPDATE := git submodule update --init --recursive
-.DEFAULT:
-	+@ echo -e "Git submodules not found. Running '$(GIT_SUBMODULE_UPDATE)'.\n"; \
-		$(GIT_SUBMODULE_UPDATE); \
-		echo
-# Now that the included *.mk files appeared, and are newer than this file, Make will restart itself:
-# https://www.gnu.org/software/make/manual/make.html#Remaking-Makefiles
-#
-# After restarting, it will execute its original goal, so we don't have to start a child Make here
-# with "$(MAKE) $(MAKECMDGOALS)". Isn't hidden control flow great?
+# Verbosity
+V := 0
+NIM_PARAMS := $(NIM_PARAMS) --verbosity:$(V)
+HANDLE_OUTPUT :=
+ifeq ($(V), 0)
+  NIM_PARAMS := $(NIM_PARAMS) --hints:off
+  HANDLE_OUTPUT := >/dev/null
+endif
 
-else # "variables.mk" was included. Business as usual until the end of this file.
+# Chronicles log level
+ifdef LOG_LEVEL
+  NIM_PARAMS := $(NIM_PARAMS) -d:chronicles_log_level="$(LOG_LEVEL)"
+endif
 
-# Determine the OS
+# OS detection
 detected_OS := $(shell uname -s)
 ifneq (,$(findstring MINGW,$(detected_OS)))
   detected_OS := Windows
+endif
+
+ifeq ($(OS), Windows_NT)
+  EXE_SUFFIX := .exe
+else
+  EXE_SUFFIX :=
 endif
 
 ifeq ($(detected_OS),Windows)
@@ -38,8 +47,12 @@ ifeq ($(detected_OS),Windows)
   MINGW_PATH = /mingw64
   NIM_PARAMS += --passC:"-I$(MINGW_PATH)/include"
   NIM_PARAMS += --passL:"-L$(MINGW_PATH)/lib"
-  NIM_PARAMS += --passL:"-Lvendor/nim-nat-traversal/vendor/miniupnp/miniupnpc"
-  NIM_PARAMS += --passL:"-Lvendor/nim-nat-traversal/vendor/libnatpmp-upstream"
+  # NAT libs paths resolved via nimble packages
+  NAT_TRAVERSAL_PKG := $(shell nimble path nat_traversal 2>/dev/null)
+  ifneq ($(NAT_TRAVERSAL_PKG),)
+    NIM_PARAMS += --passL:"-L$(NAT_TRAVERSAL_PKG)/vendor/miniupnp/miniupnpc"
+    NIM_PARAMS += --passL:"-L$(NAT_TRAVERSAL_PKG)/vendor/libnatpmp-upstream"
+  endif
 
   LIBS = -lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -lminiupnpc -lnatpmp -lpq
   NIM_PARAMS += $(foreach lib,$(LIBS),--passL:"$(lib)")
@@ -75,7 +88,8 @@ endif
 waku.nims:
 	ln -s waku.nimble $@
 
-update: | update-common
+update:
+	nimble install -y
 	rm -rf waku.nims && \
 		$(MAKE) waku.nims $(HANDLE_OUTPUT)
 	$(MAKE) build-nph
@@ -83,8 +97,9 @@ update: | update-common
 clean:
 	rm -rf build
 
-# must be included after the default target
--include $(BUILD_SYSTEM_DIR)/makefiles/targets.mk
+# Build directory
+build:
+	mkdir -p $@
 
 ## Possible values: prod; debug
 TARGET ?= prod
@@ -134,7 +149,8 @@ endif
 rln-deps: rustup
 	./scripts/install_rln_tests_dependencies.sh $(FOUNDRY_VERSION) $(PNPM_VERSION)
 
-deps: | deps-common nat-libs waku.nims
+deps: | waku.nims
+	nimble install -y
 
 
 ### nim-libbacktrace
@@ -153,16 +169,9 @@ endif
 # enable experimental exit is dest feature in libp2p mix
 NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest 
 
-libbacktrace:
-	+ $(MAKE) -C vendor/nim-libbacktrace --no-print-directory BUILD_CXX_LIB=0
-
+# libbacktrace is now managed via nimble package
 clean-libbacktrace:
-	+ $(MAKE) -C vendor/nim-libbacktrace clean $(HANDLE_OUTPUT)
-
-# Extend deps and clean targets
-ifneq ($(USE_LIBBACKTRACE), 0)
-deps: | libbacktrace
-endif
+	@true
 
 ifeq ($(POSTGRES), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:postgres -d:nimDebugDlOpen
@@ -216,7 +225,7 @@ clean: | clean-librln
 
 testcommon: | build deps
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim testcommon $(NIM_PARAMS) waku.nims
+		nimble testcommon $(NIM_PARAMS)
 
 
 ##########
@@ -227,57 +236,56 @@ testcommon: | build deps
 # install rln-deps only for the testwaku target
 testwaku: | build deps rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim test -d:os=$(shell uname) $(NIM_PARAMS) waku.nims
+		nimble test -d:os=$(shell uname) $(NIM_PARAMS)
 
 wakunode2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-	\
-		$(ENV_SCRIPT) nim wakunode2 $(NIM_PARAMS) waku.nims
+		nimble wakunode2 $(NIM_PARAMS)
 
 benchmarks: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim benchmarks $(NIM_PARAMS) waku.nims
+		nim benchmarks $(NIM_PARAMS) waku.nims
 
 testwakunode2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim testwakunode2 $(NIM_PARAMS) waku.nims
+		nim testwakunode2 $(NIM_PARAMS) waku.nims
 
 example2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim example2 $(NIM_PARAMS) waku.nims
+		nim example2 $(NIM_PARAMS) waku.nims
 
 chat2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim chat2 $(NIM_PARAMS) waku.nims
+		nim chat2 $(NIM_PARAMS) waku.nims
 
 chat2mix: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim chat2mix $(NIM_PARAMS) waku.nims
+		nim chat2mix $(NIM_PARAMS) waku.nims
 
 rln-db-inspector: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-	$(ENV_SCRIPT) nim rln_db_inspector $(NIM_PARAMS) waku.nims
+	nim rln_db_inspector $(NIM_PARAMS) waku.nims
 
 chat2bridge: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim chat2bridge $(NIM_PARAMS) waku.nims
+		nim chat2bridge $(NIM_PARAMS) waku.nims
 
 liteprotocoltester: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim liteprotocoltester $(NIM_PARAMS) waku.nims
+		nim liteprotocoltester $(NIM_PARAMS) waku.nims
 
 lightpushwithmix: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim lightpushwithmix $(NIM_PARAMS) waku.nims
+		nim lightpushwithmix $(NIM_PARAMS) waku.nims
 
 build/%: | build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
-		$(ENV_SCRIPT) nim buildone $(NIM_PARAMS) waku.nims $*
+		nim buildone $(NIM_PARAMS) waku.nims $*
 
 compile-test: | build deps librln
 	echo -e $(BUILD_MSG) "$(TEST_FILE)" "\"$(TEST_NAME)\"" && \
-		$(ENV_SCRIPT) nim buildTest $(NIM_PARAMS) waku.nims $(TEST_FILE) && \
-		$(ENV_SCRIPT) nim execTest $(NIM_PARAMS) waku.nims $(TEST_FILE) "\"$(TEST_NAME)\""; \
+		nim buildTest $(NIM_PARAMS) waku.nims $(TEST_FILE) && \
+		nim execTest $(NIM_PARAMS) waku.nims $(TEST_FILE) "\"$(TEST_NAME)\""; \
 
 ################
 ## Waku tools ##
@@ -288,25 +296,25 @@ tools: networkmonitor wakucanary
 
 wakucanary: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim wakucanary $(NIM_PARAMS) waku.nims
+		nim wakucanary $(NIM_PARAMS) waku.nims
 
 networkmonitor: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim networkmonitor $(NIM_PARAMS) waku.nims
+		nim networkmonitor $(NIM_PARAMS) waku.nims
 
 ############
 ## Format ##
 ############
 .PHONY: build-nph install-nph clean-nph print-nph-path
 
-# Default location for nph binary shall be next to nim binary to make it available on the path.
-NPH:=$(shell dirname $(NIM_BINARY))/nph
+# nph is installed via nimble
+NPH:=$(shell which nph 2>/dev/null || echo "")
 
 build-nph: | build deps
-ifeq ("$(wildcard $(NPH))","")
-		$(ENV_SCRIPT) nim c --skipParentCfg:on vendor/nph/src/nph.nim && \
-		mv vendor/nph/src/nph $(shell dirname $(NPH))
-		echo "nph utility is available at " $(NPH)
+ifeq ($(NPH),)
+		nimble install nph -y
+		$(eval NPH := $(shell which nph))
+		echo "nph utility installed via nimble"
 else
 		echo "nph utility already exists at " $(NPH)
 endif
@@ -342,11 +350,11 @@ clean: | clean-nph
 # TODO: Remove unused target
 docs: | build deps
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim doc --run --index:on --project --out:.gh-pages waku/waku.nim waku.nims
+		nim doc --run --index:on --project --out:.gh-pages waku/waku.nim waku.nims
 
 coverage:
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) ./scripts/run_cov.sh -y
+		./scripts/run_cov.sh -y
 
 
 #####################
@@ -450,7 +458,7 @@ ifeq ($(STATIC), 1)
 endif
 
 libwaku: | build deps librln
-	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
+	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && nim $(BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
 
 #####################
 ## Mobile Bindings ##
@@ -481,7 +489,7 @@ endif
 build-libwaku-for-android-arch:
 	$(MAKE) rebuild-nat-libs CC=$(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER) && \
 	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR) && \
-	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) $(ENV_SCRIPT) nim libWakuAndroid $(NIM_PARAMS) waku.nims
+	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) nim libWakuAndroid $(NIM_PARAMS) waku.nims
 
 libwaku-android-arm64: ANDROID_ARCH=aarch64-linux-android
 libwaku-android-arm64: CPU=arm64
@@ -541,7 +549,7 @@ endif
 
 # Build for iOS architecture 
 build-libwaku-for-ios-arch:
-	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) $(ENV_SCRIPT) nim libWakuIOS $(NIM_PARAMS) waku.nims
+	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) nim libWakuIOS $(NIM_PARAMS) waku.nims
 
 # iOS device (arm64)
 libwaku-ios-device: IOS_ARCH=arm64
@@ -562,6 +570,10 @@ libwaku-ios:
 	$(MAKE) libwaku-ios-device
 	$(MAKE) libwaku-ios-simulator
 
+# Get nimble package paths for C examples
+NAT_TRAVERSAL_PKG_PATH := $(shell nimble path nat_traversal 2>/dev/null)
+LIBBACKTRACE_PKG_PATH := $(shell nimble path libbacktrace 2>/dev/null)
+
 cwaku_example: | build libwaku
 	echo -e $(BUILD_MSG) "build/$@" && \
 		cc -o "build/$@" \
@@ -569,10 +581,10 @@ cwaku_example: | build libwaku
 		./examples/cbindings/base64.c \
 		-lwaku -Lbuild/ \
 		-pthread -ldl -lm \
-		-lminiupnpc -Lvendor/nim-nat-traversal/vendor/miniupnp/miniupnpc/build/ \
-		-lnatpmp -Lvendor/nim-nat-traversal/vendor/libnatpmp-upstream/ \
-		vendor/nim-libbacktrace/libbacktrace_wrapper.o \
-		vendor/nim-libbacktrace/install/usr/lib/libbacktrace.a
+		-lminiupnpc -L$(NAT_TRAVERSAL_PKG_PATH)/vendor/miniupnp/miniupnpc/build/ \
+		-lnatpmp -L$(NAT_TRAVERSAL_PKG_PATH)/vendor/libnatpmp-upstream/ \
+		$(LIBBACKTRACE_PKG_PATH)/libbacktrace_wrapper.o \
+		$(LIBBACKTRACE_PKG_PATH)/install/usr/lib/libbacktrace.a
 
 cppwaku_example: | build libwaku
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -581,16 +593,14 @@ cppwaku_example: | build libwaku
 		./examples/cpp/base64.cpp \
 		-lwaku -Lbuild/ \
 		-pthread -ldl -lm \
-		-lminiupnpc -Lvendor/nim-nat-traversal/vendor/miniupnp/miniupnpc/build/ \
-		-lnatpmp -Lvendor/nim-nat-traversal/vendor/libnatpmp-upstream/ \
-		vendor/nim-libbacktrace/libbacktrace_wrapper.o \
-		vendor/nim-libbacktrace/install/usr/lib/libbacktrace.a
+		-lminiupnpc -L$(NAT_TRAVERSAL_PKG_PATH)/vendor/miniupnp/miniupnpc/build/ \
+		-lnatpmp -L$(NAT_TRAVERSAL_PKG_PATH)/vendor/libnatpmp-upstream/ \
+		$(LIBBACKTRACE_PKG_PATH)/libbacktrace_wrapper.o \
+		$(LIBBACKTRACE_PKG_PATH)/install/usr/lib/libbacktrace.a
 
 nodejswaku: | build deps
 		echo -e $(BUILD_MSG) "build/$@" && \
 		node-gyp build --directory=examples/nodejs/
-
-endif # "variables.mk" was not included
 
 ###################
 # Release Targets #

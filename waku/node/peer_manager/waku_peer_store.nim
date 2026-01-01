@@ -4,7 +4,7 @@ import
   std/[tables, sequtils, sets, options, strutils],
   chronos,
   chronicles,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/builders,
   libp2p/peerstore,
   libp2p/crypto/curve25519
