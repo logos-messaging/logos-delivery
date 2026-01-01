@@ -45,10 +45,7 @@ requires "nim >= 2.2.4",
   "https://github.com/arnetheduck/nim-sqlite3-abi.git#bdf01cf4236fb40788f0733466cdf6708783cbac",
   "https://github.com/status-im/nim-taskpools.git#9e8ccc754631ac55ac2fd495e167e74e86293edb",
   "https://github.com/nitely/nim-unicodedb.git#66f2458710dc641dd4640368f9483c8a0ec70561",
-  "https://github.com/ba0f3/dnsclient.nim.git#23214235d4784d24aceed99bbfe153379ea557c8",
-  "https://github.com/logos-messaging/nim-ffi.git#d7a5492121aad190cf549436836e2fa42e34ff9b",
-  "https://github.com/logos-messaging/waku-rlnv2-contract.git#8a338f354481e8a3f3d64a72e38fad4c62e32dcd",
-  "https://github.com/vacp2p/zerokit.git#a4bb3feb5054e6fd24827adf204493e6e173437b"
+  "https://github.com/ba0f3/dnsclient.nim.git#23214235d4784d24aceed99bbfe153379ea557c8"
 
 ### Helper functions
 
