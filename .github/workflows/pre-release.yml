@@ -98,7 +98,7 @@ jobs:
 
   js-waku-node:
     needs: build-docker-image
-    uses: logos-messaging/js-waku/.github/workflows/test-node.yml@master
+    uses: logos-messaging/logos-messaging-js/.github/workflows/test-node.yml@master
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node
@@ -106,7 +106,7 @@ jobs:
 
   js-waku-node-optional:
     needs: build-docker-image
-    uses: logos-messaging/js-waku/.github/workflows/test-node.yml@master
+    uses: logos-messaging/logos-messaging-js/.github/workflows/test-node.yml@master
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node-optional

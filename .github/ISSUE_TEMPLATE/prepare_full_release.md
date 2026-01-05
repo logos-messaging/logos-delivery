@@ -24,7 +24,7 @@ All items below are to be completed by the owner of the given release.
 - [ ] **Validation of release candidate**
 
   - [ ] **Automated testing**
-    - [ ] Ensure all the unit tests (specifically js-waku tests) are green against the release candidate.
+    - [ ] Ensure all the unit tests (specifically logos-messaging-js tests) are green against the release candidate.
     - [ ] Ask Vac-QA and Vac-DST to perform the available tests against the release candidate.
     - [ ] Vac-DST (an additional report is needed; see [this](https://www.notion.so/DST-Reports-1228f96fb65c80729cd1d98a7496fe6f))
 
