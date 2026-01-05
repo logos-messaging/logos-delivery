@@ -96,17 +96,17 @@ jobs:
       image_tag: ${{ needs.tag-name.outputs.tag }}
     secrets: inherit
 
-  js-waku-node:
+  logos-messaging-js-node:
     needs: build-docker-image
-    uses: logos-messaging/js-waku/.github/workflows/test-node.yml@master
+    uses: logos-messaging/logos-messaging-js/.github/workflows/test-node.yml@master
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node
       debug: waku*
 
-  js-waku-node-optional:
+  logos-messaging-js-node-optional:
     needs: build-docker-image
-    uses: logos-messaging/js-waku/.github/workflows/test-node.yml@master
+    uses: logos-messaging/logos-messaging-js/.github/workflows/test-node.yml@master
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node-optional

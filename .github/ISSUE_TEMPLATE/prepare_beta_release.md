@@ -22,7 +22,7 @@ All items below are to be completed by the owner of the given release.
 - [ ] Generate and edit release notes in CHANGELOG.md.
 
 - [ ] **Waku test and fleets validation**
-  - [ ] Ensure all the unit tests (specifically js-waku tests) are green against the release candidate.
+  - [ ] Ensure all the unit tests (specifically logos-messaging-js tests) are green against the release candidate.
   - [ ] Deploy the release candidate to `waku.test` only through [deploy-waku-test job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-test/) and wait for it to finish (Jenkins access required; ask the infra team if you don't have it).
     - After completion, disable [deployment job](https://ci.infra.status.im/job/nim-waku/) so that its version is not updated on every merge to master.
     - Verify the deployed version at https://fleets.waku.org/.
