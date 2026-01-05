@@ -549,7 +549,7 @@ proc runAnvil*(
         "10000000000",
         "--chain-id",
         $chainId,
-        "--disable-min-priority-fee"
+        "--disable-min-priority-fee",
       ]
 
     # Add state file argument if provided
