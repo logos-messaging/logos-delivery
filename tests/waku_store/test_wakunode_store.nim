@@ -413,7 +413,7 @@ procSuite "WakuNode - Store":
 
     for count in 0 ..< 3:
       waitFor successProc()
-      waitFor sleepAsync(20.millis)
+      waitFor sleepAsync(5.millis)
 
     waitFor failsProc()
 
