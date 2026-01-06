@@ -8,7 +8,6 @@ import
   stew/byteutils,
   libp2p/protocols/rendezvous,
   libp2p/protocols/rendezvous/protobuf,
-  libp2p/discovery/discoverymngr,
   libp2p/utils/semaphore,
   libp2p/utils/offsettedseq,
   libp2p/crypto/curve25519,

@@ -13,7 +13,6 @@ import
   libp2p/services/autorelayservice,
   libp2p/services/hpservice,
   libp2p/peerid,
-  libp2p/discovery/rendezvousinterface,
   eth/keys,
   eth/p2p/discoveryv5/enr,
   presto,

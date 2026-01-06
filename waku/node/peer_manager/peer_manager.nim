@@ -103,6 +103,7 @@ type PeerManager* = ref object of RootObj
   onConnectionChange*: ConnectionChangeHandler
   online: bool ## state managed by online_monitor module
   getShards: GetShards
+  maxConnections: int
 
 #~~~~~~~~~~~~~~~~~~~#
 # Helper Functions  #
@@ -748,7 +749,6 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
     var peerStore = pm.switch.peerStore
     # log metrics
     let (inRelayPeers, outRelayPeers) = pm.connectedPeers(WakuRelayCodec)
-    let maxConnections = pm.switch.connManager.inSema.size
     let notConnectedPeers =
       peerStore.getDisconnectedPeers().mapIt(RemotePeerInfo.init(it.peerId, it.addrs))
     let outsideBackoffPeers = notConnectedPeers.filterIt(pm.canBeConnected(it.peerId))
@@ -758,7 +758,7 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
     info "Relay peer connections",
       inRelayConns = $inRelayPeers.len & "/" & $pm.inRelayPeersTarget,
       outRelayConns = $outRelayPeers.len & "/" & $pm.outRelayPeersTarget,
-      totalConnections = $totalConnections & "/" & $maxConnections,
+      totalConnections = $totalConnections & "/" & $pm.maxConnections,
       notConnectedPeers = notConnectedPeers.len,
       outsideBackoffPeers = outsideBackoffPeers.len
 
@@ -1048,9 +1048,9 @@ proc new*(
     maxFailedAttempts = MaxFailedAttempts,
     colocationLimit = DefaultColocationLimit,
     shardedPeerManagement = false,
+    maxConnections: int = MaxConnections,
 ): PeerManager {.gcsafe.} =
   let capacity = switch.peerStore.capacity
-  let maxConnections = switch.connManager.inSema.size
   if maxConnections > capacity:
     error "Max number of connections can't be greater than PeerManager capacity",
       capacity = capacity, maxConnections = maxConnections
@@ -1099,6 +1099,7 @@ proc new*(
     colocationLimit: colocationLimit,
     shardedPeerManagement: shardedPeerManagement,
     online: true,
+    maxConnections: maxConnections,
   )
 
   proc peerHook(

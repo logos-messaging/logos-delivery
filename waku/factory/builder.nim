@@ -209,6 +209,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     maxServicePeers = some(builder.maxServicePeers),
     colocationLimit = builder.colocationLimit,
     shardedPeerManagement = builder.shardAware,
+    maxConnections = builder.switchMaxConnections.get(builders.MaxConnections),
   )
 
   var node: WakuNode
