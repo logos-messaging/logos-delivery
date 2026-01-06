@@ -74,10 +74,11 @@ suite "Onchain group manager":
       raiseAssert "Expected error when keystore file doesn't exist"
 
   test "trackRootChanges: should guard against uninitialized state":
-    try:
-      discard manager.trackRootChanges()
-    except CatchableError:
-      check getCurrentExceptionMsg().len == 38
+    let initializedResult = waitFor manager.trackRootChanges()
+
+    check:
+      initializedResult.isErr()
+      initializedResult.error == "OnchainGroupManager is not initialized"
 
   test "trackRootChanges: should sync to the state of the group":
     let credentials = generateCredentials()
@@ -87,8 +88,7 @@ suite "Onchain group manager":
     let merkleRootBefore = waitFor manager.fetchMerkleRoot()
 
     (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
-      assert false,
-        "error returned when calling register: " & error
+      assert false, "error returned when calling register: " & error
 
     discard waitFor withTimeout(trackRootChanges(manager), 15.seconds)
 
@@ -132,7 +132,7 @@ suite "Onchain group manager":
 
     check:
       res.isErr()
-      res.error == "Not initialized: OnchainGroupManager is not initialized"
+      res.error == "OnchainGroupManager is not initialized"
 
   test "register: should register successfully":
     # TODO :- similar to ```trackRootChanges: should fetch history correctly```
@@ -143,8 +143,7 @@ suite "Onchain group manager":
     let merkleRootBefore = waitFor manager.fetchMerkleRoot()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
-      assert false,
-        "error returned when calling register: " & error
+      assert false, "error returned when calling register: " & error
 
     let merkleRootAfter = waitFor manager.fetchMerkleRoot()
 
@@ -171,13 +170,14 @@ suite "Onchain group manager":
 
     manager.onRegister(callback)
 
-    (waitFor manager.register(
-      RateCommitment(
-        idCommitment: idCommitment, userMessageLimit: UserMessageLimit(20)
+    (
+      waitFor manager.register(
+        RateCommitment(
+          idCommitment: idCommitment, userMessageLimit: UserMessageLimit(20)
+        )
       )
-    )).isOkOr:
-      assert false,
-        "error returned when calling register: " & error
+    ).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     waitFor fut
 
@@ -188,7 +188,7 @@ suite "Onchain group manager":
 
     check:
       res.isErr()
-      res.error == "Not initialized: OnchainGroupManager is not initialized"
+      res.error == "OnchainGroupManager is not initialized"
 
   test "validateRoot: should validate good root":
     let idCredentials = generateCredentials()
@@ -289,10 +289,8 @@ suite "Onchain group manager":
 
     manager.onRegister(callback)
 
-
     (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
-      assert false,
-        "error returned when calling register: " & error
+      assert false, "error returned when calling register: " & error
     waitFor fut
 
     let rootUpdated = waitFor manager.updateRoots()
@@ -328,8 +326,7 @@ suite "Onchain group manager":
     let idCredential = generateCredentials()
 
     (waitFor manager.register(idCredential, UserMessageLimit(20))).isOkOr:
-       assert false,
-        "error returned when calling register: " & error
+      assert false, "error returned when calling register: " & error
 
     let messageBytes = "Hello".toBytes()
 
@@ -401,24 +398,18 @@ suite "Onchain group manager":
 
     manager.ethRpc = none(Web3)
 
-    var isReady = true
-    try:
-      isReady = waitFor manager.isReady()
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    let isReadyResult = waitFor manager.isReady()
 
     check:
-      isReady == false
+      isReadyResult.isErr()
+      isReadyResult.error == "Ethereum RPC client is not configured"
 
   test "isReady should return true if ethRpc is ready":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
-    var isReady = false
-    try:
-      isReady = waitFor manager.isReady()
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    let isReadyResult = waitFor manager.isReady()
 
     check:
-      isReady == true
+      isReadyResult.isOk()
+      isReadyResult.value == true
