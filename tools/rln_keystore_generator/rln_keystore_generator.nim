@@ -73,7 +73,8 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
 
   # 4. register on-chain
   try:
-    let registerResult = waitFor groupManager.register(credential, conf.userMessageLimit)
+    let registerResult =
+      waitFor groupManager.register(credential, conf.userMessageLimit)
     if registerResult.isErr():
       error "Failed to register on-chain", error = registerResult.error
       quit(QuitFailure)
