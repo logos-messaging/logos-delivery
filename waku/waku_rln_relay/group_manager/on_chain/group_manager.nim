@@ -628,14 +628,15 @@ method stop*(g: OnchainGroupManager): Future[void] {.async, gcsafe.} =
 
   g.initialized = false
 
-method isReady*(g: OnchainGroupManager): Future[Result[bool, string]] {.async.} =
+method isReady*(g: OnchainGroupManager): Future[bool] {.async.} =
   checkInitialized(g).isOkOr:
-    return err(error)
+    return false
 
   if g.ethRpc.isNone():
-    return err("Ethereum RPC client is not configured")
+    error "Ethereum RPC client is not configured"
+    return false
 
   if g.wakuRlnContract.isNone():
-    return err("Waku RLN contract is not configured")
-
-  return ok(true)
+    error "Waku RLN contract is not configured"
+    return false
+  return true
