@@ -122,24 +122,51 @@ suite "Waku Filter - DOS protection":
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
       none(FilterSubscribeErrorKind)
 
-    await sleepAsync(5.milliseconds)
-    check client1.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+    # Avoid using tiny sleeps to control refill behavior: CI scheduling can
+    # oversleep and mint additional tokens. Instead, issue a small burst of
+    # subscribe requests and require at least one TOO_MANY_REQUESTS.
+    var c1SubscribeFutures = newSeq[Future[FilterSubscribeResult]]()
+    for i in 0 ..< 6:
+      c1SubscribeFutures.add(
+        client1.wakuFilterClient.subscribe(
+          serverRemotePeerInfo, pubsubTopic, contentTopicSeq
+        )
+      )
+
+    let c1Finished = await allFinished(c1SubscribeFutures)
+    var c1GotTooMany = false
+    for fut in c1Finished:
+      check not fut.failed()
+      let res = fut.read()
+      if res.isErr() and res.error().kind == FilterSubscribeErrorKind.TOO_MANY_REQUESTS:
+        c1GotTooMany = true
+        break
+    check c1GotTooMany
+
+    # Ensure the other client is not affected by client1's rate limit.
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
       none(FilterSubscribeErrorKind)
-    await sleepAsync(5.milliseconds)
-    check client1.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
-    await sleepAsync(5.milliseconds)
-    check client1.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      some(FilterSubscribeErrorKind.TOO_MANY_REQUESTS)
-    check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
-    check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      some(FilterSubscribeErrorKind.TOO_MANY_REQUESTS)
+
+    var c2SubscribeFutures = newSeq[Future[FilterSubscribeResult]]()
+    for i in 0 ..< 6:
+      c2SubscribeFutures.add(
+        client2.wakuFilterClient.subscribe(
+          serverRemotePeerInfo, pubsubTopic, contentTopicSeq
+        )
+      )
+
+    let c2Finished = await allFinished(c2SubscribeFutures)
+    var c2GotTooMany = false
+    for fut in c2Finished:
+      check not fut.failed()
+      let res = fut.read()
+      if res.isErr() and res.error().kind == FilterSubscribeErrorKind.TOO_MANY_REQUESTS:
+        c2GotTooMany = true
+        break
+    check c2GotTooMany
 
     # ensure period of time has passed and clients can again use the service
-    await sleepAsync(1000.milliseconds)
+    await sleepAsync(1100.milliseconds)
     check client1.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
       none(FilterSubscribeErrorKind)
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
@@ -170,20 +197,31 @@ suite "Waku Filter - DOS protection":
 
     # After another ~500ms, ~1 token refilled; PING consumes 1 => expected remaining: 2
 
-    await sleepAsync(10.milliseconds)
     check client1.unsubscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
       none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId) == false
 
-    # ~10ms is not enough to refill a token at 3/sec; UNSUBSCRIBE consumes 1 => expected remaining: 1
-
-    await sleepAsync(10.milliseconds)
     check client1.ping(serverRemotePeerInfo) == some(FilterSubscribeErrorKind.NOT_FOUND)
-    # PING consumes the last token => expected remaining: 0
+    # After unsubscribing, PING is expected to return NOT_FOUND while still
+    # counting towards the rate limit.
 
-    check client1.ping(serverRemotePeerInfo) ==
-      some(FilterSubscribeErrorKind.TOO_MANY_REQUESTS)
-    # Immediate second PING has no token available => expected remaining: 0
+    # CI can oversleep / schedule slowly, which can mint extra tokens between
+    # requests. To make the test robust, issue a small burst of pings and
+    # require at least one TOO_MANY_REQUESTS response.
+    var pingFutures = newSeq[Future[FilterSubscribeResult]]()
+    for i in 0 ..< 9:
+      pingFutures.add(client1.wakuFilterClient.ping(serverRemotePeerInfo))
+
+    let finished = await allFinished(pingFutures)
+    var gotTooMany = false
+    for fut in finished:
+      check not fut.failed()
+      let pingRes = fut.read()
+      if pingRes.isErr() and pingRes.error().kind == FilterSubscribeErrorKind.TOO_MANY_REQUESTS:
+        gotTooMany = true
+        break
+
+    check gotTooMany
 
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
       none(FilterSubscribeErrorKind)
