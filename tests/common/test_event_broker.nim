@@ -136,8 +136,8 @@ suite "EventBroker":
   test "supports BrokerContext-scoped listeners":
     SampleEvent.dropAllListeners()
 
-    let ctxA = newBrokerContext()
-    let ctxB = newBrokerContext()
+    let ctxA = NewBrokerContext()
+    let ctxB = NewBrokerContext()
 
     var seenA: seq[int] = @[]
     var seenB: seq[int] = @[]
