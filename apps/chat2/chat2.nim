@@ -13,7 +13,8 @@ import
   chronos,
   eth/keys,
   bearssl,
-  stew/[byteutils, results],
+  stew/byteutils,
+  results,
   metrics,
   metrics/chronos_httpserver
 import
