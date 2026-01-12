@@ -149,7 +149,7 @@ proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
   return false
 
 proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
-  ? checkInitialized(g)
+  ?checkInitialized(g)
 
   const rpcDelay = 5.seconds
 
@@ -178,7 +178,7 @@ proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.a
 method register*(
     g: OnchainGroupManager, rateCommitment: RateCommitment
 ): Future[Result[void, string]] {.async.} =
-  ? checkInitialized(g)
+  ?checkInitialized(g)
 
   try:
     let leaf = rateCommitment.toLeaf().get()
@@ -197,7 +197,7 @@ method register*(
     identityCredential: IdentityCredential,
     userMessageLimit: UserMessageLimit,
 ): Future[Result[void, string]] {.async.} =
-  ? checkInitialized(g)
+  ?checkInitialized(g)
 
   let ethRpc = g.ethRpc.get()
   let wakuRlnContract = g.wakuRlnContract.get()
