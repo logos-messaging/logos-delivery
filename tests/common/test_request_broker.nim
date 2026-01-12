@@ -203,6 +203,104 @@ suite "RequestBroker macro (async mode)":
 
     DualResponse.clearProvider()
 
+  test "supports keyed providers (async, zero-arg)":
+    SimpleResponse.clearProvider()
+
+    check SimpleResponse
+    .setProvider(
+      proc(): Future[Result[SimpleResponse, string]] {.async.} =
+        ok(SimpleResponse(value: "default"))
+    )
+    .isOk()
+
+    check SimpleResponse
+    .setProvider(
+      BrokerContext(0x11111111'u32),
+      proc(): Future[Result[SimpleResponse, string]] {.async.} =
+        ok(SimpleResponse(value: "one")),
+    )
+    .isOk()
+
+    check SimpleResponse
+    .setProvider(
+      BrokerContext(0x22222222'u32),
+      proc(): Future[Result[SimpleResponse, string]] {.async.} =
+        ok(SimpleResponse(value: "two")),
+    )
+    .isOk()
+
+    let defaultRes = waitFor SimpleResponse.request()
+    check defaultRes.isOk()
+    check defaultRes.value.value == "default"
+
+    let res1 = waitFor SimpleResponse.request(BrokerContext(0x11111111'u32))
+    check res1.isOk()
+    check res1.value.value == "one"
+
+    let res2 = waitFor SimpleResponse.request(BrokerContext(0x22222222'u32))
+    check res2.isOk()
+    check res2.value.value == "two"
+
+    let missing = waitFor SimpleResponse.request(BrokerContext(0x33333333'u32))
+    check missing.isErr()
+    check missing.error.contains("no provider registered for broker context")
+
+    check SimpleResponse
+    .setProvider(
+      BrokerContext(0x11111111'u32),
+      proc(): Future[Result[SimpleResponse, string]] {.async.} =
+        ok(SimpleResponse(value: "dup")),
+    )
+    .isErr()
+
+    SimpleResponse.clearProvider()
+
+  test "supports keyed providers (async, with args)":
+    KeyedResponse.clearProvider()
+
+    check KeyedResponse
+    .setProvider(
+      proc(key: string, subKey: int): Future[Result[KeyedResponse, string]] {.async.} =
+        ok(KeyedResponse(key: "default-" & key, payload: $subKey))
+    )
+    .isOk()
+
+    check KeyedResponse
+    .setProvider(
+      BrokerContext(0xABCDEF01'u32),
+      proc(key: string, subKey: int): Future[Result[KeyedResponse, string]] {.async.} =
+        ok(KeyedResponse(key: "k1-" & key, payload: "p" & $subKey)),
+    )
+    .isOk()
+
+    check KeyedResponse
+    .setProvider(
+      BrokerContext(0xABCDEF02'u32),
+      proc(key: string, subKey: int): Future[Result[KeyedResponse, string]] {.async.} =
+        ok(KeyedResponse(key: "k2-" & key, payload: "q" & $subKey)),
+    )
+    .isOk()
+
+    let d = waitFor KeyedResponse.request("topic", 7)
+    check d.isOk()
+    check d.value.key == "default-topic"
+
+    let k1 = waitFor KeyedResponse.request(BrokerContext(0xABCDEF01'u32), "topic", 7)
+    check k1.isOk()
+    check k1.value.key == "k1-topic"
+    check k1.value.payload == "p7"
+
+    let k2 = waitFor KeyedResponse.request(BrokerContext(0xABCDEF02'u32), "topic", 7)
+    check k2.isOk()
+    check k2.value.key == "k2-topic"
+    check k2.value.payload == "q7"
+
+    let miss = waitFor KeyedResponse.request(BrokerContext(0xDEADBEEF'u32), "topic", 7)
+    check miss.isErr()
+    check miss.error.contains("no provider registered for broker context")
+
+    KeyedResponse.clearProvider()
+
 ## ---------------------------------------------------------------------------
 ## Sync-mode brokers + tests
 ## ---------------------------------------------------------------------------
@@ -369,6 +467,71 @@ suite "RequestBroker macro (sync mode)":
     check res.error.contains("simulated failure")
 
     ImplicitResponseSync.clearProvider()
+
+  test "supports keyed providers (sync, zero-arg)":
+    SimpleResponseSync.clearProvider()
+
+    check SimpleResponseSync
+    .setProvider(
+      proc(): Result[SimpleResponseSync, string] =
+        ok(SimpleResponseSync(value: "default"))
+    )
+    .isOk()
+
+    check SimpleResponseSync
+    .setProvider(
+      BrokerContext(0x10101010'u32),
+      proc(): Result[SimpleResponseSync, string] =
+        ok(SimpleResponseSync(value: "ten")),
+    )
+    .isOk()
+
+    let defaultRes = SimpleResponseSync.request()
+    check defaultRes.isOk()
+    check defaultRes.value.value == "default"
+
+    let keyedRes = SimpleResponseSync.request(BrokerContext(0x10101010'u32))
+    check keyedRes.isOk()
+    check keyedRes.value.value == "ten"
+
+    let miss = SimpleResponseSync.request(BrokerContext(0x20202020'u32))
+    check miss.isErr()
+    check miss.error.contains("no provider registered for broker context")
+
+    SimpleResponseSync.clearProvider()
+
+  test "supports keyed providers (sync, with args)":
+    KeyedResponseSync.clearProvider()
+
+    check KeyedResponseSync
+    .setProvider(
+      proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
+        ok(KeyedResponseSync(key: "default-" & key, payload: $subKey))
+    )
+    .isOk()
+
+    check KeyedResponseSync
+    .setProvider(
+      BrokerContext(0xA0A0A0A0'u32),
+      proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
+        ok(KeyedResponseSync(key: "k-" & key, payload: "p" & $subKey)),
+    )
+    .isOk()
+
+    let d = KeyedResponseSync.request("topic", 2)
+    check d.isOk()
+    check d.value.key == "default-topic"
+
+    let keyed = KeyedResponseSync.request(BrokerContext(0xA0A0A0A0'u32), "topic", 2)
+    check keyed.isOk()
+    check keyed.value.key == "k-topic"
+    check keyed.value.payload == "p2"
+
+    let miss = KeyedResponseSync.request(BrokerContext(0xB0B0B0B0'u32), "topic", 2)
+    check miss.isErr()
+    check miss.error.contains("no provider registered for broker context")
+
+    KeyedResponseSync.clearProvider()
 
 ## ---------------------------------------------------------------------------
 ## POD / external type brokers + tests (distinct/alias behavior)

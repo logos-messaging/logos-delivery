@@ -16,6 +16,18 @@
 ## `async` mode is better to be used when you request date that may involve some long IO operation
 ## or action.
 ##
+## Default vs. context aware use:
+## Every generated broker is a thread-local global instance. This means each RequestBroker enables decoupled
+## data exchange threadwise. Sometimes we use brokers inside a context - like inside a component that has many modules or subsystems.
+## In case you would instantiate multiple such components in a single thread, and each component must has its own provider for the same RequestBroker type,
+## in order to avoid provider collision, you can use context aware RequestBroker.
+## Context awareness is supported through the `BrokerContext` argument for `setProvider`, `request`, `clearProvider` interfaces.
+## Suce use requires generating a new unique `BrokerContext` value per component instance, and spread it to all modules using the brokers.
+## Example, store the `BrokerContext` as a field inside the top level component instance, and spread around at initialization of the subcomponents..
+##
+## Default broker context is defined as `DefaultBrokerContext` constant. But if you don't need context awareness, you can use the
+## interfaces without context argument.
+##
 ## Usage:
 ## Declare your desired request type inside a `RequestBroker` macro, add any number of fields.
 ## Define the provider signature, that is enforced at compile time.
@@ -89,7 +101,13 @@
 ## After this, you can register a provider anywhere in your code with
 ## `TypeName.setProvider(...)`, which returns error if already having a provider.
 ## Providers are async procs/lambdas in default mode and sync procs in sync mode.
-## Only one provider can be registered at a time per signature type (zero arg and/or multi arg).
+##
+## Providers are stored as a broker-context keyed list:
+## - the default provider is always stored at index 0 (reserved broker context: 0)
+## - additional providers can be registered under arbitrary non-zero broker contexts
+##
+## The original `setProvider(handler)` / `request(...)` APIs continue to operate
+## on the default provider (broker context 0) for backward compatibility.
 ##
 ## Requests can be made from anywhere with no direct dependency on the provider by
 ## calling `TypeName.request()` - with arguments respecting the signature(s).
@@ -139,11 +157,12 @@
 ## automatically, so the caller only needs to provide the type definition.
 
 import std/[macros, strutils]
+from std/sequtils import keepItIf
 import chronos
 import results
-import ./helper/broker_utils
+import ./helper/broker_utils, broker_context
 
-export results, chronos
+export results, chronos, keepItIf, broker_context
 
 proc errorFuture[T](message: string): Future[Result[T, string]] {.inline.} =
   ## Build a future that is already completed with an error result.
@@ -187,23 +206,6 @@ proc isReturnTypeValid(returnType, typeIdent: NimNode, mode: RequestBrokerMode):
   of rbSync:
     isSyncReturnTypeValid(returnType, typeIdent)
 
-proc cloneParams(params: seq[NimNode]): seq[NimNode] =
-  ## Deep copy parameter definitions so they can be inserted in multiple places.
-  result = @[]
-  for param in params:
-    result.add(copyNimTree(param))
-
-proc collectParamNames(params: seq[NimNode]): seq[NimNode] =
-  ## Extract all identifier symbols declared across IdentDefs nodes.
-  result = @[]
-  for param in params:
-    assert param.kind == nnkIdentDefs
-    for i in 0 ..< param.len - 2:
-      let nameNode = param[i]
-      if nameNode.kind == nnkEmpty:
-        continue
-      result.add(ident($nameNode))
-
 proc makeProcType(
     returnType: NimNode, params: seq[NimNode], mode: RequestBrokerMode
 ): NimNode =
@@ -234,92 +236,13 @@ proc parseMode(modeNode: NimNode): RequestBrokerMode =
   else:
     error("RequestBroker mode must be `sync` or `async` (default is async)", modeNode)
 
-proc ensureDistinctType(rhs: NimNode): NimNode =
-  ## For PODs / aliases / externally-defined types, wrap in `distinct` unless
-  ## it's already distinct.
-  if rhs.kind == nnkDistinctTy:
-    return copyNimTree(rhs)
-  newTree(nnkDistinctTy, copyNimTree(rhs))
-
 proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
   when defined(requestBrokerDebug):
     echo body.treeRepr
     echo "RequestBroker mode: ", $mode
-  var typeIdent: NimNode = nil
-  var objectDef: NimNode = nil
-  for stmt in body:
-    if stmt.kind == nnkTypeSection:
-      for def in stmt:
-        if def.kind != nnkTypeDef:
-          continue
-        if not typeIdent.isNil():
-          error("Only one type may be declared inside RequestBroker", def)
-
-        typeIdent = baseTypeIdent(def[0])
-        let rhs = def[2]
-
-        ## Support inline object types (fields are auto-exported)
-        ## AND non-object types / aliases (e.g. `string`, `int`, `OtherType`).
-        case rhs.kind
-        of nnkObjectTy:
-          let recList = rhs[2]
-          if recList.kind != nnkRecList:
-            error("RequestBroker object must declare a standard field list", rhs)
-          var exportedRecList = newTree(nnkRecList)
-          for field in recList:
-            case field.kind
-            of nnkIdentDefs:
-              ensureFieldDef(field)
-              var cloned = copyNimTree(field)
-              for i in 0 ..< cloned.len - 2:
-                cloned[i] = exportIdentNode(cloned[i])
-              exportedRecList.add(cloned)
-            of nnkEmpty:
-              discard
-            else:
-              error(
-                "RequestBroker object definition only supports simple field declarations",
-                field,
-              )
-          objectDef = newTree(
-            nnkObjectTy, copyNimTree(rhs[0]), copyNimTree(rhs[1]), exportedRecList
-          )
-        of nnkRefTy:
-          if rhs.len != 1:
-            error("RequestBroker ref type must have a single base", rhs)
-          if rhs[0].kind == nnkObjectTy:
-            let obj = rhs[0]
-            let recList = obj[2]
-            if recList.kind != nnkRecList:
-              error("RequestBroker object must declare a standard field list", obj)
-            var exportedRecList = newTree(nnkRecList)
-            for field in recList:
-              case field.kind
-              of nnkIdentDefs:
-                ensureFieldDef(field)
-                var cloned = copyNimTree(field)
-                for i in 0 ..< cloned.len - 2:
-                  cloned[i] = exportIdentNode(cloned[i])
-                exportedRecList.add(cloned)
-              of nnkEmpty:
-                discard
-              else:
-                error(
-                  "RequestBroker object definition only supports simple field declarations",
-                  field,
-                )
-            let exportedObjectType = newTree(
-              nnkObjectTy, copyNimTree(obj[0]), copyNimTree(obj[1]), exportedRecList
-            )
-            objectDef = newTree(nnkRefTy, exportedObjectType)
-          else:
-            ## `ref SomeType` (SomeType can be defined elsewhere)
-            objectDef = ensureDistinctType(rhs)
-        else:
-          ## Non-object type / alias (e.g. `string`, `int`, `SomeExternalType`).
-          objectDef = ensureDistinctType(rhs)
-  if typeIdent.isNil():
-    error("RequestBroker body must declare exactly one type", body)
+  let parsed = parseSingleTypeDef(body, "RequestBroker", allowRefToNonObject = true)
+  let typeIdent = parsed.typeIdent
+  let objectDef = parsed.objectDef
 
   when defined(requestBrokerDebug):
     echo "RequestBroker generating type: ", $typeIdent
@@ -329,11 +252,9 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
   let typeNameLit = newLit(typeDisplayName)
   var zeroArgSig: NimNode = nil
   var zeroArgProviderName: NimNode = nil
-  var zeroArgFieldName: NimNode = nil
   var argSig: NimNode = nil
   var argParams: seq[NimNode] = @[]
   var argProviderName: NimNode = nil
-  var argFieldName: NimNode = nil
 
   for stmt in body:
     case stmt.kind
@@ -368,7 +289,6 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
           error("Only one zero-argument signature is allowed", stmt)
         zeroArgSig = stmt
         zeroArgProviderName = ident(sanitizeIdentName(typeIdent) & "ProviderNoArgs")
-        zeroArgFieldName = ident("providerNoArgs")
       elif paramCount >= 1:
         if argSig != nil:
           error("Only one argument-based signature is allowed", stmt)
@@ -391,7 +311,6 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
             error("Signature parameter must declare a name", paramDef)
           argParams.add(copyNimTree(paramDef))
         argProviderName = ident(sanitizeIdentName(typeIdent) & "ProviderWithArgs")
-        argFieldName = ident("providerWithArgs")
     of nnkTypeSection, nnkEmpty:
       discard
     else:
@@ -400,7 +319,6 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
   if zeroArgSig.isNil() and argSig.isNil():
     zeroArgSig = newEmptyNode()
     zeroArgProviderName = ident(sanitizeIdentName(typeIdent) & "ProviderNoArgs")
-    zeroArgFieldName = ident("providerNoArgs")
 
   var typeSection = newTree(nnkTypeSection)
   typeSection.add(newTree(nnkTypeDef, exportedTypeIdent, newEmptyNode(), objectDef))
@@ -423,12 +341,29 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
 
   var brokerRecList = newTree(nnkRecList)
   if not zeroArgSig.isNil():
+    let zeroArgProvidersFieldName = ident("providersNoArgs")
+    let zeroArgProvidersTupleTy = newTree(
+      nnkTupleTy,
+      newTree(nnkIdentDefs, ident("brokerCtx"), ident("BrokerContext"), newEmptyNode()),
+      newTree(nnkIdentDefs, ident("handler"), zeroArgProviderName, newEmptyNode()),
+    )
+    let zeroArgProvidersSeqTy =
+      newTree(nnkBracketExpr, ident("seq"), zeroArgProvidersTupleTy)
     brokerRecList.add(
-      newTree(nnkIdentDefs, zeroArgFieldName, zeroArgProviderName, newEmptyNode())
+      newTree(
+        nnkIdentDefs, zeroArgProvidersFieldName, zeroArgProvidersSeqTy, newEmptyNode()
+      )
     )
   if not argSig.isNil():
+    let argProvidersFieldName = ident("providersWithArgs")
+    let argProvidersTupleTy = newTree(
+      nnkTupleTy,
+      newTree(nnkIdentDefs, ident("brokerCtx"), ident("BrokerContext"), newEmptyNode()),
+      newTree(nnkIdentDefs, ident("handler"), argProviderName, newEmptyNode()),
+    )
+    let argProvidersSeqTy = newTree(nnkBracketExpr, ident("seq"), argProvidersTupleTy)
     brokerRecList.add(
-      newTree(nnkIdentDefs, argFieldName, argProviderName, newEmptyNode())
+      newTree(nnkIdentDefs, argProvidersFieldName, argProvidersSeqTy, newEmptyNode())
     )
   let brokerTypeIdent = ident(sanitizeIdentName(typeIdent) & "Broker")
   let brokerTypeDef = newTree(
@@ -443,31 +378,97 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
 
   let globalVarIdent = ident("g" & sanitizeIdentName(typeIdent) & "Broker")
   let accessProcIdent = ident("access" & sanitizeIdentName(typeIdent) & "Broker")
+
+  var brokerNewBody = newStmtList()
+  if not zeroArgSig.isNil():
+    brokerNewBody.add(
+      quote do:
+        result.providersNoArgs =
+          @[(brokerCtx: DefaultBrokerContext, handler: default(`zeroArgProviderName`))]
+    )
+  if not argSig.isNil():
+    brokerNewBody.add(
+      quote do:
+        result.providersWithArgs =
+          @[(brokerCtx: DefaultBrokerContext, handler: default(`argProviderName`))]
+    )
+
+  var brokerInitChecks = newStmtList()
+  if not zeroArgSig.isNil():
+    brokerInitChecks.add(
+      quote do:
+        if `globalVarIdent`.providersNoArgs.len == 0:
+          `globalVarIdent` = `brokerTypeIdent`.new()
+    )
+  if not argSig.isNil():
+    brokerInitChecks.add(
+      quote do:
+        if `globalVarIdent`.providersWithArgs.len == 0:
+          `globalVarIdent` = `brokerTypeIdent`.new()
+    )
+
   result.add(
     quote do:
       var `globalVarIdent` {.threadvar.}: `brokerTypeIdent`
 
+      proc new(_: type `brokerTypeIdent`): `brokerTypeIdent` =
+        result = `brokerTypeIdent`()
+        `brokerNewBody`
+
       proc `accessProcIdent`(): var `brokerTypeIdent` =
+        `brokerInitChecks`
         `globalVarIdent`
 
   )
 
-  var clearBody = newStmtList()
+  var clearBodyKeyed = newStmtList()
+  let brokerCtxParamIdent = ident("brokerCtx")
   if not zeroArgSig.isNil():
+    let zeroArgProvidersFieldName = ident("providersNoArgs")
     result.add(
       quote do:
         proc setProvider*(
             _: typedesc[`typeIdent`], handler: `zeroArgProviderName`
         ): Result[void, string] =
-          if not `accessProcIdent`().`zeroArgFieldName`.isNil():
+          if not `accessProcIdent`().`zeroArgProvidersFieldName`[0].handler.isNil():
             return err("Zero-arg provider already set")
-          `accessProcIdent`().`zeroArgFieldName` = handler
+          `accessProcIdent`().`zeroArgProvidersFieldName`[0].handler = handler
           return ok()
 
     )
-    clearBody.add(
+
+    result.add(
       quote do:
-        `accessProcIdent`().`zeroArgFieldName` = nil
+        proc setProvider*(
+            _: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            handler: `zeroArgProviderName`,
+        ): Result[void, string] =
+          if brokerCtx == DefaultBrokerContext:
+            return setProvider(`typeIdent`, handler)
+
+          for entry in `accessProcIdent`().`zeroArgProvidersFieldName`:
+            if entry.brokerCtx == brokerCtx:
+              return err(
+                "RequestBroker(" & `typeNameLit` &
+                  "): provider already set for broker context " & $brokerCtx
+              )
+
+          `accessProcIdent`().`zeroArgProvidersFieldName`.add(
+            (brokerCtx: brokerCtx, handler: handler)
+          )
+          return ok()
+
+    )
+    clearBodyKeyed.add(
+      quote do:
+        if `brokerCtxParamIdent` == DefaultBrokerContext:
+          `accessProcIdent`().`zeroArgProvidersFieldName`[0].handler =
+            default(`zeroArgProviderName`)
+        else:
+          `accessProcIdent`().`zeroArgProvidersFieldName`.keepItIf(
+            it.brokerCtx != `brokerCtxParamIdent`
+          )
     )
     case mode
     of rbAsync:
@@ -476,11 +477,34 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
           proc request*(
               _: typedesc[`typeIdent`]
           ): Future[Result[`typeIdent`, string]] {.async: (raises: []).} =
-            let provider = `accessProcIdent`().`zeroArgFieldName`
+            return await request(`typeIdent`, DefaultBrokerContext)
+
+      )
+
+      result.add(
+        quote do:
+          proc request*(
+              _: typedesc[`typeIdent`], brokerCtx: BrokerContext
+          ): Future[Result[`typeIdent`, string]] {.async: (raises: []).} =
+            var provider: `zeroArgProviderName`
+            if brokerCtx == DefaultBrokerContext:
+              provider = `accessProcIdent`().`zeroArgProvidersFieldName`[0].handler
+            else:
+              for entry in `accessProcIdent`().`zeroArgProvidersFieldName`:
+                if entry.brokerCtx == brokerCtx:
+                  provider = entry.handler
+                  break
+
             if provider.isNil():
+              if brokerCtx == DefaultBrokerContext:
+                return err(
+                  "RequestBroker(" & `typeNameLit` & "): no zero-arg provider registered"
+                )
               return err(
-                "RequestBroker(" & `typeNameLit` & "): no zero-arg provider registered"
+                "RequestBroker(" & `typeNameLit` &
+                  "): no provider registered for broker context " & $brokerCtx
               )
+
             let catchedRes = catch:
               await provider()
 
@@ -507,10 +531,32 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
           proc request*(
               _: typedesc[`typeIdent`]
           ): Result[`typeIdent`, string] {.gcsafe, raises: [].} =
-            let provider = `accessProcIdent`().`zeroArgFieldName`
+            return request(`typeIdent`, DefaultBrokerContext)
+
+      )
+
+      result.add(
+        quote do:
+          proc request*(
+              _: typedesc[`typeIdent`], brokerCtx: BrokerContext
+          ): Result[`typeIdent`, string] {.gcsafe, raises: [].} =
+            var provider: `zeroArgProviderName`
+            if brokerCtx == DefaultBrokerContext:
+              provider = `accessProcIdent`().`zeroArgProvidersFieldName`[0].handler
+            else:
+              for entry in `accessProcIdent`().`zeroArgProvidersFieldName`:
+                if entry.brokerCtx == brokerCtx:
+                  provider = entry.handler
+                  break
+
             if provider.isNil():
+              if brokerCtx == DefaultBrokerContext:
+                return err(
+                  "RequestBroker(" & `typeNameLit` & "): no zero-arg provider registered"
+                )
               return err(
-                "RequestBroker(" & `typeNameLit` & "): no zero-arg provider registered"
+                "RequestBroker(" & `typeNameLit` &
+                  "): no provider registered for broker context " & $brokerCtx
               )
 
             var providerRes: Result[`typeIdent`, string]
@@ -533,24 +579,54 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
 
       )
   if not argSig.isNil():
+    let argProvidersFieldName = ident("providersWithArgs")
     result.add(
       quote do:
         proc setProvider*(
             _: typedesc[`typeIdent`], handler: `argProviderName`
         ): Result[void, string] =
-          if not `accessProcIdent`().`argFieldName`.isNil():
+          if not `accessProcIdent`().`argProvidersFieldName`[0].handler.isNil():
             return err("Provider already set")
-          `accessProcIdent`().`argFieldName` = handler
+          `accessProcIdent`().`argProvidersFieldName`[0].handler = handler
           return ok()
 
     )
-    clearBody.add(
+
+    result.add(
       quote do:
-        `accessProcIdent`().`argFieldName` = nil
+        proc setProvider*(
+            _: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            handler: `argProviderName`,
+        ): Result[void, string] =
+          if brokerCtx == DefaultBrokerContext:
+            return setProvider(`typeIdent`, handler)
+
+          for entry in `accessProcIdent`().`argProvidersFieldName`:
+            if entry.brokerCtx == brokerCtx:
+              return err(
+                "RequestBroker(" & `typeNameLit` &
+                  "): provider already set for broker context " & $brokerCtx
+              )
+
+          `accessProcIdent`().`argProvidersFieldName`.add(
+            (brokerCtx: brokerCtx, handler: handler)
+          )
+          return ok()
+
+    )
+    clearBodyKeyed.add(
+      quote do:
+        if `brokerCtxParamIdent` == DefaultBrokerContext:
+          `accessProcIdent`().`argProvidersFieldName`[0].handler =
+            default(`argProviderName`)
+        else:
+          `accessProcIdent`().`argProvidersFieldName`.keepItIf(
+            it.brokerCtx != `brokerCtxParamIdent`
+          )
     )
     let requestParamDefs = cloneParams(argParams)
     let argNameIdents = collectParamNames(requestParamDefs)
-    let providerSym = genSym(nskLet, "provider")
     var formalParams = newTree(nnkFormalParams)
     formalParams.add(copyNimTree(returnType))
     formalParams.add(
@@ -572,29 +648,96 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
       of rbSync:
         quote:
           {.gcsafe, raises: [].}
-    var providerCall = newCall(providerSym)
+
+    var forwardCall = newCall(ident("request"))
+    forwardCall.add(copyNimTree(typeIdent))
+    forwardCall.add(ident("DefaultBrokerContext"))
     for argName in argNameIdents:
-      providerCall.add(argName)
+      forwardCall.add(argName)
+
     var requestBody = newStmtList()
-    requestBody.add(
-      quote do:
-        let `providerSym` = `accessProcIdent`().`argFieldName`
+    case mode
+    of rbAsync:
+      requestBody.add(
+        quote do:
+          return await `forwardCall`
+      )
+    of rbSync:
+      requestBody.add(
+        quote do:
+          return `forwardCall`
+      )
+
+    result.add(
+      newTree(
+        nnkProcDef,
+        postfix(ident("request"), "*"),
+        newEmptyNode(),
+        newEmptyNode(),
+        formalParams,
+        requestPragmas,
+        newEmptyNode(),
+        requestBody,
+      )
     )
-    requestBody.add(
+
+    # Keyed request variant for the argument-based signature.
+    let requestParamDefsKeyed = cloneParams(argParams)
+    let argNameIdentsKeyed = collectParamNames(requestParamDefsKeyed)
+    let providerSymKeyed = genSym(nskVar, "provider")
+    var formalParamsKeyed = newTree(nnkFormalParams)
+    formalParamsKeyed.add(copyNimTree(returnType))
+    formalParamsKeyed.add(
+      newTree(
+        nnkIdentDefs,
+        ident("_"),
+        newTree(nnkBracketExpr, ident("typedesc"), copyNimTree(typeIdent)),
+        newEmptyNode(),
+      )
+    )
+    formalParamsKeyed.add(
+      newTree(nnkIdentDefs, ident("brokerCtx"), ident("BrokerContext"), newEmptyNode())
+    )
+    for paramDef in requestParamDefsKeyed:
+      formalParamsKeyed.add(paramDef)
+
+    let requestPragmasKeyed = requestPragmas
+    var providerCallKeyed = newCall(providerSymKeyed)
+    for argName in argNameIdentsKeyed:
+      providerCallKeyed.add(argName)
+
+    var requestBodyKeyed = newStmtList()
+    requestBodyKeyed.add(
       quote do:
-        if `providerSym`.isNil():
+        var `providerSymKeyed`: `argProviderName`
+        if brokerCtx == DefaultBrokerContext:
+          `providerSymKeyed` = `accessProcIdent`().`argProvidersFieldName`[0].handler
+        else:
+          for entry in `accessProcIdent`().`argProvidersFieldName`:
+            if entry.brokerCtx == brokerCtx:
+              `providerSymKeyed` = entry.handler
+              break
+    )
+    requestBodyKeyed.add(
+      quote do:
+        if `providerSymKeyed`.isNil():
+          if brokerCtx == DefaultBrokerContext:
+            return err(
+              "RequestBroker(" & `typeNameLit` &
+                "): no provider registered for input signature"
+            )
           return err(
             "RequestBroker(" & `typeNameLit` &
-              "): no provider registered for input signature"
+              "): no provider registered for broker context " & $brokerCtx
           )
     )
 
     case mode
     of rbAsync:
-      requestBody.add(
+      requestBodyKeyed.add(
         quote do:
           let catchedRes = catch:
-            await `providerCall`
+            await `providerCallKeyed`
           if catchedRes.isErr():
             return err(
               "RequestBroker(" & `typeNameLit` & "): provider threw exception: " &
@@ -612,11 +755,11 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
           return providerRes
       )
     of rbSync:
-      requestBody.add(
+      requestBodyKeyed.add(
         quote do:
           var providerRes: Result[`typeIdent`, string]
           try:
-            providerRes = `providerCall`
+            providerRes = `providerCallKeyed`
           except CatchableError as e:
             return err(
               "RequestBroker(" & `typeNameLit` & "): provider threw exception: " & e.msg
@@ -631,24 +774,52 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
                 )
           return providerRes
       )
-    # requestBody.add(providerCall)
+
     result.add(
       newTree(
         nnkProcDef,
         postfix(ident("request"), "*"),
         newEmptyNode(),
         newEmptyNode(),
-        formalParams,
-        requestPragmas,
+        formalParamsKeyed,
+        requestPragmasKeyed,
         newEmptyNode(),
-        requestBody,
+        requestBodyKeyed,
+      )
+    )
+
+  block:
+    var formalParamsClearKeyed = newTree(nnkFormalParams)
+    formalParamsClearKeyed.add(newEmptyNode())
+    formalParamsClearKeyed.add(
+      newTree(
+        nnkIdentDefs,
+        ident("_"),
+        newTree(nnkBracketExpr, ident("typedesc"), copyNimTree(typeIdent)),
+        newEmptyNode(),
+      )
+    )
+    formalParamsClearKeyed.add(
+      newTree(nnkIdentDefs, brokerCtxParamIdent, ident("BrokerContext"), newEmptyNode())
+    )
+
+    result.add(
+      newTree(
+        nnkProcDef,
+        postfix(ident("clearProvider"), "*"),
+        newEmptyNode(),
+        newEmptyNode(),
+        formalParamsClearKeyed,
+        newEmptyNode(),
+        newEmptyNode(),
+        clearBodyKeyed,
       )
     )
 
   result.add(
     quote do:
       proc clearProvider*(_: typedesc[`typeIdent`]) =
-        `clearBody`
+        clearProvider(`typeIdent`, DefaultBrokerContext)
 
   )
 

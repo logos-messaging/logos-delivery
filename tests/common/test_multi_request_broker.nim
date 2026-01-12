@@ -31,6 +31,23 @@ MultiRequestBroker:
     suffix: string
   ): Future[Result[DualResponse, string]] {.async.}
 
+type ExternalBaseType = string
+
+MultiRequestBroker:
+  type NativeIntResponse = int
+
+  proc signatureFetch*(): Future[Result[NativeIntResponse, string]] {.async.}
+
+MultiRequestBroker:
+  type ExternalAliasResponse = ExternalBaseType
+
+  proc signatureFetch*(): Future[Result[ExternalAliasResponse, string]] {.async.}
+
+MultiRequestBroker:
+  type AlreadyDistinctResponse = distinct int
+
+  proc signatureFetch*(): Future[Result[AlreadyDistinctResponse, string]] {.async.}
+
 suite "MultiRequestBroker":
   test "aggregates zero-argument providers":
     discard NoArgResponse.setProvider(
@@ -194,7 +211,6 @@ suite "MultiRequestBroker":
     let firstHandler = NoArgResponse.setProvider(
       proc(): Future[Result[NoArgResponse, string]] {.async.} =
         raise newException(ValueError, "first handler raised")
-        ok(NoArgResponse(label: "any"))
     )
 
     discard NoArgResponse.setProvider(
@@ -210,6 +226,99 @@ suite "MultiRequestBroker":
 
   test "ref providers returning nil fail request":
     DualResponse.clearProviders()
+
+  test "supports native request types":
+    NativeIntResponse.clearProviders()
+
+    discard NativeIntResponse.setProvider(
+      proc(): Future[Result[NativeIntResponse, string]] {.async.} =
+        ok(NativeIntResponse(1))
+    )
+
+    discard NativeIntResponse.setProvider(
+      proc(): Future[Result[NativeIntResponse, string]] {.async.} =
+        ok(NativeIntResponse(2))
+    )
+
+    let res = waitFor NativeIntResponse.request()
+    check res.isOk()
+    check res.get().len == 2
+    check res.get().anyIt(int(it) == 1)
+    check res.get().anyIt(int(it) == 2)
+
+    NativeIntResponse.clearProviders()
+
+  test "supports external request types":
+    ExternalAliasResponse.clearProviders()
+
+    discard ExternalAliasResponse.setProvider(
+      proc(): Future[Result[ExternalAliasResponse, string]] {.async.} =
+        ok(ExternalAliasResponse("hello"))
+    )
+
+    let res = waitFor ExternalAliasResponse.request()
+    check res.isOk()
+    check res.get().len == 1
+    check ExternalBaseType(res.get()[0]) == "hello"
+
+    ExternalAliasResponse.clearProviders()
+
+  test "supports already-distinct request types":
+    AlreadyDistinctResponse.clearProviders()
+
+    discard AlreadyDistinctResponse.setProvider(
+      proc(): Future[Result[AlreadyDistinctResponse, string]] {.async.} =
+        ok(AlreadyDistinctResponse(7))
+    )
+
+    let res = waitFor AlreadyDistinctResponse.request()
+    check res.isOk()
+    check res.get().len == 1
+    check int(res.get()[0]) == 7
+
+    AlreadyDistinctResponse.clearProviders()
+
+  test "context-aware providers are isolated":
+    NoArgResponse.clearProviders()
+    let ctxA = NewBrokerContext()
+    let ctxB = NewBrokerContext()
+
+    discard NoArgResponse.setProvider(
+      ctxA,
+      proc(): Future[Result[NoArgResponse, string]] {.async.} =
+        ok(NoArgResponse(label: "a")),
+    )
+    discard NoArgResponse.setProvider(
+      ctxB,
+      proc(): Future[Result[NoArgResponse, string]] {.async.} =
+        ok(NoArgResponse(label: "b")),
+    )
+
+    let resA = waitFor NoArgResponse.request(ctxA)
+    check resA.isOk()
+    check resA.get().len == 1
+    check resA.get()[0].label == "a"
+
+    let resB = waitFor NoArgResponse.request(ctxB)
+    check resB.isOk()
+    check resB.get().len == 1
+    check resB.get()[0].label == "b"
+
+    let resDefault = waitFor NoArgResponse.request()
+    check resDefault.isOk()
+    check resDefault.get().len == 0
+
+    NoArgResponse.clearProviders(ctxA)
+    let clearedA = waitFor NoArgResponse.request(ctxA)
+    check clearedA.isOk()
+    check clearedA.get().len == 0
+
+    let stillB = waitFor NoArgResponse.request(ctxB)
+    check stillB.isOk()
+    check stillB.get().len == 1
+    check stillB.get()[0].label == "b"
+
+    NoArgResponse.clearProviders(ctxB)
 
     discard DualResponse.setProvider(
       proc(): Future[Result[DualResponse, string]] {.async.} =

@@ -4,6 +4,15 @@ import testutils/unittests
 
 import waku/common/broker/event_broker
 
+type ExternalDefinedEventType = object
+  label*: string
+
+EventBroker:
+  type IntEvent = int
+
+EventBroker:
+  type ExternalAliasEvent = distinct ExternalDefinedEventType
+
 EventBroker:
   type SampleEvent = object
     value*: int
@@ -123,3 +132,70 @@ suite "EventBroker":
 
     check counter == 21 # 1+2+3 + 4+5+6
     RefEvent.dropAllListeners()
+
+  test "supports BrokerContext-scoped listeners":
+    SampleEvent.dropAllListeners()
+
+    let ctxA = NewBrokerContext()
+    let ctxB = NewBrokerContext()
+
+    var seenA: seq[int] = @[]
+    var seenB: seq[int] = @[]
+
+    discard SampleEvent.listen(
+      ctxA,
+      proc(evt: SampleEvent): Future[void] {.async: (raises: []).} =
+        seenA.add(evt.value),
+    )
+
+    discard SampleEvent.listen(
+      ctxB,
+      proc(evt: SampleEvent): Future[void] {.async: (raises: []).} =
+        seenB.add(evt.value),
+    )
+
+    SampleEvent.emit(ctxA, SampleEvent(value: 1, label: "a"))
+    SampleEvent.emit(ctxB, SampleEvent(value: 2, label: "b"))
+    waitForListeners()
+
+    check seenA == @[1]
+    check seenB == @[2]
+
+    SampleEvent.dropAllListeners(ctxA)
+    SampleEvent.emit(ctxA, SampleEvent(value: 3, label: "a2"))
+    SampleEvent.emit(ctxB, SampleEvent(value: 4, label: "b2"))
+    waitForListeners()
+
+    check seenA == @[1]
+    check seenB == @[2, 4]
+
+    SampleEvent.dropAllListeners(ctxB)
+
+  test "supports non-object event types (auto-distinct)":
+    var seen: seq[int] = @[]
+
+    discard IntEvent.listen(
+      proc(evt: IntEvent): Future[void] {.async: (raises: []).} =
+        seen.add(int(evt))
+    )
+
+    IntEvent.emit(IntEvent(42))
+    waitForListeners()
+
+    check seen == @[42]
+    IntEvent.dropAllListeners()
+
+  test "supports externally-defined type aliases (auto-distinct)":
+    var seen: seq[string] = @[]
+
+    discard ExternalAliasEvent.listen(
+      proc(evt: ExternalAliasEvent): Future[void] {.async: (raises: []).} =
+        let base = ExternalDefinedEventType(evt)
+        seen.add(base.label)
+    )
+
+    ExternalAliasEvent.emit(ExternalAliasEvent(ExternalDefinedEventType(label: "x")))
+    waitForListeners()
+
+    check seen == @["x"]
+    ExternalAliasEvent.dropAllListeners()

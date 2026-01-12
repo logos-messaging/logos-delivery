@@ -5,12 +5,35 @@
 ## need for direct dependencies in between.
 ## Worth considering using it for use cases where you need to collect data from multiple providers.
 ##
-## Provides a declarative way to define an immutable value type together with a
-## thread-local broker that can register multiple asynchronous providers, dispatch
-## typed requests, and clear handlers. Unlike `RequestBroker`,
-## every call to `request` fan-outs to every registered provider and returns with
-## collected responses.
-## Request succeeds if all providers succeed, otherwise fails with an error.
+## Generates a standalone, type-safe request broker for the declared type.
+## The macro exports the value type itself plus a broker companion that manages
+## providers via thread-local storage.
+##
+## Unlike `RequestBroker`, every call to `request` fan-outs to every registered
+## provider and returns all collected responses.
+## The request succeeds only if all providers succeed, otherwise it fails.
+##
+## Type definitions:
+## - Inline `object` / `ref object` definitions are supported.
+## - Native types, aliases, and externally-defined types are also supported.
+##   In that case, MultiRequestBroker will automatically wrap the declared RHS
+##   type in `distinct` unless you already used `distinct`.
+##   This keeps request types unique even when multiple brokers share the same
+##   underlying base type.
+##
+## Default vs. context aware use:
+## Every generated broker is a thread-local global instance.
+## Sometimes you want multiple independent provider sets for the same request
+## type within the same thread (e.g. multiple components). For that, you can use
+## context-aware MultiRequestBroker.
+##
+## Context awareness is supported through the `BrokerContext` argument for
+## `setProvider`, `request`, `removeProvider`, and `clearProviders`.
+## Provider stores are kept separate per broker context.
+##
+## Default broker context is defined as `DefaultBrokerContext`. If you don't
+## need context awareness, you can keep using the interfaces without the context
+## argument, which operate on `DefaultBrokerContext`.
 ##
 ## Usage:
 ##
@@ -29,14 +52,17 @@
 ##
 ## ```
 ##
-## You regiser request processor (proveder) at any place of the code without the need to know of who ever may request.
-## Respectively to the defined signatures register provider functions with `TypeName.setProvider(...)`.
-## Providers are async procs or lambdas that return with a Future[Result[seq[TypeName], string]].
-## Notice MultiRequestBroker's `setProvider` return with a handler that can be used to remove the provider later (or error).
+## You can register a request processor (provider) anywhere without the need to
+## know who will request.
+## Register provider functions with `TypeName.setProvider(...)`.
+## Providers are async procs or lambdas that return `Future[Result[TypeName, string]]`.
+## `setProvider` returns a handle (or an error) that can later be used to remove
+## the provider.
 
-## Requests can be made from anywhere with no direct dependency on the provider(s) by
-## calling `TypeName.request()` - with arguments respecting the signature(s).
-## This will asynchronously call the registered provider and return the collected data, in form of `Future[Result[seq[TypeName], string]]`.
+## Requests can be made from anywhere with no direct dependency on the provider(s)
+## by calling `TypeName.request()` (with arguments respecting the declared signature).
+## This will asynchronously call all registered providers and return the collected
+## responses as `Future[Result[seq[TypeName], string]]`.
 ##
 ## Whenever you don't want to process requests anymore (or your object instance that provides the request goes out of scope),
 ## you can remove it from the broker with `TypeName.removeProvider(handle)`.
@@ -77,8 +103,9 @@ import std/[macros, strutils, tables, sugar]
 import chronos
 import results
 import ./helper/broker_utils
+import ./broker_context
 
-export results, chronos
+export results, chronos, broker_context
 
 proc isReturnTypeValid(returnType, typeIdent: NimNode): bool =
   ## Accept Future[Result[TypeIdent, string]] as the contract.
@@ -95,23 +122,6 @@ proc isReturnTypeValid(returnType, typeIdent: NimNode): bool =
     return false
   inner[2].kind == nnkIdent and inner[2].eqIdent("string")
 
-proc cloneParams(params: seq[NimNode]): seq[NimNode] =
-  ## Deep copy parameter definitions so they can be reused in generated nodes.
-  result = @[]
-  for param in params:
-    result.add(copyNimTree(param))
-
-proc collectParamNames(params: seq[NimNode]): seq[NimNode] =
-  ## Extract identifiers declared in parameter definitions.
-  result = @[]
-  for param in params:
-    assert param.kind == nnkIdentDefs
-    for i in 0 ..< param.len - 2:
-      let nameNode = param[i]
-      if nameNode.kind == nnkEmpty:
-        continue
-      result.add(ident($nameNode))
-
 proc makeProcType(returnType: NimNode, params: seq[NimNode]): NimNode =
   var formal = newTree(nnkFormalParams)
   formal.add(returnType)
@@ -126,65 +136,10 @@ proc makeProcType(returnType: NimNode, params: seq[NimNode]): NimNode =
 macro MultiRequestBroker*(body: untyped): untyped =
   when defined(requestBrokerDebug):
     echo body.treeRepr
-  var typeIdent: NimNode = nil
-  var objectDef: NimNode = nil
-  var isRefObject = false
-  for stmt in body:
-    if stmt.kind == nnkTypeSection:
-      for def in stmt:
-        if def.kind != nnkTypeDef:
-          continue
-        let rhs = def[2]
-        var objectType: NimNode
-        case rhs.kind
-        of nnkObjectTy:
-          objectType = rhs
-        of nnkRefTy:
-          isRefObject = true
-          if rhs.len != 1 or rhs[0].kind != nnkObjectTy:
-            error(
-              "MultiRequestBroker ref object must wrap a concrete object definition",
-              rhs,
-            )
-          objectType = rhs[0]
-        else:
-          continue
-        if not typeIdent.isNil():
-          error("Only one object type may be declared inside MultiRequestBroker", def)
-        typeIdent = baseTypeIdent(def[0])
-        let recList = objectType[2]
-        if recList.kind != nnkRecList:
-          error(
-            "MultiRequestBroker object must declare a standard field list", objectType
-          )
-        var exportedRecList = newTree(nnkRecList)
-        for field in recList:
-          case field.kind
-          of nnkIdentDefs:
-            ensureFieldDef(field)
-            var cloned = copyNimTree(field)
-            for i in 0 ..< cloned.len - 2:
-              cloned[i] = exportIdentNode(cloned[i])
-            exportedRecList.add(cloned)
-          of nnkEmpty:
-            discard
-          else:
-            error(
-              "MultiRequestBroker object definition only supports simple field declarations",
-              field,
-            )
-        let exportedObjectType = newTree(
-          nnkObjectTy,
-          copyNimTree(objectType[0]),
-          copyNimTree(objectType[1]),
-          exportedRecList,
-        )
-        if isRefObject:
-          objectDef = newTree(nnkRefTy, exportedObjectType)
-        else:
-          objectDef = exportedObjectType
-  if typeIdent.isNil():
-    error("MultiRequestBroker body must declare exactly one object type", body)
+  let parsed = parseSingleTypeDef(body, "MultiRequestBroker")
+  let typeIdent = parsed.typeIdent
+  let objectDef = parsed.objectDef
+  let isRefObject = parsed.isRefObject
 
   when defined(requestBrokerDebug):
     echo "MultiRequestBroker generating type: ", $typeIdent
@@ -193,12 +148,13 @@ macro MultiRequestBroker*(body: untyped): untyped =
   let sanitized = sanitizeIdentName(typeIdent)
   let typeNameLit = newLit($typeIdent)
   let isRefObjectLit = newLit(isRefObject)
-  let tableSym = bindSym"Table"
-  let initTableSym = bindSym"initTable"
   let uint64Ident = ident("uint64")
   let providerKindIdent = ident(sanitized & "ProviderKind")
   let providerHandleIdent = ident(sanitized & "ProviderHandle")
   let exportedProviderHandleIdent = postfix(copyNimTree(providerHandleIdent), "*")
+  let bucketTypeIdent = ident(sanitized & "CtxBucket")
+  let findBucketIdxIdent = ident(sanitized & "FindBucketIdx")
+  let getOrCreateBucketIdxIdent = ident(sanitized & "GetOrCreateBucketIdx")
   let zeroKindIdent = ident("pk" & sanitized & "NoArgs")
   let argKindIdent = ident("pk" & sanitized & "WithArgs")
   var zeroArgSig: NimNode = nil
@@ -306,63 +262,90 @@ macro MultiRequestBroker*(body: untyped): untyped =
     let procType = makeProcType(returnType, cloneParams(argParams))
     typeSection.add(newTree(nnkTypeDef, argProviderName, newEmptyNode(), procType))
 
-  var brokerRecList = newTree(nnkRecList)
+  var bucketRecList = newTree(nnkRecList)
+  bucketRecList.add(
+    newTree(nnkIdentDefs, ident("brokerCtx"), ident("BrokerContext"), newEmptyNode())
+  )
   if not zeroArgSig.isNil():
-    brokerRecList.add(
+    bucketRecList.add(
       newTree(
         nnkIdentDefs,
         zeroArgFieldName,
-        newTree(nnkBracketExpr, tableSym, uint64Ident, zeroArgProviderName),
+        newTree(nnkBracketExpr, ident("seq"), zeroArgProviderName),
         newEmptyNode(),
       )
     )
   if not argSig.isNil():
-    brokerRecList.add(
+    bucketRecList.add(
       newTree(
         nnkIdentDefs,
         argFieldName,
-        newTree(nnkBracketExpr, tableSym, uint64Ident, argProviderName),
+        newTree(nnkBracketExpr, ident("seq"), argProviderName),
         newEmptyNode(),
       )
     )
-  brokerRecList.add(newTree(nnkIdentDefs, ident("nextId"), uint64Ident, newEmptyNode()))
-  let brokerTypeIdent = ident(sanitizeIdentName(typeIdent) & "Broker")
-  let brokerTypeDef = newTree(
-    nnkTypeDef,
-    brokerTypeIdent,
-    newEmptyNode(),
+  typeSection.add(
     newTree(
-      nnkRefTy, newTree(nnkObjectTy, newEmptyNode(), newEmptyNode(), brokerRecList)
-    ),
+      nnkTypeDef,
+      bucketTypeIdent,
+      newEmptyNode(),
+      newTree(nnkObjectTy, newEmptyNode(), newEmptyNode(), bucketRecList),
+    )
   )
-  typeSection.add(brokerTypeDef)
+
+  var brokerRecList = newTree(nnkRecList)
+  brokerRecList.add(
+    newTree(
+      nnkIdentDefs,
+      ident("buckets"),
+      newTree(nnkBracketExpr, ident("seq"), bucketTypeIdent),
+      newEmptyNode(),
+    )
+  )
+  let brokerTypeIdent = ident(sanitizeIdentName(typeIdent) & "Broker")
+  typeSection.add(
+    newTree(
+      nnkTypeDef,
+      brokerTypeIdent,
+      newEmptyNode(),
+      newTree(
+        nnkRefTy, newTree(nnkObjectTy, newEmptyNode(), newEmptyNode(), brokerRecList)
+      ),
+    )
+  )
   result = newStmtList()
   result.add(typeSection)
 
   let globalVarIdent = ident("g" & sanitizeIdentName(typeIdent) & "Broker")
   let accessProcIdent = ident("access" & sanitizeIdentName(typeIdent) & "Broker")
-  var initStatements = newStmtList()
-  if not zeroArgSig.isNil():
-    initStatements.add(
-      quote do:
-        `globalVarIdent`.`zeroArgFieldName` =
-          `initTableSym`[`uint64Ident`, `zeroArgProviderName`]()
-    )
-  if not argSig.isNil():
-    initStatements.add(
-      quote do:
-        `globalVarIdent`.`argFieldName` =
-          `initTableSym`[`uint64Ident`, `argProviderName`]()
-    )
   result.add(
     quote do:
       var `globalVarIdent` {.threadvar.}: `brokerTypeIdent`
 
+      proc `findBucketIdxIdent`(
+          broker: `brokerTypeIdent`, brokerCtx: BrokerContext
+      ): int =
+        if brokerCtx == DefaultBrokerContext:
+          return 0
+        for i in 1 ..< broker.buckets.len:
+          if broker.buckets[i].brokerCtx == brokerCtx:
+            return i
+        return -1
+
+      proc `getOrCreateBucketIdxIdent`(
+          broker: `brokerTypeIdent`, brokerCtx: BrokerContext
+      ): int =
+        let idx = `findBucketIdxIdent`(broker, brokerCtx)
+        if idx >= 0:
+          return idx
+        broker.buckets.add(`bucketTypeIdent`(brokerCtx: brokerCtx))
+        return broker.buckets.high
+
       proc `accessProcIdent`(): `brokerTypeIdent` =
         if `globalVarIdent`.isNil():
           new(`globalVarIdent`)
-          `globalVarIdent`.nextId = 1'u64
-          `initStatements`
+          `globalVarIdent`.buckets =
+            @[`bucketTypeIdent`(brokerCtx: DefaultBrokerContext)]
         return `globalVarIdent`
 
   )
@@ -372,40 +355,47 @@ macro MultiRequestBroker*(body: untyped): untyped =
     result.add(
       quote do:
         proc setProvider*(
-            _: typedesc[`typeIdent`], handler: `zeroArgProviderName`
+            _: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            handler: `zeroArgProviderName`,
         ): Result[`providerHandleIdent`, string] =
           if handler.isNil():
             return err("Provider handler must be provided")
           let broker = `accessProcIdent`()
-          if broker.nextId == 0'u64:
-            broker.nextId = 1'u64
-          for existingId, existing in broker.`zeroArgFieldName`.pairs:
-            if existing == handler:
-              return ok(`providerHandleIdent`(id: existingId, kind: `zeroKindIdent`))
-          let newId = broker.nextId
-          inc broker.nextId
-          broker.`zeroArgFieldName`[newId] = handler
-          return ok(`providerHandleIdent`(id: newId, kind: `zeroKindIdent`))
+          let bucketIdx = `getOrCreateBucketIdxIdent`(broker, brokerCtx)
+          for i, existing in broker.buckets[bucketIdx].`zeroArgFieldName`:
+            if not existing.isNil() and existing == handler:
+              return ok(`providerHandleIdent`(id: uint64(i + 1), kind: `zeroKindIdent`))
+          broker.buckets[bucketIdx].`zeroArgFieldName`.add(handler)
+          return ok(
+            `providerHandleIdent`(
+              id: uint64(broker.buckets[bucketIdx].`zeroArgFieldName`.len),
+              kind: `zeroKindIdent`,
+            )
+          )
 
-    )
-    clearBody.add(
-      quote do:
-        let broker = `accessProcIdent`()
-        if not broker.isNil() and broker.`zeroArgFieldName`.len > 0:
-          broker.`zeroArgFieldName`.clear()
+        proc setProvider*(
+            _: typedesc[`typeIdent`], handler: `zeroArgProviderName`
+        ): Result[`providerHandleIdent`, string] =
+          return setProvider(`typeIdent`, DefaultBrokerContext, handler)
+
     )
     result.add(
       quote do:
         proc request*(
-            _: typedesc[`typeIdent`]
+            _: typedesc[`typeIdent`], brokerCtx: BrokerContext
         ): Future[Result[seq[`typeIdent`], string]] {.async: (raises: []), gcsafe.} =
           var aggregated: seq[`typeIdent`] = @[]
-          let providers = `accessProcIdent`().`zeroArgFieldName`
+          let broker = `accessProcIdent`()
+          let bucketIdx = `findBucketIdxIdent`(broker, brokerCtx)
+          if bucketIdx < 0:
+            return ok(aggregated)
+          let providers = broker.buckets[bucketIdx].`zeroArgFieldName`
           if providers.len == 0:
             return ok(aggregated)
           # var providersFut: seq[Future[Result[`typeIdent`, string]]] = collect:
           var providersFut = collect(newSeq):
-            for provider in providers.values:
+            for provider in providers:
               if provider.isNil():
                 continue
               provider()
@@ -435,32 +425,40 @@ macro MultiRequestBroker*(body: untyped): untyped =
 
           return ok(aggregated)
 
+        proc request*(
+            _: typedesc[`typeIdent`]
+        ): Future[Result[seq[`typeIdent`], string]] =
+          return request(`typeIdent`, DefaultBrokerContext)
+
     )
   if not argSig.isNil():
     result.add(
       quote do:
         proc setProvider*(
-            _: typedesc[`typeIdent`], handler: `argProviderName`
+            _: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            handler: `argProviderName`,
         ): Result[`providerHandleIdent`, string] =
           if handler.isNil():
             return err("Provider handler must be provided")
           let broker = `accessProcIdent`()
-          if broker.nextId == 0'u64:
-            broker.nextId = 1'u64
-          for existingId, existing in broker.`argFieldName`.pairs:
-            if existing == handler:
-              return ok(`providerHandleIdent`(id: existingId, kind: `argKindIdent`))
-          let newId = broker.nextId
-          inc broker.nextId
-          broker.`argFieldName`[newId] = handler
-          return ok(`providerHandleIdent`(id: newId, kind: `argKindIdent`))
+          let bucketIdx = `getOrCreateBucketIdxIdent`(broker, brokerCtx)
+          for i, existing in broker.buckets[bucketIdx].`argFieldName`:
+            if not existing.isNil() and existing == handler:
+              return ok(`providerHandleIdent`(id: uint64(i + 1), kind: `argKindIdent`))
+          broker.buckets[bucketIdx].`argFieldName`.add(handler)
+          return ok(
+            `providerHandleIdent`(
+              id: uint64(broker.buckets[bucketIdx].`argFieldName`.len),
+              kind: `argKindIdent`,
+            )
+          )
 
-    )
-    clearBody.add(
-      quote do:
-        let broker = `accessProcIdent`()
-        if not broker.isNil() and broker.`argFieldName`.len > 0:
-          broker.`argFieldName`.clear()
+        proc setProvider*(
+            _: typedesc[`typeIdent`], handler: `argProviderName`
+        ): Result[`providerHandleIdent`, string] =
+          return setProvider(`typeIdent`, DefaultBrokerContext, handler)
+
     )
     let requestParamDefs = cloneParams(argParams)
     let argNameIdents = collectParamNames(requestParamDefs)
@@ -481,17 +479,24 @@ macro MultiRequestBroker*(body: untyped): untyped =
         newEmptyNode(),
       )
     )
+    formalParams.add(
+      newTree(nnkIdentDefs, ident("brokerCtx"), ident("BrokerContext"), newEmptyNode())
+    )
     for paramDef in requestParamDefs:
       formalParams.add(paramDef)
     let requestPragmas = quote:
       {.async: (raises: []), gcsafe.}
     let requestBody = quote:
       var aggregated: seq[`typeIdent`] = @[]
-      let providers = `accessProcIdent`().`argFieldName`
+      let broker = `accessProcIdent`()
+      let bucketIdx = `findBucketIdxIdent`(broker, brokerCtx)
+      if bucketIdx < 0:
+        return ok(aggregated)
+      let providers = broker.buckets[bucketIdx].`argFieldName`
       if providers.len == 0:
         return ok(aggregated)
       var providersFut = collect(newSeq):
-        for provider in providers.values:
+        for provider in providers:
           if provider.isNil():
             continue
           let `providerSym` = provider
@@ -531,53 +536,208 @@ macro MultiRequestBroker*(body: untyped): untyped =
       )
     )
 
-  result.add(
-    quote do:
-      proc clearProviders*(_: typedesc[`typeIdent`]) =
-        `clearBody`
-        let broker = `accessProcIdent`()
-        if not broker.isNil():
-          broker.nextId = 1'u64
-
-  )
-
-  let removeHandleSym = genSym(nskParam, "handle")
-  let removeBrokerSym = genSym(nskLet, "broker")
-  var removeBody = newStmtList()
-  removeBody.add(
-    quote do:
-      if `removeHandleSym`.id == 0'u64:
-        return
-      let `removeBrokerSym` = `accessProcIdent`()
-      if `removeBrokerSym`.isNil():
-        return
-  )
-  if not zeroArgSig.isNil():
-    removeBody.add(
+    # Backward-compatible default-context overload (no brokerCtx parameter).
+    var formalParamsDefault = newTree(nnkFormalParams)
+    formalParamsDefault.add(
       quote do:
-        if `removeHandleSym`.kind == `zeroKindIdent`:
-          `removeBrokerSym`.`zeroArgFieldName`.del(`removeHandleSym`.id)
-          return
+        Future[Result[seq[`typeIdent`], string]]
     )
-  if not argSig.isNil():
-    removeBody.add(
-      quote do:
-        if `removeHandleSym`.kind == `argKindIdent`:
-          `removeBrokerSym`.`argFieldName`.del(`removeHandleSym`.id)
-          return
+    formalParamsDefault.add(
+      newTree(
+        nnkIdentDefs,
+        ident("_"),
+        newTree(nnkBracketExpr, ident("typedesc"), copyNimTree(typeIdent)),
+        newEmptyNode(),
+      )
     )
-  removeBody.add(
-    quote do:
-      discard
-  )
-  result.add(
-    quote do:
-      proc removeProvider*(
-          _: typedesc[`typeIdent`], `removeHandleSym`: `providerHandleIdent`
-      ) =
-        `removeBody`
+    for paramDef in requestParamDefs:
+      formalParamsDefault.add(copyNimTree(paramDef))
 
-  )
+    var wrapperCall = newCall(ident("request"))
+    wrapperCall.add(copyNimTree(typeIdent))
+    wrapperCall.add(ident("DefaultBrokerContext"))
+    for argName in argNameIdents:
+      wrapperCall.add(copyNimTree(argName))
+
+    result.add(
+      newTree(
+        nnkProcDef,
+        postfix(ident("request"), "*"),
+        newEmptyNode(),
+        newEmptyNode(),
+        formalParamsDefault,
+        newEmptyNode(),
+        newEmptyNode(),
+        newStmtList(newTree(nnkReturnStmt, wrapperCall)),
+      )
+    )
+  let removeHandleCtxSym = genSym(nskParam, "handle")
+  let removeHandleDefaultSym = genSym(nskParam, "handle")
+
+  when true:
+    # Generate clearProviders / removeProvider with macro-time knowledge about which
+    # provider lists exist (zero-arg and/or arg providers).
+    if not zeroArgSig.isNil() and not argSig.isNil():
+      result.add(
+        quote do:
+          proc clearProviders*(_: typedesc[`typeIdent`], brokerCtx: BrokerContext) =
+            let broker = `accessProcIdent`()
+            if broker.isNil():
+              return
+            let bucketIdx = `findBucketIdxIdent`(broker, brokerCtx)
+            if bucketIdx < 0:
+              return
+            broker.buckets[bucketIdx].`zeroArgFieldName`.setLen(0)
+            broker.buckets[bucketIdx].`argFieldName`.setLen(0)
+            if brokerCtx != DefaultBrokerContext:
+              broker.buckets.delete(bucketIdx)
+
+          proc clearProviders*(_: typedesc[`typeIdent`]) =
+            clearProviders(`typeIdent`, DefaultBrokerContext)
+
+          proc removeProvider*(
+              _: typedesc[`typeIdent`],
+              brokerCtx: BrokerContext,
+              `removeHandleCtxSym`: `providerHandleIdent`,
+          ) =
+            if `removeHandleCtxSym`.id == 0'u64:
+              return
+            let broker = `accessProcIdent`()
+            if broker.isNil():
+              return
+            let bucketIdx = `findBucketIdxIdent`(broker, brokerCtx)
+            if bucketIdx < 0:
+              return
+
+            if `removeHandleCtxSym`.kind == `zeroKindIdent`:
+              let idx = int(`removeHandleCtxSym`.id) - 1
+              if idx >= 0 and idx < broker.buckets[bucketIdx].`zeroArgFieldName`.len:
+                broker.buckets[bucketIdx].`zeroArgFieldName`[idx] = nil
+            elif `removeHandleCtxSym`.kind == `argKindIdent`:
+              let idx = int(`removeHandleCtxSym`.id) - 1
+              if idx >= 0 and idx < broker.buckets[bucketIdx].`argFieldName`.len:
+                broker.buckets[bucketIdx].`argFieldName`[idx] = nil
+
+            if brokerCtx != DefaultBrokerContext:
+              var hasAny = false
+              for p in broker.buckets[bucketIdx].`zeroArgFieldName`:
+                if not p.isNil():
+                  hasAny = true
+                  break
+              if not hasAny:
+                for p in broker.buckets[bucketIdx].`argFieldName`:
+                  if not p.isNil():
+                    hasAny = true
+                    break
+              if not hasAny:
+                broker.buckets.delete(bucketIdx)
+
+          proc removeProvider*(
+              _: typedesc[`typeIdent`], `removeHandleDefaultSym`: `providerHandleIdent`
+          ) =
+            removeProvider(`typeIdent`, DefaultBrokerContext, `removeHandleDefaultSym`)
+
+      )
+    elif not zeroArgSig.isNil():
+      result.add(
+        quote do:
+          proc clearProviders*(_: typedesc[`typeIdent`], brokerCtx: BrokerContext) =
+            let broker = `accessProcIdent`()
+            if broker.isNil():
+              return
+            let bucketIdx = `findBucketIdxIdent`(broker, brokerCtx)
+            if bucketIdx < 0:
+              return
+            broker.buckets[bucketIdx].`zeroArgFieldName`.setLen(0)
+            if brokerCtx != DefaultBrokerContext:
+              broker.buckets.delete(bucketIdx)
+
+          proc clearProviders*(_: typedesc[`typeIdent`]) =
+            clearProviders(`typeIdent`, DefaultBrokerContext)
+
+          proc removeProvider*(
+              _: typedesc[`typeIdent`],
+              brokerCtx: BrokerContext,
+              `removeHandleCtxSym`: `providerHandleIdent`,
+          ) =
+            if `removeHandleCtxSym`.id == 0'u64:
+              return
+            let broker = `accessProcIdent`()
+            if broker.isNil():
+              return
+            let bucketIdx = `findBucketIdxIdent`(broker, brokerCtx)
+            if bucketIdx < 0:
+              return
+            if `removeHandleCtxSym`.kind != `zeroKindIdent`:
+              return
+            let idx = int(`removeHandleCtxSym`.id) - 1
+            if idx >= 0 and idx < broker.buckets[bucketIdx].`zeroArgFieldName`.len:
+              broker.buckets[bucketIdx].`zeroArgFieldName`[idx] = nil
+            if brokerCtx != DefaultBrokerContext:
+              var hasAny = false
+              for p in broker.buckets[bucketIdx].`zeroArgFieldName`:
+                if not p.isNil():
+                  hasAny = true
+                  break
+              if not hasAny:
+                broker.buckets.delete(bucketIdx)
+
+          proc removeProvider*(
+              _: typedesc[`typeIdent`], `removeHandleDefaultSym`: `providerHandleIdent`
+          ) =
+            removeProvider(`typeIdent`, DefaultBrokerContext, `removeHandleDefaultSym`)
+
+      )
+    else:
+      result.add(
+        quote do:
+          proc clearProviders*(_: typedesc[`typeIdent`], brokerCtx: BrokerContext) =
+            let broker = `accessProcIdent`()
+            if broker.isNil():
+              return
+            let bucketIdx = `findBucketIdxIdent`(broker, brokerCtx)
+            if bucketIdx < 0:
+              return
+            broker.buckets[bucketIdx].`argFieldName`.setLen(0)
+            if brokerCtx != DefaultBrokerContext:
+              broker.buckets.delete(bucketIdx)
+
+          proc clearProviders*(_: typedesc[`typeIdent`]) =
+            clearProviders(`typeIdent`, DefaultBrokerContext)
+
+          proc removeProvider*(
+              _: typedesc[`typeIdent`],
+              brokerCtx: BrokerContext,
+              `removeHandleCtxSym`: `providerHandleIdent`,
+          ) =
+            if `removeHandleCtxSym`.id == 0'u64:
+              return
+            let broker = `accessProcIdent`()
+            if broker.isNil():
+              return
+            let bucketIdx = `findBucketIdxIdent`(broker, brokerCtx)
+            if bucketIdx < 0:
+              return
+            if `removeHandleCtxSym`.kind != `argKindIdent`:
+              return
+            let idx = int(`removeHandleCtxSym`.id) - 1
+            if idx >= 0 and idx < broker.buckets[bucketIdx].`argFieldName`.len:
+              broker.buckets[bucketIdx].`argFieldName`[idx] = nil
+            if brokerCtx != DefaultBrokerContext:
+              var hasAny = false
+              for p in broker.buckets[bucketIdx].`argFieldName`:
+                if not p.isNil():
+                  hasAny = true
+                  break
+              if not hasAny:
+                broker.buckets.delete(bucketIdx)
+
+          proc removeProvider*(
+              _: typedesc[`typeIdent`], `removeHandleDefaultSym`: `providerHandleIdent`
+          ) =
+            removeProvider(`typeIdent`, DefaultBrokerContext, `removeHandleDefaultSym`)
+
+      )
 
   when defined(requestBrokerDebug):
     echo result.repr
