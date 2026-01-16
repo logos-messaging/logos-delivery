@@ -30,6 +30,8 @@ import
 logScope:
   topics = "waku conf builder"
 
+const DefaultMaxConnections* = 150
+
 type MaxMessageSizeKind* = enum
   mmskNone
   mmskStr
@@ -585,10 +587,17 @@ proc build*(
       warn "Peer persistence not specified, defaulting to false"
       false
 
-  let maxConnections = builder.maxConnections.get()
-  if maxConnections < 150:
-    warn "max-connections less than 150; we suggest using 150 or more for better connectivity",
-      provided = maxConnections
+  let maxConnections =
+    if builder.maxConnections.isSome():
+      builder.maxConnections.get()
+    else:
+      warn "Max connections not specified, defaulting to DefaultMaxConnections",
+        default = DefaultMaxConnections
+      DefaultMaxConnections
+
+  if maxConnections < DefaultMaxConnections:
+    warn "max-connections less than DefaultMaxConnections; we suggest using DefaultMaxConnections or more for better connectivity",
+      provided = maxConnections, recommended = DefaultMaxConnections
 
   # TODO: Do the git version thing here
   let agentString = builder.agentString.get("nwaku")
