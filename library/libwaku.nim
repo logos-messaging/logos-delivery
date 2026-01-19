@@ -63,7 +63,7 @@ proc waku_new(
       callEventCallback(ctx, "onConnectionChange"):
         $JsonConnectionChangeEvent.new($peerId, peerEvent)
 
-proc onNodeHealthChange(ctx: ptr FFIContext): NodeHealthChangeHandler =
+  proc onNodeHealthChange(ctx: ptr FFIContext): NodeHealthChangeHandler =
     return proc(status: NodeHealthStatus) {.async.} =
       callEventCallback(ctx, "onNodeHealthChange"):
         $JsonNodeHealthChangeEvent.new(status)
