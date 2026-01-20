@@ -144,6 +144,4 @@ method generateProof*(
   return err("generateProof is not implemented")
 
 method isReady*(g: GroupManager): Future[bool] {.base, async.} =
-  raise newException(
-    CatchableError, "isReady proc for " & $g.type & " is not implemented yet"
-  )
+  return true

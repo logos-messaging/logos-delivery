@@ -239,11 +239,8 @@ suite "Waku rln relay":
     let manager = cast[OnchainGroupManager](wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     let epoch1 = wakuRlnRelay.getCurrentEpoch()
 
@@ -296,11 +293,8 @@ suite "Waku rln relay":
     let manager = cast[OnchainGroupManager](wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     # usually it's 20 seconds but we set it to 1 for testing purposes which make the test faster
     wakuRlnRelay.rlnMaxTimestampGap = 1
@@ -346,11 +340,9 @@ suite "Waku rln relay":
     let manager1 = cast[OnchainGroupManager](wakuRlnRelay1.groupManager)
     let idCredentials1 = generateCredentials()
 
-    try:
-      waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-    except Exception, CatchableError:
+    (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
       assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+        "error returned when calling register: " & error
 
     let index2 = MembershipIndex(6)
     let rlnConf2 = getWakuRlnConfig(manager = manager, index = index2)
@@ -360,11 +352,9 @@ suite "Waku rln relay":
     let manager2 = cast[OnchainGroupManager](wakuRlnRelay2.groupManager)
     let idCredentials2 = generateCredentials()
 
-    try:
-      waitFor manager2.register(idCredentials2, UserMessageLimit(20))
-    except Exception, CatchableError:
+    (waitFor manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:
       assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+        "error returned when calling register: " & error
 
     # get the current epoch time
     let epoch = wakuRlnRelay1.getCurrentEpoch()

@@ -73,7 +73,9 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
 
   # 4. register on-chain
   try:
-    waitFor groupManager.register(credential, conf.userMessageLimit)
+    (waitFor groupManager.register(credential, conf.userMessageLimit)).isOkOr:
+      error "Failed to register on-chain", error = error
+      quit(QuitFailure)
   except Exception, CatchableError:
     error "failure while registering credentials on-chain",
       error = getCurrentExceptionMsg()

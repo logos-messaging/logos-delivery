@@ -154,11 +154,8 @@ suite "RLN Proofs as a Lightpush Service":
     let manager1 = cast[OnchainGroupManager](server.wakuRlnRelay.groupManager)
     let idCredentials1 = generateCredentials()
 
-    try:
-      waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     let rootUpdated1 = waitFor manager1.updateRoots()
     info "Updated root for node1", rootUpdated1
