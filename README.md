@@ -1,4 +1,6 @@
 # Logos Messaging Nim
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Flogos-messaging%2Flogos-messaging-nim.svg?type=shield)](https://app.fossa.com/projects/git%2Bgithub.com%2Flogos-messaging%2Flogos-messaging-nim?ref=badge_shield)
+
 
 ## Introduction
 
@@ -186,3 +188,7 @@ To get help, or participate in the conversation, join the [Waku Discord](https:/
 ### Docs
 
 * [REST API Documentation](https://waku-org.github.io/waku-rest-api/)
+
+
+## License
+[![FOSSA Status](https://app.fossa.com/api/projects/git%2Bgithub.com%2Flogos-messaging%2Flogos-messaging-nim.svg?type=large)](https://app.fossa.com/projects/git%2Bgithub.com%2Flogos-messaging%2Flogos-messaging-nim?ref=badge_large)
