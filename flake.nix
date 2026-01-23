@@ -10,8 +10,9 @@
     # We are pinning the commit because ultimately we want to use same commit across different projects.
     # A commit from nixpkgs 24.11 release : https://github.com/NixOS/nixpkgs/tree/release-24.11
     nixpkgs.url = "github:NixOS/nixpkgs/0ef228213045d2cdb5a169a95d63ded38670b293";
+    # WARNING: Remember to update commit and use 'nix flake update' to update flake.lock.
     zerokit = {
-      url = "github:vacp2p/zerokit?rev=dc0b31752c91e7b4fefc441cfa6a8210ad7dba7b";
+      url = "git+https://github.com/vacp2p/zerokit?rev=3160d9504d07791f2fc9b610948a6cf9a58ed488";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -60,8 +61,6 @@
           inherit stableSystems;
           src = self;
           targets = ["libwaku"];
-          # We are not able to compile the code with nim-unwrapped-2_0
-          useSystemNim = false;
           zerokitRln = zerokit.packages.${system}.rln;
         };
 
@@ -69,12 +68,10 @@
           inherit stableSystems;
           src = self;
           targets = ["wakucanary"];
-          # We are not able to compile the code with nim-unwrapped-2_0
-          useSystemNim = false;
           zerokitRln = zerokit.packages.${system}.rln;
         };
 
-        default = libwaku-android-arm64;
+        default = libwaku;
       });
 
       devShells = forAllSystems (system: {
