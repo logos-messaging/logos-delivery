@@ -10,6 +10,7 @@ import
     node/waku_node,
     node/peer_manager,
     node/health_monitor/health_status,
+    node/health_monitor/connection_status,
     node/health_monitor/protocol_health,
     node/health_monitor/node_health_monitor,
     node/kernel_api/relay,
@@ -40,7 +41,7 @@ suite "Health Monitor - health state calculation":
     let strength = initTable[WakuProtocol, int]()
     let state =
       calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
-    check state == NodeHealthStatus.Disconnected
+    check state == ConnectionStatus.Disconnected
 
   test "PartiallyConnected, weak relay":
     let weakCount = DefaultRelayFailoverThreshold - 1
@@ -53,7 +54,7 @@ suite "Health Monitor - health state calculation":
     strength[StoreClientProtocol] = 1
     let state =
       calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
-    check state == NodeHealthStatus.PartiallyConnected
+    check state == ConnectionStatus.PartiallyConnected
 
   test "Connected, robust relay":
     let protocols =
@@ -65,7 +66,7 @@ suite "Health Monitor - health state calculation":
     strength[StoreClientProtocol] = FailoverThreshold
     let state =
       calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
-    check state == NodeHealthStatus.Connected
+    check state == ConnectionStatus.Connected
 
   test "Connected, robust edge":
     let protocols =
@@ -81,7 +82,7 @@ suite "Health Monitor - health state calculation":
     strength[StoreClientProtocol] = FailoverThreshold
     let state =
       calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
-    check state == NodeHealthStatus.Connected
+    check state == ConnectionStatus.Connected
 
   test "Disconnected, edge missing store":
     let protocols =
@@ -96,7 +97,7 @@ suite "Health Monitor - health state calculation":
     strength[StoreClientProtocol] = 0
     let state =
       calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
-    check state == NodeHealthStatus.Disconnected
+    check state == ConnectionStatus.Disconnected
 
   test "PartiallyConnected, edge meets minimum failover requirement":
     let weakCount = max(1, FailoverThreshold - 1)
@@ -112,7 +113,7 @@ suite "Health Monitor - health state calculation":
     strength[StoreClientProtocol] = weakCount
     let state =
       calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
-    check state == NodeHealthStatus.PartiallyConnected
+    check state == ConnectionStatus.PartiallyConnected
 
   test "Connected, robust relay ignores store server":
     let protocols =
@@ -122,7 +123,7 @@ suite "Health Monitor - health state calculation":
     strength[StoreProtocol] = 0
     let state =
       calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
-    check state == NodeHealthStatus.Connected
+    check state == ConnectionStatus.Connected
 
   test "Connected, robust relay ignores store client":
     let protocols =
@@ -137,7 +138,7 @@ suite "Health Monitor - health state calculation":
     strength[StoreClientProtocol] = 0
     let state =
       calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
-    check state == NodeHealthStatus.Connected
+    check state == ConnectionStatus.Connected
 
 suite "Health Monitor - events":
   asyncTest "Core (relay) health update":
@@ -155,11 +156,11 @@ suite "Health Monitor - events":
     monitorA.setNodeToHealthMonitor(nodeA)
 
     var
-      lastStatus = NodeHealthStatus.Disconnected
+      lastStatus = ConnectionStatus.Disconnected
       callbackCount = 0
       healthChangeSignal = newFuture[void]()
 
-    monitorA.onNodeHealthChange = proc(status: NodeHealthStatus) {.async.} =
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
       lastStatus = status
       callbackCount.inc()
       if not healthChangeSignal.finished:
@@ -195,7 +196,7 @@ suite "Health Monitor - events":
     var gotConnected = false
 
     while Moment.now() < connectTimeLimit:
-      if lastStatus != NodeHealthStatus.Disconnected:
+      if lastStatus != ConnectionStatus.Disconnected:
         gotConnected = true
         break
 
@@ -218,7 +219,7 @@ suite "Health Monitor - events":
     var gotDisconnected = false
 
     while Moment.now() < disconnectTimeLimit:
-      if lastStatus == NodeHealthStatus.Disconnected:
+      if lastStatus == ConnectionStatus.Disconnected:
         gotDisconnected = true
         break
 
@@ -248,11 +249,11 @@ suite "Health Monitor - events":
     monitorA.setNodeToHealthMonitor(nodeA)
 
     var
-      lastStatus = NodeHealthStatus.Disconnected
+      lastStatus = ConnectionStatus.Disconnected
       callbackCount = 0
       healthChangeSignal = newFuture[void]()
 
-    monitorA.onNodeHealthChange = proc(status: NodeHealthStatus) {.async.} =
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
       lastStatus = status
       callbackCount.inc()
       if not healthChangeSignal.finished:
@@ -281,7 +282,7 @@ suite "Health Monitor - events":
     var gotConnected = false
 
     while Moment.now() < connectTimeLimit:
-      if lastStatus == NodeHealthStatus.PartiallyConnected:
+      if lastStatus == ConnectionStatus.PartiallyConnected:
         gotConnected = true
         break
 
@@ -293,7 +294,7 @@ suite "Health Monitor - events":
     check:
       gotConnected == true
       callbackCount >= 1
-      lastStatus == NodeHealthStatus.PartiallyConnected
+      lastStatus == ConnectionStatus.PartiallyConnected
 
     if healthChangeSignal.finished:
       healthChangeSignal = newFuture[void]()
@@ -305,7 +306,7 @@ suite "Health Monitor - events":
     var gotDisconnected = false
 
     while Moment.now() < disconnectTimeLimit:
-      if lastStatus == NodeHealthStatus.Disconnected:
+      if lastStatus == ConnectionStatus.Disconnected:
         gotDisconnected = true
         break
 
@@ -316,7 +317,7 @@ suite "Health Monitor - events":
 
     check:
       gotDisconnected == true
-      lastStatus == NodeHealthStatus.Disconnected
+      lastStatus == ConnectionStatus.Disconnected
 
     await monitorA.stopHealthMonitor()
     await nodeA.stop()

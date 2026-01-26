@@ -16,6 +16,7 @@ import
   ../peer_manager,
   ./online_monitor,
   ./health_status,
+  ./connection_status,
   ./protocol_health
 
 ## This module is aimed to check the state of the "self" Waku Node
@@ -33,7 +34,7 @@ type
     ## Rest API type returned for /health endpoint
     ##
     nodeHealth*: HealthStatus # legacy "READY" health indicator
-    nodeState*: NodeHealthStatus # new "Connected" health indicator
+    connectionStatus*: ConnectionStatus # new "Connected" health indicator
     protocolsHealth*: seq[ProtocolHealth]
 
   NodeHealthMonitor* = ref object
@@ -43,9 +44,8 @@ type
     keepAliveFut: Future[void]
     healthLoopFut: Future[void]
     healthUpdateEvent: AsyncEvent
-    nodeState: NodeHealthStatus
-    lastState: NodeHealthStatus
-    onNodeHealthChange*: NodeHealthChangeHandler
+    connectionStatus: ConnectionStatus
+    onConnectionStatusChange*: ConnectionStatusChangeHandler
     cachedProtocols: seq[ProtocolHealth]
     strength: Table[WakuProtocol, int]
     relayObserver: PubSubObserver
@@ -321,7 +321,7 @@ proc calculateConnectionState*(
     protocols: seq[ProtocolHealth],
     strength: Table[WakuProtocol, int],
     relayFailoverThreshold: int,
-): NodeHealthStatus =
+): ConnectionStatus =
   var
     relayCount = 0
     lightpushCount = 0
@@ -356,10 +356,10 @@ proc calculateConnectionState*(
   # the user knows what they're doing.
 
   if relayCount >= relayFailoverThreshold:
-    return NodeHealthStatus.Connected
+    return ConnectionStatus.Connected
 
   if relayCount > 0:
-    return NodeHealthStatus.PartiallyConnected
+    return ConnectionStatus.PartiallyConnected
 
   # No relay connectivity. Relay might not be mounted, or may just have zero peers.
   # Fall back to Edge check in any case to be sure.
@@ -371,18 +371,18 @@ proc calculateConnectionState*(
   let meetsMinimum = canSend and canReceive and canStore
 
   if not meetsMinimum:
-    return NodeHealthStatus.Disconnected
+    return ConnectionStatus.Disconnected
 
   let isEdgeRobust =
     (lightpushCount >= FailoverThreshold) and (filterCount >= FailoverThreshold) and
     (storeClientCount >= FailoverThreshold)
 
   if isEdgeRobust:
-    return NodeHealthStatus.Connected
+    return ConnectionStatus.Connected
 
-  return NodeHealthStatus.PartiallyConnected
+  return ConnectionStatus.PartiallyConnected
 
-proc calculateConnectionState*(hm: NodeHealthMonitor): NodeHealthStatus =
+proc calculateConnectionState*(hm: NodeHealthMonitor): ConnectionStatus =
   return calculateConnectionState(
     hm.cachedProtocols, hm.strength, hm.getRelayFailoverThreshold()
   )
@@ -417,13 +417,13 @@ proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.}
 
   if isNil(hm.node):
     report.nodeHealth = HealthStatus.INITIALIZING
-    report.nodeState = NodeHealthStatus.Disconnected
+    report.connectionStatus = ConnectionStatus.Disconnected
     return report
 
   if hm.nodeHealth == HealthStatus.INITIALIZING or
       hm.nodeHealth == HealthStatus.SHUTTING_DOWN:
     report.nodeHealth = hm.nodeHealth
-    report.nodeState = NodeHealthStatus.Disconnected
+    report.connectionStatus = ConnectionStatus.Disconnected
     return report
 
   if hm.cachedProtocols.len == 0:
@@ -431,7 +431,7 @@ proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.}
   report.protocolsHealth = hm.cachedProtocols
 
   report.nodeHealth = HealthStatus.READY
-  report.nodeState = hm.nodeState
+  report.connectionStatus = hm.connectionStatus
   return report
 
 proc onPeerEvent(
@@ -464,14 +464,13 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
       hm.healthUpdateEvent.clear()
 
       hm.cachedProtocols = await hm.getAllProtocolHealthInfo()
-      let newState = hm.calculateConnectionState()
+      let newConnectionStatus = hm.calculateConnectionState()
 
-      if newState != hm.lastState:
-        hm.lastState = newState
-        hm.nodeState = newState
+      if newConnectionStatus != hm.connectionStatus:
+        hm.connectionStatus = newConnectionStatus
 
-        if not isNil(hm.onNodeHealthChange):
-          await hm.onNodeHealthChange(newState)
+        if not isNil(hm.onConnectionStatusChange):
+          await hm.onConnectionStatusChange(newConnectionStatus)
     except CancelledError:
       break
     except Exception as e:
@@ -680,7 +679,6 @@ proc new*(
     nodeHealth: INITIALIZING,
     node: nil,
     onlineMonitor: OnlineMonitor.init(dnsNameServers),
-    nodeState: NodeHealthStatus.Disconnected,
-    lastState: NodeHealthStatus.Disconnected,
+    connectionStatus: ConnectionStatus.Disconnected,
     strength: initTable[WakuProtocol, int](),
   )

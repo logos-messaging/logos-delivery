@@ -76,7 +76,7 @@ suite "Waku v2 REST API - health":
       $response.contentType == $MIMETYPE_JSON
       response.data == HealthReport(
         nodeHealth: HealthStatus.INITIALIZING,
-        nodeState: NodeHealthStatus.Disconnected,
+        connectionStatus: ConnectionStatus.Disconnected,
         protocolsHealth: @[]
       )
 

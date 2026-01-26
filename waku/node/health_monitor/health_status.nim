@@ -15,17 +15,3 @@ proc init*(t: typedesc[HealthStatus], strRep: string): Result[HealthStatus, stri
   except ValueError:
     return err("Invalid HealthStatus string representation: " & strRep)
 
-type NodeHealthStatus* {.pure.} = enum
-  Disconnected = "Disconnected"
-  PartiallyConnected = "PartiallyConnected"
-  Connected = "Connected"
-
-proc init*(t: typedesc[NodeHealthStatus], strRep: string): Result[NodeHealthStatus, string] =
-  try:
-    let status = parseEnum[NodeHealthStatus](strRep)
-    return ok(status)
-  except ValueError:
-    return err("Invalid NodeHealthStatus string representation: " & strRep)
-
-type NodeHealthChangeHandler* =
-  proc(status: NodeHealthStatus): Future[void] {.gcsafe, raises: [Defect].}

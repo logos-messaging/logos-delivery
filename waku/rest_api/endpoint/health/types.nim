@@ -44,7 +44,7 @@ proc writeValue*(
 ) {.raises: [IOError].} =
   writer.beginRecord()
   writer.writeField("nodeHealth", $value.nodeHealth)
-  writer.writeField("nodeState", $value.nodeState)
+  writer.writeField("connectionStatus", $value.connectionStatus)
   writer.writeField("protocolsHealth", value.protocolsHealth)
   writer.endRecord()
 
@@ -53,7 +53,7 @@ proc readValue*(
 ) {.raises: [SerializationError, IOError].} =
   var
     nodeHealth: Option[HealthStatus]
-    nodeState: Option[NodeHealthStatus]
+    connectionStatus: Option[ConnectionStatus]
     protocolsHealth: Option[seq[ProtocolHealth]]
 
   for fieldName in readObjectFields(reader):
@@ -68,14 +68,14 @@ proc readValue*(
         reader.raiseUnexpectedValue("Invalid `health` value: " & $error)
 
       nodeHealth = some(health)
-    of "nodeState":
-      if nodeState.isSome():
-        reader.raiseUnexpectedField("Multiple `nodeState` fields found", "HealthReport")
+    of "connectionStatus":
+      if connectionStatus.isSome():
+        reader.raiseUnexpectedField("Multiple `connectionStatus` fields found", "HealthReport")
 
-      let state = NodeHealthStatus.init(reader.readValue(string)).valueOr:
-        reader.raiseUnexpectedValue("Invalid `nodeState` value: " & $error)
+      let state = ConnectionStatus.init(reader.readValue(string)).valueOr:
+        reader.raiseUnexpectedValue("Invalid `connectionStatus` value: " & $error)
 
-      nodeState = some(state)
+      connectionStatus = some(state)
     of "protocolsHealth":
       if protocolsHealth.isSome():
         reader.raiseUnexpectedField(
@@ -91,6 +91,6 @@ proc readValue*(
 
   value = HealthReport(
     nodeHealth: nodeHealth.get,
-    nodeState: nodeState.get,
+    connectionStatus: connectionStatus.get,
     protocolsHealth: protocolsHealth.get(@[]),
   )

@@ -192,8 +192,8 @@ proc new*(
     node.peerManager.getOnlineStateObserver()
   )
 
-  if not isNil(appCallbacks) and not isNil(appCallbacks.nodeHealthChangeHandler):
-    healthMonitor.onNodeHealthChange = appCallbacks.nodeHealthChangeHandler
+  if not isNil(appCallbacks) and not isNil(appCallbacks.connectionStatusChangeHandler):
+    healthMonitor.onConnectionStatusChange = appCallbacks.connectionStatusChangeHandler
 
   node.setupAppCallbacks(wakuConf, appCallbacks).isOkOr:
     error "Failed setting up app callbacks", error = error

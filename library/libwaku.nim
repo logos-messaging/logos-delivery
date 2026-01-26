@@ -7,7 +7,7 @@ import
   ./events/json_message_event,
   ./events/json_topic_health_change_event,
   ./events/json_connection_change_event,
-  ./events/json_node_health_change_event,
+  ./events/json_connection_status_change_event,
   ../waku/factory/app_callbacks,
   waku/factory/waku,
   waku/node/waku_node,
@@ -63,16 +63,16 @@ proc waku_new(
       callEventCallback(ctx, "onConnectionChange"):
         $JsonConnectionChangeEvent.new($peerId, peerEvent)
 
-  proc onNodeHealthChange(ctx: ptr FFIContext): NodeHealthChangeHandler =
-    return proc(status: NodeHealthStatus) {.async.} =
-      callEventCallback(ctx, "onNodeHealthChange"):
-        $JsonNodeHealthChangeEvent.new(status)
+  proc onConnectionStatusChange(ctx: ptr FFIContext): ConnectionStatusChangeHandler =
+    return proc(status: ConnectionStatus) {.async.} =
+      callEventCallback(ctx, "onConnectionStatusChange"):
+        $JsonConnectionStatusChangeEvent.new(status)
 
   let appCallbacks = AppCallbacks(
     relayHandler: onReceivedMessage(ctx),
     topicHealthChangeHandler: onTopicHealthChange(ctx),
     connectionChangeHandler: onConnectionChange(ctx),
-    nodeHealthChangeHandler: onNodeHealthChange(ctx)
+    connectionStatusChangeHandler: onConnectionStatusChange(ctx)
   )
 
   ffi.sendRequestToFFIThread(
