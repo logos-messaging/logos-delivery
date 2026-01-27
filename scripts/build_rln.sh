@@ -4,6 +4,7 @@
 # release page if it is available.
 
 set -e
+set -x
 
 # first argument is the build directory
 build_dir=$1
@@ -17,8 +18,9 @@ output_filename=$3
 # Get the host triplet
 host_triplet=$(rustc --version --verbose | awk '/host:/{print $2}')
 
-tarball="${host_triplet}"
+output_extension="${output_filename##*.}"
 
+tarball="${host_triplet}"
 tarball+="-rln.tar.gz"
 
 # Download the prebuilt rln library if it is available
@@ -49,6 +51,7 @@ else
         exit 1
     fi
     # if submodule version = version in Makefile, build rln
-    cargo build --release -p rln --manifest-path "${build_dir}/rln/Cargo.toml" 
-    cp "${build_dir}/target/release/librln.a" "${output_filename}"
+    cargo build --release -p rln --manifest-path "${build_dir}/rln/Cargo.toml"
+    find "${build_dir}" -type f
+    cp ${build_dir}/target/release/*.${output_extension} "${output_filename}"
 fi
