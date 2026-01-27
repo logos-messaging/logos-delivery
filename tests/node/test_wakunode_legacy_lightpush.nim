@@ -25,9 +25,6 @@ import
 
 suite "Waku Legacy Lightpush - End To End":
   var
-    handlerFuture {.threadvar.}: Future[(PubsubTopic, WakuMessage)]
-    handler {.threadvar.}: PushMessageHandler
-
     server {.threadvar.}: WakuNode
     client {.threadvar.}: WakuNode
 
@@ -37,13 +34,6 @@ suite "Waku Legacy Lightpush - End To End":
     message {.threadvar.}: WakuMessage
 
   asyncSetup:
-    handlerFuture = newPushHandlerFuture()
-    handler = proc(
-        peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[WakuLightPushResult[void]] {.async.} =
-      handlerFuture.complete((pubsubTopic, message))
-      return ok()
-
     let
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
@@ -108,9 +98,6 @@ suite "Waku Legacy Lightpush - End To End":
 
 suite "RLN Proofs as a Lightpush Service":
   var
-    handlerFuture {.threadvar.}: Future[(PubsubTopic, WakuMessage)]
-    handler {.threadvar.}: PushMessageHandler
-
     server {.threadvar.}: WakuNode
     client {.threadvar.}: WakuNode
     anvilProc {.threadvar.}: Process
@@ -122,13 +109,6 @@ suite "RLN Proofs as a Lightpush Service":
     message {.threadvar.}: WakuMessage
 
   asyncSetup:
-    handlerFuture = newPushHandlerFuture()
-    handler = proc(
-        peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[WakuLightPushResult[void]] {.async.} =
-      handlerFuture.complete((pubsubTopic, message))
-      return ok()
-
     let
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
