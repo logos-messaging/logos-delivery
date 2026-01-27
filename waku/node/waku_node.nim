@@ -447,6 +447,7 @@ proc start*(node: WakuNode) {.async.} =
   ## Starts a created Waku Node and
   ## all its mounted protocols.
 
+  info "Dummy change. Ignore this log."
   waku_version.set(1, labelValues = [git_version])
   info "Starting Waku node", version = git_version
 
