@@ -59,20 +59,6 @@ in stdenv.mkDerivation {
     "LIBRLN_FILE=${zerokitRln}/lib/librln.${if abidir != null then "so" else "a"}"
   ];
 
-  postPatch = ''
-    cat > scripts/build_rln.sh << 'EOF'
-    #!/usr/bin/env bash
-    set -e
-    build_dir=$1
-    rln_version=$2
-    output_filename=$3
-    # Just copy the library we already have
-    cp ${zerokitRln}/lib/librln.a "$output_filename" 2>/dev/null || \
-    cp ${zerokitRln}/target/release/librln.a "$output_filename"
-    EOF
-    chmod +x scripts/build_rln.sh
-  '';
-
   configurePhase = ''
     patchShebangs . vendor/nimbus-build-system > /dev/null
     make nimbus-build-system-paths
@@ -105,13 +91,10 @@ in stdenv.mkDerivation {
     echo '${androidManifest}' > $out/jni/AndroidManifest.xml
     cd $out && zip -r libwaku.aar *
   '' else ''
-    mkdir -p $out/bin $out/include
-
-    # Copy library files
-    cp build/* $out/bin/ 2>/dev/null || true
-
-    # Copy the header file
-    cp library/libwaku.h $out/include/
+    mkdir -p $out/bin $out/lib $out/include
+    cp build/waku* $out/bin || true
+    cp build/lib* $out/lib || true
+    cp library/libwaku.h $out/include
 
     # Copy Nim's nimbase.h (required by libwaku.h)
     cp vendor/nimbus-build-system/vendor/Nim/lib/nimbase.h $out/include/
