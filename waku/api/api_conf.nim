@@ -86,6 +86,7 @@ type NodeConfig* {.requiresInit.} = object
   protocolsConfig: ProtocolsConfig
   networkingConfig: NetworkingConfig
   ethRpcEndpoints: seq[string]
+  p2pReliability: bool
 
 proc init*(
     T: typedesc[NodeConfig],
@@ -93,12 +94,14 @@ proc init*(
     protocolsConfig: ProtocolsConfig = TheWakuNetworkPreset,
     networkingConfig: NetworkingConfig = DefaultNetworkingConfig,
     ethRpcEndpoints: seq[string] = @[],
+    p2pReliability: bool = false,
 ): T =
   return T(
     mode: mode,
     protocolsConfig: protocolsConfig,
     networkingConfig: networkingConfig,
     ethRpcEndpoints: ethRpcEndpoints,
+    p2pReliability: p2pReliability,
   )
 
 proc toWakuConf*(nodeConfig: NodeConfig): Result[WakuConf, string] =
@@ -131,7 +134,16 @@ proc toWakuConf*(nodeConfig: NodeConfig): Result[WakuConf, string] =
 
     b.rateLimitConf.withRateLimits(@["filter:100/1s", "lightpush:5/1s", "px:5/1s"])
   of Edge:
-    return err("Edge mode is not implemented")
+    # All client side protocols are mounted by default
+    # Peer exchange client is always enabled and start_node will start the px loop
+    # Metadata is always mounted
+    b.withPeerExchange(true)
+    # switch off all service side protocols and relay
+    b.withRelay(false)
+    b.filterServiceConf.withEnabled(false)
+    b.withLightPush(false)
+    b.storeServiceConf.withEnabled(false)
+    # Leave discv5 and rendezvous for user choice
 
   ## Network Conf
   let protocolsConfig = nodeConfig.protocolsConfig
@@ -193,6 +205,7 @@ proc toWakuConf*(nodeConfig: NodeConfig): Result[WakuConf, string] =
 
   ## Various configurations
   b.withNatStrategy("any")
+  b.withP2PReliability(nodeConfig.p2pReliability)
 
   let wakuConf = b.build().valueOr:
     return err("Failed to build configuration: " & error)

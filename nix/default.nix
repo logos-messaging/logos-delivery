@@ -23,7 +23,7 @@ let
 
 in stdenv.mkDerivation rec {
 
-  pname = "nwaku";
+  pname = "logos-messaging-nim";
 
   version = "1.0.0-${revision}";
 
@@ -70,6 +70,7 @@ in stdenv.mkDerivation rec {
     "QUICK_AND_DIRTY_COMPILER=${if quickAndDirty then "1" else "0"}"
     "QUICK_AND_DIRTY_NIMBLE=${if quickAndDirty then "1" else "0"}"
     "USE_SYSTEM_NIM=${if useSystemNim then "1" else "0"}"
+    "LIBRLN_FILE=${zerokitRln}/target/release/librln.a"
   ];
 
   configurePhase = ''
@@ -78,19 +79,28 @@ in stdenv.mkDerivation rec {
     make nimbus-build-system-nimble-dir
   '';
 
+  # For the Nim v2.2.4 built with NBS we added sat and zippy
   preBuild = ''
     ln -s waku.nimble waku.nims
+    
+    ${lib.optionalString (!useSystemNim) ''
     pushd vendor/nimbus-build-system/vendor/Nim
+
     mkdir dist
-    cp -r ${callPackage ./nimble.nix {}}    dist/nimble
-    cp -r ${callPackage ./checksums.nix {}} dist/checksums
-    cp -r ${callPackage ./csources.nix {}}  csources_v2
+    mkdir -p dist/nimble/vendor/sat
+    mkdir -p dist/nimble/vendor/checksums
+    mkdir -p dist/nimble/vendor/zippy
+
+    cp -r ${callPackage ./nimble.nix {}}/.    dist/nimble
+    cp -r ${callPackage ./checksums.nix {}}/. dist/checksums
+    cp -r ${callPackage ./csources.nix {}}/.  csources_v2
+    cp -r ${callPackage ./sat.nix {}}/.       dist/nimble/vendor/sat
+    cp -r ${callPackage ./checksums.nix {}}/. dist/nimble/vendor/checksums
+    cp -r ${callPackage ./zippy.nix {}}/.     dist/nimble/vendor/zippy
     chmod 777 -R dist/nimble csources_v2
+
     popd
-    cp -r ${zerokitRln}/target vendor/zerokit/
-    find vendor/zerokit/target
-    # FIXME
-    cp vendor/zerokit/target/*/release/librln.a librln_v${zerokitRln.version}.a
+    ''}
   '';
 
   installPhase = if abidir != null then ''
@@ -99,8 +109,13 @@ in stdenv.mkDerivation rec {
     echo '${androidManifest}' > $out/jni/AndroidManifest.xml
     cd $out && zip -r libwaku.aar *
   '' else ''
-    mkdir -p $out/bin
-    cp -r build/* $out/bin
+    mkdir -p $out/bin $out/include
+    
+    # Copy library files
+    cp build/* $out/bin/ 2>/dev/null || true
+    
+    # Copy the header file
+    cp library/libwaku.h $out/include/
   '';
 
   meta = with pkgs.lib; {

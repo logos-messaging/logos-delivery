@@ -16,6 +16,7 @@ pkgs.mkShell {
     git
     cargo
     rustup
+    rustc
     cmake
     nim-unwrapped-2_0
   ];

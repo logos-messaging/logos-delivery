@@ -25,7 +25,7 @@ type ErrorStatus* = tuple[code: LightpushStatusCode, desc: Option[string]]
 type WakuLightPushResult* = Result[uint32, ErrorStatus]
 
 type PushMessageHandler* = proc(
-  peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+  pubsubTopic: PubsubTopic, message: WakuMessage
 ): Future[WakuLightPushResult] {.async.}
 
 const TooManyRequestsMessage* = "Request rejected due to too many requests"
@@ -39,7 +39,7 @@ func toPushResult*(response: LightPushResponse): WakuLightPushResult =
     return (
       if (relayPeerCount == 0):
         # Consider publishing to zero peers an error even if the service node
-        # sent us a "successful" response with zero peers 
+        # sent us a "successful" response with zero peers
         err((LightPushErrorCode.NO_PEERS_TO_RELAY, response.statusDesc))
       else:
         ok(relayPeerCount)

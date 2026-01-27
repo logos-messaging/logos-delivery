@@ -193,7 +193,6 @@ proc lightpushPublishHandler(
     mixify: bool = false,
 ): Future[lightpush_protocol.WakuLightPushResult] {.async.} =
   let msgHash = pubsubTopic.computeMessageHash(message).to0xHex()
-
   if not node.wakuLightpushClient.isNil():
     notice "publishing message with lightpush",
       pubsubTopic = pubsubTopic,
@@ -201,21 +200,23 @@ proc lightpushPublishHandler(
       target_peer_id = peer.peerId,
       msg_hash = msgHash,
       mixify = mixify
-    if mixify: #indicates we want to use mix to send the message
-      #TODO: How to handle multiple addresses?
-      let conn = node.wakuMix.toConnection(
-        MixDestination.exitNode(peer.peerId),
-        WakuLightPushCodec,
-        MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
-          # indicating we only want a single path to be used for reply hence numSurbs = 1
-      ).valueOr:
-        error "could not create mix connection"
-        return lighpushErrorResult(
-          LightPushErrorCode.SERVICE_NOT_AVAILABLE,
-          "Waku lightpush with mix not available",
-        )
+    if defined(libp2p_mix_experimental_exit_is_dest) and mixify:
+      #indicates we want to use mix to send the message
+      when defined(libp2p_mix_experimental_exit_is_dest):
+        #TODO: How to handle multiple addresses?
+        let conn = node.wakuMix.toConnection(
+          MixDestination.exitNode(peer.peerId),
+          WakuLightPushCodec,
+          MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
+            # indicating we only want a single path to be used for reply hence numSurbs = 1
+        ).valueOr:
+          error "could not create mix connection"
+          return lighpushErrorResult(
+            LightPushErrorCode.SERVICE_NOT_AVAILABLE,
+            "Waku lightpush with mix not available",
+          )
 
-      return await node.wakuLightpushClient.publish(some(pubsubTopic), message, conn)
+        return await node.wakuLightpushClient.publish(some(pubsubTopic), message, conn)
     else:
       return await node.wakuLightpushClient.publish(some(pubsubTopic), message, peer)
 
@@ -264,7 +265,7 @@ proc lightpushPublish*(
         LightPushErrorCode.NO_PEERS_TO_RELAY, "no suitable remote peers"
       )
 
-  let pubsubForPublish = pubSubTopic.valueOr:
+  let pubsubForPublish = pubsubTopic.valueOr:
     if node.wakuAutoSharding.isNone():
       let msg = "Pubsub topic must be specified when static sharding is enabled"
       error "lightpush publish error", error = msg

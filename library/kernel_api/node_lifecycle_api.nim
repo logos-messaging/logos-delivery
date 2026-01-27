@@ -79,9 +79,7 @@ proc waku_start(
 proc waku_stop(
     ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
-  try:
-    await ctx.myLib[].stop()
-  except Exception as exc:
-    error "STOP_NODE failed", error = exc.msg
-    return err("failed to stop: " & exc.msg)
+  (await ctx.myLib[].stop()).isOkOr:
+    error "STOP_NODE failed", error = error
+    return err("failed to stop: " & $error)
   return ok("")

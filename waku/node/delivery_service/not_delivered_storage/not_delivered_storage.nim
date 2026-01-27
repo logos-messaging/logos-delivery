@@ -1,17 +1,17 @@
 ## This module is aimed to keep track of the sent/published messages that are considered
 ## not being properly delivered.
-## 
+##
 ## The archiving of such messages will happen in a local sqlite database.
-## 
+##
 ## In the very first approach, we consider that a message is sent properly is it has been
 ## received by any store node.
-## 
+##
 
 import results
 import
   ../../../common/databases/db_sqlite,
   ../../../waku_core/message/message,
-  ../../../node/delivery_monitor/not_delivered_storage/migrations
+  ../../../node/delivery_service/not_delivered_storage/migrations
 
 const NotDeliveredMessagesDbUrl = "not-delivered-messages.db"
 

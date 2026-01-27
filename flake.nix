@@ -1,5 +1,5 @@
 {
-  description = "NWaku build flake";
+  description = "Logos Messaging Nim build flake";
 
   nixConfig = {
     extra-substituters = [ "https://nix-cache.status.im/" ];
@@ -54,10 +54,21 @@
           zerokitRln = zerokit.packages.${system}.rln-android-arm64;
         };
 
+        libwaku = pkgs.callPackage ./nix/default.nix {
+          inherit stableSystems;
+          src = self;
+          targets = ["libwaku"];
+          # We are not able to compile the code with nim-unwrapped-2_0
+          useSystemNim = false;
+          zerokitRln = zerokit.packages.${system}.rln;
+        };
+
         wakucanary = pkgs.callPackage ./nix/default.nix {
           inherit stableSystems;
           src = self;
           targets = ["wakucanary"];
+          # We are not able to compile the code with nim-unwrapped-2_0
+          useSystemNim = false;
           zerokitRln = zerokit.packages.${system}.rln;
         };
 

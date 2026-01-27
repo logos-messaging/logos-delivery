@@ -60,7 +60,8 @@ suite "Wakunode2 - Waku initialization":
       not node.wakuRendezvous.isNil()
 
     ## Cleanup
-    waitFor waku.stop()
+    (waitFor waku.stop()).isOkOr:
+      raiseAssert error
 
   test "app properly handles dynamic port configuration":
     ## Given
@@ -96,4 +97,5 @@ suite "Wakunode2 - Waku initialization":
       typedNodeEnr.get().tcp.get() != 0
 
     ## Cleanup
-    waitFor waku.stop()
+    (waitFor waku.stop()).isOkOr:
+      raiseAssert error)

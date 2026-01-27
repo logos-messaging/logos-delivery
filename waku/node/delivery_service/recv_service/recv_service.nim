@@ -4,13 +4,18 @@
 
 import std/[tables, sequtils, options]
 import chronos, chronicles, libp2p/utility
+import ../[subscription_service]
 import
-  ../../waku_core,
-  ./delivery_callback,
-  ./subscriptions_observer,
-  ../../waku_store/[client, common],
-  ../../waku_filter_v2/client,
-  ../../waku_core/topics
+  waku/[
+    waku_core,
+    waku_store/client,
+    waku_store/common,
+    waku_filter_v2/client,
+    waku_core/topics,
+    events/delivery_events,
+    waku_node,
+    common/broker/broker_context,
+  ]
 
 const StoreCheckPeriod = chronos.minutes(5) ## How often to perform store queries
 
@@ -28,14 +33,16 @@ type RecvMessage = object
   rxTime: Timestamp
     ## timestamp of the rx message. We will not keep the rx messages forever
 
-type RecvMonitor* = ref object of SubscriptionObserver
+type RecvService* = ref object of RootObj
+  brokerCtx: BrokerContext
   topicsInterest: Table[PubsubTopic, seq[ContentTopic]]
     ## Tracks message verification requests and when was the last time a
     ## pubsub topic was verified for missing messages
     ## The key contains pubsub-topics
-
-  storeClient: WakuStoreClient
-  deliveryCb: DeliveryFeedbackCallback
+  node: WakuNode
+  onSubscribeListener: OnFilterSubscribeEventListener
+  onUnsubscribeListener: OnFilterUnsubscribeEventListener
+  subscriptionService: SubscriptionService
 
   recentReceivedMsgs: seq[RecvMessage]
 
@@ -46,10 +53,10 @@ type RecvMonitor* = ref object of SubscriptionObserver
   endTimeToCheck: Timestamp
 
 proc getMissingMsgsFromStore(
-    self: RecvMonitor, msgHashes: seq[WakuMessageHash]
+    self: RecvService, msgHashes: seq[WakuMessageHash]
 ): Future[Result[seq[TupleHashAndMsg], string]] {.async.} =
   let storeResp: StoreQueryResponse = (
-    await self.storeClient.queryToAny(
+    await self.node.wakuStoreClient.queryToAny(
       StoreQueryRequest(includeData: true, messageHashes: msgHashes)
     )
   ).valueOr:
@@ -62,35 +69,35 @@ proc getMissingMsgsFromStore(
   )
 
 proc performDeliveryFeedback(
-    self: RecvMonitor,
+    self: RecvService,
     success: DeliverySuccess,
     dir: DeliveryDirection,
     comment: string,
     msgHash: WakuMessageHash,
     msg: WakuMessage,
 ) {.gcsafe, raises: [].} =
-  ## This procs allows to bring delivery feedback to the API client
-  ## It requires a 'deliveryCb' to be registered beforehand.
-  if self.deliveryCb.isNil():
-    error "deliveryCb is nil in performDeliveryFeedback",
-      success, dir, comment, msg_hash
-    return
-
   info "recv monitor performDeliveryFeedback",
     success, dir, comment, msg_hash = shortLog(msgHash)
-  self.deliveryCb(success, dir, comment, msgHash, msg)
 
-proc msgChecker(self: RecvMonitor) {.async.} =
+  DeliveryFeedbackEvent.emit(
+    brokerCtx = self.brokerCtx,
+    success = success,
+    dir = dir,
+    comment = comment,
+    msgHash = msgHash,
+    msg = msg,
+  )
+
+proc msgChecker(self: RecvService) {.async.} =
   ## Continuously checks if a message has been received
   while true:
     await sleepAsync(StoreCheckPeriod)
-
     self.endTimeToCheck = getNowInNanosecondTime()
 
     var msgHashesInStore = newSeq[WakuMessageHash](0)
     for pubsubTopic, cTopics in self.topicsInterest.pairs:
       let storeResp: StoreQueryResponse = (
-        await self.storeClient.queryToAny(
+        await self.node.wakuStoreClient.queryToAny(
           StoreQueryRequest(
             includeData: false,
             pubsubTopic: some(PubsubTopic(pubsubTopic)),
@@ -126,8 +133,8 @@ proc msgChecker(self: RecvMonitor) {.async.} =
     ## update next check times
     self.startTimeToCheck = self.endTimeToCheck
 
-method onSubscribe(
-    self: RecvMonitor, pubsubTopic: string, contentTopics: seq[string]
+proc onSubscribe(
+    self: RecvService, pubsubTopic: string, contentTopics: seq[string]
 ) {.gcsafe, raises: [].} =
   info "onSubscribe", pubsubTopic, contentTopics
   self.topicsInterest.withValue(pubsubTopic, contentTopicsOfInterest):
@@ -135,8 +142,8 @@ method onSubscribe(
   do:
     self.topicsInterest[pubsubTopic] = contentTopics
 
-method onUnsubscribe(
-    self: RecvMonitor, pubsubTopic: string, contentTopics: seq[string]
+proc onUnsubscribe(
+    self: RecvService, pubsubTopic: string, contentTopics: seq[string]
 ) {.gcsafe, raises: [].} =
   info "onUnsubscribe", pubsubTopic, contentTopics
 
@@ -150,47 +157,63 @@ method onUnsubscribe(
   do:
     error "onUnsubscribe unsubscribing from wrong topic", pubsubTopic, contentTopics
 
-proc new*(
-    T: type RecvMonitor,
-    storeClient: WakuStoreClient,
-    wakuFilterClient: WakuFilterClient,
-): T =
+proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionService): T =
   ## The storeClient will help to acquire any possible missed messages
 
   let now = getNowInNanosecondTime()
-  var recvMonitor = RecvMonitor(storeClient: storeClient, startTimeToCheck: now)
+  var recvService = RecvService(
+    node: node,
+    startTimeToCheck: now,
+    brokerCtx: node.brokerCtx,
+    subscriptionService: s,
+    topicsInterest: initTable[PubsubTopic, seq[ContentTopic]](),
+    recentReceivedMsgs: @[],
+  )
 
-  if not wakuFilterClient.isNil():
-    wakuFilterClient.addSubscrObserver(recvMonitor)
-
+  if not node.wakuFilterClient.isNil():
     let filterPushHandler = proc(
         pubsubTopic: PubsubTopic, message: WakuMessage
     ) {.async, closure.} =
-      ## Captures all the messages recived through filter
+      ## Captures all the messages received through filter
 
       let msgHash = computeMessageHash(pubSubTopic, message)
       let rxMsg = RecvMessage(msgHash: msgHash, rxTime: message.timestamp)
-      recvMonitor.recentReceivedMsgs.add(rxMsg)
+      recvService.recentReceivedMsgs.add(rxMsg)
 
-    wakuFilterClient.registerPushHandler(filterPushHandler)
+    node.wakuFilterClient.registerPushHandler(filterPushHandler)
 
-  return recvMonitor
+  return recvService
 
-proc loopPruneOldMessages(self: RecvMonitor) {.async.} =
+proc loopPruneOldMessages(self: RecvService) {.async.} =
   while true:
     let oldestAllowedTime = getNowInNanosecondTime() - MaxMessageLife.nanos
     self.recentReceivedMsgs.keepItIf(it.rxTime > oldestAllowedTime)
     await sleepAsync(PruneOldMsgsPeriod)
 
-proc startRecvMonitor*(self: RecvMonitor) =
+proc startRecvService*(self: RecvService) =
   self.msgCheckerHandler = self.msgChecker()
   self.msgPrunerHandler = self.loopPruneOldMessages()
 
-proc stopRecvMonitor*(self: RecvMonitor) {.async.} =
+  self.onSubscribeListener = OnFilterSubscribeEvent.listen(
+    self.brokerCtx,
+    proc(subsEv: OnFilterSubscribeEvent): Future[void] {.async: (raises: []).} =
+      self.onSubscribe(subsEv.pubsubTopic, subsEv.contentTopics),
+  ).valueOr:
+    error "Failed to set OnFilterSubscribeEvent listener", error = error
+    quit(QuitFailure)
+
+  self.onUnsubscribeListener = OnFilterUnsubscribeEvent.listen(
+    self.brokerCtx,
+    proc(subsEv: OnFilterUnsubscribeEvent): Future[void] {.async: (raises: []).} =
+      self.onUnsubscribe(subsEv.pubsubTopic, subsEv.contentTopics),
+  ).valueOr:
+    error "Failed to set OnFilterUnsubscribeEvent listener", error = error
+    quit(QuitFailure)
+
+proc stopRecvService*(self: RecvService) {.async.} =
+  OnFilterSubscribeEvent.dropListener(self.brokerCtx, self.onSubscribeListener)
+  OnFilterUnsubscribeEvent.dropListener(self.brokerCtx, self.onUnsubscribeListener)
   if not self.msgCheckerHandler.isNil():
     await self.msgCheckerHandler.cancelAndWait()
   if not self.msgPrunerHandler.isNil():
     await self.msgPrunerHandler.cancelAndWait()
-
-proc setDeliveryCallback*(self: RecvMonitor, deliveryCb: DeliveryFeedbackCallback) =
-  self.deliveryCb = deliveryCb
