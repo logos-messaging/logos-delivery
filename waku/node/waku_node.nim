@@ -360,6 +360,7 @@ proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
   var randomPeers = peers
   shuffle(randomPeers)
   return randomPeers[0 ..< min(len(randomPeers), numRandomPeers)]
+  debug "This is a dummy change to measure CI timings"
 
 proc mountRendezvousClient*(node: WakuNode, clusterId: uint16) {.async: (raises: []).} =
   info "mounting rendezvous client"
