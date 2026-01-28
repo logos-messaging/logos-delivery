@@ -1,13 +1,10 @@
 {.push raises: [].}
 
-import bearssl/rand, std/times, chronos, chronicles
+import bearssl/rand, std/times, chronos
 import stew/byteutils
 import waku/utils/requests as request_utils
 import waku/waku_core/[topics/content_topic, message/message, time]
 import waku/requests/requests
-
-logScope:
-  topics = "message envelope"
 
 type
   MessageEnvelope* = object

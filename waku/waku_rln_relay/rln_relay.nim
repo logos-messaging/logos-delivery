@@ -459,7 +459,7 @@ proc mount(
 
       return ok(RequestGenerateRlnProof(proof: proof))
   ).isOkOr:
-    return err("Proof generator provider cannot be set")
+    return err("Proof generator provider cannot be set: " & $error)
 
   return ok(wakuRlnRelay)
 

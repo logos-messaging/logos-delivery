@@ -10,7 +10,8 @@ import
   bearssl/rand,
   stew/byteutils
 import
-  waku/[node/peer_manager, waku_core, events/delivery_events, common/broker/broker_context],
+  waku/
+    [node/peer_manager, waku_core, events/delivery_events, common/broker/broker_context],
   ./common,
   ./protocol_metrics,
   ./rpc_codec,
@@ -150,7 +151,7 @@ proc unsubscribe*(
 
   ?await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
 
-  OnFilterUnSubscribeEvent.emit(pubSubTopic, contentTopicSeq)
+  OnFilterUnSubscribeEvent.emit(wfc.brokerCtx, pubsubTopic, contentTopicSeq)
 
   return ok()
 

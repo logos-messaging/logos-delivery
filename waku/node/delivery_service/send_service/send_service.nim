@@ -95,7 +95,10 @@ proc setupSendProcessorChain(
   return ok(processors[0])
 
 proc new*(
-    T: type SendService, preferP2PReliability: bool, w: WakuNode, s: SubscriptionService
+    T: typedesc[SendService],
+    preferP2PReliability: bool,
+    w: WakuNode,
+    s: SubscriptionService,
 ): Result[T, string] =
   if w.wakuRelay.isNil() and w.wakuLightpushClient.isNil():
     return err(
@@ -107,7 +110,7 @@ proc new*(
   let sendProcessorChain = setupSendProcessorChain(
     w.peerManager, w.wakuLightPushClient, w.wakuRelay, w.wakuRlnRelay, w.brokerCtx
   ).valueOr:
-    return err(error)
+    return err("failed to setup SendProcessorChain: " & $error)
 
   let sendService = SendService(
     brokerCtx: w.brokerCtx,
@@ -137,6 +140,7 @@ proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.a
     return
 
   var hashesToValidate = tasksToValidate.mapIt(it.msgHash)
+  # TODO: confirm hash format for store query!!!
 
   let storeResp: StoreQueryResponse = (
     await self.node.wakuStoreClient.queryToAny(
@@ -172,7 +176,7 @@ proc checkStoredMessages(self: SendService) {.async.} =
 proc reportTaskResult(self: SendService, task: DeliveryTask) =
   case task.state
   of DeliveryState.SuccessfullyPropagated:
-    # TODO: in case of of unable to strore check messages shall we report success instead?
+    # TODO: in case of unable to strore check messages shall we report success instead?
     if not task.propagateEventEmitted:
       info "Message successfully propagated",
         requestId = task.requestId, msgHash = task.msgHash.to0xHex()
@@ -239,7 +243,7 @@ proc serviceLoop(self: SendService) {.async.} =
     await self.checkStoredMessages()
     self.evaluateAndCleanUp()
     ## TODO: add circuit breaker to avoid infinite looping in case of persistent failures
-    ## Use OnlienStateChange observers to pause/resume the loop
+    ## Use OnlineStateChange observers to pause/resume the loop
     await sleepAsync(ServiceLoopInterval)
 
 proc startSendService*(self: SendService) =

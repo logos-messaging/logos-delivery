@@ -367,9 +367,9 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
         await waku_dnsdisc.retrieveDynamicBootstrapNodes(
           dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
         )
-      except CatchableError:
+      except CatchableError as exc:
         Result[seq[RemotePeerInfo], string].err(
-          "Retrieving dynamic bootstrap nodes failed: " & getCurrentExceptionMsg()
+          "Retrieving dynamic bootstrap nodes failed: " & exc.msg
         )
 
     if dynamicBootstrapNodesRes.isErr():
@@ -388,7 +388,7 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
     (await updateWaku(waku)).isOkOr:
       return err("Error in updateApp: " & $error)
   except CatchableError:
-    return err("Error in updateApp: " & getCurrentExceptionMsg())
+    return err("Caught exception in updateApp: " & getCurrentExceptionMsg())
 
   ## Discv5
   if conf.discv5Conf.isSome():
@@ -464,9 +464,9 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
           filterClientReady = filterClientReady,
           details = $(healthReport)
 
-        ok(RequestNodeHealth(healthStatus: nodeHealth))
-      except CatchableError:
-        err("Failed to read health report: " & getCurrentExceptionMsg()),
+        return ok(RequestNodeHealth(healthStatus: nodeHealth))
+      except CatchableError as exc:
+        err("Failed to read health report: " & exc.msg),
   ).isOkOr:
     error "Failed to set RequestNodeHealth provider", error = error
 
@@ -496,7 +496,8 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
         return err("Starting monitoring and external interfaces failed: " & error)
     except CatchableError:
       return err(
-        "Starting monitoring and external interfaces failed: " & getCurrentExceptionMsg()
+        "Caught exception starting monitoring and external interfaces failed: " &
+          getCurrentExceptionMsg()
       )
   waku[].healthMonitor.setOverallHealth(HealthStatus.READY)
 
@@ -544,8 +545,5 @@ proc isModeEdgeAvailable*(waku: Waku): bool =
   return
     waku.node.wakuRelay.isNil() and not waku.node.wakuStoreClient.isNil() and
     not waku.node.wakuFilterClient.isNil() and not waku.node.wakuLightPushClient.isNil()
-
-proc isP2PReliabilityEnabled*(waku: Waku): bool =
-  return not waku.deliveryService.isNil()
 
 {.pop.}

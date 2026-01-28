@@ -106,8 +106,6 @@ proc publish*(
   let relayPeerCount =
     when dest is Connection:
       ?await wl.sendPushRequest(request, dest.peerId, some(dest))
-    elif dest is RemotePeerInfo:
-      ?await wl.sendPushRequest(request, dest)
     else:
       ?await wl.sendPushRequest(request, dest)
 

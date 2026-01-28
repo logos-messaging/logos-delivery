@@ -57,7 +57,6 @@ import
     common/rate_limit/setting,
     common/callbacks,
     common/nimchronos,
-    common/broker/broker_context,
     waku_mix,
     requests/node_requests,
     common/broker/broker_context,
@@ -470,7 +469,7 @@ proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string]
 
   return ok()
 
-proc startProvidersAndListeners*(node: WakuNode) =
+proc startProvidersAndListeners(node: WakuNode) =
   RequestRelayShard.setProvider(
     node.brokerCtx,
     proc(
@@ -480,9 +479,9 @@ proc startProvidersAndListeners*(node: WakuNode) =
         return err($error)
       return ok(RequestRelayShard(relayShard: shard)),
   ).isOkOr:
-    error "Can't set proveder for RequestRelayShard", error = error
+    error "Can't set provider for RequestRelayShard", error = error
 
-proc stopProvidersAndListeners*(node: WakuNode) =
+proc stopProvidersAndListeners(node: WakuNode) =
   RequestRelayShard.clearProvider(node.brokerCtx)
 
 proc start*(node: WakuNode) {.async.} =

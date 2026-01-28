@@ -45,15 +45,16 @@ method sendImpl*(
     tryCount = task.tryCount
 
   let peer = self.peerManager.selectPeer(WakuLightPushCodec, some(task.pubsubTopic)).valueOr:
+    debug "No peer available for Lightpush, request pushed back for next round",
+      requestId = task.requestId
     task.state = DeliveryState.NextRoundRetry
     return
 
-  let pushResult =
+  let numLightpushServers = (
     await self.lightpushClient.publish(some(task.pubsubTopic), task.msg, peer)
-  if pushResult.isErr:
-    error "LightpushSendProcessor sendImpl failed",
-      error = pushResult.error.desc.get($pushResult.error.code)
-    case pushResult.error.code
+  ).valueOr:
+    error "LightpushSendProcessor.sendImpl failed", error = error.desc.get($error.code)
+    case error.code
     of LightPushErrorCode.NO_PEERS_TO_RELAY, LightPushErrorCode.TOO_MANY_REQUESTS,
         LightPushErrorCode.OUT_OF_RLN_PROOF, LightPushErrorCode.SERVICE_NOT_AVAILABLE,
         LightPushErrorCode.INTERNAL_SERVER_ERROR:
@@ -61,11 +62,11 @@ method sendImpl*(
     else:
       # the message is malformed, send error
       task.state = DeliveryState.FailedToDeliver
-      task.errorDesc = pushResult.error.desc.get($pushResult.error.code)
+      task.errorDesc = error.desc.get($error.code)
       task.deliveryTime = Moment.now()
     return
 
-  if pushResult.isOk and pushResult.get() > 0:
+  if numLightpushServers > 0:
     info "Message propagated via Lightpush",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.SuccessfullyPropagated
@@ -73,6 +74,8 @@ method sendImpl*(
     # TODO: with a simple retry processor it might be more accurate to say `Sent`
   else:
     # Controversial state, publish says ok but no peer. It should not happen.
+    debug "Lightpush publish returned zero peers, request pushed back for next round",
+      requestId = task.requestId
     task.state = DeliveryState.NextRoundRetry
 
   return
