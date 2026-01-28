@@ -51,10 +51,12 @@ endif
 ##########
 ## Main ##
 ##########
-.PHONY: all test update clean
+.PHONY: all test update clean examples
 
 # default target, because it's the first one that doesn't start with '.'
-all: | wakunode2 example2 chat2 chat2bridge libwaku
+all: | wakunode2 libwaku
+
+examples: | example2 chat2 chat2bridge
 
 test_file := $(word 2,$(MAKECMDGOALS))
 define test_name
