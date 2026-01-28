@@ -19,6 +19,7 @@ import
       waku_core,
       waku_node,
       waku_rln_relay,
+      common/broker/broker_context,
     ],
   ../waku_store/store_utils,
   ../waku_archive/archive_utils,
@@ -31,7 +32,7 @@ proc noopRawHandler*(): WakuRelayHandler =
   handler
 
 proc newTestWakuRelay*(switch = newTestSwitch()): Future[WakuRelay] {.async.} =
-  let proto = WakuRelay.new(switch).tryGet()
+  let proto = WakuRelay.new(switch, globalBrokerContext()).tryGet()
 
   let protocolMatcher = proc(proto: string): bool {.gcsafe.} =
     return proto.startsWith(WakuRelayCodec)

@@ -7,5 +7,11 @@ import waku/waku_core/topics
 export protocol_health, topic_health
 
 EventBroker:
-  type ConnectionStatusChangeEvent* = object
+  type EventConnectionStatusChange* = object
     connectionStatus*: ConnectionStatus
+
+# TODO: content topic vs pubsub topic
+EventBroker:
+  type EventRelayTopicHealthChange* = object
+    topic*: PubsubTopic
+    health*: TopicHealth

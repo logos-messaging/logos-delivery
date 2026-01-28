@@ -554,7 +554,7 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
       if newConnectionStatus != hm.connectionStatus:
         hm.connectionStatus = newConnectionStatus
 
-        ConnectionStatusChangeEvent.emit(hm.node.brokerCtx, newConnectionStatus)
+        EventConnectionStatusChange.emit(hm.node.brokerCtx, newConnectionStatus)
 
         if not isNil(hm.onConnectionStatusChange):
           await hm.onConnectionStatusChange(newConnectionStatus)

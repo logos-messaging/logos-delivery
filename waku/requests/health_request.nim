@@ -11,6 +11,7 @@ RequestBroker(sync):
   type RequestConnectionStatus* = object
     connectionStatus*: ConnectionStatus
 
+# TODO: content topic vs pubsub topic
 RequestBroker(sync):
   type RequestRelayTopicsHealth* = object
     topicHealth*: seq[tuple[topic: PubsubTopic, health: TopicHealth]]
