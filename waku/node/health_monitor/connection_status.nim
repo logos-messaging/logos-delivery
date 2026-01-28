@@ -1,9 +1,6 @@
-import chronos, results, std/strutils
+import chronos, results, std/strutils, ../../api/types
 
-type ConnectionStatus* {.pure.} = enum
-  Disconnected = "Disconnected"
-  PartiallyConnected = "PartiallyConnected"
-  Connected = "Connected"
+export ConnectionStatus
 
 proc init*(t: typedesc[ConnectionStatus], strRep: string): Result[ConnectionStatus, string] =
   try:

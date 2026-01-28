@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import bearssl/rand, std/times, chronos, chronicles
+import bearssl/rand, std/times, chronos, chronicles, strutils
 import stew/byteutils
 import waku/utils/requests as request_utils
 import waku/waku_core/[topics/content_topic, message/message, time]
@@ -17,10 +17,10 @@ type
 
   RequestId* = distinct string
 
-  NodeHealth* {.pure.} = enum
-    Healthy
-    MinimallyHealthy
-    Unhealthy
+  ConnectionStatus* {.pure.} = enum
+    Disconnected
+    PartiallyConnected
+    Connected
 
 proc new*(T: typedesc[RequestId], rng: ref HmacDrbgContext): T =
   ## Generate a new RequestId using the provided RNG.

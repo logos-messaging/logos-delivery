@@ -17,7 +17,9 @@ import
   ./online_monitor,
   ./health_status,
   ./connection_status,
-  ./protocol_health
+  ./protocol_health,
+  ../../api/types,
+  ../../events/health_events
 
 ## This module is aimed to check the state of the "self" Waku Node
 
@@ -387,14 +389,12 @@ proc calculateConnectionState*(hm: NodeHealthMonitor): ConnectionStatus =
     hm.cachedProtocols, hm.strength, hm.getRelayFailoverThreshold()
   )
 
-proc getAllProtocolHealthInfo(
+proc getSyncProtocolHealthInfo(
     hm: NodeHealthMonitor
-): Future[seq[ProtocolHealth]] {.async.} =
+): seq[ProtocolHealth] =
   var protocols: seq[ProtocolHealth] = @[]
   let relayHealth = hm.getRelayHealth()
   protocols.add(relayHealth)
-
-  protocols.add(await hm.getRlnRelayHealth())
 
   protocols.add(hm.getLightpushHealth(relayHealth.health))
   protocols.add(hm.getLegacyLightpushHealth(relayHealth.health))
@@ -410,6 +410,16 @@ proc getAllProtocolHealthInfo(
   protocols.add(hm.getStoreClientHealth())
   protocols.add(hm.getLegacyStoreClientHealth())
   protocols.add(hm.getFilterClientHealth())
+  return protocols
+
+proc getAllProtocolHealthInfo(
+    hm: NodeHealthMonitor
+): Future[seq[ProtocolHealth]] {.async.} =
+  var protocols = hm.getSyncProtocolHealthInfo()
+
+  let rlnHealth = await hm.getRlnRelayHealth()
+  protocols.add(rlnHealth)
+
   return protocols
 
 proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.} =
@@ -428,10 +438,34 @@ proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.}
 
   if hm.cachedProtocols.len == 0:
     hm.cachedProtocols = await hm.getAllProtocolHealthInfo()
-  report.protocolsHealth = hm.cachedProtocols
+    hm.connectionStatus = hm.calculateConnectionState()
 
   report.nodeHealth = HealthStatus.READY
   report.connectionStatus = hm.connectionStatus
+  report.protocolsHealth = hm.cachedProtocols
+  return report
+
+proc getSyncNodeHealthReport*(hm: NodeHealthMonitor): HealthReport =
+  var report: HealthReport
+
+  if isNil(hm.node):
+    report.nodeHealth = HealthStatus.INITIALIZING
+    report.connectionStatus = ConnectionStatus.Disconnected
+    return report
+
+  if hm.nodeHealth == HealthStatus.INITIALIZING or
+      hm.nodeHealth == HealthStatus.SHUTTING_DOWN:
+    report.nodeHealth = hm.nodeHealth
+    report.connectionStatus = ConnectionStatus.Disconnected
+    return report
+
+  if hm.cachedProtocols.len == 0:
+    hm.cachedProtocols = hm.getSyncProtocolHealthInfo()
+    hm.connectionStatus = hm.calculateConnectionState()
+
+  report.nodeHealth = HealthStatus.READY
+  report.connectionStatus = hm.connectionStatus
+  report.protocolsHealth = hm.cachedProtocols
   return report
 
 proc onPeerEvent(
@@ -468,6 +502,8 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
 
       if newConnectionStatus != hm.connectionStatus:
         hm.connectionStatus = newConnectionStatus
+
+        ConnectionStatusChangeEvent.emit(hm.node.brokerCtx, newConnectionStatus)
 
         if not isNil(hm.onConnectionStatusChange):
           await hm.onConnectionStatusChange(newConnectionStatus)

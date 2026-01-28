@@ -7,8 +7,8 @@ import waku/waku_core/topics
 export protocol_health, topic_health
 
 RequestBroker(sync):
-  type RequestNodeHealth* = object
-    healthStatus*: NodeHealth
+  type RequestConnectionStatus* = object
+    connectionStatus*: ConnectionStatus
 
 RequestBroker(sync):
   type RequestRelayTopicsHealth* = object
@@ -18,4 +18,4 @@ RequestBroker(sync):
 
 MultiRequestBroker:
   type RequestProtocolHealth* = object
-    healthStatus*: ProtocolHealth
+    connectionStatus*: ProtocolHealth

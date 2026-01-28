@@ -1,4 +1,4 @@
-import chronicles, chronos, results
+import chronicles, chronos, results, std/strutils
 
 import waku/factory/waku
 import waku/[requests/health_request, waku_core, waku_node]
@@ -27,13 +27,13 @@ proc checkApiAvailability(w: Waku): Result[void, string] =
 
   # check if health is satisfactory
   # If Node is not healthy, return err("Waku node is not healthy")
-  let healthStatus = RequestNodeHealth.request(w.brokerCtx)
+  let connectionStatus = RequestConnectionStatus.request(w.brokerCtx)
 
-  if healthStatus.isErr():
-    warn "Failed to get Waku node health status: ", error = healthStatus.error
+  if connectionStatus.isErr():
+    warn "Failed to get Waku node health status: ", error = connectionStatus.error
     # Let's suppose the node is hesalthy enough, go ahead
   else:
-    if healthStatus.get().healthStatus == NodeHealth.Unhealthy:
+    if connectionStatus.get().connectionStatus == ConnectionStatus.Disconnected:
       return err("Waku node is not healthy, has got no connections.")
 
   return ok()

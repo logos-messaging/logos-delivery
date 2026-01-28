@@ -418,60 +418,18 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
   waku[].healthMonitor.startHealthMonitor().isOkOr:
     return err("failed to start health monitor: " & $error)
 
-  ## Setup RequestNodeHealth provider
+  ## Setup RequestConnectionStatus provider
 
-  RequestNodeHealth.setProvider(
+  RequestConnectionStatus.setProvider(
     globalBrokerContext(),
-    proc(): Result[RequestNodeHealth, string] =
-      let healthReportFut = waku[].healthMonitor.getNodeHealthReport()
-      if not healthReportFut.completed():
-        return err("Health report not available")
+    proc(): Result[RequestConnectionStatus, string] =
+      let healthReport = waku[].healthMonitor.getSyncNodeHealthReport()
       try:
-        let healthReport = healthReportFut.read()
-
-        # Check if Relay or Lightpush Client is ready (MinimallyHealthy condition)
-        var relayReady = false
-        var lightpushClientReady = false
-        var storeClientReady = false
-        var filterClientReady = false
-
-        for protocolHealth in healthReport.protocolsHealth:
-          if protocolHealth.protocol == "Relay" and
-              protocolHealth.health == HealthStatus.READY:
-            relayReady = true
-          elif protocolHealth.protocol == "Lightpush Client" and
-              protocolHealth.health == HealthStatus.READY:
-            lightpushClientReady = true
-          elif protocolHealth.protocol == "Store Client" and
-              protocolHealth.health == HealthStatus.READY:
-            storeClientReady = true
-          elif protocolHealth.protocol == "Filter Client" and
-              protocolHealth.health == HealthStatus.READY:
-            filterClientReady = true
-
-        # Determine node health based on protocol states
-        let isMinimallyHealthy = relayReady or lightpushClientReady
-        let nodeHealth =
-          if isMinimallyHealthy and storeClientReady and filterClientReady:
-            NodeHealth.Healthy
-          elif isMinimallyHealthy:
-            NodeHealth.MinimallyHealthy
-          else:
-            NodeHealth.Unhealthy
-
-        debug "Providing health report",
-          nodeHealth = $nodeHealth,
-          relayReady = relayReady,
-          lightpushClientReady = lightpushClientReady,
-          storeClientReady = storeClientReady,
-          filterClientReady = filterClientReady,
-          details = $(healthReport)
-
-        ok(RequestNodeHealth(healthStatus: nodeHealth))
+        ok(RequestConnectionStatus(connectionStatus: healthReport.connectionStatus))
       except CatchableError:
         err("Failed to read health report: " & getCurrentExceptionMsg()),
   ).isOkOr:
-    error "Failed to set RequestNodeHealth provider", error = error
+    error "Failed to set RequestConnectionStatus provider", error = error
 
   if conf.restServerConf.isSome():
     rest_server_builder.startRestServerProtocolSupport(
@@ -529,8 +487,8 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     if not waku.healthMonitor.isNil():
       await waku.healthMonitor.stopHealthMonitor()
 
-    ## Clear RequestNodeHealth provider
-    RequestNodeHealth.clearProvider(waku.brokerCtx)
+    ## Clear RequestConnectionStatus provider
+    RequestConnectionStatus.clearProvider(waku.brokerCtx)
 
     if not waku.restServer.isNil():
       await waku.restServer.stop()
