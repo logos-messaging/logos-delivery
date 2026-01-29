@@ -98,4 +98,4 @@ suite "Wakunode2 - Waku initialization":
 
     ## Cleanup
     (waitFor waku.stop()).isOkOr:
-      raiseAssert error)
+      raiseAssert error
