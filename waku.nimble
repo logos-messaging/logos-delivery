@@ -93,7 +93,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
     extra_params &= " " & paramStr(i)
 
   exec "nim c" & " --out:" & outDir &
-    "/libwaku.so --threads:on --app:lib --opt:size --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header --passL:-L" &
+    "/libwaku.so --threads:on --app:lib --opt:size --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --os:android -d:androidNDK " &
     extra_params & " " & srcDir & "/libwaku.nim"
 
