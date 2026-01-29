@@ -122,9 +122,8 @@ suite "Rate limited push service":
 
     # ensure period of time has passed and the client can again use the service
     await sleepAsync(tokenPeriod + 100.millis)
-    let recoveryRes = await client.publish(
-      some(DefaultPubsubTopic), fakeWakuMessage(), serverPeerId
-    )
+    let recoveryRes =
+      await client.publish(some(DefaultPubsubTopic), fakeWakuMessage(), serverPeerId)
     check recoveryRes.isOk()
 
     ## Cleanup

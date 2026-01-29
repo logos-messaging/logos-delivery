@@ -8,7 +8,8 @@ import
   libp2p/peerid,
   metrics,
   ffi
-import waku/factory/waku, waku/node/waku_node, waku/node/health_monitor, library/declare_lib
+import
+  waku/factory/waku, waku/node/waku_node, waku/node/health_monitor, library/declare_lib
 
 proc getMultiaddresses(node: WakuNode): seq[string] =
   return node.info().listenAddresses

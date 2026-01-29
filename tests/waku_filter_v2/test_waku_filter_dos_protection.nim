@@ -217,7 +217,8 @@ suite "Waku Filter - DOS protection":
     for fut in finished:
       check not fut.failed()
       let pingRes = fut.read()
-      if pingRes.isErr() and pingRes.error().kind == FilterSubscribeErrorKind.TOO_MANY_REQUESTS:
+      if pingRes.isErr() and
+          pingRes.error().kind == FilterSubscribeErrorKind.TOO_MANY_REQUESTS:
         gotTooMany = true
         break
 
