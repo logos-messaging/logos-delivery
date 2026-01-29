@@ -25,16 +25,11 @@ proc checkApiAvailability(w: Waku): Result[void, string] =
   if w.isNil():
     return err("Waku node is not initialized")
 
-  # check if health is satisfactory
-  # If Node is not healthy, return err("Waku node is not healthy")
-  let connectionStatus = RequestConnectionStatus.request(w.brokerCtx)
+  let req = RequestConnectionStatus.request(w.brokerCtx).valueOr:
+    return err("Could not retrieve node connection status: " & $error)
 
-  if connectionStatus.isErr():
-    warn "Failed to get Waku node health status: ", error = connectionStatus.error
-    # Let's suppose the node is hesalthy enough, go ahead
-  else:
-    if connectionStatus.get().connectionStatus == ConnectionStatus.Disconnected:
-      return err("Waku node is not healthy, has got no connections.")
+  if req.get().connectionStatus == ConnectionStatus.Disconnected:
+    return err("Waku node is disconnected.")
 
   return ok()
 
