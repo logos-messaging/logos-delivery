@@ -41,3 +41,39 @@ jobs:
 
       - name: Build binaries
         run: make V=1 QUICK_AND_DIRTY_COMPILER=1 examples tools
+
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ job.status }}"
+          OS="${{ matrix.os }}"
+          REPO="${{ github.repository }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ "$STATUS" = "success" ]; then
+            COLOR=3066993
+            TITLE="✅ CI Success"
+          else
+            COLOR=15158332
+            TITLE="❌ CI Failed"
+          fi
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"$TITLE\",
+                \"color\": $COLOR,
+                \"fields\": [
+                  {\"name\": \"Repository\", \"value\": \"$REPO\", \"inline\": true},
+                  {\"name\": \"OS\", \"value\": \"$OS\", \"inline\": true},
+                  {\"name\": \"Status\", \"value\": \"$STATUS\", \"inline\": true}
+                ],
+                \"url\": \"$RUN_URL\",
+                \"footer\": {\"text\": \"Daily logos-messaging-nim CI\"}
+              }]
+            }" \
+            "$DISCORD_WEBHOOK_URL"
+
