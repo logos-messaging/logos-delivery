@@ -1,5 +1,26 @@
 {
   "nodes": {
+    "nimbusBuildSystem": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1769685810,
+        "narHash": "sha256-mANqcQcRXb08ZR8WF6SoyVrL/nXUePtMZfpNx25BlLI=",
+        "rev": "0e7a764edae92b224326b3700f062702489ce2b4",
+        "revCount": 238,
+        "submodules": true,
+        "type": "git",
+        "url": "file:./vendor/nimbus-build-system"
+      },
+      "original": {
+        "submodules": true,
+        "type": "git",
+        "url": "file:./vendor/nimbus-build-system"
+      }
+    },
     "nixpkgs": {
       "locked": {
         "lastModified": 1757590060,
@@ -18,6 +39,7 @@
     },
     "root": {
       "inputs": {
+        "nimbusBuildSystem": "nimbusBuildSystem",
         "nixpkgs": "nixpkgs",
         "zerokit": "zerokit"
       }
@@ -51,18 +73,16 @@
         "rust-overlay": "rust-overlay"
       },
       "locked": {
-        "lastModified": 1762211504,
-        "narHash": "sha256-SbDoBElFYJ4cYebltxlO2lYnz6qOaDAVY6aNJ5bqHDE=",
-        "ref": "refs/heads/master",
-        "rev": "3160d9504d07791f2fc9b610948a6cf9a58ed488",
-        "revCount": 342,
+        "lastModified": 1769437355,
+        "narHash": "sha256-cTZ1LZegNBNrNlLRYCtEoTYsVPPukNVqGwSIEwIfZFg=",
+        "rev": "70c79fbc989d4f87d9352b2f4bddcb60ebe55b19",
+        "revCount": 339,
         "type": "git",
-        "url": "https://github.com/vacp2p/zerokit"
+        "url": "file:./vendor/zerokit"
       },
       "original": {
-        "rev": "3160d9504d07791f2fc9b610948a6cf9a58ed488",
         "type": "git",
-        "url": "https://github.com/vacp2p/zerokit"
+        "url": "file:./vendor/zerokit"
       }
     }
   },
