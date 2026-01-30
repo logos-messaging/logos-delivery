@@ -21,6 +21,27 @@ suite "LibWaku Conf - toWakuConf":
       wakuConf.shardingConf.numShardsInCluster == 8
       wakuConf.staticNodes.len == 0
 
+  test "Edge mode configuration":
+    ## Given
+    let protocolsConfig = ProtocolsConfig.init(entryNodes = @[], clusterId = 1)
+
+    let nodeConfig = NodeConfig.init(mode = Edge, protocolsConfig = protocolsConfig)
+
+    ## When
+    let wakuConfRes = toWakuConf(nodeConfig)
+
+    ## Then
+    require wakuConfRes.isOk()
+    let wakuConf = wakuConfRes.get()
+    require wakuConf.validate().isOk()
+    check:
+      wakuConf.relay == false
+      wakuConf.lightPush == false
+      wakuConf.filterServiceConf.isSome() == false
+      wakuConf.storeServiceConf.isSome() == false
+      wakuConf.peerExchangeService == true
+      wakuConf.clusterId == 1
+
   test "Core mode configuration":
     ## Given
     let protocolsConfig = ProtocolsConfig.init(entryNodes = @[], clusterId = 1)

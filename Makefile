@@ -272,6 +272,10 @@ lightpushwithmix: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(ENV_SCRIPT) nim lightpushwithmix $(NIM_PARAMS) waku.nims
 
+api_example: | build deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) waku.nims
+
 build/%: | build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
 		$(ENV_SCRIPT) nim buildone $(NIM_PARAMS) waku.nims $*

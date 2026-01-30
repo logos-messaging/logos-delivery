@@ -4,7 +4,7 @@ import std/[tables, strutils, os], results, chronicles
 import ../../../common/databases/db_sqlite, ../../../common/databases/common
 
 logScope:
-  topics = "waku node delivery_monitor"
+  topics = "waku node delivery_service"
 
 const TargetSchemaVersion* = 1
   # increase this when there is an update in the database schema

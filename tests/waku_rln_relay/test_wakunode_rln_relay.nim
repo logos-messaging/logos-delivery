@@ -12,7 +12,8 @@ import
   waku/[waku_core, waku_node, waku_rln_relay],
   ../testlib/[wakucore, futures, wakunode, testutils],
   ./utils_onchain,
-  ./rln/waku_rln_relay_utils
+  ./rln/waku_rln_relay_utils,
+  waku/common/broker/broker_context
 
 from std/times import epochTime
 
@@ -37,68 +38,70 @@ procSuite "WakuNode - RLN relay":
     stopAnvil(anvilProc)
 
   asyncTest "testing rln-relay with valid proof":
-    let
-      # publisher node
-      nodeKey1 = generateSecp256k1Key()
+    var node1, node2, node3: WakuNode # publisher node
+    let contentTopic = ContentTopic("/waku/2/default-content/proto")
+    # set up three nodes
+    lockNewGlobalBrokerContext:
+      let nodeKey1 = generateSecp256k1Key()
       node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      (await node1.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+
+      # mount rlnrelay in off-chain mode
+      let wakuRlnConfig1 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+
+      await node1.mountRlnRelay(wakuRlnConfig1)
+      await node1.start()
+
+      # Registration is mandatory before sending messages with rln-relay
+      let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
+      let idCredentials1 = generateCredentials()
+
+      try:
+        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
+      except Exception, CatchableError:
+        assert false,
+          "exception raised when calling register: " & getCurrentExceptionMsg()
+
+      let rootUpdated1 = waitFor manager1.updateRoots()
+      info "Updated root for node1", rootUpdated1
+
+    lockNewGlobalBrokerContext:
       # Relay node
-      nodeKey2 = generateSecp256k1Key()
+      let nodeKey2 = generateSecp256k1Key()
       node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+
+      (await node2.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      # mount rlnrelay in off-chain mode
+      let wakuRlnConfig2 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
+
+      await node2.mountRlnRelay(wakuRlnConfig2)
+      await node2.start()
+
+      let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
+      let rootUpdated2 = waitFor manager2.updateRoots()
+      info "Updated root for node2", rootUpdated2
+
+    lockNewGlobalBrokerContext:
       # Subscriber
-      nodeKey3 = generateSecp256k1Key()
+      let nodeKey3 = generateSecp256k1Key()
       node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
 
-      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      (await node3.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
 
-    # set up three nodes
-    # node1
-    (await node1.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
+      let wakuRlnConfig3 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
 
-    # mount rlnrelay in off-chain mode
-    let wakuRlnConfig1 = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+      await node3.mountRlnRelay(wakuRlnConfig3)
+      await node3.start()
 
-    await node1.mountRlnRelay(wakuRlnConfig1)
-    await node1.start()
-
-    # Registration is mandatory before sending messages with rln-relay 
-    let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
-    let idCredentials1 = generateCredentials()
-
-    try:
-      waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
-
-    let rootUpdated1 = waitFor manager1.updateRoots()
-    info "Updated root for node1", rootUpdated1
-
-    # node 2
-    (await node2.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    # mount rlnrelay in off-chain mode
-    let wakuRlnConfig2 = getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
-
-    await node2.mountRlnRelay(wakuRlnConfig2)
-    await node2.start()
-
-    let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
-    let rootUpdated2 = waitFor manager2.updateRoots()
-    info "Updated root for node2", rootUpdated2
-
-    # node 3
-    (await node3.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-
-    let wakuRlnConfig3 = getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
-
-    await node3.mountRlnRelay(wakuRlnConfig3)
-    await node3.start()
-
-    let manager3 = cast[OnchainGroupManager](node3.wakuRlnRelay.groupManager)
-    let rootUpdated3 = waitFor manager3.updateRoots()
-    info "Updated root for node3", rootUpdated3
+      let manager3 = cast[OnchainGroupManager](node3.wakuRlnRelay.groupManager)
+      let rootUpdated3 = waitFor manager3.updateRoots()
+      info "Updated root for node3", rootUpdated3
 
     # connect them together
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
@@ -156,10 +159,67 @@ procSuite "WakuNode - RLN relay":
 
   asyncTest "testing rln-relay is applied in all rln shards/content topics":
     # create 3 nodes
-    let nodes = toSeq(0 ..< 3).mapIt(
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      )
-    await allFutures(nodes.mapIt(it.start()))
+    var node1, node2, node3: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeKey1 = generateSecp256k1Key()
+      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      (await node1.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      let wakuRlnConfig1 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+      await node1.mountRlnRelay(wakuRlnConfig1)
+      await node1.start()
+      let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
+      let idCredentials1 = generateCredentials()
+
+      try:
+        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
+      except Exception, CatchableError:
+        assert false,
+          "exception raised when calling register: " & getCurrentExceptionMsg()
+
+      let rootUpdated1 = waitFor manager1.updateRoots()
+      info "Updated root for node", node = 1, rootUpdated = rootUpdated1
+    lockNewGlobalBrokerContext:
+      let nodeKey2 = generateSecp256k1Key()
+      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      (await node2.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      let wakuRlnConfig2 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
+      await node2.mountRlnRelay(wakuRlnConfig2)
+      await node2.start()
+      let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
+      let idCredentials2 = generateCredentials()
+
+      try:
+        waitFor manager2.register(idCredentials2, UserMessageLimit(20))
+      except Exception, CatchableError:
+        assert false,
+          "exception raised when calling register: " & getCurrentExceptionMsg()
+
+      let rootUpdated2 = waitFor manager2.updateRoots()
+      info "Updated root for node", node = 2, rootUpdated = rootUpdated2
+    lockNewGlobalBrokerContext:
+      let nodeKey3 = generateSecp256k1Key()
+      node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      (await node3.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      let wakuRlnConfig3 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
+      await node3.mountRlnRelay(wakuRlnConfig3)
+      await node3.start()
+      let manager3 = cast[OnchainGroupManager](node3.wakuRlnRelay.groupManager)
+      let idCredentials3 = generateCredentials()
+
+      try:
+        waitFor manager3.register(idCredentials3, UserMessageLimit(20))
+      except Exception, CatchableError:
+        assert false,
+          "exception raised when calling register: " & getCurrentExceptionMsg()
+
+      let rootUpdated3 = waitFor manager3.updateRoots()
+      info "Updated root for node", node = 3, rootUpdated = rootUpdated3
 
     let shards =
       @[RelayShard(clusterId: 0, shardId: 0), RelayShard(clusterId: 0, shardId: 1)]
@@ -169,31 +229,9 @@ procSuite "WakuNode - RLN relay":
         ContentTopic("/waku/2/content-topic-b/proto"),
       ]
 
-    # set up three nodes
-    await allFutures(nodes.mapIt(it.mountRelay()))
-
-    # mount rlnrelay in off-chain mode
-    for index, node in nodes:
-      let wakuRlnConfig =
-        getWakuRlnConfig(manager = manager, index = MembershipIndex(index + 1))
-
-      await node.mountRlnRelay(wakuRlnConfig)
-      await node.start()
-      let manager = cast[OnchainGroupManager](node.wakuRlnRelay.groupManager)
-      let idCredentials = generateCredentials()
-
-      try:
-        waitFor manager.register(idCredentials, UserMessageLimit(20))
-      except Exception, CatchableError:
-        assert false,
-          "exception raised when calling register: " & getCurrentExceptionMsg()
-
-      let rootUpdated = waitFor manager.updateRoots()
-      info "Updated root for node", node = index + 1, rootUpdated = rootUpdated
-
     # connect them together
-    await nodes[0].connectToNodes(@[nodes[1].switch.peerInfo.toRemotePeerInfo()])
-    await nodes[2].connectToNodes(@[nodes[1].switch.peerInfo.toRemotePeerInfo()])
+    await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
+    await node3.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     var rxMessagesTopic1 = 0
     var rxMessagesTopic2 = 0
@@ -211,15 +249,15 @@ procSuite "WakuNode - RLN relay":
     ): Future[void] {.async, gcsafe.} =
       await sleepAsync(0.milliseconds)
 
-    nodes[0].subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
-      assert false, "Failed to subscribe to pubsub topic in nodes[0]: " & $error
-    nodes[1].subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
-      assert false, "Failed to subscribe to pubsub topic in nodes[1]: " & $error
+    node1.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to pubsub topic in node1: " & $error
+    node2.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to pubsub topic in node2: " & $error
 
     # mount the relay handlers
-    nodes[2].subscribe((kind: PubsubSub, topic: $shards[0]), relayHandler).isOkOr:
+    node3.subscribe((kind: PubsubSub, topic: $shards[0]), relayHandler).isOkOr:
       assert false, "Failed to subscribe to pubsub topic: " & $error
-    nodes[2].subscribe((kind: PubsubSub, topic: $shards[1]), relayHandler).isOkOr:
+    node3.subscribe((kind: PubsubSub, topic: $shards[1]), relayHandler).isOkOr:
       assert false, "Failed to subscribe to pubsub topic: " & $error
     await sleepAsync(1000.millis)
 
@@ -236,8 +274,8 @@ procSuite "WakuNode - RLN relay":
         contentTopic: contentTopics[0],
       )
 
-      nodes[0].wakuRlnRelay.unsafeAppendRLNProof(
-        message, nodes[0].wakuRlnRelay.getCurrentEpoch(), MessageId(i.uint8)
+      node1.wakuRlnRelay.unsafeAppendRLNProof(
+        message, node1.wakuRlnRelay.getCurrentEpoch(), MessageId(i.uint8)
       ).isOkOr:
         raiseAssert $error
       messages1.add(message)
@@ -249,8 +287,8 @@ procSuite "WakuNode - RLN relay":
         contentTopic: contentTopics[1],
       )
 
-      nodes[1].wakuRlnRelay.unsafeAppendRLNProof(
-        message, nodes[1].wakuRlnRelay.getCurrentEpoch(), MessageId(i.uint8)
+      node2.wakuRlnRelay.unsafeAppendRLNProof(
+        message, node2.wakuRlnRelay.getCurrentEpoch(), MessageId(i.uint8)
       ).isOkOr:
         raiseAssert $error
       messages2.add(message)
@@ -258,9 +296,9 @@ procSuite "WakuNode - RLN relay":
     # publish 3 messages from node[0] (last 2 are spam, window is 10 secs)
     # publish 3 messages from node[1] (last 2 are spam, window is 10 secs)
     for msg in messages1:
-      discard await nodes[0].publish(some($shards[0]), msg)
+      discard await node1.publish(some($shards[0]), msg)
     for msg in messages2:
-      discard await nodes[1].publish(some($shards[1]), msg)
+      discard await node2.publish(some($shards[1]), msg)
 
     # wait for gossip to propagate
     await sleepAsync(5000.millis)
@@ -271,70 +309,70 @@ procSuite "WakuNode - RLN relay":
       rxMessagesTopic1 == 3
       rxMessagesTopic2 == 3
 
-    await allFutures(nodes.mapIt(it.stop()))
+    await node1.stop()
+    await node2.stop()
+    await node3.stop()
 
   asyncTest "testing rln-relay with invalid proof":
-    let
+    var node1, node2, node3: WakuNode
+    let contentTopic = ContentTopic("/waku/2/default-content/proto")
+    lockNewGlobalBrokerContext:
       # publisher node
-      nodeKey1 = generateSecp256k1Key()
+      let nodeKey1 = generateSecp256k1Key()
       node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      (await node1.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+
+      # mount rlnrelay in off-chain mode
+      let wakuRlnConfig1 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+
+      await node1.mountRlnRelay(wakuRlnConfig1)
+      await node1.start()
+
+      let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
+      let idCredentials1 = generateCredentials()
+
+      try:
+        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
+      except Exception, CatchableError:
+        assert false,
+          "exception raised when calling register: " & getCurrentExceptionMsg()
+
+      let rootUpdated1 = waitFor manager1.updateRoots()
+      info "Updated root for node1", rootUpdated1
+    lockNewGlobalBrokerContext:
       # Relay node
-      nodeKey2 = generateSecp256k1Key()
+      let nodeKey2 = generateSecp256k1Key()
       node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      (await node2.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      # mount rlnrelay in off-chain mode
+      let wakuRlnConfig2 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
+
+      await node2.mountRlnRelay(wakuRlnConfig2)
+      await node2.start()
+
+      let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
+      let rootUpdated2 = waitFor manager2.updateRoots()
+      info "Updated root for node2", rootUpdated2
+    lockNewGlobalBrokerContext:
       # Subscriber
-      nodeKey3 = generateSecp256k1Key()
+      let nodeKey3 = generateSecp256k1Key()
       node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      (await node3.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
 
-      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      let wakuRlnConfig3 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
 
-    # set up three nodes
-    # node1
-    (await node1.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
+      await node3.mountRlnRelay(wakuRlnConfig3)
+      await node3.start()
 
-    # mount rlnrelay in off-chain mode
-    let wakuRlnConfig1 = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
-
-    await node1.mountRlnRelay(wakuRlnConfig1)
-    await node1.start()
-
-    let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
-    let idCredentials1 = generateCredentials()
-
-    try:
-      waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
-
-    let rootUpdated1 = waitFor manager1.updateRoots()
-    info "Updated root for node1", rootUpdated1
-
-    # node 2
-    (await node2.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    # mount rlnrelay in off-chain mode
-    let wakuRlnConfig2 = getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
-
-    await node2.mountRlnRelay(wakuRlnConfig2)
-    await node2.start()
-
-    let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
-    let rootUpdated2 = waitFor manager2.updateRoots()
-    info "Updated root for node2", rootUpdated2
-
-    # node 3
-    (await node3.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-
-    let wakuRlnConfig3 = getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
-
-    await node3.mountRlnRelay(wakuRlnConfig3)
-    await node3.start()
-
-    let manager3 = cast[OnchainGroupManager](node3.wakuRlnRelay.groupManager)
-    let rootUpdated3 = waitFor manager3.updateRoots()
-    info "Updated root for node3", rootUpdated3
+      let manager3 = cast[OnchainGroupManager](node3.wakuRlnRelay.groupManager)
+      let rootUpdated3 = waitFor manager3.updateRoots()
+      info "Updated root for node3", rootUpdated3
 
     # connect them together
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
@@ -390,72 +428,70 @@ procSuite "WakuNode - RLN relay":
     await node3.stop()
 
   asyncTest "testing rln-relay double-signaling detection":
-    let
+    var node1, node2, node3: WakuNode
+    let contentTopic = ContentTopic("/waku/2/default-content/proto")
+    lockNewGlobalBrokerContext:
       # publisher node
-      nodeKey1 = generateSecp256k1Key()
+      let nodeKey1 = generateSecp256k1Key()
       node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      (await node1.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+
+      # mount rlnrelay in off-chain mode
+      let wakuRlnConfig1 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+
+      await node1.mountRlnRelay(wakuRlnConfig1)
+      await node1.start()
+
+      # Registration is mandatory before sending messages with rln-relay
+      let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
+      let idCredentials1 = generateCredentials()
+
+      try:
+        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
+      except Exception, CatchableError:
+        assert false,
+          "exception raised when calling register: " & getCurrentExceptionMsg()
+
+      let rootUpdated1 = waitFor manager1.updateRoots()
+      info "Updated root for node1", rootUpdated1
+    lockNewGlobalBrokerContext:
       # Relay node
-      nodeKey2 = generateSecp256k1Key()
+      let nodeKey2 = generateSecp256k1Key()
       node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      (await node2.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+
+      # mount rlnrelay in off-chain mode
+      let wakuRlnConfig2 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
+
+      await node2.mountRlnRelay(wakuRlnConfig2)
+      await node2.start()
+
+      # Registration is mandatory before sending messages with rln-relay
+      let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
+      let rootUpdated2 = waitFor manager2.updateRoots()
+      info "Updated root for node2", rootUpdated2
+    lockNewGlobalBrokerContext:
       # Subscriber
-      nodeKey3 = generateSecp256k1Key()
+      let nodeKey3 = generateSecp256k1Key()
       node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      (await node3.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
 
-      contentTopic = ContentTopic("/waku/2/default-content/proto")
+      # mount rlnrelay in off-chain mode
+      let wakuRlnConfig3 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
 
-    # set up three nodes
-    # node1
-    (await node1.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
+      await node3.mountRlnRelay(wakuRlnConfig3)
+      await node3.start()
 
-    # mount rlnrelay in off-chain mode
-    let wakuRlnConfig1 = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
-
-    await node1.mountRlnRelay(wakuRlnConfig1)
-    await node1.start()
-
-    # Registration is mandatory before sending messages with rln-relay 
-    let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
-    let idCredentials1 = generateCredentials()
-
-    try:
-      waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
-
-    let rootUpdated1 = waitFor manager1.updateRoots()
-    info "Updated root for node1", rootUpdated1
-
-    # node 2
-    (await node2.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-
-    # mount rlnrelay in off-chain mode
-    let wakuRlnConfig2 = getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
-
-    await node2.mountRlnRelay(wakuRlnConfig2)
-    await node2.start()
-
-    # Registration is mandatory before sending messages with rln-relay 
-    let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
-    let rootUpdated2 = waitFor manager2.updateRoots()
-    info "Updated root for node2", rootUpdated2
-
-    # node 3
-    (await node3.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-
-    # mount rlnrelay in off-chain mode
-    let wakuRlnConfig3 = getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
-
-    await node3.mountRlnRelay(wakuRlnConfig3)
-    await node3.start()
-
-    # Registration is mandatory before sending messages with rln-relay 
-    let manager3 = cast[OnchainGroupManager](node3.wakuRlnRelay.groupManager)
-    let rootUpdated3 = waitFor manager3.updateRoots()
-    info "Updated root for node3", rootUpdated3
+      # Registration is mandatory before sending messages with rln-relay
+      let manager3 = cast[OnchainGroupManager](node3.wakuRlnRelay.groupManager)
+      let rootUpdated3 = waitFor manager3.updateRoots()
+      info "Updated root for node3", rootUpdated3
 
     # connect the nodes together node1 <-> node2 <-> node3
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
@@ -565,49 +601,49 @@ procSuite "WakuNode - RLN relay":
   xasyncTest "clearNullifierLog: should clear epochs > MaxEpochGap":
     ## This is skipped because is flaky and made CI randomly fail but is useful to run manually
     # Given two nodes
+    var node1, node2: WakuNode
     let
       contentTopic = ContentTopic("/waku/2/default-content/proto")
       shardSeq = @[DefaultRelayShard]
-      nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
-      nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
       epochSizeSec: uint64 = 5 # This means rlnMaxEpochGap = 4
+    lockNewGlobalBrokerContext:
+      let nodeKey1 = generateSecp256k1Key()
+      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      (await node1.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      let wakuRlnConfig1 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+      await node1.mountRlnRelay(wakuRlnConfig1)
+      await node1.start()
 
-    # Given both nodes mount relay and rlnrelay
-    (await node1.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    let wakuRlnConfig1 = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
-    await node1.mountRlnRelay(wakuRlnConfig1)
-    await node1.start()
+      # Registration is mandatory before sending messages with rln-relay
+      let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
+      let idCredentials1 = generateCredentials()
 
-    # Registration is mandatory before sending messages with rln-relay 
-    let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
-    let idCredentials1 = generateCredentials()
+      try:
+        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
+      except Exception, CatchableError:
+        assert false,
+          "exception raised when calling register: " & getCurrentExceptionMsg()
 
-    try:
-      waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+      let rootUpdated1 = waitFor manager1.updateRoots()
+      info "Updated root for node1", rootUpdated1
+    lockNewGlobalBrokerContext:
+      let nodeKey2 = generateSecp256k1Key()
+      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      (await node2.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      let wakuRlnConfig2 =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
+      await node2.mountRlnRelay(wakuRlnConfig2)
+      await node2.start()
 
-    let rootUpdated1 = waitFor manager1.updateRoots()
-    info "Updated root for node1", rootUpdated1
-
-    # Mount rlnrelay in node2 in off-chain mode
-    (await node2.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    let wakuRlnConfig2 = getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
-    await node2.mountRlnRelay(wakuRlnConfig2)
-    await node2.start()
-
-    # Registration is mandatory before sending messages with rln-relay 
-    let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
-    let rootUpdated2 = waitFor manager2.updateRoots()
-    info "Updated root for node2", rootUpdated2
+      # Registration is mandatory before sending messages with rln-relay
+      let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
+      let rootUpdated2 = waitFor manager2.updateRoots()
+      info "Updated root for node2", rootUpdated2
 
     # Given the two nodes are started and connected
-    waitFor allFutures(node1.start(), node2.start())
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     # Given some messages

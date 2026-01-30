@@ -17,8 +17,13 @@ import
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/stream/connection,
   libp2p/switch
+
 import
-  ../waku_core, ./message_id, ./topic_health, ../node/delivery_monitor/publish_observer
+  waku/waku_core,
+  waku/node/health_monitor/topic_health,
+  waku/requests/health_request,
+  ./message_id,
+  waku/common/broker/broker_context
 
 from ../waku_core/codecs import WakuRelayCodec
 export WakuRelayCodec
@@ -157,7 +162,6 @@ type
       # map topic with its assigned validator within pubsub
     topicHandlers: Table[PubsubTopic, TopicHandler]
       # map topic with the TopicHandler proc in charge of attending topic's incoming message events
-    publishObservers: seq[PublishObserver]
     topicsHealth*: Table[string, TopicHealth]
     onTopicHealthChange*: TopicHealthChangeHandler
     topicHealthLoopHandle*: Future[void]
@@ -321,6 +325,18 @@ proc initRelayObservers(w: WakuRelay) =
 
   w.addObserver(administrativeObserver)
 
+proc initRequestProviders(w: WakuRelay) =
+  RequestRelayTopicsHealth.setProvider(
+    globalBrokerContext(),
+    proc(topics: seq[PubsubTopic]): Result[RequestRelayTopicsHealth, string] =
+      var collectedRes: RequestRelayTopicsHealth
+      for topic in topics:
+        let health = w.topicsHealth.getOrDefault(topic, TopicHealth.NOT_SUBSCRIBED)
+        collectedRes.topicHealth.add((topic, health))
+      return ok(collectedRes),
+  ).isOkOr:
+    error "Cannot set Relay Topics Health request provider", error = error
+
 proc new*(
     T: type WakuRelay, switch: Switch, maxMessageSize = int(DefaultMaxWakuMessageSize)
 ): WakuRelayResult[T] =
@@ -340,9 +356,10 @@ proc new*(
     )
 
     procCall GossipSub(w).initPubSub()
+    w.topicsHealth = initTable[string, TopicHealth]()
     w.initProtocolHandler()
     w.initRelayObservers()
-    w.topicsHealth = initTable[string, TopicHealth]()
+    w.initRequestProviders()
   except InitializationError:
     return err("initialization error: " & getCurrentExceptionMsg())
 
@@ -352,12 +369,6 @@ proc addValidator*(
     w: WakuRelay, handler: WakuValidatorHandler, errorMessage: string = ""
 ) {.gcsafe.} =
   w.wakuValidators.add((handler, errorMessage))
-
-proc addPublishObserver*(w: WakuRelay, obs: PublishObserver) =
-  ## Observer when the api client performed a publish operation. This
-  ## is initially aimed for bringing an additional layer of delivery reliability thanks
-  ## to store
-  w.publishObservers.add(obs)
 
 proc addObserver*(w: WakuRelay, observer: PubSubObserver) {.gcsafe.} =
   ## Observes when a message is sent/received from the GossipSub PoV
@@ -573,6 +584,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   procCall GossipSub(w).subscribe(pubsubTopic, topicHandler)
 
   w.topicHandlers[pubsubTopic] = topicHandler
+  asyncSpawn w.updateTopicsHealth()
 
 proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   ## Unsubscribe all handlers on this pubsub topic
@@ -627,9 +639,6 @@ proc publish*(
 
   if relayedPeerCount <= 0:
     return err(NoPeersToPublish)
-
-  for obs in w.publishObservers:
-    obs.onMessagePublished(pubSubTopic, message)
 
   return ok(relayedPeerCount)
 

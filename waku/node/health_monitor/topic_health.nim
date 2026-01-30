@@ -1,11 +1,12 @@
 import chronos
 
-import ../waku_core
+import waku/waku_core
 
 type TopicHealth* = enum
   UNHEALTHY
   MINIMALLY_HEALTHY
   SUFFICIENTLY_HEALTHY
+  NOT_SUBSCRIBED
 
 proc `$`*(t: TopicHealth): string =
   result =
@@ -13,6 +14,7 @@ proc `$`*(t: TopicHealth): string =
     of UNHEALTHY: "UnHealthy"
     of MINIMALLY_HEALTHY: "MinimallyHealthy"
     of SUFFICIENTLY_HEALTHY: "SufficientlyHealthy"
+    of NOT_SUBSCRIBED: "NotSubscribed"
 
 type TopicHealthChangeHandler* = proc(
   pubsubTopic: PubsubTopic, topicHealth: TopicHealth

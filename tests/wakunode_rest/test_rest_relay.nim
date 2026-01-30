@@ -21,6 +21,7 @@ import
     rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
     waku_rln_relay,
+    common/broker/broker_context,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
@@ -505,15 +506,41 @@ suite "Waku v2 Rest API - Relay":
   asyncTest "Post a message to a content topic - POST /relay/v1/auto/messages/{topic}":
     ## "Relay API: publish and subscribe/unsubscribe":
     # Given
-    let node = testWakuNode()
-    (await node.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    require node.mountAutoSharding(1, 8).isOk
+    var meshNode: WakuNode
+    lockNewGlobalBrokerContext:
+      meshNode = testWakuNode()
+      (await meshNode.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      require meshNode.mountAutoSharding(1, 8).isOk
 
-    let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+      let wakuRlnConfig =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
 
-    await node.mountRlnRelay(wakuRlnConfig)
-    await node.start()
+      await meshNode.mountRlnRelay(wakuRlnConfig)
+      await meshNode.start()
+      const testPubsubTopic = PubsubTopic("/waku/2/rs/1/0")
+      proc dummyHandler(
+          topic: PubsubTopic, msg: WakuMessage
+      ): Future[void] {.async, gcsafe.} =
+        discard
+
+      meshNode.subscribe((kind: ContentSub, topic: DefaultContentTopic), dummyHandler).isOkOr:
+        raiseAssert "Failed to subscribe meshNode: " & error
+
+    var node: WakuNode
+    lockNewGlobalBrokerContext:
+      node = testWakuNode()
+      (await node.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      require node.mountAutoSharding(1, 8).isOk
+
+      let wakuRlnConfig =
+        getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+
+      await node.mountRlnRelay(wakuRlnConfig)
+      await node.start()
+      await node.connectToNodes(@[meshNode.peerInfo.toRemotePeerInfo()])
+
     # Registration is mandatory before sending messages with rln-relay
     let manager = cast[OnchainGroupManager](node.wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()

@@ -24,10 +24,14 @@ import
   ./nonce_manager
 
 import
-  ../common/error_handling,
-  ../waku_relay, # for WakuRelayHandler
-  ../waku_core,
-  ../waku_keystore
+  waku/[
+    common/error_handling,
+    waku_relay, # for WakuRelayHandler
+    waku_core,
+    requests/rln_requests,
+    waku_keystore,
+    common/broker/broker_context,
+  ]
 
 logScope:
   topics = "waku rln_relay"
@@ -65,6 +69,7 @@ type WakuRLNRelay* = ref object of RootObj
   nonceManager*: NonceManager
   epochMonitorFuture*: Future[void]
   rootChangesFuture*: Future[void]
+  brokerCtx*: BrokerContext
 
 proc calcEpoch*(rlnPeer: WakuRLNRelay, t: float64): Epoch =
   ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
@@ -91,6 +96,7 @@ proc stop*(rlnPeer: WakuRLNRelay) {.async: (raises: [Exception]).} =
 
   # stop the group sync, and flush data to tree db
   info "stopping rln-relay"
+  RequestGenerateRlnProof.clearProvider(rlnPeer.brokerCtx)
   await rlnPeer.groupManager.stop()
 
 proc hasDuplicate*(
@@ -275,11 +281,11 @@ proc validateMessageAndUpdateLog*(
 
   return isValidMessage
 
-proc appendRLNProof*(
-    rlnPeer: WakuRLNRelay, msg: var WakuMessage, senderEpochTime: float64
-): RlnRelayResult[void] =
-  ## returns true if it can create and append a `RateLimitProof` to the supplied `msg`
-  ## returns false otherwise
+proc createRlnProof(
+    rlnPeer: WakuRLNRelay, msg: WakuMessage, senderEpochTime: float64
+): RlnRelayResult[seq[byte]] =
+  ## returns a new `RateLimitProof` for the supplied `msg`
+  ## returns an error if it cannot create the proof
   ## `senderEpochTime` indicates the number of seconds passed since Unix epoch. The fractional part holds sub-seconds.
   ## The `epoch` field of `RateLimitProof` is derived from the provided `senderEpochTime` (using `calcEpoch()`)
 
@@ -291,7 +297,14 @@ proc appendRLNProof*(
   let proof = rlnPeer.groupManager.generateProof(input, epoch, nonce).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
 
-  msg.proof = proof.encode().buffer
+  return ok(proof.encode().buffer)
+
+proc appendRLNProof*(
+    rlnPeer: WakuRLNRelay, msg: var WakuMessage, senderEpochTime: float64
+): RlnRelayResult[void] =
+  msg.proof = rlnPeer.createRlnProof(msg, senderEpochTime).valueOr:
+    return err($error)
+
   return ok()
 
 proc clearNullifierLog*(rlnPeer: WakuRlnRelay) =
@@ -429,6 +442,7 @@ proc mount(
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
     onFatalErrorAction: conf.onFatalErrorAction,
+    brokerCtx: globalBrokerContext(),
   )
 
   # track root changes on smart contract merkle tree
@@ -438,6 +452,19 @@ proc mount(
 
   # Start epoch monitoring in the background
   wakuRlnRelay.epochMonitorFuture = monitorEpochs(wakuRlnRelay)
+
+  RequestGenerateRlnProof.setProvider(
+    wakuRlnRelay.brokerCtx,
+    proc(
+        msg: WakuMessage, senderEpochTime: float64
+    ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
+      let proof = createRlnProof(wakuRlnRelay, msg, senderEpochTime).valueOr:
+        return err("Could not create RLN proof: " & $error)
+
+      return ok(RequestGenerateRlnProof(proof: proof)),
+  ).isOkOr:
+    return err("Proof generator provider cannot be set: " & $error)
+
   return ok(wakuRlnRelay)
 
 proc isReady*(rlnPeer: WakuRLNRelay): Future[bool] {.async: (raises: [Exception]).} =

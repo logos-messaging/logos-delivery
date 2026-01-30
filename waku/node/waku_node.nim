@@ -27,38 +27,42 @@ import
   libp2p/protocols/mix/mix_protocol
 
 import
-  ../waku_core,
-  ../waku_core/topics/sharding,
-  ../waku_relay,
-  ../waku_archive,
-  ../waku_archive_legacy,
-  ../waku_store_legacy/protocol as legacy_store,
-  ../waku_store_legacy/client as legacy_store_client,
-  ../waku_store_legacy/common as legacy_store_common,
-  ../waku_store/protocol as store,
-  ../waku_store/client as store_client,
-  ../waku_store/common as store_common,
-  ../waku_store/resume,
-  ../waku_store_sync,
-  ../waku_filter_v2,
-  ../waku_filter_v2/client as filter_client,
-  ../waku_metadata,
-  ../waku_rendezvous/protocol,
-  ../waku_rendezvous/client as rendezvous_client,
-  ../waku_rendezvous/waku_peer_record,
-  ../waku_lightpush_legacy/client as legacy_ligntpuhs_client,
-  ../waku_lightpush_legacy as legacy_lightpush_protocol,
-  ../waku_lightpush/client as ligntpuhs_client,
-  ../waku_lightpush as lightpush_protocol,
-  ../waku_enr,
-  ../waku_peer_exchange,
-  ../waku_rln_relay,
+  waku/[
+    waku_core,
+    waku_core/topics/sharding,
+    waku_relay,
+    waku_archive,
+    waku_archive_legacy,
+    waku_store_legacy/protocol as legacy_store,
+    waku_store_legacy/client as legacy_store_client,
+    waku_store_legacy/common as legacy_store_common,
+    waku_store/protocol as store,
+    waku_store/client as store_client,
+    waku_store/common as store_common,
+    waku_store/resume,
+    waku_store_sync,
+    waku_filter_v2,
+    waku_filter_v2/client as filter_client,
+    waku_metadata,
+    waku_rendezvous/protocol,
+    waku_rendezvous/client as rendezvous_client,
+    waku_rendezvous/waku_peer_record,
+    waku_lightpush_legacy/client as legacy_ligntpuhs_client,
+    waku_lightpush_legacy as legacy_lightpush_protocol,
+    waku_lightpush/client as ligntpuhs_client,
+    waku_lightpush as lightpush_protocol,
+    waku_enr,
+    waku_peer_exchange,
+    waku_rln_relay,
+    common/rate_limit/setting,
+    common/callbacks,
+    common/nimchronos,
+    waku_mix,
+    requests/node_requests,
+    common/broker/broker_context,
+  ],
   ./net_config,
-  ./peer_manager,
-  ../common/rate_limit/setting,
-  ../common/callbacks,
-  ../common/nimchronos,
-  ../waku_mix
+  ./peer_manager
 
 declarePublicCounter waku_node_messages, "number of messages received", ["type"]
 
@@ -123,6 +127,7 @@ type
     enr*: enr.Record
     libp2pPing*: Ping
     rng*: ref rand.HmacDrbgContext
+    brokerCtx*: BrokerContext
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
     announcedAddresses*: seq[MultiAddress]
@@ -130,6 +135,23 @@ type
     topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
     rateLimitSettings*: ProtocolRateLimitSettings
     wakuMix*: WakuMix
+
+proc deduceRelayShard(
+    node: WakuNode,
+    contentTopic: ContentTopic,
+    pubsubTopicOp: Option[PubsubTopic] = none[PubsubTopic](),
+): Result[RelayShard, string] =
+  let pubsubTopic = pubsubTopicOp.valueOr:
+    if node.wakuAutoSharding.isNone():
+      return err("Pubsub topic must be specified when static sharding is enabled.")
+    let shard = node.wakuAutoSharding.get().getShard(contentTopic).valueOr:
+        let msg = "Deducing shard failed: " & error
+        return err(msg)
+    return ok(shard)
+
+  let shard = RelayShard.parse(pubsubTopic).valueOr:
+    return err("Invalid topic:" & pubsubTopic & " " & $error)
+  return ok(shard)
 
 proc getShardsGetter(node: WakuNode): GetShards =
   return proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
@@ -177,11 +199,14 @@ proc new*(
 
   info "Initializing networking", addrs = $netConfig.announcedAddresses
 
+  let brokerCtx = globalBrokerContext()
+
   let queue = newAsyncEventQueue[SubscriptionEvent](0)
   let node = WakuNode(
     peerManager: peerManager,
     switch: switch,
     rng: rng,
+    brokerCtx: brokerCtx,
     enr: enr,
     announcedAddresses: netConfig.announcedAddresses,
     topicSubscriptionQueue: queue,
@@ -252,6 +277,7 @@ proc mountAutoSharding*(
   info "mounting auto sharding", clusterId = clusterId, shardCount = shardCount
   node.wakuAutoSharding =
     some(Sharding(clusterId: clusterId, shardCountGenZero: shardCount))
+
   return ok()
 
 proc getMixNodePoolSize*(node: WakuNode): int =
@@ -443,6 +469,21 @@ proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string]
 
   return ok()
 
+proc startProvidersAndListeners(node: WakuNode) =
+  RequestRelayShard.setProvider(
+    node.brokerCtx,
+    proc(
+        pubsubTopic: Option[PubsubTopic], contentTopic: ContentTopic
+    ): Result[RequestRelayShard, string] =
+      let shard = node.deduceRelayShard(contentTopic, pubsubTopic).valueOr:
+        return err($error)
+      return ok(RequestRelayShard(relayShard: shard)),
+  ).isOkOr:
+    error "Can't set provider for RequestRelayShard", error = error
+
+proc stopProvidersAndListeners(node: WakuNode) =
+  RequestRelayShard.clearProvider(node.brokerCtx)
+
 proc start*(node: WakuNode) {.async.} =
   ## Starts a created Waku Node and
   ## all its mounted protocols.
@@ -491,6 +532,8 @@ proc start*(node: WakuNode) {.async.} =
   ## The switch will update addresses after start using the addressMapper
   await node.switch.start()
 
+  node.startProvidersAndListeners()
+
   node.started = true
 
   if not zeroPortPresent:
@@ -503,6 +546,9 @@ proc start*(node: WakuNode) {.async.} =
 
 proc stop*(node: WakuNode) {.async.} =
   ## By stopping the switch we are stopping all the underlying mounted protocols
+
+  node.stopProvidersAndListeners()
+
   await node.switch.stop()
 
   node.peerManager.stop()
