@@ -23,11 +23,8 @@ suite "Waku Keepalive":
 
     proc pingHandler(peerId: PeerID) {.async, gcsafe.} =
       info "Ping received"
-
-      check:
-        peerId == node1.switch.peerInfo.peerId
-
-      completionFut.complete(true)
+      let checkPeerIdMatch = peerId == node1.switch.peerInfo.peerId
+      completionFut.complete(checkPeerIdMatch)
 
     await node1.start()
     (await node1.mountRelay()).isOkOr:
@@ -43,6 +40,12 @@ suite "Waku Keepalive":
     node2.switch.mount(pingProto)
 
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
+
+    ## Wait a while till the connection is established
+    for _ in 0 ..< 20:
+      if node1.peerManager.isPeerConnected(node2.switch.peerInfo.peerId):
+        break
+      await sleepAsync(100.millis)
 
     let healthMonitor = NodeHealthMonitor()
     healthMonitor.setNodeToHealthMonitor(node1)
