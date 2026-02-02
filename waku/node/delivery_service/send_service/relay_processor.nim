@@ -1,5 +1,5 @@
-import chronos, chronicles
 import std/options
+import chronos, chronicles
 import waku/[waku_core], waku/waku_lightpush/[common, rpc]
 import waku/requests/health_request
 import waku/common/broker/broker_context
@@ -14,7 +14,7 @@ type RelaySendProcessor* = ref object of BaseSendProcessor
   fallbackStateToSet: DeliveryState
 
 proc new*(
-    T: type RelaySendProcessor,
+    T: typedesc[RelaySendProcessor],
     lightpushAvailable: bool,
     publishProc: PushMessageHandler,
     brokerCtx: BrokerContext,
@@ -50,7 +50,7 @@ method isValidProcessor*(
   # return self.isTopicHealthy(task.pubsubTopic)
   return true
 
-method sendImpl*(self: RelaySendProcessor, task: DeliveryTask): Future[void] {.async.} =
+method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
   task.tryCount.inc()
   info "Trying message delivery via Relay",
     requestId = task.requestId,
@@ -70,7 +70,7 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask): Future[void] {.a
 
   if noOfPublishedPeers > 0:
     info "Message propagated via Relay",
-      requestId = task.requestId, msgHash = task.msgHash
+      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), noOfPeers = noOfPublishedPeers
     task.state = DeliveryState.SuccessfullyPropagated
     task.deliveryTime = Moment.now()
   else:

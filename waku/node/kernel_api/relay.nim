@@ -194,7 +194,7 @@ proc publish*(
   let numPeers = (await node.wakuRelay.publish(pubsubTopic, message)).valueOr:
     warn "waku.relay did not publish", error = error
     # Todo: If NoPeersToPublish, we might want to return ok(0) instead!!!
-    return err($error)
+    return err("publish failed in relay: " & $error)
 
   notice "waku.relay published",
     peerId = node.peerId,

@@ -89,3 +89,5 @@ AGENTS.md
 nimble.develop
 nimble.paths
 nimbledeps
+
+**/anvil_state/state-deployed-contracts-mint-and-approved.json

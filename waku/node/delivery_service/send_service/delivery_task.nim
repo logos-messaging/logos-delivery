@@ -5,10 +5,12 @@ import waku/common/broker/broker_context
 type DeliveryState* {.pure.} = enum
   Entry
   SuccessfullyPropagated
+    # message is known to be sent to the network but not yet validated
   SuccessfullyValidated
-  FallbackRetry
-  NextRoundRetry
-  FailedToDeliver
+    # message is known to be stored at least on one store node, thus validated
+  FallbackRetry # retry sending with fallback processor if available
+  NextRoundRetry # try sending in next loop
+  FailedToDeliver # final state of failed delivery
 
 type DeliveryTask* = ref object
   requestId*: RequestId
@@ -21,7 +23,7 @@ type DeliveryTask* = ref object
   propagateEventEmitted*: bool
   errorDesc*: string
 
-proc create*(
+proc new*(
     T: typedesc[DeliveryTask],
     requestId: RequestId,
     envelop: MessageEnvelope,
@@ -32,8 +34,8 @@ proc create*(
   let relayShardRes = (
     RequestRelayShard.request(brokerCtx, none[PubsubTopic](), envelop.contentTopic)
   ).valueOr:
-    echo "RequestRelayShard.request error", $error
-    return err($error)
+    error "RequestRelayShard.request failed", error = error
+    return err("Failed create DeliveryTask: " & $error)
 
   let pubsubTopic = relayShardRes.relayShard.toPubsubTopic()
   let msgHash = computeMessageHash(pubsubTopic, msg)

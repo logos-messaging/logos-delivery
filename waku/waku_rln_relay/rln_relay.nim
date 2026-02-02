@@ -30,6 +30,7 @@ import
     waku_core,
     requests/rln_requests,
     waku_keystore,
+    common/broker/broker_context,
   ]
 
 logScope:
@@ -68,6 +69,7 @@ type WakuRLNRelay* = ref object of RootObj
   nonceManager*: NonceManager
   epochMonitorFuture*: Future[void]
   rootChangesFuture*: Future[void]
+  brokerCtx*: BrokerContext
 
 proc calcEpoch*(rlnPeer: WakuRLNRelay, t: float64): Epoch =
   ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
@@ -94,7 +96,7 @@ proc stop*(rlnPeer: WakuRLNRelay) {.async: (raises: [Exception]).} =
 
   # stop the group sync, and flush data to tree db
   info "stopping rln-relay"
-  RequestGenerateRlnProof.clearProvider()
+  RequestGenerateRlnProof.clearProvider(rlnPeer.brokerCtx)
   await rlnPeer.groupManager.stop()
 
 proc hasDuplicate*(
@@ -440,6 +442,7 @@ proc mount(
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
     onFatalErrorAction: conf.onFatalErrorAction,
+    brokerCtx: globalBrokerContext(),
   )
 
   # track root changes on smart contract merkle tree
@@ -451,15 +454,16 @@ proc mount(
   wakuRlnRelay.epochMonitorFuture = monitorEpochs(wakuRlnRelay)
 
   RequestGenerateRlnProof.setProvider(
+    wakuRlnRelay.brokerCtx,
     proc(
         msg: WakuMessage, senderEpochTime: float64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
       let proof = createRlnProof(wakuRlnRelay, msg, senderEpochTime).valueOr:
         return err("Could not create RLN proof: " & $error)
 
-      return ok(RequestGenerateRlnProof(proof: proof))
+      return ok(RequestGenerateRlnProof(proof: proof)),
   ).isOkOr:
-    return err("Proof generator provider cannot be set")
+    return err("Proof generator provider cannot be set: " & $error)
 
   return ok(wakuRlnRelay)
 

@@ -80,7 +80,7 @@ jobs:
         run: make update
 
       - name: Build binaries
-        run: make V=1 QUICK_AND_DIRTY_COMPILER=1 all tools
+        run: make V=1 QUICK_AND_DIRTY_COMPILER=1 all
 
   build-windows:
     needs: changes

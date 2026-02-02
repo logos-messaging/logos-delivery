@@ -18,7 +18,7 @@ output_filename=$3
 host_triplet=$(rustc --version --verbose | awk '/host:/{print $2}')
 
 tarball="${host_triplet}"
-
+tarball+="-stateless"
 tarball+="-rln.tar.gz"
 
 # Download the prebuilt rln library if it is available

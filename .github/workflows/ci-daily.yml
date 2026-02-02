@@ -1,0 +1,79 @@
+name: Daily logos-messaging-nim CI
+
+on:
+  schedule:
+    - cron: '30 6 * * *'
+
+env:
+  NPROC: 2
+  MAKEFLAGS: "-j${NPROC}"
+  NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
+
+jobs:
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        os: [ubuntu-22.04, macos-15]
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 45
+
+    name: build-${{ matrix.os }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Get submodules hash
+        id: submodules
+        run: |
+          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        uses: actions/cache@v3
+        with:
+          path: |
+            vendor/
+            .git/modules
+          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+
+      - name: Make update
+        run: make update
+
+      - name: Build binaries
+        run: make V=1 QUICK_AND_DIRTY_COMPILER=1 examples tools
+
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          STATUS="${{ job.status }}"
+          OS="${{ matrix.os }}"
+          REPO="${{ github.repository }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+
+          if [ "$STATUS" = "success" ]; then
+            COLOR=3066993
+            TITLE="✅ CI Success"
+          else
+            COLOR=15158332
+            TITLE="❌ CI Failed"
+          fi
+
+          curl -H "Content-Type: application/json" \
+            -X POST \
+            -d "{
+              \"embeds\": [{
+                \"title\": \"$TITLE\",
+                \"color\": $COLOR,
+                \"fields\": [
+                  {\"name\": \"Repository\", \"value\": \"$REPO\", \"inline\": true},
+                  {\"name\": \"OS\", \"value\": \"$OS\", \"inline\": true},
+                  {\"name\": \"Status\", \"value\": \"$STATUS\", \"inline\": true}
+                ],
+                \"url\": \"$RUN_URL\",
+                \"footer\": {\"text\": \"Daily logos-messaging-nim CI\"}
+              }]
+            }" \
+            "$DISCORD_WEBHOOK_URL"
+

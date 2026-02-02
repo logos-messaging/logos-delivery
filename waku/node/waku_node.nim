@@ -541,7 +541,7 @@ proc startProvidersAndListeners*(node: WakuNode) =
         return err($error)
       return ok(RequestRelayShard(relayShard: shard)),
   ).isOkOr:
-    error "Can't set proveder for RequestRelayShard", error = error
+    error "Can't set provider for RequestRelayShard", error = error
 
   RequestTopicsHealth.setProvider(
     node.brokerCtx,

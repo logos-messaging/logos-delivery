@@ -52,14 +52,15 @@ proc send*(
 
   let requestId = RequestId.new(w.rng)
 
-  let deliveryTask = DeliveryTask.create(requestId, envelope, w.brokerCtx).valueOr:
+  let deliveryTask = DeliveryTask.new(requestId, envelope, w.brokerCtx).valueOr:
     return err("API send: Failed to create delivery task: " & error)
 
   info "API send: scheduling delivery task",
     requestId = $requestId,
     pubsubTopic = deliveryTask.pubsubTopic,
     contentTopic = deliveryTask.msg.contentTopic,
-    msgHash = deliveryTask.msgHash.shortLog()
+    msgHash = deliveryTask.msgHash.to0xHex(),
+    myPeerId = w.node.peerId()
 
   asyncSpawn w.deliveryService.sendService.send(deliveryTask)
 

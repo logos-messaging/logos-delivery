@@ -196,7 +196,7 @@ proc startRecvService*(self: RecvService) =
 
   self.onSubscribeListener = OnFilterSubscribeEvent.listen(
     self.brokerCtx,
-    proc(subsEv: OnFilterSubscribeEvent): Future[void] {.async: (raises: []).} =
+    proc(subsEv: OnFilterSubscribeEvent) {.async: (raises: []).} =
       self.onSubscribe(subsEv.pubsubTopic, subsEv.contentTopics),
   ).valueOr:
     error "Failed to set OnFilterSubscribeEvent listener", error = error
@@ -204,7 +204,7 @@ proc startRecvService*(self: RecvService) =
 
   self.onUnsubscribeListener = OnFilterUnsubscribeEvent.listen(
     self.brokerCtx,
-    proc(subsEv: OnFilterUnsubscribeEvent): Future[void] {.async: (raises: []).} =
+    proc(subsEv: OnFilterUnsubscribeEvent) {.async: (raises: []).} =
       self.onUnsubscribe(subsEv.pubsubTopic, subsEv.contentTopics),
   ).valueOr:
     error "Failed to set OnFilterUnsubscribeEvent listener", error = error
