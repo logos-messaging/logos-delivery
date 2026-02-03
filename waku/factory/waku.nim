@@ -44,7 +44,7 @@ import
   ../waku_enr/multiaddr,
   ./waku_conf,
   ../common/broker/broker_context,
-  ../requests/health_request,
+  ../requests/health_requests,
   ../api/types
 
 logScope:

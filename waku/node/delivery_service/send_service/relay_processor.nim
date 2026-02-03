@@ -1,7 +1,7 @@
 import std/options
 import chronos, chronicles
 import waku/[waku_core], waku/waku_lightpush/[common, rpc]
-import waku/requests/health_request
+import waku/requests/health_requests
 import waku/common/broker/broker_context
 import waku/api/types
 import ./[delivery_task, send_processor]
@@ -32,7 +32,7 @@ proc new*(
   )
 
 proc isTopicHealthy(self: RelaySendProcessor, topic: PubsubTopic): bool {.gcsafe.} =
-  let healthReport = RequestTopicsHealth.request(self.brokerCtx, @[topic]).valueOr:
+  let healthReport = RequestShardTopicsHealth.request(self.brokerCtx, @[topic]).valueOr:
     error "isTopicHealthy: failed to get health report", topic = topic, error = error
     return false
 

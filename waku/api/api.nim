@@ -1,7 +1,7 @@
 import chronicles, chronos, results, std/strutils
 
 import waku/factory/waku
-import waku/[requests/health_request, waku_core, waku_node]
+import waku/[requests/health_requests, waku_core, waku_node]
 import waku/node/delivery_service/send_service
 import waku/node/delivery_service/subscription_service
 import ./[api_conf, types]

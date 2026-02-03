@@ -62,7 +62,7 @@ import
     common/broker/request_broker,
     waku_mix,
     requests/node_requests,
-    requests/health_request,
+    requests/health_requests,
     events/health_events,
     events/peer_events,
   ],
@@ -517,7 +517,7 @@ proc loopEdgeHealth(node: WakuNode) {.async.} =
         let newHealth = node.calculateEdgeTopicHealth(shard)
         if newHealth != oldHealth:
           node.edgeTopicsHealth[shard] = newHealth
-          EventTopicHealthChange.emit(node.brokerCtx, shard, newHealth)
+          EventShardTopicHealthChange.emit(node.brokerCtx, shard, newHealth)
     except CancelledError:
       break
     except CatchableError as e:
@@ -543,10 +543,10 @@ proc startProvidersAndListeners*(node: WakuNode) =
   ).isOkOr:
     error "Can't set provider for RequestRelayShard", error = error
 
-  RequestTopicsHealth.setProvider(
+  RequestShardTopicsHealth.setProvider(
     node.brokerCtx,
-    proc(topics: seq[PubsubTopic]): Result[RequestTopicsHealth, string] =
-      var response: RequestTopicsHealth
+    proc(topics: seq[PubsubTopic]): Result[RequestShardTopicsHealth, string] =
+      var response: RequestShardTopicsHealth
 
       for shard in topics:
         var healthStatus = TopicHealth.UNHEALTHY
@@ -563,12 +563,42 @@ proc startProvidersAndListeners*(node: WakuNode) =
 
       return ok(response)
   ).isOkOr:
-    error "Can't set provider for RequestTopicsHealth", error = error
+    error "Can't set provider for RequestShardTopicsHealth", error = error
+
+  RequestContentTopicsHealth.setProvider(
+    node.brokerCtx,
+    proc(topics: seq[ContentTopic]): Result[RequestContentTopicsHealth, string] =
+      var response: RequestContentTopicsHealth
+
+      for contentTopic in topics:
+        var topicHealth = TopicHealth.UNHEALTHY
+
+        let shardResult = node.deduceRelayShard(contentTopic, none[PubsubTopic]())
+
+        if shardResult.isOk():
+          let shardObj = shardResult.get()
+          let pubsubTopic = $shardObj
+
+          if not node.wakuRelay.isNil:
+            topicHealth = node.wakuRelay.topicsHealth.getOrDefault(
+              pubsubTopic, TopicHealth.NOT_SUBSCRIBED
+            )
+
+          if topicHealth == TopicHealth.NOT_SUBSCRIBED:
+            topicHealth = node.calculateEdgeTopicHealth(pubsubTopic)
+
+        response.contentTopicHealth.add((topic: contentTopic, health: topicHealth))
+
+      return ok(response)
+  ).isOkOr:
+    error "Can't set provider for RequestContentTopicsHealth", error = error
 
 proc stopProvidersAndListeners*(node: WakuNode) =
   EventWakuPeer.dropListener(node.brokerCtx, node.peerEventListener)
   RequestRelayShard.clearProvider(node.brokerCtx)
-  RequestTopicsHealth.clearProvider(node.brokerCtx)
+  RequestContentTopicsHealth.clearProvider(node.brokerCtx)
+  RequestShardTopicsHealth.clearProvider(node.brokerCtx)
+
 
 proc start*(node: WakuNode) {.async.} =
   ## Starts a created Waku Node and

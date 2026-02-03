@@ -21,7 +21,7 @@ import
 import
   waku/waku_core,
   waku/node/health_monitor/topic_health,
-  waku/requests/health_request,
+  waku/requests/health_requests,
   waku/events/health_events,
   ./message_id,
   waku/common/broker/broker_context,
@@ -502,7 +502,7 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
 
       w.topicsHealth[topic] = currentHealth
 
-      EventTopicHealthChange.emit(w.brokerCtx, topic, currentHealth)
+      EventShardTopicHealthChange.emit(w.brokerCtx, topic, currentHealth)
 
       if not w.onTopicHealthChange.isNil():
         futs.add(w.onTopicHealthChange(topic, currentHealth))
