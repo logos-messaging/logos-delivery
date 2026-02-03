@@ -80,7 +80,7 @@ waku.nims:
 update: | update-common
 	rm -rf waku.nims && \
 		$(MAKE) waku.nims $(HANDLE_OUTPUT)
-	$(MAKE) build-nph
+# 	$(MAKE) build-nph
 
 clean:
 	rm -rf build
