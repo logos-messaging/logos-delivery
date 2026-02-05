@@ -433,7 +433,7 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example libwaku liblmapi
+.PHONY: cbindings cwaku_example libwaku liblmapi liblmapi_example
 
 STATIC ?= 0
 LIBWAKU_BUILD_COMMAND ?= libwakuDynamic
@@ -462,6 +462,31 @@ libwaku: | build deps librln
 
 liblmapi: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(LMAPI_BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
+
+liblmapi_example: | build liblmapi
+	@echo -e $(BUILD_MSG) "build/$@"
+ifeq ($(detected_OS),Darwin)
+	gcc -o build/$@ \
+		liblmapi/examples/liblmapi_example.c \
+		-I./liblmapi \
+		-L./build \
+		-llmapi \
+		-Wl,-rpath,./build
+else ifeq ($(detected_OS),Linux)
+	gcc -o build/$@ \
+		liblmapi/examples/liblmapi_example.c \
+		-I./liblmapi \
+		-L./build \
+		-llmapi \
+		-Wl,-rpath,'$$ORIGIN'
+else ifeq ($(detected_OS),Windows)
+	gcc -o build/$@.exe \
+		liblmapi/examples/liblmapi_example.c \
+		-I./liblmapi \
+		-L./build \
+		-llmapi \
+		-lws2_32
+endif
 
 #####################
 ## Mobile Bindings ##

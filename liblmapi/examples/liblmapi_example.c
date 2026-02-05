@@ -9,26 +9,26 @@
 const char* extract_json_field(const char *json, const char *field, char *buffer, size_t bufSize) {
     char searchStr[256];
     snprintf(searchStr, sizeof(searchStr), "\"%s\":\"", field);
-    
+
     const char *start = strstr(json, searchStr);
     if (!start) {
         return NULL;
     }
-    
+
     start += strlen(searchStr);
     const char *end = strchr(start, '"');
     if (!end) {
         return NULL;
     }
-    
+
     size_t len = end - start;
     if (len >= bufSize) {
         len = bufSize - 1;
     }
-    
+
     memcpy(buffer, start, len);
     buffer[len] = '\0';
-    
+
     return buffer;
 }
 
@@ -37,7 +37,7 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
     if (ret != RET_OK || msg == NULL || len == 0) {
         return;
     }
-    
+
     // Create null-terminated string for easier parsing
     char *eventJson = malloc(len + 1);
     if (!eventJson) {
@@ -45,14 +45,14 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
     }
     memcpy(eventJson, msg, len);
     eventJson[len] = '\0';
-    
+
     // Extract eventType
     char eventType[64];
     if (!extract_json_field(eventJson, "eventType", eventType, sizeof(eventType))) {
         free(eventJson);
         return;
     }
-    
+
     // Handle different event types
     if (strcmp(eventType, "message_sent") == 0) {
         char requestId[128];
@@ -60,7 +60,7 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
         extract_json_field(eventJson, "requestId", requestId, sizeof(requestId));
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
         printf("📤 [EVENT] Message sent - RequestID: %s, Hash: %s\n", requestId, messageHash);
-        
+
     } else if (strcmp(eventType, "message_error") == 0) {
         char requestId[128];
         char messageHash[128];
@@ -68,20 +68,20 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
         extract_json_field(eventJson, "requestId", requestId, sizeof(requestId));
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
         extract_json_field(eventJson, "error", error, sizeof(error));
-        printf("❌ [EVENT] Message error - RequestID: %s, Hash: %s, Error: %s\n", 
+        printf("❌ [EVENT] Message error - RequestID: %s, Hash: %s, Error: %s\n",
                requestId, messageHash, error);
-        
+
     } else if (strcmp(eventType, "message_propagated") == 0) {
         char requestId[128];
         char messageHash[128];
         extract_json_field(eventJson, "requestId", requestId, sizeof(requestId));
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
         printf("✅ [EVENT] Message propagated - RequestID: %s, Hash: %s\n", requestId, messageHash);
-        
+
     } else {
         printf("ℹ️  [EVENT] Unknown event type: %s\n", eventType);
     }
-    
+
     free(eventJson);
 }
 
@@ -105,8 +105,10 @@ int main() {
     // Configuration JSON for creating a node
     const char *config = "{"
         "\"mode\": \"Core\","
-        "\"clusterId\": 1,"
-        "\"entryNodes\": [],"
+        "\"clusterId\": 16,"
+        "\"numShards\": 5,"
+        "\"shards\": [64, 128, 1, 32, 256],"
+        "\"entryNodes\": [\"/dns4/boot-01.gc-us-central1-a.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm8mUZ18tBWPXDQsaF7PbCKYA35z7WB2xNZH2EVq1qS8LJ\"],"
         "\"networkingConfig\": {"
             "\"listenIpv4\": \"0.0.0.0\","
             "\"p2pTcpPort\": 60000,"
@@ -153,7 +155,7 @@ int main() {
 
     // Wait for message events to arrive
     printf("Waiting for message delivery events...\n");
-    sleep(3);
+    sleep(60);
 
     printf("\n6. Unsubscribing from content topic...\n");
     lmapi_unsubscribe(ctx, simple_callback, (void *)"unsubscribe", contentTopic);
