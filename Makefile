@@ -433,10 +433,11 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example libwaku
+.PHONY: cbindings cwaku_example libwaku liblmapi
 
 STATIC ?= 0
-BUILD_COMMAND ?= libwakuDynamic
+LIBWAKU_BUILD_COMMAND ?= libwakuDynamic
+LMAPI_BUILD_COMMAND ?= liblmapiDynamic
 
 ifeq ($(detected_OS),Windows)
 	LIB_EXT_DYNAMIC = dll
@@ -452,11 +453,15 @@ endif
 LIB_EXT := $(LIB_EXT_DYNAMIC)
 ifeq ($(STATIC), 1)
 	LIB_EXT = $(LIB_EXT_STATIC)
-	BUILD_COMMAND = libwakuStatic
+	LIBWAKU_BUILD_COMMAND = libwakuStatic
+	LMAPI_BUILD_COMMAND = liblmapiStatic
 endif
 
 libwaku: | build deps librln
-	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
+	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(LIBWAKU_BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
+
+liblmapi: | build deps librln
+	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(LMAPI_BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
 
 #####################
 ## Mobile Bindings ##

@@ -94,8 +94,9 @@ in stdenv.mkDerivation {
     # Copy library files
     cp build/* $out/bin/ 2>/dev/null || true
 
-    # Copy the header file
-    cp library/libwaku.h $out/include/
+    # Copy header files
+    cp library/libwaku.h $out/include/ 2>/dev/null || true
+    cp liblmapi/liblmapi.h $out/include/ 2>/dev/null || true
   '';
 
   meta = with pkgs.lib; {

@@ -71,6 +71,13 @@
           zerokitRln = zerokit.packages.${system}.rln;
         };
 
+        liblmapi = pkgs.callPackage ./nix/default.nix {
+          inherit stableSystems;
+          src = self;
+          targets = ["liblmapi"];
+          zerokitRln = zerokit.packages.${system}.rln;
+        };
+
         default = libwaku;
       });
 
