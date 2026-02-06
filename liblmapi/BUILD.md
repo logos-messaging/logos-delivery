@@ -162,4 +162,3 @@ your_program: your_program.c
 See:
 - [liblmapi.h](liblmapi/liblmapi.h) - API function declarations
 - [MESSAGE_EVENTS.md](liblmapi/MESSAGE_EVENTS.md) - Message event handling guide
-- [IMPLEMENTATION_SUMMARY.md](liblmapi/IMPLEMENTATION_SUMMARY.md) - Implementation details
