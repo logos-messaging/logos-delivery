@@ -58,7 +58,7 @@ proc newTestWakuNode*(
     extMultiAddrs = newSeq[MultiAddress](),
     peerStorage: PeerStorage = nil,
     maxConnections = builders.MaxConnections,
-    wsBindPort: Port = (Port)8000,
+    wsBindPort: Port = (Port) 8000,
     wsEnabled: bool = false,
     wssEnabled: bool = false,
     secureKey: string = "",
@@ -91,8 +91,7 @@ proc newTestWakuNode*(
 
   if dns4DomainName.isSome() and extIp.isNone():
     # If there's an error resolving the IP, an exception is thrown and test fails
-    let dns = (waitFor dnsResolve(dns4DomainName.get(),
-        conf.dnsAddrsNameServers)).valueOr:
+    let dns = (waitFor dnsResolve(dns4DomainName.get(), conf.dnsAddrsNameServers)).valueOr:
       raise newException(Defect, error)
 
     resolvedExtIp = some(parseIpAddress(dns))
@@ -121,8 +120,7 @@ proc newTestWakuNode*(
     raise newException(Defect, "Invalid record: " & $error)
 
   enrBuilder.withIpAddressAndPorts(
-    ipAddr = netConf.enrIp, tcpPort = netConf.enrPort,
-    udpPort = netConf.discv5UdpPort
+    ipAddr = netConf.enrIp, tcpPort = netConf.enrPort, udpPort = netConf.discv5UdpPort
   )
 
   enrBuilder.withMultiaddrs(netConf.enrMultiaddrs)
@@ -143,11 +141,13 @@ proc newTestWakuNode*(
     maxConnections = some(maxConnections),
     nameResolver = nameResolver,
     sendSignedPeerRecord = sendSignedPeerRecord,
-    secureKey = if secureKey != "":
+    secureKey =
+      if secureKey != "":
         some(secureKey)
       else:
         none(string),
-    secureCert = if secureCert != "":
+    secureCert =
+      if secureCert != "":
         some(secureCert)
       else:
         none(string),
