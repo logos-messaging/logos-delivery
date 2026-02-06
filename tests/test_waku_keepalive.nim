@@ -9,7 +9,12 @@ import
   libp2p/stream/bufferstream,
   libp2p/stream/connection,
   libp2p/crypto/crypto
-import waku/waku_core, waku/waku_node, ./testlib/wakucore, ./testlib/wakunode
+import
+  waku/waku_core,
+  waku/waku_node,
+  waku/node/peer_manager,
+  ./testlib/wakucore,
+  ./testlib/wakunode
 
 suite "Waku Keepalive":
   asyncTest "handle ping keepalives":
@@ -22,12 +27,9 @@ suite "Waku Keepalive":
     var completionFut = newFuture[bool]()
 
     proc pingHandler(peerId: PeerID) {.async, gcsafe.} =
-      info "Ping received"
-
-      check:
-        peerId == node1.switch.peerInfo.peerId
-
-      completionFut.complete(true)
+      info "Ping received", peerId, node1PeerId = node1.switch.peerInfo.peerId
+      let checkPeerIdMatch = peerId == node1.switch.peerInfo.peerId
+      completionFut.complete(checkPeerIdMatch)
 
     await node1.start()
     (await node1.mountRelay()).isOkOr:
@@ -43,6 +45,15 @@ suite "Waku Keepalive":
     node2.switch.mount(pingProto)
 
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
+
+    ## Wait a while till the connection is established
+    for _ in 0 ..< 20:
+      if node1.peerManager.isPeerConnected(node2.switch.peerInfo.peerId):
+        break
+      await sleepAsync(100.millis)
+
+    assert node1.peerManager.isPeerConnected(node2.switch.peerInfo.peerId),
+      "could not establish connection between nodes"
 
     let healthMonitor = NodeHealthMonitor()
     healthMonitor.setNodeToHealthMonitor(node1)

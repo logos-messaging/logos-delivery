@@ -500,6 +500,10 @@ proc connectedPeers*(
 
   return (inPeers, outPeers)
 
+proc isPeerConnected*(pm: PeerManager, peerId: PeerId): bool =
+  let (inPeers, outPeers) = pm.connectedPeers()
+  return inPeers.contains(peerId) or outPeers.contains(peerId)
+
 proc disconnectAllPeers*(pm: PeerManager) {.async.} =
   let (inPeerIds, outPeerIds) = pm.connectedPeers()
   let connectedPeers = concat(inPeerIds, outPeerIds)
