@@ -12,12 +12,16 @@
     nixpkgs.url = "github:NixOS/nixpkgs/0ef228213045d2cdb5a169a95d63ded38670b293";
     # WARNING: Remember to update commit and use 'nix flake update' to update flake.lock.
     zerokit = {
-      url = "git+https://github.com/vacp2p/zerokit?rev=3160d9504d07791f2fc9b610948a6cf9a58ed488";
+      url = "git+file:./vendor/zerokit";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+    nimbusBuildSystem = {
+      url = "git+file:./vendor/nimbus-build-system?submodules=1";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, zerokit }:
+  outputs = { self, nixpkgs, zerokit, nimbusBuildSystem }:
     let
       stableSystems = [
         "x86_64-linux" "aarch64-linux"
@@ -47,35 +51,29 @@
 
     in rec {
       packages = forAllSystems (system: let
-        pkgs = pkgsFor.${system};
-      in rec {
-        libwaku-android-arm64 = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
+        nim = nimbusBuildSystem.packages.${system}.nim;
+        buildTargets = pkgsFor.${system}.callPackage ./nix/default.nix {
+          inherit stableSystems nim;
           src = self;
+          zerokitRln = zerokit.packages.${system}.rln;
+        };
+      in rec {
+        libwaku-android-arm64 = buildTargets.override {
           targets = ["libwaku-android-arm64"];
           abidir = "arm64-v8a";
           zerokitRln = zerokit.packages.${system}.rln-android-arm64;
         };
 
-        libwaku = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["libwaku"];
-          zerokitRln = zerokit.packages.${system}.rln;
-        };
-
-        wakucanary = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["wakucanary"];
-          zerokitRln = zerokit.packages.${system}.rln;
-        };
+        libwaku = buildTargets.override { targets = ["libwaku"]; };
+        wakucanary = buildTargets.override { targets = ["wakucanary"]; };
 
         default = libwaku;
       });
 
       devShells = forAllSystems (system: {
-        default = pkgsFor.${system}.callPackage ./nix/shell.nix {};
+        default = pkgsFor.${system}.callPackage ./nix/shell.nix {
+          inherit (nimbusBuildSystem.packages.${system}) nim;
+        };
       });
     };
 }
