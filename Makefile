@@ -147,7 +147,7 @@ NIM_PARAMS := $(NIM_PARAMS) -d:disable_libbacktrace
 endif
 
 # enable experimental exit is dest feature in libp2p mix
-NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest 
+NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest
 
 libbacktrace:
 	+ $(MAKE) -C vendor/nim-libbacktrace --no-print-directory BUILD_CXX_LIB=0
@@ -186,9 +186,9 @@ LIBRLN_BUILDDIR := $(CURDIR)/vendor/zerokit
 LIBRLN_VERSION := v0.9.0
 
 ifeq ($(detected_OS),Windows)
-LIBRLN_FILE := rln.lib
+LIBRLN_FILE ?= rln.lib
 else
-LIBRLN_FILE := librln_$(LIBRLN_VERSION).a
+LIBRLN_FILE ?= librln_$(LIBRLN_VERSION).a
 endif
 
 $(LIBRLN_FILE):
@@ -466,8 +466,13 @@ ifndef ANDROID_NDK_HOME
 endif
 
 build-libwaku-for-android-arch:
-	$(MAKE) rebuild-nat-libs CC=$(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER) && \
-	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR) && \
+ifneq ($(findstring /nix/store,$(LIBRLN_FILE)),)
+	mkdir -p $(CURDIR)/build/android/$(ABIDIR)/
+	cp $(LIBRLN_FILE) $(CURDIR)/build/android/$(ABIDIR)/
+else
+	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR)
+endif
+	$(MAKE) rebuild-nat-libs CC=$(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER)
 	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) $(ENV_SCRIPT) nim libWakuAndroid $(NIM_PARAMS) waku.nims
 
 libwaku-android-arm64: ANDROID_ARCH=aarch64-linux-android
@@ -503,6 +508,51 @@ libwaku-android:
 # relocation R_ARM_THM_ALU_PREL_11_0 cannot be used against symbol 'stack_init_trampoline_return'; recompile with -fPIC
 # It's likely this architecture is not used so we might just not support it.
 #	$(MAKE) libwaku-android-arm
+
+#################
+## iOS Bindings #
+#################
+.PHONY: libwaku-ios-precheck \
+				libwaku-ios-device \
+				libwaku-ios-simulator \
+				libwaku-ios
+
+IOS_DEPLOYMENT_TARGET ?= 18.0
+
+# Get SDK paths dynamically using xcrun
+define get_ios_sdk_path
+$(shell xcrun --sdk $(1) --show-sdk-path 2>/dev/null)
+endef
+
+libwaku-ios-precheck:
+ifeq ($(detected_OS),Darwin)
+	@command -v xcrun >/dev/null 2>&1 || { echo "Error: Xcode command line tools not installed"; exit 1; }
+else
+	$(error iOS builds are only supported on macOS)
+endif
+
+# Build for iOS architecture
+build-libwaku-for-ios-arch:
+	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) $(ENV_SCRIPT) nim libWakuIOS $(NIM_PARAMS) waku.nims
+
+# iOS device (arm64)
+libwaku-ios-device: IOS_ARCH=arm64
+libwaku-ios-device: IOS_SDK=iphoneos
+libwaku-ios-device: IOS_SDK_PATH=$(call get_ios_sdk_path,iphoneos)
+libwaku-ios-device: | libwaku-ios-precheck build deps
+	$(MAKE) build-libwaku-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
+
+# iOS simulator (arm64 - Apple Silicon Macs)
+libwaku-ios-simulator: IOS_ARCH=arm64
+libwaku-ios-simulator: IOS_SDK=iphonesimulator
+libwaku-ios-simulator: IOS_SDK_PATH=$(call get_ios_sdk_path,iphonesimulator)
+libwaku-ios-simulator: | libwaku-ios-precheck build deps
+	$(MAKE) build-libwaku-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
+
+# Build all iOS targets
+libwaku-ios:
+	$(MAKE) libwaku-ios-device
+	$(MAKE) libwaku-ios-simulator
 
 cwaku_example: | build libwaku
 	echo -e $(BUILD_MSG) "build/$@" && \
