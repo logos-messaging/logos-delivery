@@ -571,7 +571,7 @@ proc startProvidersAndListeners*(node: WakuNode) =
       var response: RequestContentTopicsHealth
 
       for contentTopic in topics:
-        var topicHealth = TopicHealth.UNHEALTHY
+        var topicHealth = TopicHealth.NOT_SUBSCRIBED
 
         let shardResult = node.deduceRelayShard(contentTopic, none[PubsubTopic]())
 

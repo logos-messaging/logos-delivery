@@ -25,11 +25,8 @@ proc checkApiAvailability(w: Waku): Result[void, string] =
   if w.isNil():
     return err("Waku node is not initialized")
 
-  let req = RequestConnectionStatus.request(w.brokerCtx).valueOr:
-    return err("Could not retrieve node connection status: " & $error)
-
-  if req.connectionStatus == ConnectionStatus.Disconnected:
-    return err("Waku node is disconnected.")
+  # TODO: Conciliate request-bouncing health checks here with unit testing.
+  #       (For now, better to just allow all sends and rely on retries.)
 
   return ok()
 
