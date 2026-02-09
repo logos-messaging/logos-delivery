@@ -172,7 +172,13 @@ proc new*(
   ?wakuConf.validate()
   wakuConf.logConf()
 
-  let healthMonitor = NodeHealthMonitor.new(wakuConf.dnsAddrsNameServers)
+  var relay = newCircuitRelay(wakuConf.circuitRelayClient)
+
+  let node = (await setupNode(wakuConf, rng, relay)).valueOr:
+    error "Failed setting up node", error = $error
+    return err("Failed setting up node: " & $error)
+
+  let healthMonitor = NodeHealthMonitor.new(node, wakuConf.dnsAddrsNameServers)
 
   let restServer: WakuRestServerRef =
     if wakuConf.restServerConf.isSome():
@@ -185,18 +191,6 @@ proc new*(
       restServer
     else:
       nil
-
-  var relay = newCircuitRelay(wakuConf.circuitRelayClient)
-
-  let node = (await setupNode(wakuConf, rng, relay)).valueOr:
-    error "Failed setting up node", error = $error
-    return err("Failed setting up node: " & $error)
-
-  healthMonitor.setNodeToHealthMonitor(node)
-  healthMonitor.onlineMonitor.setPeerStoreToOnlineMonitor(node.switch.peerStore)
-  healthMonitor.onlineMonitor.addOnlineStateObserver(
-    node.peerManager.getOnlineStateObserver()
-  )
 
   node.setupAppCallbacks(wakuConf, appCallbacks).isOkOr:
     error "Failed setting up app callbacks", error = error

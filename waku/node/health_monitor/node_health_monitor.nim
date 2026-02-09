@@ -33,14 +33,8 @@ type
     onlineMonitor*: OnlineMonitor
     keepAliveFut: Future[void]
 
-template checkWakuNodeNotNil(node: WakuNode, p: ProtocolHealth): untyped =
-  if node.isNil():
-    warn "WakuNode is not set, cannot check health", protocol_health_instance = $p
-    return p.notMounted()
-
 proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init("Relay")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuRelay == nil:
     return p.notMounted()
@@ -55,10 +49,6 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getRlnRelayHealth(hm: NodeHealthMonitor): Future[ProtocolHealth] {.async.} =
   var p = ProtocolHealth.init("Rln Relay")
-  if hm.node.isNil():
-    warn "WakuNode is not set, cannot check health", protocol_health_instance = $p
-    return p.notMounted()
-
   if hm.node.wakuRlnRelay.isNil():
     return p.notMounted()
 
@@ -83,7 +73,6 @@ proc getLightpushHealth(
     hm: NodeHealthMonitor, relayHealth: HealthStatus
 ): ProtocolHealth =
   var p = ProtocolHealth.init("Lightpush")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuLightPush == nil:
     return p.notMounted()
@@ -97,7 +86,6 @@ proc getLightpushClientHealth(
     hm: NodeHealthMonitor, relayHealth: HealthStatus
 ): ProtocolHealth =
   var p = ProtocolHealth.init("Lightpush Client")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuLightpushClient == nil:
     return p.notMounted()
@@ -115,7 +103,6 @@ proc getLegacyLightpushHealth(
     hm: NodeHealthMonitor, relayHealth: HealthStatus
 ): ProtocolHealth =
   var p = ProtocolHealth.init("Legacy Lightpush")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuLegacyLightPush == nil:
     return p.notMounted()
@@ -129,7 +116,6 @@ proc getLegacyLightpushClientHealth(
     hm: NodeHealthMonitor, relayHealth: HealthStatus
 ): ProtocolHealth =
   var p = ProtocolHealth.init("Legacy Lightpush Client")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuLegacyLightpushClient == nil:
     return p.notMounted()
@@ -142,7 +128,6 @@ proc getLegacyLightpushClientHealth(
 
 proc getFilterHealth(hm: NodeHealthMonitor, relayHealth: HealthStatus): ProtocolHealth =
   var p = ProtocolHealth.init("Filter")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuFilter == nil:
     return p.notMounted()
@@ -156,7 +141,6 @@ proc getFilterClientHealth(
     hm: NodeHealthMonitor, relayHealth: HealthStatus
 ): ProtocolHealth =
   var p = ProtocolHealth.init("Filter Client")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuFilterClient == nil:
     return p.notMounted()
@@ -168,7 +152,6 @@ proc getFilterClientHealth(
 
 proc getStoreHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init("Store")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuStore == nil:
     return p.notMounted()
@@ -177,7 +160,6 @@ proc getStoreHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init("Store Client")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuStoreClient == nil:
     return p.notMounted()
@@ -191,7 +173,6 @@ proc getStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getLegacyStoreHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init("Legacy Store")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuLegacyStore == nil:
     return p.notMounted()
@@ -200,7 +181,6 @@ proc getLegacyStoreHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getLegacyStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init("Legacy Store Client")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuLegacyStoreClient == nil:
     return p.notMounted()
@@ -215,7 +195,6 @@ proc getLegacyStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getPeerExchangeHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init("Peer Exchange")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuPeerExchange == nil:
     return p.notMounted()
@@ -224,7 +203,6 @@ proc getPeerExchangeHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getRendezvousHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init("Rendezvous")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuRendezvous == nil:
     return p.notMounted()
@@ -236,7 +214,6 @@ proc getRendezvousHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getMixHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init("Mix")
-  checkWakuNodeNotNil(hm.node, p)
 
   if hm.node.wakuMix.isNil():
     return p.notMounted()
@@ -386,28 +363,24 @@ proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.}
   var report: HealthReport
   report.nodeHealth = hm.nodeHealth
 
-  if not hm.node.isNil():
-    let relayHealth = hm.getRelayHealth()
-    report.protocolsHealth.add(relayHealth)
-    report.protocolsHealth.add(await hm.getRlnRelayHealth())
-    report.protocolsHealth.add(hm.getLightpushHealth(relayHealth.health))
-    report.protocolsHealth.add(hm.getLegacyLightpushHealth(relayHealth.health))
-    report.protocolsHealth.add(hm.getFilterHealth(relayHealth.health))
-    report.protocolsHealth.add(hm.getStoreHealth())
-    report.protocolsHealth.add(hm.getLegacyStoreHealth())
-    report.protocolsHealth.add(hm.getPeerExchangeHealth())
-    report.protocolsHealth.add(hm.getRendezvousHealth())
-    report.protocolsHealth.add(hm.getMixHealth())
+  let relayHealth = hm.getRelayHealth()
+  report.protocolsHealth.add(relayHealth)
+  report.protocolsHealth.add(await hm.getRlnRelayHealth())
+  report.protocolsHealth.add(hm.getLightpushHealth(relayHealth.health))
+  report.protocolsHealth.add(hm.getLegacyLightpushHealth(relayHealth.health))
+  report.protocolsHealth.add(hm.getFilterHealth(relayHealth.health))
+  report.protocolsHealth.add(hm.getStoreHealth())
+  report.protocolsHealth.add(hm.getLegacyStoreHealth())
+  report.protocolsHealth.add(hm.getPeerExchangeHealth())
+  report.protocolsHealth.add(hm.getRendezvousHealth())
+  report.protocolsHealth.add(hm.getMixHealth())
 
-    report.protocolsHealth.add(hm.getLightpushClientHealth(relayHealth.health))
-    report.protocolsHealth.add(hm.getLegacyLightpushClientHealth(relayHealth.health))
-    report.protocolsHealth.add(hm.getStoreClientHealth())
-    report.protocolsHealth.add(hm.getLegacyStoreClientHealth())
-    report.protocolsHealth.add(hm.getFilterClientHealth(relayHealth.health))
+  report.protocolsHealth.add(hm.getLightpushClientHealth(relayHealth.health))
+  report.protocolsHealth.add(hm.getLegacyLightpushClientHealth(relayHealth.health))
+  report.protocolsHealth.add(hm.getStoreClientHealth())
+  report.protocolsHealth.add(hm.getLegacyStoreClientHealth())
+  report.protocolsHealth.add(hm.getFilterClientHealth(relayHealth.health))
   return report
-
-proc setNodeToHealthMonitor*(hm: NodeHealthMonitor, node: WakuNode) =
-  hm.node = node
 
 proc setOverallHealth*(hm: NodeHealthMonitor, health: HealthStatus) =
   hm.nodeHealth = health
@@ -427,10 +400,14 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
 
 proc new*(
     T: type NodeHealthMonitor,
+    node: WakuNode,
     dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
 ): T =
+  let om = OnlineMonitor.init(dnsNameServers)
+  om.setPeerStoreToOnlineMonitor(node.switch.peerStore)
+  om.addOnlineStateObserver(node.peerManager.getOnlineStateObserver())
   T(
     nodeHealth: INITIALIZING,
-    node: nil,
-    onlineMonitor: OnlineMonitor.init(dnsNameServers),
+    node: node,
+    onlineMonitor: om,
   )
