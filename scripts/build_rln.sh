@@ -22,21 +22,33 @@ tarball+="-stateless"
 tarball+="-rln.tar.gz"
 
 # Download the prebuilt rln library if it is available
+detected_OS=$(uname -s)
+
 if curl --silent --fail-with-body -L \
-  "https://github.com/vacp2p/zerokit/releases/download/$rln_version/$tarball" \
-  -o "${tarball}";
+    "https://github.com/vacp2p/zerokit/releases/download/$rln_version/$tarball" \
+    -o "${tarball}";
 then
     echo "Downloaded ${tarball}"
     tar -xzf "${tarball}"
-    mv "release/librln.a" "${output_filename}"
+
+    if [[ "$detected_OS" == MINGW* || "$detected_OS" == MSYS* ]]; then
+        if [[ -f "release/rln.lib" ]]; then
+            mv "release/rln.lib" "${output_filename}"
+        else
+            mv "release/librln.a" "${output_filename}"
+        fi
+    else
+        mv "release/librln.a" "${output_filename}"
+    fi
+
     rm -rf "${tarball}" release
 else
     echo "Failed to download ${tarball}"
+
     # Build rln instead
     # first, check if submodule version = version in Makefile
     cargo metadata --format-version=1 --no-deps --manifest-path "${build_dir}/rln/Cargo.toml"
 
-    detected_OS=$(uname -s)
     if [[ "$detected_OS" == MINGW* || "$detected_OS" == MSYS* ]]; then
         submodule_version=$(cargo metadata --format-version=1 --no-deps --manifest-path "${build_dir}/rln/Cargo.toml" | sed -n 's/.*"name":"rln","version":"\([^"]*\)".*/\1/p')
     else
@@ -48,7 +60,13 @@ else
         echo "Please update the submodule to ${rln_version}"
         exit 1
     fi
+
     # if submodule version = version in Makefile, build rln
     cargo build --release -p rln --manifest-path "${build_dir}/rln/Cargo.toml" 
-    cp "${build_dir}/target/release/librln.a" "${output_filename}"
+
+    if [[ "$detected_OS" == MINGW* || "$detected_OS" == MSYS* ]]; then
+        cp "${build_dir}/target/release/rln.lib" "${output_filename}"
+    else
+        cp "${build_dir}/target/release/librln.a" "${output_filename}"
+    fi
 fi
