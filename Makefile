@@ -41,7 +41,12 @@ ifeq ($(detected_OS),Windows)
   NIM_PARAMS += --passL:"-Lvendor/nim-nat-traversal/vendor/miniupnp/miniupnpc"
   NIM_PARAMS += --passL:"-Lvendor/nim-nat-traversal/vendor/libnatpmp-upstream"
 
-  LIBS = -lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -lminiupnpc -lnatpmp -lpq
+  LIBS = -lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -lminiupnpc -lnatpmp
+
+  ifeq ($(POSTGRES), 1)
+    LIBS += -lpq
+  endif
+
   NIM_PARAMS += $(foreach lib,$(LIBS),--passL:"$(lib)")
 
   # Allow multiple definitions when linking Rust static library with GCC
