@@ -44,6 +44,9 @@ ifeq ($(detected_OS),Windows)
   LIBS = -lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -lminiupnpc -lnatpmp -lpq
   NIM_PARAMS += $(foreach lib,$(LIBS),--passL:"$(lib)")
 
+  # Allow multiple definitions when linking Rust static library with GCC
+  NIM_PARAMS += --passL:"-Wl,--allow-multiple-definition"
+
   export PATH := /c/msys64/usr/bin:/c/msys64/mingw64/bin:/c/msys64/usr/lib:/c/msys64/mingw64/lib:$(PATH)
 
 endif
