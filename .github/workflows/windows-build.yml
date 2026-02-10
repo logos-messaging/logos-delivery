@@ -33,6 +33,7 @@ jobs:
           make
           cmake
           upx
+          unzip
           mingw-w64-x86_64-rust
           mingw-w64-x86_64-postgresql
           mingw-w64-x86_64-gcc
