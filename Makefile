@@ -43,7 +43,7 @@ ifeq ($(detected_OS),Windows)
 
   LIBS = -lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -lminiupnpc -lnatpmp -lpq
   NIM_PARAMS += $(foreach lib,$(LIBS),--passL:"$(lib)")
-  NIM_PARAMS += --passL:"-Wl,--push-state,--as-needed" --passL:"-Wl,--pop-state"
+  NIM_PARAMS += --passL:"-Wl,--allow-multiple-definition"
 
   export PATH := /c/msys64/usr/bin:/c/msys64/mingw64/bin:/c/msys64/usr/lib:/c/msys64/mingw64/lib:$(PATH)
 
