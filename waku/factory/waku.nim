@@ -172,7 +172,7 @@ proc new*(
   ?wakuConf.validate()
   wakuConf.logConf()
 
-  var relay = newCircuitRelay(wakuConf.circuitRelayClient)
+  let relay = newCircuitRelay(wakuConf.circuitRelayClient)
 
   let node = (await setupNode(wakuConf, rng, relay)).valueOr:
     error "Failed setting up node", error = $error
