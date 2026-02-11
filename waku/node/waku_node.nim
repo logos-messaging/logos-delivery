@@ -69,11 +69,7 @@ import
   ./net_config,
   ./peer_manager,
   ./health_monitor/health_status,
-  ./health_monitor/topic_health,
-  ../common/rate_limit/setting,
-  ../common/callbacks,
-  ../common/nimchronos,
-  ../waku_mix
+  ./health_monitor/topic_health
 
 declarePublicCounter waku_node_messages, "number of messages received", ["type"]
 

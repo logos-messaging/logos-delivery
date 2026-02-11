@@ -2,8 +2,8 @@
 
 import results
 import chronicles, json_serialization, json_serialization/std/options
-import ../../../waku_node, ../serdes
-import ../../../api/types
+import ../serdes
+import waku/[waku_node, api/types]
 
 #### Serialization and deserialization
 
@@ -71,7 +71,9 @@ proc readValue*(
       nodeHealth = some(health)
     of "connectionStatus":
       if connectionStatus.isSome():
-        reader.raiseUnexpectedField("Multiple `connectionStatus` fields found", "HealthReport")
+        reader.raiseUnexpectedField(
+          "Multiple `connectionStatus` fields found", "HealthReport"
+        )
 
       let state = ConnectionStatus.init(reader.readValue(string)).valueOr:
         reader.raiseUnexpectedValue("Invalid `connectionStatus` value: " & $error)

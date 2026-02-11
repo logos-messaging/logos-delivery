@@ -1,6 +1,7 @@
 import std/[options, strformat]
 import ./health_status
-import ../../common/waku_protocol
+import waku/common/waku_protocol
+
 export waku_protocol
 
 type ProtocolHealth* = object

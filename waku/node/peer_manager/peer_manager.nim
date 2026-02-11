@@ -488,8 +488,9 @@ proc canBeConnected*(pm: PeerManager, peerId: PeerId): bool =
 proc connectedPeers*(
     pm: PeerManager, protocol: string = ""
 ): (seq[PeerId], seq[PeerId]) =
-  ## Returns the peerIds of physical connections (in and out)
-  ## If a protocol is specified, only returns peers with at least one stream of that protocol
+  ## Returns the PeerIds of peers with an active socket connection.
+  ## If a protocol is specified, it returns peers that currently have one
+  ## or more active logical streams for that protocol.
 
   var inPeers: seq[PeerId]
   var outPeers: seq[PeerId]
@@ -504,6 +505,43 @@ proc connectedPeers*(
           outPeers.add(peerId)
 
   return (inPeers, outPeers)
+
+proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]) =
+  ## Returns the PeerIds of peers with an active socket connection.
+  ## If a protocol is specified, it returns peers that have identified
+  ## themselves as supporting the protocol.
+
+  var inPeers: seq[PeerId]
+  var outPeers: seq[PeerId]
+
+  for peerId, muxers in pm.switch.connManager.getConnections():
+    # filter out peers that don't have the capability registered in the peer store
+    if pm.switch.peerStore.hasPeer(peerId, protocol):
+      for peerConn in muxers:
+        if peerConn.connection.transportDir == Direction.In:
+          inPeers.add(peerId)
+        elif peerConn.connection.transportDir == Direction.Out:
+          outPeers.add(peerId)
+
+  return (inPeers, outPeers)
+
+proc getConnectedPeersCount*(pm: PeerManager, protocol: string): int =
+  ## Returns the total number of unique connected peers (inbound + outbound)
+  ## with active streams for a specific protocol.
+  let (inPeers, outPeers) = pm.connectedPeers(protocol)
+  var peers = initHashSet[PeerId](nextPowerOfTwo(inPeers.len + outPeers.len))
+  for p in inPeers: peers.incl(p)
+  for p in outPeers: peers.incl(p)
+  return peers.len
+
+proc getCapablePeersCount*(pm: PeerManager, protocol: string): int =
+  ## Returns the total number of unique connected peers (inbound + outbound)
+  ## who have identified themselves as supporting the given protocol.
+  let (inPeers, outPeers) = pm.capablePeers(protocol)
+  var peers = initHashSet[PeerId](nextPowerOfTwo(inPeers.len + outPeers.len))
+  for p in inPeers: peers.incl(p)
+  for p in outPeers: peers.incl(p)
+  return peers.len
 
 proc getPeersForShard*(pm: PeerManager, protocolId: string, shard: PubsubTopic): int =
   let (inPeers, outPeers) = pm.connectedPeers(protocolId)
