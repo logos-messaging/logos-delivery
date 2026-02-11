@@ -122,6 +122,16 @@ suite "LM API health checking":
 
     check isHealthy == true
 
+  asyncTest "RequestShardTopicsHealth, check disconnected PubsubTopic":
+    const GhostShard = PubsubTopic("/waku/2/rs/1/666")
+    client.node.wakuRelay.subscribe(GhostShard, dummyHandler)
+
+    let req = RequestShardTopicsHealth.request(client.brokerCtx, @[GhostShard]).valueOr:
+      raiseAssert "Request failed"
+
+    check req.topicHealth.len > 0
+    check req.topicHealth[0].health == TopicHealth.UNHEALTHY
+
   asyncTest "RequestProtocolHealth, check relay status":
     await client.node.connectToNodes(@[servicePeerInfo])
 
@@ -142,6 +152,15 @@ suite "LM API health checking":
       await RequestProtocolHealth.request(client.brokerCtx, WakuProtocol.StoreProtocol)
     if storeReq.isOk():
       check storeReq.get().healthStatus.health != HealthStatus.READY
+
+  asyncTest "RequestProtocolHealth, check unmounted protocol":
+    let req =
+      await RequestProtocolHealth.request(client.brokerCtx, WakuProtocol.StoreProtocol)
+    check req.isOk()
+
+    let status = req.get().healthStatus
+    check status.health == HealthStatus.NOT_MOUNTED
+    check status.desc.isNone()
 
   asyncTest "RequestConnectionStatus, check connectivity state":
     let initialReq = RequestConnectionStatus.request(client.brokerCtx).valueOr:
@@ -185,3 +204,25 @@ suite "LM API health checking":
 
     let event = await healthEventFuture
     check event.topic == DefaultShard
+
+  asyncTest "RequestHealthReport, check aggregate report":
+    let req = await RequestHealthReport.request(client.brokerCtx)
+
+    check req.isOk()
+
+    let report = req.get().healthReport
+    check report.nodeHealth == HealthStatus.READY
+    check report.protocolsHealth.len > 0
+    check report.protocolsHealth.anyIt(it.protocol == $WakuProtocol.RelayProtocol)
+
+  asyncTest "RequestContentTopicsHealth, smoke test":
+    let fictionalTopic = ContentTopic("/waku/2/this-does-not-exist/proto")
+
+    let req = RequestContentTopicsHealth.request(client.brokerCtx, @[fictionalTopic])
+
+    check req.isOk()
+
+    let res = req.get()
+    check res.contentTopicHealth.len == 1
+    check res.contentTopicHealth[0].topic == fictionalTopic
+    check res.contentTopicHealth[0].health == TopicHealth.NOT_SUBSCRIBED

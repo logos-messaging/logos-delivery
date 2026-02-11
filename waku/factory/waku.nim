@@ -450,6 +450,19 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
   ).isOkOr:
     error "Failed to set RequestProtocolHealth provider", error = error
 
+  ## Setup RequestHealthReport provider (The lost child)
+
+  RequestHealthReport.setProvider(
+    globalBrokerContext(),
+    proc(): Future[Result[RequestHealthReport, string]] {.async.} =
+      try:
+        let report = await waku[].healthMonitor.getNodeHealthReport()
+        return ok(RequestHealthReport(healthReport: report))
+      except CatchableError:
+        return err("Failed to get health report: " & getCurrentExceptionMsg()),
+  ).isOkOr:
+    error "Failed to set RequestHealthReport provider", error = error
+
   if conf.restServerConf.isSome():
     rest_server_builder.startRestServerProtocolSupport(
       waku[].restServer,
