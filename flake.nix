@@ -1,5 +1,5 @@
 {
-  description = "Logos Messaging Nim build flake";
+  description = "Logos-message-delivery build flake";
 
   nixConfig = {
     extra-substituters = [ "https://nix-cache.status.im/" ];

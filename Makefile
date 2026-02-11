@@ -394,8 +394,8 @@ ifeq ($(STATIC), 1)
 	LIBLOGOSDELIVERY_BUILD_COMMAND = liblogosdeliveryStatic
 endif
 
-libwaku: | build deps librln
-	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && nimble $(BUILD_COMMAND) $@.$(LIB_EXT)
+libwaku: | build librln
+	nimble --verbose $(BUILD_COMMAND) waku.nimble
 
 cwaku_example: | build libwaku
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -468,6 +468,7 @@ ifndef ANDROID_NDK_HOME
 endif
 
 build-libwaku-for-android-arch:
+ifneq ($(findstring /nix/store,$(LIBRLN_FILE)),)
 	mkdir -p $(CURDIR)/build/android/$(ABIDIR)/
 	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) nimble libWakuAndroid
 else
