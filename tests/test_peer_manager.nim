@@ -1207,3 +1207,229 @@ procSuite "Peer Manager":
 
     r = node1.peerManager.selectPeer(WakuPeerExchangeCodec)
     assert r.isSome(), "could not retrieve peer mounting WakuPeerExchangeCodec"
+
+  asyncTest "selectPeer() filters peers by shard using ENR":
+    ## Given: A peer manager with 3 peers having different shards in their ENRs
+    let
+      clusterId = 0.uint16
+      shardId0 = 0.uint16
+      shardId1 = 1.uint16
+
+    # Create 3 nodes with different shards
+    let nodes =
+      @[
+        newTestWakuNode(
+          generateSecp256k1Key(),
+          parseIpAddress("0.0.0.0"),
+          Port(0),
+          clusterId = clusterId,
+          subscribeShards = @[shardId0],
+        ),
+        newTestWakuNode(
+          generateSecp256k1Key(),
+          parseIpAddress("0.0.0.0"),
+          Port(0),
+          clusterId = clusterId,
+          subscribeShards = @[shardId1],
+        ),
+        newTestWakuNode(
+          generateSecp256k1Key(),
+          parseIpAddress("0.0.0.0"),
+          Port(0),
+          clusterId = clusterId,
+          subscribeShards = @[shardId0],
+        ),
+      ]
+
+    await allFutures(nodes.mapIt(it.start()))
+    for node in nodes:
+      discard await node.mountRelay()
+
+    # Get peer infos with ENRs
+    let peerInfos = collect:
+      for node in nodes:
+        var peerInfo = node.switch.peerInfo.toRemotePeerInfo()
+        peerInfo.enr = some(node.enr)
+        peerInfo
+
+    # Add all peers to node 0's peer manager and peerstore
+    for i in 1 .. 2:
+      nodes[0].peerManager.addPeer(peerInfos[i])
+      nodes[0].peerManager.switch.peerStore[AddressBook][peerInfos[i].peerId] =
+        peerInfos[i].addrs
+      nodes[0].peerManager.switch.peerStore[ProtoBook][peerInfos[i].peerId] =
+        @[WakuRelayCodec]
+
+    ## When: We select a peer for shard 0
+    let shard0Topic = some(PubsubTopic("/waku/2/rs/0/0"))
+    let selectedPeer0 = nodes[0].peerManager.selectPeer(WakuRelayCodec, shard0Topic)
+
+    ## Then: Only peers supporting shard 0 are considered (nodes 2, not node 1)
+    check:
+      selectedPeer0.isSome()
+      selectedPeer0.get().peerId != peerInfos[1].peerId # node1 has shard 1
+      selectedPeer0.get().peerId == peerInfos[2].peerId # node2 has shard 0
+
+    ## When: We select a peer for shard 1
+    let shard1Topic = some(PubsubTopic("/waku/2/rs/0/1"))
+    let selectedPeer1 = nodes[0].peerManager.selectPeer(WakuRelayCodec, shard1Topic)
+
+    ## Then: Only peer with shard 1 is selected
+    check:
+      selectedPeer1.isSome()
+      selectedPeer1.get().peerId == peerInfos[1].peerId # node1 has shard 1
+
+    await allFutures(nodes.mapIt(it.stop()))
+
+  asyncTest "selectPeer() filters peers by shard using shards field":
+    ## Given: A peer manager with peers having shards in RemotePeerInfo (no ENR)
+    let
+      clusterId = 0.uint16
+      shardId0 = 0.uint16
+      shardId1 = 1.uint16
+
+    # Create peer manager
+    let pm = PeerManager.new(
+      switch = SwitchBuilder.new().withRng(rng()).withMplex().withNoise().build(),
+      storage = nil,
+    )
+
+    # Create peer infos with shards field populated (simulating metadata exchange)
+    let basePeerId = "16Uiu2HAm7QGEZKujdSbbo1aaQyfDPQ6Bw3ybQnj6fruH5Dxwd7D"
+    let peers = toSeq(1 .. 3)
+      .mapIt(parsePeerInfo("/ip4/0.0.0.0/tcp/30300/p2p/" & basePeerId & $it))
+      .filterIt(it.isOk())
+      .mapIt(it.value)
+    require:
+      peers.len == 3
+
+    # Manually populate the shards field (ENR is not available)
+    var peerInfos: seq[RemotePeerInfo] = @[]
+    for i, peer in peers:
+      var peerInfo = RemotePeerInfo.init(peer.peerId, peer.addrs)
+      # Peer 0 and 2 have shard 0, peer 1 has shard 1
+      peerInfo.shards =
+        if i == 1:
+          @[shardId1]
+        else:
+          @[shardId0]
+      # Note: ENR is intentionally left as none
+      peerInfos.add(peerInfo)
+
+    # Add peers to peerstore
+    for peerInfo in peerInfos:
+      pm.switch.peerStore[AddressBook][peerInfo.peerId] = peerInfo.addrs
+      pm.switch.peerStore[ProtoBook][peerInfo.peerId] = @[WakuRelayCodec]
+
+    ## When: We select a peer for shard 0
+    let shard0Topic = some(PubsubTopic("/waku/2/rs/0/0"))
+    let selectedPeer0 = pm.selectPeer(WakuRelayCodec, shard0Topic)
+
+    ## Then: Peers with shard 0 in shards field are selected
+    check:
+      selectedPeer0.isSome()
+      selectedPeer0.get().peerId in [peerInfos[0].peerId, peerInfos[2].peerId]
+
+    ## When: We select a peer for shard 1
+    let shard1Topic = some(PubsubTopic("/waku/2/rs/0/1"))
+    let selectedPeer1 = pm.selectPeer(WakuRelayCodec, shard1Topic)
+
+    ## Then: Peer with shard 1 in shards field is selected
+    check:
+      selectedPeer1.isSome()
+      selectedPeer1.get().peerId == peerInfos[1].peerId
+
+  asyncTest "selectPeer() handles invalid pubsub topic gracefully":
+    ## Given: A peer manager with valid peers
+    let node = newTestWakuNode(
+      generateSecp256k1Key(),
+      parseIpAddress("0.0.0.0"),
+      Port(0),
+      clusterId = 0,
+      subscribeShards = @[0'u16],
+    )
+    await node.start()
+
+    # Add a peer
+    let peer =
+      newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+    await peer.start()
+    discard await peer.mountRelay()
+
+    var peerInfo = peer.switch.peerInfo.toRemotePeerInfo()
+    peerInfo.enr = some(peer.enr)
+    node.peerManager.addPeer(peerInfo)
+    node.peerManager.switch.peerStore[ProtoBook][peerInfo.peerId] = @[WakuRelayCodec]
+
+    ## When: selectPeer is called with malformed pubsub topic
+    let invalidTopics =
+      @[
+        some(PubsubTopic("invalid-topic")),
+        some(PubsubTopic("/waku/2/invalid")),
+        some(PubsubTopic("/waku/2/rs/abc/0")), # non-numeric cluster
+        some(PubsubTopic("")), # empty topic
+      ]
+
+    ## Then: Returns none(RemotePeerInfo) without crashing
+    for invalidTopic in invalidTopics:
+      let result = node.peerManager.selectPeer(WakuRelayCodec, invalidTopic)
+      check:
+        result.isNone()
+
+    await allFutures(node.stop(), peer.stop())
+
+  asyncTest "selectPeer() prioritizes ENR over shards field":
+    ## Given: A peer with both ENR and shards field populated
+    let
+      clusterId = 0.uint16
+      shardId0 = 0.uint16
+      shardId1 = 1.uint16
+
+    let node = newTestWakuNode(
+      generateSecp256k1Key(),
+      parseIpAddress("0.0.0.0"),
+      Port(0),
+      clusterId = clusterId,
+      subscribeShards = @[shardId0],
+    )
+    await node.start()
+    discard await node.mountRelay()
+
+    # Create peer with ENR containing shard 0
+    let peer = newTestWakuNode(
+      generateSecp256k1Key(),
+      parseIpAddress("0.0.0.0"),
+      Port(0),
+      clusterId = clusterId,
+      subscribeShards = @[shardId0],
+    )
+    await peer.start()
+    discard await peer.mountRelay()
+
+    # Create peer info with ENR (shard 0) but set shards field to shard 1
+    var peerInfo = peer.switch.peerInfo.toRemotePeerInfo()
+    peerInfo.enr = some(peer.enr) # ENR has shard 0
+    peerInfo.shards = @[shardId1] # shards field has shard 1
+
+    node.peerManager.addPeer(peerInfo)
+    node.peerManager.switch.peerStore[ProtoBook][peerInfo.peerId] = @[WakuRelayCodec]
+
+    ## When: We select for shard 0
+    let shard0Topic = some(PubsubTopic("/waku/2/rs/0/0"))
+    let selectedPeer = node.peerManager.selectPeer(WakuRelayCodec, shard0Topic)
+
+    ## Then: Peer is selected because ENR (shard 0) takes precedence
+    check:
+      selectedPeer.isSome()
+      selectedPeer.get().peerId == peerInfo.peerId
+
+    ## When: We select for shard 1
+    let shard1Topic = some(PubsubTopic("/waku/2/rs/0/1"))
+    let selectedPeer1 = node.peerManager.selectPeer(WakuRelayCodec, shard1Topic)
+
+    ## Then: Peer is still selected because shards field is checked as fallback
+    check:
+      selectedPeer1.isSome()
+      selectedPeer1.get().peerId == peerInfo.peerId
+
+    await allFutures(node.stop(), peer.stop())
