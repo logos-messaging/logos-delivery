@@ -33,6 +33,7 @@ jobs:
           make
           cmake
           upx
+          unzip
           mingw-w64-x86_64-rust
           mingw-w64-x86_64-postgresql
           mingw-w64-x86_64-gcc
@@ -44,6 +45,12 @@ jobs:
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-llvm
           mingw-w64-x86_64-clang
+          mingw-w64-x86_64-nasm
+
+    - name: Manually install nasm
+      run: |
+        bash scripts/install_nasm_in_windows.sh
+        source $HOME/.bashrc
       
     - name: Add UPX to PATH
       run: |
@@ -54,7 +61,7 @@ jobs:
 
     - name: Verify dependencies
       run: |
-        which upx gcc g++ make cmake cargo rustc python
+        which upx gcc g++ make cmake cargo rustc python nasm
 
     - name: Updating submodules
       run: git submodule update --init --recursive

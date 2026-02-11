@@ -48,6 +48,7 @@ ifeq ($(detected_OS),Windows)
   endif
 
   NIM_PARAMS += $(foreach lib,$(LIBS),--passL:"$(lib)")
+  NIM_PARAMS += --passL:"-Wl,--allow-multiple-definition"
 
   # Allow multiple definitions when linking Rust static library with GCC
   NIM_PARAMS += --passL:"-Wl,--allow-multiple-definition"

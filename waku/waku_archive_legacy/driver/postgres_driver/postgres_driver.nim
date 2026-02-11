@@ -213,13 +213,13 @@ method put*(
     messageHash: WakuMessageHash,
     receivedTime: Timestamp,
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  let digest = toHex(digest.data)
-  let messageHash = toHex(messageHash)
+  let digest = byteutils.toHex(digest.data)
+  let messageHash = byteutils.toHex(messageHash)
   let contentTopic = message.contentTopic
-  let payload = toHex(message.payload)
+  let payload = byteutils.toHex(message.payload)
   let version = $message.version
   let timestamp = $message.timestamp
-  let meta = toHex(message.meta)
+  let meta = byteutils.toHex(message.meta)
 
   trace "put PostgresDriver", timestamp = timestamp
 
@@ -312,7 +312,7 @@ proc getMessagesArbitraryQuery(
     args.add(pubsubTopic.get())
 
   if cursor.isSome():
-    let hashHex = toHex(cursor.get().hash)
+    let hashHex = byteutils.toHex(cursor.get().hash)
 
     var entree: seq[(PubsubTopic, WakuMessage, seq[byte], Timestamp, WakuMessageHash)]
     proc entreeCallback(pqResult: ptr PGresult) =
@@ -463,7 +463,7 @@ proc getMessagesPreparedStmt(
   let limit = $maxPageSize
 
   if cursor.isSome():
-    let hash = toHex(cursor.get().hash)
+    let hash = byteutils.toHex(cursor.get().hash)
 
     var entree: seq[(PubsubTopic, WakuMessage, seq[byte], Timestamp, WakuMessageHash)]
 
@@ -576,7 +576,7 @@ proc getMessagesV2PreparedStmt(
     var stmtDef =
       if ascOrder: SelectWithCursorV2AscStmtDef else: SelectWithCursorV2DescStmtDef
 
-    let digest = toHex(cursor.get().digest.data)
+    let digest = byteutils.toHex(cursor.get().digest.data)
     let timestamp = $cursor.get().storeTime
 
     (

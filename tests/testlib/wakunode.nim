@@ -27,7 +27,7 @@ import
 # TODO: migrate to usage of a test cluster conf
 proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   var builder = WakuConfBuilder.init()
-  builder.withP2pTcpPort(Port(60000))
+  builder.withP2pTcpPort(Port(0))
   builder.withP2pListenAddress(parseIpAddress("0.0.0.0"))
   builder.restServerConf.withListenAddress(parseIpAddress("127.0.0.1"))
   builder.withDnsAddrsNameServers(
@@ -80,7 +80,7 @@ proc newTestWakuNode*(
   # Update extPort to default value if it's missing and there's an extIp or a DNS domain
   let extPort =
     if (extIp.isSome() or dns4DomainName.isSome()) and extPort.isNone():
-      some(Port(60000))
+      some(Port(0))
     else:
       extPort
 
