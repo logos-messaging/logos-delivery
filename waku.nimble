@@ -11,9 +11,9 @@ license = "MIT or Apache License 2.0"
 #bin           = @["build/waku"]
 
 ### Dependencies
-requires "nim >= 2.2.4",
+requires "nim >= 2.2.6",
   # Async & Concurrency
-  "chronos",
+  "chronos >= 4.0.4",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -24,7 +24,7 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p >= 1.14.3",
+  "libp2p >= 1.15.1",
   "eth",
   "nat_traversal",
   "websock",

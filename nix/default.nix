@@ -42,7 +42,7 @@ in stdenv.mkDerivation {
   };
 
   buildInputs = with pkgs; [
-    openssl gmp zip
+    openssl gmp zip nimble
   ];
 
   # Dependencies that should only exist in the build environment.
@@ -50,7 +50,7 @@ in stdenv.mkDerivation {
     # Fix for Nim compiler calling 'git rev-parse' and 'lsb_release'.
     fakeGit = writeScriptBin "git" "echo ${version}";
   in with pkgs; [
-    cmake which zerokitRln nim-unwrapped-2_2 fakeGit nimbleDeps
+    cmake which zerokitRln fakeGit nimbleDeps cargo
   ] ++ lib.optionals stdenv.isDarwin [
     pkgs.darwin.cctools gcc # Necessary for libbacktrace
   ];
