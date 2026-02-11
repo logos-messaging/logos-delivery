@@ -27,7 +27,7 @@ import
   waku/common/broker/broker_context,
   waku/events/peer_events
 
-from ../waku_core/codecs import WakuRelayCodec
+from waku/waku_core/codecs import WakuRelayCodec
 export WakuRelayCodec
 
 type ShardMetrics = object
@@ -382,7 +382,7 @@ proc new*(
     w.peerEventListener = EventWakuPeer.listen(
       w.brokerCtx,
       proc(evt: EventWakuPeer): Future[void] {.async: (raises: []), gcsafe.} =
-        if evt.kind == WakuPeerEventKind.Disconnected:
+        if evt.kind == WakuPeerEventKind.EventDisconnected:
           w.topicHealthCheckAll = true
           w.topicHealthUpdateEvent.fire()
       ,

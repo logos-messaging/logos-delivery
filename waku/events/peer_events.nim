@@ -3,10 +3,10 @@ import libp2p/switch
 
 type
   WakuPeerEventKind* = enum
-    Connected
-    Disconnected
-    Identified
-    MetadataUpdated
+    EventConnected
+    EventDisconnected
+    EventIdentified
+    EventMetadataUpdated
 
 EventBroker:
   type EventWakuPeer* = object

@@ -1,34 +1,33 @@
 {.push raises: [].}
 
 import
-  std/[options, sets, sequtils, times, strformat, strutils, math, random, tables],
+  std/
+    [
+      options, sets, sequtils, times, strformat, strutils, math, random, tables,
+      algorithm,
+    ],
   chronos,
   chronicles,
   metrics,
-  libp2p/multistream,
-  libp2p/muxers/muxer,
-  libp2p/nameresolving/nameresolver,
-  libp2p/peerstore
-
-import
-  ../../common/nimchronos,
-  ../../common/enr,
-  ../../common/callbacks,
-  ../../common/utils/parse_size_units,
-  ../../common/broker/broker_context,
-  ../../events/peer_events,
-  ../../waku_core,
-  ../../waku_core/topics/sharding,
-  ../../waku_relay,
-  ../../waku_relay/protocol,
-  ../../waku_enr/sharding,
-  ../../waku_enr/capabilities,
-  ../../waku_metadata,
-  ../health_monitor/online_monitor,
+  libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
+  waku/[
+    waku_core,
+    waku_relay,
+    waku_metadata,
+    waku_core/topics/sharding,
+    waku_relay/protocol,
+    waku_enr/sharding,
+    waku_enr/capabilities,
+    events/peer_events,
+    common/nimchronos,
+    common/enr,
+    common/callbacks,
+    common/utils/parse_size_units,
+    common/broker/broker_context,
+    node/health_monitor/online_monitor,
+  ],
   ./peer_store/peer_storage,
   ./waku_peer_store
-
-import std/[algorithm, sequtils] # metadata update delta calc
 
 export waku_peer_store, peer_storage, peers
 
@@ -691,7 +690,7 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
     # TODO: should only trigger an event if metadata actually changed
     #       should include the shard subscription delta in the event when
     #         it is a MetadataUpdated event
-    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.MetadataUpdated)
+    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventMetadataUpdated)
     return
 
   info "disconnecting from peer", peerId = peerId, reason = reason
@@ -736,7 +735,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
           asyncSpawn(pm.switch.disconnect(peerId))
           peerStore.delete(peerId)
 
-    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.Connected)
+    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventConnected)
 
     if not pm.onConnectionChange.isNil():
       # we don't want to await for the callback to finish
@@ -753,7 +752,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
           pm.ipTable.del(ip)
         break
 
-    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.Disconnected)
+    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventDisconnected)
 
     if not pm.onConnectionChange.isNil():
       # we don't want to await for the callback to finish
@@ -761,7 +760,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   of PeerEventKind.Identified:
     info "event identified", peerId = peerId
 
-    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.Identified)
+    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventIdentified)
 
   peerStore[ConnectionBook][peerId] = connectedness
   peerStore[DirectionBook][peerId] = direction

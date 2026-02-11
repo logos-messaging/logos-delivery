@@ -22,7 +22,11 @@ import
 
 import ../testlib/[wakunode, wakucore], ../waku_archive/archive_utils
 
-proc p(kind: WakuProtocol, health: HealthStatus): ProtocolHealth =
+const MockDLow = 4 # Mocked GossipSub DLow value
+
+const TestConnectivityTimeLimit = 3.seconds
+
+proc protoHealthMock(kind: WakuProtocol, health: HealthStatus): ProtocolHealth =
   var ph = ProtocolHealth.init(kind)
   if health == HealthStatus.READY:
     return ph.ready()
@@ -33,111 +37,114 @@ suite "Health Monitor - health state calculation":
   test "Disconnected, zero peers":
     let protocols =
       @[
-        p(RelayProtocol, HealthStatus.NOT_READY),
-        p(StoreClientProtocol, HealthStatus.NOT_READY),
-        p(FilterClientProtocol, HealthStatus.NOT_READY),
-        p(LightpushClientProtocol, HealthStatus.NOT_READY),
+        protoHealthMock(RelayProtocol, HealthStatus.NOT_READY),
+        protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
+        protoHealthMock(FilterClientProtocol, HealthStatus.NOT_READY),
+        protoHealthMock(LightpushClientProtocol, HealthStatus.NOT_READY),
       ]
     let strength = initTable[WakuProtocol, int]()
     let state =
-      calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
+      calculateConnectionState(protocols, strength, some(MockDLow))
     check state == ConnectionStatus.Disconnected
 
   test "PartiallyConnected, weak relay":
-    let weakCount = DefaultRelayFailoverThreshold - 1
+    let weakCount = MockDLow - 1
     let protocols =
       @[
-        p(RelayProtocol, HealthStatus.READY), p(StoreClientProtocol, HealthStatus.READY)
+        protoHealthMock(RelayProtocol, HealthStatus.READY),
       ]
     var strength = initTable[WakuProtocol, int]()
     strength[RelayProtocol] = weakCount
-    strength[StoreClientProtocol] = 1
     let state =
-      calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
+      calculateConnectionState(protocols, strength, some(MockDLow))
+    # Partially connected since relay connectivity is weak (> 0, but < dLow)
     check state == ConnectionStatus.PartiallyConnected
 
   test "Connected, robust relay":
     let protocols =
       @[
-        p(RelayProtocol, HealthStatus.READY), p(StoreClientProtocol, HealthStatus.READY)
+        protoHealthMock(RelayProtocol, HealthStatus.READY),
       ]
     var strength = initTable[WakuProtocol, int]()
-    strength[RelayProtocol] = DefaultRelayFailoverThreshold
-    strength[StoreClientProtocol] = FailoverThreshold
+    strength[RelayProtocol] = MockDLow
     let state =
-      calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
+      calculateConnectionState(protocols, strength, some(MockDLow))
+    # Fully connected since relay connectivity is ideal (>= dLow)
     check state == ConnectionStatus.Connected
 
   test "Connected, robust edge":
     let protocols =
       @[
-        p(RelayProtocol, HealthStatus.NOT_MOUNTED),
-        p(LightpushClientProtocol, HealthStatus.READY),
-        p(FilterClientProtocol, HealthStatus.READY),
-        p(StoreClientProtocol, HealthStatus.READY),
+        protoHealthMock(RelayProtocol, HealthStatus.NOT_MOUNTED),
+        protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+        protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+        protoHealthMock(StoreClientProtocol, HealthStatus.READY),
       ]
     var strength = initTable[WakuProtocol, int]()
-    strength[LightpushClientProtocol] = FailoverThreshold
-    strength[FilterClientProtocol] = FailoverThreshold
-    strength[StoreClientProtocol] = FailoverThreshold
+    strength[LightpushClientProtocol] = HealthyThreshold
+    strength[FilterClientProtocol] = HealthyThreshold
+    strength[StoreClientProtocol] = HealthyThreshold
     let state =
-      calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
+      calculateConnectionState(protocols, strength, some(MockDLow))
     check state == ConnectionStatus.Connected
 
   test "Disconnected, edge missing store":
     let protocols =
       @[
-        p(LightpushClientProtocol, HealthStatus.READY),
-        p(FilterClientProtocol, HealthStatus.READY),
-        p(StoreClientProtocol, HealthStatus.NOT_READY),
+        protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+        protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+        protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
       ]
     var strength = initTable[WakuProtocol, int]()
-    strength[LightpushClientProtocol] = FailoverThreshold
-    strength[FilterClientProtocol] = FailoverThreshold
+    strength[LightpushClientProtocol] = HealthyThreshold
+    strength[FilterClientProtocol] = HealthyThreshold
     strength[StoreClientProtocol] = 0
     let state =
-      calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
+      calculateConnectionState(protocols, strength, some(MockDLow))
     check state == ConnectionStatus.Disconnected
 
   test "PartiallyConnected, edge meets minimum failover requirement":
-    let weakCount = max(1, FailoverThreshold - 1)
+    let weakCount = max(1, HealthyThreshold - 1)
     let protocols =
       @[
-        p(LightpushClientProtocol, HealthStatus.READY),
-        p(FilterClientProtocol, HealthStatus.READY),
-        p(StoreClientProtocol, HealthStatus.READY),
+        protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+        protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+        protoHealthMock(StoreClientProtocol, HealthStatus.READY),
       ]
     var strength = initTable[WakuProtocol, int]()
     strength[LightpushClientProtocol] = weakCount
     strength[FilterClientProtocol] = weakCount
     strength[StoreClientProtocol] = weakCount
     let state =
-      calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
+      calculateConnectionState(protocols, strength, some(MockDLow))
     check state == ConnectionStatus.PartiallyConnected
 
   test "Connected, robust relay ignores store server":
     let protocols =
-      @[p(RelayProtocol, HealthStatus.READY), p(StoreProtocol, HealthStatus.READY)]
+      @[
+        protoHealthMock(RelayProtocol, HealthStatus.READY),
+        protoHealthMock(StoreProtocol, HealthStatus.READY),
+      ]
     var strength = initTable[WakuProtocol, int]()
-    strength[RelayProtocol] = DefaultRelayFailoverThreshold
+    strength[RelayProtocol] = MockDLow
     strength[StoreProtocol] = 0
     let state =
-      calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
+      calculateConnectionState(protocols, strength, some(MockDLow))
     check state == ConnectionStatus.Connected
 
   test "Connected, robust relay ignores store client":
     let protocols =
       @[
-        p(RelayProtocol, HealthStatus.READY),
-        p(StoreProtocol, HealthStatus.READY),
-        p(StoreClientProtocol, HealthStatus.NOT_READY),
+        protoHealthMock(RelayProtocol, HealthStatus.READY),
+        protoHealthMock(StoreProtocol, HealthStatus.READY),
+        protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
       ]
     var strength = initTable[WakuProtocol, int]()
-    strength[RelayProtocol] = DefaultRelayFailoverThreshold
+    strength[RelayProtocol] = MockDLow
     strength[StoreProtocol] = 0
     strength[StoreClientProtocol] = 0
     let state =
-      calculateConnectionState(protocols, strength, DefaultRelayFailoverThreshold)
+      calculateConnectionState(protocols, strength, some(MockDLow))
     check state == ConnectionStatus.Connected
 
 suite "Health Monitor - events":
@@ -148,8 +155,6 @@ suite "Health Monitor - events":
 
     (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
 
-    nodeA.mountStoreClient()
-
     await nodeA.start()
 
     let monitorA = NodeHealthMonitor.new(nodeA)
@@ -157,13 +162,12 @@ suite "Health Monitor - events":
     var
       lastStatus = ConnectionStatus.Disconnected
       callbackCount = 0
-      healthChangeSignal = newFuture[void]()
+      healthChangeSignal = newAsyncEvent()
 
     monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
       lastStatus = status
       callbackCount.inc()
-      if not healthChangeSignal.finished:
-        healthChangeSignal.complete()
+      healthChangeSignal.fire()
 
     monitorA.startHealthMonitor().expect("Health monitor failed to start")
 
@@ -191,30 +195,28 @@ suite "Health Monitor - events":
       "Node B failed to subscribe"
     )
 
-    let connectTimeLimit = Moment.now() + 10.seconds
+    let connectTimeLimit = Moment.now() + TestConnectivityTimeLimit
     var gotConnected = false
 
     while Moment.now() < connectTimeLimit:
-      if lastStatus != ConnectionStatus.Disconnected:
+      if lastStatus == ConnectionStatus.PartiallyConnected:
         gotConnected = true
         break
 
-      if healthChangeSignal.finished:
-        healthChangeSignal = newFuture[void]()
-
-      discard await healthChangeSignal.withTimeout(connectTimeLimit - Moment.now())
+      if await healthChangeSignal.wait().withTimeout(connectTimeLimit - Moment.now()):
+        healthChangeSignal.clear()
 
     check:
       gotConnected == true
       callbackCount >= 1
+      lastStatus == ConnectionStatus.PartiallyConnected
 
-    if healthChangeSignal.finished:
-      healthChangeSignal = newFuture[void]()
+    healthChangeSignal.clear()
 
     await nodeB.stop()
     await nodeA.disconnectNode(nodeB.switch.peerInfo.toRemotePeerInfo())
 
-    let disconnectTimeLimit = Moment.now() + 10.seconds
+    let disconnectTimeLimit = Moment.now() + TestConnectivityTimeLimit
     var gotDisconnected = false
 
     while Moment.now() < disconnectTimeLimit:
@@ -222,10 +224,8 @@ suite "Health Monitor - events":
         gotDisconnected = true
         break
 
-      if healthChangeSignal.finished:
-        healthChangeSignal = newFuture[void]()
-
-      discard await healthChangeSignal.withTimeout(disconnectTimeLimit - Moment.now())
+      if await healthChangeSignal.wait().withTimeout(disconnectTimeLimit - Moment.now()):
+        healthChangeSignal.clear()
 
     check:
       gotDisconnected == true
@@ -249,13 +249,12 @@ suite "Health Monitor - events":
     var
       lastStatus = ConnectionStatus.Disconnected
       callbackCount = 0
-      healthChangeSignal = newFuture[void]()
+      healthChangeSignal = newAsyncEvent()
 
     monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
       lastStatus = status
       callbackCount.inc()
-      if not healthChangeSignal.finished:
-        healthChangeSignal.complete()
+      healthChangeSignal.fire()
 
     monitorA.startHealthMonitor().expect("Health monitor failed to start")
 
@@ -276,7 +275,7 @@ suite "Health Monitor - events":
 
     await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
 
-    let connectTimeLimit = Moment.now() + 10.seconds
+    let connectTimeLimit = Moment.now() + TestConnectivityTimeLimit
     var gotConnected = false
 
     while Moment.now() < connectTimeLimit:
@@ -284,23 +283,20 @@ suite "Health Monitor - events":
         gotConnected = true
         break
 
-      if healthChangeSignal.finished:
-        healthChangeSignal = newFuture[void]()
-
-      discard await healthChangeSignal.withTimeout(connectTimeLimit - Moment.now())
+      if await healthChangeSignal.wait().withTimeout(connectTimeLimit - Moment.now()):
+        healthChangeSignal.clear()
 
     check:
       gotConnected == true
       callbackCount >= 1
       lastStatus == ConnectionStatus.PartiallyConnected
 
-    if healthChangeSignal.finished:
-      healthChangeSignal = newFuture[void]()
+    healthChangeSignal.clear()
 
     await nodeB.stop()
     await nodeA.disconnectNode(nodeB.switch.peerInfo.toRemotePeerInfo())
 
-    let disconnectTimeLimit = Moment.now() + 10.seconds
+    let disconnectTimeLimit = Moment.now() + TestConnectivityTimeLimit
     var gotDisconnected = false
 
     while Moment.now() < disconnectTimeLimit:
@@ -308,10 +304,8 @@ suite "Health Monitor - events":
         gotDisconnected = true
         break
 
-      if healthChangeSignal.finished:
-        healthChangeSignal = newFuture[void]()
-
-      discard await healthChangeSignal.withTimeout(disconnectTimeLimit - Moment.now())
+      if await healthChangeSignal.wait().withTimeout(disconnectTimeLimit - Moment.now()):
+        healthChangeSignal.clear()
 
     check:
       gotDisconnected == true
@@ -319,4 +313,3 @@ suite "Health Monitor - events":
 
     await monitorA.stopHealthMonitor()
     await nodeA.stop()
-

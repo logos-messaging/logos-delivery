@@ -102,7 +102,7 @@ const clientId* = "Nimbus Waku v2 node"
 
 const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
-const EdgeTopicFailoverThreshold = 2
+const EdgeTopicHealthyThreshold = 2
   ## Lightpush server and filter server requirement for a healthy topic in edge mode
 
 # key and crypto modules different
@@ -495,8 +495,8 @@ proc calculateEdgeTopicHealth(node: WakuNode, shard: PubsubTopic): TopicHealth =
     lightpush_protocol.WakuLightPushCodec, shard
   )
 
-  if filterPeers >= EdgeTopicFailoverThreshold and
-      lightpushPeers >= EdgeTopicFailoverThreshold:
+  if filterPeers >= EdgeTopicHealthyThreshold and
+      lightpushPeers >= EdgeTopicHealthyThreshold:
     return TopicHealth.SUFFICIENTLY_HEALTHY
   elif filterPeers > 0 and lightpushPeers > 0:
     return TopicHealth.MINIMALLY_HEALTHY

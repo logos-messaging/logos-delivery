@@ -6,22 +6,22 @@ import
   chronicles,
   libp2p/protocols/rendezvous,
   libp2p/protocols/pubsub,
-  libp2p/protocols/pubsub/rpc/messages
-
-import
-  ../waku_node,
-  ../kernel_api,
-  ../../waku_rln_relay,
-  ../../waku_relay,
-  ../peer_manager,
-  ./online_monitor,
-  ./health_status,
-  ./health_report,
-  ./connection_status,
-  ./protocol_health,
-  ../../api/types,
-  ../../events/health_events,
-  ../../events/peer_events
+  libp2p/protocols/pubsub/rpc/messages,
+  waku/[
+    waku_relay,
+    waku_rln_relay,
+    api/types,
+    events/health_events,
+    events/peer_events,
+    node/waku_node,
+    node/peer_manager,
+    node/kernel_api,
+    node/health_monitor/online_monitor,
+    node/health_monitor/health_status,
+    node/health_monitor/health_report,
+    node/health_monitor/connection_status,
+    node/health_monitor/protocol_health,
+  ]
 
 ## This module is aimed to check the state of the "self" Waku Node
 
@@ -29,9 +29,8 @@ import
 # if not called, the outcome of randomization procedures will be the same in every run
 random.randomize()
 
-const
-  DefaultRelayFailoverThreshold* = 4
-  FailoverThreshold* = 2
+const HealthyThreshold* = 2
+  ## minimum peers required for all services for a Connected status, excluding Relay
 
 type NodeHealthMonitor* = ref object
   nodeHealth: HealthStatus
@@ -43,8 +42,11 @@ type NodeHealthMonitor* = ref object
   connectionStatus: ConnectionStatus
   onConnectionStatusChange*: ConnectionStatusChangeHandler
   cachedProtocols: seq[ProtocolHealth]
+    ## state of each protocol to report.
+    ## calculated on last event that can change any protocol's state so fetching a report is fast.
   strength: Table[WakuProtocol, int]
-    ## latest connectivity strength (e.g. peer count) for a protocol
+    ## latest known connectivity strength (e.g. connected peer count) metric for each protocol.
+    ## if it doesn't make sense for the protocol in question, this is set to zero.
   relayObserver: PubSubObserver
   peerEventListener: EventWakuPeerListener
 
@@ -64,13 +66,6 @@ proc countConnectedPeers(hm: NodeHealthMonitor, codec: string): int =
     if hm.node.peerManager.switch.isConnected(remotePeerInfo.peerId):
       peerCount.inc()
   return peerCount
-
-proc getRelayFailoverThreshold(hm: NodeHealthMonitor): int =
-  if isNil(hm.node.wakuRelay):
-    # Could return an Optional[int] instead, but for simplicity just use a default.
-    # This also helps in writing mocks for the health monitor tests.
-    return DefaultRelayFailoverThreshold
-  return hm.node.wakuRelay.parameters.dLow
 
 proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.RelayProtocol)
@@ -384,8 +379,8 @@ proc getAllProtocolHealthInfo(
 
 proc calculateConnectionState*(
     protocols: seq[ProtocolHealth],
-    strength: Table[WakuProtocol, int],
-    relayFailoverThreshold: int,
+    strength: Table[WakuProtocol, int], ## latest connectivity strength (e.g. peer count) for a protocol
+    dLowOpt: Option[int], ## minimum relay peers for Connected status if in Core (Relay) mode
 ): ConnectionStatus =
   var
     relayCount = 0
@@ -420,8 +415,9 @@ proc calculateConnectionState*(
   # But if Store server (or client, even) is not mounted as well, this logic assumes
   # the user knows what they're doing.
 
-  if relayCount >= relayFailoverThreshold:
-    return ConnectionStatus.Connected
+  if dLowOpt.isSome():
+    if relayCount >= dLowOpt.get():
+      return ConnectionStatus.Connected
 
   if relayCount > 0:
     return ConnectionStatus.PartiallyConnected
@@ -439,8 +435,8 @@ proc calculateConnectionState*(
     return ConnectionStatus.Disconnected
 
   let isEdgeRobust =
-    (lightpushCount >= FailoverThreshold) and (filterCount >= FailoverThreshold) and
-    (storeClientCount >= FailoverThreshold)
+    (lightpushCount >= HealthyThreshold) and (filterCount >= HealthyThreshold) and
+    (storeClientCount >= HealthyThreshold)
 
   if isEdgeRobust:
     return ConnectionStatus.Connected
@@ -448,9 +444,12 @@ proc calculateConnectionState*(
   return ConnectionStatus.PartiallyConnected
 
 proc calculateConnectionState*(hm: NodeHealthMonitor): ConnectionStatus =
-  return calculateConnectionState(
-    hm.cachedProtocols, hm.strength, hm.getRelayFailoverThreshold()
-  )
+  let dLow =
+    if isNil(hm.node.wakuRelay):
+      none(int)
+    else:
+      some(hm.node.wakuRelay.parameters.dLow)
+  return calculateConnectionState(hm.cachedProtocols, hm.strength, dLow)
 
 proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.} =
   ## Get a HealthReport that includes all protocols

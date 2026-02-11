@@ -1,4 +1,4 @@
-import chronos, results, std/strutils
+import results, std/strutils
 
 type HealthStatus* {.pure.} = enum
   INITIALIZING
