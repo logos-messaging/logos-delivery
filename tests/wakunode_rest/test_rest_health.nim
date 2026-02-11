@@ -50,33 +50,22 @@ suite "Waku v2 REST API - health":
   asyncTest "Get node health info - GET /health":
     # Given
     let node = testWakuNode()
-    let healthMonitor = NodeHealthMonitor()
     await node.start()
     (await node.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-
-    healthMonitor.setOverallHealth(HealthStatus.INITIALIZING)
 
     var restPort = Port(0)
     let restAddress = parseIpAddress("0.0.0.0")
     let restServer = WakuRestServerRef.init(restAddress, restPort).tryGet()
     restPort = restServer.httpServer.address.port # update with bound port for client use
 
+    let healthMonitor = NodeHealthMonitor.new(node)
+
     installHealthApiHandler(restServer.router, healthMonitor)
     restServer.start()
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
 
-    # When
-    var response = await client.healthCheck()
-
-    # Then
-    check:
-      response.status == 200
-      $response.contentType == $MIMETYPE_JSON
-      response.data ==
-        HealthReport(nodeHealth: HealthStatus.INITIALIZING, protocolsHealth: @[])
-
-    # now kick in rln (currently the only check for health)
+    # kick in rln (currently the only check for health)
     await node.mountRlnRelay(
       getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
     )
@@ -84,10 +73,11 @@ suite "Waku v2 REST API - health":
     node.mountLightPushClient()
     await node.mountFilterClient()
 
-    healthMonitor.setNodeToHealthMonitor(node)
+    # We don't have a Waku, so we need to set the overall health to READY here in its behalf
     healthMonitor.setOverallHealth(HealthStatus.READY)
+
     # When
-    response = await client.healthCheck()
+    var response = await client.healthCheck()
 
     # Then
     check:
