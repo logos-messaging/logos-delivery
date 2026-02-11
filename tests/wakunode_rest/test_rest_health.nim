@@ -73,6 +73,9 @@ suite "Waku v2 REST API - health":
     node.mountLightPushClient()
     await node.mountFilterClient()
 
+    # We don't have a Waku, so we need to set the overall health to READY here in its behalf
+    healthMonitor.setOverallHealth(HealthStatus.READY)
+
     # When
     var response = await client.healthCheck()
 
