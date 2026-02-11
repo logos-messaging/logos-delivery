@@ -670,9 +670,6 @@ proc startKeepalive*(
   hm.keepAliveFut = hm.node.keepAliveLoop(randomPeersKeepalive, allPeersKeepalive)
   return ok()
 
-proc setNodeToHealthMonitor*(hm: NodeHealthMonitor, node: WakuNode) =
-  hm.node = node
-
 proc setOverallHealth*(hm: NodeHealthMonitor, health: HealthStatus) =
   hm.nodeHealth = health
 

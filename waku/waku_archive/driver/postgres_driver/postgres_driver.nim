@@ -297,13 +297,13 @@ method put*(
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  let messageHash = toHex(messageHash)
+  let messageHash = byteutils.toHex(messageHash)
 
   let contentTopic = message.contentTopic
-  let payload = toHex(message.payload)
+  let payload = byteutils.toHex(message.payload)
   let version = $message.version
   let timestamp = $message.timestamp
-  let meta = toHex(message.meta)
+  let meta = byteutils.toHex(message.meta)
 
   trace "put PostgresDriver",
     messageHash, contentTopic, payload, version, timestamp, meta
@@ -439,7 +439,7 @@ proc getMessagesArbitraryQuery(
   var args: seq[string]
 
   if cursor.isSome():
-    let hashHex = toHex(cursor.get())
+    let hashHex = byteutils.toHex(cursor.get())
 
     let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -520,7 +520,7 @@ proc getMessageHashesArbitraryQuery(
   var args: seq[string]
 
   if cursor.isSome():
-    let hashHex = toHex(cursor.get())
+    let hashHex = byteutils.toHex(cursor.get())
 
     let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -630,7 +630,7 @@ proc getMessagesPreparedStmt(
 
     return ok(rows)
 
-  let hashHex = toHex(cursor.get())
+  let hashHex = byteutils.toHex(cursor.get())
 
   let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -723,7 +723,7 @@ proc getMessageHashesPreparedStmt(
 
     return ok(rows)
 
-  let hashHex = toHex(cursor.get())
+  let hashHex = byteutils.toHex(cursor.get())
 
   let timeCursor = ?await s.getTimeCursor(hashHex)
 

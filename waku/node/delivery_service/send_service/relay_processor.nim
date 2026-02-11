@@ -70,7 +70,9 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
 
   if noOfPublishedPeers > 0:
     info "Message propagated via Relay",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex(), noOfPeers = noOfPublishedPeers
+      requestId = task.requestId,
+      msgHash = task.msgHash.to0xHex(),
+      noOfPeers = noOfPublishedPeers
     task.state = DeliveryState.SuccessfullyPropagated
     task.deliveryTime = Moment.now()
   else:

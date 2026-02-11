@@ -346,7 +346,7 @@ proc generateRlnValidator*(
     let validationRes = wakuRlnRelay.validateMessageAndUpdateLog(message)
 
     let
-      proof = toHex(msgProof.proof)
+      proof = byteutils.toHex(msgProof.proof)
       epoch = fromEpoch(msgProof.epoch)
       root = inHex(msgProof.merkleRoot)
       shareX = inHex(msgProof.shareX)
