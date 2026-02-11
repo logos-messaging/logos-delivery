@@ -153,20 +153,28 @@ proc deduceRelayShard(
     return err("Invalid topic:" & pubsubTopic & " " & $error)
   return ok(shard)
 
-proc getShardsGetter(node: WakuNode): GetShards =
+proc getShardsGetter(node: WakuNode, configuredShards: seq[uint16]): GetShards =
   return proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
     # fetch pubsubTopics subscribed to relay and convert them to shards
     if node.wakuRelay.isNil():
-      return @[]
+      # If relay is not mounted, return configured shards
+      return configuredShards
+    
     let subscribedTopics = node.wakuRelay.subscribedTopics()
+    
+    # If relay hasn't subscribed to any topics yet, return configured shards
+    if subscribedTopics.len == 0:
+      return configuredShards
+    
     let relayShards = topicsToRelayShards(subscribedTopics).valueOr:
       error "could not convert relay topics to shards",
         error = $error, topics = subscribedTopics
-      return @[]
+      # Fall back to configured shards on error
+      return configuredShards
     if relayShards.isSome():
       let shards = relayShards.get().shardIds
       return shards
-    return @[]
+    return configuredShards
 
 proc getCapabilitiesGetter(node: WakuNode): GetCapabilities =
   return proc(): seq[Capabilities] {.closure, gcsafe, raises: [].} =
@@ -213,7 +221,7 @@ proc new*(
     rateLimitSettings: rateLimitSettings,
   )
 
-  peerManager.setShardGetter(node.getShardsGetter())
+  peerManager.setShardGetter(node.getShardsGetter(@[]))
 
   return node
 
@@ -258,7 +266,7 @@ proc mountMetadata*(
   if not node.wakuMetadata.isNil():
     return err("Waku metadata already mounted, skipping")
 
-  let metadata = WakuMetadata.new(clusterId, node.getShardsGetter())
+  let metadata = WakuMetadata.new(clusterId, node.getShardsGetter(shards))
 
   node.wakuMetadata = metadata
   node.peerManager.wakuMetadata = metadata
@@ -399,14 +407,16 @@ proc mountRendezvousClient*(node: WakuNode, clusterId: uint16) {.async: (raises:
   if node.started:
     await node.wakuRendezvousClient.start()
 
-proc mountRendezvous*(node: WakuNode, clusterId: uint16) {.async: (raises: []).} =
+proc mountRendezvous*(node: WakuNode, clusterId: uint16, shards: seq[RelayShard] = @[]) {.async: (raises: []).} =
   info "mounting rendezvous discovery protocol"
 
+  let configuredShards = shards.mapIt(it.shardId)
+  
   node.wakuRendezvous = WakuRendezVous.new(
     node.switch,
     node.peerManager,
     clusterId,
-    node.getShardsGetter(),
+    node.getShardsGetter(configuredShards),
     node.getCapabilitiesGetter(),
     node.getWakuPeerRecordGetter(),
   ).valueOr:

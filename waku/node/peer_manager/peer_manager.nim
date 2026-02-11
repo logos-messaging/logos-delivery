@@ -222,7 +222,19 @@ proc selectPeer*(
     protocol = proto, peers, address = cast[uint](pm.switch.peerStore)
 
   if shard.isSome():
-    peers.keepItIf((it.enr.isSome() and it.enr.get().containsShard(shard.get())))
+    # Parse the shard from the pubsub topic to get cluster and shard ID
+    let shardInfo = RelayShard.parse(shard.get()).valueOr:
+      trace "Failed to parse shard from pubsub topic", topic = shard.get()
+      return none(RemotePeerInfo)
+    
+    # Filter peers that support the requested shard
+    # Check both ENR (if present) and the shards field on RemotePeerInfo
+    peers.keepItIf(
+      # Check ENR if available
+      (it.enr.isSome() and it.enr.get().containsShard(shard.get())) or
+      # Otherwise check the shards field directly
+      (it.shards.len > 0 and it.shards.contains(shardInfo.shardId))
+    )
 
   shuffle(peers)
 

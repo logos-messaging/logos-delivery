@@ -337,7 +337,7 @@ proc setupProtocols(
     node.wakuRelay.addSignedShardsValidator(subscribedProtectedShards, conf.clusterId)
 
   if conf.rendezvous:
-    await node.mountRendezvous(conf.clusterId)
+    await node.mountRendezvous(conf.clusterId, shards)
     await node.mountRendezvousClient(conf.clusterId)
 
   # Keepalive mounted on all nodes
