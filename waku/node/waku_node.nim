@@ -571,13 +571,13 @@ proc startProvidersAndListeners*(node: WakuNode) =
         if shardResult.isOk():
           let shardObj = shardResult.get()
           let pubsubTopic = $shardObj
-
-          if not node.wakuRelay.isNil:
+          if not isNil(node.wakuRelay):
             topicHealth = node.wakuRelay.topicsHealth.getOrDefault(
               pubsubTopic, TopicHealth.NOT_SUBSCRIBED
             )
 
-          if topicHealth == TopicHealth.NOT_SUBSCRIBED:
+          if topicHealth == TopicHealth.NOT_SUBSCRIBED and
+              pubsubTopic in node.edgeTopicsHealth:
             topicHealth = node.calculateEdgeTopicHealth(pubsubTopic)
 
         response.contentTopicHealth.add((topic: contentTopic, health: topicHealth))

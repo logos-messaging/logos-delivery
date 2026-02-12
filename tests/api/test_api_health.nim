@@ -9,6 +9,7 @@ import
   waku/[waku_node, waku_core, waku_relay/protocol, common/broker/broker_context],
   waku/node/health_monitor/[topic_health, health_status, protocol_health, health_report],
   waku/requests/health_requests,
+  waku/requests/node_requests,
   waku/events/health_events,
   waku/common/waku_protocol,
   waku/factory/waku_conf
@@ -84,20 +85,25 @@ suite "LM API health checking":
       await serviceNode.mountLibp2pPing()
       await serviceNode.start()
 
+    servicePeerInfo = serviceNode.peerInfo.toRemotePeerInfo()
+    serviceNode.wakuRelay.subscribe(DefaultShard, dummyHandler)
+
+    lockNewGlobalBrokerContext:
       let conf = NodeConfig.init(
         mode = WakuMode.Core,
         networkingConfig =
           NetworkingConfig(listenIpv4: "0.0.0.0", p2pTcpPort: 0, discv5UdpPort: 0),
-        protocolsConfig = ProtocolsConfig.init(entryNodes = @[], clusterId = 1'u16),
+        protocolsConfig = ProtocolsConfig.init(
+          entryNodes = @[],
+          clusterId = 1'u16,
+          autoShardingConfig = AutoShardingConfig(numShardsInCluster: 1),
+        ),
       )
 
       client = (await createNode(conf)).valueOr:
         raiseAssert error
       (await startWaku(addr client)).isOkOr:
         raiseAssert error
-
-    servicePeerInfo = serviceNode.peerInfo.toRemotePeerInfo()
-    serviceNode.wakuRelay.subscribe(DefaultShard, dummyHandler)
 
   asyncTeardown:
     discard await client.stop()
@@ -226,3 +232,33 @@ suite "LM API health checking":
     check res.contentTopicHealth.len == 1
     check res.contentTopicHealth[0].topic == fictionalTopic
     check res.contentTopicHealth[0].health == TopicHealth.NOT_SUBSCRIBED
+
+  asyncTest "RequestContentTopicsHealth, core mode trivial 1-shard autosharding":
+    let cTopic = ContentTopic("/waku/2/my-content-topic/proto")
+
+    let shardReq =
+      RequestRelayShard.request(client.brokerCtx, none(PubsubTopic), cTopic)
+
+    check shardReq.isOk()
+    let targetShard = $shardReq.get().relayShard
+
+    client.node.wakuRelay.subscribe(targetShard, dummyHandler)
+    serviceNode.wakuRelay.subscribe(targetShard, dummyHandler)
+
+    await client.node.connectToNodes(@[servicePeerInfo])
+
+    var isHealthy = false
+    let start = Moment.now()
+    while Moment.now() - start < TestTimeout:
+      let req = RequestContentTopicsHealth.request(client.brokerCtx, @[cTopic]).valueOr:
+        raiseAssert "Request failed"
+
+      if req.contentTopicHealth.len > 0:
+        let h = req.contentTopicHealth[0].health
+        if h == TopicHealth.MINIMALLY_HEALTHY or h == TopicHealth.SUFFICIENTLY_HEALTHY:
+          isHealthy = true
+          break
+
+      await sleepAsync(chronos.milliseconds(100))
+
+    check isHealthy == true
