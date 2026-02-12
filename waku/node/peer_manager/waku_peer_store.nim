@@ -162,7 +162,9 @@ proc connectedness*(peerStore: PeerStore, peerId: PeerId): Connectedness =
   peerStore[ConnectionBook].book.getOrDefault(peerId, NotConnected)
 
 proc hasShard*(peerStore: PeerStore, peerId: PeerID, cluster, shard: uint16): bool =
-  peerStore[ENRBook].book.getOrDefault(peerId).containsShard(cluster, shard)
+  return
+    peerStore[ENRBook].book.getOrDefault(peerId).containsShard(cluster, shard) or
+    peerStore[ShardBook].book.getOrDefault(peerId, @[]).contains(shard)
 
 proc hasCapability*(peerStore: PeerStore, peerId: PeerID, cap: Capabilities): bool =
   peerStore[ENRBook].book.getOrDefault(peerId).supportsCapability(cap)
@@ -219,7 +221,8 @@ proc getPeersByShard*(
     peerStore: PeerStore, cluster, shard: uint16
 ): seq[RemotePeerInfo] =
   return peerStore.peers.filterIt(
-    it.enr.isSome() and it.enr.get().containsShard(cluster, shard)
+    (it.enr.isSome() and it.enr.get().containsShard(cluster, shard)) or
+      it.shards.contains(shard)
   )
 
 proc getPeersByCapability*(

@@ -15,7 +15,8 @@ import
   ../waku_node,
   ../node/peer_manager,
   ../common/rate_limit/setting,
-  ../common/utils/parse_size_units
+  ../common/utils/parse_size_units,
+  ../common/broker/broker_context
 
 type
   WakuNodeBuilder* = object # General

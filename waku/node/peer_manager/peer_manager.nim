@@ -1,27 +1,31 @@
 {.push raises: [].}
 
 import
-  std/[options, sets, sequtils, times, strformat, strutils, math, random, tables],
+  std/
+    [
+      options, sets, sequtils, times, strformat, strutils, math, random, tables,
+      algorithm,
+    ],
   chronos,
   chronicles,
   metrics,
-  libp2p/multistream,
-  libp2p/muxers/muxer,
-  libp2p/nameresolving/nameresolver,
-  libp2p/peerstore
-
-import
-  ../../common/nimchronos,
-  ../../common/enr,
-  ../../common/callbacks,
-  ../../common/utils/parse_size_units,
-  ../../waku_core,
-  ../../waku_relay,
-  ../../waku_relay/protocol,
-  ../../waku_enr/sharding,
-  ../../waku_enr/capabilities,
-  ../../waku_metadata,
-  ../health_monitor/online_monitor,
+  libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
+  waku/[
+    waku_core,
+    waku_relay,
+    waku_metadata,
+    waku_core/topics/sharding,
+    waku_relay/protocol,
+    waku_enr/sharding,
+    waku_enr/capabilities,
+    events/peer_events,
+    common/nimchronos,
+    common/enr,
+    common/callbacks,
+    common/utils/parse_size_units,
+    common/broker/broker_context,
+    node/health_monitor/online_monitor,
+  ],
   ./peer_store/peer_storage,
   ./waku_peer_store
 
@@ -84,6 +88,7 @@ type ConnectionChangeHandler* = proc(
 ): Future[void] {.gcsafe, raises: [Defect].}
 
 type PeerManager* = ref object of RootObj
+  brokerCtx: BrokerContext
   switch*: Switch
   wakuMetadata*: WakuMetadata
   initialBackoffInSec*: int
@@ -483,8 +488,9 @@ proc canBeConnected*(pm: PeerManager, peerId: PeerId): bool =
 proc connectedPeers*(
     pm: PeerManager, protocol: string = ""
 ): (seq[PeerId], seq[PeerId]) =
-  ## Returns the peerIds of physical connections (in and out)
-  ## If a protocol is specified, only returns peers with at least one stream of that protocol
+  ## Returns the PeerIds of peers with an active socket connection.
+  ## If a protocol is specified, it returns peers that currently have one
+  ## or more active logical streams for that protocol.
 
   var inPeers: seq[PeerId]
   var outPeers: seq[PeerId]
@@ -499,6 +505,65 @@ proc connectedPeers*(
           outPeers.add(peerId)
 
   return (inPeers, outPeers)
+
+proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]) =
+  ## Returns the PeerIds of peers with an active socket connection.
+  ## If a protocol is specified, it returns peers that have identified
+  ## themselves as supporting the protocol.
+
+  var inPeers: seq[PeerId]
+  var outPeers: seq[PeerId]
+
+  for peerId, muxers in pm.switch.connManager.getConnections():
+    # filter out peers that don't have the capability registered in the peer store
+    if pm.switch.peerStore.hasPeer(peerId, protocol):
+      for peerConn in muxers:
+        if peerConn.connection.transportDir == Direction.In:
+          inPeers.add(peerId)
+        elif peerConn.connection.transportDir == Direction.Out:
+          outPeers.add(peerId)
+
+  return (inPeers, outPeers)
+
+proc getConnectedPeersCount*(pm: PeerManager, protocol: string): int =
+  ## Returns the total number of unique connected peers (inbound + outbound)
+  ## with active streams for a specific protocol.
+  let (inPeers, outPeers) = pm.connectedPeers(protocol)
+  var peers = initHashSet[PeerId](nextPowerOfTwo(inPeers.len + outPeers.len))
+  for p in inPeers:
+    peers.incl(p)
+  for p in outPeers:
+    peers.incl(p)
+  return peers.len
+
+proc getCapablePeersCount*(pm: PeerManager, protocol: string): int =
+  ## Returns the total number of unique connected peers (inbound + outbound)
+  ## who have identified themselves as supporting the given protocol.
+  let (inPeers, outPeers) = pm.capablePeers(protocol)
+  var peers = initHashSet[PeerId](nextPowerOfTwo(inPeers.len + outPeers.len))
+  for p in inPeers:
+    peers.incl(p)
+  for p in outPeers:
+    peers.incl(p)
+  return peers.len
+
+proc getPeersForShard*(pm: PeerManager, protocolId: string, shard: PubsubTopic): int =
+  let (inPeers, outPeers) = pm.connectedPeers(protocolId)
+  let connectedProtocolPeers = inPeers & outPeers
+  if connectedProtocolPeers.len == 0:
+    return 0
+
+  let shardInfo = RelayShard.parse(shard).valueOr:
+    # count raw peers of the given protocol if for some reason we can't get
+    # a shard mapping out of the gossipsub topic string.
+    return connectedProtocolPeers.len
+
+  var shardPeers = 0
+  for peerId in connectedProtocolPeers:
+    if pm.switch.peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
+      shardPeers.inc()
+
+  return shardPeers
 
 proc disconnectAllPeers*(pm: PeerManager) {.async.} =
   let (inPeerIds, outPeerIds) = pm.connectedPeers()
@@ -635,7 +700,7 @@ proc getPeerIp(pm: PeerManager, peerId: PeerId): Option[string] =
 # Event Handling  #
 #~~~~~~~~~~~~~~~~~#
 
-proc onPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
+proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
   let res = catch:
     await pm.switch.dial(peerId, WakuMetadataCodec)
 
@@ -664,6 +729,10 @@ proc onPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
       let shards = metadata.shards.mapIt(it.uint16)
       pm.switch.peerStore.setShardInfo(peerId, shards)
 
+    # TODO: should only trigger an event if metadata actually changed
+    #       should include the shard subscription delta in the event when
+    #         it is a MetadataUpdated event
+    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventMetadataUpdated)
     return
 
   info "disconnecting from peer", peerId = peerId, reason = reason
@@ -673,14 +742,14 @@ proc onPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
 # called when a peer i) first connects to us ii) disconnects all connections from us
 proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   if not pm.wakuMetadata.isNil() and event.kind == PeerEventKind.Joined:
-    await pm.onPeerMetadata(peerId)
+    await pm.refreshPeerMetadata(peerId)
 
   var peerStore = pm.switch.peerStore
   var direction: PeerDirection
   var connectedness: Connectedness
 
   case event.kind
-  of Joined:
+  of PeerEventKind.Joined:
     direction = if event.initiator: Outbound else: Inbound
     connectedness = Connected
 
@@ -708,10 +777,12 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
           asyncSpawn(pm.switch.disconnect(peerId))
           peerStore.delete(peerId)
 
+    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventConnected)
+
     if not pm.onConnectionChange.isNil():
       # we don't want to await for the callback to finish
       asyncSpawn pm.onConnectionChange(peerId, Joined)
-  of Left:
+  of PeerEventKind.Left:
     direction = UnknownDirection
     connectedness = CanConnect
 
@@ -723,11 +794,15 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
           pm.ipTable.del(ip)
         break
 
+    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventDisconnected)
+
     if not pm.onConnectionChange.isNil():
       # we don't want to await for the callback to finish
       asyncSpawn pm.onConnectionChange(peerId, Left)
-  of Identified:
+  of PeerEventKind.Identified:
     info "event identified", peerId = peerId
+
+    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventIdentified)
 
   peerStore[ConnectionBook][peerId] = connectedness
   peerStore[DirectionBook][peerId] = direction
@@ -1085,8 +1160,11 @@ proc new*(
     error "Max backoff time can't be over 1 week", maxBackoff = backoff
     raise newException(Defect, "Max backoff time can't be over 1 week")
 
+  let brokerCtx = globalBrokerContext()
+
   let pm = PeerManager(
     switch: switch,
+    brokerCtx: brokerCtx,
     wakuMetadata: wakuMetadata,
     storage: storage,
     initialBackoffInSec: initialBackoffInSec,
