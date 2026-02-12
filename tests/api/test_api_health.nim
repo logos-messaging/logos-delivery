@@ -262,3 +262,35 @@ suite "LM API health checking":
       await sleepAsync(chronos.milliseconds(100))
 
     check isHealthy == true
+
+  asyncTest "RequestProtocolHealth, edge mode smoke test":
+    var edgeWaku: Waku
+
+    lockNewGlobalBrokerContext:
+      let edgeConf = NodeConfig.init(
+        mode = WakuMode.Edge,
+        networkingConfig =
+          NetworkingConfig(listenIpv4: "0.0.0.0", p2pTcpPort: 0, discv5UdpPort: 0),
+        protocolsConfig = ProtocolsConfig.init(
+          entryNodes = @[],
+          clusterId = 1'u16,
+          messageValidation =
+            MessageValidation(maxMessageSize: "150 KiB", rlnConfig: none(RlnConfig)),
+        ),
+      )
+
+      edgeWaku = (await createNode(edgeConf)).valueOr:
+        raiseAssert "Failed to create edge node: " & error
+
+      (await startWaku(addr edgeWaku)).isOkOr:
+        raiseAssert "Failed to start edge waku: " & error
+
+      let relayReq = await RequestProtocolHealth.request(
+        edgeWaku.brokerCtx, WakuProtocol.RelayProtocol
+      )
+      check relayReq.isOk()
+      check relayReq.get().healthStatus.health == HealthStatus.NOT_MOUNTED
+
+      check not edgeWaku.node.wakuFilterClient.isNil()
+
+      discard await edgeWaku.stop()
