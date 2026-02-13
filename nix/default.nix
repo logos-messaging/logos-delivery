@@ -99,7 +99,7 @@ in stdenv.mkDerivation {
 
     # Copy header files
     cp library/libwaku.h $out/include/ 2>/dev/null || true
-    cp liblmapi/liblmapi.h $out/include/ 2>/dev/null || true
+    cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
   '';
 
   meta = with pkgs.lib; {

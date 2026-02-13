@@ -433,7 +433,7 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example libwaku liblmapi liblogosdelivery liblogosdelivery_example
+.PHONY: cbindings cwaku_example libwaku liblogosdelivery liblogosdelivery_example
 
 STATIC ?= 0
 LIBWAKU_BUILD_COMMAND ?= libwakuDynamic

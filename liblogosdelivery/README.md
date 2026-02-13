@@ -159,9 +159,9 @@ The library follows the same build system as the main Logos Messaging project.
 ### Build the library
 
 ```bash
-make liblmapiStatic    # Build static library
+make liblogosdeliveryStatic    # Build static library
 # or
-make liblmapiDynamic   # Build dynamic library
+make liblogosdeliveryDynamic   # Build dynamic library
 ```
 
 ## Return Codes
@@ -194,7 +194,7 @@ typedef void (*FFICallBack)(
 ## Example Usage
 
 ```c
-#include "liblmapi.h"
+#include "liblogosdelivery.h"
 #include <stdio.h>
 
 void callback(int ret, const char *msg, size_t len, void *userData) {
@@ -243,8 +243,8 @@ int main() {
 
 The library is structured as follows:
 
-- `liblmapi.h`: C header file with function declarations
-- `liblmapi.nim`: Main library entry point
+- `liblogosdelivery.h`: C header file with function declarations
+- `liblogosdelivery.nim`: Main library entry point
 - `declare_lib.nim`: Library declaration and initialization
 - `lmapi/node_api.nim`: Node lifecycle API implementation
 - `lmapi/messaging_api.nim`: Subscribe/send API implementation

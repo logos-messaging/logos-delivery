@@ -1,4 +1,4 @@
-# Building liblmapi and Examples
+# Building liblogosdelivery and Examples
 
 ## Prerequisites
 
@@ -12,22 +12,22 @@
 ### Dynamic Library
 
 ```bash
-make liblmapi
+make liblogosdelivery
 ```
 
-This creates `build/liblmapi.dylib` (macOS) or `build/liblmapi.so` (Linux).
+This creates `build/liblogosdelivery.dylib` (macOS) or `build/liblogosdelivery.so` (Linux).
 
 ### Static Library
 
 ```bash
-nim liblmapiStatic
+nim liblogosdelivery STATIC=1
 ```
 
-This creates `build/liblmapi.a`.
+This creates `build/liblogosdelivery.a`.
 
 ## Building Examples
 
-### liblmapi Example
+### liblogosdelivery Example
 
 Compile the C example that demonstrates all library features:
 
@@ -37,16 +37,16 @@ make liblogosdelivery_example
 
 # Or manually on macOS:
 gcc -o build/liblogosdelivery_example \
-    liblmapi/examples/liblogosdelivery_example.c \
-    -I./liblmapi \
+    liblogosdelivery/examples/liblogosdelivery_example.c \
+    -I./liblogosdelivery \
     -L./build \
     -llmapi \
     -Wl,-rpath,./build
 
 # Or manually on Linux:
 gcc -o build/liblogosdelivery_example \
-    liblmapi/examples/liblogosdelivery_example.c \
-    -I./liblmapi \
+    liblogosdelivery/examples/liblogosdelivery_example.c \
+    -I./liblogosdelivery \
     -L./build \
     -llmapi \
     -Wl,-rpath='$ORIGIN'
@@ -73,15 +73,15 @@ After building, you'll have:
 
 ```
 build/
-├── liblmapi.dylib        # Dynamic library (34MB)
-├── liblmapi.dylib.dSYM/  # Debug symbols
+├── liblogosdelivery.dylib        # Dynamic library (34MB)
+├── liblogosdelivery.dylib.dSYM/  # Debug symbols
 └── liblogosdelivery_example      # Compiled example (34KB)
 ```
 
 ## Library Headers
 
 The main header file is:
-- `liblmapi/liblmapi.h` - C API declarations
+- `liblogosdelivery/liblogosdelivery.h` - C API declarations
 
 ## Troubleshooting
 
@@ -115,10 +115,10 @@ This updates all git submodules which are required for building.
 To link statically instead of dynamically:
 
 ```bash
-gcc -o build/simple_example \
-    liblmapi/examples/simple_example.c \
-    -I./liblmapi \
-    build/liblmapi.a \
+gcc -o build/logosdelivery_example \
+    liblogosdelivery/examples/logosdelivery_example.c \
+    -I./liblogosdelivery \
+    build/liblogosdelivery.a \
     -lm -lpthread
 ```
 
@@ -129,7 +129,7 @@ Note: Static library is much larger (~129MB) but creates a standalone executable
 For cross-compilation, you need to:
 1. Build the Nim library for the target platform
 2. Use the appropriate cross-compiler
-3. Link against the target platform's liblmapi
+3. Link against the target platform's liblogosdelivery
 
 Example for Linux from macOS:
 ```bash
@@ -143,14 +143,14 @@ Example for Linux from macOS:
 
 ```cmake
 find_library(LMAPI_LIBRARY NAMES lmapi PATHS ${PROJECT_SOURCE_DIR}/build)
-include_directories(${PROJECT_SOURCE_DIR}/liblmapi)
+include_directories(${PROJECT_SOURCE_DIR}/liblogosdelivery)
 target_link_libraries(your_target ${LMAPI_LIBRARY})
 ```
 
 ### Makefile
 
 ```makefile
-CFLAGS += -I/path/to/liblmapi
+CFLAGS += -I/path/to/liblogosdelivery
 LDFLAGS += -L/path/to/build -llmapi -Wl,-rpath,/path/to/build
 
 your_program: your_program.c
@@ -160,5 +160,5 @@ your_program: your_program.c
 ## API Documentation
 
 See:
-- [liblmapi.h](liblmapi/liblmapi.h) - API function declarations
-- [MESSAGE_EVENTS.md](liblmapi/MESSAGE_EVENTS.md) - Message event handling guide
+- [liblogosdelivery.h](liblogosdelivery/liblogosdelivery.h) - API function declarations
+- [MESSAGE_EVENTS.md](liblogosdelivery/MESSAGE_EVENTS.md) - Message event handling guide

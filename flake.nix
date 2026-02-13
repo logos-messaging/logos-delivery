@@ -71,10 +71,10 @@
           zerokitRln = zerokit.packages.${system}.rln;
         };
 
-        liblmapi = pkgs.callPackage ./nix/default.nix {
+        liblogosdelivery = pkgs.callPackage ./nix/default.nix {
           inherit stableSystems;
           src = self;
-          targets = ["liblmapi"];
+          targets = ["liblogosdelivery"];
           zerokitRln = zerokit.packages.${system}.rln;
         };
 

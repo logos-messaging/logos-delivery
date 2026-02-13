@@ -1,4 +1,4 @@
-# Examples for liblmapi
+# Examples for liblogosdelivery
 
 This directory contains example programs demonstrating the usage of the Logos Messaging API (LMAPI) library.
 
@@ -6,15 +6,15 @@ This directory contains example programs demonstrating the usage of the Logos Me
 
 ### Prerequisites
 
-1. Build the liblmapi library first:
+1. Build the liblogosdelivery library first:
    ```bash
    cd /path/to/logos-messaging-nim
-   make liblmapi
+   make liblogosdelivery
    ```
 
-2. The library will be available in `build/liblmapi.so` (or `.dylib` on macOS, `.dll` on Windows)
+2. The library will be available in `build/liblogosdelivery.so` (or `.dylib` on macOS, `.dll` on Windows)
 
-### Compile the liblmapi Example
+### Compile the liblogosdelivery Example
 
 #### On Linux/macOS:
 ```bash
@@ -22,7 +22,7 @@ This directory contains example programs demonstrating the usage of the Logos Me
 gcc -o liblogosdelivery_example liblogosdelivery_example.c -I.. -L../../build -llmapi -Wl,-rpath,../../build
 
 # Static library (if built with STATIC=1)
-gcc -o liblogosdelivery_example liblogosdelivery_example.c -I.. ../../build/liblmapi.a -lpthread -lm -ldl
+gcc -o liblogosdelivery_example liblogosdelivery_example.c -I.. ../../build/liblogosdelivery.a -lpthread -lm -ldl
 ```
 
 #### On macOS:
@@ -37,7 +37,7 @@ gcc -o liblogosdelivery_example.exe liblogosdelivery_example.c -I.. -L../../buil
 
 ## Running the Examples
 
-### liblmapi Example
+### liblogosdelivery Example
 
 ```bash
 ./liblogosdelivery_example
