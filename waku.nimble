@@ -27,7 +27,6 @@ requires "nim >= 2.2.4",
   "libp2p >= 1.15.1",
   "eth",
   "nat_traversal",
-  "websock",
   "dnsdisc",
   "dnsclient",
   "httputils",
@@ -56,6 +55,9 @@ requires "nim >= 2.2.4",
   "libbacktrace",
   "testutils",
   "unittest2"
+
+# We use a custom branch to allow higher chronos versions
+requires "https://github.com/status-im/nim-websock.git#allow-high-chronos-versions"
 
 # Packages not on nimble (use git URLs)
 requires "https://github.com/vacp2p/nim-lsquic"
