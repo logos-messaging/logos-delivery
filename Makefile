@@ -64,13 +64,13 @@ waku.nims:
 
 update: | waku.nims
 	git submodule update --init --recursive
-	nimble setup -y
+	nimble setup --localdeps
+	nimble install --depsOnly
 	$(MAKE) build-nph
 
 clean:
 	rm -rf build
-	rm -rf ~/.nimble/pkgs2
-	rm -rf ~/.nimble/pkgcache
+	rm -rf nimbledeps
 
 build:
 	mkdir -p build
@@ -137,10 +137,6 @@ endif
 rln-deps: rustup
 	./scripts/install_rln_tests_dependencies.sh $(FOUNDRY_VERSION) $(PNPM_VERSION)
 
-# Install nimble dependencies
-deps: | build waku.nims
-	nimble install -d -y
-
 ##################
 ##     RLN      ##
 ##################
@@ -157,7 +153,7 @@ endif
 
 $(LIBRLN_FILE):
 	echo -e $(BUILD_MSG) "$@" && \
-		./scripts/build_rln.sh $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(LIBRLN_FILE)
+		bash scripts/build_rln.sh $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(LIBRLN_FILE)
 
 librln: | $(LIBRLN_FILE)
 	$(eval NIM_PARAMS += --passL:$(LIBRLN_FILE) --passL:-lm)
@@ -173,7 +169,7 @@ clean: | clean-librln
 #################
 .PHONY: testcommon
 
-testcommon: | build deps
+testcommon: | build
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble testcommon
 
@@ -182,59 +178,59 @@ testcommon: | build deps
 ##########
 .PHONY: testwaku wakunode2 testwakunode2 example2 chat2 chat2bridge liteprotocoltester
 
-testwaku: | build deps rln-deps librln
+testwaku: | build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble test
 
-wakunode2: | build deps librln
+wakunode2: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakunode2
 
-benchmarks: | build deps librln
+benchmarks: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble benchmarks
 
-testwakunode2: | build deps librln
+testwakunode2: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble testwakunode2
 
-example2: | build deps librln
+example2: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble example2
 
-chat2: | build deps librln
+chat2: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2
 
-chat2mix: | build deps librln
+chat2mix: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2mix
 
-rln-db-inspector: | build deps librln
+rln-db-inspector: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble rln_db_inspector
 
-chat2bridge: | build deps librln
+chat2bridge: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2bridge
 
-liteprotocoltester: | build deps librln
+liteprotocoltester: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble liteprotocoltester
 
-lightpushwithmix: | build deps librln
+lightpushwithmix: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble lightpushwithmix
 
-api_example: | build deps librln
+api_example: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) waku.nims
 
-build/%: | build deps librln
+build/%: | build librln
 	echo -e $(BUILD_MSG) "build/$*" && \
 		nimble buildone $*
 
-compile-test: | build deps librln
+compile-test: | build librln
 	echo -e $(BUILD_MSG) "$(TEST_FILE)" "\"$(TEST_NAME)\"" && \
 		nimble buildTest $(TEST_FILE) && \
 		nimble execTest $(TEST_FILE) "\"$(TEST_NAME)\""
@@ -246,11 +242,11 @@ compile-test: | build deps librln
 
 tools: networkmonitor wakucanary
 
-wakucanary: | build deps librln
+wakucanary: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakucanary
 
-networkmonitor: | build deps librln
+networkmonitor: | build librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble networkmonitor
 
@@ -326,7 +322,7 @@ docker-quick-image: MAKE_TARGET ?= wakunode2
 docker-quick-image: DOCKER_IMAGE_TAG ?= $(MAKE_TARGET)-$(GIT_VERSION)
 docker-quick-image: DOCKER_IMAGE_NAME ?= wakuorg/nwaku:$(DOCKER_IMAGE_TAG)
 docker-quick-image: NIM_PARAMS := $(NIM_PARAMS) -d:chronicles_colors:none -d:insecure -d:postgres --passL:$(LIBRLN_FILE) --passL:-lm
-docker-quick-image: | build deps librln wakunode2
+docker-quick-image: | build librln wakunode2
 	docker build \
 		--build-arg="MAKE_TARGET=$(MAKE_TARGET)" \
 		--tag $(DOCKER_IMAGE_NAME) \
@@ -395,7 +391,7 @@ ifeq ($(STATIC), 1)
 endif
 
 libwaku: | build librln
-	nimble --verbose $(BUILD_COMMAND) waku.nimble
+	nimble --verbose $(BUILD_COMMAND) waku.nimble $@.$(LIB_EXT)
 
 cwaku_example: | build libwaku
 	echo -e $(BUILD_MSG) "build/$@" && \
