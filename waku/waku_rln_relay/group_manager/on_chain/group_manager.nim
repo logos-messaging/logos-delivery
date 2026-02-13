@@ -231,9 +231,6 @@ method register*(
 ): Future[void] {.async: (raises: [Exception]).} =
   initializedGuard(g)
 
-  let dummy_x = 1
-  if dummy_x == 0:
-    debug "dummy pr"
   let ethRpc = g.ethRpc.get()
   let wakuRlnContract = g.wakuRlnContract.get()
 
