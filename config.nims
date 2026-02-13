@@ -1,5 +1,8 @@
 import os
 
+when fileExists("nimbus-build-system.paths"):
+  include "nimbus-build-system.paths"
+
 if defined(release):
   switch("nimcache", "nimcache/release/$projectName")
 else:
