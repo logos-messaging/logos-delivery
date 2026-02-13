@@ -1,4 +1,4 @@
-#include "../liblmapi.h"
+#include "../logosdelivery.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -105,7 +105,8 @@ int main() {
     // Configuration JSON for creating a node
     const char *config = "{"
         "\"logLevel\": \"TRACE\","
-        "\"mode\": \"Edge\","
+        // "\"mode\": \"Edge\","
+        "\"mode\": \"Core\","
         "\"clusterId\": 42,"
         "\"numShards\": 8,"
         // "\"shards\": [0,1,2,3,4,5,6,7],"
@@ -118,7 +119,7 @@ int main() {
     "}";
 
     printf("1. Creating node...\n");
-    void *ctx = lmapi_create_node(config, simple_callback, (void *)"create_node");
+    void *ctx = logosdelivery_create_node(config, simple_callback, (void *)"create_node");
     if (ctx == NULL) {
         printf("Failed to create node\n");
         return 1;
@@ -128,18 +129,18 @@ int main() {
     sleep(1);
 
     printf("\n2. Setting up event callback...\n");
-    lmapi_set_event_callback(ctx, event_callback, NULL);
+    logosdelivery_set_event_callback(ctx, event_callback, NULL);
     printf("Event callback registered for message events\n");
 
     printf("\n3. Starting node...\n");
-    lmapi_start_node(ctx, simple_callback, (void *)"start_node");
+    logosdelivery_start_node(ctx, simple_callback, (void *)"start_node");
 
     // Wait for node to start
     sleep(2);
 
     printf("\n4. Subscribing to content topic...\n");
     const char *contentTopic = "/example/1/chat/proto";
-    lmapi_subscribe(ctx, simple_callback, (void *)"subscribe", contentTopic);
+    logosdelivery_subscribe(ctx, simple_callback, (void *)"subscribe", contentTopic);
 
     // Wait for subscription
     sleep(1);
@@ -152,24 +153,24 @@ int main() {
         "\"payload\": \"SGVsbG8sIExvZ29zIE1lc3NhZ2luZyE=\","
         "\"ephemeral\": false"
     "}";
-    lmapi_send(ctx, simple_callback, (void *)"send", message);
+    logosdelivery_send(ctx, simple_callback, (void *)"send", message);
 
     // Wait for message events to arrive
     printf("Waiting for message delivery events...\n");
     sleep(60);
 
     printf("\n6. Unsubscribing from content topic...\n");
-    lmapi_unsubscribe(ctx, simple_callback, (void *)"unsubscribe", contentTopic);
+    logosdelivery_unsubscribe(ctx, simple_callback, (void *)"unsubscribe", contentTopic);
 
     sleep(1);
 
     printf("\n7. Stopping node...\n");
-    lmapi_stop_node(ctx, simple_callback, (void *)"stop_node");
+    logosdelivery_stop_node(ctx, simple_callback, (void *)"stop_node");
 
     sleep(1);
 
     printf("\n8. Destroying context...\n");
-    lmapi_destroy(ctx, simple_callback, (void *)"destroy");
+    logosdelivery_destroy(ctx, simple_callback, (void *)"destroy");
 
     printf("\n=== Example completed ===\n");
     return 0;

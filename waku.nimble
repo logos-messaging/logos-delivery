@@ -401,10 +401,10 @@ task libWakuIOS, "Build the mobile bindings for iOS":
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
 
-task liblmapiStatic, "Build the liblmapi (Logos Messaging API) static library":
+task liblogosdeliveryStatic, "Build the liblogosdelivery (Logos Messaging Delivery API) static library":
   let lib_name = paramStr(paramCount())
-  buildLibrary lib_name, "liblmapi/", chroniclesParams, "static", "liblmapi.nim", "liblmapi"
+  buildLibrary lib_name, "liblogosdelivery/", chroniclesParams, "static", "liblogosdelivery.nim", "liblogosdelivery"
 
-task liblmapiDynamic, "Build the liblmapi (Logos Messaging API) dynamic library":
+task liblogosdeliveryDynamic, "Build the liblogosdelivery (Logos Messaging Delivery API) dynamic library":
   let lib_name = paramStr(paramCount())
-  buildLibrary lib_name, "liblmapi/", chroniclesParams, "dynamic", "liblmapi.nim", "liblmapi"
+  buildLibrary lib_name, "liblogosdelivery/", chroniclesParams, "dynamic", "liblogosdelivery.nim", "liblogosdelivery"

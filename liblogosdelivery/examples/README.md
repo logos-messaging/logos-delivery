@@ -19,20 +19,20 @@ This directory contains example programs demonstrating the usage of the Logos Me
 #### On Linux/macOS:
 ```bash
 # Shared library
-gcc -o liblmapi_example liblmapi_example.c -I.. -L../../build -llmapi -Wl,-rpath,../../build
+gcc -o liblogosdelivery_example liblogosdelivery_example.c -I.. -L../../build -llmapi -Wl,-rpath,../../build
 
 # Static library (if built with STATIC=1)
-gcc -o liblmapi_example liblmapi_example.c -I.. ../../build/liblmapi.a -lpthread -lm -ldl
+gcc -o liblogosdelivery_example liblogosdelivery_example.c -I.. ../../build/liblmapi.a -lpthread -lm -ldl
 ```
 
 #### On macOS:
 ```bash
-gcc -o liblmapi_example liblmapi_example.c -I.. -L../../build -llmapi
+gcc -o liblogosdelivery_example liblogosdelivery_example.c -I.. -L../../build -llmapi
 ```
 
 #### On Windows (MinGW):
 ```bash
-gcc -o liblmapi_example.exe liblmapi_example.c -I.. -L../../build -llmapi -lws2_32
+gcc -o liblogosdelivery_example.exe liblogosdelivery_example.c -I.. -L../../build -llmapi -lws2_32
 ```
 
 ## Running the Examples
@@ -40,7 +40,7 @@ gcc -o liblmapi_example.exe liblmapi_example.c -I.. -L../../build -llmapi -lws2_
 ### liblmapi Example
 
 ```bash
-./liblmapi_example
+./liblogosdelivery_example
 ```
 
 This example demonstrates:

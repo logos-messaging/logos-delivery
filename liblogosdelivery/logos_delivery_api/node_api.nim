@@ -79,13 +79,13 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
 
     return ok("")
 
-proc lmapi_create_node(
+proc logosdelivery_create_node(
     configJson: cstring, callback: FFICallback, userData: pointer
 ): pointer {.dynlib, exportc, cdecl.} =
   initializeLibrary()
 
   if isNil(callback):
-    echo "error: missing callback in lmapi_create_node"
+    echo "error: missing callback in logosdelivery_create_node"
     return nil
 
   var ctx = ffi.createFFIContext[Waku]().valueOr:
@@ -104,7 +104,7 @@ proc lmapi_create_node(
 
   return ctx
 
-proc lmapi_start_node(
+proc logosdelivery_start_node(
     ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   # setting up outgoing event listeners
@@ -141,7 +141,7 @@ proc lmapi_start_node(
     return err("failed to start: " & errMsg)
   return ok("")
 
-proc lmapi_stop_node(
+proc logosdelivery_stop_node(
     ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   MessageErrorEvent.dropAllListeners(ctx.myLib[].brokerCtx)

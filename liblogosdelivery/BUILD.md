@@ -33,19 +33,19 @@ Compile the C example that demonstrates all library features:
 
 ```bash
 # Using Make (recommended)
-make liblmapi_example
+make liblogosdelivery_example
 
 # Or manually on macOS:
-gcc -o build/liblmapi_example \
-    liblmapi/examples/liblmapi_example.c \
+gcc -o build/liblogosdelivery_example \
+    liblmapi/examples/liblogosdelivery_example.c \
     -I./liblmapi \
     -L./build \
     -llmapi \
     -Wl,-rpath,./build
 
 # Or manually on Linux:
-gcc -o build/liblmapi_example \
-    liblmapi/examples/liblmapi_example.c \
+gcc -o build/liblogosdelivery_example \
+    liblmapi/examples/liblogosdelivery_example.c \
     -I./liblmapi \
     -L./build \
     -llmapi \
@@ -55,7 +55,7 @@ gcc -o build/liblmapi_example \
 ## Running Examples
 
 ```bash
-./build/liblmapi_example
+./build/liblogosdelivery_example
 ```
 
 The example will:
@@ -75,7 +75,7 @@ After building, you'll have:
 build/
 ├── liblmapi.dylib        # Dynamic library (34MB)
 ├── liblmapi.dylib.dSYM/  # Debug symbols
-└── liblmapi_example      # Compiled example (34KB)
+└── liblogosdelivery_example      # Compiled example (34KB)
 ```
 
 ## Library Headers
@@ -92,13 +92,13 @@ If you get "library not found" errors when running the example:
 **macOS:**
 ```bash
 export DYLD_LIBRARY_PATH=/path/to/build:$DYLD_LIBRARY_PATH
-./build/liblmapi_example
+./build/liblogosdelivery_example
 ```
 
 **Linux:**
 ```bash
 export LD_LIBRARY_PATH=/path/to/build:$LD_LIBRARY_PATH
-./build/liblmapi_example
+./build/liblogosdelivery_example
 ```
 
 ### Compilation fails

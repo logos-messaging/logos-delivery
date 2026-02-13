@@ -4,19 +4,19 @@ import waku/factory/waku, waku/node/waku_node, ./declare_lib
 
 ################################################################################
 ## Include different APIs, i.e. all procs with {.ffi.} pragma
-include ./lmapi/node_api, ./lmapi/messaging_api
+include ./logos_delivery_api/node_api, ./logos_delivery_api/messaging_api
 
 ################################################################################
 ### Exported procs
 
-proc lmapi_destroy(
+proc logosdelivery_destroy(
     ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
 ): cint {.dynlib, exportc, cdecl.} =
   initializeLibrary()
   checkParams(ctx, callback, userData)
 
   ffi.destroyFFIContext(ctx).isOkOr:
-    let msg = "liblmapi error: " & $error
+    let msg = "liblogosdelivery error: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
     return RET_ERR
 

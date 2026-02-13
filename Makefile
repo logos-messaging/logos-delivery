@@ -433,11 +433,11 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example libwaku liblmapi liblmapi_example
+.PHONY: cbindings cwaku_example libwaku liblmapi liblogosdelivery liblogosdelivery_example
 
 STATIC ?= 0
 LIBWAKU_BUILD_COMMAND ?= libwakuDynamic
-LMAPI_BUILD_COMMAND ?= liblmapiDynamic
+LIBLOGOSDELIVERY_BUILD_COMMAND ?= liblogosdeliveryDynamic
 
 ifeq ($(detected_OS),Windows)
 	LIB_EXT_DYNAMIC = dll
@@ -454,37 +454,37 @@ LIB_EXT := $(LIB_EXT_DYNAMIC)
 ifeq ($(STATIC), 1)
 	LIB_EXT = $(LIB_EXT_STATIC)
 	LIBWAKU_BUILD_COMMAND = libwakuStatic
-	LMAPI_BUILD_COMMAND = liblmapiStatic
+	LIBLOGOSDELIVERY_BUILD_COMMAND = liblogosdeliveryStatic
 endif
 
 libwaku: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(LIBWAKU_BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
 
-liblmapi: | build deps librln
-	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(LMAPI_BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
+liblogosdelivery: | build deps librln
+	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(LIBLOGOSDELIVERY_BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
 
-liblmapi_example: | build liblmapi
+logosdelivery_example: | build liblogosdelivery
 	@echo -e $(BUILD_MSG) "build/$@"
 ifeq ($(detected_OS),Darwin)
 	gcc -o build/$@ \
-		liblmapi/examples/liblmapi_example.c \
-		-I./liblmapi \
+		liblogosdelivery/examples/logosdelivery_example.c \
+		-I./liblogosdelivery \
 		-L./build \
-		-llmapi \
+		-llogosdelivery \
 		-Wl,-rpath,./build
 else ifeq ($(detected_OS),Linux)
 	gcc -o build/$@ \
-		liblmapi/examples/liblmapi_example.c \
-		-I./liblmapi \
+		liblogosdelivery/examples/logosdelivery_example.c \
+		-I./liblogosdelivery \
 		-L./build \
-		-llmapi \
+		-llogosdelivery \
 		-Wl,-rpath,'$$ORIGIN'
 else ifeq ($(detected_OS),Windows)
 	gcc -o build/$@.exe \
-		liblmapi/examples/liblmapi_example.c \
-		-I./liblmapi \
+		liblogosdelivery/examples/logosdelivery_example.c \
+		-I./liblogosdelivery \
 		-L./build \
-		-llmapi \
+		-llogosdelivery \
 		-lws2_32
 endif
 

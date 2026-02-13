@@ -2,7 +2,7 @@
 
 ## Overview
 
-The LMAPI library emits three types of message delivery events that clients can listen to by registering an event callback using `lmapi_set_event_callback()`.
+The LMAPI library emits three types of message delivery events that clients can listen to by registering an event callback using `logosdelivery_set_event_callback()`.
 
 ## Event Types
 
@@ -86,8 +86,8 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
 ### 2. Register the Callback
 
 ```c
-void *ctx = lmapi_create_node(config, callback, userData);
-lmapi_set_event_callback(ctx, event_callback, NULL);
+void *ctx = logosdelivery_create_node(config, callback, userData);
+logosdelivery_set_event_callback(ctx, event_callback, NULL);
 ```
 
 ### 3. Start the Node
@@ -95,7 +95,7 @@ lmapi_set_event_callback(ctx, event_callback, NULL);
 Once the node is started, events will be delivered to your callback:
 
 ```c
-lmapi_start_node(ctx, callback, userData);
+logosdelivery_start_node(ctx, callback, userData);
 ```
 
 ## Event Flow
@@ -129,7 +129,7 @@ For a failed message send:
 
 ## Example Implementation
 
-See `examples/liblmapi_example.c` for a complete working example that:
+See `examples/liblogosdelivery_example.c` for a complete working example that:
 - Registers an event callback
 - Sends a message
 - Receives and prints all three event types

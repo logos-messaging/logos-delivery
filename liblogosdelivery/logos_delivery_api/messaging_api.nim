@@ -7,7 +7,7 @@ import
   waku/api/[api, types],
   ../declare_lib
 
-proc lmapi_subscribe(
+proc logosdelivery_subscribe(
     ctx: ptr FFIContext[Waku],
     callback: FFICallBack,
     userData: pointer,
@@ -22,7 +22,7 @@ proc lmapi_subscribe(
 
   return ok("")
 
-proc lmapi_unsubscribe(
+proc logosdelivery_unsubscribe(
     ctx: ptr FFIContext[Waku],
     callback: FFICallBack,
     userData: pointer,
@@ -37,7 +37,7 @@ proc lmapi_unsubscribe(
 
   return ok("")
 
-proc lmapi_send(
+proc logosdelivery_send(
     ctx: ptr FFIContext[Waku],
     callback: FFICallBack,
     userData: pointer,

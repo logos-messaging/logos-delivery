@@ -10,11 +10,11 @@ This library wraps the high-level API functions from `waku/api/api.nim` and expo
 
 ### Node Lifecycle
 
-#### `lmapi_create_node`
+#### `logosdelivery_create_node`
 Creates a new instance of the node from the given configuration JSON.
 
 ```c
-void *lmapi_create_node(
+void *logosdelivery_create_node(
     const char *configJson,
     FFICallBack callback,
     void *userData
@@ -44,33 +44,33 @@ void *lmapi_create_node(
 }
 ```
 
-#### `lmapi_start_node`
+#### `logosdelivery_start_node`
 Starts the node.
 
 ```c
-int lmapi_start_node(
+int logosdelivery_start_node(
     void *ctx,
     FFICallBack callback,
     void *userData
 );
 ```
 
-#### `lmapi_stop_node`
+#### `logosdelivery_stop_node`
 Stops the node.
 
 ```c
-int lmapi_stop_node(
+int logosdelivery_stop_node(
     void *ctx,
     FFICallBack callback,
     void *userData
 );
 ```
 
-#### `lmapi_destroy`
+#### `logosdelivery_destroy`
 Destroys a node instance and frees resources.
 
 ```c
-int lmapi_destroy(
+int logosdelivery_destroy(
     void *ctx,
     FFICallBack callback,
     void *userData
@@ -79,11 +79,11 @@ int lmapi_destroy(
 
 ### Messaging
 
-#### `lmapi_subscribe`
+#### `logosdelivery_subscribe`
 Subscribe to a content topic to receive messages.
 
 ```c
-int lmapi_subscribe(
+int logosdelivery_subscribe(
     void *ctx,
     FFICallBack callback,
     void *userData,
@@ -92,16 +92,16 @@ int lmapi_subscribe(
 ```
 
 **Parameters:**
-- `ctx`: Context pointer from `lmapi_create_node`
+- `ctx`: Context pointer from `logosdelivery_create_node`
 - `callback`: Callback function to receive the result
 - `userData`: User data passed to the callback
 - `contentTopic`: Content topic string (e.g., "/myapp/1/chat/proto")
 
-#### `lmapi_unsubscribe`
+#### `logosdelivery_unsubscribe`
 Unsubscribe from a content topic.
 
 ```c
-int lmapi_unsubscribe(
+int logosdelivery_unsubscribe(
     void *ctx,
     FFICallBack callback,
     void *userData,
@@ -109,11 +109,11 @@ int lmapi_unsubscribe(
 );
 ```
 
-#### `lmapi_send`
+#### `logosdelivery_send`
 Send a message.
 
 ```c
-int lmapi_send(
+int logosdelivery_send(
     void *ctx,
     FFICallBack callback,
     void *userData,
@@ -139,11 +139,11 @@ Note: The `payload` field should be base64-encoded.
 
 ### Events
 
-#### `lmapi_set_event_callback`
+#### `logosdelivery_set_event_callback`
 Sets a callback that will be invoked whenever an event occurs (e.g., message received).
 
 ```c
-void lmapi_set_event_callback(
+void logosdelivery_set_event_callback(
     void *ctx,
     FFICallBack callback,
     void *userData
@@ -212,16 +212,16 @@ int main() {
         "}";
 
     // Create node
-    void *ctx = lmapi_create_node(config, callback, NULL);
+    void *ctx = logosdelivery_create_node(config, callback, NULL);
     if (ctx == NULL) {
         return 1;
     }
 
     // Start node
-    lmapi_start_node(ctx, callback, NULL);
+    logosdelivery_start_node(ctx, callback, NULL);
 
     // Subscribe to a topic
-    lmapi_subscribe(ctx, callback, NULL, "/myapp/1/chat/proto");
+    logosdelivery_subscribe(ctx, callback, NULL, "/myapp/1/chat/proto");
 
     // Send a message
     const char *msg = "{"
@@ -229,11 +229,11 @@ int main() {
         "\"payload\": \"SGVsbG8gV29ybGQ=\","
         "\"ephemeral\": false"
         "}";
-    lmapi_send(ctx, callback, NULL, msg);
+    logosdelivery_send(ctx, callback, NULL, msg);
 
     // Clean up
-    lmapi_stop_node(ctx, callback, NULL);
-    lmapi_destroy(ctx, callback, NULL);
+    logosdelivery_stop_node(ctx, callback, NULL);
+    logosdelivery_destroy(ctx, callback, NULL);
 
     return 0;
 }

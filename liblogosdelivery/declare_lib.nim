@@ -1,9 +1,9 @@
 import ffi
 import waku/factory/waku
 
-declareLibrary("lmapi")
+declareLibrary("logosdelivery")
 
-proc lmapi_set_event_callback(
+proc logosdelivery_set_event_callback(
     ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
 ) {.dynlib, exportc, cdecl.} =
   ctx[].eventCallback = cast[pointer](callback)

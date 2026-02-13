@@ -1,8 +1,9 @@
 
 // Generated manually and inspired by libwaku.h
 // Header file for Logos Messaging API (LMAPI) library
-#ifndef __liblmapi__
-#define __liblmapi__
+#pragma once
+#ifndef __liblogosdelivery__
+#define __liblogosdelivery__
 
 #include <stddef.h>
 #include <stdint.h>
@@ -22,35 +23,35 @@ extern "C"
   // Creates a new instance of the node from the given configuration JSON.
   // Returns a pointer to the Context needed by the rest of the API functions.
   // Configuration should be in JSON format following the NodeConfig structure.
-  void *lmapi_create_node(
+  void *logosdelivery_create_node(
       const char *configJson,
       FFICallBack callback,
       void *userData);
 
   // Starts the node.
-  int lmapi_start_node(void *ctx,
+  int logosdelivery_start_node(void *ctx,
                        FFICallBack callback,
                        void *userData);
 
   // Stops the node.
-  int lmapi_stop_node(void *ctx,
+  int logosdelivery_stop_node(void *ctx,
                       FFICallBack callback,
                       void *userData);
 
-  // Destroys an instance of a node created with lmapi_create_node
-  int lmapi_destroy(void *ctx,
+  // Destroys an instance of a node created with logosdelivery_create_node
+  int logosdelivery_destroy(void *ctx,
                     FFICallBack callback,
                     void *userData);
 
   // Subscribe to a content topic.
   // contentTopic: string representing the content topic (e.g., "/myapp/1/chat/proto")
-  int lmapi_subscribe(void *ctx,
+  int logosdelivery_subscribe(void *ctx,
                       FFICallBack callback,
                       void *userData,
                       const char *contentTopic);
 
   // Unsubscribe from a content topic.
-  int lmapi_unsubscribe(void *ctx,
+  int logosdelivery_unsubscribe(void *ctx,
                         FFICallBack callback,
                         void *userData,
                         const char *contentTopic);
@@ -63,14 +64,14 @@ extern "C"
   //   "ephemeral": false
   // }
   // Returns a request ID that can be used to track the message delivery.
-  int lmapi_send(void *ctx,
+  int logosdelivery_send(void *ctx,
                  FFICallBack callback,
                  void *userData,
                  const char *messageJson);
 
   // Sets a callback that will be invoked whenever an event occurs.
   // It is crucial that the passed callback is fast, non-blocking and potentially thread-safe.
-  void lmapi_set_event_callback(void *ctx,
+  void logosdelivery_set_event_callback(void *ctx,
                                  FFICallBack callback,
                                  void *userData);
 
@@ -78,4 +79,4 @@ extern "C"
 }
 #endif
 
-#endif /* __liblmapi__ */
+#endif /* __liblogosdelivery__ */
