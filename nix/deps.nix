@@ -3,7 +3,7 @@
 , src
 , version
 , revision
-, mynimble }:
+}:
 
 stdenv.mkDerivation {
   pname = "logos-delivery-nimble-deps";
@@ -13,7 +13,7 @@ stdenv.mkDerivation {
 
   nativeBuildInputs = with pkgs; [
     jq rsync git cacert moreutils
-  ] ++ [ mynimble ];
+  ] ++ [ nimble ];
 
   configurePhase = ''
     export XDG_CACHE_HOME=$TMPDIR
@@ -23,8 +23,8 @@ stdenv.mkDerivation {
 
   buildPhase = ''
     nimble --version
-    nimble --silent --localdeps setup
-    nimble --silent --localdeps install -y --depsOnly
+    nimble --localdeps setup
+    nimble --localdeps install
   '';
 
   installPhase = ''
@@ -38,6 +38,10 @@ stdenv.mkDerivation {
       --include='*.json' \
       --include='*.nim' \
       --include='*.nimble' \
+      --include='*.c' \
+      --include='*.h' \
+      --include='*.S' \
+      --include='*.cc' \
       --exclude='*' \
       $NIMBLE_DIR/pkgs2 $out/nimbledeps
   '';
@@ -54,7 +58,7 @@ stdenv.mkDerivation {
   '';
 
   # Make this a fixed-output derivation to allow internet access for Nimble.
-  outputHash = "sha256-hW01MZL8cb4Iby6HTomYWCP+LkY6PK1o+qaOeWYsWuE=";
+  outputHash = "sha256-5NZ0RPK8ssxNdyuBbFNljct5hjnIM1FrHzWwL8ujuqY=";
   outputHashAlgo = "sha256";
   outputHashMode = "recursive";
 }
