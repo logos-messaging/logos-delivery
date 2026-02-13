@@ -11,7 +11,7 @@ license = "MIT or Apache License 2.0"
 srcDir = "waku"
 
 ### Dependencies
-requires "nim >= 2.2.4",
+requires "nim == 2.2.4",
   # Async & Concurrency
   "chronos >= 4.0.4",
   "taskpools",
