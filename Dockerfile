@@ -8,7 +8,7 @@ ARG LOG_LEVEL=TRACE
 ARG HEAPTRACK_BUILD=0
 
 # Get build tools and required header files
-RUN apk add --no-cache bash git build-base openssl-dev linux-headers curl jq bsd-compat-headers
+RUN apk add --no-cache bash git build-base openssl-dev linux-headers curl jq
 
 WORKDIR /app
 COPY . .
