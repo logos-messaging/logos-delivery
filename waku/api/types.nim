@@ -14,10 +14,10 @@ type
 
   RequestId* = distinct string
 
-  NodeHealth* {.pure.} = enum
-    Healthy
-    MinimallyHealthy
-    Unhealthy
+  ConnectionStatus* {.pure.} = enum
+    Disconnected
+    PartiallyConnected
+    Connected
 
 proc new*(T: typedesc[RequestId], rng: ref HmacDrbgContext): T =
   ## Generate a new RequestId using the provided RNG.

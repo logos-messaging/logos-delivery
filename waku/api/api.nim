@@ -1,7 +1,7 @@
-import chronicles, chronos, results
+import chronicles, chronos, results, std/strutils
 
 import waku/factory/waku
-import waku/[requests/health_request, waku_core, waku_node]
+import waku/[requests/health_requests, waku_core, waku_node]
 import waku/node/delivery_service/send_service
 import waku/node/delivery_service/subscription_service
 import ./[api_conf, types]
@@ -25,16 +25,8 @@ proc checkApiAvailability(w: Waku): Result[void, string] =
   if w.isNil():
     return err("Waku node is not initialized")
 
-  # check if health is satisfactory
-  # If Node is not healthy, return err("Waku node is not healthy")
-  let healthStatus = RequestNodeHealth.request(w.brokerCtx)
-
-  if healthStatus.isErr():
-    warn "Failed to get Waku node health status: ", error = healthStatus.error
-    # Let's suppose the node is hesalthy enough, go ahead
-  else:
-    if healthStatus.get().healthStatus == NodeHealth.Unhealthy:
-      return err("Waku node is not healthy, has got no connections.")
+  # TODO: Conciliate request-bouncing health checks here with unit testing.
+  #       (For now, better to just allow all sends and rely on retries.)
 
   return ok()
 

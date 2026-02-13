@@ -17,35 +17,36 @@ import
   eth/p2p/discoveryv5/enr,
   presto,
   metrics,
-  metrics/chronos_httpserver
-import
-  ../common/logging,
-  ../waku_core,
-  ../waku_node,
-  ../node/peer_manager,
-  ../node/health_monitor,
-  ../node/waku_metrics,
-  ../node/delivery_service/delivery_service,
-  ../rest_api/message_cache,
-  ../rest_api/endpoint/server,
-  ../rest_api/endpoint/builder as rest_server_builder,
-  ../waku_archive,
-  ../waku_relay/protocol,
-  ../discovery/waku_dnsdisc,
-  ../discovery/waku_discv5,
-  ../discovery/autonat_service,
-  ../waku_enr/sharding,
-  ../waku_rln_relay,
-  ../waku_store,
-  ../waku_filter_v2,
-  ../factory/node_factory,
-  ../factory/internal_config,
-  ../factory/app_callbacks,
-  ../waku_enr/multiaddr,
-  ./waku_conf,
-  ../common/broker/broker_context,
-  ../requests/health_request,
-  ../api/types
+  metrics/chronos_httpserver,
+  waku/[
+    waku_core,
+    waku_node,
+    waku_archive,
+    waku_rln_relay,
+    waku_store,
+    waku_filter_v2,
+    waku_relay/protocol,
+    waku_enr/sharding,
+    waku_enr/multiaddr,
+    api/types,
+    common/logging,
+    common/broker/broker_context,
+    node/peer_manager,
+    node/health_monitor,
+    node/waku_metrics,
+    node/delivery_service/delivery_service,
+    rest_api/message_cache,
+    rest_api/endpoint/server,
+    rest_api/endpoint/builder as rest_server_builder,
+    discovery/waku_dnsdisc,
+    discovery/waku_discv5,
+    discovery/autonat_service,
+    requests/health_requests,
+    factory/node_factory,
+    factory/internal_config,
+    factory/app_callbacks,
+  ],
+  ./waku_conf
 
 logScope:
   topics = "wakunode waku"
@@ -118,7 +119,10 @@ proc newCircuitRelay(isRelayClient: bool): Relay =
   return Relay.new()
 
 proc setupAppCallbacks(
-    node: WakuNode, conf: WakuConf, appCallbacks: AppCallbacks
+    node: WakuNode,
+    conf: WakuConf,
+    appCallbacks: AppCallbacks,
+    healthMonitor: NodeHealthMonitor,
 ): Result[void, string] =
   if appCallbacks.isNil():
     info "No external callbacks to be set"
@@ -159,6 +163,13 @@ proc setupAppCallbacks(
         err("Cannot configure connectionChangeHandler callback with empty peer manager")
     node.peerManager.onConnectionChange = appCallbacks.connectionChangeHandler
 
+  if not appCallbacks.connectionStatusChangeHandler.isNil():
+    if healthMonitor.isNil():
+      return
+        err("Cannot configure connectionStatusChangeHandler with empty health monitor")
+
+    healthMonitor.onConnectionStatusChange = appCallbacks.connectionStatusChangeHandler
+
   return ok()
 
 proc new*(
@@ -192,7 +203,7 @@ proc new*(
     else:
       nil
 
-  node.setupAppCallbacks(wakuConf, appCallbacks).isOkOr:
+  node.setupAppCallbacks(wakuConf, appCallbacks, healthMonitor).isOkOr:
     error "Failed setting up app callbacks", error = error
     return err("Failed setting up app callbacks: " & $error)
 
@@ -409,60 +420,48 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
   waku[].healthMonitor.startHealthMonitor().isOkOr:
     return err("failed to start health monitor: " & $error)
 
-  ## Setup RequestNodeHealth provider
+  ## Setup RequestConnectionStatus provider
 
-  RequestNodeHealth.setProvider(
+  RequestConnectionStatus.setProvider(
     globalBrokerContext(),
-    proc(): Result[RequestNodeHealth, string] =
-      let healthReportFut = waku[].healthMonitor.getNodeHealthReport()
-      if not healthReportFut.completed():
-        return err("Health report not available")
+    proc(): Result[RequestConnectionStatus, string] =
       try:
-        let healthReport = healthReportFut.read()
-
-        # Check if Relay or Lightpush Client is ready (MinimallyHealthy condition)
-        var relayReady = false
-        var lightpushClientReady = false
-        var storeClientReady = false
-        var filterClientReady = false
-
-        for protocolHealth in healthReport.protocolsHealth:
-          if protocolHealth.protocol == "Relay" and
-              protocolHealth.health == HealthStatus.READY:
-            relayReady = true
-          elif protocolHealth.protocol == "Lightpush Client" and
-              protocolHealth.health == HealthStatus.READY:
-            lightpushClientReady = true
-          elif protocolHealth.protocol == "Store Client" and
-              protocolHealth.health == HealthStatus.READY:
-            storeClientReady = true
-          elif protocolHealth.protocol == "Filter Client" and
-              protocolHealth.health == HealthStatus.READY:
-            filterClientReady = true
-
-        # Determine node health based on protocol states
-        let isMinimallyHealthy = relayReady or lightpushClientReady
-        let nodeHealth =
-          if isMinimallyHealthy and storeClientReady and filterClientReady:
-            NodeHealth.Healthy
-          elif isMinimallyHealthy:
-            NodeHealth.MinimallyHealthy
-          else:
-            NodeHealth.Unhealthy
-
-        debug "Providing health report",
-          nodeHealth = $nodeHealth,
-          relayReady = relayReady,
-          lightpushClientReady = lightpushClientReady,
-          storeClientReady = storeClientReady,
-          filterClientReady = filterClientReady,
-          details = $(healthReport)
-
-        return ok(RequestNodeHealth(healthStatus: nodeHealth))
-      except CatchableError as exc:
-        err("Failed to read health report: " & exc.msg),
+        let healthReport = waku[].healthMonitor.getSyncNodeHealthReport()
+        return
+          ok(RequestConnectionStatus(connectionStatus: healthReport.connectionStatus))
+      except CatchableError:
+        err("Failed to read health report: " & getCurrentExceptionMsg()),
   ).isOkOr:
-    error "Failed to set RequestNodeHealth provider", error = error
+    error "Failed to set RequestConnectionStatus provider", error = error
+
+  ## Setup RequestProtocolHealth provider
+
+  RequestProtocolHealth.setProvider(
+    globalBrokerContext(),
+    proc(
+        protocol: WakuProtocol
+    ): Future[Result[RequestProtocolHealth, string]] {.async.} =
+      try:
+        let protocolHealthStatus =
+          await waku[].healthMonitor.getProtocolHealthInfo(protocol)
+        return ok(RequestProtocolHealth(healthStatus: protocolHealthStatus))
+      except CatchableError:
+        return err("Failed to get protocol health: " & getCurrentExceptionMsg()),
+  ).isOkOr:
+    error "Failed to set RequestProtocolHealth provider", error = error
+
+  ## Setup RequestHealthReport provider (The lost child)
+
+  RequestHealthReport.setProvider(
+    globalBrokerContext(),
+    proc(): Future[Result[RequestHealthReport, string]] {.async.} =
+      try:
+        let report = await waku[].healthMonitor.getNodeHealthReport()
+        return ok(RequestHealthReport(healthReport: report))
+      except CatchableError:
+        return err("Failed to get health report: " & getCurrentExceptionMsg()),
+  ).isOkOr:
+    error "Failed to set RequestHealthReport provider", error = error
 
   if conf.restServerConf.isSome():
     rest_server_builder.startRestServerProtocolSupport(
@@ -521,8 +520,8 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     if not waku.healthMonitor.isNil():
       await waku.healthMonitor.stopHealthMonitor()
 
-    ## Clear RequestNodeHealth provider
-    RequestNodeHealth.clearProvider(waku.brokerCtx)
+    ## Clear RequestConnectionStatus provider
+    RequestConnectionStatus.clearProvider(waku.brokerCtx)
 
     if not waku.restServer.isNil():
       await waku.restServer.stop()

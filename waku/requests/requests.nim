@@ -1,3 +1,3 @@
-import ./[health_request, rln_requests, node_requests]
+import ./[health_requests, rln_requests, node_requests]
 
-export health_request, rln_requests, node_requests
+export health_requests, rln_requests, node_requests

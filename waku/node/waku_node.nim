@@ -42,6 +42,7 @@ import
     waku_store/resume,
     waku_store_sync,
     waku_filter_v2,
+    waku_filter_v2/common as filter_common,
     waku_filter_v2/client as filter_client,
     waku_metadata,
     waku_rendezvous/protocol,
@@ -57,12 +58,18 @@ import
     common/rate_limit/setting,
     common/callbacks,
     common/nimchronos,
+    common/broker/broker_context,
+    common/broker/request_broker,
     waku_mix,
     requests/node_requests,
-    common/broker/broker_context,
+    requests/health_requests,
+    events/health_events,
+    events/peer_events,
   ],
   ./net_config,
-  ./peer_manager
+  ./peer_manager,
+  ./health_monitor/health_status,
+  ./health_monitor/topic_health
 
 declarePublicCounter waku_node_messages, "number of messages received", ["type"]
 
@@ -90,6 +97,9 @@ const git_version* {.strdefine.} = "n/a"
 const clientId* = "Nimbus Waku v2 node"
 
 const WakuNodeVersionString* = "version / git commit hash: " & git_version
+
+const EdgeTopicHealthyThreshold = 2
+  ## Lightpush server and filter server requirement for a healthy topic in edge mode
 
 # key and crypto modules different
 type
@@ -135,6 +145,10 @@ type
     topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
     rateLimitSettings*: ProtocolRateLimitSettings
     wakuMix*: WakuMix
+    edgeTopicsHealth*: Table[PubsubTopic, TopicHealth]
+    edgeHealthEvent*: AsyncEvent
+    edgeHealthLoop: Future[void]
+    peerEventListener*: EventWakuPeerListener
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -481,7 +495,52 @@ proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string]
 
   return ok()
 
-proc startProvidersAndListeners(node: WakuNode) =
+proc calculateEdgeTopicHealth(node: WakuNode, shard: PubsubTopic): TopicHealth =
+  let filterPeers =
+    node.peerManager.getPeersForShard(filter_common.WakuFilterSubscribeCodec, shard)
+  let lightpushPeers =
+    node.peerManager.getPeersForShard(lightpush_protocol.WakuLightPushCodec, shard)
+
+  if filterPeers >= EdgeTopicHealthyThreshold and
+      lightpushPeers >= EdgeTopicHealthyThreshold:
+    return TopicHealth.SUFFICIENTLY_HEALTHY
+  elif filterPeers > 0 and lightpushPeers > 0:
+    return TopicHealth.MINIMALLY_HEALTHY
+
+  return TopicHealth.UNHEALTHY
+
+proc loopEdgeHealth(node: WakuNode) {.async.} =
+  while node.started:
+    await node.edgeHealthEvent.wait()
+    node.edgeHealthEvent.clear()
+
+    try:
+      for shard in node.edgeTopicsHealth.keys:
+        if not node.wakuRelay.isNil and node.wakuRelay.isSubscribed(shard):
+          continue
+
+        let oldHealth = node.edgeTopicsHealth.getOrDefault(shard, TopicHealth.UNHEALTHY)
+        let newHealth = node.calculateEdgeTopicHealth(shard)
+        if newHealth != oldHealth:
+          node.edgeTopicsHealth[shard] = newHealth
+          EventShardTopicHealthChange.emit(node.brokerCtx, shard, newHealth)
+    except CancelledError:
+      break
+    except CatchableError as e:
+      warn "Error in edge health check", error = e.msg
+
+    # safety cooldown to protect from edge cases
+    await sleepAsync(100.milliseconds)
+
+proc startProvidersAndListeners*(node: WakuNode) =
+  node.peerEventListener = EventWakuPeer.listen(
+    node.brokerCtx,
+    proc(evt: EventWakuPeer) {.async: (raises: []), gcsafe.} =
+      node.edgeHealthEvent.fire(),
+  ).valueOr:
+    error "Failed to listen to peer events", error = error
+    return
+
   RequestRelayShard.setProvider(
     node.brokerCtx,
     proc(
@@ -493,8 +552,60 @@ proc startProvidersAndListeners(node: WakuNode) =
   ).isOkOr:
     error "Can't set provider for RequestRelayShard", error = error
 
-proc stopProvidersAndListeners(node: WakuNode) =
+  RequestShardTopicsHealth.setProvider(
+    node.brokerCtx,
+    proc(topics: seq[PubsubTopic]): Result[RequestShardTopicsHealth, string] =
+      var response: RequestShardTopicsHealth
+
+      for shard in topics:
+        var healthStatus = TopicHealth.UNHEALTHY
+
+        if not node.wakuRelay.isNil:
+          healthStatus =
+            node.wakuRelay.topicsHealth.getOrDefault(shard, TopicHealth.NOT_SUBSCRIBED)
+
+        if healthStatus == TopicHealth.NOT_SUBSCRIBED:
+          healthStatus = node.calculateEdgeTopicHealth(shard)
+
+        response.topicHealth.add((shard, healthStatus))
+
+      return ok(response),
+  ).isOkOr:
+    error "Can't set provider for RequestShardTopicsHealth", error = error
+
+  RequestContentTopicsHealth.setProvider(
+    node.brokerCtx,
+    proc(topics: seq[ContentTopic]): Result[RequestContentTopicsHealth, string] =
+      var response: RequestContentTopicsHealth
+
+      for contentTopic in topics:
+        var topicHealth = TopicHealth.NOT_SUBSCRIBED
+
+        let shardResult = node.deduceRelayShard(contentTopic, none[PubsubTopic]())
+
+        if shardResult.isOk():
+          let shardObj = shardResult.get()
+          let pubsubTopic = $shardObj
+          if not isNil(node.wakuRelay):
+            topicHealth = node.wakuRelay.topicsHealth.getOrDefault(
+              pubsubTopic, TopicHealth.NOT_SUBSCRIBED
+            )
+
+          if topicHealth == TopicHealth.NOT_SUBSCRIBED and
+              pubsubTopic in node.edgeTopicsHealth:
+            topicHealth = node.calculateEdgeTopicHealth(pubsubTopic)
+
+        response.contentTopicHealth.add((topic: contentTopic, health: topicHealth))
+
+      return ok(response),
+  ).isOkOr:
+    error "Can't set provider for RequestContentTopicsHealth", error = error
+
+proc stopProvidersAndListeners*(node: WakuNode) =
+  EventWakuPeer.dropListener(node.brokerCtx, node.peerEventListener)
   RequestRelayShard.clearProvider(node.brokerCtx)
+  RequestContentTopicsHealth.clearProvider(node.brokerCtx)
+  RequestShardTopicsHealth.clearProvider(node.brokerCtx)
 
 proc start*(node: WakuNode) {.async.} =
   ## Starts a created Waku Node and
@@ -544,6 +655,9 @@ proc start*(node: WakuNode) {.async.} =
   ## The switch will update addresses after start using the addressMapper
   await node.switch.start()
 
+  node.edgeHealthEvent = newAsyncEvent()
+  node.edgeHealthLoop = loopEdgeHealth(node)
+
   node.startProvidersAndListeners()
 
   node.started = true
@@ -560,6 +674,10 @@ proc stop*(node: WakuNode) {.async.} =
   ## By stopping the switch we are stopping all the underlying mounted protocols
 
   node.stopProvidersAndListeners()
+
+  if not node.edgeHealthLoop.isNil:
+    await node.edgeHealthLoop.cancelAndWait()
+    node.edgeHealthLoop = nil
 
   await node.switch.stop()
 
