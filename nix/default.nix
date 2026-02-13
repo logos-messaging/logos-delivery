@@ -3,8 +3,6 @@
   src ? ../.,
   targets ? ["libwaku-android-arm64"],
   verbosity ? 1,
-  useSystemNim ? true,
-  quickAndDirty ? true,
   stableSystems ? [
     "x86_64-linux" "aarch64-linux"
   ],
@@ -25,12 +23,8 @@ let
   copyWakunode2 = lib.elem "wakunode2" targets;
   hasKnownInstallTarget = copyLibwaku || copyLiblogosdelivery || copyWakunode2;
 
-  nimPinned = pkgs.callPackage ./nim.nix {};
-  nimblePinned = pkgs.callPackage ./nimble.nix { inherit nimPinned; };
-
   nimbleDeps = callPackage ./deps.nix {
     inherit src version revision;
-    mynimble = nimblePinned;
   };
 
 in stdenv.mkDerivation {
@@ -45,7 +39,7 @@ in stdenv.mkDerivation {
   };
 
   buildInputs = with pkgs; [
-    openssl gmp zip nimble
+    openssl gmp zip bash nim nimble cacert
   ];
 
   # Dependencies that should only exist in the build environment.
@@ -53,16 +47,13 @@ in stdenv.mkDerivation {
     # Fix for Nim compiler calling 'git rev-parse' and 'lsb_release'.
     fakeGit = writeScriptBin "git" "echo ${version}";
   in with pkgs; [
-    cmake which zerokitRln fakeGit nimbleDeps cargo
+    cmake which zerokitRln fakeGit nimbleDeps cargo nimble nim cacert
   ] ++ lib.optionals stdenv.isDarwin [
     pkgs.darwin.cctools gcc # Necessary for libbacktrace
   ];
 
   makeFlags = targets ++ [
     "V=${toString verbosity}"
-    "QUICK_AND_DIRTY_COMPILER=${if quickAndDirty then "1" else "0"}"
-    "QUICK_AND_DIRTY_NIMBLE=${if quickAndDirty then "1" else "0"}"
-    "USE_SYSTEM_NIM=${if useSystemNim then "1" else "0"}"
     "LIBRLN_FILE=${zerokitRln}/lib/librln.${if abidir != null then "so" else "a"}"
     "POSTGRES=1"
   ];
@@ -70,10 +61,6 @@ in stdenv.mkDerivation {
   configurePhase = ''
     export HOME=$TMPDIR
     export XDG_CACHE_HOME=$TMPDIR
-    export NIMBLE_DIR=$TMPDIR/nimbledir
-
-    mkdir -p $NIMBLE_DIR/pkgs2/nim-2.2.6/bin
-    cp -r ${nimPinned}/bin/* $NIMBLE_DIR/pkgs2/nim-2.2.6/bin/
 
     cp -r ${nimbleDeps}/nimbledeps $NIMBLE_DIR
     cp ${nimbleDeps}/nimble.paths ./
@@ -81,6 +68,10 @@ in stdenv.mkDerivation {
     # Fix relative paths to absolute paths
     sed -i "s|./nimbledeps|$NIMBLE_DIR|g" nimble.paths
 
+  '';
+
+  buildPhase = ''
+    nimble --verbose --offline libwakuDynamic --noRefresh --noNimblePath waku.nimble libwaku.so
   '';
 
   installPhase = if abidir != null then ''

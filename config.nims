@@ -1,5 +1,9 @@
 import os
 
+--noNimblePath
+when withDir(thisDir(), system.fileExists("nimble.paths")):
+  include "nimble.paths"
+
 if defined(windows):
   switch("passL", "rln.lib")
   switch("define", "postgres=false")
