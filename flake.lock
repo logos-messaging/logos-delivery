@@ -2,27 +2,48 @@
   "nodes": {
     "nixpkgs": {
       "locked": {
-        "lastModified": 1757590060,
-        "narHash": "sha256-EWwwdKLMZALkgHFyKW7rmyhxECO74+N+ZO5xTDnY/5c=",
+        "lastModified": 1740603184,
+        "narHash": "sha256-t+VaahjQAWyA+Ctn2idyo1yxRIYpaDxMgHkgCNiMJa4=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "0ef228213045d2cdb5a169a95d63ded38670b293",
+        "rev": "f44bd8ca21e026135061a0a57dcf3d0775b67a49",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "0ef228213045d2cdb5a169a95d63ded38670b293",
+        "rev": "f44bd8ca21e026135061a0a57dcf3d0775b67a49",
         "type": "github"
       }
     },
     "root": {
       "inputs": {
         "nixpkgs": "nixpkgs",
+        "rust-overlay": "rust-overlay",
         "zerokit": "zerokit"
       }
     },
     "rust-overlay": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ]
+      },
+      "locked": {
+        "lastModified": 1771125043,
+        "narHash": "sha256-ldf/s49n6rOAxl7pYLJGGS1N/assoHkCOWdEdLyNZkc=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "4912f951a26dc8142b176be2c2ad834319dc06e8",
+        "type": "github"
+      },
+      "original": {
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "type": "github"
+      }
+    },
+    "rust-overlay_2": {
       "inputs": {
         "nixpkgs": [
           "zerokit",
@@ -48,21 +69,21 @@
         "nixpkgs": [
           "nixpkgs"
         ],
-        "rust-overlay": "rust-overlay"
+        "rust-overlay": "rust-overlay_2"
       },
       "locked": {
-        "lastModified": 1762211504,
-        "narHash": "sha256-SbDoBElFYJ4cYebltxlO2lYnz6qOaDAVY6aNJ5bqHDE=",
-        "ref": "refs/heads/master",
-        "rev": "3160d9504d07791f2fc9b610948a6cf9a58ed488",
-        "revCount": 342,
-        "type": "git",
-        "url": "https://github.com/vacp2p/zerokit"
+        "lastModified": 1759236302,
+        "narHash": "sha256-tzX/C5tKo5GkydZPFhGafRdFqgHUqTpr2sh/49/a/sY=",
+        "owner": "vacp2p",
+        "repo": "zerokit",
+        "rev": "a4bb3feb5054e6fd24827adf204493e6e173437b",
+        "type": "github"
       },
       "original": {
-        "rev": "3160d9504d07791f2fc9b610948a6cf9a58ed488",
-        "type": "git",
-        "url": "https://github.com/vacp2p/zerokit"
+        "owner": "vacp2p",
+        "ref": "v0.9.0",
+        "repo": "zerokit",
+        "type": "github"
       }
     }
   },

@@ -28,18 +28,19 @@ let
   };
 
 in stdenv.mkDerivation {
-  pname = "logos-message-delivery";
+  pname = "logos-delivery";
   inherit src;
   version = "${version}-${revision}";
 
   env = {
-    ANDROID_SDK_ROOT="${pkgs.androidPkgs.sdk}";
-    ANDROID_NDK_HOME="${pkgs.androidPkgs.ndk}";
+    #ANDROID_SDK_ROOT="${pkgs.androidPkgs.sdk}";
+    #ANDROID_NDK_HOME="${pkgs.androidPkgs.ndk}";
     NIMFLAGS = "-d:disableMarchNative -d:git_revision_override=${revision}";
   };
 
   buildInputs = with pkgs; [
     openssl gmp zip bash nim nimble cacert
+    git cmake cargo-make rustup
   ];
 
   # Dependencies that should only exist in the build environment.
@@ -59,19 +60,13 @@ in stdenv.mkDerivation {
   ];
 
   configurePhase = ''
-    export HOME=$TMPDIR
-    export XDG_CACHE_HOME=$TMPDIR
-
+    export NIMBLE_DIR=$NIX_BUILD_TOP/nimbledeps
     cp -r ${nimbleDeps}/nimbledeps $NIMBLE_DIR
     cp ${nimbleDeps}/nimble.paths ./
     chmod 775 -R $NIMBLE_DIR
     # Fix relative paths to absolute paths
     sed -i "s|./nimbledeps|$NIMBLE_DIR|g" nimble.paths
 
-  '';
-
-  buildPhase = ''
-    nimble --verbose --offline libwakuDynamic --noRefresh --noNimblePath waku.nimble libwaku.so
   '';
 
   installPhase = if abidir != null then ''
