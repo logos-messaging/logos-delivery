@@ -1,7 +1,7 @@
 {.push raises: [].}
 
+import std/[options, sequtils]
 import
-  std/[options, sequtils],
   chronos,
   chronicles,
   results,
@@ -110,7 +110,7 @@ proc extractMixPubKey(service: ServiceInfo): Option[Curve25519Key] =
 
   let key = intoCurve25519Key(service.data)
   debug "successfully extracted mix pub key", keyHex = byteutils.toHex(key)
-  some(key)
+  return some(key)
 
 proc remotePeerInfoFrom(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
   debug "processing kademlia record",
@@ -240,8 +240,8 @@ proc runDiscoveryLoop(
           info "found mix peers via targeted kademlia lookup", count = found
 
       await sleepAsync(interval)
-  except CancelledError:
-    debug "extended kademlia discovery loop cancelled"
+  except CancelledError as e:
+    debug "extended kademlia discovery loop cancelled", error = e.msg
   except CatchableError as e:
     error "extended kademlia discovery loop failed", error = e.msg
 

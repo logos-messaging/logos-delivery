@@ -62,7 +62,7 @@ proc processBootNodes(
 
     let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
     mix.nodePool.add(mixPubInfo)
-    count += 1
+    count.inc()
 
     peermgr.addPeer(
       RemotePeerInfo.init(peerId, @[multiAddr], mixPubKey = some(node.pubKey))
