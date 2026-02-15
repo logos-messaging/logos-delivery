@@ -8,10 +8,9 @@ version = "0.36.0"
 author = "Status Research & Development GmbH"
 description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
-srcDir = "waku"
 
 ### Dependencies
-requires "nim >= 2.2.4",
+requires "nim >= 2.2.0",
   # Async & Concurrency
   "chronos >= 4.0.4",
   "taskpools",
@@ -52,7 +51,6 @@ requires "nim >= 2.2.4",
   "minilru",
   "zlib",
   # Debug & Testing
-  "libbacktrace",
   "testutils",
   "unittest2"
 
@@ -93,22 +91,95 @@ proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   exec "nim " & lang & " --out:build/" & name & " --mm:refc " & extra_params & " " &
     srcDir & name & ".nim"
 
-proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
+proc buildLibrary(outLibNameAndExt: string,
+            name: string,
+            srcDir = "./",
+            extra_params = "",
+            `type` = "static") =
+
   if not dirExists "build":
     mkDir "build"
-  # Get extra params from NIM_PARAMS environment variable
-  var extra_params = params
-  let nimParams = getEnv("NIM_PARAMS")
-  if nimParams.len > 0:
-    extra_params &= " " & nimParams
+
   if `type` == "static":
-    exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
-      extra_params & " " & srcDir & srcFile
+    exec "nim c" & " --out:build/" & outLibNameAndExt &
+      " --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics" &
+      " --nimMainPrefix:libwaku -d:discv5_protocol_id=d5waku " &
+      extra_params & " " & srcDir & name & ".nim"
   else:
-    exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      extra_params & " " & srcDir & srcFile
+    when defined(windows):
+      exec "nim c" & " --out:build/" & outLibNameAndExt &
+        " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics" &
+        " --nimMainPrefix:libwaku -d:discv5_protocol_id=d5waku " &
+        extra_params & " " & srcDir & name & ".nim"
+    else:
+      exec "nim c" & " --out:build/" & outLibNameAndExt &
+        " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics" &
+        " --nimMainPrefix:libwaku -d:discv5_protocol_id=d5waku " &
+        extra_params & " " & srcDir & name & ".nim"
+
+proc getArch(): string =
+  let arch = getEnv("ARCH")
+  if arch != "": return $arch
+  let (archFromUname, _) = gorgeEx("uname -m")
+  return $archFromUname
+
+task libsdsDynamicWindows, "Generate bindings":
+  let outLibNameAndExt = "libwaku.dll"
+  let name = "libwaku"
+  buildLibrary outLibNameAndExt,
+    name, "library/",
+    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
+    "dynamic"
+
+task libsdsDynamicLinux, "Generate bindings":
+  let outLibNameAndExt = "libwaku.so"
+  let name = "libwaku"
+  buildLibrary outLibNameAndExt,
+    name, "library/",
+    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
+    "dynamic"
+
+task libsdsDynamicMac, "Generate bindings":
+  let outLibNameAndExt = "libwaku.dylib"
+  let name = "libwaku"
+
+  let arch = getArch()
+  let sdkPath = staticExec("xcrun --show-sdk-path").strip()
+  let archFlags = (if arch == "arm64": "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+                   else: "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\"")
+  buildLibrary outLibNameAndExt,
+    name, "library/",
+    archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
+    "dynamic"
+
+task libsdsStaticWindows, "Generate bindings":
+  let outLibNameAndExt = "libwaku.lib"
+  let name = "libwaku"
+  buildLibrary outLibNameAndExt,
+    name, "library/",
+    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
+    "static"
+
+task libsdsStaticLinux, "Generate bindings":
+  let outLibNameAndExt = "libwaku.a"
+  let name = "libwaku"
+  buildLibrary outLibNameAndExt,
+    name, "library/",
+    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
+    "static"
+
+task libsdsStaticMac, "Generate bindings":
+  let outLibNameAndExt = "libwaku.a"
+  let name = "libwaku"
+
+  let arch = getArch()
+  let sdkPath = staticExec("xcrun --show-sdk-path").strip()
+  let archFlags = (if arch == "arm64": "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+                   else: "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\"")
+  buildLibrary outLibNameAndExt,
+    name, "library/",
+    archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
+    "static"
 
 proc buildMobileAndroid(srcDir = ".", params = "") =
   let cpu = getEnv("CPU")

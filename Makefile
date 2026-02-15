@@ -372,26 +372,31 @@ STATIC ?= 0
 LIBWAKU_BUILD_COMMAND ?= libwakuDynamic
 LIBLOGOSDELIVERY_BUILD_COMMAND ?= liblogosdeliveryDynamic
 
-ifeq ($(detected_OS),Windows)
-	LIB_EXT_DYNAMIC = dll
-	LIB_EXT_STATIC = lib
-else ifeq ($(detected_OS),Darwin)
-	LIB_EXT_DYNAMIC = dylib
-	LIB_EXT_STATIC = a
-else ifeq ($(detected_OS),Linux)
-	LIB_EXT_DYNAMIC = so
-	LIB_EXT_STATIC = a
+detected_OS ?= Linux
+ifeq ($(OS),Windows_NT)
+detected_OS := Windows
+else
+detected_OS := $(shell uname -s)
 endif
 
-LIB_EXT := $(LIB_EXT_DYNAMIC)
+BUILD_COMMAND ?= libsdsDynamic
 ifeq ($(STATIC), 1)
-	LIB_EXT = $(LIB_EXT_STATIC)
+	BUILD_COMMAND = libsdsStatic
 	LIBWAKU_BUILD_COMMAND = libwakuStatic
 	LIBLOGOSDELIVERY_BUILD_COMMAND = liblogosdeliveryStatic
 endif
 
-libwaku: | build librln
-	nimble --verbose $(BUILD_COMMAND) waku.nimble $@.$(LIB_EXT)
+ifeq ($(detected_OS),Windows)
+	BUILD_COMMAND := $(BUILD_COMMAND)Windows
+else ifeq ($(detected_OS),Darwin)
+	BUILD_COMMAND := $(BUILD_COMMAND)Mac
+	export IOS_SDK_PATH := $(shell xcrun --sdk iphoneos --show-sdk-path)
+else ifeq ($(detected_OS),Linux)
+	BUILD_COMMAND := $(BUILD_COMMAND)Linux
+endif
+
+libwaku: |
+	nimble --verbose $(BUILD_COMMAND) $(NIM_PARAMS) --noNimblePath waku.nimble
 
 cwaku_example: | build libwaku
 	echo -e $(BUILD_MSG) "build/$@" && \

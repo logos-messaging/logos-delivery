@@ -7,17 +7,22 @@
   };
 
   inputs = {
-    # We are pinning the commit because ultimately we want to use same commit across different projects.
-    # A commit from nixpkgs 24.11 release : https://github.com/NixOS/nixpkgs/tree/release-24.11
-    nixpkgs.url = "github:NixOS/nixpkgs/0ef228213045d2cdb5a169a95d63ded38670b293";
-    # WARNING: Remember to update commit and use 'nix flake update' to update flake.lock.
+    # Pinned nixpkgs commit
+    nixpkgs.url = "github:NixOS/nixpkgs?rev=f44bd8ca21e026135061a0a57dcf3d0775b67a49";
+
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # External flake input: Zerokit pinned to a specific commit
     zerokit = {
-      url = "git+https://github.com/vacp2p/zerokit?rev=3160d9504d07791f2fc9b610948a6cf9a58ed488";
+      url = "github:vacp2p/zerokit/v0.9.0";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, zerokit }:
+  outputs = { self, nixpkgs, rust-overlay, zerokit }:
     let
       stableSystems = [
         "x86_64-linux" "aarch64-linux"
@@ -35,7 +40,8 @@
             android_sdk.accept_license = true;
             allowUnfree = true;
           };
-          overlays =  [
+          overlays = [
+            rust-overlay.overlays.default
             (final: prev: {
               androidEnvCustom = prev.callPackage ./nix/pkgs/android-sdk { };
               androidPkgs = final.androidEnvCustom.pkgs;
@@ -46,40 +52,43 @@
       );
 
     in rec {
-      packages = forAllSystems (system: let
-        pkgs = pkgsFor.${system};
-      in rec {
-        libwaku-android-arm64 = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["libwaku-android-arm64"];
-          abidir = "arm64-v8a";
-          zerokitRln = zerokit.packages.${system}.rln-android-arm64;
-        };
+      packages = forAllSystems (system:
+        let pkgs = pkgsFor.${system};
 
-        libwaku = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["libwaku"];
-          zerokitRln = zerokit.packages.${system}.rln;
-        };
+        in rec {
+          # Consumer packages (src = self)
+          libwaku-android-arm64 = pkgs.callPackage ./nix/default.nix {
+            inherit stableSystems;
+            src = self;
+            targets = ["libwaku-android-arm64"];
+            abidir = "arm64-v8a";
+            zerokitRln = zerokit.packages.${system}.rln-android-arm64;
+          };
 
-        wakucanary = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["wakucanary"];
-          zerokitRln = zerokit.packages.${system}.rln;
-        };
+          libwaku = pkgs.callPackage ./nix/default.nix {
+            inherit stableSystems;
+            src = self;
+            targets = ["libwaku"];
+            zerokitRln = zerokit.packages.${system}.rln;
+          };
 
-        liblogosdelivery = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["liblogosdelivery"];
-          zerokitRln = zerokit.packages.${system}.rln;
-        };
+          wakucanary = pkgs.callPackage ./nix/default.nix {
+            inherit stableSystems;
+            src = self;
+            targets = ["wakucanary"];
+            zerokitRln = zerokit.packages.${system}.rln;
+          };
 
-        default = libwaku;
-      });
+          liblogosdelivery = pkgs.callPackage ./nix/default.nix {
+            inherit stableSystems;
+            src = self;
+            targets = ["liblogosdelivery"];
+            zerokitRln = zerokit.packages.${system}.rln;
+          };
+
+          default = libwaku;
+        }
+      );
 
       devShells = forAllSystems (system: {
         default = pkgsFor.${system}.callPackage ./nix/shell.nix {};
