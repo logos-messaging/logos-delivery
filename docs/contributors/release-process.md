@@ -20,7 +20,7 @@ For more context, see https://trunkbaseddevelopment.com/branch-for-release/
 
 - **Full release**: follow the entire [Release process](#release-process--step-by-step). 
 
-- **Beta release**: skip just `6a` and `6c` steps from [Release process](#release-process--step-by-step).
+- **Beta release**: skip just `6c` and `6d` steps from [Release process](#release-process--step-by-step).
 
 - Choose the appropriate release process based on the release type:
   - [Full Release](../../.github/ISSUE_TEMPLATE/prepare_full_release.md)
@@ -73,8 +73,8 @@ For more context, see https://trunkbaseddevelopment.com/branch-for-release/
 
    6b. **Waku fleet testing**
       - Start job on `waku.test` [Deployment job](https://ci.infra.status.im/job/nim-waku/), wait for completion of the job. If it fails, then debug it.
-      - After completion, disable [deployment job](https://ci.infra.status.im/job/nim-waku/) so that its version is not updated on every merge to `master`.
-      - Verify at https://fleets.waku.org/ that the fleet is locked to the release candidate version.
+      - After completion, disable fleet so that daily ci not override your release candidate.
+      - Verify at https://fleets.waku.org/ that the fleet is locked to the release candidate image.
       - Check if the image is created at [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab).
       - Search [Kibana logs](https://kibana.infra.status.im/app/discover) from the previous month (since the last release was deployed) for possible crashes or errors in `waku.test`.
         - Set time range to "Last 30 days" (or since last release).
@@ -126,10 +126,10 @@ We also need to merge the release branch back into master as a final step.
 2. Deploy the release image to [Dockerhub](https://hub.docker.com/r/wakuorg/nwaku) by triggering [the manual Jenkins deployment job](https://ci.infra.status.im/job/nim-waku/job/docker-manual/).
   > Ensure the following build parameters are set:
   > - `MAKE_TARGET`: `wakunode2`
-  > - `IMAGE_TAG`: the release tag (e.g. `v0.36.0`)
+  > - `IMAGE_TAG`: the release tag (e.g. `v0.38.0`)
   > - `IMAGE_NAME`: `wakuorg/nwaku`
   > - `NIMFLAGS`: `--colors:off -d:disableMarchNative -d:chronicles_colors:none -d:postgres`
-  > - `GIT_REF` the release tag (e.g. `v0.36.0`)
+  > - `GIT_REF` the release tag (e.g. `v0.38.0`)
 
 ### Performing a patch release
 
@@ -161,3 +161,4 @@ We also need to merge the release branch back into master as a final step.
 - [Jenkins](https://ci.infra.status.im/job/nim-waku/)
 - [Fleets](https://fleets.waku.org/)
 - [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab)
+- [Kibana](https://kibana.infra.status.im/app/)
