@@ -31,10 +31,10 @@ All items below are to be completed by the owner of the given release.
       - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab).
     - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) from the previous month (since the last release was deployed) for possible crashes or errors in `waku.test`.
       - Set time range to "Last 30 days" (or since last release).
-      - Most relevant search query: `(fleet: "waku.test" AND message: "SIGSEGV")`.
+      - Most relevant search query: `(fleet: "waku.test" AND message: "SIGSEGV")`, `(fleet: "waku.test" AND message: "exception")`, `(fleet: "waku.test" AND message: "error")`.
       - Document any crashes or errors found.
     - [ ] If `waku.test` validation is successful, deploy to `waku.sandbox` using the [deploy-waku-sandbox job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-sandbox/).
-    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) for `waku.sandbox`: `(fleet: "waku.sandbox" AND message: "SIGSEGV")`.
+    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) for `waku.sandbox`: `(fleet: "waku.sandbox" AND message: "SIGSEGV")`, `(fleet: "waku.sandbox" AND message: "exception")`, `(fleet: "waku.sandbox" AND message: "error")`. most probably if there are no crashes or errors in `waku.test`, there will be no crashes or errors in `waku.sandbox`.
     - [ ] Enable the `waku.test` fleet again to resume auto-deployment of the latest `master` commit.
 
 - [ ] **Proceed with release**

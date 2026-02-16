@@ -78,16 +78,16 @@ For more context, see https://trunkbaseddevelopment.com/branch-for-release/
       - Check if the image is created at [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab).
       - Search [Kibana logs](https://kibana.infra.status.im/app/discover) from the previous month (since the last release was deployed) for possible crashes or errors in `waku.test`.
         - Set time range to "Last 30 days" (or since last release).
-        - Most relevant search query: `(fleet: "waku.test" AND message: "SIGSEGV")`.
+        - Most relevant search query: `(fleet: "waku.test" AND message: "SIGSEGV")`, `(fleet: "waku.test" AND message: "exception")`, `(fleet: "waku.test" AND message: "error")`.
         - Document any crashes or errors found.
       - If `waku.test` validation is successful, deploy to `waku.sandbox` using the same [Deployment job](https://ci.infra.status.im/job/nim-waku/).
-      - Search [Kibana logs](https://kibana.infra.status.im/app/discover) for `waku.sandbox`: `(fleet: "waku.sandbox" AND message: "SIGSEGV")`.
+      - Search [Kibana logs](https://kibana.infra.status.im/app/discover) for `waku.sandbox`: `(fleet: "waku.sandbox" AND message: "SIGSEGV")`, `(fleet: "waku.sandbox" AND message: "exception")`, `(fleet: "waku.sandbox" AND message: "error")`. most probably if there are no crashes or errors in `waku.test`, there will be no crashes or errors in `waku.sandbox`.
       - Enable the `waku.test` fleet again to resume auto-deployment of the latest `master` commit.
 
    6c. **QA and DST testing**
      - Ask Vac-QA and Vac-DST to run their available tests against the release candidate; share all release candidates with both teams.
 
-     > We need an additional report like [this](https://www.notion.so/DST-Reports-1228f96fb65c80729cd1d98a7496fe6f) specifically from the DST team.
+     > We need an additional report like [this](https://www.notion.so/DST-Reports-1228f96fb65c80729cd1d98a7496fe6f) specifically from the DST team. Inform DST team about what are the expectations for this rc. For example, if we expect higher or lower bandwidth consumption.
 
    6d. **Status fleet testing**
      - Deploy release candidate to `status.staging`
