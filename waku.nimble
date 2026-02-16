@@ -10,9 +10,9 @@ description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
 
 ### Dependencies
-requires "nim >= 2.2.0",
+requires "nim >= 2.2.4",
   # Async & Concurrency
-  "chronos >= 4.0.4",
+  "chronos >= 4.2.0",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -54,7 +54,7 @@ requires "nim >= 2.2.0",
   "testutils",
   "unittest2"
 
-# We use a custom branch to allow higher chronos versions
+# We use a custom branch to allow higher chronos versions, like nim-chronos 4.2.0
 requires "https://github.com/status-im/nim-websock.git#allow-high-chronos-versions"
 
 # Packages not on nimble (use git URLs)

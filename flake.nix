@@ -7,9 +7,9 @@
   };
 
   inputs = {
-    # Pinned nixpkgs commit
-    nixpkgs.url = "github:NixOS/nixpkgs?rev=f44bd8ca21e026135061a0a57dcf3d0775b67a49";
-    #nixpkgs.url = "github:NixOS/nixpkgs?rev=23d72dabcb3b12469f57b37170fcbc1789bd7457";
+    # Pinning the commit to use same commit across different projects.
+    # A commit from nixpkgs 25.11 release : https://github.com/NixOS/nixpkgs/tree/release-25.11
+    nixpkgs.url = "github:NixOS/nixpkgs?rev=23d72dabcb3b12469f57b37170fcbc1789bd7457";
 
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -18,7 +18,7 @@
 
     # External flake input: Zerokit pinned to a specific commit
     zerokit = {
-      url = "github:vacp2p/zerokit/v0.9.0";
+      url = "github:vacp2p/zerokit/53b18098e6d5d046e3eb1ac338a8f4f651432477";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

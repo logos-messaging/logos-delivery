@@ -37,6 +37,8 @@ stdenv.mkDerivation {
       --include='*.h' \
       --include='*.S' \
       --include='*.cc' \
+      --include='*.inc' \
+      --include='*.a' \
       --exclude='*' \
       $NIMBLE_DIR/pkgs2 $out/nimbledeps
   '';
@@ -53,7 +55,7 @@ stdenv.mkDerivation {
   '';
 
   # Make this a fixed-output derivation to allow internet access for Nimble.
-  outputHash = "sha256-19mrGOi2LY3xtlzgftP0Q7NxrlOZ7GmxLQgsHbCGKCc=";
+  outputHash = "sha256-dEWWLeuc15XidSEze+lN3s743VAc2bk9tGEOByZt7rU=";
   outputHashAlgo = "sha256";
   outputHashMode = "recursive";
 }
