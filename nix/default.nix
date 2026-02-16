@@ -40,10 +40,8 @@ in stdenv.mkDerivation {
 
   buildInputs = with pkgs; [
     openssl gmp zip bash nim nimble cacert
-    git cmake cargo-make rustup
   ];
 
-  # Dependencies that should only exist in the build environment.
   nativeBuildInputs = let
     # Fix for Nim compiler calling 'git rev-parse' and 'lsb_release'.
     fakeGit = writeScriptBin "git" "echo ${version}";

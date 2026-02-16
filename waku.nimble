@@ -123,7 +123,7 @@ proc getArch(): string =
   let (archFromUname, _) = gorgeEx("uname -m")
   return $archFromUname
 
-task libsdsDynamicWindows, "Generate bindings":
+task libwakuDynamicWindows, "Generate bindings":
   let outLibNameAndExt = "libwaku.dll"
   let name = "libwaku"
   buildLibrary outLibNameAndExt,
@@ -131,7 +131,7 @@ task libsdsDynamicWindows, "Generate bindings":
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
     "dynamic"
 
-task libsdsDynamicLinux, "Generate bindings":
+task libwakuDynamicLinux, "Generate bindings":
   let outLibNameAndExt = "libwaku.so"
   let name = "libwaku"
   buildLibrary outLibNameAndExt,
@@ -139,7 +139,7 @@ task libsdsDynamicLinux, "Generate bindings":
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
     "dynamic"
 
-task libsdsDynamicMac, "Generate bindings":
+task libwakuDynamicMac, "Generate bindings":
   let outLibNameAndExt = "libwaku.dylib"
   let name = "libwaku"
 
@@ -152,7 +152,7 @@ task libsdsDynamicMac, "Generate bindings":
     archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
     "dynamic"
 
-task libsdsStaticWindows, "Generate bindings":
+task libwakuStaticWindows, "Generate bindings":
   let outLibNameAndExt = "libwaku.lib"
   let name = "libwaku"
   buildLibrary outLibNameAndExt,
@@ -160,7 +160,7 @@ task libsdsStaticWindows, "Generate bindings":
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
     "static"
 
-task libsdsStaticLinux, "Generate bindings":
+task libwakuStaticLinux, "Generate bindings":
   let outLibNameAndExt = "libwaku.a"
   let name = "libwaku"
   buildLibrary outLibNameAndExt,
@@ -168,7 +168,7 @@ task libsdsStaticLinux, "Generate bindings":
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
     "static"
 
-task libsdsStaticMac, "Generate bindings":
+task libwakuStaticMac, "Generate bindings":
   let outLibNameAndExt = "libwaku.a"
   let name = "libwaku"
 
