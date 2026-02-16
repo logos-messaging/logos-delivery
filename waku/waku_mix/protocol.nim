@@ -123,7 +123,7 @@ proc new*(
     peermgr.switch,
     spamProtection = Opt.some(SpamProtection(spamProtection)),
     delayStrategy =
-      ExponentialDelayStrategy.new(meanDelayMs = 50, rng = crypto.newRng()),
+      ExponentialDelayStrategy.new(meanDelayMs = 100, rng = crypto.newRng()),
   )
 
   processBootNodes(bootnodes, peermgr, m)

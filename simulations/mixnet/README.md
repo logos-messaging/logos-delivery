@@ -14,16 +14,16 @@ The simulation includes:
 
 ### Available Scripts
 
-| Script | Description |
-|--------|-------------|
-| `run_mix_node.sh` | Bootstrap mix node (must be started first) |
-| `run_mix_node1.sh` | Mix node 1 |
-| `run_mix_node2.sh` | Mix node 2 |
-| `run_mix_node3.sh` | Mix node 3 |
-| `run_mix_node4.sh` | Mix node 4 |
-| `run_chat_mix.sh` | Chat app instance 1 |
-| `run_chat_mix1.sh` | Chat app instance 2 |
-| `build_setup.sh` | Build and generate RLN credentials |
+| Script             | Description                                |
+| ------------------ | ------------------------------------------ |
+| `run_mix_node.sh`  | Bootstrap mix node (must be started first) |
+| `run_mix_node1.sh` | Mix node 1                                 |
+| `run_mix_node2.sh` | Mix node 2                                 |
+| `run_mix_node3.sh` | Mix node 3                                 |
+| `run_mix_node4.sh` | Mix node 4                                 |
+| `run_chat_mix.sh`  | Chat app instance 1                        |
+| `run_chat_mix1.sh` | Chat app instance 2                        |
+| `build_setup.sh`   | Build and generate RLN credentials         |
 
 ## Prerequisites
 
@@ -31,12 +31,13 @@ Before running the simulation, build `wakunode2` and `chat2mix`:
 
 ```bash
 cd <repo-root-dir>
+source env.sh
 make wakunode2 chat2mix
 ```
 
 ## RLN Spam Protection Setup
 
-Before running the simulation, generate RLN credentials and the shared Merkle tree for all nodes:
+Generate RLN credentials and the shared Merkle tree for all nodes:
 
 ```bash
 cd simulations/mixnet
