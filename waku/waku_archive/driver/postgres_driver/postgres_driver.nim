@@ -1351,7 +1351,9 @@ proc removePartition(
     debug "detected error when trying to detach partition", error
 
     if ($error).contains("FINALIZE") or
-        ($error).contains("already pending detach in part"):
+        ($error).contains("already pending detach"):
+      debug "enforce detach with FINALIZE because of detected error", error
+
       ## We assume the database is suggesting to use FINALIZE when detaching a partition
       let detachPartitionFinalizeQuery =
         "ALTER TABLE messages DETACH PARTITION " & partitionName & " FINALIZE;"
