@@ -48,8 +48,8 @@ proc check(db: DbConn): Result[void, string] =
     return err("exception in check: " & getCurrentExceptionMsg())
 
   if message.len > 0:
-    let truncatedErr = message[0 .. 80]
-      ## libpq sometimes gives extremely long error messages
+    let truncatedErr = message[0 ..< min(80, message.len)]
+    error "postgres check issue. see truncated db error.", error = truncatedErr
     return err(truncatedErr)
 
   return ok()
