@@ -379,9 +379,9 @@ else
 detected_OS := $(shell uname -s)
 endif
 
-BUILD_COMMAND ?= libsdsDynamic
+BUILD_COMMAND ?= libwakuDynamic
 ifeq ($(STATIC), 1)
-	BUILD_COMMAND = libsdsStatic
+	BUILD_COMMAND = libwakuStatic
 	LIBWAKU_BUILD_COMMAND = libwakuStatic
 	LIBLOGOSDELIVERY_BUILD_COMMAND = liblogosdeliveryStatic
 endif
@@ -396,7 +396,7 @@ else ifeq ($(detected_OS),Linux)
 endif
 
 libwaku: |
-	nimble --verbose $(BUILD_COMMAND) $(NIM_PARAMS) --noNimblePath waku.nimble
+	nimble --verbose $(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
 cwaku_example: | build libwaku
 	echo -e $(BUILD_MSG) "build/$@" && \

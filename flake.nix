@@ -9,6 +9,7 @@
   inputs = {
     # Pinned nixpkgs commit
     nixpkgs.url = "github:NixOS/nixpkgs?rev=f44bd8ca21e026135061a0a57dcf3d0775b67a49";
+    #nixpkgs.url = "github:NixOS/nixpkgs?rev=23d72dabcb3b12469f57b37170fcbc1789bd7457";
 
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
@@ -41,7 +42,7 @@
             allowUnfree = true;
           };
           overlays = [
-            rust-overlay.overlays.default
+            (import rust-overlay)
             (final: prev: {
               androidEnvCustom = prev.callPackage ./nix/pkgs/android-sdk { };
               androidPkgs = final.androidEnvCustom.pkgs;

@@ -7,7 +7,7 @@ stdenv.mkDerivation {
   inherit src;
 
   nativeBuildInputs = with pkgs; [
-    jq rsync git nim nimble cacert moreutils which
+    jq rsync git nim nimble cacert moreutils xz
   ];
 
   configurePhase = ''
@@ -53,7 +53,7 @@ stdenv.mkDerivation {
   '';
 
   # Make this a fixed-output derivation to allow internet access for Nimble.
-  outputHash = "sha256-+INiCNg51bT4p7oL8+Hr+1pVJu5GDz8L1zAOyjS/Y8o=";
+  outputHash = "sha256-ly8FGylvbZxQPYaCR3IUJgF9GMYkJrlNZqNxZCyqupE=";
   outputHashAlgo = "sha256";
   outputHashMode = "recursive";
 }
