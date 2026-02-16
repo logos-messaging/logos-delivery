@@ -33,8 +33,8 @@ in stdenv.mkDerivation {
   version = "${version}-${revision}";
 
   env = {
-    #ANDROID_SDK_ROOT="${pkgs.androidPkgs.sdk}";
-    #ANDROID_NDK_HOME="${pkgs.androidPkgs.ndk}";
+    ANDROID_SDK_ROOT="${pkgs.androidPkgs.sdk}";
+    ANDROID_NDK_HOME="${pkgs.androidPkgs.ndk}";
     NIMFLAGS = "-d:disableMarchNative -d:git_revision_override=${revision}";
   };
 
@@ -58,6 +58,8 @@ in stdenv.mkDerivation {
   ];
 
   configurePhase = ''
+    export HOME=$TMPDIR/myhome
+    mkdir -p $HOME
     export NIMBLE_DIR=$NIX_BUILD_TOP/nimbledeps
     cp -r ${nimbleDeps}/nimbledeps $NIMBLE_DIR
     cp ${nimbleDeps}/nimble.paths ./
