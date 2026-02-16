@@ -237,6 +237,13 @@ type
       name: "kad-bootstrap-node"
     .}: seq[string]
 
+    ## RLN spam protection config
+    rlnUserMessageLimit* {.
+      desc: "Maximum messages per epoch for RLN spam protection.",
+      defaultValue: 100,
+      name: "rln-user-message-limit"
+    .}: int
+
 proc parseCmdArg*(T: type MixNodePubInfo, p: string): T =
   let elements = p.split(":")
   if elements.len != 2:

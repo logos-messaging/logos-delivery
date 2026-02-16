@@ -28,7 +28,8 @@ import
   ../../waku_archive,
   ../../waku_store_sync,
   ../peer_manager,
-  ../../waku_rln_relay
+  ../../waku_rln_relay,
+  ../../waku_mix
 
 export waku_relay.WakuRelayHandler
 
@@ -82,13 +83,21 @@ proc registerRelayHandler(
 
     node.wakuStoreReconciliation.messageIngress(topic, msg)
 
+  proc mixHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    if node.wakuMix.isNil():
+      return
+
+    await node.wakuMix.handleMessage(topic, msg)
+
   let uniqueTopicHandler = proc(
       topic: PubsubTopic, msg: WakuMessage
   ): Future[void] {.async, gcsafe.} =
+    # TODO: Why are all these synchronous in nature? wouldn't it be better to run them concurrently?
     await traceHandler(topic, msg)
     await filterHandler(topic, msg)
     await archiveHandler(topic, msg)
     await syncHandler(topic, msg)
+    await mixHandler(topic, msg)
     await appHandler(topic, msg)
 
   node.wakuRelay.subscribe(topic, uniqueTopicHandler)

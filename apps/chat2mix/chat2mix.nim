@@ -35,6 +35,7 @@ import
 import
   waku/[
     waku_core,
+    waku_core/topics/sharding,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_enr,
@@ -47,6 +48,8 @@ import
     common/utils/nat,
     waku_store/common,
     waku_filter_v2/client,
+    waku_filter_v2/common as filter_common,
+    waku_mix/protocol,
     common/logging,
   ],
   ./config_chat2mix
@@ -56,6 +59,105 @@ import ../../waku/waku_rln_relay
 
 logScope:
   topics = "chat2 mix"
+
+#########################
+## Mix Spam Protection ##
+#########################
+
+# Forward declaration
+proc maintainSpamProtectionSubscription(
+  node: WakuNode, contentTopics: seq[ContentTopic]
+) {.async.}
+
+proc setupMixSpamProtectionViaFilter(node: WakuNode) {.async.} =
+  ## Setup filter-based spam protection coordination for mix protocol.
+  ## Since chat2mix doesn't use relay, we subscribe via filter to receive
+  ## spam protection coordination messages.
+
+  # Register message handler for spam protection coordination
+  let spamTopics = node.wakuMix.getSpamProtectionContentTopics()
+
+  proc handleSpamMessage(
+      pubsubTopic: PubsubTopic, message: WakuMessage
+  ): Future[void] {.async, gcsafe.} =
+    await node.wakuMix.handleMessage(pubsubTopic, message)
+
+  node.wakuFilterClient.registerPushHandler(handleSpamMessage)
+
+  # Wait for filter peer and maintain subscription
+  asyncSpawn maintainSpamProtectionSubscription(node, spamTopics)
+
+proc maintainSpamProtectionSubscription(
+    node: WakuNode, contentTopics: seq[ContentTopic]
+) {.async.} =
+  ## Maintain filter subscription for spam protection topics.
+  ## Monitors subscription health with periodic pings and re-subscribes on failure.
+  const RetryInterval = chronos.seconds(5)
+  const SubscriptionMaintenance = chronos.seconds(30)
+  const MaxFailedSubscribes = 3
+  var currentFilterPeer: Option[RemotePeerInfo] = none(RemotePeerInfo)
+  var noFailedSubscribes = 0
+
+  while true:
+    # Select or reuse filter peer
+    if currentFilterPeer.isNone():
+      let filterPeerOpt = node.peerManager.selectPeer(WakuFilterSubscribeCodec)
+      if filterPeerOpt.isNone():
+        debug "No filter peer available yet for spam protection, retrying..."
+        await sleepAsync(RetryInterval)
+        continue
+      currentFilterPeer = some(filterPeerOpt.get())
+      info "Selected filter peer for spam protection",
+        peer = currentFilterPeer.get().peerId
+
+    # Check if subscription is still alive with ping
+    let pingErr = (await node.wakuFilterClient.ping(currentFilterPeer.get())).errorOr:
+      # Subscription is alive, wait before next check
+      await sleepAsync(SubscriptionMaintenance)
+      if noFailedSubscribes > 0:
+        noFailedSubscribes = 0
+      continue
+
+    # Subscription lost, need to re-subscribe
+    warn "Spam protection filter subscription ping failed, re-subscribing",
+      error = pingErr, peer = currentFilterPeer.get().peerId
+
+    # Determine pubsub topic from content topics (using auto-sharding)
+    if node.wakuAutoSharding.isNone():
+      error "Auto-sharding not configured, cannot determine pubsub topic for spam protection"
+      await sleepAsync(RetryInterval)
+      continue
+
+    let shardRes = node.wakuAutoSharding.get().getShard(contentTopics[0])
+    if shardRes.isErr():
+      error "Failed to determine shard for spam protection", error = shardRes.error
+      await sleepAsync(RetryInterval)
+      continue
+
+    let shard = shardRes.get()
+    let pubsubTopic: PubsubTopic = shard # converter toPubsubTopic
+
+    # Subscribe to spam protection topics
+    let res = await node.wakuFilterClient.subscribe(
+      currentFilterPeer.get(), pubsubTopic, contentTopics
+    )
+    if res.isErr():
+      noFailedSubscribes += 1
+      warn "Failed to subscribe to spam protection topics via filter",
+        error = res.error, topics = contentTopics, failCount = noFailedSubscribes
+
+      if noFailedSubscribes >= MaxFailedSubscribes:
+        # Try with a different peer
+        warn "Max subscription failures reached, selecting new filter peer"
+        currentFilterPeer = none(RemotePeerInfo)
+        noFailedSubscribes = 0
+
+      await sleepAsync(RetryInterval)
+    else:
+      info "Successfully subscribed to spam protection topics via filter",
+        topics = contentTopics, peer = currentFilterPeer.get().peerId
+      noFailedSubscribes = 0
+      await sleepAsync(SubscriptionMaintenance)
 
 const Help =
   """
@@ -210,20 +312,21 @@ proc publish(c: Chat, line: string) {.async.} =
   try:
     if not c.node.wakuLightpushClient.isNil():
       # Attempt lightpush with mix
-
-      (
-        waitFor c.node.lightpushPublish(
-          some(c.conf.getPubsubTopic(c.node, c.contentTopic)),
-          message,
-          none(RemotePeerInfo),
-          true,
-        )
-      ).isOkOr:
-        error "failed to publish lightpush message", error = error
+      let res = await c.node.lightpushPublish(
+        some(c.conf.getPubsubTopic(c.node, c.contentTopic)),
+        message,
+        none(RemotePeerInfo),
+        true,
+      )
+      if res.isErr():
+        error "failed to publish lightpush message", error = res.error
+        echo "Error: " & res.error.desc.get("unknown error")
     else:
       error "failed to publish message as lightpush client is not initialized"
+      echo "Error: lightpush client is not initialized"
   except CatchableError:
     error "caught error publishing message: ", error = getCurrentExceptionMsg()
+    echo "Error: " & getCurrentExceptionMsg()
 
 # TODO This should read or be subscribe handler subscribe
 proc readAndPrint(c: Chat) {.async.} =
@@ -452,7 +555,11 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     error "failed to generate mix key pair", error = error
     return
 
-  (await node.mountMix(conf.clusterId, mixPrivKey, conf.mixnodes)).isOkOr:
+  (
+    await node.mountMix(
+      conf.clusterId, mixPrivKey, conf.mixnodes, some(conf.rlnUserMessageLimit)
+    )
+  ).isOkOr:
     error "failed to mount waku mix protocol: ", error = $error
     quit(QuitFailure)
 
@@ -486,6 +593,10 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
         quit(QuitFailure)
 
   #await node.mountRendezvousClient(conf.clusterId)
+
+  # Subscribe to spam protection coordination topics via filter since chat2mix doesn't use relay
+  if not node.wakuFilterClient.isNil():
+    asyncSpawn setupMixSpamProtectionViaFilter(node)
 
   await node.start()
 

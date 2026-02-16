@@ -3,66 +3,128 @@
 ## Aim
 
 Simulate a local mixnet along with a chat app to publish using mix.
-This is helpful to test any changes while development.
-It includes scripts that run a `4 node` mixnet along with a lightpush service node(without mix) that can be used to test quickly.
+This is helpful to test any changes during development.
 
 ## Simulation Details
 
-Note that before running the simulation both `wakunode2` and `chat2mix` have to be built.
+The simulation includes:
+
+1. A 5-node mixnet where `run_mix_node.sh` is the bootstrap node for the other 4 nodes
+2. Two chat app instances that publish messages using lightpush protocol over the mixnet
+
+### Available Scripts
+
+| Script             | Description                                |
+| ------------------ | ------------------------------------------ |
+| `run_mix_node.sh`  | Bootstrap mix node (must be started first) |
+| `run_mix_node1.sh` | Mix node 1                                 |
+| `run_mix_node2.sh` | Mix node 2                                 |
+| `run_mix_node3.sh` | Mix node 3                                 |
+| `run_mix_node4.sh` | Mix node 4                                 |
+| `run_chat_mix.sh`  | Chat app instance 1                        |
+| `run_chat_mix1.sh` | Chat app instance 2                        |
+| `build_setup.sh`   | Build and generate RLN credentials         |
+
+## Prerequisites
+
+Before running the simulation, build `wakunode2` and `chat2mix`:
 
 ```bash
 cd <repo-root-dir>
-make wakunode2
-make chat2mix
+source env.sh
+make wakunode2 chat2mix
 ```
 
-Simulation includes scripts for:
+## RLN Spam Protection Setup
 
-1. a 4 waku-node mixnet where `node1` is bootstrap node for the other 3 nodes.
-2. scripts to run chat app that publishes using lightpush protocol over the mixnet
+Generate RLN credentials and the shared Merkle tree for all nodes:
+
+```bash
+cd simulations/mixnet
+./build_setup.sh
+```
+
+This script will:
+
+1. Build and run the `setup_credentials` tool
+2. Generate RLN credentials for all nodes (5 mix nodes + 2 chat clients)
+3. Create `rln_tree.db` - the shared Merkle tree with all members
+4. Create keystore files (`rln_keystore_{peerId}.json`) for each node
+
+**Important:** All scripts must be run from this directory (`simulations/mixnet/`) so they can access their credentials and tree file.
+
+To regenerate credentials (e.g., after adding new nodes), run `./build_setup.sh` again - it will clean up old files first.
 
 ## Usage
 
-Start the service node with below command, which acts as bootstrap node for all other mix nodes.
+### Step 1: Start the Mix Nodes
 
-`./run_lp_service_node.sh`
+Start the bootstrap node first (in a separate terminal):
 
-To run the nodes for mixnet run the 4 node scripts in different terminals as below.
-
-`./run_mix_node1.sh`
-
-Look for following 2 log lines to ensure node ran successfully and has also mounted mix protocol.
-
-```log
-INF 2025-08-01 14:51:05.445+05:30 mounting mix protocol                      topics="waku node" tid=39996871 file=waku_node.nim:231 nodeId="(listenAddresses: @[\"/ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAmPiEs2ozjjJF2iN2Pe2FYeMC9w4caRHKYdLdAfjgbWM6o\"], enrUri: \"enr:-NC4QKYtas8STkenlqBTJ3a1TTLzJA2DsGGbFlnxem9aSM2IXm-CSVZULdk2467bAyFnepnt8KP_QlfDzdaMXd_zqtwBgmlkgnY0gmlwhH8AAAGHbWl4LWtleaCdCc5iT3bo9gYmXtucyit96bQXcqbXhL3a-S_6j7p9LIptdWx0aWFkZHJzgIJyc4UAAgEAAIlzZWNwMjU2azGhA6RFtVJVBh0SYOoP8xrgnXSlpiFARmQkF9d8Rn4fSeiog3RjcILqYYN1ZHCCIymFd2FrdTIt\")"
-
-INF 2025-08-01 14:49:23.467+05:30 Node setup complete                        topics="wakunode main" tid=39994244 file=wakunode2.nim:104
+```bash
+./run_mix_node.sh
 ```
 
-Once all the 4 nodes are up without any issues, run the script to start the chat application.
+Look for the following log lines to ensure the node started successfully:
 
-`./run_chat_app.sh`
+```log
+INF mounting mix protocol                      topics="waku node"
+INF Node setup complete                        topics="wakunode main"
+```
 
-Enter a nickname to be used.
+Verify RLN spam protection initialized correctly by checking for these logs:
+
+```log
+INF Initializing MixRlnSpamProtection
+INF MixRlnSpamProtection initialized, waiting for sync
+DBG Tree loaded from file
+INF MixRlnSpamProtection started
+```
+
+Then start the remaining mix nodes in separate terminals:
+
+```bash
+./run_mix_node1.sh
+./run_mix_node2.sh
+./run_mix_node3.sh
+./run_mix_node4.sh
+```
+
+### Step 2: Start the Chat Applications
+
+Once all 5 mix nodes are running, start the first chat app:
+
+```bash
+./run_chat_mix.sh
+```
+
+Enter a nickname when prompted:
 
 ```bash
 pubsub topic is: /waku/2/rs/2/0
 Choose a nickname >>
 ```
 
-Once you see below log, it means the app is ready for publishing messages over the mixnet.
+Once you see the following log, the app is ready to publish messages over the mixnet:
 
 ```bash
 Welcome, test!
 Listening on
- /ip4/192.168.68.64/tcp/60000/p2p/16Uiu2HAkxDGqix1ifY3wF1ZzojQWRAQEdKP75wn1LJMfoHhfHz57
+ /ip4/<local-network-ip>/tcp/60000/p2p/16Uiu2HAkxDGqix1ifY3wF1ZzojQWRAQEdKP75wn1LJMfoHhfHz57
 ready to publish messages now
 ```
 
-Follow similar instructions to run second instance of chat app.
-Once both the apps run successfully, send a message and check if it is received by the other app.
+Start the second chat app in another terminal:
 
-You can exit the chat apps by entering `/exit` as below
+```bash
+./run_chat_mix1.sh
+```
+
+### Step 3: Test Messaging
+
+Once both chat apps are running, send a message from one and verify it is received by the other.
+
+To exit the chat apps, enter `/exit`:
 
 ```bash
 >> /exit

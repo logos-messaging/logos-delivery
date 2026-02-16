@@ -43,6 +43,7 @@ node_modules/
 
 # RLN / keystore
 rlnKeystore.json
+rln_keystore*.json
 *.tar.gz
 
 # Nimbus Build System
