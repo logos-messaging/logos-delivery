@@ -1,4 +1,4 @@
-name: Daily logos-messaging-nim CI
+name: Daily logos-delivery CI
 
 on:
   schedule:
@@ -72,7 +72,7 @@ jobs:
                   {\"name\": \"Status\", \"value\": \"$STATUS\", \"inline\": true}
                 ],
                 \"url\": \"$RUN_URL\",
-                \"footer\": {\"text\": \"Daily logos-messaging-nim CI\"}
+                \"footer\": {\"text\": \"Daily logos-delivery CI\"}
               }]
             }" \
             "$DISCORD_WEBHOOK_URL"

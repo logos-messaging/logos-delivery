@@ -91,14 +91,14 @@ jobs:
 
   build-docker-image:
     needs: tag-name
-    uses: logos-messaging/nwaku/.github/workflows/container-image.yml@master
+    uses: logos-messaging/logos-delivery/.github/workflows/container-image.yml@master
     with:
       image_tag: ${{ needs.tag-name.outputs.tag }}
     secrets: inherit
 
   js-waku-node:
     needs: build-docker-image
-    uses: logos-messaging/logos-messaging-js/.github/workflows/test-node.yml@master
+    uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node
@@ -106,7 +106,7 @@ jobs:
 
   js-waku-node-optional:
     needs: build-docker-image
-    uses: logos-messaging/logos-messaging-js/.github/workflows/test-node.yml@master
+    uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node-optional
@@ -150,7 +150,7 @@ jobs:
               -u $(id -u) \
               docker.io/wakuorg/sv4git:latest \
                 release-notes ${RELEASE_NOTES_TAG} --previous $(git tag -l --sort -creatordate | grep -e "^v[0-9]*\.[0-9]*\.[0-9]*$") |\
-                sed -E 's@#([0-9]+)@[#\1](https://github.com/logos-messaging/nwaku/issues/\1)@g' > release_notes.md
+                sed -E 's@#([0-9]+)@[#\1](https://github.com/logos-messaging/logos-delivery/issues/\1)@g' > release_notes.md
 
           sed -i "s/^## .*/Generated at $(date)/" release_notes.md
 

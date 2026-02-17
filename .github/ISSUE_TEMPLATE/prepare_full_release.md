@@ -10,7 +10,7 @@ assignees: ''
 <!--
 Add appropriate release number to title!
 
-For detailed info on the release process refer to https://github.com/logos-messaging/nwaku/blob/master/docs/contributors/release-process.md
+For detailed info on the release process refer to https://github.com/logos-messaging/logos-delivery/blob/master/docs/contributors/release-process.md
  -->
 
 ### Items to complete
@@ -24,7 +24,7 @@ All items below are to be completed by the owner of the given release.
 - [ ] **Validation of release candidate**
 
   - [ ] **Automated testing**
-    - [ ] Ensure all the unit tests (specifically logos-messaging-js tests) are green against the release candidate.
+    - [ ] Ensure all the unit tests (specifically logos-delivery-js tests) are green against the release candidate.
     - [ ] Ask Vac-QA and Vac-DST to perform the available tests against the release candidate.
     - [ ] Vac-DST (an additional report is needed; see [this](https://www.notion.so/DST-Reports-1228f96fb65c80729cd1d98a7496fe6f))
 
@@ -55,10 +55,10 @@ All items below are to be completed by the owner of the given release.
 - [ ] **Proceed with release**
 
   - [ ] Assign a final release tag (`v0.X.0`) to the same commit that contains the validated release-candidate tag (e.g. `v0.X.0`).
-  - [ ] Update [nwaku-compose](https://github.com/logos-messaging/nwaku-compose) and [waku-simulator](https://github.com/logos-messaging/waku-simulator) according to the new release.
-  - [ ] Bump nwaku dependency in [waku-rust-bindings](https://github.com/logos-messaging/waku-rust-bindings) and make sure all examples and tests work.
-  - [ ] Bump nwaku dependency in [waku-go-bindings](https://github.com/logos-messaging/waku-go-bindings) and make sure all tests work.
-  - [ ] Create GitHub release (https://github.com/logos-messaging/nwaku/releases).
+  - [ ] Update [logos-delivery-compose](https://github.com/logos-messaging/logos-delivery-compose) and [logos-delivery-simulator](https://github.com/logos-messaging/logos-delivery-simulator) according to the new release.
+  - [ ] Bump logos-delivery dependency in [logos-delivery-rust-bindings](https://github.com/logos-messaging/logos-delivery-rust-bindings) and make sure all examples and tests work.
+  - [ ] Bump logos-delivery dependency in [logos-delivery-go-bindings](https://github.com/logos-messaging/logos-delivery-go-bindings) and make sure all tests work.
+  - [ ] Create GitHub release (https://github.com/logos-messaging/logos-delivery/releases).
   - [ ] Submit a PR to merge the release branch back to `master`. Make sure you use the option "Merge pull request (Create a merge commit)" to perform the merge. Ping repo admin if this option is not available.
 
 - [ ] **Promote release to fleets**
@@ -67,8 +67,8 @@ All items below are to be completed by the owner of the given release.
 
 ### Links
 
-- [Release process](https://github.com/logos-messaging/nwaku/blob/master/docs/contributors/release-process.md)
-- [Release notes](https://github.com/logos-messaging/nwaku/blob/master/CHANGELOG.md)
+- [Release process](https://github.com/logos-messaging/logos-delivery/blob/master/docs/contributors/release-process.md)
+- [Release notes](https://github.com/logos-messaging/logos-delivery/blob/master/CHANGELOG.md)
 - [Fleet ownership](https://www.notion.so/Fleet-Ownership-7532aad8896d46599abac3c274189741?pvs=4#d2d2f0fe4b3c429fbd860a1d64f89a64)
 - [Infra-nim-waku](https://github.com/status-im/infra-nim-waku)
 - [Jenkins](https://ci.infra.status.im/job/nim-waku/)

@@ -138,12 +138,12 @@ jobs:
   build-docker-image:
     needs: changes
     if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' || needs.changes.outputs.docker == 'true' }}
-    uses: logos-messaging/logos-messaging-nim/.github/workflows/container-image.yml@10dc3d3eb4b6a3d4313f7b2cc4a85a925e9ce039
+    uses: logos-messaging/logos-delivery/.github/workflows/container-image.yml@10dc3d3eb4b6a3d4313f7b2cc4a85a925e9ce039
     secrets: inherit
 
   nwaku-nwaku-interop-tests:
     needs: build-docker-image
-    uses: logos-messaging/logos-messaging-interop-tests/.github/workflows/nim_waku_PR.yml@SMOKE_TEST_STABLE
+    uses: logos-messaging/logos-delivery-interop-tests/.github/workflows/nim_waku_PR.yml@SMOKE_TEST_STABLE
     with:
       node_nwaku: ${{ needs.build-docker-image.outputs.image }}
 
@@ -151,14 +151,14 @@ jobs:
 
   js-waku-node:
     needs: build-docker-image
-    uses: logos-messaging/logos-messaging-js/.github/workflows/test-node.yml@master
+    uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node
 
   js-waku-node-optional:
     needs: build-docker-image
-    uses: logos-messaging/logos-messaging-js/.github/workflows/test-node.yml@master
+    uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node-optional

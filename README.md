@@ -2,7 +2,7 @@
 
 ## Introduction
 
-The logos-messaging-nim, a.k.a. lmn or nwaku, repository implements a set of libp2p protocols aimed to bring
+This repository implements a set of libp2p protocols aimed to bring
 private communications.
 
 - Nim implementation of [these specs](https://github.com/vacp2p/rfc-index/tree/main/waku).
