@@ -7,7 +7,9 @@ import
   chronos,
   chronicles,
   stint,
-  libp2p/crypto/crypto
+  libp2p/crypto/crypto,
+  random
+
 import
   waku/[
     waku_core,
@@ -524,3 +526,34 @@ suite "Waku rln relay":
     var testEpochSizes: seq[uint] = @[1, 5, 10, 30, 60, 600]
     for i in testEpochSizes:
       await runTestForEpochSizeSec(i)
+
+  asyncTest "testing rln-relay rate limit testing ":
+    let index = MembershipIndex(7)
+
+    # Generate a random rate limit between 20 and 600
+    randomize()
+    let randomRateLimit = rand(20 .. 600).uint
+
+    let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = index)
+    let wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
+      raiseAssert $error
+
+    let manager = cast[OnchainGroupManager](wakuRlnRelay.groupManager)
+    let idCredentials = generateCredentials(manager.rlnInstance)
+
+    # Register the membership with the random rate limit
+    try:
+      waitFor manager.register(idCredentials, UserMessageLimit(randomRateLimit))
+    except Exception, CatchableError:
+      assert false,
+        "exception raised when calling register: " & getCurrentExceptionMsg()
+
+    # Fetch the rate limit for the registered membership
+    let rateLimitRes =
+      await manager.fetchMembershipRateLimit(idCredentials.idCommitment)
+    if rateLimitRes.isErr():
+      raiseAssert "Failed to fetch membership rate limit: " & rateLimitRes.error
+
+    let rateLimit = rateLimitRes.get()
+    check:
+      rateLimit == randomRateLimit.u256 # Check against the random rate limit

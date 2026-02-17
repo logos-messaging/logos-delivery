@@ -128,6 +128,32 @@ proc fetchMembershipStatus*(
     error "Failed to fetch membership set membership", error = getCurrentExceptionMsg()
     return err("Failed to fetch membership set membership: " & getCurrentExceptionMsg())
 
+proc fetchMembershipRateLimit*(
+    g: OnchainGroupManager, idCommitment: IDCommitment
+): Future[Result[UInt256, string]] {.async.} =
+  ## Fetch the `rateLimit` of a membership by its idCommitment.
+  ## Decodes the first 32-byte word returned by `getMembershipInfo`.
+  try:
+    let params = idCommitment.reversed()
+    let resultBytes = await sendEthCallWithParams(
+      ethRpc = g.ethRpc.get(),
+      functionSignature = "getMembershipInfo(uint256)",
+      params = params,
+      fromAddress = g.ethRpc.get().defaultAccount,
+      toAddress = fromHex(Address, g.ethContractAddress),
+      chainId = g.chainId,
+    )
+    if resultBytes.isErr():
+      return err(resultBytes.error)
+    let bytes = resultBytes.get()
+    if bytes.len < 32:
+      return err("unexpected ABI response length " & $bytes.len)
+    let rateLimit = UInt256.fromBytesBE(bytes[0 .. 31])
+    return ok(rateLimit)
+  except CatchableError:
+    error "Failed to fetch membership rate limit", error = getCurrentExceptionMsg()
+    return err("Failed to fetch membership rate limit: " & getCurrentExceptionMsg())
+
 proc fetchMaxMembershipRateLimit*(
     g: OnchainGroupManager
 ): Future[Result[UInt256, string]] {.async.} =
