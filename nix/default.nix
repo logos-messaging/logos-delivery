@@ -23,6 +23,10 @@ let
   tools = pkgs.callPackage ./tools.nix {};
   version = tools.findKeyValue "^version = \"([a-f0-9.-]+)\"$" ../waku.nimble;
   revision = lib.substring 0 8 (src.rev or src.dirtyRev or "00000000");
+  copyLibwaku = lib.elem "libwaku" targets;
+  copyLiblogosdelivery = lib.elem "liblogosdelivery" targets;
+  copyWakunode2 = lib.elem "wakunode2" targets;
+  hasKnownInstallTarget = copyLibwaku || copyLiblogosdelivery || copyWakunode2;
 
 in stdenv.mkDerivation {
   pname = "logos-messaging-nim";
@@ -91,15 +95,39 @@ in stdenv.mkDerivation {
   '' else ''
     mkdir -p $out/bin $out/include
 
-    # Copy library files from build directory (created by Make during buildPhase)
+    # Copy artifacts from build directory (created by Make during buildPhase)
     # Note: build/ is in the source tree, not result/ (which is a post-build symlink)
     if [ -d build ]; then
-      cp build/lib*.{so,dylib,dll,a} $out/bin/ 2>/dev/null || true
+      ${lib.optionalString copyLibwaku ''
+      cp build/libwaku.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
+      ''}
+
+      ${lib.optionalString copyLiblogosdelivery ''
+      cp build/liblogosdelivery.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
+      ''}
+
+      ${lib.optionalString copyWakunode2 ''
+      cp build/wakunode2 $out/bin/ 2>/dev/null || true
+      ''}
+
+      ${lib.optionalString (!hasKnownInstallTarget) ''
+      cp build/lib*.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
+      ''}
     fi
 
     # Copy header files
+    ${lib.optionalString copyLibwaku ''
+    cp library/libwaku.h $out/include/ 2>/dev/null || true
+    ''}
+
+    ${lib.optionalString copyLiblogosdelivery ''
+    cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
+    ''}
+
+    ${lib.optionalString (!hasKnownInstallTarget) ''
     cp library/libwaku.h $out/include/ 2>/dev/null || true
     cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
+    ''}
   '';
 
   meta = with pkgs.lib; {
