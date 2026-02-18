@@ -21,15 +21,21 @@ All items below are to be completed by the owner of the given release.
 - [ ] Assign release candidate tag to the release branch HEAD (e.g. `v0.X.0-beta-rc.0`, `v0.X.0-beta-rc.1`, ... `v0.X.0-beta-rc.N`).
 - [ ] Generate and edit release notes in CHANGELOG.md.
 
-- [ ] **Waku test and fleets validation**
-  - [ ] Ensure all the unit tests (specifically logos-delivery-js tests) are green against the release candidate.
-  - [ ] Deploy the release candidate to `waku.test` only through [deploy-waku-test job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-test/) and wait for it to finish (Jenkins access required; ask the infra team if you don't have it).
-    - After completion, disable [deployment job](https://ci.infra.status.im/job/nim-waku/) so that its version is not updated on every merge to master.
-    - Verify the deployed version at https://fleets.waku.org/.
-    - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/9/repositories/logos-delivery/artifacts-tab).
-  - [ ] Analyze Kibana logs from the previous month (since the last release was deployed) for possible crashes or errors in `waku.test`.
-      - Most relevant logs are `(fleet: "waku.test" AND message: "SIGSEGV")`.
-  - [ ] Enable again the `waku.test` fleet to resume auto-deployment of the latest `master` commit.
+- [ ] **Validation of release candidate**
+  - [ ] **Automated testing**
+    - [ ] Ensure all the unit tests (specifically logos-messaging-js tests) are green against the release candidate.
+  - [ ] **Waku fleet testing**
+    - [ ] Deploy the release candidate to `waku.test` through [deploy-waku-test job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-test/) and wait for it to finish (Jenkins access required; ask the infra team if you don't have it).
+      - After completion, disable fleet so that daily CI does not override your release candidate.
+      - Verify at https://fleets.waku.org/ that the fleet is locked to the release candidate image.
+      - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab).
+    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) from the previous month (since the last release was deployed) for possible crashes or errors in `waku.test`.
+      - Set time range to "Last 30 days" (or since last release).
+      - Most relevant search query: `(fleet: "waku.test" AND message: "SIGSEGV")`, `(fleet: "waku.test" AND message: "exception")`, `(fleet: "waku.test" AND message: "error")`.
+      - Document any crashes or errors found.
+    - [ ] If `waku.test` validation is successful, deploy to `waku.sandbox` using the [deploy-waku-sandbox job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-sandbox/).
+    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) for `waku.sandbox`: `(fleet: "waku.sandbox" AND message: "SIGSEGV")`, `(fleet: "waku.sandbox" AND message: "exception")`, `(fleet: "waku.sandbox" AND message: "error")`. most probably if there are no crashes or errors in `waku.test`, there will be no crashes or errors in `waku.sandbox`.
+    - [ ] Enable the `waku.test` fleet again to resume auto-deployment of the latest `master` commit.
 
 - [ ] **Proceed with release**
 
@@ -53,4 +59,5 @@ All items below are to be completed by the owner of the given release.
 - [Infra-nim-waku](https://github.com/status-im/infra-nim-waku)
 - [Jenkins](https://ci.infra.status.im/job/nim-waku/)
 - [Fleets](https://fleets.waku.org/)
-- [Harbor](https://harbor.status.im/harbor/projects/9/repositories/logos-delivery/artifacts-tab)
+- [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab)
+- [Kibana](https://kibana.infra.status.im/app/)
