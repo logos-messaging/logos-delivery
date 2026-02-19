@@ -47,10 +47,13 @@ proc waku_filter_subscribe(
     error "fail filter subscribe", error = errorMsg
     return err(errorMsg)
 
+  let pubsubTopicOpt =
+    if ($pubsubTopic).len > 0:
+      some(PubsubTopic($pubsubTopic))
+    else:
+      none(PubsubTopic)
   let subFut = ctx.myLib[].node.filterSubscribe(
-    some(PubsubTopic($pubsubTopic)),
-    ($contentTopics).split(",").mapIt(ContentTopic(it)),
-    peer,
+    pubsubTopicOpt, ($contentTopics).split(",").mapIt(ContentTopic(it)), peer
   )
   if not await subFut.withTimeout(FilterOpTimeout):
     let errorMsg = "filter subscription timed out"

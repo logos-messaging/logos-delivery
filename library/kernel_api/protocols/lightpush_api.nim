@@ -39,13 +39,15 @@ proc waku_lightpush_publish(
     let errorMsg = "failed to lightpublish message, no suitable remote peers"
     error "PUBLISH failed", error = errorMsg
     return err(errorMsg)
+  let topic =
+    if ($pubsubTopic).len == 0:
+      none(PubsubTopic)
+    else:
+      some(PubsubTopic($pubsubTopic))
 
-  let msgHashHex = (
-    await ctx.myLib[].node.wakuLegacyLightpushClient.publish(
-      $pubsubTopic, msg, peer = peerOpt.get()
-    )
-  ).valueOr:
-    error "PUBLISH failed", error = error
-    return err($error)
+  let messageHash = (await ctx.myLib[].node.lightpushPublish(topic, msg, peerOpt)).valueOr:
+    let errorMsg = error.desc.get($error.code.int)
+    error "PUBLISH failed", error = errorMsg
+    return err(errorMsg)
 
-  return ok(msgHashHex)
+  return ok($messageHash)

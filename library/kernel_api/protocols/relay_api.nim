@@ -85,8 +85,8 @@ proc waku_relay_subscribe(
     callback: FFICallBack,
     userData: pointer,
     pubSubTopic: cstring,
+    contentTopic: cstring,
 ) {.ffi.} =
-  echo "Subscribing to topic: " & $pubSubTopic & " ..."
   proc onReceivedMessage(ctx: ptr FFIContext[Waku]): WakuRelayHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
       callEventCallback(ctx, "onReceivedMessage"):
@@ -94,21 +94,38 @@ proc waku_relay_subscribe(
 
   var cb = onReceivedMessage(ctx)
 
-  ctx.myLib[].node.subscribe(
-    (kind: SubscriptionKind.PubsubSub, topic: $pubsubTopic),
-    handler = WakuRelayHandler(cb),
-  ).isOkOr:
+  # If contentTopic is provided and non-empty, use ContentSub, otherwise use PubsubSub
+  let subscription =
+    if contentTopic != nil and len($contentTopic) > 0:
+      echo "Subscribing to content topic: " & $contentTopic & " ..."
+      (kind: SubscriptionKind.ContentSub, topic: $contentTopic)
+    else:
+      echo "Subscribing to pubsub topic: " & $pubSubTopic & " ..."
+      (kind: SubscriptionKind.PubsubSub, topic: $pubsubTopic)
+
+  ctx.myLib[].node.subscribe(subscription, handler = WakuRelayHandler(cb)).isOkOr:
     error "SUBSCRIBE failed", error = error
     return err($error)
   return ok("")
 
+# NOTE: When unsubscribing via contentTopic, this will unsubscribe from the entire
+# underlying pubsub topic/shard that the content topic maps to. This affects ALL
+# content topics on the same shard, not just the specified content topic.
 proc waku_relay_unsubscribe(
     ctx: ptr FFIContext[Waku],
     callback: FFICallBack,
     userData: pointer,
     pubSubTopic: cstring,
+    contentTopic: cstring,
 ) {.ffi.} =
-  ctx.myLib[].node.unsubscribe((kind: SubscriptionKind.PubsubSub, topic: $pubsubTopic)).isOkOr:
+  # If contentTopic is provided and non-empty, use ContentUnsub, otherwise use PubsubUnsub
+  let subscription =
+    if contentTopic != nil and len($contentTopic) > 0:
+      (kind: SubscriptionKind.ContentUnsub, topic: $contentTopic)
+    else:
+      (kind: SubscriptionKind.PubsubUnsub, topic: $pubsubTopic)
+
+  ctx.myLib[].node.unsubscribe(subscription).isOkOr:
     error "UNSUBSCRIBE failed", error = error
     return err($error)
 
