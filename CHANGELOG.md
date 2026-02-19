@@ -1,3 +1,59 @@
+## v0.38.0 (2026-02-11)
+
+### Notes
+
+- **libwaku**: Major improvements to libwaku distribution and iOS compilation support.
+- REST Store API now defaults to page size 20 with max 100.
+- Lightpush no longer mounts without relay enabled.
+- Context-aware and event-driven broker architecture introduced.
+- Mix protocol integrated with extended Kademlia discovery.
+- Repository renamed from `logos-messaging-nim` to `logos-delivery`.
+
+### Features
+
+- Waku Kademlia integration and Mix protocol updates ([#3722](https://github.com/logos-messaging/logos-delivery/pull/3722)) ([335600eb](https://github.com/logos-messaging/logos-delivery/commit/335600eb))
+- iOS compilation support (WIP) ([#3668](https://github.com/logos-messaging/logos-messaging-nim/pull/3668)) ([96196ab8](https://github.com/logos-messaging/logos-messaging-nim/commit/96196ab8))
+- Rendezvous: broadcast and discover WakuPeerRecords ([#3617](https://github.com/logos-messaging/logos-messaging-nim/pull/3617)) ([b0cd75f4](https://github.com/logos-messaging/logos-messaging-nim/commit/b0cd75f4))
+- Distribute libwaku binaries ([#3612](https://github.com/logos-messaging/logos-messaging-nim/pull/3612)) ([9e2b3830](https://github.com/logos-messaging/logos-messaging-nim/commit/9e2b3830))
+- Implement libwaku using nim-ffi ([#3656](https://github.com/logos-messaging/logos-messaging-nim/pull/3656)) ([e3dd6203](https://github.com/logos-messaging/logos-messaging-nim/commit/e3dd6203))
+- New postgres metric to estimate payload stats ([#3596](https://github.com/logos-messaging/logos-messaging-nim/pull/3596)) ([454b098a](https://github.com/logos-messaging/logos-messaging-nim/commit/454b098a))
+
+### Bug Fixes
+
+- Store protocol issue in v0.37.0 ([#3657](https://github.com/logos-messaging/logos-messaging-nim/pull/3657)) ([91b4c5f5](https://github.com/logos-messaging/logos-messaging-nim/commit/91b4c5f5))
+- Hash inputs for external nullifier, remove length prefix for sha256 ([#3660](https://github.com/logos-messaging/logos-messaging-nim/pull/3660)) ([2d40cb9d](https://github.com/logos-messaging/logos-messaging-nim/commit/2d40cb9d))
+- Admin API peer shards field from metadata protocol ([#3594](https://github.com/logos-messaging/logos-messaging-nim/pull/3594)) ([e54851d9](https://github.com/logos-messaging/logos-messaging-nim/commit/e54851d9))
+- Wakucanary now fails correctly when ping fails ([#3595](https://github.com/logos-messaging/logos-messaging-nim/pull/3595)) ([adeb1a92](https://github.com/logos-messaging/logos-messaging-nim/commit/adeb1a92))
+
+### Changes
+
+- Context aware brokers architecture ([#3674](https://github.com/logos-messaging/logos-messaging-nim/pull/3674)) ([c27405b1](https://github.com/logos-messaging/logos-messaging-nim/commit/c27405b1))
+- Introduce EventBroker, RequestBroker and MultiRequestBroker ([#3644](https://github.com/logos-messaging/logos-messaging-nim/pull/3644)) ([ae74b901](https://github.com/logos-messaging/logos-messaging-nim/commit/ae74b901))
+- Use chronos' TokenBucket ([#3670](https://github.com/logos-messaging/logos-messaging-nim/pull/3670)) ([284a0816](https://github.com/logos-messaging/logos-messaging-nim/commit/284a0816))
+- REST Store API constraints: default page size 20, max 100 ([#3602](https://github.com/logos-messaging/logos-messaging-nim/pull/3602)) ([8c30a8e1](https://github.com/logos-messaging/logos-messaging-nim/commit/8c30a8e1))
+- Do not mount lightpush without relay ([#3540](https://github.com/logos-messaging/logos-messaging-nim/pull/3540)) ([7d1c6aba](https://github.com/logos-messaging/logos-messaging-nim/commit/7d1c6aba))
+- Mix: use exit==dest approach ([#3642](https://github.com/logos-messaging/logos-messaging-nim/pull/3642)) ([088e3108](https://github.com/logos-messaging/logos-messaging-nim/commit/088e3108))
+- Bump nim-ffi to v0.1.3 ([#3696](https://github.com/logos-messaging/logos-messaging-nim/pull/3696)) ([a02aaab5](https://github.com/logos-messaging/logos-messaging-nim/commit/a02aaab5))
+- Lightpush minor refactor ([#3538](https://github.com/logos-messaging/logos-messaging-nim/pull/3538)) ([1e73213a](https://github.com/logos-messaging/logos-messaging-nim/commit/1e73213a))
+- Pin RLN dependencies to specific version ([#3649](https://github.com/logos-messaging/logos-messaging-nim/pull/3649)) ([834eea94](https://github.com/logos-messaging/logos-messaging-nim/commit/834eea94))
+- Nix: add libwaku target and wakucanary Flake package ([#3599](https://github.com/logos-messaging/logos-messaging-nim/pull/3599), [a561ec3a](https://github.com/logos-messaging/logos-messaging-nim/commit/a561ec3a))
+- Add gasprice overflow check ([#3636](https://github.com/logos-messaging/logos-messaging-nim/pull/3636)) ([a8590a0a](https://github.com/logos-messaging/logos-messaging-nim/commit/a8590a0a))
+- Adjust Dockerfile for lightpush with Mix compile ([#3724](https://github.com/logos-messaging/logos-delivery/pull/3724)) ([f208cb79](https://github.com/logos-messaging/logos-delivery/commit/f208cb79))
+- Update CI/README references after repository rename to logos-delivery ([#3729](https://github.com/logos-messaging/logos-delivery/pull/3729)) ([895f3e2d](https://github.com/logos-messaging/logos-delivery/commit/895f3e2d))
+- Various CI/CD updates and fixes ([#3664](https://github.com/logos-messaging/logos-messaging-nim/pull/3664), [#3666](https://github.com/logos-messaging/logos-messaging-nim/pull/3666), [#3667](https://github.com/logos-messaging/logos-messaging-nim/pull/3667))
+
+### This release supports the following [libp2p protocols](https://docs.libp2p.io/concepts/protocols/):
+
+| Protocol | Spec status | Protocol id |
+| ---: | :---: | :--- |
+| [`11/WAKU2-RELAY`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/11/relay.md) | `stable` | `/vac/waku/relay/2.0.0` |
+| [`12/WAKU2-FILTER`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/12/filter.md) | `draft` | `/vac/waku/filter/2.0.0-beta1` <br />`/vac/waku/filter-subscribe/2.0.0-beta1` <br />`/vac/waku/filter-push/2.0.0-beta1` |
+| [`13/WAKU2-STORE`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/13/store.md) | `draft` | `/vac/waku/store/2.0.0-beta4` |
+| [`19/WAKU2-LIGHTPUSH`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/19/lightpush.md) | `draft` | `/vac/waku/lightpush/2.0.0-beta1` |
+| [`WAKU2-LIGHTPUSH v3`](https://github.com/waku-org/specs/blob/master/standards/core/lightpush.md) | `draft` | `/vac/waku/lightpush/3.0.0` |
+| [`66/WAKU2-METADATA`](https://github.com/waku-org/specs/blob/master/standards/core/metadata.md) | `raw` | `/vac/waku/metadata/1.0.0` |
+| [`WAKU-SYNC`](https://github.com/waku-org/specs/blob/master/standards/core/sync.md) | `draft` | `/vac/waku/sync/1.0.0` |
+
 ## v0.37.1-beta (2025-12-10)
 
 ### Bug Fixes
