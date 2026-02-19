@@ -6,9 +6,12 @@
 - REST Store API now defaults to page size 20 with max 100.
 - Lightpush no longer mounts without relay enabled.
 - Context-aware and event-driven broker architecture introduced.
+- Mix protocol integrated with extended Kademlia discovery.
+- Repository renamed from `logos-messaging-nim` to `logos-delivery`.
 
 ### Features
 
+- Waku Kademlia integration and Mix protocol updates ([#3722](https://github.com/logos-messaging/logos-delivery/pull/3722)) ([335600eb](https://github.com/logos-messaging/logos-delivery/commit/335600eb))
 - iOS compilation support (WIP) ([#3668](https://github.com/logos-messaging/logos-messaging-nim/pull/3668)) ([96196ab8](https://github.com/logos-messaging/logos-messaging-nim/commit/96196ab8))
 - Rendezvous: broadcast and discover WakuPeerRecords ([#3617](https://github.com/logos-messaging/logos-messaging-nim/pull/3617)) ([b0cd75f4](https://github.com/logos-messaging/logos-messaging-nim/commit/b0cd75f4))
 - Distribute libwaku binaries ([#3612](https://github.com/logos-messaging/logos-messaging-nim/pull/3612)) ([9e2b3830](https://github.com/logos-messaging/logos-messaging-nim/commit/9e2b3830))
@@ -35,6 +38,8 @@
 - Pin RLN dependencies to specific version ([#3649](https://github.com/logos-messaging/logos-messaging-nim/pull/3649)) ([834eea94](https://github.com/logos-messaging/logos-messaging-nim/commit/834eea94))
 - Nix: add libwaku target and wakucanary Flake package ([#3599](https://github.com/logos-messaging/logos-messaging-nim/pull/3599), [a561ec3a](https://github.com/logos-messaging/logos-messaging-nim/commit/a561ec3a))
 - Add gasprice overflow check ([#3636](https://github.com/logos-messaging/logos-messaging-nim/pull/3636)) ([a8590a0a](https://github.com/logos-messaging/logos-messaging-nim/commit/a8590a0a))
+- Adjust Dockerfile for lightpush with Mix compile ([#3724](https://github.com/logos-messaging/logos-delivery/pull/3724)) ([f208cb79](https://github.com/logos-messaging/logos-delivery/commit/f208cb79))
+- Update CI/README references after repository rename to logos-delivery ([#3729](https://github.com/logos-messaging/logos-delivery/pull/3729)) ([895f3e2d](https://github.com/logos-messaging/logos-delivery/commit/895f3e2d))
 - Various CI/CD updates and fixes ([#3664](https://github.com/logos-messaging/logos-messaging-nim/pull/3664), [#3666](https://github.com/logos-messaging/logos-messaging-nim/pull/3666), [#3667](https://github.com/logos-messaging/logos-messaging-nim/pull/3667))
 
 ### This release supports the following [libp2p protocols](https://docs.libp2p.io/concepts/protocols/):
