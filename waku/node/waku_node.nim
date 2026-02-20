@@ -301,8 +301,15 @@ proc mountAutoSharding*(
     node: WakuNode, clusterId: uint16, shardCount: uint32
 ): Result[void, string] =
   info "mounting auto sharding", clusterId = clusterId, shardCount = shardCount
-  node.wakuAutoSharding =
-    some(Sharding(clusterId: clusterId, shardCountGenZero: shardCount))
+  node.wakuAutoSharding = some(Sharding.init(clusterId, shardCount))
+
+  return ok()
+
+proc mountAutoSharding*(
+    node: WakuNode, clusterId: uint16, shards: seq[uint16]
+): Result[void, string] =
+  info "mounting auto sharding", clusterId = clusterId, shards = shards
+  node.wakuAutoSharding = some(Sharding.init(clusterId, shards))
 
   return ok()
 
