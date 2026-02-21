@@ -25,7 +25,7 @@ proc new*(T: typedesc[SubscriptionService], node: WakuNode): T =
 
   service.relayHandler = proc(
       topic: PubsubTopic, msg: WakuMessage
-  ): Future[void] {.async, gcsafe.} =
+  ) {.async.} =
     if not service.contentTopicSubs.hasKey(topic) or
         not service.contentTopicSubs[topic].contains(msg.contentTopic):
       return

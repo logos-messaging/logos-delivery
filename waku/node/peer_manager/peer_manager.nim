@@ -131,14 +131,6 @@ proc protocolMatcher*(codec: string): Matcher =
 
   return match
 
-proc peerSupportsShard*(peer: RemotePeerInfo, shardInfo: RelayShard): bool =
-  ## Returns true if the given peer has an ENR record with the given shard
-  ## or if it has the shard in its shards list (populated from metadata protocol).
-
-  return
-    (peer.enr.isSome() and peer.enr.get().containsShard(shardInfo)) or
-    (peer.shards.len > 0 and peer.shards.contains(shardInfo.shardId))
-
 #~~~~~~~~~~~~~~~~~~~~~~~~~~#
 # Peer Storage Management  #
 #~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -225,60 +217,54 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
 
   trace "recovered peers from storage", amount = amount
 
-proc selectPeers*(
-    pm: PeerManager,
-    proto: string,
-    amount: int,
-    shard: Option[PubsubTopic] = none(PubsubTopic),
-): seq[RemotePeerInfo] =
-  # Selects the best peers for a given protocol
+proc selectPeer*(
+    pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
+): Option[RemotePeerInfo] =
+  # Selects the best peer for a given protocol
 
   var peers = pm.switch.peerStore.getPeersByProtocol(proto)
-  trace "Selecting peers from peerstore",
-    amount = amount, protocol = proto, peers, address = cast[uint](pm.switch.peerStore)
+  trace "Selecting peer from peerstore",
+    protocol = proto, peers, address = cast[uint](pm.switch.peerStore)
 
   if shard.isSome():
     # Parse the shard from the pubsub topic to get cluster and shard ID
     let shardInfo = RelayShard.parse(shard.get()).valueOr:
       trace "Failed to parse shard from pubsub topic", topic = shard.get()
-      return @[]
+      return none(RemotePeerInfo)
 
     # Filter peers that support the requested shard
-    peers.keepItIf(it.peerSupportsShard(shardInfo))
+    # Check both ENR (if present) and the shards field on RemotePeerInfo
+    peers.keepItIf(
+      # Check ENR if available
+      (it.enr.isSome() and it.enr.get().containsShard(shard.get())) or
+      # Otherwise check the shards field directly
+      (it.shards.len > 0 and it.shards.contains(shardInfo.shardId))
+    )
 
-  # For non relay protocols, we may select the peer that is slotted for the given protocol
-  if proto != WakuRelayCodec:
-    pm.serviceSlots.withValue(proto, serviceSlot):
-      trace "Got peer from service slots",
-        peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs[0], protocol = proto
-      return @[serviceSlot[]]
+  shuffle(peers)
 
-  # If no slotted peer available, select random peers for the given protocol
+  # No criteria for selecting a peer for WakuRelay, random one
+  if proto == WakuRelayCodec:
+    # TODO: proper heuristic here that compares peer scores and selects "best" one. For now the first peer for the given protocol is returned
+    if peers.len > 0:
+      trace "Got peer from peerstore",
+        peerId = peers[0].peerId, multi = peers[0].addrs[0], protocol = proto
+      return some(peers[0])
+    trace "No peer found for protocol", protocol = proto
+    return none(RemotePeerInfo)
+
+  # For other protocols, we select the peer that is slotted for the given protocol
+  pm.serviceSlots.withValue(proto, serviceSlot):
+    trace "Got peer from service slots",
+      peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs[0], protocol = proto
+    return some(serviceSlot[])
+
+  # If not slotted, we select a random peer for the given protocol
   if peers.len > 0:
-    # TODO: proper heuristic here that compares peer scores and selects the best ones.
-    shuffle(peers)
-    let count = min(peers.len, amount)
-    let selected = peers[0 ..< count]
-
-    for i, peer in selected:
-      trace "Selected peer from peerstore",
-        peerId = peer.peerId,
-        multi = peer.addrs[0],
-        protocol = proto,
-        num = $(i + 1) & "/" & $count
-
-    return selected
-
-  trace "No peer found for protocol", protocol = proto
-  return @[]
-
-proc selectPeer*(
-    pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
-): Option[RemotePeerInfo] =
-  let peers = pm.selectPeers(proto, 1, shard)
-  if peers.len > 0:
+    trace "Got peer from peerstore",
+      peerId = peers[0].peerId, multi = peers[0].addrs[0], protocol = proto
     return some(peers[0])
-
+  trace "No peer found for protocol", protocol = proto
   return none(RemotePeerInfo)
 
 # Adds a peer to the service slots, which is a list of peers that are slotted for a given protocol
