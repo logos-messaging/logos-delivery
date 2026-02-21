@@ -256,12 +256,9 @@ networkmonitor: | build librln
 .PHONY: build-nph install-nph clean-nph print-nph-path
 
 build-nph: | build deps
-ifeq ("$(wildcard $(NPH))","")
-	nimble install nph -y
+	nimble install nph@0.7.0 -y
+	cp ./nimbledeps/bin/nph ~/.nimble/bin/
 	echo "nph utility is available"
-else
-	echo "nph utility already exists at " $(NPH)
-endif
 
 GIT_PRE_COMMIT_HOOK := .git/hooks/pre-commit
 
