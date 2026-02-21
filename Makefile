@@ -368,10 +368,6 @@ docker-liteprotocoltester-push:
 ################
 .PHONY: cbindings cwaku_example libwaku liblogosdelivery liblogosdelivery_example
 
-STATIC ?= 0
-LIBWAKU_BUILD_COMMAND ?= libwakuDynamic
-LIBLOGOSDELIVERY_BUILD_COMMAND ?= liblogosdeliveryDynamic
-
 detected_OS ?= Linux
 ifeq ($(OS),Windows_NT)
 detected_OS := Windows
@@ -379,11 +375,10 @@ else
 detected_OS := $(shell uname -s)
 endif
 
-BUILD_COMMAND ?= libwakuDynamic
+BUILD_COMMAND ?= Dynamic
+STATIC ?= 0
 ifeq ($(STATIC), 1)
-	BUILD_COMMAND = libwakuStatic
-	LIBWAKU_BUILD_COMMAND = libwakuStatic
-	LIBLOGOSDELIVERY_BUILD_COMMAND = liblogosdeliveryStatic
+	BUILD_COMMAND = Static
 endif
 
 ifeq ($(detected_OS),Windows)
@@ -396,30 +391,10 @@ else ifeq ($(detected_OS),Linux)
 endif
 
 libwaku: |
-	nimble --verbose $(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
+	nimble --verbose libwaku$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
-cwaku_example: | build libwaku
-	echo -e $(BUILD_MSG) "build/$@" && \
-		cc -o "build/$@" \
-		./examples/cbindings/waku_example.c \
-		./examples/cbindings/base64.c \
-		-lwaku -Lbuild/ \
-		-pthread -ldl -lm
-
-cppwaku_example: | build libwaku
-	echo -e $(BUILD_MSG) "build/$@" && \
-		g++ -o "build/$@" \
-		./examples/cpp/waku.cpp \
-		./examples/cpp/base64.cpp \
-		-lwaku -Lbuild/ \
-		-pthread -ldl -lm
-
-nodejswaku: | build deps
-	echo -e $(BUILD_MSG) "build/$@" && \
-		node-gyp build --directory=examples/nodejs/
-
-liblogosdelivery: | build deps librln
-	echo -e $(BUILD_MSG) "build/$@.$(LIB_EXT)" && $(ENV_SCRIPT) nim $(LIBLOGOSDELIVERY_BUILD_COMMAND) $(NIM_PARAMS) waku.nims $@.$(LIB_EXT)
+liblogosdelivery: |
+	nimble --verbose liblogosdelivery$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
 logosdelivery_example: | build liblogosdelivery
 	@echo -e $(BUILD_MSG) "build/$@"
@@ -445,6 +420,26 @@ else ifeq ($(detected_OS),Windows)
 		-llogosdelivery \
 		-lws2_32
 endif
+
+cwaku_example: | build libwaku
+	echo -e $(BUILD_MSG) "build/$@" && \
+		cc -o "build/$@" \
+		./examples/cbindings/waku_example.c \
+		./examples/cbindings/base64.c \
+		-lwaku -Lbuild/ \
+		-pthread -ldl -lm
+
+cppwaku_example: | build libwaku
+	echo -e $(BUILD_MSG) "build/$@" && \
+		g++ -o "build/$@" \
+		./examples/cpp/waku.cpp \
+		./examples/cpp/base64.cpp \
+		-lwaku -Lbuild/ \
+		-pthread -ldl -lm
+
+nodejswaku: | build deps
+	echo -e $(BUILD_MSG) "build/$@" && \
+		node-gyp build --directory=examples/nodejs/
 
 #####################
 ## Mobile Bindings ##
