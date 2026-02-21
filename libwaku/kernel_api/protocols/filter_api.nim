@@ -12,8 +12,8 @@ import
   waku/node/kernel_api,
   waku/waku_core/topics/pubsub_topic,
   waku/waku_core/topics/content_topic,
-  library/events/json_message_event,
-  library/declare_lib
+  libwaku/events/json_message_event,
+  libwaku/declare_lib
 
 const FilterOpTimeout = 5.seconds
 
