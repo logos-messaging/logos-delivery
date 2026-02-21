@@ -7,7 +7,7 @@ import
   waku/waku_core/peers,
   waku/node/waku_node,
   waku/node/kernel_api,
-  library/declare_lib
+  libwaku/declare_lib
 
 proc retrieveBootstrapNodes(
     enrTreeUrl: string, ipDnsServer: string
