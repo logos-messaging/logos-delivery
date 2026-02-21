@@ -106,16 +106,8 @@ proc mgetOrPut*[K, V](t: var TimedMap[K, V], k: K, v: V, now = Moment.now()): va
 
   let
     previous = t.del(k) # Refresh existing item
-    addedAt =
-      if previous.isSome():
-        previous[].addedAt
-      else:
-        now
-    value =
-      if previous.isSome():
-        previous[].value
-      else:
-        v
+    addedAt = if previous.isSome(): previous[].addedAt else: now
+    value = if previous.isSome(): previous[].value else: v
 
   let node =
     TimedEntry[K, V](key: k, value: value, addedAt: addedAt, expiresAt: now + t.timeout)

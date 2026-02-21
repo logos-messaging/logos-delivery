@@ -70,10 +70,9 @@ func topicsToRelayShards*(topics: seq[string]): Result[Option[RelayShards], stri
   if parsedTopicsRes.anyIt(it.get().clusterId != parsedTopicsRes[0].get().clusterId):
     return err("use shards with the same cluster Id.")
 
-  let relayShard =
-    ?RelayShards.init(
-      parsedTopicsRes[0].get().clusterId, parsedTopicsRes.mapIt(it.get().shardId)
-    )
+  let relayShard = ?RelayShards.init(
+    parsedTopicsRes[0].get().clusterId, parsedTopicsRes.mapIt(it.get().shardId)
+  )
 
   return ok(some(relayShard))
 

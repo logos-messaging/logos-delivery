@@ -91,23 +91,22 @@ proc new*(
   ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
     discard
 
-  server.httpServer =
-    ?HttpServerRef.new(
-      address,
-      defaultProcessCallback,
-      serverFlags,
-      socketFlags,
-      serverUri,
-      serverIdent,
-      maxConnections,
-      bufferSize,
-      backlogSize,
-      httpHeadersTimeout,
-      maxHeadersSize,
-      maxRequestBodySize,
-      dualstack = dualstack,
-      middlewares = middlewares,
-    )
+  server.httpServer = ?HttpServerRef.new(
+    address,
+    defaultProcessCallback,
+    serverFlags,
+    socketFlags,
+    serverUri,
+    serverIdent,
+    maxConnections,
+    bufferSize,
+    backlogSize,
+    httpHeadersTimeout,
+    maxHeadersSize,
+    maxRequestBodySize,
+    dualstack = dualstack,
+    middlewares = middlewares,
+  )
   return ok(server)
 
 proc getRouter(): RestRouter =
