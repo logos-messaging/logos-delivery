@@ -55,7 +55,7 @@ stdenv.mkDerivation {
   '';
 
   # Make this a fixed-output derivation to allow internet access for Nimble.
-  outputHash = "sha256-dEWWLeuc15XidSEze+lN3s743VAc2bk9tGEOByZt7rU=";
+  outputHash = "sha256-hyH53xPwTJlAwjTVpuZkV4nwLfrKY7BXnZkjsAyt/1w=";
   outputHashAlgo = "sha256";
   outputHashMode = "recursive";
 }
