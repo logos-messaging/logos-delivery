@@ -91,11 +91,9 @@ proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   exec "nim " & lang & " --out:build/" & name & " --mm:refc " & extra_params & " " &
     srcDir & name & ".nim"
 
-proc buildLibrary(outLibNameAndExt: string,
-            name: string,
-            srcDir = "./",
-            extra_params = "",
-            `type` = "static") =
+proc buildLibrary(outLibNameAndExt: string, libName: string, extra_params = "", `type` = "static") =
+
+  echo "Building library: " & outLibNameAndExt & " from " & libName & ".nim with type: " & `type`
 
   if not dirExists "build":
     mkDir "build"
@@ -104,18 +102,18 @@ proc buildLibrary(outLibNameAndExt: string,
     exec "nim c" & " --out:build/" & outLibNameAndExt &
       " --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics" &
       " --nimMainPrefix:libwaku -d:discv5_protocol_id=d5waku " &
-      extra_params & " " & srcDir & name & ".nim"
+      extra_params & " " & libName & "/" & libName & ".nim"
   else:
     when defined(windows):
       exec "nim c" & " --out:build/" & outLibNameAndExt &
         " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics" &
         " --nimMainPrefix:libwaku -d:discv5_protocol_id=d5waku " &
-        extra_params & " " & srcDir & name & ".nim"
+        extra_params & " " & libName & "/" & libName & ".nim"
     else:
       exec "nim c" & " --out:build/" & outLibNameAndExt &
         " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics" &
         " --nimMainPrefix:libwaku -d:discv5_protocol_id=d5waku " &
-        extra_params & " " & srcDir & name & ".nim"
+        extra_params & " " & libName & "/" & libName & ".nim"
 
 proc getArch(): string =
   let arch = getEnv("ARCH")
@@ -123,80 +121,83 @@ proc getArch(): string =
   let (archFromUname, _) = gorgeEx("uname -m")
   return $archFromUname
 
-task libwakuDynamicWindows, "Generate bindings":
-  let outLibNameAndExt = "libwaku.dll"
-  let name = "libwaku"
-  buildLibrary outLibNameAndExt,
-    name, "library/",
+proc buildLibDynamicWindows(libName: string) =
+  buildLibrary libName & ".dll", libName,
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
     "dynamic"
+
+proc buildLibDynamicLinux(libName: string) =
+  buildLibrary libName & ".so", libName,
+    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
+    "dynamic"
+
+proc buildLibDynamicMac(libName: string) =
+  let arch = getArch()
+  let sdkPath = staticExec("xcrun --show-sdk-path").strip()
+  let archFlags = (if arch == "arm64": "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+                   else: "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\"")
+  buildLibrary libName & ".dylib", libName,
+    archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
+    "dynamic"
+
+proc buildLibStaticWindows(libName: string) =
+  buildLibrary libName & ".lib", libName,
+    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
+    "static"
+
+proc buildLibStaticLinux(libName: string) =
+  buildLibrary libName & ".a", libName,
+    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
+    "static"
+
+proc buildLibStaticMac(libName: string) =
+  let arch = getArch()
+  let sdkPath = staticExec("xcrun --show-sdk-path").strip()
+  let archFlags = (if arch == "arm64": "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+                   else: "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\"")
+  buildLibrary libName & ".a", libName,
+    archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
+    "static"
+
+## Libwaku build tasks
+
+task libwakuDynamicWindows, "Generate bindings":
+  buildLibDynamicWindows("libwaku")
 
 task libwakuDynamicLinux, "Generate bindings":
-  let outLibNameAndExt = "libwaku.so"
-  let name = "libwaku"
-  buildLibrary outLibNameAndExt,
-    name, "library/",
-    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "dynamic"
+  buildLibDynamicLinux("libwaku")
 
 task libwakuDynamicMac, "Generate bindings":
-  let outLibNameAndExt = "libwaku.dylib"
-  let name = "libwaku"
-
-  let arch = getArch()
-  let sdkPath = staticExec("xcrun --show-sdk-path").strip()
-  let archFlags = (if arch == "arm64": "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
-                   else: "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\"")
-  buildLibrary outLibNameAndExt,
-    name, "library/",
-    archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
-    "dynamic"
+  buildLibDynamicMac("libwaku")
 
 task libwakuStaticWindows, "Generate bindings":
-  let outLibNameAndExt = "libwaku.lib"
-  let name = "libwaku"
-  buildLibrary outLibNameAndExt,
-    name, "library/",
-    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "static"
+  buildLibStaticWindows("libwaku")
 
 task libwakuStaticLinux, "Generate bindings":
-  let outLibNameAndExt = "libwaku.a"
-  let name = "libwaku"
-  buildLibrary outLibNameAndExt,
-    name, "library/",
-    """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "static"
+  buildLibStaticLinux("libwaku")
 
 task libwakuStaticMac, "Generate bindings":
-  let outLibNameAndExt = "libwaku.a"
-  let name = "libwaku"
+  buildLibStaticMac("libwaku")
 
-  let arch = getArch()
-  let sdkPath = staticExec("xcrun --show-sdk-path").strip()
-  let archFlags = (if arch == "arm64": "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
-                   else: "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\"")
-  buildLibrary outLibNameAndExt,
-    name, "library/",
-    archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
-    "static"
+## Liblogosdelivery build tasks
 
-proc buildMobileAndroid(srcDir = ".", params = "") =
-  let cpu = getEnv("CPU")
-  let abiDir = getEnv("ABIDIR")
+task liblogosdeliveryDynamicWindows, "Generate bindings":
+  buildLibDynamicWindows("liblogosdelivery")
 
-  let outDir = "build/android/" & abiDir
-  if not dirExists outDir:
-    mkDir outDir
+task liblogosdeliveryDynamicLinux, "Generate bindings":
+  buildLibDynamicLinux("liblogosdelivery")
 
-  var extra_params = params
-  for i in 2 ..< paramCount():
-    extra_params &= " " & paramStr(i)
+task liblogosdeliveryDynamicMac, "Generate bindings":
+  buildLibDynamicMac("liblogosdelivery")
 
-  exec "nim c" & " --out:" & outDir &
-    "/libwaku.so --threads:on --app:lib --opt:size --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
-    outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --os:android -d:androidNDK " &
-    extra_params & " " & srcDir & "/libwaku.nim"
+task liblogosdeliveryStaticWindows, "Generate bindings":
+  buildLibStaticWindows("liblogosdelivery")
+
+task liblogosdeliveryStaticLinux, "Generate bindings":
+  buildLibStaticLinux("liblogosdelivery")
+
+task liblogosdeliveryStaticMac, "Generate bindings":
+  buildLibStaticMac("liblogosdelivery")
 
 proc test(name: string, params = "-d:chronicles_log_level=DEBUG", lang = "c") =
   # XXX: When running `> NIM_PARAMS="-d:chronicles_log_level=INFO" make test2`
@@ -309,15 +310,25 @@ let chroniclesParams =
   """-d:chronicles_disabled_topics="eth,dnsdisc.client" """ & "--warning:Deprecated:off " &
   "--warning:UnusedImport:on " & "-d:chronicles_log_level=TRACE"
 
-task libwakuStatic, "Build the cbindings waku node library":
-  let lib_name = paramStr(paramCount())
-  buildLibrary lib_name, "library/", chroniclesParams, "static"
-
-task libwakuDynamic, "Build the cbindings waku node library":
-  let lib_name = paramStr(paramCount())
-  buildLibrary lib_name, "library/", chroniclesParams, "dynamic"
-
 ### Mobile Android
+
+proc buildMobileAndroid(srcDir = ".", params = "") =
+  let cpu = getEnv("CPU")
+  let abiDir = getEnv("ABIDIR")
+
+  let outDir = "build/android/" & abiDir
+  if not dirExists outDir:
+    mkDir outDir
+
+  var extra_params = params
+  for i in 2 ..< paramCount():
+    extra_params &= " " & paramStr(i)
+
+  exec "nim c" & " --out:" & outDir &
+    "/libwaku.so --threads:on --app:lib --opt:size --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
+    outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --os:android -d:androidNDK " &
+    extra_params & " " & srcDir & "/libwaku.nim"
+
 task libWakuAndroid, "Build the mobile bindings for Android":
   let srcDir = "./library"
   let extraParams = "-d:chronicles_log_level=ERROR"
@@ -510,11 +521,3 @@ task libWakuIOS, "Build the mobile bindings for iOS":
   let srcDir = "./library"
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
-
-task liblogosdeliveryStatic, "Build the liblogosdelivery (Logos Messaging Delivery API) static library":
-  let lib_name = paramStr(paramCount())
-  buildLibrary lib_name, "liblogosdelivery/", chroniclesParams, "static", "liblogosdelivery.nim", "liblogosdelivery"
-
-task liblogosdeliveryDynamic, "Build the liblogosdelivery (Logos Messaging Delivery API) dynamic library":
-  let lib_name = paramStr(paramCount())
-  buildLibrary lib_name, "liblogosdelivery/", chroniclesParams, "dynamic", "liblogosdelivery.nim", "liblogosdelivery"
