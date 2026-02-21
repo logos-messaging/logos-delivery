@@ -35,7 +35,7 @@ endif
 ##########
 ## Main ##
 ##########
-.PHONY: all test update clean examples deps
+.PHONY: all test update clean examples deps nimble
 
 # default target
 all: | wakunode2 libwaku
@@ -75,6 +75,16 @@ clean:
 build:
 	mkdir -p build
 
+nimble:
+	echo "Inside nimble target, checking for nimble..." && \
+	which nimble >/dev/null 2>&1 || { \
+		mv nimbledeps nimbledeps_backup 2>/dev/null || true; \
+		echo "choosenim not found, installing into $(NIMBLE_DIR)..."; \
+		export NIMBLE_DIR="$(NIMBLE_DIR)"; \
+		curl -sSf https://nim-lang.org/choosenim/init.sh | sh; \
+		mv nimbledeps_backup nimbledeps 2>/dev/null || true; \
+	}
+
 ## Possible values: prod; debug
 TARGET ?= prod
 
@@ -103,9 +113,7 @@ else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif
 
-ifeq ($(USE_LIBBACKTRACE), 0)
 NIM_PARAMS := $(NIM_PARAMS) -d:disable_libbacktrace
-endif
 
 # enable experimental exit is dest feature in libp2p mix
 NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest
@@ -136,6 +144,8 @@ endif
 
 rln-deps: rustup
 	./scripts/install_rln_tests_dependencies.sh $(FOUNDRY_VERSION) $(PNPM_VERSION)
+
+deps: | nimble
 
 ##################
 ##     RLN      ##
@@ -182,55 +192,55 @@ testwaku: | build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble test
 
-wakunode2: | build librln
+wakunode2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakunode2
 
-benchmarks: | build librln
+benchmarks: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble benchmarks
 
-testwakunode2: | build librln
+testwakunode2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble testwakunode2
 
-example2: | build librln
+example2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble example2
 
-chat2: | build librln
+chat2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2
 
-chat2mix: | build librln
+chat2mix: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2mix
 
-rln-db-inspector: | build librln
+rln-db-inspector: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble rln_db_inspector
 
-chat2bridge: | build librln
+chat2bridge: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2bridge
 
-liteprotocoltester: | build librln
+liteprotocoltester: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble liteprotocoltester
 
-lightpushwithmix: | build librln
+lightpushwithmix: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble lightpushwithmix
 
-api_example: | build librln
+api_example: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) waku.nims
 
-build/%: | build librln
+build/%: | build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
 		nimble buildone $*
 
-compile-test: | build librln
+compile-test: | build deps librln
 	echo -e $(BUILD_MSG) "$(TEST_FILE)" "\"$(TEST_NAME)\"" && \
 		nimble buildTest $(TEST_FILE) && \
 		nimble execTest $(TEST_FILE) "\"$(TEST_NAME)\""
@@ -242,11 +252,11 @@ compile-test: | build librln
 
 tools: networkmonitor wakucanary
 
-wakucanary: | build librln
+wakucanary: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakucanary
 
-networkmonitor: | build librln
+networkmonitor: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble networkmonitor
 
