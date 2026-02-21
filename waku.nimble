@@ -23,7 +23,7 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p >= 1.15.1",
+  "https://github.com/status-im/nim-libp2p.git#ff8d51857b4b79a68468e7bcc27b2026cca02996",
   "eth",
   "nat_traversal",
   "dnsdisc",
