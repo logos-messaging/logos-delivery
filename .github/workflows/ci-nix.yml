@@ -41,7 +41,7 @@ jobs:
 
       - name: 'Run Nix build for {{ matrix.nixpkg }}'
         shell: bash
-        run: nix build -L '.?submodules=1#${{ matrix.nixpkg }}'
+        run: nix build -L '.#${{ matrix.nixpkg }}'
 
       - name: 'Show result contents'
         shell: bash
