@@ -73,7 +73,7 @@ jobs:
       - name: Install Nimble (pinned)
         uses: nim-lang/setup-nimble-action@v1
         with:
-          nimble-version: '0.22.0'
+          nimble-version: '0.20.1'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Make update
@@ -128,7 +128,7 @@ jobs:
       - name: Install Nimble (pinned)
         uses: nim-lang/setup-nimble-action@v1
         with:
-          nimble-version: '0.22.0'
+          nimble-version: '0.20.1'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Make update
@@ -206,7 +206,7 @@ jobs:
       - name: Install Nimble (pinned)
         uses: nim-lang/setup-nimble-action@v1
         with:
-          nimble-version: '0.22.0'
+          nimble-version: '0.20.1'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build nph
