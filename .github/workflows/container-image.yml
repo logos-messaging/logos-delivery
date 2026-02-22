@@ -46,12 +46,11 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: actions/checkout@v4
 
-      - name: Install Nimble via choosenim
-        run: |
-          curl https://nim-lang.org/choosenim/init.sh -sSf | sh -s -- -y
-          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-          nim --version
-          nimble --version
+      - name: Install Nimble (pinned)
+        uses: nim-lang/setup-nimble-action@v1
+        with:
+          nimble-version: '0.22.0'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build binaries
         id: build
