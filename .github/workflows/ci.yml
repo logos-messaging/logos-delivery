@@ -63,20 +63,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Nim
-        uses: iffy/install-nim@v5
-        with:
-          version: binary:2.2.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cache nimble packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nimble/pkgs2
-          key: ${{ runner.os }}-nimble-${{ hashFiles('nimble.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-nimble-
+      - name: Install Nim via choosenim
+        run: |
+          curl https://nim-lang.org/choosenim/init.sh -sSf | sh -s -- -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+          nim --version
+          nimble --version
 
       - name: Make update
         run: make update
@@ -120,20 +112,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Nim
-        uses: iffy/install-nim@v5
-        with:
-          version: binary:2.2.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Cache nimble packages
-        uses: actions/cache@v4
-        with:
-          path: ~/.nimble/pkgs2
-          key: ${{ runner.os }}-nimble-${{ hashFiles('nimble.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-nimble-
+      - name: Install Nimble via choosenim
+        run: |
+          curl https://nim-lang.org/choosenim/init.sh -sSf | sh -s -- -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+          nim --version
+          nimble --version
 
       - name: Make update
         run: make update
@@ -200,12 +184,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Nim
-        uses: iffy/install-nim@v5
-        with:
-          version: binary:2.2.4
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install Nimble via choosenim
+        run: |
+          curl https://nim-lang.org/choosenim/init.sh -sSf | sh -s -- -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+          nim --version
+          nimble --version
 
       - name: Build nph
         run: |

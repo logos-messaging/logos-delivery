@@ -46,20 +46,12 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: actions/checkout@v4
 
-      - name: Install Nim
-        if: ${{ steps.secrets.outcome == 'success' }}
-        uses: iffy/install-nim@v5
-        with:
-          version: binary:2.2.4
-
-      - name: Cache nimble packages
-        if: ${{ steps.secrets.outcome == 'success' }}
-        uses: actions/cache@v4
-        with:
-          path: ~/.nimble/pkgs2
-          key: ${{ runner.os }}-nimble-${{ hashFiles('nimble.lock') }}
-          restore-keys: |
-            ${{ runner.os }}-nimble-
+      - name: Install Nimble via choosenim
+        run: |
+          curl https://nim-lang.org/choosenim/init.sh -sSf | sh -s -- -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+          nim --version
+          nimble --version
 
       - name: Build binaries
         id: build
