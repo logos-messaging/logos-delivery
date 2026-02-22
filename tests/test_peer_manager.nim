@@ -1216,30 +1216,29 @@ procSuite "Peer Manager":
       shardId1 = 1.uint16
 
     # Create 3 nodes with different shards
-    let nodes =
-      @[
-        newTestWakuNode(
-          generateSecp256k1Key(),
-          parseIpAddress("0.0.0.0"),
-          Port(0),
-          clusterId = clusterId,
-          subscribeShards = @[shardId0],
-        ),
-        newTestWakuNode(
-          generateSecp256k1Key(),
-          parseIpAddress("0.0.0.0"),
-          Port(0),
-          clusterId = clusterId,
-          subscribeShards = @[shardId1],
-        ),
-        newTestWakuNode(
-          generateSecp256k1Key(),
-          parseIpAddress("0.0.0.0"),
-          Port(0),
-          clusterId = clusterId,
-          subscribeShards = @[shardId0],
-        ),
-      ]
+    let nodes = @[
+      newTestWakuNode(
+        generateSecp256k1Key(),
+        parseIpAddress("0.0.0.0"),
+        Port(0),
+        clusterId = clusterId,
+        subscribeShards = @[shardId0],
+      ),
+      newTestWakuNode(
+        generateSecp256k1Key(),
+        parseIpAddress("0.0.0.0"),
+        Port(0),
+        clusterId = clusterId,
+        subscribeShards = @[shardId1],
+      ),
+      newTestWakuNode(
+        generateSecp256k1Key(),
+        parseIpAddress("0.0.0.0"),
+        Port(0),
+        clusterId = clusterId,
+        subscribeShards = @[shardId0],
+      ),
+    ]
 
     await allFutures(nodes.mapIt(it.start()))
     for node in nodes:
@@ -1364,13 +1363,12 @@ procSuite "Peer Manager":
     node.peerManager.switch.peerStore[ProtoBook][peerInfo.peerId] = @[WakuRelayCodec]
 
     ## When: selectPeer is called with malformed pubsub topic
-    let invalidTopics =
-      @[
-        some(PubsubTopic("invalid-topic")),
-        some(PubsubTopic("/waku/2/invalid")),
-        some(PubsubTopic("/waku/2/rs/abc/0")), # non-numeric cluster
-        some(PubsubTopic("")), # empty topic
-      ]
+    let invalidTopics = @[
+      some(PubsubTopic("invalid-topic")),
+      some(PubsubTopic("/waku/2/invalid")),
+      some(PubsubTopic("/waku/2/rs/abc/0")), # non-numeric cluster
+      some(PubsubTopic("")), # empty topic
+    ]
 
     ## Then: Returns none(RemotePeerInfo) without crashing
     for invalidTopic in invalidTopics:

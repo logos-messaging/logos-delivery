@@ -88,11 +88,10 @@ suite "LibWaku Conf - toWakuConf":
 
   test "Bootstrap nodes configuration":
     ## Given
-    let entryNodes =
-      @[
-        "enr:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g",
-        "enr:-QEkuECnZ3IbVAgkOzv-QLnKC4dRKAPRY80m1-R7G8jZ7yfT3ipEfBrhKN7ARcQgQ-vg-h40AQzyvAkPYlHPaFKk6u9MBgmlkgnY0iXNlY3AyNTZrMaEDk49D8JjMSns4p1XVNBvJquOUzT4PENSJknkROspfAFGg3RjcIJ2X4N1ZHCCd2g",
-      ]
+    let entryNodes = @[
+      "enr:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g",
+      "enr:-QEkuECnZ3IbVAgkOzv-QLnKC4dRKAPRY80m1-R7G8jZ7yfT3ipEfBrhKN7ARcQgQ-vg-h40AQzyvAkPYlHPaFKk6u9MBgmlkgnY0iXNlY3AyNTZrMaEDk49D8JjMSns4p1XVNBvJquOUzT4PENSJknkROspfAFGg3RjcIJ2X4N1ZHCCd2g",
+    ]
     let libConf = NodeConfig.init(
       mode = Core,
       protocolsConfig = ProtocolsConfig.init(
@@ -113,11 +112,10 @@ suite "LibWaku Conf - toWakuConf":
 
   test "Static store nodes configuration":
     ## Given
-    let staticStoreNodes =
-      @[
-        "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc",
-        "/ip4/192.168.1.1/tcp/60001/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYd",
-      ]
+    let staticStoreNodes = @[
+      "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc",
+      "/ip4/192.168.1.1/tcp/60001/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYd",
+    ]
     let nodeConf = NodeConfig.init(
       protocolsConfig = ProtocolsConfig.init(
         entryNodes = @[], staticStoreNodes = staticStoreNodes, clusterId = 1
@@ -199,14 +197,12 @@ suite "LibWaku Conf - toWakuConf":
     let nodeConfig = NodeConfig.init(
       mode = Core,
       protocolsConfig = ProtocolsConfig.init(
-        entryNodes =
-          @[
-            "enr:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g"
-          ],
-        staticStoreNodes =
-          @[
-            "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
-          ],
+        entryNodes = @[
+          "enr:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g"
+        ],
+        staticStoreNodes = @[
+          "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+        ],
         clusterId = 99,
         autoShardingConfig = AutoShardingConfig(numShardsInCluster: 12),
         messageValidation = MessageValidation(
@@ -270,11 +266,10 @@ suite "LibWaku Conf - toWakuConf":
 
   test "NodeConfig with mixed entry nodes (integration test)":
     ## Given
-    let entryNodes =
-      @[
-        "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im",
-        "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc",
-      ]
+    let entryNodes = @[
+      "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im",
+      "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc",
+    ]
 
     let nodeConfig = NodeConfig.init(
       mode = Core,
@@ -304,8 +299,7 @@ suite "LibWaku Conf - toWakuConf":
 suite "NodeConfig JSON - complete format":
   test "Full NodeConfig from complete JSON with field validation":
     ## Given
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "mode": "Core",
       "protocolsConfig": {
@@ -362,8 +356,7 @@ suite "NodeConfig JSON - complete format":
 
   test "Full NodeConfig with RlnConfig present":
     ## Given
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "mode": "Edge",
       "protocolsConfig": {
@@ -408,10 +401,9 @@ suite "NodeConfig JSON - complete format":
       mode = Edge,
       protocolsConfig = ProtocolsConfig.init(
         entryNodes = @["enrtree://TREE@example.com"],
-        staticStoreNodes =
-          @[
-            "/ip4/1.2.3.4/tcp/80/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
-          ],
+        staticStoreNodes = @[
+          "/ip4/1.2.3.4/tcp/80/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+        ],
         clusterId = 42,
         autoShardingConfig = AutoShardingConfig(numShardsInCluster: 16),
         messageValidation = MessageValidation(
@@ -515,8 +507,7 @@ suite "NodeConfig JSON - partial format with defaults":
 
   test "ProtocolsConfig partial - optional fields get defaults":
     ## Given — only entryNodes and clusterId provided
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": ["enrtree://X@y.com"],
@@ -546,8 +537,7 @@ suite "NodeConfig JSON - partial format with defaults":
 
   test "MessageValidation partial - rlnConfig omitted defaults to none":
     ## Given
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -574,8 +564,7 @@ suite "NodeConfig JSON - partial format with defaults":
 
   test "logLevel and logFormat omitted use defaults":
     ## Given
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "mode": "Core",
       "protocolsConfig": {
@@ -600,8 +589,7 @@ suite "NodeConfig JSON - partial format with defaults":
 
 suite "NodeConfig JSON - unsupported fields raise errors":
   test "Unknown field at NodeConfig level raises":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "mode": "Core",
       "unknownTopLevel": true
@@ -616,8 +604,7 @@ suite "NodeConfig JSON - unsupported fields raise errors":
     check raised
 
   test "Typo in NodeConfig field name raises":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "modes": "Core"
     }
@@ -631,8 +618,7 @@ suite "NodeConfig JSON - unsupported fields raise errors":
     check raised
 
   test "Unknown field in ProtocolsConfig raises":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -655,8 +641,7 @@ suite "NodeConfig JSON - unsupported fields raise errors":
     check raised
 
   test "Unknown field in NetworkingConfig raises":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -679,8 +664,7 @@ suite "NodeConfig JSON - unsupported fields raise errors":
     check raised
 
   test "Unknown field in MessageValidation raises":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -706,8 +690,7 @@ suite "NodeConfig JSON - unsupported fields raise errors":
     check raised
 
   test "Unknown field in RlnConfig raises":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -738,8 +721,7 @@ suite "NodeConfig JSON - unsupported fields raise errors":
     check raised
 
   test "Unknown field in AutoShardingConfig raises":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -766,8 +748,7 @@ suite "NodeConfig JSON - unsupported fields raise errors":
 
 suite "NodeConfig JSON - missing required fields":
   test "Missing 'entryNodes' in ProtocolsConfig":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "clusterId": 1
@@ -788,8 +769,7 @@ suite "NodeConfig JSON - missing required fields":
     check raised
 
   test "Missing 'clusterId' in ProtocolsConfig":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": []
@@ -810,8 +790,7 @@ suite "NodeConfig JSON - missing required fields":
     check raised
 
   test "Missing required fields in NetworkingConfig":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -831,8 +810,7 @@ suite "NodeConfig JSON - missing required fields":
     check raised
 
   test "Missing 'numShardsInCluster' in AutoShardingConfig":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -855,8 +833,7 @@ suite "NodeConfig JSON - missing required fields":
     check raised
 
   test "Missing required fields in RlnConfig":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -884,8 +861,7 @@ suite "NodeConfig JSON - missing required fields":
     check raised
 
   test "Missing 'maxMessageSize' in MessageValidation":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -927,8 +903,7 @@ suite "NodeConfig JSON - invalid values":
     check raised
 
   test "Wrong type for clusterId (string instead of number)":
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "protocolsConfig": {
         "entryNodes": [],
@@ -960,8 +935,7 @@ suite "NodeConfig JSON - invalid values":
 suite "NodeConfig JSON -> WakuConf integration":
   test "Decoded config translates to valid WakuConf":
     ## Given
-    let jsonStr =
-      """
+    let jsonStr = """
     {
       "mode": "Core",
       "protocolsConfig": {

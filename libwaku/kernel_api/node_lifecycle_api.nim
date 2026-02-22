@@ -8,7 +8,7 @@ import
   waku/factory/node_factory,
   waku/factory/app_callbacks,
   waku/rest_api/endpoint/builder,
-  library/declare_lib
+  libwaku/declare_lib
 
 proc createWaku(
     configJson: cstring, appCallbacks: AppCallbacks = nil

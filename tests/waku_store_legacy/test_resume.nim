@@ -29,93 +29,91 @@ when defined(waku_exp_store_resume):
     ## Fixtures
     let storeA = block:
       let store = newTestMessageStore()
-      let msgList =
-        @[
-          fakeWakuMessage(
-            payload = @[byte 0], contentTopic = ContentTopic("2"), ts = ts(0)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 1], contentTopic = ContentTopic("1"), ts = ts(1)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 2], contentTopic = ContentTopic("2"), ts = ts(2)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 3], contentTopic = ContentTopic("1"), ts = ts(3)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 4], contentTopic = ContentTopic("2"), ts = ts(4)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 5], contentTopic = ContentTopic("1"), ts = ts(5)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 6], contentTopic = ContentTopic("2"), ts = ts(6)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 7], contentTopic = ContentTopic("1"), ts = ts(7)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 8], contentTopic = ContentTopic("2"), ts = ts(8)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 9], contentTopic = ContentTopic("1"), ts = ts(9)
-          ),
-        ]
+      let msgList = @[
+        fakeWakuMessage(
+          payload = @[byte 0], contentTopic = ContentTopic("2"), ts = ts(0)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 1], contentTopic = ContentTopic("1"), ts = ts(1)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 2], contentTopic = ContentTopic("2"), ts = ts(2)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 3], contentTopic = ContentTopic("1"), ts = ts(3)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 4], contentTopic = ContentTopic("2"), ts = ts(4)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 5], contentTopic = ContentTopic("1"), ts = ts(5)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 6], contentTopic = ContentTopic("2"), ts = ts(6)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 7], contentTopic = ContentTopic("1"), ts = ts(7)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 8], contentTopic = ContentTopic("2"), ts = ts(8)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 9], contentTopic = ContentTopic("1"), ts = ts(9)
+        ),
+      ]
 
       for msg in msgList:
         require store
-        .put(
-          DefaultPubsubTopic,
-          msg,
-          computeDigest(msg),
-          computeMessageHash(DefaultPubsubTopic, msg),
-          msg.timestamp,
-        )
-        .isOk()
+          .put(
+            DefaultPubsubTopic,
+            msg,
+            computeDigest(msg),
+            computeMessageHash(DefaultPubsubTopic, msg),
+            msg.timestamp,
+          )
+          .isOk()
 
       store
 
     let storeB = block:
       let store = newTestMessageStore()
-      let msgList2 =
-        @[
-          fakeWakuMessage(
-            payload = @[byte 0], contentTopic = ContentTopic("2"), ts = ts(0)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 11], contentTopic = ContentTopic("1"), ts = ts(1)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 12], contentTopic = ContentTopic("2"), ts = ts(2)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 3], contentTopic = ContentTopic("1"), ts = ts(3)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 4], contentTopic = ContentTopic("2"), ts = ts(4)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 5], contentTopic = ContentTopic("1"), ts = ts(5)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 13], contentTopic = ContentTopic("2"), ts = ts(6)
-          ),
-          fakeWakuMessage(
-            payload = @[byte 14], contentTopic = ContentTopic("1"), ts = ts(7)
-          ),
-        ]
+      let msgList2 = @[
+        fakeWakuMessage(
+          payload = @[byte 0], contentTopic = ContentTopic("2"), ts = ts(0)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 11], contentTopic = ContentTopic("1"), ts = ts(1)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 12], contentTopic = ContentTopic("2"), ts = ts(2)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 3], contentTopic = ContentTopic("1"), ts = ts(3)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 4], contentTopic = ContentTopic("2"), ts = ts(4)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 5], contentTopic = ContentTopic("1"), ts = ts(5)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 13], contentTopic = ContentTopic("2"), ts = ts(6)
+        ),
+        fakeWakuMessage(
+          payload = @[byte 14], contentTopic = ContentTopic("1"), ts = ts(7)
+        ),
+      ]
 
       for msg in msgList2:
         require store
-        .put(
-          DefaultPubsubTopic,
-          msg,
-          computeDigest(msg),
-          computeMessageHash(DefaultPubsubTopic, msg),
-          msg.timestamp,
-        )
-        .isOk()
+          .put(
+            DefaultPubsubTopic,
+            msg,
+            computeDigest(msg),
+            computeMessageHash(DefaultPubsubTopic, msg),
+            msg.timestamp,
+          )
+          .isOk()
 
       store
 
@@ -136,11 +134,10 @@ when defined(waku_exp_store_resume):
         client = newTestWakuStoreClient(clientSwitch)
 
       ## Given
-      let peers =
-        @[
-          serverSwitchA.peerInfo.toRemotePeerInfo(),
-          serverSwitchB.peerInfo.toRemotePeerInfo(),
-        ]
+      let peers = @[
+        serverSwitchA.peerInfo.toRemotePeerInfo(),
+        serverSwitchB.peerInfo.toRemotePeerInfo(),
+      ]
       let req = HistoryQuery(contentTopics: @[DefaultContentTopic], pageSize: 5)
 
       ## When
@@ -226,12 +223,11 @@ when defined(waku_exp_store_resume):
         client = await newTestWakuStore(clientSwitch)
 
       ## Given
-      let peers =
-        @[
-          offlineSwitch.peerInfo.toRemotePeerInfo(),
-          serverASwitch.peerInfo.toRemotePeerInfo(),
-          serverBSwitch.peerInfo.toRemotePeerInfo(),
-        ]
+      let peers = @[
+        offlineSwitch.peerInfo.toRemotePeerInfo(),
+        serverASwitch.peerInfo.toRemotePeerInfo(),
+        serverBSwitch.peerInfo.toRemotePeerInfo(),
+      ]
 
       ## When
       let res = await client.resume(some(peers))
@@ -323,11 +319,11 @@ when defined(waku_exp_store_resume):
         receivedTime3 = now() + getNanosecondTime(10)
         digest3 = computeDigest(msg3)
       require server.wakuStore.store
-      .put(DefaultPubsubTopic, msg3, digest3, receivedTime3)
-      .isOk()
+        .put(DefaultPubsubTopic, msg3, digest3, receivedTime3)
+        .isOk()
       require client.wakuStore.store
-      .put(DefaultPubsubTopic, msg3, digest3, receivedTime3)
-      .isOk()
+        .put(DefaultPubsubTopic, msg3, digest3, receivedTime3)
+        .isOk()
 
       let serverPeer = server.peerInfo.toRemotePeerInfo()
 

@@ -119,10 +119,9 @@ proc `==`*(x, y: KeystoreMembership): bool =
 
 proc hash*(m: KeystoreMembership): string =
   # hash together the chainId, address and treeIndex
-  return
-    $sha256.digest(
-      m.membershipContract.chainId & m.membershipContract.address & $m.treeIndex
-    )
+  return $sha256.digest(
+    m.membershipContract.chainId & m.membershipContract.address & $m.treeIndex
+  )
 
 type MembershipTable* = Table[string, KeystoreMembership]
 

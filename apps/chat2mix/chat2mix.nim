@@ -57,8 +57,7 @@ import ../../waku/waku_rln_relay
 logScope:
   topics = "chat2 mix"
 
-const Help =
-  """
+const Help = """
   Commands: /[?|help|connect|nick|exit]
   help: Prints this help
   connect: dials a remote peer
@@ -429,16 +428,16 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     builder.withRecord(record)
 
     builder
-    .withNetworkConfigurationDetails(
-      conf.listenAddress,
-      Port(uint16(conf.tcpPort) + conf.portsShift),
-      extIp,
-      extTcpPort,
-      wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
-      wsEnabled = conf.websocketSupport,
-      wssEnabled = conf.websocketSecureSupport,
-    )
-    .tryGet()
+      .withNetworkConfigurationDetails(
+        conf.listenAddress,
+        Port(uint16(conf.tcpPort) + conf.portsShift),
+        extIp,
+        extTcpPort,
+        wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
+        wsEnabled = conf.websocketSupport,
+        wssEnabled = conf.websocketSecureSupport,
+      )
+      .tryGet()
     builder.build().tryGet()
 
   node.mountAutoSharding(conf.clusterId, conf.numShardsInNetwork).isOkOr:

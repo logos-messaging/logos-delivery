@@ -354,12 +354,11 @@ proc mountStoreSync*(
 
   let pubsubTopics = shards.mapIt($RelayShard(clusterId: cluster, shardId: it))
 
-  let recon =
-    ?await SyncReconciliation.new(
-      pubsubTopics, contentTopics, node.peerManager, node.wakuArchive,
-      storeSyncRange.seconds, storeSyncInterval.seconds, storeSyncRelayJitter.seconds,
-      idsChannel, wantsChannel, needsChannel,
-    )
+  let recon = ?await SyncReconciliation.new(
+    pubsubTopics, contentTopics, node.peerManager, node.wakuArchive,
+    storeSyncRange.seconds, storeSyncInterval.seconds, storeSyncRelayJitter.seconds,
+    idsChannel, wantsChannel, needsChannel,
+  )
 
   node.wakuStoreReconciliation = recon
 

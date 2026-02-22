@@ -121,16 +121,15 @@ suite "Waku Archive - Retention policy":
       retentionPolicy: RetentionPolicy =
         CapacityRetentionPolicy.new(capacity = capacity)
 
-    let messages =
-      @[
-        fakeWakuMessage(contentTopic = DefaultContentTopic, ts = ts(0)),
-        fakeWakuMessage(contentTopic = DefaultContentTopic, ts = ts(1)),
-        fakeWakuMessage(contentTopic = contentTopic, ts = ts(2)),
-        fakeWakuMessage(contentTopic = contentTopic, ts = ts(3)),
-        fakeWakuMessage(contentTopic = contentTopic, ts = ts(4)),
-        fakeWakuMessage(contentTopic = contentTopic, ts = ts(5)),
-        fakeWakuMessage(contentTopic = contentTopic, ts = ts(6)),
-      ]
+    let messages = @[
+      fakeWakuMessage(contentTopic = DefaultContentTopic, ts = ts(0)),
+      fakeWakuMessage(contentTopic = DefaultContentTopic, ts = ts(1)),
+      fakeWakuMessage(contentTopic = contentTopic, ts = ts(2)),
+      fakeWakuMessage(contentTopic = contentTopic, ts = ts(3)),
+      fakeWakuMessage(contentTopic = contentTopic, ts = ts(4)),
+      fakeWakuMessage(contentTopic = contentTopic, ts = ts(5)),
+      fakeWakuMessage(contentTopic = contentTopic, ts = ts(6)),
+    ]
 
     ## When
     for msg in messages:

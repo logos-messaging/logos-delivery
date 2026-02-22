@@ -161,11 +161,10 @@ proc main(rng: ref HmacDrbgContext): Future[int] {.async.} =
 
   # create dns resolver
   let
-    nameServers =
-      @[
-        initTAddress(parseIpAddress("1.1.1.1"), Port(53)),
-        initTAddress(parseIpAddress("1.0.0.1"), Port(53)),
-      ]
+    nameServers = @[
+      initTAddress(parseIpAddress("1.1.1.1"), Port(53)),
+      initTAddress(parseIpAddress("1.0.0.1"), Port(53)),
+    ]
     resolver: DnsResolver = DnsResolver.new(nameServers)
 
   if conf.logLevel != LogLevel.NONE:

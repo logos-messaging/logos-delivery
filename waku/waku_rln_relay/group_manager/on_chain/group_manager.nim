@@ -252,8 +252,8 @@ method register*(
   var txHash: TxHash
   g.retryWrapper(txHash, "Failed to register the member"):
     await wakuRlnContract
-    .register(idCommitment, userMessageLimit.stuint(32), idCommitmentsToErase)
-    .send(gasPrice = gasPrice)
+      .register(idCommitment, userMessageLimit.stuint(32), idCommitmentsToErase)
+      .send(gasPrice = gasPrice)
 
   # wait for the transaction to be mined
   var tsReceipt: ReceiptObject

@@ -28,18 +28,10 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v2
 
-      - name: Get submodules hash
-        id: submodules
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        uses: actions/cache@v3
+      - name: Install Nim
+        uses: iffy/install-nim@v5
         with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-${{matrix.arch}}-submodules-${{ steps.submodules.outputs.hash }}
+          version: binary:2.2.4
 
       - name: Get tag
         id: version
@@ -76,12 +68,12 @@ jobs:
           OS=$([[ "${{runner.os}}" == "macOS" ]] && echo "macosx" || echo "linux")
 
           make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" V=1 update
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false wakunode2
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" CI=false chat2
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false USE_LIBBACKTRACE=0 wakunode2
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" CI=false USE_LIBBACKTRACE=0 chat2
           tar -cvzf ${{steps.vars.outputs.waku}} ./build/
 
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false libwaku
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false STATIC=1 libwaku
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false USE_LIBBACKTRACE=0 libwaku
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false USE_LIBBACKTRACE=0 STATIC=1 libwaku
 
       - name: Create distributable libwaku package
         run: |

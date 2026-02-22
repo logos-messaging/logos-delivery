@@ -1,5 +1,6 @@
 {.used.}
 
+import std/options
 import
   results,
   testutils/unittests,
@@ -155,9 +156,9 @@ suite "Waku Core - Peers":
     ## When
     var builder = EnrBuilder.init(enrPrivKey, seqNum = enrSeqNum)
     builder.withIpAddressAndPorts(
-      ipAddr = some(parseIpAddress("127.0.0.1")),
-      tcpPort = some(Port(0)),
-      udpPort = some(Port(0)),
+      ipAddr = options.some(parseIpAddress("127.0.0.1")),
+      tcpPort = options.some(Port(0)),
+      udpPort = options.some(Port(0)),
     )
     builder.withWakuCapabilities(Capabilities.Relay, Capabilities.Store)
 

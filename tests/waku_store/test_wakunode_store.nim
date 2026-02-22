@@ -32,19 +32,18 @@ import
 procSuite "WakuNode - Store":
   ## Fixtures
   let timeOrigin = now()
-  let msgListA =
-    @[
-      fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
-      fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin)),
-      fakeWakuMessage(@[byte 02], ts = ts(20, timeOrigin)),
-      fakeWakuMessage(@[byte 03], ts = ts(30, timeOrigin)),
-      fakeWakuMessage(@[byte 04], ts = ts(40, timeOrigin)),
-      fakeWakuMessage(@[byte 05], ts = ts(50, timeOrigin)),
-      fakeWakuMessage(@[byte 06], ts = ts(60, timeOrigin)),
-      fakeWakuMessage(@[byte 07], ts = ts(70, timeOrigin)),
-      fakeWakuMessage(@[byte 08], ts = ts(80, timeOrigin)),
-      fakeWakuMessage(@[byte 09], ts = ts(90, timeOrigin)),
-    ]
+  let msgListA = @[
+    fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
+    fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin)),
+    fakeWakuMessage(@[byte 02], ts = ts(20, timeOrigin)),
+    fakeWakuMessage(@[byte 03], ts = ts(30, timeOrigin)),
+    fakeWakuMessage(@[byte 04], ts = ts(40, timeOrigin)),
+    fakeWakuMessage(@[byte 05], ts = ts(50, timeOrigin)),
+    fakeWakuMessage(@[byte 06], ts = ts(60, timeOrigin)),
+    fakeWakuMessage(@[byte 07], ts = ts(70, timeOrigin)),
+    fakeWakuMessage(@[byte 08], ts = ts(80, timeOrigin)),
+    fakeWakuMessage(@[byte 09], ts = ts(90, timeOrigin)),
+  ]
 
   let hashes = msgListA.mapIt(computeMessageHash(DefaultPubsubTopic, it))
 

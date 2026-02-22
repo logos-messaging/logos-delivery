@@ -138,8 +138,10 @@ procSuite "WakuNode - RLN relay":
       WakuMessage(payload: @payload, contentTopic: contentTopic, timestamp: now())
     doAssert(
       node1.wakuRlnRelay
-      .unsafeAppendRLNProof(message, node1.wakuRlnRelay.getCurrentEpoch(), MessageId(0))
-      .isOk()
+        .unsafeAppendRLNProof(
+          message, node1.wakuRlnRelay.getCurrentEpoch(), MessageId(0)
+        )
+        .isOk()
     )
 
     info " Nodes participating in the test",
@@ -223,11 +225,10 @@ procSuite "WakuNode - RLN relay":
 
     let shards =
       @[RelayShard(clusterId: 0, shardId: 0), RelayShard(clusterId: 0, shardId: 1)]
-    let contentTopics =
-      @[
-        ContentTopic("/waku/2/content-topic-a/proto"),
-        ContentTopic("/waku/2/content-topic-b/proto"),
-      ]
+    let contentTopics = @[
+      ContentTopic("/waku/2/content-topic-a/proto"),
+      ContentTopic("/waku/2/content-topic-b/proto"),
+    ]
 
     # connect them together
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])

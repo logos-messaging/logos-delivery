@@ -151,14 +151,13 @@ macro EventBroker*(body: untyped): untyped =
       proc `accessProcIdent`(): `brokerTypeIdent` =
         if `globalVarIdent`.isNil():
           new(`globalVarIdent`)
-          `globalVarIdent`.buckets =
-            @[
-              `bucketTypeIdent`(
-                brokerCtx: DefaultBrokerContext,
-                listeners: initTable[uint64, `handlerProcIdent`](),
-                nextId: 1'u64,
-              )
-            ]
+          `globalVarIdent`.buckets = @[
+            `bucketTypeIdent`(
+              brokerCtx: DefaultBrokerContext,
+              listeners: initTable[uint64, `handlerProcIdent`](),
+              nextId: 1'u64,
+            )
+          ]
         `globalVarIdent`
 
   )

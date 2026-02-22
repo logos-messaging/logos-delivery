@@ -1,7 +1,7 @@
 ## This module reinforces the publish operation with regular store-v3 requests.
 ##
 
-import std/[sequtils, tables, options]
+import std/[sequtils, tables, options, typetraits]
 import chronos, chronicles, libp2p/utility
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],

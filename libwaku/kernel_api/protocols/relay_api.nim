@@ -10,8 +10,8 @@ import
   waku/node/kernel_api/relay,
   waku/waku_relay/protocol,
   waku/node/peer_manager,
-  library/events/json_message_event,
-  library/declare_lib
+  libwaku/events/json_message_event,
+  libwaku/declare_lib
 
 proc waku_relay_get_peers_in_mesh(
     ctx: ptr FFIContext[Waku],

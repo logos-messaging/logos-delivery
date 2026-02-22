@@ -13,7 +13,8 @@ import
   chronos,
   eth/keys,
   bearssl,
-  stew/[byteutils, results],
+  stew/byteutils,
+  results,
   metrics,
   metrics/chronos_httpserver
 import
@@ -50,8 +51,7 @@ import
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
 import ../../waku/waku_rln_relay
 
-const Help =
-  """
+const Help = """
   Commands: /[?|help|connect|nick|exit]
   help: Prints this help
   connect: dials a remote peer
@@ -337,16 +337,16 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     builder.withRecord(record)
 
     builder
-    .withNetworkConfigurationDetails(
-      conf.listenAddress,
-      Port(uint16(conf.tcpPort) + conf.portsShift),
-      extIp,
-      extTcpPort,
-      wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
-      wsEnabled = conf.websocketSupport,
-      wssEnabled = conf.websocketSecureSupport,
-    )
-    .tryGet()
+      .withNetworkConfigurationDetails(
+        conf.listenAddress,
+        Port(uint16(conf.tcpPort) + conf.portsShift),
+        extIp,
+        extTcpPort,
+        wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
+        wsEnabled = conf.websocketSupport,
+        wssEnabled = conf.websocketSecureSupport,
+      )
+      .tryGet()
     builder.build().tryGet()
 
   await node.start()

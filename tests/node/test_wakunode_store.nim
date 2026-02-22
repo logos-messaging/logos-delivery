@@ -38,19 +38,18 @@ suite "Waku Store - End to End - Sorted Archive":
     contentTopicSeq = @[contentTopic]
 
     let timeOrigin = now()
-    let messages =
-      @[
-        fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 02], ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 03], ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 04], ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 05], ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 06], ts = ts(60, timeOrigin)),
-        fakeWakuMessage(@[byte 07], ts = ts(70, timeOrigin)),
-        fakeWakuMessage(@[byte 08], ts = ts(80, timeOrigin)),
-        fakeWakuMessage(@[byte 09], ts = ts(90, timeOrigin)),
-      ]
+    let messages = @[
+      fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 02], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 03], ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 04], ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 05], ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 06], ts = ts(60, timeOrigin)),
+      fakeWakuMessage(@[byte 07], ts = ts(70, timeOrigin)),
+      fakeWakuMessage(@[byte 08], ts = ts(80, timeOrigin)),
+      fakeWakuMessage(@[byte 09], ts = ts(90, timeOrigin)),
+    ]
     archiveMessages = messages.mapIt(
       WakuMessageKeyValue(
         messageHash: computeMessageHash(pubsubTopic, it),
@@ -542,19 +541,18 @@ suite "Waku Store - End to End - Unsorted Archive":
     )
 
     let timeOrigin = now()
-    let messages =
-      @[
-        fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 03], ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 08], ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 07], ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 02], ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 09], ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 06], ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 01], ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 04], ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 05], ts = ts(20, timeOrigin)),
-      ]
+    let messages = @[
+      fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 03], ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 08], ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 07], ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 02], ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 09], ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 06], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 01], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 04], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 05], ts = ts(20, timeOrigin)),
+    ]
     unsortedArchiveMessages = messages.mapIt(
       WakuMessageKeyValue(
         messageHash: computeMessageHash(pubsubTopic, it),
@@ -759,19 +757,19 @@ suite "Waku Store - End to End - Unsorted Archive without provided Timestamp":
       paginationLimit: some(uint64(5)),
     )
 
-    let messages =
-      @[ # Not providing explicit timestamp means it will be set in "arrive" order
-        fakeWakuMessage(@[byte 09]),
-        fakeWakuMessage(@[byte 07]),
-        fakeWakuMessage(@[byte 05]),
-        fakeWakuMessage(@[byte 03]),
-        fakeWakuMessage(@[byte 01]),
-        fakeWakuMessage(@[byte 00]),
-        fakeWakuMessage(@[byte 02]),
-        fakeWakuMessage(@[byte 04]),
-        fakeWakuMessage(@[byte 06]),
-        fakeWakuMessage(@[byte 08]),
-      ]
+    let messages = @[
+      # Not providing explicit timestamp means it will be set in "arrive" order
+      fakeWakuMessage(@[byte 09]),
+      fakeWakuMessage(@[byte 07]),
+      fakeWakuMessage(@[byte 05]),
+      fakeWakuMessage(@[byte 03]),
+      fakeWakuMessage(@[byte 01]),
+      fakeWakuMessage(@[byte 00]),
+      fakeWakuMessage(@[byte 02]),
+      fakeWakuMessage(@[byte 04]),
+      fakeWakuMessage(@[byte 06]),
+      fakeWakuMessage(@[byte 08]),
+    ]
     unsortedArchiveMessages = messages.mapIt(
       WakuMessageKeyValue(
         messageHash: computeMessageHash(pubsubTopic, it),
@@ -900,21 +898,20 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
     originTs = proc(offset = 0): Timestamp {.gcsafe, raises: [].} =
       ts(offset, timeOrigin)
 
-    let messages =
-      @[
-        fakeWakuMessage(@[byte 00], ts = originTs(00), contentTopic = contentTopic),
-        fakeWakuMessage(@[byte 01], ts = originTs(10), contentTopic = contentTopicB),
-        fakeWakuMessage(@[byte 02], ts = originTs(20), contentTopic = contentTopicC),
-        fakeWakuMessage(@[byte 03], ts = originTs(30), contentTopic = contentTopic),
-        fakeWakuMessage(@[byte 04], ts = originTs(40), contentTopic = contentTopicB),
-        fakeWakuMessage(@[byte 05], ts = originTs(50), contentTopic = contentTopicC),
-        fakeWakuMessage(@[byte 06], ts = originTs(60), contentTopic = contentTopic),
-        fakeWakuMessage(@[byte 07], ts = originTs(70), contentTopic = contentTopicB),
-        fakeWakuMessage(@[byte 08], ts = originTs(80), contentTopic = contentTopicC),
-        fakeWakuMessage(
-          @[byte 09], ts = originTs(90), contentTopic = contentTopicSpecials
-        ),
-      ]
+    let messages = @[
+      fakeWakuMessage(@[byte 00], ts = originTs(00), contentTopic = contentTopic),
+      fakeWakuMessage(@[byte 01], ts = originTs(10), contentTopic = contentTopicB),
+      fakeWakuMessage(@[byte 02], ts = originTs(20), contentTopic = contentTopicC),
+      fakeWakuMessage(@[byte 03], ts = originTs(30), contentTopic = contentTopic),
+      fakeWakuMessage(@[byte 04], ts = originTs(40), contentTopic = contentTopicB),
+      fakeWakuMessage(@[byte 05], ts = originTs(50), contentTopic = contentTopicC),
+      fakeWakuMessage(@[byte 06], ts = originTs(60), contentTopic = contentTopic),
+      fakeWakuMessage(@[byte 07], ts = originTs(70), contentTopic = contentTopicB),
+      fakeWakuMessage(@[byte 08], ts = originTs(80), contentTopic = contentTopicC),
+      fakeWakuMessage(
+        @[byte 09], ts = originTs(90), contentTopic = contentTopicSpecials
+      ),
+    ]
 
     archiveMessages = messages.mapIt(
       WakuMessageKeyValue(
@@ -1172,12 +1169,11 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
     xasyncTest "Only ephemeral Messages:":
       # Given an archive with only ephemeral messages
       let
-        ephemeralMessages =
-          @[
-            fakeWakuMessage(@[byte 00], ts = ts(00), ephemeral = true),
-            fakeWakuMessage(@[byte 01], ts = ts(10), ephemeral = true),
-            fakeWakuMessage(@[byte 02], ts = ts(20), ephemeral = true),
-          ]
+        ephemeralMessages = @[
+          fakeWakuMessage(@[byte 00], ts = ts(00), ephemeral = true),
+          fakeWakuMessage(@[byte 01], ts = ts(10), ephemeral = true),
+          fakeWakuMessage(@[byte 02], ts = ts(20), ephemeral = true),
+        ]
         ephemeralArchiveDriver =
           newSqliteArchiveDriver().put(pubsubTopic, ephemeralMessages)
 
@@ -1207,18 +1203,16 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
     xasyncTest "Mixed messages":
       # Given an archive with both ephemeral and non-ephemeral messages
       let
-        ephemeralMessages =
-          @[
-            fakeWakuMessage(@[byte 00], ts = ts(00), ephemeral = true),
-            fakeWakuMessage(@[byte 01], ts = ts(10), ephemeral = true),
-            fakeWakuMessage(@[byte 02], ts = ts(20), ephemeral = true),
-          ]
-        nonEphemeralMessages =
-          @[
-            fakeWakuMessage(@[byte 03], ts = ts(30), ephemeral = false),
-            fakeWakuMessage(@[byte 04], ts = ts(40), ephemeral = false),
-            fakeWakuMessage(@[byte 05], ts = ts(50), ephemeral = false),
-          ]
+        ephemeralMessages = @[
+          fakeWakuMessage(@[byte 00], ts = ts(00), ephemeral = true),
+          fakeWakuMessage(@[byte 01], ts = ts(10), ephemeral = true),
+          fakeWakuMessage(@[byte 02], ts = ts(20), ephemeral = true),
+        ]
+        nonEphemeralMessages = @[
+          fakeWakuMessage(@[byte 03], ts = ts(30), ephemeral = false),
+          fakeWakuMessage(@[byte 04], ts = ts(40), ephemeral = false),
+          fakeWakuMessage(@[byte 05], ts = ts(50), ephemeral = false),
+        ]
         mixedArchiveDriver = newSqliteArchiveDriver()
           .put(pubsubTopic, ephemeralMessages)
           .put(pubsubTopic, nonEphemeralMessages)

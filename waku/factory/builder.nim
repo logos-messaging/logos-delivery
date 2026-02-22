@@ -84,20 +84,19 @@ proc withNetworkConfigurationDetails*(
 ): WakuNodeBuilderResult {.
     deprecated: "use 'builder.withNetworkConfiguration()' instead"
 .} =
-  let netConfig =
-    ?NetConfig.init(
-      bindIp = bindIp,
-      bindPort = bindPort,
-      extIp = extIp,
-      extPort = extPort,
-      extMultiAddrs = extMultiAddrs,
-      wsBindPort = some(wsBindPort),
-      wsEnabled = wsEnabled,
-      wssEnabled = wssEnabled,
-      wakuFlags = wakuFlags,
-      dns4DomainName = dns4DomainName,
-      dnsNameServers = dnsNameServers,
-    )
+  let netConfig = ?NetConfig.init(
+    bindIp = bindIp,
+    bindPort = bindPort,
+    extIp = extIp,
+    extPort = extPort,
+    extMultiAddrs = extMultiAddrs,
+    wsBindPort = some(wsBindPort),
+    wsEnabled = wsEnabled,
+    wssEnabled = wssEnabled,
+    wakuFlags = wakuFlags,
+    dns4DomainName = dns4DomainName,
+    dnsNameServers = dnsNameServers,
+  )
   builder.withNetworkConfiguration(netConfig)
   ok()
 

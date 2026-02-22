@@ -36,14 +36,13 @@ suite "Waku Archive - message handling":
     let archive = newWakuArchive(driver)
 
     ## Given
-    let msgList =
-      @[
-        fakeWakuMessage(ephemeral = false, payload = "1"),
-        fakeWakuMessage(ephemeral = true, payload = "2"),
-        fakeWakuMessage(ephemeral = true, payload = "3"),
-        fakeWakuMessage(ephemeral = true, payload = "4"),
-        fakeWakuMessage(ephemeral = false, payload = "5"),
-      ]
+    let msgList = @[
+      fakeWakuMessage(ephemeral = false, payload = "1"),
+      fakeWakuMessage(ephemeral = true, payload = "2"),
+      fakeWakuMessage(ephemeral = true, payload = "3"),
+      fakeWakuMessage(ephemeral = true, payload = "4"),
+      fakeWakuMessage(ephemeral = false, payload = "5"),
+    ]
 
     ## When
     for msg in msgList:
@@ -127,39 +126,38 @@ suite "Waku Archive - message handling":
 procSuite "Waku Archive - find messages":
   ## Fixtures
   let timeOrigin = now()
-  let msgListA =
-    @[
-      fakeWakuMessage(
-        @[byte 00], contentTopic = ContentTopic("2"), ts = ts(00, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 01], contentTopic = ContentTopic("1"), ts = ts(10, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 02], contentTopic = ContentTopic("2"), ts = ts(20, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 03], contentTopic = ContentTopic("1"), ts = ts(30, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 04], contentTopic = ContentTopic("2"), ts = ts(40, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 05], contentTopic = ContentTopic("1"), ts = ts(50, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 06], contentTopic = ContentTopic("2"), ts = ts(60, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 07], contentTopic = ContentTopic("1"), ts = ts(70, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 08], contentTopic = ContentTopic("2"), ts = ts(80, timeOrigin)
-      ),
-      fakeWakuMessage(
-        @[byte 09], contentTopic = ContentTopic("1"), ts = ts(90, timeOrigin)
-      ),
-    ]
+  let msgListA = @[
+    fakeWakuMessage(
+      @[byte 00], contentTopic = ContentTopic("2"), ts = ts(00, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 01], contentTopic = ContentTopic("1"), ts = ts(10, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 02], contentTopic = ContentTopic("2"), ts = ts(20, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 03], contentTopic = ContentTopic("1"), ts = ts(30, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 04], contentTopic = ContentTopic("2"), ts = ts(40, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 05], contentTopic = ContentTopic("1"), ts = ts(50, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 06], contentTopic = ContentTopic("2"), ts = ts(60, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 07], contentTopic = ContentTopic("1"), ts = ts(70, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 08], contentTopic = ContentTopic("2"), ts = ts(80, timeOrigin)
+    ),
+    fakeWakuMessage(
+      @[byte 09], contentTopic = ContentTopic("1"), ts = ts(90, timeOrigin)
+    ),
+  ]
 
   let archiveA = block:
     let
@@ -446,19 +444,18 @@ procSuite "Waku Archive - find messages":
       driver = newSqliteArchiveDriver()
       archive = newWakuArchive(driver)
 
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("2")),
-        fakeWakuMessage(@[byte 1], contentTopic = DefaultContentTopic),
-        fakeWakuMessage(@[byte 2], contentTopic = DefaultContentTopic),
-        fakeWakuMessage(@[byte 3], contentTopic = DefaultContentTopic),
-        fakeWakuMessage(@[byte 4], contentTopic = DefaultContentTopic),
-        fakeWakuMessage(@[byte 5], contentTopic = DefaultContentTopic),
-        fakeWakuMessage(@[byte 6], contentTopic = DefaultContentTopic),
-        fakeWakuMessage(@[byte 7], contentTopic = DefaultContentTopic),
-        fakeWakuMessage(@[byte 8], contentTopic = DefaultContentTopic),
-        fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("2")),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("2")),
+      fakeWakuMessage(@[byte 1], contentTopic = DefaultContentTopic),
+      fakeWakuMessage(@[byte 2], contentTopic = DefaultContentTopic),
+      fakeWakuMessage(@[byte 3], contentTopic = DefaultContentTopic),
+      fakeWakuMessage(@[byte 4], contentTopic = DefaultContentTopic),
+      fakeWakuMessage(@[byte 5], contentTopic = DefaultContentTopic),
+      fakeWakuMessage(@[byte 6], contentTopic = DefaultContentTopic),
+      fakeWakuMessage(@[byte 7], contentTopic = DefaultContentTopic),
+      fakeWakuMessage(@[byte 8], contentTopic = DefaultContentTopic),
+      fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("2")),
+    ]
 
     for msg in msgList:
       require (

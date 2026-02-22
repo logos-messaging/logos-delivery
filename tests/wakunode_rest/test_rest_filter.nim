@@ -176,12 +176,11 @@ suite "Waku v2 Rest API - Filter V2":
     )
     discard await restFilterTest.client.filterPostSubscriptions(requestBody)
 
-    let contentFilters =
-      @[
-        ContentTopic("1"),
-        ContentTopic("2"),
-        ContentTopic("3"), # ,ContentTopic("4") # Keep this subscription for check
-      ]
+    let contentFilters = @[
+      ContentTopic("1"),
+      ContentTopic("2"),
+      ContentTopic("3"), # ,ContentTopic("4") # Keep this subscription for check
+    ]
 
     let requestBodyUnsub = FilterUnsubscribeRequest(
       requestId: "4321",

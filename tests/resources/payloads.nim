@@ -8,8 +8,7 @@ const
   EMOJI* =
     "😀 😃 😄 😁 😆 😅 🤣 😂 🙂 🙃 😉 😊 😇 🥰 😍 🤩 😘 😗 😚 😙"
   CODE* = "def main():\n\tprint('Hello, world!')"
-  QUERY* =
-    """
+  QUERY* = """
     SELECT
       u.id,
       u.name,
@@ -30,8 +29,7 @@ const
       u.id = 1
     """
   TEXT_SMALL* = "Lorem ipsum dolor sit amet, consectetur adipiscing elit."
-  TEXT_LARGE* =
-    """
+  TEXT_LARGE* = """
     Lorem ipsum dolor sit amet, consectetur adipiscing elit. Cras gravida vulputate semper. Proin 
     eleifend varius cursus. Morbi lacinia posuere quam sit amet pretium. Sed non metus fermentum, 
     venenatis nisl id, vestibulum eros. Quisque non lorem sit amet lectus faucibus elementum eu 
