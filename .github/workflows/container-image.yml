@@ -46,6 +46,13 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: actions/checkout@v4
 
+      - name: Install Nim (pinned)
+        uses: iffy/install-nim@v5
+        with:
+          version: binary:2.2.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Install Nimble (pinned)
         uses: nim-lang/setup-nimble-action@v1
         with:
