@@ -273,9 +273,8 @@ networkmonitor: | build deps librln
 
 build-nph: | build deps
 	nimble install nph@0.7.0 -y
+	echo "Check if nph utility is available:"
 	command -v nph
-	cp ./nimbledeps/bin/nph ~/.nimble/bin/
-	echo "nph utility is available"
 
 GIT_PRE_COMMIT_HOOK := .git/hooks/pre-commit
 
