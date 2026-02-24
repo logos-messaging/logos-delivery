@@ -43,7 +43,7 @@ proc respond(
   try:
     await conn.writeLP(rpc.encode().buffer)
   except CatchableError as exc:
-    error "exception when trying to send a respond", error = getCurrentExceptionMsg()
+    debug "exception when trying to send a respond", error = getCurrentExceptionMsg()
     waku_px_errors.inc(labelValues = [exc.msg])
     return err(
       (
@@ -65,7 +65,7 @@ proc respondError(
   try:
     await conn.writeLP(rpc.encode().buffer)
   except CatchableError as exc:
-    error "exception when trying to send a respond", error = getCurrentExceptionMsg()
+    debug "exception when trying to send a respond", error = getCurrentExceptionMsg()
     waku_px_errors.inc(labelValues = [exc.msg])
     return err(
       (
@@ -128,7 +128,7 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
       try:
         buffer = await conn.readLp(DefaultMaxRpcSize.int)
       except CatchableError as exc:
-        error "exception when handling px request", error = getCurrentExceptionMsg()
+        debug "exception when handling px request", error = getCurrentExceptionMsg()
         waku_px_errors.inc(labelValues = [exc.msg])
 
         (
