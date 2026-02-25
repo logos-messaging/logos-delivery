@@ -250,9 +250,9 @@ proc serviceLoop(self: SendService) {.async.} =
 proc startSendService*(self: SendService) =
   self.serviceLoopHandle = self.serviceLoop()
 
-proc stopSendService*(self: SendService) =
+proc stopSendService*(self: SendService) {.async.} =
   if not self.serviceLoopHandle.isNil():
-    discard self.serviceLoopHandle.cancelAndWait()
+    await self.serviceLoopHandle.cancelAndWait()
 
 proc send*(self: SendService, task: DeliveryTask) {.async.} =
   assert(not task.isNil(), "task for send must not be nil")

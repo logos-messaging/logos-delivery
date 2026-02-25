@@ -193,5 +193,7 @@ proc stopRecvService*(self: RecvService) {.async.} =
   MessageReceivedInternalEvent.dropListener(self.brokerCtx, self.internalMsgListener)
   if not self.msgCheckerHandler.isNil():
     await self.msgCheckerHandler.cancelAndWait()
+    self.msgCheckerHandler = nil
   if not self.msgPrunerHandler.isNil():
     await self.msgPrunerHandler.cancelAndWait()
+    self.msgPrunerHandler = nil

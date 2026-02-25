@@ -42,5 +42,5 @@ proc startDeliveryService*(self: DeliveryService) =
   self.recvService.startRecvService()
 
 proc stopDeliveryService*(self: DeliveryService) {.async.} =
-  self.sendService.stopSendService()
+  await self.sendService.stopSendService()
   await self.recvService.stopRecvService()

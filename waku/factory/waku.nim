@@ -543,6 +543,10 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     if not waku.wakuDiscv5.isNil():
       await waku.wakuDiscv5.stop()
 
+    if not waku.deliveryService.isNil():
+      await waku.deliveryService.stopDeliveryService()
+      waku.deliveryService = nil
+
     if not waku.node.isNil():
       await waku.node.stop()
 
