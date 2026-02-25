@@ -29,6 +29,22 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
 
     return ok("")
 
+proc logosdelivery_destroy(
+    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+): cint {.dynlib, exportc, cdecl.} =
+  initializeLibrary()
+  checkParams(ctx, callback, userData)
+
+  ffi.destroyFFIContext(ctx).isOkOr:
+    let msg = "liblogosdelivery error: " & $error
+    callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
+    return RET_ERR
+
+  ## always need to invoke the callback although we don't retrieve value to the caller
+  callback(RET_OK, nil, 0, userData)
+
+  return RET_OK
+
 proc logosdelivery_create_node(
     configJson: cstring, callback: FFICallback, userData: pointer
 ): pointer {.dynlib, exportc, cdecl.} =
@@ -50,6 +66,9 @@ proc logosdelivery_create_node(
   ).isOkOr:
     let msg = "error in sendRequestToFFIThread: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
+    # free allocated resources as they won't be available
+    ffi.destroyFFIContext(ctx).isOkOr:
+      chronicles.error "Error in destroyFFIContext after sendRequestToFFIThread during creation", err = $error
     return nil
 
   return ctx
