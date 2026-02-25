@@ -1,6 +1,7 @@
 log-level = "TRACE"
 relay = true
 mix = true
+rln-service-url = "http://127.0.0.1:3001"
 filter = true
 store = false
 lightpush = true

@@ -244,6 +244,13 @@ type
       name: "rln-user-message-limit"
     .}: int
 
+    rlnServiceUrl* {.
+      desc:
+        "URL of the external RLN Merkle proof service (required for group manager)",
+      defaultValue: "",
+      name: "rln-service-url"
+    .}: string
+
 proc parseCmdArg*(T: type MixNodePubInfo, p: string): T =
   let elements = p.split(":")
   if elements.len != 2:

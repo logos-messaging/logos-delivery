@@ -11,6 +11,7 @@ The simulation includes:
 
 1. A 5-node mixnet where `run_mix_node.sh` is the bootstrap node for the other 4 nodes
 2. Two chat app instances that publish messages using lightpush protocol over the mixnet
+3. A local LEZ sequencer, RLN registration program, and a JSON-RPC service for interacting with the program
 
 ### Available Scripts
 
@@ -35,9 +36,39 @@ source env.sh
 make wakunode2 chat2mix
 ```
 
+## RLN Program and Service
+
+Requires Docker.
+
+Install Rust and the RISC Zero toolchain:
+```bash
+curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
+curl -L https://risczero.com/install | bash
+rzup install
+```
+
+Clone the RLN program repo and build the guest programs:
+```bash
+git clone -b feat/rln-service git@github.com:logos-co/logos-lez-rln.git
+cd logos-lez-rln
+cargo risczero build --manifest-path methods/guest/Cargo.toml
+```
+
+Start the local sequencer (runs in foreground):
+```bash
+./dev.sh
+```
+
+In another terminal, run setup and start the service:
+```bash
+source dev/env.sh && cargo run --bin run_setup && cargo run --bin rln_service
+```
+
+The service listens on http://127.0.0.1:3001.
+
 ## RLN Spam Protection Setup
 
-Generate RLN credentials and the shared Merkle tree for all nodes:
+Generate RLN credentials and register them in the on-chain Merkle tree for all nodes:
 
 ```bash
 cd simulations/mixnet
@@ -48,10 +79,10 @@ This script will:
 
 1. Build and run the `setup_credentials` tool
 2. Generate RLN credentials for all nodes (5 mix nodes + 2 chat clients)
-3. Create `rln_tree.db` - the shared Merkle tree with all members
-4. Create keystore files (`rln_keystore_{peerId}.json`) for each node
+3. Create keystore files (`rln_keystore_{peerId}.json`) for each node
+4. Call the RLN service to register each identity
 
-**Important:** All scripts must be run from this directory (`simulations/mixnet/`) so they can access their credentials and tree file.
+**Important:** All scripts must be run from this directory (`simulations/mixnet/`) so they can access their credential files.
 
 To regenerate credentials (e.g., after adding new nodes), run `./build_setup.sh` again - it will clean up old files first.
 
@@ -77,7 +108,7 @@ Verify RLN spam protection initialized correctly by checking for these logs:
 ```log
 INF Initializing MixRlnSpamProtection
 INF MixRlnSpamProtection initialized, waiting for sync
-DBG Tree loaded from file
+INF Group manager started
 INF MixRlnSpamProtection started
 ```
 

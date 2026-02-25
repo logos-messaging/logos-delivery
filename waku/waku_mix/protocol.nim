@@ -21,7 +21,8 @@ import
   waku/node/peer_manager/waku_peer_store,
   mix_rln_spam_protection,
   waku/waku_relay,
-  waku/common/nimchronos
+  waku/common/nimchronos,
+  ./rln_service_client
 
 logScope:
   topics = "waku mix"
@@ -87,6 +88,7 @@ proc new*(
     bootnodes: seq[MixNodePubInfo],
     publishMessage: PublishMessage,
     userMessageLimit: Option[int] = none(int),
+    rlnServiceUrl: string = "",
 ): WakuMixResult[T] =
   let mixPubKey = public(mixPrivKey)
   trace "mixPubKey", mixPubKey = mixPubKey
@@ -112,6 +114,14 @@ proc new*(
 
   let spamProtection = newMixRlnSpamProtection(spamProtectionConfig).valueOr:
     return err("failed to create spam protection: " & error)
+
+  # Wire up RLN service callbacks
+  if rlnServiceUrl.len == 0:
+    return err("rlnServiceUrl is required for group manager")
+  spamProtection.setMerkleProofCallbacks(
+    makeFetchMerkleProof(rlnServiceUrl),
+    makeFetchLatestRoots(rlnServiceUrl),
+  )
 
   var m = WakuMix(
     peerManager: peermgr,
@@ -179,22 +189,7 @@ proc handleMessage*(
 
   let contentTopic = message.contentTopic
 
-  if contentTopic == mix.mixRlnSpamProtection.getMembershipContentTopic():
-    # Handle membership update
-    let res = await mix.mixRlnSpamProtection.handleMembershipUpdate(message.payload)
-    if res.isErr:
-      warn "Failed to handle membership update", error = res.error
-    else:
-      trace "Handled membership update"
-
-      # Persist tree after membership changes (temporary solution)
-      # TODO: Replace with proper persistence strategy (e.g., periodic snapshots)
-      let saveRes = mix.mixRlnSpamProtection.saveTree()
-      if saveRes.isErr:
-        debug "Failed to save tree after membership update", error = saveRes.error
-      else:
-        trace "Saved tree after membership update"
-  elif contentTopic == mix.mixRlnSpamProtection.getProofMetadataContentTopic():
+  if contentTopic == mix.mixRlnSpamProtection.getProofMetadataContentTopic():
     # Handle proof metadata for network-wide spam detection
     let res = mix.mixRlnSpamProtection.handleProofMetadata(message.payload)
     if res.isErr:
@@ -209,31 +204,6 @@ proc getSpamProtectionContentTopics*(mix: WakuMix): seq[string] =
     return @[]
   return mix.mixRlnSpamProtection.getContentTopics()
 
-proc saveSpamProtectionTree*(mix: WakuMix): Result[void, string] =
-  ## Save the spam protection membership tree to disk.
-  ## This allows preserving the tree state across restarts.
-  if mix.mixRlnSpamProtection.isNil():
-    return err("Spam protection not initialized")
-
-  mix.mixRlnSpamProtection.saveTree().mapErr(
-    proc(e: string): string =
-      e
-  )
-
-proc loadSpamProtectionTree*(mix: WakuMix): Result[void, string] =
-  ## Load the spam protection membership tree from disk.
-  ## Call this before init() to restore tree state from previous runs.
-  ## TODO: This is a temporary solution. Ideally nodes should sync tree state
-  ## via a store query for historical membership messages or via dedicated
-  ## tree sync protocol.
-  if mix.mixRlnSpamProtection.isNil():
-    return err("Spam protection not initialized")
-
-  mix.mixRlnSpamProtection.loadTree().mapErr(
-    proc(e: string): string =
-      e
-  )
-
 method start*(mix: WakuMix) {.async.} =
   info "starting waku mix protocol"
 
@@ -244,23 +214,6 @@ method start*(mix: WakuMix) {.async.} =
     if initRes.isErr:
       error "Failed to initialize spam protection", error = initRes.error
     else:
-      # Load existing tree to sync with other members
-      # This should be done after init() (which loads credentials)
-      # but before registerSelf() (which adds us to the tree)
-      let loadRes = mix.mixRlnSpamProtection.loadTree()
-      if loadRes.isErr:
-        debug "No existing tree found or failed to load, starting fresh",
-          error = loadRes.error
-      else:
-        debug "Loaded existing spam protection membership tree from disk"
-
-      # Restore our credentials to the tree (after tree load, whether it succeeded or not)
-      # This ensures our member is in the tree if we have an index from keystore
-      let restoreRes = mix.mixRlnSpamProtection.restoreCredentialsToTree()
-      if restoreRes.isErr:
-        error "Failed to restore credentials to tree", error = restoreRes.error
-
-      # Set up publish callback (must be before start so registerSelf can use it)
       mix.setupSpamProtectionCallbacks()
 
       let startRes = await mix.mixRlnSpamProtection.start()
@@ -274,13 +227,6 @@ method start*(mix: WakuMix) {.async.} =
             error = registerRes.error
         else:
           debug "Registered spam protection credentials", index = registerRes.get()
-
-        # Save tree to persist membership state
-        let saveRes = mix.mixRlnSpamProtection.saveTree()
-        if saveRes.isErr:
-          warn "Failed to save spam protection tree", error = saveRes.error
-        else:
-          trace "Saved spam protection tree to disk"
 
 method stop*(mix: WakuMix) {.async.} =
   # Stop spam protection

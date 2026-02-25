@@ -1,27 +1,26 @@
 {.push raises: [].}
 
-## Setup script to generate RLN credentials and shared Merkle tree for mix nodes.
+## Setup script to generate RLN credentials and register them with the external service.
 ##
 ## This script:
 ## 1. Generates credentials for each node (identified by peer ID)
-## 2. Registers all credentials in a shared Merkle tree
-## 3. Saves the tree to rln_tree.db
-## 4. Saves individual keystores named by peer ID
+## 2. Registers all credentials with the external RLN service (in parallel)
+## 3. Saves individual keystores named by peer ID, using the service's leaf index
 ##
 ## Usage: nim c -r setup_credentials.nim
 
-import std/[os, strformat, options], chronicles, chronos, results
+import std/[os, strformat, options, json, strutils], chronicles, chronos, results
+import chronos/apps/http/[httpclient, httpcommon]
 
 import
   mix_rln_spam_protection/credentials,
-  mix_rln_spam_protection/group_manager,
-  mix_rln_spam_protection/rln_interface,
   mix_rln_spam_protection/types
 
 const
   KeystorePassword = "mix-rln-password" # Must match protocol.nim
   DefaultUserMessageLimit = 100'u64 # Network-wide default rate limit
   SpammerUserMessageLimit = 3'u64 # Lower limit for spammer testing
+  RlnServiceUrl = "http://127.0.0.1:3001"
 
   # Peer IDs derived from nodekeys in config files
   # config.toml:   nodekey = "f98e3fba96c32e8d1967d460f1b79457380e1a895f7971cecc8528abe733781a"
@@ -50,8 +49,47 @@ const
       # chat2mix client 2
   ]
 
-proc setupCredentialsAndTree() {.async.} =
-  ## Generate credentials for all nodes and create a shared tree
+proc registerWithService(
+    session: HttpSessionRef,
+    address: HttpAddress,
+    idCommitment: IDCommitment,
+    rateLimit: uint64,
+    reqId: int,
+): Future[int] {.async.} =
+  ## Register a credential with the external RLN service.
+  ## Returns the leaf index assigned by the service.
+  let commitmentHex = "0x" & idCommitment.toHex()
+  let body = $(%*{
+    "jsonrpc": "2.0",
+    "method": "rln_register",
+    "params": [commitmentHex, rateLimit],
+    "id": reqId,
+  })
+
+  var req: HttpClientRequestRef = nil
+  var res: HttpClientResponseRef = nil
+  try:
+    req = HttpClientRequestRef.post(
+      session, address,
+      body = body.toOpenArrayByte(0, body.len - 1),
+      headers = @[("Content-Type", "application/json")],
+    )
+    res = await req.send()
+    let resBytes = await res.getBodyBytes()
+    let parsed = parseJson(cast[string](resBytes))
+
+    if parsed.hasKey("error"):
+      raise newException(CatchableError, "Service error: " & $parsed["error"])
+
+    return parsed["result"]["leaf_index"].getInt()
+  finally:
+    if req != nil:
+      await req.closeWait()
+    if res != nil:
+      await res.closeWait()
+
+proc setupCredentials() {.async.} =
+  ## Generate credentials, register with external service in parallel, save keystores.
 
   echo "=== RLN Credentials Setup ==="
   echo "Generating credentials for ", NodeConfigs.len, " nodes...\n"
@@ -71,69 +109,61 @@ proc setupCredentialsAndTree() {.async.} =
 
   echo ""
 
-  # Create a group manager directly to build the tree
-  let rlnInstance = newRLNInstance().valueOr:
-    echo "Failed to create RLN instance: ", error
+  # Register all credentials with the external RLN service in parallel
+  echo "Registering all credentials with external RLN service at ", RlnServiceUrl, " (parallel)..."
+  let session = HttpSessionRef.new()
+  let address = session.getAddress(RlnServiceUrl).valueOr:
+    echo "FATAL: Invalid RLN service URL: ", RlnServiceUrl
     quit(1)
 
-  let groupManager = newOffchainGroupManager(rlnInstance, "/mix/rln/membership/v1")
-
-  # Initialize the group manager
-  let initRes = await groupManager.init()
-  if initRes.isErr:
-    echo "Failed to initialize group manager: ", initRes.error
-    quit(1)
-
-  # Register all credentials in the tree with their specific rate limits
-  echo "Registering all credentials in the Merkle tree..."
+  var futures: seq[Future[int]]
   for i, entry in allCredentials:
-    let index = (
-      await groupManager.registerWithLimit(entry.cred.idCommitment, entry.rateLimit)
-    ).valueOr:
-      echo "Failed to register credential for ", entry.peerId, ": ", error
-      quit(1)
-    echo "  Registered ",
-      entry.peerId, " at index ", index, " (limit: ", entry.rateLimit, ")"
+    futures.add(registerWithService(
+      session, address, entry.cred.idCommitment, entry.rateLimit, i + 1
+    ))
 
-  echo ""
-
-  # Save the tree to disk
-  echo "Saving tree to rln_tree.db..."
-  let saveRes = groupManager.saveTreeToFile("rln_tree.db")
-  if saveRes.isErr:
-    echo "Failed to save tree: ", saveRes.error
+  var serviceIndices = newSeq[int](futures.len)
+  try:
+    await allFutures(futures)
+    for i, fut in futures:
+      if fut.failed:
+        raise fut.error
+      serviceIndices[i] = fut.read()
+      echo "  Registered ",
+        allCredentials[i].peerId, " at service index ", serviceIndices[i],
+        " (limit: ", allCredentials[i].rateLimit, ")"
+  except CatchableError as e:
+    echo "FATAL: Failed to register with external service: ", e.msg
+    echo "  The external RLN service must be running at ", RlnServiceUrl
     quit(1)
-  echo "Tree saved successfully!"
+
+  await session.closeWait()
 
   echo ""
 
-  # Save each credential to a keystore file named by peer ID
+  # Save each credential to a keystore file using the service's leaf index
   echo "Saving keystores..."
   for i, entry in allCredentials:
     let keystorePath = &"rln_keystore_{entry.peerId}.json"
+    let membershipIndex = MembershipIndex(serviceIndices[i])
 
-    # Save with membership index and rate limit
     let saveResult = saveKeystore(
       entry.cred,
       KeystorePassword,
       keystorePath,
-      some(MembershipIndex(i)),
+      some(membershipIndex),
       some(entry.rateLimit),
     )
     if saveResult.isErr:
       echo "Failed to save keystore for ", entry.peerId, ": ", saveResult.error
       quit(1)
-    echo "  Saved: ", keystorePath, " (limit: ", entry.rateLimit, ")"
+    echo "  Saved: ", keystorePath, " (index: ", membershipIndex, ", limit: ", entry.rateLimit, ")"
 
   echo ""
   echo "=== Setup Complete ==="
-  echo "  Tree file: rln_tree.db (", NodeConfigs.len, " members)"
   echo "  Keystores: rln_keystore_{peerId}.json"
   echo "  Password: ", KeystorePassword
   echo "  Default rate limit: ", DefaultUserMessageLimit
-  echo "  Spammer rate limit: ", SpammerUserMessageLimit
-  echo ""
-  echo "Note: All nodes must use the same rln_tree.db file."
 
 when isMainModule:
-  waitFor setupCredentialsAndTree()
+  waitFor setupCredentials()

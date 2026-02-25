@@ -12,6 +12,7 @@ type MixConfBuilder* = object
   enabled: Option[bool]
   mixKey: Option[string]
   mixNodes: seq[MixNodePubInfo]
+  rlnServiceUrl: string
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -25,19 +26,24 @@ proc withMixKey*(b: var MixConfBuilder, mixKey: string) =
 proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   b.mixNodes = mixNodes
 
+proc withRlnServiceUrl*(b: var MixConfBuilder, url: string) =
+  b.rlnServiceUrl = url
+
 proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
   if not b.enabled.get(false):
     return ok(none[MixConf]())
+
+  if b.mixKey.isSome():
+    let mixPrivKey = intoCurve25519Key(ncrutils.fromHex(b.mixKey.get()))
+    let mixPubKey = public(mixPrivKey)
+    return ok(some(MixConf(
+      mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes,
+      rlnServiceUrl: b.rlnServiceUrl,
+    )))
   else:
-    if b.mixKey.isSome():
-      let mixPrivKey = intoCurve25519Key(ncrutils.fromHex(b.mixKey.get()))
-      let mixPubKey = public(mixPrivKey)
-      return ok(
-        some(MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes))
-      )
-    else:
-      let (mixPrivKey, mixPubKey) = generateKeyPair().valueOr:
-        return err("Generate key pair error: " & $error)
-      return ok(
-        some(MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes))
-      )
+    let (mixPrivKey, mixPubKey) = generateKeyPair().valueOr:
+      return err("Generate key pair error: " & $error)
+    return ok(some(MixConf(
+      mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes,
+      rlnServiceUrl: b.rlnServiceUrl,
+    )))

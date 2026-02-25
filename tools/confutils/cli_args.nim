@@ -621,6 +621,13 @@ with the drawback of consuming some more bandwidth.""",
       name: "mixnode"
     .}: seq[MixNodePubInfo]
 
+    rlnServiceUrl* {.
+      desc:
+        "URL of the external RLN Merkle proof service (required for group manager)",
+      defaultValue: "",
+      name: "rln-service-url"
+    .}: string
+
     # Kademlia Discovery config
     enableKadDiscovery* {.
       desc:
@@ -1021,6 +1028,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.mixConf.withEnabled(n.mix)
   b.mixConf.withMixNodes(n.mixnodes)
+  b.mixConf.withRlnServiceUrl(n.rlnServiceUrl)
   b.withMix(n.mix)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())

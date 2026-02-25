@@ -557,7 +557,8 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
 
   (
     await node.mountMix(
-      conf.clusterId, mixPrivKey, conf.mixnodes, some(conf.rlnUserMessageLimit)
+      conf.clusterId, mixPrivKey, conf.mixnodes, some(conf.rlnUserMessageLimit),
+      conf.rlnServiceUrl,
     )
   ).isOkOr:
     error "failed to mount waku mix protocol: ", error = $error
