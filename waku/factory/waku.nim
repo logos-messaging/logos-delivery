@@ -46,7 +46,8 @@ import
     factory/internal_config,
     factory/app_callbacks,
   ],
-  ./waku_conf
+  ./waku_conf,
+  ./waku_state_info
 
 logScope:
   topics = "wakunode waku"
@@ -55,7 +56,7 @@ logScope:
 const git_version* {.strdefine.} = "n/a"
 
 type Waku* = ref object
-  version: string
+  stateInfo: WakuStateInfo
   conf*: WakuConf
   rng*: ref HmacDrbgContext
 
@@ -77,9 +78,6 @@ type Waku* = ref object
   appCallbacks*: AppCallbacks
 
   brokerCtx*: BrokerContext
-
-func version*(waku: Waku): string =
-  waku.version
 
 proc setupSwitchServices(
     waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: ref HmacDrbgContext
@@ -215,7 +213,7 @@ proc new*(
     return err("could not create delivery service: " & $error)
 
   var waku = Waku(
-    version: git_version,
+    stateInfo: WakuStateInfo.init(node),
     conf: wakuConf,
     rng: rng,
     key: wakuConf.nodeKey,
