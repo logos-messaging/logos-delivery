@@ -4,7 +4,7 @@ import
   waku/factory/waku,
   waku/node/waku_node,
   waku/api/[api, api_conf, types],
-  waku/events/message_events,
+  waku/events/[message_events, health_events],
   ../declare_lib,
   ../json_event
 
@@ -88,6 +88,15 @@ proc logosdelivery_start_node(
     chronicles.error "MessagePropagatedEvent.listen failed", err = $error
     return err("MessagePropagatedEvent.listen failed: " & $error)
 
+  let ConnectionStatusChangeListener = EventConnectionStatusChange.listen(
+    ctx.myLib[].brokerCtx,
+    proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
+      callEventCallback(ctx, "onConnectionStatusChange"):
+        $newJsonEvent("connection_status_change", event),
+  ).valueOr:
+    chronicles.error "ConnectionStatusChange.listen failed", err = $error
+    return err("ConnectionStatusChange.listen failed: " & $error)
+
   (await startWaku(addr ctx.myLib[])).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
@@ -103,6 +112,7 @@ proc logosdelivery_stop_node(
   MessageErrorEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   MessageSentEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   MessagePropagatedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
+  EventConnectionStatusChange.dropAllListeners(ctx.myLib[].brokerCtx)
 
   (await ctx.myLib[].stop()).isOkOr:
     let errMsg = $error
