@@ -56,7 +56,7 @@ logScope:
 const git_version* {.strdefine.} = "n/a"
 
 type Waku* = ref object
-  stateInfo: WakuStateInfo
+  stateInfo*: WakuStateInfo
   conf*: WakuConf
   rng*: ref HmacDrbgContext
 

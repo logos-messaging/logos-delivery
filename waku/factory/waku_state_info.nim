@@ -5,7 +5,7 @@
 ## accessible through the debug API.
 
 import std/[tables, sequtils, strutils]
-import metrics, eth/p2p/discoveryv5/enr
+import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid
 import waku/waku_node
 
 type
@@ -42,7 +42,7 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
   of NodeInfoId.MyENR:
     return self.node.enr.toURI()
   of NodeInfoId.MyPeerId:
-    return $self.node.peerId()
+    return $PeerId(self.node.peerId())
   else:
     return "unknown info item id"
 

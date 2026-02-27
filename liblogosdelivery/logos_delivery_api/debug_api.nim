@@ -1,4 +1,5 @@
-import std/json
+import std/[json, strutils]
+import waku/factory/waku_state_info
 
 proc logosdelivery_get_available_node_info_ids(
     ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
@@ -19,10 +20,14 @@ proc logosdelivery_get_node_info(
   ## Returns the content of the node info item with the given id if it exists.
   requireInitializedNode(ctx, "GetNodeInfoItem"):
     return err(errMsg)
-  let infoItemIdEnum = parseEnum[NodeInfoId]($nodeInfoId)
-  if infoItemIdEnum.isNone():
-    return err("Invalid node info id: " & $nodeInfoId)
-  return ok(ctx.myLib[].stateInfo.getNodeInfoItem(infoItemIdEnum.get()))
+
+  let infoItemIdEnum =
+    try:
+      parseEnum[NodeInfoId]($nodeInfoId)
+    except ValueError:
+      return err("Invalid node info id: " & $nodeInfoId)
+
+  return ok(ctx.myLib[].stateInfo.getNodeInfoItem(infoItemIdEnum))
 
 proc logosdelivery_get_available_configs(
     ctx: ptr FFIContext[Waku],
