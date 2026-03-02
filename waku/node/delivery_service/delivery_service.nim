@@ -5,7 +5,7 @@ import chronos
 import
   ./recv_service,
   ./send_service,
-  ./subscription_service,
+  ./subscription_manager,
   waku/[
     waku_core,
     waku_node,
@@ -18,31 +18,31 @@ import
 type DeliveryService* = ref object
   sendService*: SendService
   recvService: RecvService
-  subscriptionService*: SubscriptionService
+  subscriptionManager*: SubscriptionManager
 
 proc new*(
     T: type DeliveryService, useP2PReliability: bool, w: WakuNode
 ): Result[T, string] =
   ## storeClient is needed to give store visitility to DeliveryService
   ## wakuRelay and wakuLightpushClient are needed to give a mechanism to SendService to re-publish
-  let subscriptionService = SubscriptionService.new(w)
-  let sendService = ?SendService.new(useP2PReliability, w, subscriptionService)
-  let recvService = RecvService.new(w, subscriptionService)
+  let subscriptionManager = SubscriptionManager.new(w)
+  let sendService = ?SendService.new(useP2PReliability, w, subscriptionManager)
+  let recvService = RecvService.new(w, subscriptionManager)
 
   return ok(
     DeliveryService(
       sendService: sendService,
       recvService: recvService,
-      subscriptionService: subscriptionService,
+      subscriptionManager: subscriptionManager,
     )
   )
 
 proc startDeliveryService*(self: DeliveryService) =
-  self.subscriptionService.startSubscriptionService()
+  self.subscriptionManager.startSubscriptionManager()
   self.recvService.startRecvService()
   self.sendService.startSendService()
 
 proc stopDeliveryService*(self: DeliveryService) {.async.} =
   await self.sendService.stopSendService()
   await self.recvService.stopRecvService()
-  await self.subscriptionService.stopSubscriptionService()
+  await self.subscriptionManager.stopSubscriptionManager()

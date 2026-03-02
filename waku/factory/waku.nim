@@ -35,7 +35,7 @@ import
     node/health_monitor,
     node/waku_metrics,
     node/delivery_service/delivery_service,
-    node/delivery_service/subscription_service,
+    node/delivery_service/subscription_manager,
     rest_api/message_cache,
     rest_api/endpoint/server,
     rest_api/endpoint/builder as rest_server_builder,

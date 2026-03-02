@@ -4,7 +4,7 @@
 
 import std/[tables, sequtils, options, sets]
 import chronos, chronicles, libp2p/utility
-import ../[subscription_service]
+import ../[subscription_manager]
 import
   waku/[
     waku_core,
@@ -38,7 +38,7 @@ type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
   node: WakuNode
   seenMsgListener: MessageSeenEventListener
-  subscriptionService: SubscriptionService
+  subscriptionManager: SubscriptionManager
 
   recentReceivedMsgs: seq[RecvMessage]
 
@@ -91,7 +91,7 @@ proc msgChecker(self: RecvService) {.async.} =
     self.endTimeToCheck = getNowInNanosecondTime()
 
     var msgHashesInStore = newSeq[WakuMessageHash](0)
-    for sub in self.subscriptionService.getActiveSubscriptions():
+    for sub in self.subscriptionManager.getActiveSubscriptions():
       let storeResp: StoreQueryResponse = (
         await self.node.wakuStoreClient.queryToAny(
           StoreQueryRequest(
@@ -142,7 +142,7 @@ proc processIncomingMessageOfInterest(
     self.recentReceivedMsgs.add(rxMsg)
     MessageReceivedEvent.emit(self.brokerCtx, msgHash.to0xHex(), message)
 
-proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionService): T =
+proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionManager): T =
   ## The storeClient will help to acquire any possible missed messages
 
   let now = getNowInNanosecondTime()
@@ -150,7 +150,7 @@ proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionService): T =
     node: node,
     startTimeToCheck: now,
     brokerCtx: node.brokerCtx,
-    subscriptionService: s,
+    subscriptionManager: s,
     recentReceivedMsgs: @[],
   )
 
@@ -173,9 +173,11 @@ proc startRecvService*(self: RecvService) =
   self.seenMsgListener = MessageSeenEvent.listen(
     self.brokerCtx,
     proc(event: MessageSeenEvent) {.async: (raises: []).} =
-      if not self.subscriptionService.isSubscribed(
+      if not self.subscriptionManager.isSubscribed(
         event.topic, event.message.contentTopic
       ):
+        trace "skipping message as I am not subscribed",
+          shard = event.topic, contenttopic = event.message.contentTopic
         return
 
       self.processIncomingMessageOfInterest(event.topic, event.message),

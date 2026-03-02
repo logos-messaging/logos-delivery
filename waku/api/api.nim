@@ -3,7 +3,7 @@ import chronicles, chronos, results, std/strutils
 import waku/factory/waku
 import waku/[requests/health_requests, waku_core, waku_node]
 import waku/node/delivery_service/send_service
-import waku/node/delivery_service/subscription_service
+import waku/node/delivery_service/subscription_manager
 import libp2p/peerid
 import ./[api_conf, types]
 
@@ -36,24 +36,24 @@ proc subscribe*(
 ): Future[Result[void, string]] {.async.} =
   ?checkApiAvailability(w)
 
-  return w.deliveryService.subscriptionService.subscribe(contentTopic)
+  return w.deliveryService.subscriptionManager.subscribe(contentTopic)
 
 proc unsubscribe*(w: Waku, contentTopic: ContentTopic): Result[void, string] =
   ?checkApiAvailability(w)
 
-  return w.deliveryService.subscriptionService.unsubscribe(contentTopic)
+  return w.deliveryService.subscriptionManager.unsubscribe(contentTopic)
 
 proc send*(
     w: Waku, envelope: MessageEnvelope
 ): Future[Result[RequestId, string]] {.async.} =
   ?checkApiAvailability(w)
 
-  let isSubbed = w.deliveryService.subscriptionService
+  let isSubbed = w.deliveryService.subscriptionManager
     .isSubscribed(envelope.contentTopic)
     .valueOr(false)
   if not isSubbed:
     info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
-    w.deliveryService.subscriptionService.subscribe(envelope.contentTopic).isOkOr:
+    w.deliveryService.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:
       warn "Failed to auto-subscribe", error = error
       return err("Failed to auto-subscribe before sending: " & error)
 

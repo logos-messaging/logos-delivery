@@ -152,7 +152,7 @@ proc publishToMesh(
   )
   return await net.publisher.publish(some(shard), msg)
 
-suite "Messaging API, SubscriptionService":
+suite "Messaging API, SubscriptionManager":
   asyncTest "Subscription API, relay node auto subscribe and receive message":
     let net = await setupNetwork(1)
     defer:
