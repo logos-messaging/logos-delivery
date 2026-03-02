@@ -77,21 +77,34 @@ extern "C"
                                  FFICallBack callback,
                                  void *userData);
 
-  // Retrieves the list of available node info IDs.
   int logosdelivery_get_available_node_info_ids(void *ctx,
                                  FFICallBack callback,
                                  void *userData);
 
-  // Given a node info ID, retrieves the corresponding info.
   int logosdelivery_get_node_info(void *ctx,
                                   FFICallBack callback,
                                   void *userData,
                                   const char *nodeInfoId);
 
-  // Retrieves the list of available configurations.
   int logosdelivery_get_available_configs(void *ctx,
                                     FFICallBack callback,
                                     void *userData);
+
+  int logosdelivery_init(void);
+
+  // RLN fetcher: C++ implements this, Nim calls it to get roots/proofs from RLN module.
+  // method: "get_valid_roots" or "get_merkle_proofs"
+  // params: JSON string with method-specific parameters
+  // callback + callbackData: Nim's callback to receive the result
+  // fetcherData: opaque pointer passed during registration (typically the C++ plugin instance)
+  typedef int (*RlnFetcherFunc)(const char *method, const char *params,
+      FFICallBack callback, void *callbackData, void *fetcherData);
+
+  // Register the RLN fetcher callback (called by C++ delivery module at startup).
+  void logosdelivery_set_rln_fetcher(void *ctx, RlnFetcherFunc fetcher, void *fetcherData);
+
+  // Set RLN configuration: config account ID and leaf index for this node.
+  int logosdelivery_set_rln_config(void *ctx, const char *configAccountId, int leafIndex);
 
 #ifdef __cplusplus
 }

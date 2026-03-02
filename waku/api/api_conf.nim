@@ -1,7 +1,12 @@
-import std/[net, options]
+import std/[net, options, strutils]
 
 import results
 import json_serialization, json_serialization/std/options as json_options
+import libp2p/crypto/crypto
+import libp2p/crypto/secp
+import libp2p/crypto/curve25519
+import libp2p/protocols/mix/curve25519
+import nimcrypto/utils as ncrutils
 
 import
   waku/common/utils/parse_size_units,
@@ -9,6 +14,7 @@ import
   waku/factory/waku_conf,
   waku/factory/conf_builder/conf_builder,
   waku/factory/networks_config,
+  waku/waku_mix,
   tools/confutils/entry_nodes
 
 export json_serialization, json_options
@@ -80,6 +86,13 @@ const TheWakuNetworkPreset* = ProtocolsConfig(
   ),
 )
 
+type MixProtocolConfig* = object
+  nodekey*: Option[string]
+  mixkey*: Option[string]
+  enableSpamProtection*: bool
+  userMessageLimit*: Option[int]
+  mixNodes*: seq[string]
+
 type WakuMode* {.pure.} = enum
   Edge
   Core
@@ -92,6 +105,7 @@ type NodeConfig* {.
   networkingConfig: NetworkingConfig
   ethRpcEndpoints: seq[string]
   p2pReliability: bool
+  mixProtocolConfig: Option[MixProtocolConfig]
   logLevel: LogLevel
   logFormat: LogFormat
 
@@ -102,6 +116,7 @@ proc init*(
     networkingConfig: NetworkingConfig = DefaultNetworkingConfig,
     ethRpcEndpoints: seq[string] = @[],
     p2pReliability: bool = false,
+    mixProtocolConfig: Option[MixProtocolConfig] = none(MixProtocolConfig),
     logLevel: LogLevel = LogLevel.INFO,
     logFormat: LogFormat = LogFormat.TEXT,
 ): T =
@@ -111,6 +126,7 @@ proc init*(
     networkingConfig: networkingConfig,
     ethRpcEndpoints: ethRpcEndpoints,
     p2pReliability: p2pReliability,
+    mixProtocolConfig: mixProtocolConfig,
     logLevel: logLevel,
     logFormat: logFormat,
   )
@@ -151,6 +167,9 @@ proc p2pReliability*(c: NodeConfig): bool =
 
 proc logLevel*(c: NodeConfig): LogLevel =
   c.logLevel
+
+proc mixProtocolConfig*(c: NodeConfig): Option[MixProtocolConfig] =
+  c.mixProtocolConfig
 
 proc logFormat*(c: NodeConfig): LogFormat =
   c.logFormat
@@ -259,6 +278,34 @@ proc toWakuConf*(
 
     # TODO: we should get rid of those two
     b.rlnRelayconf.withUserMessageLimit(100)
+
+  # Set mix protocol config if provided
+  if nodeConfig.mixProtocolConfig.isSome():
+    let mixCfg = nodeConfig.mixProtocolConfig.get()
+    b.withMix(true)
+    b.mixConf.withEnabled(true)
+    if mixCfg.nodekey.isSome():
+      let key = SkPrivateKey.init(ncrutils.fromHex(mixCfg.nodekey.get())).valueOr:
+        return err("Invalid nodekey hex: " & $error)
+      b.withNodeKey(crypto.PrivateKey(scheme: Secp256k1, skkey: key))
+    if mixCfg.mixkey.isSome():
+      b.mixConf.withMixKey(mixCfg.mixkey.get())
+    b.mixConf.withEnableSpamProtection(mixCfg.enableSpamProtection)
+    if mixCfg.userMessageLimit.isSome():
+      b.mixConf.withUserMessageLimit(mixCfg.userMessageLimit.get())
+    if mixCfg.mixNodes.len > 0:
+      var parsedMixNodes: seq[MixNodePubInfo]
+      for entry in mixCfg.mixNodes:
+        let parts = entry.split(":")
+        if parts.len < 2:
+          return err("Invalid mixNode format (expected multiaddr:pubKeyHex): " & entry)
+        let pubKeyHex = parts[^1]
+        let multiAddr = entry[0 ..< entry.len - pubKeyHex.len - 1]
+        parsedMixNodes.add(MixNodePubInfo(
+          multiAddr: multiAddr,
+          pubKey: intoCurve25519Key(ncrutils.fromHex(pubKeyHex)),
+        ))
+      b.mixConf.withMixNodes(parsedMixNodes)
 
   ## Various configurations
   b.withNatStrategy("any")
@@ -459,6 +506,35 @@ proc readValue*(
     messageValidation = messageValidation.get(DefaultMessageValidation),
   )
 
+# ---------- MixProtocolConfig ----------
+
+proc writeValue*(w: var JsonWriter, val: MixProtocolConfig) {.raises: [IOError].} =
+  w.beginRecord()
+  if val.nodekey.isSome(): w.writeField("nodekey", val.nodekey.get())
+  if val.mixkey.isSome(): w.writeField("mixkey", val.mixkey.get())
+  w.writeField("enableSpamProtection", val.enableSpamProtection)
+  if val.userMessageLimit.isSome(): w.writeField("userMessageLimit", val.userMessageLimit.get())
+  if val.mixNodes.len > 0: w.writeField("mixNodes", val.mixNodes)
+  w.endRecord()
+
+proc readValue*(
+    r: var JsonReader, val: var MixProtocolConfig
+) {.raises: [SerializationError, IOError].} =
+  for fieldName in readObjectFields(r):
+    case fieldName
+    of "nodekey":
+      val.nodekey = some(r.readValue(string))
+    of "mixkey":
+      val.mixkey = some(r.readValue(string))
+    of "enableSpamProtection":
+      val.enableSpamProtection = r.readValue(bool)
+    of "userMessageLimit":
+      val.userMessageLimit = some(r.readValue(int))
+    of "mixNodes":
+      val.mixNodes = r.readValue(seq[string])
+    else:
+      r.raiseUnexpectedField(fieldName, "MixProtocolConfig")
+
 # ---------- NodeConfig ----------
 
 proc writeValue*(w: var JsonWriter, val: NodeConfig) {.raises: [IOError].} =
@@ -468,6 +544,7 @@ proc writeValue*(w: var JsonWriter, val: NodeConfig) {.raises: [IOError].} =
   w.writeField("networkingConfig", val.networkingConfig)
   w.writeField("ethRpcEndpoints", val.ethRpcEndpoints)
   w.writeField("p2pReliability", val.p2pReliability)
+  if val.mixProtocolConfig.isSome(): w.writeField("mixProtocolConfig", val.mixProtocolConfig.get())
   w.writeField("logLevel", val.logLevel)
   w.writeField("logFormat", val.logFormat)
   w.endRecord()
@@ -481,6 +558,7 @@ proc readValue*(
     networkingConfig: Option[NetworkingConfig]
     ethRpcEndpoints: Option[seq[string]]
     p2pReliability: Option[bool]
+    mixProtocolConfig: Option[MixProtocolConfig]
     logLevel: Option[LogLevel]
     logFormat: Option[LogFormat]
 
@@ -496,6 +574,8 @@ proc readValue*(
       ethRpcEndpoints = some(r.readValue(seq[string]))
     of "p2pReliability":
       p2pReliability = some(r.readValue(bool))
+    of "mixProtocolConfig":
+      mixProtocolConfig = some(r.readValue(MixProtocolConfig))
     of "logLevel":
       logLevel = some(r.readValue(LogLevel))
     of "logFormat":
@@ -509,6 +589,7 @@ proc readValue*(
     networkingConfig = networkingConfig.get(DefaultNetworkingConfig),
     ethRpcEndpoints = ethRpcEndpoints.get(@[]),
     p2pReliability = p2pReliability.get(false),
+    mixProtocolConfig = mixProtocolConfig,
     logLevel = logLevel.get(LogLevel.INFO),
     logFormat = logFormat.get(LogFormat.TEXT),
   )

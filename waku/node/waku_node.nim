@@ -316,8 +316,10 @@ proc mountMix*(
     clusterId: uint16,
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
+    userMessageLimit: Option[int] = none(int),
+    enableSpamProtection: bool = false,
 ): Future[Result[void, string]] {.async.} =
-  info "mounting mix protocol", nodeId = node.info #TODO log the config used
+  info "mounting mix protocol", nodeId = node.info
 
   if node.announcedAddresses.len == 0:
     return err("Trying to mount mix without having announced addresses")
@@ -326,8 +328,23 @@ proc mountMix*(
     return err("Failed to convert multiaddress to string.")
   info "local addr", localaddr = localaddrStr
 
+  let publishMessage: PublishMessage = proc(
+      message: WakuMessage
+  ): Future[Result[void, string]] {.async.} =
+    if node.wakuRelay.isNil():
+      return err("WakuRelay not mounted")
+    let pubsubTopic =
+      if node.wakuAutoSharding.isNone():
+        return err("Auto sharding not configured")
+      else:
+        node.wakuAutoSharding.get().getShard(message.contentTopic).valueOr:
+          return err("Autosharding error: " & error)
+    discard await node.wakuRelay.publish(pubsubTopic, message)
+    return ok()
+
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes
+    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes,
+    publishMessage, userMessageLimit, enableSpamProtection,
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
     return
@@ -634,7 +651,7 @@ proc start*(node: WakuNode) {.async.} =
     await node.startRelay()
 
   if not node.wakuMix.isNil():
-    node.wakuMix.start()
+    await node.wakuMix.start()
 
   if not node.wakuMetadata.isNil():
     node.wakuMetadata.start()

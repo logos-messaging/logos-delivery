@@ -643,6 +643,17 @@ with the drawback of consuming some more bandwidth.""",
       name: "mixnode"
     .}: seq[MixNodePubInfo]
 
+    enableSpamProtection* {.
+      desc: "Enable RLN-based spam protection for mix messages.",
+      defaultValue: false,
+      name: "enable-spam-protection"
+    .}: bool
+
+    userMessageLimit* {.
+      desc: "User message limit for RLN spam protection.",
+      name: "user-message-limit"
+    .}: Option[int]
+
     # Kademlia Discovery config
     enableKadDiscovery* {.
       desc:
@@ -1070,6 +1081,9 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.mixConf.withEnabled(n.mix)
   b.mixConf.withMixNodes(n.mixnodes)
+  b.mixConf.withEnableSpamProtection(n.enableSpamProtection)
+  if n.userMessageLimit.isSome():
+    b.mixConf.withUserMessageLimit(n.userMessageLimit.get())
   b.withMix(n.mix)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
