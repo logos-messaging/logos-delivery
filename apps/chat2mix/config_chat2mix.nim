@@ -1,4 +1,4 @@
-import chronicles, chronos, std/strutils, regex
+import chronicles, chronos, std/[strutils, options], regex
 
 import
   eth/keys,
@@ -229,6 +229,17 @@ type
       name: "websocket-secure-support"
     .}: bool
 
+    enableSpamProtection* {.
+      desc: "Enable RLN-based spam protection for mix messages.",
+      defaultValue: false,
+      name: "enable-spam-protection"
+    .}: bool
+
+    userMessageLimit* {.
+      desc: "User message limit for RLN spam protection.",
+      name: "user-message-limit"
+    .}: Option[int]
+
     ## Kademlia Discovery config
     kadBootstrapNodes* {.
       desc:
@@ -288,6 +299,12 @@ proc parseCmdArg*(T: type Option[uint], p: string): T =
     some(parseUint(p))
   except CatchableError:
     raise newException(ValueError, "Invalid unsigned integer")
+
+proc parseCmdArg*(T: type Option[int], p: string): T =
+  try:
+    some(parseInt(p))
+  except CatchableError:
+    raise newException(ValueError, "Invalid integer")
 
 proc completeCmdArg*(T: type EthRpcUrl, val: string): seq[string] =
   return @[]

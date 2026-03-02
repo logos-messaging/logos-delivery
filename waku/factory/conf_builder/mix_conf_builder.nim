@@ -12,6 +12,8 @@ type MixConfBuilder* = object
   enabled: Option[bool]
   mixKey: Option[string]
   mixNodes: seq[MixNodePubInfo]
+  enableSpamProtection: bool
+  userMessageLimit: Option[int]
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -25,6 +27,12 @@ proc withMixKey*(b: var MixConfBuilder, mixKey: string) =
 proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   b.mixNodes = mixNodes
 
+proc withEnableSpamProtection*(b: var MixConfBuilder, enable: bool) =
+  b.enableSpamProtection = enable
+
+proc withUserMessageLimit*(b: var MixConfBuilder, limit: int) =
+  b.userMessageLimit = some(limit)
+
 proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
   if not b.enabled.get(false):
     return ok(none[MixConf]())
@@ -33,11 +41,15 @@ proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
       let mixPrivKey = intoCurve25519Key(ncrutils.fromHex(b.mixKey.get()))
       let mixPubKey = public(mixPrivKey)
       return ok(
-        some(MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes))
+        some(MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixnodes: b.mixNodes,
+            enableSpamProtection: b.enableSpamProtection,
+            userMessageLimit: b.userMessageLimit))
       )
     else:
       let (mixPrivKey, mixPubKey) = generateKeyPair().valueOr:
         return err("Generate key pair error: " & $error)
       return ok(
-        some(MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes))
+        some(MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixnodes: b.mixNodes,
+            enableSpamProtection: b.enableSpamProtection,
+            userMessageLimit: b.userMessageLimit))
       )

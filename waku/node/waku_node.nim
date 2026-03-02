@@ -316,8 +316,11 @@ proc mountMix*(
     clusterId: uint16,
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
+    publishMessage: PublishMessage = nil,
+    userMessageLimit: Option[int] = none(int),
+    enableSpamProtection: bool = false,
 ): Future[Result[void, string]] {.async.} =
-  info "mounting mix protocol", nodeId = node.info #TODO log the config used
+  info "mounting mix protocol", nodeId = node.info
 
   if node.announcedAddresses.len == 0:
     return err("Trying to mount mix without having announced addresses")
@@ -327,7 +330,8 @@ proc mountMix*(
   info "local addr", localaddr = localaddrStr
 
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes
+    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes,
+    publishMessage, userMessageLimit, enableSpamProtection,
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
     return
@@ -634,7 +638,7 @@ proc start*(node: WakuNode) {.async.} =
     await node.startRelay()
 
   if not node.wakuMix.isNil():
-    node.wakuMix.start()
+    await node.wakuMix.start()
 
   if not node.wakuMetadata.isNil():
     node.wakuMetadata.start()

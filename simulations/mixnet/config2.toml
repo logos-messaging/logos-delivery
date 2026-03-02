@@ -1,6 +1,7 @@
 log-level = "TRACE"
 relay = true
 mix = true
+enable-spam-protection = true
 filter = true
 store = false
 lightpush = true
