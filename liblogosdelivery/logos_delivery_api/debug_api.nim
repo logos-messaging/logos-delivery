@@ -37,33 +37,18 @@ proc logosdelivery_get_available_configs(
   requireInitializedNode(ctx, "GetAvailableConfigs"):
     return err(errMsg)
 
-  let conf = defaultWakuNodeConf().valueOr:
-    return err("Failed to get default logos-discovery configuration")
-
   let optionMetas: seq[ConfigOptionMeta] = extractConfigOptionMeta(WakuNodeConf)
-  var configOptions: seq[string]
   var configOptionDetails = newJArray()
-  var defaultConfig = newJObject()
 
-  for confField, confValue in fieldPairs(conf):
-    defaultConfig[confField] = %repr(confValue)
+  # for confField, confValue in fieldPairs(conf):
+  #   defaultConfig[confField] = $confValue
 
   for meta in optionMetas:
-    configOptions.add(meta.fieldName)
     configOptionDetails.add(
-      %*{
-        "name": meta.fieldName,
-        "type": meta.typeName,
-        "cliName": meta.cliName,
-        "desc": meta.desc,
-        "defaultValue": meta.defaultValue,
-        "command": meta.command,
-      }
+      %*{meta.fieldName: meta.typeName & "(" & meta.defaultValue & ")", "desc": meta.desc}
     )
 
   var jsonNode = newJObject()
-  jsonNode["configOptions"] = %*configOptions
-  jsonNode["configOptionDetails"] = configOptionDetails
-  jsonNode["defaultConfig"] = defaultConfig
+  jsonNode["configOptions"] = configOptionDetails
   let asString = pretty(jsonNode)
-  return ok(asString)
+  return ok(pretty(jsonNode))
