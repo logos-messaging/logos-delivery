@@ -36,6 +36,7 @@ jobs:
           - 'waku.nimble'
           - 'Makefile'
           - 'library/**'
+          - 'liblogosdelivery/**'
           v2:
           - 'waku/**'
           - 'apps/**'
