@@ -80,6 +80,11 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
         printf("[EVENT] Message propagated - RequestID: %s, Hash: %s\n", requestId, messageHash);
 
+    } else if (strcmp(eventType, "connection_status_change") == 0) {
+        char connectionStatus[256];
+        extract_json_field(eventJson, "connectionStatus", connectionStatus, sizeof(connectionStatus));
+        printf("[EVENT] Connection status change - Status: %s\n", connectionStatus);
+
     } else {
         printf("[EVENT] Unknown event type: %s\n", eventType);
     }
@@ -112,7 +117,7 @@ int main() {
     // Configuration JSON using WakuNodeConf field names (flat structure).
     // Field names match Nim identifiers from WakuNodeConf in tools/confutils/cli_args.nim.
     const char *config = "{"
-        "\"logLevel\": \"DEBUG\","
+        "\"logLevel\": \"INFO\","
         "\"mode\": \"Core\","
         "\"preset\": \"logos.dev\""
     "}";
@@ -141,7 +146,7 @@ int main() {
     logosdelivery_start_node(ctx, simple_callback, (void *)"start_node");
 
     // Wait for node to start
-    sleep(2);
+    sleep(10);
 
     printf("\n4. Subscribing to content topic...\n");
     const char *contentTopic = "/example/1/chat/proto";
