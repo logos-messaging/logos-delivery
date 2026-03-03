@@ -618,7 +618,7 @@ proc build*(
       provided = maxConnections, recommended = DefaultMaxConnections
 
   # TODO: Do the git version thing here
-  let agentString = builder.agentString.get("nwaku")
+  let agentString = builder.agentString.get("logos-delivery")
 
   # TODO: use `DefaultColocationLimit`. the user of this value should
   # probably be defining a config object
