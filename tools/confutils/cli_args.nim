@@ -52,7 +52,7 @@ type StartUpCommand* = enum
   noCommand # default, runs waku
   generateRlnKeystore # generates a new RLN keystore
 
-type WakuMode* = enum
+type WakuMode* {.pure.} = enum
   noMode # default - use explicit CLI flags as-is
   Core # full service node
   Edge # client-only node
@@ -158,7 +158,7 @@ type WakuNodeConf* = object
     mode* {.
       desc:
         "Node operation mode. 'Core' enables relay+service protocols. 'Edge' enables client-only protocols. Default: explicit CLI flags used.",
-      defaultValue: noMode,
+      defaultValue: WakuMode.noMode,
       name: "mode"
     .}: WakuMode
 
@@ -931,7 +931,7 @@ proc toNetworkConf(
   of "twn":
     ok(some(NetworkConf.TheWakuNetworkConf()))
   of "logos.dev", "logosdev":
-    ok(some(NetworkConf.LogosDevPreset()))
+    ok(some(NetworkConf.LogosDevConf()))
   else:
     err("Invalid --preset value passed: " & lcPreset)
 
@@ -1095,22 +1095,24 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   # Mode-driven configuration overrides
   case n.mode
-  of Core:
+  of WakuMode.Core:
     b.withRelay(true)
     b.filterServiceConf.withEnabled(true)
-    b.filterServiceConf.withMaxPeersToServe(20)
+    b.filterServiceConf.withMaxPeersToServeIfNotAssigned(20)
     b.withLightPush(true)
     b.discv5Conf.withEnabled(true)
     b.withPeerExchange(true)
     b.withRendezvous(true)
-    b.rateLimitConf.withRateLimits(@["filter:100/1s", "lightpush:5/1s", "px:5/1s"])
-  of Edge:
+    b.rateLimitConf.withRateLimitsIfNotAssigned(
+      @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
+    )
+  of WakuMode.Edge:
     b.withPeerExchange(true)
     b.withRelay(false)
     b.filterServiceConf.withEnabled(false)
     b.withLightPush(false)
     b.storeServiceConf.withEnabled(false)
-  of noMode:
+  of WakuMode.noMode:
     discard # use explicit CLI flags as-is
 
   return b.build()

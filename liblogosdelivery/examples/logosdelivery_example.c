@@ -114,9 +114,7 @@ int main() {
     const char *config = "{"
         "\"logLevel\": \"DEBUG\","
         "\"mode\": \"Core\","
-        "\"clusterId\": 42,"
-        "\"numShardsInNetwork\": 8,"
-        "\"staticnodes\": [\"/dns4/node-01.do-ams3.misc.logos-chat.status.im/tcp/30303/p2p/16Uiu2HAkxoqUTud5LUPQBRmkeL2xP4iKx2kaABYXomQRgmLUgf78\"]"
+        "\"preset\": \"logos.dev\""
     "}";
 
     printf("1. Creating node...\n");

@@ -393,6 +393,18 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
         discarded = builder.discv5Conf.bootstrapNodes
     builder.discv5Conf.withBootstrapNodes(networkConf.discv5BootstrapNodes)
 
+  if networkConf.enableKadDiscovery:
+    if not builder.kademliaDiscoveryConf.enabled:
+      builder.kademliaDiscoveryConf.withEnabled(networkConf.enableKadDiscovery)
+
+    if builder.kademliaDiscoveryConf.bootstrapNodes.len == 0 and
+        networkConf.kadBootstrapNodes.len > 0:
+      builder.kademliaDiscoveryConf.withBootstrapNodes(networkConf.kadBootstrapNodes)
+
+  if networkConf.mix:
+    if builder.mix.isNone:
+      builder.mix = some(networkConf.mix)
+
 proc build*(
     builder: var WakuConfBuilder, rng: ref HmacDrbgContext = crypto.newRng()
 ): Result[WakuConf, string] =

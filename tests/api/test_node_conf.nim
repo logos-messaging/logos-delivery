@@ -2,6 +2,7 @@
 
 import std/[options, json, strutils], results, stint, testutils/unittests
 import json_serialization
+import confutils, confutils/std/net
 import tools/confutils/cli_args
 import waku/factory/waku_conf, waku/factory/networks_config
 import waku/common/logging
@@ -16,8 +17,6 @@ proc parseWakuNodeConfFromJson(jsonStr: string): Result[WakuNodeConf, string] =
   except Exception:
     return err("JSON parse error: " & getCurrentExceptionMsg())
   for confField, confValue in fieldPairs(conf):
-    if confField == "cmd":
-      continue
     if jsonNode.contains(confField):
       let formattedString = ($jsonNode[confField]).strip(chars = {'\"'})
       try:
@@ -76,7 +75,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    conf.mode = noMode
+    conf.mode = WakuMode.noMode
     conf.relay = true
     conf.lightpush = false
     conf.clusterId = 5
@@ -119,7 +118,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     require confRes.isOk()
     let conf = confRes.get()
     check:
-      conf.mode == noMode
+      conf.mode == WakuMode.noMode
       conf.clusterId == 0
       conf.logLevel == logging.LogLevel.INFO
 
@@ -156,9 +155,8 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
 
   test "JSON with sharding config":
     ## Given / When
-    let confRes = parseWakuNodeConfFromJson(
-      """{"clusterId": 99, "numShardsInNetwork": 16}"""
-    )
+    let confRes =
+      parseWakuNodeConfFromJson("""{"clusterId": 99, "numShardsInNetwork": 16}""")
 
     ## Then
     require confRes.isOk()
@@ -202,7 +200,7 @@ suite "WakuNodeConf - preset integration":
     check:
       wakuConf.clusterId == 1
 
-  test "LogosDev preset applies LogosDevPreset":
+  test "LogosDev preset applies LogosDevConf":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
@@ -273,9 +271,8 @@ suite "WakuNodeConf JSON -> WakuConf integration":
 
   test "JSON with preset produces valid WakuConf":
     ## Given
-    let confRes = parseWakuNodeConfFromJson(
-      """{"mode": "Core", "preset": "logosdev"}"""
-    )
+    let confRes =
+      parseWakuNodeConfFromJson("""{"mode": "Core", "preset": "logosdev"}""")
     require confRes.isOk()
     let conf = confRes.get()
 
@@ -310,9 +307,8 @@ suite "WakuNodeConf JSON -> WakuConf integration":
 
   test "JSON with max message size":
     ## Given
-    let confRes = parseWakuNodeConfFromJson(
-      """{"clusterId": 1, "maxMessageSize": "100KiB"}"""
-    )
+    let confRes =
+      parseWakuNodeConfFromJson("""{"clusterId": 1, "maxMessageSize": "100KiB"}""")
     require confRes.isOk()
     let conf = confRes.get()
 

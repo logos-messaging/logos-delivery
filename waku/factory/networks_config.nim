@@ -29,6 +29,9 @@ type NetworkConf* = object
   shardingConf*: ShardingConf
   discv5Discovery*: bool
   discv5BootstrapNodes*: seq[string]
+  enableKadDiscovery*: bool
+  kadBootstrapNodes*: seq[string]
+  mix*: bool
 
 # cluster-id=1 (aka The Waku Network)
 # Cluster configuration corresponding to The Waku Network. Note that it
@@ -45,6 +48,9 @@ proc TheWakuNetworkConf*(T: type NetworkConf): NetworkConf =
     rlnEpochSizeSec: 600,
     rlnRelayUserMessageLimit: 100,
     shardingConf: ShardingConf(kind: AutoSharding, numShardsInCluster: 8),
+    enableKadDiscovery: false,
+    kadBootstrapNodes: @[],
+    mix: false,
     discv5Discovery: true,
     discv5BootstrapNodes:
       @[
@@ -56,7 +62,7 @@ proc TheWakuNetworkConf*(T: type NetworkConf): NetworkConf =
 
 # cluster-id=2 (Logos Dev Network)
 # Cluster configuration for the Logos Dev Network.
-proc LogosDevPreset*(T: type NetworkConf): NetworkConf =
+proc LogosDevConf*(T: type NetworkConf): NetworkConf =
   const ZeroChainId = 0'u256
   return NetworkConf(
     maxMessageSize: "150KiB",
@@ -68,8 +74,8 @@ proc LogosDevPreset*(T: type NetworkConf): NetworkConf =
     rlnEpochSizeSec: 0,
     rlnRelayUserMessageLimit: 0,
     shardingConf: ShardingConf(kind: AutoSharding, numShardsInCluster: 8),
-    discv5Discovery: true,
-    discv5BootstrapNodes:
+    enableKadDiscovery: true,
+    kadBootstrapNodes:
       @[
         "/dns4/delivery-01.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby",
         "/dns4/delivery-02.do-ams3.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAmMK7PYygBtKUQ8EHp7EfaD3bCEsJrkFooK8RQ2PVpJprH",
@@ -78,6 +84,9 @@ proc LogosDevPreset*(T: type NetworkConf): NetworkConf =
         "/dns4/delivery-01.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAm8YokiNun9BkeA1ZRmhLbtNUvcwRr64F69tYj9fkGyuEP",
         "/dns4/delivery-02.ac-cn-hongkong-c.logos.dev.status.im/tcp/30303/p2p/16Uiu2HAkvwhGHKNry6LACrB8TmEFoCJKEX29XR5dDUzk3UT3UNSE",
       ],
+    mix: true,
+    discv5Discovery: true,
+    discv5BootstrapNodes: @[],
   )
 
 proc validateShards*(

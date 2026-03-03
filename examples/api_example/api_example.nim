@@ -68,7 +68,7 @@ when isMainModule:
     # Create a basic configuration for the Waku node
     # No RLN as we don't have an ETH RPC Endpoint
     conf.mode = Core
-    conf.clusterId = 42
+    conf.preset = "logos.dev"
   else:
     # Connect to TWN, use ETH RPC Endpoint for RLN
     conf.mode = Core
