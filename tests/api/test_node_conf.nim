@@ -308,7 +308,7 @@ suite "WakuNodeConf JSON -> WakuConf integration":
   test "JSON with max message size":
     ## Given
     let confRes =
-      parseWakuNodeConfFromJson("""{"clusterId": 1, "maxMessageSize": "100KiB"}""")
+      parseWakuNodeConfFromJson("""{"clusterId": 42, "maxMessageSize": "100KiB"}""")
     require confRes.isOk()
     let conf = confRes.get()
 

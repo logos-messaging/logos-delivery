@@ -32,17 +32,16 @@ void *logosdelivery_create_node(
 ```json
 {
   "mode": "Core",
-  "clusterId": 1,
-  "entryNodes": [
-    "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
-  ],
-  "networkingConfig": {
-    "listenIpv4": "0.0.0.0",
-    "p2pTcpPort": 60000,
-    "discv5UdpPort": 9000
-  }
+  "preset": "logos.dev",
+  "listenAddress": "0.0.0.0",
+  "tcpPort": 60000,
+  "discv5UdpPort": 9000
 }
 ```
+
+Configuration uses flat field names matching `WakuNodeConf` in `tools/confutils/cli_args.nim`.
+Use `"preset"` to select a network preset (e.g., `"twn"`, `"logos.dev"`) which auto-configures
+entry nodes, cluster ID, sharding, and other network-specific settings.
 
 #### `logosdelivery_start_node`
 Starts the node.
@@ -207,8 +206,9 @@ void callback(int ret, const char *msg, size_t len, void *userData) {
 
 int main() {
     const char *config = "{"
+        "\"logLevel\": \"INFO\","
         "\"mode\": \"Core\","
-        "\"clusterId\": 1"
+        "\"preset\": \"logos.dev\""
         "}";
 
     // Create node
