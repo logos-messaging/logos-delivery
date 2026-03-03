@@ -161,7 +161,23 @@ int main() {
     // Wait for subscription
     sleep(1);
 
-    printf("\n5. Sending a message...\n");
+    printf("\n5. Retrieving all possibl node info ids...\n");
+    logosdelivery_get_available_node_info_ids(ctx, simple_callback, (void *)"get_available_node_info_ids");
+
+    printf("\nRetrieving node info for a specific invalid ID...\n");
+    logosdelivery_get_node_info(ctx, simple_callback, (void *)"get_node_info", "WrongNodeInfoId");
+
+    printf("\nRetrieving several node info for specific correct IDs...\n");
+    logosdelivery_get_node_info(ctx, simple_callback, (void *)"get_node_info", "Version");
+    // logosdelivery_get_node_info(ctx, simple_callback, (void *)"get_node_info", "Metrics");
+    logosdelivery_get_node_info(ctx, simple_callback, (void *)"get_node_info", "MyMultiaddresses");
+    logosdelivery_get_node_info(ctx, simple_callback, (void *)"get_node_info", "MyENR");
+    logosdelivery_get_node_info(ctx, simple_callback, (void *)"get_node_info", "MyPeerId");
+
+    printf("\nRetrieving available configs...\n");
+    logosdelivery_get_available_configs(ctx, simple_callback, (void *)"get_available_configs");
+
+    printf("\n6. Sending a message...\n");
     printf("Watch for message events (sent, propagated, or error):\n");
     // Create base64-encoded payload: "Hello, Logos Messaging!"
     const char *message = "{"
@@ -175,17 +191,17 @@ int main() {
     printf("Waiting for message delivery events...\n");
     sleep(60);
 
-    printf("\n6. Unsubscribing from content topic...\n");
+    printf("\n7. Unsubscribing from content topic...\n");
     logosdelivery_unsubscribe(ctx, simple_callback, (void *)"unsubscribe", contentTopic);
 
     sleep(1);
 
-    printf("\n7. Stopping node...\n");
+    printf("\n8. Stopping node...\n");
     logosdelivery_stop_node(ctx, simple_callback, (void *)"stop_node");
 
     sleep(1);
 
-    printf("\n8. Destroying context...\n");
+    printf("\n9. Destroying context...\n");
     logosdelivery_destroy(ctx, simple_callback, (void *)"destroy");
 
     printf("\n=== Example completed ===\n");

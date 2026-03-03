@@ -75,6 +75,22 @@ extern "C"
                                  FFICallBack callback,
                                  void *userData);
 
+  // Retrieves the list of available node info IDs.
+  int logosdelivery_get_available_node_info_ids(void *ctx,
+                                 FFICallBack callback,
+                                 void *userData);
+
+  // Given a node info ID, retrieves the corresponding info.
+  int logosdelivery_get_node_info(void *ctx,
+                                  FFICallBack callback,
+                                  void *userData,
+                                  const char *nodeInfoId);
+
+  // Retrieves the list of available configurations.
+  int logosdelivery_get_available_configs(void *ctx,
+                                    FFICallBack callback,
+                                    void *userData);
+
 #ifdef __cplusplus
 }
 #endif

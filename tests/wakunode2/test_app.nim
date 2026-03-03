@@ -21,7 +21,7 @@ suite "Wakunode2 - Waku":
       raiseAssert error
 
     ## When
-    let version = waku.version
+    let version = waku.stateInfo.getNodeInfoItem(NodeInfoId.Version)
 
     ## Then
     check:
