@@ -13,24 +13,24 @@ import
 
 export json_serialization, json_options
 
-type AutoShardingConfig* {.requiresInit.} = object
+type AutoShardingConfig* = object
   numShardsInCluster*: uint16
 
-type RlnConfig* {.requiresInit.} = object
+type RlnConfig* = object
   contractAddress*: string
   chainId*: uint
   epochSizeSec*: uint64
 
-type NetworkingConfig* {.requiresInit.} = object
+type NetworkingConfig* = object
   listenIpv4*: string
   p2pTcpPort*: uint16
   discv5UdpPort*: uint16
 
-type MessageValidation* {.requiresInit.} = object
+type MessageValidation* = object
   maxMessageSize*: string # Accepts formats like "150 KiB", "1500 B"
   rlnConfig*: Option[RlnConfig]
 
-type ProtocolsConfig* {.requiresInit.} = object
+type ProtocolsConfig* = object
   entryNodes: seq[string]
   staticStoreNodes: seq[string]
   clusterId: uint16
@@ -62,10 +62,9 @@ proc init*(
   )
 
 const TheWakuNetworkPreset* = ProtocolsConfig(
-  entryNodes:
-    @[
-      "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
-    ],
+  entryNodes: @[
+    "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
+  ],
   staticStoreNodes: @[],
   clusterId: 1,
   autoShardingConfig: AutoShardingConfig(numShardsInCluster: 8),
@@ -520,7 +519,7 @@ proc decodeNodeConfigFromJson*(
   var val = NodeConfig.init() # default-initialized
   try:
     var stream = unsafeMemoryInput(jsonStr)
-    var reader = JsonReader[DefaultFlavor].init(stream)
+    var reader = (JsonReader[DefaultFlavor].init(stream))
     reader.readValue(val)
   except IOError as err:
     raise (ref SerializationError)(msg: err.msg)

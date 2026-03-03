@@ -535,22 +535,21 @@ proc runAnvil*(
     let anvilPath = getAnvilPath()
     info "Anvil path", anvilPath
 
-    var args =
-      @[
-        "--port",
-        $port,
-        "--gas-limit",
-        "30000000",
-        "--gas-price",
-        "7",
-        "--base-fee",
-        "7",
-        "--balance",
-        "10000000000",
-        "--chain-id",
-        $chainId,
-        "--disable-min-priority-fee",
-      ]
+    var args = @[
+      "--port",
+      $port,
+      "--gas-limit",
+      "30000000",
+      "--gas-price",
+      "7",
+      "--base-fee",
+      "7",
+      "--balance",
+      "10000000000",
+      "--chain-id",
+      $chainId,
+      "--disable-min-priority-fee",
+    ]
 
     # Add state file argument if provided
     if stateFile.isSome():

@@ -100,11 +100,10 @@ procSuite "Waku Store - RPC codec":
         direction: some(PagingDirection.BACKWARD),
       )
       query = HistoryQueryRPC(
-        contentFilters:
-          @[
-            HistoryContentFilterRPC(contentTopic: DefaultContentTopic),
-            HistoryContentFilterRPC(contentTopic: DefaultContentTopic),
-          ],
+        contentFilters: @[
+          HistoryContentFilterRPC(contentTopic: DefaultContentTopic),
+          HistoryContentFilterRPC(contentTopic: DefaultContentTopic),
+        ],
         pagingInfo: some(pagingInfo),
         startTime: some(Timestamp(10)),
         endTime: some(Timestamp(11)),

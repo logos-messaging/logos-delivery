@@ -84,13 +84,12 @@ proc startRestServerEssentials*(
 
   let address = conf.listenAddress
   let port = Port(conf.port.uint16 + portsShift)
-  let server =
-    ?newRestHttpServer(
-      address,
-      port,
-      allowedOrigin = allowedOrigin,
-      requestErrorHandler = requestErrorHandler,
-    )
+  let server = ?newRestHttpServer(
+    address,
+    port,
+    allowedOrigin = allowedOrigin,
+    requestErrorHandler = requestErrorHandler,
+  )
 
   ## Health REST API
   installHealthApiHandler(server.router, nodeHealthMonitor)

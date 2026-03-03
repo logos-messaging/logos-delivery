@@ -669,11 +669,10 @@ procSuite "Waku Noise":
     # <- s
     #   ...
     # So we define accordingly the sequence of the pre-message public keys
-    let preMessagePKs: seq[NoisePublicKey] =
-      @[
-        toNoisePublicKey(getPublicKey(aliceStaticKey)),
-        toNoisePublicKey(getPublicKey(bobStaticKey)),
-      ]
+    let preMessagePKs: seq[NoisePublicKey] = @[
+      toNoisePublicKey(getPublicKey(aliceStaticKey)),
+      toNoisePublicKey(getPublicKey(bobStaticKey)),
+    ]
 
     var aliceHS = initialize(
       hsPattern = hsPattern,

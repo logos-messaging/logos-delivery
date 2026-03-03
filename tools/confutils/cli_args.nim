@@ -250,8 +250,7 @@ type WakuNodeConf* = object
 
     ## Circuit-relay config
     isRelayClient* {.
-      desc:
-        """Set the node as a relay-client.
+      desc: """Set the node as a relay-client.
 Set it to true for nodes that run behind a NAT or firewall and
 hence would have reachability issues.""",
       defaultValue: false,
