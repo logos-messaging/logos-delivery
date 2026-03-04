@@ -1,4 +1,5 @@
 #include "../liblogosdelivery.h"
+#include "json_utils.h"
 #include <stdio.h>
 #include <string.h>
 #include <unistd.h>
@@ -6,33 +7,10 @@
 
 static int create_node_ok = -1;
 
-// Helper function to extract a JSON string field value
-// Very basic parser - for production use a proper JSON library
-const char* extract_json_field(const char *json, const char *field, char *buffer, size_t bufSize) {
-    char searchStr[256];
-    snprintf(searchStr, sizeof(searchStr), "\"%s\":\"", field);
-
-    const char *start = strstr(json, searchStr);
-    if (!start) {
-        return NULL;
-    }
-
-    start += strlen(searchStr);
-    const char *end = strchr(start, '"');
-    if (!end) {
-        return NULL;
-    }
-
-    size_t len = end - start;
-    if (len >= bufSize) {
-        len = bufSize - 1;
-    }
-
-    memcpy(buffer, start, len);
-    buffer[len] = '\0';
-
-    return buffer;
-}
+// Flags set by event callback, polled by main thread
+static volatile int got_message_sent = 0;
+static volatile int got_message_error = 0;
+static volatile int got_message_received = 0;
 
 // Event callback that handles message events
 void event_callback(int ret, const char *msg, size_t len, void *userData) {
@@ -62,6 +40,7 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
         extract_json_field(eventJson, "requestId", requestId, sizeof(requestId));
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
         printf("[EVENT] Message sent - RequestID: %s, Hash: %s\n", requestId, messageHash);
+        got_message_sent = 1;
 
     } else if (strcmp(eventType, "message_error") == 0) {
         char requestId[128];
@@ -72,6 +51,7 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
         extract_json_field(eventJson, "error", error, sizeof(error));
         printf("[EVENT] Message error - RequestID: %s, Hash: %s, Error: %s\n",
                requestId, messageHash, error);
+        got_message_error = 1;
 
     } else if (strcmp(eventType, "message_propagated") == 0) {
         char requestId[128];
@@ -84,6 +64,41 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
         char connectionStatus[256];
         extract_json_field(eventJson, "connectionStatus", connectionStatus, sizeof(connectionStatus));
         printf("[EVENT] Connection status change - Status: %s\n", connectionStatus);
+
+    } else if (strcmp(eventType, "message_received") == 0) {
+        char messageHash[128];
+        extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
+
+        // Extract the nested "message" object
+        size_t msgObjLen = 0;
+        const char *msgObj = extract_json_object(eventJson, "message", &msgObjLen);
+        if (msgObj) {
+            // Make a null-terminated copy of the message object
+            char *msgJson = malloc(msgObjLen + 1);
+            if (msgJson) {
+                memcpy(msgJson, msgObj, msgObjLen);
+                msgJson[msgObjLen] = '\0';
+
+                char contentTopic[256];
+                extract_json_field(msgJson, "contentTopic", contentTopic, sizeof(contentTopic));
+
+                // Decode payload from JSON byte array to string
+                char payload[4096];
+                int payloadLen = decode_json_byte_array(msgJson, "payload", payload, sizeof(payload));
+
+                printf("[EVENT] Message received - Hash: %s, ContentTopic: %s\n", messageHash, contentTopic);
+                if (payloadLen > 0) {
+                    printf("        Payload (%d bytes): %.*s\n", payloadLen, payloadLen, payload);
+                } else {
+                    printf("        Payload: (empty or could not decode)\n");
+                }
+
+                free(msgJson);
+            }
+        } else {
+            printf("[EVENT] Message received - Hash: %s (could not parse message)\n", messageHash);
+        }
+        got_message_received = 1;
 
     } else {
         printf("[EVENT] Unknown event type: %s\n", eventType);
@@ -146,7 +161,7 @@ int main() {
     logosdelivery_start_node(ctx, simple_callback, (void *)"start_node");
 
     // Wait for node to start
-    sleep(10);
+    sleep(5);
 
     printf("\n4. Subscribing to content topic...\n");
     const char *contentTopic = "/example/1/chat/proto";
@@ -181,9 +196,18 @@ int main() {
     "}";
     logosdelivery_send(ctx, simple_callback, (void *)"send", message);
 
-    // Wait for message events to arrive
+    // Poll for terminal message events (sent, error, or received) with timeout
     printf("Waiting for message delivery events...\n");
-    sleep(60);
+    int timeout_sec = 60;
+    int elapsed = 0;
+    while (!(got_message_sent || got_message_error || got_message_received)
+           && elapsed < timeout_sec) {
+        usleep(100000); // 100ms
+        elapsed++;
+    }
+    if (elapsed >= timeout_sec) {
+        printf("Timed out waiting for message events after %d seconds\n", timeout_sec);
+    }
 
     printf("\n7. Unsubscribing from content topic...\n");
     logosdelivery_unsubscribe(ctx, simple_callback, (void *)"unsubscribe", contentTopic);

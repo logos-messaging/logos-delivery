@@ -35,8 +35,8 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
           confValue = parseCmdArg(typeof(confValue), formattedString)
         except Exception:
           return err(
-            "Failed to parse field '" & confField & "': " &
-              getCurrentExceptionMsg() & ". Value: " & formattedString
+            "Failed to parse field '" & confField & "': " & getCurrentExceptionMsg() &
+              ". Value: " & formattedString
           )
 
     # Create the node
@@ -86,7 +86,8 @@ proc logosdelivery_create_node(
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
     # free allocated resources as they won't be available
     ffi.destroyFFIContext(ctx).isOkOr:
-      chronicles.error "Error in destroyFFIContext after sendRequestToFFIThread during creation", err = $error
+      chronicles.error "Error in destroyFFIContext after sendRequestToFFIThread during creation",
+        err = $error
     return nil
 
   return ctx
@@ -125,6 +126,15 @@ proc logosdelivery_start_node(
     chronicles.error "MessagePropagatedEvent.listen failed", err = $error
     return err("MessagePropagatedEvent.listen failed: " & $error)
 
+  let receivedListener = MessageReceivedEvent.listen(
+    ctx.myLib[].brokerCtx,
+    proc(event: MessageReceivedEvent) {.async: (raises: []).} =
+      callEventCallback(ctx, "onMessageReceived"):
+        $newJsonEvent("message_received", event),
+  ).valueOr:
+    chronicles.error "MessageReceivedEvent.listen failed", err = $error
+    return err("MessageReceivedEvent.listen failed: " & $error)
+
   let ConnectionStatusChangeListener = EventConnectionStatusChange.listen(
     ctx.myLib[].brokerCtx,
     proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
@@ -149,6 +159,7 @@ proc logosdelivery_stop_node(
   MessageErrorEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   MessageSentEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   MessagePropagatedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
+  MessageReceivedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   EventConnectionStatusChange.dropAllListeners(ctx.myLib[].brokerCtx)
 
   (await ctx.myLib[].stop()).isOkOr:
