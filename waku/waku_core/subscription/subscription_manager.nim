@@ -5,19 +5,19 @@ import std/tables, results, chronicles, chronos
 import ./push_handler, ../topics, ../message
 
 ## Subscription manager
-type SubscriptionManager* = object
+type LegacySubscriptionManager* = object
   subscriptions: TableRef[(string, ContentTopic), FilterPushHandler]
 
-proc init*(T: type SubscriptionManager): T =
-  SubscriptionManager(
+proc init*(T: type LegacySubscriptionManager): T =
+  LegacySubscriptionManager(
     subscriptions: newTable[(string, ContentTopic), FilterPushHandler]()
   )
 
-proc clear*(m: var SubscriptionManager) =
+proc clear*(m: var LegacySubscriptionManager) =
   m.subscriptions.clear()
 
 proc registerSubscription*(
-    m: SubscriptionManager,
+    m: LegacySubscriptionManager,
     pubsubTopic: PubsubTopic,
     contentTopic: ContentTopic,
     handler: FilterPushHandler,
@@ -29,12 +29,12 @@ proc registerSubscription*(
     error "failed to register filter subscription", error = getCurrentExceptionMsg()
 
 proc removeSubscription*(
-    m: SubscriptionManager, pubsubTopic: PubsubTopic, contentTopic: ContentTopic
+    m: LegacySubscriptionManager, pubsubTopic: PubsubTopic, contentTopic: ContentTopic
 ) =
   m.subscriptions.del((pubsubTopic, contentTopic))
 
 proc notifySubscriptionHandler*(
-    m: SubscriptionManager,
+    m: LegacySubscriptionManager,
     pubsubTopic: PubsubTopic,
     contentTopic: ContentTopic,
     message: WakuMessage,
@@ -48,5 +48,5 @@ proc notifySubscriptionHandler*(
   except CatchableError:
     discard
 
-proc getSubscriptionsCount*(m: SubscriptionManager): int =
+proc getSubscriptionsCount*(m: LegacySubscriptionManager): int =
   m.subscriptions.len()

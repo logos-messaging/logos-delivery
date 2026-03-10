@@ -469,6 +469,7 @@ logosdelivery_example: | build liblogosdelivery
 ifeq ($(detected_OS),Darwin)
 	gcc -o build/$@ \
 		liblogosdelivery/examples/logosdelivery_example.c \
+		liblogosdelivery/examples/json_utils.c \
 		-I./liblogosdelivery \
 		-L./build \
 		-llogosdelivery \
@@ -476,6 +477,7 @@ ifeq ($(detected_OS),Darwin)
 else ifeq ($(detected_OS),Linux)
 	gcc -o build/$@ \
 		liblogosdelivery/examples/logosdelivery_example.c \
+		liblogosdelivery/examples/json_utils.c \
 		-I./liblogosdelivery \
 		-L./build \
 		-llogosdelivery \
@@ -483,6 +485,7 @@ else ifeq ($(detected_OS),Linux)
 else ifeq ($(detected_OS),Windows)
 	gcc -o build/$@.exe \
 		liblogosdelivery/examples/logosdelivery_example.c \
+		liblogosdelivery/examples/json_utils.c \
 		-I./liblogosdelivery \
 		-L./build \
 		-llogosdelivery \

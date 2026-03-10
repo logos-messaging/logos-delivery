@@ -5,7 +5,7 @@ import std/[sequtils, tables, options]
 import chronos, chronicles, libp2p/utility
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
-  ../[subscription_service],
+  ../[subscription_manager],
   waku/[
     waku_core,
     node/waku_node,
@@ -58,7 +58,7 @@ type SendService* = ref object of RootObj
 
   node: WakuNode
   checkStoreForMessages: bool
-  subscriptionService: SubscriptionService
+  subscriptionManager: SubscriptionManager
 
 proc setupSendProcessorChain(
     peerManager: PeerManager,
@@ -99,7 +99,7 @@ proc new*(
     T: typedesc[SendService],
     preferP2PReliability: bool,
     w: WakuNode,
-    s: SubscriptionService,
+    s: SubscriptionManager,
 ): Result[T, string] =
   if w.wakuRelay.isNil() and w.wakuLightpushClient.isNil():
     return err(
@@ -120,7 +120,7 @@ proc new*(
     sendProcessor: sendProcessorChain,
     node: w,
     checkStoreForMessages: checkStoreForMessages,
-    subscriptionService: s,
+    subscriptionManager: s,
   )
 
   return ok(sendService)
@@ -250,9 +250,9 @@ proc serviceLoop(self: SendService) {.async.} =
 proc startSendService*(self: SendService) =
   self.serviceLoopHandle = self.serviceLoop()
 
-proc stopSendService*(self: SendService) =
+proc stopSendService*(self: SendService) {.async.} =
   if not self.serviceLoopHandle.isNil():
-    discard self.serviceLoopHandle.cancelAndWait()
+    await self.serviceLoopHandle.cancelAndWait()
 
 proc send*(self: SendService, task: DeliveryTask) {.async.} =
   assert(not task.isNil(), "task for send must not be nil")
@@ -260,7 +260,7 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
   info "SendService.send: processing delivery task",
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
 
-  self.subscriptionService.subscribe(task.msg.contentTopic).isOkOr:
+  self.subscriptionManager.subscribe(task.msg.contentTopic).isOkOr:
     error "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 

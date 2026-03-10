@@ -19,16 +19,20 @@ import
   libp2p/utility
 
 import
-  ../waku_node,
-  ../../waku_relay,
-  ../../waku_core,
-  ../../waku_core/topics/sharding,
-  ../../waku_filter_v2,
-  ../../waku_archive_legacy,
-  ../../waku_archive,
-  ../../waku_store_sync,
-  ../peer_manager,
-  ../../waku_rln_relay
+  waku/[
+    waku_relay,
+    waku_core,
+    waku_core/topics/sharding,
+    waku_filter_v2,
+    waku_archive_legacy,
+    waku_archive,
+    waku_store_sync,
+    waku_rln_relay,
+    node/waku_node,
+    node/peer_manager,
+    common/broker/broker_context,
+    events/message_events,
+  ]
 
 export waku_relay.WakuRelayHandler
 
@@ -44,14 +48,25 @@ logScope:
 ## Waku relay
 
 proc registerRelayHandler(
-    node: WakuNode, topic: PubsubTopic, appHandler: WakuRelayHandler
-) =
+    node: WakuNode, topic: PubsubTopic, appHandler: WakuRelayHandler = nil
+): bool =
   ## Registers the only handler for the given topic.
   ## Notice that this handler internally calls other handlers, such as filter,
   ## archive, etc, plus the handler provided by the application.
+  ## Returns `true` if a mesh subscription was created or `false` if the relay
+  ## was already subscribed to the topic.
 
-  if node.wakuRelay.isSubscribed(topic):
-    return
+  let alreadySubscribed = node.wakuRelay.isSubscribed(topic)
+
+  if not appHandler.isNil():
+    if not alreadySubscribed or not node.legacyAppHandlers.hasKey(topic):
+      node.legacyAppHandlers[topic] = appHandler
+    else:
+      debug "Legacy appHandler already exists for active PubsubTopic, ignoring new handler",
+        topic = topic
+
+  if alreadySubscribed:
+    return false
 
   proc traceHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     let msgSizeKB = msg.payload.len / 1000
@@ -82,6 +97,9 @@ proc registerRelayHandler(
 
     node.wakuStoreReconciliation.messageIngress(topic, msg)
 
+  proc internalHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    MessageSeenEvent.emit(node.brokerCtx, topic, msg)
+
   let uniqueTopicHandler = proc(
       topic: PubsubTopic, msg: WakuMessage
   ): Future[void] {.async, gcsafe.} =
@@ -89,7 +107,15 @@ proc registerRelayHandler(
     await filterHandler(topic, msg)
     await archiveHandler(topic, msg)
     await syncHandler(topic, msg)
-    await appHandler(topic, msg)
+    await internalHandler(topic, msg)
+
+    # Call the legacy (kernel API) app handler if it exists.
+    # Normally, hasKey is false and the MessageSeenEvent bus (new API) is used instead.
+    # But we need to support legacy behavior (kernel API use), hence this.
+    # NOTE: We can delete `legacyAppHandlers` if instead we refactor WakuRelay to support multiple
+    # PubsubTopic handlers, since that's actually supported by libp2p PubSub (bigger refactor...)
+    if node.legacyAppHandlers.hasKey(topic) and not node.legacyAppHandlers[topic].isNil():
+      await node.legacyAppHandlers[topic](topic, msg)
 
   node.wakuRelay.subscribe(topic, uniqueTopicHandler)
 
@@ -115,8 +141,11 @@ proc subscribe*(
 ): Result[void, string] =
   ## Subscribes to a PubSub or Content topic. Triggers handler when receiving messages on
   ## this topic. WakuRelayHandler is a method that takes a topic and a Waku message.
+  ## If `handler` is nil, the API call will subscribe to the topic in the relay mesh
+  ## but no app handler will be registered at this time (it can be registered later with
+  ## another call to this proc for the same gossipsub topic).
 
-  if node.wakuRelay.isNil():
+  if isNil(node.wakuRelay):
     error "Invalid API call to `subscribe`. WakuRelay not mounted."
     return err("Invalid API call to `subscribe`. WakuRelay not mounted.")
 
@@ -124,13 +153,15 @@ proc subscribe*(
     error "Failed to decode subscription event", error = error
     return err("Failed to decode subscription event: " & error)
 
-  if node.wakuRelay.isSubscribed(pubsubTopic):
-    warn "No-effect API call to subscribe. Already subscribed to topic", pubsubTopic
-    return ok()
-
-  info "subscribe", pubsubTopic, contentTopicOp
-  node.registerRelayHandler(pubsubTopic, handler)
-  node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: pubsubTopic))
+  if node.registerRelayHandler(pubsubTopic, handler):
+    info "subscribe", pubsubTopic, contentTopicOp
+    node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: pubsubTopic))
+  else:
+    if isNil(handler):
+      warn "No-effect API call to subscribe. Already subscribed to topic", pubsubTopic
+    else:
+      info "subscribe (was already subscribed in the mesh; appHandler set)",
+        pubsubTopic = pubsubTopic
 
   return ok()
 
@@ -138,8 +169,10 @@ proc unsubscribe*(
     node: WakuNode, subscription: SubscriptionEvent
 ): Result[void, string] =
   ## Unsubscribes from a specific PubSub or Content topic.
+  ## This will both unsubscribe from the relay mesh and remove the app handler, if any.
+  ## NOTE: This works because using MAPI and Kernel API at the same time is unsupported.
 
-  if node.wakuRelay.isNil():
+  if isNil(node.wakuRelay):
     error "Invalid API call to `unsubscribe`. WakuRelay not mounted."
     return err("Invalid API call to `unsubscribe`. WakuRelay not mounted.")
 
@@ -147,13 +180,20 @@ proc unsubscribe*(
     error "Failed to decode unsubscribe event", error = error
     return err("Failed to decode unsubscribe event: " & error)
 
-  if not node.wakuRelay.isSubscribed(pubsubTopic):
-    warn "No-effect API call to `unsubscribe`. Was not subscribed", pubsubTopic
-    return ok()
+  let hadHandler = node.legacyAppHandlers.hasKey(pubsubTopic)
+  if hadHandler:
+    node.legacyAppHandlers.del(pubsubTopic)
 
-  info "unsubscribe", pubsubTopic, contentTopicOp
-  node.wakuRelay.unsubscribe(pubsubTopic)
-  node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: pubsubTopic))
+  if node.wakuRelay.isSubscribed(pubsubTopic):
+    info "unsubscribe", pubsubTopic, contentTopicOp
+    node.wakuRelay.unsubscribe(pubsubTopic)
+    node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: pubsubTopic))
+  else:
+    if not hadHandler:
+      warn "No-effect API call to `unsubscribe`. Was not subscribed", pubsubTopic
+    else:
+      info "unsubscribe (was not subscribed in the mesh; appHandler removed)",
+        pubsubTopic = pubsubTopic
 
   return ok()
 

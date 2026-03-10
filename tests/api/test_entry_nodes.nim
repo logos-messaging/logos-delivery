@@ -2,7 +2,7 @@
 
 import std/options, results, testutils/unittests
 
-import waku/api/entry_nodes
+import tools/confutils/entry_nodes
 
 # Since classifyEntryNode is internal, we test it indirectly through processEntryNodes behavior
 # The enum is exported so we can test against it

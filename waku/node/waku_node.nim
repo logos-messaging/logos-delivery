@@ -146,6 +146,8 @@ type
     started*: bool # Indicates that node has started listening
     topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
     rateLimitSettings*: ProtocolRateLimitSettings
+    legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
+      ## Kernel API Relay appHandlers (if any)
     wakuMix*: WakuMix
     edgeTopicsHealth*: Table[PubsubTopic, TopicHealth]
     edgeHealthEvent*: AsyncEvent

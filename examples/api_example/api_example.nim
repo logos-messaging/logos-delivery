@@ -59,19 +59,24 @@ when isMainModule:
 
   echo "Starting Waku node..."
 
-  let config =
-    if (args.ethRpcEndpoint == ""):
-      # Create a basic configuration for the Waku node
-      # No RLN as we don't have an ETH RPC Endpoint
-      NodeConfig.init(
-        protocolsConfig = ProtocolsConfig.init(entryNodes = @[], clusterId = 42)
-      )
-    else:
-      # Connect to TWN, use ETH RPC Endpoint for RLN
-      NodeConfig.init(mode = WakuMode.Core, ethRpcEndpoints = @[args.ethRpcEndpoint])
+  # Use WakuNodeConf (the CLI configuration type) for node setup
+  var conf = defaultWakuNodeConf().valueOr:
+    echo "Failed to create default config: ", error
+    quit(QuitFailure)
+
+  if args.ethRpcEndpoint == "":
+    # Create a basic configuration for the Waku node
+    # No RLN as we don't have an ETH RPC Endpoint
+    conf.mode = Core
+    conf.preset = "logos.dev"
+  else:
+    # Connect to TWN, use ETH RPC Endpoint for RLN
+    conf.mode = Core
+    conf.preset = "twn"
+    conf.ethClientUrls = @[EthRpcUrl(args.ethRpcEndpoint)]
 
   # Create the node using the library API's createNode function
-  let node = (waitFor createNode(config)).valueOr:
+  let node = (waitFor createNode(conf)).valueOr:
     echo "Failed to create node: ", error
     quit(QuitFailure)
 

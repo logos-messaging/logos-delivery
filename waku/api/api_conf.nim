@@ -9,7 +9,7 @@ import
   waku/factory/waku_conf,
   waku/factory/conf_builder/conf_builder,
   waku/factory/networks_config,
-  ./entry_nodes
+  tools/confutils/entry_nodes
 
 export json_serialization, json_options
 
@@ -85,7 +85,9 @@ type WakuMode* {.pure.} = enum
   Edge
   Core
 
-type NodeConfig* {.requiresInit.} = object
+type NodeConfig* {.
+  requiresInit, deprecated: "Use WakuNodeConf from tools/confutils/cli_args instead"
+.} = object
   mode: WakuMode
   protocolsConfig: ProtocolsConfig
   networkingConfig: NetworkingConfig
@@ -154,7 +156,9 @@ proc logLevel*(c: NodeConfig): LogLevel =
 proc logFormat*(c: NodeConfig): LogFormat =
   c.logFormat
 
-proc toWakuConf*(nodeConfig: NodeConfig): Result[WakuConf, string] =
+proc toWakuConf*(
+    nodeConfig: NodeConfig
+): Result[WakuConf, string] {.deprecated: "Use WakuNodeConf.toWakuConf instead".} =
   var b = WakuConfBuilder.init()
 
   # Apply log configuration
@@ -516,7 +520,10 @@ proc readValue*(
 
 proc decodeNodeConfigFromJson*(
     jsonStr: string
-): NodeConfig {.raises: [SerializationError].} =
+): NodeConfig {.
+    raises: [SerializationError],
+    deprecated: "Use WakuNodeConf with fieldPairs-based JSON parsing instead"
+.} =
   var val = NodeConfig.init() # default-initialized
   try:
     var stream = unsafeMemoryInput(jsonStr)

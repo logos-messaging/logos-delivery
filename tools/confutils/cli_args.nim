@@ -30,7 +30,8 @@ import
     waku_core/message/default_values,
     waku_mix,
   ],
-  ../../tools/rln_keystore_generator/rln_keystore_generator
+  ../../tools/rln_keystore_generator/rln_keystore_generator,
+  ./entry_nodes
 
 import ./envvar as confEnvvarDefs, ./envvar_net as confEnvvarNet
 
@@ -51,6 +52,11 @@ type EthRpcUrl* = distinct string
 type StartUpCommand* = enum
   noCommand # default, runs waku
   generateRlnKeystore # generates a new RLN keystore
+
+type WakuMode* {.pure.} = enum
+  noMode # default - use explicit CLI flags as-is
+  Core # full service node
+  Edge # client-only node
 
 type WakuNodeConf* = object
   configFile* {.
@@ -150,9 +156,16 @@ type WakuNodeConf* = object
     .}: seq[ProtectedShard]
 
     ## General node config
+    mode* {.
+      desc:
+        "Node operation mode. 'Core' enables relay+service protocols. 'Edge' enables client-only protocols. Default: explicit CLI flags used.",
+      defaultValue: WakuMode.noMode,
+      name: "mode"
+    .}: WakuMode
+
     preset* {.
       desc:
-        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). Overrides other values.",
+        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 2). Overrides other values.",
       defaultValue: "",
       name: "preset"
     .}: string
@@ -165,7 +178,7 @@ type WakuNodeConf* = object
     .}: uint16
 
     agentString* {.
-      defaultValue: "nwaku-" & cli_args.git_version,
+      defaultValue: "logos-delivery-" & cli_args.git_version,
       desc: "Node agent string which is used as identifier in network",
       name: "agent-string"
     .}: string
@@ -292,6 +305,14 @@ hence would have reachability issues.""",
       defaultValue: false,
       name: "rln-relay-dynamic"
     .}: bool
+
+    entryNodes* {.
+      desc:
+        "Entry node address (enrtree:, enr:, or multiaddr). " &
+        "Automatically classified and distributed to DNS discovery, discv5 bootstrap, " &
+        "and static nodes. Argument may be repeated.",
+      name: "entry-node"
+    .}: seq[string]
 
     staticnodes* {.
       desc: "Peer multiaddr to directly connect with. Argument may be repeated.",
@@ -453,13 +474,15 @@ hence would have reachability issues.""",
       desc:
         """Adds an extra effort in the delivery/reception of messages by leveraging store-v3 requests.
 with the drawback of consuming some more bandwidth.""",
-      defaultValue: false,
+      defaultValue: true,
       name: "reliability"
     .}: bool
 
     ## REST HTTP config
     rest* {.
-      desc: "Enable Waku REST HTTP server: true|false", defaultValue: true, name: "rest"
+      desc: "Enable Waku REST HTTP server: true|false",
+      defaultValue: false,
+      name: "rest"
     .}: bool
 
     restAddress* {.
@@ -907,12 +930,19 @@ proc toNetworkConf(
       "TWN - The Waku Network configuration will not be applied when `--cluster-id=1` is passed in future releases. Use `--preset=twn` instead."
     )
     lcPreset = "twn"
+  if clusterId.isSome() and clusterId.get() == 2:
+    warn(
+      "Logos.dev - Logos.dev configuration will not be applied when `--cluster-id=2` is passed in future releases. Use `--preset=logos.dev` instead."
+    )
+    lcPreset = "logos.dev"
 
   case lcPreset
   of "":
     ok(none(NetworkConf))
   of "twn":
     ok(some(NetworkConf.TheWakuNetworkConf()))
+  of "logos.dev", "logosdev":
+    ok(some(NetworkConf.LogosDevConf()))
   else:
     err("Invalid --preset value passed: " & lcPreset)
 
@@ -981,6 +1011,26 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withRelayPeerExchange(n.relayPeerExchange)
   b.withRelayShardedPeerManagement(n.relayShardedPeerManagement)
   b.withStaticNodes(n.staticNodes)
+
+  # Process entry nodes - supports enrtree:, enr:, and multiaddress formats
+  if n.entryNodes.len > 0:
+    let (enrTreeUrls, bootstrapEnrs, staticNodesFromEntry) = processEntryNodes(
+      n.entryNodes
+    ).valueOr:
+      return err("Failed to process entry nodes: " & error)
+
+    # Set ENRTree URLs for DNS discovery
+    if enrTreeUrls.len > 0:
+      for url in enrTreeUrls:
+        b.dnsDiscoveryConf.withEnrTreeUrl(url)
+
+    # Set ENR records as bootstrap nodes for discv5
+    if bootstrapEnrs.len > 0:
+      b.discv5Conf.withBootstrapNodes(bootstrapEnrs)
+
+    # Add static nodes (multiaddrs and those extracted from ENR entries)
+    if staticNodesFromEntry.len > 0:
+      b.withStaticNodes(staticNodesFromEntry)
 
   if n.numShardsInNetwork != 0:
     b.withNumShardsInCluster(n.numShardsInNetwork)
@@ -1069,9 +1119,31 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.webSocketConf.withKeyPath(n.websocketSecureKeyPath)
   b.webSocketConf.withCertPath(n.websocketSecureCertPath)
 
-  b.rateLimitConf.withRateLimits(n.rateLimits)
+  if n.rateLimits.len > 0:
+    b.rateLimitConf.withRateLimits(n.rateLimits)
 
   b.kademliaDiscoveryConf.withEnabled(n.enableKadDiscovery)
   b.kademliaDiscoveryConf.withBootstrapNodes(n.kadBootstrapNodes)
+
+  # Mode-driven configuration overrides
+  case n.mode
+  of WakuMode.Core:
+    b.withRelay(true)
+    b.filterServiceConf.withEnabled(true)
+    b.withLightPush(true)
+    b.discv5Conf.withEnabled(true)
+    b.withPeerExchange(true)
+    b.withRendezvous(true)
+    b.rateLimitConf.withRateLimitsIfNotAssigned(
+      @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
+    )
+  of WakuMode.Edge:
+    b.withPeerExchange(true)
+    b.withRelay(false)
+    b.filterServiceConf.withEnabled(false)
+    b.withLightPush(false)
+    b.storeServiceConf.withEnabled(false)
+  of WakuMode.noMode:
+    discard # use explicit CLI flags as-is
 
   return b.build()

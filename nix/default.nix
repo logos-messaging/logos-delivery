@@ -61,6 +61,7 @@ in stdenv.mkDerivation {
     "QUICK_AND_DIRTY_NIMBLE=${if quickAndDirty then "1" else "0"}"
     "USE_SYSTEM_NIM=${if useSystemNim then "1" else "0"}"
     "LIBRLN_FILE=${zerokitRln}/lib/librln.${if abidir != null then "so" else "a"}"
+    "POSTGRES=1"
   ];
 
   configurePhase = ''

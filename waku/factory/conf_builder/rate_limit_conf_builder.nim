@@ -14,6 +14,12 @@ proc init*(T: type RateLimitConfBuilder): RateLimitConfBuilder =
 proc withRateLimits*(b: var RateLimitConfBuilder, rateLimits: seq[string]) =
   b.strValue = some(rateLimits)
 
+proc withRateLimitsIfNotAssigned*(
+    b: var RateLimitConfBuilder, rateLimits: seq[string]
+) =
+  if b.strValue.isNone() or b.strValue.get().len == 0:
+    b.strValue = some(rateLimits)
+
 proc build*(b: RateLimitConfBuilder): Result[ProtocolRateLimitSettings, string] =
   if b.strValue.isSome() and b.objValue.isSome():
     return err("Rate limits conf must only be set once on the builder")

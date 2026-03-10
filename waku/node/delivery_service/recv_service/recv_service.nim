@@ -2,9 +2,9 @@
 ## receive and is backed by store-v3 requests to get an additional degree of certainty
 ##
 
-import std/[tables, sequtils, options]
+import std/[tables, sequtils, options, sets]
 import chronos, chronicles, libp2p/utility
-import ../[subscription_service]
+import ../[subscription_manager]
 import
   waku/[
     waku_core,
@@ -13,6 +13,7 @@ import
     waku_filter_v2/client,
     waku_core/topics,
     events/delivery_events,
+    events/message_events,
     waku_node,
     common/broker/broker_context,
   ]
@@ -35,14 +36,9 @@ type RecvMessage = object
 
 type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
-  topicsInterest: Table[PubsubTopic, seq[ContentTopic]]
-    ## Tracks message verification requests and when was the last time a
-    ## pubsub topic was verified for missing messages
-    ## The key contains pubsub-topics
   node: WakuNode
-  onSubscribeListener: OnFilterSubscribeEventListener
-  onUnsubscribeListener: OnFilterUnsubscribeEventListener
-  subscriptionService: SubscriptionService
+  seenMsgListener: MessageSeenEventListener
+  subscriptionManager: SubscriptionManager
 
   recentReceivedMsgs: seq[RecvMessage]
 
@@ -95,20 +91,20 @@ proc msgChecker(self: RecvService) {.async.} =
     self.endTimeToCheck = getNowInNanosecondTime()
 
     var msgHashesInStore = newSeq[WakuMessageHash](0)
-    for pubsubTopic, cTopics in self.topicsInterest.pairs:
+    for sub in self.subscriptionManager.getActiveSubscriptions():
       let storeResp: StoreQueryResponse = (
         await self.node.wakuStoreClient.queryToAny(
           StoreQueryRequest(
             includeData: false,
-            pubsubTopic: some(PubsubTopic(pubsubTopic)),
-            contentTopics: cTopics,
+            pubsubTopic: some(PubsubTopic(sub.pubsubTopic)),
+            contentTopics: sub.contentTopics,
             startTime: some(self.startTimeToCheck - DelayExtra.nanos),
             endTime: some(self.endTimeToCheck + DelayExtra.nanos),
           )
         )
       ).valueOr:
         error "msgChecker failed to get remote msgHashes",
-          pubsubTopic, cTopics, error = $error
+          pubsubTopic = sub.pubsubTopic, cTopics = sub.contentTopics, error = $error
         continue
 
       msgHashesInStore.add(storeResp.messages.mapIt(it.messageHash))
@@ -133,31 +129,20 @@ proc msgChecker(self: RecvService) {.async.} =
     ## update next check times
     self.startTimeToCheck = self.endTimeToCheck
 
-proc onSubscribe(
-    self: RecvService, pubsubTopic: string, contentTopics: seq[string]
-) {.gcsafe, raises: [].} =
-  info "onSubscribe", pubsubTopic, contentTopics
-  self.topicsInterest.withValue(pubsubTopic, contentTopicsOfInterest):
-    contentTopicsOfInterest[].add(contentTopics)
-  do:
-    self.topicsInterest[pubsubTopic] = contentTopics
+proc processIncomingMessageOfInterest(
+    self: RecvService, pubsubTopic: string, message: WakuMessage
+) =
+  ## Resolve an incoming network message that was already filtered by topic.
+  ## Deduplicate (by hash), store (saves in recently-seen messages) and emit
+  ## the MAPI MessageReceivedEvent for every unique incoming message.
 
-proc onUnsubscribe(
-    self: RecvService, pubsubTopic: string, contentTopics: seq[string]
-) {.gcsafe, raises: [].} =
-  info "onUnsubscribe", pubsubTopic, contentTopics
+  let msgHash = computeMessageHash(pubsubTopic, message)
+  if not self.recentReceivedMsgs.anyIt(it.msgHash == msgHash):
+    let rxMsg = RecvMessage(msgHash: msgHash, rxTime: message.timestamp)
+    self.recentReceivedMsgs.add(rxMsg)
+    MessageReceivedEvent.emit(self.brokerCtx, msgHash.to0xHex(), message)
 
-  self.topicsInterest.withValue(pubsubTopic, contentTopicsOfInterest):
-    let remainingCTopics =
-      contentTopicsOfInterest[].filterIt(not contentTopics.contains(it))
-    contentTopicsOfInterest[] = remainingCTopics
-
-    if remainingCTopics.len == 0:
-      self.topicsInterest.del(pubsubTopic)
-  do:
-    error "onUnsubscribe unsubscribing from wrong topic", pubsubTopic, contentTopics
-
-proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionService): T =
+proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionManager): T =
   ## The storeClient will help to acquire any possible missed messages
 
   let now = getNowInNanosecondTime()
@@ -165,22 +150,13 @@ proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionService): T =
     node: node,
     startTimeToCheck: now,
     brokerCtx: node.brokerCtx,
-    subscriptionService: s,
-    topicsInterest: initTable[PubsubTopic, seq[ContentTopic]](),
+    subscriptionManager: s,
     recentReceivedMsgs: @[],
   )
 
-  if not node.wakuFilterClient.isNil():
-    let filterPushHandler = proc(
-        pubsubTopic: PubsubTopic, message: WakuMessage
-    ) {.async, closure.} =
-      ## Captures all the messages received through filter
-
-      let msgHash = computeMessageHash(pubSubTopic, message)
-      let rxMsg = RecvMessage(msgHash: msgHash, rxTime: message.timestamp)
-      recvService.recentReceivedMsgs.add(rxMsg)
-
-    node.wakuFilterClient.registerPushHandler(filterPushHandler)
+  # TODO: For MAPI Edge support, either call node.wakuFilterClient.registerPushHandler
+  #       so that the RecvService listens to incoming filter messages,
+  #       or have the filter client emit MessageSeenEvent.
 
   return recvService
 
@@ -194,26 +170,26 @@ proc startRecvService*(self: RecvService) =
   self.msgCheckerHandler = self.msgChecker()
   self.msgPrunerHandler = self.loopPruneOldMessages()
 
-  self.onSubscribeListener = OnFilterSubscribeEvent.listen(
+  self.seenMsgListener = MessageSeenEvent.listen(
     self.brokerCtx,
-    proc(subsEv: OnFilterSubscribeEvent) {.async: (raises: []).} =
-      self.onSubscribe(subsEv.pubsubTopic, subsEv.contentTopics),
-  ).valueOr:
-    error "Failed to set OnFilterSubscribeEvent listener", error = error
-    quit(QuitFailure)
+    proc(event: MessageSeenEvent) {.async: (raises: []).} =
+      if not self.subscriptionManager.isSubscribed(
+        event.topic, event.message.contentTopic
+      ):
+        trace "skipping message as I am not subscribed",
+          shard = event.topic, contenttopic = event.message.contentTopic
+        return
 
-  self.onUnsubscribeListener = OnFilterUnsubscribeEvent.listen(
-    self.brokerCtx,
-    proc(subsEv: OnFilterUnsubscribeEvent) {.async: (raises: []).} =
-      self.onUnsubscribe(subsEv.pubsubTopic, subsEv.contentTopics),
+      self.processIncomingMessageOfInterest(event.topic, event.message),
   ).valueOr:
-    error "Failed to set OnFilterUnsubscribeEvent listener", error = error
+    error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)
 
 proc stopRecvService*(self: RecvService) {.async.} =
-  OnFilterSubscribeEvent.dropListener(self.brokerCtx, self.onSubscribeListener)
-  OnFilterUnsubscribeEvent.dropListener(self.brokerCtx, self.onUnsubscribeListener)
+  MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
   if not self.msgCheckerHandler.isNil():
     await self.msgCheckerHandler.cancelAndWait()
+    self.msgCheckerHandler = nil
   if not self.msgPrunerHandler.isNil():
     await self.msgPrunerHandler.cancelAndWait()
+    self.msgPrunerHandler = nil
