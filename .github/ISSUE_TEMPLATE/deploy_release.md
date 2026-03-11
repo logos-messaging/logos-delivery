@@ -24,7 +24,9 @@ You can release into either waku.sanbox, status.prod, or both.
 For status.prod it is crucial to coordinate such deployment with status friends.
  -->
 
-- [ ] Receive sign-off from DST. i.e. DST adds a comment approving this deployment and adds a link to the analysis report.
+- [ ] Receive sign-off from DST.
+  - [ ] Inform DST team about what are the expectations for this rc. For example, if we expect higher, same or lower bandwidth consumption. Or a new protocol appears, etc.
+  - [ ] Ask DST to adds a comment approving this deployment and adds a link to the analysis report.
 
 - [ ] Update waku.sandbox with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-sandbox/).
 
