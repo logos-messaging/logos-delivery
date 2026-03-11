@@ -25,13 +25,13 @@ For status.prod it is crucial to coordinate such deployment with status friends.
  -->
 
 - [ ] Receive sign-off from DST.
-  - [ ] Inform DST team about what are the expectations for this rc. For example, if we expect higher, same or lower bandwidth consumption. Or a new protocol appears, etc.
-  - [ ] Ask DST to adds a comment approving this deployment and adds a link to the analysis report.
+  - [ ] Inform DST team about what are the expectations for this release. For example, if we expect higher, same or lower bandwidth consumption. Or a new protocol appears, etc.
+  - [ ] Ask DST to add a comment approving this deployment and add a link to the analysis report.
 
 - [ ] Update waku.sandbox with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-sandbox/).
 
 - [ ] Deploy to status.prod
-  - [ ] Receive a sign-off in this PR where status admin accepts this deployment to happen now.
+  - [ ] Ask Status admin to add a comment approving that this deployment to happen now.
   - [ ] Update status.prod with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-status-prod/).
 
 - [ ] Update infra config
