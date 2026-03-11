@@ -45,7 +45,9 @@ proc logosdelivery_get_available_configs(
 
   for meta in optionMetas:
     configOptionDetails.add(
-      %*{meta.fieldName: meta.typeName & "(" & meta.defaultValue & ")", "desc": meta.desc}
+      %*{
+        meta.fieldName: meta.typeName & "(" & meta.defaultValue & ")", "desc": meta.desc
+      }
     )
 
   var jsonNode = newJObject()
