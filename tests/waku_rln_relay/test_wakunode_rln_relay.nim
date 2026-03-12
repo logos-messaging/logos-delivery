@@ -58,11 +58,8 @@ procSuite "WakuNode - RLN relay":
       let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
       let idCredentials1 = generateCredentials()
 
-      try:
-        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-      except Exception, CatchableError:
-        assert false,
-          "exception raised when calling register: " & getCurrentExceptionMsg()
+      (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+        assert false, "error returned when calling register: " & error
 
       let rootUpdated1 = waitFor manager1.updateRoots()
       info "Updated root for node1", rootUpdated1
@@ -172,11 +169,8 @@ procSuite "WakuNode - RLN relay":
       let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
       let idCredentials1 = generateCredentials()
 
-      try:
-        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-      except Exception, CatchableError:
-        assert false,
-          "exception raised when calling register: " & getCurrentExceptionMsg()
+      (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+        assert false, "error returned when calling register: " & error
 
       let rootUpdated1 = waitFor manager1.updateRoots()
       info "Updated root for node", node = 1, rootUpdated = rootUpdated1
@@ -192,11 +186,8 @@ procSuite "WakuNode - RLN relay":
       let manager2 = cast[OnchainGroupManager](node2.wakuRlnRelay.groupManager)
       let idCredentials2 = generateCredentials()
 
-      try:
-        waitFor manager2.register(idCredentials2, UserMessageLimit(20))
-      except Exception, CatchableError:
-        assert false,
-          "exception raised when calling register: " & getCurrentExceptionMsg()
+      (waitFor manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:
+        assert false, "error returned when calling register: " & error
 
       let rootUpdated2 = waitFor manager2.updateRoots()
       info "Updated root for node", node = 2, rootUpdated = rootUpdated2
@@ -212,11 +203,8 @@ procSuite "WakuNode - RLN relay":
       let manager3 = cast[OnchainGroupManager](node3.wakuRlnRelay.groupManager)
       let idCredentials3 = generateCredentials()
 
-      try:
-        waitFor manager3.register(idCredentials3, UserMessageLimit(20))
-      except Exception, CatchableError:
-        assert false,
-          "exception raised when calling register: " & getCurrentExceptionMsg()
+      (waitFor manager3.register(idCredentials3, UserMessageLimit(20))).isOkOr:
+        assert false, "error returned when calling register: " & error
 
       let rootUpdated3 = waitFor manager3.updateRoots()
       info "Updated root for node", node = 3, rootUpdated = rootUpdated3
@@ -333,11 +321,8 @@ procSuite "WakuNode - RLN relay":
       let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
       let idCredentials1 = generateCredentials()
 
-      try:
-        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-      except Exception, CatchableError:
-        assert false,
-          "exception raised when calling register: " & getCurrentExceptionMsg()
+      (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+        assert false, "error returned when calling register: " & error
 
       let rootUpdated1 = waitFor manager1.updateRoots()
       info "Updated root for node1", rootUpdated1
@@ -448,11 +433,8 @@ procSuite "WakuNode - RLN relay":
       let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
       let idCredentials1 = generateCredentials()
 
-      try:
-        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-      except Exception, CatchableError:
-        assert false,
-          "exception raised when calling register: " & getCurrentExceptionMsg()
+      (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+        assert false, "error returned when calling register: " & error
 
       let rootUpdated1 = waitFor manager1.updateRoots()
       info "Updated root for node1", rootUpdated1
@@ -620,11 +602,8 @@ procSuite "WakuNode - RLN relay":
       let manager1 = cast[OnchainGroupManager](node1.wakuRlnRelay.groupManager)
       let idCredentials1 = generateCredentials()
 
-      try:
-        waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-      except Exception, CatchableError:
-        assert false,
-          "exception raised when calling register: " & getCurrentExceptionMsg()
+      (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+        assert false, "error returned when calling register: " & error
 
       let rootUpdated1 = waitFor manager1.updateRoots()
       info "Updated root for node1", rootUpdated1
