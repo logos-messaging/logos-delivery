@@ -72,7 +72,7 @@ proc waku_new(
     relayHandler: onReceivedMessage(ctx),
     topicHealthChangeHandler: onTopicHealthChange(ctx),
     connectionChangeHandler: onConnectionChange(ctx),
-    connectionStatusChangeHandler: onConnectionStatusChange(ctx)
+    connectionStatusChangeHandler: onConnectionStatusChange(ctx),
   )
 
   ffi.sendRequestToFFIThread(

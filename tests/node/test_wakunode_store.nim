@@ -760,7 +760,8 @@ suite "Waku Store - End to End - Unsorted Archive without provided Timestamp":
     )
 
     let messages =
-      @[ # Not providing explicit timestamp means it will be set in "arrive" order
+      @[
+        # Not providing explicit timestamp means it will be set in "arrive" order
         fakeWakuMessage(@[byte 09]),
         fakeWakuMessage(@[byte 07]),
         fakeWakuMessage(@[byte 05]),
