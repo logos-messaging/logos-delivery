@@ -76,17 +76,16 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = DefaultContentTopic, ts = ts(00)),
-        fakeWakuMessage(@[byte 1], contentTopic = DefaultContentTopic, ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = DefaultContentTopic, ts = ts(00)),
+      fakeWakuMessage(@[byte 1], contentTopic = DefaultContentTopic, ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -117,17 +116,16 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00)),
-        fakeWakuMessage(@[byte 1], ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00)),
+      fakeWakuMessage(@[byte 1], ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -160,29 +158,28 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00), meta = "meta-0"),
-        fakeWakuMessage(@[byte 1], ts = ts(10), meta = "meta-1"),
-        fakeWakuMessage(
-          @[byte 2], contentTopic = contentTopic, ts = ts(20), meta = "meta-2"
-        ),
-        fakeWakuMessage(
-          @[byte 3], contentTopic = contentTopic, ts = ts(30), meta = "meta-3"
-        ),
-        fakeWakuMessage(
-          @[byte 4], contentTopic = contentTopic, ts = ts(40), meta = "meta-4"
-        ),
-        fakeWakuMessage(
-          @[byte 5], contentTopic = contentTopic, ts = ts(50), meta = "meta-5"
-        ),
-        fakeWakuMessage(
-          @[byte 6], contentTopic = contentTopic, ts = ts(60), meta = "meta-6"
-        ),
-        fakeWakuMessage(
-          @[byte 7], contentTopic = contentTopic, ts = ts(70), meta = "meta-7"
-        ),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00), meta = "meta-0"),
+      fakeWakuMessage(@[byte 1], ts = ts(10), meta = "meta-1"),
+      fakeWakuMessage(
+        @[byte 2], contentTopic = contentTopic, ts = ts(20), meta = "meta-2"
+      ),
+      fakeWakuMessage(
+        @[byte 3], contentTopic = contentTopic, ts = ts(30), meta = "meta-3"
+      ),
+      fakeWakuMessage(
+        @[byte 4], contentTopic = contentTopic, ts = ts(40), meta = "meta-4"
+      ),
+      fakeWakuMessage(
+        @[byte 5], contentTopic = contentTopic, ts = ts(50), meta = "meta-5"
+      ),
+      fakeWakuMessage(
+        @[byte 6], contentTopic = contentTopic, ts = ts(60), meta = "meta-6"
+      ),
+      fakeWakuMessage(
+        @[byte 7], contentTopic = contentTopic, ts = ts(70), meta = "meta-7"
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -215,17 +212,16 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00)),
-        fakeWakuMessage(@[byte 1], ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00)),
+      fakeWakuMessage(@[byte 1], ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -260,17 +256,16 @@ suite "Postgres driver - queries":
     const contentTopic2 = "test-content-topic-2"
     const contentTopic3 = "test-content-topic-3"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00)),
-        fakeWakuMessage(@[byte 1], ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic1, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic2, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic3, ts = ts(40)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic1, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic2, ts = ts(60)),
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic3, ts = ts(70)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00)),
+      fakeWakuMessage(@[byte 1], ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic1, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic2, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic3, ts = ts(40)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic1, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic2, ts = ts(60)),
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic3, ts = ts(70)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -323,14 +318,13 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = DefaultContentTopic, ts = ts(00)),
-        fakeWakuMessage(@[byte 1], contentTopic = DefaultContentTopic, ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = DefaultContentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = DefaultContentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = DefaultContentTopic, ts = ts(40)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = DefaultContentTopic, ts = ts(00)),
+      fakeWakuMessage(@[byte 1], contentTopic = DefaultContentTopic, ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = DefaultContentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = DefaultContentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = DefaultContentTopic, ts = ts(40)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -394,35 +388,34 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
     const pubsubTopic = "test-pubsub-topic"
 
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -455,35 +448,34 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
     const pubsubTopic = "test-pubsub-topic"
 
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -514,35 +506,34 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
     const pubsubTopic = "test-pubsub-topic"
 
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -577,18 +568,16 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00)),
-        fakeWakuMessage(@[byte 1], ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-          # << cursor
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00)),
+      fakeWakuMessage(@[byte 1], ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)), # << cursor
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -623,18 +612,16 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00)),
-        fakeWakuMessage(@[byte 1], ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-          # << cursor
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00)),
+      fakeWakuMessage(@[byte 1], ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)), # << cursor
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -669,17 +656,16 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    var messages =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00)),
-        fakeWakuMessage(@[byte 1], ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-      ]
+    var messages = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00)),
+      fakeWakuMessage(@[byte 1], ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+    ]
 
     shuffle(messages)
     info "randomized message insertion sequence", sequence = messages.mapIt(it.payload)
@@ -721,18 +707,16 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00)),
-        fakeWakuMessage(@[byte 1], ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-          # << cursor
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-        fakeWakuMessage(@[byte 7], ts = ts(70)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00)),
+      fakeWakuMessage(@[byte 1], ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)), # << cursor
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
+      fakeWakuMessage(@[byte 7], ts = ts(70)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -770,18 +754,16 @@ suite "Postgres driver - queries":
     ## Given
     const contentTopic = "test-content-topic"
 
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00)),
-        fakeWakuMessage(@[byte 1], ts = ts(10)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)),
-          # << cursor
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00)),
+      fakeWakuMessage(@[byte 1], ts = ts(10)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60)), # << cursor
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -821,59 +803,42 @@ suite "Postgres driver - queries":
     const pubsubTopic = "test-pubsub-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)
-          ),
-        ), # << cursor
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)
-          ),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      ), # << cursor
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -912,59 +877,42 @@ suite "Postgres driver - queries":
     const pubsubTopic = "test-pubsub-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)
-          ),
-        ), # << cursor
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)
-          ),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+      ), # << cursor
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1000,19 +948,18 @@ suite "Postgres driver - queries":
   asyncTest "only hashes - descending order":
     ## Given
     let timeOrigin = now()
-    var expected =
-      @[
-        fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 2], ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 5], ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin)),
-        fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin)),
-        fakeWakuMessage(@[byte 8], ts = ts(80, timeOrigin)),
-        fakeWakuMessage(@[byte 9], ts = ts(90, timeOrigin)),
-      ]
+    var expected = @[
+      fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 2], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 5], ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin)),
+      fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin)),
+      fakeWakuMessage(@[byte 8], ts = ts(80, timeOrigin)),
+      fakeWakuMessage(@[byte 9], ts = ts(90, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1043,17 +990,16 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        # start_time
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      # start_time
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1087,17 +1033,16 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        # end_time
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      # end_time
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1132,61 +1077,44 @@ suite "Postgres driver - queries":
     const pubsubTopic = "test-pubsub-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
-        # start_time
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)
-          ),
-        ),
-        # end_time
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)
-          ),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
+      # start_time
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      ),
+      # end_time
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1222,18 +1150,17 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        # start_time
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        # end_time
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      # start_time
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      # end_time
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1270,17 +1197,16 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        # start_time
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      # start_time
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1316,20 +1242,19 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        # start_time
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-        fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin)),
-        fakeWakuMessage(@[byte 8], ts = ts(80, timeOrigin)),
-        fakeWakuMessage(@[byte 9], ts = ts(90, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      # start_time
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+      fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin)),
+      fakeWakuMessage(@[byte 8], ts = ts(80, timeOrigin)),
+      fakeWakuMessage(@[byte 9], ts = ts(90, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1365,21 +1290,20 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        # start_time
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-          # << cursor
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)),
-        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
-        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      # start_time
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+        # << cursor
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)),
+      fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1418,21 +1342,20 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        # start_time
-        fakeWakuMessage(@[byte 2], ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 5], ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-          # << cursor
-        fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)),
-        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
-        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      # start_time
+      fakeWakuMessage(@[byte 2], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 5], ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+        # << cursor
+      fakeWakuMessage(@[byte 7], contentTopic = contentTopic, ts = ts(70, timeOrigin)),
+      fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1472,52 +1395,39 @@ suite "Postgres driver - queries":
     const pubsubTopic = "test-pubsub-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        # start_time
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
-          # << cursor
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)
-          ),
-        ),
-        # end_time
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)
-          ),
-        ),
-        (pubsubTopic, fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin))),
-        (pubsubTopic, fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)
-          ),
-        ),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)
-          ),
-        ),
-      ]
+    let expected = @[
+      # start_time
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
+        # << cursor
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      ),
+      # end_time
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      ),
+      (pubsubTopic, fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin))),
+      (pubsubTopic, fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      ),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1558,51 +1468,38 @@ suite "Postgres driver - queries":
     const pubsubTopic = "test-pubsub-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)
-          ),
-        ),
-        # start_time
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)
-          ),
-        ),
-        (pubsubTopic, fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin))),
-        (pubsubTopic, fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin))), # << cursor
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)
-          ),
-        ),
-        # end_time
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)
-          ),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      ),
+      # start_time
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      ),
+      (pubsubTopic, fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin))),
+      (pubsubTopic, fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin))), # << cursor
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      ),
+      # end_time
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1643,52 +1540,39 @@ suite "Postgres driver - queries":
     const pubsubTopic = "test-pubsub-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
-          # << cursor
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)
-          ),
-        ),
-        # start_time
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)
-          ),
-        ),
-        (pubsubTopic, fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin))),
-        (pubsubTopic, fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)
-          ),
-        ),
-        # end_time
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)
-          ),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
+        # << cursor
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      ),
+      # start_time
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      ),
+      (pubsubTopic, fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin))),
+      (pubsubTopic, fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      ),
+      # end_time
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1730,52 +1614,39 @@ suite "Postgres driver - queries":
     const pubsubTopic = "test-pubsub-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
-        (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
-          # << cursor
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)
-          ),
-        ),
-        # start_time
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)
-          ),
-        ),
-        (
-          pubsubTopic,
-          fakeWakuMessage(
-            @[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)
-          ),
-        ),
-        (pubsubTopic, fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin))),
-        (pubsubTopic, fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin))),
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)
-          ),
-        ),
-        # end_time
-        (
-          DefaultPubsubTopic,
-          fakeWakuMessage(
-            @[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)
-          ),
-        ),
-      ]
+    let expected = @[
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 0], ts = ts(00, timeOrigin))),
+      (DefaultPubsubTopic, fakeWakuMessage(@[byte 1], ts = ts(10, timeOrigin))),
+        # << cursor
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      ),
+      # start_time
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      ),
+      (
+        pubsubTopic,
+        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      ),
+      (pubsubTopic, fakeWakuMessage(@[byte 6], ts = ts(60, timeOrigin))),
+      (pubsubTopic, fakeWakuMessage(@[byte 7], ts = ts(70, timeOrigin))),
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 8], contentTopic = contentTopic, ts = ts(80, timeOrigin)),
+      ),
+      # end_time
+      (
+        DefaultPubsubTopic,
+        fakeWakuMessage(@[byte 9], contentTopic = contentTopic, ts = ts(90, timeOrigin)),
+      ),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1817,16 +1688,15 @@ suite "Postgres driver - queries":
     let timeOrigin = now()
     let oldestTime = ts(00, timeOrigin)
     let newestTime = ts(100, timeOrigin)
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = oldestTime),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = newestTime),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = oldestTime),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = newestTime),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1869,16 +1739,15 @@ suite "Postgres driver - queries":
 
     let timeOrigin = now()
     let targetTime = ts(40, timeOrigin)
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = targetTime),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = targetTime),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1911,16 +1780,15 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 3], contentTopic = contentTopic, ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 4], contentTopic = contentTopic, ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 5], contentTopic = contentTopic, ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 6], contentTopic = contentTopic, ts = ts(60, timeOrigin)),
+    ]
     var messages = expected
 
     shuffle(messages)
@@ -1957,12 +1825,11 @@ suite "Postgres driver - queries":
     const contentTopic = "test-content-topic"
 
     let timeOrigin = now()
-    let expected =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
-      ]
+    let expected = @[
+      fakeWakuMessage(@[byte 0], contentTopic = contentTopic, ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 1], contentTopic = contentTopic, ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 2], contentTopic = contentTopic, ts = ts(20, timeOrigin)),
+    ]
     var messages = expected
 
     var hashes = newSeq[WakuMessageHash](0)

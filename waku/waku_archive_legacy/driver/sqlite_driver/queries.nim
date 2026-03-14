@@ -92,12 +92,11 @@ proc createTableQuery(table: string): SqlQueryStr =
 
 proc createTable*(db: SqliteDatabase): DatabaseResult[void] =
   let query = createTableQuery(DbTable)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 ## Create indices
@@ -107,12 +106,11 @@ proc createOldestMessageTimestampIndexQuery(table: string): SqlQueryStr =
 
 proc createOldestMessageTimestampIndex*(db: SqliteDatabase): DatabaseResult[void] =
   let query = createOldestMessageTimestampIndexQuery(DbTable)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 proc createHistoryQueryIndexQuery(table: string): SqlQueryStr =
@@ -121,12 +119,11 @@ proc createHistoryQueryIndexQuery(table: string): SqlQueryStr =
 
 proc createHistoryQueryIndex*(db: SqliteDatabase): DatabaseResult[void] =
   let query = createHistoryQueryIndexQuery(DbTable)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 ## Insert message
@@ -216,12 +213,11 @@ proc deleteMessagesOlderThanTimestamp*(
     db: SqliteDatabase, ts: int64
 ): DatabaseResult[void] =
   let query = deleteMessagesOlderThanTimestampQuery(DbTable, ts)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 ## Delete oldest messages not within limit
@@ -237,12 +233,11 @@ proc deleteOldestMessagesNotWithinLimit*(
 ): DatabaseResult[void] =
   # NOTE: The word `limit` here refers the store capacity/maximum number-of-messages allowed limit
   let query = deleteOldestMessagesNotWithinLimitQuery(DbTable, limit = limit)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 ## Select all messages

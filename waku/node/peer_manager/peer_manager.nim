@@ -1,11 +1,9 @@
 {.push raises: [].}
 
 import
-  std/
-    [
-      options, sets, sequtils, times, strformat, strutils, math, random, tables,
-      algorithm,
-    ],
+  std/[
+    options, sets, sequtils, times, strformat, strutils, math, random, tables, algorithm
+  ],
   chronos,
   chronicles,
   metrics,

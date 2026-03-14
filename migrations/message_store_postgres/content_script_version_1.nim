@@ -1,5 +1,4 @@
-const ContentScriptVersion_1* =
-  """
+const ContentScriptVersion_1* = """
 CREATE TABLE IF NOT EXISTS messages (
    pubsubTopic VARCHAR NOT NULL,
    contentTopic VARCHAR NOT NULL,

@@ -45,11 +45,11 @@ static:
 suite "RequestBroker macro (async mode)":
   test "serves zero-argument providers":
     check SimpleResponse
-    .setProvider(
-      proc(): Future[Result[SimpleResponse, string]] {.async.} =
-        ok(SimpleResponse(value: "hi"))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Future[Result[SimpleResponse, string]] {.async.} =
+          ok(SimpleResponse(value: "hi"))
+      )
+      .isOk()
 
     let res = waitFor SimpleResponse.request()
     check res.isOk()
@@ -65,12 +65,14 @@ suite "RequestBroker macro (async mode)":
   test "serves input-based providers":
     var seen: seq[string] = @[]
     check KeyedResponse
-    .setProvider(
-      proc(key: string, subKey: int): Future[Result[KeyedResponse, string]] {.async.} =
-        seen.add(key)
-        ok(KeyedResponse(key: key, payload: key & "-payload+" & $subKey))
-    )
-    .isOk()
+      .setProvider(
+        proc(
+            key: string, subKey: int
+        ): Future[Result[KeyedResponse, string]] {.async.} =
+          seen.add(key)
+          ok(KeyedResponse(key: key, payload: key & "-payload+" & $subKey))
+      )
+      .isOk()
 
     let res = waitFor KeyedResponse.request("topic", 1)
     check res.isOk()
@@ -82,11 +84,13 @@ suite "RequestBroker macro (async mode)":
 
   test "catches provider exception":
     check KeyedResponse
-    .setProvider(
-      proc(key: string, subKey: int): Future[Result[KeyedResponse, string]] {.async.} =
-        raise newException(ValueError, "simulated failure")
-    )
-    .isOk()
+      .setProvider(
+        proc(
+            key: string, subKey: int
+        ): Future[Result[KeyedResponse, string]] {.async.} =
+          raise newException(ValueError, "simulated failure")
+      )
+      .isOk()
 
     let res = waitFor KeyedResponse.request("neglected", 11)
     check res.isErr()
@@ -101,18 +105,18 @@ suite "RequestBroker macro (async mode)":
 
   test "supports both provider types simultaneously":
     check DualResponse
-    .setProvider(
-      proc(): Future[Result[DualResponse, string]] {.async.} =
-        ok(DualResponse(note: "base", count: 1))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Future[Result[DualResponse, string]] {.async.} =
+          ok(DualResponse(note: "base", count: 1))
+      )
+      .isOk()
 
     check DualResponse
-    .setProvider(
-      proc(suffix: string): Future[Result[DualResponse, string]] {.async.} =
-        ok(DualResponse(note: "base" & suffix, count: suffix.len))
-    )
-    .isOk()
+      .setProvider(
+        proc(suffix: string): Future[Result[DualResponse, string]] {.async.} =
+          ok(DualResponse(note: "base" & suffix, count: suffix.len))
+      )
+      .isOk()
 
     let noInput = waitFor DualResponse.request()
     check noInput.isOk()
@@ -127,11 +131,11 @@ suite "RequestBroker macro (async mode)":
 
   test "clearProvider resets both entries":
     check DualResponse
-    .setProvider(
-      proc(): Future[Result[DualResponse, string]] {.async.} =
-        ok(DualResponse(note: "temp", count: 0))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Future[Result[DualResponse, string]] {.async.} =
+          ok(DualResponse(note: "temp", count: 0))
+      )
+      .isOk()
     DualResponse.clearProvider()
 
     let res = waitFor DualResponse.request()
@@ -139,11 +143,11 @@ suite "RequestBroker macro (async mode)":
 
   test "implicit zero-argument provider works by default":
     check ImplicitResponse
-    .setProvider(
-      proc(): Future[Result[ImplicitResponse, string]] {.async.} =
-        ok(ImplicitResponse(note: "auto"))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Future[Result[ImplicitResponse, string]] {.async.} =
+          ok(ImplicitResponse(note: "auto"))
+      )
+      .isOk()
 
     let res = waitFor ImplicitResponse.request()
     check res.isOk()
@@ -158,18 +162,18 @@ suite "RequestBroker macro (async mode)":
 
   test "no provider override":
     check DualResponse
-    .setProvider(
-      proc(): Future[Result[DualResponse, string]] {.async.} =
-        ok(DualResponse(note: "base", count: 1))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Future[Result[DualResponse, string]] {.async.} =
+          ok(DualResponse(note: "base", count: 1))
+      )
+      .isOk()
 
     check DualResponse
-    .setProvider(
-      proc(suffix: string): Future[Result[DualResponse, string]] {.async.} =
-        ok(DualResponse(note: "base" & suffix, count: suffix.len))
-    )
-    .isOk()
+      .setProvider(
+        proc(suffix: string): Future[Result[DualResponse, string]] {.async.} =
+          ok(DualResponse(note: "base" & suffix, count: suffix.len))
+      )
+      .isOk()
 
     let overrideProc = proc(): Future[Result[DualResponse, string]] {.async.} =
       ok(DualResponse(note: "something else", count: 1))
@@ -207,27 +211,27 @@ suite "RequestBroker macro (async mode)":
     SimpleResponse.clearProvider()
 
     check SimpleResponse
-    .setProvider(
-      proc(): Future[Result[SimpleResponse, string]] {.async.} =
-        ok(SimpleResponse(value: "default"))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Future[Result[SimpleResponse, string]] {.async.} =
+          ok(SimpleResponse(value: "default"))
+      )
+      .isOk()
 
     check SimpleResponse
-    .setProvider(
-      BrokerContext(0x11111111'u32),
-      proc(): Future[Result[SimpleResponse, string]] {.async.} =
-        ok(SimpleResponse(value: "one")),
-    )
-    .isOk()
+      .setProvider(
+        BrokerContext(0x11111111'u32),
+        proc(): Future[Result[SimpleResponse, string]] {.async.} =
+          ok(SimpleResponse(value: "one")),
+      )
+      .isOk()
 
     check SimpleResponse
-    .setProvider(
-      BrokerContext(0x22222222'u32),
-      proc(): Future[Result[SimpleResponse, string]] {.async.} =
-        ok(SimpleResponse(value: "two")),
-    )
-    .isOk()
+      .setProvider(
+        BrokerContext(0x22222222'u32),
+        proc(): Future[Result[SimpleResponse, string]] {.async.} =
+          ok(SimpleResponse(value: "two")),
+      )
+      .isOk()
 
     let defaultRes = waitFor SimpleResponse.request()
     check defaultRes.isOk()
@@ -246,12 +250,12 @@ suite "RequestBroker macro (async mode)":
     check missing.error.contains("no provider registered for broker context")
 
     check SimpleResponse
-    .setProvider(
-      BrokerContext(0x11111111'u32),
-      proc(): Future[Result[SimpleResponse, string]] {.async.} =
-        ok(SimpleResponse(value: "dup")),
-    )
-    .isErr()
+      .setProvider(
+        BrokerContext(0x11111111'u32),
+        proc(): Future[Result[SimpleResponse, string]] {.async.} =
+          ok(SimpleResponse(value: "dup")),
+      )
+      .isErr()
 
     SimpleResponse.clearProvider()
 
@@ -259,27 +263,33 @@ suite "RequestBroker macro (async mode)":
     KeyedResponse.clearProvider()
 
     check KeyedResponse
-    .setProvider(
-      proc(key: string, subKey: int): Future[Result[KeyedResponse, string]] {.async.} =
-        ok(KeyedResponse(key: "default-" & key, payload: $subKey))
-    )
-    .isOk()
+      .setProvider(
+        proc(
+            key: string, subKey: int
+        ): Future[Result[KeyedResponse, string]] {.async.} =
+          ok(KeyedResponse(key: "default-" & key, payload: $subKey))
+      )
+      .isOk()
 
     check KeyedResponse
-    .setProvider(
-      BrokerContext(0xABCDEF01'u32),
-      proc(key: string, subKey: int): Future[Result[KeyedResponse, string]] {.async.} =
-        ok(KeyedResponse(key: "k1-" & key, payload: "p" & $subKey)),
-    )
-    .isOk()
+      .setProvider(
+        BrokerContext(0xABCDEF01'u32),
+        proc(
+            key: string, subKey: int
+        ): Future[Result[KeyedResponse, string]] {.async.} =
+          ok(KeyedResponse(key: "k1-" & key, payload: "p" & $subKey)),
+      )
+      .isOk()
 
     check KeyedResponse
-    .setProvider(
-      BrokerContext(0xABCDEF02'u32),
-      proc(key: string, subKey: int): Future[Result[KeyedResponse, string]] {.async.} =
-        ok(KeyedResponse(key: "k2-" & key, payload: "q" & $subKey)),
-    )
-    .isOk()
+      .setProvider(
+        BrokerContext(0xABCDEF02'u32),
+        proc(
+            key: string, subKey: int
+        ): Future[Result[KeyedResponse, string]] {.async.} =
+          ok(KeyedResponse(key: "k2-" & key, payload: "q" & $subKey)),
+      )
+      .isOk()
 
     let d = waitFor KeyedResponse.request("topic", 7)
     check d.isOk()
@@ -343,11 +353,11 @@ static:
 suite "RequestBroker macro (sync mode)":
   test "serves zero-argument providers (sync)":
     check SimpleResponseSync
-    .setProvider(
-      proc(): Result[SimpleResponseSync, string] =
-        ok(SimpleResponseSync(value: "hi"))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[SimpleResponseSync, string] =
+          ok(SimpleResponseSync(value: "hi"))
+      )
+      .isOk()
 
     let res = SimpleResponseSync.request()
     check res.isOk()
@@ -363,12 +373,12 @@ suite "RequestBroker macro (sync mode)":
   test "serves input-based providers (sync)":
     var seen: seq[string] = @[]
     check KeyedResponseSync
-    .setProvider(
-      proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
-        seen.add(key)
-        ok(KeyedResponseSync(key: key, payload: key & "-payload+" & $subKey))
-    )
-    .isOk()
+      .setProvider(
+        proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
+          seen.add(key)
+          ok(KeyedResponseSync(key: key, payload: key & "-payload+" & $subKey))
+      )
+      .isOk()
 
     let res = KeyedResponseSync.request("topic", 1)
     check res.isOk()
@@ -380,11 +390,11 @@ suite "RequestBroker macro (sync mode)":
 
   test "catches provider exception (sync)":
     check KeyedResponseSync
-    .setProvider(
-      proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
-        raise newException(ValueError, "simulated failure")
-    )
-    .isOk()
+      .setProvider(
+        proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
+          raise newException(ValueError, "simulated failure")
+      )
+      .isOk()
 
     let res = KeyedResponseSync.request("neglected", 11)
     check res.isErr()
@@ -399,18 +409,18 @@ suite "RequestBroker macro (sync mode)":
 
   test "supports both provider types simultaneously (sync)":
     check DualResponseSync
-    .setProvider(
-      proc(): Result[DualResponseSync, string] =
-        ok(DualResponseSync(note: "base", count: 1))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[DualResponseSync, string] =
+          ok(DualResponseSync(note: "base", count: 1))
+      )
+      .isOk()
 
     check DualResponseSync
-    .setProvider(
-      proc(suffix: string): Result[DualResponseSync, string] =
-        ok(DualResponseSync(note: "base" & suffix, count: suffix.len))
-    )
-    .isOk()
+      .setProvider(
+        proc(suffix: string): Result[DualResponseSync, string] =
+          ok(DualResponseSync(note: "base" & suffix, count: suffix.len))
+      )
+      .isOk()
 
     let noInput = DualResponseSync.request()
     check noInput.isOk()
@@ -425,11 +435,11 @@ suite "RequestBroker macro (sync mode)":
 
   test "clearProvider resets both entries (sync)":
     check DualResponseSync
-    .setProvider(
-      proc(): Result[DualResponseSync, string] =
-        ok(DualResponseSync(note: "temp", count: 0))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[DualResponseSync, string] =
+          ok(DualResponseSync(note: "temp", count: 0))
+      )
+      .isOk()
     DualResponseSync.clearProvider()
 
     let res = DualResponseSync.request()
@@ -437,11 +447,11 @@ suite "RequestBroker macro (sync mode)":
 
   test "implicit zero-argument provider works by default (sync)":
     check ImplicitResponseSync
-    .setProvider(
-      proc(): Result[ImplicitResponseSync, string] =
-        ok(ImplicitResponseSync(note: "auto"))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[ImplicitResponseSync, string] =
+          ok(ImplicitResponseSync(note: "auto"))
+      )
+      .isOk()
 
     let res = ImplicitResponseSync.request()
     check res.isOk()
@@ -456,11 +466,11 @@ suite "RequestBroker macro (sync mode)":
 
   test "implicit zero-argument provider raises error (sync)":
     check ImplicitResponseSync
-    .setProvider(
-      proc(): Result[ImplicitResponseSync, string] =
-        raise newException(ValueError, "simulated failure")
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[ImplicitResponseSync, string] =
+          raise newException(ValueError, "simulated failure")
+      )
+      .isOk()
 
     let res = ImplicitResponseSync.request()
     check res.isErr()
@@ -472,19 +482,19 @@ suite "RequestBroker macro (sync mode)":
     SimpleResponseSync.clearProvider()
 
     check SimpleResponseSync
-    .setProvider(
-      proc(): Result[SimpleResponseSync, string] =
-        ok(SimpleResponseSync(value: "default"))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[SimpleResponseSync, string] =
+          ok(SimpleResponseSync(value: "default"))
+      )
+      .isOk()
 
     check SimpleResponseSync
-    .setProvider(
-      BrokerContext(0x10101010'u32),
-      proc(): Result[SimpleResponseSync, string] =
-        ok(SimpleResponseSync(value: "ten")),
-    )
-    .isOk()
+      .setProvider(
+        BrokerContext(0x10101010'u32),
+        proc(): Result[SimpleResponseSync, string] =
+          ok(SimpleResponseSync(value: "ten")),
+      )
+      .isOk()
 
     let defaultRes = SimpleResponseSync.request()
     check defaultRes.isOk()
@@ -504,19 +514,19 @@ suite "RequestBroker macro (sync mode)":
     KeyedResponseSync.clearProvider()
 
     check KeyedResponseSync
-    .setProvider(
-      proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
-        ok(KeyedResponseSync(key: "default-" & key, payload: $subKey))
-    )
-    .isOk()
+      .setProvider(
+        proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
+          ok(KeyedResponseSync(key: "default-" & key, payload: $subKey))
+      )
+      .isOk()
 
     check KeyedResponseSync
-    .setProvider(
-      BrokerContext(0xA0A0A0A0'u32),
-      proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
-        ok(KeyedResponseSync(key: "k-" & key, payload: "p" & $subKey)),
-    )
-    .isOk()
+      .setProvider(
+        BrokerContext(0xA0A0A0A0'u32),
+        proc(key: string, subKey: int): Result[KeyedResponseSync, string] =
+          ok(KeyedResponseSync(key: "k-" & key, payload: "p" & $subKey)),
+      )
+      .isOk()
 
     let d = KeyedResponseSync.request("topic", 2)
     check d.isOk()
@@ -576,11 +586,11 @@ RequestBroker(sync):
 suite "RequestBroker macro (POD/external types)":
   test "supports non-object response types (async)":
     check PodResponse
-    .setProvider(
-      proc(): Future[Result[PodResponse, string]] {.async.} =
-        ok(PodResponse(123))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Future[Result[PodResponse, string]] {.async.} =
+          ok(PodResponse(123))
+      )
+      .isOk()
 
     let res = waitFor PodResponse.request()
     check res.isOk()
@@ -590,11 +600,11 @@ suite "RequestBroker macro (POD/external types)":
 
   test "supports aliased external types (async)":
     check ExternalAliasedResponse
-    .setProvider(
-      proc(): Future[Result[ExternalAliasedResponse, string]] {.async.} =
-        ok(ExternalAliasedResponse(ExternalDefinedTypeAsync(label: "ext")))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Future[Result[ExternalAliasedResponse, string]] {.async.} =
+          ok(ExternalAliasedResponse(ExternalDefinedTypeAsync(label: "ext")))
+      )
+      .isOk()
 
     let res = waitFor ExternalAliasedResponse.request()
     check res.isOk()
@@ -604,11 +614,11 @@ suite "RequestBroker macro (POD/external types)":
 
   test "supports aliased external types (sync)":
     check ExternalAliasedResponseSync
-    .setProvider(
-      proc(): Result[ExternalAliasedResponseSync, string] =
-        ok(ExternalAliasedResponseSync(ExternalDefinedTypeSync(label: "ext")))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[ExternalAliasedResponseSync, string] =
+          ok(ExternalAliasedResponseSync(ExternalDefinedTypeSync(label: "ext")))
+      )
+      .isOk()
 
     let res = ExternalAliasedResponseSync.request()
     check res.isOk()
@@ -618,32 +628,32 @@ suite "RequestBroker macro (POD/external types)":
 
   test "distinct response types avoid overload ambiguity (sync)":
     check DistinctStringResponseA
-    .setProvider(
-      proc(): Result[DistinctStringResponseA, string] =
-        ok(DistinctStringResponseA("a"))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[DistinctStringResponseA, string] =
+          ok(DistinctStringResponseA("a"))
+      )
+      .isOk()
 
     check DistinctStringResponseB
-    .setProvider(
-      proc(): Result[DistinctStringResponseB, string] =
-        ok(DistinctStringResponseB("b"))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[DistinctStringResponseB, string] =
+          ok(DistinctStringResponseB("b"))
+      )
+      .isOk()
 
     check ExternalDistinctResponseA
-    .setProvider(
-      proc(): Result[ExternalDistinctResponseA, string] =
-        ok(ExternalDistinctResponseA(ExternalDefinedTypeShared(label: "ea")))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[ExternalDistinctResponseA, string] =
+          ok(ExternalDistinctResponseA(ExternalDefinedTypeShared(label: "ea")))
+      )
+      .isOk()
 
     check ExternalDistinctResponseB
-    .setProvider(
-      proc(): Result[ExternalDistinctResponseB, string] =
-        ok(ExternalDistinctResponseB(ExternalDefinedTypeShared(label: "eb")))
-    )
-    .isOk()
+      .setProvider(
+        proc(): Result[ExternalDistinctResponseB, string] =
+          ok(ExternalDistinctResponseB(ExternalDefinedTypeShared(label: "eb")))
+      )
+      .isOk()
 
     let resA = DistinctStringResponseA.request()
     let resB = DistinctStringResponseB.request()
