@@ -1424,6 +1424,21 @@ proc removeOldestPartition(
 proc containsAnyPartition*(self: PostgresDriver): bool =
   return not self.partitionMngr.isEmpty()
 
+proc waitForPartition*(
+    self: PostgresDriver, timeout = chronos.seconds(5)
+): Future[ArchiveDriverResult[void]] {.async.} =
+  let pollInterval = chronos.milliseconds(100)
+  var elapsed = chronos.milliseconds(0)
+
+  while elapsed < timeout:
+    if self.containsAnyPartition():
+      return ok()
+
+    await sleepAsync(pollInterval)
+    elapsed += pollInterval
+
+  return err("PostgresDriver.waitForPartition() timed out after " & $timeout)
+
 method decreaseDatabaseSize*(
     driver: PostgresDriver, targetSizeInBytes: int64, forceRemoval: bool = false
 ): Future[ArchiveDriverResult[void]] {.async.} =
