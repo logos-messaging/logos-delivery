@@ -19,6 +19,7 @@ jobs:
           - libwaku
           - libwaku-android-arm64
           - wakucanary
+          - liblogosdelivery
 
         exclude:
           # Android SDK limitation
