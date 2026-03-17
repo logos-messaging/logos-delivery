@@ -1,0 +1,4 @@
+extend-exclude = [
+  "vendor",
+  "nimbledeps",
+]
