@@ -62,10 +62,9 @@ proc init*(
   )
 
 const TheWakuNetworkPreset* = ProtocolsConfig(
-  entryNodes:
-    @[
-      "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
-    ],
+  entryNodes: @[
+    "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
+  ],
   staticStoreNodes: @[],
   clusterId: 1,
   autoShardingConfig: AutoShardingConfig(numShardsInCluster: 8),

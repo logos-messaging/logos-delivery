@@ -127,8 +127,10 @@ proc toMatterbridge(
   assert chat2Msg.isOk
 
   if not cmb.mbClient
-  .postMessage(text = string.fromBytes(chat2Msg[].payload), username = chat2Msg[].nick)
-  .containsValue(true):
+    .postMessage(
+      text = string.fromBytes(chat2Msg[].payload), username = chat2Msg[].nick
+    )
+    .containsValue(true):
     chat2_mb_dropped.inc(labelValues = ["duplicate"])
     error "Matterbridge host unreachable. Dropping message."
 
@@ -175,10 +177,10 @@ proc new*(
     builder.withNodeKey(nodev2Key)
 
     builder
-    .withNetworkConfigurationDetails(
-      nodev2BindIp, nodev2BindPort, nodev2ExtIp, nodev2ExtPort
-    )
-    .tryGet()
+      .withNetworkConfigurationDetails(
+        nodev2BindIp, nodev2BindPort, nodev2ExtIp, nodev2ExtPort
+      )
+      .tryGet()
     builder.build().tryGet()
 
   return Chat2MatterBridge(

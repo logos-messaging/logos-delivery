@@ -88,7 +88,7 @@ proc waitForEvents(
   return await allFutures(
     manager.sentFuture, manager.propagatedFuture, manager.errorFuture
   )
-  .withTimeout(timeout)
+    .withTimeout(timeout)
 
 proc outcomes(manager: SendEventListenerManager): set[SendEventOutcome] =
   if manager.sentFuture.completed():

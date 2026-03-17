@@ -72,13 +72,12 @@ type RlnConfig = ref object of RootObj
 proc `%`(c: RlnConfig): JsonNode =
   ## wrapper around the generic JObject constructor.
   ## We don't need to have a separate proc for the tree_config field
-  let tree_config =
-    %{
-      "cache_capacity": %c.tree_config.cache_capacity,
-      "mode": %c.tree_config.mode,
-      "compression": %c.tree_config.compression,
-      "flush_every_ms": %c.tree_config.flush_every_ms,
-    }
+  let tree_config = %{
+    "cache_capacity": %c.tree_config.cache_capacity,
+    "mode": %c.tree_config.mode,
+    "compression": %c.tree_config.compression,
+    "flush_every_ms": %c.tree_config.flush_every_ms,
+  }
   return %[("resources_folder", %c.resources_folder), ("tree_config", %tree_config)]
 
 proc createRLNInstanceLocal(): RLNResult =

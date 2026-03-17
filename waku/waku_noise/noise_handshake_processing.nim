@@ -59,15 +59,14 @@ proc isValid(msg: seq[PreMessagePattern]): bool =
   var isValid: bool = true
 
   # Non-empty pre-messages can only have patterns "e", "s", "e,s" in each direction
-  let allowedPatterns: seq[PreMessagePattern] =
-    @[
-      PreMessagePattern(direction: D_r, tokens: @[T_s]),
-      PreMessagePattern(direction: D_r, tokens: @[T_e]),
-      PreMessagePattern(direction: D_r, tokens: @[T_e, T_s]),
-      PreMessagePattern(direction: D_l, tokens: @[T_s]),
-      PreMessagePattern(direction: D_l, tokens: @[T_e]),
-      PreMessagePattern(direction: D_l, tokens: @[T_e, T_s]),
-    ]
+  let allowedPatterns: seq[PreMessagePattern] = @[
+    PreMessagePattern(direction: D_r, tokens: @[T_s]),
+    PreMessagePattern(direction: D_r, tokens: @[T_e]),
+    PreMessagePattern(direction: D_r, tokens: @[T_e, T_s]),
+    PreMessagePattern(direction: D_l, tokens: @[T_s]),
+    PreMessagePattern(direction: D_l, tokens: @[T_e]),
+    PreMessagePattern(direction: D_l, tokens: @[T_e, T_s]),
+  ]
 
   # We check if pre message patterns are allowed
   for pattern in msg:

@@ -35,24 +35,23 @@ suite "Store Client":
     hash1 = computeMessageHash(DefaultPubsubTopic, message1)
     hash2 = computeMessageHash(DefaultPubsubTopic, message2)
     hash3 = computeMessageHash(DefaultPubsubTopic, message3)
-    messageSeq =
-      @[
-        WakuMessageKeyValue(
-          messageHash: hash1,
-          message: some(message1),
-          pubsubTopic: some(DefaultPubsubTopic),
-        ),
-        WakuMessageKeyValue(
-          messageHash: hash2,
-          message: some(message2),
-          pubsubTopic: some(DefaultPubsubTopic),
-        ),
-        WakuMessageKeyValue(
-          messageHash: hash3,
-          message: some(message3),
-          pubsubTopic: some(DefaultPubsubTopic),
-        ),
-      ]
+    messageSeq = @[
+      WakuMessageKeyValue(
+        messageHash: hash1,
+        message: some(message1),
+        pubsubTopic: some(DefaultPubsubTopic),
+      ),
+      WakuMessageKeyValue(
+        messageHash: hash2,
+        message: some(message2),
+        pubsubTopic: some(DefaultPubsubTopic),
+      ),
+      WakuMessageKeyValue(
+        messageHash: hash3,
+        message: some(message3),
+        pubsubTopic: some(DefaultPubsubTopic),
+      ),
+    ]
     handlerFuture = newHistoryFuture()
     handler = proc(req: StoreQueryRequest): Future[StoreQueryResult] {.async, gcsafe.} =
       var request = req
