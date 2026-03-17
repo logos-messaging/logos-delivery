@@ -11,6 +11,7 @@ import
   ../common/paging,
   ./driver,
   ./retention_policy,
+  ./retention_policy/retention_policy_time,
   ../waku_core,
   ../waku_core/message/digest,
   ./common,
@@ -38,6 +39,10 @@ const
 type MessageValidator* =
   proc(msg: WakuMessage): Result[void, string] {.closure, gcsafe, raises: [].}
 
+const MaxRetentionTime = 45.days.seconds
+  ## We will not archive messages older than that. This is to prevent too many partitions
+  ## during low activity periods and the size retention policy is configured by the node operator.
+
 ## Archive
 
 type WakuArchive* = ref object
@@ -46,6 +51,8 @@ type WakuArchive* = ref object
   validator: MessageValidator
 
   retentionPolicy: Option[RetentionPolicy]
+  fixedTimeRetentionPolicy: TimeRetentionPolicy
+    ## The fixedTimeRetentionPolicy prevents the DB from having too many partitions
 
   retentionPolicyHandle: Future[void]
   metricsHandle: Future[void]
@@ -77,8 +84,12 @@ proc new*(
   if driver.isNil():
     return err("archive driver is Nil")
 
-  let archive =
-    WakuArchive(driver: driver, validator: validator, retentionPolicy: retentionPolicy)
+  let archive = WakuArchive(
+    driver: driver,
+    validator: validator,
+    retentionPolicy: retentionPolicy,
+    fixedTimeRetentionPolicy: TimeRetentionPolicy.new(MaxRetentionTime),
+  )
 
   return ok(archive)
 
@@ -253,11 +264,19 @@ proc findMessages*(
   )
 
 proc periodicRetentionPolicy(self: WakuArchive) {.async.} =
-  let policy = self.retentionPolicy.get()
+  let customPolicy = self.retentionPolicy.get()
 
   while true:
+    info "executing fixed time message retention policy"
+    (await self.fixedTimeRetentionPolicy.execute(self.driver)).isOkOr:
+      waku_archive_errors.inc(labelValues = [retPolicyFailure])
+      error "failed execution of fixed time retention policy", error = error
+      await sleepAsync(WakuArchiveDefaultRetentionPolicyIntervalWhenError)
+      ## in case of error, let's try again faster
+      continue
+
     info "executing message retention policy"
-    (await policy.execute(self.driver)).isOkOr:
+    (await customPolicy.execute(self.driver)).isOkOr:
       waku_archive_errors.inc(labelValues = [retPolicyFailure])
       error "failed execution of retention policy", error = error
       await sleepAsync(WakuArchiveDefaultRetentionPolicyIntervalWhenError)
