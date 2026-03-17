@@ -12,6 +12,9 @@ type TimeRetentionPolicy* = ref object of RetentionPolicy
 proc new*(T: type TimeRetentionPolicy, retentionTime: int64): T =
   TimeRetentionPolicy(retentionTime: retentionTime.seconds)
 
+method `$`*(p: TimeRetentionPolicy): string =
+  "time:" & $p.retentionTime.seconds
+
 method execute*(
     p: TimeRetentionPolicy, driver: ArchiveDriver
 ): Future[RetentionPolicyResult[void]] {.async.} =

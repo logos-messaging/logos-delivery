@@ -57,7 +57,7 @@ type StoreServiceConf* {.requiresInit.} = object
   dbVacuum*: bool
   supportV2*: bool
   maxNumDbConnections*: int
-  retentionPolicy*: string
+  retentionPolicies*: seq[string]
   resume*: bool
   storeSyncConf*: Option[StoreSyncConf]
 

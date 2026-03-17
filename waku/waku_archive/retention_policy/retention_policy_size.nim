@@ -15,6 +15,9 @@ type SizeRetentionPolicy* = ref object of RetentionPolicy
 proc new*(T: type SizeRetentionPolicy, size = DefaultRetentionSize): T =
   SizeRetentionPolicy(sizeLimit: size)
 
+method `$`*(p: SizeRetentionPolicy): string =
+  "size:" & $p.sizeLimit & "b"
+
 method execute*(
     p: SizeRetentionPolicy, driver: ArchiveDriver
 ): Future[RetentionPolicyResult[void]] {.async.} =

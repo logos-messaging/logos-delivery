@@ -39,10 +39,10 @@ logScope:
 proc mountArchive*(
     node: WakuNode,
     driver: waku_archive.ArchiveDriver,
-    retentionPolicy = none(waku_archive.RetentionPolicy),
+    retentionPolicies = newSeq[waku_archive.RetentionPolicy](),
 ): Result[void, string] =
   node.wakuArchive = waku_archive.WakuArchive.new(
-    driver = driver, retentionPolicy = retentionPolicy
+    driver = driver, retentionPolicies = retentionPolicies
   ).valueOr:
     return err("error in mountArchive: " & error)
 

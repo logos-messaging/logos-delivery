@@ -11,7 +11,6 @@ import
   ../common/paging,
   ./driver,
   ./retention_policy,
-  ./retention_policy/retention_policy_time,
   ../waku_core,
   ../waku_core/message/digest,
   ./common,
@@ -39,10 +38,6 @@ const
 type MessageValidator* =
   proc(msg: WakuMessage): Result[void, string] {.closure, gcsafe, raises: [].}
 
-const MaxRetentionTime = 45.days.seconds
-  ## We will not archive messages older than that. This is to prevent too many partitions
-  ## during low activity periods and the size retention policy is configured by the node operator.
-
 ## Archive
 
 type WakuArchive* = ref object
@@ -50,9 +45,7 @@ type WakuArchive* = ref object
 
   validator: MessageValidator
 
-  retentionPolicy: Option[RetentionPolicy]
-  fixedTimeRetentionPolicy: TimeRetentionPolicy
-    ## The fixedTimeRetentionPolicy prevents the DB from having too many partitions
+  retentionPolicies: seq[RetentionPolicy]
 
   retentionPolicyHandle: Future[void]
   metricsHandle: Future[void]
@@ -79,16 +72,16 @@ proc new*(
     T: type WakuArchive,
     driver: ArchiveDriver,
     validator: MessageValidator = validate,
-    retentionPolicy = none(RetentionPolicy),
+    retentionPolicies = newSeq[RetentionPolicy](0),
 ): Result[T, string] =
   if driver.isNil():
     return err("archive driver is Nil")
 
+  if retentionPolicies.len == 0:
+    return err("at least one retention policy must be provided")
+
   let archive = WakuArchive(
-    driver: driver,
-    validator: validator,
-    retentionPolicy: retentionPolicy,
-    fixedTimeRetentionPolicy: TimeRetentionPolicy.new(MaxRetentionTime),
+    driver: driver, validator: validator, retentionPolicies: retentionPolicies
   )
 
   return ok(archive)
@@ -264,24 +257,15 @@ proc findMessages*(
   )
 
 proc periodicRetentionPolicy(self: WakuArchive) {.async.} =
-  let customPolicy = self.retentionPolicy.get()
-
   while true:
-    info "executing fixed time message retention policy"
-    (await self.fixedTimeRetentionPolicy.execute(self.driver)).isOkOr:
-      waku_archive_errors.inc(labelValues = [retPolicyFailure])
-      error "failed execution of fixed time retention policy", error = error
-      await sleepAsync(WakuArchiveDefaultRetentionPolicyIntervalWhenError)
-      ## in case of error, let's try again faster
-      continue
-
-    info "executing message retention policy"
-    (await customPolicy.execute(self.driver)).isOkOr:
-      waku_archive_errors.inc(labelValues = [retPolicyFailure])
-      error "failed execution of retention policy", error = error
-      await sleepAsync(WakuArchiveDefaultRetentionPolicyIntervalWhenError)
-      ## in case of error, let's try again faster
-      continue
+    for policy in self.retentionPolicies:
+      info "executing message retention policy", policy = $policy
+      (await policy.execute(self.driver)).isOkOr:
+        waku_archive_errors.inc(labelValues = [retPolicyFailure])
+        error "failed execution of retention policy", policy = $policy, error = error
+        await sleepAsync(WakuArchiveDefaultRetentionPolicyIntervalWhenError)
+        ## in case of error, let's try again faster
+        continue
 
     await sleepAsync(WakuArchiveDefaultRetentionPolicyInterval)
 
@@ -298,7 +282,7 @@ proc periodicMetricReport(self: WakuArchive) {.async.} =
     await sleepAsync(WakuArchiveDefaultMetricsReportInterval)
 
 proc start*(self: WakuArchive) =
-  if self.retentionPolicy.isSome():
+  if self.retentionPolicies.len > 0:
     self.retentionPolicyHandle = self.periodicRetentionPolicy()
 
   self.metricsHandle = self.periodicMetricReport()
@@ -306,7 +290,7 @@ proc start*(self: WakuArchive) =
 proc stopWait*(self: WakuArchive) {.async.} =
   var futures: seq[Future[void]]
 
-  if self.retentionPolicy.isSome() and not self.retentionPolicyHandle.isNil():
+  if not self.retentionPolicyHandle.isNil():
     futures.add(self.retentionPolicyHandle.cancelAndWait())
 
   if not self.metricsHandle.isNil:

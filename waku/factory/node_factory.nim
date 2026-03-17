@@ -206,10 +206,10 @@ proc setupProtocols(
     ).valueOr:
       return err("failed to setup archive driver: " & error)
 
-    let retPolicy = policy.RetentionPolicy.new(storeServiceConf.retentionPolicy).valueOr:
+    let retPolicies = policy.RetentionPolicy.new(storeServiceConf.retentionPolicies).valueOr:
       return err("failed to create retention policy: " & error)
 
-    node.mountArchive(archiveDriver, retPolicy).isOkOr:
+    node.mountArchive(archiveDriver, retPolicies).isOkOr:
       return err("failed to mount waku archive protocol: " & error)
 
     if storeServiceConf.supportV2:
