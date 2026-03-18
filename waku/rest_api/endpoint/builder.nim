@@ -28,7 +28,6 @@ import
 # It will always be called from main thread anyway.
 # Ref: https://nim-lang.org/docs/manual.html#threads-gc-safety
 var restServerNotInstalledTab {.threadvar.}: TableRef[string, string]
-restServerNotInstalledTab = newTable[string, string]()
 
 export WakuRestServerRef
 
@@ -42,6 +41,9 @@ type RestServerConf* = object
 proc startRestServerEssentials*(
     nodeHealthMonitor: NodeHealthMonitor, conf: RestServerConf, portsShift: uint16
 ): Result[WakuRestServerRef, string] =
+  if restServerNotInstalledTab.isNil:
+    restServerNotInstalledTab = newTable[string, string]()
+
   let requestErrorHandler: RestRequestErrorHandler = proc(
       error: RestRequestError, request: HttpRequestRef
   ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
@@ -84,13 +86,12 @@ proc startRestServerEssentials*(
 
   let address = conf.listenAddress
   let port = Port(conf.port.uint16 + portsShift)
-  let server =
-    ?newRestHttpServer(
-      address,
-      port,
-      allowedOrigin = allowedOrigin,
-      requestErrorHandler = requestErrorHandler,
-    )
+  let server = ?newRestHttpServer(
+    address,
+    port,
+    allowedOrigin = allowedOrigin,
+    requestErrorHandler = requestErrorHandler,
+  )
 
   ## Health REST API
   installHealthApiHandler(server.router, nodeHealthMonitor)

@@ -126,11 +126,10 @@ proc initNode(
   builder.withRateLimit(conf.rateLimit)
   builder.withCircuitRelay(relay)
 
-  let node =
-    ?builder.build().mapErr(
-      proc(err: string): string =
-        "failed to create waku node instance: " & err
-    )
+  let node = ?builder.build().mapErr(
+    proc(err: string): string =
+      "failed to create waku node instance: " & err
+  )
 
   ok(node)
 

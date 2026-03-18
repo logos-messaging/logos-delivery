@@ -1,6 +1,4 @@
-import waku/common/broker/event_broker
-import waku/api/types
-import waku/waku_core/message
+import waku/[api/types, waku_core/message, waku_core/topics, common/broker/event_broker]
 
 export types
 
@@ -27,4 +25,10 @@ EventBroker:
   # Event emitted when a message is received via Waku
   type MessageReceivedEvent* = object
     messageHash*: string
+    message*: WakuMessage
+
+EventBroker:
+  # Internal event emitted when a message arrives from the network via any protocol
+  type MessageSeenEvent* = object
+    topic*: PubsubTopic
     message*: WakuMessage

@@ -1,5 +1,4 @@
-const ContentScriptVersion_6* =
-  """
+const ContentScriptVersion_6* = """
 -- we can drop the timestamp column because this data is also kept in the storedAt column
 ALTER TABLE messages DROP COLUMN timestamp;
 

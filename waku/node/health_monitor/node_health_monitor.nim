@@ -405,13 +405,8 @@ proc calculateConnectionState*(
     elif kind in FilterClientProtocols:
       filterCount = max(filterCount, strength)
 
-    debug "calculateConnectionState",
-      protocol = kind,
-      strength = strength,
-      relayCount = relayCount,
-      storeClientCount = storeClientCount,
-      lightpushCount = lightpushCount,
-      filterCount = filterCount
+  debug "calculateConnectionState",
+    relayCount, storeClientCount, lightpushCount, filterCount
 
   # Relay connectivity should be a sufficient check in Core mode.
   # "Store peers" are relay peers because incoming messages in
@@ -528,6 +523,9 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
       let newConnectionStatus = hm.calculateConnectionState()
 
       if newConnectionStatus != hm.connectionStatus:
+        debug "connectionStatus change",
+          oldstatus = hm.connectionStatus, newstatus = newConnectionStatus
+
         hm.connectionStatus = newConnectionStatus
 
         EventConnectionStatusChange.emit(hm.node.brokerCtx, newConnectionStatus)

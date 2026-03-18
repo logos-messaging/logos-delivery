@@ -22,7 +22,9 @@ extern "C"
 
   // Creates a new instance of the node from the given configuration JSON.
   // Returns a pointer to the Context needed by the rest of the API functions.
-  // Configuration should be in JSON format following the NodeConfig structure.
+  // Configuration should be in JSON format using WakuNodeConf field names.
+  // Field names match Nim identifiers from WakuNodeConf (camelCase).
+  // Example: {"mode": "Core", "clusterId": 42, "relay": true}
   void *logosdelivery_create_node(
       const char *configJson,
       FFICallBack callback,
@@ -74,6 +76,22 @@ extern "C"
   void logosdelivery_set_event_callback(void *ctx,
                                  FFICallBack callback,
                                  void *userData);
+
+  // Retrieves the list of available node info IDs.
+  int logosdelivery_get_available_node_info_ids(void *ctx,
+                                 FFICallBack callback,
+                                 void *userData);
+
+  // Given a node info ID, retrieves the corresponding info.
+  int logosdelivery_get_node_info(void *ctx,
+                                  FFICallBack callback,
+                                  void *userData,
+                                  const char *nodeInfoId);
+
+  // Retrieves the list of available configurations.
+  int logosdelivery_get_available_configs(void *ctx,
+                                    FFICallBack callback,
+                                    void *userData);
 
 #ifdef __cplusplus
 }

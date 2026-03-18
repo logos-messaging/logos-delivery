@@ -434,18 +434,16 @@ suite "Sharding":
           contentTopicShort = "/toychat/2/huilong/proto"
           contentTopicFull = "/0/toychat/2/huilong/proto"
           pubsubTopic = "/waku/2/rs/0/58355"
-          archiveMessages1 =
-            @[
-              fakeWakuMessage(
-                @[byte 00], ts = ts(00, timeOrigin), contentTopic = contentTopicShort
-              )
-            ]
-          archiveMessages2 =
-            @[
-              fakeWakuMessage(
-                @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopicFull
-              )
-            ]
+          archiveMessages1 = @[
+            fakeWakuMessage(
+              @[byte 00], ts = ts(00, timeOrigin), contentTopic = contentTopicShort
+            )
+          ]
+          archiveMessages2 = @[
+            fakeWakuMessage(
+              @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopicFull
+            )
+          ]
           archiveDriver = newArchiveDriverWithMessages(pubsubTopic, archiveMessages1)
         discard archiveDriver.put(pubsubTopic, archiveMessages2)
         let mountArchiveResult = server.mountArchive(archiveDriver)
@@ -597,18 +595,16 @@ suite "Sharding":
           contentTopic2 = "/0/toychat2/2/huilong/proto"
           pubsubTopic2 = "/waku/2/rs/0/23286"
             # Automatically generated from the contentTopic above
-          archiveMessages1 =
-            @[
-              fakeWakuMessage(
-                @[byte 00], ts = ts(00, timeOrigin), contentTopic = contentTopic1
-              )
-            ]
-          archiveMessages2 =
-            @[
-              fakeWakuMessage(
-                @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopic2
-              )
-            ]
+          archiveMessages1 = @[
+            fakeWakuMessage(
+              @[byte 00], ts = ts(00, timeOrigin), contentTopic = contentTopic1
+            )
+          ]
+          archiveMessages2 = @[
+            fakeWakuMessage(
+              @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopic2
+            )
+          ]
           archiveDriver = newArchiveDriverWithMessages(pubsubTopic1, archiveMessages1)
         discard archiveDriver.put(pubsubTopic2, archiveMessages2)
         let mountArchiveResult = server.mountArchive(archiveDriver)

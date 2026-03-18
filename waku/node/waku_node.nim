@@ -146,6 +146,8 @@ type
     started*: bool # Indicates that node has started listening
     topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
     rateLimitSettings*: ProtocolRateLimitSettings
+    legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
+      ## Kernel API Relay appHandlers (if any)
     wakuMix*: WakuMix
     edgeTopicsHealth*: Table[PubsubTopic, TopicHealth]
     edgeHealthEvent*: AsyncEvent
@@ -354,12 +356,11 @@ proc mountStoreSync*(
 
   let pubsubTopics = shards.mapIt($RelayShard(clusterId: cluster, shardId: it))
 
-  let recon =
-    ?await SyncReconciliation.new(
-      pubsubTopics, contentTopics, node.peerManager, node.wakuArchive,
-      storeSyncRange.seconds, storeSyncInterval.seconds, storeSyncRelayJitter.seconds,
-      idsChannel, wantsChannel, needsChannel,
-    )
+  let recon = ?await SyncReconciliation.new(
+    pubsubTopics, contentTopics, node.peerManager, node.wakuArchive,
+    storeSyncRange.seconds, storeSyncInterval.seconds, storeSyncRelayJitter.seconds,
+    idsChannel, wantsChannel, needsChannel,
+  )
 
   node.wakuStoreReconciliation = recon
 

@@ -13,9 +13,10 @@ import
   waku/events/health_events,
   waku/common/waku_protocol,
   waku/factory/waku_conf
+import tools/confutils/cli_args
 
 const TestTimeout = chronos.seconds(10)
-const DefaultShard = PubsubTopic("/waku/2/rs/1/0")
+const DefaultShard = PubsubTopic("/waku/2/rs/3/0")
 const TestContentTopic = ContentTopic("/waku/2/default-content/proto")
 
 proc dummyHandler(
@@ -80,7 +81,7 @@ suite "LM API health checking":
         newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
       (await serviceNode.mountRelay()).isOkOr:
         raiseAssert error
-      serviceNode.mountMetadata(1, @[0'u16]).isOkOr:
+      serviceNode.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert error
       await serviceNode.mountLibp2pPing()
       await serviceNode.start()
@@ -89,16 +90,15 @@ suite "LM API health checking":
     serviceNode.wakuRelay.subscribe(DefaultShard, dummyHandler)
 
     lockNewGlobalBrokerContext:
-      let conf = NodeConfig.init(
-        mode = WakuMode.Core,
-        networkingConfig =
-          NetworkingConfig(listenIpv4: "0.0.0.0", p2pTcpPort: 0, discv5UdpPort: 0),
-        protocolsConfig = ProtocolsConfig.init(
-          entryNodes = @[],
-          clusterId = 1'u16,
-          autoShardingConfig = AutoShardingConfig(numShardsInCluster: 1),
-        ),
-      )
+      var conf = defaultWakuNodeConf().valueOr:
+        raiseAssert error
+      conf.mode = Core
+      conf.listenAddress = parseIpAddress("0.0.0.0")
+      conf.tcpPort = Port(0)
+      conf.discv5UdpPort = Port(0)
+      conf.clusterId = 3'u16
+      conf.numShardsInNetwork = 1
+      conf.rest = false
 
       client = (await createNode(conf)).valueOr:
         raiseAssert error
@@ -267,17 +267,15 @@ suite "LM API health checking":
     var edgeWaku: Waku
 
     lockNewGlobalBrokerContext:
-      let edgeConf = NodeConfig.init(
-        mode = WakuMode.Edge,
-        networkingConfig =
-          NetworkingConfig(listenIpv4: "0.0.0.0", p2pTcpPort: 0, discv5UdpPort: 0),
-        protocolsConfig = ProtocolsConfig.init(
-          entryNodes = @[],
-          clusterId = 1'u16,
-          messageValidation =
-            MessageValidation(maxMessageSize: "150 KiB", rlnConfig: none(RlnConfig)),
-        ),
-      )
+      var edgeConf = defaultWakuNodeConf().valueOr:
+        raiseAssert error
+      edgeConf.mode = Edge
+      edgeConf.listenAddress = parseIpAddress("0.0.0.0")
+      edgeConf.tcpPort = Port(0)
+      edgeConf.discv5UdpPort = Port(0)
+      edgeConf.clusterId = 3'u16
+      edgeConf.maxMessageSize = "150 KiB"
+      edgeConf.rest = false
 
       edgeWaku = (await createNode(edgeConf)).valueOr:
         raiseAssert "Failed to create edge node: " & error

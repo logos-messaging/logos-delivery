@@ -42,8 +42,8 @@ suite "Waku v2 Rest API - Relay":
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil()
-    manager = waitFor setupOnchainGroupManager()
+    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
   teardown:
     stopAnvil(anvilProc)
@@ -193,15 +193,14 @@ suite "Waku v2 Rest API - Relay":
 
     let pubSubTopic = "/waku/2/rs/0/0"
 
-    var messages =
-      @[
-        fakeWakuMessage(
-          contentTopic = "content-topic-x",
-          payload = toBytes("TEST-1"),
-          meta = toBytes("test-meta"),
-          ephemeral = true,
-        )
-      ]
+    var messages = @[
+      fakeWakuMessage(
+        contentTopic = "content-topic-x",
+        payload = toBytes("TEST-1"),
+        meta = toBytes("test-meta"),
+        ephemeral = true,
+      )
+    ]
 
     # Prevent duplicate messages
     for i in 0 ..< 2:
@@ -268,11 +267,8 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[OnchainGroupManager](node.wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
     let rootUpdated = waitFor manager.updateRoots()
     info "Updated root for node", rootUpdated
@@ -348,12 +344,11 @@ suite "Waku v2 Rest API - Relay":
     installRelayApiHandlers(restServer.router, node, cache)
     restServer.start()
 
-    let contentTopics =
-      @[
-        ContentTopic("/app-1/2/default-content/proto"),
-        ContentTopic("/app-2/2/default-content/proto"),
-        ContentTopic("/app-3/2/default-content/proto"),
-      ]
+    let contentTopics = @[
+      ContentTopic("/app-1/2/default-content/proto"),
+      ContentTopic("/app-2/2/default-content/proto"),
+      ContentTopic("/app-3/2/default-content/proto"),
+    ]
 
     # When
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
@@ -394,13 +389,12 @@ suite "Waku v2 Rest API - Relay":
 
     restPort = restServer.httpServer.address.port # update with bound port for client use
 
-    let contentTopics =
-      @[
-        ContentTopic("/waku/2/default-content1/proto"),
-        ContentTopic("/waku/2/default-content2/proto"),
-        ContentTopic("/waku/2/default-content3/proto"),
-        ContentTopic("/waku/2/default-contentX/proto"),
-      ]
+    let contentTopics = @[
+      ContentTopic("/waku/2/default-content1/proto"),
+      ContentTopic("/waku/2/default-content2/proto"),
+      ContentTopic("/waku/2/default-content3/proto"),
+      ContentTopic("/waku/2/default-contentX/proto"),
+    ]
 
     let cache = MessageCache.init()
     cache.contentSubscribe(contentTopics[0])
@@ -454,10 +448,9 @@ suite "Waku v2 Rest API - Relay":
 
     let contentTopic = DefaultContentTopic
 
-    var messages =
-      @[
-        fakeWakuMessage(contentTopic = DefaultContentTopic, payload = toBytes("TEST-1"))
-      ]
+    var messages = @[
+      fakeWakuMessage(contentTopic = DefaultContentTopic, payload = toBytes("TEST-1"))
+    ]
 
     # Prevent duplicate messages
     for i in 0 ..< 2:
@@ -545,11 +538,8 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[OnchainGroupManager](node.wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
     let rootUpdated = waitFor manager.updateRoots()
     info "Updated root for node", rootUpdated
@@ -617,11 +607,8 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[OnchainGroupManager](node.wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
     let rootUpdated = waitFor manager.updateRoots()
     info "Updated root for node", rootUpdated
@@ -679,11 +666,8 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[OnchainGroupManager](node.wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
     let rootUpdated = waitFor manager.updateRoots()
     info "Updated root for node", rootUpdated
@@ -754,11 +738,8 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[OnchainGroupManager](node.wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
     let rootUpdated = waitFor manager.updateRoots()
     info "Updated root for node", rootUpdated

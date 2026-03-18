@@ -1,23 +1,32 @@
-from flask import Flask
 import ctypes
 import argparse
+import sys
+
+if sys.platform == "darwin":
+    _lib_ext = "dylib"
+elif sys.platform == "win32":
+    _lib_ext = "dll"
+else:
+    _lib_ext = "so"
+
+_lib_path = f"build/libwaku.{_lib_ext}"
 
 libwaku = object
 try:
     # This python script should be run from the root repo folder
-    libwaku = ctypes.CDLL("build/libwaku.so")
-except Exception as e:
-    print("Exception: ", e)
-    print("""
-The 'libwaku.so' library can be created with the next command from
+    libwaku = ctypes.CDLL(_lib_path)
+except OSError as e:
+    print(f"Exception: {e}")
+    print(f"""
+The '{_lib_path}' library can be created with the next command from
 the repo's root folder: `make libwaku`.
 
-And it should build the library in 'build/libwaku.so'.
+And it should build the library in '{_lib_path}'.
 
-Therefore, make sure the LD_LIBRARY_PATH env var points at the location that
-contains the 'libwaku.so' library.
+Therefore, make sure the library path env var points at the location that
+contains the '{_lib_path}' library.
 """)
-    exit(-1)
+    exit(1)
 
 def handle_event(ret, msg, user_data):
     print("Event received: %s" % msg)

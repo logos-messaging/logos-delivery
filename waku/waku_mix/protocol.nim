@@ -71,7 +71,7 @@ proc processBootNodes(
   info "using mix bootstrap nodes ", count = count
 
 proc new*(
-    T: type WakuMix,
+    T: typedesc[WakuMix],
     nodeAddr: string,
     peermgr: PeerManager,
     clusterId: uint16,
@@ -86,8 +86,6 @@ proc new*(
     peermgr.switch.peerInfo.peerId, nodeMultiAddr, mixPubKey, mixPrivKey,
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
   )
-  if bootnodes.len < minMixPoolSize:
-    warn "publishing with mix won't work until atleast 3 mix nodes in node pool"
 
   var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)
   procCall MixProtocol(m).init(

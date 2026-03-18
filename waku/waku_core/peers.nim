@@ -176,17 +176,15 @@ proc parsePeerInfoFromRegularAddr(peer: MultiAddress): Result[RemotePeerInfo, st
     case addrPart[].protoName()[]
     # All protocols listed here: https://github.com/multiformats/multiaddr/blob/b746a7d014e825221cc3aea6e57a92d78419990f/protocols.csv
     of "p2p":
-      p2pPart =
-        ?addrPart.mapErr(
-          proc(err: string): string =
-            "Error getting p2pPart [" & err & "]"
-        )
+      p2pPart = ?addrPart.mapErr(
+        proc(err: string): string =
+          "Error getting p2pPart [" & err & "]"
+      )
     of "ip4", "ip6", "dns", "dnsaddr", "dns4", "dns6", "tcp", "ws", "wss":
-      let val =
-        ?addrPart.mapErr(
-          proc(err: string): string =
-            "Error getting addrPart [" & err & "]"
-        )
+      let val = ?addrPart.mapErr(
+        proc(err: string): string =
+          "Error getting addrPart [" & err & "]"
+      )
       ?wireAddr.append(val).mapErr(
         proc(err: string): string =
           "Error appending addrPart [" & err & "]"
@@ -199,11 +197,10 @@ proc parsePeerInfoFromRegularAddr(peer: MultiAddress): Result[RemotePeerInfo, st
       "] [peer:" & $peer & "]"
     return err(msg)
 
-  let peerId =
-    ?PeerID.init(p2pPartStr.split("/")[^1]).mapErr(
-      proc(e: cstring): string =
-        $e
-    )
+  let peerId = ?PeerID.init(p2pPartStr.split("/")[^1]).mapErr(
+    proc(e: cstring): string =
+      $e
+  )
 
   if not wireAddr.validWireAddr():
     return err("invalid multiaddress: no supported transport found")
@@ -233,11 +230,10 @@ proc parsePeerInfo*(maddrs: varargs[string]): Result[RemotePeerInfo, string] =
   ## format `(ip4|ip6)/tcp/p2p`, into dialable PeerInfo
   var multiAddresses = newSeq[MultiAddress]()
   for maddr in maddrs:
-    let multiAddr =
-      ?MultiAddress.init(maddr).mapErr(
-        proc(err: string): string =
-          "MultiAddress.init [" & err & "]"
-      )
+    let multiAddr = ?MultiAddress.init(maddr).mapErr(
+      proc(err: string): string =
+        "MultiAddress.init [" & err & "]"
+    )
     multiAddresses.add(multiAddr)
 
   parsePeerInfo(multiAddresses)

@@ -45,8 +45,7 @@ const SelectClause =
 
 const SelectNoCursorAscStmtName = "SelectWithoutCursorAsc"
 const SelectNoCursorAscStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           timestamp >= $4 AND
@@ -54,8 +53,7 @@ const SelectNoCursorAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $6;"""
 
 const SelectNoCursorNoDataAscStmtName = "SelectWithoutCursorAndDataAsc"
-const SelectNoCursorNoDataAscStmtDef =
-  """SELECT messageHash FROM messages
+const SelectNoCursorNoDataAscStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -65,8 +63,7 @@ const SelectNoCursorNoDataAscStmtDef =
 
 const SelectNoCursorDescStmtName = "SelectWithoutCursorDesc"
 const SelectNoCursorDescStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           timestamp >= $4 AND
@@ -74,8 +71,7 @@ const SelectNoCursorDescStmtDef =
     ORDER BY timestamp DESC, messageHash DESC LIMIT $6;"""
 
 const SelectNoCursorNoDataDescStmtName = "SelectWithoutCursorAndDataDesc"
-const SelectNoCursorNoDataDescStmtDef =
-  """SELECT messageHash FROM messages
+const SelectNoCursorNoDataDescStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -85,8 +81,7 @@ const SelectNoCursorNoDataDescStmtDef =
 
 const SelectWithCursorDescStmtName = "SelectWithCursorDesc"
 const SelectWithCursorDescStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           (timestamp, messageHash) < ($4,$5) AND
@@ -95,8 +90,7 @@ const SelectWithCursorDescStmtDef =
     ORDER BY timestamp DESC, messageHash DESC LIMIT $8;"""
 
 const SelectWithCursorNoDataDescStmtName = "SelectWithCursorNoDataDesc"
-const SelectWithCursorNoDataDescStmtDef =
-  """SELECT messageHash FROM messages
+const SelectWithCursorNoDataDescStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -107,8 +101,7 @@ const SelectWithCursorNoDataDescStmtDef =
 
 const SelectWithCursorAscStmtName = "SelectWithCursorAsc"
 const SelectWithCursorAscStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           (timestamp, messageHash) > ($4,$5) AND
@@ -117,8 +110,7 @@ const SelectWithCursorAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $8;"""
 
 const SelectWithCursorNoDataAscStmtName = "SelectWithCursorNoDataAsc"
-const SelectWithCursorNoDataAscStmtDef =
-  """SELECT messageHash FROM messages
+const SelectWithCursorNoDataAscStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -128,8 +120,7 @@ const SelectWithCursorNoDataAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $8;"""
 
 const SelectCursorByHashName = "SelectMessageByHashInMessagesLookup"
-const SelectCursorByHashDef =
-  """SELECT timestamp FROM messages_lookup
+const SelectCursorByHashDef = """SELECT timestamp FROM messages_lookup
     WHERE messageHash = $1"""
 
 const
@@ -896,11 +887,10 @@ method getMessages*(
 
       let splittedHashes = hashes[i ..< stop]
 
-      let subRows =
-        ?await s.getMessagesWithinLimits(
-          includeData, contentTopics, pubsubTopic, cursor, startTime, endTime,
-          splittedHashes, maxPageSize, ascendingOrder, requestId,
-        )
+      let subRows = ?await s.getMessagesWithinLimits(
+        includeData, contentTopics, pubsubTopic, cursor, startTime, endTime,
+        splittedHashes, maxPageSize, ascendingOrder, requestId,
+      )
 
       for row in subRows:
         row

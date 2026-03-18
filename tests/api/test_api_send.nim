@@ -6,7 +6,8 @@ import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
 import
   waku, waku/[waku_node, waku_core, waku_relay/protocol, common/broker/broker_context]
-import waku/api/api_conf, waku/factory/waku_conf
+import waku/factory/waku_conf
+import tools/confutils/cli_args
 
 type SendEventOutcome {.pure.} = enum
   Sent
@@ -87,7 +88,7 @@ proc waitForEvents(
   return await allFutures(
     manager.sentFuture, manager.propagatedFuture, manager.errorFuture
   )
-  .withTimeout(timeout)
+    .withTimeout(timeout)
 
 proc outcomes(manager: SendEventListenerManager): set[SendEventOutcome] =
   if manager.sentFuture.completed():
@@ -116,20 +117,18 @@ proc validate(
   for requestId in manager.errorRequestIds:
     check requestId == expectedRequestId
 
-proc createApiNodeConf(mode: WakuMode = WakuMode.Core): NodeConfig =
-  # allocate random ports to avoid port-already-in-use errors
-  let netConf = NetworkingConfig(listenIpv4: "0.0.0.0", p2pTcpPort: 0, discv5UdpPort: 0)
-
-  result = NodeConfig.init(
-    mode = mode,
-    protocolsConfig = ProtocolsConfig.init(
-      entryNodes = @[],
-      clusterId = 1,
-      autoShardingConfig = AutoShardingConfig(numShardsInCluster: 1),
-    ),
-    networkingConfig = netConf,
-    p2pReliability = true,
-  )
+proc createApiNodeConf(mode: cli_args.WakuMode = cli_args.WakuMode.Core): WakuNodeConf =
+  var conf = defaultWakuNodeConf().valueOr:
+    raiseAssert error
+  conf.mode = mode
+  conf.listenAddress = parseIpAddress("0.0.0.0")
+  conf.tcpPort = Port(0)
+  conf.discv5UdpPort = Port(0)
+  conf.clusterId = 3'u16
+  conf.numShardsInNetwork = 1
+  conf.reliabilityEnabled = true
+  conf.rest = false
+  result = conf
 
 suite "Waku API - Send":
   var
@@ -153,7 +152,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       relayNode1 =
         newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      relayNode1.mountMetadata(1, @[0'u16]).isOkOr:
+      relayNode1.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await relayNode1.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -163,7 +162,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       relayNode2 =
         newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      relayNode2.mountMetadata(1, @[0'u16]).isOkOr:
+      relayNode2.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await relayNode2.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -173,7 +172,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       lightpushNode =
         newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      lightpushNode.mountMetadata(1, @[0'u16]).isOkOr:
+      lightpushNode.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await lightpushNode.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -185,7 +184,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       storeNode =
         newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      storeNode.mountMetadata(1, @[0'u16]).isOkOr:
+      storeNode.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await storeNode.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -210,7 +209,7 @@ suite "Waku API - Send":
     storeNodePeerId = storeNode.peerInfo.peerId
 
     # Subscribe all relay nodes to the default shard topic
-    const testPubsubTopic = PubsubTopic("/waku/2/rs/1/0")
+    const testPubsubTopic = PubsubTopic("/waku/2/rs/3/0")
     proc dummyHandler(
         topic: PubsubTopic, msg: WakuMessage
     ): Future[void] {.async, gcsafe.} =
@@ -387,7 +386,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       fakeLightpushNode =
         newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      fakeLightpushNode.mountMetadata(1, @[0'u16]).isOkOr:
+      fakeLightpushNode.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await fakeLightpushNode.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -402,13 +401,13 @@ suite "Waku API - Send":
       discard
 
     fakeLightpushNode.subscribe(
-      (kind: PubsubSub, topic: PubsubTopic("/waku/2/rs/1/0")), dummyHandler
+      (kind: PubsubSub, topic: PubsubTopic("/waku/2/rs/3/0")), dummyHandler
     ).isOkOr:
       raiseAssert "Failed to subscribe fakeLightpushNode: " & error
 
     var node: Waku
     lockNewGlobalBrokerContext:
-      node = (await createNode(createApiNodeConf(WakuMode.Edge))).valueOr:
+      node = (await createNode(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
         raiseAssert error
       (await startWaku(addr node)).isOkOr:
         raiseAssert "Failed to start Waku node: " & error

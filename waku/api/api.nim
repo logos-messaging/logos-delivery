@@ -1,18 +1,20 @@
-import chronicles, chronos, results, std/strutils
+import chronicles, chronos, results
 
 import waku/factory/waku
 import waku/[requests/health_requests, waku_core, waku_node]
 import waku/node/delivery_service/send_service
-import waku/node/delivery_service/subscription_service
+import waku/node/delivery_service/subscription_manager
 import libp2p/peerid
+import ../../tools/confutils/cli_args
 import ./[api_conf, types]
+
+export cli_args
 
 logScope:
   topics = "api"
 
-# TODO: Specs says it should return a `WakuNode`. As `send` and other APIs are defined, we can align.
-proc createNode*(config: NodeConfig): Future[Result[Waku, string]] {.async.} =
-  let wakuConf = toWakuConf(config).valueOr:
+proc createNode*(conf: WakuNodeConf): Future[Result[Waku, string]] {.async.} =
+  let wakuConf = conf.toWakuConf().valueOr:
     return err("Failed to handle the configuration: " & error)
 
   ## We are not defining app callbacks at node creation
@@ -36,17 +38,26 @@ proc subscribe*(
 ): Future[Result[void, string]] {.async.} =
   ?checkApiAvailability(w)
 
-  return w.deliveryService.subscriptionService.subscribe(contentTopic)
+  return w.deliveryService.subscriptionManager.subscribe(contentTopic)
 
 proc unsubscribe*(w: Waku, contentTopic: ContentTopic): Result[void, string] =
   ?checkApiAvailability(w)
 
-  return w.deliveryService.subscriptionService.unsubscribe(contentTopic)
+  return w.deliveryService.subscriptionManager.unsubscribe(contentTopic)
 
 proc send*(
     w: Waku, envelope: MessageEnvelope
 ): Future[Result[RequestId, string]] {.async.} =
   ?checkApiAvailability(w)
+
+  let isSubbed = w.deliveryService.subscriptionManager
+    .isSubscribed(envelope.contentTopic)
+    .valueOr(false)
+  if not isSubbed:
+    info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
+    w.deliveryService.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:
+      warn "Failed to auto-subscribe", error = error
+      return err("Failed to auto-subscribe before sending: " & error)
 
   let requestId = RequestId.new(w.rng)
 

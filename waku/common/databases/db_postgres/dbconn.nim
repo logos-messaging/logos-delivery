@@ -211,11 +211,10 @@ proc waitQueryToFinish(
     pqclear(pqResult)
 
 proc containsRiskyPatterns(input: string): bool =
-  let riskyPatterns =
-    @[
-      " OR ", " AND ", " UNION ", " SELECT ", "INSERT ", "DELETE ", "UPDATE ", "DROP ",
-      "EXEC ", "--", "/*", "*/",
-    ]
+  let riskyPatterns = @[
+    " OR ", " AND ", " UNION ", " SELECT ", "INSERT ", "DELETE ", "UPDATE ", "DROP ",
+    "EXEC ", "--", "/*", "*/",
+  ]
 
   for pattern in riskyPatterns:
     if pattern.toLowerAscii() in input.toLowerAscii():
