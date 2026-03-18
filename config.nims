@@ -1,19 +1,12 @@
 import os
 
-if defined(release):
-  switch("nimcache", "nimcache/release/$projectName")
-else:
-  switch("nimcache", "nimcache/debug/$projectName")
+--noNimblePath
+when withDir(thisDir(), system.fileExists("nimble.paths")):
+  include "nimble.paths"
 
 if defined(windows):
   switch("passL", "rln.lib")
   switch("define", "postgres=false")
-
-  # Automatically add all vendor subdirectories
-  for dir in walkDir("./vendor"):
-    if dir.kind == pcDir:
-      switch("path", dir.path)
-      switch("path", dir.path / "src")
 
   # disable timestamps in Windows PE headers - https://wiki.debian.org/ReproducibleBuilds/TimestampsInPEBinaries
   switch("passL", "-Wl,--no-insert-timestamp")
@@ -63,9 +56,6 @@ elif defined(macosx) and defined(arm64):
   switch("passC", "-mcpu=apple-m1")
   switch("passL", "-mcpu=apple-m1")
 else:
-  if not defined(android):
-    switch("passC", "-march=native")
-    switch("passL", "-march=native")
   if defined(windows):
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65782
     # ("-fno-asynchronous-unwind-tables" breaks Nim's exception raising, sometimes)
@@ -86,18 +76,6 @@ else:
   nimTypeNames
 
 switch("define", "withoutPCRE")
-
-# the default open files limit is too low on macOS (512), breaking the
-# "--debugger:native" build. It can be increased with `ulimit -n 1024`.
-if not defined(macosx) and not defined(android):
-  # add debugging symbols and original files and line numbers
-  --debugger:
-    native
-  if not (defined(windows) and defined(i386)) and not defined(disable_libbacktrace):
-    # light-weight stack traces using libbacktrace and libunwind
-    --define:
-      nimStackTraceOverride
-    switch("import", "libbacktrace")
 
 --define:
   nimOldCaseObjects

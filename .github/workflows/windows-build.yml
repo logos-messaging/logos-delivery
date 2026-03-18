@@ -45,14 +45,22 @@ jobs:
           mingw-w64-x86_64-cmake
           mingw-w64-x86_64-llvm
           mingw-w64-x86_64-clang
+          mingw-w64-x86_64-nimble
           mingw-w64-x86_64-nasm
 
     - name: Manually install nasm
       run: |
         bash scripts/install_nasm_in_windows.sh
         source $HOME/.bashrc
-      
-    - name: Add UPX to PATH
+
+    - name: Install Nim
+      uses: iffy/install-nim@v5
+      with:
+        version: binary:2.2.4
+      env:
+        GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Add paths
       run: |
         echo "/usr/bin:$PATH" >> $GITHUB_PATH
         echo "/mingw64/bin:$PATH" >> $GITHUB_PATH
@@ -61,31 +69,10 @@ jobs:
 
     - name: Verify dependencies
       run: |
-        which upx gcc g++ make cmake cargo rustc python nasm
+        which upx gcc g++ make cmake cargo rustc python nasm nimble
 
-    - name: Updating submodules
-      run: git submodule update --init --recursive
-
-    - name: Creating tmp directory
-      run: mkdir -p tmp
-
-    - name: Building Nim
-      run: |
-        cd vendor/nimbus-build-system/vendor/Nim
-        ./build_all.bat
-        cd ../../../..
-
-    - name: Building miniupnpc
-      run: |
-        cd vendor/nim-nat-traversal/vendor/miniupnp/miniupnpc
-        make -f Makefile.mingw CC=gcc CXX=g++ libminiupnpc.a V=1
-        cd ../../../../..
-
-    - name: Building libnatpmp
-      run: |
-        cd ./vendor/nim-nat-traversal/vendor/libnatpmp-upstream
-        make CC="gcc -fPIC -D_WIN32_WINNT=0x0600 -DNATPMP_STATICLIB" libnatpmp.a V=1
-        cd ../../../../
+    - name: Make update
+      run: make update
 
     - name: Building wakunode2.exe
       run: |
