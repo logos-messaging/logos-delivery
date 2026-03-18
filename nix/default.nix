@@ -1,13 +1,14 @@
 {
   pkgs,
   src ? ../.,
-  targets ? ["libwaku-android-arm64"],
+  # Nimbus-build-system package.
+  nim ? null,
+  # Options: 0,1,2
   verbosity ? 1,
-  useSystemNim ? true,
-  quickAndDirty ? true,
-  stableSystems ? [
-    "x86_64-linux" "aarch64-linux"
-  ],
+  # Make targets
+  targets ? ["libwaku-android-arm64"],
+  # These are the only platforms tested in CI and considered stable.
+  stableSystems ? ["x86_64-linux" "aarch64-linux"],
   abidir ? null,
   zerokitRln,
 }:
@@ -17,16 +18,17 @@ assert pkgs.lib.assertMsg ((src.submodules or true) == true)
 
 let
   inherit (pkgs) stdenv lib writeScriptBin callPackage;
+  inherit (lib) any match substring optionals optionalString;
 
-  androidManifest = "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.mylibrary\" />";
+  # Check if build is for android platform.
+  containsAndroid = s: (match ".*android.*" s) != null;
+  isAndroidBuild = any containsAndroid targets;
 
   tools = pkgs.callPackage ./tools.nix {};
   version = tools.findKeyValue "^version = \"([a-f0-9.-]+)\"$" ../waku.nimble;
   revision = lib.substring 0 8 (src.rev or src.dirtyRev or "00000000");
-  copyLibwaku = lib.elem "libwaku" targets;
-  copyLiblogosdelivery = lib.elem "liblogosdelivery" targets;
-  copyWakunode2 = lib.elem "wakunode2" targets;
-  hasKnownInstallTarget = copyLibwaku || copyLiblogosdelivery || copyWakunode2;
+
+  androidManifest = "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.mylibrary\" />";
 
 in stdenv.mkDerivation {
   pname = "logos-messaging-nim";
@@ -34,7 +36,15 @@ in stdenv.mkDerivation {
 
   inherit src;
 
-  # Runtime dependencies
+  env = {
+    # Disable CPU optimizations that make binary not portable.
+    NIMFLAGS = "-d:disableMarchNative";
+    # Optional variables required for Android builds
+    ANDROID_SDK_ROOT = optionalString isAndroidBuild pkgs.androidPkgs.sdk;
+    ANDROID_NDK_HOME = optionalString isAndroidBuild pkgs.androidPkgs.ndk;
+  };
+
+  # Dependencies that should exist in the runtime environment.
   buildInputs = with pkgs; [
     openssl gmp zip
   ];
@@ -44,100 +54,37 @@ in stdenv.mkDerivation {
     # Fix for Nim compiler calling 'git rev-parse' and 'lsb_release'.
     fakeGit = writeScriptBin "git" "echo ${version}";
   in with pkgs; [
-    cmake which zerokitRln nim-unwrapped-2_2 fakeGit
-  ] ++ lib.optionals stdenv.isDarwin [
+    nim cmake which zerokitRln fakeGit
+  ] ++ optionals stdenv.isDarwin [
     pkgs.darwin.cctools gcc # Necessary for libbacktrace
   ];
 
-  # Environment variables required for Android builds
-  ANDROID_SDK_ROOT = "${pkgs.androidPkgs.sdk}";
-  ANDROID_NDK_HOME = "${pkgs.androidPkgs.ndk}";
-  NIMFLAGS = "-d:disableMarchNative -d:git_revision_override=${revision}";
-  XDG_CACHE_HOME = "/tmp";
-
   makeFlags = targets ++ [
     "V=${toString verbosity}"
-    "QUICK_AND_DIRTY_COMPILER=${if quickAndDirty then "1" else "0"}"
-    "QUICK_AND_DIRTY_NIMBLE=${if quickAndDirty then "1" else "0"}"
-    "USE_SYSTEM_NIM=${if useSystemNim then "1" else "0"}"
     "LIBRLN_FILE=${zerokitRln}/lib/librln.${if abidir != null then "so" else "a"}"
     "POSTGRES=1"
+    # Built from nimbus-build-system via flake.
+    "USE_SYSTEM_NIM=1"
   ];
 
   configurePhase = ''
+    # Avoid /tmp write errors.
+    export XDG_CACHE_HOME=$TMPDIR/cache
     patchShebangs . vendor/nimbus-build-system > /dev/null
-
-    # build_nim.sh guards "rm -rf dist/checksums" with NIX_BUILD_TOP != "/build",
-    # but on macOS the nix sandbox uses /private/tmp/... so the check fails and
-    # dist/checksums (provided via preBuild) gets deleted. Fix the check to skip
-    # the removal whenever NIX_BUILD_TOP is set (i.e. any nix build).
-    substituteInPlace vendor/nimbus-build-system/scripts/build_nim.sh \
-      --replace 'if [[ "''${NIX_BUILD_TOP}" != "/build" ]]; then' \
-                'if [[ -z "''${NIX_BUILD_TOP}" ]]; then'
-
     make nimbus-build-system-paths
     make nimbus-build-system-nimble-dir
   '';
 
-  # For the Nim v2.2.4 built with NBS we added sat and zippy
-  preBuild = lib.optionalString (!useSystemNim) ''
-    pushd vendor/nimbus-build-system/vendor/Nim
-    mkdir dist
-    mkdir -p dist/nimble/vendor/sat
-    mkdir -p dist/nimble/vendor/checksums
-    mkdir -p dist/nimble/vendor/zippy
-
-    cp -r ${callPackage ./nimble.nix {}}/.    dist/nimble
-    cp -r ${callPackage ./checksums.nix {}}/. dist/checksums
-    cp -r ${callPackage ./csources.nix {}}/.  csources_v2
-    cp -r ${callPackage ./sat.nix {}}/.       dist/nimble/vendor/sat
-    cp -r ${callPackage ./checksums.nix {}}/. dist/nimble/vendor/checksums
-    cp -r ${callPackage ./zippy.nix {}}/.     dist/nimble/vendor/zippy
-    chmod 777 -R dist/nimble csources_v2
-    popd
-  '';
-
-  installPhase = if abidir != null then ''
+  installPhase = if isAndroidBuild then ''
     mkdir -p $out/jni
     cp -r ./build/android/${abidir}/* $out/jni/
     echo '${androidManifest}' > $out/jni/AndroidManifest.xml
     cd $out && zip -r libwaku.aar *
   '' else ''
-    mkdir -p $out/bin $out/include
-
-    # Copy artifacts from build directory (created by Make during buildPhase)
-    # Note: build/ is in the source tree, not result/ (which is a post-build symlink)
-    if [ -d build ]; then
-      ${lib.optionalString copyLibwaku ''
-      cp build/libwaku.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
-      ''}
-
-      ${lib.optionalString copyLiblogosdelivery ''
-      cp build/liblogosdelivery.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
-      ''}
-
-      ${lib.optionalString copyWakunode2 ''
-      cp build/wakunode2 $out/bin/ 2>/dev/null || true
-      ''}
-
-      ${lib.optionalString (!hasKnownInstallTarget) ''
-      cp build/lib*.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
-      ''}
-    fi
-
-    # Copy header files
-    ${lib.optionalString copyLibwaku ''
-    cp library/libwaku.h $out/include/ 2>/dev/null || true
-    ''}
-
-    ${lib.optionalString copyLiblogosdelivery ''
-    cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
-    ''}
-
-    ${lib.optionalString (!hasKnownInstallTarget) ''
-    cp library/libwaku.h $out/include/ 2>/dev/null || true
-    cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
-    ''}
+    mkdir -p $out/bin $out/lib $out/include
+    cp build/waku* $out/bin/ || true
+    cp build/lib* $out/lib/ || true
+    cp lib*/lib*.h $out/include/
   '';
 
   meta = with pkgs.lib; {
