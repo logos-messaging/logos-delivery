@@ -347,9 +347,10 @@ hence would have reachability issues.""",
 
     storeMessageRetentionPolicy* {.
       desc:
-        "Message store retention policy. Multiple policies may be provided and are applied as a union. Time retention policy: 'time:<seconds>'. Capacity retention policy: 'capacity:<count>'. Size retention policy: 'size:<xMB/xGB>'. Set to 'none' to disable. Argument may be repeated.",
+        "Message store retention policy. Multiple policies may be provided as a semicolon-separated string and are applied as a union. Time retention policy: 'time:<seconds>'. Capacity retention policy: 'capacity:<count>'. Size retention policy: 'size:<xMB/xGB>'. Set to 'none' to disable. Example: 'time:3600;size:1GB;capacity:100'.",
+      defaultValue: "",
       name: "store-message-retention-policy"
-    .}: seq[string]
+    .}: string
 
     storeMessageDbUrl* {.
       desc: "The database connection URL for peristent storage.",
@@ -990,7 +991,9 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.storeServiceConf.withEnabled(n.store)
   b.storeServiceConf.withSupportV2(n.legacyStore)
-  b.storeServiceConf.withRetentionPolicies(n.storeMessageRetentionPolicy)
+  let retentionPolicies =
+    n.storeMessageRetentionPolicy.split(";").mapIt(it.strip()).filterIt(it.len > 0)
+  b.storeServiceConf.withRetentionPolicies(retentionPolicies)
   b.storeServiceConf.withDbUrl(n.storeMessageDbUrl)
   b.storeServiceConf.withDbVacuum(n.storeMessageDbVacuum)
   b.storeServiceConf.withDbMigration(n.storeMessageDbMigration)
