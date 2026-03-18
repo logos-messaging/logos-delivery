@@ -430,7 +430,7 @@ proc dropOrphanPartitions(
       rowCallback,
     )
   ).isOkOr:
-    return err("getOrphanPartitionsList failed in query: " & $error)
+    return err("dropOrphanPartitions failed in query: " & $error)
 
   for partition in partitions:
     info "orphan partition found", partitionName = partition
@@ -1378,18 +1378,17 @@ proc getTableSize*(
 proc dropPartition(
     self: PostgresDriver, partitionName: string
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Drop the partition
   let dropPartitionQuery = "DROP TABLE " & partitionName
   info "drop partition", query = dropPartitionQuery
   (await self.performWriteQuery(dropPartitionQuery)).isOkOr:
-    return err(fmt"error in {dropPartitionQuery}: " & $error)
+    return err(fmt"error in dropPartition: {dropPartitionQuery}: " & $error)
 
   return ok()
 
 proc detachAndDropPartition(
     self: PostgresDriver, partition: Partition
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Detachs and drops the desired partition and also removes the rows from messages_lookup table
+  ## Detaches and drops the desired partition and also removes the rows from messages_lookup table
   ## whose rows belong to the partition time range
 
   let partitionName = partition.getName()
