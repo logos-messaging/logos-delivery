@@ -348,7 +348,7 @@ hence would have reachability issues.""",
     storeMessageRetentionPolicy* {.
       desc:
         "Message store retention policy. Multiple policies may be provided as a semicolon-separated string and are applied as a union. Time retention policy: 'time:<seconds>'. Capacity retention policy: 'capacity:<count>'. Size retention policy: 'size:<xMB/xGB>'. Set to 'none' to disable. Example: 'time:3600;size:1GB;capacity:100'.",
-      defaultValue: "",
+      defaultValue: "time:" & $2.days.seconds,
       name: "store-message-retention-policy"
     .}: string
 
