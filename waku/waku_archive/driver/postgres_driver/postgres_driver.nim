@@ -1380,7 +1380,12 @@ proc removePartitionsOlderThan(
   var oldestPartition = self.partitionMngr.getOldestPartition().valueOr:
     return err("could not get oldest partition in removePartitionOlderThan: " & $error)
 
-  while not oldestPartition.containsMoment(tsInSec):
+  while oldestPartition.getFirstMoment() < tsInSec:
+    info "start removing partition whose first record is older than the specified timestamp",
+      partitionName = oldestPartition.getName(),
+      partitionFirstMoment = oldestPartition.getFirstMoment(),
+      tsInSec
+
     (await self.removePartition(oldestPartition)).isOkOr:
       return err("issue in removePartitionsOlderThan: " & $error)
 
