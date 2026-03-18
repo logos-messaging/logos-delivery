@@ -421,6 +421,7 @@ proc dropOrphanPartitions(
           FROM pg_class c
           LEFT JOIN pg_inherits i ON i.inhrelid = c.oid
           WHERE c.relname LIKE 'messages_%'
+            AND c.relname != 'messages_lookup'
             AND c.relkind = 'r'        -- only regular tables
             AND i.inhrelid IS NULL     -- detached partition
           ORDER BY partition_name
