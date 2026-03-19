@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/options,
+  std/[options, strutils],
   testutils/unittests,
   chronos,
   libp2p/crypto/[crypto, secp],
@@ -260,6 +260,85 @@ suite "Waku external config - Shards":
 
     ## Then
     assert res.isErr(), "Invalid shard was accepted"
+
+suite "Waku external config - store retention policy":
+  test "Default retention policy":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    # storeMessageRetentionPolicy keeps its default: "time:<2 days in seconds>"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    assert res.isOk(), $res.error
+    let wakuConf = res.get()
+    require wakuConf.storeServiceConf.isSome()
+    check wakuConf.storeServiceConf.get().retentionPolicies ==
+      @["time:" & $2.days.seconds]
+
+  test "Single custom retention policy":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    conf.storeMessageRetentionPolicy = "capacity:50000"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    assert res.isOk(), $res.error
+    let wakuConf = res.get()
+    require wakuConf.storeServiceConf.isSome()
+    check wakuConf.storeServiceConf.get().retentionPolicies == @["capacity:50000"]
+
+  test "Retention policies with whitespace around semicolons and colons":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    conf.storeMessageRetentionPolicy = "time:3600 ; capacity:10000 ; size     : 30GB"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    assert res.isOk(), $res.error
+    let wakuConf = res.get()
+    require wakuConf.storeServiceConf.isSome()
+    check wakuConf.storeServiceConf.get().retentionPolicies ==
+      @["time:3600", "capacity:10000", "size:30GB"]
+
+  test "Invalid retention policy type returns error":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    conf.storeMessageRetentionPolicy = "foo:1234"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    check res.isErr()
+    check res.error.contains("unknown retention policy type")
+
+  test "Duplicated retention policy type returns error":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    conf.storeMessageRetentionPolicy = "time:3600;time:7200;capacity:10000"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    check res.isErr()
+    check res.error.contains("duplicated retention policy type")
 
 suite "Waku external config - http url parsing":
   test "Basic HTTP URLs without authentication":

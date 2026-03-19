@@ -1,4 +1,5 @@
-import chronicles, std/[options, strutils], results, chronos
+import std/[options, strutils, sequtils]
+import chronicles, results, chronos
 import ../waku_conf, ./store_sync_conf_builder
 
 logScope:
@@ -42,10 +43,12 @@ proc withMaxNumDbConnections*(
 ) =
   b.maxNumDbConnections = some(maxNumDbConnections)
 
-proc withRetentionPolicies*(
-    b: var StoreServiceConfBuilder, retentionPolicies: seq[string]
-) =
+proc withRetentionPolicies*(b: var StoreServiceConfBuilder, retentionPolicies: string) =
   b.retentionPolicies = retentionPolicies
+    .multiReplace((" ", ""), ("\t", ""))
+    .split(";")
+    .mapIt(it.strip())
+    .filterIt(it.len > 0)
 
 proc withResume*(b: var StoreServiceConfBuilder, resume: bool) =
   b.resume = some(resume)
@@ -55,12 +58,12 @@ const ValidRetentionPolicyTypes = ["time", "capacity", "size"]
 proc validateRetentionPolicies(policies: seq[string]): Result[void, string] =
   var seen: seq[string]
 
-  for policy in policies:
+  for p in policies:
+    let policy = p.multiReplace((" ", ""), ("\t", ""))
     let parts = policy.split(":", 1)
     if parts.len != 2 or parts[1] == "":
       return err(
-        "invalid retention policy format: '" & policy &
-          "', expected '<type>:<value>'"
+        "invalid retention policy format: '" & policy & "', expected '<type>:<value>'"
       )
 
     let policyType = parts[0].toLowerAscii()

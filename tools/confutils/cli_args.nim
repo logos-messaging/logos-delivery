@@ -991,9 +991,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.storeServiceConf.withEnabled(n.store)
   b.storeServiceConf.withSupportV2(n.legacyStore)
-  let retentionPolicies =
-    n.storeMessageRetentionPolicy.split(";").mapIt(it.strip()).filterIt(it.len > 0)
-  b.storeServiceConf.withRetentionPolicies(retentionPolicies)
+  b.storeServiceConf.withRetentionPolicies(n.storeMessageRetentionPolicy)
   b.storeServiceConf.withDbUrl(n.storeMessageDbUrl)
   b.storeServiceConf.withDbVacuum(n.storeMessageDbVacuum)
   b.storeServiceConf.withDbMigration(n.storeMessageDbMigration)
