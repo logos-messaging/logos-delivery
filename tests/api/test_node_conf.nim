@@ -1,7 +1,11 @@
 {.used.}
 
-import std/options, results, stint, testutils/unittests
-import waku/api/api_conf, waku/factory/waku_conf, waku/factory/networks_config
+import std/[options, strutils], results, stint, testutils/unittests, chronos
+import
+  waku/api/api_conf,
+  waku/factory/waku_conf,
+  waku/factory/networks_config,
+  waku/factory/conf_builder/conf_builder
 
 suite "LibWaku Conf - toWakuConf":
   test "Minimal configuration":
@@ -277,3 +281,60 @@ suite "LibWaku Conf - toWakuConf":
     check:
       wakuConf.staticNodes.len == 1
       wakuConf.staticNodes[0] == entryNodes[1]
+
+suite "WakuConfBuilder - store retention policies":
+  test "Multiple retention policies":
+    ## Given
+    var b = WakuConfBuilder.init()
+    b.storeServiceConf.withEnabled(true)
+    b.storeServiceConf.withDbUrl("sqlite://test.db")
+    b.storeServiceConf.withRetentionPolicies(@["time:86400", "capacity:10000"])
+
+    ## When
+    let wakuConf = b.build().valueOr:
+      raiseAssert error
+
+    ## Then
+    require wakuConf.storeServiceConf.isSome()
+    let storeConf = wakuConf.storeServiceConf.get()
+    check storeConf.retentionPolicies == @["time:86400", "capacity:10000"]
+
+  test "Duplicated retention policies returns error":
+    ## Given
+    var b = WakuConfBuilder.init()
+    b.storeServiceConf.withEnabled(true)
+    b.storeServiceConf.withDbUrl("sqlite://test.db")
+    b.storeServiceConf.withRetentionPolicies(@["time:86400", "time:800", "capacity:10000"])
+
+    ## When
+    let wakuConfRes = b.build()
+
+    ## Then
+    check wakuConfRes.isErr()
+    check wakuConfRes.error.contains("duplicated retention policy type")
+
+  test "Incorrect retention policy type returns error":
+    ## Given
+    var b = WakuConfBuilder.init()
+    b.storeServiceConf.withEnabled(true)
+    b.storeServiceConf.withDbUrl("sqlite://test.db")
+    b.storeServiceConf.withRetentionPolicies(@["capaity:10000"])
+
+    ## When
+    let wakuConfRes = b.build()
+
+    ## Then
+    check wakuConfRes.isErr()
+    check wakuConfRes.error.contains("unknown retention policy type")
+
+  test "Store disabled - no retention policy applied":
+    ## Given
+    var b = WakuConfBuilder.init()
+    # storeServiceConf not enabled
+
+    ## When
+    let wakuConf = b.build().valueOr:
+      raiseAssert error
+
+    ## Then
+    check wakuConf.storeServiceConf.isNone()
