@@ -1,3 +1,73 @@
+## v0.38.0 (2026-03-16)
+
+### Notes
+
+- **liblogosdelivery**: Major new FFI API with debug API, health status events, message received events, stateful SubscriptionService, and improved resource management.
+- Waku Kademlia discovery integrated with Mix protocol.
+- Context-aware and event-driven broker architecture introduced.
+- REST Store API now defaults to page size 20 with max 100.
+- Lightpush no longer mounts without relay enabled.
+- Repository renamed from `logos-messaging-nim` to `logos-delivery`.
+
+### Features
+
+- liblogosdelivery: FFI library of new API ([#3714](https://github.com/logos-messaging/logos-delivery/pull/3714)) ([3603b838](https://github.com/logos-messaging/logos-delivery/commit/3603b838))
+- liblogosdelivery: health status event support ([#3737](https://github.com/logos-messaging/logos-delivery/pull/3737)) ([ba85873f](https://github.com/logos-messaging/logos-delivery/commit/ba85873f))
+- liblogosdelivery: MessageReceivedEvent propagation over FFI ([#3747](https://github.com/logos-messaging/logos-delivery/pull/3747)) ([0ad55159](https://github.com/logos-messaging/logos-delivery/commit/0ad55159))
+- liblogosdelivery: add debug API ([#3742](https://github.com/logos-messaging/logos-delivery/pull/3742)) ([09618a26](https://github.com/logos-messaging/logos-delivery/commit/09618a26))
+- liblogosdelivery: implement stateful SubscriptionService for Core mode ([#3732](https://github.com/logos-messaging/logos-delivery/pull/3732)) ([51ec09c3](https://github.com/logos-messaging/logos-delivery/commit/51ec09c3))
+- Waku Kademlia integration and Mix protocol updates ([#3722](https://github.com/logos-messaging/logos-delivery/pull/3722)) ([335600eb](https://github.com/logos-messaging/logos-delivery/commit/335600eb))
+- Waku API: implement Health spec ([#3689](https://github.com/logos-messaging/logos-delivery/pull/3689)) ([1fb4d1ea](https://github.com/logos-messaging/logos-delivery/commit/1fb4d1ea))
+- Waku API: send ([#3669](https://github.com/logos-messaging/logos-delivery/pull/3669)) ([1fd25355](https://github.com/logos-messaging/logos-delivery/commit/1fd25355))
+- iOS compilation support (WIP) ([#3668](https://github.com/logos-messaging/logos-delivery/pull/3668)) ([96196ab8](https://github.com/logos-messaging/logos-delivery/commit/96196ab8))
+- Distribute libwaku binaries ([#3612](https://github.com/logos-messaging/logos-delivery/pull/3612)) ([9e2b3830](https://github.com/logos-messaging/logos-delivery/commit/9e2b3830))
+- Rendezvous: broadcast and discover WakuPeerRecords ([#3617](https://github.com/logos-messaging/logos-delivery/pull/3617)) ([b0cd75f4](https://github.com/logos-messaging/logos-delivery/commit/b0cd75f4))
+- New postgres metric to estimate payload stats ([#3596](https://github.com/logos-messaging/logos-delivery/pull/3596)) ([454b098a](https://github.com/logos-messaging/logos-delivery/commit/454b098a))
+
+### Bug Fixes
+
+- Fix NodeHealthMonitor logspam ([#3743](https://github.com/logos-messaging/logos-delivery/pull/3743)) ([7e36e268](https://github.com/logos-messaging/logos-delivery/commit/7e36e268))
+- Fix peer selection by shard and rendezvous/metadata sharding initialization ([#3718](https://github.com/logos-messaging/logos-delivery/pull/3718)) ([84f79110](https://github.com/logos-messaging/logos-delivery/commit/84f79110))
+- Correct dynamic library extension on mac and update OS detection ([#3754](https://github.com/logos-messaging/logos-delivery/pull/3754)) ([1ace0154](https://github.com/logos-messaging/logos-delivery/commit/1ace0154))
+- Force FINALIZE partition detach after detecting shorter error ([#3728](https://github.com/logos-messaging/logos-delivery/pull/3728)) ([b38b5aae](https://github.com/logos-messaging/logos-delivery/commit/b38b5aae))
+- Fix store protocol issue in v0.37.0 ([#3657](https://github.com/logos-messaging/logos-delivery/pull/3657)) ([91b4c5f5](https://github.com/logos-messaging/logos-delivery/commit/91b4c5f5))
+- Fix hash inputs for external nullifier, remove length prefix for sha256 ([#3660](https://github.com/logos-messaging/logos-delivery/pull/3660)) ([2d40cb9d](https://github.com/logos-messaging/logos-delivery/commit/2d40cb9d))
+- Fix admin API peer shards field from metadata protocol ([#3594](https://github.com/logos-messaging/logos-delivery/pull/3594)) ([e54851d9](https://github.com/logos-messaging/logos-delivery/commit/e54851d9))
+- Wakucanary exits with error if ping fails ([#3595](https://github.com/logos-messaging/logos-delivery/pull/3595), [#3711](https://github.com/logos-messaging/logos-delivery/pull/3711))
+- Force epoll in chronos for Android ([#3705](https://github.com/logos-messaging/logos-delivery/pull/3705)) ([beb1dde1](https://github.com/logos-messaging/logos-delivery/commit/beb1dde1))
+- Fix build_rln.sh script ([#3704](https://github.com/logos-messaging/logos-delivery/pull/3704)) ([09034837](https://github.com/logos-messaging/logos-delivery/commit/09034837))
+- liblogosdelivery: move destroy API to node_api, add security checks and fix possible resource leak ([#3736](https://github.com/logos-messaging/logos-delivery/pull/3736)) ([db19da92](https://github.com/logos-messaging/logos-delivery/commit/db19da92))
+
+### Changes
+
+- Context-aware brokers architecture ([#3674](https://github.com/logos-messaging/logos-delivery/pull/3674)) ([c27405b1](https://github.com/logos-messaging/logos-delivery/commit/c27405b1))
+- Introduce EventBroker, RequestBroker and MultiRequestBroker ([#3644](https://github.com/logos-messaging/logos-delivery/pull/3644)) ([ae74b901](https://github.com/logos-messaging/logos-delivery/commit/ae74b901))
+- Use chronos' TokenBucket ([#3670](https://github.com/logos-messaging/logos-delivery/pull/3670)) ([284a0816](https://github.com/logos-messaging/logos-delivery/commit/284a0816))
+- REST Store API constraints: default page size 20, max 100 ([#3602](https://github.com/logos-messaging/logos-delivery/pull/3602)) ([8c30a8e1](https://github.com/logos-messaging/logos-delivery/commit/8c30a8e1))
+- Do not mount lightpush without relay ([#3540](https://github.com/logos-messaging/logos-delivery/pull/3540)) ([7d1c6aba](https://github.com/logos-messaging/logos-delivery/commit/7d1c6aba))
+- Mix: use exit==dest approach ([#3642](https://github.com/logos-messaging/logos-delivery/pull/3642)) ([088e3108](https://github.com/logos-messaging/logos-delivery/commit/088e3108))
+- Mix: simple refactor to reduce duplicated logs ([#3752](https://github.com/logos-messaging/logos-delivery/pull/3752)) ([96f1c40a](https://github.com/logos-messaging/logos-delivery/commit/96f1c40a))
+- Simplify NodeHealthMonitor creation ([#3716](https://github.com/logos-messaging/logos-delivery/pull/3716)) ([a8bdbca9](https://github.com/logos-messaging/logos-delivery/commit/a8bdbca9))
+- Adapt CLI args for delivery API ([#3744](https://github.com/logos-messaging/logos-delivery/pull/3744)) ([1f9c4cb8](https://github.com/logos-messaging/logos-delivery/commit/1f9c4cb8))
+- Adapt debugapi to WakoNodeConf ([#3745](https://github.com/logos-messaging/logos-delivery/pull/3745)) ([4a6ad732](https://github.com/logos-messaging/logos-delivery/commit/4a6ad732))
+- Bump nim-ffi to v0.1.3 ([#3696](https://github.com/logos-messaging/logos-delivery/pull/3696)) ([a02aaab5](https://github.com/logos-messaging/logos-delivery/commit/a02aaab5))
+- Bump nim-metrics to v0.2.1 ([#3734](https://github.com/logos-messaging/logos-delivery/pull/3734)) ([c7e0cc0e](https://github.com/logos-messaging/logos-delivery/commit/c7e0cc0e))
+- Add gasprice overflow check ([#3636](https://github.com/logos-messaging/logos-delivery/pull/3636)) ([a8590a0a](https://github.com/logos-messaging/logos-delivery/commit/a8590a0a))
+- Pin RLN dependencies to specific version ([#3649](https://github.com/logos-messaging/logos-delivery/pull/3649)) ([834eea94](https://github.com/logos-messaging/logos-delivery/commit/834eea94))
+- Update CI/README references after repository rename to logos-delivery ([#3729](https://github.com/logos-messaging/logos-delivery/pull/3729)) ([895f3e2d](https://github.com/logos-messaging/logos-delivery/commit/895f3e2d))
+
+### This release supports the following [libp2p protocols](https://docs.libp2p.io/concepts/protocols/):
+
+| Protocol | Spec status | Protocol id |
+| ---: | :---: | :--- |
+| [`11/WAKU2-RELAY`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/11/relay.md) | `stable` | `/vac/waku/relay/2.0.0` |
+| [`12/WAKU2-FILTER`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/12/filter.md) | `draft` | `/vac/waku/filter/2.0.0-beta1` <br />`/vac/waku/filter-subscribe/2.0.0-beta1` <br />`/vac/waku/filter-push/2.0.0-beta1` |
+| [`13/WAKU2-STORE`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/13/store.md) | `draft` | `/vac/waku/store/2.0.0-beta4` |
+| [`19/WAKU2-LIGHTPUSH`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/19/lightpush.md) | `draft` | `/vac/waku/lightpush/2.0.0-beta1` |
+| [`WAKU2-LIGHTPUSH v3`](https://github.com/waku-org/specs/blob/master/standards/core/lightpush.md) | `draft` | `/vac/waku/lightpush/3.0.0` |
+| [`66/WAKU2-METADATA`](https://github.com/waku-org/specs/blob/master/standards/core/metadata.md) | `raw` | `/vac/waku/metadata/1.0.0` |
+| [`WAKU-SYNC`](https://github.com/waku-org/specs/blob/master/standards/core/sync.md) | `draft` | `/vac/waku/sync/1.0.0` |
+
 ## v0.37.1 (2026-03-12)
 
 ### Bug Fixes
