@@ -1,3 +1,13 @@
+## v0.37.2 (2026-03-19)
+
+### Features
+
+- Allow union of several retention policies ([#3766](https://github.com/logos-messaging/logos-delivery/pull/3766))
+
+### Bug Fixes
+
+- Bump nim-http-utils to v0.4.1 to allow accepting <:><space><(> as a valid header and tests to validate html rfc7230 ([#43](https://github.com/status-im/nim-http-utils/pull/43))
+
 ## v0.37.1 (2026-03-12)
 
 ### Bug Fixes
