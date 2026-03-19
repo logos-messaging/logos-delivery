@@ -1443,14 +1443,13 @@ proc removePartitionsOlderThan(
 
   debug "oldest partition info",
     partitionName = oldestPartition.getName(),
-    partitionFirstMoment = oldestPartition.getFirstMoment(),
     partitionLastMoment = oldestPartition.getLastMoment(),
     tsInSec
 
-  while oldestPartition.getFirstMoment() < tsInSec:
+  while oldestPartition.getLastMoment() < tsInSec:
     info "start removing partition whose first record is older than the specified timestamp",
       partitionName = oldestPartition.getName(),
-      partitionFirstMoment = oldestPartition.getFirstMoment(),
+      partitionFirstMoment = oldestPartition.getLastMoment(),
       tsInSec
 
     (await self.detachAndDropPartition(oldestPartition)).isOkOr:

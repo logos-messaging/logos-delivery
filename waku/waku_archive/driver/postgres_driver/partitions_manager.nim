@@ -81,12 +81,6 @@ proc removeOldestPartitionName*(self: PartitionManager) =
 proc isEmpty*(self: PartitionManager): bool =
   return self.partitions.len == 0
 
-proc getFirstMoment*(partition: Partition): int64 =
-  ## Considering the time range covered by the partition, this
-  ## returns the `beginning` time (number of seconds since epoch) of such range.
-  let firstTimeInSec = partition.timeRange.beginning
-  return firstTimeInSec
-
 proc getLastMoment*(partition: Partition): int64 =
   ## Considering the time range covered by the partition, this
   ## returns the `end` time (number of seconds since epoch) of such range.
