@@ -203,13 +203,13 @@ type
     fleet* {.
       desc:
         "Select the fleet to connect to. This sets the DNS discovery URL to the selected fleet.",
-      defaultValue: Fleet.test,
+      defaultValue: Fleet.none,
       name: "fleet"
     .}: Fleet
 
     contentTopic* {.
       desc: "Content topic for chat messages.",
-      defaultValue: "/toy-chat-mix/2/huilong/proto",
+      defaultValue: "/toy-chat/2/baixa-chiado/proto",
       name: "content-topic"
     .}: string
 
@@ -228,7 +228,14 @@ type
       desc: "WebSocket Secure Support.",
       defaultValue: false,
       name: "websocket-secure-support"
-    .}: bool ## rln-relay configuration
+    .}: bool
+
+    ## Kademlia Discovery config
+    kadBootstrapNodes* {.
+      desc:
+        "Peer multiaddr for kademlia discovery bootstrap node (must include /p2p/<peerID>). Argument may be repeated.",
+      name: "kad-bootstrap-node"
+    .}: seq[string]
 
 proc parseCmdArg*(T: type MixNodePubInfo, p: string): T =
   let elements = p.split(":")

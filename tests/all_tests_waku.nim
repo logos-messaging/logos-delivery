@@ -89,6 +89,7 @@ import
   ./test_waku_netconfig,
   ./test_waku_switch,
   ./test_waku_rendezvous,
+  ./test_waku_metadata,
   ./waku_discv5/test_waku_discv5
 
 # Waku Keystore test suite

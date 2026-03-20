@@ -4,6 +4,7 @@ import
   libp2p/crypto/crypto,
   libp2p/multiaddress,
   libp2p/crypto/curve25519,
+  libp2p/peerid,
   secp256k1,
   results
 
@@ -50,6 +51,10 @@ type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
+
+type KademliaDiscoveryConf* = object
+  bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
+    ## Bootstrap nodes for extended kademlia discovery.
 
 type StoreServiceConf* {.requiresInit.} = object
   dbMigration*: bool
@@ -109,6 +114,7 @@ type WakuConf* {.requiresInit.} = ref object
   metricsServerConf*: Option[MetricsServerConf]
   webSocketConf*: Option[WebSocketConf]
   mixConf*: Option[MixConf]
+  kademliaDiscoveryConf*: Option[KademliaDiscoveryConf]
 
   portsShift*: uint16
   dnsAddrsNameServers*: seq[IpAddress]
@@ -154,7 +160,8 @@ proc logConf*(conf: WakuConf) =
     store = conf.storeServiceConf.isSome(),
     filter = conf.filterServiceConf.isSome(),
     lightPush = conf.lightPush,
-    peerExchange = conf.peerExchangeService
+    peerExchange = conf.peerExchangeService,
+    rendezvous = conf.rendezvous
 
   info "Configuration. Network", cluster = conf.clusterId
 

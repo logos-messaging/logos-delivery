@@ -15,7 +15,8 @@ import
   ../waku_node,
   ../node/peer_manager,
   ../common/rate_limit/setting,
-  ../common/utils/parse_size_units
+  ../common/utils/parse_size_units,
+  ../common/broker/broker_context
 
 type
   WakuNodeBuilder* = object # General
@@ -209,6 +210,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     maxServicePeers = some(builder.maxServicePeers),
     colocationLimit = builder.colocationLimit,
     shardedPeerManagement = builder.shardAware,
+    maxConnections = builder.switchMaxConnections.get(builders.MaxConnections),
   )
 
   var node: WakuNode

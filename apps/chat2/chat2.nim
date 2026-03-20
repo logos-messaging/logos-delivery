@@ -480,7 +480,9 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
   if conf.lightpushnode != "":
     let peerInfo = parsePeerInfo(conf.lightpushnode)
     if peerInfo.isOk():
-      await mountLegacyLightPush(node)
+      (await node.mountLegacyLightPush()).isOkOr:
+        error "failed to mount legacy lightpush", error = error
+        quit(QuitFailure)
       node.mountLegacyLightPushClient()
       node.peerManager.addServicePeer(peerInfo.value, WakuLightpushCodec)
     else:

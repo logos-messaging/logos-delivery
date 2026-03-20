@@ -30,6 +30,7 @@ import
     protobuf/minprotobuf, # message serialisation/deserialisation from and to protobufs
     nameresolving/dnsresolver,
     protocols/mix/curve25519,
+    protocols/mix/mix_protocol,
   ] # define DNS resolution
 import
   waku/[
@@ -38,6 +39,7 @@ import
     waku_lightpush/rpc,
     waku_enr,
     discovery/waku_dnsdisc,
+    discovery/waku_kademlia,
     waku_node,
     node/waku_metrics,
     node/peer_manager,
@@ -82,6 +84,8 @@ type
   PrivateKey* = crypto.PrivateKey
   Topic* = waku_core.PubsubTopic
 
+const MinMixNodePoolSize = 4
+
 #####################
 ## chat2 protobufs ##
 #####################
@@ -124,7 +128,7 @@ proc encode*(message: Chat2Message): ProtoBuffer =
 
   return serialised
 
-proc toString*(message: Chat2Message): string =
+proc `$`*(message: Chat2Message): string =
   # Get message date and timestamp in local time
   let time = message.timestamp.fromUnix().local().format("'<'MMM' 'dd,' 'HH:mm'>'")
 
@@ -331,13 +335,14 @@ proc maintainSubscription(
   const maxFailedServiceNodeSwitches = 10
   var noFailedSubscribes = 0
   var noFailedServiceNodeSwitches = 0
-  const RetryWaitMs = 2.seconds # Quick retry interval
-  const SubscriptionMaintenanceMs = 30.seconds # Subscription maintenance interval
+  # Use chronos.Duration explicitly to avoid mismatch with std/times.Duration
+  let RetryWait = chronos.seconds(2) # Quick retry interval
+  let SubscriptionMaintenance = chronos.seconds(30) # Subscription maintenance interval
   while true:
     info "maintaining subscription at", peer = constructMultiaddrStr(actualFilterPeer)
     # First use filter-ping to check if we have an active subscription
     let pingErr = (await wakuNode.wakuFilterClient.ping(actualFilterPeer)).errorOr:
-      await sleepAsync(SubscriptionMaintenanceMs)
+      await sleepAsync(SubscriptionMaintenance)
       info "subscription is live."
       continue
 
@@ -350,7 +355,7 @@ proc maintainSubscription(
         some(filterPubsubTopic), filterContentTopic, actualFilterPeer
       )
     ).errorOr:
-      await sleepAsync(SubscriptionMaintenanceMs)
+      await sleepAsync(SubscriptionMaintenance)
       if noFailedSubscribes > 0:
         noFailedSubscribes -= 1
       notice "subscribe request successful."
@@ -365,7 +370,7 @@ proc maintainSubscription(
     # wakunode.peerManager.peerStore.delete(actualFilterPeer)
 
     if noFailedSubscribes < maxFailedSubscribes:
-      await sleepAsync(RetryWaitMs) # Wait a bit before retrying
+      await sleepAsync(RetryWait) # Wait a bit before retrying
     elif not preventPeerSwitch:
       # try again with new peer without delay
       let actualFilterPeer = selectRandomServicePeer(
@@ -380,7 +385,7 @@ proc maintainSubscription(
 
       noFailedSubscribes = 0
     else:
-      await sleepAsync(SubscriptionMaintenanceMs)
+      await sleepAsync(SubscriptionMaintenance)
 
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
@@ -450,12 +455,48 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
   (await node.mountMix(conf.clusterId, mixPrivKey, conf.mixnodes)).isOkOr:
     error "failed to mount waku mix protocol: ", error = $error
     quit(QuitFailure)
+
+  # Setup extended kademlia discovery if bootstrap nodes are provided
+  if conf.kadBootstrapNodes.len > 0:
+    var kadBootstrapPeers: seq[(PeerId, seq[MultiAddress])]
+    for nodeStr in conf.kadBootstrapNodes:
+      let (peerId, ma) = parseFullAddress(nodeStr).valueOr:
+        error "Failed to parse kademlia bootstrap node", node = nodeStr, error = error
+        continue
+      kadBootstrapPeers.add((peerId, @[ma]))
+
+    if kadBootstrapPeers.len > 0:
+      node.wakuKademlia = WakuKademlia.new(
+        node.switch,
+        ExtendedKademliaDiscoveryParams(
+          bootstrapNodes: kadBootstrapPeers,
+          mixPubKey: some(mixPubKey),
+          advertiseMix: false,
+        ),
+        node.peerManager,
+        getMixNodePoolSize = proc(): int {.gcsafe, raises: [].} =
+          if node.wakuMix.isNil():
+            0
+          else:
+            node.getMixNodePoolSize(),
+        isNodeStarted = proc(): bool {.gcsafe, raises: [].} =
+          node.started,
+      ).valueOr:
+        error "failed to setup kademlia discovery", error = error
+        quit(QuitFailure)
+
+  #await node.mountRendezvousClient(conf.clusterId)
+
   await node.start()
 
   node.peerManager.start()
+  if not node.wakuKademlia.isNil():
+    (await node.wakuKademlia.start(minMixPeers = MinMixNodePoolSize)).isOkOr:
+      error "failed to start kademlia discovery", error = error
+      quit(QuitFailure)
 
   await node.mountLibp2pPing()
-  await node.mountPeerExchangeClient()
+  #await node.mountPeerExchangeClient()
   let pubsubTopic = conf.getPubsubTopic(node, conf.contentTopic)
   echo "pubsub topic is: " & pubsubTopic
   let nick = await readNick(transp)
@@ -587,22 +628,17 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
       error "Couldn't find any service peer"
       quit(QuitFailure)
 
-  #await mountLegacyLightPush(node)
   node.peerManager.addServicePeer(servicePeerInfo, WakuLightpushCodec)
   node.peerManager.addServicePeer(servicePeerInfo, WakuPeerExchangeCodec)
+  #node.peerManager.addServicePeer(servicePeerInfo, WakuRendezVousCodec)
 
   # Start maintaining subscription
   asyncSpawn maintainSubscription(
     node, pubsubTopic, conf.contentTopic, servicePeerInfo, false
   )
   echo "waiting for mix nodes to be discovered..."
-  while true:
-    if node.getMixNodePoolSize() >= 3:
-      break
-    discard await node.fetchPeerExchangePeers()
-    await sleepAsync(1000)
 
-  while node.getMixNodePoolSize() < 3:
+  while node.getMixNodePoolSize() < MinMixNodePoolSize:
     info "waiting for mix nodes to be discovered",
       currentpoolSize = node.getMixNodePoolSize()
     await sleepAsync(1000)

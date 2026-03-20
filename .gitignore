@@ -59,6 +59,10 @@ nimbus-build-system.paths
 /examples/nodejs/build/
 /examples/rust/target/
 
+# Xcode user data
+xcuserdata/
+*.xcuserstate
+
 
 # Coverage
 coverage_html_report/
@@ -79,3 +83,11 @@ waku_handler.moc.cpp
 
 # Nix build result
 result
+
+# llms
+AGENTS.md
+nimble.develop
+nimble.paths
+nimbledeps
+
+**/anvil_state/state-deployed-contracts-mint-and-approved.json

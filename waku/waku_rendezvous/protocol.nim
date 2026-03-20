@@ -1,70 +1,90 @@
 {.push raises: [].}
 
 import
-  std/[sugar, options],
+  std/[sugar, options, sequtils, tables],
   results,
   chronos,
   chronicles,
-  metrics,
+  stew/byteutils,
   libp2p/protocols/rendezvous,
+  libp2p/protocols/rendezvous/protobuf,
+  libp2p/utils/semaphore,
+  libp2p/utils/offsettedseq,
+  libp2p/crypto/curve25519,
   libp2p/switch,
   libp2p/utility
+
+import metrics except collect
 
 import
   ../node/peer_manager,
   ../common/callbacks,
   ../waku_enr/capabilities,
   ../waku_core/peers,
-  ../waku_core/topics,
-  ../waku_core/topics/pubsub_topic,
-  ./common
+  ../waku_core/codecs,
+  ./common,
+  ./waku_peer_record
 
 logScope:
   topics = "waku rendezvous"
 
-declarePublicCounter rendezvousPeerFoundTotal,
-  "total number of peers found via rendezvous"
-
-type WakuRendezVous* = ref object
-  rendezvous: Rendezvous
+type WakuRendezVous* = ref object of GenericRendezVous[WakuPeerRecord]
   peerManager: PeerManager
   clusterId: uint16
   getShards: GetShards
   getCapabilities: GetCapabilities
+  getPeerRecord: GetWakuPeerRecord
 
   registrationInterval: timer.Duration
   periodicRegistrationFut: Future[void]
 
-  requestInterval: timer.Duration
-  periodicRequestFut: Future[void]
+const MaximumNamespaceLen = 255
 
-proc batchAdvertise*(
+method discover*(
+    self: WakuRendezVous, conn: Connection, d: Discover
+) {.async: (raises: [CancelledError, LPStreamError]).} =
+  # Override discover method to avoid collect macro generic instantiation issues
+  trace "Received Discover", peerId = conn.peerId, ns = d.ns
+  await procCall GenericRendezVous[WakuPeerRecord](self).discover(conn, d)
+
+proc advertise*(
     self: WakuRendezVous,
     namespace: string,
-    ttl: Duration = DefaultRegistrationTTL,
     peers: seq[PeerId],
+    ttl: timer.Duration = self.minDuration,
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  ## Register with all rendezvous peers under a namespace
+  trace "advertising via waku rendezvous",
+    namespace = namespace, ttl = ttl, peers = $peers, peerRecord = $self.getPeerRecord()
+  let se = SignedPayload[WakuPeerRecord].init(
+    self.switch.peerInfo.privateKey, self.getPeerRecord()
+  ).valueOr:
+    return
+      err("rendezvous advertisement failed: Failed to sign Waku Peer Record: " & $error)
+  let sprBuff = se.encode().valueOr:
+    return err("rendezvous advertisement failed: Wrong Signed Peer Record: " & $error)
 
   # rendezvous.advertise expects already opened connections
   # must dial first
+
   var futs = collect(newSeq):
     for peerId in peers:
-      self.peerManager.dialPeer(peerId, RendezVousCodec)
+      self.peerManager.dialPeer(peerId, self.codec)
 
   let dialCatch = catch:
     await allFinished(futs)
 
-  futs = dialCatch.valueOr:
-    return err("batchAdvertise: " & error.msg)
+  if dialCatch.isErr():
+    return err("advertise: " & dialCatch.error.msg)
+
+  futs = dialCatch.get()
 
   let conns = collect(newSeq):
     for fut in futs:
       let catchable = catch:
         fut.read()
 
-      catchable.isOkOr:
-        warn "a rendezvous dial failed", cause = error.msg
+      if catchable.isErr():
+        warn "a rendezvous dial failed", cause = catchable.error.msg
         continue
 
       let connOpt = catchable.get()
@@ -74,149 +94,34 @@ proc batchAdvertise*(
 
       conn
 
-  let advertCatch = catch:
-    await self.rendezvous.advertise(namespace, Opt.some(ttl))
+  if conns.len == 0:
+    return err("could not establish any connections to rendezvous peers")
 
-  for conn in conns:
-    await conn.close()
-
-  advertCatch.isOkOr:
-    return err("batchAdvertise: " & error.msg)
-
+  try:
+    await self.advertise(namespace, ttl, peers, sprBuff)
+  except Exception as e:
+    return err("rendezvous advertisement failed: " & e.msg)
+  finally:
+    for conn in conns:
+      await conn.close()
   return ok()
 
-proc batchRequest*(
-    self: WakuRendezVous,
-    namespace: string,
-    count: int = DiscoverLimit,
-    peers: seq[PeerId],
-): Future[Result[seq[PeerRecord], string]] {.async: (raises: []).} =
-  ## Request all records from all rendezvous peers matching a namespace
-
-  # rendezvous.request expects already opened connections
-  # must dial first
-  var futs = collect(newSeq):
-    for peerId in peers:
-      self.peerManager.dialPeer(peerId, RendezVousCodec)
-
-  let dialCatch = catch:
-    await allFinished(futs)
-
-  futs = dialCatch.valueOr:
-    return err("batchRequest: " & error.msg)
-
-  let conns = collect(newSeq):
-    for fut in futs:
-      let catchable = catch:
-        fut.read()
-
-      catchable.isOkOr:
-        warn "a rendezvous dial failed", cause = error.msg
-        continue
-
-      let connOpt = catchable.get()
-
-      let conn = connOpt.valueOr:
-        continue
-
-      conn
-
-  let reqCatch = catch:
-    await self.rendezvous.request(Opt.some(namespace), Opt.some(count), Opt.some(peers))
-
-  for conn in conns:
-    await conn.close()
-
-  reqCatch.isOkOr:
-    return err("batchRequest: " & error.msg)
-
-  return ok(reqCatch.get())
-
-proc advertiseAll(
+proc advertiseAll*(
     self: WakuRendezVous
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  info "waku rendezvous advertisements started"
+  trace "waku rendezvous advertisements started"
 
-  let shards = self.getShards()
-
-  let futs = collect(newSeq):
-    for shardId in shards:
-      # Get a random RDV peer for that shard
-
-      let pubsub =
-        toPubsubTopic(RelayShard(clusterId: self.clusterId, shardId: shardId))
-
-      let rpi = self.peerManager.selectPeer(RendezVousCodec, some(pubsub)).valueOr:
-        continue
-
-      let namespace = computeNamespace(self.clusterId, shardId)
-
-      # Advertise yourself on that peer
-      self.batchAdvertise(namespace, DefaultRegistrationTTL, @[rpi.peerId])
-
-  if futs.len < 1:
+  let rpi = self.peerManager.selectPeer(self.codec).valueOr:
     return err("could not get a peer supporting RendezVousCodec")
 
-  let catchable = catch:
-    await allFinished(futs)
+  let namespace = computeMixNamespace(self.clusterId)
 
-  catchable.isOkOr:
-    return err(error.msg)
+  # Advertise yourself on that peer
+  let res = await self.advertise(namespace, @[rpi.peerId])
 
-  for fut in catchable.get():
-    if fut.failed():
-      warn "a rendezvous advertisement failed", cause = fut.error.msg
+  trace "waku rendezvous advertisements finished"
 
-  info "waku rendezvous advertisements finished"
-
-  return ok()
-
-proc initialRequestAll*(
-    self: WakuRendezVous
-): Future[Result[void, string]] {.async: (raises: []).} =
-  info "waku rendezvous initial requests started"
-
-  let shards = self.getShards()
-
-  let futs = collect(newSeq):
-    for shardId in shards:
-      let namespace = computeNamespace(self.clusterId, shardId)
-      # Get a random RDV peer for that shard
-      let rpi = self.peerManager.selectPeer(
-        RendezVousCodec,
-        some(toPubsubTopic(RelayShard(clusterId: self.clusterId, shardId: shardId))),
-      ).valueOr:
-        continue
-
-      # Ask for peer records for that shard
-      self.batchRequest(namespace, PeersRequestedCount, @[rpi.peerId])
-
-  if futs.len < 1:
-    return err("could not get a peer supporting RendezVousCodec")
-
-  let catchable = catch:
-    await allFinished(futs)
-
-  catchable.isOkOr:
-    return err(error.msg)
-
-  for fut in catchable.get():
-    if fut.failed():
-      warn "a rendezvous request failed", cause = fut.error.msg
-    elif fut.finished():
-      let res = fut.value()
-
-      let records = res.valueOr:
-        warn "a rendezvous request failed", cause = $error
-        continue
-
-      for record in records:
-        rendezvousPeerFoundTotal.inc()
-        self.peerManager.addPeer(record)
-
-  info "waku rendezvous initial request finished"
-
-  return ok()
+  return res
 
 proc periodicRegistration(self: WakuRendezVous) {.async.} =
   info "waku rendezvous periodic registration started",
@@ -237,22 +142,6 @@ proc periodicRegistration(self: WakuRendezVous) {.async.} =
     # Back to normal interval if no errors
     self.registrationInterval = DefaultRegistrationInterval
 
-proc periodicRequests(self: WakuRendezVous) {.async.} =
-  info "waku rendezvous periodic requests started", interval = self.requestInterval
-
-  # infinite loop
-  while true:
-    (await self.initialRequestAll()).isOkOr:
-      error "waku rendezvous requests failed", error = error
-
-    await sleepAsync(self.requestInterval)
-
-    # Exponential backoff
-    self.requestInterval += self.requestInterval
-
-    if self.requestInterval >= 1.days:
-      break
-
 proc new*(
     T: type WakuRendezVous,
     switch: Switch,
@@ -260,38 +149,80 @@ proc new*(
     clusterId: uint16,
     getShards: GetShards,
     getCapabilities: GetCapabilities,
+    getPeerRecord: GetWakuPeerRecord,
 ): Result[T, string] {.raises: [].} =
-  let rvCatchable = catch:
-    RendezVous.new(switch = switch, minDuration = DefaultRegistrationTTL)
+  let rng = newRng()
+  let wrv = T(
+    rng: rng,
+    salt: string.fromBytes(generateBytes(rng[], 8)),
+    registered: initOffsettedSeq[RegisteredData](),
+    expiredDT: Moment.now() - 1.days,
+    sema: newAsyncSemaphore(SemaphoreDefaultSize),
+    minDuration: rendezvous.MinimumAcceptedDuration,
+    maxDuration: rendezvous.MaximumDuration,
+    minTTL: rendezvous.MinimumAcceptedDuration.seconds.uint64,
+    maxTTL: rendezvous.MaximumDuration.seconds.uint64,
+    peerRecordValidator: checkWakuPeerRecord,
+  )
 
-  let rv = rvCatchable.valueOr:
-    return err(error.msg)
-
-  let mountCatchable = catch:
-    switch.mount(rv)
-
-  mountCatchable.isOkOr:
-    return err(error.msg)
-
-  var wrv = WakuRendezVous()
-  wrv.rendezvous = rv
   wrv.peerManager = peerManager
   wrv.clusterId = clusterId
   wrv.getShards = getShards
   wrv.getCapabilities = getCapabilities
   wrv.registrationInterval = DefaultRegistrationInterval
-  wrv.requestInterval = DefaultRequestsInterval
+  wrv.getPeerRecord = getPeerRecord
+  wrv.switch = switch
+  wrv.codec = WakuRendezVousCodec
+
+  proc handleStream(
+      conn: Connection, proto: string
+  ) {.async: (raises: [CancelledError]).} =
+    try:
+      let
+        buf = await conn.readLp(4096)
+        msg = Message.decode(buf).tryGet()
+      case msg.msgType
+      of MessageType.Register:
+        #TODO: override this to store peers registered with us in peerstore with their info as well.
+        await wrv.register(conn, msg.register.tryGet(), wrv.getPeerRecord())
+      of MessageType.RegisterResponse:
+        trace "Got an unexpected Register Response", response = msg.registerResponse
+      of MessageType.Unregister:
+        wrv.unregister(conn, msg.unregister.tryGet())
+      of MessageType.Discover:
+        await wrv.discover(conn, msg.discover.tryGet())
+      of MessageType.DiscoverResponse:
+        trace "Got an unexpected Discover Response", response = msg.discoverResponse
+    except CancelledError as exc:
+      trace "cancelled rendezvous handler"
+      raise exc
+    except CatchableError as exc:
+      trace "exception in rendezvous handler", description = exc.msg
+    finally:
+      await conn.close()
+
+  wrv.handler = handleStream
 
   info "waku rendezvous initialized",
-    clusterId = clusterId, shards = getShards(), capabilities = getCapabilities()
+    clusterId = clusterId,
+    shards = getShards(),
+    capabilities = getCapabilities(),
+    wakuPeerRecord = getPeerRecord()
 
   return ok(wrv)
 
 proc start*(self: WakuRendezVous) {.async: (raises: []).} =
+  # Start the parent GenericRendezVous (starts the register deletion loop)
+  if self.started:
+    warn "waku rendezvous already started"
+    return
+  try:
+    await procCall GenericRendezVous[WakuPeerRecord](self).start()
+  except CancelledError as exc:
+    error "failed to start GenericRendezVous", cause = exc.msg
+    return
   # start registering forever
   self.periodicRegistrationFut = self.periodicRegistration()
-
-  self.periodicRequestFut = self.periodicRequests()
 
   info "waku rendezvous discovery started"
 
@@ -299,7 +230,10 @@ proc stopWait*(self: WakuRendezVous) {.async: (raises: []).} =
   if not self.periodicRegistrationFut.isNil():
     await self.periodicRegistrationFut.cancelAndWait()
 
-  if not self.periodicRequestFut.isNil():
-    await self.periodicRequestFut.cancelAndWait()
+  # Stop the parent GenericRendezVous (stops the register deletion loop)
+  await GenericRendezVous[WakuPeerRecord](self).stop()
+
+  # Stop the parent GenericRendezVous (stops the register deletion loop)
+  await GenericRendezVous[WakuPeerRecord](self).stop()
 
   info "waku rendezvous discovery stopped"

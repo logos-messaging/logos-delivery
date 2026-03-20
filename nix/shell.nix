@@ -1,23 +1,19 @@
-{
-  pkgs ? import <nixpkgs> { },
-}:
-let
-  optionalDarwinDeps = pkgs.lib.optionals pkgs.stdenv.isDarwin [
-    pkgs.libiconv
-    pkgs.darwin.apple_sdk.frameworks.Security
-  ];
-in
+{ pkgs  }:
+
 pkgs.mkShell {
   inputsFrom = [
     pkgs.androidShell
-  ] ++ optionalDarwinDeps;
+  ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [
+    pkgs.libiconv
+    pkgs.darwin.apple_sdk.frameworks.Security
+  ];
 
   buildInputs = with pkgs; [
     git
     cargo
     rustup
+    rustc
     cmake
-    nim-unwrapped-2_0
+    nim-unwrapped-2_2
   ];
-
 }

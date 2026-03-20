@@ -6,7 +6,8 @@ import
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/nameresolving/dnsresolver,
-  libp2p/crypto/crypto
+  libp2p/crypto/crypto,
+  libp2p/crypto/curve25519
 
 import
   ./internal_config,
@@ -32,6 +33,7 @@ import
   ../waku_store_legacy/common as legacy_common,
   ../waku_filter_v2,
   ../waku_peer_exchange,
+  ../discovery/waku_kademlia,
   ../node/peer_manager,
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
@@ -162,6 +164,38 @@ proc setupProtocols(
     ## e.g. the connection with the database is lost and not recovered.
     error "Unrecoverable error occurred", error = msg
     quit(QuitFailure)
+
+  #mount mix
+  if conf.mixConf.isSome():
+    let mixConf = conf.mixConf.get()
+    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
+      return err("failed to mount waku mix protocol: " & $error)
+
+  # Setup extended kademlia discovery
+  if conf.kademliaDiscoveryConf.isSome():
+    let mixPubKey =
+      if conf.mixConf.isSome():
+        some(conf.mixConf.get().mixPubKey)
+      else:
+        none(Curve25519Key)
+
+    node.wakuKademlia = WakuKademlia.new(
+      node.switch,
+      ExtendedKademliaDiscoveryParams(
+        bootstrapNodes: conf.kademliaDiscoveryConf.get().bootstrapNodes,
+        mixPubKey: mixPubKey,
+        advertiseMix: conf.mixConf.isSome(),
+      ),
+      node.peerManager,
+      getMixNodePoolSize = proc(): int {.gcsafe, raises: [].} =
+        if node.wakuMix.isNil():
+          0
+        else:
+          node.getMixNodePoolSize(),
+      isNodeStarted = proc(): bool {.gcsafe, raises: [].} =
+        node.started,
+    ).valueOr:
+      return err("failed to setup kademlia discovery: " & error)
 
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()
@@ -327,9 +361,9 @@ proc setupProtocols(
         protectedShard = shardKey.shard, publicKey = shardKey.key
     node.wakuRelay.addSignedShardsValidator(subscribedProtectedShards, conf.clusterId)
 
-    # Only relay nodes should be rendezvous points.
-    if conf.rendezvous:
-      await node.mountRendezvous(conf.clusterId)
+  if conf.rendezvous:
+    await node.mountRendezvous(conf.clusterId, shards)
+    await node.mountRendezvousClient(conf.clusterId)
 
   # Keepalive mounted on all nodes
   try:
@@ -359,8 +393,11 @@ proc setupProtocols(
   # NOTE Must be mounted after relay
   if conf.lightPush:
     try:
-      await mountLightPush(node, node.rateLimitSettings.getSetting(LIGHTPUSH))
-      await mountLegacyLightPush(node, node.rateLimitSettings.getSetting(LIGHTPUSH))
+      (await mountLightPush(node, node.rateLimitSettings.getSetting(LIGHTPUSH))).isOkOr:
+        return err("failed to mount waku lightpush protocol: " & $error)
+
+      (await mountLegacyLightPush(node, node.rateLimitSettings.getSetting(LIGHTPUSH))).isOkOr:
+        return err("failed to mount waku legacy lightpush protocol: " & $error)
     except CatchableError:
       return err("failed to mount waku lightpush protocol: " & getCurrentExceptionMsg())
 
@@ -414,14 +451,6 @@ proc setupProtocols(
   if conf.peerExchangeDiscovery:
     await node.mountPeerExchangeClient()
 
-  #mount mix
-  if conf.mixConf.isSome():
-    (
-      await node.mountMix(
-        conf.clusterId, conf.mixConf.get().mixKey, conf.mixConf.get().mixnodes
-      )
-    ).isOkOr:
-      return err("failed to mount waku mix protocol: " & $error)
   return ok()
 
 ## Start node
@@ -472,6 +501,11 @@ proc startNode*(
   # Maintain relay connections
   if conf.relay:
     node.peerManager.start()
+
+  if not node.wakuKademlia.isNil():
+    let minMixPeers = if conf.mixConf.isSome(): 4 else: 0
+    (await node.wakuKademlia.start(minMixPeers = minMixPeers)).isOkOr:
+      return err("failed to start kademlia discovery: " & error)
 
   return ok()
 

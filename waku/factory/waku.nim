@@ -13,38 +13,42 @@ import
   libp2p/services/autorelayservice,
   libp2p/services/hpservice,
   libp2p/peerid,
-  libp2p/discovery/discoverymngr,
-  libp2p/discovery/rendezvousinterface,
   eth/keys,
   eth/p2p/discoveryv5/enr,
   presto,
   metrics,
-  metrics/chronos_httpserver
-import
-  ../common/logging,
-  ../waku_core,
-  ../waku_node,
-  ../node/peer_manager,
-  ../node/health_monitor,
-  ../node/waku_metrics,
-  ../node/delivery_monitor/delivery_monitor,
-  ../rest_api/message_cache,
-  ../rest_api/endpoint/server,
-  ../rest_api/endpoint/builder as rest_server_builder,
-  ../waku_archive,
-  ../waku_relay/protocol,
-  ../discovery/waku_dnsdisc,
-  ../discovery/waku_discv5,
-  ../discovery/autonat_service,
-  ../waku_enr/sharding,
-  ../waku_rln_relay,
-  ../waku_store,
-  ../waku_filter_v2,
-  ../factory/node_factory,
-  ../factory/internal_config,
-  ../factory/app_callbacks,
-  ../waku_enr/multiaddr,
-  ./waku_conf
+  metrics/chronos_httpserver,
+  waku/[
+    waku_core,
+    waku_node,
+    waku_archive,
+    waku_rln_relay,
+    waku_store,
+    waku_filter_v2,
+    waku_relay/protocol,
+    waku_enr/sharding,
+    waku_enr/multiaddr,
+    api/types,
+    common/logging,
+    common/broker/broker_context,
+    node/peer_manager,
+    node/health_monitor,
+    node/waku_metrics,
+    node/delivery_service/delivery_service,
+    node/delivery_service/subscription_manager,
+    rest_api/message_cache,
+    rest_api/endpoint/server,
+    rest_api/endpoint/builder as rest_server_builder,
+    discovery/waku_dnsdisc,
+    discovery/waku_discv5,
+    discovery/autonat_service,
+    requests/health_requests,
+    factory/node_factory,
+    factory/internal_config,
+    factory/app_callbacks,
+  ],
+  ./waku_conf,
+  ./waku_state_info
 
 logScope:
   topics = "wakunode waku"
@@ -53,7 +57,7 @@ logScope:
 const git_version* {.strdefine.} = "n/a"
 
 type Waku* = ref object
-  version: string
+  stateInfo*: WakuStateInfo
   conf*: WakuConf
   rng*: ref HmacDrbgContext
 
@@ -63,20 +67,18 @@ type Waku* = ref object
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
-  discoveryMngr: DiscoveryManager
 
   node*: WakuNode
 
   healthMonitor*: NodeHealthMonitor
 
-  deliveryMonitor: DeliveryMonitor
+  deliveryService*: DeliveryService
 
   restServer*: WakuRestServerRef
   metricsServer*: MetricsHttpServerRef
   appCallbacks*: AppCallbacks
 
-func version*(waku: Waku): string =
-  waku.version
+  brokerCtx*: BrokerContext
 
 proc setupSwitchServices(
     waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: ref HmacDrbgContext
@@ -116,7 +118,10 @@ proc newCircuitRelay(isRelayClient: bool): Relay =
   return Relay.new()
 
 proc setupAppCallbacks(
-    node: WakuNode, conf: WakuConf, appCallbacks: AppCallbacks
+    node: WakuNode,
+    conf: WakuConf,
+    appCallbacks: AppCallbacks,
+    healthMonitor: NodeHealthMonitor,
 ): Result[void, string] =
   if appCallbacks.isNil():
     info "No external callbacks to be set"
@@ -157,19 +162,33 @@ proc setupAppCallbacks(
         err("Cannot configure connectionChangeHandler callback with empty peer manager")
     node.peerManager.onConnectionChange = appCallbacks.connectionChangeHandler
 
+  if not appCallbacks.connectionStatusChangeHandler.isNil():
+    if healthMonitor.isNil():
+      return
+        err("Cannot configure connectionStatusChangeHandler with empty health monitor")
+
+    healthMonitor.onConnectionStatusChange = appCallbacks.connectionStatusChangeHandler
+
   return ok()
 
 proc new*(
     T: type Waku, wakuConf: WakuConf, appCallbacks: AppCallbacks = nil
 ): Future[Result[Waku, string]] {.async.} =
   let rng = crypto.newRng()
+  let brokerCtx = globalBrokerContext()
 
   logging.setupLog(wakuConf.logLevel, wakuConf.logFormat)
 
   ?wakuConf.validate()
   wakuConf.logConf()
 
-  let healthMonitor = NodeHealthMonitor.new(wakuConf.dnsAddrsNameServers)
+  let relay = newCircuitRelay(wakuConf.circuitRelayClient)
+
+  let node = (await setupNode(wakuConf, rng, relay)).valueOr:
+    error "Failed setting up node", error = $error
+    return err("Failed setting up node: " & $error)
+
+  let healthMonitor = NodeHealthMonitor.new(node, wakuConf.dnsAddrsNameServers)
 
   let restServer: WakuRestServerRef =
     if wakuConf.restServerConf.isSome():
@@ -183,44 +202,28 @@ proc new*(
     else:
       nil
 
-  var relay = newCircuitRelay(wakuConf.circuitRelayClient)
+  # Set the extMultiAddrsOnly flag so the node knows not to replace explicit addresses
+  node.extMultiAddrsOnly = wakuConf.endpointConf.extMultiAddrsOnly
 
-  let node = (await setupNode(wakuConf, rng, relay)).valueOr:
-    error "Failed setting up node", error = $error
-    return err("Failed setting up node: " & $error)
-
-  healthMonitor.setNodeToHealthMonitor(node)
-  healthMonitor.onlineMonitor.setPeerStoreToOnlineMonitor(node.switch.peerStore)
-  healthMonitor.onlineMonitor.addOnlineStateObserver(
-    node.peerManager.getOnlineStateObserver()
-  )
-
-  node.setupAppCallbacks(wakuConf, appCallbacks).isOkOr:
+  node.setupAppCallbacks(wakuConf, appCallbacks, healthMonitor).isOkOr:
     error "Failed setting up app callbacks", error = error
     return err("Failed setting up app callbacks: " & $error)
 
   ## Delivery Monitor
-  var deliveryMonitor: DeliveryMonitor
-  if wakuConf.p2pReliability:
-    if wakuConf.remoteStoreNode.isNone():
-      return err("A storenode should be set when reliability mode is on")
-
-    let deliveryMonitor = DeliveryMonitor.new(
-      node.wakuStoreClient, node.wakuRelay, node.wakuLightpushClient,
-      node.wakuFilterClient,
-    ).valueOr:
-      return err("could not create delivery monitor: " & $error)
+  let deliveryService = DeliveryService.new(wakuConf.p2pReliability, node).valueOr:
+    return err("could not create delivery service: " & $error)
 
   var waku = Waku(
-    version: git_version,
+    stateInfo: WakuStateInfo.init(node),
     conf: wakuConf,
     rng: rng,
     key: wakuConf.nodeKey,
     node: node,
     healthMonitor: healthMonitor,
-    deliveryMonitor: deliveryMonitor,
+    deliveryService: deliveryService,
     appCallbacks: appCallbacks,
     restServer: restServer,
+    brokerCtx: brokerCtx,
   )
 
   waku.setupSwitchServices(wakuConf, relay, rng)
@@ -356,7 +359,7 @@ proc startDnsDiscoveryRetryLoop(waku: ptr Waku): Future[void] {.async.} =
       error "failed to connect to dynamic bootstrap nodes: " & getCurrentExceptionMsg()
     return
 
-proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
+proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if waku[].node.started:
     warn "startWaku: waku node already started"
     return ok()
@@ -366,9 +369,15 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
 
   if conf.dnsDiscoveryConf.isSome():
     let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()
-    let dynamicBootstrapNodesRes = await waku_dnsdisc.retrieveDynamicBootstrapNodes(
-      dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
-    )
+    let dynamicBootstrapNodesRes =
+      try:
+        await waku_dnsdisc.retrieveDynamicBootstrapNodes(
+          dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
+        )
+      except CatchableError as exc:
+        Result[seq[RemotePeerInfo], string].err(
+          "Retrieving dynamic bootstrap nodes failed: " & exc.msg
+        )
 
     if dynamicBootstrapNodesRes.isErr():
       error "Retrieving dynamic bootstrap nodes failed",
@@ -382,8 +391,11 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
     return err("error while calling startNode: " & $error)
 
   ## Update waku data that is set dynamically on node start
-  (await updateWaku(waku)).isOkOr:
-    return err("Error in updateApp: " & $error)
+  try:
+    (await updateWaku(waku)).isOkOr:
+      return err("Error in updateApp: " & $error)
+  except CatchableError:
+    return err("Caught exception in updateApp: " & getCurrentExceptionMsg())
 
   ## Discv5
   if conf.discv5Conf.isSome():
@@ -403,12 +415,55 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
       return err("failed to start waku discovery v5: " & $error)
 
   ## Reliability
-  if not waku[].deliveryMonitor.isNil():
-    waku[].deliveryMonitor.startDeliveryMonitor()
+  if not waku[].deliveryService.isNil():
+    waku[].deliveryService.startDeliveryService()
 
   ## Health Monitor
   waku[].healthMonitor.startHealthMonitor().isOkOr:
     return err("failed to start health monitor: " & $error)
+
+  ## Setup RequestConnectionStatus provider
+
+  RequestConnectionStatus.setProvider(
+    globalBrokerContext(),
+    proc(): Result[RequestConnectionStatus, string] =
+      try:
+        let healthReport = waku[].healthMonitor.getSyncNodeHealthReport()
+        return
+          ok(RequestConnectionStatus(connectionStatus: healthReport.connectionStatus))
+      except CatchableError:
+        err("Failed to read health report: " & getCurrentExceptionMsg()),
+  ).isOkOr:
+    error "Failed to set RequestConnectionStatus provider", error = error
+
+  ## Setup RequestProtocolHealth provider
+
+  RequestProtocolHealth.setProvider(
+    globalBrokerContext(),
+    proc(
+        protocol: WakuProtocol
+    ): Future[Result[RequestProtocolHealth, string]] {.async.} =
+      try:
+        let protocolHealthStatus =
+          await waku[].healthMonitor.getProtocolHealthInfo(protocol)
+        return ok(RequestProtocolHealth(healthStatus: protocolHealthStatus))
+      except CatchableError:
+        return err("Failed to get protocol health: " & getCurrentExceptionMsg()),
+  ).isOkOr:
+    error "Failed to set RequestProtocolHealth provider", error = error
+
+  ## Setup RequestHealthReport provider
+
+  RequestHealthReport.setProvider(
+    globalBrokerContext(),
+    proc(): Future[Result[RequestHealthReport, string]] {.async.} =
+      try:
+        let report = await waku[].healthMonitor.getNodeHealthReport()
+        return ok(RequestHealthReport(healthReport: report))
+      except CatchableError:
+        return err("Failed to get health report: " & getCurrentExceptionMsg()),
+  ).isOkOr:
+    error "Failed to set RequestHealthReport provider", error = error
 
   if conf.restServerConf.isSome():
     rest_server_builder.startRestServerProtocolSupport(
@@ -425,41 +480,69 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async.} =
       return err ("Starting protocols support REST server failed: " & $error)
 
   if conf.metricsServerConf.isSome():
-    waku[].metricsServer = (
-      await (
-        waku_metrics.startMetricsServerAndLogging(
-          conf.metricsServerConf.get(), conf.portsShift
+    try:
+      waku[].metricsServer = (
+        await (
+          waku_metrics.startMetricsServerAndLogging(
+            conf.metricsServerConf.get(), conf.portsShift
+          )
         )
+      ).valueOr:
+        return err("Starting monitoring and external interfaces failed: " & error)
+    except CatchableError:
+      return err(
+        "Caught exception starting monitoring and external interfaces failed: " &
+          getCurrentExceptionMsg()
       )
-    ).valueOr:
-      return err("Starting monitoring and external interfaces failed: " & error)
-
   waku[].healthMonitor.setOverallHealth(HealthStatus.READY)
 
   return ok()
 
-proc stop*(waku: Waku): Future[void] {.async: (raises: [Exception]).} =
+proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   ## Waku shutdown
 
   if not waku.node.started:
     warn "stop: attempting to stop node that isn't running"
 
-  waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
+  try:
+    waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
 
-  if not waku.metricsServer.isNil():
-    await waku.metricsServer.stop()
+    if not waku.metricsServer.isNil():
+      await waku.metricsServer.stop()
 
-  if not waku.wakuDiscv5.isNil():
-    await waku.wakuDiscv5.stop()
+    if not waku.wakuDiscv5.isNil():
+      await waku.wakuDiscv5.stop()
 
-  if not waku.node.isNil():
-    await waku.node.stop()
+    if not waku.deliveryService.isNil():
+      await waku.deliveryService.stopDeliveryService()
+      waku.deliveryService = nil
 
-  if not waku.dnsRetryLoopHandle.isNil():
-    await waku.dnsRetryLoopHandle.cancelAndWait()
+    if not waku.node.isNil():
+      await waku.node.stop()
 
-  if not waku.healthMonitor.isNil():
-    await waku.healthMonitor.stopHealthMonitor()
+    if not waku.dnsRetryLoopHandle.isNil():
+      await waku.dnsRetryLoopHandle.cancelAndWait()
 
-  if not waku.restServer.isNil():
-    await waku.restServer.stop()
+    if not waku.healthMonitor.isNil():
+      await waku.healthMonitor.stopHealthMonitor()
+
+    ## Clear RequestConnectionStatus provider
+    RequestConnectionStatus.clearProvider(waku.brokerCtx)
+
+    if not waku.restServer.isNil():
+      await waku.restServer.stop()
+  except Exception:
+    error "waku stop failed: " & getCurrentExceptionMsg()
+    return err("waku stop failed: " & getCurrentExceptionMsg())
+
+  return ok()
+
+proc isModeCoreAvailable*(waku: Waku): bool =
+  return not waku.node.wakuRelay.isNil()
+
+proc isModeEdgeAvailable*(waku: Waku): bool =
+  return
+    waku.node.wakuRelay.isNil() and not waku.node.wakuStoreClient.isNil() and
+    not waku.node.wakuFilterClient.isNil() and not waku.node.wakuLightPushClient.isNil()
+
+{.pop.}

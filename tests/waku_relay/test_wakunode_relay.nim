@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[os, sequtils, sysrand, math],
+  std/[os, strutils, sequtils, sysrand, math],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -450,7 +450,8 @@ suite "WakuNode - Relay":
     await sleepAsync(500.millis)
 
     let res = await node2.publish(some($shard), message)
-    assert res.isOk(), $res.error
+    check res.isErr()
+    check contains($res.error, "NoPeersToPublish")
 
     await sleepAsync(500.millis)
 

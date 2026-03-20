@@ -143,16 +143,18 @@ proc areProtocolsSupported(
 
 proc pingNode(
     node: WakuNode, peerInfo: RemotePeerInfo
-): Future[void] {.async, gcsafe.} =
+): Future[bool] {.async, gcsafe.} =
   try:
     let conn = await node.switch.dial(peerInfo.peerId, peerInfo.addrs, PingCodec)
     let pingDelay = await node.libp2pPing.ping(conn)
     info "Peer response time (ms)", peerId = peerInfo.peerId, ping = pingDelay.millis
+    return true
   except CatchableError:
     var msg = getCurrentExceptionMsg()
     if msg == "Future operation cancelled!":
       msg = "timedout"
     error "Failed to ping the peer", peer = peerInfo, err = msg
+    return false
 
 proc main(rng: ref HmacDrbgContext): Future[int] {.async.} =
   let conf: WakuCanaryConf = WakuCanaryConf.load()
@@ -268,8 +270,17 @@ proc main(rng: ref HmacDrbgContext): Future[int] {.async.} =
   let lp2pPeerStore = node.switch.peerStore
   let conStatus = node.peerManager.switch.peerStore[ConnectionBook][peer.peerId]
 
+  var pingSuccess = true
   if conf.ping:
-    discard await pingFut
+    try:
+      pingSuccess = await pingFut
+    except CatchableError as exc:
+      pingSuccess = false
+      error "Ping operation failed or timed out", error = exc.msg
+
+  if not pingSuccess:
+    error "Ping to the node failed", peerId = peer.peerId, conStatus = $conStatus
+    quit(QuitFailure)
 
   if conStatus in [Connected, CanConnect]:
     let nodeProtocols = lp2pPeerStore[ProtoBook][peer.peerId]

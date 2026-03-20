@@ -11,15 +11,15 @@ import
 from std/times import epochTime
 
 import
-  waku/
-    [
-      waku_relay,
-      node/waku_node,
-      node/peer_manager,
-      waku_core,
-      waku_node,
-      waku_rln_relay,
-    ],
+  waku/[
+    waku_relay,
+    node/waku_node,
+    node/peer_manager,
+    waku_core,
+    waku_node,
+    waku_rln_relay,
+    common/broker/broker_context,
+  ],
   ../waku_store/store_utils,
   ../waku_archive/archive_utils,
   ../testlib/[wakucore, futures]

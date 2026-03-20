@@ -24,7 +24,6 @@ proc deployContract*(
   tr.`from` = Opt.some(web3.defaultAccount)
   let sData = code & contractInput
   tr.data = Opt.some(hexToSeqByte(sData))
-  tr.gas = Opt.some(Quantity(3000000000000))
   if gasPrice != 0:
     tr.gasPrice = Opt.some(gasPrice.Quantity)
 

@@ -6,7 +6,7 @@ let
 in pkgs.fetchFromGitHub {
   owner = "nim-lang";
   repo = "nimble";
-  rev = tools.findKeyValue "^ +NimbleStableCommit = \"([a-f0-9]+)\".+" sourceFile;
+  rev = tools.findKeyValue "^ +NimbleStableCommit = \"([a-f0-9]+)\".*$" sourceFile;
   # WARNING: Requires manual updates when Nim compiler version changes.
-  hash = "sha256-MVHf19UbOWk8Zba2scj06PxdYYOJA6OXrVyDQ9Ku6Us=";
+  hash = "sha256-8iutVgNzDtttZ7V+7S11KfLEuwhKA9TsgS51mlUI08k=";
 }

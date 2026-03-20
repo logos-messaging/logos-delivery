@@ -1,19 +1,21 @@
-# Nwaku
+# Logos Messaging Nim
 
 ## Introduction
 
-The nwaku repository implements Waku, and provides tools related to it.
+This repository implements a set of libp2p protocols aimed to bring
+private communications.
 
-- A Nim implementation of the [Waku (v2) protocol](https://specs.vac.dev/specs/waku/v2/waku-v2.html).
-- CLI application `wakunode2` that allows you to run a Waku node.
-- Examples of Waku usage.
+- Nim implementation of [these specs](https://github.com/vacp2p/rfc-index/tree/main/waku).
+- C library that exposes the implemented protocols.
+- CLI application that allows you to run an lmn node.
+- Examples.
 - Various tests of above.
 
 For more details see the [source code](waku/README.md)
 
 ## How to Build & Run ( Linux, MacOS & WSL )
 
-These instructions are generic. For more detailed instructions, see the Waku source code above.
+These instructions are generic. For more detailed instructions, see the source code above.
 
 ### Prerequisites
 

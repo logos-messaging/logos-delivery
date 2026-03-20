@@ -61,9 +61,19 @@ proc validate*(msg: WakuMessage): Result[void, string] =
     upperBound = now + MaxMessageTimestampVariance
 
   if msg.timestamp < lowerBound:
+    warn "rejecting message with old timestamp",
+      msgTimestamp = msg.timestamp,
+      lowerBound = lowerBound,
+      now = now,
+      drift = (now - msg.timestamp) div 1_000_000_000
     return err(invalidMessageOld)
 
   if upperBound < msg.timestamp:
+    warn "rejecting message with future timestamp",
+      msgTimestamp = msg.timestamp,
+      upperBound = upperBound,
+      now = now,
+      drift = (msg.timestamp - now) div 1_000_000_000
     return err(invalidMessageFuture)
 
   return ok()

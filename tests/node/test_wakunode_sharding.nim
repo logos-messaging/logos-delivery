@@ -282,7 +282,7 @@ suite "Sharding":
       asyncTest "lightpush":
         # Given a connected server and client subscribed to the same pubsub topic
         client.mountLegacyLightPushClient()
-        await server.mountLightpush()
+        check (await server.mountLightpush()).isOk()
 
         let
           topic = "/waku/2/rs/0/1"
@@ -405,7 +405,7 @@ suite "Sharding":
       asyncTest "lightpush (automatic sharding filtering)":
         # Given a connected server and client using the same content topic (with two different formats)
         client.mountLegacyLightPushClient()
-        await server.mountLightpush()
+        check (await server.mountLightpush()).isOk()
 
         let
           contentTopicShort = "/toychat/2/huilong/proto"
@@ -563,7 +563,7 @@ suite "Sharding":
       asyncTest "lightpush - exclusion (automatic sharding filtering)":
         # Given a connected server and client using different content topics
         client.mountLegacyLightPushClient()
-        await server.mountLightpush()
+        check (await server.mountLightpush()).isOk()
 
         let
           contentTopic1 = "/toychat/2/huilong/proto"
@@ -874,7 +874,7 @@ suite "Sharding":
     asyncTest "Waku LightPush Sharding (Static Sharding)":
       # Given a connected server and client using two different pubsub topics
       client.mountLegacyLightPushClient()
-      await server.mountLightpush()
+      check (await server.mountLightpush()).isOk()
 
       # Given a connected server and client subscribed to multiple pubsub topics
       let
