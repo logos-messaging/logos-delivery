@@ -247,11 +247,14 @@ proc lightpushPublish*(
     return lighpushErrorResult(
       LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush not available"
     )
-  if mixify and node.wakuMix.isNil():
-    error "failed to publish message using mix as mix protocol is not mounted"
+  var lmixify = mixify
+  if not node.wakuMix.isNil():
+    lmixify = true
+
+    #[     error "failed to publish message using mix as mix protocol is not mounted"
     return lighpushErrorResult(
       LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush with mix not available"
-    )
+    ) ]#
   let toPeer: RemotePeerInfo = peerOpt.valueOr:
     if not node.wakuLightPush.isNil():
       RemotePeerInfo.init(node.peerId())
@@ -281,4 +284,4 @@ proc lightpushPublish*(
       error "lightpush publish error", error = msg
       return lighpushErrorResult(LightPushErrorCode.INTERNAL_SERVER_ERROR, msg)
 
-  return await lightpushPublishHandler(node, pubsubForPublish, message, toPeer, mixify)
+  return await lightpushPublishHandler(node, pubsubForPublish, message, toPeer, lmixify)
