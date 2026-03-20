@@ -1,17 +1,14 @@
 {.used.}
 
-import std/[options, strutils], results, stint, testutils/unittests, chronos
+import std/[options, json, strutils], results, stint, testutils/unittests
+import json_serialization, confutils, confutils/std/net
 import
+  tools/confutils/cli_args,
   waku/api/api_conf,
   waku/factory/waku_conf,
   waku/factory/networks_config,
-  waku/factory/conf_builder/conf_builder
-import std/[options, json, strutils], results, stint, testutils/unittests
-import json_serialization
-import confutils, confutils/std/net
-import tools/confutils/cli_args
-import waku/factory/waku_conf, waku/factory/networks_config
-import waku/common/logging
+  waku/factory/conf_builder/conf_builder,
+  waku/common/logging
 
 # Helper: parse JSON into WakuNodeConf using fieldPairs (same as liblogosdelivery)
 proc parseWakuNodeConfFromJson(jsonStr: string): Result[WakuNodeConf, string] =
@@ -81,7 +78,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    conf.mode = WakuMode.noMode
+    conf.mode = cli_args.WakuMode.noMode
     conf.relay = true
     conf.lightpush = false
     conf.clusterId = 5
@@ -124,7 +121,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     require confRes.isOk()
     let conf = confRes.get()
     check:
-      conf.mode == WakuMode.noMode
+      conf.mode == cli_args.WakuMode.noMode
       conf.clusterId == 0
       conf.logLevel == logging.LogLevel.INFO
 
@@ -381,7 +378,9 @@ suite "WakuConfBuilder - store retention policies":
     var b = WakuConfBuilder.init()
     b.storeServiceConf.withEnabled(true)
     b.storeServiceConf.withDbUrl("sqlite://test.db")
-    b.storeServiceConf.withRetentionPolicies(@["time:86400", "capacity:10000"])
+    b.storeServiceConf.withRetentionPolicies(
+      "time:86400 ; capacity:10000;   size  : 50GB"
+    )
 
     ## When
     let wakuConf = b.build().valueOr:
@@ -390,14 +389,14 @@ suite "WakuConfBuilder - store retention policies":
     ## Then
     require wakuConf.storeServiceConf.isSome()
     let storeConf = wakuConf.storeServiceConf.get()
-    check storeConf.retentionPolicies == @["time:86400", "capacity:10000"]
+    check storeConf.retentionPolicies == @["time:86400", "capacity:10000", "size:50GB"]
 
   test "Duplicated retention policies returns error":
     ## Given
     var b = WakuConfBuilder.init()
     b.storeServiceConf.withEnabled(true)
     b.storeServiceConf.withDbUrl("sqlite://test.db")
-    b.storeServiceConf.withRetentionPolicies(@["time:86400", "time:800", "capacity:10000"])
+    b.storeServiceConf.withRetentionPolicies("time:86400;time:800;capacity:10000")
 
     ## When
     let wakuConfRes = b.build()
@@ -409,7 +408,7 @@ suite "WakuConfBuilder - store retention policies":
     var b = WakuConfBuilder.init()
     b.storeServiceConf.withEnabled(true)
     b.storeServiceConf.withDbUrl("sqlite://test.db")
-    b.storeServiceConf.withRetentionPolicies(@["capaity:10000"])
+    b.storeServiceConf.withRetentionPolicies("capaity:10000")
 
     ## When
     let wakuConfRes = b.build()
