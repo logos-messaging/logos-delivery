@@ -14,7 +14,8 @@ import
   ../waku_core,
   ../waku_core/message/digest,
   ./common,
-  ./archive_metrics
+  ./archive_metrics,
+  waku/waku_archive/retention_policy/retention_policy_time
 
 logScope:
   topics = "waku archive"
@@ -82,13 +83,10 @@ proc new*(
     T: type WakuArchive,
     driver: ArchiveDriver,
     validator: MessageValidator = validate,
-    retentionPolicies = newSeq[RetentionPolicy](0),
+    retentionPolicies = @[RetentionPolicy(TimeRetentionPolicy.new(2.days.seconds))],
 ): Result[T, string] =
   if driver.isNil():
     return err("archive driver is Nil")
-
-  if retentionPolicies.len == 0:
-    return err("at least one retention policy must be provided")
 
   let archive = WakuArchive(
     driver: driver, validator: validator, retentionPolicies: retentionPolicies
