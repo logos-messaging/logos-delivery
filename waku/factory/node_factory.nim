@@ -1,5 +1,5 @@
 import
-  std/[options, sequtils],
+  std/[options, sequtils, sugar],
   chronicles,
   chronos,
   libp2p/peerid,
@@ -7,7 +7,9 @@ import
   libp2p/protocols/connectivity/relay/relay,
   libp2p/nameresolving/dnsresolver,
   libp2p/crypto/crypto,
-  libp2p/crypto/curve25519
+  libp2p/crypto/curve25519,
+  libp2p/extended_peer_record,
+  libp2p/protocols/mix/mix_protocol
 
 import
   ./internal_config,
@@ -126,10 +128,11 @@ proc initNode(
   builder.withRateLimit(conf.rateLimit)
   builder.withCircuitRelay(relay)
 
-  let node = ?builder.build().mapErr(
-    proc(err: string): string =
-      "failed to create waku node instance: " & err
-  )
+  let node =
+    ?builder.build().mapErr(
+      proc(err: string): string =
+        "failed to create waku node instance: " & err
+    )
 
   ok(node)
 
@@ -164,37 +167,17 @@ proc setupProtocols(
     error "Unrecoverable error occurred", error = msg
     quit(QuitFailure)
 
+  var providedServices: seq[ServiceInfo]
+
   #mount mix
   if conf.mixConf.isSome():
     let mixConf = conf.mixConf.get()
+
+    let mixService = ServiceInfo(id: MixProtocolID, data: @(mixConf.mixKey))
+    providedServices.add(mixService)
+
     (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
-
-  # Setup extended kademlia discovery
-  if conf.kademliaDiscoveryConf.isSome():
-    let mixPubKey =
-      if conf.mixConf.isSome():
-        some(conf.mixConf.get().mixPubKey)
-      else:
-        none(Curve25519Key)
-
-    node.wakuKademlia = WakuKademlia.new(
-      node.switch,
-      ExtendedKademliaDiscoveryParams(
-        bootstrapNodes: conf.kademliaDiscoveryConf.get().bootstrapNodes,
-        mixPubKey: mixPubKey,
-        advertiseMix: conf.mixConf.isSome(),
-      ),
-      node.peerManager,
-      getMixNodePoolSize = proc(): int {.gcsafe, raises: [].} =
-        if node.wakuMix.isNil():
-          0
-        else:
-          node.getMixNodePoolSize(),
-      isNodeStarted = proc(): bool {.gcsafe, raises: [].} =
-        node.started,
-    ).valueOr:
-      return err("failed to setup kademlia discovery: " & error)
 
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()
@@ -450,6 +433,21 @@ proc setupProtocols(
   if conf.peerExchangeDiscovery:
     await node.mountPeerExchangeClient()
 
+  if conf.kademliaDiscoveryConf.isSome():
+    let kademlia = WakuKademlia.new(
+      node.switch,
+      node.peerManager,
+      conf.kademliaDiscoveryConf.get().bootstrapNodes,
+      providedServices,
+    )
+
+    let catchRes = catch:
+      node.switch.mount(kademlia.protocol)
+    if catchRes.isErr():
+      return err("failed to mount kademlia discovery: " & catchRes.error.msg)
+
+    node.wakuKademlia = kademlia
+
   return ok()
 
 ## Start node
@@ -502,9 +500,10 @@ proc startNode*(
     node.peerManager.start()
 
   if not node.wakuKademlia.isNil():
-    let minMixPeers = if conf.mixConf.isSome(): 4 else: 0
-    (await node.wakuKademlia.start(minMixPeers = minMixPeers)).isOkOr:
-      return err("failed to start kademlia discovery: " & error)
+    let catchRes = catch:
+      await node.wakuKademlia.start()
+    if catchRes.isErr():
+      return err("failed to start kademlia discovery: " & catchRes.error.msg)
 
   return ok()
 
