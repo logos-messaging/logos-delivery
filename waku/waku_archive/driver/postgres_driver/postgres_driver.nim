@@ -17,6 +17,9 @@ import
   ./postgres_healthcheck,
   ./partitions_manager
 
+logScope:
+  topics = "postgres driver"
+
 declarePublicGauge postgres_payload_size_bytes,
   "Payload size in bytes of correctly stored messages"
 
@@ -366,6 +369,7 @@ proc getPartitionsList(
 ): Future[ArchiveDriverResult[seq[string]]] {.async.} =
   ## Retrieves the seq of partition table names.
   ## e.g: @["messages_1708534333_1708534393", "messages_1708534273_1708534333"]
+  ## This returns the partitions that are attached to the main messages table.
   var partitions: seq[string]
   proc rowCallback(pqResult: ptr PGresult) =
     for iRow in 0 ..< pqResult.pqNtuples():
@@ -391,6 +395,49 @@ proc getPartitionsList(
     return err("getPartitionsList failed in query: " & $error)
 
   return ok(partitions)
+
+## fwd declaration. The implementation is below.
+proc dropPartition(
+  self: PostgresDriver, partitionName: string
+): Future[ArchiveDriverResult[void]] {.async.}
+
+proc dropOrphanPartitions(
+    s: PostgresDriver
+): Future[ArchiveDriverResult[void]] {.async.} =
+  ## Tries to remove partitions that weren't correctly removed during retention policy execution.
+  ## Orphan partition is a partition that is not attached to the main messages table.
+  ## Therefore, it is not used for queries and can be safely removed.
+  var partitions: seq[string]
+  proc rowCallback(pqResult: ptr PGresult) =
+    for iRow in 0 ..< pqResult.pqNtuples():
+      let partitionName = $(pqgetvalue(pqResult, iRow, 0))
+      partitions.add(partitionName)
+
+  (
+    await s.readConnPool.pgQuery(
+      """
+        SELECT c.relname AS partition_name
+          FROM pg_class c
+          LEFT JOIN pg_inherits i ON i.inhrelid = c.oid
+          WHERE c.relname LIKE 'messages_%'
+            AND c.relname != 'messages_lookup'
+            AND c.relkind = 'r'        -- only regular tables
+            AND i.inhrelid IS NULL     -- detached partition
+          ORDER BY partition_name
+      """,
+      newSeq[string](0),
+      rowCallback,
+    )
+  ).isOkOr:
+    return err("dropOrphanPartitions failed in query: " & $error)
+
+  for partition in partitions:
+    info "orphan partition found", partitionName = partition
+    (await s.dropPartition(partition)).isOkOr:
+      error "failed to drop orphan partition", partitionName = partition, error = $error
+      continue
+
+  return ok()
 
 proc getTimeCursor(
     s: PostgresDriver, hashHex: string
@@ -1257,11 +1304,18 @@ proc loopPartitionFactory(
     self: PostgresDriver, onFatalError: OnFatalErrorHandler
 ) {.async.} =
   ## Loop proc that continuously checks whether we need to create a new partition.
-  ## Notice that the deletion of partitions is handled by the retention policy modules.
+  ## Notice that the deletion of partitions is mostly handled by the retention policy modules.
+  ## This loop only removes orphan partitions which were detached but not properly removed by the
+  ## retention policy module due to some error. However, the main task of this loop is to create
+  ## new partitions when needed.
 
   info "starting loopPartitionFactory"
 
   while true:
+    trace "loopPartitionFactory iteration started"
+    (await self.dropOrphanPartitions()).isOkOr:
+      onFatalError("error when dropping orphan partitions: " & $error)
+
     trace "Check if a new partition is needed"
 
     ## Let's make the 'partition_manager' aware of the current partitions
@@ -1319,14 +1373,24 @@ proc getTableSize*(
 
   return ok(tableSize)
 
-proc removePartition(
+proc dropPartition(
+    self: PostgresDriver, partitionName: string
+): Future[ArchiveDriverResult[void]] {.async.} =
+  let dropPartitionQuery = "DROP TABLE " & partitionName
+  info "drop partition", query = dropPartitionQuery
+  (await self.performWriteQuery(dropPartitionQuery)).isOkOr:
+    return err(fmt"error in dropPartition: {dropPartitionQuery}: " & $error)
+
+  return ok()
+
+proc detachAndDropPartition(
     self: PostgresDriver, partition: Partition
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Removes the desired partition and also removes the rows from messages_lookup table
+  ## Detaches and drops the desired partition and also removes the rows from messages_lookup table
   ## whose rows belong to the partition time range
 
   let partitionName = partition.getName()
-  info "beginning of removePartition", partitionName
+  info "beginning of detachAndDropPartition", partitionName
 
   let partSize = (await self.getTableSize(partitionName)).valueOr("")
 
@@ -1351,11 +1415,8 @@ proc removePartition(
     else:
       return err(fmt"error in {detachPartitionQuery}: " & $error)
 
-  ## Drop the partition
-  let dropPartitionQuery = "DROP TABLE " & partitionName
-  info "removeOldestPartition drop partition", query = dropPartitionQuery
-  (await self.performWriteQuery(dropPartitionQuery)).isOkOr:
-    return err(fmt"error in {dropPartitionQuery}: " & $error)
+  ## Drop partition
+  ?(await self.dropPartition(partitionName))
 
   info "removed partition", partition_name = partitionName, partition_size = partSize
   self.partitionMngr.removeOldestPartitionName()
@@ -1380,8 +1441,18 @@ proc removePartitionsOlderThan(
   var oldestPartition = self.partitionMngr.getOldestPartition().valueOr:
     return err("could not get oldest partition in removePartitionOlderThan: " & $error)
 
-  while not oldestPartition.containsMoment(tsInSec):
-    (await self.removePartition(oldestPartition)).isOkOr:
+  debug "oldest partition info",
+    partitionName = oldestPartition.getName(),
+    partitionLastMoment = oldestPartition.getLastMoment(),
+    tsInSec
+
+  while oldestPartition.getLastMoment() < tsInSec:
+    info "start removing partition whose first record is older than the specified timestamp",
+      partitionName = oldestPartition.getName(),
+      partitionFirstMoment = oldestPartition.getLastMoment(),
+      tsInSec
+
+    (await self.detachAndDropPartition(oldestPartition)).isOkOr:
       return err("issue in removePartitionsOlderThan: " & $error)
 
     oldestPartition = self.partitionMngr.getOldestPartition().valueOr:
@@ -1409,7 +1480,7 @@ proc removeOldestPartition(
         info "Skipping to remove the current partition"
         return ok()
 
-  return await self.removePartition(oldestPartition)
+  return await self.detachAndDropPartition(oldestPartition)
 
 proc containsAnyPartition*(self: PostgresDriver): bool =
   return not self.partitionMngr.isEmpty()
