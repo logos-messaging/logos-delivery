@@ -10,98 +10,131 @@ import
   libp2p/protocols/mix/mix_protocol,
   libp2p/protocols/mix/mix_metrics,
   libp2p/protocols/mix/delay_strategy,
-  libp2p/[multiaddress, peerid],
+  libp2p/[multiaddress, peerid, switch],
+  libp2p/extended_peer_record,
   eth/common/keys
 
 import
   waku/node/peer_manager,
   waku/waku_core,
   waku/waku_enr,
-  waku/node/peer_manager/waku_peer_store
+  waku/node/peer_manager/waku_peer_store,
+  waku/discovery/waku_kademlia
 
 logScope:
   topics = "waku mix"
 
-const minMixPoolSize = 4
+const
+  MinimumMixPoolSize = 4
+  DefaultMixPoolMaintenanceInterval = chronos.seconds(10)
 
-type
-  WakuMix* = ref object of MixProtocol
-    peerManager*: PeerManager
-    clusterId: uint16
-    pubKey*: Curve25519Key
+type WakuMix* = ref object of MixProtocol
+  pubKey*: Curve25519Key
+  targetMixPoolSize: int
+  currentMixPoolSize: int
+  maintenanceInterval: Duration
+  maintenanceIntervalFut: Future[void]
+  wakuKademlia: WakuKademlia
 
-  WakuMixResult*[T] = Result[T, string]
+proc mixPoolMaintenance(
+    self: WakuMix, interval: Duration
+) {.async: (raises: [CancelledError]).} =
+  ## Periodic maintenance of the mix pool
 
-  MixNodePubInfo* = object
-    multiAddr*: string
-    pubKey*: Curve25519Key
+  while true:
+    await sleepAsync(interval)
 
-proc processBootNodes(
-    bootnodes: seq[MixNodePubInfo], peermgr: PeerManager, mix: WakuMix
-) =
-  var count = 0
-  for node in bootnodes:
-    let pInfo = parsePeerInfo(node.multiAddr).valueOr:
-      error "Failed to get peer id from multiaddress: ",
-        error = error, multiAddr = $node.multiAddr
-      continue
-    let peerId = pInfo.peerId
-    var peerPubKey: crypto.PublicKey
-    if not peerId.extractPublicKey(peerPubKey):
-      warn "Failed to extract public key from peerId, skipping node", peerId = peerId
+    # Update current pool size from nodePool
+    self.currentMixPoolSize = self.nodePool.len()
+    mix_pool_size.set(self.currentMixPoolSize.int64)
+
+    if self.currentMixPoolSize >= self.targetMixPoolSize:
       continue
 
-    if peerPubKey.scheme != PKScheme.Secp256k1:
-      warn "Peer public key is not Secp256k1, skipping node",
-        peerId = peerId, scheme = peerPubKey.scheme
+    # Skip discovery if kademlia not available
+    if self.wakuKademlia.isNil():
+      debug "kademlia not available for mix peer discovery"
       continue
 
-    let multiAddr = MultiAddress.init(node.multiAddr).valueOr:
-      error "Failed to parse multiaddress", multiAddr = node.multiAddr, error = error
-      continue
+    debug "mix node pool below threshold, performing targeted lookup",
+      currentPoolSize = self.currentMixPoolSize, threshold = self.targetMixPoolSize
 
-    let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
-    mix.nodePool.add(mixPubInfo)
-    count.inc()
+    let mixPeers = await self.wakuKademlia.lookup(MixProtocolID)
 
-    peermgr.addPeer(
-      RemotePeerInfo.init(peerId, @[multiAddr], mixPubKey = some(node.pubKey))
-    )
-  mix_pool_size.set(count)
-  info "using mix bootstrap nodes ", count = count
+    # Pool size will be updated on next iteration
+    info "mix peer discovery completed", discoveredPeers = mixPeers.len
 
 proc new*(
     T: typedesc[WakuMix],
-    nodeAddr: string,
-    peermgr: PeerManager,
-    clusterId: uint16,
     mixPrivKey: Curve25519Key,
-    bootnodes: seq[MixNodePubInfo],
-): WakuMixResult[T] =
+    nodeAddr: string,
+    switch: Switch,
+    targetMixPoolSize: int = MinimumMixPoolSize,
+    maintenanceInterval: Duration = DefaultMixPoolMaintenanceInterval,
+    wakuKademlia: WakuKademlia = nil,
+): Result[T, string] =
   let mixPubKey = public(mixPrivKey)
+
   info "mixPubKey", mixPubKey = mixPubKey
+
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
     return err("failed to parse mix node address: " & $nodeAddr & ", error: " & error)
+
   let localMixNodeInfo = initMixNodeInfo(
-    peermgr.switch.peerInfo.peerId, nodeMultiAddr, mixPubKey, mixPrivKey,
-    peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
+    switch.peerInfo.peerId, nodeMultiAddr, mixPubKey, mixPrivKey,
+    switch.peerInfo.publicKey.skkey, switch.peerInfo.privateKey.skkey,
   )
 
-  var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)
-  procCall MixProtocol(m).init(
+  let mix = WakuMix(
+    pubKey: mixPubKey,
+    targetMixPoolSize: targetMixPoolSize,
+    currentMixPoolSize: 0,
+    maintenanceInterval: maintenanceInterval,
+    maintenanceIntervalFut: nil,
+    wakuKademlia: wakuKademlia,
+  )
+
+  procCall MixProtocol(mix).init(
     localMixNodeInfo,
-    peermgr.switch,
+    switch,
     delayStrategy =
       ExponentialDelayStrategy.new(meanDelayMs = 50, rng = crypto.newRng()),
   )
 
-  processBootNodes(bootnodes, peermgr, m)
+  return ok(mix)
 
-  if m.nodePool.len < minMixPoolSize:
-    warn "publishing with mix won't work until atleast 3 mix nodes in node pool"
-  return ok(m)
+proc setKademlia*(self: WakuMix, wakuKademlia: WakuKademlia) =
+  self.wakuKademlia = wakuKademlia
 
-proc poolSize*(mix: WakuMix): int =
-  mix.nodePool.len
+proc poolSize*(self: WakuMix): int =
+  if self.nodePool.isNil():
+    0
+  else:
+    self.nodePool.len()
 
-# Mix Protocol
+method start*(self: WakuMix) {.async.} =
+  if self.started:
+    warn "Starting Waku Mix twice"
+    return
+
+  info "Starting Waku Mix"
+
+  await procCall start(MixProtocol(self))
+
+  self.maintenanceIntervalFut = self.mixPoolMaintenance(self.maintenanceInterval)
+
+  info "Waku Mix Started"
+
+method stop*(self: WakuMix) {.async.} =
+  if not self.started:
+    return
+
+  info "Stopping Waku Mix"
+
+  if not self.maintenanceIntervalFut.isNil():
+    self.maintenanceIntervalFut.cancelSoon()
+    self.maintenanceIntervalFut = nil
+
+  await procCall stop(MixProtocol(self))
+
+  info "Successfully stopped Waku Mix"
