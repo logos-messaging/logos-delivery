@@ -242,6 +242,9 @@ proc setupProtocols(
     except CatchableError:
       return err("failed to mount waku store protocol: " & getCurrentExceptionMsg())
 
+    let storeService = ServiceInfo(id: WakuStoreCodec, data: @[])
+    providedServices.add(storeService)
+
     if storeServiceConf.storeSyncConf.isSome():
       let confStoreSync = storeServiceConf.storeSyncConf.get()
 
@@ -253,6 +256,11 @@ proc setupProtocols(
         )
       ).isOkOr:
         return err("failed to mount waku store sync protocol: " & $error)
+
+      let reconciliationService = ServiceInfo(id: WakuReconciliationCodec, data: @[])
+      let transferService = ServiceInfo(id: WakuTransferCodec, data: @[])
+      providedServices.add(reconciliationService)
+      providedServices.add(transferService)
 
       if conf.remoteStoreNode.isSome():
         let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
@@ -343,9 +351,15 @@ proc setupProtocols(
         protectedShard = shardKey.shard, publicKey = shardKey.key
     node.wakuRelay.addSignedShardsValidator(subscribedProtectedShards, conf.clusterId)
 
+    let relayService = ServiceInfo(id: WakuRelayCodec, data: @[])
+    providedServices.add(relayService)
+
   if conf.rendezvous:
     await node.mountRendezvous(conf.clusterId, shards)
     await node.mountRendezvousClient(conf.clusterId)
+
+    let rendezvousService = ServiceInfo(id: WakuRendezVousCodec, data: @[])
+    providedServices.add(rendezvousService)
 
   # Keepalive mounted on all nodes
   try:
@@ -383,6 +397,9 @@ proc setupProtocols(
     except CatchableError:
       return err("failed to mount waku lightpush protocol: " & getCurrentExceptionMsg())
 
+    let lightpushService = ServiceInfo(id: WakuLightPushCodec, data: @[])
+    providedServices.add(lightpushService)
+
   mountLightPushClient(node)
   mountLegacyLightPushClient(node)
   if conf.remoteLightPushNode.isSome():
@@ -405,6 +422,9 @@ proc setupProtocols(
     except CatchableError:
       return err("failed to mount waku filter protocol: " & getCurrentExceptionMsg())
 
+    let filterService = ServiceInfo(id: WakuFilterPushCodec, data: @[])
+    providedServices.add(filterService)
+
   await node.mountFilterClient()
   if conf.remoteFilterNode.isSome():
     let filterNode = parsePeerInfo(conf.remoteFilterNode.get()).valueOr:
@@ -424,6 +444,9 @@ proc setupProtocols(
     except CatchableError:
       return
         err("failed to mount waku peer-exchange protocol: " & getCurrentExceptionMsg())
+
+    let peerXchangeService = ServiceInfo(id: WakuPeerExchangeCodec, data: @[])
+    providedServices.add(peerXchangeService)
 
   if conf.remotePeerExchangeNode.isSome():
     let peerExchangeNode = parsePeerInfo(conf.remotePeerExchangeNode.get()).valueOr:
