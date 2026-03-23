@@ -25,3 +25,15 @@ EventBroker:
   type OnFilterUnSubscribeEvent* = object
     pubsubTopic*: string
     contentTopics*: seq[string]
+
+EventBroker:
+  type OnRelaySubscribeEvent* = object
+    pubsubTopic*: string
+
+EventBroker:
+  type OnRelayUnsubscribeEvent* = object
+    pubsubTopic*: string
+
+EventBroker:
+  type ActiveSubscriptionsChangedEvent* = object
+    reason*: string

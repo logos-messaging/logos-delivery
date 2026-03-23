@@ -23,6 +23,7 @@ import
   waku/node/health_monitor/topic_health,
   waku/requests/health_requests,
   waku/events/health_events,
+  waku/events/delivery_events,
   ./message_id,
   waku/common/broker/broker_context,
   waku/events/peer_events
@@ -157,7 +158,7 @@ type
   ): Future[ValidationResult] {.gcsafe, raises: [Defect].}
   WakuRelay* = ref object of GossipSub
     brokerCtx: BrokerContext
-    peerEventListener: EventWakuPeerListener
+    peerEventListener: WakuPeerEventListener
     # seq of tuples: the first entry in the tuple contains the validators are called for every topic
     # the second entry contains the error messages to be returned when the validator fails
     wakuValidators: seq[tuple[handler: WakuValidatorHandler, errorMessage: string]]
@@ -376,9 +377,9 @@ proc new*(
     w.initProtocolHandler()
     w.initRelayObservers()
 
-    w.peerEventListener = EventWakuPeer.listen(
+    w.peerEventListener = WakuPeerEvent.listen(
       w.brokerCtx,
-      proc(evt: EventWakuPeer): Future[void] {.async: (raises: []), gcsafe.} =
+      proc(evt: WakuPeerEvent): Future[void] {.async: (raises: []), gcsafe.} =
         if evt.kind == WakuPeerEventKind.EventDisconnected:
           w.topicHealthCheckAll = true
           w.topicHealthUpdateEvent.fire()
@@ -524,8 +525,7 @@ method stop*(w: WakuRelay) {.async, base.} =
   info "stop"
   await procCall GossipSub(w).stop()
 
-  if w.peerEventListener.id != 0:
-    EventWakuPeer.dropListener(w.brokerCtx, w.peerEventListener)
+  WakuPeerEvent.dropListener(w.brokerCtx, w.peerEventListener)
 
   if not w.topicHealthLoopHandle.isNil():
     await w.topicHealthLoopHandle.cancelAndWait()
@@ -630,6 +630,10 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   w.topicHealthDirty.incl(pubsubTopic)
   w.topicHealthUpdateEvent.fire()
 
+  OnRelaySubscribeEvent.emit(
+    w.brokerCtx, OnRelaySubscribeEvent(pubsubTopic: pubsubTopic)
+  )
+
 proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   ## Unsubscribe all handlers on this pubsub topic
 
@@ -640,6 +644,10 @@ proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicHandlers.del(pubsubTopic)
   w.topicsHealth.del(pubsubTopic)
   w.topicHealthDirty.excl(pubsubTopic)
+
+  OnRelayUnsubscribeEvent.emit(
+    w.brokerCtx, OnRelayUnsubscribeEvent(pubsubTopic: pubsubTopic)
+  )
 
 proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   if not w.topicValidator.hasKey(pubsubTopic):
@@ -667,6 +675,10 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicHandlers.del(pubsubTopic)
   w.topicsHealth.del(pubsubTopic)
   w.topicHealthDirty.excl(pubsubTopic)
+
+  OnRelayUnsubscribeEvent.emit(
+    w.brokerCtx, OnRelayUnsubscribeEvent(pubsubTopic: pubsubTopic)
+  )
 
 proc publish*(
     w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage

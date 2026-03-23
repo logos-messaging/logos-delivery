@@ -8,6 +8,7 @@ import
     waku_relay,
     common/broker/broker_context,
     events/delivery_events,
+    requests/delivery_requests,
   ]
 
 type SubscriptionManager* = ref object of RootObj
@@ -16,6 +17,10 @@ type SubscriptionManager* = ref object of RootObj
     ## Map of Shard to ContentTopic needed because e.g. WakuRelay is PubsubTopic only.
     ## A present key with an empty HashSet value means pubsubtopic already subscribed
     ## (via subscribePubsubTopics()) but there's no specific content topic interest yet.
+  filterSubListener: OnFilterSubscribeEventListener
+  filterUnsubListener: OnFilterUnSubscribeEventListener
+  relaySubListener: OnRelaySubscribeEventListener
+  relayUnsubListener: OnRelayUnsubscribeEventListener
 
 proc new*(T: typedesc[SubscriptionManager], node: WakuNode): T =
   SubscriptionManager(
@@ -25,30 +30,39 @@ proc new*(T: typedesc[SubscriptionManager], node: WakuNode): T =
 proc addContentTopicInterest(
     self: SubscriptionManager, shard: PubsubTopic, topic: ContentTopic
 ): Result[void, string] =
+  var changed = false
   if not self.contentTopicSubs.hasKey(shard):
     self.contentTopicSubs[shard] = initHashSet[ContentTopic]()
+    changed = true
 
   self.contentTopicSubs.withValue(shard, cTopics):
     if not cTopics[].contains(topic):
       cTopics[].incl(topic)
+      changed = true
 
-      # TODO: Call a "subscribe(shard, topic)" on filter client here,
-      #       so the filter client can know that subscriptions changed.
+  if changed:
+    ActiveSubscriptionsChangedEvent.emit(
+      self.node.brokerCtx, ActiveSubscriptionsChangedEvent(reason: "subscribe")
+    )
 
   return ok()
 
 proc removeContentTopicInterest(
     self: SubscriptionManager, shard: PubsubTopic, topic: ContentTopic
 ): Result[void, string] =
+  var changed = false
   self.contentTopicSubs.withValue(shard, cTopics):
     if cTopics[].contains(topic):
       cTopics[].excl(topic)
+      changed = true
 
       if cTopics[].len == 0 and isNil(self.node.wakuRelay):
         self.contentTopicSubs.del(shard) # We're done with cTopics here
 
-      # TODO: Call a "unsubscribe(shard, topic)" on filter client here,
-      #       so the filter client can know that subscriptions changed.
+  if changed:
+    ActiveSubscriptionsChangedEvent.emit(
+      self.node.brokerCtx, ActiveSubscriptionsChangedEvent(reason: "unsubscribe")
+    )
 
   return ok()
 
@@ -73,7 +87,65 @@ proc subscribePubsubTopics(
 
   return ok()
 
+proc getActiveSubscriptions*(
+    self: SubscriptionManager
+): seq[tuple[pubsubTopic: string, contentTopics: seq[ContentTopic]]] =
+  var activeSubs: seq[tuple[pubsubTopic: string, contentTopics: seq[ContentTopic]]] =
+    @[]
+
+  for pubsub, cTopicSet in self.contentTopicSubs.pairs:
+    if cTopicSet.len > 0:
+      var cTopicSeq = newSeqOfCap[ContentTopic](cTopicSet.len)
+      for t in cTopicSet:
+        cTopicSeq.add(t)
+      activeSubs.add((pubsub, cTopicSeq))
+
+  return activeSubs
+
 proc startSubscriptionManager*(self: SubscriptionManager) =
+  RequestActiveSubscriptions.setProvider(
+    self.node.brokerCtx,
+    proc(): Result[RequestActiveSubscriptions, string] =
+      return ok(RequestActiveSubscriptions(activeSubs: self.getActiveSubscriptions())),
+  ).isOkOr:
+    error "Failed to set provider for RequestActiveSubscriptions", error = error
+
+  self.filterSubListener = OnFilterSubscribeEvent.listen(
+    self.node.brokerCtx,
+    proc(evt: OnFilterSubscribeEvent): Future[void] {.async: (raises: []), gcsafe.} =
+      for topic in evt.contentTopics:
+        discard self.addContentTopicInterest(evt.pubsubTopic, topic),
+  ).valueOr:
+    error "Failed to listen to OnFilterSubscribeEvent: ", error = error
+    return
+
+  self.filterUnsubListener = OnFilterUnSubscribeEvent.listen(
+    self.node.brokerCtx,
+    proc(evt: OnFilterUnSubscribeEvent): Future[void] {.async: (raises: []), gcsafe.} =
+      for topic in evt.contentTopics:
+        discard self.removeContentTopicInterest(evt.pubsubTopic, topic),
+  ).valueOr:
+    error "Failed to listen to OnFilterUnSubscribeEvent: ", error = error
+    return
+
+  self.relaySubListener = OnRelaySubscribeEvent.listen(
+    self.node.brokerCtx,
+    proc(evt: OnRelaySubscribeEvent): Future[void] {.async: (raises: []), gcsafe.} =
+      if not self.contentTopicSubs.hasKey(evt.pubsubTopic):
+        self.contentTopicSubs[evt.pubsubTopic] = initHashSet[ContentTopic]()
+    ,
+  ).valueOr:
+    error "Failed to listen to OnRelaySubscribeEvent: ", error = error
+    return
+
+  self.relayUnsubListener = OnRelayUnsubscribeEvent.listen(
+    self.node.brokerCtx,
+    proc(evt: OnRelayUnsubscribeEvent): Future[void] {.async: (raises: []), gcsafe.} =
+      self.contentTopicSubs.del(evt.pubsubTopic),
+  ).valueOr:
+    error "Failed to listen to OnRelayUnsubscribeEvent: ", error = error
+    return
+
   if isNil(self.node.wakuRelay):
     return
 
@@ -96,22 +168,11 @@ proc startSubscriptionManager*(self: SubscriptionManager) =
     info "SubscriptionManager has no AutoSharding configured; skipping auto-subscribe."
 
 proc stopSubscriptionManager*(self: SubscriptionManager) {.async.} =
-  discard
-
-proc getActiveSubscriptions*(
-    self: SubscriptionManager
-): seq[tuple[pubsubTopic: string, contentTopics: seq[ContentTopic]]] =
-  var activeSubs: seq[tuple[pubsubTopic: string, contentTopics: seq[ContentTopic]]] =
-    @[]
-
-  for pubsub, cTopicSet in self.contentTopicSubs.pairs:
-    if cTopicSet.len > 0:
-      var cTopicSeq = newSeqOfCap[ContentTopic](cTopicSet.len)
-      for t in cTopicSet:
-        cTopicSeq.add(t)
-      activeSubs.add((pubsub, cTopicSeq))
-
-  return activeSubs
+  OnFilterSubscribeEvent.dropListener(self.node.brokerCtx, self.filterSubListener)
+  OnFilterUnSubscribeEvent.dropListener(self.node.brokerCtx, self.filterUnsubListener)
+  OnRelaySubscribeEvent.dropListener(self.node.brokerCtx, self.relaySubListener)
+  OnRelayUnsubscribeEvent.dropListener(self.node.brokerCtx, self.relayUnsubListener)
+  RequestActiveSubscriptions.clearProvider(self.node.brokerCtx)
 
 proc getShardForContentTopic(
     self: SubscriptionManager, topic: ContentTopic

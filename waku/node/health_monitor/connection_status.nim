@@ -2,6 +2,9 @@ import chronos, results, std/strutils, ../../api/types
 
 export ConnectionStatus
 
+const HealthyThreshold* = 2
+  ## Minimum peers required per service protocol for a "Connected" status (excluding Relay).
+
 proc init*(
     t: typedesc[ConnectionStatus], strRep: string
 ): Result[ConnectionStatus, string] =

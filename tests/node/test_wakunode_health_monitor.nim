@@ -12,11 +12,15 @@ import
     node/health_monitor/health_status,
     node/health_monitor/connection_status,
     node/health_monitor/protocol_health,
+    node/health_monitor/topic_health,
     node/health_monitor/node_health_monitor,
+    node/delivery_service/subscription_manager,
     node/kernel_api/relay,
     node/kernel_api/store,
     node/kernel_api/lightpush,
     node/kernel_api/filter,
+    events/health_events,
+    events/peer_events,
     waku_archive,
   ]
 
@@ -292,4 +296,118 @@ suite "Health Monitor - events":
       lastStatus == ConnectionStatus.Disconnected
 
     await monitorA.stopHealthMonitor()
+    await nodeA.stop()
+
+  asyncTest "Edge health driven by confirmed filter subscriptions":
+    let
+      nodeAKey = generateSecp256k1Key()
+      nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
+
+    await nodeA.mountFilterClient()
+    nodeA.mountLightpushClient()
+    nodeA.mountStoreClient()
+    require nodeA.mountAutoSharding(1, 8).isOk
+    nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
+
+    await nodeA.start()
+
+    let subMgr = SubscriptionManager.new(nodeA)
+    subMgr.startSubscriptionManager()
+
+    let
+      nodeBKey = generateSecp256k1Key()
+      nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
+
+    let driver = newSqliteArchiveDriver()
+    nodeB.mountArchive(driver).expect("Node B failed to mount archive")
+
+    (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+    (await nodeB.mountLightpush()).expect("Node B failed to mount lightpush")
+    await nodeB.mountFilter()
+    await nodeB.mountStore()
+    require nodeB.mountAutoSharding(1, 8).isOk
+    nodeB.mountMetadata(1, toSeq(0'u16 ..< 8'u16)).expect(
+      "Node B failed to mount metadata"
+    )
+
+    await nodeB.start()
+
+    let monitorA = NodeHealthMonitor.new(nodeA)
+
+    var
+      lastStatus = ConnectionStatus.Disconnected
+      healthSignal = newAsyncEvent()
+
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
+      lastStatus = status
+      healthSignal.fire()
+
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+
+    var metadataFut = newFuture[void]("waitForMetadata")
+    let metadataLis = WakuPeerEvent
+      .listen(
+        nodeA.brokerCtx,
+        proc(evt: WakuPeerEvent): Future[void] {.async: (raises: []), gcsafe.} =
+          if not metadataFut.finished and
+              evt.kind == WakuPeerEventKind.EventMetadataUpdated:
+            metadataFut.complete()
+        ,
+      )
+      .expect("Failed to listen for metadata")
+
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+    let metadataOk = await metadataFut.withTimeout(TestConnectivityTimeLimit)
+    WakuPeerEvent.dropListener(nodeA.brokerCtx, metadataLis)
+    require metadataOk
+
+    var deadline = Moment.now() + TestConnectivityTimeLimit
+    while Moment.now() < deadline:
+      if lastStatus == ConnectionStatus.PartiallyConnected:
+        break
+      if await healthSignal.wait().withTimeout(deadline - Moment.now()):
+        healthSignal.clear()
+
+    check lastStatus == ConnectionStatus.PartiallyConnected
+
+    var shardHealthFut = newFuture[EventShardTopicHealthChange]("waitForShardHealth")
+
+    let shardHealthLis = EventShardTopicHealthChange
+      .listen(
+        nodeA.brokerCtx,
+        proc(
+            evt: EventShardTopicHealthChange
+        ): Future[void] {.async: (raises: []), gcsafe.} =
+          if not shardHealthFut.finished and (
+            evt.health == TopicHealth.MINIMALLY_HEALTHY or
+            evt.health == TopicHealth.SUFFICIENTLY_HEALTHY
+          ):
+            shardHealthFut.complete(evt)
+        ,
+      )
+      .expect("Failed to listen for shard health")
+
+    let contentTopic = ContentTopic("/waku/2/default-content/proto")
+    subMgr.subscribe(contentTopic).expect("Failed to subscribe")
+
+    let shardHealthOk = await shardHealthFut.withTimeout(TestConnectivityTimeLimit)
+    EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
+
+    check shardHealthOk == true
+    check nodeA.edgeFilterSubStates.len > 0
+
+    healthSignal.clear()
+    deadline = Moment.now() + TestConnectivityTimeLimit
+    while Moment.now() < deadline:
+      if lastStatus == ConnectionStatus.PartiallyConnected:
+        break
+      if await healthSignal.wait().withTimeout(deadline - Moment.now()):
+        healthSignal.clear()
+
+    check lastStatus == ConnectionStatus.PartiallyConnected
+
+    await subMgr.stopSubscriptionManager()
+    await monitorA.stopHealthMonitor()
+    await nodeB.stop()
     await nodeA.stop()
