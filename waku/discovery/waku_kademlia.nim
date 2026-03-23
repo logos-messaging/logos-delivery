@@ -1,11 +1,13 @@
 {.push raises: [].}
 
-import std/[options, sequtils, sugar]
+import std/[options, sequtils]
 import
   chronos,
   chronicles,
   results,
-  stew/byteutils,
+  libp2p/crypto/curve25519,
+  libp2p/crypto/crypto,
+  libp2p/protocols/mix/mix_protocol,
   libp2p/[peerid, multiaddress, switch],
   libp2p/extended_peer_record,
   libp2p/protocols/[kademlia, kad_disco],
@@ -42,9 +44,24 @@ proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
 
   let protocols = record.services.mapIt(it.id)
 
+  var mixPubKey = none(Curve25519Key)
+  for service in record.services:
+    if service.id != MixProtocolID:
+      continue
+
+    if service.data.len != Curve25519KeySize:
+      continue
+
+    mixPubKey = some(intoCurve25519Key(service.data))
+    break
+
   return some(
     RemotePeerInfo.init(
-      record.peerId, addrs = addrs, protocols = protocols, origin = PeerOrigin.Kademlia
+      record.peerId,
+      addrs = addrs,
+      protocols = protocols,
+      origin = PeerOrigin.Kademlia,
+      mixPubKey = mixPubKey,
     )
   )
 
