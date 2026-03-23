@@ -263,7 +263,8 @@ type WakuNodeConf* = object
 
     ## Circuit-relay config
     isRelayClient* {.
-      desc: """Set the node as a relay-client.
+      desc:
+        """Set the node as a relay-client.
 Set it to true for nodes that run behind a NAT or firewall and
 hence would have reachability issues.""",
       defaultValue: false,
@@ -637,12 +638,6 @@ with the drawback of consuming some more bandwidth.""",
       name: "mixkey"
     .}: Option[string]
 
-    mixnodes* {.
-      desc:
-        "Multiaddress and mix-key of mix node to be statically specified in format multiaddr:mixPubKey. Argument may be repeated.",
-      name: "mixnode"
-    .}: seq[MixNodePubInfo]
-
     # Kademlia Discovery config
     enableKadDiscovery* {.
       desc:
@@ -736,22 +731,6 @@ proc isNumber(x: string): bool =
   except ValueError:
     result = false
 
-proc parseCmdArg*(T: type MixNodePubInfo, p: string): T =
-  let elements = p.split(":")
-  if elements.len != 2:
-    raise newException(
-      ValueError, "Invalid format for mix node expected multiaddr:mixPublicKey"
-    )
-  let multiaddr = MultiAddress.init(elements[0]).valueOr:
-    raise newException(ValueError, "Invalid multiaddress format")
-  if not multiaddr.contains(multiCodec("ip4")).get():
-    raise newException(
-      ValueError, "Invalid format for ip address, expected a ipv4 multiaddress"
-    )
-  return MixNodePubInfo(
-    multiaddr: elements[0], pubKey: intoCurve25519Key(ncrutils.fromHex(elements[1]))
-  )
-
 proc parseCmdArg*(T: type ProtectedShard, p: string): T =
   let elements = p.split(":")
   if elements.len != 2:
@@ -832,22 +811,6 @@ proc readValue*(
 ) {.raises: [SerializationError].} =
   try:
     value = parseCmdArg(crypto.PrivateKey, r.readValue(string))
-  except CatchableError:
-    raise newException(SerializationError, getCurrentExceptionMsg())
-
-proc readValue*(
-    r: var TomlReader, value: var MixNodePubInfo
-) {.raises: [SerializationError].} =
-  try:
-    value = parseCmdArg(MixNodePubInfo, r.readValue(string))
-  except CatchableError:
-    raise newException(SerializationError, getCurrentExceptionMsg())
-
-proc readValue*(
-    r: var EnvvarReader, value: var MixNodePubInfo
-) {.raises: [SerializationError].} =
-  try:
-    value = parseCmdArg(MixNodePubInfo, r.readValue(string))
   except CatchableError:
     raise newException(SerializationError, getCurrentExceptionMsg())
 
@@ -1069,7 +1032,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.storeServiceConf.storeSyncConf.withRelayJitterSec(n.storeSyncRelayJitter)
 
   b.mixConf.withEnabled(n.mix)
-  b.mixConf.withMixNodes(n.mixnodes)
   b.withMix(n.mix)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())

@@ -36,6 +36,7 @@ import
   ../waku_filter_v2,
   ../waku_peer_exchange,
   ../discovery/waku_kademlia,
+  ../waku_mix/protocol,
   ../node/peer_manager,
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
@@ -176,7 +177,7 @@ proc setupProtocols(
     let mixService = ServiceInfo(id: MixProtocolID, data: @(mixConf.mixKey))
     providedServices.add(mixService)
 
-    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
+    (await node.mountMix(mixConf.mixKey)).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
 
   if conf.storeServiceConf.isSome():
@@ -470,6 +471,10 @@ proc setupProtocols(
       return err("failed to mount kademlia discovery: " & catchRes.error.msg)
 
     node.wakuKademlia = kademlia
+
+    # Connect kademlia to mix for peer discovery
+    if not node.wakuMix.isNil() and not node.wakuKademlia.isNil():
+      node.wakuMix.setKademlia(node.wakuKademlia)
 
   return ok()
 
