@@ -27,6 +27,7 @@ suite "Waku Conf - build with cluster conf":
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
     builder.withNetworkConf(networkConf)
     builder.withRelay(true)
+    builder.rlnRelayConf.withUserMessageLimit(300.uint64)
 
     ## When
     let resConf = builder.build()
@@ -54,7 +55,7 @@ suite "Waku Conf - build with cluster conf":
       check rlnRelayConf.dynamic == networkConf.rlnRelayDynamic
       check rlnRelayConf.chainId == networkConf.rlnRelayChainId
       check rlnRelayConf.epochSizeSec == networkConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == networkConf.rlnRelayUserMessageLimit
+      check rlnRelayConf.userMessageLimit == 300.uint
 
   test "Cluster Conf is passed, but relay is disabled":
     ## Setup
@@ -179,6 +180,7 @@ suite "Waku Conf - build with cluster conf":
     builder.rlnRelayConf.withEthContractAddress(contractAddress)
     builder.withNetworkConf(networkConf)
     builder.withRelay(true)
+    builder.rlnRelayConf.withUserMessageLimit(300.uint64)
 
     ## When
     let resConf = builder.build()
@@ -207,7 +209,7 @@ suite "Waku Conf - build with cluster conf":
       check rlnRelayConf.dynamic == networkConf.rlnRelayDynamic
       check rlnRelayConf.chainId == networkConf.rlnRelayChainId
       check rlnRelayConf.epochSizeSec == networkConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == networkConf.rlnRelayUserMessageLimit
+      check rlnRelayConf.userMessageLimit == 300.uint
 
 suite "Waku Conf - node key":
   test "Node key is generated":
