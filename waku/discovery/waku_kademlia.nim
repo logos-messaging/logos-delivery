@@ -24,7 +24,7 @@ const DefaultKademliaDiscoveryInterval* = chronos.seconds(10)
 type WakuKademlia* = ref object
   protocol*: KademliaDiscovery
   peerManager: PeerManager
-  intervalFut: Future[void]
+  walkIntervalFut: Future[void]
 
 proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
   debug "processing kademlia record",
@@ -66,7 +66,7 @@ proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
   )
 
 proc runDiscoveryLoop(
-    wk: WakuKademlia, interval: Duration
+    self: WakuKademlia, interval: Duration
 ) {.async: (raises: [CancelledError]).} =
   info "kademlia discovery loop started", interval = interval
 
@@ -74,7 +74,7 @@ proc runDiscoveryLoop(
     await sleepAsync(interval)
 
     let res = catch:
-      await wk.protocol.randomRecords()
+      await self.protocol.randomRecords()
     let records = res.valueOr:
       error "kademlia discovery lookup failed", error = res.error.msg
       continue
@@ -83,14 +83,12 @@ proc runDiscoveryLoop(
       let peerInfo = toRemotePeerInfo(record).valueOr:
         continue
 
-      wk.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+      self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
 
-      debug "peer added via kademlia discovery",
+      debug "peer added via random walk",
         peerId = $peerInfo.peerId,
         addresses = peerInfo.addrs.mapIt($it),
         protocols = peerInfo.protocols
-
-      #TODO peer added metric
 
 proc lookup*(
     self: WakuKademlia, codec: string
@@ -114,12 +112,11 @@ proc lookup*(
 
     self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
 
-    debug "peer added via kademlia discovery",
+    debug "peer added via service discovery",
+      service = codec,
       peerId = $peerInfo.peerId,
       addresses = peerInfo.addrs.mapIt($it),
       protocols = peerInfo.protocols
-
-    #TODO peer added metric
 
     peerInfos.add(peerInfo)
 
@@ -152,26 +149,28 @@ proc start*(
     self: WakuKademlia, interval: Duration = DefaultKademliaDiscoveryInterval
 ) {.async: (raises: [CancelledError]).} =
   if self.protocol.started:
-    warn "Starting kad-disco twice"
+    warn "Starting waku kad twice"
     return
+
+  info "Starting Waku Kademlia"
 
   await self.protocol.start()
 
-  self.intervalFut = self.runDiscoveryLoop(interval)
+  self.walkIntervalFut = self.runDiscoveryLoop(interval)
 
-  info "kademlia discovery started"
+  info "Waku Kademlia Started"
 
 proc stop*(self: WakuKademlia) {.async: (raises: []).} =
   if not self.protocol.started:
     return
 
-  info "Stopping kademlia discovery"
+  info "Stopping Waku Kademlia"
 
-  if not self.intervalFut.isNil():
-    self.intervalFut.cancelSoon()
-    self.intervalFut = nil
+  if not self.walkIntervalFut.isNil():
+    self.walkIntervalFut.cancelSoon()
+    self.walkIntervalFut = nil
 
   if not self.protocol.isNil():
     await self.protocol.stop()
 
-  info "Successfully stopped kademlia discovery"
+  info "Successfully stopped Waku Kademlia"
