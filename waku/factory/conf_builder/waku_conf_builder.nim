@@ -352,11 +352,6 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
         discarded = builder.rlnRelayConf.epochSizeSec
     builder.rlnRelayConf.withEpochSizeSec(networkConf.rlnEpochSizeSec)
 
-    if builder.rlnRelayConf.userMessageLimit.isSome():
-      warn "RLN Relay Dynamic was provided alongside a network conf",
-        used = networkConf.rlnRelayUserMessageLimit,
-        discarded = builder.rlnRelayConf.userMessageLimit
-    builder.rlnRelayConf.withUserMessageLimit(networkConf.rlnRelayUserMessageLimit)
   # End Apply relay parameters
 
   case builder.maxMessageSize.kind
