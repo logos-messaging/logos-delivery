@@ -73,11 +73,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
     extra_params &= " " & paramStr(i)
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
       extra_params & " " & srcDir & srcFile
   else:
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       extra_params & " " & srcDir & srcFile
 
 proc buildMobileAndroid(srcDir = ".", params = "") =
@@ -93,7 +93,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
     extra_params &= " " & paramStr(i)
 
   exec "nim c" & " --out:" & outDir &
-    "/libwaku.so --threads:on --app:lib --opt:size --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
+    "/libwaku.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --os:android -d:androidNDK " &
     extra_params & " " & srcDir & "/libwaku.nim"
 
@@ -266,7 +266,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
       " --os:ios --cpu:" & cpu &
       " --compileOnly:on" &
       " --noMain --mm:refc" &
-      " --threads:on --opt:size --header" &
+      " --threads:on --opt:speed --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" &
       " --nimMainPrefix:libwaku --skipParentCfg:on" &
       " --cc:clang" &

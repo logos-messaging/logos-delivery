@@ -76,6 +76,14 @@ else:
   on
 --opt:
   speed
+
+if defined(release):
+  # Link-Time Optimization for release builds
+  switch("passC", "-flto")
+  switch("passL", "-flto")
+  # Strip symbols from release binaries
+  switch("passL", "-s")
+
 --excessiveStackTrace:
   on
 # enable metric collection
