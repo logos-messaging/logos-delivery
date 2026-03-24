@@ -36,6 +36,12 @@ type WakuMix* = ref object of MixProtocol
   maintenanceIntervalFut: Future[void]
   wakuKademlia: WakuKademlia
 
+proc poolSize*(self: WakuMix): int =
+  if self.nodePool.isNil():
+    0
+  else:
+    self.nodePool.len()
+
 proc mixPoolMaintenance(
     self: WakuMix, interval: Duration
 ) {.async: (raises: [CancelledError]).} =
@@ -44,8 +50,7 @@ proc mixPoolMaintenance(
   while true:
     await sleepAsync(interval)
 
-    # Update current pool size from nodePool
-    self.currentMixPoolSize = self.nodePool.len()
+    self.currentMixPoolSize = self.poolSize()
     mix_pool_size.set(self.currentMixPoolSize.int64)
 
     if self.currentMixPoolSize >= self.targetMixPoolSize:
@@ -61,8 +66,7 @@ proc mixPoolMaintenance(
 
     let mixPeers = await self.wakuKademlia.lookup(MixProtocolID)
 
-    # Pool size will be updated on next iteration
-    info "mix peer discovery completed", discoveredPeers = mixPeers.len
+    debug "mix peer discovery completed", discoveredPeers = mixPeers.len
 
 proc new*(
     T: typedesc[WakuMix],
@@ -105,12 +109,6 @@ proc new*(
 
 proc setKademlia*(self: WakuMix, wakuKademlia: WakuKademlia) =
   self.wakuKademlia = wakuKademlia
-
-proc poolSize*(self: WakuMix): int =
-  if self.nodePool.isNil():
-    0
-  else:
-    self.nodePool.len()
 
 method start*(self: WakuMix) {.async.} =
   if self.started:
