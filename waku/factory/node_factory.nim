@@ -476,12 +476,6 @@ proc startNode*(
   if conf.relay:
     node.peerManager.start()
 
-  if not node.wakuKademlia.isNil():
-    let catchRes = catch:
-      await node.wakuKademlia.start()
-    if catchRes.isErr():
-      return err("failed to start kademlia discovery: " & catchRes.error.msg)
-
   return ok()
 
 proc setupNode*(
