@@ -52,9 +52,10 @@ if defined(disableMarchNative):
       switch("passL", "-march=haswell -mtune=generic")
     else:
       if defined(marchOptimized):
-        # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#bmi2--adx
-        switch("passC", "-march=broadwell -mtune=generic")
-        switch("passL", "-march=broadwell -mtune=generic")
+        # -march=broadwell: https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#bmi2--adx
+        # Changed to x86-64-v2 for broader support
+        switch("passC", "-march=x86-64-v2 -mtune=generic")
+        switch("passL", "-march=x86-64-v2 -mtune=generic")
       else:
         switch("passC", "-mssse3")
         switch("passL", "-mssse3")
