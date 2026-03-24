@@ -174,7 +174,7 @@ proc setupProtocols(
   if conf.mixConf.isSome():
     let mixConf = conf.mixConf.get()
 
-    let mixService = ServiceInfo(id: MixProtocolID, data: @(mixConf.mixKey))
+    let mixService = ServiceInfo(id: MixProtocolID, data: @(mixConf.mixPubKey))
     providedServices.add(mixService)
 
     (await node.mountMix(mixConf.mixKey)).isOkOr:
