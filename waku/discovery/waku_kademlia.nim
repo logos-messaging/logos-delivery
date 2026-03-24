@@ -17,7 +17,7 @@ import
 import waku/waku_core, waku/node/peer_manager
 
 logScope:
-  topics = "waku kademlia discovery"
+  topics = "waku kademlia"
 
 const DefaultKademliaDiscoveryInterval* = chronos.seconds(10)
 
@@ -68,7 +68,7 @@ proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
 proc runDiscoveryLoop(
     self: WakuKademlia, interval: Duration
 ) {.async: (raises: [CancelledError]).} =
-  info "kademlia discovery loop started", interval = interval
+  debug "kademlia discovery loop started", interval = interval
 
   while true:
     await sleepAsync(interval)
@@ -130,7 +130,7 @@ proc new*(
     providedServices: var seq[ServiceInfo],
 ): T =
   if bootstrapNodes.len == 0:
-    info "creating kademlia discovery as seed node (no bootstrap nodes)"
+    debug "creating kademlia discovery as seed node (no bootstrap nodes)"
 
   let kademlia = KademliaDiscovery.new(
     switch,
@@ -141,13 +141,11 @@ proc new*(
     services = providedServices,
   )
 
-  info "kademlia service discovery created", bootstrapNodes = bootstrapNodes.len
-
   return WakuKademlia(protocol: kademlia, peerManager: peerManager)
 
 proc start*(
     self: WakuKademlia, interval: Duration = DefaultKademliaDiscoveryInterval
-) {.async: (raises: [CancelledError]).} =
+) {.async.} =
   if self.protocol.started:
     warn "Starting waku kad twice"
     return
@@ -160,7 +158,7 @@ proc start*(
 
   info "Waku Kademlia Started"
 
-proc stop*(self: WakuKademlia) {.async: (raises: []).} =
+proc stop*(self: WakuKademlia) {.async.} =
   if not self.protocol.started:
     return
 

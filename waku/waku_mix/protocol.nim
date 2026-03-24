@@ -45,7 +45,7 @@ proc poolSize*(self: WakuMix): int =
 proc mixPoolMaintenance(
     self: WakuMix, interval: Duration
 ) {.async: (raises: [CancelledError]).} =
-  ## Periodic maintenance of the mix pool
+  debug "mix pool maintenance loop started", interval = interval
 
   while true:
     await sleepAsync(interval)
@@ -61,12 +61,12 @@ proc mixPoolMaintenance(
       debug "kademlia not available for mix peer discovery"
       continue
 
-    debug "mix node pool below threshold, performing targeted lookup",
+    trace "mix node pool below threshold, performing targeted lookup",
       currentPoolSize = self.currentMixPoolSize, threshold = self.targetMixPoolSize
 
     let mixPeers = await self.wakuKademlia.lookup(MixProtocolID)
 
-    debug "mix peer discovery completed", discoveredPeers = mixPeers.len
+    trace "mix peer discovery completed", discoveredPeers = mixPeers.len
 
 proc new*(
     T: typedesc[WakuMix],
@@ -79,7 +79,7 @@ proc new*(
 ): Result[T, string] =
   let mixPubKey = public(mixPrivKey)
 
-  info "mixPubKey", mixPubKey = mixPubKey
+  debug "Mix Public Key", mixPubKey = mixPubKey
 
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
     return err("failed to parse mix node address: " & $nodeAddr & ", error: " & error)
