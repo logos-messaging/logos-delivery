@@ -141,43 +141,6 @@ suite "Waku external config - apply preset":
     ## Then
     assert res.isErr(), "Invalid shard was accepted"
 
-  test "Apply TWN preset when cluster id = 1":
-    ## Setup
-    let expectedConf = NetworkConf.TheWakuNetworkConf()
-
-    ## Given
-    let preConfig = WakuNodeConf(
-      cmd: noCommand,
-      clusterId: 1.uint16,
-      relay: true,
-      ethClientUrls: @["http://someaddress".EthRpcUrl],
-    )
-
-    ## When
-    let res = preConfig.toWakuConf()
-    assert res.isOk(), $res.error
-
-    ## Then
-    let conf = res.get()
-    check conf.maxMessageSizeBytes ==
-      uint64(parseCorrectMsgSize(expectedConf.maxMessageSize))
-    check conf.clusterId == expectedConf.clusterId
-    check conf.rlnRelayConf.isSome() == expectedConf.rlnRelay
-    if conf.rlnRelayConf.isSome():
-      let rlnRelayConf = conf.rlnRelayConf.get()
-      check rlnRelayConf.ethContractAddress == expectedConf.rlnRelayEthContractAddress
-      check rlnRelayConf.dynamic == expectedConf.rlnRelayDynamic
-      check rlnRelayConf.chainId == expectedConf.rlnRelayChainId
-      check rlnRelayConf.epochSizeSec == expectedConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == expectedConf.rlnRelayUserMessageLimit
-      check conf.shardingConf.kind == expectedConf.shardingConf.kind
-      check conf.shardingConf.numShardsInCluster ==
-        expectedConf.shardingConf.numShardsInCluster
-    check conf.discv5Conf.isSome() == expectedConf.discv5Discovery
-    if conf.discv5Conf.isSome():
-      let discv5Conf = conf.discv5Conf.get()
-      check discv5Conf.bootstrapNodes == expectedConf.discv5BootstrapNodes
-
 suite "Waku external config - node key":
   test "Passed node key is used":
     ## Setup

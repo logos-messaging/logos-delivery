@@ -924,11 +924,6 @@ proc toNetworkConf(
     preset: string, clusterId: Option[uint16]
 ): ConfResult[Option[NetworkConf]] =
   var lcPreset = toLowerAscii(preset)
-  if clusterId.isSome() and clusterId.get() == 1:
-    warn(
-      "TWN - The Waku Network configuration will not be applied when `--cluster-id=1` is passed in future releases. Use `--preset=twn` instead."
-    )
-    lcPreset = "twn"
   if clusterId.isSome() and clusterId.get() == 2:
     warn(
       "Logos.dev - Logos.dev configuration will not be applied when `--cluster-id=2` is passed in future releases. Use `--preset=logos.dev` instead."
