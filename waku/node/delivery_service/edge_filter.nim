@@ -202,8 +202,7 @@ proc edgeFilterSubLoop*(sm: SubscriptionManager) {.async.} =
     for sub in sm.getActiveSubscriptions():
       desired[sub.pubsubTopic] = toHashSet(sub.contentTopics)
 
-    trace "edgeFilterSubLoop: desired state",
-      numShards = desired.len
+    trace "edgeFilterSubLoop: desired state", numShards = desired.len
 
     let allShards = toHashSet(toSeq(desired.keys)) + toHashSet(toSeq(lastSynced.keys))
 
@@ -232,7 +231,8 @@ proc edgeFilterSubLoop*(sm: SubscriptionManager) {.async.} =
           for fut in state.pending:
             if not fut.finished:
               asyncSpawn fut.cancelAndWait()
-          sm.edgeFilterSubStates.del(shard) # invalidates `state` — do not use after this
+          sm.edgeFilterSubStates.del(shard)
+            # invalidates `state` — do not use after this
         else:
           sm.updateShardHealth(shard, state[])
 

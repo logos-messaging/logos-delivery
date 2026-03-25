@@ -775,7 +775,8 @@ suite "Messaging API, SubscriptionManager":
         break
       await sleepAsync(100.milliseconds)
 
-    require subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) == 2
+    require subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) ==
+      2
 
     await subscriber.node.disconnectNode(meshBuddyPeerInfo)
 

@@ -17,8 +17,7 @@ import
 type EdgeFilterSubState* = object
   peers*: seq[RemotePeerInfo]
     ## Filter service peers with confirmed subscriptions on this shard.
-  pending*: seq[Future[void]]
-    ## In-flight dial futures for peers not yet confirmed.
+  pending*: seq[Future[void]] ## In-flight dial futures for peers not yet confirmed.
   currentHealth*: TopicHealth
     ## Cached health derived from peers.len; updated on every peer set change.
 
