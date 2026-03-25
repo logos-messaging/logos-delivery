@@ -4,7 +4,7 @@ import
   libp2p/crypto/[crypto, secp],
   libp2p/multiaddress,
   nimcrypto/utils,
-  std/[options, sequtils],
+  std/[options, random, sequtils],
   results,
   testutils/unittests
 import
@@ -22,12 +22,13 @@ suite "Waku Conf - build with cluster conf":
     builder.withRelayServiceRatio("50:50")
     # Mount all shards in network
     let expectedShards = toSeq[0.uint16 .. 7.uint16]
+    let userMessageLimit = rand(1 .. 1000).uint64
 
     ## Given
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
     builder.withNetworkConf(networkConf)
     builder.withRelay(true)
-    builder.rlnRelayConf.withUserMessageLimit(300.uint64)
+    builder.rlnRelayConf.withUserMessageLimit(userMessageLimit)
 
     ## When
     let resConf = builder.build()
@@ -55,7 +56,7 @@ suite "Waku Conf - build with cluster conf":
       check rlnRelayConf.dynamic == networkConf.rlnRelayDynamic
       check rlnRelayConf.chainId == networkConf.rlnRelayChainId
       check rlnRelayConf.epochSizeSec == networkConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == 300.uint
+      check rlnRelayConf.userMessageLimit == userMessageLimit.uint
 
   test "Cluster Conf is passed, but relay is disabled":
     ## Setup
@@ -175,12 +176,13 @@ suite "Waku Conf - build with cluster conf":
     # Mount all shards in network
     let expectedShards = toSeq[0.uint16 .. 7.uint16]
     let contractAddress = "0x0123456789ABCDEF"
+    let userMessageLimit = rand(1 .. 1000).uint64
 
     ## Given
     builder.rlnRelayConf.withEthContractAddress(contractAddress)
     builder.withNetworkConf(networkConf)
     builder.withRelay(true)
-    builder.rlnRelayConf.withUserMessageLimit(300.uint64)
+    builder.rlnRelayConf.withUserMessageLimit(userMessageLimit)
 
     ## When
     let resConf = builder.build()
@@ -209,7 +211,7 @@ suite "Waku Conf - build with cluster conf":
       check rlnRelayConf.dynamic == networkConf.rlnRelayDynamic
       check rlnRelayConf.chainId == networkConf.rlnRelayChainId
       check rlnRelayConf.epochSizeSec == networkConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == 300.uint
+      check rlnRelayConf.userMessageLimit == userMessageLimit.uint
 
 suite "Waku Conf - node key":
   test "Node key is generated":
