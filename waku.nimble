@@ -28,7 +28,7 @@ requires "nim >= 2.2.4",
   "nat_traversal",
   "dnsdisc",
   "dnsclient",
-  "httputils",
+  "httputils >= 0.4.1",
   # Cryptography
   "nimcrypto",
   "secp256k1",

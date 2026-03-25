@@ -8,3 +8,6 @@
 	url = https://github.com/logos-messaging/waku-rlnv2-contract.git
 	ignore = untracked
 	branch = master
+[submodule "vendor/nph"]
+	path = vendor/nph
+	url = https://github.com/arnetheduck/nph
