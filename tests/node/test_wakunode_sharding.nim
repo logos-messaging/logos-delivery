@@ -1031,5 +1031,7 @@ suite "Sharding":
 
       # Then each response should contain only the messages of the corresponding pubsub topic
       check:
-        queryResponse1.get().messages.mapIt(it.message.get()) == archiveMessages1[0 ..< 1]
-        queryResponse2.get().messages.mapIt(it.message.get()) == archiveMessages2[0 ..< 1]
+        queryResponse1.get().messages.mapIt(it.message.get()) ==
+          archiveMessages1[0 ..< 1]
+        queryResponse2.get().messages.mapIt(it.message.get()) ==
+          archiveMessages2[0 ..< 1]

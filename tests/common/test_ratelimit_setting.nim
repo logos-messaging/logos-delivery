@@ -50,11 +50,7 @@ suite "RateLimitSetting":
       res1.get() == {GLOBAL: exp1, FILTER: FilterDefaultPerPeerRateLimit}.toTable()
       res2.isOk()
       res2.get() ==
-        {
-          GLOBAL: expU,
-          FILTER: FilterDefaultPerPeerRateLimit,
-          STOREV3: exp2,
-        }.toTable()
+        {GLOBAL: expU, FILTER: FilterDefaultPerPeerRateLimit, STOREV3: exp2}.toTable()
       res2b.isOk()
       res2b.get() ==
         {GLOBAL: expU, FILTER: FilterDefaultPerPeerRateLimit, STOREV3: exp2b}.toTable()
@@ -125,12 +121,9 @@ suite "RateLimitSetting":
       res2.isOk()
       res2.get() == exp2
 
-    let test3 =
-      @["store:3/3s", "storev3:4/42ms", "storev3:5/5s", "storev3:6/6s"]
+    let test3 = @["store:3/3s", "storev3:4/42ms", "storev3:5/5s", "storev3:6/6s"]
     let exp3 = {
-      GLOBAL: expU,
-      FILTER: FilterDefaultPerPeerRateLimit,
-      STOREV3: (6, 6.seconds),
+      GLOBAL: expU, FILTER: FilterDefaultPerPeerRateLimit, STOREV3: (6, 6.seconds)
     }.toTable()
 
     let res3 = ProtocolRateLimitSettings.parse(test3)
