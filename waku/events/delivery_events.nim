@@ -34,6 +34,3 @@ EventBroker:
   type OnRelayUnsubscribeEvent* = object
     pubsubTopic*: string
 
-EventBroker:
-  type ActiveSubscriptionsChangedEvent* = object
-    reason*: string

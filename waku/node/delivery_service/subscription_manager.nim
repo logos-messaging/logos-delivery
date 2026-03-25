@@ -41,9 +41,7 @@ proc addContentTopicInterest(
       changed = true
 
   if changed:
-    ActiveSubscriptionsChangedEvent.emit(
-      self.node.brokerCtx, ActiveSubscriptionsChangedEvent(reason: "subscribe")
-    )
+    self.node.notifySubscriptionsChanged()
 
   return ok()
 
@@ -60,9 +58,7 @@ proc removeContentTopicInterest(
         self.contentTopicSubs.del(shard) # We're done with cTopics here
 
   if changed:
-    ActiveSubscriptionsChangedEvent.emit(
-      self.node.brokerCtx, ActiveSubscriptionsChangedEvent(reason: "unsubscribe")
-    )
+    self.node.notifySubscriptionsChanged()
 
   return ok()
 

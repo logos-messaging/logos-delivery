@@ -66,7 +66,6 @@ import
     requests/delivery_requests,
     events/health_events,
     events/peer_events,
-    events/delivery_events,
     events/message_events,
   ],
   waku/discovery/waku_kademlia,
@@ -181,7 +180,6 @@ type
     edgeFilterWakeup*: AsyncEvent
     edgeFilterSubLoopFut*: Future[void]
     edgeFilterHealthLoopFut*: Future[void]
-    edgeFilterWakeupListener*: ActiveSubscriptionsChangedEventListener
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -548,6 +546,10 @@ proc pingFilterPeer(
 
   return some(peer.peerId)
 
+proc notifySubscriptionsChanged*(node: WakuNode) =
+  if not isNil(node.edgeFilterWakeup):
+    node.edgeFilterWakeup.fire()
+
 proc updateShardHealth(
     node: WakuNode, shard: PubsubTopic, state: var EdgeFilterSubState
 ) =
@@ -854,22 +856,8 @@ proc startProvidersAndListeners*(node: WakuNode) =
   else:
     error "Failed to listen to peer events", error = peerRes.error
 
-  let wakeupRes = ActiveSubscriptionsChangedEvent.listen(
-    node.brokerCtx,
-    proc(evt: ActiveSubscriptionsChangedEvent) {.async: (raises: []), gcsafe.} =
-      node.edgeFilterWakeup.fire(),
-  )
-
-  if wakeupRes.isOk():
-    node.edgeFilterWakeupListener = wakeupRes.get()
-  else:
-    error "Failed to listen for ActiveSubscriptionsChanged", error = wakeupRes.error
-
 proc stopProvidersAndListeners*(node: WakuNode) =
   WakuPeerEvent.dropListener(node.brokerCtx, node.peerEventListener)
-  ActiveSubscriptionsChangedEvent.dropListener(
-    node.brokerCtx, node.edgeFilterWakeupListener
-  )
   RequestRelayShard.clearProvider(node.brokerCtx)
   RequestContentTopicsHealth.clearProvider(node.brokerCtx)
   RequestShardTopicsHealth.clearProvider(node.brokerCtx)
