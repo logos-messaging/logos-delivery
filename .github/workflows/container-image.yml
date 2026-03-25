@@ -46,20 +46,20 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: actions/checkout@v4
 
-      - name: Get submodules hash
-        id: submodules
+      - name: Install Nim
         if: ${{ steps.secrets.outcome == 'success' }}
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        if: ${{ steps.secrets.outcome == 'success' }}
-        uses: actions/cache@v3
+        uses: iffy/install-nim@v5
         with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+          version: binary:2.2.4
+
+      - name: Cache nimble packages
+        if: ${{ steps.secrets.outcome == 'success' }}
+        uses: actions/cache@v4
+        with:
+          path: ~/.nimble/pkgs2
+          key: ${{ runner.os }}-nimble-${{ hashFiles('nimble.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-nimble-
 
       - name: Build binaries
         id: build
@@ -67,7 +67,7 @@ jobs:
         run: |
           make update
 
-          make -j${NPROC} V=1 QUICK_AND_DIRTY_COMPILER=1 NIMFLAGS="-d:disableMarchNative -d:postgres -d:chronicles_colors:none" wakunode2
+          make -j${NPROC} V=1 QUICK_AND_DIRTY_COMPILER=1 USE_LIBBACKTRACE=0 NIMFLAGS="-d:disableMarchNative -d:postgres -d:chronicles_colors:none" wakunode2
 
           SHORT_REF=$(git rev-parse --short HEAD)
 

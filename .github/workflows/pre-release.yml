@@ -44,6 +44,11 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Nim
+        uses: iffy/install-nim@v5
+        with:
+          version: binary:2.2.4
+
       - name: prep variables
         id: vars
         run: |
@@ -66,7 +71,7 @@ jobs:
           make QUICK_AND_DIRTY_COMPILER=1 V=1 CI=false NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
             update
 
-          make QUICK_AND_DIRTY_COMPILER=1 V=1 CI=false\
+          make QUICK_AND_DIRTY_COMPILER=1 V=1 CI=false USE_LIBBACKTRACE=0\
             NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" \
             wakunode2\
             chat2\

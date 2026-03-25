@@ -56,31 +56,47 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     name: build-${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Get submodules hash
-        id: submodules
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        uses: actions/cache@v3
+      - name: Install Nim
+        uses: iffy/install-nim@v5
         with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+          version: binary:2.2.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache nimble packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nimble/pkgs2
+          key: ${{ runner.os }}-nimble-${{ hashFiles('nimble.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-nimble-
 
       - name: Make update
         run: make update
 
+      - name: Debug nimble.paths
+        run: |
+          echo "=== Nim version ==="
+          nim --version
+          echo "=== nimble version ==="
+          nimble --version
+          echo "=== nimble.paths content ==="
+          cat nimble.paths || echo "nimble.paths not found"
+          echo "=== Check for empty paths ==="
+          grep -n '""' nimble.paths || echo "No empty paths found"
+          grep -n '^--path:$' nimble.paths || echo "No empty --path: entries"
+          echo "=== Verify nimcrypto is in paths ==="
+          grep -c nimcrypto nimble.paths || echo "WARNING: nimcrypto not found in nimble.paths!"
+
       - name: Build binaries
-        run: make V=1 QUICK_AND_DIRTY_COMPILER=1 all
+        run: make V=1 QUICK_AND_DIRTY_COMPILER=1 USE_LIBBACKTRACE=0 all
 
   build-windows:
     needs: changes
@@ -97,28 +113,38 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     name: test-${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Get submodules hash
-        id: submodules
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        uses: actions/cache@v3
+      - name: Install Nim
+        uses: iffy/install-nim@v5
         with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+          version: binary:2.2.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache nimble packages
+        uses: actions/cache@v4
+        with:
+          path: ~/.nimble/pkgs2
+          key: ${{ runner.os }}-nimble-${{ hashFiles('nimble.lock') }}
+          restore-keys: |
+            ${{ runner.os }}-nimble-
 
       - name: Make update
         run: make update
+
+      - name: Verify nimble.paths
+        run: |
+          echo "=== nimble.paths content ==="
+          cat nimble.paths || { echo "ERROR: nimble.paths not found!"; exit 1; }
+          echo "=== Verify critical dependencies ==="
+          grep -q nimcrypto nimble.paths || { echo "ERROR: nimcrypto not in paths!"; exit 1; }
+          grep -q libp2p nimble.paths || { echo "ERROR: libp2p not in paths!"; exit 1; }
 
       - name: Run tests
         run: |
@@ -126,10 +152,13 @@ jobs:
           if [ ${{ runner.os }} == "Linux" ]; then
             sudo docker run --rm -d -e POSTGRES_PASSWORD=test123 -p 5432:5432 postgres:15.4-alpine3.18
             postgres_enabled=1
+            # Disable march=native on Linux to avoid potential nimcrypto SHA2 issues
+            export NIMFLAGS="--colors:off -d:chronicles_colors:none -d:disableMarchNative"
+          else
+            export NIMFLAGS="--colors:off -d:chronicles_colors:none"
           fi
 
           export MAKEFLAGS="-j1"
-          export NIMFLAGS="--colors:off -d:chronicles_colors:none"
           export USE_LIBBACKTRACE=0
 
           make V=1 LOG_LEVEL=DEBUG QUICK_AND_DIRTY_COMPILER=1 POSTGRES=$postgres_enabled test
@@ -138,7 +167,7 @@ jobs:
   build-docker-image:
     needs: changes
     if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' || needs.changes.outputs.docker == 'true' }}
-    uses: logos-messaging/logos-delivery/.github/workflows/container-image.yml@10dc3d3eb4b6a3d4313f7b2cc4a85a925e9ce039
+    uses: ./.github/workflows/container-image.yml
     secrets: inherit
 
   nwaku-nwaku-interop-tests:
@@ -171,18 +200,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Get submodules hash
-        id: submodules
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
-        uses: actions/cache@v3
+      - name: Install Nim
+        uses: iffy/install-nim@v5
         with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+          version: binary:2.2.4
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Build nph
         run: |
