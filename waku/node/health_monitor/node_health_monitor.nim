@@ -21,6 +21,7 @@ import
     node/health_monitor/health_report,
     node/health_monitor/connection_status,
     node/health_monitor/protocol_health,
+    requests/health_requests,
   ]
 
 ## This module is aimed to check the state of the "self" Waku Node
@@ -207,27 +208,13 @@ proc getFilterClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.FilterClientProtocol] = 0
     return p.notMounted()
 
-  if isNil(hm.node.wakuRelay) and hm.node.edgeFilterSubStates.len > 0:
-    var minPeers = high(int)
-    var maxPeers = 0
-
-    for state in hm.node.edgeFilterSubStates.values:
-      minPeers = min(minPeers, state.peers.len)
-      maxPeers = max(maxPeers, state.peers.len)
-
-    var strength = 0
-    if maxPeers == 0:
-      strength = 0
-    elif minPeers >= HealthyThreshold:
-      strength = HealthyThreshold
-    else:
-      strength = 1
-
-    hm.strength[WakuProtocol.FilterClientProtocol] = strength
-
-    if strength > 0:
-      return p.ready()
-    return p.notReady("No confirmed filter subscriptions yet")
+  if isNil(hm.node.wakuRelay):
+    let edgeRes = RequestEdgeFilterPeerCount.request(hm.node.brokerCtx)
+    if edgeRes.isOk():
+      let peerCount = edgeRes.get().peerCount
+      if peerCount > 0:
+        hm.strength[WakuProtocol.FilterClientProtocol] = peerCount
+        return p.ready()
 
   let peerCount = countCapablePeers(hm, WakuFilterSubscribeCodec)
   hm.strength[WakuProtocol.FilterClientProtocol] = peerCount

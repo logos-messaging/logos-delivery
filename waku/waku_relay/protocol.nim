@@ -23,7 +23,6 @@ import
   waku/node/health_monitor/topic_health,
   waku/requests/health_requests,
   waku/events/health_events,
-  waku/events/delivery_events,
   ./message_id,
   waku/common/broker/broker_context,
   waku/events/peer_events
@@ -630,10 +629,6 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   w.topicHealthDirty.incl(pubsubTopic)
   w.topicHealthUpdateEvent.fire()
 
-  OnRelaySubscribeEvent.emit(
-    w.brokerCtx, OnRelaySubscribeEvent(pubsubTopic: pubsubTopic)
-  )
-
 proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   ## Unsubscribe all handlers on this pubsub topic
 
@@ -644,10 +639,6 @@ proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicHandlers.del(pubsubTopic)
   w.topicsHealth.del(pubsubTopic)
   w.topicHealthDirty.excl(pubsubTopic)
-
-  OnRelayUnsubscribeEvent.emit(
-    w.brokerCtx, OnRelayUnsubscribeEvent(pubsubTopic: pubsubTopic)
-  )
 
 proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   if not w.topicValidator.hasKey(pubsubTopic):
@@ -675,10 +666,6 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   w.topicHandlers.del(pubsubTopic)
   w.topicsHealth.del(pubsubTopic)
   w.topicHealthDirty.excl(pubsubTopic)
-
-  OnRelayUnsubscribeEvent.emit(
-    w.brokerCtx, OnRelayUnsubscribeEvent(pubsubTopic: pubsubTopic)
-  )
 
 proc publish*(
     w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage

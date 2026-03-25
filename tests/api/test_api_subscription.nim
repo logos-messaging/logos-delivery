@@ -14,6 +14,7 @@ import
     events/message_events,
     waku_relay/protocol,
     node/kernel_api/filter,
+    node/delivery_service/subscription_manager,
   ]
 import waku/factory/waku_conf
 import tools/confutils/cli_args
@@ -166,10 +167,10 @@ proc waitForMesh(node: WakuNode, shard: PubsubTopic) {.async.} =
     await sleepAsync(100.milliseconds)
   raise newException(ValueError, "GossipSub Mesh failed to stabilize on " & shard)
 
-proc waitForEdgeSubs(node: WakuNode, shard: PubsubTopic) {.async.} =
+proc waitForEdgeSubs(w: Waku, shard: PubsubTopic) {.async.} =
+  let sm = w.deliveryService.subscriptionManager
   for _ in 0 ..< 50:
-    if node.edgeFilterSubStates.hasKey(shard) and
-        node.edgeFilterSubStates[shard].peers.len > 0:
+    if sm.edgeFilterPeerCount(shard) > 0:
       return
     await sleepAsync(100.milliseconds)
   raise newException(ValueError, "Edge filter subscription failed on " & shard)
@@ -191,7 +192,7 @@ proc publishToMeshAfterEdgeReady(
   # First, ensure "subscriber" node (an edge node) is subscribed and ready to receive.
   # Afterwards, "publisher" (relay node) sends the message in the gossipsub network.
   let shard = net.subscriber.node.getRelayShard(contentTopic)
-  await waitForEdgeSubs(net.subscriber.node, shard)
+  await waitForEdgeSubs(net.subscriber, shard)
   return await net.publishToMesh(contentTopic, payload)
 
 suite "Messaging API, SubscriptionManager":
@@ -512,7 +513,7 @@ suite "Messaging API, SubscriptionManager":
     (await net.subscriber.subscribe(topicB)).expect("failed to sub B")
 
     let shard = net.subscriber.node.getRelayShard(topicA)
-    await waitForEdgeSubs(net.subscriber.node, shard)
+    await waitForEdgeSubs(net.subscriber, shard)
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
@@ -632,12 +633,11 @@ suite "Messaging API, SubscriptionManager":
 
     # Wait for dialing both filter servers (HealthyThreshold = 2)
     for _ in 0 ..< 100:
-      if subscriber.node.edgeFilterSubStates.hasKey(shard) and
-          subscriber.node.edgeFilterSubStates[shard].peers.len >= 2:
+      if subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2:
         break
       await sleepAsync(100.milliseconds)
 
-    check subscriber.node.edgeFilterSubStates[shard].peers.len >= 2
+    check subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2
 
     # Verify message delivery with both servers alive
     await waitForMesh(publisher, shard)
@@ -660,11 +660,11 @@ suite "Messaging API, SubscriptionManager":
 
     # Wait for the dead peer to be pruned
     for _ in 0 ..< 50:
-      if subscriber.node.edgeFilterSubStates[shard].peers.len < 2:
+      if subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) < 2:
         break
       await sleepAsync(100.milliseconds)
 
-    check subscriber.node.edgeFilterSubStates[shard].peers.len >= 1
+    check subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 1
 
     # Verify messages still arrive through the surviving filter server (publisher)
     eventManager = newReceiveEventListenerManager(subscriber.brokerCtx, 1)
@@ -771,23 +771,21 @@ suite "Messaging API, SubscriptionManager":
 
     # Wait for 2 confirmed peers (HealthyThreshold). The 3rd is available but not dialed.
     for _ in 0 ..< 100:
-      if subscriber.node.edgeFilterSubStates.hasKey(shard) and
-          subscriber.node.edgeFilterSubStates[shard].peers.len >= 2:
+      if subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2:
         break
       await sleepAsync(100.milliseconds)
 
-    require subscriber.node.edgeFilterSubStates[shard].peers.len == 2
+    require subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) == 2
 
     await subscriber.node.disconnectNode(meshBuddyPeerInfo)
 
     # Wait for the sub loop to detect the loss and dial a replacement
     for _ in 0 ..< 100:
-      if subscriber.node.edgeFilterSubStates.hasKey(shard) and
-          subscriber.node.edgeFilterSubStates[shard].peers.len >= 2:
+      if subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2:
         break
       await sleepAsync(100.milliseconds)
 
-    check subscriber.node.edgeFilterSubStates[shard].peers.len >= 2
+    check subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2
 
     await waitForMesh(publisher, shard)
 

@@ -154,10 +154,6 @@ proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionManager): T =
     recentReceivedMsgs: @[],
   )
 
-  # TODO: For MAPI Edge support, either call node.wakuFilterClient.registerPushHandler
-  #       so that the RecvService listens to incoming filter messages,
-  #       or have the filter client emit MessageSeenEvent.
-
   return recvService
 
 proc loopPruneOldMessages(self: RecvService) {.async.} =

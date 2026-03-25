@@ -14,6 +14,7 @@ import
     node/health_monitor/protocol_health,
     node/health_monitor/topic_health,
     node/health_monitor/node_health_monitor,
+    node/delivery_service/delivery_service,
     node/delivery_service/subscription_manager,
     node/kernel_api/relay,
     node/kernel_api/store,
@@ -311,8 +312,9 @@ suite "Health Monitor - events":
 
     await nodeA.start()
 
-    let subMgr = SubscriptionManager.new(nodeA)
-    subMgr.startSubscriptionManager()
+    let ds = DeliveryService.new(false, nodeA).expect("Failed to create DeliveryService")
+    ds.startDeliveryService()
+    let subMgr = ds.subscriptionManager
 
     let
       nodeBKey = generateSecp256k1Key()
@@ -395,7 +397,7 @@ suite "Health Monitor - events":
     EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
 
     check shardHealthOk == true
-    check nodeA.edgeFilterSubStates.len > 0
+    check subMgr.edgeFilterSubStates.len > 0
 
     healthSignal.clear()
     deadline = Moment.now() + TestConnectivityTimeLimit
@@ -407,7 +409,7 @@ suite "Health Monitor - events":
 
     check lastStatus == ConnectionStatus.PartiallyConnected
 
-    await subMgr.stopSubscriptionManager()
+    await ds.stopDeliveryService()
     await monitorA.stopHealthMonitor()
     await nodeB.stop()
     await nodeA.stop()

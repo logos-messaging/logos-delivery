@@ -1,4 +1,5 @@
 import std/[sets, tables, options, strutils], chronos, chronicles, results
+import libp2p/peerinfo
 import
   waku/[
     waku_core,
@@ -7,24 +8,47 @@ import
     waku_node,
     waku_relay,
     common/broker/broker_context,
-    events/delivery_events,
+    events/peer_events,
     requests/delivery_requests,
+    node/health_monitor/topic_health,
+    node/health_monitor/connection_status,
   ]
 
+type EdgeFilterSubState* = object
+  peers*: seq[RemotePeerInfo]
+    ## Filter service peers with confirmed subscriptions on this shard.
+  pending*: seq[Future[void]]
+    ## In-flight dial futures for peers not yet confirmed.
+  currentHealth*: TopicHealth
+    ## Cached health derived from peers.len; updated on every peer set change.
+
+func toTopicHealth*(peersCount: int): TopicHealth =
+  if peersCount >= HealthyThreshold:
+    TopicHealth.SUFFICIENTLY_HEALTHY
+  elif peersCount > 0:
+    TopicHealth.MINIMALLY_HEALTHY
+  else:
+    TopicHealth.UNHEALTHY
+
 type SubscriptionManager* = ref object of RootObj
-  node: WakuNode
+  node*: WakuNode
   contentTopicSubs: Table[PubsubTopic, HashSet[ContentTopic]]
     ## Map of Shard to ContentTopic needed because e.g. WakuRelay is PubsubTopic only.
     ## A present key with an empty HashSet value means pubsubtopic already subscribed
     ## (via subscribePubsubTopics()) but there's no specific content topic interest yet.
-  filterSubListener: OnFilterSubscribeEventListener
-    ## Broker-generated listener for OnFilterSubscribeEvent (emitted by WakuFilterClient).
-  filterUnsubListener: OnFilterUnSubscribeEventListener
-    ## Broker-generated listener for OnFilterUnSubscribeEvent (emitted by WakuFilterClient).
-  relaySubListener: OnRelaySubscribeEventListener
-    ## Broker-generated listener for OnRelaySubscribeEvent (emitted by WakuRelay).
-  relayUnsubListener: OnRelayUnsubscribeEventListener
-    ## Broker-generated listener for OnRelayUnsubscribeEvent (emitted by WakuRelay).
+  edgeFilterSubStates*: Table[PubsubTopic, EdgeFilterSubState]
+    ## Per-shard filter subscription state for edge mode.
+  edgeFilterWakeup*: AsyncEvent
+    ## Signalled when the edge filter sub loop should re-reconcile.
+  edgeFilterSubLoopFut*: Future[void]
+  edgeFilterHealthLoopFut*: Future[void]
+  peerEventListener*: WakuPeerEventListener
+    ## Listener for peer connect/disconnect events (edge filter wakeup).
+
+proc edgeFilterPeerCount*(sm: SubscriptionManager, shard: PubsubTopic): int =
+  sm.edgeFilterSubStates.withValue(shard, state):
+    return state.peers.len
+  return 0
 
 proc new*(T: typedesc[SubscriptionManager], node: WakuNode): T =
   SubscriptionManager(
@@ -44,8 +68,8 @@ proc addContentTopicInterest(
       cTopics[].incl(topic)
       changed = true
 
-  if changed:
-    self.node.notifySubscriptionsChanged()
+  if changed and not isNil(self.edgeFilterWakeup):
+    self.edgeFilterWakeup.fire()
 
   return ok()
 
@@ -61,8 +85,8 @@ proc removeContentTopicInterest(
       if cTopics[].len == 0 and isNil(self.node.wakuRelay):
         self.contentTopicSubs.del(shard) # We're done with cTopics here
 
-  if changed:
-    self.node.notifySubscriptionsChanged()
+  if changed and not isNil(self.edgeFilterWakeup):
+    self.edgeFilterWakeup.fire()
 
   return ok()
 
@@ -110,47 +134,11 @@ proc startSubscriptionManager*(self: SubscriptionManager) =
   ).isOkOr:
     error "Failed to set provider for RequestActiveSubscriptions", error = error
 
-  self.filterSubListener = OnFilterSubscribeEvent.listen(
-    self.node.brokerCtx,
-    proc(evt: OnFilterSubscribeEvent): Future[void] {.async: (raises: []), gcsafe.} =
-      for topic in evt.contentTopics:
-        discard self.addContentTopicInterest(evt.pubsubTopic, topic),
-  ).valueOr:
-    error "Failed to listen to OnFilterSubscribeEvent: ", error = error
-    return
-
-  self.filterUnsubListener = OnFilterUnSubscribeEvent.listen(
-    self.node.brokerCtx,
-    proc(evt: OnFilterUnSubscribeEvent): Future[void] {.async: (raises: []), gcsafe.} =
-      for topic in evt.contentTopics:
-        discard self.removeContentTopicInterest(evt.pubsubTopic, topic),
-  ).valueOr:
-    error "Failed to listen to OnFilterUnSubscribeEvent: ", error = error
-    return
-
-  self.relaySubListener = OnRelaySubscribeEvent.listen(
-    self.node.brokerCtx,
-    proc(evt: OnRelaySubscribeEvent): Future[void] {.async: (raises: []), gcsafe.} =
-      if not self.contentTopicSubs.hasKey(evt.pubsubTopic):
-        self.contentTopicSubs[evt.pubsubTopic] = initHashSet[ContentTopic]()
-    ,
-  ).valueOr:
-    error "Failed to listen to OnRelaySubscribeEvent: ", error = error
-    return
-
-  self.relayUnsubListener = OnRelayUnsubscribeEvent.listen(
-    self.node.brokerCtx,
-    proc(evt: OnRelayUnsubscribeEvent): Future[void] {.async: (raises: []), gcsafe.} =
-      self.contentTopicSubs.del(evt.pubsubTopic),
-  ).valueOr:
-    error "Failed to listen to OnRelayUnsubscribeEvent: ", error = error
-    return
-
   if isNil(self.node.wakuRelay):
     return
 
   if self.node.wakuAutoSharding.isSome():
-    # Subscribe relay to all shards in autosharding.
+    # Core mode: auto-subscribe relay to all shards in autosharding.
     let autoSharding = self.node.wakuAutoSharding.get()
     let clusterId = autoSharding.clusterId
     let numShards = autoSharding.shardCountGenZero
@@ -168,10 +156,6 @@ proc startSubscriptionManager*(self: SubscriptionManager) =
     info "SubscriptionManager has no AutoSharding configured; skipping auto-subscribe."
 
 proc stopSubscriptionManager*(self: SubscriptionManager) {.async.} =
-  OnFilterSubscribeEvent.dropListener(self.node.brokerCtx, self.filterSubListener)
-  OnFilterUnSubscribeEvent.dropListener(self.node.brokerCtx, self.filterUnsubListener)
-  OnRelaySubscribeEvent.dropListener(self.node.brokerCtx, self.relaySubListener)
-  OnRelayUnsubscribeEvent.dropListener(self.node.brokerCtx, self.relayUnsubListener)
   RequestActiveSubscriptions.clearProvider(self.node.brokerCtx)
 
 proc getShardForContentTopic(
