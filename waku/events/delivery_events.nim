@@ -33,4 +33,3 @@ EventBroker:
 EventBroker:
   type OnRelayUnsubscribeEvent* = object
     pubsubTopic*: string
-
