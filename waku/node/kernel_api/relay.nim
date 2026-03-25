@@ -24,7 +24,6 @@ import
     waku_core,
     waku_core/topics/sharding,
     waku_filter_v2,
-    waku_archive_legacy,
     waku_archive,
     waku_store_sync,
     waku_rln_relay,
@@ -81,11 +80,6 @@ proc registerRelayHandler(
     await node.wakuFilter.handleMessage(topic, msg)
 
   proc archiveHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
-    if not node.wakuLegacyArchive.isNil():
-      ## we try to store with legacy archive
-      await node.wakuLegacyArchive.handleMessage(topic, msg)
-      return
-
     if node.wakuArchive.isNil():
       return
 

@@ -14,7 +14,6 @@ import
   waku/[
     waku_core/topics/pubsub_topic,
     waku_core/topics/sharding,
-    waku_store_legacy/common,
     node/waku_node,
     node/kernel_api,
     common/paging,
@@ -454,29 +453,33 @@ suite "Sharding":
 
         # Given one query for each content topic format
         let
-          historyQuery1 = HistoryQuery(
+          storeQuery1 = StoreQueryRequest(
             contentTopics: @[contentTopicShort],
-            direction: PagingDirection.Forward,
-            pageSize: 3,
+            paginationForward: PagingDirection.Forward,
+            paginationLimit: some(3'u64),
+            includeData: true,
           )
-          historyQuery2 = HistoryQuery(
+          storeQuery2 = StoreQueryRequest(
             contentTopics: @[contentTopicFull],
-            direction: PagingDirection.Forward,
-            pageSize: 3,
+            paginationForward: PagingDirection.Forward,
+            paginationLimit: some(3'u64),
+            includeData: true,
           )
 
         # When the client queries the server for the messages
         let
           serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
-          queryResponse1 = await client.query(historyQuery1, serverRemotePeerInfo)
-          queryResponse2 = await client.query(historyQuery2, serverRemotePeerInfo)
+          queryResponse1 = await client.query(storeQuery1, serverRemotePeerInfo)
+          queryResponse2 = await client.query(storeQuery2, serverRemotePeerInfo)
         assertResultOk(queryResponse1)
         assertResultOk(queryResponse2)
 
         # Then the responses of both queries should contain all the messages
         check:
-          queryResponse1.get().messages == archiveMessages1 & archiveMessages2
-          queryResponse2.get().messages == archiveMessages1 & archiveMessages2
+          queryResponse1.get().messages.mapIt(it.message.get()) ==
+            archiveMessages1 & archiveMessages2
+          queryResponse2.get().messages.mapIt(it.message.get()) ==
+            archiveMessages1 & archiveMessages2
 
       asyncTest "relay - exclusion (automatic sharding filtering)":
         # Given a connected server and client subscribed to different content topics
@@ -615,29 +618,31 @@ suite "Sharding":
 
         # Given one query for each content topic
         let
-          historyQuery1 = HistoryQuery(
+          storeQuery1 = StoreQueryRequest(
             contentTopics: @[contentTopic1],
-            direction: PagingDirection.Forward,
-            pageSize: 2,
+            paginationForward: PagingDirection.Forward,
+            paginationLimit: some(2'u64),
+            includeData: true,
           )
-          historyQuery2 = HistoryQuery(
+          storeQuery2 = StoreQueryRequest(
             contentTopics: @[contentTopic2],
-            direction: PagingDirection.Forward,
-            pageSize: 2,
+            paginationForward: PagingDirection.Forward,
+            paginationLimit: some(2'u64),
+            includeData: true,
           )
 
         # When the client queries the server for the messages
         let
           serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
-          queryResponse1 = await client.query(historyQuery1, serverRemotePeerInfo)
-          queryResponse2 = await client.query(historyQuery2, serverRemotePeerInfo)
+          queryResponse1 = await client.query(storeQuery1, serverRemotePeerInfo)
+          queryResponse2 = await client.query(storeQuery2, serverRemotePeerInfo)
         assertResultOk(queryResponse1)
         assertResultOk(queryResponse2)
 
         # Then each response should contain only the messages of the corresponding content topic
         check:
-          queryResponse1.get().messages == archiveMessages1
-          queryResponse2.get().messages == archiveMessages2
+          queryResponse1.get().messages.mapIt(it.message.get()) == archiveMessages1
+          queryResponse2.get().messages.mapIt(it.message.get()) == archiveMessages2
 
   suite "Specific Tests":
     asyncTest "Configure Node with Multiple PubSub Topics":
@@ -1003,22 +1008,28 @@ suite "Sharding":
 
       # Given one query for each pubsub topic
       let
-        historyQuery1 = HistoryQuery(
-          pubsubTopic: some(topic1), direction: PagingDirection.Forward, pageSize: 2
+        storeQuery1 = StoreQueryRequest(
+          pubsubTopic: some(topic1),
+          paginationForward: PagingDirection.Forward,
+          paginationLimit: some(2'u64),
+          includeData: true,
         )
-        historyQuery2 = HistoryQuery(
-          pubsubTopic: some(topic2), direction: PagingDirection.Forward, pageSize: 2
+        storeQuery2 = StoreQueryRequest(
+          pubsubTopic: some(topic2),
+          paginationForward: PagingDirection.Forward,
+          paginationLimit: some(2'u64),
+          includeData: true,
         )
 
       # When the client queries the server for the messages
       let
         serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
-        queryResponse1 = await client.query(historyQuery1, serverRemotePeerInfo)
-        queryResponse2 = await client.query(historyQuery2, serverRemotePeerInfo)
+        queryResponse1 = await client.query(storeQuery1, serverRemotePeerInfo)
+        queryResponse2 = await client.query(storeQuery2, serverRemotePeerInfo)
       assertResultOk(queryResponse1)
       assertResultOk(queryResponse2)
 
       # Then each response should contain only the messages of the corresponding pubsub topic
       check:
-        queryResponse1.get().messages == archiveMessages1[0 ..< 1]
-        queryResponse2.get().messages == archiveMessages2[0 ..< 1]
+        queryResponse1.get().messages.mapIt(it.message.get()) == archiveMessages1[0 ..< 1]
+        queryResponse2.get().messages.mapIt(it.message.get()) == archiveMessages2[0 ..< 1]

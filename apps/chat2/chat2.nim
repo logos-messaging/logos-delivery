@@ -36,7 +36,6 @@ import
     waku_lightpush_legacy/rpc,
     waku_enr,
     discovery/waku_dnsdisc,
-    waku_store_legacy,
     waku_node,
     node/waku_metrics,
     node/peer_manager,

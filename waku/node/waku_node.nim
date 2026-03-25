@@ -32,10 +32,6 @@ import
     waku_core/topics/sharding,
     waku_relay,
     waku_archive,
-    waku_archive_legacy,
-    waku_store_legacy/protocol as legacy_store,
-    waku_store_legacy/client as legacy_store_client,
-    waku_store_legacy/common as legacy_store_common,
     waku_store/protocol as store,
     waku_store/client as store_client,
     waku_store/common as store_common,
@@ -116,9 +112,6 @@ type
     switch*: Switch
     wakuRelay*: WakuRelay
     wakuArchive*: waku_archive.WakuArchive
-    wakuLegacyArchive*: waku_archive_legacy.WakuArchive
-    wakuLegacyStore*: legacy_store.WakuStore
-    wakuLegacyStoreClient*: legacy_store_client.WakuStoreClient
     wakuStore*: store.WakuStore
     wakuStoreClient*: store_client.WakuStoreClient
     wakuStoreResume*: StoreResume

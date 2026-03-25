@@ -97,7 +97,6 @@ suite "Waku v2 REST API - health":
       report.getHealth(LegacyLightpushProtocol).health == HealthStatus.NOT_MOUNTED
       report.getHealth(FilterProtocol).health == HealthStatus.NOT_MOUNTED
       report.getHealth(StoreProtocol).health == HealthStatus.NOT_MOUNTED
-      report.getHealth(LegacyStoreProtocol).health == HealthStatus.NOT_MOUNTED
       report.getHealth(PeerExchangeProtocol).health == HealthStatus.NOT_MOUNTED
       report.getHealth(RendezvousProtocol).health == HealthStatus.NOT_MOUNTED
       report.getHealth(MixProtocol).health == HealthStatus.NOT_MOUNTED
@@ -108,7 +107,6 @@ suite "Waku v2 REST API - health":
 
       report.getHealth(LegacyLightpushClientProtocol).health == HealthStatus.NOT_MOUNTED
       report.getHealth(StoreClientProtocol).health == HealthStatus.NOT_MOUNTED
-      report.getHealth(LegacyStoreClientProtocol).health == HealthStatus.NOT_MOUNTED
 
       report.getHealth(FilterClientProtocol).health == HealthStatus.NOT_READY
       report.getHealth(FilterClientProtocol).desc ==
