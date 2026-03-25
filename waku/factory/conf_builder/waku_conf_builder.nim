@@ -356,7 +356,9 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
       warn "RLN Relay User Message Limit was provided alongside a network conf",
         used = networkConf.rlnRelayUserMessageLimit,
         discarded = builder.rlnRelayConf.userMessageLimit
-    builder.rlnRelayConf.withUserMessageLimit(networkConf.rlnRelayUserMessageLimit)
+    if builder.rlnRelayConf.userMessageLimit.get(0) == 0:
+      ## only override with the "preset" value if there was not explicit set value
+      builder.rlnRelayConf.withUserMessageLimit(networkConf.rlnRelayUserMessageLimit)
 
   # End Apply relay parameters
 
