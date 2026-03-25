@@ -1,3 +1,9 @@
+## v0.37.3 (2026-03-25)
+
+### Features
+
+- Allow override user-message-rate-limit ([#3778](https://github.com/logos-messaging/logos-delivery/pull/3778))
+
 ## v0.37.2 (2026-03-19)
 
 ### Features
