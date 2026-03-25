@@ -536,12 +536,17 @@ proc pingFilterPeer(
     filterClient: WakuFilterClient, peer: RemotePeerInfo
 ): Future[Option[PeerId]] {.async.} =
   let pingFut = filterClient.ping(peer)
-  let ok = await pingFut.withTimeout(EdgeFilterPingTimeout)
-  if ok and pingFut.read().isOk():
-    return some(peer.peerId)
-  else:
-    trace "Peer failed Filter Ping, evicting", peer = peer.peerId
+  if not await pingFut.withTimeout(EdgeFilterPingTimeout):
+    warn "Peer failed Filter Ping, evicting",
+      peer = peer.peerId, timeout = EdgeFilterPingTimeout
     return none(PeerId)
+
+  pingFut.read().isOkOr:
+    trace "Peer failed to read Filter Ping, evicting",
+      peer = peer.peerId, error = $error
+    return none(PeerId)
+
+  return some(peer.peerId)
 
 proc updateShardHealth(
     node: WakuNode, shard: PubsubTopic, state: var EdgeFilterSubState
