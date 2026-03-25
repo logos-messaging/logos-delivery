@@ -910,6 +910,12 @@ proc toNetworkConf(
 proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   var b = WakuConfBuilder.init()
 
+  let networkConf = toNetworkConf(n.preset, some(n.clusterId)).valueOr:
+    return err("Error determining cluster from preset: " & $error)
+
+  if networkConf.isSome():
+    b.withNetworkConf(networkConf.get())
+
   b.withLogLevel(n.logLevel)
   b.withLogFormat(n.logFormat)
 
@@ -937,12 +943,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.withProtectedShards(n.protectedShards)
   b.withClusterId(n.clusterId)
-
-  let networkConf = toNetworkConf(n.preset, some(n.clusterId)).valueOr:
-    return err("Error determining cluster from preset: " & $error)
-
-  if networkConf.isSome():
-    b.withNetworkConf(networkConf.get())
 
   b.withAgentString(n.agentString)
 
