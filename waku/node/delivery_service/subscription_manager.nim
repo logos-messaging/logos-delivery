@@ -18,9 +18,13 @@ type SubscriptionManager* = ref object of RootObj
     ## A present key with an empty HashSet value means pubsubtopic already subscribed
     ## (via subscribePubsubTopics()) but there's no specific content topic interest yet.
   filterSubListener: OnFilterSubscribeEventListener
+    ## Broker-generated listener for OnFilterSubscribeEvent (emitted by WakuFilterClient).
   filterUnsubListener: OnFilterUnSubscribeEventListener
+    ## Broker-generated listener for OnFilterUnSubscribeEvent (emitted by WakuFilterClient).
   relaySubListener: OnRelaySubscribeEventListener
+    ## Broker-generated listener for OnRelaySubscribeEvent (emitted by WakuRelay).
   relayUnsubListener: OnRelayUnsubscribeEventListener
+    ## Broker-generated listener for OnRelayUnsubscribeEvent (emitted by WakuRelay).
 
 proc new*(T: typedesc[SubscriptionManager], node: WakuNode): T =
   SubscriptionManager(
