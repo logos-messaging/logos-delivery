@@ -148,7 +148,7 @@ proc edgeFilterHealthLoop*(sm: SubscriptionManager) {.async.} =
   while sm.node.started:
     await sleepAsync(EdgeFilterLoopInterval)
 
-    if isNil(sm.node.wakuFilterClient):
+    if sm.node.wakuFilterClient.isNil():
       continue
 
     var connected = initTable[PeerId, RemotePeerInfo]()
