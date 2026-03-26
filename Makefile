@@ -18,6 +18,7 @@ endif
 # NIM binary location
 NIM_BINARY := $(shell which nim)
 NPH := $(CURDIR)/nimbledeps/bin/nph
+NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
 NIM_PARAMS ?=
@@ -62,11 +63,16 @@ endif
 waku.nims:
 	ln -s waku.nimble $@
 
-update: | waku.nims
+$(NIMBLEDEPS_STAMP): | waku.nims
 	git submodule update --init --recursive
 	nimble setup --localdeps
 	nimble install --depsOnly
 	$(MAKE) build-nph
+	touch $@
+
+update:
+	rm -f $(NIMBLEDEPS_STAMP)
+	$(MAKE) $(NIMBLEDEPS_STAMP)
 
 clean:
 	rm -rf build
@@ -191,55 +197,55 @@ testwaku: | build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble test
 
-wakunode2: | build deps librln
+wakunode2: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakunode2
 
-benchmarks: | build deps librln
+benchmarks: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble benchmarks
 
-testwakunode2: | build deps librln
+testwakunode2: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble testwakunode2
 
-example2: | build deps librln
+example2: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble example2
 
-chat2: | build deps librln
+chat2: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2
 
-chat2mix: | build deps librln
+chat2mix: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2mix
 
-rln-db-inspector: | build deps librln
+rln-db-inspector: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble rln_db_inspector
 
-chat2bridge: | build deps librln
+chat2bridge: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2bridge
 
-liteprotocoltester: | build deps librln
+liteprotocoltester: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble liteprotocoltester
 
-lightpushwithmix: | build deps librln
+lightpushwithmix: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble lightpushwithmix
 
-api_example: | build deps librln
+api_example: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) waku.nims
 
-build/%: | build deps librln
+build/%: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$*" && \
 		nimble buildone $*
 
-compile-test: | build deps librln
+compile-test: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "$(TEST_FILE)" "\"$(TEST_NAME)\"" && \
 		nimble buildTest $(TEST_FILE) && \
 		nimble execTest $(TEST_FILE) "\"$(TEST_NAME)\""
@@ -251,11 +257,11 @@ compile-test: | build deps librln
 
 tools: networkmonitor wakucanary
 
-wakucanary: | build deps librln
+wakucanary: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakucanary
 
-networkmonitor: | build deps librln
+networkmonitor: | build deps librln $(NIMBLEDEPS_STAMP)
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble networkmonitor
 
@@ -396,10 +402,10 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
-libwaku: |
+libwaku: | $(NIMBLEDEPS_STAMP)
 	nimble --verbose libwaku$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
-liblogosdelivery: |
+liblogosdelivery: | $(NIMBLEDEPS_STAMP)
 	nimble --verbose liblogosdelivery$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
 logosdelivery_example: | build liblogosdelivery
