@@ -120,7 +120,7 @@ proc dialFilterPeer(
       let ok = await subFut.withTimeout(EdgeFilterSubscribeTimeout)
 
       if not ok or subFut.read().isErr():
-        trace "dialFilterPeer: chunk subscribe failed or timed out",
+        debug "dialFilterPeer: chunk subscribe failed or timed out",
           shard = shard, peer = peer.peerId, ok = ok
         return
 
