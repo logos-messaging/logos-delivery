@@ -98,6 +98,11 @@ proc buildLibrary(outLibNameAndExt: string, libName: string, extra_params = "", 
   if not dirExists "build":
     mkDir "build"
 
+  var extra_params = extra_params
+  let nimParams = getEnv("NIM_PARAMS")
+  if nimParams.len > 0:
+    extra_params &= " " & nimParams
+
   if `type` == "static":
     exec "nim c" & " --out:build/" & outLibNameAndExt &
       " --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics" &
