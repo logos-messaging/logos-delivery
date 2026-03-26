@@ -24,6 +24,7 @@ const DefaultKademliaDiscoveryInterval* = chronos.seconds(10)
 type WakuKademlia* = ref object
   protocol*: KademliaDiscovery
   peerManager: PeerManager
+  loopInterval: Duration
   walkIntervalFut: Future[void]
 
 proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
@@ -128,6 +129,7 @@ proc new*(
     peerManager: PeerManager,
     bootstrapNodes: seq[(PeerId, seq[MultiAddress])],
     providedServices: var seq[ServiceInfo],
+    loopInterval: Duration = DefaultKademliaDiscoveryInterval,
 ): T =
   if bootstrapNodes.len == 0:
     debug "creating kademlia discovery as seed node (no bootstrap nodes)"
@@ -141,11 +143,11 @@ proc new*(
     services = providedServices,
   )
 
-  return WakuKademlia(protocol: kademlia, peerManager: peerManager)
+  return WakuKademlia(
+    protocol: kademlia, peerManager: peerManager, loopInterval: loopInterval
+  )
 
-proc start*(
-    self: WakuKademlia, interval: Duration = DefaultKademliaDiscoveryInterval
-) {.async.} =
+proc start*(self: WakuKademlia) {.async.} =
   if self.protocol.started:
     warn "Starting waku kad twice"
     return
@@ -154,7 +156,7 @@ proc start*(
 
   await self.protocol.start()
 
-  self.walkIntervalFut = self.runDiscoveryLoop(interval)
+  self.walkIntervalFut = self.runDiscoveryLoop(self.loopInterval)
 
   info "Waku Kademlia Started"
 
