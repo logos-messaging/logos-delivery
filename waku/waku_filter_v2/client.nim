@@ -101,9 +101,7 @@ proc sendSubscribeRequest(
   return ok()
 
 proc ping*(
-    wfc: WakuFilterClient,
-    servicePeer: RemotePeerInfo,
-    timeout = chronos.seconds(0),
+    wfc: WakuFilterClient, servicePeer: RemotePeerInfo, timeout = chronos.seconds(0)
 ): Future[FilterSubscribeResult] {.async.} =
   info "sending ping", servicePeer = shortLog($servicePeer)
   let requestId = generateRequestId(wfc.rng)
@@ -112,7 +110,9 @@ proc ping*(
   if timeout > chronos.seconds(0):
     let fut = wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
     if not await fut.withTimeout(timeout):
-      return err(FilterSubscribeError.parse(uint32(FilterSubscribeErrorKind.PEER_DIAL_FAILURE)))
+      return err(
+        FilterSubscribeError.parse(uint32(FilterSubscribeErrorKind.PEER_DIAL_FAILURE))
+      )
     return fut.read()
 
   return await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
