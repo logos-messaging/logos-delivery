@@ -402,10 +402,10 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
-libwaku: | $(NIMBLEDEPS_STAMP)
+libwaku: | librln $(NIMBLEDEPS_STAMP)
 	nimble --verbose libwaku$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
-liblogosdelivery: | $(NIMBLEDEPS_STAMP)
+liblogosdelivery: | librln $(NIMBLEDEPS_STAMP)
 	nimble --verbose liblogosdelivery$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
 logosdelivery_example: | build liblogosdelivery
