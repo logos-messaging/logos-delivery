@@ -7,7 +7,6 @@ import
   ./recv_service,
   ./send_service,
   ./subscription_manager,
-  ./edge_filter,
   waku/[
     waku_core,
     waku_node,
