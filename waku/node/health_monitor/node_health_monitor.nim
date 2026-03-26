@@ -215,6 +215,8 @@ proc getFilterClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
       if peerCount > 0:
         hm.strength[WakuProtocol.FilterClientProtocol] = peerCount
         return p.ready()
+    else:
+      error "Failed to request edge filter peer count", error = edgeRes.error
 
   let peerCount = countCapablePeers(hm, WakuFilterSubscribeCodec)
   hm.strength[WakuProtocol.FilterClientProtocol] = peerCount

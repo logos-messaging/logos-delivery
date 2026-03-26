@@ -14,6 +14,7 @@ import
     events/health_events,
     events/peer_events,
     requests/delivery_requests,
+    requests/health_requests,
     node/peer_manager,
     node/health_monitor/topic_health,
     node/health_monitor/connection_status,
@@ -147,6 +148,31 @@ proc startSubscriptionManager*(self: SubscriptionManager) =
   ).isOkOr:
     error "Failed to set provider for RequestActiveSubscriptions", error = error
 
+  # Register edge filter broker providers. The shard/content health providers
+  # in WakuNode query these via the broker as a fallback when relay health is
+  # not available. If edge mode is not active, these providers simply return
+  # NOT_SUBSCRIBED / strength 0, which is harmless.
+  RequestEdgeShardHealth.setProvider(
+    self.node.brokerCtx,
+    proc(shard: PubsubTopic): Result[RequestEdgeShardHealth, string] =
+      self.edgeFilterSubStates.withValue(shard, state):
+        return ok(RequestEdgeShardHealth(health: state.currentHealth))
+      return ok(RequestEdgeShardHealth(health: TopicHealth.NOT_SUBSCRIBED)),
+  ).isOkOr:
+    error "Can't set provider for RequestEdgeShardHealth", error = error
+
+  RequestEdgeFilterPeerCount.setProvider(
+    self.node.brokerCtx,
+    proc(): Result[RequestEdgeFilterPeerCount, string] =
+      var minPeers = high(int)
+      for state in self.edgeFilterSubStates.values:
+        minPeers = min(minPeers, state.peers.len)
+      if minPeers == high(int):
+        minPeers = 0
+      return ok(RequestEdgeFilterPeerCount(peerCount: minPeers)),
+  ).isOkOr:
+    error "Can't set provider for RequestEdgeFilterPeerCount", error = error
+
   if isNil(self.node.wakuRelay):
     return
 
@@ -170,6 +196,8 @@ proc startSubscriptionManager*(self: SubscriptionManager) =
 
 proc stopSubscriptionManager*(self: SubscriptionManager) {.async.} =
   RequestActiveSubscriptions.clearProvider(self.node.brokerCtx)
+  RequestEdgeShardHealth.clearProvider(self.node.brokerCtx)
+  RequestEdgeFilterPeerCount.clearProvider(self.node.brokerCtx)
 
 proc getShardForContentTopic(
     self: SubscriptionManager, topic: ContentTopic
