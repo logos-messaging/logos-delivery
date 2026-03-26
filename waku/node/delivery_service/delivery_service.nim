@@ -41,7 +41,7 @@ proc new*(
     )
   )
 
-proc startDeliveryService*(self: DeliveryService) =
+proc startDeliveryService*(self: DeliveryService): Result[void, string] =
   let sm = self.subscriptionManager
   let node = sm.node
 
@@ -72,9 +72,10 @@ proc startDeliveryService*(self: DeliveryService) =
 
   sm.startSubscriptionManager()
   if isNil(sm.node.wakuRelay):
-    sm.startEdgeFilterLoops()
+    ?sm.startEdgeFilterLoops()
   self.recvService.startRecvService()
   self.sendService.startSendService()
+  return ok()
 
 proc stopDeliveryService*(self: DeliveryService) {.async.} =
   if isNil(self.subscriptionManager.node.wakuRelay):

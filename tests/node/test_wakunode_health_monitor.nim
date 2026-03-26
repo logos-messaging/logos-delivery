@@ -314,7 +314,7 @@ suite "Health Monitor - events":
 
     let ds =
       DeliveryService.new(false, nodeA).expect("Failed to create DeliveryService")
-    ds.startDeliveryService()
+    ds.startDeliveryService().expect("Failed to start DeliveryService")
     let subMgr = ds.subscriptionManager
 
     let
