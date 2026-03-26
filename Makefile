@@ -17,7 +17,7 @@ endif
 
 # NIM binary location
 NIM_BINARY := $(shell which nim)
-NPH := $(shell dirname $(NIM_BINARY))/nph
+NPH := $(CURDIR)/nimbledeps/bin/nph
 
 # Compilation parameters
 NIM_PARAMS ?=
@@ -267,7 +267,7 @@ networkmonitor: | build deps librln
 build-nph: | build deps
 	nimble install nph@0.7.0 -y
 	echo "Check if nph utility is available:"
-	command -v nph
+	PATH="$(CURDIR)/nimbledeps/bin:$$PATH" command -v nph
 
 GIT_PRE_COMMIT_HOOK := .git/hooks/pre-commit
 
