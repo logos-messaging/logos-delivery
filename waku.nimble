@@ -4,7 +4,7 @@ import os
 mode = ScriptMode.Verbose
 
 ### Package
-version = "0.36.0"
+version = "0.37.2"
 author = "Status Research & Development GmbH"
 description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
@@ -23,12 +23,13 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/status-im/nim-libp2p.git#ff8d51857b4b79a68468e7bcc27b2026cca02996",
+  "libp2p",
   "eth",
   "nat_traversal",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
+  "websock",
   # Cryptography
   "nimcrypto",
   "secp256k1",
@@ -54,30 +55,29 @@ requires "nim >= 2.2.4",
   "testutils",
   "unittest2"
 
-# We use a custom branch to allow higher chronos versions, like nim-chronos 4.2.0
-requires "https://github.com/status-im/nim-websock.git#allow-high-chronos-versions"
-
 # Packages not on nimble (use git URLs)
-requires "https://github.com/vacp2p/nim-lsquic"
 requires "https://github.com/logos-messaging/nim-ffi"
 
 ### Helper functions
 proc buildModule(filePath, params = "", lang = "c"): bool =
   if not dirExists "build":
     mkDir "build"
-  # allow something like "nim nimbus --verbosity:0 --hints:off nimbus.nims"
+
   var extra_params = params
-  for i in 2 ..< paramCount() - 1:
-    extra_params &= " " & paramStr(i)
+
+  let nimParams = getEnv("NIM_PARAMS")
+  if nimParams.len > 0:
+    extra_params &= " " & nimParams
 
   if not fileExists(filePath):
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim " & lang & " --out:build/" & filepath & ".bin --mm:refc " & extra_params &
-    " " & filePath
+  exec "nim " & lang &
+       " --out:build/" & filePath & ".bin --mm:refc " &
+       " --path:nimble.paths " &
+       extra_params & " " & filePath
 
-  # exec will raise exception if anything goes wrong
   return true
 
 proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
@@ -283,24 +283,37 @@ task api_example, "Build api_example":
   buildBinary name, "examples/api_example/"
 
 task buildone, "Build custom target":
-  let filepath = paramStr(paramCount())
-  discard buildModule filepath
+  let args = commandLineParams()
+  if args.len == 0:
+    quit "Missing file path"
+
+  let filepath = args[^1]
+  discard buildModule(filepath)
 
 task buildTest, "Test custom target":
-  let filepath = paramStr(paramCount())
+  let args = commandLineParams()
+  if args.len == 0:
+    quit "Missing test file"
+
+  let filepath = args[^1]
   discard buildModule(filepath)
 
 import std/strutils
 
 task execTest, "Run test":
-  # Expects to be parameterized with test case name in quotes
-  # preceded with the nim source file name and path
-  # If no test case name is given still it requires empty quotes `""`
-  let filepath = paramStr(paramCount() - 1)
-  var testSuite = paramStr(paramCount()).strip(chars = {'\"'})
+  let args = commandLineParams()
+  if args.len == 0:
+    quit "Missing arguments"
+  # expects: <file> "<test name>"
+  let filepath =
+    if args.len >= 2: args[^2]
+    else: args[^1]
+  var testSuite =
+    if args.len >= 1: args[^1].strip(chars = {'\"'})
+    else: ""
   if testSuite != "":
     testSuite = " \"" & testSuite & "\""
-  exec "build/" & filepath & ".bin " & testSuite
+  exec "build/" & filepath & ".bin" & testSuite
 
 ### C Bindings
 let chroniclesParams =
@@ -321,8 +334,10 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
     mkDir outDir
 
   var extra_params = params
-  for i in 2 ..< paramCount():
-    extra_params &= " " & paramStr(i)
+
+  let args = commandLineParams()
+  for arg in args:
+    extra_params &= " " & arg
 
   exec "nim c" & " --out:" & outDir &
     "/libwaku.so --threads:on --app:lib --opt:size --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
@@ -362,8 +377,9 @@ proc buildMobileIOS(srcDir = ".", params = "") =
     mkDir outDir
 
   var extra_params = params
-  for i in 2 ..< paramCount():
-    extra_params &= " " & paramStr(i)
+  let args = commandLineParams()
+  for arg in args:
+    extra_params &= " " & arg
 
   let cpu = if iosArch == "arm64": "arm64" else: "amd64"
 

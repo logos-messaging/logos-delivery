@@ -75,18 +75,11 @@ clean:
 build:
 	mkdir -p build
 
-ifeq ($(OS),Windows_NT)
-  NIMBLE_DIR ?= $(USERPROFILE)/.nimble
-else
-  NIMBLE_DIR ?= $(HOME)/.nimble
-endif
-export NIMBLE_DIR
-
 nimble:
 	echo "Inside nimble target, checking for nimble..." && \
 	command -v nimble >/dev/null 2>&1 || { \
 		mv nimbledeps nimbledeps_backup 2>/dev/null || true; \
-		echo "choosenim not found, installing into $(NIMBLE_DIR)..."; \
+		echo "choosenim not found, installing ..."; \
 		curl -sSf https://nim-lang.org/choosenim/init.sh | sh; \
 		mv nimbledeps_backup nimbledeps 2>/dev/null || true; \
 	}
