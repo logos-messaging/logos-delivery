@@ -26,9 +26,7 @@ if defined(windows):
     # set the IMAGE_FILE_LARGE_ADDRESS_AWARE flag so we can use PAE, if enabled, and access more than 2 GiB of RAM
     switch("passL", "-Wl,--large-address-aware")
 
-  # The dynamic Chronicles output currently prevents us from using colors on Windows
-  # because these require direct manipulations of the stdout File object.
-  switch("define", "chronicles_colors=off")
+
 
 # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#ssse3-supplemental-sse3
 # suggests that SHA256 hashing with SSSE3 is 20% faster than without SSSE3, so
@@ -93,8 +91,6 @@ if defined(release):
 # for heap-usage-by-instance-type metrics and object base-type strings
 --define:
   nimTypeNames
-
-switch("define", "withoutPCRE")
 
 # the default open files limit is too low on macOS (512), breaking the
 # "--debugger:native" build. It can be increased with `ulimit -n 1024`.
