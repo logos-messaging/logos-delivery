@@ -6,14 +6,9 @@ import
   ./recv_service,
   ./send_service,
   ./subscription_manager,
-  waku/
-    [
-      waku_core,
-      waku_node,
-      waku_store/client,
-      waku_relay/protocol,
-      waku_lightpush/client,
-    ]
+  waku/[
+    waku_core, waku_node, waku_store/client, waku_relay/protocol, waku_lightpush/client
+  ]
 
 type DeliveryService* = ref object
   sendService*: SendService
