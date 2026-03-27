@@ -60,6 +60,12 @@ jobs:
 
     name: build-ci-${{ matrix.os }}
     steps:
+      - name: Clear cache
+        run: |
+          rm -rf ~/.cache/nim
+          rm -rf ~/.cache/nimble
+          rm -rf nimcache
+
       - name: Checkout code
         uses: actions/checkout@v4
 
@@ -83,7 +89,7 @@ jobs:
             nimbledeps/pkgs2
             ~/.cache
           key: nimble-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('waku.nimble') }}
-          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}-
+          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}
 
       - name: Make update
         run: make update
@@ -147,7 +153,7 @@ jobs:
             nimbledeps/pkgs2
             ~/.cache
           key: nimble-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('waku.nimble') }}
-          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}-
+          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}
 
       - name: Make update
         run: make update
