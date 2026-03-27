@@ -58,7 +58,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
 
-    name: build-${{ matrix.os }}
+    name: build-ci-${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -75,6 +75,15 @@ jobs:
         with:
           nimble-version: '0.20.1'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache nimble deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            nimbledeps/pkgs2
+            ~/.cache
+          key: nimble-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('waku.nimble') }}
+          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Make update
         run: make update
@@ -113,7 +122,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     timeout-minutes: 90
 
-    name: test-${{ matrix.os }}
+    name: test-ci-${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -130,6 +139,15 @@ jobs:
         with:
           nimble-version: '0.20.1'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Cache nimble deps
+        uses: actions/cache@v4
+        with:
+          path: |
+            nimbledeps/pkgs2
+            ~/.cache
+          key: nimble-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('waku.nimble') }}
+          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}-
 
       - name: Make update
         run: make update
