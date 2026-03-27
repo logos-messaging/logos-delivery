@@ -159,7 +159,6 @@ deps: | nimble
 
 LIBRLN_BUILDDIR := $(CURDIR)/vendor/zerokit
 LIBRLN_VERSION := v0.9.0
-HOST_ARCH := $(shell uname -m)
 
 ifeq ($(detected_OS),Windows)
 LIBRLN_FILE ?= rln.lib
@@ -408,10 +407,10 @@ else ifeq ($(detected_OS),Linux)
 endif
 
 libwaku: | librln $(NIMBLEDEPS_STAMP)
-	ARCH=$(HOST_ARCH) nimble --verbose libwaku$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
+	nimble --verbose libwaku$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
 liblogosdelivery: | librln $(NIMBLEDEPS_STAMP)
-	ARCH=$(HOST_ARCH) nimble --verbose liblogosdelivery$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
+	nimble --verbose liblogosdelivery$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
 logosdelivery_example: | build liblogosdelivery
 	@echo -e $(BUILD_MSG) "build/$@"

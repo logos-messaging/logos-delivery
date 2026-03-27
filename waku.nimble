@@ -120,12 +120,6 @@ proc buildLibrary(outLibNameAndExt: string, libName: string, extra_params = "", 
         " --nimMainPrefix:libwaku -d:discv5_protocol_id=d5waku " &
         extra_params & " " & libName & "/" & libName & ".nim"
 
-proc getArch(): string =
-  let arch = getEnv("ARCH")
-  if arch.len > 0: return arch
-  let (archFromUname, _) = gorgeEx("uname -m")
-  return archFromUname.strip()
-
 proc buildLibDynamicWindows(libName: string) =
   buildLibrary libName & ".dll", libName,
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
@@ -137,10 +131,13 @@ proc buildLibDynamicLinux(libName: string) =
     "dynamic"
 
 proc buildLibDynamicMac(libName: string) =
-  let arch = getArch()
   let sdkPath = staticExec("xcrun --show-sdk-path").strip()
-  let archFlags = (if arch == "arm64": "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
-                   else: "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\"")
+  when defined(arm64):
+    let archFlags = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+  elif defined(amd64):
+    let archFlags = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+  else:
+    {.error: "Unsupported macOS architecture".}
   buildLibrary libName & ".dylib", libName,
     archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
     "dynamic"
@@ -156,10 +153,13 @@ proc buildLibStaticLinux(libName: string) =
     "static"
 
 proc buildLibStaticMac(libName: string) =
-  let arch = getArch()
   let sdkPath = staticExec("xcrun --show-sdk-path").strip()
-  let archFlags = (if arch == "arm64": "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
-                   else: "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\"")
+  when defined(arm64):
+    let archFlags = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+  elif defined(amd64):
+    let archFlags = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" --passC:\"-isysroot " & sdkPath & "\" --passL:\"-isysroot " & sdkPath & "\""
+  else:
+    {.error: "Unsupported macOS architecture".}
   buildLibrary libName & ".a", libName,
     archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
     "static"
