@@ -11,7 +11,8 @@ import
   stew/byteutils
 import
   waku/
-    [node/peer_manager, waku_core, events/delivery_events, common/broker/broker_context],
+    [node/peer_manager, waku_core, events/delivery_events,
+     common/broker/broker_context],
   ./common,
   ./protocol_metrics,
   ./rpc_codec,
@@ -64,6 +65,7 @@ proc sendSubscribeRequest(
       "exception in waku_filter_v2 client writeLP: " & getCurrentExceptionMsg()
     trace "exception in waku_filter_v2 client writeLP", error = getCurrentExceptionMsg()
     waku_filter_errors.inc(labelValues = [errMsg])
+    wfc.peerManager.griefPeer(servicePeer.peerId, MinGriefScore) # stream error: transient
     return err(FilterSubscribeError.badResponse(errMsg))
 
   var respBuf: seq[byte]
@@ -74,11 +76,13 @@ proc sendSubscribeRequest(
       "exception in waku_filter_v2 client readLp: " & getCurrentExceptionMsg()
     trace "exception in waku_filter_v2 client readLp", error = getCurrentExceptionMsg()
     waku_filter_errors.inc(labelValues = [errMsg])
+    wfc.peerManager.griefPeer(servicePeer.peerId, MinGriefScore) # stream error: transient
     return err(FilterSubscribeError.badResponse(errMsg))
 
   let response = FilterSubscribeResponse.decode(respBuf).valueOr:
     trace "Failed to decode filter subscribe response", servicePeer
     waku_filter_errors.inc(labelValues = [decodeRpcFailure])
+    wfc.peerManager.griefPeer(servicePeer.peerId, MediumGriefScore) # decode failure: protocol violation
     return err(FilterSubscribeError.badResponse(decodeRpcFailure))
 
   # DOS protection rate limit checks does not know about request id
@@ -86,11 +90,13 @@ proc sendSubscribeRequest(
       response.requestId != filterSubscribeRequest.requestId:
     trace "Filter subscribe response requestId mismatch", servicePeer, response
     waku_filter_errors.inc(labelValues = [requestIdMismatch])
+    wfc.peerManager.griefPeer(servicePeer.peerId, HighGriefScore) # requestId mismatch: misbehavior
     return err(FilterSubscribeError.badResponse(requestIdMismatch))
 
   if response.statusCode != 200:
     trace "Filter subscribe error response", servicePeer, response
     waku_filter_errors.inc(labelValues = [errorResponse])
+    wfc.peerManager.griefPeer(servicePeer.peerId, LowGriefScore) # non-success response: rejection
     let cause =
       if response.statusDesc.isSome():
         response.statusDesc.get()
@@ -188,6 +194,7 @@ proc initProtocolHandler(wfc: WakuFilterClient) =
       let msgPush = MessagePush.decode(buf).valueOr:
         error "Failed to decode message push", peerId = conn.peerId, error = $error
         waku_filter_errors.inc(labelValues = [decodeRpcFailure])
+        wfc.peerManager.griefPeer(conn.peerId, MediumGriefScore) # decode failure: protocol violation
         return
 
       let msg_hash =

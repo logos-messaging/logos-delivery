@@ -43,6 +43,10 @@ type
   # Keeps track of peer shards
   ShardBook* = ref object of PeerBook[seq[uint16]]
 
+  # Keeps track of peer grief: (score, lastCooldownTime)
+  GriefData* = tuple[score: int, cooldownTime: Moment]
+  GriefBook* = ref object of PeerBook[GriefData]
+
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
   let addresses =
     if peerStore[LastSeenBook][peerId].isSome():
@@ -69,6 +73,8 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
     direction: peerStore[DirectionBook][peerId],
     lastFailedConn: peerStore[LastFailedConnBook][peerId],
     numberFailedConn: peerStore[NumberFailedConnBook][peerId],
+    griefScore: peerStore[GriefBook][peerId].score,
+    griefCooldownTime: peerStore[GriefBook][peerId].cooldownTime,
     mixPubKey:
       if peerStore[MixPubKeyBook][peerId] != default(Curve25519Key):
         some(peerStore[MixPubKeyBook][peerId])
@@ -143,6 +149,9 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
     peerStore[LastFailedConnBook].book.hasKeyOrPut(peer.peerId, peer.lastFailedConn)
   discard
     peerStore[NumberFailedConnBook].book.hasKeyOrPut(peer.peerId, peer.numberFailedConn)
+  discard peerStore[GriefBook].book.hasKeyOrPut(
+    peer.peerId, (score: peer.griefScore, cooldownTime: peer.griefCooldownTime)
+  )
   if peer.enr.isSome():
     peerStore[ENRBook][peer.peerId] = peer.enr.get()
 
@@ -241,3 +250,78 @@ template forEnrPeers*(
     let peerOrigin {.inject.} = sourceBook.book.getOrDefault(pid, UnknownOrigin)
     let peerEnrRecord {.inject.} = enrRecord
     body
+
+#~~~~~~~~~~~~~~~~~~#
+# Grief Management #
+#~~~~~~~~~~~~~~~~~~#
+
+const
+  # Each grief point represents this much cooldown time.
+  # A peer with grief score N will fully cool down after N * GriefCooldownInterval.
+  GriefCooldownInterval* = chronos.minutes(1)
+  GriefBucketSize* = 5 ## peers within this many points sort equally
+  MaxGriefBucket* = 3  ## peers in bucket > this are excluded from selection
+
+  MinGriefScore* = 1  ## stream errors, timeouts
+  LowGriefScore* = 2  ## non-success response codes
+  MediumGriefScore* = 3  ## decode failures, protocol violations
+  HighGriefScore* = 5 ## requestId mismatch, active misbehavior
+
+const defaultGriefData: GriefData = (score: 0, cooldownTime: Moment.init(0, Second))
+
+proc resolveGriefScore(
+    peerStore: PeerStore, peerId: PeerId,
+    now: Moment = Moment.init(0, Second)
+): int =
+  ## Lazily resolves the grief score for a peer by applying cooldown based on
+  ## elapsed time. Updates the stored score and cooldown time in place.
+  ## Returns the resolved (current) grief score.
+  ## Pass now for testing; default (0) uses the system clock.
+  var data = peerStore[GriefBook].book.getOrDefault(peerId, defaultGriefData)
+  if data.score <= 0:
+    return 0
+
+  let clock = if now == Moment.init(0, Second): Moment.now() else: now
+  let elapsed = clock - data.cooldownTime
+  let cooldowns = int(elapsed.minutes div GriefCooldownInterval.minutes)
+
+  if cooldowns > 0:
+    data.score = max(data.score - cooldowns, 0)
+    # Advance by exactly the consumed cooldown time, preserving remainder
+    data.cooldownTime =
+      data.cooldownTime + chronos.minutes(int64(cooldowns) * GriefCooldownInterval.minutes)
+    peerStore[GriefBook][peerId] = data
+
+  return data.score
+
+proc griefPeer*(
+    peerStore: PeerStore, peerId: PeerId, amount: int = 1,
+    now: Moment = Moment.init(0, Second)
+) =
+  ## Increases the grief score of a peer by the given amount.
+  ## If this is the first grief for a peer at score 0, initializes the cooldown time.
+  ## Pass now for testing; default (0) uses the system clock.
+  if amount <= 0:
+    return
+
+  let clock = if now == Moment.init(0, Second): Moment.now() else: now
+
+  # resolveGriefScore already wrote back the cooled-down data, so read it once
+  let currentScore = peerStore.resolveGriefScore(peerId, clock)
+  var data = peerStore[GriefBook].book.getOrDefault(peerId, defaultGriefData)
+
+  data.score += amount
+
+  # If peer was at 0 (no prior cooldown running), start cooldown from now
+  if currentScore == 0:
+    data.cooldownTime = clock
+
+  peerStore[GriefBook][peerId] = data
+
+proc getGriefScore*(
+    peerStore: PeerStore, peerId: PeerId,
+    now: Moment = Moment.init(0, Second)
+): int =
+  ## Returns the current grief score of a peer after applying cooldown.
+  ## Pass now for testing; default (0) uses the system clock.
+  return peerStore.resolveGriefScore(peerId, now)
