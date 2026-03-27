@@ -3,6 +3,10 @@ cd "$(dirname "$0")"
 MIXNET_DIR=$(pwd)
 cd ../..
 ROOT_DIR=$(pwd)
+source "$ROOT_DIR/env.sh"
+
+# Prefer explicitly provided RLN library path, otherwise use local migrated build.
+LIBRLN_PATH=${LIBRLN_PATH:-"/Users/prem/Code/mix-rln-spam-protection-plugin/librln.a"}
 
 # Clean up old files first
 rm -f "$MIXNET_DIR/rln_tree.db" "$MIXNET_DIR"/rln_keystore_*.json
@@ -10,7 +14,7 @@ rm -f "$MIXNET_DIR/rln_tree.db" "$MIXNET_DIR"/rln_keystore_*.json
 echo "Building and running credentials setup..."
 # Compile to temp location, then run from mixnet directory
 nim c -d:release --mm:refc \
-    --passL:"-L$ROOT_DIR/vendor/zerokit/target/release -lrln" \
+    --passL:"$LIBRLN_PATH" --passL:-lm \
     -o:/tmp/setup_credentials_$$ \
     "$MIXNET_DIR/setup_credentials.nim" 2>&1 | tail -30
 
