@@ -272,9 +272,13 @@ networkmonitor: | build deps librln $(NIMBLEDEPS_STAMP)
 .PHONY: build-nph install-nph clean-nph print-nph-path
 
 build-nph: | build deps
+ifneq ($(detected_OS),Windows)
 	nimble install nph@0.7.0 -y
 	echo "Check if nph utility is available:"
 	PATH="$(CURDIR)/nimbledeps/bin:$$PATH" command -v nph
+else
+	echo "Skipping nph build on Windows (nph is only used on Unix-like systems)"
+endif
 
 GIT_PRE_COMMIT_HOOK := .git/hooks/pre-commit
 
