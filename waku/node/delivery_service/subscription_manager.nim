@@ -277,12 +277,29 @@ proc updateShardHealth(
 proc removePeer(self: SubscriptionManager, shard: PubsubTopic, peerId: PeerId) =
   ## Remove a peer from edgeFilterSubStates for the given shard,
   ## update health, and wake the sub loop to dial a replacement.
+  ## Best-effort unsubscribe so the service peer stops pushing to us.
   self.edgeFilterSubStates.withValue(shard, state):
-    let oldLen = state.peers.len
+    var peer: RemotePeerInfo
+    var found = false
+    for p in state.peers:
+      if p.peerId == peerId:
+        peer = p
+        found = true
+        break
+    if not found:
+      return
+
     state.peers.keepItIf(it.peerId != peerId)
-    if state.peers.len < oldLen:
-      self.updateShardHealth(shard, state[])
-      self.edgeFilterWakeup.fire()
+    self.updateShardHealth(shard, state[])
+    self.edgeFilterWakeup.fire()
+
+    if not self.node.wakuFilterClient.isNil():
+      self.contentTopicSubs.withValue(shard, topics):
+        let ct = toSeq(topics[])
+        if ct.len > 0:
+          proc doUnsubscribe() {.async.} =
+            discard await self.node.wakuFilterClient.unsubscribe(peer, shard, ct)
+          asyncSpawn doUnsubscribe()
 
 proc syncFilterDeltas(
     self: SubscriptionManager,
