@@ -91,7 +91,7 @@ proc msgChecker(self: RecvService) {.async.} =
     self.endTimeToCheck = getNowInNanosecondTime()
 
     var msgHashesInStore = newSeq[WakuMessageHash](0)
-    for pubsubTopic, contentTopics in self.subscriptionManager.contentTopicSubs.pairs:
+    for pubsubTopic, contentTopics in self.subscriptionManager.subscribedTopics:
       let storeResp: StoreQueryResponse = (
         await self.node.wakuStoreClient.queryToAny(
           StoreQueryRequest(

@@ -28,11 +28,11 @@ import
 # ---------------------------------------------------------------------------
 
 type EdgeFilterSubState* = object
-  peers*: seq[RemotePeerInfo]
+  peers: seq[RemotePeerInfo]
     ## Filter service peers with confirmed subscriptions on this shard.
-  pending*: seq[Future[void]] ## In-flight dial futures for peers not yet confirmed.
-  pendingPeers*: HashSet[PeerId] ## PeerIds of peers currently being dialed.
-  currentHealth*: TopicHealth
+  pending: seq[Future[void]] ## In-flight dial futures for peers not yet confirmed.
+  pendingPeers: HashSet[PeerId] ## PeerIds of peers currently being dialed.
+  currentHealth: TopicHealth
     ## Cached health derived from peers.len; updated on every peer set change.
 
 func toTopicHealth*(peersCount: int): TopicHealth =
@@ -45,18 +45,24 @@ func toTopicHealth*(peersCount: int): TopicHealth =
 
 type SubscriptionManager* = ref object of RootObj
   node: WakuNode
-  contentTopicSubs*: Table[PubsubTopic, HashSet[ContentTopic]]
+  contentTopicSubs: Table[PubsubTopic, HashSet[ContentTopic]]
     ## Map of Shard to ContentTopic needed because e.g. WakuRelay is PubsubTopic only.
     ## A present key with an empty HashSet value means pubsubtopic already subscribed
     ## (via subscribePubsubTopics()) but there's no specific content topic interest yet.
   edgeFilterSubStates*: Table[PubsubTopic, EdgeFilterSubState]
     ## Per-shard filter subscription state for edge mode.
-  edgeFilterWakeup*: AsyncEvent
+  edgeFilterWakeup: AsyncEvent
     ## Signalled when the edge filter sub loop should re-reconcile.
-  edgeFilterSubLoopFut*: Future[void]
-  edgeFilterHealthLoopFut*: Future[void]
-  peerEventListener*: WakuPeerEventListener
+  edgeFilterSubLoopFut: Future[void]
+  edgeFilterHealthLoopFut: Future[void]
+  peerEventListener: WakuPeerEventListener
     ## Listener for peer connect/disconnect events (edge filter wakeup).
+
+iterator subscribedTopics*(
+    self: SubscriptionManager
+): (PubsubTopic, HashSet[ContentTopic]) =
+  for pubsub, topics in self.contentTopicSubs.pairs:
+    yield (pubsub, topics)
 
 proc edgeFilterPeerCount*(sm: SubscriptionManager, shard: PubsubTopic): int =
   sm.edgeFilterSubStates.withValue(shard, state):
@@ -186,7 +192,7 @@ const EdgeFilterSubscribeTimeout = chronos.seconds(15)
 const EdgeFilterPingTimeout = chronos.seconds(5)
   ## Timeout for a filter ping health check.
 const EdgeFilterLoopInterval = chronos.seconds(30)
-  ## Interval for the edge filter health loop and sub loop fallback wakeup.
+  ## Interval for the edge filter health ping loop.
 const EdgeFilterSubLoopDebounce = chronos.seconds(1)
   ## Debounce delay to coalesce rapid-fire wakeups into a single reconciliation pass.
 
@@ -227,6 +233,43 @@ proc removePeer(self: SubscriptionManager, shard: PubsubTopic, peerId: PeerId) =
 
           asyncSpawn doUnsubscribe()
 
+type SendChunkedFilterRpcKind = enum
+  FilterSubscribe
+  FilterUnsubscribe
+
+proc sendChunkedFilterRpc(
+    self: SubscriptionManager,
+    peer: RemotePeerInfo,
+    shard: PubsubTopic,
+    topics: seq[ContentTopic],
+    kind: SendChunkedFilterRpcKind,
+): Future[bool] {.async.} =
+  ## Send a chunked filter subscribe or unsubscribe RPC. Returns true on
+  ## success. On failure the peer is removed and false is returned.
+  try:
+    var i = 0
+    while i < topics.len:
+      let chunk =
+        topics[i ..< min(i + filter_protocol.MaxContentTopicsPerRequest, topics.len)]
+      let fut =
+        case kind
+        of FilterSubscribe:
+          self.node.wakuFilterClient.subscribe(peer, shard, chunk)
+        of FilterUnsubscribe:
+          self.node.wakuFilterClient.unsubscribe(peer, shard, chunk)
+      if not (await fut.withTimeout(EdgeFilterSubscribeTimeout)) or fut.read().isErr():
+        trace "sendChunkedFilterRpc: chunk failed",
+          op = kind, shard = shard, peer = peer.peerId
+        self.removePeer(shard, peer.peerId)
+        return false
+      i += filter_protocol.MaxContentTopicsPerRequest
+  except CatchableError as exc:
+    debug "sendChunkedFilterRpc: failed",
+      op = kind, shard = shard, peer = peer.peerId, err = exc.msg
+    self.removePeer(shard, peer.peerId)
+    return false
+  return true
+
 proc syncFilterDeltas(
     self: SubscriptionManager,
     peer: RemotePeerInfo,
@@ -235,40 +278,12 @@ proc syncFilterDeltas(
     removed: seq[ContentTopic],
 ) {.async.} =
   ## Push content topic changes (adds/removes) to an already-tracked peer.
-  try:
-    var i = 0
-    while i < added.len:
-      let chunk =
-        added[i ..< min(i + filter_protocol.MaxContentTopicsPerRequest, added.len)]
-      let fut = self.node.wakuFilterClient.subscribe(peer, shard, chunk)
-      if not (await fut.withTimeout(EdgeFilterSubscribeTimeout)) or fut.read().isErr():
-        trace "syncFilterDeltas: subscribe chunk failed, removing peer",
-          shard = shard, peer = peer.peerId
-        self.removePeer(shard, peer.peerId)
-        return
-      i += filter_protocol.MaxContentTopicsPerRequest
-  except CatchableError as exc:
-    debug "syncFilterDeltas: subscribe failed, removing peer",
-      shard = shard, peer = peer.peerId, err = exc.msg
-    self.removePeer(shard, peer.peerId)
-    return
+  if added.len > 0:
+    if not await self.sendChunkedFilterRpc(peer, shard, added, FilterSubscribe):
+      return
 
-  try:
-    var i = 0
-    while i < removed.len:
-      let chunk =
-        removed[i ..< min(i + filter_protocol.MaxContentTopicsPerRequest, removed.len)]
-      let fut = self.node.wakuFilterClient.unsubscribe(peer, shard, chunk)
-      if not (await fut.withTimeout(EdgeFilterSubscribeTimeout)) or fut.read().isErr():
-        trace "syncFilterDeltas: unsubscribe chunk failed, removing peer",
-          shard = shard, peer = peer.peerId
-        self.removePeer(shard, peer.peerId)
-        return
-      i += filter_protocol.MaxContentTopicsPerRequest
-  except CatchableError as exc:
-    debug "syncFilterDeltas: unsubscribe failed, removing peer",
-      shard = shard, peer = peer.peerId, err = exc.msg
-    self.removePeer(shard, peer.peerId)
+  if removed.len > 0:
+    discard await self.sendChunkedFilterRpc(peer, shard, removed, FilterUnsubscribe)
 
 proc dialFilterPeer(
     self: SubscriptionManager,
@@ -281,21 +296,10 @@ proc dialFilterPeer(
     state.pendingPeers.incl(peer.peerId)
 
   try:
-    var i = 0
-
-    while i < contentTopics.len:
-      let chunk = contentTopics[
-        i ..< min(i + filter_protocol.MaxContentTopicsPerRequest, contentTopics.len)
-      ]
-      let subFut = self.node.wakuFilterClient.subscribe(peer, shard, chunk)
-      let ok = await subFut.withTimeout(EdgeFilterSubscribeTimeout)
-
-      if not ok or subFut.read().isErr():
-        debug "dialFilterPeer: chunk subscribe failed or timed out",
-          shard = shard, peer = peer.peerId, ok = ok
-        return
-
-      i += filter_protocol.MaxContentTopicsPerRequest
+    if not await self.sendChunkedFilterRpc(
+      peer, shard, contentTopics, FilterSubscribe
+    ):
+      return
 
     self.edgeFilterSubStates.withValue(shard, state):
       if state.peers.anyIt(it.peerId == peer.peerId):
@@ -310,8 +314,6 @@ proc dialFilterPeer(
     do:
       trace "dialFilterPeer: shard removed while subscribing, discarding result",
         shard = shard, peer = peer.peerId
-  except CatchableError as exc:
-    debug "dialFilterPeer failed", err = exc.msg
   finally:
     self.edgeFilterSubStates.withValue(shard, state):
       state.pendingPeers.excl(peer.peerId)
@@ -323,6 +325,7 @@ proc edgeFilterHealthLoop*(self: SubscriptionManager) {.async.} =
     await sleepAsync(EdgeFilterLoopInterval)
 
     if self.node.wakuFilterClient.isNil():
+      warn "filter client is nil within edge filter health loop"
       continue
 
     var connected = initTable[PeerId, RemotePeerInfo]()
@@ -366,7 +369,7 @@ proc edgeFilterSubLoop*(self: SubscriptionManager) {.async.} =
   var lastSynced = initTable[PubsubTopic, HashSet[ContentTopic]]()
 
   while true:
-    discard await self.edgeFilterWakeup.wait().withTimeout(EdgeFilterLoopInterval)
+    await self.edgeFilterWakeup.wait()
     await sleepAsync(EdgeFilterSubLoopDebounce)
     self.edgeFilterWakeup.clear()
     trace "edgeFilterSubLoop: woke up"
@@ -424,10 +427,10 @@ proc edgeFilterSubLoop*(self: SubscriptionManager) {.async.} =
 
             trace "edgeFilterSubLoop: shard reconciliation",
               shard = shard,
-              peers = state.peers.len,
-              pending = state.pending.len,
-              needed = needed,
-              available = candidates.len,
+              num_peers = state.peers.len,
+              num_pending = state.pending.len,
+              num_needed = needed,
+              num_available = candidates.len,
               toDial = toDial
 
             for i in 0 ..< toDial:
