@@ -638,9 +638,6 @@ proc stop*(node: WakuNode) {.async.} =
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.stopWait()
 
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.stop()
-
   node.started = false
 
 proc isReady*(node: WakuNode): Future[bool] {.async: (raises: [Exception]).} =
