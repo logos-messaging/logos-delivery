@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/net,
+  std/[options, net],
   testutils/unittests,
   chronos,
   libp2p/crypto/crypto,
