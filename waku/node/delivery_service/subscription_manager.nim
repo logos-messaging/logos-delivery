@@ -13,7 +13,6 @@ import
     common/broker/broker_context,
     events/health_events,
     events/peer_events,
-    requests/delivery_requests,
     requests/health_requests,
     node/peer_manager,
     node/health_monitor/topic_health,
@@ -21,7 +20,7 @@ import
   ]
 
 # ---------------------------------------------------------------------------
-# LMAPI SubscriptionManager
+# Logos Messaging API SubscriptionManager
 #
 # Maps all topic subscription intent and centralizes all consistency
 # maintenance of the pubsub and content topic subscription model across
@@ -45,7 +44,7 @@ func toTopicHealth*(peersCount: int): TopicHealth =
     TopicHealth.UNHEALTHY
 
 type SubscriptionManager* = ref object of RootObj
-  node*: WakuNode
+  node: WakuNode
   contentTopicSubs*: Table[PubsubTopic, HashSet[ContentTopic]]
     ## Map of Shard to ContentTopic needed because e.g. WakuRelay is PubsubTopic only.
     ## A present key with an empty HashSet value means pubsubtopic already subscribed
@@ -125,80 +124,6 @@ proc subscribePubsubTopics(
 
   return ok()
 
-proc getActiveSubscriptions*(
-    self: SubscriptionManager
-): seq[tuple[pubsubTopic: string, contentTopics: seq[ContentTopic]]] =
-  var activeSubs: seq[tuple[pubsubTopic: string, contentTopics: seq[ContentTopic]]] =
-    @[]
-
-  for pubsub, cTopicSet in self.contentTopicSubs.pairs:
-    if cTopicSet.len > 0:
-      var cTopicSeq = newSeqOfCap[ContentTopic](cTopicSet.len)
-      for t in cTopicSet:
-        cTopicSeq.add(t)
-      activeSubs.add((pubsub, cTopicSeq))
-
-  return activeSubs
-
-proc startSubscriptionManager*(self: SubscriptionManager) =
-  RequestActiveSubscriptions.setProvider(
-    self.node.brokerCtx,
-    proc(): Result[RequestActiveSubscriptions, string] =
-      return ok(RequestActiveSubscriptions(activeSubs: self.getActiveSubscriptions())),
-  ).isOkOr:
-    error "Failed to set provider for RequestActiveSubscriptions", error = error
-
-  # Register edge filter broker providers. The shard/content health providers
-  # in WakuNode query these via the broker as a fallback when relay health is
-  # not available. If edge mode is not active, these providers simply return
-  # NOT_SUBSCRIBED / strength 0, which is harmless.
-  RequestEdgeShardHealth.setProvider(
-    self.node.brokerCtx,
-    proc(shard: PubsubTopic): Result[RequestEdgeShardHealth, string] =
-      self.edgeFilterSubStates.withValue(shard, state):
-        return ok(RequestEdgeShardHealth(health: state.currentHealth))
-      return ok(RequestEdgeShardHealth(health: TopicHealth.NOT_SUBSCRIBED)),
-  ).isOkOr:
-    error "Can't set provider for RequestEdgeShardHealth", error = error
-
-  RequestEdgeFilterPeerCount.setProvider(
-    self.node.brokerCtx,
-    proc(): Result[RequestEdgeFilterPeerCount, string] =
-      var minPeers = high(int)
-      for state in self.edgeFilterSubStates.values:
-        minPeers = min(minPeers, state.peers.len)
-      if minPeers == high(int):
-        minPeers = 0
-      return ok(RequestEdgeFilterPeerCount(peerCount: minPeers)),
-  ).isOkOr:
-    error "Can't set provider for RequestEdgeFilterPeerCount", error = error
-
-  if isNil(self.node.wakuRelay):
-    return
-
-  if self.node.wakuAutoSharding.isSome():
-    # Core mode: auto-subscribe relay to all shards in autosharding.
-    let autoSharding = self.node.wakuAutoSharding.get()
-    let clusterId = autoSharding.clusterId
-    let numShards = autoSharding.shardCountGenZero
-
-    if numShards > 0:
-      var clusterPubsubTopics = newSeqOfCap[PubsubTopic](numShards)
-
-      for i in 0 ..< numShards:
-        let shardObj = RelayShard(clusterId: clusterId, shardId: uint16(i))
-        clusterPubsubTopics.add(PubsubTopic($shardObj))
-
-      self.subscribePubsubTopics(clusterPubsubTopics).isOkOr:
-        error "Failed to auto-subscribe Relay to cluster shards: ", error = error
-  else:
-    info "SubscriptionManager has no AutoSharding configured; skipping auto-subscribe."
-
-proc stopSubscriptionManager*(self: SubscriptionManager) {.async.} =
-  RequestActiveSubscriptions.clearProvider(self.node.brokerCtx)
-  RequestEdgeShardHealth.clearProvider(self.node.brokerCtx)
-  RequestEdgeFilterPeerCount.clearProvider(self.node.brokerCtx)
-
 proc getShardForContentTopic(
     self: SubscriptionManager, topic: ContentTopic
 ): Result[PubsubTopic, string] =
@@ -250,7 +175,7 @@ proc unsubscribe*(
   return ok()
 
 # ---------------------------------------------------------------------------
-# Edge Filter driver for the LMAPI
+# Edge Filter driver for the Logos Messaging API
 #
 # The SubscriptionManager absorbs natively the responsibility of using the
 # Edge Filter protocol to effect subscriptions and message receipt for edge.
@@ -511,7 +436,7 @@ proc edgeFilterSubLoop*(self: SubscriptionManager) {.async.} =
 
     lastSynced = desired
 
-proc startEdgeFilterLoops*(self: SubscriptionManager): Result[void, string] =
+proc startEdgeFilterLoops(self: SubscriptionManager): Result[void, string] =
   ## Start the edge filter orchestration loops.
   ## Caller must ensure this is only called in edge mode (relay nil, filter client present).
   self.edgeFilterWakeup = newAsyncEvent()
@@ -530,7 +455,7 @@ proc startEdgeFilterLoops*(self: SubscriptionManager): Result[void, string] =
   self.edgeFilterHealthLoopFut = self.edgeFilterHealthLoop()
   return ok()
 
-proc stopEdgeFilterLoops*(self: SubscriptionManager) {.async.} =
+proc stopEdgeFilterLoops(self: SubscriptionManager) {.async: (raises: []).} =
   ## Stop the edge filter orchestration loops and clean up pending futures.
   if not isNil(self.edgeFilterSubLoopFut):
     await self.edgeFilterSubLoopFut.cancelAndWait()
@@ -546,3 +471,65 @@ proc stopEdgeFilterLoops*(self: SubscriptionManager) {.async.} =
         await fut.cancelAndWait()
 
   WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)
+
+# ---------------------------------------------------------------------------
+# SubscriptionManager Lifecycle (calls Edge behavior above)
+#
+# startSubscriptionManager and stopSubscriptionManager orchestrate both the
+# core (relay) and edge (filter) paths, and register/clear broker providers.
+# ---------------------------------------------------------------------------
+
+proc startSubscriptionManager*(self: SubscriptionManager): Result[void, string] =
+  # Register edge filter broker providers. The shard/content health providers
+  # in WakuNode query these via the broker as a fallback when relay health is
+  # not available. If edge mode is not active, these providers simply return
+  # NOT_SUBSCRIBED / strength 0, which is harmless.
+  RequestEdgeShardHealth.setProvider(
+    self.node.brokerCtx,
+    proc(shard: PubsubTopic): Result[RequestEdgeShardHealth, string] =
+      self.edgeFilterSubStates.withValue(shard, state):
+        return ok(RequestEdgeShardHealth(health: state.currentHealth))
+      return ok(RequestEdgeShardHealth(health: TopicHealth.NOT_SUBSCRIBED)),
+  ).isOkOr:
+    error "Can't set provider for RequestEdgeShardHealth", error = error
+
+  RequestEdgeFilterPeerCount.setProvider(
+    self.node.brokerCtx,
+    proc(): Result[RequestEdgeFilterPeerCount, string] =
+      var minPeers = high(int)
+      for state in self.edgeFilterSubStates.values:
+        minPeers = min(minPeers, state.peers.len)
+      if minPeers == high(int):
+        minPeers = 0
+      return ok(RequestEdgeFilterPeerCount(peerCount: minPeers)),
+  ).isOkOr:
+    error "Can't set provider for RequestEdgeFilterPeerCount", error = error
+
+  if self.node.wakuRelay.isNil():
+    return self.startEdgeFilterLoops()
+
+  # Core mode: auto-subscribe relay to all shards in autosharding.
+  if self.node.wakuAutoSharding.isSome():
+    let autoSharding = self.node.wakuAutoSharding.get()
+    let clusterId = autoSharding.clusterId
+    let numShards = autoSharding.shardCountGenZero
+
+    if numShards > 0:
+      var clusterPubsubTopics = newSeqOfCap[PubsubTopic](numShards)
+
+      for i in 0 ..< numShards:
+        let shardObj = RelayShard(clusterId: clusterId, shardId: uint16(i))
+        clusterPubsubTopics.add(PubsubTopic($shardObj))
+
+      self.subscribePubsubTopics(clusterPubsubTopics).isOkOr:
+        error "Failed to auto-subscribe Relay to cluster shards: ", error = error
+  else:
+    info "SubscriptionManager has no AutoSharding configured; skipping auto-subscribe."
+
+  return ok()
+
+proc stopSubscriptionManager*(self: SubscriptionManager) {.async: (raises: []).} =
+  if self.node.wakuRelay.isNil():
+    await self.stopEdgeFilterLoops()
+  RequestEdgeShardHealth.clearProvider(self.node.brokerCtx)
+  RequestEdgeFilterPeerCount.clearProvider(self.node.brokerCtx)

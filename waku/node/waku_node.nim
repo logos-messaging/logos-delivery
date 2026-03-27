@@ -62,7 +62,6 @@ import
     waku_mix,
     requests/node_requests,
     requests/health_requests,
-    requests/delivery_requests,
     events/health_events,
     events/message_events,
   ],
