@@ -583,12 +583,6 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRelay.isNil():
     await node.startRelay()
 
-  if not node.wakuMix.isNil():
-    await node.wakuMix.start()
-
-  if not node.wakuMetadata.isNil():
-    node.wakuMetadata.start()
-
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.start()
 
@@ -597,15 +591,6 @@ proc start*(node: WakuNode) {.async.} =
 
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
-
-  if not node.wakuStoreReconciliation.isNil():
-    node.wakuStoreReconciliation.start()
-
-  if not node.wakuStoreTransfer.isNil():
-    node.wakuStoreTransfer.start()
-
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.start()
 
   ## The switch uses this mapper to update peer info addrs
   ## with announced addrs after start
@@ -657,12 +642,6 @@ proc stop*(node: WakuNode) {.async.} =
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.stopWait()
 
-  if not node.wakuStoreReconciliation.isNil():
-    node.wakuStoreReconciliation.stop()
-
-  if not node.wakuStoreTransfer.isNil():
-    node.wakuStoreTransfer.stop()
-
   if not node.wakuPeerExchangeClient.isNil() and
       not node.wakuPeerExchangeClient.pxLoopHandle.isNil():
     await node.wakuPeerExchangeClient.pxLoopHandle.cancelAndWait()
@@ -672,9 +651,6 @@ proc stop*(node: WakuNode) {.async.} =
 
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.stopWait()
-
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.stop()
 
   node.started = false
 
