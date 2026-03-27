@@ -101,7 +101,7 @@ proc buildLibrary(outLibNameAndExt: string, libName: string, extra_params = "", 
   var extra_params = extra_params
   let nimParams = getEnv("NIM_PARAMS")
   if nimParams.len > 0:
-    extra_params &= " " & nimParams
+    extra_params = nimParams & " " & extra_params
 
   if `type` == "static":
     exec "nim c" & " --out:build/" & outLibNameAndExt &
@@ -122,9 +122,9 @@ proc buildLibrary(outLibNameAndExt: string, libName: string, extra_params = "", 
 
 proc getArch(): string =
   let arch = getEnv("ARCH")
-  if arch != "": return $arch
+  if arch.len > 0: return arch
   let (archFromUname, _) = gorgeEx("uname -m")
-  return $archFromUname
+  return archFromUname.strip()
 
 proc buildLibDynamicWindows(libName: string) =
   buildLibrary libName & ".dll", libName,
