@@ -86,7 +86,7 @@ suite "Waku v2 REST API - health":
       response.status == 200
       $response.contentType == $MIMETYPE_JSON
       report.nodeHealth == HealthStatus.READY
-      report.protocolsHealth.len() == 15
+      report.protocolsHealth.len() == 13
 
       report.getHealth(RelayProtocol).health == HealthStatus.NOT_READY
       report.getHealth(RelayProtocol).desc == some("No connected peers")
