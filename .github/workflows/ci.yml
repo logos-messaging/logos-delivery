@@ -60,21 +60,6 @@ jobs:
 
     name: build-ci-${{ matrix.os }}
     steps:
-      - name: Platform info
-        run: |
-          echo "=== OS / kernel ==="
-          uname -a
-          echo "=== Architecture ==="
-          uname -m
-          echo "=== clang location ==="
-          which clang || echo "clang not found"
-          echo "=== clang version ==="
-          clang --version || echo "clang not available"
-          echo "=== gcc location ==="
-          which gcc || echo "gcc not found"
-          echo "=== gcc version ==="
-          gcc --version || echo "gcc not available"
-
       - name: Clear cache
         run: |
           rm -rf ~/.cache/nim
@@ -96,6 +81,23 @@ jobs:
         with:
           nimble-version: '0.20.1'
           repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Platform info
+        run: |
+          echo "=== OS / kernel ==="
+          uname -a
+          echo "=== Architecture ==="
+          uname -m
+          echo "=== clang location ==="
+          which clang || echo "clang not found"
+          echo "=== clang version ==="
+          clang --version || echo "clang not available"
+          echo "=== gcc location ==="
+          which gcc || echo "gcc not found"
+          echo "=== gcc version ==="
+          gcc --version || echo "gcc not available"
+          echo "=== Nim version ==="
+          nim --version
 
       - name: Cache nimble deps
         uses: actions/cache@v4
