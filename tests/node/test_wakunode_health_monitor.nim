@@ -23,6 +23,7 @@ import
     events/health_events,
     events/peer_events,
     waku_archive,
+    common/broker/broker_context,
   ]
 
 import ../testlib/[wakunode, wakucore], ../waku_archive/archive_utils
@@ -134,13 +135,12 @@ suite "Health Monitor - health state calculation":
 
 suite "Health Monitor - events":
   asyncTest "Core (relay) health update":
-    let
-      nodeAKey = generateSecp256k1Key()
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeAKey = generateSecp256k1Key()
       nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
-
-    (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
-
-    await nodeA.start()
+      (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
+      await nodeA.start()
 
     let monitorA = NodeHealthMonitor.new(nodeA)
 
@@ -156,17 +156,15 @@ suite "Health Monitor - events":
 
     monitorA.startHealthMonitor().expect("Health monitor failed to start")
 
-    let
-      nodeBKey = generateSecp256k1Key()
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeBKey = generateSecp256k1Key()
       nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
-
-    let driver = newSqliteArchiveDriver()
-    nodeB.mountArchive(driver).expect("Node B failed to mount archive")
-
-    (await nodeB.mountRelay()).expect("Node B failed to mount relay")
-    await nodeB.mountStore()
-
-    await nodeB.start()
+      let driver = newSqliteArchiveDriver()
+      nodeB.mountArchive(driver).expect("Node B failed to mount archive")
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.mountStore()
+      await nodeB.start()
 
     await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
 
@@ -219,15 +217,20 @@ suite "Health Monitor - events":
     await nodeA.stop()
 
   asyncTest "Edge (light client) health update":
-    let
-      nodeAKey = generateSecp256k1Key()
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeAKey = generateSecp256k1Key()
       nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
+      nodeA.mountLightpushClient()
+      await nodeA.mountFilterClient()
+      nodeA.mountStoreClient()
+      require nodeA.mountAutoSharding(1, 8).isOk
+      nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
+      await nodeA.start()
 
-    nodeA.mountLightpushClient()
-    await nodeA.mountFilterClient()
-    nodeA.mountStoreClient()
-
-    await nodeA.start()
+    let ds =
+      DeliveryService.new(false, nodeA).expect("Failed to create DeliveryService")
+    ds.startDeliveryService().expect("Failed to start DeliveryService")
 
     let monitorA = NodeHealthMonitor.new(nodeA)
 
@@ -243,22 +246,39 @@ suite "Health Monitor - events":
 
     monitorA.startHealthMonitor().expect("Health monitor failed to start")
 
-    let
-      nodeBKey = generateSecp256k1Key()
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeBKey = generateSecp256k1Key()
       nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
+      let driver = newSqliteArchiveDriver()
+      nodeB.mountArchive(driver).expect("Node B failed to mount archive")
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      (await nodeB.mountLightpush()).expect("Node B failed to mount lightpush")
+      await nodeB.mountFilter()
+      await nodeB.mountStore()
+      require nodeB.mountAutoSharding(1, 8).isOk
+      nodeB.mountMetadata(1, toSeq(0'u16 ..< 8'u16)).expect(
+        "Node B failed to mount metadata"
+      )
+      await nodeB.start()
 
-    let driver = newSqliteArchiveDriver()
-    nodeB.mountArchive(driver).expect("Node B failed to mount archive")
-
-    (await nodeB.mountRelay()).expect("Node B failed to mount relay")
-
-    (await nodeB.mountLightpush()).expect("Node B failed to mount lightpush")
-    await nodeB.mountFilter()
-    await nodeB.mountStore()
-
-    await nodeB.start()
+    var metadataFut = newFuture[void]("waitForMetadata")
+    let metadataLis = WakuPeerEvent
+      .listen(
+        nodeA.brokerCtx,
+        proc(evt: WakuPeerEvent): Future[void] {.async: (raises: []), gcsafe.} =
+          if not metadataFut.finished and
+              evt.kind == WakuPeerEventKind.EventMetadataUpdated:
+            metadataFut.complete()
+        ,
+      )
+      .expect("Failed to listen for metadata")
 
     await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+    let metadataOk = await metadataFut.withTimeout(TestConnectivityTimeLimit)
+    WakuPeerEvent.dropListener(nodeA.brokerCtx, metadataLis)
+    require metadataOk
 
     let connectTimeLimit = Moment.now() + TestConnectivityTimeLimit
     var gotConnected = false
@@ -297,43 +317,41 @@ suite "Health Monitor - events":
       lastStatus == ConnectionStatus.Disconnected
 
     await monitorA.stopHealthMonitor()
+    await ds.stopDeliveryService()
     await nodeA.stop()
 
   asyncTest "Edge health driven by confirmed filter subscriptions":
-    let
-      nodeAKey = generateSecp256k1Key()
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeAKey = generateSecp256k1Key()
       nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
-
-    await nodeA.mountFilterClient()
-    nodeA.mountLightpushClient()
-    nodeA.mountStoreClient()
-    require nodeA.mountAutoSharding(1, 8).isOk
-    nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
-
-    await nodeA.start()
+      await nodeA.mountFilterClient()
+      nodeA.mountLightpushClient()
+      nodeA.mountStoreClient()
+      require nodeA.mountAutoSharding(1, 8).isOk
+      nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
+      await nodeA.start()
 
     let ds =
       DeliveryService.new(false, nodeA).expect("Failed to create DeliveryService")
     ds.startDeliveryService().expect("Failed to start DeliveryService")
     let subMgr = ds.subscriptionManager
 
-    let
-      nodeBKey = generateSecp256k1Key()
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeBKey = generateSecp256k1Key()
       nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
-
-    let driver = newSqliteArchiveDriver()
-    nodeB.mountArchive(driver).expect("Node B failed to mount archive")
-
-    (await nodeB.mountRelay()).expect("Node B failed to mount relay")
-    (await nodeB.mountLightpush()).expect("Node B failed to mount lightpush")
-    await nodeB.mountFilter()
-    await nodeB.mountStore()
-    require nodeB.mountAutoSharding(1, 8).isOk
-    nodeB.mountMetadata(1, toSeq(0'u16 ..< 8'u16)).expect(
-      "Node B failed to mount metadata"
-    )
-
-    await nodeB.start()
+      let driver = newSqliteArchiveDriver()
+      nodeB.mountArchive(driver).expect("Node B failed to mount archive")
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      (await nodeB.mountLightpush()).expect("Node B failed to mount lightpush")
+      await nodeB.mountFilter()
+      await nodeB.mountStore()
+      require nodeB.mountAutoSharding(1, 8).isOk
+      nodeB.mountMetadata(1, toSeq(0'u16 ..< 8'u16)).expect(
+        "Node B failed to mount metadata"
+      )
+      await nodeB.start()
 
     let monitorA = NodeHealthMonitor.new(nodeA)
 

@@ -220,21 +220,22 @@ proc selectPeers*(
 ): seq[RemotePeerInfo] =
   ## Returns all peers that support the given protocol (and optionally shard),
   ## shuffled randomly. Callers can further filter or pick from this list.
-  result = pm.switch.peerStore.getPeersByProtocol(proto)
+  var peers = pm.switch.peerStore.getPeersByProtocol(proto)
   trace "Selecting peers from peerstore",
-    protocol = proto, peers = result.len, address = cast[uint](pm.switch.peerStore)
+    protocol = proto, num_peers = peers.len, address = cast[uint](pm.switch.peerStore)
 
   if shard.isSome():
     let shardInfo = RelayShard.parse(shard.get()).valueOr:
       trace "Failed to parse shard from pubsub topic", topic = shard.get()
       return @[]
 
-    result.keepItIf(
+    peers.keepItIf(
       (it.enr.isSome() and it.enr.get().containsShard(shard.get())) or
         (it.shards.len > 0 and it.shards.contains(shardInfo.shardId))
     )
 
-  shuffle(result)
+  shuffle(peers)
+  return peers
 
 proc selectPeer*(
     pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
