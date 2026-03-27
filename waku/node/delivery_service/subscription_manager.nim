@@ -299,6 +299,7 @@ proc removePeer(self: SubscriptionManager, shard: PubsubTopic, peerId: PeerId) =
         if ct.len > 0:
           proc doUnsubscribe() {.async.} =
             discard await self.node.wakuFilterClient.unsubscribe(peer, shard, ct)
+
           asyncSpawn doUnsubscribe()
 
 proc syncFilterDeltas(
