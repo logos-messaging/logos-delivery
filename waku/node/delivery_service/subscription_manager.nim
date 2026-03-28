@@ -296,9 +296,7 @@ proc dialFilterPeer(
     state.pendingPeers.incl(peer.peerId)
 
   try:
-    if not await self.sendChunkedFilterRpc(
-      peer, shard, contentTopics, FilterSubscribe
-    ):
+    if not await self.sendChunkedFilterRpc(peer, shard, contentTopics, FilterSubscribe):
       return
 
     self.edgeFilterSubStates.withValue(shard, state):
