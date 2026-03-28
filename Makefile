@@ -6,6 +6,7 @@
 # according to those terms.
 
 include Nat.mk
+include BearSSL.mk
 
 LINK_PCRE := 0
 FORMAT_MSG := "\\x1B[95mFormatting:\\x1B[39m"
@@ -71,6 +72,7 @@ $(NIMBLEDEPS_STAMP): | waku.nims
 	nimble install --depsOnly
 	$(MAKE) build-nph
 	$(MAKE) rebuild-nat-libs-nimbledeps
+	$(MAKE) rebuild-bearssl-nimbledeps
 	touch $@
 
 update:
