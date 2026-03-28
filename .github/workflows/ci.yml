@@ -113,6 +113,12 @@ jobs:
           echo "=== Verify nimcrypto is in paths ==="
           grep -c nimcrypto nimble.paths || echo "WARNING: nimcrypto not found in nimble.paths!"
 
+      - name: Make update
+        run: make update
+
+      - name: Check arch of loaded dependencies
+        run: find . -name upnpdev.o -exec file {} \;
+
       - name: Build binaries
         run: make V=1 QUICK_AND_DIRTY_COMPILER=1 NIM_PARAMS="-d:BORINGSS_USE_ASM=false" USE_LIBBACKTRACE=0 all
 
