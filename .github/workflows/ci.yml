@@ -99,9 +99,6 @@ jobs:
           echo "=== Nim version ==="
           nim --version
 
-      - name: Make update
-        run: make update
-
       - name: Debug nimble.paths
         run: |
           echo "=== Nim version ==="
