@@ -5,6 +5,8 @@
 # at your option. This file may not be copied, modified, or distributed except
 # according to those terms.
 
+include Nat.mk
+
 LINK_PCRE := 0
 FORMAT_MSG := "\\x1B[95mFormatting:\\x1B[39m"
 BUILD_MSG := "\\x1B[92mBuilding:\\x1B[39m"
@@ -68,6 +70,7 @@ $(NIMBLEDEPS_STAMP): | waku.nims
 	nimble setup --localdeps
 	nimble install --depsOnly
 	$(MAKE) build-nph
+	$(MAKE) rebuild-nat-libs-nimbledeps
 	touch $@
 
 update:
@@ -489,7 +492,7 @@ ifneq ($(findstring /nix/store,$(LIBRLN_FILE)),)
 else
 	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR)
 endif
-	$(MAKE) rebuild-nat-libs CC=$(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER)
+	$(MAKE) rebuild-nat-libs-nimbledeps CC=$(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER)
 
 libwaku-android-arm64: ANDROID_ARCH=aarch64-linux-android
 libwaku-android-arm64: CPU=arm64
