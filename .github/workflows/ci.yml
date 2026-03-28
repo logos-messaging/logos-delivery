@@ -99,15 +99,6 @@ jobs:
           echo "=== Nim version ==="
           nim --version
 
-      - name: Cache nimble deps
-        uses: actions/cache@v4
-        with:
-          path: |
-            nimbledeps/pkgs2
-            ~/.cache
-          key: nimble-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('waku.nimble') }}
-          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}
-
       - name: Make update
         run: make update
 
