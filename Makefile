@@ -197,55 +197,55 @@ testwaku: | build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble test
 
-wakunode2: | build deps librln $(NIMBLEDEPS_STAMP)
+wakunode2: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakunode2
 
-benchmarks: | build deps librln $(NIMBLEDEPS_STAMP)
+benchmarks: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble benchmarks
 
-testwakunode2: | build deps librln $(NIMBLEDEPS_STAMP)
+testwakunode2: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble testwakunode2
 
-example2: | build deps librln $(NIMBLEDEPS_STAMP)
+example2: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble example2
 
-chat2: | build deps librln $(NIMBLEDEPS_STAMP)
+chat2: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2
 
-chat2mix: | build deps librln $(NIMBLEDEPS_STAMP)
+chat2mix: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2mix
 
-rln-db-inspector: | build deps librln $(NIMBLEDEPS_STAMP)
+rln-db-inspector: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble rln_db_inspector
 
-chat2bridge: | build deps librln $(NIMBLEDEPS_STAMP)
+chat2bridge: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2bridge
 
-liteprotocoltester: | build deps librln $(NIMBLEDEPS_STAMP)
+liteprotocoltester: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble liteprotocoltester
 
-lightpushwithmix: | build deps librln $(NIMBLEDEPS_STAMP)
+lightpushwithmix: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble lightpushwithmix
 
-api_example: | build deps librln $(NIMBLEDEPS_STAMP)
+api_example: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) waku.nims
 
-build/%: | build deps librln $(NIMBLEDEPS_STAMP)
+build/%: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
 		nimble buildone $*
 
-compile-test: | build deps librln $(NIMBLEDEPS_STAMP)
+compile-test: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "$(TEST_FILE)" "\"$(TEST_NAME)\"" && \
 		nimble buildTest $(TEST_FILE) && \
 		nimble execTest $(TEST_FILE) "\"$(TEST_NAME)\""
@@ -257,11 +257,11 @@ compile-test: | build deps librln $(NIMBLEDEPS_STAMP)
 
 tools: networkmonitor wakucanary
 
-wakucanary: | build deps librln $(NIMBLEDEPS_STAMP)
+wakucanary: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakucanary
 
-networkmonitor: | build deps librln $(NIMBLEDEPS_STAMP)
+networkmonitor: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble networkmonitor
 
@@ -406,10 +406,10 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
-libwaku: | librln $(NIMBLEDEPS_STAMP)
+libwaku: | $(NIMBLEDEPS_STAMP) librln
 	nimble --verbose libwaku$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
-liblogosdelivery: | librln $(NIMBLEDEPS_STAMP)
+liblogosdelivery: | $(NIMBLEDEPS_STAMP) librln
 	nimble --verbose liblogosdelivery$(BUILD_COMMAND) $(NIM_PARAMS) waku.nimble
 
 logosdelivery_example: | build liblogosdelivery
