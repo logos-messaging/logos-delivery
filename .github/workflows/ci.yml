@@ -188,8 +188,8 @@ jobs:
           NIM_PARAMS=""
           if [[ '${{ runner.os }}' == 'macOS' ]]; then
             case "$(uname -m)" in
-              x86_64)  NIM_PARAMS="--cpu:amd64" ;;
-              arm64)   NIM_PARAMS="--cpu:arm64" ;;
+              x86_64)  NIM_PARAMS="--cpu:amd64 -d:disableMarchNative" ;;
+              arm64)   NIM_PARAMS="--cpu:arm64 -d:disableMarchNative" ;;
             esac
           fi
           make V=1 QUICK_AND_DIRTY_COMPILER=1 NIM_PARAMS="${NIM_PARAMS}" USE_LIBBACKTRACE=0 all
@@ -345,8 +345,8 @@ jobs:
           NIM_PARAMS=""
           if [[ '${{ runner.os }}' == 'macOS' ]]; then
             case "$(uname -m)" in
-              x86_64)  NIM_PARAMS="--cpu:amd64" ;;
-              arm64)   NIM_PARAMS="--cpu:arm64" ;;
+              x86_64)  NIM_PARAMS="--cpu:amd64 -d:disableMarchNative" ;;
+              arm64)   NIM_PARAMS="--cpu:arm64 -d:disableMarchNative" ;;
             esac
           fi
 
