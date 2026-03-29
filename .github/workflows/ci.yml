@@ -179,9 +179,9 @@ jobs:
         if: runner.os != 'Windows'
         run: |
           find . -name upnpdev.o -exec file {} \;
-          file . -name ssl_scert_single_rsa.o -exec file {} \;
-          file . -name ssl_server.o -exec file {} \;
-          file . -name ssl_server_full_ec.o -exec file {} \;
+          find . -name ssl_scert_single_rsa.o -exec file {} \;
+          find . -name ssl_server.o -exec file {} \;
+          find . -name ssl_server_full_ec.o -exec file {} \;
 
       - name: Build binaries
         run: |
