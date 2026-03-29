@@ -12,7 +12,6 @@ import
   waku/[
     waku_core,
     waku_core/topics/pubsub_topic,
-    waku_store_legacy/common,
     waku_store/common,
     waku_filter_v2,
     waku_lightpush_legacy/common,
@@ -172,7 +171,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     let peers = populateAdminPeerInfoForCodecs(
       node,
       @[
-        WakuRelayCodec, WakuFilterSubscribeCodec, WakuStoreCodec, WakuLegacyStoreCodec,
+        WakuRelayCodec, WakuFilterSubscribeCodec, WakuStoreCodec,
         WakuLegacyLightPushCodec, WakuLightPushCodec, WakuPeerExchangeCodec,
         WakuReconciliationCodec, WakuTransferCodec,
       ],
@@ -366,8 +365,6 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     protoStats[WakuFilterPushCodec] =
       peers.countIt(it.protocols.contains(WakuFilterPushCodec))
     protoStats[WakuStoreCodec] = peers.countIt(it.protocols.contains(WakuStoreCodec))
-    protoStats[WakuLegacyStoreCodec] =
-      peers.countIt(it.protocols.contains(WakuLegacyStoreCodec))
     protoStats[WakuLightPushCodec] =
       peers.countIt(it.protocols.contains(WakuLightPushCodec))
     protoStats[WakuLegacyLightPushCodec] =

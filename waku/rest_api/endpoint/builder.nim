@@ -14,7 +14,6 @@ import
   waku/rest_api/endpoint/legacy_lightpush/handlers as rest_legacy_lightpush_endpoint,
   waku/rest_api/endpoint/lightpush/handlers as rest_lightpush_endpoint,
   waku/rest_api/endpoint/store/handlers as rest_store_endpoint,
-  waku/rest_api/endpoint/legacy_store/handlers as rest_store_legacy_endpoint,
   waku/rest_api/endpoint/health/handlers as rest_health_endpoint,
   waku/rest_api/endpoint/admin/handlers as rest_admin_endpoint,
   waku/waku_core/topics,
@@ -195,7 +194,6 @@ proc startRestServerProtocolSupport*(
       none(DiscoveryHandler)
 
   rest_store_endpoint.installStoreApiHandlers(router, node, storeDiscoHandler)
-  rest_store_legacy_endpoint.installStoreApiHandlers(router, node, storeDiscoHandler)
 
   ## Light push API
   ## Install it either if client is mounted)

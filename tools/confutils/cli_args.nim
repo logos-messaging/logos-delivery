@@ -348,12 +348,6 @@ hence would have reachability issues.""",
       desc: "Enable/disable waku store protocol", defaultValue: false, name: "store"
     .}: bool
 
-    legacyStore* {.
-      desc: "Enable/disable support of Waku Store v2 as a service",
-      defaultValue: false,
-      name: "legacy-store"
-    .}: bool
-
     storenode* {.
       desc: "Peer multiaddress to query for storage",
       defaultValue: "",
@@ -691,7 +685,7 @@ with the drawback of consuming some more bandwidth.""",
       desc:
         "Rate limit settings for different protocols." &
         "Format: protocol:volume/period<unit>" &
-        " Where 'protocol' can be one of: <store|storev2|storev3|lightpush|px|filter> if not defined it means a global setting" &
+        " Where 'protocol' can be one of: <store|storev3|lightpush|px|filter> if not defined it means a global setting" &
         " 'volume' and period must be an integer value. " &
         " 'unit' must be one of <h|m|s|ms> - hours, minutes, seconds, milliseconds respectively. " &
         "Argument may be repeated.",
@@ -1045,7 +1039,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withContentTopics(n.contentTopics)
 
   b.storeServiceConf.withEnabled(n.store)
-  b.storeServiceConf.withSupportV2(n.legacyStore)
   b.storeServiceConf.withRetentionPolicies(n.storeMessageRetentionPolicy)
   b.storeServiceConf.withDbUrl(n.storeMessageDbUrl)
   b.storeServiceConf.withDbVacuum(n.storeMessageDbVacuum)

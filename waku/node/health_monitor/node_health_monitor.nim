@@ -163,17 +163,6 @@ proc getStoreHealth(hm: NodeHealthMonitor): ProtocolHealth =
   hm.strength[WakuProtocol.StoreProtocol] = peerCount
   return p.ready()
 
-proc getLegacyStoreHealth(hm: NodeHealthMonitor): ProtocolHealth =
-  var p = ProtocolHealth.init(WakuProtocol.LegacyStoreProtocol)
-
-  if isNil(hm.node.wakuLegacyStore):
-    hm.strength[WakuProtocol.LegacyStoreProtocol] = 0
-    return p.notMounted()
-
-  let peerCount = hm.countCapablePeers(WakuLegacyStoreCodec)
-  hm.strength[WakuProtocol.LegacyStoreProtocol] = peerCount
-  return p.ready()
-
 proc getLightpushClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.LightpushClientProtocol)
 
@@ -233,23 +222,6 @@ proc getStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
     "No Store service peer available yet, neither Store service set up for the node"
   )
 
-proc getLegacyStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
-  var p = ProtocolHealth.init(WakuProtocol.LegacyStoreClientProtocol)
-
-  if isNil(hm.node.wakuLegacyStoreClient):
-    hm.strength[WakuProtocol.LegacyStoreClientProtocol] = 0
-    return p.notMounted()
-
-  let peerCount = countCapablePeers(hm, WakuLegacyStoreCodec)
-  hm.strength[WakuProtocol.LegacyStoreClientProtocol] = peerCount
-
-  if peerCount > 0 or not isNil(hm.node.wakuLegacyStore):
-    return p.ready()
-
-  return p.notReady(
-    "No Legacy Store service peers are available yet, neither Store service set up for the node"
-  )
-
 proc getPeerExchangeHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.PeerExchangeProtocol)
 
@@ -294,8 +266,6 @@ proc getSyncProtocolHealthInfo*(
     return hm.getRelayHealth()
   of WakuProtocol.StoreProtocol:
     return hm.getStoreHealth()
-  of WakuProtocol.LegacyStoreProtocol:
-    return hm.getLegacyStoreHealth()
   of WakuProtocol.FilterProtocol:
     return hm.getFilterHealth(hm.getRelayHealth().health)
   of WakuProtocol.LightpushProtocol:
@@ -310,8 +280,6 @@ proc getSyncProtocolHealthInfo*(
     return hm.getMixHealth()
   of WakuProtocol.StoreClientProtocol:
     return hm.getStoreClientHealth()
-  of WakuProtocol.LegacyStoreClientProtocol:
-    return hm.getLegacyStoreClientHealth()
   of WakuProtocol.FilterClientProtocol:
     return hm.getFilterClientHealth()
   of WakuProtocol.LightpushClientProtocol:
@@ -349,7 +317,6 @@ proc getSyncAllProtocolHealthInfo(hm: NodeHealthMonitor): seq[ProtocolHealth] =
   protocols.add(hm.getLegacyLightpushHealth(relayHealth.health))
   protocols.add(hm.getFilterHealth(relayHealth.health))
   protocols.add(hm.getStoreHealth())
-  protocols.add(hm.getLegacyStoreHealth())
   protocols.add(hm.getPeerExchangeHealth())
   protocols.add(hm.getRendezvousHealth())
   protocols.add(hm.getMixHealth())
@@ -357,7 +324,6 @@ proc getSyncAllProtocolHealthInfo(hm: NodeHealthMonitor): seq[ProtocolHealth] =
   protocols.add(hm.getLightpushClientHealth())
   protocols.add(hm.getLegacyLightpushClientHealth())
   protocols.add(hm.getStoreClientHealth())
-  protocols.add(hm.getLegacyStoreClientHealth())
   protocols.add(hm.getFilterClientHealth())
   return protocols
 

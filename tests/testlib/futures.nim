@@ -1,6 +1,6 @@
 import chronos
 
-import waku/[waku_core/message, waku_store, waku_store_legacy]
+import waku/[waku_core/message, waku_store]
 
 const
   FUTURE_TIMEOUT* = 1.seconds
@@ -17,9 +17,6 @@ proc newBoolFuture*(): Future[bool] =
 
 proc newHistoryFuture*(): Future[StoreQueryRequest] =
   newFuture[StoreQueryRequest]()
-
-proc newLegacyHistoryFuture*(): Future[waku_store_legacy.HistoryQuery] =
-  newFuture[waku_store_legacy.HistoryQuery]()
 
 proc toResult*[T](future: Future[T]): Result[T, string] =
   if future.cancelled():
