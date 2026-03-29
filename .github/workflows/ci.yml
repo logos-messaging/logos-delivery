@@ -63,7 +63,7 @@ jobs:
             cc: gcc
           - os: macos-15
             cpu: arm64
-            cc: gcc
+            cc: clang
           - os: windows
             cpu: amd64
             cc: gcc
@@ -127,12 +127,6 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
           sudo update-alternatives --set gcc /usr/bin/gcc-14
 
-      - name: Use Homebrew gcc (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          GCC=$(ls "$(brew --prefix)/bin"/gcc-* 2>/dev/null | sort | tail -1)
-          echo "Using GCC: ${GCC}"
-          sudo ln -sf "${GCC}" /usr/local/bin/gcc
 
       - name: Install Nim (pinned)
         uses: iffy/install-nim@v5
@@ -215,7 +209,7 @@ jobs:
             cc: gcc
           - os: macos-15
             cpu: arm64
-            cc: gcc
+            cc: clang
           - os: windows
             cpu: amd64
             cc: gcc
@@ -279,12 +273,6 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
           sudo update-alternatives --set gcc /usr/bin/gcc-14
 
-      - name: Use Homebrew gcc (macOS)
-        if: runner.os == 'macOS'
-        run: |
-          GCC=$(ls "$(brew --prefix)/bin"/gcc-* 2>/dev/null | sort | tail -1)
-          echo "Using GCC: ${GCC}"
-          sudo ln -sf "${GCC}" /usr/local/bin/gcc
 
       - name: Install Nim (pinned)
         uses: iffy/install-nim@v5
