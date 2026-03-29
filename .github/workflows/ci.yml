@@ -54,20 +54,78 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15]
-    runs-on: ${{ matrix.os }}
+        platform:
+          - os: linux-gcc-14    # ubuntu-24.04, GCC 14
+            cpu: amd64
+            cc: gcc
+          - os: linux-gcc-14    # ubuntu-24.04, GCC 14
+            cpu: i386
+            cc: gcc
+          - os: macos-15
+            cpu: arm64
+            cc: clang
+          - os: windows
+            cpu: amd64
+            cc: gcc
+        include:
+          - platform:
+              os: linux-gcc-14
+            builder: ubuntu-24.04  # GCC 14 (default on 24.04)
+            shell: bash
+          - platform:
+              os: macos-15
+            builder: macos-15
+            shell: bash
+          - platform:
+              os: windows
+              cc: gcc
+            builder: windows-2022
+            shell: "msys2 {0}"
+
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    runs-on: ${{ matrix.builder }}
     timeout-minutes: 90
 
-    name: build-ci-${{ matrix.os }}
+    name: "build-ci-${{ matrix.platform.os }}-${{ matrix.platform.cpu }} (${{ matrix.platform.cc }})"
     steps:
-      - name: Clear cache
-        run: |
-          rm -rf ~/.cache/nim
-          rm -rf ~/.cache/nimble
-          rm -rf nimcache
-
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (Windows/gcc)
+        if: runner.os == 'Windows' && matrix.platform.cc == 'gcc'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            git
+            base-devel
+            mingw-w64-x86_64-toolchain
+            make
+            cmake
+            upx
+            unzip
+            mingw-w64-x86_64-rust
+            mingw-w64-x86_64-postgresql
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-gcc-libs
+            mingw-w64-x86_64-libwinpthread-git
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-nimble
+            mingw-w64-x86_64-nasm
+
+      - name: Use gcc-14
+        if: matrix.platform.os == 'linux-gcc-14'
+        run: |
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
 
       - name: Install Nim (pinned)
         uses: iffy/install-nim@v5
@@ -77,6 +135,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Nimble (pinned)
+        if: runner.os != 'Windows'
         uses: nim-lang/setup-nimble-action@v1
         with:
           nimble-version: '0.20.1'
@@ -117,10 +176,16 @@ jobs:
         run: make update
 
       - name: Check arch of loaded dependencies
+        if: runner.os != 'Windows'
         run: find . -name upnpdev.o -exec file {} \;
 
       - name: Build binaries
-        run: make V=1 QUICK_AND_DIRTY_COMPILER=1 NIM_PARAMS="-d:BORINGSS_USE_ASM=false" USE_LIBBACKTRACE=0 all
+        run: |
+          CC_FLAGS=""
+          if [[ '${{ matrix.platform.cc }}' == 'clang' ]]; then
+            CC_FLAGS="--cc:clang"
+          fi
+          make V=1 QUICK_AND_DIRTY_COMPILER=1 NIM_PARAMS="-d:BORINGSS_USE_ASM=false ${CC_FLAGS}" USE_LIBBACKTRACE=0 all
 
   build-windows:
     needs: changes
@@ -135,12 +200,93 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [macos-15]
-    runs-on: ${{ matrix.os }}
+        platform:
+          - os: linux-gcc-14    # ubuntu-24.04, GCC 14
+            cpu: amd64
+            cc: gcc
+          - os: linux-gcc-14    # ubuntu-24.04, GCC 14
+            cpu: i386
+            cc: gcc
+          - os: macos-15
+            cpu: arm64
+            cc: clang
+          - os: windows
+            cpu: amd64
+            cc: gcc
+        include:
+          - platform:
+              os: linux-gcc-14
+            builder: ubuntu-24.04  # GCC 14 (default on 24.04)
+            shell: bash
+          - platform:
+              os: macos-15
+            builder: macos-15
+            shell: bash
+          - platform:
+              os: windows
+              cc: gcc
+            builder: windows-2022
+            shell: "msys2 {0}"
+
+    defaults:
+      run:
+        shell: ${{ matrix.shell }}
+
+    runs-on: ${{ matrix.builder }}
     timeout-minutes: 90
 
-    name: test-ci-${{ matrix.os }}
+    name: "test-ci-${{ matrix.platform.os }}-${{ matrix.platform.cpu }} (${{ matrix.platform.cc }})"
     steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Setup MSYS2 (Windows/gcc)
+        if: runner.os == 'Windows' && matrix.platform.cc == 'gcc'
+        uses: msys2/setup-msys2@v2
+        with:
+          update: true
+          install: >-
+            git
+            base-devel
+            mingw-w64-x86_64-toolchain
+            make
+            cmake
+            upx
+            unzip
+            mingw-w64-x86_64-rust
+            mingw-w64-x86_64-postgresql
+            mingw-w64-x86_64-gcc
+            mingw-w64-x86_64-gcc-libs
+            mingw-w64-x86_64-libwinpthread-git
+            mingw-w64-x86_64-zlib
+            mingw-w64-x86_64-openssl
+            mingw-w64-x86_64-python
+            mingw-w64-x86_64-cmake
+            mingw-w64-x86_64-llvm
+            mingw-w64-x86_64-clang
+            mingw-w64-x86_64-nimble
+            mingw-w64-x86_64-nasm
+
+      - name: Use gcc-14
+        if: matrix.platform.os == 'linux-gcc-14'
+        run: |
+          sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
+          sudo update-alternatives --set gcc /usr/bin/gcc-14
+
+      - name: Install Nim (pinned)
+        uses: iffy/install-nim@v5
+        with:
+          version: binary:2.2.6
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble (pinned)
+        if: runner.os != 'Windows'
+        uses: nim-lang/setup-nimble-action@v1
+        with:
+          nimble-version: '0.20.1'
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
       - name: Platform info
         run: |
           echo "=== OS / kernel ==="
@@ -156,30 +302,14 @@ jobs:
           echo "=== gcc version ==="
           gcc --version || echo "gcc not available"
 
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Nim (pinned)
-        uses: iffy/install-nim@v5
-        with:
-          version: binary:2.2.6
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Nimble (pinned)
-        uses: nim-lang/setup-nimble-action@v1
-        with:
-          nimble-version: '0.20.1'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
       - name: Cache nimble deps
         uses: actions/cache@v4
         with:
           path: |
             nimbledeps/pkgs2
             ~/.cache
-          key: nimble-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('waku.nimble') }}
-          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}
+          key: nimble-${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform.cc }}-${{ hashFiles('waku.nimble') }}
+          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform.cc }}
 
       - name: Make update
         run: make update
@@ -193,15 +323,20 @@ jobs:
           grep -q libp2p nimble.paths || { echo "ERROR: libp2p not in paths!"; exit 1; }
 
       - name: Run tests
+        if: runner.os != 'Windows'
         run: |
           postgres_enabled=0
-          if [ ${{ runner.os }} == "Linux" ]; then
+          if [[ '${{ runner.os }}' == 'Linux' ]]; then
             sudo docker run --rm -d -e POSTGRES_PASSWORD=test123 -p 5432:5432 postgres:15.4-alpine3.18
             postgres_enabled=1
             # Disable march=native on Linux to avoid potential nimcrypto SHA2 issues
             export NIMFLAGS="--colors:off -d:chronicles_colors:none -d:disableMarchNative"
           else
             export NIMFLAGS="--colors:off -d:chronicles_colors:none"
+          fi
+
+          if [[ '${{ matrix.platform.cc }}' == 'clang' ]]; then
+            export NIMFLAGS="${NIMFLAGS} --cc:clang"
           fi
 
           export MAKEFLAGS="-j1"
