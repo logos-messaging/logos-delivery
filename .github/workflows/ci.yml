@@ -130,7 +130,7 @@ jobs:
       - name: Use Homebrew gcc (macOS)
         if: runner.os == 'macOS'
         run: |
-          GCC=$(ls /usr/local/bin/gcc-* /opt/homebrew/bin/gcc-* 2>/dev/null | sort -V | tail -1)
+          GCC=$(ls "$(brew --prefix)/bin"/gcc-* 2>/dev/null | sort | tail -1)
           echo "Using GCC: ${GCC}"
           sudo ln -sf "${GCC}" /usr/local/bin/gcc
 
@@ -282,7 +282,7 @@ jobs:
       - name: Use Homebrew gcc (macOS)
         if: runner.os == 'macOS'
         run: |
-          GCC=$(ls /usr/local/bin/gcc-* /opt/homebrew/bin/gcc-* 2>/dev/null | sort -V | tail -1)
+          GCC=$(ls "$(brew --prefix)/bin"/gcc-* 2>/dev/null | sort | tail -1)
           echo "Using GCC: ${GCC}"
           sudo ln -sf "${GCC}" /usr/local/bin/gcc
 
