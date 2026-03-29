@@ -1,6 +1,6 @@
 #!fmt: off
 
-import os
+import json, sequtils, strutils, os
 mode = ScriptMode.Verbose
 
 ### Package
@@ -61,8 +61,6 @@ requires "https://github.com/logos-messaging/nim-ffi"
 ### Pinned dependencies — source of truth is nimble.lock
 
 task install_pinned, "Install dependencies pinned in nimble.lock":
-  import json, sequtils, strutils
-
   let lock = parseFile("nimble.lock")
   var toInstall: seq[(string, string)]
   for name, pkg in lock["packages"].pairs:
