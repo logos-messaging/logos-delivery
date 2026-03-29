@@ -178,15 +178,7 @@ jobs:
           find . -name ssl_server_full_ec.o -exec file {} \;
 
       - name: Build binaries
-        run: |
-          NIM_PARAMS=""
-          if [[ '${{ runner.os }}' == 'macOS' ]]; then
-            case "$(uname -m)" in
-              x86_64)  NIM_PARAMS="--cpu:amd64 -d:disableMarchNative" ;;
-              arm64)   NIM_PARAMS="--cpu:arm64 -d:disableMarchNative" ;;
-            esac
-          fi
-          make V=1 QUICK_AND_DIRTY_COMPILER=1 NIM_PARAMS="${NIM_PARAMS}" USE_LIBBACKTRACE=0 all
+        run: make V=1 QUICK_AND_DIRTY_COMPILER=1 USE_LIBBACKTRACE=0 all
 
   build-windows:
     needs: changes
@@ -324,25 +316,14 @@ jobs:
           if [[ '${{ runner.os }}' == 'Linux' ]]; then
             sudo docker run --rm -d -e POSTGRES_PASSWORD=test123 -p 5432:5432 postgres:15.4-alpine3.18
             postgres_enabled=1
-            # Disable march=native on Linux to avoid potential nimcrypto SHA2 issues
-            export NIMFLAGS="--colors:off -d:chronicles_colors:none -d:disableMarchNative"
-          else
-            export NIMFLAGS="--colors:off -d:chronicles_colors:none"
-          fi
-
-          NIM_PARAMS=""
-          if [[ '${{ runner.os }}' == 'macOS' ]]; then
-            case "$(uname -m)" in
-              x86_64)  NIM_PARAMS="--cpu:amd64 -d:disableMarchNative" ;;
-              arm64)   NIM_PARAMS="--cpu:arm64 -d:disableMarchNative" ;;
-            esac
           fi
 
           export MAKEFLAGS="-j1"
+          export NIMFLAGS="--colors:off -d:chronicles_colors:none"
           export USE_LIBBACKTRACE=0
 
-          make V=1 LOG_LEVEL=DEBUG QUICK_AND_DIRTY_COMPILER=1 POSTGRES=$postgres_enabled NIM_PARAMS="${NIM_PARAMS}" test
-          make V=1 LOG_LEVEL=DEBUG QUICK_AND_DIRTY_COMPILER=1 POSTGRES=$postgres_enabled NIM_PARAMS="${NIM_PARAMS}" testwakunode2
+          make V=1 LOG_LEVEL=DEBUG QUICK_AND_DIRTY_COMPILER=1 POSTGRES=$postgres_enabled test
+          make V=1 LOG_LEVEL=DEBUG QUICK_AND_DIRTY_COMPILER=1 POSTGRES=$postgres_enabled testwakunode2
 
   build-docker-image:
     needs: changes
