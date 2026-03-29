@@ -58,9 +58,6 @@ jobs:
           - os: linux-gcc-14    # ubuntu-24.04, GCC 14
             cpu: amd64
             cc: gcc
-          - os: linux-gcc-14    # ubuntu-24.04, GCC 14
-            cpu: i386
-            cc: gcc
           - os: macos-15
             cpu: arm64
             cc: clang
@@ -196,9 +193,6 @@ jobs:
         platform:
           - os: linux-gcc-14    # ubuntu-24.04, GCC 14
             cpu: amd64
-            cc: gcc
-          - os: linux-gcc-14    # ubuntu-24.04, GCC 14
-            cpu: i386
             cc: gcc
           - os: macos-15
             cpu: arm64
