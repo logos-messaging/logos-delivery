@@ -154,7 +154,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: nimbledeps
-          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('.pinned') }}
+          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('nimble.lock') }}
 
       - name: Install deps
         if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}
@@ -277,7 +277,7 @@ jobs:
         uses: actions/cache@v4
         with:
           path: nimbledeps
-          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('.pinned') }}
+          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('nimble.lock') }}
 
       - name: Install deps
         if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}
