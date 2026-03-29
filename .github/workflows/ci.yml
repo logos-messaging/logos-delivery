@@ -149,30 +149,19 @@ jobs:
           echo "=== Nim version ==="
           nim --version
 
-      - name: Debug nimble.paths
-        run: |
-          echo "=== Nim version ==="
-          nim --version
-          echo "=== nimble version ==="
-          nimble --version
-          echo "=== nimble.paths content ==="
-          cat nimble.paths || echo "nimble.paths not found"
-          echo "=== Check for empty paths ==="
-          grep -n '""' nimble.paths || echo "No empty paths found"
-          grep -n '^--path:$' nimble.paths || echo "No empty --path: entries"
-          echo "=== Verify nimcrypto is in paths ==="
-          grep -c nimcrypto nimble.paths || echo "WARNING: nimcrypto not found in nimble.paths!"
+      - name: Restore deps from cache
+        id: deps-cache
+        uses: actions/cache@v4
+        with:
+          path: nimbledeps
+          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('.pinned') }}
+
+      - name: Install deps
+        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}
+        run: nimble install_pinned
 
       - name: Make update
         run: make update
-
-      - name: Check arch of loaded dependencies
-        if: runner.os != 'Windows'
-        run: |
-          find . -name upnpdev.o -exec file {} \;
-          find . -name ssl_scert_single_rsa.o -exec file {} \;
-          find . -name ssl_server.o -exec file {} \;
-          find . -name ssl_server_full_ec.o -exec file {} \;
 
       - name: Build binaries
         run: make V=1 QUICK_AND_DIRTY_COMPILER=1 USE_LIBBACKTRACE=0 all
@@ -283,25 +272,19 @@ jobs:
           echo "=== gcc version ==="
           gcc --version || echo "gcc not available"
 
-      - name: Cache nimble deps
+      - name: Restore deps from cache
+        id: deps-cache
         uses: actions/cache@v4
         with:
-          path: |
-            nimbledeps/pkgs2
-            ~/.cache
-          key: nimble-${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform.cc }}-${{ hashFiles('waku.nimble') }}
-          restore-keys: nimble-${{ runner.os }}-${{ runner.arch }}-${{ matrix.platform.cc }}
+          path: nimbledeps
+          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('.pinned') }}
+
+      - name: Install deps
+        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}
+        run: nimble install_pinned
 
       - name: Make update
         run: make update
-
-      - name: Verify nimble.paths
-        run: |
-          echo "=== nimble.paths content ==="
-          cat nimble.paths || { echo "ERROR: nimble.paths not found!"; exit 1; }
-          echo "=== Verify critical dependencies ==="
-          grep -q nimcrypto nimble.paths || { echo "ERROR: nimcrypto not in paths!"; exit 1; }
-          grep -q libp2p nimble.paths || { echo "ERROR: libp2p not in paths!"; exit 1; }
 
       - name: Run tests
         if: runner.os != 'Windows'

@@ -58,6 +58,39 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
 
+### Pinned dependencies — source of truth is nimble.lock
+
+task install_pinned, "Install dependencies pinned in nimble.lock":
+  import json, sequtils, strutils
+
+  let lock = parseFile("nimble.lock")
+  var toInstall: seq[(string, string)]
+  for name, pkg in lock["packages"].pairs:
+    let url = pkg["url"].getStr().strip(chars = {'/'})
+    let urlClean = if url.endsWith(".git"): url[0 .. ^5] else: url
+    let rev = pkg["vcsRevision"].getStr()
+    toInstall.add((name, urlClean & "@#" & rev))
+
+  rmDir("nimbledeps")
+  mkDir("nimbledeps")
+  exec "nimble install -y " & toInstall.mapIt(it[1]).join(" ")
+
+  let nimblePkgs =
+    if system.dirExists("nimbledeps/pkgs"): "nimbledeps/pkgs" else: "nimbledeps/pkgs2"
+  for dependency in listDirs(nimblePkgs):
+    let
+      fileName = dependency.extractFilename
+      fileContent = readFile(dependency & "/nimblemeta.json")
+      packageName = fileName.split('-')[0]
+
+    if toInstall.anyIt(
+      it[0] == packageName and (
+        it[1].split('#')[^1] in fileContent or
+        fileName.endsWith(it[1].split('#')[^1])
+      )
+    ) == false or fileName.split('-')[^1].len < 20:
+      rmDir(dependency)
+
 ### Helper functions
 proc buildModule(filePath, params = "", lang = "c"): bool =
   if not dirExists "build":
