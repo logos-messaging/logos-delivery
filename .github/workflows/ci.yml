@@ -127,19 +127,13 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
           sudo update-alternatives --set gcc /usr/bin/gcc-14
 
-      - name: Install Nim (pinned)
-        uses: iffy/install-nim@v5
+      - name: Setup Nim
+        uses: "./.github/actions/install_nim"
         with:
-          version: "2.2.6"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Nimble (pinned)
-        if: runner.os != 'Windows'
-        uses: nim-lang/setup-nimble-action@v1
-        with:
-          nimble-version: '0.20.1'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          os: ${{ runner.os }}
+          cpu: ${{ matrix.platform.cpu }}
+          shell: ${{ matrix.shell }}
+          nim_ref: v2.2.6
 
       - name: Platform info
         run: |
@@ -280,19 +274,13 @@ jobs:
           sudo update-alternatives --install /usr/bin/gcc gcc /usr/bin/gcc-14 14
           sudo update-alternatives --set gcc /usr/bin/gcc-14
 
-      - name: Install Nim (pinned)
-        uses: iffy/install-nim@v5
+      - name: Setup Nim
+        uses: "./.github/actions/install_nim"
         with:
-          version: "2.2.6"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Nimble (pinned)
-        if: runner.os != 'Windows'
-        uses: nim-lang/setup-nimble-action@v1
-        with:
-          nimble-version: '0.20.1'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          os: ${{ runner.os }}
+          cpu: ${{ matrix.platform.cpu }}
+          shell: ${{ matrix.shell }}
+          nim_ref: v2.2.6
 
       - name: Platform info
         run: |
@@ -392,18 +380,12 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Install Nim (pinned)
-        uses: iffy/install-nim@v5
+      - name: Setup Nim
+        uses: "./.github/actions/install_nim"
         with:
-          version: "2.2.6"
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install Nimble (pinned)
-        uses: nim-lang/setup-nimble-action@v1
-        with:
-          nimble-version: '0.20.1'
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
+          os: ${{ runner.os }}
+          cpu: amd64
+          nim_ref: v2.2.6
 
       - name: Build nph
         run: |
