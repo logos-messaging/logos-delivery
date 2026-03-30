@@ -64,10 +64,8 @@ runs:
           QUICK_AND_DIRTY_COMPILER=1 QUICK_AND_DIRTY_NIMBLE=1 CC=gcc \
           bash build_nim.sh nim csources dist/nimble NimBinaries
 
-    - name: Install Nimble v0.20.1
-      shell: ${{ inputs.shell }}
-      if: ${{ steps.nim-cache.outputs.cache-hit != 'true' }}
-      run: |
-        git clone --depth 1 --branch v0.20.1 https://github.com/nim-lang/nimble dist/nimble-0.20.1
-        cd dist/nimble-0.20.1
-        nim c -d:release -o:../../nim/bin/nimble src/nimble
+    - name: Install Nimble (pinned)
+      uses: nim-lang/setup-nimble-action@v1
+      with:
+        nimble-version: '0.20.1'
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
