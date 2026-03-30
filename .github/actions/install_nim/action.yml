@@ -9,6 +9,9 @@ inputs:
   nim_ref:
     description: "Nim version"
     default: "v2.2.6"
+  nimble_ref:
+    description: "Nimble version"
+    default: "v0.20.1"
   shell:
     description: "Shell to run commands in"
     default: "bash --noprofile --norc -e -o pipefail"
@@ -52,14 +55,38 @@ runs:
       uses: actions/cache@v4
       with:
         path: '${{ github.workspace }}/nim'
-        key: ${{ inputs.os }}-${{ inputs.cpu }}-nim-${{ inputs.nim_ref }}
+        key: ${{ inputs.os }}-${{ inputs.cpu }}-nim-${{ inputs.nim_ref }}-nimble-${{ inputs.nimble_ref }}
 
-    - name: Build Nim and Nimble
+    - name: Build Nim
       shell: ${{ inputs.shell }}
       if: ${{ steps.nim-cache.outputs.cache-hit != 'true' }}
       run: |
         rm -rf nim
         curl -O -L -s -S https://raw.githubusercontent.com/status-im/nimbus-build-system/master/scripts/build_nim.sh
         env MAKE="${MAKE_CMD} -j${ncpu}" ARCH_OVERRIDE=${PLATFORM} NIM_COMMIT=${{ inputs.nim_ref }} \
-          QUICK_AND_DIRTY_COMPILER=1 QUICK_AND_DIRTY_NIMBLE=1 CC=gcc \
-          bash build_nim.sh nim csources dist/nimble NimBinaries
+          QUICK_AND_DIRTY_COMPILER=1 CC=gcc \
+          bash build_nim.sh nim csources NimBinaries
+
+    - name: Install Nimble from pre-built binary
+      shell: ${{ inputs.shell }}
+      if: ${{ steps.nim-cache.outputs.cache-hit != 'true' && inputs.os != 'Windows' }}
+      run: |
+        case '${{ inputs.os }}-${{ inputs.cpu }}' in
+          'Linux-amd64')
+            NIMBLE_PLATFORM="linux_amd64"
+            ;;
+          'macOS-arm64')
+            NIMBLE_PLATFORM="macosx_arm64"
+            ;;
+          'macOS-amd64')
+            NIMBLE_PLATFORM="macosx_x64"
+            ;;
+          *)
+            echo "No pre-built nimble for ${{ inputs.os }}-${{ inputs.cpu }}, skipping"
+            exit 0
+            ;;
+        esac
+        URL="https://github.com/nim-lang/nimble/releases/download/${{ inputs.nimble_ref }}/nimble-${NIMBLE_PLATFORM}.tar.gz"
+        curl -L "$URL" | tar xz --strip-components=1 \
+          -C '${{ github.workspace }}/nim/bin/'
+        chmod +x '${{ github.workspace }}/nim/bin/nimble'

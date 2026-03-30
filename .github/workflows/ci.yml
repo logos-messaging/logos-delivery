@@ -131,6 +131,7 @@ jobs:
           cpu: ${{ matrix.platform.cpu }}
           shell: ${{ matrix.shell }}
           nim_ref: v2.2.6
+          nimble_ref: v0.20.1
 
       - name: Print Nim and Nimble versions
         run: |
@@ -242,6 +243,7 @@ jobs:
           cpu: ${{ matrix.platform.cpu }}
           shell: ${{ matrix.shell }}
           nim_ref: v2.2.6
+          nimble_ref: v0.20.1
 
       - name: Restore nimbledeps from cache
         id: nimbledeps-cache
@@ -330,6 +332,7 @@ jobs:
           os: ${{ runner.os }}
           cpu: amd64
           nim_ref: v2.2.6
+          nimble_ref: v0.20.1
 
       - name: Print Nim and Nimble versions
         run: |
