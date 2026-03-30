@@ -29,7 +29,7 @@ requires "nim >= 2.2.4",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "websock",
+  "websock >= 0.2.1",
   # Cryptography
   "nimcrypto",
   "secp256k1",
