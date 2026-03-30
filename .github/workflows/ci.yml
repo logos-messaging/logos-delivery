@@ -132,6 +132,20 @@ jobs:
           shell: ${{ matrix.shell }}
           nim_ref: v2.2.6
 
+      - name: Print Nim and Nimble versions
+        run: |
+          nim --version
+          nimble --version
+          which nim
+          which nimble
+
+      - name: Restore nimbledeps from cache
+        id: nimbledeps-cache
+        uses: actions/cache@v4
+        with:
+          path: nimbledeps
+          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('nimble.lock') }}
+
       - name: Make update
         run: make update
 
@@ -229,6 +243,13 @@ jobs:
           shell: ${{ matrix.shell }}
           nim_ref: v2.2.6
 
+      - name: Restore nimbledeps from cache
+        id: nimbledeps-cache
+        uses: actions/cache@v4
+        with:
+          path: nimbledeps
+          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('nimble.lock') }}
+
       - name: Platform info
         run: |
           echo "=== OS / kernel ==="
@@ -243,6 +264,10 @@ jobs:
           which gcc || echo "gcc not found"
           echo "=== gcc version ==="
           gcc --version || echo "gcc not available"
+          echo "=== nim version ==="
+          nim --version
+          echo "=== nimble version ==="
+          nimble --version
 
       - name: Make update
         run: make update
@@ -305,6 +330,11 @@ jobs:
           os: ${{ runner.os }}
           cpu: amd64
           nim_ref: v2.2.6
+
+      - name: Print Nim and Nimble versions
+        run: |
+          nim --version
+          nimble --version
 
       - name: Build nph
         run: |
