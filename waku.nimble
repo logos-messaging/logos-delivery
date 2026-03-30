@@ -75,9 +75,19 @@ proc buildModule(filePath, params = "", lang = "c"): bool =
     echo "File to build not found: " & filePath
     return false
 
+  var cpuFlag = ""
+  when defined(macosx) and defined(arm64):
+    cpuFlag = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\""
+  elif defined(macosx) and defined(amd64):
+    cpuFlag = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\""
+  elif defined(arm64):
+    cpuFlag = "--cpu:arm64"
+  elif defined(amd64):
+    cpuFlag = "--cpu:amd64"
+
   exec "nim " & lang &
        " --out:build/" & filePath & ".bin --mm:refc " &
-       " --path:nimble.paths " &
+       cpuFlag & " --path:nimble.paths " &
        extra_params & " " & filePath
 
   return true
@@ -90,8 +100,19 @@ proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   let nimParams = getEnv("NIM_PARAMS")
   if nimParams.len > 0:
     extra_params &= " " & nimParams
-  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & extra_params & " " &
-    srcDir & name & ".nim"
+
+  var cpuFlag = ""
+  when defined(macosx) and defined(arm64):
+    cpuFlag = "--cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\""
+  elif defined(macosx) and defined(amd64):
+    cpuFlag = "--cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\""
+  elif defined(arm64):
+    cpuFlag = "--cpu:arm64"
+  elif defined(amd64):
+    cpuFlag = "--cpu:amd64"
+
+  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & cpuFlag & " " &
+    extra_params & " " & srcDir & name & ".nim"
 
 proc buildLibrary(outLibNameAndExt: string, libName: string, extra_params = "", `type` = "static") =
 
