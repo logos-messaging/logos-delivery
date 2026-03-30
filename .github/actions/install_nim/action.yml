@@ -49,13 +49,16 @@ runs:
         echo "MAKE_CMD=${MAKE_CMD}" >> $GITHUB_ENV
         echo "CC_CMD=${CC_CMD}" >> $GITHUB_ENV
         echo '${{ github.workspace }}/nim/bin' >> $GITHUB_PATH
+        echo '${{ github.workspace }}/.nimble_runtime/bin' >> $GITHUB_PATH
 
-    - name: Restore Nim from cache
+    - name: Restore Nim and Nimble from cache
       id: nim-cache
       uses: actions/cache@v4
       with:
-        path: '${{ github.workspace }}/nim'
-        key: ${{ inputs.os }}-${{ inputs.cpu }}-nim-${{ inputs.nim_ref }}
+        path: |
+          ${{ github.workspace }}/nim
+          ${{ github.workspace }}/.nimble_runtime
+        key: ${{ inputs.os }}-${{ inputs.cpu }}-nim-${{ inputs.nim_ref }}-nimble-0.20.1
 
     - name: Build Nim
       shell: ${{ inputs.shell }}
@@ -67,7 +70,8 @@ runs:
           QUICK_AND_DIRTY_COMPILER=1 QUICK_AND_DIRTY_NIMBLE=1 CC=${CC_CMD} \
           bash build_nim.sh nim csources dist/nimble NimBinaries
 
-    - name: Install Nimble (pinned)
+    - name: Install Nimble v0.20.1
+      if: ${{ steps.nim-cache.outputs.cache-hit != 'true' }}
       uses: nim-lang/setup-nimble-action@v1
       with:
         nimble-version: '0.20.1'
