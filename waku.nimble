@@ -38,7 +38,6 @@ requires "nim >= 2.2.4",
   "json_rpc",
   "presto",
   "web3",
-  "jwt",
   # Database
   "db_connector",
   "sqlite3_abi",
@@ -57,6 +56,9 @@ requires "nim >= 2.2.4",
 
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
+
+requires "https://github.com/vacp2p/nim-lsquic#86b8efc703d06a493fa984b76e4ffb6ddde99c41"
+requires "https://github.com/vacp2p/nim-jwt.git#18f8378de52b241f321c1f9ea905456e89b95c6f"
 
 ### Pinned dependencies — source of truth is nimble.lock
 
