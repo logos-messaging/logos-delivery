@@ -250,25 +250,6 @@ jobs:
           path: nimbledeps
           key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('nimble.lock') }}
 
-      - name: Platform info
-        run: |
-          echo "=== OS / kernel ==="
-          uname -a
-          echo "=== Architecture ==="
-          uname -m
-          echo "=== clang location ==="
-          which clang || echo "clang not found"
-          echo "=== clang version ==="
-          clang --version || echo "clang not available"
-          echo "=== gcc location ==="
-          which gcc || echo "gcc not found"
-          echo "=== gcc version ==="
-          gcc --version || echo "gcc not available"
-          echo "=== nim version ==="
-          nim --version
-          echo "=== nimble version ==="
-          nimble --version
-
       - name: Make update
         run: make update
 
