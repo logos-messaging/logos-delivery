@@ -69,7 +69,6 @@ waku.nims:
 $(NIMBLEDEPS_STAMP): | waku.nims
 	git submodule update --init --recursive
 	nimble setup --localdeps
-	nimble install --depsOnly
 	$(MAKE) build-nph
 	$(MAKE) rebuild-nat-libs-nimbledeps
 	$(MAKE) rebuild-bearssl-nimbledeps
