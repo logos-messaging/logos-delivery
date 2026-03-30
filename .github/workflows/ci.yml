@@ -132,34 +132,6 @@ jobs:
           shell: ${{ matrix.shell }}
           nim_ref: v2.2.6
 
-      - name: Platform info
-        run: |
-          echo "=== OS / kernel ==="
-          uname -a
-          echo "=== Architecture ==="
-          uname -m
-          echo "=== clang location ==="
-          which clang || echo "clang not found"
-          echo "=== clang version ==="
-          clang --version || echo "clang not available"
-          echo "=== gcc location ==="
-          which gcc || echo "gcc not found"
-          echo "=== gcc version ==="
-          gcc --version || echo "gcc not available"
-          echo "=== Nim version ==="
-          nim --version
-
-      - name: Restore deps from cache
-        id: deps-cache
-        uses: actions/cache@v4
-        with:
-          path: nimbledeps
-          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('nimble.lock') }}
-
-      - name: Install deps
-        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}
-        run: nimble install_pinned
-
       - name: Make update
         run: make update
 
@@ -271,17 +243,6 @@ jobs:
           which gcc || echo "gcc not found"
           echo "=== gcc version ==="
           gcc --version || echo "gcc not available"
-
-      - name: Restore deps from cache
-        id: deps-cache
-        uses: actions/cache@v4
-        with:
-          path: nimbledeps
-          key: nimbledeps-${{ matrix.builder }}-${{ matrix.platform.cpu }}-${{ hashFiles('nimble.lock') }}
-
-      - name: Install deps
-        if: ${{ steps.deps-cache.outputs.cache-hit != 'true' }}
-        run: nimble install_pinned
 
       - name: Make update
         run: make update
