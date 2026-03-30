@@ -1,6 +1,6 @@
 #!fmt: off
 
-import json, sequtils, strutils, os
+import os
 mode = ScriptMode.Verbose
 
 ### Package
@@ -57,39 +57,8 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
 
-requires "https://github.com/vacp2p/nim-lsquic#86b8efc703d06a493fa984b76e4ffb6ddde99c41"
+requires "https://github.com/vacp2p/nim-lsquic"
 requires "https://github.com/vacp2p/nim-jwt.git#18f8378de52b241f321c1f9ea905456e89b95c6f"
-
-### Pinned dependencies — source of truth is nimble.lock
-
-task install_pinned, "Install dependencies pinned in nimble.lock":
-  let lock = parseFile("nimble.lock")
-  var toInstall: seq[(string, string)]
-  for name, pkg in lock["packages"].pairs:
-    let url = pkg["url"].getStr().strip(chars = {'/'})
-    let urlClean = if url.endsWith(".git"): url[0 .. ^5] else: url
-    let rev = pkg["vcsRevision"].getStr()
-    toInstall.add((name, urlClean & "@#" & rev))
-
-  rmDir("nimbledeps")
-  mkDir("nimbledeps")
-  exec "nimble install -y " & toInstall.mapIt(it[1]).join(" ")
-
-  let nimblePkgs =
-    if system.dirExists("nimbledeps/pkgs"): "nimbledeps/pkgs" else: "nimbledeps/pkgs2"
-  for dependency in listDirs(nimblePkgs):
-    let
-      fileName = dependency.extractFilename
-      fileContent = readFile(dependency & "/nimblemeta.json")
-      packageName = fileName.split('-')[0]
-
-    if toInstall.anyIt(
-      it[0] == packageName and (
-        it[1].split('#')[^1] in fileContent or
-        fileName.endsWith(it[1].split('#')[^1])
-      )
-    ) == false or fileName.split('-')[^1].len < 20:
-      rmDir(dependency)
 
 ### Helper functions
 proc buildModule(filePath, params = "", lang = "c"): bool =
