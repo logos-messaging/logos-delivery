@@ -68,4 +68,4 @@ runs:
       uses: nim-lang/setup-nimble-action@v1
       with:
         nimble-version: '0.20.1'
-        repo-token: ${{ secrets.GITHUB_TOKEN }}
+        repo-token: ${{ github.token }}
