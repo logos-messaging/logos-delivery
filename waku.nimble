@@ -48,7 +48,7 @@ proc buildModule(filePath, params = "", lang = "c"): bool =
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim " & lang & " --out:build/" & filepath & ".bin --mm:refc " & extra_params &
+  exec "nim " & lang & " --out:build/" & filepath & ".bin --mm:orc " & extra_params &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -61,7 +61,7 @@ proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   var extra_params = params
   for i in 2 ..< paramCount():
     extra_params &= " " & paramStr(i)
-  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & extra_params & " " &
+  exec "nim " & lang & " --out:build/" & name & " --mm:orc " & extra_params & " " &
     srcDir & name & ".nim"
 
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
@@ -73,11 +73,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
     extra_params &= " " & paramStr(i)
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:staticlib --opt:size --noMain --mm:orc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
       extra_params & " " & srcDir & srcFile
   else:
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:lib --opt:size --noMain --mm:orc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       extra_params & " " & srcDir & srcFile
 
 proc buildMobileAndroid(srcDir = ".", params = "") =
@@ -265,7 +265,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
       " --nimcache:" & nimcacheDir &
       " --os:ios --cpu:" & cpu &
       " --compileOnly:on" &
-      " --noMain --mm:refc" &
+      " --noMain --mm:orc" &
       " --threads:on --opt:size --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" &
       " --nimMainPrefix:libwaku --skipParentCfg:on" &
