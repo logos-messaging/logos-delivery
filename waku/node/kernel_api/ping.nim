@@ -38,6 +38,10 @@ proc mountLibp2pPing*(node: WakuNode) {.async: (raises: []).} =
 
 proc pingPeer(node: WakuNode, peerId: PeerId): Future[Result[void, string]] {.async.} =
   ## Ping a single peer and return the result
+  if node.libp2pPing.isNil():
+    return err("cannot pingPeer because libp2pPing is nil: " & $peerId)
+  if not node.started:
+    return err("cannot pingPeer because node is not started: " & $peerId)
 
   try:
     # Establish a stream
