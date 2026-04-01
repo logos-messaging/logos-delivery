@@ -31,6 +31,7 @@ import
     nameresolving/dnsresolver,
     protocols/mix/curve25519,
     protocols/mix/mix_protocol,
+    extended_peer_record,
   ] # define DNS resolution
 import
   waku/[
@@ -48,6 +49,7 @@ import
     waku_store/common,
     waku_filter_v2/client,
     common/logging,
+    waku_mix,
   ],
   ./config_chat2mix
 
@@ -57,7 +59,8 @@ import ../../waku/waku_rln_relay
 logScope:
   topics = "chat2 mix"
 
-const Help = """
+const Help =
+  """
   Commands: /[?|help|connect|nick|exit]
   help: Prints this help
   connect: dials a remote peer
@@ -428,16 +431,16 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     builder.withRecord(record)
 
     builder
-      .withNetworkConfigurationDetails(
-        conf.listenAddress,
-        Port(uint16(conf.tcpPort) + conf.portsShift),
-        extIp,
-        extTcpPort,
-        wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
-        wsEnabled = conf.websocketSupport,
-        wssEnabled = conf.websocketSecureSupport,
-      )
-      .tryGet()
+    .withNetworkConfigurationDetails(
+      conf.listenAddress,
+      Port(uint16(conf.tcpPort) + conf.portsShift),
+      extIp,
+      extTcpPort,
+      wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
+      wsEnabled = conf.websocketSupport,
+      wssEnabled = conf.websocketSecureSupport,
+    )
+    .tryGet()
     builder.build().tryGet()
 
   node.mountAutoSharding(conf.clusterId, conf.numShardsInNetwork).isOkOr:
@@ -447,15 +450,20 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     error "failed to mount waku metadata protocol: ", err = error
     quit(QuitFailure)
 
+  var providedServices: seq[ServiceInfo] = @[]
+
   let (mixPrivKey, mixPubKey) = generateKeyPair().valueOr:
     error "failed to generate mix key pair", error = error
     return
 
-  (await node.mountMix(conf.clusterId, mixPrivKey, conf.mixnodes)).isOkOr:
+  let mixService = ServiceInfo(id: MixProtocolID, data: @(mixPubKey))
+  providedServices.add(mixService)
+
+  (await node.mountMix(mixPrivKey)).isOkOr:
     error "failed to mount waku mix protocol: ", error = $error
     quit(QuitFailure)
 
-  # Setup extended kademlia discovery if bootstrap nodes are provided
+  # Setup kademlia discovery if bootstrap nodes are provided
   if conf.kadBootstrapNodes.len > 0:
     var kadBootstrapPeers: seq[(PeerId, seq[MultiAddress])]
     for nodeStr in conf.kadBootstrapNodes:
@@ -466,23 +474,8 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
 
     if kadBootstrapPeers.len > 0:
       node.wakuKademlia = WakuKademlia.new(
-        node.switch,
-        ExtendedKademliaDiscoveryParams(
-          bootstrapNodes: kadBootstrapPeers,
-          mixPubKey: some(mixPubKey),
-          advertiseMix: false,
-        ),
-        node.peerManager,
-        getMixNodePoolSize = proc(): int {.gcsafe, raises: [].} =
-          if node.wakuMix.isNil():
-            0
-          else:
-            node.getMixNodePoolSize(),
-        isNodeStarted = proc(): bool {.gcsafe, raises: [].} =
-          node.started,
-      ).valueOr:
-        error "failed to setup kademlia discovery", error = error
-        quit(QuitFailure)
+        node.switch, node.peerManager, kadBootstrapPeers, providedServices
+      )
 
   #await node.mountRendezvousClient(conf.clusterId)
 
@@ -490,9 +483,11 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
 
   node.peerManager.start()
   if not node.wakuKademlia.isNil():
-    (await node.wakuKademlia.start(minMixPeers = MinMixNodePoolSize)).isOkOr:
-      error "failed to start kademlia discovery", error = error
-      quit(QuitFailure)
+    await node.wakuKademlia.start()
+
+  # Wire mix protocol with kademlia for peer discovery
+  if not node.wakuMix.isNil() and not node.wakuKademlia.isNil():
+    node.wakuMix.setKademlia(node.wakuKademlia)
 
   await node.mountLibp2pPing()
   #await node.mountPeerExchangeClient()
@@ -645,8 +640,8 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     currentpoolSize = node.getMixNodePoolSize()
   echo "ready to publish messages now"
 
-  # Once min mixnodes are discovered loop as per default setting
-  node.startPeerExchangeLoop()
+  # Peer exchange disabled - using Kademlia discovery only
+  # node.startPeerExchangeLoop()
 
   if conf.metricsLogging:
     startMetricsLog()
