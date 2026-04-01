@@ -60,6 +60,8 @@ proc newTestWakuNode*(
     wsBindPort: Port = (Port) 8000,
     wsEnabled: bool = false,
     wssEnabled: bool = false,
+    quicBindPort: Port = (Port) 0,
+    quicEnabled: bool = true,
     secureKey: string = "",
     secureCert: string = "",
     wakuFlags = none(CapabilitiesBitfield),
@@ -73,6 +75,12 @@ proc newTestWakuNode*(
     subscribeShards = @[DefaultShardId],
 ): WakuNode =
   logging.setupLog(logging.LogLevel.DEBUG, logging.LogFormat.TEXT)
+
+  let bindIp =
+    if quicEnabled and $bindIp == "0.0.0.0":
+      parseIpAddress("127.0.0.1")
+    else:
+      bindIp
 
   var resolvedExtIp = extIp
 
@@ -105,6 +113,8 @@ proc newTestWakuNode*(
     wsBindPort = some(wsBindPort),
     wsEnabled = wsEnabled,
     wssEnabled = wssEnabled,
+    quicBindPort = some(quicBindPort),
+    quicEnabled = quicEnabled,
     dns4DomainName = dns4DomainName,
     discv5UdpPort = discv5UdpPort,
     wakuFlags = wakuFlags,

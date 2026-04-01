@@ -32,6 +32,9 @@ type WebSocketConf* = object
   port*: Port
   secureConf*: Option[WebSocketSecureConf]
 
+type QuicConf* = object
+  port*: Port
+
 # TODO: should be defined in validator_signed.nim and imported here
 type ProtectedShard* {.requiresInit.} = object
   shard*: uint16
@@ -112,6 +115,7 @@ type WakuConf* {.requiresInit.} = ref object
   restServerConf*: Option[RestServerConf]
   metricsServerConf*: Option[MetricsServerConf]
   webSocketConf*: Option[WebSocketConf]
+  quicConf*: Option[QuicConf]
   mixConf*: Option[MixConf]
   kademliaDiscoveryConf*: Option[KademliaDiscoveryConf]
 

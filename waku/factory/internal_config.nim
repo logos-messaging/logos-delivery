@@ -59,6 +59,7 @@ proc networkConfiguration*(
     conf: EndpointConf,
     discv5Conf: Option[Discv5Conf],
     webSocketConf: Option[WebSocketConf],
+    quicConf: Option[QuicConf],
     wakuFlags: CapabilitiesBitfield,
     dnsAddrsNameServers: seq[IpAddress],
     portsShift: uint16,
@@ -109,6 +110,13 @@ proc networkConfiguration*(
     else:
       (false, none(Port), false)
 
+  let (quicEnabled, quicBindPort) =
+    if quicConf.isSome:
+      let qConf = quicConf.get()
+      (true, some(Port(qConf.port.uint16 + portsShift)))
+    else:
+      (false, none(Port))
+
   # Wrap in none because NetConfig does not have a default constructor
   # TODO: We could change bindIp in NetConfig to be something less restrictive
   # than IpAddress, which doesn't allow default construction
@@ -123,6 +131,8 @@ proc networkConfiguration*(
     wsBindPort = wsBindPort,
     wsEnabled = wsEnabled,
     wssEnabled = wssEnabled,
+    quicBindPort = quicBindPort,
+    quicEnabled = quicEnabled,
     dns4DomainName = conf.dns4DomainName,
     discv5UdpPort = discv5UdpPort,
     wakuFlags = some(wakuFlags),

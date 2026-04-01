@@ -9,6 +9,7 @@ type NetConfig* = object
   hostAddress*: MultiAddress
   clusterId*: uint16
   wsHostAddress*: Option[MultiAddress]
+  quicHostAddress*: Option[MultiAddress]
   hostExtAddress*: Option[MultiAddress]
   wsExtAddress*: Option[MultiAddress]
   wssEnabled*: bool
@@ -74,6 +75,8 @@ proc init*(
     wsBindPort: Option[Port] = some(DefaultWsBindPort),
     wsEnabled: bool = false,
     wssEnabled: bool = false,
+    quicBindPort = none(Port),
+    quicEnabled: bool = false,
     dns4DomainName = none(string),
     discv5UdpPort = none(Port),
     clusterId: uint16 = 0,
@@ -94,6 +97,17 @@ proc init*(
     except CatchableError:
       return err(getCurrentExceptionMsg())
 
+  var quicHostAddress = none(MultiAddress)
+  if quicEnabled and quicBindPort.isSome():
+    try:
+      quicHostAddress = some(
+        MultiAddress
+          .init("/ip4/" & $bindIp & "/udp/" & $quicBindPort.get() & "/quic-v1")
+          .tryGet()
+      )
+    except CatchableError:
+      return err(getCurrentExceptionMsg())
+
   let enrIp =
     if extIp.isSome():
       extIp
@@ -106,7 +120,7 @@ proc init*(
       some(bindPort)
 
   # Setup external addresses, if available
-  var hostExtAddress, wsExtAddress = none(MultiAddress)
+  var hostExtAddress, wsExtAddress, quicExtAddress = none(MultiAddress)
 
   if dns4DomainName.isSome():
     # Use dns4 for externally announced addresses
@@ -120,6 +134,19 @@ proc init*(
         wsExtAddress = some(
           dns4TcpEndPoint(dns4DomainName.get(), wsBindPort.get(DefaultWsBindPort)) &
             wsFlag(wssEnabled)
+        )
+      except CatchableError:
+        return err(getCurrentExceptionMsg())
+
+    if quicHostAddress.isSome():
+      try:
+        quicExtAddress = some(
+          MultiAddress
+            .init(
+              "/dns4/" & dns4DomainName.get() & "/udp/" & $quicBindPort.get() &
+                "/quic-v1"
+            )
+            .tryGet()
         )
       except CatchableError:
         return err(getCurrentExceptionMsg())
@@ -137,6 +164,18 @@ proc init*(
         except CatchableError:
           return err(getCurrentExceptionMsg())
 
+      if quicHostAddress.isSome():
+        try:
+          quicExtAddress = some(
+            MultiAddress
+              .init("/ip4/" & $extIp.get() & "/udp/" & $quicBindPort.get() & "/quic-v1")
+              .tryGet()
+          )
+        except CatchableError:
+          return err(
+            "Failed to create external QUIC multiaddress: " & getCurrentExceptionMsg()
+          )
+
   var announcedAddresses = newSeq[MultiAddress]()
 
   if not extMultiAddrsOnly:
@@ -152,6 +191,11 @@ proc init*(
       # Only publish wsHostAddress if a WS address is not set in extMultiAddrs
       announcedAddresses.add(wsHostAddress.get())
 
+    if quicExtAddress.isSome():
+      announcedAddresses.add(quicExtAddress.get())
+    elif quicHostAddress.isSome():
+      announcedAddresses.add(formatListenAddress(quicHostAddress.get()))
+
   # External multiaddrs that the operator may have configured
   if extMultiAddrs.len > 0:
     announcedAddresses.add(extMultiAddrs)
@@ -161,7 +205,7 @@ proc init*(
     # https://rfc.vac.dev/spec/31/#many-connection-types
     enrMultiaddrs = announcedAddresses.filterIt(
       it.hasProtocol("dns4") or it.hasProtocol("dns6") or it.hasProtocol("ws") or
-        it.hasProtocol("wss")
+        it.hasProtocol("wss") or it.hasProtocol("quic-v1")
     )
 
   ok(
@@ -169,6 +213,7 @@ proc init*(
       hostAddress: hostAddress,
       clusterId: clusterId,
       wsHostAddress: wsHostAddress,
+      quicHostAddress: quicHostAddress,
       hostExtAddress: hostExtAddress,
       wsExtAddress: wsExtAddress,
       extIp: extIp,

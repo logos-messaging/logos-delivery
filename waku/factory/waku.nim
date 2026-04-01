@@ -263,7 +263,7 @@ proc getRunningNetConfig(waku: ptr Waku): Future[Result[NetConfig, string]] {.as
   let netConf = (
     await networkConfiguration(
       conf.clusterId, conf.endpointConf, conf.discv5Conf, conf.webSocketConf,
-      conf.wakuFlags, conf.dnsAddrsNameServers, conf.portsShift, clientId,
+      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, conf.portsShift, clientId,
     )
   ).valueOr:
     return err("Could not update NetConfig: " & error)

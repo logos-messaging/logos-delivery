@@ -7,7 +7,13 @@ import
   chronos,
   chronicles,
   metrics,
-  libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
+  libp2p/[
+    multistream,
+    muxers/muxer,
+    nameresolving/nameresolver,
+    peerstore,
+    transports/quictransport,
+  ],
   waku/[
     waku_core,
     waku_relay,

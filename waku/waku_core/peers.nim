@@ -330,7 +330,9 @@ converter toRemotePeerInfo*(peerInfo: PeerInfo): RemotePeerInfo =
   ## Useful for testing or internal connections
   RemotePeerInfo(
     peerId: peerInfo.peerId,
-    addrs: peerInfo.listenAddrs,
+    addrs:
+      peerInfo.listenAddrs.filterIt("/quic-v1" in $it) &
+      peerInfo.listenAddrs.filterIt("/quic-v1" notin $it),
     enr: none(enr.Record),
     protocols: peerInfo.protocols,
     shards: @[],
