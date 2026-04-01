@@ -21,26 +21,47 @@ suite "Extended nim-libp2p Peer Store":
 
   setup:
     # Setup a nim-libp2p peerstore with some peers
+    echo "DEBUG setup: calling PeerStore.new"
     let peerStore = PeerStore.new(nil, capacity = 50)
+    echo "DEBUG setup: PeerStore.new done"
     var p1, p2, p3, p4, p5, p6: PeerId
 
     # create five peers basePeerId + [1-5]
+    echo "DEBUG setup: init p1"
     require p1.init(basePeerId & "1")
+    echo "DEBUG setup: p1 = " & $p1
+
+    echo "DEBUG setup: init p2"
     require p2.init(basePeerId & "2")
+    echo "DEBUG setup: p2 = " & $p2
+
+    echo "DEBUG setup: init p3"
     require p3.init(basePeerId & "3")
+    echo "DEBUG setup: p3 = " & $p3
+
+    echo "DEBUG setup: init p4"
     require p4.init(basePeerId & "4")
+    echo "DEBUG setup: p4 = " & $p4
+
+    echo "DEBUG setup: init p5"
     require p5.init(basePeerId & "5")
+    echo "DEBUG setup: p5 = " & $p5
 
     # peer6 is not part of the peerstore
+    echo "DEBUG setup: init p6"
     require p6.init(basePeerId & "6")
+    echo "DEBUG setup: p6 = " & $p6
 
     # Peer1: Connected
+    echo "DEBUG setup: generateEcdsaKeyPair for p1"
+    let key1 = generateEcdsaKeyPair()
+    echo "DEBUG setup: addPeer p1"
     peerStore.addPeer(
       RemotePeerInfo.init(
         peerId = p1,
         addrs = @[MultiAddress.init("/ip4/127.0.0.1/tcp/1").tryGet()],
         protocols = @["/vac/waku/relay/2.0.0-beta1", "/vac/waku/store/2.0.0"],
-        publicKey = generateEcdsaKeyPair().pubkey,
+        publicKey = key1.pubkey,
         agent = "nwaku",
         protoVersion = "protoVersion1",
         connectedness = Connected,
@@ -51,14 +72,18 @@ suite "Extended nim-libp2p Peer Store":
         numberFailedConn = 1,
       )
     )
+    echo "DEBUG setup: addPeer p1 done"
 
     # Peer2: Connected
+    echo "DEBUG setup: generateEcdsaKeyPair for p2"
+    let key2 = generateEcdsaKeyPair()
+    echo "DEBUG setup: addPeer p2"
     peerStore.addPeer(
       RemotePeerInfo.init(
         peerId = p2,
         addrs = @[MultiAddress.init("/ip4/127.0.0.1/tcp/2").tryGet()],
         protocols = @["/vac/waku/relay/2.0.0", "/vac/waku/store/2.0.0"],
-        publicKey = generateEcdsaKeyPair().pubkey,
+        publicKey = key2.pubkey,
         agent = "nwaku",
         protoVersion = "protoVersion2",
         connectedness = Connected,
@@ -69,14 +94,18 @@ suite "Extended nim-libp2p Peer Store":
         numberFailedConn = 2,
       )
     )
+    echo "DEBUG setup: addPeer p2 done"
 
     # Peer3: Connected
+    echo "DEBUG setup: generateEcdsaKeyPair for p3"
+    let key3 = generateEcdsaKeyPair()
+    echo "DEBUG setup: addPeer p3"
     peerStore.addPeer(
       RemotePeerInfo.init(
         peerId = p3,
         addrs = @[MultiAddress.init("/ip4/127.0.0.1/tcp/3").tryGet()],
         protocols = @["/vac/waku/lightpush/2.0.0", "/vac/waku/store/2.0.0-beta1"],
-        publicKey = generateEcdsaKeyPair().pubkey,
+        publicKey = key3.pubkey,
         agent = "gowaku",
         protoVersion = "protoVersion3",
         connectedness = Connected,
@@ -87,14 +116,18 @@ suite "Extended nim-libp2p Peer Store":
         numberFailedConn = 3,
       )
     )
+    echo "DEBUG setup: addPeer p3 done"
 
     # Peer4: Added but never connected
+    echo "DEBUG setup: generateEcdsaKeyPair for p4"
+    let key4 = generateEcdsaKeyPair()
+    echo "DEBUG setup: addPeer p4"
     peerStore.addPeer(
       RemotePeerInfo.init(
         peerId = p4,
         addrs = @[MultiAddress.init("/ip4/127.0.0.1/tcp/4").tryGet()],
         protocols = @[],
-        publicKey = generateEcdsaKeyPair().pubkey,
+        publicKey = key4.pubkey,
         agent = "",
         protoVersion = "",
         connectedness = NotConnected,
@@ -105,14 +138,18 @@ suite "Extended nim-libp2p Peer Store":
         numberFailedConn = 4,
       )
     )
+    echo "DEBUG setup: addPeer p4 done"
 
     # Peer5: Connected
+    echo "DEBUG setup: generateEcdsaKeyPair for p5"
+    let key5 = generateEcdsaKeyPair()
+    echo "DEBUG setup: addPeer p5"
     peerStore.addPeer(
       RemotePeerInfo.init(
         peerId = p5,
         addrs = @[MultiAddress.init("/ip4/127.0.0.1/tcp/5").tryGet()],
         protocols = @["/vac/waku/swap/2.0.0", "/vac/waku/store/2.0.0-beta2"],
-        publicKey = generateEcdsaKeyPair().pubkey,
+        publicKey = key5.pubkey,
         agent = "gowaku",
         protoVersion = "protoVersion5",
         connectedness = CanConnect,
@@ -123,6 +160,8 @@ suite "Extended nim-libp2p Peer Store":
         numberFailedConn = 5,
       )
     )
+    echo "DEBUG setup: addPeer p5 done"
+    echo "DEBUG setup: complete"
 
   test "get() returns the correct StoredInfo for a given PeerId":
     # When
