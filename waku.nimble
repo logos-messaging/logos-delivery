@@ -4,7 +4,7 @@ import os
 mode = ScriptMode.Verbose
 
 ### Package
-version = "0.36.0"
+version = "0.37.2"
 author = "Status Research & Development GmbH"
 description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
@@ -35,6 +35,17 @@ requires "nim >= 2.2.4",
   "jwt",
   "ffi"
 
+proc getMyCPU(): string =
+  ## Need to se cpu more explicit manner to avoid arch issues between dependencies
+  when defined(macosx) and defined(arm64):
+    return " --cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" "
+  elif defined(macosx) and defined(amd64):
+    return " --cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" "
+  elif defined(arm64):
+    return " --cpu:arm64 "
+  elif defined(amd64):
+    return " --cpu:amd64 "
+
 ### Helper functions
 proc buildModule(filePath, params = "", lang = "c"): bool =
   if not dirExists "build":
@@ -48,7 +59,7 @@ proc buildModule(filePath, params = "", lang = "c"): bool =
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim " & lang & " --out:build/" & filepath & ".bin --mm:refc " & extra_params &
+  exec "nim " & lang & " --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & extra_params &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -61,7 +72,7 @@ proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   var extra_params = params
   for i in 2 ..< paramCount():
     extra_params &= " " & paramStr(i)
-  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & extra_params & " " &
+  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & getMyCPU() & extra_params & " " &
     srcDir & name & ".nim"
 
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
@@ -74,11 +85,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
-      extra_params & " " & srcDir & srcFile
+      getMyCPU() & extra_params & " " & srcDir & srcFile
   else:
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      extra_params & " " & srcDir & srcFile
+      getMyCPU() & extra_params & " " & srcDir & srcFile
 
 proc buildMobileAndroid(srcDir = ".", params = "") =
   let cpu = getEnv("CPU")
