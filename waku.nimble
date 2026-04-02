@@ -70,17 +70,17 @@ proc buildLibrary(name: string, srcDir = "./", params = "", `type` = "static") =
     extra_params &= " " & paramStr(i)
   if `type` == "static":
     exec "nim c" & " --out:build/" & name &
-      ".a --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
+      ".a --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
       extra_params & " " & srcDir & name & ".nim"
   else:
     let lib_name = (when defined(windows): toDll(name) else: name & ".so")
     when defined(windows):
       exec "nim c" & " --out:build/" & lib_name &
-        " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+        " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
         extra_params & " " & srcDir & name & ".nim"
     else:
       exec "nim c" & " --out:build/" & lib_name &
-        " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
+        " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
         extra_params & " " & srcDir & name & ".nim"
 
 proc buildMobileAndroid(srcDir = ".", params = "") =
