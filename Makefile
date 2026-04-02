@@ -81,13 +81,27 @@ update:
 	nimble lock
 
 clean:
-	rm -rf build
-	rm -rf nimbledeps
+	rm -rf build 2> /dev/null || true
+	rm -rf nimbledeps 2> /dev/null || true
 	rm nimble.lock 2> /dev/null || true
-	rm -fr nimcache
+	rm -fr nimcache 2> /dev/null || true
+	rm nimble.paths 2> /dev/null || true
 	nimble clean
 
+REQUIRED_NIM_VERSION    := $(shell grep -E '^requires "nim ==' waku.nimble | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+REQUIRED_NIMBLE_VERSION := $(shell grep -E '^requires "nimble ==' waku.nimble | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+
 build:
+	@nim_ver=$$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$nim_ver" != "$(REQUIRED_NIM_VERSION)" ]; then \
+		echo "Error: Nim $(REQUIRED_NIM_VERSION) is required, but found '$$nim_ver'"; \
+		exit 1; \
+	fi
+	@nimble_ver=$$(nimble --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$nimble_ver" != "$(REQUIRED_NIMBLE_VERSION)" ]; then \
+		echo "Error: Nimble $(REQUIRED_NIMBLE_VERSION) is required, but found '$$nimble_ver'"; \
+		exit 1; \
+	fi
 	mkdir -p build
 
 nimble:
@@ -281,8 +295,13 @@ networkmonitor: | $(NIMBLEDEPS_STAMP) build deps librln
 
 build-nph: | build deps
 ifneq ($(detected_OS),Windows)
-	nimble install nph@0.7.0 -y
-	echo "Check if nph utility is available:"
+	if command -v nph > /dev/null 2>&1; then \
+		echo "nph already installed, skipping"; \
+	else \
+		echo "Installing nph globally"; \
+		nimble install nph@0.7.0 --accept -g; \
+	fi
+	echo "Check if nph utility is available"
 	PATH="$(CURDIR)/nimbledeps/bin:$$PATH" command -v nph
 else
 	echo "Skipping nph build on Windows (nph is only used on Unix-like systems)"
