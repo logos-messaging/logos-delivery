@@ -9,6 +9,7 @@ import
   eth/p2p/discoveryv5/enr,
   eth/net/utils,
   libp2p/crypto/crypto,
+  libp2p/crypto/curve25519,
   libp2p/crypto/secp,
   libp2p/errors,
   libp2p/multiaddress,
@@ -37,6 +38,7 @@ type
     Static
     PeerExchange
     Dns
+    Kademlia
 
   PeerDirection* = enum
     UnknownDirection
@@ -48,6 +50,8 @@ type RemotePeerInfo* = ref object
   addrs*: seq[MultiAddress]
   enr*: Option[enr.Record]
   protocols*: seq[string]
+  shards*: seq[uint16]
+  mixPubKey*: Option[Curve25519Key]
 
   agent*: string
   protoVersion*: string
@@ -73,6 +77,7 @@ proc init*(
     addrs: seq[MultiAddress] = @[],
     enr: Option[enr.Record] = none(enr.Record),
     protocols: seq[string] = @[],
+    shards: seq[uint16] = @[],
     publicKey: crypto.PublicKey = crypto.PublicKey(),
     agent: string = "",
     protoVersion: string = "",
@@ -82,12 +87,14 @@ proc init*(
     direction: PeerDirection = UnknownDirection,
     lastFailedConn: Moment = Moment.init(0, Second),
     numberFailedConn: int = 0,
+    mixPubKey: Option[Curve25519Key] = none(Curve25519Key),
 ): T =
   RemotePeerInfo(
     peerId: peerId,
     addrs: addrs,
     enr: enr,
     protocols: protocols,
+    shards: shards,
     publicKey: publicKey,
     agent: agent,
     protoVersion: protoVersion,
@@ -97,6 +104,7 @@ proc init*(
     direction: direction,
     lastFailedConn: lastFailedConn,
     numberFailedConn: numberFailedConn,
+    mixPubKey: mixPubKey,
   )
 
 proc init*(
@@ -105,9 +113,12 @@ proc init*(
     addrs: seq[MultiAddress] = @[],
     enr: Option[enr.Record] = none(enr.Record),
     protocols: seq[string] = @[],
+    shards: seq[uint16] = @[],
 ): T {.raises: [Defect, ResultError[cstring], LPError].} =
   let peerId = PeerID.init(peerId).tryGet()
-  RemotePeerInfo(peerId: peerId, addrs: addrs, enr: enr, protocols: protocols)
+  RemotePeerInfo(
+    peerId: peerId, addrs: addrs, enr: enr, protocols: protocols, shards: shards
+  )
 
 ## Parse
 
@@ -165,17 +176,15 @@ proc parsePeerInfoFromRegularAddr(peer: MultiAddress): Result[RemotePeerInfo, st
     case addrPart[].protoName()[]
     # All protocols listed here: https://github.com/multiformats/multiaddr/blob/b746a7d014e825221cc3aea6e57a92d78419990f/protocols.csv
     of "p2p":
-      p2pPart =
-        ?addrPart.mapErr(
-          proc(err: string): string =
-            "Error getting p2pPart [" & err & "]"
-        )
+      p2pPart = ?addrPart.mapErr(
+        proc(err: string): string =
+          "Error getting p2pPart [" & err & "]"
+      )
     of "ip4", "ip6", "dns", "dnsaddr", "dns4", "dns6", "tcp", "ws", "wss":
-      let val =
-        ?addrPart.mapErr(
-          proc(err: string): string =
-            "Error getting addrPart [" & err & "]"
-        )
+      let val = ?addrPart.mapErr(
+        proc(err: string): string =
+          "Error getting addrPart [" & err & "]"
+      )
       ?wireAddr.append(val).mapErr(
         proc(err: string): string =
           "Error appending addrPart [" & err & "]"
@@ -188,11 +197,10 @@ proc parsePeerInfoFromRegularAddr(peer: MultiAddress): Result[RemotePeerInfo, st
       "] [peer:" & $peer & "]"
     return err(msg)
 
-  let peerId =
-    ?PeerID.init(p2pPartStr.split("/")[^1]).mapErr(
-      proc(e: cstring): string =
-        $e
-    )
+  let peerId = ?PeerID.init(p2pPartStr.split("/")[^1]).mapErr(
+    proc(e: cstring): string =
+      $e
+  )
 
   if not wireAddr.validWireAddr():
     return err("invalid multiaddress: no supported transport found")
@@ -222,11 +230,10 @@ proc parsePeerInfo*(maddrs: varargs[string]): Result[RemotePeerInfo, string] =
   ## format `(ip4|ip6)/tcp/p2p`, into dialable PeerInfo
   var multiAddresses = newSeq[MultiAddress]()
   for maddr in maddrs:
-    let multiAddr =
-      ?MultiAddress.init(maddr).mapErr(
-        proc(err: string): string =
-          "MultiAddress.init [" & err & "]"
-      )
+    let multiAddr = ?MultiAddress.init(maddr).mapErr(
+      proc(err: string): string =
+        "MultiAddress.init [" & err & "]"
+    )
     multiAddresses.add(multiAddr)
 
   parsePeerInfo(multiAddresses)
@@ -326,6 +333,7 @@ converter toRemotePeerInfo*(peerInfo: PeerInfo): RemotePeerInfo =
     addrs: peerInfo.listenAddrs,
     enr: none(enr.Record),
     protocols: peerInfo.protocols,
+    shards: @[],
     agent: peerInfo.agentVersion,
     protoVersion: peerInfo.protoVersion,
     publicKey: peerInfo.publicKey,
@@ -361,6 +369,9 @@ proc getAgent*(peer: RemotePeerInfo): string =
   return peer.agent
 
 proc getShards*(peer: RemotePeerInfo): seq[uint16] =
+  if peer.shards.len > 0:
+    return peer.shards
+
   if peer.enr.isNone():
     return @[]
 

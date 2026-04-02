@@ -6,7 +6,8 @@ import
   chronicles,
   eth/p2p/discoveryv5/enr,
   libp2p/builders,
-  libp2p/peerstore
+  libp2p/peerstore,
+  libp2p/crypto/curve25519
 
 import
   ../../waku_core,
@@ -39,6 +40,9 @@ type
   # Keeps track of the ENR (Ethereum Node Record) of a peer
   ENRBook* = ref object of PeerBook[enr.Record]
 
+  # Keeps track of peer shards
+  ShardBook* = ref object of PeerBook[seq[uint16]]
+
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
   let addresses =
     if peerStore[LastSeenBook][peerId].isSome():
@@ -55,6 +59,7 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
       else:
         none(enr.Record),
     protocols: peerStore[ProtoBook][peerId],
+    shards: peerStore[ShardBook][peerId],
     agent: peerStore[AgentBook][peerId],
     protoVersion: peerStore[ProtoVersionBook][peerId],
     publicKey: peerStore[KeyBook][peerId],
@@ -64,6 +69,11 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
     direction: peerStore[DirectionBook][peerId],
     lastFailedConn: peerStore[LastFailedConnBook][peerId],
     numberFailedConn: peerStore[NumberFailedConnBook][peerId],
+    mixPubKey:
+      if peerStore[MixPubKeyBook][peerId] != default(Curve25519Key):
+        some(peerStore[MixPubKeyBook][peerId])
+      else:
+        none(Curve25519Key),
   )
 
 proc delete*(peerStore: PeerStore, peerId: PeerId) =
@@ -72,16 +82,24 @@ proc delete*(peerStore: PeerStore, peerId: PeerId) =
 
 proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
   let allKeys = concat(
-      toSeq(peerStore[LastSeenBook].book.keys()),
+      toSeq(peerStore[LastSeenOutboundBook].book.keys()),
       toSeq(peerStore[AddressBook].book.keys()),
       toSeq(peerStore[ProtoBook].book.keys()),
       toSeq(peerStore[KeyBook].book.keys()),
+      toSeq(peerStore[ShardBook].book.keys()),
     )
     .toHashSet()
 
   return allKeys.mapIt(peerStore.getPeer(it))
 
 proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin) =
+  ## Storing MixPubKey even if peer is already present as this info might be new
+  ## or updated.
+  if peer.mixPubKey.isSome():
+    trace "adding mix pub key to peer store",
+      peer_id = $peer.peerId, mix_pub_key = $peer.mixPubKey.get()
+    peerStore[MixPubKeyBook].book[peer.peerId] = peer.mixPubKey.get()
+
   ## Notice that the origin parameter is used to manually override the given peer origin.
   ## At the time of writing, this is used in waku_discv5 or waku_node (peer exchange.)
   if peerStore[AddressBook][peer.peerId] == peer.addrs and
@@ -108,6 +126,7 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
   peerStore[ProtoBook][peer.peerId] = protos
 
   ## We don't care whether the item was already present in the table or not. Hence, we always discard the hasKeyOrPut's bool returned value
+
   discard peerStore[AgentBook].book.hasKeyOrPut(peer.peerId, peer.agent)
   discard peerStore[ProtoVersionBook].book.hasKeyOrPut(peer.peerId, peer.protoVersion)
   discard peerStore[KeyBook].book.hasKeyOrPut(peer.peerId, peer.publicKey)
@@ -127,6 +146,9 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
   if peer.enr.isSome():
     peerStore[ENRBook][peer.peerId] = peer.enr.get()
 
+proc setShardInfo*(peerStore: PeerStore, peerId: PeerID, shards: seq[uint16]) =
+  peerStore[ShardBook][peerId] = shards
+
 proc peers*(peerStore: PeerStore, proto: string): seq[RemotePeerInfo] =
   peerStore.peers().filterIt(it.protocols.contains(proto))
 
@@ -137,7 +159,9 @@ proc connectedness*(peerStore: PeerStore, peerId: PeerId): Connectedness =
   peerStore[ConnectionBook].book.getOrDefault(peerId, NotConnected)
 
 proc hasShard*(peerStore: PeerStore, peerId: PeerID, cluster, shard: uint16): bool =
-  peerStore[ENRBook].book.getOrDefault(peerId).containsShard(cluster, shard)
+  return
+    peerStore[ENRBook].book.getOrDefault(peerId).containsShard(cluster, shard) or
+    peerStore[ShardBook].book.getOrDefault(peerId, @[]).contains(shard)
 
 proc hasCapability*(peerStore: PeerStore, peerId: PeerID, cap: Capabilities): bool =
   peerStore[ENRBook].book.getOrDefault(peerId).supportsCapability(cap)
@@ -194,7 +218,8 @@ proc getPeersByShard*(
     peerStore: PeerStore, cluster, shard: uint16
 ): seq[RemotePeerInfo] =
   return peerStore.peers.filterIt(
-    it.enr.isSome() and it.enr.get().containsShard(cluster, shard)
+    (it.enr.isSome() and it.enr.get().containsShard(cluster, shard)) or
+      it.shards.contains(shard)
   )
 
 proc getPeersByCapability*(

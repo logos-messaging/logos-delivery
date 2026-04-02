@@ -5,6 +5,7 @@ import
   stew/[byteutils, arrayops],
   results,
   chronos,
+  metrics,
   db_connector/[postgres, db_common],
   chronicles
 import
@@ -18,6 +19,9 @@ import
 
 logScope:
   topics = "postgres driver"
+
+declarePublicGauge postgres_payload_size_bytes,
+  "Payload size in bytes of correctly stored messages"
 
 type PostgresDriver* = ref object of ArchiveDriver
   ## Establish a separate pools for read/write operations
@@ -44,8 +48,7 @@ const SelectClause =
 
 const SelectNoCursorAscStmtName = "SelectWithoutCursorAsc"
 const SelectNoCursorAscStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           timestamp >= $4 AND
@@ -53,8 +56,7 @@ const SelectNoCursorAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $6;"""
 
 const SelectNoCursorNoDataAscStmtName = "SelectWithoutCursorAndDataAsc"
-const SelectNoCursorNoDataAscStmtDef =
-  """SELECT messageHash FROM messages
+const SelectNoCursorNoDataAscStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -64,8 +66,7 @@ const SelectNoCursorNoDataAscStmtDef =
 
 const SelectNoCursorDescStmtName = "SelectWithoutCursorDesc"
 const SelectNoCursorDescStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           timestamp >= $4 AND
@@ -73,8 +74,7 @@ const SelectNoCursorDescStmtDef =
     ORDER BY timestamp DESC, messageHash DESC LIMIT $6;"""
 
 const SelectNoCursorNoDataDescStmtName = "SelectWithoutCursorAndDataDesc"
-const SelectNoCursorNoDataDescStmtDef =
-  """SELECT messageHash FROM messages
+const SelectNoCursorNoDataDescStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -84,8 +84,7 @@ const SelectNoCursorNoDataDescStmtDef =
 
 const SelectWithCursorDescStmtName = "SelectWithCursorDesc"
 const SelectWithCursorDescStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           (timestamp, messageHash) < ($4,$5) AND
@@ -94,8 +93,7 @@ const SelectWithCursorDescStmtDef =
     ORDER BY timestamp DESC, messageHash DESC LIMIT $8;"""
 
 const SelectWithCursorNoDataDescStmtName = "SelectWithCursorNoDataDesc"
-const SelectWithCursorNoDataDescStmtDef =
-  """SELECT messageHash FROM messages
+const SelectWithCursorNoDataDescStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -106,8 +104,7 @@ const SelectWithCursorNoDataDescStmtDef =
 
 const SelectWithCursorAscStmtName = "SelectWithCursorAsc"
 const SelectWithCursorAscStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           (timestamp, messageHash) > ($4,$5) AND
@@ -116,8 +113,7 @@ const SelectWithCursorAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $8;"""
 
 const SelectWithCursorNoDataAscStmtName = "SelectWithCursorNoDataAsc"
-const SelectWithCursorNoDataAscStmtDef =
-  """SELECT messageHash FROM messages
+const SelectWithCursorNoDataAscStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -127,8 +123,7 @@ const SelectWithCursorNoDataAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $8;"""
 
 const SelectCursorByHashName = "SelectMessageByHashInMessagesLookup"
-const SelectCursorByHashDef =
-  """SELECT timestamp FROM messages_lookup
+const SelectCursorByHashDef = """SELECT timestamp FROM messages_lookup
     WHERE messageHash = $1"""
 
 const
@@ -296,13 +291,13 @@ method put*(
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  let messageHash = toHex(messageHash)
+  let messageHash = byteutils.toHex(messageHash)
 
   let contentTopic = message.contentTopic
-  let payload = toHex(message.payload)
+  let payload = byteutils.toHex(message.payload)
   let version = $message.version
   let timestamp = $message.timestamp
-  let meta = toHex(message.meta)
+  let meta = byteutils.toHex(message.meta)
 
   trace "put PostgresDriver",
     messageHash, contentTopic, payload, version, timestamp, meta
@@ -336,13 +331,17 @@ method put*(
     return err("could not put msg in messages table: " & $error)
 
   ## Now add the row to messages_lookup
-  return await s.writeConnPool.runStmt(
+  let ret = await s.writeConnPool.runStmt(
     InsertRowInMessagesLookupStmtName,
     InsertRowInMessagesLookupStmtDefinition,
     @[messageHash, timestamp],
     @[int32(messageHash.len), int32(timestamp.len)],
     @[int32(0), int32(0)],
   )
+
+  if ret.isOk():
+    postgres_payload_size_bytes.set(message.payload.len)
+  return ret
 
 method getAllMessages*(
     s: PostgresDriver
@@ -478,7 +477,7 @@ proc getMessagesArbitraryQuery(
   var args: seq[string]
 
   if cursor.isSome():
-    let hashHex = toHex(cursor.get())
+    let hashHex = byteutils.toHex(cursor.get())
 
     let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -559,7 +558,7 @@ proc getMessageHashesArbitraryQuery(
   var args: seq[string]
 
   if cursor.isSome():
-    let hashHex = toHex(cursor.get())
+    let hashHex = byteutils.toHex(cursor.get())
 
     let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -669,7 +668,7 @@ proc getMessagesPreparedStmt(
 
     return ok(rows)
 
-  let hashHex = toHex(cursor.get())
+  let hashHex = byteutils.toHex(cursor.get())
 
   let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -762,7 +761,7 @@ proc getMessageHashesPreparedStmt(
 
     return ok(rows)
 
-  let hashHex = toHex(cursor.get())
+  let hashHex = byteutils.toHex(cursor.get())
 
   let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -935,11 +934,10 @@ method getMessages*(
 
       let splittedHashes = hashes[i ..< stop]
 
-      let subRows =
-        ?await s.getMessagesWithinLimits(
-          includeData, contentTopics, pubsubTopic, cursor, startTime, endTime,
-          splittedHashes, maxPageSize, ascendingOrder, requestId,
-        )
+      let subRows = ?await s.getMessagesWithinLimits(
+        includeData, contentTopics, pubsubTopic, cursor, startTime, endTime,
+        splittedHashes, maxPageSize, ascendingOrder, requestId,
+      )
 
       for row in subRows:
         row

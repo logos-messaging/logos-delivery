@@ -2,17 +2,17 @@
   "nodes": {
     "nixpkgs": {
       "locked": {
-        "lastModified": 1740603184,
-        "narHash": "sha256-t+VaahjQAWyA+Ctn2idyo1yxRIYpaDxMgHkgCNiMJa4=",
+        "lastModified": 1757590060,
+        "narHash": "sha256-EWwwdKLMZALkgHFyKW7rmyhxECO74+N+ZO5xTDnY/5c=",
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "f44bd8ca21e026135061a0a57dcf3d0775b67a49",
+        "rev": "0ef228213045d2cdb5a169a95d63ded38670b293",
         "type": "github"
       },
       "original": {
         "owner": "NixOS",
         "repo": "nixpkgs",
-        "rev": "f44bd8ca21e026135061a0a57dcf3d0775b67a49",
+        "rev": "0ef228213045d2cdb5a169a95d63ded38670b293",
         "type": "github"
       }
     },
@@ -22,25 +22,47 @@
         "zerokit": "zerokit"
       }
     },
-    "zerokit": {
+    "rust-overlay": {
       "inputs": {
         "nixpkgs": [
+          "zerokit",
           "nixpkgs"
         ]
       },
       "locked": {
-        "lastModified": 1743756626,
-        "narHash": "sha256-SvhfEl0bJcRsCd79jYvZbxQecGV2aT+TXjJ57WVv7Aw=",
-        "owner": "vacp2p",
-        "repo": "zerokit",
-        "rev": "c60e0c33fc6350a4b1c20e6b6727c44317129582",
+        "lastModified": 1748399823,
+        "narHash": "sha256-kahD8D5hOXOsGbNdoLLnqCL887cjHkx98Izc37nDjlA=",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
+        "rev": "d68a69dc71bc19beb3479800392112c2f6218159",
         "type": "github"
       },
       "original": {
-        "owner": "vacp2p",
-        "repo": "zerokit",
-        "rev": "c60e0c33fc6350a4b1c20e6b6727c44317129582",
+        "owner": "oxalica",
+        "repo": "rust-overlay",
         "type": "github"
+      }
+    },
+    "zerokit": {
+      "inputs": {
+        "nixpkgs": [
+          "nixpkgs"
+        ],
+        "rust-overlay": "rust-overlay"
+      },
+      "locked": {
+        "lastModified": 1762211504,
+        "narHash": "sha256-SbDoBElFYJ4cYebltxlO2lYnz6qOaDAVY6aNJ5bqHDE=",
+        "ref": "refs/heads/master",
+        "rev": "3160d9504d07791f2fc9b610948a6cf9a58ed488",
+        "revCount": 342,
+        "type": "git",
+        "url": "https://github.com/vacp2p/zerokit"
+      },
+      "original": {
+        "rev": "3160d9504d07791f2fc9b610948a6cf9a58ed488",
+        "type": "git",
+        "url": "https://github.com/vacp2p/zerokit"
       }
     }
   },

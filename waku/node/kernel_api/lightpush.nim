@@ -34,26 +34,27 @@ import
 logScope:
   topics = "waku node lightpush api"
 
+const MountWithoutRelayError* = "cannot mount lightpush because relay is not mounted"
+
 ## Waku lightpush
 proc mountLegacyLightPush*(
     node: WakuNode, rateLimit: RateLimitSetting = DefaultGlobalNonRelayRateLimit
-) {.async.} =
+): Future[Result[void, string]] {.async.} =
   info "mounting legacy light push"
 
-  let pushHandler =
-    if node.wakuRelay.isNil:
-      info "mounting legacy lightpush without relay (nil)"
-      legacy_lightpush_protocol.getNilPushHandler()
+  if node.wakuRelay.isNil():
+    return err(MountWithoutRelayError)
+
+  info "mounting legacy lightpush with relay"
+  let rlnPeer =
+    if node.wakuRlnRelay.isNil():
+      info "mounting legacy lightpush without rln-relay"
+      none(WakuRLNRelay)
     else:
-      info "mounting legacy lightpush with relay"
-      let rlnPeer =
-        if isNil(node.wakuRlnRelay):
-          info "mounting legacy lightpush without rln-relay"
-          none(WakuRLNRelay)
-        else:
-          info "mounting legacy lightpush with rln-relay"
-          some(node.wakuRlnRelay)
-      legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay, rlnPeer)
+      info "mounting legacy lightpush with rln-relay"
+      some(node.wakuRlnRelay)
+  let pushHandler =
+    legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay, rlnPeer)
 
   node.wakuLegacyLightPush =
     WakuLegacyLightPush.new(node.peerManager, node.rng, pushHandler, some(rateLimit))
@@ -63,6 +64,9 @@ proc mountLegacyLightPush*(
     await node.wakuLegacyLightPush.start()
 
   node.switch.mount(node.wakuLegacyLightPush, protocolMatcher(WakuLegacyLightPushCodec))
+
+  info "legacy lightpush mounted successfully"
+  return ok()
 
 proc mountLegacyLightPushClient*(node: WakuNode) =
   info "mounting legacy light push client"
@@ -146,23 +150,21 @@ proc legacyLightpushPublish*(
 
 proc mountLightPush*(
     node: WakuNode, rateLimit: RateLimitSetting = DefaultGlobalNonRelayRateLimit
-) {.async.} =
+): Future[Result[void, string]] {.async.} =
   info "mounting light push"
 
-  let pushHandler =
-    if node.wakuRelay.isNil():
-      info "mounting lightpush v2 without relay (nil)"
-      lightpush_protocol.getNilPushHandler()
+  if node.wakuRelay.isNil():
+    return err(MountWithoutRelayError)
+
+  info "mounting lightpush with relay"
+  let rlnPeer =
+    if node.wakuRlnRelay.isNil():
+      info "mounting lightpush without rln-relay"
+      none(WakuRLNRelay)
     else:
-      info "mounting lightpush with relay"
-      let rlnPeer =
-        if isNil(node.wakuRlnRelay):
-          info "mounting lightpush without rln-relay"
-          none(WakuRLNRelay)
-        else:
-          info "mounting lightpush with rln-relay"
-          some(node.wakuRlnRelay)
-      lightpush_protocol.getRelayPushHandler(node.wakuRelay, rlnPeer)
+      info "mounting lightpush with rln-relay"
+      some(node.wakuRlnRelay)
+  let pushHandler = lightpush_protocol.getRelayPushHandler(node.wakuRelay, rlnPeer)
 
   node.wakuLightPush = WakuLightPush.new(
     node.peerManager, node.rng, pushHandler, node.wakuAutoSharding, some(rateLimit)
@@ -173,6 +175,9 @@ proc mountLightPush*(
     await node.wakuLightPush.start()
 
   node.switch.mount(node.wakuLightPush, protocolMatcher(WakuLightPushCodec))
+
+  info "lightpush mounted successfully"
+  return ok()
 
 proc mountLightPushClient*(node: WakuNode) =
   info "mounting light push client"
@@ -188,7 +193,6 @@ proc lightpushPublishHandler(
     mixify: bool = false,
 ): Future[lightpush_protocol.WakuLightPushResult] {.async.} =
   let msgHash = pubsubTopic.computeMessageHash(message).to0xHex()
-
   if not node.wakuLightpushClient.isNil():
     notice "publishing message with lightpush",
       pubsubTopic = pubsubTopic,
@@ -196,23 +200,23 @@ proc lightpushPublishHandler(
       target_peer_id = peer.peerId,
       msg_hash = msgHash,
       mixify = mixify
-    if mixify: #indicates we want to use mix to send the message
-      #TODO: How to handle multiple addresses?
-      let conn = node.wakuMix.toConnection(
-        MixDestination.init(peer.peerId, peer.addrs[0]),
-        WakuLightPushCodec,
-        MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
-          # indicating we only want a single path to be used for reply hence numSurbs = 1
-      ).valueOr:
-        error "could not create mix connection"
-        return lighpushErrorResult(
-          LightPushErrorCode.SERVICE_NOT_AVAILABLE,
-          "Waku lightpush with mix not available",
-        )
+    if defined(libp2p_mix_experimental_exit_is_dest) and mixify:
+      #indicates we want to use mix to send the message
+      when defined(libp2p_mix_experimental_exit_is_dest):
+        #TODO: How to handle multiple addresses?
+        let conn = node.wakuMix.toConnection(
+          MixDestination.exitNode(peer.peerId),
+          WakuLightPushCodec,
+          MixParameters(expectReply: Opt.some(true), numSurbs: Opt.some(byte(1))),
+            # indicating we only want a single path to be used for reply hence numSurbs = 1
+        ).valueOr:
+          error "could not create mix connection"
+          return lighpushErrorResult(
+            LightPushErrorCode.SERVICE_NOT_AVAILABLE,
+            "Waku lightpush with mix not available",
+          )
 
-      return await node.wakuLightpushClient.publishWithConn(
-        pubsubTopic, message, conn, peer.peerId
-      )
+        return await node.wakuLightpushClient.publish(some(pubsubTopic), message, conn)
     else:
       return await node.wakuLightpushClient.publish(some(pubsubTopic), message, peer)
 
@@ -261,7 +265,7 @@ proc lightpushPublish*(
         LightPushErrorCode.NO_PEERS_TO_RELAY, "no suitable remote peers"
       )
 
-  let pubsubForPublish = pubSubTopic.valueOr:
+  let pubsubForPublish = pubsubTopic.valueOr:
     if node.wakuAutoSharding.isNone():
       let msg = "Pubsub topic must be specified when static sharding is enabled"
       error "lightpush publish error", error = msg

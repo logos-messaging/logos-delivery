@@ -14,7 +14,6 @@ import
   waku/[
     waku_core/topics/pubsub_topic,
     waku_core/topics/sharding,
-    waku_store_legacy/common,
     node/waku_node,
     node/kernel_api,
     common/paging,
@@ -282,7 +281,7 @@ suite "Sharding":
       asyncTest "lightpush":
         # Given a connected server and client subscribed to the same pubsub topic
         client.mountLegacyLightPushClient()
-        await server.mountLightpush()
+        check (await server.mountLightpush()).isOk()
 
         let
           topic = "/waku/2/rs/0/1"
@@ -405,7 +404,7 @@ suite "Sharding":
       asyncTest "lightpush (automatic sharding filtering)":
         # Given a connected server and client using the same content topic (with two different formats)
         client.mountLegacyLightPushClient()
-        await server.mountLightpush()
+        check (await server.mountLightpush()).isOk()
 
         let
           contentTopicShort = "/toychat/2/huilong/proto"
@@ -434,18 +433,16 @@ suite "Sharding":
           contentTopicShort = "/toychat/2/huilong/proto"
           contentTopicFull = "/0/toychat/2/huilong/proto"
           pubsubTopic = "/waku/2/rs/0/58355"
-          archiveMessages1 =
-            @[
-              fakeWakuMessage(
-                @[byte 00], ts = ts(00, timeOrigin), contentTopic = contentTopicShort
-              )
-            ]
-          archiveMessages2 =
-            @[
-              fakeWakuMessage(
-                @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopicFull
-              )
-            ]
+          archiveMessages1 = @[
+            fakeWakuMessage(
+              @[byte 00], ts = ts(00, timeOrigin), contentTopic = contentTopicShort
+            )
+          ]
+          archiveMessages2 = @[
+            fakeWakuMessage(
+              @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopicFull
+            )
+          ]
           archiveDriver = newArchiveDriverWithMessages(pubsubTopic, archiveMessages1)
         discard archiveDriver.put(pubsubTopic, archiveMessages2)
         let mountArchiveResult = server.mountArchive(archiveDriver)
@@ -456,29 +453,33 @@ suite "Sharding":
 
         # Given one query for each content topic format
         let
-          historyQuery1 = HistoryQuery(
+          storeQuery1 = StoreQueryRequest(
             contentTopics: @[contentTopicShort],
-            direction: PagingDirection.Forward,
-            pageSize: 3,
+            paginationForward: PagingDirection.Forward,
+            paginationLimit: some(3'u64),
+            includeData: true,
           )
-          historyQuery2 = HistoryQuery(
+          storeQuery2 = StoreQueryRequest(
             contentTopics: @[contentTopicFull],
-            direction: PagingDirection.Forward,
-            pageSize: 3,
+            paginationForward: PagingDirection.Forward,
+            paginationLimit: some(3'u64),
+            includeData: true,
           )
 
         # When the client queries the server for the messages
         let
           serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
-          queryResponse1 = await client.query(historyQuery1, serverRemotePeerInfo)
-          queryResponse2 = await client.query(historyQuery2, serverRemotePeerInfo)
+          queryResponse1 = await client.query(storeQuery1, serverRemotePeerInfo)
+          queryResponse2 = await client.query(storeQuery2, serverRemotePeerInfo)
         assertResultOk(queryResponse1)
         assertResultOk(queryResponse2)
 
         # Then the responses of both queries should contain all the messages
         check:
-          queryResponse1.get().messages == archiveMessages1 & archiveMessages2
-          queryResponse2.get().messages == archiveMessages1 & archiveMessages2
+          queryResponse1.get().messages.mapIt(it.message.get()) ==
+            archiveMessages1 & archiveMessages2
+          queryResponse2.get().messages.mapIt(it.message.get()) ==
+            archiveMessages1 & archiveMessages2
 
       asyncTest "relay - exclusion (automatic sharding filtering)":
         # Given a connected server and client subscribed to different content topics
@@ -563,7 +564,7 @@ suite "Sharding":
       asyncTest "lightpush - exclusion (automatic sharding filtering)":
         # Given a connected server and client using different content topics
         client.mountLegacyLightPushClient()
-        await server.mountLightpush()
+        check (await server.mountLightpush()).isOk()
 
         let
           contentTopic1 = "/toychat/2/huilong/proto"
@@ -597,18 +598,16 @@ suite "Sharding":
           contentTopic2 = "/0/toychat2/2/huilong/proto"
           pubsubTopic2 = "/waku/2/rs/0/23286"
             # Automatically generated from the contentTopic above
-          archiveMessages1 =
-            @[
-              fakeWakuMessage(
-                @[byte 00], ts = ts(00, timeOrigin), contentTopic = contentTopic1
-              )
-            ]
-          archiveMessages2 =
-            @[
-              fakeWakuMessage(
-                @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopic2
-              )
-            ]
+          archiveMessages1 = @[
+            fakeWakuMessage(
+              @[byte 00], ts = ts(00, timeOrigin), contentTopic = contentTopic1
+            )
+          ]
+          archiveMessages2 = @[
+            fakeWakuMessage(
+              @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopic2
+            )
+          ]
           archiveDriver = newArchiveDriverWithMessages(pubsubTopic1, archiveMessages1)
         discard archiveDriver.put(pubsubTopic2, archiveMessages2)
         let mountArchiveResult = server.mountArchive(archiveDriver)
@@ -619,29 +618,31 @@ suite "Sharding":
 
         # Given one query for each content topic
         let
-          historyQuery1 = HistoryQuery(
+          storeQuery1 = StoreQueryRequest(
             contentTopics: @[contentTopic1],
-            direction: PagingDirection.Forward,
-            pageSize: 2,
+            paginationForward: PagingDirection.Forward,
+            paginationLimit: some(2'u64),
+            includeData: true,
           )
-          historyQuery2 = HistoryQuery(
+          storeQuery2 = StoreQueryRequest(
             contentTopics: @[contentTopic2],
-            direction: PagingDirection.Forward,
-            pageSize: 2,
+            paginationForward: PagingDirection.Forward,
+            paginationLimit: some(2'u64),
+            includeData: true,
           )
 
         # When the client queries the server for the messages
         let
           serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
-          queryResponse1 = await client.query(historyQuery1, serverRemotePeerInfo)
-          queryResponse2 = await client.query(historyQuery2, serverRemotePeerInfo)
+          queryResponse1 = await client.query(storeQuery1, serverRemotePeerInfo)
+          queryResponse2 = await client.query(storeQuery2, serverRemotePeerInfo)
         assertResultOk(queryResponse1)
         assertResultOk(queryResponse2)
 
         # Then each response should contain only the messages of the corresponding content topic
         check:
-          queryResponse1.get().messages == archiveMessages1
-          queryResponse2.get().messages == archiveMessages2
+          queryResponse1.get().messages.mapIt(it.message.get()) == archiveMessages1
+          queryResponse2.get().messages.mapIt(it.message.get()) == archiveMessages2
 
   suite "Specific Tests":
     asyncTest "Configure Node with Multiple PubSub Topics":
@@ -874,7 +875,7 @@ suite "Sharding":
     asyncTest "Waku LightPush Sharding (Static Sharding)":
       # Given a connected server and client using two different pubsub topics
       client.mountLegacyLightPushClient()
-      await server.mountLightpush()
+      check (await server.mountLightpush()).isOk()
 
       # Given a connected server and client subscribed to multiple pubsub topics
       let
@@ -1007,22 +1008,30 @@ suite "Sharding":
 
       # Given one query for each pubsub topic
       let
-        historyQuery1 = HistoryQuery(
-          pubsubTopic: some(topic1), direction: PagingDirection.Forward, pageSize: 2
+        storeQuery1 = StoreQueryRequest(
+          pubsubTopic: some(topic1),
+          paginationForward: PagingDirection.Forward,
+          paginationLimit: some(2'u64),
+          includeData: true,
         )
-        historyQuery2 = HistoryQuery(
-          pubsubTopic: some(topic2), direction: PagingDirection.Forward, pageSize: 2
+        storeQuery2 = StoreQueryRequest(
+          pubsubTopic: some(topic2),
+          paginationForward: PagingDirection.Forward,
+          paginationLimit: some(2'u64),
+          includeData: true,
         )
 
       # When the client queries the server for the messages
       let
         serverRemotePeerInfo = server.switch.peerInfo.toRemotePeerInfo()
-        queryResponse1 = await client.query(historyQuery1, serverRemotePeerInfo)
-        queryResponse2 = await client.query(historyQuery2, serverRemotePeerInfo)
+        queryResponse1 = await client.query(storeQuery1, serverRemotePeerInfo)
+        queryResponse2 = await client.query(storeQuery2, serverRemotePeerInfo)
       assertResultOk(queryResponse1)
       assertResultOk(queryResponse2)
 
       # Then each response should contain only the messages of the corresponding pubsub topic
       check:
-        queryResponse1.get().messages == archiveMessages1[0 ..< 1]
-        queryResponse2.get().messages == archiveMessages2[0 ..< 1]
+        queryResponse1.get().messages.mapIt(it.message.get()) ==
+          archiveMessages1[0 ..< 1]
+        queryResponse2.get().messages.mapIt(it.message.get()) ==
+          archiveMessages2[0 ..< 1]

@@ -24,13 +24,16 @@ requires "nim >= 2.2.4",
   "stew",
   "stint",
   "metrics",
-  "libp2p >= 1.14.2",
+  "libp2p >= 1.15.0",
   "web3",
   "presto",
   "regex",
   "results",
   "db_connector",
-  "minilru"
+  "minilru",
+  "lsquic",
+  "jwt",
+  "ffi"
 
 ### Helper functions
 proc buildModule(filePath, params = "", lang = "c"): bool =
@@ -61,27 +64,21 @@ proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   exec "nim " & lang & " --out:build/" & name & " --mm:refc " & extra_params & " " &
     srcDir & name & ".nim"
 
-proc buildLibrary(name: string, srcDir = "./", params = "", `type` = "static") =
+proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
   if not dirExists "build":
     mkDir "build"
   # allow something like "nim nimbus --verbosity:0 --hints:off nimbus.nims"
   var extra_params = params
-  for i in 2 ..< paramCount():
+  for i in 2 ..< (paramCount() - 1):
     extra_params &= " " & paramStr(i)
   if `type` == "static":
-    exec "nim c" & " --out:build/" & name &
-      ".a --threads:on --app:staticlib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
-      extra_params & " " & srcDir & name & ".nim"
+    exec "nim c" & " --out:build/" & lib_name &
+      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
+      extra_params & " " & srcDir & srcFile
   else:
-    let lib_name = (when defined(windows): toDll(name) else: name & ".so")
-    when defined(windows):
-      exec "nim c" & " --out:build/" & lib_name &
-        " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-        extra_params & " " & srcDir & name & ".nim"
-    else:
-      exec "nim c" & " --out:build/" & lib_name &
-        " --threads:on --app:lib --opt:size --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
-        extra_params & " " & srcDir & name & ".nim"
+    exec "nim c" & " --out:build/" & lib_name &
+      " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      extra_params & " " & srcDir & srcFile
 
 proc buildMobileAndroid(srcDir = ".", params = "") =
   let cpu = getEnv("CPU")
@@ -96,7 +93,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
     extra_params &= " " & paramStr(i)
 
   exec "nim c" & " --out:" & outDir &
-    "/libwaku.so --threads:on --app:lib --opt:size --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header --passL:-L" &
+    "/libwaku.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --os:android -d:androidNDK " &
     extra_params & " " & srcDir & "/libwaku.nim"
 
@@ -139,7 +136,7 @@ task testwakunode2, "Build & run wakunode2 app tests":
   test "all_tests_wakunode2"
 
 task example2, "Build Waku examples":
-  buildBinary "waku_example", "examples/"
+  buildBinary "api_example", "examples/api_example/"
   buildBinary "publisher", "examples/"
   buildBinary "subscriber", "examples/"
   buildBinary "filter_subscriber", "examples/"
@@ -153,7 +150,8 @@ task chat2, "Build example Waku chat usage":
   let name = "chat2"
   buildBinary name,
     "apps/chat2/",
-    "-d:chronicles_sinks=textlines[file] -d:ssl -d:chronicles_log_level='TRACE' "
+    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level='TRACE' "
+  #  -d:ssl - cause unlisted exception error in libp2p/utility...
 
 task chat2mix, "Build example Waku chat mix usage":
   # NOTE For debugging, set debug level. For chat usage we want minimal log
@@ -163,7 +161,8 @@ task chat2mix, "Build example Waku chat mix usage":
   let name = "chat2mix"
   buildBinary name,
     "apps/chat2mix/",
-    "-d:chronicles_sinks=textlines[file] -d:ssl -d:chronicles_log_level='TRACE' "
+    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level='TRACE' "
+  #  -d:ssl - cause unlisted exception error in libp2p/utility...
 
 task chat2bridge, "Build chat2bridge":
   let name = "chat2bridge"
@@ -176,6 +175,10 @@ task liteprotocoltester, "Build liteprotocoltester":
 task lightpushwithmix, "Build lightpushwithmix":
   let name = "lightpush_publisher_mix"
   buildBinary name, "examples/lightpush_mix/"
+
+task api_example, "Build api_example":
+  let name = "api_example"
+  buildBinary name, "examples/api_example/"
 
 task buildone, "Build custom target":
   let filepath = paramStr(paramCount())
@@ -206,12 +209,12 @@ let chroniclesParams =
   "--warning:UnusedImport:on " & "-d:chronicles_log_level=TRACE"
 
 task libwakuStatic, "Build the cbindings waku node library":
-  let name = "libwaku"
-  buildLibrary name, "library/", chroniclesParams, "static"
+  let lib_name = paramStr(paramCount())
+  buildLibrary lib_name, "library/", chroniclesParams, "static"
 
 task libwakuDynamic, "Build the cbindings waku node library":
-  let name = "libwaku"
-  buildLibrary name, "library/", chroniclesParams, "dynamic"
+  let lib_name = paramStr(paramCount())
+  buildLibrary lib_name, "library/", chroniclesParams, "dynamic"
 
 ### Mobile Android
 task libWakuAndroid, "Build the mobile bindings for Android":

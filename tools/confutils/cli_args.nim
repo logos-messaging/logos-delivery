@@ -30,7 +30,8 @@ import
     waku_core/message/default_values,
     waku_mix,
   ],
-  ../../tools/rln_keystore_generator/rln_keystore_generator
+  ../../tools/rln_keystore_generator/rln_keystore_generator,
+  ./entry_nodes
 
 import ./envvar as confEnvvarDefs, ./envvar_net as confEnvvarNet
 
@@ -51,6 +52,11 @@ type EthRpcUrl* = distinct string
 type StartUpCommand* = enum
   noCommand # default, runs waku
   generateRlnKeystore # generates a new RLN keystore
+
+type WakuMode* {.pure.} = enum
+  noMode # default - use explicit CLI flags as-is
+  Core # full service node
+  Edge # client-only node
 
 type WakuNodeConf* = object
   configFile* {.
@@ -150,9 +156,16 @@ type WakuNodeConf* = object
     .}: seq[ProtectedShard]
 
     ## General node config
+    mode* {.
+      desc:
+        "Node operation mode. 'Core' enables relay+service protocols. 'Edge' enables client-only protocols. Default: explicit CLI flags used.",
+      defaultValue: WakuMode.noMode,
+      name: "mode"
+    .}: WakuMode
+
     preset* {.
       desc:
-        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). Overrides other values.",
+        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 2). Overrides other values.",
       defaultValue: "",
       name: "preset"
     .}: string
@@ -165,7 +178,7 @@ type WakuNodeConf* = object
     .}: uint16
 
     agentString* {.
-      defaultValue: "nwaku-" & cli_args.git_version,
+      defaultValue: "logos-delivery-" & cli_args.git_version,
       desc: "Node agent string which is used as identifier in network",
       name: "agent-string"
     .}: string
@@ -206,22 +219,17 @@ type WakuNodeConf* = object
     .}: bool
 
     maxConnections* {.
-      desc: "Maximum allowed number of libp2p connections.",
-      defaultValue: 50,
+      desc:
+        "Maximum allowed number of libp2p connections. (Default: 150) that's recommended value for better connectivity",
+      defaultValue: 150,
       name: "max-connections"
     .}: int
-
-    maxRelayPeers* {.
-      desc:
-        "Deprecated. Use relay-service-ratio instead. It represents the maximum allowed number of relay peers.",
-      name: "max-relay-peers"
-    .}: Option[int]
 
     relayServiceRatio* {.
       desc:
         "This percentage ratio represents the relay peers to service peers. For example, 60:40, tells that 60% of the max-connections will be used for relay protocol and the other 40% of max-connections will be reserved for other service protocols (e.g., filter, lightpush, store, metadata, etc.)",
-      name: "relay-service-ratio",
-      defaultValue: "60:40" # 60:40 ratio of relay to service peers
+      defaultValue: "50:50",
+      name: "relay-service-ratio"
     .}: string
 
     colocationLimit* {.
@@ -255,8 +263,7 @@ type WakuNodeConf* = object
 
     ## Circuit-relay config
     isRelayClient* {.
-      desc:
-        """Set the node as a relay-client.
+      desc: """Set the node as a relay-client.
 Set it to true for nodes that run behind a NAT or firewall and
 hence would have reachability issues.""",
       defaultValue: false,
@@ -298,6 +305,14 @@ hence would have reachability issues.""",
       name: "rln-relay-dynamic"
     .}: bool
 
+    entryNodes* {.
+      desc:
+        "Entry node address (enrtree:, enr:, or multiaddr). " &
+        "Automatically classified and distributed to DNS discovery, discv5 bootstrap, " &
+        "and static nodes. Argument may be repeated.",
+      name: "entry-node"
+    .}: seq[string]
+
     staticnodes* {.
       desc: "Peer multiaddr to directly connect with. Argument may be repeated.",
       name: "staticnode"
@@ -331,12 +346,6 @@ hence would have reachability issues.""",
     ## Store and message store config
     store* {.
       desc: "Enable/disable waku store protocol", defaultValue: false, name: "store"
-    .}: bool
-
-    legacyStore* {.
-      desc: "Enable/disable support of Waku Store v2 as a service",
-      defaultValue: false,
-      name: "legacy-store"
     .}: bool
 
     storenode* {.
@@ -458,13 +467,15 @@ hence would have reachability issues.""",
       desc:
         """Adds an extra effort in the delivery/reception of messages by leveraging store-v3 requests.
 with the drawback of consuming some more bandwidth.""",
-      defaultValue: false,
+      defaultValue: true,
       name: "reliability"
     .}: bool
 
     ## REST HTTP config
     rest* {.
-      desc: "Enable Waku REST HTTP server: true|false", defaultValue: true, name: "rest"
+      desc: "Enable Waku REST HTTP server: true|false",
+      defaultValue: false,
+      name: "rest"
     .}: bool
 
     restAddress* {.
@@ -626,6 +637,20 @@ with the drawback of consuming some more bandwidth.""",
       name: "mixnode"
     .}: seq[MixNodePubInfo]
 
+    # Kademlia Discovery config
+    enableKadDiscovery* {.
+      desc:
+        "Enable extended kademlia discovery. Can be enabled without bootstrap nodes for the first node in the network.",
+      defaultValue: false,
+      name: "enable-kad-discovery"
+    .}: bool
+
+    kadBootstrapNodes* {.
+      desc:
+        "Peer multiaddr for kademlia discovery bootstrap node (must include /p2p/<peerID>). Argument may be repeated.",
+      name: "kad-bootstrap-node"
+    .}: seq[string]
+
     ## websocket config
     websocketSupport* {.
       desc: "Enable websocket:  true|false",
@@ -660,7 +685,7 @@ with the drawback of consuming some more bandwidth.""",
       desc:
         "Rate limit settings for different protocols." &
         "Format: protocol:volume/period<unit>" &
-        " Where 'protocol' can be one of: <store|storev2|storev3|lightpush|px|filter> if not defined it means a global setting" &
+        " Where 'protocol' can be one of: <store|storev3|lightpush|px|filter> if not defined it means a global setting" &
         " 'volume' and period must be an integer value. " &
         " 'unit' must be one of <h|m|s|ms> - hours, minutes, seconds, milliseconds respectively. " &
         "Argument may be repeated.",
@@ -898,12 +923,19 @@ proc toNetworkConf(
       "TWN - The Waku Network configuration will not be applied when `--cluster-id=1` is passed in future releases. Use `--preset=twn` instead."
     )
     lcPreset = "twn"
+  if clusterId.isSome() and clusterId.get() == 2:
+    warn(
+      "Logos.dev - Logos.dev configuration will not be applied when `--cluster-id=2` is passed in future releases. Use `--preset=logos.dev` instead."
+    )
+    lcPreset = "logos.dev"
 
   case lcPreset
   of "":
     ok(none(NetworkConf))
   of "twn":
     ok(some(NetworkConf.TheWakuNetworkConf()))
+  of "logos.dev", "logosdev":
+    ok(some(NetworkConf.LogosDevConf()))
   else:
     err("Invalid --preset value passed: " & lcPreset)
 
@@ -957,9 +989,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withExtMultiAddrsOnly(n.extMultiAddrsOnly)
   b.withMaxConnections(n.maxConnections)
 
-  if n.maxRelayPeers.isSome():
-    b.withMaxRelayPeers(n.maxRelayPeers.get())
-
   if n.relayServiceRatio != "":
     b.withRelayServiceRatio(n.relayServiceRatio)
   b.withColocationLimit(n.colocationLimit)
@@ -976,6 +1005,26 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withRelayShardedPeerManagement(n.relayShardedPeerManagement)
   b.withStaticNodes(n.staticNodes)
 
+  # Process entry nodes - supports enrtree:, enr:, and multiaddress formats
+  if n.entryNodes.len > 0:
+    let (enrTreeUrls, bootstrapEnrs, staticNodesFromEntry) = processEntryNodes(
+      n.entryNodes
+    ).valueOr:
+      return err("Failed to process entry nodes: " & error)
+
+    # Set ENRTree URLs for DNS discovery
+    if enrTreeUrls.len > 0:
+      for url in enrTreeUrls:
+        b.dnsDiscoveryConf.withEnrTreeUrl(url)
+
+    # Set ENR records as bootstrap nodes for discv5
+    if bootstrapEnrs.len > 0:
+      b.discv5Conf.withBootstrapNodes(bootstrapEnrs)
+
+    # Add static nodes (multiaddrs and those extracted from ENR entries)
+    if staticNodesFromEntry.len > 0:
+      b.withStaticNodes(staticNodesFromEntry)
+
   if n.numShardsInNetwork != 0:
     b.withNumShardsInCluster(n.numShardsInNetwork)
     b.withShardingConf(AutoSharding)
@@ -990,7 +1039,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withContentTopics(n.contentTopics)
 
   b.storeServiceConf.withEnabled(n.store)
-  b.storeServiceConf.withSupportV2(n.legacyStore)
   b.storeServiceConf.withRetentionPolicies(n.storeMessageRetentionPolicy)
   b.storeServiceConf.withDbUrl(n.storeMessageDbUrl)
   b.storeServiceConf.withDbVacuum(n.storeMessageDbVacuum)
@@ -1063,6 +1111,31 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.webSocketConf.withKeyPath(n.websocketSecureKeyPath)
   b.webSocketConf.withCertPath(n.websocketSecureCertPath)
 
-  b.rateLimitConf.withRateLimits(n.rateLimits)
+  if n.rateLimits.len > 0:
+    b.rateLimitConf.withRateLimits(n.rateLimits)
+
+  b.kademliaDiscoveryConf.withEnabled(n.enableKadDiscovery)
+  b.kademliaDiscoveryConf.withBootstrapNodes(n.kadBootstrapNodes)
+
+  # Mode-driven configuration overrides
+  case n.mode
+  of WakuMode.Core:
+    b.withRelay(true)
+    b.filterServiceConf.withEnabled(true)
+    b.withLightPush(true)
+    b.discv5Conf.withEnabled(true)
+    b.withPeerExchange(true)
+    b.withRendezvous(true)
+    b.rateLimitConf.withRateLimitsIfNotAssigned(
+      @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
+    )
+  of WakuMode.Edge:
+    b.withPeerExchange(true)
+    b.withRelay(false)
+    b.filterServiceConf.withEnabled(false)
+    b.withLightPush(false)
+    b.storeServiceConf.withEnabled(false)
+  of WakuMode.noMode:
+    discard # use explicit CLI flags as-is
 
   return b.build()

@@ -11,6 +11,14 @@ const DefaultRequestsInterval* = 1.minutes
 const MaxRegistrationInterval* = 5.minutes
 const PeersRequestedCount* = 12
 
+proc computeMixNamespace*(clusterId: uint16): string =
+  var namespace = "rs/"
+
+  namespace &= $clusterId
+  namespace &= "/mix"
+
+  return namespace
+
 proc computeNamespace*(clusterId: uint16, shard: uint16): string =
   var namespace = "rs/"
 

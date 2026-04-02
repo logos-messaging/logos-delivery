@@ -25,4 +25,3 @@ cargo clean
 cross rustc --release --lib --target=${android_arch} --crate-type=cdylib
 cp ../target/${android_arch}/release/librln.so ${output_dir}/.
 popd
-

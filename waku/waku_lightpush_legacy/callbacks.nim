@@ -30,7 +30,7 @@ proc checkAndGenerateRLNProof*(
 
 proc getNilPushHandler*(): PushMessageHandler =
   return proc(
-      peer: PeerId, pubsubTopic: string, message: WakuMessage
+      pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult[void]] {.async.} =
     return err("no waku relay found")
 
@@ -38,7 +38,7 @@ proc getRelayPushHandler*(
     wakuRelay: WakuRelay, rlnPeer: Option[WakuRLNRelay] = none[WakuRLNRelay]()
 ): PushMessageHandler =
   return proc(
-      peer: PeerId, pubsubTopic: string, message: WakuMessage
+      pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult[void]] {.async.} =
     # append RLN proof
     let msgWithProof = ?checkAndGenerateRLNProof(rlnPeer, message)

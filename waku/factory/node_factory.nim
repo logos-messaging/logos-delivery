@@ -6,7 +6,8 @@ import
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/nameresolving/dnsresolver,
-  libp2p/crypto/crypto
+  libp2p/crypto/crypto,
+  libp2p/crypto/curve25519
 
 import
   ./internal_config,
@@ -24,20 +25,16 @@ import
   ../waku_archive/retention_policy/builder as policy_builder,
   ../waku_archive/driver as driver,
   ../waku_archive/driver/builder as driver_builder,
-  ../waku_archive_legacy/driver as legacy_driver,
-  ../waku_archive_legacy/driver/builder as legacy_driver_builder,
   ../waku_store,
   ../waku_store/common as store_common,
-  ../waku_store_legacy,
-  ../waku_store_legacy/common as legacy_common,
   ../waku_filter_v2,
   ../waku_peer_exchange,
+  ../discovery/waku_kademlia,
   ../node/peer_manager,
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
-  ../common/rate_limit/setting,
-  ../common/databases/dburl
+  ../common/rate_limit/setting
 
 ## Peer persistence
 
@@ -124,11 +121,10 @@ proc initNode(
   builder.withRateLimit(conf.rateLimit)
   builder.withCircuitRelay(relay)
 
-  let node =
-    ?builder.build().mapErr(
-      proc(err: string): string =
-        "failed to create waku node instance: " & err
-    )
+  let node = ?builder.build().mapErr(
+    proc(err: string): string =
+      "failed to create waku node instance: " & err
+  )
 
   ok(node)
 
@@ -163,44 +159,44 @@ proc setupProtocols(
     error "Unrecoverable error occurred", error = msg
     quit(QuitFailure)
 
+  #mount mix
+  if conf.mixConf.isSome():
+    let mixConf = conf.mixConf.get()
+    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
+      return err("failed to mount waku mix protocol: " & $error)
+
+  # Setup extended kademlia discovery
+  if conf.kademliaDiscoveryConf.isSome():
+    let mixPubKey =
+      if conf.mixConf.isSome():
+        some(conf.mixConf.get().mixPubKey)
+      else:
+        none(Curve25519Key)
+
+    node.wakuKademlia = WakuKademlia.new(
+      node.switch,
+      ExtendedKademliaDiscoveryParams(
+        bootstrapNodes: conf.kademliaDiscoveryConf.get().bootstrapNodes,
+        mixPubKey: mixPubKey,
+        advertiseMix: conf.mixConf.isSome(),
+      ),
+      node.peerManager,
+      getMixNodePoolSize = proc(): int {.gcsafe, raises: [].} =
+        if node.wakuMix.isNil():
+          0
+        else:
+          node.getMixNodePoolSize(),
+      isNodeStarted = proc(): bool {.gcsafe, raises: [].} =
+        node.started,
+    ).valueOr:
+      return err("failed to setup kademlia discovery: " & error)
+
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()
-    if storeServiceConf.supportV2:
-      let archiveDriver = (
-        await legacy_driver.ArchiveDriver.new(
-          storeServiceConf.dbUrl, storeServiceConf.dbVacuum,
-          storeServiceConf.dbMigration, storeServiceConf.maxNumDbConnections,
-          onFatalErrorAction,
-        )
-      ).valueOr:
-        return err("failed to setup legacy archive driver: " & error)
-
-      node.mountLegacyArchive(archiveDriver).isOkOr:
-        return err("failed to mount waku legacy archive protocol: " & error)
-
-    ## For now we always mount the future archive driver but if the legacy one is mounted,
-    ## then the legacy will be in charge of performing the archiving.
-    ## Regarding storage, the only diff between the current/future archive driver and the legacy
-    ## one, is that the legacy stores an extra field: the id (message digest.)
-
-    ## TODO: remove this "migrate" variable once legacy store is removed
-    ## It is now necessary because sqlite's legacy store has an extra field: storedAt
-    ## This breaks compatibility between store's and legacy store's schemas in sqlite
-    ## So for now, we need to make sure that when legacy store is enabled and we use sqlite
-    ## that we migrate our db according to legacy store's schema to have the extra field
-
-    let engine = dburl.getDbEngine(storeServiceConf.dbUrl).valueOr:
-      return err("error getting db engine in setupProtocols: " & error)
-
-    let migrate =
-      if engine == "sqlite" and storeServiceConf.supportV2:
-        false
-      else:
-        storeServiceConf.dbMigration
 
     let archiveDriver = (
       await driver.ArchiveDriver.new(
-        storeServiceConf.dbUrl, storeServiceConf.dbVacuum, migrate,
+        storeServiceConf.dbUrl, storeServiceConf.dbVacuum, storeServiceConf.dbMigration,
         storeServiceConf.maxNumDbConnections, onFatalErrorAction,
       )
     ).valueOr:
@@ -211,14 +207,6 @@ proc setupProtocols(
 
     node.mountArchive(archiveDriver, retPolicies).isOkOr:
       return err("failed to mount waku archive protocol: " & error)
-
-    if storeServiceConf.supportV2:
-      # Store legacy setup
-      try:
-        await mountLegacyStore(node, node.rateLimitSettings.getSetting(STOREV2))
-      except CatchableError:
-        return
-          err("failed to mount waku legacy store protocol: " & getCurrentExceptionMsg())
 
     # Store setup
     try:
@@ -250,12 +238,6 @@ proc setupProtocols(
     let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
       return err("failed to set node waku store peer: " & error)
     node.peerManager.addServicePeer(storeNode, WakuStoreCodec)
-
-  mountLegacyStoreClient(node)
-  if conf.remoteStoreNode.isSome():
-    let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
-      return err("failed to set node waku legacy store peer: " & error)
-    node.peerManager.addServicePeer(storeNode, WakuLegacyStoreCodec)
 
   if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
     node.setupStoreResume()
@@ -327,9 +309,9 @@ proc setupProtocols(
         protectedShard = shardKey.shard, publicKey = shardKey.key
     node.wakuRelay.addSignedShardsValidator(subscribedProtectedShards, conf.clusterId)
 
-    # Only relay nodes should be rendezvous points.
-    if conf.rendezvous:
-      await node.mountRendezvous(conf.clusterId)
+  if conf.rendezvous:
+    await node.mountRendezvous(conf.clusterId, shards)
+    await node.mountRendezvousClient(conf.clusterId)
 
   # Keepalive mounted on all nodes
   try:
@@ -359,8 +341,11 @@ proc setupProtocols(
   # NOTE Must be mounted after relay
   if conf.lightPush:
     try:
-      await mountLightPush(node, node.rateLimitSettings.getSetting(LIGHTPUSH))
-      await mountLegacyLightPush(node, node.rateLimitSettings.getSetting(LIGHTPUSH))
+      (await mountLightPush(node, node.rateLimitSettings.getSetting(LIGHTPUSH))).isOkOr:
+        return err("failed to mount waku lightpush protocol: " & $error)
+
+      (await mountLegacyLightPush(node, node.rateLimitSettings.getSetting(LIGHTPUSH))).isOkOr:
+        return err("failed to mount waku legacy lightpush protocol: " & $error)
     except CatchableError:
       return err("failed to mount waku lightpush protocol: " & getCurrentExceptionMsg())
 
@@ -414,14 +399,6 @@ proc setupProtocols(
   if conf.peerExchangeDiscovery:
     await node.mountPeerExchangeClient()
 
-  #mount mix
-  if conf.mixConf.isSome():
-    (
-      await node.mountMix(
-        conf.clusterId, conf.mixConf.get().mixKey, conf.mixConf.get().mixnodes
-      )
-    ).isOkOr:
-      return err("failed to mount waku mix protocol: " & $error)
   return ok()
 
 ## Start node
@@ -472,6 +449,11 @@ proc startNode*(
   # Maintain relay connections
   if conf.relay:
     node.peerManager.start()
+
+  if not node.wakuKademlia.isNil():
+    let minMixPeers = if conf.mixConf.isSome(): 4 else: 0
+    (await node.wakuKademlia.start(minMixPeers = minMixPeers)).isOkOr:
+      return err("failed to start kademlia discovery: " & error)
 
   return ok()
 

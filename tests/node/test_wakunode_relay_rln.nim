@@ -283,31 +283,31 @@ suite "Waku RlnRelay - End to End - Static":
 
       doAssert(
         client.wakuRlnRelay
-        .appendRLNProof(
-          message1b, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 0)
-        )
-        .isOk()
+          .appendRLNProof(
+            message1b, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 0)
+          )
+          .isOk()
       )
       doAssert(
         client.wakuRlnRelay
-        .appendRLNProof(
-          message1kib, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 1)
-        )
-        .isOk()
+          .appendRLNProof(
+            message1kib, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 1)
+          )
+          .isOk()
       )
       doAssert(
         client.wakuRlnRelay
-        .appendRLNProof(
-          message150kib, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 2)
-        )
-        .isOk()
+          .appendRLNProof(
+            message150kib, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 2)
+          )
+          .isOk()
       )
       doAssert(
         client.wakuRlnRelay
-        .appendRLNProof(
-          message151kibPlus, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3)
-        )
-        .isOk()
+          .appendRLNProof(
+            message151kibPlus, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3)
+          )
+          .isOk()
       )
 
       # When sending the 1B message
@@ -372,10 +372,10 @@ suite "Waku RlnRelay - End to End - Static":
 
       doAssert(
         client.wakuRlnRelay
-        .appendRLNProof(
-          message151kibPlus, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3)
-        )
-        .isOk()
+          .appendRLNProof(
+            message151kibPlus, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3)
+          )
+          .isOk()
       )
 
       # When sending the 150KiB plus message
@@ -496,11 +496,11 @@ suite "Waku RlnRelay - End to End - OnChain":
       # However, it doesn't reduce the retries against the blockchain that the mounting rln process attempts (until it accepts failure).
       # Note: These retries might be an unintended library issue.
       discard await server
-      .setupRelayWithOnChainRln(@[pubsubTopic], wakuRlnConfig1)
-      .withTimeout(FUTURE_TIMEOUT)
+        .setupRelayWithOnChainRln(@[pubsubTopic], wakuRlnConfig1)
+        .withTimeout(FUTURE_TIMEOUT)
       discard await client
-      .setupRelayWithOnChainRln(@[pubsubTopic], wakuRlnConfig2)
-      .withTimeout(FUTURE_TIMEOUT)
+        .setupRelayWithOnChainRln(@[pubsubTopic], wakuRlnConfig2)
+        .withTimeout(FUTURE_TIMEOUT)
 
       check:
         (await serverErrorFuture.waitForResult()).get() ==

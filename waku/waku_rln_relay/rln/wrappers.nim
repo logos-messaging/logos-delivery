@@ -6,7 +6,8 @@ import
   stew/[arrayops, byteutils, endians2],
   stint,
   results,
-  std/[sequtils, strutils, tables]
+  std/[sequtils, strutils, tables],
+  nimcrypto/keccak as keccak
 
 import ./rln_interface, ../conversion_utils, ../protocol_types, ../protocol_metrics
 import ../../waku_core, ../../waku_keystore
@@ -71,13 +72,12 @@ type RlnConfig = ref object of RootObj
 proc `%`(c: RlnConfig): JsonNode =
   ## wrapper around the generic JObject constructor.
   ## We don't need to have a separate proc for the tree_config field
-  let tree_config =
-    %{
-      "cache_capacity": %c.tree_config.cache_capacity,
-      "mode": %c.tree_config.mode,
-      "compression": %c.tree_config.compression,
-      "flush_every_ms": %c.tree_config.flush_every_ms,
-    }
+  let tree_config = %{
+    "cache_capacity": %c.tree_config.cache_capacity,
+    "mode": %c.tree_config.mode,
+    "compression": %c.tree_config.compression,
+    "flush_every_ms": %c.tree_config.flush_every_ms,
+  }
   return %[("resources_folder", %c.resources_folder), ("tree_config", %tree_config)]
 
 proc createRLNInstanceLocal(): RLNResult =
@@ -118,24 +118,6 @@ proc createRLNInstance*(): RLNResult =
   waku_rln_instance_creation_duration_seconds.nanosecondTime:
     res = createRLNInstanceLocal()
   return res
-
-proc sha256*(data: openArray[byte]): RlnRelayResult[MerkleNode] =
-  ## a thin layer on top of the Nim wrapper of the sha256 hasher
-  var lenPrefData = encodeLengthPrefix(data)
-  var
-    hashInputBuffer = lenPrefData.toBuffer()
-    outputBuffer: Buffer # will holds the hash output
-
-  trace "sha256 hash input buffer length", bufflen = hashInputBuffer.len
-  let hashSuccess = sha256(addr hashInputBuffer, addr outputBuffer, true)
-
-  # check whether the hash call is done successfully
-  if not hashSuccess:
-    return err("error in sha256 hash")
-
-  let output = cast[ptr MerkleNode](outputBuffer.`ptr`)[]
-
-  return ok(output)
 
 proc poseidon*(data: seq[seq[byte]]): RlnRelayResult[array[32, byte]] =
   ## a thin layer on top of the Nim wrapper of the poseidon hasher
@@ -180,9 +162,18 @@ proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnRelayResult[seq[seq[byt
     leaves.add(leaf)
   return ok(leaves)
 
+proc generateExternalNullifier*(
+    epoch: Epoch, rlnIdentifier: RlnIdentifier
+): RlnRelayResult[ExternalNullifier] =
+  let epochHash = keccak.keccak256.digest(@(epoch))
+  let rlnIdentifierHash = keccak.keccak256.digest(@(rlnIdentifier))
+  let externalNullifier = poseidon(@[@(epochHash), @(rlnIdentifierHash)]).valueOr:
+    return err("Failed to compute external nullifier: " & error)
+  return ok(externalNullifier)
+
 proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
-  let externalNullifier = poseidon(@[@(proof.epoch), @(proof.rlnIdentifier)]).valueOr:
-    return err("could not construct the external nullifier")
+  let externalNullifier = generateExternalNullifier(proof.epoch, proof.rlnIdentifier).valueOr:
+    return err("Failed to compute external nullifier: " & error)
   return ok(
     ProofMetadata(
       nullifier: proof.nullifier,

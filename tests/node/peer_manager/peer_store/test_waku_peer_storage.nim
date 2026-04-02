@@ -10,22 +10,21 @@ import
 import waku/waku_core/peers, waku/node/peer_manager/peer_store/waku_peer_storage
 
 proc `==`(a, b: RemotePeerInfo): bool =
-  let comparisons =
-    @[
-      a.peerId == b.peerId,
-      a.addrs == b.addrs,
-      a.enr == b.enr,
-      a.protocols == b.protocols,
-      a.agent == b.agent,
-      a.protoVersion == b.protoVersion,
-      a.publicKey == b.publicKey,
-      a.connectedness == b.connectedness,
-      a.disconnectTime == b.disconnectTime,
-      a.origin == b.origin,
-      a.direction == b.direction,
-      a.lastFailedConn == b.lastFailedConn,
-      a.numberFailedConn == b.numberFailedConn,
-    ]
+  let comparisons = @[
+    a.peerId == b.peerId,
+    a.addrs == b.addrs,
+    a.enr == b.enr,
+    a.protocols == b.protocols,
+    a.agent == b.agent,
+    a.protoVersion == b.protoVersion,
+    a.publicKey == b.publicKey,
+    a.connectedness == b.connectedness,
+    a.disconnectTime == b.disconnectTime,
+    a.origin == b.origin,
+    a.direction == b.direction,
+    a.lastFailedConn == b.lastFailedConn,
+    a.numberFailedConn == b.numberFailedConn,
+  ]
 
   allIt(comparisons, it == true)
 
@@ -61,18 +60,17 @@ suite "Protobuf Serialisation":
   suite "encode":
     test "simple":
       # Given the expected bytes representation of a valid RemotePeerInfo
-      let expectedBuffer: seq[byte] =
-        @[
-          10, 39, 0, 37, 8, 2, 18, 33, 3, 43, 246, 238, 219, 109, 147, 79, 129, 40, 145,
-          217, 209, 109, 105, 185, 186, 200, 180, 203, 72, 166, 220, 196, 232, 170, 74,
-          141, 125, 255, 112, 238, 204, 18, 8, 4, 192, 168, 0, 1, 6, 31, 144, 34, 95, 8,
-          3, 18, 91, 48, 89, 48, 19, 6, 7, 42, 134, 72, 206, 61, 2, 1, 6, 8, 42, 134,
-          72, 206, 61, 3, 1, 7, 3, 66, 0, 4, 222, 61, 48, 15, 163, 106, 224, 232, 245,
-          213, 48, 137, 157, 131, 171, 171, 68, 171, 243, 22, 31, 22, 42, 75, 201, 1,
-          216, 230, 236, 218, 2, 14, 139, 109, 95, 141, 163, 5, 37, 231, 29, 104, 81,
-          81, 12, 9, 142, 92, 71, 198, 70, 165, 151, 251, 77, 206, 192, 52, 233, 247,
-          124, 64, 158, 98, 40, 0, 48, 0,
-        ]
+      let expectedBuffer: seq[byte] = @[
+        10, 39, 0, 37, 8, 2, 18, 33, 3, 43, 246, 238, 219, 109, 147, 79, 129, 40, 145,
+        217, 209, 109, 105, 185, 186, 200, 180, 203, 72, 166, 220, 196, 232, 170, 74,
+        141, 125, 255, 112, 238, 204, 18, 8, 4, 192, 168, 0, 1, 6, 31, 144, 34, 95, 8,
+        3, 18, 91, 48, 89, 48, 19, 6, 7, 42, 134, 72, 206, 61, 2, 1, 6, 8, 42, 134, 72,
+        206, 61, 3, 1, 7, 3, 66, 0, 4, 222, 61, 48, 15, 163, 106, 224, 232, 245, 213,
+        48, 137, 157, 131, 171, 171, 68, 171, 243, 22, 31, 22, 42, 75, 201, 1, 216, 230,
+        236, 218, 2, 14, 139, 109, 95, 141, 163, 5, 37, 231, 29, 104, 81, 81, 12, 9,
+        142, 92, 71, 198, 70, 165, 151, 251, 77, 206, 192, 52, 233, 247, 124, 64, 158,
+        98, 40, 0, 48, 0,
+      ]
 
       # When converting a valid RemotePeerInfo to a ProtoBuffer
       let encodedRemotePeerInfo = encode(remotePeerInfo).get()
@@ -87,18 +85,17 @@ suite "Protobuf Serialisation":
   suite "decode":
     test "simple":
       # Given the bytes representation of a valid RemotePeerInfo
-      let buffer: seq[byte] =
-        @[
-          10, 39, 0, 37, 8, 2, 18, 33, 3, 43, 246, 238, 219, 109, 147, 79, 129, 40, 145,
-          217, 209, 109, 105, 185, 186, 200, 180, 203, 72, 166, 220, 196, 232, 170, 74,
-          141, 125, 255, 112, 238, 204, 18, 8, 4, 192, 168, 0, 1, 6, 31, 144, 34, 95, 8,
-          3, 18, 91, 48, 89, 48, 19, 6, 7, 42, 134, 72, 206, 61, 2, 1, 6, 8, 42, 134,
-          72, 206, 61, 3, 1, 7, 3, 66, 0, 4, 222, 61, 48, 15, 163, 106, 224, 232, 245,
-          213, 48, 137, 157, 131, 171, 171, 68, 171, 243, 22, 31, 22, 42, 75, 201, 1,
-          216, 230, 236, 218, 2, 14, 139, 109, 95, 141, 163, 5, 37, 231, 29, 104, 81,
-          81, 12, 9, 142, 92, 71, 198, 70, 165, 151, 251, 77, 206, 192, 52, 233, 247,
-          124, 64, 158, 98, 40, 0, 48, 0,
-        ]
+      let buffer: seq[byte] = @[
+        10, 39, 0, 37, 8, 2, 18, 33, 3, 43, 246, 238, 219, 109, 147, 79, 129, 40, 145,
+        217, 209, 109, 105, 185, 186, 200, 180, 203, 72, 166, 220, 196, 232, 170, 74,
+        141, 125, 255, 112, 238, 204, 18, 8, 4, 192, 168, 0, 1, 6, 31, 144, 34, 95, 8,
+        3, 18, 91, 48, 89, 48, 19, 6, 7, 42, 134, 72, 206, 61, 2, 1, 6, 8, 42, 134, 72,
+        206, 61, 3, 1, 7, 3, 66, 0, 4, 222, 61, 48, 15, 163, 106, 224, 232, 245, 213,
+        48, 137, 157, 131, 171, 171, 68, 171, 243, 22, 31, 22, 42, 75, 201, 1, 216, 230,
+        236, 218, 2, 14, 139, 109, 95, 141, 163, 5, 37, 231, 29, 104, 81, 81, 12, 9,
+        142, 92, 71, 198, 70, 165, 151, 251, 77, 206, 192, 52, 233, 247, 124, 64, 158,
+        98, 40, 0, 48, 0,
+      ]
 
       # When converting a valid buffer to RemotePeerInfo
       let decodedRemotePeerInfo = RemotePeerInfo.decode(buffer).get()

@@ -27,22 +27,21 @@ import
 # TODO: migrate to usage of a test cluster conf
 proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   var builder = WakuConfBuilder.init()
-  builder.withP2pTcpPort(Port(60000))
+  builder.withP2pTcpPort(Port(0))
   builder.withP2pListenAddress(parseIpAddress("0.0.0.0"))
   builder.restServerConf.withListenAddress(parseIpAddress("127.0.0.1"))
   builder.withDnsAddrsNameServers(
     @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
   )
   builder.withNatStrategy("any")
-  builder.withMaxConnections(50)
-  builder.withRelayServiceRatio("60:40")
+  builder.withMaxConnections(150)
+  builder.withRelayServiceRatio("50:50")
   builder.withMaxMessageSize("1024 KiB")
   builder.withClusterId(DefaultClusterId)
   builder.withSubscribeShards(@[DefaultShardId])
   builder.withRelay(true)
   builder.withRendezvous(true)
   builder.storeServiceConf.withDbMigration(false)
-  builder.storeServiceConf.withSupportV2(false)
   return builder
 
 proc defaultTestWakuConf*(): WakuConf =
@@ -80,7 +79,7 @@ proc newTestWakuNode*(
   # Update extPort to default value if it's missing and there's an extIp or a DNS domain
   let extPort =
     if (extIp.isSome() or dns4DomainName.isSome()) and extPort.isNone():
-      some(Port(60000))
+      some(Port(0))
     else:
       extPort
 

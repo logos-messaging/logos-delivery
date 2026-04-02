@@ -14,7 +14,6 @@ import
   waku/rest_api/endpoint/legacy_lightpush/handlers as rest_legacy_lightpush_endpoint,
   waku/rest_api/endpoint/lightpush/handlers as rest_lightpush_endpoint,
   waku/rest_api/endpoint/store/handlers as rest_store_endpoint,
-  waku/rest_api/endpoint/legacy_store/handlers as rest_store_legacy_endpoint,
   waku/rest_api/endpoint/health/handlers as rest_health_endpoint,
   waku/rest_api/endpoint/admin/handlers as rest_admin_endpoint,
   waku/waku_core/topics,
@@ -28,7 +27,6 @@ import
 # It will always be called from main thread anyway.
 # Ref: https://nim-lang.org/docs/manual.html#threads-gc-safety
 var restServerNotInstalledTab {.threadvar.}: TableRef[string, string]
-restServerNotInstalledTab = newTable[string, string]()
 
 export WakuRestServerRef
 
@@ -42,6 +40,9 @@ type RestServerConf* = object
 proc startRestServerEssentials*(
     nodeHealthMonitor: NodeHealthMonitor, conf: RestServerConf, portsShift: uint16
 ): Result[WakuRestServerRef, string] =
+  if restServerNotInstalledTab.isNil:
+    restServerNotInstalledTab = newTable[string, string]()
+
   let requestErrorHandler: RestRequestErrorHandler = proc(
       error: RestRequestError, request: HttpRequestRef
   ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
@@ -84,13 +85,12 @@ proc startRestServerEssentials*(
 
   let address = conf.listenAddress
   let port = Port(conf.port.uint16 + portsShift)
-  let server =
-    ?newRestHttpServer(
-      address,
-      port,
-      allowedOrigin = allowedOrigin,
-      requestErrorHandler = requestErrorHandler,
-    )
+  let server = ?newRestHttpServer(
+    address,
+    port,
+    allowedOrigin = allowedOrigin,
+    requestErrorHandler = requestErrorHandler,
+  )
 
   ## Health REST API
   installHealthApiHandler(server.router, nodeHealthMonitor)
@@ -194,7 +194,6 @@ proc startRestServerProtocolSupport*(
       none(DiscoveryHandler)
 
   rest_store_endpoint.installStoreApiHandlers(router, node, storeDiscoHandler)
-  rest_store_legacy_endpoint.installStoreApiHandlers(router, node, storeDiscoHandler)
 
   ## Light push API
   ## Install it either if client is mounted)

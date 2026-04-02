@@ -13,6 +13,7 @@ import
     node/peer_manager,
     node/waku_node,
     node/kernel_api,
+    node/kernel_api/lightpush,
     waku_lightpush,
     waku_rln_relay,
   ],
@@ -36,13 +37,6 @@ suite "Waku Lightpush - End To End":
     message {.threadvar.}: WakuMessage
 
   asyncSetup:
-    handlerFuture = newPushHandlerFuture()
-    handler = proc(
-        peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[WakuLightPushResult] {.async.} =
-      handlerFuture.complete((pubsubTopic, message))
-      return ok(PublishedToOnePeer)
-
     let
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
@@ -55,7 +49,7 @@ suite "Waku Lightpush - End To End":
 
     (await server.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    await server.mountLightpush() # without rln-relay
+    check (await server.mountLightpush()).isOk() # without rln-relay
     client.mountLightpushClient()
 
     serverRemotePeerInfo = server.peerInfo.toRemotePeerInfo()
@@ -107,9 +101,6 @@ suite "Waku Lightpush - End To End":
 
 suite "RLN Proofs as a Lightpush Service":
   var
-    handlerFuture {.threadvar.}: Future[(PubsubTopic, WakuMessage)]
-    handler {.threadvar.}: PushMessageHandler
-
     server {.threadvar.}: WakuNode
     client {.threadvar.}: WakuNode
     anvilProc {.threadvar.}: Process
@@ -121,13 +112,6 @@ suite "RLN Proofs as a Lightpush Service":
     message {.threadvar.}: WakuMessage
 
   asyncSetup:
-    handlerFuture = newPushHandlerFuture()
-    handler = proc(
-        peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
-    ): Future[WakuLightPushResult] {.async.} =
-      handlerFuture.complete((pubsubTopic, message))
-      return ok(PublishedToOnePeer)
-
     let
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
@@ -135,8 +119,8 @@ suite "RLN Proofs as a Lightpush Service":
     server = newTestWakuNode(serverKey, parseIpAddress("0.0.0.0"), Port(0))
     client = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(0))
 
-    anvilProc = runAnvil()
-    manager = waitFor setupOnchainGroupManager()
+    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
     # mount rln-relay
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
@@ -147,17 +131,14 @@ suite "RLN Proofs as a Lightpush Service":
     (await server.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
     await server.mountRlnRelay(wakuRlnConfig)
-    await server.mountLightPush()
+    check (await server.mountLightPush()).isOk()
     client.mountLightPushClient()
 
     let manager1 = cast[OnchainGroupManager](server.wakuRlnRelay.groupManager)
     let idCredentials1 = generateCredentials()
 
-    try:
-      waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     let rootUpdated1 = waitFor manager1.updateRoots()
     info "Updated root for node1", rootUpdated1
@@ -213,7 +194,7 @@ suite "Waku Lightpush message delivery":
       assert false, "Failed to mount relay"
     (await bridgeNode.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    await bridgeNode.mountLightPush()
+    check (await bridgeNode.mountLightPush()).isOk()
     lightNode.mountLightPushClient()
 
     discard await lightNode.peerManager.dialPeer(
@@ -251,3 +232,19 @@ suite "Waku Lightpush message delivery":
 
     ## Cleanup
     await allFutures(lightNode.stop(), bridgeNode.stop(), destNode.stop())
+
+suite "Waku Lightpush mounting behavior":
+  asyncTest "fails to mount when relay is not mounted":
+    ## Given a node without Relay mounted
+    let
+      key = generateSecp256k1Key()
+      node = newTestWakuNode(key, parseIpAddress("0.0.0.0"), Port(0))
+
+    # Do not mount Relay on purpose
+    check node.wakuRelay.isNil()
+
+    ## Then mounting Lightpush must fail
+    let res = await node.mountLightPush()
+    check:
+      res.isErr()
+      res.error == MountWithoutRelayError

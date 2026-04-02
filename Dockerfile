@@ -8,7 +8,7 @@ ARG LOG_LEVEL=TRACE
 ARG HEAPTRACK_BUILD=0
 
 # Get build tools and required header files
-RUN apk add --no-cache bash git build-base openssl-dev linux-headers curl jq
+RUN apk add --no-cache bash git build-base openssl-dev linux-headers curl jq libbsd-dev
 
 WORKDIR /app
 COPY . .
@@ -46,7 +46,7 @@ LABEL version="unknown"
 EXPOSE 30303 60000 8545
 
 # Referenced in the binary
-RUN apk add --no-cache libgcc libpq-dev bind-tools
+RUN apk add --no-cache libgcc libpq-dev bind-tools libstdc++
 
 # Copy to separate location to accomodate different MAKE_TARGET values
 COPY --from=nim-build /app/build/$MAKE_TARGET /usr/local/bin/

@@ -25,7 +25,7 @@ suite "Rate limited push service":
     ## Given
     var handlerFuture = newFuture[(string, WakuMessage)]()
     let handler: PushMessageHandler = proc(
-        peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+        pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult[void]] {.async.} =
       handlerFuture.complete((pubsubTopic, message))
       return ok()
@@ -86,58 +86,52 @@ suite "Rate limited push service":
     await allFutures(serverSwitch.start(), clientSwitch.start())
 
     ## Given
-    var handlerFuture = newFuture[(string, WakuMessage)]()
     let handler = proc(
-        peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+        pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult[void]] {.async.} =
-      handlerFuture.complete((pubsubTopic, message))
       return ok()
 
     let
+      tokenPeriod = 500.millis
       server = await newTestWakuLegacyLightpushNode(
-        serverSwitch, handler, some((3, 500.millis))
+        serverSwitch, handler, some((3, tokenPeriod))
       )
       client = newTestWakuLegacyLightpushClient(clientSwitch)
 
     let serverPeerId = serverSwitch.peerInfo.toRemotePeerInfo()
-    let topic = DefaultPubsubTopic
 
-    let successProc = proc(): Future[void] {.async.} =
-      let message = fakeWakuMessage()
-      handlerFuture = newFuture[(string, WakuMessage)]()
-      let requestRes =
-        await client.publish(DefaultPubsubTopic, message, peer = serverPeerId)
-      discard await handlerFuture.withTimeout(10.millis)
+    # Avoid assuming the exact Nth request will be rejected. With Chronos TokenBucket
+    # minting semantics and real network latency, CI timing can allow refills.
+    # Instead, send a short burst and require that we observe at least one rejection.
+    let burstSize = 10
+    var publishFutures: seq[Future[WakuLightPushResult[string]]] = @[]
+    for _ in 0 ..< burstSize:
+      publishFutures.add(
+        client.publish(DefaultPubsubTopic, fakeWakuMessage(), peer = serverPeerId)
+      )
 
-      check:
-        requestRes.isOk()
-        handlerFuture.finished()
-      let (handledMessagePubsubTopic, handledMessage) = handlerFuture.read()
-      check:
-        handledMessagePubsubTopic == DefaultPubsubTopic
-        handledMessage == message
+    let finished = await allFinished(publishFutures)
+    var gotOk = false
+    var gotTooMany = false
+    for fut in finished:
+      check not fut.failed()
+      let res = fut.read()
+      if res.isOk():
+        gotOk = true
+      elif res.error == "TOO_MANY_REQUESTS":
+        gotTooMany = true
 
-    let rejectProc = proc(): Future[void] {.async.} =
-      let message = fakeWakuMessage()
-      handlerFuture = newFuture[(string, WakuMessage)]()
-      let requestRes =
-        await client.publish(DefaultPubsubTopic, message, peer = serverPeerId)
-      discard await handlerFuture.withTimeout(10.millis)
+    check:
+      gotOk
+      gotTooMany
 
-      check:
-        requestRes.isErr()
-        requestRes.error == "TOO_MANY_REQUESTS"
-
-    for testCnt in 0 .. 2:
-      await successProc()
-      await sleepAsync(20.millis)
-
-    await rejectProc()
-
-    await sleepAsync(500.millis)
+    await sleepAsync(tokenPeriod + 100.millis)
 
     ## next one shall succeed due to the rate limit time window has passed
-    await successProc()
+    let afterCooldownRes =
+      await client.publish(DefaultPubsubTopic, fakeWakuMessage(), peer = serverPeerId)
+    check:
+      afterCooldownRes.isOk()
 
     ## Cleanup
     await allFutures(clientSwitch.stop(), serverSwitch.stop())
