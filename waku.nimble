@@ -80,10 +80,7 @@ proc getNimParams(): string =
 proc buildModule(filePath, params = "", lang = "c"): bool =
   if not dirExists "build":
     mkDir "build"
-  # allow something like "nim nimbus --verbosity:0 --hints:off nimbus.nims"
   var extra_params = params
-  for i in 2 ..< paramCount() - 1:
-    extra_params &= " " & paramStr(i)
 
   if not fileExists(filePath):
     echo "File to build not found: " & filePath
@@ -447,20 +444,21 @@ task lightpushwithmix, "Build lightpushwithmix":
   buildBinary name, "examples/lightpush_mix/"
 
 task buildTest, "Test custom target":
-  let filepath = paramStr(paramCount())
+  let filepath = getEnv("TEST_FILE")
+  if filepath == "":
+    quit "Missing TEST_FILE environment variable"
   discard buildModule(filepath)
 
 import std/strutils
 
 task execTest, "Run test":
-  # Expects to be parameterized with test case name in quotes
-  # preceded with the nim source file name and path
-  # If no test case name is given still it requires empty quotes `""`
-  let filepath = paramStr(paramCount() - 1)
-  var testSuite = paramStr(paramCount()).strip(chars = {'\"'})
+  let filepath = getEnv("TEST_FILE")
+  if filepath == "":
+    quit "Missing TEST_FILE environment variable"
+  var testSuite = getEnv("TEST_NAME").strip(chars = {'\"'})
   if testSuite != "":
     testSuite = " \"" & testSuite & "\""
-  exec "build/" & filepath & ".bin " & testSuite
+  exec "build/" & filepath & ".bin" & testSuite
 
 ### C Bindings
 let chroniclesParams =
