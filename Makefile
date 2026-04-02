@@ -270,8 +270,8 @@ build/%: | $(NIMBLEDEPS_STAMP) build deps librln
 
 compile-test: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "$(TEST_FILE)" "\"$(TEST_NAME)\"" && \
-		TEST_FILE="$(TEST_FILE)" nimble buildTest && \
-		TEST_FILE="$(TEST_FILE)" TEST_NAME="$(TEST_NAME)" nimble execTest
+		nimble buildTest $(TEST_FILE) && \
+		nimble execTest $(TEST_FILE) "\"$(TEST_NAME)\""
 
 ################
 ## Waku tools ##
