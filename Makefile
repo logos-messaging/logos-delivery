@@ -67,7 +67,7 @@ waku.nims:
 	ln -s waku.nimble $@
 
 $(NIMBLEDEPS_STAMP): | waku.nims
-	git submodule update --init --recursive
+	git submodule update --init vendor/zerokit
 	nimble setup --localdeps
 	$(MAKE) build-nph
 	$(MAKE) rebuild-nat-libs-nimbledeps
@@ -76,7 +76,6 @@ $(NIMBLEDEPS_STAMP): | waku.nims
 
 update:
 	rm -f $(NIMBLEDEPS_STAMP)
-	rm nimble.lock
 	$(MAKE) $(NIMBLEDEPS_STAMP)
 	nimble lock
 
