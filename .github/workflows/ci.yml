@@ -30,9 +30,9 @@ jobs:
         filters: |
           common:
           - '.github/workflows/**'
-          - 'vendor/**'
-          - 'Makefile'
+          - 'nimble.lock'
           - 'waku.nimble'
+          - 'Makefile'
           - 'library/**'
           v2:
           - 'waku/**'
@@ -63,21 +63,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Get submodules hash
-        id: submodules
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
+      - name: Cache nimble deps
+        id: cache-nimbledeps
         uses: actions/cache@v3
         with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+          path: nimbledeps/
+          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock') }}
 
-      - name: Make update
-        run: make update
+      - name: Install nimble deps
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        run: |
+          nimble setup --localdeps
+          make rebuild-nat-libs-nimbledeps
+          make rebuild-bearssl-nimbledeps
+          touch nimbledeps/.nimble-setup
 
       - name: Build binaries
         run: make V=1 QUICK_AND_DIRTY_COMPILER=1 all
@@ -104,21 +103,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Get submodules hash
-        id: submodules
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
+      - name: Cache nimble deps
+        id: cache-nimbledeps
         uses: actions/cache@v3
         with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+          path: nimbledeps/
+          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock') }}
 
-      - name: Make update
-        run: make update
+      - name: Install nimble deps
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        run: |
+          nimble setup --localdeps
+          make rebuild-nat-libs-nimbledeps
+          make rebuild-bearssl-nimbledeps
+          touch nimbledeps/.nimble-setup
 
       - name: Run tests
         run: |
@@ -171,18 +169,20 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
-      - name: Get submodules hash
-        id: submodules
-        run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
-
-      - name: Cache submodules
+      - name: Cache nimble deps
+        id: cache-nimbledeps
         uses: actions/cache@v3
         with:
-          path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+          path: nimbledeps/
+          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock') }}
+
+      - name: Install nimble deps
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        run: |
+          nimble setup --localdeps
+          make rebuild-nat-libs-nimbledeps
+          make rebuild-bearssl-nimbledeps
+          touch nimbledeps/.nimble-setup
 
       - name: Build nph
         run: |
