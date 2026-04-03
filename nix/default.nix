@@ -1,13 +1,20 @@
 { pkgs, src, zerokitRln }:
 
 let
-  deps    = import ./deps.nix    { inherit pkgs; };
-  nimSrc  = pkgs.callPackage ./nim.nix    {};
+  deps      = import ./deps.nix    { inherit pkgs; };
+  nimSrc    = pkgs.callPackage ./nim.nix    {};
   nimbleSrc = pkgs.callPackage ./nimble.nix {};
 
+  # nat_traversal is excluded from the static pathArgs; it is handled
+  # separately in buildPhase (its bundled C libs must be compiled first).
+  otherDeps = builtins.removeAttrs deps [ "nat_traversal" ];
+
+  # Some packages (e.g. regex, unicodedb) put their .nim files under src/
+  # while others use the repo root. Pass both so the compiler finds either layout.
   pathArgs =
     builtins.concatStringsSep " "
-      (map (p: "--path:${p}") (builtins.attrValues deps));
+      (builtins.concatMap (p: [ "--path:${p}" "--path:${p}/src" ])
+        (builtins.attrValues otherDeps));
 
   libExt =
     if pkgs.stdenv.hostPlatform.isWindows then "dll"
@@ -23,7 +30,9 @@ pkgs.stdenv.mkDerivation {
   nativeBuildInputs = with pkgs; [
     nim-2_2
     git
-  ];
+    gnumake
+    which
+  ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.cctools ];
 
   buildInputs = [ zerokitRln ];
 
@@ -35,10 +44,24 @@ pkgs.stdenv.mkDerivation {
 
     mkdir -p build $NIMCACHE
 
+    # nat_traversal bundles C sub-libraries that must be compiled before linking.
+    # Copy the fetchgit store path to a writable tmpdir, build, then pass to nim.
+    NAT_TRAV=$TMPDIR/nat_traversal
+    cp -r ${deps.nat_traversal} $NAT_TRAV
+    chmod -R +w $NAT_TRAV
+
+    make -C $NAT_TRAV/vendor/miniupnp/miniupnpc \
+      CFLAGS="-Os -fPIC" build/libminiupnpc.a
+
+    make -C $NAT_TRAV/vendor/libnatpmp-upstream \
+      CFLAGS="-Wall -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4" libnatpmp.a
+
     echo "== Building liblogosdelivery (dynamic) =="
     nim c \
       --noNimblePath \
       ${pathArgs} \
+      --path:$NAT_TRAV \
+      --path:$NAT_TRAV/src \
       --lib:${nimSrc}/lib \
       --nimblePath:${nimbleSrc} \
       --passL:"-L${zerokitRln}/lib -lrln" \
@@ -49,6 +72,7 @@ pkgs.stdenv.mkDerivation {
       --noMain \
       --mm:refc \
       --header \
+      --nimMainPrefix:liblogosdelivery \
       --nimcache:$NIMCACHE \
       liblogosdelivery/liblogosdelivery.nim
 
@@ -56,6 +80,8 @@ pkgs.stdenv.mkDerivation {
     nim c \
       --noNimblePath \
       ${pathArgs} \
+      --path:$NAT_TRAV \
+      --path:$NAT_TRAV/src \
       --lib:${nimSrc}/lib \
       --nimblePath:${nimbleSrc} \
       --passL:"-L${zerokitRln}/lib -lrln" \
@@ -65,6 +91,7 @@ pkgs.stdenv.mkDerivation {
       --opt:size \
       --noMain \
       --mm:refc \
+      --nimMainPrefix:liblogosdelivery \
       --nimcache:$NIMCACHE \
       liblogosdelivery/liblogosdelivery.nim
   '';
