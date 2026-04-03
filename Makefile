@@ -298,7 +298,7 @@ ifneq ($(detected_OS),Windows)
 		echo "nph already installed, skipping"; \
 	else \
 		echo "Installing nph globally"; \
-		nimble install nph@0.7.0 --accept -g; \
+		(cd /tmp && nimble install nph@0.7.0 --accept -g); \
 	fi
 	echo "Check if nph utility is available"
 	PATH="$(CURDIR)/nimbledeps/bin:$$PATH" command -v nph
