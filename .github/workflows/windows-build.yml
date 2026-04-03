@@ -7,20 +7,25 @@ on:
         required: true
         type: string
 
+env:
+  NPROC: 4
+  NIM_VERSION: '2.2.4'
+  NIMBLE_VERSION: '0.18.2'
+
 jobs:
   build:
     runs-on: windows-latest
 
     defaults:
       run:
-        shell: msys2 {0}  
+        shell: msys2 {0}
 
     env:
       MSYSTEM: MINGW64
 
     steps:
     - name: Checkout code
-      uses: actions/checkout@v3
+      uses: actions/checkout@v4
 
     - name: Setup MSYS2
       uses: msys2/setup-msys2@v2
@@ -51,50 +56,57 @@ jobs:
       run: |
         bash scripts/install_nasm_in_windows.sh
         source $HOME/.bashrc
-      
+
     - name: Add UPX to PATH
       run: |
         echo "/usr/bin:$PATH" >> $GITHUB_PATH
         echo "/mingw64/bin:$PATH" >> $GITHUB_PATH
         echo "/usr/lib:$PATH" >> $GITHUB_PATH
-        echo "/mingw64/lib:$PATH" >> $GITHUB_PATH 
+        echo "/mingw64/lib:$PATH" >> $GITHUB_PATH
 
     - name: Verify dependencies
       run: |
         which upx gcc g++ make cmake cargo rustc python nasm
 
-    - name: Updating submodules
-      run: git submodule update --init --recursive
+    - name: Install Nim ${{ env.NIM_VERSION }}
+      uses: jiro4989/setup-nim-action@v2
+      with:
+        nim-version: ${{ env.NIM_VERSION }}
+        repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+    - name: Cache nimble deps
+      id: cache-nimbledeps
+      uses: actions/cache@v4
+      with:
+        path: nimbledeps/
+        key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock') }}
+
+    - name: Install nimble deps
+      if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+      run: |
+        python3 -c "
+        import json, sys
+        lock = json.load(open('nimble.lock'))
+        for key in ['nim', 'nimble']:
+          lock['packages'].pop(key, None)
+        json.dump(lock, open('nimble.lock', 'w'), indent=2)
+        "
+        nimble setup --localdeps -y
+        make rebuild-nat-libs-nimbledeps CC=gcc
+        make rebuild-bearssl-nimbledeps CC=gcc
+        touch nimbledeps/.nimble-setup
 
     - name: Creating tmp directory
       run: mkdir -p tmp
 
-    - name: Building Nim
-      run: |
-        cd vendor/nimbus-build-system/vendor/Nim
-        ./build_all.bat
-        cd ../../../..
-
-    - name: Building miniupnpc
-      run: |
-        cd vendor/nim-nat-traversal/vendor/miniupnp/miniupnpc
-        make -f Makefile.mingw CC=gcc CXX=g++ libminiupnpc.a V=1
-        cd ../../../../..
-
-    - name: Building libnatpmp
-      run: |
-        cd ./vendor/nim-nat-traversal/vendor/libnatpmp-upstream
-        make CC="gcc -fPIC -D_WIN32_WINNT=0x0600 -DNATPMP_STATICLIB" libnatpmp.a V=1
-        cd ../../../../
-
     - name: Building wakunode2.exe
       run: |
-        make wakunode2 LOG_LEVEL=DEBUG V=3 -j8
+        make wakunode2 LOG_LEVEL=DEBUG V=3 -j${{ env.NPROC }}
 
     - name: Building libwaku.dll
       run: |
         make libwaku STATIC=0 LOG_LEVEL=DEBUG V=1 -j
-    
+
     - name: Check Executable
       run: |
         if [ -f "./build/wakunode2.exe" ]; then
