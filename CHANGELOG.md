@@ -1,3 +1,13 @@
+## v0.37.4 (2026-04-03)
+
+### Changes
+
+- Optimize release builds for speed ([#3735](https://github.com/logos-messaging/logos-delivery/pull/3735)) ([#3777](https://github.com/logos-messaging/logos-delivery/pull/3777))
+
+### Bug Fixes
+
+- Properly add DEBUG flag into Dockerfile
+
 ## v0.37.3 (2026-03-25)
 
 ### Features
