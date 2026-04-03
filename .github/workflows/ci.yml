@@ -72,7 +72,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Nimble ${{ env.NIMBLE_VERSION }}
-        run: nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+        run: cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
 
       - name: Cache nimble deps
         id: cache-nimbledeps
@@ -121,7 +121,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Nimble ${{ env.NIMBLE_VERSION }}
-        run: nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+        run: cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
 
       - name: Cache nimble deps
         id: cache-nimbledeps
@@ -196,7 +196,7 @@ jobs:
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Install Nimble ${{ env.NIMBLE_VERSION }}
-        run: nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+        run: cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
 
       - name: Cache nimble deps
         id: cache-nimbledeps
