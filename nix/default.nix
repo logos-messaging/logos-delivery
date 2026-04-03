@@ -65,6 +65,7 @@ pkgs.stdenv.mkDerivation {
       --lib:${nimSrc}/lib \
       --nimblePath:${nimbleSrc} \
       --passL:"-L${zerokitRln}/lib -lrln" \
+      --define:disable_libbacktrace \
       --out:build/liblogosdelivery.${libExt} \
       --app:lib \
       --threads:on \
@@ -85,6 +86,7 @@ pkgs.stdenv.mkDerivation {
       --lib:${nimSrc}/lib \
       --nimblePath:${nimbleSrc} \
       --passL:"-L${zerokitRln}/lib -lrln" \
+      --define:disable_libbacktrace \
       --out:build/liblogosdelivery.a \
       --app:staticlib \
       --threads:on \
