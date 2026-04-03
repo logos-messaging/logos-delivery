@@ -67,7 +67,6 @@ waku.nims:
 	ln -s waku.nimble $@
 
 $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
-	git submodule update --init vendor/zerokit
 	nimble setup --localdeps
 	$(MAKE) build-nph
 	$(MAKE) rebuild-nat-libs-nimbledeps
@@ -189,6 +188,7 @@ LIBRLN_FILE ?= librln_$(LIBRLN_VERSION).a
 endif
 
 $(LIBRLN_FILE):
+	git submodule update --init vendor/zerokit
 	echo -e $(BUILD_MSG) "$@" && \
 		bash scripts/build_rln.sh $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(LIBRLN_FILE)
 
