@@ -18,6 +18,10 @@ ifneq (,$(findstring MINGW,$(detected_OS)))
   detected_OS := Windows
 endif
 
+# Use a local .nimble dir to avoid interfering with other Nim repos
+export NIMBLE_DIR := $(CURDIR)/.nimble
+export NIMBLE_PKGS_DIR := $(CURDIR)/.nimble/pkgs
+
 # NIM binary location
 NIM_BINARY := $(shell which nim)
 NPH := $(CURDIR)/nimbledeps/bin/nph
