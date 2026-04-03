@@ -70,7 +70,6 @@ jobs:
       - name: Install nimble deps
         if: ${{ steps.secrets.outcome == 'success' && steps.cache-nimbledeps.outputs.cache-hit != 'true' }}
         run: |
-          touch nimble.paths  # prevents nimble from generating include "" in buildtemp config.nims
           nimble setup --localdeps
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
