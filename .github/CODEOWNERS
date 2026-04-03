@@ -1,0 +1,7 @@
+# Changes to Nix and CI require approval from DevOps team
+Makefile     @logos-messaging/devops
+/ci/         @logos-messaging/devops
+/.github/    @logos-messaging/devops
+/nix/        @logos-messaging/devops
+/flake.nix   @logos-messaging/devops
+/flake.lock  @logos-messaging/devops
