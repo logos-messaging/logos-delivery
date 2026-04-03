@@ -11,7 +11,7 @@ license = "MIT or Apache License 2.0"
 #bin           = @["build/waku"]
 
 requires "nim == 2.2.4"
-requires "nimble == 0.22.3"
+requires "nimble == 0.20.1"
 
 ### Dependencies
 requires "chronos >= 4.2.0",

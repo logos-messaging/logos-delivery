@@ -15,7 +15,7 @@ env:
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
   NIM_VERSION: '2.2.4'
-  NIMBLE_VERSION: '0.22.3'
+  NIMBLE_VERSION: '0.20.1'
 
 jobs:
   changes: # changes detection
