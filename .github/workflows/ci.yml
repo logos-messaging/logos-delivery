@@ -14,6 +14,8 @@ env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
+  NIM_VERSION: '2.2.4'
+  NIMBLE_VERSION: '0.22.3'
 
 jobs:
   changes: # changes detection
@@ -63,6 +65,15 @@ jobs:
       - name: Checkout code
         uses: actions/checkout@v4
 
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+
       - name: Cache nimble deps
         id: cache-nimbledeps
         uses: actions/cache@v3
@@ -102,6 +113,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
 
       - name: Cache nimble deps
         id: cache-nimbledeps
@@ -168,6 +188,15 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
 
       - name: Cache nimble deps
         id: cache-nimbledeps
