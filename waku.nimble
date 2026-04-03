@@ -10,7 +10,7 @@ description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
 #bin           = @["build/waku"]
 
-requires "nim == 2.2.6"
+requires "nim == 2.2.4"
 requires "nimble == 0.22.3"
 
 ### Dependencies
@@ -80,10 +80,11 @@ proc getNimParams(): string =
 proc buildModule(filePath, params = "", lang = "c"): bool =
   if not dirExists "build":
     mkDir "build"
-  # allow something like "nim nimbus --verbosity:0 --hints:off nimbus.nims"
+
   var extra_params = params
-  for i in 2 ..< paramCount() - 1:
-    extra_params &= " " & paramStr(i)
+  let nimParams = getEnv("NIM_PARAMS")
+  if nimParams.len > 0:
+    extra_params &= " " & nimParams
 
   if not fileExists(filePath):
     echo "File to build not found: " & filePath
@@ -447,17 +448,26 @@ task lightpushwithmix, "Build lightpushwithmix":
   buildBinary name, "examples/lightpush_mix/"
 
 task buildTest, "Test custom target":
-  let filepath = paramStr(paramCount())
+  let args = commandLineParams()
+  if args.len == 0:
+    quit "Missing test file"
+
+  let filepath = args[^1]
   discard buildModule(filepath)
 
 import std/strutils
 
 task execTest, "Run test":
-  # Expects to be parameterized with test case name in quotes
-  # preceded with the nim source file name and path
-  # If no test case name is given still it requires empty quotes `""`
-  let filepath = paramStr(paramCount() - 1)
-  var testSuite = paramStr(paramCount()).strip(chars = {'\"'})
+  let args = commandLineParams()
+  if args.len == 0:
+    quit "Missing arguments"
+  # expects: <file> "<test name>"
+  let filepath =
+    if args.len >= 2: args[^2]
+    else: args[^1]
+  var testSuite =
+    if args.len >= 1: args[^1].strip(chars = {'\"'})
+    else: ""
   if testSuite != "":
     testSuite = " \"" & testSuite & "\""
   exec "build/" & filepath & ".bin " & testSuite
