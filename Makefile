@@ -66,7 +66,7 @@ endif
 waku.nims:
 	ln -s waku.nimble $@
 
-$(NIMBLEDEPS_STAMP): | waku.nims
+$(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
 	git submodule update --init vendor/zerokit
 	nimble setup --localdeps
 	$(MAKE) build-nph
