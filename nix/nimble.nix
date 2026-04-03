@@ -9,7 +9,7 @@ let
 in
 pkgs.fetchgit {
   url = entry.url;
-  rev = entry.vcsRevision;
-  sha256 = "1q3mpv0b5a0hhvdfn2c1f03hjbdwfam894vym14i3dm23qin2i5z";
+  rev = "v${entry.version}";
+  sha256 = "18cwsjwcgjmnm42kr310hfbw06lym3vaj641i4pla6r8w22xqpqd";
   fetchSubmodules = true;
 }

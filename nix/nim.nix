@@ -11,7 +11,7 @@ let
 in
 pkgs.fetchgit {
   url = entry.url;
-  rev = entry.vcsRevision;
+  rev = "v${entry.version}";
   sha256 = "1g4nxbwbc6h174gbpa3gcs47xwk6scbmiqlp0nq1ig3af8fcqcnj";
   fetchSubmodules = true;
 }
