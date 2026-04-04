@@ -10,14 +10,15 @@ description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
 #bin           = @["build/waku"]
 
-## We defined the required versions in that way so that the generated nimble.lock
-## doesn't have any reference to nim or nimble. With that, we avoid cross-platform
-## issues when calculating the nim checksum.
+## This indicates the nim compiler version we are currently working on. It may compile with others
+## but we haven't tested.
 const NimVersion    = "2.2.4"
+## This is the underlying nimble version that gets installed after doing `choosenim 2.2.4`.
 const NimbleVersion = "0.18.2"
 
 ### Dependencies
-requires "chronos >= 4.2.0",
+requires "nim >= 2.2.4",
+  "chronos >= 4.2.0",
   "taskpools",
   # Logging & Configuration
   "chronicles",
