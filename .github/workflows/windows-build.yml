@@ -92,7 +92,9 @@ jobs:
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
+        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
         python3 -c "
+
         import json, sys
         lock = json.load(open('nimble.lock'))
         for key in ['nim', 'nimble']:
@@ -109,10 +111,12 @@ jobs:
 
     - name: Building wakunode2.exe
       run: |
+        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
         make wakunode2 LOG_LEVEL=DEBUG V=3 -j${{ env.NPROC }}
 
     - name: Building libwaku.dll
       run: |
+        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
         make libwaku STATIC=0 LOG_LEVEL=DEBUG V=1 -j
 
     - name: Check Executable
