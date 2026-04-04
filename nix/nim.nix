@@ -8,8 +8,8 @@
 let
   lines       = pkgs.lib.splitString "\n" (builtins.readFile ../waku.nimble);
   versionLine = builtins.head (builtins.filter
-    (l: builtins.match "^requires \"nim ==.*" l != null) lines);
-  version     = builtins.head (builtins.match ".*([0-9]+\\.[0-9]+\\.[0-9]+).*" versionLine);
+    (l: builtins.match "^const NimVersion.*" l != null) lines);
+  version     = builtins.head (builtins.match ".*\"([0-9]+\\.[0-9]+\\.[0-9]+)\".*" versionLine);
 in
 pkgs.fetchgit {
   url = "https://github.com/nim-lang/Nim.git";

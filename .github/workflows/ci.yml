@@ -88,14 +88,6 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          # Remove nim/nimble entries from lock to avoid cross-platform checksum mismatch
-          python3 -c "
-          import json, sys
-          lock = json.load(open('nimble.lock'))
-          for key in ['nim', 'nimble']:
-            lock['packages'].pop(key, None)
-          json.dump(lock, open('nimble.lock', 'w'), indent=2)
-          "
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
@@ -149,14 +141,6 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          # Remove nim/nimble entries from lock to avoid cross-platform checksum mismatch
-          python3 -c "
-          import json, sys
-          lock = json.load(open('nimble.lock'))
-          for key in ['nim', 'nimble']:
-            lock['packages'].pop(key, None)
-          json.dump(lock, open('nimble.lock', 'w'), indent=2)
-          "
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
@@ -236,14 +220,6 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          # Remove nim/nimble entries from lock to avoid cross-platform checksum mismatch
-          python3 -c "
-          import json, sys
-          lock = json.load(open('nimble.lock'))
-          for key in ['nim', 'nimble']:
-            lock['packages'].pop(key, None)
-          json.dump(lock, open('nimble.lock', 'w'), indent=2)
-          "
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
