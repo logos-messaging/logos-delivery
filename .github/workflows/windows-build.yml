@@ -93,14 +93,6 @@ jobs:
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        python3 -c "
-
-        import json, sys
-        lock = json.load(open('nimble.lock'))
-        for key in ['nim', 'nimble']:
-          lock['packages'].pop(key, None)
-        json.dump(lock, open('nimble.lock', 'w'), indent=2)
-        "
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
