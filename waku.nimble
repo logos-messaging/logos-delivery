@@ -10,11 +10,11 @@ description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
 #bin           = @["build/waku"]
 
-## We want to use the 2.2.4 nim version as it was the one we used in nimbus-build-system
-## The reason why we enforce an old nimble version is because is the one that gets
-## installed when doing `choosenim 2.2.4`.
-requires "nim == 2.2.4"
-requires "nimble == 0.18.2"
+## Required toolchain versions — defined as constants so they are enforced at
+## build time (via the Makefile) without being added to nimble.lock, which would
+## embed platform-specific checksums and cause cross-platform mismatch errors.
+const NimVersion    = "2.2.4"
+const NimbleVersion = "0.18.2"
 
 ### Dependencies
 requires "chronos >= 4.2.0",

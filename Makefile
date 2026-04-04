@@ -92,8 +92,8 @@ clean:
 	rm nimble.paths 2> /dev/null || true
 	nimble clean
 
-REQUIRED_NIM_VERSION    := $(shell grep -E '^requires "nim ==' waku.nimble | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-REQUIRED_NIMBLE_VERSION := $(shell grep -E '^requires "nimble ==' waku.nimble | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+REQUIRED_NIM_VERSION    := $(shell grep -E '^const NimVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+REQUIRED_NIMBLE_VERSION := $(shell grep -E '^const NimbleVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
 
 build:
 	@nim_ver=$$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \

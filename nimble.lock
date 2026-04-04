@@ -471,26 +471,6 @@
         "sha1": "fa2a7552c6ec860717b77ce34cf0b7afe4570234"
       }
     },
-    "nim": {
-      "version": "2.2.8",
-      "vcsRevision": "",
-      "url": "https://github.com/nim-lang/Nim.git",
-      "downloadMethod": "git",
-      "dependencies": [],
-      "checksums": {
-        "sha1": "dbea2685008ca7504c044fdbcf68abf4bf9931b2"
-      }
-    },
-    "nimble": {
-      "version": "0.18.2",
-      "vcsRevision": "b1dc28450f028aead0b7cf5da8adf2267db65f89",
-      "url": "https://github.com/nim-lang/nimble",
-      "downloadMethod": "git",
-      "dependencies": [],
-      "checksums": {
-        "sha1": "92677df41381f27d0d582a7353ada21b3387b4c4"
-      }
-    },
     "presto": {
       "version": "0.1.1",
       "vcsRevision": "d66043dd7ede146442e6c39720c76a20bde5225f",
