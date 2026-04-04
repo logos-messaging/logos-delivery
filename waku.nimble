@@ -10,11 +10,9 @@ description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
 #bin           = @["build/waku"]
 
-## Required toolchain versions — defined as constants so they are enforced at
-## build time (via the Makefile) without being added to nimble.lock, which would
-## embed platform-specific checksums and cause cross-platform mismatch errors.
-const NimVersion    = "2.2.4"
-const NimbleVersion = "0.18.2"
+## nim/nimble are stripped from nimble.lock before setup to avoid cross-platform checksum errors.
+requires "nim == 2.2.4"
+requires "nimble == 0.18.2"
 
 ### Dependencies
 requires "chronos >= 4.2.0",

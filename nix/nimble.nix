@@ -6,8 +6,8 @@
 let
   lines       = pkgs.lib.splitString "\n" (builtins.readFile ../waku.nimble);
   versionLine = builtins.head (builtins.filter
-    (l: builtins.match "^const NimbleVersion.*" l != null) lines);
-  version     = builtins.head (builtins.match ".*\"([0-9]+\\.[0-9]+\\.[0-9]+)\".*" versionLine);
+    (l: builtins.match "^requires \"nimble ==.*" l != null) lines);
+  version     = builtins.head (builtins.match ".*([0-9]+\\.[0-9]+\\.[0-9]+).*" versionLine);
 in
 pkgs.fetchgit {
   url = "https://github.com/nim-lang/nimble";

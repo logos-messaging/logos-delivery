@@ -67,7 +67,12 @@ waku.nims:
 	ln -s waku.nimble $@
 
 $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
-	nimble setup --localdeps
+	# nim/nimble in nimble.lock have platform-specific checksums; strip before
+	# setup and restore afterwards to keep the versioned file intact.
+	cp nimble.lock nimble.lock.bak
+	python3 -c "import json; lock=json.load(open('nimble.lock')); [lock['packages'].pop(k,None) for k in ['nim','nimble']]; json.dump(lock,open('nimble.lock','w'),indent=2)"
+	nimble setup --localdeps || { mv nimble.lock.bak nimble.lock; exit 1; }
+	mv nimble.lock.bak nimble.lock
 	$(MAKE) build-nph
 	$(MAKE) rebuild-bearssl-nimbledeps
 	touch $@
@@ -85,8 +90,8 @@ clean:
 	rm nimble.paths 2> /dev/null || true
 	nimble clean
 
-REQUIRED_NIM_VERSION    := $(shell grep -E '^const NimVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
-REQUIRED_NIMBLE_VERSION := $(shell grep -E '^const NimbleVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+REQUIRED_NIM_VERSION    := $(shell grep -E '^requires "nim ==' waku.nimble | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
+REQUIRED_NIMBLE_VERSION := $(shell grep -E '^requires "nimble ==' waku.nimble | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
 
 build:
 	@nim_ver=$$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \

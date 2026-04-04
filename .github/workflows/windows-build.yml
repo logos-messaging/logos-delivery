@@ -83,7 +83,9 @@ jobs:
       id: cache-nimbledeps
       uses: actions/cache@v4
       with:
-        path: nimbledeps/
+        path: |
+            nimbledeps/
+            nimble.paths
         key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock') }}
 
     - name: Install nimble deps
