@@ -102,7 +102,7 @@ proc buildModule(filePath, params = "", lang = "c"): bool =
 proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
   if not dirExists "build":
     mkDir "build"
-  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " &
+  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
     srcDir & name & ".nim"
 
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
