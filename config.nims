@@ -57,7 +57,7 @@ else:
   if not defined(android):
     switch("passC", "-march=native")
     switch("passL", "-march=native")
-  if defined(windows):
+  if defined(windows) or defined(linux):
     # https://gcc.gnu.org/bugzilla/show_bug.cgi?id=65782
     # ("-fno-asynchronous-unwind-tables" breaks Nim's exception raising, sometimes)
     switch("passC", "-mno-avx512f")
