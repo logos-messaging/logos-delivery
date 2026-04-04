@@ -20,7 +20,7 @@ endif
 
 # NIM binary location
 NIM_BINARY := $(shell which nim)
-NPH := $(CURDIR)/nimbledeps/bin/nph
+NPH := $(HOME)/.nimble/bin/nph
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
