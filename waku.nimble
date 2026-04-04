@@ -37,7 +37,7 @@ requires "nim >= 2.2.4",
   "httputils >= 0.4.1",
   "websock >= 0.2.1",
   # Cryptography
-  "nimcrypto",
+  "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "secp256k1",
   "bearssl",
   # RPC & APIs
