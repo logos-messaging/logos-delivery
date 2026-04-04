@@ -483,7 +483,8 @@ with the drawback of consuming some more bandwidth.""",
 
     restAddress* {.
       desc: "Listening address of the REST HTTP server.",
-      defaultValue: IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
+      defaultValue:
+        IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
       name: "rest-address"
     .}: IpAddress
 
@@ -523,7 +524,8 @@ with the drawback of consuming some more bandwidth.""",
 
     metricsServerAddress* {.
       desc: "Listening address of the metrics server.",
-      defaultValue: IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
+      defaultValue:
+        IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
       name: "metrics-server-address"
     .}: IpAddress
 
