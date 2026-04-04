@@ -76,6 +76,7 @@ jobs:
 
     - name: Install Nimble ${{ env.NIMBLE_VERSION }}
       run: |
+        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
