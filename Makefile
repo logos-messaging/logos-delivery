@@ -69,7 +69,6 @@ waku.nims:
 $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
 	nimble setup --localdeps
 	$(MAKE) build-nph
-	$(MAKE) rebuild-nat-libs-nimbledeps
 	$(MAKE) rebuild-bearssl-nimbledeps
 	touch $@
 
