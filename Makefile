@@ -67,7 +67,13 @@ waku.nims:
 	ln -s waku.nimble $@
 
 $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
-	nimble setup --localdeps
+	# nim and nimble entries in nimble.lock carry platform-specific checksums that
+	# cause checksum mismatches on other platforms. Strip them before setup and
+	# restore the original lock file afterwards so the versioned file stays intact.
+	cp nimble.lock nimble.lock.bak
+	python3 -c "import json; lock=json.load(open('nimble.lock')); [lock['packages'].pop(k,None) for k in ['nim','nimble']]; json.dump(lock,open('nimble.lock','w'),indent=2)"
+	nimble setup --localdeps || { mv nimble.lock.bak nimble.lock; exit 1; }
+	mv nimble.lock.bak nimble.lock
 	$(MAKE) build-nph
 	$(MAKE) rebuild-nat-libs-nimbledeps
 	$(MAKE) rebuild-bearssl-nimbledeps
