@@ -67,7 +67,7 @@ requires "https://github.com/vacp2p/nim-lsquic"
 requires "https://github.com/vacp2p/nim-jwt.git#18f8378de52b241f321c1f9ea905456e89b95c6f"
 
 proc getMyCPU(): string =
-  ## Need to se cpu more explicit manner to avoid arch issues between dependencies
+  ## Need to set cpu more explicit manner to avoid arch issues between dependencies
   when defined(macosx) and defined(arm64):
     return " --cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" "
   elif defined(macosx) and defined(amd64):
@@ -81,29 +81,24 @@ proc getNimParams(): string =
   return " " & getEnv("NIM_PARAMS") & " "
 
 ### Helper functions
-proc buildModule(filePath, params = "", lang = "c"): bool =
+proc buildModule(filePath, params = ""): bool =
   if not dirExists "build":
     mkDir "build"
-
-  var extra_params = params
-  let nimParams = getEnv("NIM_PARAMS")
-  if nimParams.len > 0:
-    extra_params &= " " & nimParams
 
   if not fileExists(filePath):
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim " & lang & " --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & extra_params &
+  exec "nim c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & getNimParams() & " " & params &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
   return true
 
-proc buildBinary(name: string, srcDir = "./", params = "", lang = "c") =
+proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  exec "nim " & lang & " --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
+  exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
     srcDir & name & ".nim"
 
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
@@ -372,7 +367,7 @@ task libWakuIOS, "Build the mobile bindings for iOS":
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
 
-proc test(name: string, params = "-d:chronicles_log_level=DEBUG", lang = "c") =
+proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
   # XXX: When running `> NIM_PARAMS="-d:chronicles_log_level=INFO" make test2`
   # I expect compiler flag to be overridden, however it stays with whatever is
   # specified here.
