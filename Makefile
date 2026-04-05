@@ -67,6 +67,7 @@ waku.nims:
 	ln -s waku.nimble $@
 
 $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
+	@if ! command -v nimble > /dev/null 2>&1; then $(MAKE) install-nimble; fi
 	nimble setup --localdeps
 	$(MAKE) build-nph
 	$(MAKE) rebuild-bearssl-nimbledeps
@@ -87,6 +88,30 @@ clean:
 
 REQUIRED_NIM_VERSION    := $(shell grep -E '^const NimVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
 REQUIRED_NIMBLE_VERSION := $(shell grep -E '^const NimbleVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+
+install-nim:
+	$(eval NIM_OS          := $(shell uname -s | tr 'A-Z' 'a-z' | sed 's/darwin/macosx/'))
+	$(eval NIM_ARCH        := $(shell uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'))
+	$(eval NIM_INSTALL_DIR := $(HOME)/.nim_runtime)
+	@nim_ver=$$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$nim_ver" = "$(REQUIRED_NIM_VERSION)" ]; then \
+	  echo "nim $(REQUIRED_NIM_VERSION) already installed, skipping."; \
+	else \
+	  curl -L "https://github.com/nim-lang/Nim/releases/download/v$(REQUIRED_NIM_VERSION)/nim-$(REQUIRED_NIM_VERSION)-$(NIM_OS)_$(NIM_ARCH).tar.xz" \
+	    -o /tmp/nim-$(REQUIRED_NIM_VERSION).tar.xz && \
+	  tar -xJf /tmp/nim-$(REQUIRED_NIM_VERSION).tar.xz -C /tmp && \
+	  mkdir -p $(NIM_INSTALL_DIR) && \
+	  cd /tmp/nim-$(REQUIRED_NIM_VERSION) && ./install.sh $(NIM_INSTALL_DIR); \
+	fi
+
+install-nimble: install-nim
+	@nimble_ver=$$(nimble --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
+	if [ "$$nimble_ver" = "$(REQUIRED_NIMBLE_VERSION)" ]; then \
+	  echo "nimble $(REQUIRED_NIMBLE_VERSION) already installed, skipping."; \
+	else \
+	  cd /tmp && PATH="$(HOME)/.nim_runtime/bin:$$PATH" \
+	    nimble install "nimble@$(REQUIRED_NIMBLE_VERSION)" -y; \
+	fi
 
 build:
 	@nim_ver=$$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
