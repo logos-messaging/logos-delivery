@@ -349,7 +349,6 @@ docker-image:
 	docker build \
 		--build-arg="MAKE_TARGET=$(MAKE_TARGET)" \
 		--build-arg="NIMFLAGS=$(DOCKER_IMAGE_NIMFLAGS)" \
-		--build-arg="LOG_LEVEL=$(LOG_LEVEL)" \
 		--build-arg="HEAPTRACK_BUILD=$(HEAPTRACKER)" \
 		--label="commit=$(shell git rev-parse HEAD)" \
 		--label="version=$(GIT_VERSION)" \
@@ -382,7 +381,6 @@ docker-liteprotocoltester:
 	docker build \
 		--build-arg="MAKE_TARGET=liteprotocoltester" \
 		--build-arg="NIMFLAGS=$(DOCKER_LPT_NIMFLAGS)" \
-		--build-arg="LOG_LEVEL=TRACE" \
 		--label="commit=$(shell git rev-parse HEAD)" \
 		--label="version=$(GIT_VERSION)" \
 		--target $(if $(filter deploy,$(DOCKER_LPT_TAG)),deployment_lpt,standalone_lpt) \

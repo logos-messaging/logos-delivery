@@ -367,7 +367,7 @@ task libWakuIOS, "Build the mobile bindings for iOS":
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
 
-proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
+proc test(name: string, params = "-d:chronicles_log_level=TRACE") =
   # XXX: When running `> NIM_PARAMS="-d:chronicles_log_level=INFO" make test2`
   # I expect compiler flag to be overridden, however it stays with whatever is
   # specified here.
@@ -376,7 +376,7 @@ proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
 
 ### Waku common tasks
 task testcommon, "Build & run common tests":
-  test "all_tests_common", "-d:chronicles_log_level=WARN -d:chronosStrictException"
+  test "all_tests_common", "-d:chronicles_log_level=TRACE -d:chronosStrictException"
 
 ### Waku tasks
 task wakunode2, "Build Waku v2 cli node":
@@ -440,7 +440,7 @@ task chat2bridge, "Build chat2bridge":
 
 task liteprotocoltester, "Build liteprotocoltester":
   let name = "liteprotocoltester"
-  buildBinary name, "apps/liteprotocoltester/"
+  buildBinary name, "apps/liteprotocoltester/", "-d:chronicles_log_level=TRACE"
 
 task lightpushwithmix, "Build lightpushwithmix":
   let name = "lightpush_publisher_mix"

@@ -104,12 +104,12 @@ jobs:
     - name: Building wakunode2.exe
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        make wakunode2 LOG_LEVEL=DEBUG V=3 -j${{ env.NPROC }}
+        make wakunode2 V=3 -j${{ env.NPROC }}
 
     - name: Building libwaku.dll
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        make libwaku STATIC=0 LOG_LEVEL=DEBUG V=1 -j
+        make libwaku STATIC=0 V=1 -j
 
     - name: Check Executable
       run: |

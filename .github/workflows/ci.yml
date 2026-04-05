@@ -158,8 +158,8 @@ jobs:
           export NIMFLAGS="--colors:off -d:chronicles_colors:none"
           export USE_LIBBACKTRACE=0
 
-          make V=1 LOG_LEVEL=DEBUG POSTGRES=$postgres_enabled test
-          make V=1 LOG_LEVEL=DEBUG POSTGRES=$postgres_enabled testwakunode2
+          make V=1 POSTGRES=$postgres_enabled test
+          make V=1 POSTGRES=$postgres_enabled testwakunode2
 
   build-docker-image:
     needs: changes
