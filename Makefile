@@ -289,7 +289,7 @@ networkmonitor: | $(NIMBLEDEPS_STAMP) build deps librln
 ############
 ## Format ##
 ############
-.PHONY: build-nph install-nph clean-nph print-nph-path
+.PHONY: build-nph install-nph print-nph-path
 
 build-nph: | build deps
 ifneq ($(detected_OS),Windows)
@@ -299,8 +299,7 @@ ifneq ($(detected_OS),Windows)
 		echo "Installing nph globally"; \
 		(cd /tmp && nimble install nph@0.7.0 --accept -g); \
 	fi
-	echo "Check if nph utility is available"
-	PATH="$(CURDIR)/nimbledeps/bin:$$PATH" command -v nph
+	command -v nph
 else
 	echo "Skipping nph build on Windows (nph is only used on Unix-like systems)"
 endif
@@ -319,13 +318,10 @@ nph/%: | build-nph
 	echo -e $(FORMAT_MSG) "nph/$*" && \
 		$(NPH) $*
 
-clean-nph:
-	rm -f $(NPH)
-
 print-nph-path:
 	@echo "$(NPH)"
 
-clean: | clean-nph
+clean:
 
 ###################
 ## Documentation ##
