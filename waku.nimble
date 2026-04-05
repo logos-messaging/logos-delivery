@@ -386,7 +386,7 @@ task testcommon, "Build & run common tests":
 ### Waku tasks
 task wakunode2, "Build Waku v2 cli node":
   let name = "wakunode2"
-  buildBinary name, "apps/wakunode2/", " -d:chronicles_log_level='TRACE' "
+  buildBinary name, "apps/wakunode2/", " -d:chronicles_log_level=TRACE "
 
 task benchmarks, "Some benchmarks":
   let name = "benchmarks"
@@ -425,7 +425,7 @@ task chat2, "Build example Waku chat usage":
   let name = "chat2"
   buildBinary name,
     "apps/chat2/",
-    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level='TRACE' "
+    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level=TRACE "
   #  -d:ssl - cause unlisted exception error in libp2p/utility...
 
 task chat2mix, "Build example Waku chat mix usage":
@@ -436,7 +436,7 @@ task chat2mix, "Build example Waku chat mix usage":
   let name = "chat2mix"
   buildBinary name,
     "apps/chat2mix/",
-    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level='TRACE' "
+    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level=TRACE "
   #  -d:ssl - cause unlisted exception error in libp2p/utility...
 
 task chat2bridge, "Build chat2bridge":
