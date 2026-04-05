@@ -1,7 +1,7 @@
 ---
 name: Bump dependencies
-about: Bump vendor dependencies for release
-title: 'Bump vendor dependencies for release 0.0.0'
+about: Bump dependencies for release
+title: 'Bump dependencies for release 0.X.0'
 labels: dependencies
 assignees: ''
 
@@ -9,40 +9,10 @@ assignees: ''
 
 <!-- Add appropriate release number to title! -->
 
-Update `nwaku` "vendor" dependencies.
+### Bumped items
+- [ ] Update nimble dependencies
+  1. Edit manually waku.nimble. For some dependencies, we want to bump versions manually and use a pinned version, f.e., nim-libp2p and all its dependencies.
+  2. Run `nimble lock` (make sure `nimble --version` shows the Nimble version pinned in waku.nimble)
+  3. Run `./tools/gen-nix-deps.sh nimble.lock nix/deps.nix` to update nix deps
 
-### Items to bump
-- [ ] dnsclient.nim ( update to the latest tag version )
-- [ ] nim-bearssl
-- [ ] nimbus-build-system
-- [ ] nim-chronicles
-- [ ] nim-chronos
-- [ ] nim-confutils
-- [ ] nimcrypto
-- [ ] nim-dnsdisc
-- [ ] nim-eth
-- [ ] nim-faststreams
-- [ ] nim-http-utils
-- [ ] nim-json-rpc
-- [ ] nim-json-serialization
-- [ ] nim-libbacktrace
-- [ ] nim-libp2p ( update to the latest tag version )
-- [ ] nim-metrics
-- [ ] nim-nat-traversal
-- [ ] nim-presto
-- [ ] nim-regex ( update to the latest tag version )
-- [ ] nim-results
-- [ ] nim-secp256k1
-- [ ] nim-serialization
-- [ ] nim-sqlite3-abi ( update to the latest tag version )
-- [ ] nim-stew
-- [ ] nim-stint
-- [ ] nim-taskpools ( update to the latest tag version )
-- [ ] nim-testutils ( update to the latest tag version )
-- [ ] nim-toml-serialization
-- [ ] nim-unicodedb
-- [ ] nim-unittest2 ( update to the latest tag version )
-- [ ] nim-web3 ( update to the latest tag version )
-- [ ] nim-websock ( update to the latest tag version )
-- [ ] nim-zlib
-- [ ] zerokit ( this should be kept in version `v0.7.0` )
+- [ ] Update vendor/zerokit dependency.
