@@ -8,6 +8,6 @@ type WakuPeerEventKind* {.pure.} = enum
   EventMetadataUpdated
 
 EventBroker:
-  type EventWakuPeer* = object
+  type WakuPeerEvent* = object
     peerId*: PeerId
     kind*: WakuPeerEventKind

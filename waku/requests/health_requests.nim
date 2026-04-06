@@ -37,3 +37,15 @@ RequestBroker:
     healthStatus*: ProtocolHealth
 
   proc signature(protocol: WakuProtocol): Future[Result[RequestProtocolHealth, string]]
+
+# Get edge filter health for a single shard (set by DeliveryService when edge mode is active)
+RequestBroker(sync):
+  type RequestEdgeShardHealth* = object
+    health*: TopicHealth
+
+  proc signature(shard: PubsubTopic): Result[RequestEdgeShardHealth, string]
+
+# Get edge filter confirmed peer count (set by DeliveryService when edge mode is active)
+RequestBroker(sync):
+  type RequestEdgeFilterPeerCount* = object
+    peerCount*: int

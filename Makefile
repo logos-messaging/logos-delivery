@@ -144,7 +144,7 @@ deps: | deps-common nat-libs waku.nims
 
 # "-d:release" implies "--stacktrace:off" and it cannot be added to config.nims
 ifeq ($(DEBUG), 0)
-NIM_PARAMS := $(NIM_PARAMS) -d:release
+NIM_PARAMS := $(NIM_PARAMS) -d:release -d:lto_incremental -d:strip
 else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif

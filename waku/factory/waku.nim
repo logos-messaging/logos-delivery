@@ -416,7 +416,8 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
 
   ## Reliability
   if not waku[].deliveryService.isNil():
-    waku[].deliveryService.startDeliveryService()
+    waku[].deliveryService.startDeliveryService().isOkOr:
+      return err("failed to start delivery service: " & $error)
 
   ## Health Monitor
   waku[].healthMonitor.startHealthMonitor().isOkOr:

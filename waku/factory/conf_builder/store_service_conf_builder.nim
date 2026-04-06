@@ -14,7 +14,6 @@ type StoreServiceConfBuilder* = object
   dbMigration*: Option[bool]
   dbURl*: Option[string]
   dbVacuum*: Option[bool]
-  supportV2*: Option[bool]
   maxNumDbConnections*: Option[int]
   retentionPolicies*: seq[string]
   resume*: Option[bool]
@@ -34,9 +33,6 @@ proc withDbUrl*(b: var StoreServiceConfBuilder, dbUrl: string) =
 
 proc withDbVacuum*(b: var StoreServiceConfBuilder, dbVacuum: bool) =
   b.dbVacuum = some(dbVacuum)
-
-proc withSupportV2*(b: var StoreServiceConfBuilder, supportV2: bool) =
-  b.supportV2 = some(supportV2)
 
 proc withMaxNumDbConnections*(
     b: var StoreServiceConfBuilder, maxNumDbConnections: int
@@ -104,7 +100,6 @@ proc build*(b: StoreServiceConfBuilder): Result[Option[StoreServiceConf], string
         dbMigration: b.dbMigration.get(true),
         dbURl: b.dbUrl.get(),
         dbVacuum: b.dbVacuum.get(false),
-        supportV2: b.supportV2.get(false),
         maxNumDbConnections: b.maxNumDbConnections.get(50),
         retentionPolicies: retentionPolicies,
         resume: b.resume.get(false),

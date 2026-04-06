@@ -26,10 +26,6 @@ if defined(windows):
     # set the IMAGE_FILE_LARGE_ADDRESS_AWARE flag so we can use PAE, if enabled, and access more than 2 GiB of RAM
     switch("passL", "-Wl,--large-address-aware")
 
-  # The dynamic Chronicles output currently prevents us from using colors on Windows
-  # because these require direct manipulations of the stdout File object.
-  switch("define", "chronicles_colors=off")
-
 # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#ssse3-supplemental-sse3
 # suggests that SHA256 hashing with SSSE3 is 20% faster than without SSSE3, so
 # given its near-ubiquity in the x86 installed base, it renders a distribution
@@ -52,9 +48,10 @@ if defined(disableMarchNative):
       switch("passL", "-march=haswell -mtune=generic")
     else:
       if defined(marchOptimized):
-        # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#bmi2--adx
-        switch("passC", "-march=broadwell -mtune=generic")
-        switch("passL", "-march=broadwell -mtune=generic")
+        # -march=broadwell: https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#bmi2--adx
+        # Changed to x86-64-v2 for broader support
+        switch("passC", "-march=x86-64-v2 -mtune=generic")
+        switch("passL", "-march=x86-64-v2 -mtune=generic")
       else:
         switch("passC", "-mssse3")
         switch("passL", "-mssse3")
@@ -76,6 +73,7 @@ else:
   on
 --opt:
   speed
+
 --excessiveStackTrace:
   on
 # enable metric collection
@@ -84,8 +82,6 @@ else:
 # for heap-usage-by-instance-type metrics and object base-type strings
 --define:
   nimTypeNames
-
-switch("define", "withoutPCRE")
 
 # the default open files limit is too low on macOS (512), breaking the
 # "--debugger:native" build. It can be increased with `ulimit -n 1024`.
