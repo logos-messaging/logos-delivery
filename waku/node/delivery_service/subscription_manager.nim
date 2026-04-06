@@ -388,15 +388,9 @@ proc selectFilterCandidates(
         trackedOnOther.incl(peer.peerId)
 
   # Prefer peers we already have a connection to first, preserving shuffle
-  var candidates: seq[RemotePeerInfo]
-  for peer in allCandidates:
-    if peer.peerId in trackedOnOther:
-      candidates.add(peer)
-
-  # Fill with new (not yet used in other shards) peers after, preserving shuffle
-  for peer in allCandidates:
-    if peer.peerId notin trackedOnOther:
-      candidates.add(peer)
+  var candidates =
+    allCandidates.filterIt(it.peerId in trackedOnOther) &
+    allCandidates.filterIt(it.peerId notin trackedOnOther)
 
   # We need to return 'needed' peers only
   if candidates.len > needed:
