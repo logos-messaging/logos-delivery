@@ -33,10 +33,13 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
     for confField, _ in fieldPairs(conf):
       knownFields.incl(confField)
     # Check for unknown keys
+    var unknownKeys = newSeq[string]()
     for key in jsonNode.keys:
       if key notin knownFields:
-        error "Invalid configuration option found.", option = key
-        return err("Invalid configuration option found: " & key)
+        unknownKeys.add(key)
+    if unknownKeys.len > 0:
+      error "Unrecognized configuration option(s) found.", option = unknownKeys
+      return err("Unrecognized configuration option(s) found: " & $unknownKeys)
 
     for confField, confValue in fieldPairs(conf):
       if jsonNode.contains(confField):
