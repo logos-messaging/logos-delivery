@@ -55,8 +55,10 @@ suite "Waku v2 REST API - Debug":
     check:
       response.status == 200
       $response.contentType == $MIMETYPE_JSON
-      response.data.listenAddresses ==
-        @[$node.switch.peerInfo.addrs[^1] & "/p2p/" & $node.switch.peerInfo.peerId]
+      response.data.listenAddresses.len >= 1
+      response.data.listenAddresses.contains(
+        $node.switch.peerInfo.addrs[^1] & "/p2p/" & $node.switch.peerInfo.peerId
+      )
 
     await restServer.stop()
     await restServer.closeWait()

@@ -680,6 +680,19 @@ with the drawback of consuming some more bandwidth.""",
       name: "websocket-secure-cert-path"
     .}: string
 
+    ## QUIC transport config
+    quicSupport* {.
+      desc: "Enable QUIC transport: true|false",
+      defaultValue: false,
+      name: "quic-support"
+    .}: bool
+
+    quicPort* {.
+      desc: "QUIC transport listening port (UDP).",
+      defaultValue: 9090,
+      name: "quic-port"
+    .}: Port
+
     ## Rate limitation config, if not set, rate limit checks will not be performed
     rateLimits* {.
       desc:
@@ -1110,6 +1123,9 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.webSocketConf.withSecureEnabled(n.websocketSecureSupport)
   b.webSocketConf.withKeyPath(n.websocketSecureKeyPath)
   b.webSocketConf.withCertPath(n.websocketSecureCertPath)
+
+  b.quicConf.withEnabled(n.quicSupport)
+  b.quicConf.withQuicPort(n.quicPort)
 
   if n.rateLimits.len > 0:
     b.rateLimitConf.withRateLimits(n.rateLimits)

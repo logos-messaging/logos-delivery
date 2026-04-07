@@ -50,6 +50,7 @@ suite "Waku Peer Exchange":
           some(extIp),
           wakuFlags = some(flags),
           discv5UdpPort = some(nodeUdpPort1),
+          quicEnabled = false,
         )
 
         nodeKey2 = generateSecp256k1Key()
@@ -62,6 +63,7 @@ suite "Waku Peer Exchange":
           some(extIp),
           wakuFlags = some(flags),
           discv5UdpPort = some(nodeUdpPort2),
+          quicEnabled = false,
         )
 
         nodeKey3 = generateSecp256k1Key()
@@ -74,6 +76,7 @@ suite "Waku Peer Exchange":
           some(extIp),
           wakuFlags = some(flags),
           discv5UdpPort = some(nodeUdpPort3),
+          quicEnabled = false,
         )
 
       # discv5
@@ -304,10 +307,18 @@ suite "Waku Peer Exchange":
     asyncTest "Request with invalid peer info":
       # Given two valid nodes with PeerExchange
       let
-        node1 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node2 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node1 = newTestWakuNode(
+          generateSecp256k1Key(),
+          parseIpAddress("0.0.0.0"),
+          Port(0),
+          quicEnabled = false,
+        )
+        node2 = newTestWakuNode(
+          generateSecp256k1Key(),
+          parseIpAddress("0.0.0.0"),
+          Port(0),
+          quicEnabled = false,
+        )
 
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start()])
@@ -326,7 +337,12 @@ suite "Waku Peer Exchange":
     asyncTest "Connections are closed after response is sent":
       # Create 3 nodes
       let nodes = toSeq(0 ..< 3).mapIt(
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+          newTestWakuNode(
+            generateSecp256k1Key(),
+            parseIpAddress("0.0.0.0"),
+            Port(0),
+            quicEnabled = false,
+          )
         )
 
       await allFutures(nodes.mapIt(it.start()))

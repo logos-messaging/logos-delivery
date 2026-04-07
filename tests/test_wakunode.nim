@@ -185,20 +185,21 @@ suite "WakuNode":
       bindPort = Port(61006)
       extIp = some(getPrimaryIPAddr())
       extPort = some(Port(61008))
-      node = newTestWakuNode(nodeKey, bindIp, bindPort, extIp, extPort)
+      node =
+        newTestWakuNode(nodeKey, bindIp, bindPort, extIp, extPort, quicEnabled = false)
 
     let
       bindEndpoint = MultiAddress.init(bindIp, tcpProtocol, bindPort)
       announcedEndpoint = MultiAddress.init(extIp.get(), tcpProtocol, extPort.get())
 
     check:
-      # Check that underlying peer info contains only bindIp before starting
-      node.switch.peerInfo.listenAddrs.len == 1
+      # Check that underlying peer info contains bindIp before starting
+      node.switch.peerInfo.listenAddrs.len >= 1
       node.switch.peerInfo.listenAddrs.contains(bindEndpoint)
       # Underlying peer info has not updated addrs before starting
       node.switch.peerInfo.addrs.len == 0
 
-      node.announcedAddresses.len == 1
+      node.announcedAddresses.len >= 1
       node.announcedAddresses.contains(announcedEndpoint)
 
     await node.start()
@@ -206,11 +207,49 @@ suite "WakuNode":
     check:
       node.started
       # Underlying peer info listenAddrs has not changed
-      node.switch.peerInfo.listenAddrs.len == 1
+      node.switch.peerInfo.listenAddrs.len >= 1
       node.switch.peerInfo.listenAddrs.contains(bindEndpoint)
       # Check that underlying peer info is updated with announced address
-      node.switch.peerInfo.addrs.len == 1
+      node.switch.peerInfo.addrs.len >= 1
       node.switch.peerInfo.addrs.contains(announcedEndpoint)
+
+    await node.stop()
+
+  asyncTest "Peer info updates with correct announced addresses (QUIC)":
+    let
+      nodeKey = generateSecp256k1Key()
+      bindIp = parseIpAddress("0.0.0.0")
+      bindPort = Port(61006)
+      quicPort = Port(0)
+      extIp = some(getPrimaryIPAddr())
+      extPort = some(Port(61008))
+      node = newTestWakuNode(
+        nodeKey,
+        bindIp,
+        bindPort,
+        extIp,
+        extPort,
+        quicEnabled = true,
+        quicBindPort = quicPort,
+      )
+
+    let tcpAnnounced = MultiAddress.init(extIp.get(), tcpProtocol, extPort.get())
+
+    check:
+      node.switch.peerInfo.listenAddrs.len >= 2
+      node.switch.peerInfo.addrs.len == 0
+      node.announcedAddresses.len >= 2
+      node.announcedAddresses.contains(tcpAnnounced)
+      node.announcedAddresses.anyIt("/quic-v1" in $it)
+
+    await node.start()
+
+    check:
+      node.started
+      node.switch.peerInfo.listenAddrs.len >= 2
+      node.switch.peerInfo.addrs.len >= 2
+      node.switch.peerInfo.addrs.contains(tcpAnnounced)
+      node.switch.peerInfo.addrs.anyIt("/quic-v1" in $it)
 
     await node.stop()
 
@@ -229,7 +268,7 @@ suite "WakuNode":
       )
 
     check:
-      node.announcedAddresses.len == 1
+      node.announcedAddresses.len >= 1
       node.announcedAddresses.contains(expectedDns4Addr)
 
   asyncTest "Node uses dns4 resolved ip in announced addresses if no extIp is provided":

@@ -187,6 +187,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
       privKey = builder.nodekey,
       address = builder.netConfig.get().hostAddress,
       wsAddress = builder.netConfig.get().wsHostAddress,
+      quicAddress = builder.netConfig.get().quicHostAddress,
       transportFlags = {ServerFlags.ReuseAddr, ServerFlags.TcpNoDelay},
       rng = rng,
       maxConnections = builder.switchMaxConnections.get(builders.MaxConnections),

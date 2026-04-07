@@ -35,7 +35,8 @@ proc testWakuNode(): WakuNode =
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
-  return newTestWakuNode(privkey, bindIp, port, some(extIp), some(port))
+  return
+    newTestWakuNode(privkey, bindIp, port, some(extIp), some(port), quicEnabled = false)
 
 type RestFilterTest = object
   serviceNode: WakuNode

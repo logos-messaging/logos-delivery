@@ -77,7 +77,10 @@ jobs:
           key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
 
       - name: Make update
-        run: make update
+        run: |
+          make update
+          # TEMPORARY: apply nim-libp2p QUIC patches
+          bash temp/apply.sh
 
       - name: Build binaries
         run: make V=1 QUICK_AND_DIRTY_COMPILER=1 all
@@ -118,7 +121,10 @@ jobs:
           key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
 
       - name: Make update
-        run: make update
+        run: |
+          make update
+          # TEMPORARY: apply nim-libp2p QUIC patches
+          bash temp/apply.sh
 
       - name: Run tests
         run: |

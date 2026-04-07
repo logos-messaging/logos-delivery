@@ -400,7 +400,9 @@ suite "WakuNode - Relay":
   asyncTest "Messages relaying fails with non-overlapping transports (TCP or Websockets)":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), bindPort = Port(0))
+      node1 = newTestWakuNode(
+        nodeKey1, parseIpAddress("0.0.0.0"), bindPort = Port(0), quicEnabled = false
+      )
       nodeKey2 = generateSecp256k1Key()
       node2 = newTestWakuNode(
         nodeKey2,
@@ -408,6 +410,7 @@ suite "WakuNode - Relay":
         bindPort = Port(0),
         wsBindPort = Port(0),
         wsEnabled = true,
+        quicEnabled = false,
       )
       shard = DefaultRelayShard
       contentTopic = ContentTopic("/waku/2/default-content/proto")
@@ -629,10 +632,14 @@ suite "WakuNode - Relay":
     for j in 0 ..< 50:
       discard await nodes[0].wakuRelay.publish(topic, urandom(1 * (10 ^ 3)))
 
-    # long wait, must be higher than the configured decayInterval (how often score is updated)
-    await sleepAsync(20.seconds)
+    # wait for decayInterval to pass so gossipsub scores update and bad peer is disconnected
+    let deadline = Moment.now() + 30.seconds
+    while Moment.now() < deadline:
+      if nodes[0].peerManager.switch.connManager.getConnections().len == 0:
+        break
+      await sleepAsync(200.millis)
 
-    # all nodes lower the score of nodes[0] (will change if gossipsub params or amount of msg changes)
+    # all nodes lower the score of nodes[0] (will change if gossipsub params or amount of msg changes)
     for i in 1 ..< 5:
       check:
         nodes[i].wakuRelay.peerStats[nodes[0].switch.peerInfo.peerId].score == -249999.9
