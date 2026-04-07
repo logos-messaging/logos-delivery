@@ -144,7 +144,7 @@ proc buildLibStaticWindows(libName: string, folderName: string) =
 proc buildLibStaticLinux(libName: string, folderName: string) =
   buildLibrary libName & ".a", folderName,
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "static"
+    "static", libName & ".nim", libname
 
 proc buildLibStaticMac(libName: string, folderName: string) =
   let sdkPath = staticExec("xcrun --show-sdk-path").strip()
