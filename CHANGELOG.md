@@ -68,6 +68,22 @@
 | [`66/WAKU2-METADATA`](https://github.com/waku-org/specs/blob/master/standards/core/metadata.md) | `raw` | `/vac/waku/metadata/1.0.0` |
 | [`WAKU-SYNC`](https://github.com/waku-org/specs/blob/master/standards/core/sync.md) | `draft` | `/vac/waku/sync/1.0.0` |
 
+## v0.37.4 (2026-04-03)
+
+### Changes
+
+- Optimize release builds for speed ([#3735](https://github.com/logos-messaging/logos-delivery/pull/3735)) ([#3777](https://github.com/logos-messaging/logos-delivery/pull/3777))
+
+### Bug Fixes
+
+- Properly add DEBUG flag into Dockerfile
+
+## v0.37.3 (2026-03-25)
+
+### Features
+
+- Allow override user-message-rate-limit ([#3778](https://github.com/logos-messaging/logos-delivery/pull/3778))
+
 ## v0.37.2 (2026-03-19)
 
 ### Features
@@ -77,7 +93,6 @@
 ### Bug Fixes
 
 - Bump nim-http-utils to v0.4.1 to allow accepting <:><space><(> as a valid header and tests to validate html rfc7230 ([#43](https://github.com/status-im/nim-http-utils/pull/43))
-- Force FINALIZE partition detach after detecting shorter error ([#3728](https://github.com/logos-messaging/logos-delivery/pull/3766))
 
 ## v0.37.1 (2026-03-12)
 

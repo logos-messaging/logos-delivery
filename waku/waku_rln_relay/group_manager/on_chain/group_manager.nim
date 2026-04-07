@@ -235,8 +235,8 @@ method register*(
       "Failed to register the member",
       proc(): Future[TxHash] {.async.} =
         return await wakuRlnContract
-        .register(idCommitment, userMessageLimit.stuint(32), idCommitmentsToErase)
-        .send(gasPrice = gasPrice),
+          .register(idCommitment, userMessageLimit.stuint(32), idCommitmentsToErase)
+          .send(gasPrice = gasPrice),
     )
   ).valueOr:
     return err("Failed to register member: " & error)

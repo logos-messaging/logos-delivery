@@ -44,12 +44,9 @@ suite "Waku Sync – reconciliation":
       pubsubTopics: @[DefaultPubsubTopic],
       contentTopics: @[DefaultContentTopic],
       ranges: @[(whole, RangeType.Fingerprint)],
-      fingerprints:
-        @[
-          remote.computeFingerprint(
-            whole, @[DefaultPubsubTopic], @[DefaultContentTopic]
-          )
-        ],
+      fingerprints: @[
+        remote.computeFingerprint(whole, @[DefaultPubsubTopic], @[DefaultContentTopic])
+      ],
       itemSets: @[],
     )
     let rep1 = local.processPayload(p1, s1, r1)
@@ -131,15 +128,10 @@ suite "Waku Sync – reconciliation":
       pubsubTopics: @[DefaultPubsubTopic],
       contentTopics: @[DefaultContentTopic],
       ranges: @[(sliceA, RangeType.Fingerprint), (sliceB, RangeType.Fingerprint)],
-      fingerprints:
-        @[
-          remote.computeFingerprint(
-            sliceA, @[DefaultPubsubTopic], @[DefaultContentTopic]
-          ),
-          remote.computeFingerprint(
-            sliceB, @[DefaultPubsubTopic], @[DefaultContentTopic]
-          ),
-        ],
+      fingerprints: @[
+        remote.computeFingerprint(sliceA, @[DefaultPubsubTopic], @[DefaultContentTopic]),
+        remote.computeFingerprint(sliceB, @[DefaultPubsubTopic], @[DefaultContentTopic]),
+      ],
       itemSets: @[],
     )
     let reply = local.processPayload(payload, s, r)
@@ -180,12 +172,9 @@ suite "Waku Sync – reconciliation":
       pubsubTopics: @[DefaultPubsubTopic],
       contentTopics: @[DefaultContentTopic],
       ranges: @[(slice, RangeType.Fingerprint)],
-      fingerprints:
-        @[
-          remote.computeFingerprint(
-            slice, @[DefaultPubsubTopic], @[DefaultContentTopic]
-          )
-        ],
+      fingerprints: @[
+        remote.computeFingerprint(slice, @[DefaultPubsubTopic], @[DefaultContentTopic])
+      ],
       itemSets: @[],
     )
     let reply = local.processPayload(p, toS, toR)
@@ -236,12 +225,9 @@ suite "Waku Sync – reconciliation":
           pubsubTopics: @[DefaultPubsubTopic],
           contentTopics: @[DefaultContentTopic],
           ranges: @[(s, RangeType.Fingerprint)],
-          fingerprints:
-            @[
-              remote.computeFingerprint(
-                s, @[DefaultPubsubTopic], @[DefaultContentTopic]
-              )
-            ],
+          fingerprints: @[
+            remote.computeFingerprint(s, @[DefaultPubsubTopic], @[DefaultContentTopic])
+          ],
           itemSets: @[],
         ),
         sendQ,

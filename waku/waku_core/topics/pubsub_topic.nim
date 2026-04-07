@@ -54,20 +54,18 @@ proc parseStaticSharding*(
   let clusterPart = parts[0]
   if clusterPart.len == 0:
     return err(ParsingError.missingPart("cluster_id"))
-  let clusterId =
-    ?Base10.decode(uint16, clusterPart).mapErr(
-      proc(err: auto): auto =
-        ParsingError.invalidFormat($err)
-    )
+  let clusterId = ?Base10.decode(uint16, clusterPart).mapErr(
+    proc(err: auto): auto =
+      ParsingError.invalidFormat($err)
+  )
 
   let shardPart = parts[1]
   if shardPart.len == 0:
     return err(ParsingError.missingPart("shard_number"))
-  let shardId =
-    ?Base10.decode(uint16, shardPart).mapErr(
-      proc(err: auto): auto =
-        ParsingError.invalidFormat($err)
-    )
+  let shardId = ?Base10.decode(uint16, shardPart).mapErr(
+    proc(err: auto): auto =
+      ParsingError.invalidFormat($err)
+  )
 
   ok(RelayShard(clusterId: clusterId, shardId: shardId))
 

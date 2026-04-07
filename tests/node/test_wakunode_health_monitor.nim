@@ -12,12 +12,18 @@ import
     node/health_monitor/health_status,
     node/health_monitor/connection_status,
     node/health_monitor/protocol_health,
+    node/health_monitor/topic_health,
     node/health_monitor/node_health_monitor,
+    node/delivery_service/delivery_service,
+    node/delivery_service/subscription_manager,
     node/kernel_api/relay,
     node/kernel_api/store,
     node/kernel_api/lightpush,
     node/kernel_api/filter,
+    events/health_events,
+    events/peer_events,
     waku_archive,
+    common/broker/broker_context,
   ]
 
 import ../testlib/[wakunode, wakucore], ../waku_archive/archive_utils
@@ -35,13 +41,12 @@ proc protoHealthMock(kind: WakuProtocol, health: HealthStatus): ProtocolHealth =
 
 suite "Health Monitor - health state calculation":
   test "Disconnected, zero peers":
-    let protocols =
-      @[
-        protoHealthMock(RelayProtocol, HealthStatus.NOT_READY),
-        protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
-        protoHealthMock(FilterClientProtocol, HealthStatus.NOT_READY),
-        protoHealthMock(LightpushClientProtocol, HealthStatus.NOT_READY),
-      ]
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.NOT_READY),
+      protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
+      protoHealthMock(FilterClientProtocol, HealthStatus.NOT_READY),
+      protoHealthMock(LightpushClientProtocol, HealthStatus.NOT_READY),
+    ]
     let strength = initTable[WakuProtocol, int]()
     let state = calculateConnectionState(protocols, strength, some(MockDLow))
     check state == ConnectionStatus.Disconnected
@@ -64,13 +69,12 @@ suite "Health Monitor - health state calculation":
     check state == ConnectionStatus.Connected
 
   test "Connected, robust edge":
-    let protocols =
-      @[
-        protoHealthMock(RelayProtocol, HealthStatus.NOT_MOUNTED),
-        protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
-        protoHealthMock(FilterClientProtocol, HealthStatus.READY),
-        protoHealthMock(StoreClientProtocol, HealthStatus.READY),
-      ]
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.NOT_MOUNTED),
+      protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+      protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+      protoHealthMock(StoreClientProtocol, HealthStatus.READY),
+    ]
     var strength = initTable[WakuProtocol, int]()
     strength[LightpushClientProtocol] = HealthyThreshold
     strength[FilterClientProtocol] = HealthyThreshold
@@ -79,12 +83,11 @@ suite "Health Monitor - health state calculation":
     check state == ConnectionStatus.Connected
 
   test "Disconnected, edge missing store":
-    let protocols =
-      @[
-        protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
-        protoHealthMock(FilterClientProtocol, HealthStatus.READY),
-        protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
-      ]
+    let protocols = @[
+      protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+      protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+      protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
+    ]
     var strength = initTable[WakuProtocol, int]()
     strength[LightpushClientProtocol] = HealthyThreshold
     strength[FilterClientProtocol] = HealthyThreshold
@@ -94,12 +97,11 @@ suite "Health Monitor - health state calculation":
 
   test "PartiallyConnected, edge meets minimum failover requirement":
     let weakCount = max(1, HealthyThreshold - 1)
-    let protocols =
-      @[
-        protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
-        protoHealthMock(FilterClientProtocol, HealthStatus.READY),
-        protoHealthMock(StoreClientProtocol, HealthStatus.READY),
-      ]
+    let protocols = @[
+      protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+      protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+      protoHealthMock(StoreClientProtocol, HealthStatus.READY),
+    ]
     var strength = initTable[WakuProtocol, int]()
     strength[LightpushClientProtocol] = weakCount
     strength[FilterClientProtocol] = weakCount
@@ -108,11 +110,10 @@ suite "Health Monitor - health state calculation":
     check state == ConnectionStatus.PartiallyConnected
 
   test "Connected, robust relay ignores store server":
-    let protocols =
-      @[
-        protoHealthMock(RelayProtocol, HealthStatus.READY),
-        protoHealthMock(StoreProtocol, HealthStatus.READY),
-      ]
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.READY),
+      protoHealthMock(StoreProtocol, HealthStatus.READY),
+    ]
     var strength = initTable[WakuProtocol, int]()
     strength[RelayProtocol] = MockDLow
     strength[StoreProtocol] = 0
@@ -120,12 +121,11 @@ suite "Health Monitor - health state calculation":
     check state == ConnectionStatus.Connected
 
   test "Connected, robust relay ignores store client":
-    let protocols =
-      @[
-        protoHealthMock(RelayProtocol, HealthStatus.READY),
-        protoHealthMock(StoreProtocol, HealthStatus.READY),
-        protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
-      ]
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.READY),
+      protoHealthMock(StoreProtocol, HealthStatus.READY),
+      protoHealthMock(StoreClientProtocol, HealthStatus.NOT_READY),
+    ]
     var strength = initTable[WakuProtocol, int]()
     strength[RelayProtocol] = MockDLow
     strength[StoreProtocol] = 0
@@ -135,13 +135,12 @@ suite "Health Monitor - health state calculation":
 
 suite "Health Monitor - events":
   asyncTest "Core (relay) health update":
-    let
-      nodeAKey = generateSecp256k1Key()
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeAKey = generateSecp256k1Key()
       nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
-
-    (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
-
-    await nodeA.start()
+      (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
+      await nodeA.start()
 
     let monitorA = NodeHealthMonitor.new(nodeA)
 
@@ -157,17 +156,15 @@ suite "Health Monitor - events":
 
     monitorA.startHealthMonitor().expect("Health monitor failed to start")
 
-    let
-      nodeBKey = generateSecp256k1Key()
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeBKey = generateSecp256k1Key()
       nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
-
-    let driver = newSqliteArchiveDriver()
-    nodeB.mountArchive(driver).expect("Node B failed to mount archive")
-
-    (await nodeB.mountRelay()).expect("Node B failed to mount relay")
-    await nodeB.mountStore()
-
-    await nodeB.start()
+      let driver = newSqliteArchiveDriver()
+      nodeB.mountArchive(driver).expect("Node B failed to mount archive")
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.mountStore()
+      await nodeB.start()
 
     await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
 
@@ -220,15 +217,20 @@ suite "Health Monitor - events":
     await nodeA.stop()
 
   asyncTest "Edge (light client) health update":
-    let
-      nodeAKey = generateSecp256k1Key()
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeAKey = generateSecp256k1Key()
       nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
+      nodeA.mountLightpushClient()
+      await nodeA.mountFilterClient()
+      nodeA.mountStoreClient()
+      require nodeA.mountAutoSharding(1, 8).isOk
+      nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
+      await nodeA.start()
 
-    nodeA.mountLightpushClient()
-    await nodeA.mountFilterClient()
-    nodeA.mountStoreClient()
-
-    await nodeA.start()
+    let ds =
+      DeliveryService.new(false, nodeA).expect("Failed to create DeliveryService")
+    ds.startDeliveryService().expect("Failed to start DeliveryService")
 
     let monitorA = NodeHealthMonitor.new(nodeA)
 
@@ -244,22 +246,39 @@ suite "Health Monitor - events":
 
     monitorA.startHealthMonitor().expect("Health monitor failed to start")
 
-    let
-      nodeBKey = generateSecp256k1Key()
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeBKey = generateSecp256k1Key()
       nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
+      let driver = newSqliteArchiveDriver()
+      nodeB.mountArchive(driver).expect("Node B failed to mount archive")
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      (await nodeB.mountLightpush()).expect("Node B failed to mount lightpush")
+      await nodeB.mountFilter()
+      await nodeB.mountStore()
+      require nodeB.mountAutoSharding(1, 8).isOk
+      nodeB.mountMetadata(1, toSeq(0'u16 ..< 8'u16)).expect(
+        "Node B failed to mount metadata"
+      )
+      await nodeB.start()
 
-    let driver = newSqliteArchiveDriver()
-    nodeB.mountArchive(driver).expect("Node B failed to mount archive")
-
-    (await nodeB.mountRelay()).expect("Node B failed to mount relay")
-
-    (await nodeB.mountLightpush()).expect("Node B failed to mount lightpush")
-    await nodeB.mountFilter()
-    await nodeB.mountStore()
-
-    await nodeB.start()
+    var metadataFut = newFuture[void]("waitForMetadata")
+    let metadataLis = WakuPeerEvent
+      .listen(
+        nodeA.brokerCtx,
+        proc(evt: WakuPeerEvent): Future[void] {.async: (raises: []), gcsafe.} =
+          if not metadataFut.finished and
+              evt.kind == WakuPeerEventKind.EventMetadataUpdated:
+            metadataFut.complete()
+        ,
+      )
+      .expect("Failed to listen for metadata")
 
     await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+    let metadataOk = await metadataFut.withTimeout(TestConnectivityTimeLimit)
+    WakuPeerEvent.dropListener(nodeA.brokerCtx, metadataLis)
+    require metadataOk
 
     let connectTimeLimit = Moment.now() + TestConnectivityTimeLimit
     var gotConnected = false
@@ -298,4 +317,118 @@ suite "Health Monitor - events":
       lastStatus == ConnectionStatus.Disconnected
 
     await monitorA.stopHealthMonitor()
+    await ds.stopDeliveryService()
+    await nodeA.stop()
+
+  asyncTest "Edge health driven by confirmed filter subscriptions":
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeAKey = generateSecp256k1Key()
+      nodeA = newTestWakuNode(nodeAKey, parseIpAddress("127.0.0.1"), Port(0))
+      await nodeA.mountFilterClient()
+      nodeA.mountLightpushClient()
+      nodeA.mountStoreClient()
+      require nodeA.mountAutoSharding(1, 8).isOk
+      nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
+      await nodeA.start()
+
+    let ds =
+      DeliveryService.new(false, nodeA).expect("Failed to create DeliveryService")
+    ds.startDeliveryService().expect("Failed to start DeliveryService")
+    let subMgr = ds.subscriptionManager
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      let nodeBKey = generateSecp256k1Key()
+      nodeB = newTestWakuNode(nodeBKey, parseIpAddress("127.0.0.1"), Port(0))
+      let driver = newSqliteArchiveDriver()
+      nodeB.mountArchive(driver).expect("Node B failed to mount archive")
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      (await nodeB.mountLightpush()).expect("Node B failed to mount lightpush")
+      await nodeB.mountFilter()
+      await nodeB.mountStore()
+      require nodeB.mountAutoSharding(1, 8).isOk
+      nodeB.mountMetadata(1, toSeq(0'u16 ..< 8'u16)).expect(
+        "Node B failed to mount metadata"
+      )
+      await nodeB.start()
+
+    let monitorA = NodeHealthMonitor.new(nodeA)
+
+    var
+      lastStatus = ConnectionStatus.Disconnected
+      healthSignal = newAsyncEvent()
+
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
+      lastStatus = status
+      healthSignal.fire()
+
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+
+    var metadataFut = newFuture[void]("waitForMetadata")
+    let metadataLis = WakuPeerEvent
+      .listen(
+        nodeA.brokerCtx,
+        proc(evt: WakuPeerEvent): Future[void] {.async: (raises: []), gcsafe.} =
+          if not metadataFut.finished and
+              evt.kind == WakuPeerEventKind.EventMetadataUpdated:
+            metadataFut.complete()
+        ,
+      )
+      .expect("Failed to listen for metadata")
+
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+    let metadataOk = await metadataFut.withTimeout(TestConnectivityTimeLimit)
+    WakuPeerEvent.dropListener(nodeA.brokerCtx, metadataLis)
+    require metadataOk
+
+    var deadline = Moment.now() + TestConnectivityTimeLimit
+    while Moment.now() < deadline:
+      if lastStatus == ConnectionStatus.PartiallyConnected:
+        break
+      if await healthSignal.wait().withTimeout(deadline - Moment.now()):
+        healthSignal.clear()
+
+    check lastStatus == ConnectionStatus.PartiallyConnected
+
+    var shardHealthFut = newFuture[EventShardTopicHealthChange]("waitForShardHealth")
+
+    let shardHealthLis = EventShardTopicHealthChange
+      .listen(
+        nodeA.brokerCtx,
+        proc(
+            evt: EventShardTopicHealthChange
+        ): Future[void] {.async: (raises: []), gcsafe.} =
+          if not shardHealthFut.finished and (
+            evt.health == TopicHealth.MINIMALLY_HEALTHY or
+            evt.health == TopicHealth.SUFFICIENTLY_HEALTHY
+          ):
+            shardHealthFut.complete(evt)
+        ,
+      )
+      .expect("Failed to listen for shard health")
+
+    let contentTopic = ContentTopic("/waku/2/default-content/proto")
+    subMgr.subscribe(contentTopic).expect("Failed to subscribe")
+
+    let shardHealthOk = await shardHealthFut.withTimeout(TestConnectivityTimeLimit)
+    EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
+
+    check shardHealthOk == true
+    check subMgr.edgeFilterSubStates.len > 0
+
+    healthSignal.clear()
+    deadline = Moment.now() + TestConnectivityTimeLimit
+    while Moment.now() < deadline:
+      if lastStatus == ConnectionStatus.PartiallyConnected:
+        break
+      if await healthSignal.wait().withTimeout(deadline - Moment.now()):
+        healthSignal.clear()
+
+    check lastStatus == ConnectionStatus.PartiallyConnected
+
+    await ds.stopDeliveryService()
+    await monitorA.stopHealthMonitor()
+    await nodeB.stop()
     await nodeA.stop()

@@ -91,20 +91,20 @@ proc msgChecker(self: RecvService) {.async.} =
     self.endTimeToCheck = getNowInNanosecondTime()
 
     var msgHashesInStore = newSeq[WakuMessageHash](0)
-    for sub in self.subscriptionManager.getActiveSubscriptions():
+    for pubsubTopic, contentTopics in self.subscriptionManager.subscribedTopics:
       let storeResp: StoreQueryResponse = (
         await self.node.wakuStoreClient.queryToAny(
           StoreQueryRequest(
             includeData: false,
-            pubsubTopic: some(PubsubTopic(sub.pubsubTopic)),
-            contentTopics: sub.contentTopics,
+            pubsubTopic: some(pubsubTopic),
+            contentTopics: toSeq(contentTopics),
             startTime: some(self.startTimeToCheck - DelayExtra.nanos),
             endTime: some(self.endTimeToCheck + DelayExtra.nanos),
           )
         )
       ).valueOr:
         error "msgChecker failed to get remote msgHashes",
-          pubsubTopic = sub.pubsubTopic, cTopics = sub.contentTopics, error = $error
+          pubsubTopic = pubsubTopic, cTopics = toSeq(contentTopics), error = $error
         continue
 
       msgHashesInStore.add(storeResp.messages.mapIt(it.messageHash))
@@ -153,10 +153,6 @@ proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionManager): T =
     subscriptionManager: s,
     recentReceivedMsgs: @[],
   )
-
-  # TODO: For MAPI Edge support, either call node.wakuFilterClient.registerPushHandler
-  #       so that the RecvService listens to incoming filter messages,
-  #       or have the filter client emit MessageSeenEvent.
 
   return recvService
 

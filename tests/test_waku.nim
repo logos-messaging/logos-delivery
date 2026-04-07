@@ -35,14 +35,12 @@ suite "Waku API - Create node":
     nodeConf.rest = false
     nodeConf.numShardsInNetwork = 16
     nodeConf.maxMessageSize = "1024 KiB"
-    nodeConf.entryNodes =
-      @[
-        "enr:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g"
-      ]
-    nodeConf.staticnodes =
-      @[
-        "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
-      ]
+    nodeConf.entryNodes = @[
+      "enr:-QESuEC1p_s3xJzAC_XlOuuNrhVUETmfhbm1wxRGis0f7DlqGSw2FM-p2Vn7gmfkTTnAe8Ys2cgGBN8ufJnvzKQFZqFMBgmlkgnY0iXNlY3AyNTZrMaEDS8-D878DrdbNwcuY-3p1qdDp5MOoCurhdsNPJTXZ3c5g3RjcIJ2X4N1ZHCCd2g"
+    ]
+    nodeConf.staticnodes = @[
+      "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+    ]
 
     ## When
     let node = (await createNode(nodeConf)).valueOr:
@@ -67,11 +65,10 @@ suite "Waku API - Create node":
     nodeConf.mode = Core
     nodeConf.clusterId = 42'u16
     nodeConf.rest = false
-    nodeConf.entryNodes =
-      @[
-        "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im",
-        "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc",
-      ]
+    nodeConf.entryNodes = @[
+      "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im",
+      "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc",
+    ]
 
     ## When
     let node = (await createNode(nodeConf)).valueOr:

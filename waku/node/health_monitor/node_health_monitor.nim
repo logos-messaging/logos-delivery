@@ -21,6 +21,7 @@ import
     node/health_monitor/health_report,
     node/health_monitor/connection_status,
     node/health_monitor/protocol_health,
+    requests/health_requests,
   ]
 
 ## This module is aimed to check the state of the "self" Waku Node
@@ -28,9 +29,6 @@ import
 # randomize initializes sdt/random's random number generator
 # if not called, the outcome of randomization procedures will be the same in every run
 random.randomize()
-
-const HealthyThreshold* = 2
-  ## minimum peers required for all services for a Connected status, excluding Relay
 
 type NodeHealthMonitor* = ref object
   nodeHealth: HealthStatus
@@ -48,7 +46,8 @@ type NodeHealthMonitor* = ref object
     ## latest known connectivity strength (e.g. connected peer count) metric for each protocol.
     ## if it doesn't make sense for the protocol in question, this is set to zero.
   relayObserver: PubSubObserver
-  peerEventListener: EventWakuPeerListener
+  peerEventListener: WakuPeerEventListener
+  shardHealthListener: EventShardTopicHealthChangeListener
 
 func getHealth*(report: HealthReport, kind: WakuProtocol): ProtocolHealth =
   for h in report.protocolsHealth:
@@ -163,17 +162,6 @@ proc getStoreHealth(hm: NodeHealthMonitor): ProtocolHealth =
   hm.strength[WakuProtocol.StoreProtocol] = peerCount
   return p.ready()
 
-proc getLegacyStoreHealth(hm: NodeHealthMonitor): ProtocolHealth =
-  var p = ProtocolHealth.init(WakuProtocol.LegacyStoreProtocol)
-
-  if isNil(hm.node.wakuLegacyStore):
-    hm.strength[WakuProtocol.LegacyStoreProtocol] = 0
-    return p.notMounted()
-
-  let peerCount = hm.countCapablePeers(WakuLegacyStoreCodec)
-  hm.strength[WakuProtocol.LegacyStoreProtocol] = peerCount
-  return p.ready()
-
 proc getLightpushClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.LightpushClientProtocol)
 
@@ -209,6 +197,17 @@ proc getFilterClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
     hm.strength[WakuProtocol.FilterClientProtocol] = 0
     return p.notMounted()
 
+  if isNil(hm.node.wakuRelay):
+    let edgeRes = RequestEdgeFilterPeerCount.request(hm.node.brokerCtx)
+    if edgeRes.isOk():
+      let peerCount = edgeRes.get().peerCount
+      if peerCount > 0:
+        hm.strength[WakuProtocol.FilterClientProtocol] = peerCount
+        return p.ready()
+    else:
+      error "Failed to request edge filter peer count", error = edgeRes.error
+      return p.notReady("Failed to request edge filter peer count: " & edgeRes.error)
+
   let peerCount = countCapablePeers(hm, WakuFilterSubscribeCodec)
   hm.strength[WakuProtocol.FilterClientProtocol] = peerCount
 
@@ -231,23 +230,6 @@ proc getStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
   return p.notReady(
     "No Store service peer available yet, neither Store service set up for the node"
-  )
-
-proc getLegacyStoreClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
-  var p = ProtocolHealth.init(WakuProtocol.LegacyStoreClientProtocol)
-
-  if isNil(hm.node.wakuLegacyStoreClient):
-    hm.strength[WakuProtocol.LegacyStoreClientProtocol] = 0
-    return p.notMounted()
-
-  let peerCount = countCapablePeers(hm, WakuLegacyStoreCodec)
-  hm.strength[WakuProtocol.LegacyStoreClientProtocol] = peerCount
-
-  if peerCount > 0 or not isNil(hm.node.wakuLegacyStore):
-    return p.ready()
-
-  return p.notReady(
-    "No Legacy Store service peers are available yet, neither Store service set up for the node"
   )
 
 proc getPeerExchangeHealth(hm: NodeHealthMonitor): ProtocolHealth =
@@ -294,8 +276,6 @@ proc getSyncProtocolHealthInfo*(
     return hm.getRelayHealth()
   of WakuProtocol.StoreProtocol:
     return hm.getStoreHealth()
-  of WakuProtocol.LegacyStoreProtocol:
-    return hm.getLegacyStoreHealth()
   of WakuProtocol.FilterProtocol:
     return hm.getFilterHealth(hm.getRelayHealth().health)
   of WakuProtocol.LightpushProtocol:
@@ -310,8 +290,6 @@ proc getSyncProtocolHealthInfo*(
     return hm.getMixHealth()
   of WakuProtocol.StoreClientProtocol:
     return hm.getStoreClientHealth()
-  of WakuProtocol.LegacyStoreClientProtocol:
-    return hm.getLegacyStoreClientHealth()
   of WakuProtocol.FilterClientProtocol:
     return hm.getFilterClientHealth()
   of WakuProtocol.LightpushClientProtocol:
@@ -349,7 +327,6 @@ proc getSyncAllProtocolHealthInfo(hm: NodeHealthMonitor): seq[ProtocolHealth] =
   protocols.add(hm.getLegacyLightpushHealth(relayHealth.health))
   protocols.add(hm.getFilterHealth(relayHealth.health))
   protocols.add(hm.getStoreHealth())
-  protocols.add(hm.getLegacyStoreHealth())
   protocols.add(hm.getPeerExchangeHealth())
   protocols.add(hm.getRendezvousHealth())
   protocols.add(hm.getMixHealth())
@@ -357,7 +334,6 @@ proc getSyncAllProtocolHealthInfo(hm: NodeHealthMonitor): seq[ProtocolHealth] =
   protocols.add(hm.getLightpushClientHealth())
   protocols.add(hm.getLegacyLightpushClientHealth())
   protocols.add(hm.getStoreClientHealth())
-  protocols.add(hm.getLegacyStoreClientHealth())
   protocols.add(hm.getFilterClientHealth())
   return protocols
 
@@ -697,13 +673,22 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
     )
     hm.node.wakuRelay.addObserver(hm.relayObserver)
 
-  hm.peerEventListener = EventWakuPeer.listen(
+  hm.peerEventListener = WakuPeerEvent.listen(
     hm.node.brokerCtx,
-    proc(evt: EventWakuPeer): Future[void] {.async: (raises: []), gcsafe.} =
+    proc(evt: WakuPeerEvent): Future[void] {.async: (raises: []), gcsafe.} =
       ## Recompute health on any peer changing anything (join, leave, identify, metadata update)
       hm.healthUpdateEvent.fire(),
   ).valueOr:
     return err("Failed to subscribe to peer events: " & error)
+
+  hm.shardHealthListener = EventShardTopicHealthChange.listen(
+    hm.node.brokerCtx,
+    proc(
+        evt: EventShardTopicHealthChange
+    ): Future[void] {.async: (raises: []), gcsafe.} =
+      hm.healthUpdateEvent.fire(),
+  ).valueOr:
+    return err("Failed to subscribe to shard health events: " & error)
 
   hm.healthUpdateEvent = newAsyncEvent()
   hm.healthUpdateEvent.fire()
@@ -724,8 +709,8 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
   if not isNil(hm.healthLoopFut):
     await hm.healthLoopFut.cancelAndWait()
 
-  if hm.peerEventListener.id != 0:
-    EventWakuPeer.dropListener(hm.node.brokerCtx, hm.peerEventListener)
+  WakuPeerEvent.dropListener(hm.node.brokerCtx, hm.peerEventListener)
+  EventShardTopicHealthChange.dropListener(hm.node.brokerCtx, hm.shardHealthListener)
 
   if not isNil(hm.node.wakuRelay) and not isNil(hm.relayObserver):
     hm.node.wakuRelay.removeObserver(hm.relayObserver)

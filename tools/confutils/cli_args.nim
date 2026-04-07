@@ -50,13 +50,13 @@ type ConfResult*[T] = Result[T, string]
 type EthRpcUrl* = distinct string
 
 type StartUpCommand* = enum
-  noCommand # default, runs waku
+  noCommand           # default, runs waku
   generateRlnKeystore # generates a new RLN keystore
 
 type WakuMode* {.pure.} = enum
   noMode # default - use explicit CLI flags as-is
-  Core # full service node
-  Edge # client-only node
+  Core   # full service node
+  Edge   # client-only node
 
 type WakuNodeConf* = object
   configFile* {.
@@ -183,7 +183,8 @@ type WakuNodeConf* = object
       name: "agent-string"
     .}: string
 
-    nodekey* {.desc: "P2P node private key as 64 char hex string.", name: "nodekey".}:
+    nodekey* {.desc: "P2P node private key as 64 char hex string.",
+        name: "nodekey".}:
       Option[PrivateKey]
 
     listenAddress* {.
@@ -192,11 +193,13 @@ type WakuNodeConf* = object
       name: "listen-address"
     .}: IpAddress
 
-    tcpPort* {.desc: "TCP listening port.", defaultValue: 60000, name: "tcp-port".}:
+    tcpPort* {.desc: "TCP listening port.", defaultValue: 60000,
+        name: "tcp-port".}:
       Port
 
     portsShift* {.
-      desc: "Add a shift to all port numbers.", defaultValue: 0, name: "ports-shift"
+      desc: "Add a shift to all port numbers.", defaultValue: 0,
+          name: "ports-shift"
     .}: uint16
 
     nat* {.
@@ -240,11 +243,13 @@ type WakuNodeConf* = object
     .}: int
 
     peerStoreCapacity* {.
-      desc: "Maximum stored peers in the peerstore.", name: "peer-store-capacity"
+      desc: "Maximum stored peers in the peerstore.",
+          name: "peer-store-capacity"
     .}: Option[int]
 
     peerPersistence* {.
-      desc: "Enable peer persistence.", defaultValue: false, name: "peer-persistence"
+      desc: "Enable peer persistence.", defaultValue: false,
+          name: "peer-persistence"
     .}: bool
 
     ## DNS addrs config
@@ -263,8 +268,7 @@ type WakuNodeConf* = object
 
     ## Circuit-relay config
     isRelayClient* {.
-      desc:
-        """Set the node as a relay-client.
+      desc: """Set the node as a relay-client.
 Set it to true for nodes that run behind a NAT or firewall and
 hence would have reachability issues.""",
       defaultValue: false,
@@ -349,12 +353,6 @@ hence would have reachability issues.""",
       desc: "Enable/disable waku store protocol", defaultValue: false, name: "store"
     .}: bool
 
-    legacyStore* {.
-      desc: "Enable/disable support of Waku Store v2 as a service",
-      defaultValue: false,
-      name: "legacy-store"
-    .}: bool
-
     storenode* {.
       desc: "Peer multiaddress to query for storage",
       defaultValue: "",
@@ -408,7 +406,7 @@ hence would have reachability issues.""",
 
     storeSyncInterval* {.
       desc: "Interval between store sync attempts. In seconds.",
-      defaultValue: 300, # 5 minutes
+      defaultValue: 300,  # 5 minutes
       name: "store-sync-interval"
     .}: uint32
 
@@ -439,7 +437,7 @@ hence would have reachability issues.""",
     filterSubscriptionTimeout* {.
       desc:
         "Timeout for filter subscription without ping or refresh it, in seconds. Only for v2 filter protocol.",
-      defaultValue: 300, # 5 minutes
+      defaultValue: 300,  # 5 minutes
       name: "filter-subscription-timeout"
     .}: uint16
 
@@ -666,7 +664,8 @@ with the drawback of consuming some more bandwidth.""",
     .}: bool
 
     websocketPort* {.
-      desc: "WebSocket listening port.", defaultValue: 8000, name: "websocket-port"
+      desc: "WebSocket listening port.", defaultValue: 8000,
+          name: "websocket-port"
     .}: Port
 
     websocketSecureSupport* {.
@@ -692,7 +691,7 @@ with the drawback of consuming some more bandwidth.""",
       desc:
         "Rate limit settings for different protocols." &
         "Format: protocol:volume/period<unit>" &
-        " Where 'protocol' can be one of: <store|storev2|storev3|lightpush|px|filter> if not defined it means a global setting" &
+        " Where 'protocol' can be one of: <store|storev3|lightpush|px|filter> if not defined it means a global setting" &
         " 'volume' and period must be an integer value. " &
         " 'unit' must be one of <h|m|s|ms> - hours, minutes, seconds, milliseconds respectively. " &
         "Argument may be repeated.",
@@ -763,7 +762,8 @@ proc parseCmdArg*(T: type ProtectedShard, p: string): T =
     raise newException(ValueError, "Invalid public key")
 
   if isNumber(elements[0]):
-    return ProtectedShard(shard: uint16.parseCmdArg(elements[0]), key: publicKey)
+    return ProtectedShard(shard: uint16.parseCmdArg(elements[0]),
+        key: publicKey)
 
   # TODO: Remove when removing protected-topic configuration
   let shard = RelayShard.parse(elements[0]).valueOr:
@@ -891,11 +891,11 @@ proc load*(T: type WakuNodeConf, version = ""): ConfResult[T] =
       secondarySources = proc(
           conf: WakuNodeConf, sources: auto
       ) {.gcsafe, raises: [ConfigurationError].} =
-        sources.addConfigFile(Envvar, InputFile("wakunode2"))
+      sources.addConfigFile(Envvar, InputFile("wakunode2"))
 
-        if conf.configFile.isSome():
-          sources.addConfigFile(Toml, conf.configFile.get())
-      ,
+      if conf.configFile.isSome():
+        sources.addConfigFile(Toml, conf.configFile.get())
+    ,
     )
 
     ok(conf)
@@ -949,6 +949,12 @@ proc toNetworkConf(
 proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   var b = WakuConfBuilder.init()
 
+  let networkConf = toNetworkConf(n.preset, some(n.clusterId)).valueOr:
+    return err("Error determining cluster from preset: " & $error)
+
+  if networkConf.isSome():
+    b.withNetworkConf(networkConf.get())
+
   b.withLogLevel(n.logLevel)
   b.withLogFormat(n.logFormat)
 
@@ -976,12 +982,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   b.withProtectedShards(n.protectedShards)
   b.withClusterId(n.clusterId)
-
-  let networkConf = toNetworkConf(n.preset, some(n.clusterId)).valueOr:
-    return err("Error determining cluster from preset: " & $error)
-
-  if networkConf.isSome():
-    b.withNetworkConf(networkConf.get())
 
   b.withAgentString(n.agentString)
 
@@ -1046,7 +1046,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withContentTopics(n.contentTopics)
 
   b.storeServiceConf.withEnabled(n.store)
-  b.storeServiceConf.withSupportV2(n.legacyStore)
   b.storeServiceConf.withRetentionPolicies(n.storeMessageRetentionPolicy)
   b.storeServiceConf.withDbUrl(n.storeMessageDbUrl)
   b.storeServiceConf.withDbVacuum(n.storeMessageDbVacuum)

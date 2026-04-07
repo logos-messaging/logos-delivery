@@ -1,18 +1,13 @@
 ## This module helps to ensure the correct transmission and reception of messages
 
 import results
-import chronos
+import chronos, chronicles
 import
   ./recv_service,
   ./send_service,
   ./subscription_manager,
   waku/[
-    waku_core,
-    waku_node,
-    waku_store/client,
-    waku_relay/protocol,
-    waku_lightpush/client,
-    waku_filter_v2/client,
+    waku_core, waku_node, waku_store/client, waku_relay/protocol, waku_lightpush/client
   ]
 
 type DeliveryService* = ref object
@@ -37,10 +32,11 @@ proc new*(
     )
   )
 
-proc startDeliveryService*(self: DeliveryService) =
-  self.subscriptionManager.startSubscriptionManager()
+proc startDeliveryService*(self: DeliveryService): Result[void, string] =
+  ?self.subscriptionManager.startSubscriptionManager()
   self.recvService.startRecvService()
   self.sendService.startSendService()
+  return ok()
 
 proc stopDeliveryService*(self: DeliveryService) {.async.} =
   await self.sendService.stopSendService()

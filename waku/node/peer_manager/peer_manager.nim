@@ -1,11 +1,9 @@
 {.push raises: [].}
 
 import
-  std/
-    [
-      options, sets, sequtils, times, strformat, strutils, math, random, tables,
-      algorithm,
-    ],
+  std/[
+    options, sets, sequtils, times, strformat, strutils, math, random, tables, algorithm
+  ],
   chronos,
   chronicles,
   metrics,
@@ -217,31 +215,34 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
 
   trace "recovered peers from storage", amount = amount
 
-proc selectPeer*(
+proc selectPeers*(
     pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
-): Option[RemotePeerInfo] =
-  # Selects the best peer for a given protocol
-
+): seq[RemotePeerInfo] =
+  ## Returns all peers that support the given protocol (and optionally shard),
+  ## shuffled randomly. Callers can further filter or pick from this list.
   var peers = pm.switch.peerStore.getPeersByProtocol(proto)
-  trace "Selecting peer from peerstore",
-    protocol = proto, peers, address = cast[uint](pm.switch.peerStore)
+  trace "Selecting peers from peerstore",
+    protocol = proto, num_peers = peers.len, address = cast[uint](pm.switch.peerStore)
 
   if shard.isSome():
-    # Parse the shard from the pubsub topic to get cluster and shard ID
     let shardInfo = RelayShard.parse(shard.get()).valueOr:
       trace "Failed to parse shard from pubsub topic", topic = shard.get()
-      return none(RemotePeerInfo)
+      return @[]
 
-    # Filter peers that support the requested shard
-    # Check both ENR (if present) and the shards field on RemotePeerInfo
     peers.keepItIf(
-      # Check ENR if available
       (it.enr.isSome() and it.enr.get().containsShard(shard.get())) or
-      # Otherwise check the shards field directly
-      (it.shards.len > 0 and it.shards.contains(shardInfo.shardId))
+        (it.shards.len > 0 and it.shards.contains(shardInfo.shardId))
     )
 
   shuffle(peers)
+  return peers
+
+proc selectPeer*(
+    pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
+): Option[RemotePeerInfo] =
+  ## Selects a single peer for a given protocol, checking service slots first
+  ## (for non-relay protocols).
+  let peers = pm.selectPeers(proto, shard)
 
   # No criteria for selecting a peer for WakuRelay, random one
   if proto == WakuRelayCodec:
@@ -744,7 +745,7 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
     # TODO: should only trigger an event if metadata actually changed
     #       should include the shard subscription delta in the event when
     #         it is a MetadataUpdated event
-    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventMetadataUpdated)
+    WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventMetadataUpdated)
     return
 
   info "disconnecting from peer", peerId = peerId, reason = reason
@@ -789,7 +790,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
           asyncSpawn(pm.switch.disconnect(peerId))
           peerStore.delete(peerId)
 
-    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventConnected)
+    WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventConnected)
 
     if not pm.onConnectionChange.isNil():
       # we don't want to await for the callback to finish
@@ -806,7 +807,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
           pm.ipTable.del(ip)
         break
 
-    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventDisconnected)
+    WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventDisconnected)
 
     if not pm.onConnectionChange.isNil():
       # we don't want to await for the callback to finish
@@ -814,7 +815,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   of PeerEventKind.Identified:
     info "event identified", peerId = peerId
 
-    EventWakuPeer.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventIdentified)
+    WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventIdentified)
 
   peerStore[ConnectionBook][peerId] = connectedness
   peerStore[DirectionBook][peerId] = direction

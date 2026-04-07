@@ -42,7 +42,6 @@ proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   builder.withRelay(true)
   builder.withRendezvous(true)
   builder.storeServiceConf.withDbMigration(false)
-  builder.storeServiceConf.withSupportV2(false)
   return builder
 
 proc defaultTestWakuConf*(): WakuConf =
