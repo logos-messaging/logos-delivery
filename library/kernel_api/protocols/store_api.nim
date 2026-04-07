@@ -8,7 +8,12 @@ import
   waku/waku_store/common,
   waku/waku_store/client,
   waku/common/paging,
+  waku/common/base64,
   library/declare_lib
+
+# Custom JSON serialization for seq[byte] to avoid ambiguity
+proc `%`*(data: seq[byte]): JsonNode =
+  %base64.encode(data)
 
 func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
   var contentTopics: seq[string]
@@ -90,5 +95,6 @@ proc waku_store_query(
   ).valueOr:
     return err("StoreRequest failed store query: " & $error)
 
-  let res = $(%*(queryResponse.toHex()))
+  let hexResponse = queryResponse.toHex()
+  let res = $(%*hexResponse)
   return ok(res) ## returning the response in json format
