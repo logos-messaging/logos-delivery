@@ -21,7 +21,8 @@ import
   ./constants,
   ./protocol_types,
   ./protocol_metrics,
-  ./nonce_manager
+  ./nonce_manager,
+  waku/common/benchmark_metrics
 
 import
   ../common/error_handling,
@@ -178,6 +179,8 @@ proc validateMessage*(
   ## `timeOption` indicates Unix epoch time (fractional part holds sub-seconds)
   ## if `timeOption` is supplied, then the current epoch is calculated based on that
 
+  benchmarkPoint("waku_rln_relay", "validateMessage")
+
   let proof = RateLimitProof.init(msg.proof).valueOr:
     return MessageValidationResult.Invalid
 
@@ -260,6 +263,8 @@ proc validateMessageAndUpdateLog*(
   ## validates the message and updates the log to prevent double messaging
   ## in future messages
 
+  benchmarkPoint("waku_rln_relay", "validateMessageAndUpdateLog")
+
   let isValidMessage = rlnPeer.validateMessage(msg)
 
   let msgProof = RateLimitProof.init(msg.proof).valueOr:
@@ -283,6 +288,7 @@ proc appendRLNProof*(
   ## `senderEpochTime` indicates the number of seconds passed since Unix epoch. The fractional part holds sub-seconds.
   ## The `epoch` field of `RateLimitProof` is derived from the provided `senderEpochTime` (using `calcEpoch()`)
 
+  benchmarkPoint("waku_rln_relay", "appendRLNProof")
   let input = msg.toRLNSignal()
   let epoch = rlnPeer.calcEpoch(senderEpochTime)
 
@@ -297,6 +303,7 @@ proc appendRLNProof*(
 proc clearNullifierLog*(rlnPeer: WakuRlnRelay) =
   # clear the first MaxEpochGap epochs of the nullifer log
   # if more than MaxEpochGap epochs are in the log
+  benchmarkPoint("waku_rln_relay", "clearNullifierLog")
   let currentEpoch = fromEpoch(rlnPeer.getCurrentEpoch())
 
   var epochsToRemove: seq[Epoch] = @[]
@@ -323,6 +330,8 @@ proc generateRlnValidator*(
       topic: string, message: WakuMessage
   ): Future[pubsub.ValidationResult] {.async.} =
     trace "rln-relay topic validator is called"
+    benchmarkPoint("waku_rln_relay", "generateRlnValidator.validator")
+
     wakuRlnRelay.clearNullifierLog()
 
     let msgProof = RateLimitProof.init(message.proof).valueOr:

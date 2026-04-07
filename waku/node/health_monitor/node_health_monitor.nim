@@ -14,7 +14,8 @@ import
   ../peer_manager,
   ./online_monitor,
   ./health_status,
-  ./protocol_health
+  ./protocol_health,
+  ./event_loop_monitor
 
 ## This module is aimed to check the state of the "self" Waku Node
 
@@ -32,6 +33,7 @@ type
     node: WakuNode
     onlineMonitor*: OnlineMonitor
     keepAliveFut: Future[void]
+    eventLoopMonitorFut: Future[void]
 
 template checkWakuNodeNotNil(node: WakuNode, p: ProtocolHealth): untyped =
   if node.isNil():
@@ -416,6 +418,7 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
   hm.onlineMonitor.startOnlineMonitor()
   hm.startKeepalive().isOkOr:
     return err("startHealthMonitor: failed starting keep alive: " & error)
+  hm.eventLoopMonitorFut = eventLoopMonitorLoop()
   return ok()
 
 proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
@@ -424,6 +427,9 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
 
   if not hm.keepAliveFut.isNil():
     await hm.keepAliveFut.cancelAndWait()
+
+  if not hm.eventLoopMonitorFut.isNil():
+    await hm.eventLoopMonitorFut.cancelAndWait()
 
 proc new*(
     T: type NodeHealthMonitor,

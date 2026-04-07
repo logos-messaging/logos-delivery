@@ -2,7 +2,12 @@
 
 import std/[options, tables], results, chronicles, chronos, metrics, bearssl/rand
 import
-  ../node/peer_manager, ../utils/requests, ./protocol_metrics, ./common, ./rpc_codec
+  ../node/peer_manager,
+  ../utils/requests,
+  ./protocol_metrics,
+  ./common,
+  ./rpc_codec,
+  ../common/benchmark_metrics
 
 logScope:
   topics = "waku store client"
@@ -66,6 +71,7 @@ proc sendStoreRequest(
 proc query*(
     self: WakuStoreClient, request: StoreQueryRequest, peer: RemotePeerInfo | PeerId
 ): Future[StoreQueryResult] {.async, gcsafe.} =
+  benchmarkPoint("waku_store_client", "query")
   if request.paginationCursor.isSome() and request.paginationCursor.get() == EmptyCursor:
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
 
@@ -81,6 +87,7 @@ proc queryToAny*(
 ): Future[StoreQueryResult] {.async.} =
   ## This proc is similar to the query one but in this case
   ## we don't specify a particular peer and instead we get it from peer manager
+  benchmarkPoint("waku_store_client", "queryToAny")
 
   if request.paginationCursor.isSome() and request.paginationCursor.get() == EmptyCursor:
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))

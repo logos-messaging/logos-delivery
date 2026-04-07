@@ -20,7 +20,8 @@ import
   ./common,
   ./rpc_codec,
   ./protocol_metrics,
-  ../common/rate_limit/request_limiter
+  ../common/rate_limit/request_limiter,
+  ../common/benchmark_metrics
 
 logScope:
   topics = "waku store"
@@ -41,6 +42,7 @@ type StoreResp = tuple[resp: seq[byte], requestId: string]
 proc handleQueryRequest(
     self: WakuStore, requestor: PeerId, raw_request: seq[byte]
 ): Future[StoreResp] {.async.} =
+  benchmarkPoint("waku_store", "handleQueryRequest")
   var res = StoreQueryResponse()
 
   let req = StoreQueryRequest.decode(raw_request).valueOr:

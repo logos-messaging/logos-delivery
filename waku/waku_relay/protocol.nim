@@ -18,7 +18,8 @@ import
   libp2p/stream/connection,
   libp2p/switch
 import
-  ../waku_core, ./message_id, ./topic_health, ../node/delivery_monitor/publish_observer
+  ../waku_core, ./message_id, ./topic_health, ../node/delivery_monitor/publish_observer,
+  ../common/benchmark_metrics
 
 from ../waku_core/codecs import WakuRelayCodec
 export WakuRelayCodec
@@ -510,6 +511,7 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
 proc validateMessage*(
     w: WakuRelay, pubsubTopic: string, msg: WakuMessage
 ): Future[Result[void, string]] {.async.} =
+  benchmarkPoint("waku_relay", "validateMessage")
   let messageSizeBytes = msg.encode().buffer.len
   let msgHash = computeMessageHash(pubsubTopic, msg).to0xHex()
 
@@ -611,6 +613,7 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
 proc publish*(
     w: WakuRelay, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
 ): Future[Result[int, PublishOutcome]] {.async.} =
+  benchmarkPoint("waku_relay", "publish")
   if pubsubTopic.isEmptyOrWhitespace():
     return err(NoTopicSpecified)
 

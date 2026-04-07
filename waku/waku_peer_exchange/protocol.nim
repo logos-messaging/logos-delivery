@@ -15,7 +15,8 @@ import
   ./rpc,
   ./rpc_codec,
   ../common/rate_limit/request_limiter,
-  ./common
+  ./common,
+  waku/common/benchmark_metrics
 
 from ../waku_core/codecs import WakuPeerExchangeCodec
 export WakuPeerExchangeCodec
@@ -38,6 +39,7 @@ type WakuPeerExchange* = ref object of LPProtocol
 proc respond(
     wpx: WakuPeerExchange, enrs: seq[enr.Record], conn: Connection
 ): Future[WakuPeerExchangeResult[void]] {.async, gcsafe.} =
+  benchmarkPoint("waku_peer_exchange", "respond")
   let rpc = PeerExchangeRpc.makeResponse(enrs.mapIt(PeerExchangePeerInfo(enr: it.raw)))
 
   try:
@@ -60,6 +62,7 @@ proc respondError(
     status_desc: Option[string],
     conn: Connection,
 ): Future[WakuPeerExchangeResult[void]] {.async, gcsafe.} =
+  benchmarkPoint("waku_peer_exchange", "respondError")
   let rpc = PeerExchangeRpc.makeErrorResponse(status_code, status_desc)
 
   try:
@@ -123,6 +126,7 @@ proc getEnrsFromStore(
 
 proc initProtocolHandler(wpx: WakuPeerExchange) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
+    benchmarkPoint("waku_peer_exchange", "handler")
     var buffer: seq[byte]
     wpx.requestRateLimiter.checkUsageLimit(WakuPeerExchangeCodec, conn):
       try:

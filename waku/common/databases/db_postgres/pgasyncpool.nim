@@ -10,7 +10,7 @@ import
   chronos/threadsync,
   chronicles,
   strutils
-import ./dbconn, ../common, ../../../waku_core/time
+import ./dbconn, ../common, ../../../waku_core/time, waku/common/benchmark_metrics
 
 type
   # Database connection pool
@@ -120,6 +120,7 @@ proc pgQuery*(
     rowCallback: DataProc = nil,
     requestId: string = "",
 ): Future[DatabaseResult[void]] {.async.} =
+  benchmarkPoint("postgres", "pgQuery")
   let connIndex = (await pool.getConnIndex()).valueOr:
     return err("connRes.isErr in query: " & $error)
 
@@ -152,6 +153,7 @@ proc runStmt*(
   ##
   ## rowCallback != nil when it is expected to retrieve info from the database.
   ## rowCallback == nil for queries that change the database state.
+  benchmarkPoint("postgres", "runStmt")
 
   let connIndex = (await pool.getConnIndex()).valueOr:
     return err("Error in runStmt: " & $error)

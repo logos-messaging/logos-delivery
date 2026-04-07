@@ -17,7 +17,8 @@ import
   ../waku_core/peers,
   ../waku_core/topics,
   ../waku_core/topics/pubsub_topic,
-  ./common
+  ./common,
+  waku/common/benchmark_metrics
 
 logScope:
   topics = "waku rendezvous"
@@ -93,6 +94,8 @@ proc batchRequest*(
 ): Future[Result[seq[PeerRecord], string]] {.async: (raises: []).} =
   ## Request all records from all rendezvous peers matching a namespace
 
+  benchmarkPoint("waku_rendezvous", "batchRequest")
+
   # rendezvous.request expects already opened connections
   # must dial first
   var futs = collect(newSeq):
@@ -137,6 +140,7 @@ proc advertiseAll(
 ): Future[Result[void, string]] {.async: (raises: []).} =
   info "waku rendezvous advertisements started"
 
+  benchmarkPoint("waku_rendezvous", "advertiseAll")
   let shards = self.getShards()
 
   let futs = collect(newSeq):
@@ -176,6 +180,7 @@ proc initialRequestAll*(
 ): Future[Result[void, string]] {.async: (raises: []).} =
   info "waku rendezvous initial requests started"
 
+  benchmarkPoint("waku_rendezvous", "initialRequestAll")
   let shards = self.getShards()
 
   let futs = collect(newSeq):

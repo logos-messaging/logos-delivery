@@ -11,7 +11,8 @@ import
   ./common,
   ./protocol_metrics,
   ./rpc,
-  ./rpc_codec
+  ./rpc_codec,
+  ../common/benchmark_metrics
 
 logScope:
   topics = "waku lightpush client"
@@ -76,6 +77,7 @@ proc publish*(
     wakuMessage: WakuMessage,
     peer: PeerId | RemotePeerInfo,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
+  benchmarkPoint("waku_lightpush_client", "publish")
   var message = wakuMessage
   if message.timestamp == 0:
     message.timestamp = getNowInNanosecondTime()
@@ -104,6 +106,7 @@ proc publishToAny*(
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
   ## This proc is similar to the publish one but in this case
   ## we don't specify a particular peer and instead we get it from peer manager
+  benchmarkPoint("waku_lightpush_client", "publishToAny")
 
   var message = wakuMessage
   if message.timestamp == 0:
@@ -140,6 +143,7 @@ proc publishWithConn*(
     conn: Connection,
     destPeer: PeerId,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
+  benchmarkPoint("waku_lightpush_client", "publishWithConn")
   info "publishWithConn",
     my_peer_id = wl.peerManager.switch.peerInfo.peerId,
     peer_id = destPeer,

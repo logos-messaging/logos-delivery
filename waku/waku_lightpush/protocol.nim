@@ -16,7 +16,8 @@ import
   ./rpc,
   ./rpc_codec,
   ./protocol_metrics,
-  ../common/rate_limit/request_limiter
+  ../common/rate_limit/request_limiter,
+  ../common/benchmark_metrics
 
 logScope:
   topics = "waku lightpush"
@@ -31,6 +32,7 @@ type WakuLightPush* = ref object of LPProtocol
 proc handleRequest(
     wl: WakuLightPush, peerId: PeerId, pushRequest: LightpushRequest
 ): Future[WakuLightPushResult] {.async.} =
+  benchmarkPoint("waku_lightpush", "handleRequest")
   let pubsubTopic = pushRequest.pubSubTopic.valueOr:
     if wl.autoSharding.isNone():
       let msg = "Pubsub topic must be specified when static sharding is enabled"
@@ -78,6 +80,7 @@ proc handleRequest(
 proc handleRequest*(
     wl: WakuLightPush, peerId: PeerId, buffer: seq[byte]
 ): Future[LightPushResponse] {.async.} =
+  benchmarkPoint("waku_lightpush", "handleRequest*")
   let pushRequest = LightPushRequest.decode(buffer).valueOr:
     let desc = decodeRpcFailure & ": " & $error
     error "failed to push message", error = desc
