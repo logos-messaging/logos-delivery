@@ -1,4 +1,4 @@
-import std/[json, strutils]
+import std/[json, strutils, sets]
 import chronos, chronicles, results, confutils, confutils/std/net, ffi
 import
   waku/factory/waku,
@@ -27,6 +27,16 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
         "Failed to parse config JSON: " & getCurrentExceptionMsg() &
           " configJson string: " & $configJson
       )
+
+    # Collect known fields
+    var knownFields = initHashSet[string]()
+    for confField, _ in fieldPairs(conf):
+      knownFields.incl(confField)
+    # Check for unknown keys
+    for key in jsonNode.keys:
+      if key notin knownFields:
+        error "Invalid configuration option found.", option = key
+        return err("Invalid configuration option found: " & key)
 
     for confField, confValue in fieldPairs(conf):
       if jsonNode.contains(confField):
