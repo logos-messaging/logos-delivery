@@ -187,10 +187,15 @@ nimbus-build-system-nimble-dir:
 ##################
 ##     RLN      ##
 ##################
-.PHONY: librln
+.PHONY: librln mix-librln
 
 LIBRLN_BUILDDIR := $(CURDIR)/vendor/zerokit
 LIBRLN_VERSION := v0.9.0
+MIX_LIBRLN_VERSION ?= v2.0.0
+MIX_LIBRLN_REPO ?= https://github.com/vacp2p/zerokit.git
+MIX_LIBRLN_SRCDIR ?= $(CURDIR)/build/zerokit_$(MIX_LIBRLN_VERSION)
+MIX_LIBRLN_FILE ?= $(CURDIR)/build/librln_mix_$(MIX_LIBRLN_VERSION).a
+MIX_LIBRLN_NIM_PARAMS := --passL:$(MIX_LIBRLN_FILE) --passL:-lm
 
 ifeq ($(detected_OS),Windows)
 LIBRLN_FILE ?= rln.lib
@@ -202,12 +207,19 @@ $(LIBRLN_FILE):
 	echo -e $(BUILD_MSG) "$@" && \
 		./scripts/build_rln.sh $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(LIBRLN_FILE)
 
+$(MIX_LIBRLN_FILE):
+	echo -e $(BUILD_MSG) "$@" && \
+		./scripts/build_rln_mix.sh $(MIX_LIBRLN_SRCDIR) $(MIX_LIBRLN_VERSION) $(MIX_LIBRLN_FILE) $(MIX_LIBRLN_REPO)
+
 librln: | $(LIBRLN_FILE)
 	$(eval NIM_PARAMS += --passL:$(LIBRLN_FILE) --passL:-lm)
+
+mix-librln: | $(MIX_LIBRLN_FILE)
 
 clean-librln:
 	cargo clean --manifest-path vendor/zerokit/rln/Cargo.toml
 	rm -f $(LIBRLN_FILE)
+	rm -f $(MIX_LIBRLN_FILE)
 
 # Extend clean target
 clean: | clean-librln
@@ -232,10 +244,10 @@ testwaku: | build deps rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(ENV_SCRIPT) nim test -d:os=$(shell uname) $(NIM_PARAMS) waku.nims
 
-wakunode2: | build deps librln
+wakunode2: | build deps librln mix-librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 	\
-		$(ENV_SCRIPT) nim wakunode2 $(NIM_PARAMS) waku.nims
+		$(ENV_SCRIPT) nim wakunode2 $(NIM_PARAMS) $(MIX_LIBRLN_NIM_PARAMS) waku.nims
 
 benchmarks: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -253,9 +265,9 @@ chat2: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(ENV_SCRIPT) nim chat2 $(NIM_PARAMS) waku.nims
 
-chat2mix: | build deps librln
+chat2mix: | build deps librln mix-librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim chat2mix $(NIM_PARAMS) waku.nims
+		$(ENV_SCRIPT) nim chat2mix $(NIM_PARAMS) $(MIX_LIBRLN_NIM_PARAMS) waku.nims
 
 rln-db-inspector: | build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \

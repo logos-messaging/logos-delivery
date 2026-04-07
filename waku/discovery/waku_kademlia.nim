@@ -194,7 +194,7 @@ proc runDiscoveryLoop(
   info "extended kademlia discovery loop started", interval = interval
 
   try:
-    while true:
+    while wk.running:
       # Wait for node to be started
       if not wk.isNodeStarted.isNil() and not wk.isNodeStarted():
         await sleepAsync(ExtendedKademliaDiscoveryStartupDelay)
@@ -257,6 +257,8 @@ proc start*(
     await wk.protocol.start()
   except CatchableError as e:
     return err("failed to start kademlia discovery: " & e.msg)
+
+  wk.running = true
 
   wk.discoveryLoop = wk.runDiscoveryLoop(interval, minMixPeers)
 

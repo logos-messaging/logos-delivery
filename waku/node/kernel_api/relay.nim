@@ -27,6 +27,7 @@ import
     waku_archive,
     waku_store_sync,
     waku_rln_relay,
+    waku_mix,
     node/waku_node,
     node/peer_manager,
     common/broker/broker_context,
@@ -91,6 +92,12 @@ proc registerRelayHandler(
 
     node.wakuStoreReconciliation.messageIngress(topic, msg)
 
+  proc mixHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    if node.wakuMix.isNil():
+      return
+
+    await node.wakuMix.handleMessage(topic, msg)
+
   proc internalHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     MessageSeenEvent.emit(node.brokerCtx, topic, msg)
 
@@ -101,6 +108,7 @@ proc registerRelayHandler(
     await filterHandler(topic, msg)
     await archiveHandler(topic, msg)
     await syncHandler(topic, msg)
+    await mixHandler(topic, msg)
     await internalHandler(topic, msg)
 
     # Call the legacy (kernel API) app handler if it exists.
