@@ -21,6 +21,7 @@ import
     node/health_monitor/health_report,
     node/health_monitor/connection_status,
     node/health_monitor/protocol_health,
+    node/health_monitor/event_loop_monitor,
     requests/health_requests,
   ]
 
@@ -36,6 +37,7 @@ type NodeHealthMonitor* = ref object
   onlineMonitor*: OnlineMonitor
   keepAliveFut: Future[void]
   healthLoopFut: Future[void]
+  eventLoopMonitorFut: Future[void]
   healthUpdateEvent: AsyncEvent
   connectionStatus: ConnectionStatus
   onConnectionStatusChange*: ConnectionStatusChangeHandler
@@ -694,9 +696,11 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
   hm.healthUpdateEvent.fire()
 
   hm.healthLoopFut = hm.healthLoop()
+  hm.eventLoopMonitorFut = eventLoopMonitorLoop()
 
   hm.startKeepalive().isOkOr:
     return err("startHealthMonitor: failed starting keep alive: " & error)
+
   return ok()
 
 proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
@@ -708,6 +712,9 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
 
   if not isNil(hm.healthLoopFut):
     await hm.healthLoopFut.cancelAndWait()
+
+  if not isNil(hm.eventLoopMonitorFut):
+    await hm.eventLoopMonitorFut.cancelAndWait()
 
   WakuPeerEvent.dropListener(hm.node.brokerCtx, hm.peerEventListener)
   EventShardTopicHealthChange.dropListener(hm.node.brokerCtx, hm.shardHealthListener)
