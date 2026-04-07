@@ -156,7 +156,7 @@ proc buildLibStaticMac(libName: string, folderName: string) =
     {.error: "Unsupported macOS architecture".}
   buildLibrary libName & ".a", folderName,
     archFlags & " -d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE",
-    "static"
+    "static", libName & ".nim", libname
 
 ### Mobile Android
 
