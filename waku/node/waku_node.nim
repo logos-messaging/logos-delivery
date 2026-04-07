@@ -297,10 +297,7 @@ proc getMixNodePoolSize*(node: WakuNode): int =
   return node.wakuMix.poolSize()
 
 proc mountMix*(
-    node: WakuNode,
-    clusterId: uint16,
-    mixPrivKey: Curve25519Key,
-    mixnodes: seq[MixNodePubInfo],
+    node: WakuNode, mixPrivKey: Curve25519Key
 ): Future[Result[void, string]] {.async.} =
   info "mounting mix protocol", nodeId = node.info #TODO log the config used
 
@@ -312,10 +309,13 @@ proc mountMix*(
   info "local addr", localaddr = localaddrStr
 
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes
+    mixPrivKey = mixPrivKey,
+    nodeAddr = localaddrStr,
+    switch = node.switch,
+    wakuKademlia = node.wakuKademlia,
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
-    return
+    return err("Waku Mix protocol initialization failed: " & error)
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
   node.wakuMix.registerDestReadBehavior(WakuLightPushCodec, readLp(int(-1)))
   let catchRes = catch:
@@ -341,11 +341,12 @@ proc mountStoreSync*(
 
   let pubsubTopics = shards.mapIt($RelayShard(clusterId: cluster, shardId: it))
 
-  let recon = ?await SyncReconciliation.new(
-    pubsubTopics, contentTopics, node.peerManager, node.wakuArchive,
-    storeSyncRange.seconds, storeSyncInterval.seconds, storeSyncRelayJitter.seconds,
-    idsChannel, wantsChannel, needsChannel,
-  )
+  let recon =
+    ?await SyncReconciliation.new(
+      pubsubTopics, contentTopics, node.peerManager, node.wakuArchive,
+      storeSyncRange.seconds, storeSyncInterval.seconds, storeSyncRelayJitter.seconds,
+      idsChannel, wantsChannel, needsChannel,
+    )
 
   node.wakuStoreReconciliation = recon
 
@@ -582,12 +583,6 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRelay.isNil():
     await node.startRelay()
 
-  if not node.wakuMix.isNil():
-    node.wakuMix.start()
-
-  if not node.wakuMetadata.isNil():
-    node.wakuMetadata.start()
-
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.start()
 
@@ -596,12 +591,6 @@ proc start*(node: WakuNode) {.async.} =
 
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
-
-  if not node.wakuStoreReconciliation.isNil():
-    node.wakuStoreReconciliation.start()
-
-  if not node.wakuStoreTransfer.isNil():
-    node.wakuStoreTransfer.start()
 
   ## The switch uses this mapper to update peer info addrs
   ## with announced addrs after start
@@ -653,18 +642,9 @@ proc stop*(node: WakuNode) {.async.} =
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.stopWait()
 
-  if not node.wakuStoreReconciliation.isNil():
-    node.wakuStoreReconciliation.stop()
-
-  if not node.wakuStoreTransfer.isNil():
-    node.wakuStoreTransfer.stop()
-
   if not node.wakuPeerExchangeClient.isNil() and
       not node.wakuPeerExchangeClient.pxLoopHandle.isNil():
     await node.wakuPeerExchangeClient.pxLoopHandle.cancelAndWait()
-
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.stop()
 
   if not node.wakuRendezvous.isNil():
     await node.wakuRendezvous.stopWait()

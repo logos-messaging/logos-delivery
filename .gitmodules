@@ -12,7 +12,7 @@
 	path = vendor/nim-libp2p
 	url = https://github.com/vacp2p/nim-libp2p.git
 	ignore = dirty
-	branch = master
+	branch = feat--logos-capability-discovery
 [submodule "vendor/nim-stew"]
 	path = vendor/nim-stew
 	url = https://github.com/status-im/nim-stew.git
