@@ -117,7 +117,7 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "dynamic"
+    "dynamic", libName & ".nim", libname
 
 proc buildLibDynamicLinux(libName: string, folderName: string) =
   buildLibrary libName & ".so", folderName,
