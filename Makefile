@@ -42,7 +42,7 @@ endif
 .PHONY: all test update clean examples deps nimble
 
 # default target
-all: | wakunode2 libwaku
+all: | wakunode2 libwaku liblogosdelivery
 
 examples: | example2 chat2 chat2bridge
 
