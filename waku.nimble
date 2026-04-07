@@ -122,7 +122,7 @@ proc buildLibDynamicWindows(libName: string, folderName: string) =
 proc buildLibDynamicLinux(libName: string, folderName: string) =
   buildLibrary libName & ".so", folderName,
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "dynamic"
+    "dynamic", libName & ".nim", libname
 
 proc buildLibDynamicMac(libName: string, folderName: string) =
   let sdkPath = staticExec("xcrun --show-sdk-path").strip()
