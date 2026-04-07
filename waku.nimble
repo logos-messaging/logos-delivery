@@ -139,7 +139,7 @@ proc buildLibDynamicMac(libName: string, folderName: string) =
 proc buildLibStaticWindows(libName: string, folderName: string) =
   buildLibrary libName & ".lib", folderName,
     """-d:chronicles_line_numbers --warning:Deprecated:off --warning:UnusedImport:on -d:chronicles_log_level=TRACE """,
-    "static"
+    "static", libName & ".nim", libname
 
 proc buildLibStaticLinux(libName: string, folderName: string) =
   buildLibrary libName & ".a", folderName,
