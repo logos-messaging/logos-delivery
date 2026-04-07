@@ -50,8 +50,7 @@
           };
         in rec {
           liblogosdelivery = mkPkg zerokit.packages.${system}.rln;
-          libwaku           = mkPkg zerokit.packages.${system}.rln;
-          default           = liblogosdelivery;
+          default          = liblogosdelivery;
         }
       );
 
