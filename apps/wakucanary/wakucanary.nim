@@ -6,12 +6,15 @@ import
   os
 import
   libp2p/protocols/ping,
+  libp2p/protocols/protocol,
   libp2p/crypto/[crypto, secp],
   libp2p/nameresolving/dnsresolver,
   libp2p/multicodec
 import
   ./certsgenerator,
-  waku/[waku_enr, node/peer_manager, waku_core, waku_node, factory/builder]
+  waku/[waku_enr, node/peer_manager, waku_core, waku_node, factory/builder],
+  waku/waku_metadata/protocol,
+  waku/common/callbacks
 
 # protocols and their tag
 const ProtocolsTable = {
@@ -45,7 +48,7 @@ type WakuCanaryConf* = object
 
   timeout* {.
     desc: "Timeout to consider that the connection failed",
-    defaultValue: chronos.seconds(10),
+    defaultValue: chronos.seconds(20),
     name: "timeout",
     abbr: "t"
   .}: chronos.Duration
@@ -251,11 +254,25 @@ proc main(rng: ref HmacDrbgContext): Future[int] {.async.} =
       error "failed to mount libp2p ping protocol: " & getCurrentExceptionMsg()
       quit(QuitFailure)
 
-  node.mountMetadata(conf.clusterId, conf.shards).isOkOr:
-    error "failed to mount metadata protocol", error
+  # Mount metadata with a custom getter that returns CLI shards directly,
+  # since the canary doesn't mount relay (which is what the default getter reads from).
+  # Without this fix, the canary always sends remoteShards=[] in metadata requests.
+  let cliShards = conf.shards
+  let shardsGetter: GetShards = proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
+    return cliShards
+
+  let metadata = WakuMetadata.new(conf.clusterId, shardsGetter)
+  node.wakuMetadata = metadata
+  node.peerManager.wakuMetadata = metadata
+  let mountRes = catch:
+    node.switch.mount(metadata, protocolMatcher(WakuMetadataCodec))
+  mountRes.isOkOr:
+    error "failed to mount metadata protocol", error = error.msg
     quit(QuitFailure)
 
   await node.start()
+
+  debug "Connecting to peer", peer = peer, timeout = conf.timeout
 
   var pingFut: Future[bool]
   if conf.ping:
@@ -266,8 +283,18 @@ proc main(rng: ref HmacDrbgContext): Future[int] {.async.} =
     error "Timedout after", timeout = conf.timeout
     quit(QuitFailure)
 
+  # Clean disconnect with defer so the remote node doesn't see
+  # "Stream Underlying Connection Closed!" when we exit
+  defer:
+    debug "Cleanly disconnecting from peer", peerId = peer.peerId
+    await node.peerManager.disconnectNode(peer.peerId)
+    await node.stop()
+
+  debug "Connected, checking connection status", peerId = peer.peerId
+
   let lp2pPeerStore = node.switch.peerStore
   let conStatus = node.peerManager.switch.peerStore[ConnectionBook][peer.peerId]
+  debug "Connection status", peerId = peer.peerId, conStatus = conStatus
 
   var pingSuccess = true
   if conf.ping:
@@ -283,14 +310,15 @@ proc main(rng: ref HmacDrbgContext): Future[int] {.async.} =
 
   if conStatus in [Connected, CanConnect]:
     let nodeProtocols = lp2pPeerStore[ProtoBook][peer.peerId]
+    debug "Peer protocols", peerId = peer.peerId, protocols = nodeProtocols
 
     if not areProtocolsSupported(conf.protocols, nodeProtocols):
       error "Not all protocols are supported",
         expected = conf.protocols, supported = nodeProtocols
-      quit(QuitFailure)
+      return 1
   elif conStatus == CannotConnect:
     error "Could not connect", peerId = peer.peerId
-    quit(QuitFailure)
+    return 1
   return 0
 
 when isMainModule:
