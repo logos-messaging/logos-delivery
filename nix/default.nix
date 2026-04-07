@@ -12,7 +12,7 @@
   zerokitRln,
 }:
 
-assert pkgs.lib.assertMsg ((src.submodules or true) == true)
+assert pkgs.lib.assertMsg (builtins.pathExists "${src}/vendor/nimbus-build-system/scripts")
   "Unable to build without submodules. Append '?submodules=1#' to the URI.";
 
 let

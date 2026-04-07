@@ -7,6 +7,10 @@
   };
 
   inputs = {
+    # Ensure Nix fetches git submodules (vendor/*) when evaluating this flake.
+    # Requires Nix >= 2.27.  Consumers no longer need '?submodules=1' in the URL.
+    self.submodules = true;
+
     # We are pinning the commit because ultimately we want to use same commit across different projects.
     # A commit from nixpkgs 24.11 release : https://github.com/NixOS/nixpkgs/tree/release-24.11
     nixpkgs.url = "github:NixOS/nixpkgs/0ef228213045d2cdb5a169a95d63ded38670b293";
