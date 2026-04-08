@@ -333,7 +333,7 @@ hence would have reachability issues.""",
     numShardsInNetwork* {.
       desc:
         "Enables autosharding and set number of shards in the cluster, set to `0` to use static sharding",
-      defaultValue: 1,
+      defaultValue: 0,
       name: "num-shards-in-network"
     .}: uint16
 

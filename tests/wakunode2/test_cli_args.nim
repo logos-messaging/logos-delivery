@@ -23,9 +23,8 @@ import
 suite "Waku external config - default values":
   test "Default sharding value":
     ## Setup
-    let defaultShardingMode = AutoSharding
-    let defaultNumShardsInCluster = 1.uint16
-    let defaultSubscribeShards = @[0.uint16]
+    let defaultShardingMode = StaticSharding
+    let defaultSubscribeShards: seq[uint16] = @[]
 
     ## Given
     let preConfig = defaultWakuNodeConf().get()
@@ -37,7 +36,6 @@ suite "Waku external config - default values":
     ## Then
     let conf = res.get()
     check conf.shardingConf.kind == defaultShardingMode
-    check conf.shardingConf.numShardsInCluster == defaultNumShardsInCluster
     check conf.subscribeShards == defaultSubscribeShards
 
   test "Default shards value in static sharding":
@@ -212,7 +210,7 @@ suite "Waku external config - Shards":
     let vRes = wakuConf.validate()
     assert vRes.isOk(), $vRes.error
 
-  test "Imvalid shard is passed without num shards":
+  test "Any shard is valid without num shards in static sharding mode":
     ## Setup
 
     ## Given
@@ -222,7 +220,9 @@ suite "Waku external config - Shards":
     let res = wakuNodeConf.toWakuConf()
 
     ## Then
-    assert res.isErr(), "Invalid shard was accepted"
+    let wakuConf = res.get()
+    let vRes = wakuConf.validate()
+    assert vRes.isOk(), $vRes.error
 
 suite "Waku external config - store retention policy":
   test "Default retention policy":
