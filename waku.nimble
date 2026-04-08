@@ -170,7 +170,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
 
   exec "nim c" & " --out:" & outDir &
     "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
-    outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --os:android -d:androidNDK " & params &
+    outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
