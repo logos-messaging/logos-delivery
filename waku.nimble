@@ -182,7 +182,7 @@ task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
 import std/sequtils
 
 proc buildMobileIOS(srcDir = ".", params = "") =
-  echo "Building iOS libwaku library"
+  echo "Building iOS liblogosdelivery library"
 
   let iosArch = getEnv("IOS_ARCH")
   let iosSdk = getEnv("IOS_SDK")
@@ -216,7 +216,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   let nimcacheDir = outDir & "/nimcache"
   let objDir = outDir & "/obj"
   let vendorObjDir = outDir & "/vendor_obj"
-  let aFile = outDir & "/libwaku.a"
+  let aFile = outDir & "/liblogosdelivery.a"
 
   if not dirExists objDir:
     mkDir objDir
@@ -234,10 +234,10 @@ proc buildMobileIOS(srcDir = ".", params = "") =
       " --noMain --mm:refc" &
       " --threads:on --opt:size --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" &
-      " --nimMainPrefix:libwaku --skipParentCfg:on" &
+      " --nimMainPrefix:liblogosdelivery --skipParentCfg:on" &
       " --cc:clang" &
       " " & extra_params &
-      " " & srcDir & "/libwaku.nim"
+      " " & srcDir & "/liblogosdelivery.nim"
 
   # Compile vendor C libraries for iOS
 
