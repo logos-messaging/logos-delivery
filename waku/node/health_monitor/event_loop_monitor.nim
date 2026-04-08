@@ -10,7 +10,9 @@ const CheckInterval = 5.seconds
 declarePublicGauge event_loop_lag_seconds,
   "chronos event loop lag in seconds: difference between actual and expected wake-up interval"
 
-proc eventLoopMonitorLoop*() {.async.} =
+type OnLagChange* = proc(lagTooHigh: bool) {.gcsafe, raises: [].}
+
+proc eventLoopMonitorLoop*(onLagChange: OnLagChange = nil) {.async.} =
   ## Monitors chronos event loop responsiveness.
   ##
   ## Schedules a task every `CheckInterval`. Because chronos is single-threaded
@@ -22,8 +24,10 @@ proc eventLoopMonitorLoop*() {.async.} =
   ##   actual_elapsed >> CheckInterval      → tasks are accumulating / loop is stalling
   ##
   ## The lag (actual - expected) is exposed via `event_loop_lag_seconds`.
+  ## When lag transitions above or below `CheckInterval`, `onLagChange` is called.
 
   var lastWakeup = Moment.now()
+  var lagWasHigh = false
   while true:
     await sleepAsync(CheckInterval)
 
@@ -33,6 +37,8 @@ proc eventLoopMonitorLoop*() {.async.} =
     let lagSecs = lag.nanoseconds.float64 / 1_000_000_000.0
 
     event_loop_lag_seconds.set(lagSecs)
+
+    let lagIsHigh = lag > CheckInterval
 
     if lag > CheckInterval:
       warn "chronos event loop severely lagging, many tasks may be accumulating",
@@ -44,5 +50,9 @@ proc eventLoopMonitorLoop*() {.async.} =
         expected_secs = CheckInterval.seconds,
         actual_secs = actualElapsed.nanoseconds.float64 / 1_000_000_000.0,
         lag_secs = lagSecs
+
+    if not isNil(onLagChange) and lagIsHigh != lagWasHigh:
+      lagWasHigh = lagIsHigh
+      onLagChange(lagIsHigh)
 
     lastWakeup = now
