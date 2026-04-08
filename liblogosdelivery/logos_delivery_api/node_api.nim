@@ -23,17 +23,21 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
     try:
       jsonNode = parseJson($configJson)
     except Exception:
+      let exceptionMsg = getCurrentExceptionMsg()
+      error "Failed to parse config JSON",
+        error = exceptionMsg, configJson = $configJson
       return err(
-        "Failed to parse config JSON: " & getCurrentExceptionMsg() &
-          " configJson string: " & $configJson
+        "Failed to parse config JSON: " & exceptionMsg & " configJson string: " &
+          $configJson
       )
 
-    var jsonFields = initTable[string, (string, JsonNode)]()
+    var jsonFields: Table[string, (string, JsonNode)]
     for key, value in jsonNode:
       let lowerKey = key.toLowerAscii()
 
       if jsonFields.hasKey(lowerKey):
-        error "Duplicate configuration option found when normalized to lowercase.", key = key
+        error "Duplicate configuration option found when normalized to lowercase",
+          key = key
         return err(
           "Duplicate configuration option found when normalized to lowercase: '" & key &
             "'"
@@ -43,24 +47,24 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
 
     for confField, confValue in fieldPairs(conf):
       let lowerField = confField.toLowerAscii()
-      if not jsonFields.hasKey(lowerField):
-        continue
+      if jsonFields.hasKey(lowerField):
+        let (jsonKey, jsonValue) = jsonFields[lowerField]
+        let formattedString = ($jsonValue).strip(chars = {'\"'})
+        try:
+          confValue = parseCmdArg(typeof(confValue), formattedString)
+        except Exception:
+          return err(
+            "Failed to parse field '" & confField & "' from JSON key '" & jsonKey & "': " &
+              getCurrentExceptionMsg() & ". Value: " & formattedString
+          )
 
-      let (jsonKey, jsonValue) = jsonFields[lowerField]
-      let formattedString = ($jsonValue).strip(chars = {'\"'})
-      try:
-        confValue = parseCmdArg(typeof(confValue), formattedString)
-      except Exception:
-        return err(
-          "Failed to parse field '" & confField & "' from JSON key '" & jsonKey & "': " &
-            getCurrentExceptionMsg() & ". Value: " & formattedString
-        )
-
-      jsonFields.del(lowerField)
+        jsonFields.del(lowerField)
 
     if jsonFields.len > 0:
-      let unknownKeys = toSeq(jsonFields.values()).mapIt(it[0])
-      error "Unrecognized configuration option(s) found.", option = unknownKeys
+      var unknownKeys = newSeq[string]()
+      for _, (jsonKey, _) in pairs(jsonFields):
+        unknownKeys.add(jsonKey)
+      error "Unrecognized configuration option(s) found", option = unknownKeys
       return err("Unrecognized configuration option(s) found: " & $unknownKeys)
 
     # Create the node
