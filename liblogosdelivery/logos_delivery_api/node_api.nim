@@ -1,4 +1,4 @@
-import std/[json, strutils, sets]
+import std/[json, strutils, tables]
 import chronos, chronicles, results, confutils, confutils/std/net, ffi
 import
   waku/factory/waku,
@@ -28,29 +28,40 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
           " configJson string: " & $configJson
       )
 
-    # Collect known fields
-    var knownFields = initHashSet[string]()
-    for confField, _ in fieldPairs(conf):
-      knownFields.incl(confField)
-    # Check for unknown keys
-    var unknownKeys = newSeq[string]()
-    for key in jsonNode.keys:
-      if key notin knownFields:
-        unknownKeys.add(key)
-    if unknownKeys.len > 0:
-      error "Unrecognized configuration option(s) found.", option = unknownKeys
-      return err("Unrecognized configuration option(s) found: " & $unknownKeys)
+    var jsonFields = initTable[string, (string, JsonNode)]()
+    for key, value in jsonNode:
+      let lowerKey = key.toLowerAscii()
+
+      if jsonFields.hasKey(lowerKey):
+        error "Duplicate configuration option found when normalized to lowercase.", key = key
+        return err(
+          "Duplicate configuration option found when normalized to lowercase: '" & key &
+            "'"
+        )
+
+      jsonFields[lowerKey] = (key, value)
 
     for confField, confValue in fieldPairs(conf):
-      if jsonNode.contains(confField):
-        let formattedString = ($jsonNode[confField]).strip(chars = {'\"'})
-        try:
-          confValue = parseCmdArg(typeof(confValue), formattedString)
-        except Exception:
-          return err(
-            "Failed to parse field '" & confField & "': " & getCurrentExceptionMsg() &
-              ". Value: " & formattedString
-          )
+      let lowerField = confField.toLowerAscii()
+      if not jsonFields.hasKey(lowerField):
+        continue
+
+      let (jsonKey, jsonValue) = jsonFields[lowerField]
+      let formattedString = ($jsonValue).strip(chars = {'\"'})
+      try:
+        confValue = parseCmdArg(typeof(confValue), formattedString)
+      except Exception:
+        return err(
+          "Failed to parse field '" & confField & "' from JSON key '" & jsonKey & "': " &
+            getCurrentExceptionMsg() & ". Value: " & formattedString
+        )
+
+      jsonFields.del(lowerField)
+
+    if jsonFields.len > 0:
+      let unknownKeys = toSeq(jsonFields.values()).mapIt(it[0])
+      error "Unrecognized configuration option(s) found.", option = unknownKeys
+      return err("Unrecognized configuration option(s) found: " & $unknownKeys)
 
     # Create the node
     ctx.myLib[] = (await api.createNode(conf)).valueOr:
