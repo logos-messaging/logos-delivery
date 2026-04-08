@@ -1,149 +1,101 @@
-{
-  pkgs,
-  src ? ../.,
-  targets ? ["libwaku-android-arm64"],
-  verbosity ? 1,
-  useSystemNim ? true,
-  quickAndDirty ? true,
-  stableSystems ? [
-    "x86_64-linux" "aarch64-linux"
-  ],
-  abidir ? null,
-  zerokitRln,
-}:
-
-assert pkgs.lib.assertMsg (builtins.pathExists "${src}/vendor/nimbus-build-system/scripts")
-  "Unable to build without submodules. Append '?submodules=1#' to the URI.";
+{ pkgs, src, zerokitRln }:
 
 let
-  inherit (pkgs) stdenv lib writeScriptBin callPackage;
+  deps      = import ./deps.nix    { inherit pkgs; };
 
-  androidManifest = "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.mylibrary\" />";
+  # nat_traversal is excluded from the static pathArgs; it is handled
+  # separately in buildPhase (its bundled C libs must be compiled first).
+  otherDeps = builtins.removeAttrs deps [ "nat_traversal" ];
 
-  tools = pkgs.callPackage ./tools.nix {};
-  version = tools.findKeyValue "^version = \"([a-f0-9.-]+)\"$" ../waku.nimble;
-  revision = lib.substring 0 8 (src.rev or src.dirtyRev or "00000000");
-  copyLibwaku = lib.elem "libwaku" targets;
-  copyLiblogosdelivery = lib.elem "liblogosdelivery" targets;
-  copyWakunode2 = lib.elem "wakunode2" targets;
-  hasKnownInstallTarget = copyLibwaku || copyLiblogosdelivery || copyWakunode2;
+  # Some packages (e.g. regex, unicodedb) put their .nim files under src/
+  # while others use the repo root. Pass both so the compiler finds either layout.
+  pathArgs =
+    builtins.concatStringsSep " "
+      (builtins.concatMap (p: [ "--path:${p}" "--path:${p}/src" ])
+        (builtins.attrValues otherDeps));
 
-in stdenv.mkDerivation {
-  pname = "logos-messaging-nim";
-  version = "${version}-${revision}";
+  libExt =
+    if pkgs.stdenv.hostPlatform.isWindows then "dll"
+    else if pkgs.stdenv.hostPlatform.isDarwin then "dylib"
+    else "so";
+in
+pkgs.stdenv.mkDerivation {
+  pname = "liblogosdelivery";
+  version = "dev";
 
   inherit src;
 
-  # Runtime dependencies
-  buildInputs = with pkgs; [
-    openssl gmp zip
-  ];
+  nativeBuildInputs = with pkgs; [
+    nim-2_2
+    git
+    gnumake
+    which
+  ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.cctools ];
 
-  # Dependencies that should only exist in the build environment.
-  nativeBuildInputs = let
-    # Fix for Nim compiler calling 'git rev-parse' and 'lsb_release'.
-    fakeGit = writeScriptBin "git" "echo ${version}";
-  in with pkgs; [
-    cmake which zerokitRln nim-unwrapped-2_2 fakeGit
-  ] ++ lib.optionals stdenv.isDarwin [
-    pkgs.darwin.cctools gcc # Necessary for libbacktrace
-  ];
+  buildInputs = [ zerokitRln ];
 
-  # Environment variables required for Android builds
-  ANDROID_SDK_ROOT = "${pkgs.androidPkgs.sdk}";
-  ANDROID_NDK_HOME = "${pkgs.androidPkgs.ndk}";
-  NIMFLAGS = "-d:disableMarchNative -d:git_revision_override=${revision}";
-  XDG_CACHE_HOME = "/tmp";
+  buildPhase = ''
+    export HOME=$TMPDIR
+    export XDG_CACHE_HOME=$TMPDIR/.cache
+    export NIMBLE_DIR=$TMPDIR/.nimble
+    export NIMCACHE=$TMPDIR/nimcache
 
-  makeFlags = targets ++ [
-    "V=${toString verbosity}"
-    "QUICK_AND_DIRTY_COMPILER=${if quickAndDirty then "1" else "0"}"
-    "QUICK_AND_DIRTY_NIMBLE=${if quickAndDirty then "1" else "0"}"
-    "USE_SYSTEM_NIM=${if useSystemNim then "1" else "0"}"
-    "LIBRLN_FILE=${zerokitRln}/lib/librln.${if abidir != null then "so" else "a"}"
-    "POSTGRES=1"
-  ];
+    mkdir -p build $NIMCACHE
 
-  configurePhase = ''
-    patchShebangs . vendor/nimbus-build-system > /dev/null
+    # nat_traversal bundles C sub-libraries that must be compiled before linking.
+    # Copy the fetchgit store path to a writable tmpdir, build, then pass to nim.
+    NAT_TRAV=$TMPDIR/nat_traversal
+    cp -r ${deps.nat_traversal} $NAT_TRAV
+    chmod -R +w $NAT_TRAV
 
-    # build_nim.sh guards "rm -rf dist/checksums" with NIX_BUILD_TOP != "/build",
-    # but on macOS the nix sandbox uses /private/tmp/... so the check fails and
-    # dist/checksums (provided via preBuild) gets deleted. Fix the check to skip
-    # the removal whenever NIX_BUILD_TOP is set (i.e. any nix build).
-    substituteInPlace vendor/nimbus-build-system/scripts/build_nim.sh \
-      --replace 'if [[ "''${NIX_BUILD_TOP}" != "/build" ]]; then' \
-                'if [[ -z "''${NIX_BUILD_TOP}" ]]; then'
+    make -C $NAT_TRAV/vendor/miniupnp/miniupnpc \
+      CFLAGS="-Os -fPIC" build/libminiupnpc.a
 
-    make nimbus-build-system-paths
-    make nimbus-build-system-nimble-dir
+    make -C $NAT_TRAV/vendor/libnatpmp-upstream \
+      CFLAGS="-Wall -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4" libnatpmp.a
+
+    echo "== Building liblogosdelivery (dynamic) =="
+    nim c \
+      --noNimblePath \
+      ${pathArgs} \
+      --path:$NAT_TRAV \
+      --path:$NAT_TRAV/src \
+      --passL:"-L${zerokitRln}/lib -lrln" \
+      --define:disable_libbacktrace \
+      --out:build/liblogosdelivery.${libExt} \
+      --app:lib \
+      --threads:on \
+      --opt:size \
+      --noMain \
+      --mm:refc \
+      --header \
+      --nimMainPrefix:liblogosdelivery \
+      --nimcache:$NIMCACHE \
+      liblogosdelivery/liblogosdelivery.nim
+
+    echo "== Building liblogosdelivery (static) =="
+    nim c \
+      --noNimblePath \
+      ${pathArgs} \
+      --path:$NAT_TRAV \
+      --path:$NAT_TRAV/src \
+      --passL:"-L${zerokitRln}/lib -lrln" \
+      --define:disable_libbacktrace \
+      --out:build/liblogosdelivery.a \
+      --app:staticlib \
+      --threads:on \
+      --opt:size \
+      --noMain \
+      --mm:refc \
+      --nimMainPrefix:liblogosdelivery \
+      --nimcache:$NIMCACHE \
+      liblogosdelivery/liblogosdelivery.nim
   '';
 
-  # For the Nim v2.2.4 built with NBS we added sat and zippy
-  preBuild = lib.optionalString (!useSystemNim) ''
-    pushd vendor/nimbus-build-system/vendor/Nim
-    mkdir dist
-    mkdir -p dist/nimble/vendor/sat
-    mkdir -p dist/nimble/vendor/checksums
-    mkdir -p dist/nimble/vendor/zippy
-
-    cp -r ${callPackage ./nimble.nix {}}/.    dist/nimble
-    cp -r ${callPackage ./checksums.nix {}}/. dist/checksums
-    cp -r ${callPackage ./csources.nix {}}/.  csources_v2
-    cp -r ${callPackage ./sat.nix {}}/.       dist/nimble/vendor/sat
-    cp -r ${callPackage ./checksums.nix {}}/. dist/nimble/vendor/checksums
-    cp -r ${callPackage ./zippy.nix {}}/.     dist/nimble/vendor/zippy
-    chmod 777 -R dist/nimble csources_v2
-    popd
-  '';
-
-  installPhase = if abidir != null then ''
-    mkdir -p $out/jni
-    cp -r ./build/android/${abidir}/* $out/jni/
-    echo '${androidManifest}' > $out/jni/AndroidManifest.xml
-    cd $out && zip -r libwaku.aar *
-  '' else ''
-    mkdir -p $out/bin $out/include
-
-    # Copy artifacts from build directory (created by Make during buildPhase)
-    # Note: build/ is in the source tree, not result/ (which is a post-build symlink)
-    if [ -d build ]; then
-      ${lib.optionalString copyLibwaku ''
-      cp build/libwaku.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
-      ''}
-
-      ${lib.optionalString copyLiblogosdelivery ''
-      cp build/liblogosdelivery.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
-      ''}
-
-      ${lib.optionalString copyWakunode2 ''
-      cp build/wakunode2 $out/bin/ 2>/dev/null || true
-      ''}
-
-      ${lib.optionalString (!hasKnownInstallTarget) ''
-      cp build/lib*.{so,dylib,dll,a,lib} $out/bin/ 2>/dev/null || true
-      ''}
-    fi
-
-    # Copy header files
-    ${lib.optionalString copyLibwaku ''
-    cp library/libwaku.h $out/include/ 2>/dev/null || true
-    ''}
-
-    ${lib.optionalString copyLiblogosdelivery ''
+  installPhase = ''
+    mkdir -p $out/lib $out/include
+    cp build/liblogosdelivery.${libExt} $out/lib/ 2>/dev/null || true
+    cp build/liblogosdelivery.a         $out/lib/ 2>/dev/null || true
     cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
-    ''}
-
-    ${lib.optionalString (!hasKnownInstallTarget) ''
-    cp library/libwaku.h $out/include/ 2>/dev/null || true
-    cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
-    ''}
   '';
-
-  meta = with pkgs.lib; {
-    description = "NWaku derivation to build libwaku for mobile targets using Android NDK and Rust.";
-    homepage = "https://github.com/status-im/nwaku";
-    license = licenses.mit;
-    platforms = stableSystems;
-  };
 }

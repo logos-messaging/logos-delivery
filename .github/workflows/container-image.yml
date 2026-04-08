@@ -15,6 +15,8 @@ env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC}"
+  NIM_VERSION: '2.2.4'
+  NIMBLE_VERSION: '0.18.2'
 
 # This workflow should not run for outside contributors
 # If org secrets are not available, we'll avoid building and publishing the docker image and we'll pass the workflow
@@ -46,28 +48,42 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: actions/checkout@v4
 
-      - name: Get submodules hash
-        id: submodules
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        if: ${{ steps.secrets.outcome == 'success' }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
         if: ${{ steps.secrets.outcome == 'success' }}
         run: |
-          echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
+          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
-      - name: Cache submodules
+      - name: Cache nimble deps
         if: ${{ steps.secrets.outcome == 'success' }}
+        id: cache-nimbledeps
         uses: actions/cache@v3
         with:
           path: |
-            vendor/
-            .git/modules
-          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+            nimbledeps/
+            nimble.paths
+          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock') }}
+
+      - name: Install nimble deps
+        if: ${{ steps.secrets.outcome == 'success' && steps.cache-nimbledeps.outputs.cache-hit != 'true' }}
+        run: |
+          nimble setup --localdeps -y
+          make rebuild-nat-libs-nimbledeps
+          make rebuild-bearssl-nimbledeps
+          touch nimbledeps/.nimble-setup
 
       - name: Build binaries
         id: build
         if: ${{ steps.secrets.outcome == 'success' }}
         run: |
-          make update
-
-          make -j${NPROC} V=1 QUICK_AND_DIRTY_COMPILER=1 NIMFLAGS="-d:disableMarchNative -d:postgres -d:chronicles_colors:none" wakunode2
+          make -j${NPROC} V=1 NIMFLAGS="-d:disableMarchNative -d:postgres -d:chronicles_colors:none" wakunode2
 
           SHORT_REF=$(git rev-parse --short HEAD)
 

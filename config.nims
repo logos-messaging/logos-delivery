@@ -9,12 +9,6 @@ if defined(windows):
   switch("passL", "rln.lib")
   switch("define", "postgres=false")
 
-  # Automatically add all vendor subdirectories
-  for dir in walkDir("./vendor"):
-    if dir.kind == pcDir:
-      switch("path", dir.path)
-      switch("path", dir.path / "src")
-
   # disable timestamps in Windows PE headers - https://wiki.debian.org/ReproducibleBuilds/TimestampsInPEBinaries
   switch("passL", "-Wl,--no-insert-timestamp")
   # increase stack size
@@ -121,3 +115,8 @@ if defined(android):
   switch("passC", "--sysroot=" & sysRoot)
   switch("passL", "--sysroot=" & sysRoot)
   switch("cincludes", sysRoot & "/usr/include/")
+# begin Nimble config (version 2)
+when withDir(thisDir(), system.fileExists("nimble.paths")):
+  --noNimblePath
+  include "nimble.paths"
+# end Nimble config

@@ -1,92 +1,70 @@
 {
-  description = "Logos Messaging Nim build flake";
+  description = "logos-delivery nim build flake";
 
   nixConfig = {
     extra-substituters = [ "https://nix-cache.status.im/" ];
-    extra-trusted-public-keys = [ "nix-cache.status.im-1:x/93lOfLU+duPplwMSBR+OlY4+mo+dCN7n0mr4oPwgY=" ];
+    extra-trusted-public-keys = [
+      "nix-cache.status.im-1:x/93lOfLU+duPplwMSBR+OlY4+mo+dCN7n0mr4oPwgY="
+    ];
   };
 
   inputs = {
-    # Ensure Nix fetches git submodules (vendor/*) when evaluating this flake.
-    # Requires Nix >= 2.27.  Consumers no longer need '?submodules=1' in the URL.
-    self.submodules = true;
+    # Pinning the commit to use same commit across different projects.
+    # A commit from nixpkgs 25.11 release: https://github.com/NixOS/nixpkgs/tree/release-25.11
+    nixpkgs.url = "github:NixOS/nixpkgs?rev=23d72dabcb3b12469f57b37170fcbc1789bd7457";
 
-    # We are pinning the commit because ultimately we want to use same commit across different projects.
-    # A commit from nixpkgs 24.11 release : https://github.com/NixOS/nixpkgs/tree/release-24.11
-    nixpkgs.url = "github:NixOS/nixpkgs/0ef228213045d2cdb5a169a95d63ded38670b293";
-    # WARNING: Remember to update commit and use 'nix flake update' to update flake.lock.
+    rust-overlay = {
+      url = "github:oxalica/rust-overlay";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
+
+    # External flake input: Zerokit pinned to a specific commit.
+    # Update the rev here when a new zerokit version is needed.
     zerokit = {
-      url = "git+https://github.com/vacp2p/zerokit?rev=3160d9504d07791f2fc9b610948a6cf9a58ed488";
+      url = "github:vacp2p/zerokit/53b18098e6d5d046e3eb1ac338a8f4f651432477";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
 
-  outputs = { self, nixpkgs, zerokit }:
+  outputs = { self, nixpkgs, rust-overlay, zerokit }:
     let
-      stableSystems = [
+      systems = [
         "x86_64-linux" "aarch64-linux"
         "x86_64-darwin" "aarch64-darwin"
-        "x86_64-windows" "i686-linux"
-        "i686-windows"
+        "x86_64-windows"
       ];
 
-      forAllSystems = f: nixpkgs.lib.genAttrs stableSystems (system: f system);
+      forAllSystems = nixpkgs.lib.genAttrs systems;
 
-      pkgsFor = forAllSystems (
-        system: import nixpkgs {
-          inherit system;
-          config = {
-            android_sdk.accept_license = true;
-            allowUnfree = true;
+      pkgsFor = system: import nixpkgs {
+        inherit system;
+        overlays = [ (import rust-overlay) ];
+      };
+    in {
+      packages = forAllSystems (system:
+        let
+          pkgs = pkgsFor system;
+          mkPkg = zerokitRln: import ./nix/default.nix {
+            inherit pkgs zerokitRln;
+            src = ./.;
           };
-          overlays =  [
-            (final: prev: {
-              androidEnvCustom = prev.callPackage ./nix/pkgs/android-sdk { };
-              androidPkgs = final.androidEnvCustom.pkgs;
-              androidShell = final.androidEnvCustom.shell;
-            })
-          ];
+        in rec {
+          liblogosdelivery = mkPkg zerokit.packages.${system}.rln;
+          default          = liblogosdelivery;
         }
       );
 
-    in rec {
-      packages = forAllSystems (system: let
-        pkgs = pkgsFor.${system};
-      in rec {
-        libwaku-android-arm64 = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["libwaku-android-arm64"];
-          abidir = "arm64-v8a";
-          zerokitRln = zerokit.packages.${system}.rln-android-arm64;
-        };
-
-        libwaku = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["libwaku"];
-          zerokitRln = zerokit.packages.${system}.rln;
-        };
-
-        wakucanary = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["wakucanary"];
-          zerokitRln = zerokit.packages.${system}.rln;
-        };
-
-        liblogosdelivery = pkgs.callPackage ./nix/default.nix {
-          inherit stableSystems;
-          src = self;
-          targets = ["liblogosdelivery"];
-          zerokitRln = zerokit.packages.${system}.rln;
-        };
-
-        default = libwaku;
-      });
-
-      devShells = forAllSystems (system: {
-        default = pkgsFor.${system}.callPackage ./nix/shell.nix {};
-      });
+      devShells = forAllSystems (system:
+        let
+          pkgs = pkgsFor system;
+        in {
+          default = pkgs.mkShell {
+            nativeBuildInputs = with pkgs; [
+              nim-2_2
+              nimble
+            ];
+          };
+        }
+      );
     };
 }

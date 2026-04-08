@@ -63,10 +63,10 @@ jobs:
         run: |
           OS=$([[ "${{runner.os}}" == "macOS" ]] && echo "macosx" || echo "linux")
 
-          make QUICK_AND_DIRTY_COMPILER=1 V=1 CI=false NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
+          make V=1 CI=false NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
             update
 
-          make QUICK_AND_DIRTY_COMPILER=1 V=1 CI=false\
+          make V=1 CI=false\
             NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" \
             wakunode2\
             chat2\

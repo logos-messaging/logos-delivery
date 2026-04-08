@@ -3,9 +3,6 @@
 # Executables shall be put in an ignored build/ directory
 /build
 
-# Nimble packages
-/vendor/.nimble
-
 # Generated Files
 *.generated.nim
 
@@ -44,9 +41,6 @@ node_modules/
 # RLN / keystore
 rlnKeystore.json
 *.tar.gz
-
-# Nimbus Build System
-nimbus-build-system.paths
 
 # sqlite db
 *.db
