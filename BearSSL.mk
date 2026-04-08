@@ -22,6 +22,13 @@
 BEARSSL_NIMBLEDEPS_DIR := $(shell ls -dt $(CURDIR)/nimbledeps/pkgs2/bearssl-* 2>/dev/null | head -1)
 BEARSSL_CSOURCES_DIR   := $(BEARSSL_NIMBLEDEPS_DIR)/bearssl/csources
 
+BEARSSL_UNAME_M := $(shell uname -m)
+ifeq ($(BEARSSL_UNAME_M),x86_64)
+  PORTABLE_BEARSSL_CFLAGS := -W -Wall -Os -fPIC -mssse3
+else
+  PORTABLE_BEARSSL_CFLAGS := -W -Wall -Os -fPIC
+endif
+
 .PHONY: clean-bearssl-nimbledeps rebuild-bearssl-nimbledeps
 
 clean-bearssl-nimbledeps:
@@ -36,4 +43,4 @@ ifeq ($(BEARSSL_NIMBLEDEPS_DIR),)
 	$(error No bearssl package found under nimbledeps/pkgs2/ — run 'make update' first)
 endif
 	@echo "Rebuilding bearssl from $(BEARSSL_CSOURCES_DIR)"
-	+ "$(MAKE)" -C "$(BEARSSL_CSOURCES_DIR)" lib
+	+ "$(MAKE)" -C "$(BEARSSL_CSOURCES_DIR)" CFLAGS="$(PORTABLE_BEARSSL_CFLAGS)" lib

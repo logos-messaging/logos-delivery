@@ -21,6 +21,13 @@
 
 NAT_TRAVERSAL_NIMBLEDEPS_DIR := $(shell ls -dt $(CURDIR)/nimbledeps/pkgs2/nat_traversal-* 2>/dev/null | head -1)
 
+NAT_UNAME_M := $(shell uname -m)
+ifeq ($(NAT_UNAME_M),x86_64)
+  PORTABLE_NAT_MARCH := -mssse3
+else
+  PORTABLE_NAT_MARCH :=
+endif
+
 .PHONY: clean-cross-nimbledeps rebuild-nat-libs-nimbledeps
 
 clean-cross-nimbledeps:
@@ -47,8 +54,8 @@ ifeq ($(OS), Windows_NT)
 		libnatpmp.a $(HANDLE_OUTPUT)
 else
 	+ "$(MAKE)" -C "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/miniupnp/miniupnpc" \
-		CC=$(CC) CFLAGS="-Os -fPIC" build/libminiupnpc.a $(HANDLE_OUTPUT)
-	+ "$(MAKE)" CFLAGS="-Wall -Wno-cpp -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4 $(CFLAGS)" \
+		CC=$(CC) CFLAGS="-Os -fPIC $(PORTABLE_NAT_MARCH)" build/libminiupnpc.a $(HANDLE_OUTPUT)
+	+ "$(MAKE)" CFLAGS="-Wall -Wno-cpp -Os -fPIC $(PORTABLE_NAT_MARCH) -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4 $(CFLAGS)" \
 		-C "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/libnatpmp-upstream" \
 		CC=$(CC) libnatpmp.a $(HANDLE_OUTPUT)
 endif
