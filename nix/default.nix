@@ -2,8 +2,6 @@
 
 let
   deps      = import ./deps.nix    { inherit pkgs; };
-  nimSrc    = pkgs.callPackage ./nim.nix    {};
-  nimbleSrc = pkgs.callPackage ./nimble.nix {};
 
   # nat_traversal is excluded from the static pathArgs; it is handled
   # separately in buildPhase (its bundled C libs must be compiled first).
@@ -62,8 +60,6 @@ pkgs.stdenv.mkDerivation {
       ${pathArgs} \
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
-      --lib:${nimSrc}/lib \
-      --nimblePath:${nimbleSrc} \
       --passL:"-L${zerokitRln}/lib -lrln" \
       --define:disable_libbacktrace \
       --out:build/liblogosdelivery.${libExt} \
@@ -83,8 +79,6 @@ pkgs.stdenv.mkDerivation {
       ${pathArgs} \
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
-      --lib:${nimSrc}/lib \
-      --nimblePath:${nimbleSrc} \
       --passL:"-L${zerokitRln}/lib -lrln" \
       --define:disable_libbacktrace \
       --out:build/liblogosdelivery.a \

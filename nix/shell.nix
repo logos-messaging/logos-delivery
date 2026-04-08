@@ -14,6 +14,7 @@ pkgs.mkShell {
     rustup
     rustc
     cmake
-    nim-unwrapped-2_2
+    nim-2_2
+    nimble
   ];
 }
