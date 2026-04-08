@@ -1,7 +1,8 @@
 # Fetches Nimble at the exact revision declared in waku.nimble.
-# Regenerate sha256 with:
-#   nix shell nixpkgs#nix-prefetch-git --command \
-#     nix-prefetch-git --url https://github.com/nim-lang/nimble --rev v<version> --fetch-submodules
+# Regenerate hash with:
+#   nix store prefetch-file --hash-type sha256 --unpack \
+#     https://github.com/nim-lang/nimble/archive/v<version>.tar.gz
+# or set hash = "" and let Nix report the correct value.
 { pkgs }:
 let
   lines       = pkgs.lib.splitString "\n" (builtins.readFile ../waku.nimble);
@@ -10,8 +11,7 @@ let
   version     = builtins.head (builtins.match ".*\"([0-9]+\\.[0-9]+\\.[0-9]+)\".*" versionLine);
 in
 pkgs.fetchgit {
-  url = "https://github.com/nim-lang/nimble";
-  rev = "v${version}";
-  sha256 = "18cwsjwcgjmnm42kr310hfbw06lym3vaj641i4pla6r8w22xqpqd";
-  fetchSubmodules = true;
+  url  = "https://github.com/nim-lang/nimble";
+  rev  = "v${version}";
+  hash = "sha256-wgzFhModFkwB8st8F5vSkua7dITGGC2cjoDvgkRVZMs=";
 }
