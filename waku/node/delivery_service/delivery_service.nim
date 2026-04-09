@@ -12,7 +12,7 @@ import
 
 type DeliveryService* = ref object
   sendService*: SendService
-  recvService: RecvService
+  recvService*: RecvService
   subscriptionManager*: SubscriptionManager
 
 proc new*(
