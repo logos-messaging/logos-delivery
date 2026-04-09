@@ -24,6 +24,7 @@ The simulation includes:
 | `run_chat_mix.sh`  | Chat app instance 1                        |
 | `run_chat_mix1.sh` | Chat app instance 2                        |
 | `build_setup.sh`   | Build and generate RLN credentials         |
+| `check_cover_traffic.sh` | Monitor cover traffic metrics from all nodes |
 
 ## Prerequisites
 
@@ -130,3 +131,29 @@ To exit the chat apps, enter `/exit`:
 >> /exit
 quitting...
 ```
+
+## Running Without DoS Protection
+
+To test cover traffic without RLN spam protection (avoids heavy proof generation compute), the config files include two flags:
+
+```toml
+mix-user-message-limit=2        # slots per epoch (reduce for lighter testing)
+mix-disable-spam-protection=true # skip RLN proof generation/verification
+```
+
+These are already set in `config.toml` through `config4.toml`. To re-enable RLN, set `mix-disable-spam-protection=false` (or remove the line) and ensure credentials are generated via `./build_setup.sh`.
+
+When running without DoS protection, cover traffic uses an internal epoch timer and does not require RLN credentials or `rln_tree.db`.
+
+### Monitoring Cover Traffic
+
+Use the metrics script to verify cover traffic is working:
+
+```bash
+./check_cover_traffic.sh
+```
+
+Key metrics to look for:
+- `mix_cover_emitted_total` — cover messages generated per node (should increase each epoch)
+- `mix_cover_received_total` — cover messages received back at origin after 3-hop mix path
+- `mix_slots_exhausted_total` — expected when slots per epoch are low
