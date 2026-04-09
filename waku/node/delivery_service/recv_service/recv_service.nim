@@ -75,7 +75,7 @@ proc processIncomingMessageOfInterest(
 ): bool =
   ## Deduplicate (by hash), store (saves in recently-seen messages) and emit
   ## the MAPI MessageReceivedEvent for every unique incoming message.
-  ## Returns true if the message was new and delivered.
+  ## Returns true if the message was new and the MessageReceivedEvent was properly emitted.
 
   let msgHash = computeMessageHash(pubsubTopic, message)
   if not self.recentReceivedMsgs.anyIt(it.msgHash == msgHash):
