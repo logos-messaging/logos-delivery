@@ -69,7 +69,7 @@ jobs:
           path: |
             nimbledeps/
             nimble.paths
-          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock') }}
+          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
         if: ${{ steps.secrets.outcome == 'success' && steps.cache-nimbledeps.outputs.cache-hit != 'true' }}
