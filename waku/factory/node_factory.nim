@@ -180,7 +180,7 @@ proc setupProtocols(
 
     node.wakuKademlia = WakuKademlia.new(
       node.switch,
-      ExtendedKademliaDiscoveryParams(
+      ExtendedServiceDiscoveryParams(
         bootstrapNodes: conf.kademliaDiscoveryConf.get().bootstrapNodes,
         mixPubKey: mixPubKey,
         advertiseMix: conf.mixConf.isSome(),

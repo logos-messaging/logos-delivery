@@ -20,7 +20,7 @@ import
 
 const
   KeystorePassword = "mix-rln-password" # Must match protocol.nim
-  DefaultUserMessageLimit = 2'u64 # ~12 msgs/min with 10s epochs
+  DefaultUserMessageLimit = 4'u64 # R=4 slots per 10s epoch
   SpammerUserMessageLimit = 3'u64 # Higher limit for spammer testing
 
   # Peer IDs derived from nodekeys in config files

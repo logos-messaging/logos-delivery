@@ -102,7 +102,7 @@ proc new*(
   let totalSlots = userMessageLimit.get(2)
   let ct = ConstantRateCoverTraffic.new(
     totalSlots = totalSlots,
-    epochDurationSec = 10.0,
+    epochDuration = 10.seconds,
     useInternalEpochTimer = disableSpamProtection,
   )
 
@@ -137,8 +137,11 @@ proc new*(
     localMixNodeInfo,
     peermgr.switch,
     spamProtection = spamProtectionOpt,
-    delayStrategy = Opt.some(DelayStrategy(
-      ExponentialDelayStrategy.new(meanDelay = 100, rng = crypto.newRng()))),
+    delayStrategy = Opt.some(
+      DelayStrategy(
+        ExponentialDelayStrategy.new(meanDelay = 100, rng = crypto.newRng())
+      )
+    ),
     coverTraffic = Opt.some(CoverTraffic(ct)),
   )
 

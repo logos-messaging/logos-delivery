@@ -12,7 +12,7 @@ for i in 1 2 3 4 5; do
   if [ -z "$metrics" ]; then
     echo "  (unreachable)"
   else
-    echo "$metrics" | grep -E "mix_cover_|mix_slots_" | grep -v "^#" || echo "  (no cover metrics yet)"
+    echo "$metrics" | grep -E "mix_cover_|mix_slot_" | grep -v "^#" || echo "  (no cover metrics yet)"
   fi
   echo ""
 done
