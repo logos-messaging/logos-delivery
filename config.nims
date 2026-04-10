@@ -99,9 +99,6 @@ if not defined(macosx) and not defined(android):
       nimStackTraceOverride
     switch("import", "libbacktrace")
 
-# Compatibility shims for std/options after results library update
-switch("import", "waku/common/option_shims")
-
 --define:
   nimOldCaseObjects
   # https://github.com/status-im/nim-confutils/issues/9

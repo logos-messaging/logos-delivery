@@ -10,6 +10,7 @@ import
   libp2p/crypto/curve25519
 
 import
+  ../../common/option_shims,
   ../../waku_core,
   ../../waku_enr/sharding,
   ../../waku_enr/capabilities,

@@ -13,6 +13,7 @@ import
 import metrics except collect
 
 import
+  waku/common/option_shims,
   waku/node/peer_manager,
   waku/waku_core/peers,
   waku/waku_core/codecs,

@@ -122,11 +122,16 @@ proc new*(
   else:
     info "mix spam protection disabled"
 
+  var mixRlnSpam: MixRlnSpamProtection
+  if spamProtectionOpt.isSome():
+    mixRlnSpam = MixRlnSpamProtection(spamProtectionOpt.get())
+
   var m = WakuMix(
     peerManager: peermgr,
     clusterId: clusterId,
     pubKey: mixPubKey,
     publishMessage: publishMessage,
+    mixRlnSpamProtection: mixRlnSpam,
   )
   procCall MixProtocol(m).init(
     localMixNodeInfo,
@@ -151,6 +156,8 @@ proc setupSpamProtectionCallbacks(mix: WakuMix) =
   ## Set up the publish callback for spam protection coordination.
   ## This enables the plugin to broadcast membership updates and proof metadata
   ## via Waku relay.
+  if mix.mixRlnSpamProtection.isNil():
+    return
   if mix.publishMessage.isNil():
     warn "PublishMessage callback not available, spam protection coordination disabled"
     return

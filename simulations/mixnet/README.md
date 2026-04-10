@@ -157,3 +157,9 @@ Key metrics to look for:
 - `mix_cover_emitted_total` — cover messages generated per node (should increase each epoch)
 - `mix_cover_received_total` — cover messages received back at origin after 3-hop mix path
 - `mix_slots_exhausted_total` — expected when slots per epoch are low
+
+### Note on Rate Limit and Expected Errors
+
+The default `mix-user-message-limit=2` (R=2) with path length L=3 yields a fractional cover target of `R/(1+L) = 0.5` packets per epoch. Because this is not an integer, epoch boundary jitter can cause two cover emissions in one epoch, exhausting all slots and leaving none for forwarding. This produces `SLOT_EXHAUSTED` and `SPAM_PROOF_GEN_FAILED` errors at intermediate hops — these are expected with the default config.
+
+For a clean setup, R should be a multiple of `(1+L) = 4`. Setting `mix-user-message-limit=4` gives exactly 1 cover packet per epoch with 3 slots remaining for forwarding, eliminating these errors.

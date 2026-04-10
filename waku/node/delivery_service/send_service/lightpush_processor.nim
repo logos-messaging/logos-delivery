@@ -2,6 +2,7 @@ import chronicles, chronos, results
 import std/options
 
 import
+  waku/common/option_shims,
   waku/node/peer_manager,
   waku/waku_core,
   waku/waku_lightpush/[common, client, rpc],

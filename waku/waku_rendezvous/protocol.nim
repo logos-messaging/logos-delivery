@@ -19,6 +19,7 @@ import metrics except collect
 import
   ../node/peer_manager,
   ../common/callbacks,
+  ../common/option_shims,
   ../waku_enr/capabilities,
   ../waku_core/peers,
   ../waku_core/codecs,

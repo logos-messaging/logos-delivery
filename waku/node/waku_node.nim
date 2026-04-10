@@ -57,6 +57,7 @@ import
     waku_rln_relay,
     common/rate_limit/setting,
     common/callbacks,
+    common/option_shims,
     common/nimchronos,
     common/broker/broker_context,
     common/broker/request_broker,
