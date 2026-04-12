@@ -89,11 +89,20 @@ jobs:
             nimble.paths
         key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
+    - name: Configure Windows Git line endings
+      # nimble.exe is a Windows binary that spawns Windows Git (not MSYS2 git).
+      # Windows Git reads %USERPROFILE%\.gitconfig (C:\Users\<user>\.gitconfig),
+      # which is a different file from MSYS2's ~/,gitconfig (C:\msys64\home\<user>\.gitconfig).
+      # core.autocrlf defaults to true on Windows, which converts LF→CRLF on checkout
+      # and causes nimble's SHA1 checksum to differ from the Linux-computed value in nimble.lock.
+      run: |
+        "/c/Program Files/Git/bin/git.exe" config --global core.autocrlf false
+        "/c/Program Files/Git/bin/git.exe" config --global --add safe.directory '*'
+
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        git config --global --add safe.directory '*'
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
