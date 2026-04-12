@@ -16,7 +16,7 @@ env:
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC}"
   NIM_VERSION: '2.2.4'
-  NIMBLE_VERSION: '0.18.2'
+  NIMBLE_VERSION: '0.22.3'
 
 # This workflow should not run for outside contributors
 # If org secrets are not available, we'll avoid building and publishing the docker image and we'll pass the workflow
