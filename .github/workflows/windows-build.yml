@@ -87,7 +87,7 @@ jobs:
         path: |
             nimbledeps/
             nimble.paths
-        key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+        key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
     - name: Configure Windows Git line endings
       # nimble.exe is a Windows binary that spawns Windows Git (not MSYS2 git).
