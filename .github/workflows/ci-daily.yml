@@ -5,7 +5,7 @@ on:
     - cron: '30 6 * * *'
 
 env:
-  NPROC: 2
+  NPROC: 1
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
 

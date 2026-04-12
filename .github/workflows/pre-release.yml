@@ -11,7 +11,7 @@ on:
 env:
   RELEASE_NAME: nightly
 
-  NPROC: 2
+  NPROC: 1
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC}"
 
