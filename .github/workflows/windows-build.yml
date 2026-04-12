@@ -93,6 +93,7 @@ jobs:
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        git config --global core.autocrlf false
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
