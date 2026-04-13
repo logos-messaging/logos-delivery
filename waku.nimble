@@ -64,7 +64,7 @@ requires "nim >= 2.2.4",
 requires "https://github.com/logos-messaging/nim-ffi"
 
 requires "https://github.com/vacp2p/nim-lsquic"
-requires "https://github.com/vacp2p/nim-jwt.git#18f8378de52b241f321c1f9ea905456e89b95c6f"
+requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
