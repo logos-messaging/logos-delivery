@@ -19,7 +19,7 @@ import waku/waku_core, waku/node/peer_manager
 logScope:
   topics = "waku kademlia"
 
-const DefaultKademliaDiscoveryInterval* = chronos.seconds(10)
+const DefaultKademliaDiscoveryInterval* = chronos.seconds(60)
 
 type WakuKademlia* = ref object
   protocol*: KademliaDiscovery
@@ -130,6 +130,7 @@ proc new*(
     bootstrapNodes: seq[(PeerId, seq[MultiAddress])],
     providedServices: var seq[ServiceInfo],
     loopInterval: Duration = DefaultKademliaDiscoveryInterval,
+    xprPublishing: bool = false,
 ): T =
   if bootstrapNodes.len == 0:
     debug "creating kademlia discovery as seed node (no bootstrap nodes)"
@@ -141,6 +142,7 @@ proc new*(
       validator = kad_types.ExtEntryValidator(), selector = kad_types.ExtEntrySelector()
     ),
     services = providedServices,
+    xprPublishing = xprPublishing,
   )
 
   return WakuKademlia(
