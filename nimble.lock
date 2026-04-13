@@ -550,8 +550,8 @@
       }
     },
     "libp2p": {
-      "version": "#ff8d51857b4b79a68468e7bcc27b2026cca02996",
-      "vcsRevision": "ff8d51857b4b79a68468e7bcc27b2026cca02996",
+      "version": "#ebd8b7fe525e75b2dd59b175ee1e7517cc0a270f",
+      "vcsRevision": "ebd8b7fe525e75b2dd59b175ee1e7517cc0a270f",
       "url": "https://github.com/vacp2p/nim-libp2p.git",
       "downloadMethod": "git",
       "dependencies": [
@@ -564,15 +564,15 @@
         "metrics",
         "secp256k1",
         "stew",
-        "websock",
         "unittest2",
         "results",
         "serialization",
+        "websock",
         "lsquic",
         "jwt"
       ],
       "checksums": {
-        "sha1": "fa2a7552c6ec860717b77ce34cf0b7afe4570234"
+        "sha1": "1a17b741774190d8a9400b4291d6a9046f29faf7"
       }
     },
     "taskpools": {
