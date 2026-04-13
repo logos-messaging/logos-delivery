@@ -262,8 +262,24 @@ proc parseUrlPeerAddr*(
   return ok(some(parsedPeerInfo))
 
 proc toRemotePeerInfo*(enrRec: enr.Record): Result[RemotePeerInfo, cstring] =
-  ## Converts an ENR to dialable RemotePeerInfo
-  let typedR = enr.TypedRecord.fromRecord(enrRec)
+  ## Converts an ENR to dialable RemotePeerInfo.
+  ##
+  ## Builds dialable addresses from BOTH:
+  ##   1. The standard tcp/tcp6 ENR fields (legacy TCP libp2p path)
+  ##   2. The "multiaddrs" ENR extension field (rich multiaddrs including QUIC)
+  ##
+  ## Note: the standard udp/udp6 ENR fields are reserved for discv5 itself,
+  ## not for application-level QUIC. Application QUIC addresses live in the
+  ## "multiaddrs" extension field per RFC 31.
+  ##
+  ## QUIC multiaddrs are sorted to the front so libp2p prefers QUIC when
+  ## both transports are available.
+  ##
+  ## Uses the waku TypedRecord wrapper (waku/common/enr/typed_record) rather
+  ## than eth.TypedRecord directly, because the waku wrapper is what the
+  ## multiaddrs() accessor in waku_enr/multiaddr.nim takes.
+  let typedR = enrRec.toTyped().valueOr:
+    return err("enr: failed to construct typed record")
   if not typedR.secp256k1.isSome():
     return err("enr: no secp256k1 key in record")
 
@@ -272,41 +288,39 @@ proc toRemotePeerInfo*(enrRec: enr.Record): Result[RemotePeerInfo, cstring] =
     peerId =
       ?PeerID.init(crypto.PublicKey(scheme: Secp256k1, skkey: secp.SkPublicKey(pubKey)))
 
-  let transportProto = getTransportProtocol(typedR)
-  if transportProto.isNone():
-    return err("enr: could not determine transport protocol")
-
   var addrs = newSeq[MultiAddress]()
-  case transportProto.get()
-  of tcpProtocol:
-    if typedR.ip.isSome() and typedR.tcp.isSome():
-      let ip = ipv4(typedR.ip.get())
-      addrs.add MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp.get()))
 
-    if typedR.ip6.isSome():
-      let ip = ipv6(typedR.ip6.get())
-      if typedR.tcp6.isSome():
-        addrs.add MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp6.get()))
-      elif typedR.tcp.isSome():
-        addrs.add MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp.get()))
-      else:
-        discard
-  of udpProtocol:
-    if typedR.ip.isSome() and typedR.udp.isSome():
-      let ip = ipv4(typedR.ip.get())
-      addrs.add MultiAddress.init(ip, udpProtocol, Port(typedR.udp.get()))
+  # 1. Addresses from the multiaddrs ENR extension (may include QUIC).
+  let multiaddrsField = typedR.multiaddrs()
+  if multiaddrsField.isSome():
+    addrs.add(multiaddrsField.get())
 
-    if typedR.ip6.isSome():
-      let ip = ipv6(typedR.ip6.get())
-      if typedR.udp6.isSome():
-        addrs.add MultiAddress.init(ip, udpProtocol, Port(typedR.udp6.get()))
-      elif typedR.udp.isSome():
-        addrs.add MultiAddress.init(ip, udpProtocol, Port(typedR.udp.get()))
-      else:
-        discard
+  # 2. Addresses from the standard tcp/tcp6 ENR fields, if not already covered
+  #    by the multiaddrs extension.
+  if typedR.ip.isSome() and typedR.tcp.isSome():
+    let ip = ipv4(typedR.ip.get())
+    let tcpAddr = MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp.get()))
+    if tcpAddr notin addrs:
+      addrs.add(tcpAddr)
+
+  if typedR.ip6.isSome():
+    let ip = ipv6(typedR.ip6.get())
+    if typedR.tcp6.isSome():
+      let tcp6Addr = MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp6.get()))
+      if tcp6Addr notin addrs:
+        addrs.add(tcp6Addr)
+    elif typedR.tcp.isSome():
+      let tcp6Addr = MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp.get()))
+      if tcp6Addr notin addrs:
+        addrs.add(tcp6Addr)
 
   if addrs.len == 0:
-    return err("enr: no addresses in record")
+    return err("enr: no dialable addresses in record")
+
+  # 3. Sort QUIC multiaddrs to the front so libp2p dials QUIC first when both
+  #    transports are available. Mirrors the sort applied in the PeerInfo
+  #    converter below.
+  addrs = addrs.filterIt("/quic-v1" in $it) & addrs.filterIt("/quic-v1" notin $it)
 
   let protocolsRes = catch:
     enrRec.getCapabilitiesCodecs()

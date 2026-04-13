@@ -19,6 +19,9 @@ RUN apk update && apk upgrade
 # Ran separately from 'make' to avoid re-doing
 RUN git submodule update --init --recursive
 
+# Apply QUIC patches AFTER submodule init (which would otherwise reset them)
+RUN bash temp/apply.sh
+
 RUN if [ "$HEAPTRACK_BUILD" = "1" ]; then \
       git apply --directory=vendor/nimbus-build-system/vendor/Nim docs/tutorial/nim.2.2.4_heaptracker_addon.patch; \
     fi

@@ -7,3 +7,4 @@
 /nimcache
 librln*
 **/vendor/*
+!temp/vendor/**
