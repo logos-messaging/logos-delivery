@@ -24,6 +24,18 @@ jobs:
       MSYSTEM: MINGW64
 
     steps:
+    - name: Enable Windows long paths (registry)
+      shell: powershell
+      run: |
+        Set-ItemProperty `
+          -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
+          -Name 'LongPathsEnabled' `
+          -Value 1
+
+    - name: Enable git long paths
+      shell: powershell
+      run: git config --global core.longpaths true
+
     - name: Checkout code
       uses: actions/checkout@v4
 
