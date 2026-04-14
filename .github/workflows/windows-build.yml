@@ -102,13 +102,15 @@ jobs:
       env:
         # lsquic bundles BoringSSL as a submodule whose fuzz corpus has deeply-nested
         # paths. With the default TEMP at D:\a\_temp\msys64\tmp the total path length
-        # exceeds Windows MAX_PATH (260 chars). Use a short TEMP so nimble's scratch
-        # directory stays within the limit.
+        # exceeds Windows MAX_PATH (260 chars). Use a short TEMP/TMP (Windows) and
+        # TMPDIR (MSYS2/POSIX) so nimble's scratch directory stays within the limit.
         TEMP: 'C:\t'
         TMP: 'C:\t'
+        TMPDIR: '/c/t'
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
         mkdir -p /c/t
+        export TMPDIR=/c/t
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
