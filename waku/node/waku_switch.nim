@@ -9,7 +9,10 @@ import
   libp2p/crypto/crypto,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/rendezvous,
-  libp2p/protocols/connectivity/relay/relay,
+  libp2p/protocols/connectivity/relay/[client, relay],
+  libp2p/protocols/connectivity/autonat/[client, service],
+  libp2p/services/hpservice,
+  libp2p/services/autorelayservice,
   libp2p/nameresolving/nameresolver,
   libp2p/builders,
   libp2p/switch,
@@ -75,7 +78,13 @@ proc newWakuSwitch*(
     peerStoreCapacity = none(int), # defaults to 1.25 maxConnections
     rendezvous: RendezVous = nil,
     circuitRelay: Relay,
+    maxNumRelays: int = 5,
 ): Switch {.raises: [Defect, IOError, LPError].} =
+  let
+    autonatService = AutonatService.new(AutonatClient(), rng)
+    autoRelayService = AutoRelayService.new(maxNumRelays, RelayClient.new(), nil, rng)
+    hpService: Service = HPService.new(autonatService, autoRelayService)
+
   var b = SwitchBuilder
     .new()
     .withRng(rng)
@@ -90,7 +99,7 @@ proc newWakuSwitch*(
     .withNameResolver(nameResolver)
     .withSignedPeerRecord(sendSignedPeerRecord)
     .withCircuitRelay(circuitRelay)
-    .withAutonat()
+    .withServices(@[hpService])
 
   if peerStoreCapacity.isSome():
     b = b.withPeerStore(peerStoreCapacity.get())
