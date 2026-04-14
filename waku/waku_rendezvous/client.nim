@@ -7,8 +7,7 @@ import
   chronicles,
   libp2p/protocols/rendezvous,
   libp2p/crypto/curve25519,
-  libp2p/switch,
-  libp2p/utils/semaphore
+  libp2p/switch
 
 import metrics except collect
 
