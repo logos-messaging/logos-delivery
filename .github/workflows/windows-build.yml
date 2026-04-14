@@ -123,9 +123,15 @@ jobs:
         TMP: 'C:\t'
         TMPDIR: '/c/t'
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        # $HOME/.nimble/bin must precede .nim_runtime/bin so the fork nimble
+        # installed in the previous step shadows the one bundled with setup-nim-action.
+        export PATH="$HOME/.nimble/bin:$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         mkdir -p /c/t
-        export TMPDIR=/c/t
+        # MSYS2 startup overrides TEMP/TMP to /tmp; re-export here as Windows-style
+        # paths so MinGW64 nimble reads them via getenv("TEMP") / GetTempPath().
+        export TEMP='C:\t'
+        export TMP='C:\t'
+        export TMPDIR='/c/t'
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
