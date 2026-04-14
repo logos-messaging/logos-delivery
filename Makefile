@@ -84,7 +84,6 @@ update:
 clean:
 	rm -rf build 2> /dev/null || true
 	rm -rf nimbledeps 2> /dev/null || true
-	rm nimble.lock 2> /dev/null || true
 	rm -fr nimcache 2> /dev/null || true
 	rm nimble.paths 2> /dev/null || true
 	nimble clean
