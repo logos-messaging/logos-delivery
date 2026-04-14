@@ -215,8 +215,8 @@
 
   lsquic = pkgs.fetchgit {
     url = "https://github.com/vacp2p/nim-lsquic";
-    rev = "4fb03ee7bfb39aecb3316889fdcb60bec3d0936f";
-    sha256 = "0qdhcd4hyp185szc9sv3jvwdwc9zp3j0syy7glxv13k9bchfmkfg";
+    rev = "6ae249c5d9f5eba9999704e1ffe77483cbf8fcdd";
+    sha256 = "18fcfw2sf7zgk562nk5pkp59r6b0g2742cf8lyamhcl4j7bsyrnj";
     fetchSubmodules = true;
   };
 
@@ -249,9 +249,9 @@
   };
 
   libp2p = pkgs.fetchgit {
-    url = "https://github.com/vacp2p/nim-libp2p.git";
-    rev = "ebd8b7fe525e75b2dd59b175ee1e7517cc0a270f";
-    sha256 = "131hz0lzz994l49zn2s8nq9j6815vd49axw68kpy746aqfdx2r6k";
+    url = "https://github.com/vacp2p/nim-libp2p";
+    rev = "79002827ef32ba51b83e123e1649fc4b394612a1";
+    sha256 = "0w7rvxvq934sq8ixnmgzgy1l9yla1p2hz0ycmdi7kq9v1xw4ddhn";
     fetchSubmodules = true;
   };
 
