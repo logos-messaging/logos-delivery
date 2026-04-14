@@ -100,7 +100,7 @@ install-nimble: install-nim
 	if [ "$$nimble_ver" = "$(REQUIRED_NIMBLE_VERSION)" ]; then \
 	  echo "nimble $(REQUIRED_NIMBLE_VERSION) already installed, skipping."; \
 	else \
-	  nimble install "nimble@$(REQUIRED_NIMBLE_VERSION)" -y; \
+	  cd $$(mktemp -d) && nimble install "nimble@$(REQUIRED_NIMBLE_VERSION)" -y; \
 	fi
 
 build:
