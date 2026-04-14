@@ -8,7 +8,7 @@ on:
   workflow_dispatch:
 
 env:
-  NPROC: 1
+  NPROC: 2
 
 jobs:
   build-and-upload:

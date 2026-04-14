@@ -11,7 +11,7 @@ concurrency:
   cancel-in-progress: true
 
 env:
-  NPROC: 1
+  NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
   NIM_VERSION: '2.2.4'

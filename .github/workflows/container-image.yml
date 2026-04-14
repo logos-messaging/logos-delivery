@@ -12,7 +12,7 @@ on:
         value: ${{ jobs.build-docker-image.outputs.image }}
 
 env:
-  NPROC: 1
+  NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC}"
   NIM_VERSION: '2.2.4'

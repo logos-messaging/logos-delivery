@@ -8,7 +8,7 @@ on:
         type: string
 
 env:
-  NPROC: 1
+  NPROC: 4
   NIM_VERSION: '2.2.4'
   NIMBLE_VERSION: '0.22.3'
 
