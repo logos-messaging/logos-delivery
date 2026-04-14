@@ -11,6 +11,9 @@ env:
   NPROC: 4
   NIM_VERSION: '2.2.4'
   NIMBLE_VERSION: '0.22.3'
+  # Testing a nimble fix for Windows MAX_PATH; remove once merged upstream.
+  NIMBLE_FORK_BRANCH: 'fix-windows-long-path-temp-dir'
+  NIMBLE_FORK_REPO: 'https://github.com/Ivansete-status/nimble'
 
 jobs:
   build:
@@ -86,10 +89,10 @@ jobs:
         nim-version: ${{ env.NIM_VERSION }}
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+    - name: Install Nimble from fork (${{ env.NIMBLE_FORK_BRANCH }})
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
-        cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+        cd /tmp && nimble install "${{ env.NIMBLE_FORK_REPO }}@#${{ env.NIMBLE_FORK_BRANCH }}" -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
     - name: Cache nimble deps
@@ -99,7 +102,7 @@ jobs:
         path: |
             nimbledeps/
             nimble.paths
-        key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+        key: ${{ runner.os }}-nimbledeps-nimble-fork-${{ env.NIMBLE_FORK_BRANCH }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
     - name: Patch nimble.lock for Windows nim checksum
       # nimble.exe uses Windows Git (core.autocrlf=true by default), which converts LF→CRLF
