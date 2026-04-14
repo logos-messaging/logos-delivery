@@ -10,6 +10,7 @@ import
   libp2p/protocols/mix/mix_protocol,
   libp2p/protocols/mix/mix_metrics,
   libp2p/protocols/mix/delay_strategy,
+  libp2p/protocols/mix/delay,
   libp2p/[multiaddress, peerid, switch],
   libp2p/extended_peer_record,
   eth/common/keys
@@ -101,8 +102,7 @@ proc new*(
   procCall MixProtocol(mix).init(
     localMixNodeInfo,
     switch,
-    delayStrategy =
-      ExponentialDelayStrategy.new(meanDelayMs = 50, rng = crypto.newRng()),
+    delayStrategy = ExponentialDelayStrategy.new(rng = crypto.newRng()),
   )
 
   return ok(mix)
