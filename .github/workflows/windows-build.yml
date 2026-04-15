@@ -91,6 +91,7 @@ jobs:
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+        echo "$GITHUB_WORKSPACE/.nim_runtime/bin" >> $GITHUB_PATH
 
     - name: Cache nimble deps
       id: cache-nimbledeps
