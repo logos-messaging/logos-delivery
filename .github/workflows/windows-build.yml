@@ -132,6 +132,7 @@ jobs:
         export TEMP='C:\t'
         export TMP='C:\t'
         export TMPDIR='/c/t'
+        nimble -v
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
