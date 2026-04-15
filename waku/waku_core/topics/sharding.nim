@@ -4,18 +4,30 @@
 
 {.push raises: [].}
 
-import nimcrypto, std/options, std/tables, stew/endians2, results, stew/byteutils
+import nimcrypto, std/[options, tables, sequtils], stew/[endians2, byteutils], results
 
 import ./content_topic, ./pubsub_topic
 
 # TODO: this is autosharding, not just "sharding"
 type Sharding* = object
-  clusterId*: uint16
+  clusterId: uint16
   # TODO: generations could be stored in a table here
-  shardCountGenZero*: uint32
+  shardCountGenZero: uint32
+  supportedShards: seq[uint16]
 
-proc new*(T: type Sharding, clusterId: uint16, shardCount: uint32): T =
-  return Sharding(clusterId: clusterId, shardCountGenZero: shardCount)
+proc init*(T: typedesc[Sharding], clusterId: uint16, shardCount: uint32): T =
+  return Sharding(
+    clusterId: clusterId,
+    shardCountGenZero: shardCount,
+    supportedShards: toSeq(0'u16 ..< uint16(shardCount)),
+  )
+
+proc init*(T: typedesc[Sharding], clusterId: uint16, supportedShards: seq[uint16]): T =
+  return Sharding(
+    clusterId: clusterId,
+    shardCountGenZero: uint32(supportedShards.len),
+    supportedShards: supportedShards,
+  )
 
 proc getGenZeroShard*(s: Sharding, topic: NsContentTopic, count: int): RelayShard =
   let bytes = toBytes(topic.application) & toBytes(topic.version)
@@ -27,7 +39,7 @@ proc getGenZeroShard*(s: Sharding, topic: NsContentTopic, count: int): RelayShar
 
   let shard = hashValue mod uint64(count)
 
-  RelayShard(clusterId: s.clusterId, shardId: uint16(shard))
+  RelayShard(clusterId: s.clusterId, shardId: s.supportedShards[shard])
 
 proc getShard*(s: Sharding, topic: NsContentTopic): Result[RelayShard, string] =
   ## Compute the (pubsub topic) shard to use for this content topic.
