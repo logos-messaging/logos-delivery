@@ -86,8 +86,12 @@ jobs:
         nim-version: ${{ env.NIM_VERSION }}
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+    - name: Install particular Nimble version ${{ env.NIMBLE_VERSION }}
       run: |
+        export PATH="$(nim -v >/dev/null 2>&1 && dirname $(which nim)):$PATH"
+        export PATH="$HOME/.nimble/bin:$PATH"
+        command -v nimble || echo "nimble still missing"
+        nimble -v
         cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
