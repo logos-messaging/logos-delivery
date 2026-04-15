@@ -62,6 +62,8 @@ pkgs.stdenv.mkDerivation {
       --path:$NAT_TRAV/src \
       --passL:"-L${zerokitRln}/lib -lrln" \
       --define:disable_libbacktrace \
+      --define:postgres \
+      --define:nimDebugDlOpen \
       --out:build/liblogosdelivery.${libExt} \
       --app:lib \
       --threads:on \
@@ -81,6 +83,8 @@ pkgs.stdenv.mkDerivation {
       --path:$NAT_TRAV/src \
       --passL:"-L${zerokitRln}/lib -lrln" \
       --define:disable_libbacktrace \
+      --define:postgres \
+      --define:nimDebugDlOpen \
       --out:build/liblogosdelivery.a \
       --app:staticlib \
       --threads:on \
