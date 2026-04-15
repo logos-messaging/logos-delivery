@@ -86,6 +86,11 @@ jobs:
         nim-version: ${{ env.NIM_VERSION }}
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
+    - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+      run: |
+        cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+        echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+
     - name: Cache nimble deps
       id: cache-nimbledeps
       uses: actions/cache@v4
