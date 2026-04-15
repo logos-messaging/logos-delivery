@@ -10,10 +10,7 @@ on:
 env:
   NPROC: 4
   NIM_VERSION: '2.2.4'
-  NIMBLE_VERSION: '0.22.3'
-  # Testing a nimble fix for Windows MAX_PATH; remove once merged upstream.
-  NIMBLE_FORK_BRANCH: 'fix-windows-long-path-temp-dir'
-  NIMBLE_FORK_REPO: 'https://github.com/Ivansete-status/nimble'
+  NIMBLE_VERSION: '0.18.2'
 
 jobs:
   build:
@@ -89,12 +86,6 @@ jobs:
         nim-version: ${{ env.NIM_VERSION }}
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install Nimble from fork (${{ env.NIMBLE_FORK_BRANCH }})
-      run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
-        cd /tmp && nimble install "${{ env.NIMBLE_FORK_REPO }}@#${{ env.NIMBLE_FORK_BRANCH }}" -y
-        echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-
     - name: Cache nimble deps
       id: cache-nimbledeps
       uses: actions/cache@v4
@@ -102,7 +93,7 @@ jobs:
         path: |
             nimbledeps/
             nimble.paths
-        key: ${{ runner.os }}-nimbledeps-nimble-fork-${{ env.NIMBLE_FORK_BRANCH }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+        key: ${{ runner.os }}-nimbledeps-nimble-fork-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
     - name: Patch nimble.lock for Windows nim checksum
       # nimble.exe uses Windows Git (core.autocrlf=true by default), which converts LF→CRLF
@@ -114,25 +105,7 @@ jobs:
 
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
-      env:
-        # lsquic bundles BoringSSL as a submodule whose fuzz corpus has deeply-nested
-        # paths. With the default TEMP at D:\a\_temp\msys64\tmp the total path length
-        # exceeds Windows MAX_PATH (260 chars). Use a short TEMP/TMP (Windows) and
-        # TMPDIR (MSYS2/POSIX) so nimble's scratch directory stays within the limit.
-        TEMP: 'C:\t'
-        TMP: 'C:\t'
-        TMPDIR: '/c/t'
       run: |
-        # $HOME/.nimble/bin must precede .nim_runtime/bin so the fork nimble
-        # installed in the previous step shadows the one bundled with setup-nim-action.
-        export PATH="$HOME/.nimble/bin:$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
-        mkdir -p /c/t
-        # MSYS2 startup overrides TEMP/TMP to /tmp; re-export here as Windows-style
-        # paths so MinGW64 nimble reads them via getenv("TEMP") / GetTempPath().
-        export TEMP='C:\t'
-        export TMP='C:\t'
-        export TMPDIR='/c/t'
-        nimble -v
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
