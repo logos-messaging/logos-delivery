@@ -63,7 +63,9 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi#06111de155253b34e47ed2aaed1d61d08d62cc1b"
 
-requires "https://github.com/vacp2p/nim-lsquic#4fb03ee7bfb39aecb3316889fdcb60bec3d0936f"
+# requires "https://github.com/vacp2p/nim-lsquic#4fb03ee7bfb39aecb3316889fdcb60bec3d0936f"
+requires "https://github.com/vacp2p/nim-lsquic
+
 requires "https://github.com/vacp2p/nim-jwt.git#18f8378de52b241f321c1f9ea905456e89b95c6f"
 
 proc getMyCPU(): string =
