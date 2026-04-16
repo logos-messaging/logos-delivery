@@ -24,18 +24,6 @@ jobs:
       MSYSTEM: MINGW64
 
     steps:
-    - name: Enable Windows long paths (registry)
-      shell: powershell
-      run: |
-        Set-ItemProperty `
-          -Path 'HKLM:\SYSTEM\CurrentControlSet\Control\FileSystem' `
-          -Name 'LongPathsEnabled' `
-          -Value 1
-
-    - name: Enable git long paths
-      shell: powershell
-      run: git config --global core.longpaths true
-
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -91,7 +79,6 @@ jobs:
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-        echo "$GITHUB_WORKSPACE/.nim_runtime/bin" >> $GITHUB_PATH
 
     - name: Cache nimble deps
       id: cache-nimbledeps
@@ -100,7 +87,7 @@ jobs:
         path: |
             nimbledeps/
             nimble.paths
-        key: ${{ runner.os }}-nimbledeps-nimble-fork-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+        key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
     - name: Patch nimble.lock for Windows nim checksum
       # nimble.exe uses Windows Git (core.autocrlf=true by default), which converts LF→CRLF
@@ -113,6 +100,7 @@ jobs:
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
+        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
