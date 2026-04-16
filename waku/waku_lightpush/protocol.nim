@@ -9,6 +9,7 @@ import
   metrics,
   bearssl/rand
 import
+  ../common/option_shims,
   ../node/peer_manager/peer_manager,
   ../waku_core,
   ../waku_core/topics/sharding,

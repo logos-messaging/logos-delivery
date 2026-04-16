@@ -8,11 +8,12 @@ import
   libp2p/protocols/rendezvous,
   libp2p/crypto/curve25519,
   libp2p/switch,
-  libp2p/utils/semaphore
+  chronos/asyncsync
 
 import metrics except collect
 
 import
+  waku/common/option_shims,
   waku/node/peer_manager,
   waku/waku_core/peers,
   waku/waku_core/codecs,

@@ -14,6 +14,7 @@ import
   eth/p2p/discoveryv5/enr
 import
   ../common/nimchronos,
+  ../common/option_shims,
   ../common/protobuf,
   ../common/paging,
   ../waku_enr,

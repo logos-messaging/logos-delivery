@@ -31,6 +31,7 @@ import
     waku_mix,
     node/waku_node,
     node/peer_manager,
+    common/option_shims,
     common/broker/broker_context,
     events/message_events,
   ]

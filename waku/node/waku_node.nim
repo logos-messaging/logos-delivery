@@ -57,6 +57,7 @@ import
     waku_rln_relay,
     common/rate_limit/setting,
     common/callbacks,
+    common/option_shims,
     common/nimchronos,
     common/broker/broker_context,
     common/broker/request_broker,
@@ -329,6 +330,7 @@ proc mountMix*(
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
     userMessageLimit: Option[int] = none(int),
+    disableSpamProtection: bool = false,
 ): Future[Result[void, string]] {.async.} =
   info "mounting mix protocol", nodeId = node.info #TODO log the config used
 
@@ -361,7 +363,7 @@ proc mountMix*(
 
   node.wakuMix = WakuMix.new(
     localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes, publishMessage,
-    userMessageLimit,
+    userMessageLimit, disableSpamProtection,
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
     return

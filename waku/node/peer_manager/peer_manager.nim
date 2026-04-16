@@ -19,6 +19,7 @@ import
     events/peer_events,
     common/nimchronos,
     common/enr,
+    common/option_shims,
     common/callbacks,
     common/utils/parse_size_units,
     common/broker/broker_context,
