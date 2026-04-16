@@ -344,7 +344,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
       for ps in relayPeers:
         totalRelayPeers += ps.peers.len
         stat[$ps.shard] = ps.peers.len
-      stat["Total relay peers"] = relayPeers.len
+      stat["Total relay peers"] = totalRelayPeers
       stat
 
     # stats of mesh peers
@@ -355,7 +355,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
       for ps in meshPeers:
         totalMeshPeers += ps.peers.len
         stat[$ps.shard] = ps.peers.len
-      stat["Total mesh peers"] = meshPeers.len
+      stat["Total mesh peers"] = totalMeshPeers
       stat
 
     var protoStats = initOrderedTable[string, int]()
