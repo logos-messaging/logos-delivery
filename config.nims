@@ -83,8 +83,9 @@ if not defined(macosx) and not defined(android):
   # add debugging symbols and original files and line numbers
   --debugger:
     native
-  if not (defined(windows) and defined(i386)) and not defined(disable_libbacktrace):
+  when defined(enable_libbacktrace):
     # light-weight stack traces using libbacktrace and libunwind
+    # opt-in: pass -d:enable_libbacktrace (requires libbacktrace in project deps)
     --define:
       nimStackTraceOverride
     switch("import", "libbacktrace")

@@ -8,13 +8,11 @@ version = "0.37.4"
 author = "Status Research & Development GmbH"
 description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
-#bin           = @["build/waku"]
 
-## This indicates the nim compiler version we are currently working on. It may compile with others
-## but we haven't tested.
-const NimVersion    = "2.2.4"
-## This is the underlying nimble version that gets installed after doing `choosenim 2.2.4`.
-const NimbleVersion = "0.18.2"
+const RequiredNimVersion = "2.2.4"
+  ## This is the nim compiler version that we are working on. Other versions may behave differently.
+const RequiredNimbleVersion = "0.22.3"
+  ## Enforced nimble version to ensure a reproducible flow
 
 ### Dependencies
 requires "nim >= 2.2.4",
@@ -41,7 +39,7 @@ requires "nim >= 2.2.4",
   "secp256k1",
   "bearssl",
   # RPC & APIs
-  "json_rpc",
+  "https://github.com/status-im/nim-json-rpc.git#43bbf499143eb45046c83ac9794c9e3280a2b8e7",
   "presto",
   "web3",
   # Database
