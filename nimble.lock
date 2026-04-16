@@ -444,7 +444,7 @@
       }
     },
     "lsquic": {
-      "version": "#4fb03ee7bfb39aecb3316889fdcb60bec3d0936f",
+      "version": "0.0.1",
       "vcsRevision": "4fb03ee7bfb39aecb3316889fdcb60bec3d0936f",
       "url": "https://github.com/vacp2p/nim-lsquic",
       "downloadMethod": "git",
