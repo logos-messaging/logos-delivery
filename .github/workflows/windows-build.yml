@@ -74,7 +74,7 @@ jobs:
         nim-version: ${{ env.NIM_VERSION }}
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install particular Nimble version ${{ env.NIMBLE_VERSION }}
+    - name: Install Nimble ${{ env.NIMBLE_VERSION }}
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
@@ -88,14 +88,6 @@ jobs:
             nimbledeps/
             nimble.paths
         key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
-
-    - name: Patch nimble.lock for Windows nim checksum
-      # nimble.exe uses Windows Git (core.autocrlf=true by default), which converts LF→CRLF
-      # on checkout. This changes the SHA1 of the nim package source tree relative to the
-      # Linux-computed checksum stored in nimble.lock. Patch the lock file with the
-      # Windows-computed checksum before nimble reads it.
-      run: |
-        sed -i 's/68bb85cbfb1832ce4db43943911b046c3af3caab/a092a045d3a427d127a5334a6e59c76faff54686/g' nimble.lock
 
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
