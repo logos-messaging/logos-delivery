@@ -80,15 +80,6 @@ jobs:
         cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
-    - name: Cache nimble deps
-      id: cache-nimbledeps
-      uses: actions/cache@v4
-      with:
-        path: |
-            nimbledeps/
-            nimble.paths
-        key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
-
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
