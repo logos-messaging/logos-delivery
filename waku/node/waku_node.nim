@@ -592,7 +592,8 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
 
-  node.wakuKademlia.start()
+  if not node.wakuKademlia.isNil():
+    node.wakuKademlia.start()
 
   ## The switch uses this mapper to update peer info addrs
   ## with announced addrs after start
@@ -632,8 +633,6 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.peerManager.stop()
 
-  node.wakuKademlia.stop()
-
   if not node.wakuRlnRelay.isNil():
     try:
       await node.wakuRlnRelay.stop() ## this can raise an exception
@@ -655,6 +654,9 @@ proc stop*(node: WakuNode) {.async.} =
 
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.stopWait()
+
+  if not node.wakuKademlia.isNil():
+    node.wakuKademlia.stop()
 
   node.started = false
 
