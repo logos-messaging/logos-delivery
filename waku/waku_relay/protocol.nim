@@ -515,12 +515,12 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
 
-method start*(w: WakuRelay) {.async, base.} =
+method start*(w: WakuRelay) {.async: (raises: [CancelledError]).} =
   info "start"
   await procCall GossipSub(w).start()
   w.topicHealthLoopHandle = w.topicsHealthLoop()
 
-method stop*(w: WakuRelay) {.async, base.} =
+method stop*(w: WakuRelay) {.async: (raises: []).} =
   info "stop"
   await procCall GossipSub(w).stop()
 

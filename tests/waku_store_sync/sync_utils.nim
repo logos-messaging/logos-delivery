@@ -45,7 +45,7 @@ proc newTestWakuRecon*(
 
   let proto = res.get()
 
-  proto.start()
+  await proto.start()
   switch.mount(proto)
 
   return proto
@@ -55,7 +55,7 @@ proc newTestWakuTransfer*(
     idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     wantsRx: AsyncQueue[PeerId],
     needsRx: AsyncQueue[(PeerId, WakuMessageHash)],
-): SyncTransfer =
+): Future[SyncTransfer] {.async.} =
   let peerManager = PeerManager.new(switch)
 
   let proto = SyncTransfer.new(
@@ -66,7 +66,7 @@ proc newTestWakuTransfer*(
     remoteNeedsRx = needsRx,
   )
 
-  proto.start()
+  await proto.start()
   switch.mount(proto)
 
   return proto
