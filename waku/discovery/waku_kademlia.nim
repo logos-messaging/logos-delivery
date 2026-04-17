@@ -25,7 +25,7 @@ type WakuKademlia* = ref object
   protocol*: KademliaDiscovery
   peerManager: PeerManager
   loopInterval: Duration
-  periodicWalkFut: Future[void]
+  #periodicWalkFut: Future[void]
   periodicLookupFut: Future[void]
 
 proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
@@ -67,7 +67,7 @@ proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
     )
   )
 
-proc randomWalk*(
+#[ proc randomWalk*(
     self: WakuKademlia
 ): Future[seq[RemotePeerInfo]] {.async: (raises: []).} =
   let res = catch:
@@ -90,7 +90,7 @@ proc randomWalk*(
 
     peerInfos.add(peerInfo)
 
-  return peerInfos
+  return peerInfos ]#
 
 proc lookup*(
     self: WakuKademlia, codec: string
@@ -124,7 +124,7 @@ proc lookup*(
 
   return peerInfos
 
-proc periodicRandomWalk(
+#[ proc periodicRandomWalk(
     self: WakuKademlia, interval: Duration
 ) {.async: (raises: [CancelledError]).} =
   debug "periodic random walk started", interval = interval
@@ -132,7 +132,7 @@ proc periodicRandomWalk(
   while true:
     await sleepAsync(interval)
 
-    discard await self.randomWalk()
+    discard await self.randomWalk() ]#
 
 proc periodicLookup(
     self: WakuKademlia, interval: Duration
@@ -173,8 +173,8 @@ proc new*(
   )
 
 proc start*(self: WakuKademlia) =
-  if self.periodicWalkFut.isNil():
-    self.periodicWalkFut = self.periodicRandomWalk(self.loopInterval)
+  #if self.periodicWalkFut.isNil():
+  #self.periodicWalkFut = self.periodicRandomWalk(self.loopInterval)
 
   if self.periodicLookupFut.isNil():
     self.periodicLookupFut = self.periodicLookup(self.loopInterval)
