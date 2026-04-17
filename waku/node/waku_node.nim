@@ -371,6 +371,12 @@ proc mountStoreSync*(
 
 proc startRelay*(node: WakuNode) {.async.} =
   ## Setup and start relay protocol
+  ## This proc has two roles
+  ## 1. Reconnect relay peer connections at the switch.
+  ## 2. In case the switch is started and *then* the relay protocol is mounted, this proc
+  ##    catches that and starts it late (the switch won't do that because it has already started).
+  ##    Relevant for apps or tests that have that workflow, for whatever reason.
+
   info "starting relay protocol"
 
   if node.wakuRelay.isNil():
@@ -389,8 +395,9 @@ proc startRelay*(node: WakuNode) {.async.} =
 
     await node.peerManager.reconnectPeers(WakuRelayCodec, backoffPeriod)
 
-  # Start the WakuRelay protocol
-  await node.wakuRelay.start()
+  if node.started:
+    # if switch.start() already finished before this wakuRelay was mounted, then start the relay now.
+    await node.wakuRelay.start()
 
   info "relay started successfully"
 
@@ -430,7 +437,10 @@ proc mountRendezvous*(
     return
 
   if node.started:
-    await node.wakuRendezvous.start()
+    try:
+      await node.wakuRendezvous.start()
+    except CancelledError as exc:
+      error "failed to start wakuRendezvous", error = exc.msg
 
   try:
     node.switch.mount(node.wakuRendezvous, protocolMatcher(WakuRendezVousCodec))
@@ -578,30 +588,11 @@ proc start*(node: WakuNode) {.async.} =
     if isBindIpWithZeroPort(address):
       zeroPortPresent = true
 
-  # Perform relay-specific startup tasks TODO: this should be rethought
-  if not node.wakuRelay.isNil():
-    await node.startRelay()
-
-  if not node.wakuMix.isNil():
-    node.wakuMix.start()
-
-  if not node.wakuMetadata.isNil():
-    node.wakuMetadata.start()
-
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.start()
 
-  if not node.wakuRendezvous.isNil():
-    await node.wakuRendezvous.start()
-
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
-
-  if not node.wakuStoreReconciliation.isNil():
-    node.wakuStoreReconciliation.start()
-
-  if not node.wakuStoreTransfer.isNil():
-    node.wakuStoreTransfer.start()
 
   ## The switch uses this mapper to update peer info addrs
   ## with announced addrs after start
@@ -612,7 +603,12 @@ proc start*(node: WakuNode) {.async.} =
   node.switch.peerInfo.addressMappers.add(addressMapper)
 
   ## The switch will update addresses after start using the addressMapper
+  ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
+
+  # After switch.start, run custom Logos Delivery relay start logic
+  if not node.wakuRelay.isNil():
+    await node.startRelay()
 
   node.started = true
 
@@ -637,6 +633,7 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.stopProvidersAndListeners()
 
+  ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()
 
   node.peerManager.stop()
@@ -653,21 +650,12 @@ proc stop*(node: WakuNode) {.async.} =
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.stopWait()
 
-  if not node.wakuStoreReconciliation.isNil():
-    node.wakuStoreReconciliation.stop()
-
-  if not node.wakuStoreTransfer.isNil():
-    node.wakuStoreTransfer.stop()
-
   if not node.wakuPeerExchangeClient.isNil() and
       not node.wakuPeerExchangeClient.pxLoopHandle.isNil():
     await node.wakuPeerExchangeClient.pxLoopHandle.cancelAndWait()
 
   if not node.wakuKademlia.isNil():
     await node.wakuKademlia.stop()
-
-  if not node.wakuRendezvous.isNil():
-    await node.wakuRendezvous.stopWait()
 
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.stopWait()
