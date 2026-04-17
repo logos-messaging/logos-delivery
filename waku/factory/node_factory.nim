@@ -165,8 +165,7 @@ proc setupProtocols(
 
   var providedServices: seq[ServiceInfo]
 
-  # For testing lets use only one service
-
+  # For testing lets use only one hard-coded service
   let deliveryService = ServiceInfo(id: "delivery", data: @[])
   providedServices.add(deliveryService)
 

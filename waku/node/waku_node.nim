@@ -575,6 +575,8 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
 
+  node.wakuKademlia.start()
+
   ## The switch uses this mapper to update peer info addrs
   ## with announced addrs after start
   let addressMapper = proc(
@@ -617,6 +619,8 @@ proc stop*(node: WakuNode) {.async.} =
   await node.switch.stop()
 
   node.peerManager.stop()
+
+  node.wakuKademlia.stop()
 
   if not node.wakuRlnRelay.isNil():
     try:
