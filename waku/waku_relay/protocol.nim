@@ -223,6 +223,7 @@ proc logMessageInfo*(
       msg_id = msg_id_short,
       from_peer_id = remotePeerId,
       topic = topic,
+      contentTopic = msg.contentTopic,
       receivedTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
   else:
@@ -232,6 +233,7 @@ proc logMessageInfo*(
       msg_id = msg_id_short,
       to_peer_id = remotePeerId,
       topic = topic,
+      contentTopic = msg.contentTopic,
       sentTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
 
@@ -680,7 +682,8 @@ proc publish*(
   let data = message.encode().buffer
 
   let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
-  notice "start publish Waku message", msg_hash = msgHash, pubsubTopic = pubsubTopic
+  notice "start publish Waku message",
+    msg_hash = msgHash, pubsubTopic = pubsubTopic, contentTopic = message.contentTopic
 
   let relayedPeerCount = await procCall GossipSub(w).publish(pubsubTopic, data)
 
