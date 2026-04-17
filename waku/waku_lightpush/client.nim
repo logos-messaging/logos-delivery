@@ -59,6 +59,7 @@ proc sendPushRequest(
     buffer = await connection.readLp(DefaultMaxRpcSize.int)
   except LPStreamRemoteClosedError:
     error "Failed to read response from peer", error = getCurrentExceptionMsg()
+    wl.peerManager.griefPeer(connection.peerId, MinGriefScore) # stream closed: transient
     return lightpushResultInternalError(
       "Failed to read response from peer: " & getCurrentExceptionMsg()
     )
@@ -66,15 +67,20 @@ proc sendPushRequest(
   let response = LightpushResponse.decode(buffer).valueOr:
     error "failed to decode response"
     waku_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
+    wl.peerManager.griefPeer(connection.peerId, MediumGriefScore) # decode failure: protocol violation
     return lightpushResultInternalError(decodeRpcFailure)
 
   if response.requestId != req.requestId and
       response.statusCode != LightPushErrorCode.TOO_MANY_REQUESTS:
     error "response failure, requestId mismatch",
       requestId = req.requestId, responseRequestId = response.requestId
+    wl.peerManager.griefPeer(connection.peerId, HighGriefScore) # requestId mismatch: misbehavior
     return lightpushResultInternalError("response failure, requestId mismatch")
 
-  return toPushResult(response)
+  let pushResult = toPushResult(response)
+  if pushResult.isErr():
+    wl.peerManager.griefPeer(connection.peerId, LowGriefScore) # non-success response: rejection
+  return pushResult
 
 proc publish*(
     wl: WakuLightPushClient,
