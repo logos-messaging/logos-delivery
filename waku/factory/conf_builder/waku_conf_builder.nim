@@ -1,7 +1,7 @@
 import
   libp2p/crypto/crypto,
   libp2p/multiaddress,
-  std/[net, options, sequtils],
+  std/[net, options, os, sequtils, strutils],
   stint,
   chronicles,
   chronos,
@@ -33,6 +33,14 @@ logScope:
   topics = "waku conf builder"
 
 const DefaultMaxConnections* = 150
+
+## Port override env-var names.
+const
+  EnvP2pTcpPort* = "LOGOS_DELIVERY_P2P_TCP_PORT"
+  EnvDiscv5UdpPort* = "LOGOS_DELIVERY_DISCV5_UDP_PORT"
+  EnvRestPort* = "LOGOS_DELIVERY_REST_PORT"
+  EnvMetricsPort* = "LOGOS_DELIVERY_METRICS_PORT"
+  EnvWebSocketPort* = "LOGOS_DELIVERY_WEBSOCKET_PORT"
 
 type MaxMessageSizeKind* = enum
   mmskNone
@@ -309,6 +317,50 @@ proc buildShardingConf(
     let upperShard = uint16(numShardsInCluster - 1)
     (shardingConf, bSubscribeShards.get(toSeq(0.uint16 .. upperShard)))
 
+proc envOverridePort(envName: string): Option[Port] =
+  let raw = os.getEnv(envName, "").strip()
+
+  if raw.len == 0:
+    return none(Port)
+
+  let parsed =
+    try:
+      parseInt(raw)
+    except ValueError:
+      warn "env port override is not a number, ignoring",
+        envVar = envName, value = raw
+      return none(Port)
+
+  if parsed < 0 or parsed > uint16.high.int:
+    warn "env port override is out of uint16 range, ignoring",
+      envVar = envName, value = raw
+    return none(Port)
+
+  info "applying env port override", envVar = envName, port = parsed
+  return some(Port(parsed.uint16))
+
+proc applyEnvironmentOverrides(b: var WakuConfBuilder) =
+  ## Applies env-var overrides to the builder.
+  let p2p = envOverridePort(EnvP2pTcpPort)
+  if p2p.isSome():
+    b.withP2pTcpPort(p2p.get())
+
+  let discv5 = envOverridePort(EnvDiscv5UdpPort)
+  if discv5.isSome():
+    b.discv5Conf.withUdpPort(discv5.get())
+
+  let rest = envOverridePort(EnvRestPort)
+  if rest.isSome():
+    b.restServerConf.withPort(rest.get())
+
+  let metrics = envOverridePort(EnvMetricsPort)
+  if metrics.isSome():
+    b.metricsServerConf.withHttpPort(metrics.get())
+
+  let ws = envOverridePort(EnvWebSocketPort)
+  if ws.isSome():
+    b.webSocketConf.withWebSocketPort(ws.get())
+
 proc applyNetworkConf(builder: var WakuConfBuilder) =
   # Apply network conf, overrides most values passed individually
   # If you want to tweak values, don't use networkConf
@@ -441,6 +493,7 @@ proc build*(
   ## default when it is opinionated.
 
   applyNetworkConf(builder)
+  applyEnvironmentOverrides(builder)
 
   let relay =
     if builder.relay.isSome():
