@@ -369,37 +369,16 @@ proc mountStoreSync*(
 
   return ok()
 
-proc startRelay*(node: WakuNode) {.async.} =
-  ## Setup and start relay protocol
-  ## This proc has two roles
-  ## 1. Reconnect relay peer connections at the switch.
-  ## 2. In case the switch is started and *then* the relay protocol is mounted, this proc
-  ##    catches that and starts it late (the switch won't do that because it has already started).
-  ##    Relevant for apps or tests that have that workflow, for whatever reason.
-
-  info "starting relay protocol"
-
+proc reconnectRelayPeers*(node: WakuNode) {.async.} =
+  ## Reconnect to previously-seen WakuRelay peers.
   if node.wakuRelay.isNil():
-    error "Failed to start relay. Not mounted."
     return
-
-  ## Setup relay protocol
-
-  # Resume previous relay connections
-  if node.peerManager.switch.peerStore.hasPeers(protocolMatcher(WakuRelayCodec)):
-    info "Found previous WakuRelay peers. Reconnecting."
-
-    # Reconnect to previous relay peers. This will respect a backoff period, if necessary
-    let backoffPeriod =
-      node.wakuRelay.parameters.pruneBackoff + chronos.seconds(BackoffSlackTime)
-
-    await node.peerManager.reconnectPeers(WakuRelayCodec, backoffPeriod)
-
-  if node.started:
-    # if switch.start() already finished before this wakuRelay was mounted, then start the relay now.
-    await node.wakuRelay.start()
-
-  info "relay started successfully"
+  if not node.peerManager.switch.peerStore.hasPeers(protocolMatcher(WakuRelayCodec)):
+    return
+  info "Found previous WakuRelay peers. Reconnecting."
+  let backoffPeriod =
+    node.wakuRelay.parameters.pruneBackoff + chronos.seconds(BackoffSlackTime)
+  await node.peerManager.reconnectPeers(WakuRelayCodec, backoffPeriod)
 
 proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
   var randomPeers = peers
@@ -607,8 +586,7 @@ proc start*(node: WakuNode) {.async.} =
   await node.switch.start()
 
   # After switch.start, run custom Logos Delivery relay start logic
-  if not node.wakuRelay.isNil():
-    await node.startRelay()
+  await node.reconnectRelayPeers()
 
   node.started = true
 
