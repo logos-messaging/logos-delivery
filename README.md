@@ -160,8 +160,11 @@ and any supplied configuration for that port.
 | `--metrics-server-port` | `LOGOS_DELIVERY_METRICS_PORT`    |
 | `--websocket-port`      | `LOGOS_DELIVERY_WEBSOCKET_PORT`  |
 
-The override just replaces the configured port value, so any subsequent transform
-such as `--ports-shift` still applies on top.
+Effective port is determined in this order:
+
+1. Config parameter (CLI flag or library API)
+2. Environment variable
+3. Any post-processing (e.g. `--ports-shift`)
 
 ## Formatting
 
