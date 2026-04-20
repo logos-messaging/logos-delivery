@@ -15,7 +15,7 @@ env:
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
   NIM_VERSION: '2.2.4'
-  NIMBLE_VERSION: '0.18.2'
+  NIMBLE_VERSION: '0.22.3'
 
 jobs:
   changes: # changes detection
@@ -83,7 +83,7 @@ jobs:
           path: |
             nimbledeps/
             nimble.paths
-          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
@@ -136,7 +136,7 @@ jobs:
           path: |
             nimbledeps/
             nimble.paths
-          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
@@ -215,7 +215,7 @@ jobs:
           path: |
             nimbledeps/
             nimble.paths
-          key: ${{ runner.os }}-nimbledeps-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'

@@ -18,8 +18,11 @@ ifneq (,$(findstring MINGW,$(detected_OS)))
   detected_OS := Windows
 endif
 
+# Ensure the nim/nimble installed by install-nim/install-nimble are found first
+export PATH := $(HOME)/.nimble/bin:$(PATH)
+
 # NIM binary location
-NIM_BINARY := $(shell which nim)
+NIM_BINARY := $(shell which nim 2>/dev/null)
 NPH := $(HOME)/.nimble/bin/nph
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
@@ -39,7 +42,7 @@ endif
 ##########
 ## Main ##
 ##########
-.PHONY: all test update clean examples deps nimble
+.PHONY: all test update clean examples deps nimble install-nim install-nimble
 
 # default target
 all: | wakunode2 libwaku liblogosdelivery
@@ -67,7 +70,7 @@ waku.nims:
 	ln -s waku.nimble $@
 
 $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
-	@if ! command -v nimble > /dev/null 2>&1; then $(MAKE) install-nimble; fi
+	$(MAKE) install-nimble
 	nimble setup --localdeps
 	$(MAKE) build-nph
 	$(MAKE) rebuild-bearssl-nimbledeps
@@ -81,59 +84,28 @@ update:
 clean:
 	rm -rf build 2> /dev/null || true
 	rm -rf nimbledeps 2> /dev/null || true
-	rm nimble.lock 2> /dev/null || true
 	rm -fr nimcache 2> /dev/null || true
 	rm nimble.paths 2> /dev/null || true
 	nimble clean
 
-REQUIRED_NIM_VERSION    := $(shell grep -E '^const NimVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
-REQUIRED_NIMBLE_VERSION := $(shell grep -E '^const NimbleVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+REQUIRED_NIM_VERSION    := $(shell grep -E '^const RequiredNimVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+REQUIRED_NIMBLE_VERSION := $(shell grep -E '^const RequiredNimbleVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
 
 install-nim:
-	$(eval NIM_OS          := $(shell uname -s | tr 'A-Z' 'a-z' | sed 's/darwin/macosx/'))
-	$(eval NIM_ARCH        := $(shell uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/'))
-	$(eval NIM_INSTALL_DIR := $(HOME)/.nim_runtime)
-	@nim_ver=$$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	if [ "$$nim_ver" = "$(REQUIRED_NIM_VERSION)" ]; then \
-	  echo "nim $(REQUIRED_NIM_VERSION) already installed, skipping."; \
-	else \
-	  curl -L "https://github.com/nim-lang/Nim/releases/download/v$(REQUIRED_NIM_VERSION)/nim-$(REQUIRED_NIM_VERSION)-$(NIM_OS)_$(NIM_ARCH).tar.xz" \
-	    -o /tmp/nim-$(REQUIRED_NIM_VERSION).tar.xz && \
-	  tar -xJf /tmp/nim-$(REQUIRED_NIM_VERSION).tar.xz -C /tmp && \
-	  mkdir -p $(NIM_INSTALL_DIR) && \
-	  cd /tmp/nim-$(REQUIRED_NIM_VERSION) && ./install.sh $(NIM_INSTALL_DIR); \
-	fi
+	scripts/install_nim.sh $(REQUIRED_NIM_VERSION)
 
 install-nimble: install-nim
 	@nimble_ver=$$(nimble --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
 	if [ "$$nimble_ver" = "$(REQUIRED_NIMBLE_VERSION)" ]; then \
 	  echo "nimble $(REQUIRED_NIMBLE_VERSION) already installed, skipping."; \
 	else \
-	  cd /tmp && PATH="$(HOME)/.nim_runtime/bin:$$PATH" \
-	    nimble install "nimble@$(REQUIRED_NIMBLE_VERSION)" -y; \
+	  cd $$(mktemp -d) && nimble install "nimble@$(REQUIRED_NIMBLE_VERSION)" -y; \
 	fi
 
 build:
-	@nim_ver=$$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	if [ "$$nim_ver" != "$(REQUIRED_NIM_VERSION)" ]; then \
-		echo "Error: Nim $(REQUIRED_NIM_VERSION) is required, but found '$$nim_ver'"; \
-		exit 1; \
-	fi
-	@nimble_ver=$$(nimble --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	if [ "$$nimble_ver" != "$(REQUIRED_NIMBLE_VERSION)" ]; then \
-		echo "Error: Nimble $(REQUIRED_NIMBLE_VERSION) is required, but found '$$nimble_ver'"; \
-		exit 1; \
-	fi
 	mkdir -p build
 
-nimble:
-	echo "Inside nimble target, checking for nimble..." && \
-	command -v nimble >/dev/null 2>&1 || { \
-		mv nimbledeps nimbledeps_backup 2>/dev/null || true; \
-		echo "choosenim not found, installing ..."; \
-		curl -sSf https://nim-lang.org/choosenim/init.sh | sh; \
-		mv nimbledeps_backup nimbledeps 2>/dev/null || true; \
-	}
+nimble: install-nimble
 
 ## Possible values: prod; debug
 TARGET ?= prod
@@ -230,7 +202,7 @@ clean: | clean-librln
 #################
 .PHONY: testcommon
 
-testcommon: | build
+testcommon: | $(NIMBLEDEPS_STAMP) build
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble testcommon
 
@@ -239,7 +211,7 @@ testcommon: | build
 ##########
 .PHONY: testwaku wakunode2 testwakunode2 example2 chat2 chat2bridge liteprotocoltester
 
-testwaku: | build rln-deps librln
+testwaku: | $(NIMBLEDEPS_STAMP) build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble test
 

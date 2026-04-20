@@ -36,9 +36,21 @@
 
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
+      nimbleOverlay = final: prev: {
+        nimble = prev.nimble.overrideAttrs (_: {
+          version = "0.22.3";
+          src = prev.fetchFromGitHub {
+            owner = "nim-lang";
+            repo  = "nimble";
+            rev   = "v0.22.3";
+            sha256 = "sha256-f7DYpRGVUeSi6basK1lfu5AxZpMFOSJ3oYsy+urYErg=";
+          };
+        });
+      };
+
       pkgsFor = system: import nixpkgs {
         inherit system;
-        overlays = [ (import rust-overlay) ];
+        overlays = [ (import rust-overlay) nimbleOverlay ];
       };
     in {
       packages = forAllSystems (system:
