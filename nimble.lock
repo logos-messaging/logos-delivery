@@ -2,13 +2,13 @@
   "version": 2,
   "packages": {
     "nim": {
-      "version": "2.2.4",
-      "vcsRevision": "911e0dbb1f76de61fa0215ab1bb85af5334cc9a8",
+      "version": "2.2.10",
+      "vcsRevision": "9fe2137fa2f3f66cf5a44f357d461829ac9e20c4",
       "url": "https://github.com/nim-lang/Nim.git",
       "downloadMethod": "git",
       "dependencies": [],
       "checksums": {
-        "sha1": "68bb85cbfb1832ce4db43943911b046c3af3caab"
+        "sha1": "17ec440fdb89f8903db29a17898af590087d2b64"
       }
     },
     "unittest2": {
@@ -189,8 +189,8 @@
       }
     },
     "faststreams": {
-      "version": "0.5.0",
-      "vcsRevision": "ce27581a3e881f782f482cb66dc5b07a02bd615e",
+      "version": "0.5.1",
+      "vcsRevision": "50889cd16ec8771106cdd0eeea460039e8571e06",
       "url": "https://github.com/status-im/nim-faststreams",
       "downloadMethod": "git",
       "dependencies": [
@@ -199,7 +199,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "ee61e507b805ae1df7ec936f03f2d101b0d72383"
+        "sha1": "969ceb3666e807db8fe5c8df63466749822367a9"
       }
     },
     "snappy": {
@@ -444,7 +444,7 @@
       }
     },
     "lsquic": {
-      "version": "0.0.1",
+      "version": "#4fb03ee7bfb39aecb3316889fdcb60bec3d0936f",
       "vcsRevision": "4fb03ee7bfb39aecb3316889fdcb60bec3d0936f",
       "url": "https://github.com/vacp2p/nim-lsquic",
       "downloadMethod": "git",
@@ -585,6 +585,26 @@
       ],
       "checksums": {
         "sha1": "09e1b2fdad55b973724d61227971afc0df0b7a81"
+      }
+    },
+    "sds": {
+      "version": "#7af8cfd6d3568057beb541f8b6acf9d7953e77a5",
+      "vcsRevision": "7af8cfd6d3568057beb541f8b6acf9d7953e77a5",
+      "url": "https://github.com/logos-messaging/nim-sds.git",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim",
+        "chronos",
+        "libp2p",
+        "chronicles",
+        "stew",
+        "stint",
+        "metrics",
+        "results",
+        "taskpools"
+      ],
+      "checksums": {
+        "sha1": "d5d2b8a2b9024baa1593fb7f440d885062857133"
       }
     },
     "ffi": {
