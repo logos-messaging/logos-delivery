@@ -63,6 +63,10 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
 
+# Temporarily pinned to nim-sds feat/sds-repair pending nim-sds#60 merge.
+# Follow-up PR will flip the pin to master once #60 lands. No runtime calls yet.
+requires "https://github.com/logos-messaging/nim-sds.git#7af8cfd6d3568057beb541f8b6acf9d7953e77a5"
+
 requires "https://github.com/vacp2p/nim-lsquic"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 

@@ -509,6 +509,25 @@
         "sha1": "4d24e7d7441137cd202e16f2359a5807ddbdc31f"
       }
     },
+    "sds": {
+      "version": "0.2.4",
+      "vcsRevision": "7af8cfd6d3568057beb541f8b6acf9d7953e77a5",
+      "url": "https://github.com/logos-messaging/nim-sds.git",
+      "downloadMethod": "git",
+      "dependencies": [
+        "chronos",
+        "libp2p",
+        "chronicles",
+        "stew",
+        "stint",
+        "metrics",
+        "results",
+        "taskpools"
+      ],
+      "checksums": {
+        "sha1": "d5d2b8a2b9024baa1593fb7f440d885062857133"
+      }
+    },
     "toml_serialization": {
       "version": "0.2.18",
       "vcsRevision": "b5b387e6fb2a7cc75d54a269b07cc6218361bd46",
