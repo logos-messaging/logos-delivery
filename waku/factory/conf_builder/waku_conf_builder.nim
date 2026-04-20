@@ -299,7 +299,6 @@ proc buildShardingConf(
     bNumShardsInCluster: Option[uint16],
     bSubscribeShards: Option[seq[uint16]],
 ): (ShardingConf, seq[uint16]) =
-  echo "bSubscribeShards: ", bSubscribeShards
   case bShardingConfKind.get(AutoSharding)
   of StaticSharding:
     (ShardingConf(kind: StaticSharding), bSubscribeShards.get(@[]))
@@ -374,17 +373,17 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
     warn "Sharding Conf was provided alongside a network conf",
       used = networkConf.shardingConf.kind, discarded = builder.shardingConf
 
-  if builder.numShardsInCluster.isSome():
-    warn "Num Shards In Cluster was provided alongside a network conf",
-      used = networkConf.shardingConf.numShardsInCluster,
-      discarded = builder.numShardsInCluster
-
   case networkConf.shardingConf.kind
   of StaticSharding:
     builder.shardingConf = some(StaticSharding)
   of AutoSharding:
     builder.shardingConf = some(AutoSharding)
-    builder.numShardsInCluster = some(networkConf.shardingConf.numShardsInCluster)
+    if builder.numShardsInCluster.isSome():
+      warn "Num Shards In Cluster overrides network conf preset",
+        used = builder.numShardsInCluster.get(),
+        ignored = networkConf.shardingConf.numShardsInCluster
+    else:
+      builder.numShardsInCluster = some(networkConf.shardingConf.numShardsInCluster)
 
   if networkConf.discv5Discovery:
     if builder.discv5Conf.enabled.isNone:
