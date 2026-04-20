@@ -327,8 +327,7 @@ proc envOverridePort(envName: string): Option[Port] =
     try:
       parseInt(raw)
     except ValueError:
-      warn "env port override is not a number, ignoring",
-        envVar = envName, value = raw
+      warn "env port override is not a number, ignoring", envVar = envName, value = raw
       return none(Port)
 
   if parsed < 0 or parsed > uint16.high.int:

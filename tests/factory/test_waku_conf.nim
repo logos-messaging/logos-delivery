@@ -350,8 +350,7 @@ suite "Waku Conf Builder - rate limits":
 suite "Waku Conf Builder - env port overrides":
   proc clearPortEnv() =
     for name in [
-      EnvP2pTcpPort, EnvDiscv5UdpPort, EnvRestPort, EnvMetricsPort,
-      EnvWebSocketPort,
+      EnvP2pTcpPort, EnvDiscv5UdpPort, EnvRestPort, EnvMetricsPort, EnvWebSocketPort
     ]:
       delEnv(name)
 
