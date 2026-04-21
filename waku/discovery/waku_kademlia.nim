@@ -173,16 +173,16 @@ proc new*(
   )
 
 proc start*(self: WakuKademlia) =
-  #if self.periodicWalkFut.isNil():
-  #self.periodicWalkFut = self.periodicRandomWalk(self.loopInterval)
+  #[ if self.periodicWalkFut.isNil():
+    self.periodicWalkFut = self.periodicRandomWalk(self.loopInterval) ]#
 
   if self.periodicLookupFut.isNil():
     self.periodicLookupFut = self.periodicLookup(self.loopInterval)
 
 proc stop*(self: WakuKademlia) =
-  if not self.periodicWalkFut.isNil():
+  #[ if not self.periodicWalkFut.isNil():
     self.periodicWalkFut.cancelSoon()
-    self.periodicWalkFut = nil
+    self.periodicWalkFut = nil ]#
 
   if not self.periodicLookupFut.isNil():
     self.periodicLookupFut.cancelSoon()
