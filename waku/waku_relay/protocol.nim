@@ -618,7 +618,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   # Otherwise this might lead to unintended behaviour.
   if not w.topicValidator.hasKey(pubSubTopic):
     let newValidator = w.generateOrderedValidator()
-    procCall GossipSub(w).addValidator(pubSubTopic, w.generateOrderedValidator())
+    procCall GossipSub(w).addValidator(pubSubTopic, newValidator)
     w.topicValidator[pubSubTopic] = newValidator
 
   # set this topic parameters for scoring

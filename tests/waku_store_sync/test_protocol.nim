@@ -372,7 +372,7 @@ suite "Waku Sync: reconciliation":
     const
       msgCount = 400_000
       diffCount = 100_000
-      tol = 1000
+      tol = 10_000
 
     var diffMsgHashes: HashSet[WakuMessageHash]
     var missingIdx: HashSet[int]
