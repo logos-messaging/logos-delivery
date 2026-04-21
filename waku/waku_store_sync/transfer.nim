@@ -229,7 +229,8 @@ method start*(self: SyncTransfer) {.async: (raises: [CancelledError]).} =
   info "Store Sync Transfer protocol started"
 
 method stop*(self: SyncTransfer) {.async: (raises: []).} =
-  self.started = false
+  defer:
+    self.started = false
 
   await self.localWantsRxFut.cancelAndWait()
   await self.remoteNeedsRxFut.cancelAndWait()

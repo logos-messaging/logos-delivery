@@ -485,7 +485,8 @@ method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
   info "Store Sync Reconciliation protocol started"
 
 method stop*(self: SyncReconciliation) {.async: (raises: []).} =
-  self.started = false
+  defer:
+    self.started = false
 
   if self.syncInterval > ZeroDuration:
     await self.periodicSyncFut.cancelAndWait()
