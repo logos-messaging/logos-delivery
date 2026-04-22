@@ -108,9 +108,29 @@ pkgs.stdenv.mkDerivation {
   '';
 
   installPhase = ''
+    runHook preInstall
     mkdir -p $out/lib $out/include
     cp build/liblogosdelivery.${libExt} $out/lib/ 2>/dev/null || true
     cp build/liblogosdelivery.a         $out/lib/ 2>/dev/null || true
     cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
+    runHook postInstall
   '';
+
+  # Bundle librln alongside liblogosdelivery so the output is self-contained.
+  # Use --add-rpath (not --set-rpath) so fixupPhase's stdenv RUNPATH injection
+  # for libstdc++ is preserved.
+  postInstall =
+    pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+      cp ${zerokitRln}/lib/librln.dylib $out/lib/
+      chmod +w $out/lib/librln.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -id @rpath/liblogosdelivery.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
+      old=$(otool -L $out/lib/liblogosdelivery.dylib | awk 'NR>1{print $1}' | grep librln)
+      install_name_tool -change "$old" @rpath/librln.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -add_rpath @loader_path $out/lib/liblogosdelivery.dylib
+    ''
+    + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+      cp ${zerokitRln}/lib/librln.so $out/lib/
+      patchelf --add-rpath '$ORIGIN' $out/lib/liblogosdelivery.so
+    '';
 }
