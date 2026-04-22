@@ -215,27 +215,64 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
 
   trace "recovered peers from storage", amount = amount
 
+proc griefPeer*(pm: PeerManager, peerId: PeerId, amount: int = 1) =
+  if not pm.isNil:
+    pm.switch.peerStore.griefPeer(peerId, amount)
+
+proc sortByGriefScore(pm: PeerManager, peers: var seq[RemotePeerInfo]) =
+  ## Sorts peers by grief score ascending, with random shuffling within each
+  ## score tier. Peers with lower grief are preferred.
+  ## NOTE: shuffling defaultPeerStoreCapacity (750 currently) on demand is
+  ## negligible, but if that increases, might be worth exploring different
+  ## data structures.
+  let peerStore = pm.switch.peerStore
+
+  # Resolve grief scores for all peers
+  var anyGrief = false
+  var scored: seq[(int, RemotePeerInfo)]
+  for p in peers:
+    let score = peerStore.getGriefScore(p.peerId)
+    if score > 0:
+      anyGrief = true
+    scored.add((score, p))
+
+  # Fast path: if all peers are at 0, just shuffle
+  if not anyGrief:
+    shuffle(peers)
+    return
+
+  # Shuffle first so that within-bucket order is random
+  shuffle(scored)
+
+  # Stable sort by bucket preserves the random order within each bucket
+  scored.sort(
+    proc(a, b: (int, RemotePeerInfo)): int =
+      cmp(a[0] div GriefBucketSize, b[0] div GriefBucketSize),
+    order = SortOrder.Ascending)
+
+  # Drop peers beyond the max grief bucket
+  peers = scored.filterIt(it[0] div GriefBucketSize <= MaxGriefBucket).mapIt(it[1])
+
 proc selectPeers*(
     pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
 ): seq[RemotePeerInfo] =
   ## Returns all peers that support the given protocol (and optionally shard),
-  ## shuffled randomly. Callers can further filter or pick from this list.
-  var peers = pm.switch.peerStore.getPeersByProtocol(proto)
+  ## sorted by grief score ascending (shuffled within each score tier).
+  result = pm.switch.peerStore.getPeersByProtocol(proto)
   trace "Selecting peers from peerstore",
-    protocol = proto, num_peers = peers.len, address = cast[uint](pm.switch.peerStore)
+    protocol = proto, num_peers = result.len, address = cast[uint](pm.switch.peerStore)
 
   if shard.isSome():
     let shardInfo = RelayShard.parse(shard.get()).valueOr:
       trace "Failed to parse shard from pubsub topic", topic = shard.get()
       return @[]
 
-    peers.keepItIf(
+    result.keepItIf(
       (it.enr.isSome() and it.enr.get().containsShard(shard.get())) or
         (it.shards.len > 0 and it.shards.contains(shardInfo.shardId))
     )
 
-  shuffle(peers)
-  return peers
+  pm.sortByGriefScore(result)
 
 proc selectPeer*(
     pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
@@ -640,7 +677,7 @@ proc connectToRelayPeers*(pm: PeerManager) {.async.} =
 
   var outsideBackoffPeers = notConnectedPeers.filterIt(pm.canBeConnected(it.peerId))
 
-  shuffle(outsideBackoffPeers)
+  pm.sortByGriefScore(outsideBackoffPeers)
 
   var index = 0
   var numPendingConnReqs =

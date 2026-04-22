@@ -62,6 +62,8 @@ type RemotePeerInfo* = ref object
   direction*: PeerDirection
   lastFailedConn*: Moment
   numberFailedConn*: int
+  griefScore*: int
+  griefCooldownTime*: Moment
 
 func `$`*(remotePeerInfo: RemotePeerInfo): string =
   $remotePeerInfo.peerId
@@ -87,6 +89,8 @@ proc init*(
     direction: PeerDirection = UnknownDirection,
     lastFailedConn: Moment = Moment.init(0, Second),
     numberFailedConn: int = 0,
+    griefScore: int = 0,
+    griefCooldownTime: Moment = Moment.init(0, Second),
     mixPubKey: Option[Curve25519Key] = none(Curve25519Key),
 ): T =
   RemotePeerInfo(
@@ -104,6 +108,8 @@ proc init*(
     direction: direction,
     lastFailedConn: lastFailedConn,
     numberFailedConn: numberFailedConn,
+    griefScore: griefScore,
+    griefCooldownTime: griefCooldownTime,
     mixPubKey: mixPubKey,
   )
 
