@@ -369,30 +369,16 @@ proc mountStoreSync*(
 
   return ok()
 
-proc startRelay*(node: WakuNode) {.async.} =
-  ## Setup and start relay protocol
-  info "starting relay protocol"
-
+proc reconnectRelayPeers*(node: WakuNode) {.async.} =
+  ## Reconnect to previously-seen WakuRelay peers.
   if node.wakuRelay.isNil():
-    error "Failed to start relay. Not mounted."
     return
-
-  ## Setup relay protocol
-
-  # Resume previous relay connections
-  if node.peerManager.switch.peerStore.hasPeers(protocolMatcher(WakuRelayCodec)):
-    info "Found previous WakuRelay peers. Reconnecting."
-
-    # Reconnect to previous relay peers. This will respect a backoff period, if necessary
-    let backoffPeriod =
-      node.wakuRelay.parameters.pruneBackoff + chronos.seconds(BackoffSlackTime)
-
-    await node.peerManager.reconnectPeers(WakuRelayCodec, backoffPeriod)
-
-  # Start the WakuRelay protocol
-  await node.wakuRelay.start()
-
-  info "relay started successfully"
+  if not node.peerManager.switch.peerStore.hasPeers(protocolMatcher(WakuRelayCodec)):
+    return
+  info "Found previous WakuRelay peers. Reconnecting."
+  let backoffPeriod =
+    node.wakuRelay.parameters.pruneBackoff + chronos.seconds(BackoffSlackTime)
+  await node.peerManager.reconnectPeers(WakuRelayCodec, backoffPeriod)
 
 proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
   var randomPeers = peers
@@ -430,7 +416,10 @@ proc mountRendezvous*(
     return
 
   if node.started:
-    await node.wakuRendezvous.start()
+    try:
+      await node.wakuRendezvous.start()
+    except CancelledError as exc:
+      error "failed to start wakuRendezvous", error = exc.msg
 
   try:
     node.switch.mount(node.wakuRendezvous, protocolMatcher(WakuRendezVousCodec))
@@ -578,30 +567,11 @@ proc start*(node: WakuNode) {.async.} =
     if isBindIpWithZeroPort(address):
       zeroPortPresent = true
 
-  # Perform relay-specific startup tasks TODO: this should be rethought
-  if not node.wakuRelay.isNil():
-    await node.startRelay()
-
-  if not node.wakuMix.isNil():
-    node.wakuMix.start()
-
-  if not node.wakuMetadata.isNil():
-    node.wakuMetadata.start()
-
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.start()
 
-  if not node.wakuRendezvous.isNil():
-    await node.wakuRendezvous.start()
-
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
-
-  if not node.wakuStoreReconciliation.isNil():
-    node.wakuStoreReconciliation.start()
-
-  if not node.wakuStoreTransfer.isNil():
-    node.wakuStoreTransfer.start()
 
   ## The switch uses this mapper to update peer info addrs
   ## with announced addrs after start
@@ -612,7 +582,11 @@ proc start*(node: WakuNode) {.async.} =
   node.switch.peerInfo.addressMappers.add(addressMapper)
 
   ## The switch will update addresses after start using the addressMapper
+  ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
+
+  # After switch.start, run custom Logos Delivery relay start logic
+  await node.reconnectRelayPeers()
 
   node.started = true
 
@@ -637,6 +611,7 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.stopProvidersAndListeners()
 
+  ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()
 
   node.peerManager.stop()
@@ -653,21 +628,12 @@ proc stop*(node: WakuNode) {.async.} =
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.stopWait()
 
-  if not node.wakuStoreReconciliation.isNil():
-    node.wakuStoreReconciliation.stop()
-
-  if not node.wakuStoreTransfer.isNil():
-    node.wakuStoreTransfer.stop()
-
   if not node.wakuPeerExchangeClient.isNil() and
       not node.wakuPeerExchangeClient.pxLoopHandle.isNil():
     await node.wakuPeerExchangeClient.pxLoopHandle.cancelAndWait()
 
   if not node.wakuKademlia.isNil():
     await node.wakuKademlia.stop()
-
-  if not node.wakuRendezvous.isNil():
-    await node.wakuRendezvous.stopWait()
 
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.stopWait()
