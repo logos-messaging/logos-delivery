@@ -1,7 +1,21 @@
-{ pkgs, src, zerokitRln }:
+{ pkgs
+, src
+, zerokitRln
+, enablePostgres       ? true
+, enableNimDebugDlOpen ? true
+, chroniclesLogLevel   ? null
+}:
 
 let
   deps      = import ./deps.nix    { inherit pkgs; };
+
+  nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
+       [ "--define:disable_libbacktrace" ]
+    ++ pkgs.lib.optional enablePostgres       "--define:postgres"
+    ++ pkgs.lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
+    ++ pkgs.lib.optional (chroniclesLogLevel != null)
+         "--define:chronicles_log_level=${toString chroniclesLogLevel}"
+  );
 
   # nat_traversal is excluded from the static pathArgs; it is handled
   # separately in buildPhase (its bundled C libs must be compiled first).
@@ -61,9 +75,7 @@ pkgs.stdenv.mkDerivation {
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
       --passL:"-L${zerokitRln}/lib -lrln" \
-      --define:disable_libbacktrace \
-      --define:postgres \
-      --define:nimDebugDlOpen \
+      ${nimDefineArgs} \
       --out:build/liblogosdelivery.${libExt} \
       --app:lib \
       --threads:on \
@@ -82,9 +94,7 @@ pkgs.stdenv.mkDerivation {
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
       --passL:"-L${zerokitRln}/lib -lrln" \
-      --define:disable_libbacktrace \
-      --define:postgres \
-      --define:nimDebugDlOpen \
+      ${nimDefineArgs} \
       --out:build/liblogosdelivery.a \
       --app:staticlib \
       --threads:on \
