@@ -46,7 +46,8 @@ pkgs.stdenv.mkDerivation {
     which
   ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.cctools ];
 
-  buildInputs = [ zerokitRln ];
+  buildInputs = [ zerokitRln ]
+    ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
 
   buildPhase = ''
     export HOME=$TMPDIR
@@ -74,7 +75,7 @@ pkgs.stdenv.mkDerivation {
       ${pathArgs} \
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln" \
+      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
       ${nimDefineArgs} \
       --out:build/liblogosdelivery.${libExt} \
       --app:lib \
@@ -93,7 +94,7 @@ pkgs.stdenv.mkDerivation {
       ${pathArgs} \
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln" \
+      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
       ${nimDefineArgs} \
       --out:build/liblogosdelivery.a \
       --app:staticlib \
