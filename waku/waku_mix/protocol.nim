@@ -99,11 +99,7 @@ proc new*(
     wakuKademlia: wakuKademlia,
   )
 
-  procCall MixProtocol(mix).init(
-    localMixNodeInfo,
-    switch,
-    delayStrategy = ExponentialDelayStrategy.new(rng = crypto.newRng()),
-  )
+  procCall MixProtocol(mix).init(localMixNodeInfo, switch)
 
   return ok(mix)
 

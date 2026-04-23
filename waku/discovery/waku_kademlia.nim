@@ -10,8 +10,7 @@ import
   libp2p/protocols/mix/mix_protocol,
   libp2p/[peerid, multiaddress, switch],
   libp2p/extended_peer_record,
-  libp2p/protocols/[kademlia, kad_disco],
-  libp2p/protocols/kademlia_discovery/types as kad_types,
+  libp2p/protocols/[kademlia, service_discovery],
   libp2p/protocols/service_discovery/types
 
 import waku/waku_core, waku/node/peer_manager
@@ -22,7 +21,7 @@ logScope:
 const DefaultKademliaDiscoveryInterval* = chronos.seconds(60)
 
 type WakuKademlia* = ref object
-  protocol*: KademliaDiscovery
+  protocol*: ServiceDiscovery
   peerManager: PeerManager
   loopInterval: Duration
   #periodicWalkFut: Future[void]
@@ -158,12 +157,11 @@ proc new*(
   if bootstrapNodes.len == 0:
     debug "creating kademlia discovery as seed node (no bootstrap nodes)"
 
-  let kademlia = KademliaDiscovery.new(
+  let kademlia = ServiceDiscovery.new(
     switch,
     bootstrapNodes = bootstrapNodes,
-    config = KadDHTConfig.new(
-      validator = kad_types.ExtEntryValidator(), selector = kad_types.ExtEntrySelector()
-    ),
+    config =
+      KadDHTConfig.new(validator = ExtEntryValidator(), selector = ExtEntrySelector()),
     services = providedServices,
     xprPublishing = xprPublishing,
   )
