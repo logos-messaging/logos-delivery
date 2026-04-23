@@ -376,6 +376,7 @@ suite "WakuConfBuilder - store retention policies":
   test "Multiple retention policies":
     ## Given
     var b = WakuConfBuilder.init()
+    b.withP2pTcpPort(0'u16)
     b.storeServiceConf.withEnabled(true)
     b.storeServiceConf.withDbUrl("sqlite://test.db")
     b.storeServiceConf.withRetentionPolicies(
@@ -420,6 +421,7 @@ suite "WakuConfBuilder - store retention policies":
   test "Store disabled - no retention policy applied":
     ## Given
     var b = WakuConfBuilder.init()
+    b.withP2pTcpPort(0'u16)
     # storeServiceConf not enabled
 
     ## When

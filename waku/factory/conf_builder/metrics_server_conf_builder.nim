@@ -36,11 +36,14 @@ proc build*(b: MetricsServerConfBuilder): Result[Option[MetricsServerConf], stri
   if not b.enabled.get(false):
     return ok(none(MetricsServerConf))
 
+  if b.httpPort.isNone():
+    return err("metricsServer.httpPort is not specified")
+
   return ok(
     some(
       MetricsServerConf(
         httpAddress: b.httpAddress.get(static parseIpAddress("127.0.0.1")),
-        httpPort: b.httpPort.get(8008.Port),
+        httpPort: b.httpPort.get(),
         logging: b.logging.get(false),
       )
     )

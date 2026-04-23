@@ -4,7 +4,7 @@ import
   libp2p/crypto/[crypto, secp],
   libp2p/multiaddress,
   nimcrypto/utils,
-  std/[options, random, sequtils],
+  std/[net, options, random, sequtils],
   results,
   testutils/unittests
 import
@@ -18,6 +18,7 @@ suite "Waku Conf - build with cluster conf":
     ## Setup
     let networkConf = NetworkConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
     builder.discv5Conf.withUdpPort(9000)
     builder.withRelayServiceRatio("50:50")
     # Mount all shards in network
@@ -62,6 +63,7 @@ suite "Waku Conf - build with cluster conf":
     ## Setup
     let networkConf = NetworkConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
     builder.withRelayServiceRatio("50:50")
     builder.discv5Conf.withUdpPort(9000)
     # Mount all shards in network
@@ -95,6 +97,8 @@ suite "Waku Conf - build with cluster conf":
     ## Setup
     let networkConf = NetworkConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
+    builder.discv5Conf.withUdpPort(0'u16)
 
     let # Mount all shards in network
       expectedShards = toSeq[0.uint16 .. 7.uint16]
@@ -126,6 +130,8 @@ suite "Waku Conf - build with cluster conf":
     ## Setup
     let networkConf = NetworkConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
+    builder.discv5Conf.withUdpPort(0'u16)
     let shards = @[2.uint16, 3.uint16]
 
     ## Given
@@ -171,6 +177,8 @@ suite "Waku Conf - build with cluster conf":
     ## Setup
     let networkConf = NetworkConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
+    builder.discv5Conf.withUdpPort(0'u16)
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
 
     # Mount all shards in network
@@ -217,6 +225,8 @@ suite "Waku Conf - build with cluster conf":
     ## Setup
     let networkConf = NetworkConf.LogosDevConf()
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
+    builder.discv5Conf.withUdpPort(0'u16)
 
     # Sanity check
     check networkConf.shardingConf.kind == AutoSharding
@@ -246,6 +256,8 @@ suite "Waku Conf - build with cluster conf":
     ## Given: emulate --preset=logos.dev --num-shards-in-network=0
     let networkConf = NetworkConf.LogosDevConf()
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
+    builder.discv5Conf.withUdpPort(0'u16)
     builder.withNetworkConf(networkConf)
     # Note: builder.withNumShardsInCluster() is not called when the
     # value that comes from the CLI path is 0 (which means it was
@@ -265,6 +277,7 @@ suite "Waku Conf - node key":
   test "Node key is generated":
     ## Setup
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
     builder.withClusterId(1)
 
     ## Given
@@ -288,6 +301,7 @@ suite "Waku Conf - node key":
       let key = SkPrivateKey.init(utils.fromHex(nodeKeyStr)).tryGet()
       crypto.PrivateKey(scheme: Secp256k1, skkey: key)
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
     builder.withClusterId(1)
 
     ## Given
@@ -309,6 +323,7 @@ suite "Waku Conf - extMultiaddrs":
   test "Valid multiaddresses are passed and accepted":
     ## Setup
     var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(0'u16)
     builder.withClusterId(1)
 
     ## Given
@@ -346,3 +361,66 @@ suite "Waku Conf Builder - rate limits":
 
     ## Then
     assert res.isOk(), $res.error
+
+suite "Waku Conf - port required":
+  test "p2pTcpPort not specified returns err":
+    ## Setup: minimal builder with no withP2pTcpPort call
+    var builder = WakuConfBuilder.init()
+
+    ## When
+    let res = builder.build()
+
+    ## Then
+    check res.isErr()
+    check res.error == "p2pTcpPort is not specified"
+
+  test "discv5 enabled without udpPort returns err":
+    ## Setup
+    var builder = WakuConfBuilder.init()
+    builder.discv5Conf.withEnabled(true)
+
+    ## When
+    let res = builder.build()
+
+    ## Then
+    check res.isErr()
+    check res.error == "Discv5 Conf building failed: discv5.udpPort is not specified"
+
+  test "metricsServer enabled without httpPort returns err":
+    ## Setup
+    var builder = WakuConfBuilder.init()
+    builder.metricsServerConf.withEnabled(true)
+
+    ## When
+    let res = builder.build()
+
+    ## Then
+    check res.isErr()
+    check res.error ==
+      "Metrics Server Conf building failed: metricsServer.httpPort is not specified"
+
+  test "restServer enabled without port returns err":
+    ## Setup: listenAddress must be set (checked before port)
+    var builder = WakuConfBuilder.init()
+    builder.restServerConf.withEnabled(true)
+    builder.restServerConf.withListenAddress(parseIpAddress("127.0.0.1"))
+
+    ## When
+    let res = builder.build()
+
+    ## Then
+    check res.isErr()
+    check res.error ==
+      "REST Server Conf building failed: restServer.port is not specified"
+
+  test "webSocket enabled without port returns err":
+    ## Setup
+    var builder = WakuConfBuilder.init()
+    builder.webSocketConf.withEnabled(true)
+
+    ## When
+    let res = builder.build()
+
+    ## Then
+    check res.isErr()
+    check res.error == "WebSocket Conf building failed: websocket.port is not specified"

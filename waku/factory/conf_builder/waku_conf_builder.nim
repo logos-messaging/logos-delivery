@@ -8,11 +8,13 @@ import
   results
 
 import
-  ../waku_conf,
-  ../networks_config,
-  ../../common/logging,
-  ../../common/utils/parse_size_units,
-  ../../waku_enr/capabilities,
+  waku/[
+    factory/waku_conf,
+    factory/networks_config,
+    common/logging,
+    common/utils/parse_size_units,
+    waku_enr/capabilities,
+  ],
   tools/confutils/entry_nodes
 
 import
@@ -574,12 +576,9 @@ proc build*(
       warn "Nat Strategy is not specified, defaulting to none"
       "none"
 
-  let p2pTcpPort =
-    if builder.p2pTcpPort.isSome():
-      builder.p2pTcpPort.get()
-    else:
-      warn "P2P Listening TCP Port is not specified, listening on 60000"
-      60000.Port
+  if builder.p2pTcpPort.isNone():
+    return err("p2pTcpPort is not specified")
+  let p2pTcpPort = builder.p2pTcpPort.get()
 
   let p2pListenAddress =
     if builder.p2pListenAddress.isSome():

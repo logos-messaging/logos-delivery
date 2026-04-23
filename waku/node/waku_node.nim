@@ -96,11 +96,19 @@ const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
 # key and crypto modules different
 type
+  BoundPorts* = object ## Set by the factory once each service has bound to a port.
+    tcp*: Option[uint16]
+    webSocket*: Option[uint16]
+    rest*: Option[uint16]
+    discv5Udp*: Option[uint16]
+    metrics*: Option[uint16]
+
   # TODO: Move to application instance (e.g., `WakuNode2`)
   WakuInfo* = object # NOTE One for simplicity, can extend later as needed
     listenAddresses*: seq[string]
     enrUri*: string #multiaddrStrings*: seq[string]
     mixPubKey*: Option[string]
+    ports*: BoundPorts
 
   # NOTE based on Eth2Node in NBC eth2_network.nim
   WakuNode* = ref object
@@ -140,6 +148,7 @@ type
     wakuMix*: WakuMix
     kademliaDiscoveryLoop*: Future[void]
     wakuKademlia*: WakuKademlia
+    ports*: BoundPorts
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -244,11 +253,13 @@ proc info*(node: WakuNode): WakuInfo =
   let peerInfo = node.switch.peerInfo
 
   var listenStr: seq[string]
-  for address in node.announcedAddresses:
+  # Post-bind: when a transport was given port=0, this reflects the real
+  # OS-assigned port rather than the pre-bind configured 0.
+  for address in peerInfo.listenAddrs:
     var fulladdr = $address & "/p2p/" & $peerInfo.peerId
     listenStr &= fulladdr
   let enrUri = node.enr.toUri()
-  var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri)
+  var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri, ports: node.ports)
   if not node.wakuMix.isNil():
     let keyStr = node.wakuMix.pubKey.to0xHex()
     wakuInfo.mixPubKey = some(keyStr)

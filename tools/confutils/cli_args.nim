@@ -192,8 +192,7 @@ type WakuNodeConf* = object
       name: "listen-address"
     .}: IpAddress
 
-    tcpPort* {.desc: "TCP listening port.", defaultValue: 60000, name: "tcp-port".}:
-      Port
+    tcpPort* {.desc: "TCP listening port.", defaultValue: 0, name: "tcp-port".}: uint16
 
     portsShift* {.
       desc: "Add a shift to all port numbers.", defaultValue: 0, name: "ports-shift"
@@ -490,7 +489,7 @@ with the drawback of consuming some more bandwidth.""",
 
     restPort* {.
       desc: "Listening port of the REST HTTP server.",
-      defaultValue: 8645,
+      defaultValue: 0,
       name: "rest-port"
     .}: uint16
 
@@ -531,7 +530,7 @@ with the drawback of consuming some more bandwidth.""",
 
     metricsServerPort* {.
       desc: "Listening HTTP port of the metrics server.",
-      defaultValue: 8008,
+      defaultValue: 0,
       name: "metrics-server-port"
     .}: uint16
 
@@ -565,9 +564,9 @@ with the drawback of consuming some more bandwidth.""",
 
     discv5UdpPort* {.
       desc: "Listening UDP port for Node Discovery v5.",
-      defaultValue: 9000,
+      defaultValue: 0,
       name: "discv5-udp-port"
-    .}: Port
+    .}: uint16
 
     discv5BootstrapNodes* {.
       desc:
@@ -664,8 +663,8 @@ with the drawback of consuming some more bandwidth.""",
     .}: bool
 
     websocketPort* {.
-      desc: "WebSocket listening port.", defaultValue: 8000, name: "websocket-port"
-    .}: Port
+      desc: "WebSocket listening port.", defaultValue: 0, name: "websocket-port"
+    .}: uint16
 
     websocketSecureSupport* {.
       desc: "Enable secure websocket:  true|false",

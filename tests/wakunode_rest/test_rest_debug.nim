@@ -1,6 +1,7 @@
 {.used.}
 
 import
+  std/options,
   testutils/unittests,
   presto,
   presto/client as presto_client,
@@ -61,6 +62,37 @@ suite "Waku v2 REST API - Debug":
     await restServer.stop()
     await restServer.closeWait()
     await node.stop()
+
+  asyncTest "GET /info exposes node.ports":
+    let node = testWakuNode()
+    node.ports = BoundPorts(
+      tcp: some(1001'u16),
+      webSocket: some(1002'u16),
+      rest: some(1003'u16),
+      discv5Udp: some(1004'u16),
+      metrics: some(1005'u16),
+    )
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installDebugApiHandlers(restServer.router, node)
+    restServer.start()
+
+    let client = newRestHttpClient(
+      initTAddress(restAddress, restServer.httpServer.address.port)
+    )
+    let response = await client.debugInfoV1()
+
+    check:
+      response.status == 200
+      response.data.ports.tcp == some(1001'u16)
+      response.data.ports.webSocket == some(1002'u16)
+      response.data.ports.rest == some(1003'u16)
+      response.data.ports.discv5Udp == some(1004'u16)
+      response.data.ports.metrics == some(1005'u16)
+
+    await restServer.stop()
+    await restServer.closeWait()
 
   asyncTest "Get node version - GET /version":
     # Given

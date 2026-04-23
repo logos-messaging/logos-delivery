@@ -38,8 +38,8 @@ proc withTableIpLimit*(b: var Discv5ConfBuilder, tableIpLimit: uint) =
 proc withUdpPort*(b: var Discv5ConfBuilder, udpPort: Port) =
   b.udpPort = some(udpPort)
 
-proc withUdpPort*(b: var Discv5ConfBuilder, udpPort: uint) =
-  b.udpPort = some(Port(udpPort.uint16))
+proc withUdpPort*(b: var Discv5ConfBuilder, udpPort: uint16) =
+  b.udpPort = some(Port(udpPort))
 
 proc withBootstrapNodes*(b: var Discv5ConfBuilder, bootstrapNodes: seq[string]) =
   # TODO: validate ENRs?
@@ -49,6 +49,9 @@ proc build*(b: Discv5ConfBuilder): Result[Option[Discv5Conf], string] =
   if not b.enabled.get(false):
     return ok(none(Discv5Conf))
 
+  if b.udpPort.isNone():
+    return err("discv5.udpPort is not specified")
+
   return ok(
     some(
       Discv5Conf(
@@ -57,7 +60,7 @@ proc build*(b: Discv5ConfBuilder): Result[Option[Discv5Conf], string] =
         bucketIpLimit: b.bucketIpLimit.get(2),
         enrAutoUpdate: b.enrAutoUpdate.get(true),
         tableIpLimit: b.tableIpLimit.get(10),
-        udpPort: b.udpPort.get(9000.Port),
+        udpPort: b.udpPort.get(),
       )
     )
   )

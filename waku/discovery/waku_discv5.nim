@@ -10,7 +10,7 @@ import
   eth/keys as eth_keys,
   eth/p2p/discoveryv5/node,
   eth/p2p/discoveryv5/protocol
-import ../node/peer_manager/peer_manager, ../waku_core, ../waku_enr
+import waku/[common/auto_port, node/peer_manager/peer_manager, waku_core, waku_enr]
 
 export protocol, waku_enr
 
@@ -409,7 +409,13 @@ proc setupDiscoveryV5*(
     key: crypto.PrivateKey,
     p2pListenAddress: IpAddress,
     portsShift: uint16,
-): WakuDiscoveryV5 =
+): Result[WakuDiscoveryV5, string] =
+  if conf.udpPort == Port(0):
+    return err(
+      "setupDiscoveryV5: udpPort must be non-zero; " &
+        "use setupAndStartDiscv5 for port=0 auto-port retry"
+    )
+
   let dynamicBootstrapEnrs =
     dynamicBootstrapNodes.filterIt(it.hasUdpPort()).mapIt(it.enr.get())
 
@@ -441,9 +447,51 @@ proc setupDiscoveryV5*(
     autoupdateRecord: conf.enrAutoUpdate,
   )
 
-  WakuDiscoveryV5.new(
-    rng, discv5Conf, some(myENR), some(nodePeerManager), nodeTopicSubscriptionQueue
+  ok(
+    WakuDiscoveryV5.new(
+      rng, discv5Conf, some(myENR), some(nodePeerManager), nodeTopicSubscriptionQueue
+    )
   )
+
+proc setupAndStartDiscv5*(
+    myENR: enr.Record,
+    nodePeerManager: PeerManager,
+    nodeTopicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent],
+    conf: Discv5Conf,
+    dynamicBootstrapNodes: seq[RemotePeerInfo],
+    rng: ref HmacDrbgContext,
+    key: crypto.PrivateKey,
+    p2pListenAddress: IpAddress,
+    portsShift: uint16,
+): Future[Result[WakuDiscoveryV5, string]] {.async: (raises: []).} =
+  ## Construct and start a `WakuDiscoveryV5` instance, handling auto-port
+  ## retry when the caller asks for `udpPort == 0`.
+  var c = conf
+  let autoMode = c.udpPort == Port(0)
+  let attempts = if autoMode: AutoPortRetryCount else: 1
+  var lastErr = ""
+
+  for attempt in 1 .. attempts:
+    if autoMode:
+      c.udpPort = Port(getAutoPort())
+
+    let wd = setupDiscoveryV5(
+      myENR, nodePeerManager, nodeTopicSubscriptionQueue, c, dynamicBootstrapNodes, rng,
+      key, p2pListenAddress, portsShift,
+    ).valueOr:
+      return err(error)
+
+    let startRes = await wd.start()
+    if startRes.isOk():
+      return ok(wd)
+    lastErr = startRes.error
+
+  if autoMode:
+    return err("discv5: auto-port bind exhausted; last error: " & lastErr)
+  return err(lastErr)
+
+proc udpPort*(wd: WakuDiscoveryV5): Port =
+  wd.conf.port
 
 proc updateBootstrapRecords*(
     self: var WakuDiscoveryV5, newRecordsString: string
