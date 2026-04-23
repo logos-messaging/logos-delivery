@@ -16,7 +16,8 @@ import
   libp2p/nameresolving/nameresolver,
   libp2p/builders,
   libp2p/switch,
-  libp2p/transports/[transport, tcptransport, wstransport]
+  libp2p/transports/[transport, tcptransport, wstransport],
+  libp2p/peeraddrpolicy
 
 # override nim-libp2p default value (which is also 1)
 const MaxConnectionsPerPeer* = 1
@@ -100,6 +101,7 @@ proc newWakuSwitch*(
     .withSignedPeerRecord(sendSignedPeerRecord)
     .withCircuitRelay(circuitRelay)
     .withServices(@[hpService])
+    .withAddressPolicy(noPrivateAddressPolicy)
 
   if peerStoreCapacity.isSome():
     b = b.withPeerStore(peerStoreCapacity.get())
