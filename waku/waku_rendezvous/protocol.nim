@@ -211,29 +211,22 @@ proc new*(
 
   return ok(wrv)
 
-proc start*(self: WakuRendezVous) {.async: (raises: []).} =
+method start*(self: WakuRendezVous) {.async: (raises: [CancelledError]).} =
   # Start the parent GenericRendezVous (starts the register deletion loop)
   if self.started:
     warn "waku rendezvous already started"
     return
-  try:
-    await procCall GenericRendezVous[WakuPeerRecord](self).start()
-  except CancelledError as exc:
-    error "failed to start GenericRendezVous", cause = exc.msg
-    return
+  await procCall GenericRendezVous[WakuPeerRecord](self).start()
   # start registering forever
   self.periodicRegistrationFut = self.periodicRegistration()
 
   info "waku rendezvous discovery started"
 
-proc stopWait*(self: WakuRendezVous) {.async: (raises: []).} =
+method stop*(self: WakuRendezVous) {.async: (raises: []).} =
   if not self.periodicRegistrationFut.isNil():
     await self.periodicRegistrationFut.cancelAndWait()
 
   # Stop the parent GenericRendezVous (stops the register deletion loop)
-  await GenericRendezVous[WakuPeerRecord](self).stop()
-
-  # Stop the parent GenericRendezVous (stops the register deletion loop)
-  await GenericRendezVous[WakuPeerRecord](self).stop()
+  await procCall GenericRendezVous[WakuPeerRecord](self).stop()
 
   info "waku rendezvous discovery stopped"

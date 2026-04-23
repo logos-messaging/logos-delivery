@@ -104,10 +104,4 @@ proc new*(
 proc poolSize*(mix: WakuMix): int =
   mix.nodePool.len
 
-method start*(mix: WakuMix) =
-  info "starting waku mix protocol"
-
-method stop*(mix: WakuMix) {.async.} =
-  discard
-
 # Mix Protocol

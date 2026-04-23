@@ -108,9 +108,3 @@ proc new*(T: type WakuMetadata, clusterId: uint32, getShards: GetShards): T =
     clusterId = wm.clusterId, shards = wm.getShards()
 
   return wm
-
-proc start*(wm: WakuMetadata) =
-  wm.started = true
-
-proc stop*(wm: WakuMetadata) =
-  wm.started = false

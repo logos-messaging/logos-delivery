@@ -217,7 +217,7 @@ proc new*(
 
   return transfer
 
-proc start*(self: SyncTransfer) =
+method start*(self: SyncTransfer) {.async: (raises: [CancelledError]).} =
   if self.started:
     return
 
@@ -228,10 +228,11 @@ proc start*(self: SyncTransfer) =
 
   info "Store Sync Transfer protocol started"
 
-proc stop*(self: SyncTransfer) =
-  self.started = false
+method stop*(self: SyncTransfer) {.async: (raises: []).} =
+  defer:
+    self.started = false
 
-  self.localWantsRxFut.cancelSoon()
-  self.remoteNeedsRxFut.cancelSoon()
+  await self.localWantsRxFut.cancelAndWait()
+  await self.remoteNeedsRxFut.cancelAndWait()
 
   info "Store Sync Transfer protocol stopped"
