@@ -143,7 +143,9 @@ proc periodicLookup(
 
     # For testing lets use only one hard-coded service
     # Same as the advertised one
-    discard await self.lookup("delivery")
+    let peers = await self.lookup("delivery")
+
+    debug "lookup complete", peer_found = peers.len
 
 proc new*(
     T: type WakuKademlia,
