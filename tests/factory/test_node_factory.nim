@@ -97,7 +97,8 @@ suite "Auto-port retry":
       b.build().value.get()
 
     try:
-      let failRes = await startMetricsServerAndLogging(buildMetricsConf(takenPort), 0'u16)
+      let failRes =
+        await startMetricsServerAndLogging(buildMetricsConf(takenPort), 0'u16)
       check failRes.isErr
 
       let okRes = await startMetricsServerAndLogging(buildMetricsConf(freePort), 0'u16)
@@ -187,8 +188,7 @@ suite "Auto-port retry":
       var mb = MetricsServerConfBuilder.init()
       mb.withEnabled(true)
       mb.withHttpPort(0'u16)
-      let metricsRes =
-        await startMetricsServerAndLogging(mb.build().value.get(), 0'u16)
+      let metricsRes = await startMetricsServerAndLogging(mb.build().value.get(), 0'u16)
       check metricsRes.isErr
 
       var db = Discv5ConfBuilder.init()

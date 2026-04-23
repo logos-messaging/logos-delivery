@@ -78,9 +78,8 @@ suite "Waku v2 REST API - Debug":
     installDebugApiHandlers(restServer.router, node)
     restServer.start()
 
-    let client = newRestHttpClient(
-      initTAddress(restAddress, restServer.httpServer.address.port)
-    )
+    let client =
+      newRestHttpClient(initTAddress(restAddress, restServer.httpServer.address.port))
     let response = await client.debugInfoV1()
 
     check:
