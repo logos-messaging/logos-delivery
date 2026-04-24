@@ -76,7 +76,7 @@ proc getMyCPU(): string =
     return " --cpu:amd64 "
 
 proc getNimParams(): string =
-  return " " & getEnv("NIM_PARAMS") & " "
+  return " " & getEnv("NIM_PARAMS") & " " & getEnv("NIMFLAGS") & " "
 
 ### Helper functions
 proc buildModule(filePath, params = ""): bool =
@@ -379,7 +379,7 @@ task testcommon, "Build & run common tests":
 ### Waku tasks
 task wakunode2, "Build Waku v2 cli node":
   let name = "wakunode2"
-  buildBinary name, "apps/wakunode2/", " -d:chronicles_log_level=TRACE "
+  buildBinary name, "apps/wakunode2/", " -d:chronicles_log_level=TRACE -d:postgres "
 
 task benchmarks, "Some benchmarks":
   let name = "benchmarks"
