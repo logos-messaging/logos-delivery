@@ -1,7 +1,21 @@
-{ pkgs, src, zerokitRln }:
+{ pkgs
+, src
+, zerokitRln
+, enablePostgres       ? true
+, enableNimDebugDlOpen ? true
+, chroniclesLogLevel   ? null
+}:
 
 let
   deps      = import ./deps.nix    { inherit pkgs; };
+
+  nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
+       [ "--define:disable_libbacktrace" ]
+    ++ pkgs.lib.optional enablePostgres       "--define:postgres"
+    ++ pkgs.lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
+    ++ pkgs.lib.optional (chroniclesLogLevel != null)
+         "--define:chronicles_log_level=${toString chroniclesLogLevel}"
+  );
 
   # nat_traversal is excluded from the static pathArgs; it is handled
   # separately in buildPhase (its bundled C libs must be compiled first).
@@ -32,7 +46,8 @@ pkgs.stdenv.mkDerivation {
     which
   ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.cctools ];
 
-  buildInputs = [ zerokitRln ];
+  buildInputs = [ zerokitRln ]
+    ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
 
   buildPhase = ''
     export HOME=$TMPDIR
@@ -60,10 +75,8 @@ pkgs.stdenv.mkDerivation {
       ${pathArgs} \
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln" \
-      --define:disable_libbacktrace \
-      --define:postgres \
-      --define:nimDebugDlOpen \
+      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
+      ${nimDefineArgs} \
       --out:build/liblogosdelivery.${libExt} \
       --app:lib \
       --threads:on \
@@ -81,10 +94,8 @@ pkgs.stdenv.mkDerivation {
       ${pathArgs} \
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln" \
-      --define:disable_libbacktrace \
-      --define:postgres \
-      --define:nimDebugDlOpen \
+      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
+      ${nimDefineArgs} \
       --out:build/liblogosdelivery.a \
       --app:staticlib \
       --threads:on \
@@ -97,9 +108,29 @@ pkgs.stdenv.mkDerivation {
   '';
 
   installPhase = ''
+    runHook preInstall
     mkdir -p $out/lib $out/include
     cp build/liblogosdelivery.${libExt} $out/lib/ 2>/dev/null || true
     cp build/liblogosdelivery.a         $out/lib/ 2>/dev/null || true
     cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
+    runHook postInstall
   '';
+
+  # Bundle librln alongside liblogosdelivery so the output is self-contained.
+  # Use --add-rpath (not --set-rpath) so fixupPhase's stdenv RUNPATH injection
+  # for libstdc++ is preserved.
+  postInstall =
+    pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+      cp ${zerokitRln}/lib/librln.dylib $out/lib/
+      chmod +w $out/lib/librln.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -id @rpath/liblogosdelivery.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
+      old=$(otool -L $out/lib/liblogosdelivery.dylib | awk 'NR>1{print $1}' | grep librln)
+      install_name_tool -change "$old" @rpath/librln.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -add_rpath @loader_path $out/lib/liblogosdelivery.dylib
+    ''
+    + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+      cp ${zerokitRln}/lib/librln.so $out/lib/
+      patchelf --add-rpath '$ORIGIN' $out/lib/liblogosdelivery.so
+    '';
 }
