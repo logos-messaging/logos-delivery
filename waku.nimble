@@ -105,11 +105,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
 
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics -d:postgres --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
       getMyCPU() & getNimParams() & srcDir & "/" & srcFile
   else:
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics -d:postgres --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
@@ -379,7 +379,7 @@ task testcommon, "Build & run common tests":
 ### Waku tasks
 task wakunode2, "Build Waku v2 cli node":
   let name = "wakunode2"
-  buildBinary name, "apps/wakunode2/", " -d:chronicles_log_level=TRACE -d:postgres "
+  buildBinary name, "apps/wakunode2/", " -d:chronicles_log_level=TRACE "
 
 task benchmarks, "Some benchmarks":
   let name = "benchmarks"
