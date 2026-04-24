@@ -10,8 +10,8 @@ import
 
 import ../common/utils/nat, ../node/net_config, ../waku_enr, ../waku_core, ./waku_conf
 
-proc enrConfiguration*(
-    conf: WakuConf, netConfig: NetConfig
+proc tryBuildEnrRecord(
+    conf: WakuConf, netConfig: NetConfig, multiaddrs: seq[MultiAddress]
 ): Result[enr.Record, string] =
   var enrBuilder = EnrBuilder.init(conf.nodeKey)
 
@@ -22,7 +22,8 @@ proc enrConfiguration*(
   if netConfig.wakuFlags.isSome():
     enrBuilder.withWakuCapabilities(netConfig.wakuFlags.get())
 
-  enrBuilder.withMultiaddrs(netConfig.enrMultiaddrs)
+  if multiaddrs.len > 0:
+    enrBuilder.withMultiaddrs(multiaddrs)
 
   enrBuilder.withWakuRelaySharding(
     RelayShards(clusterId: conf.clusterId, shardIds: conf.subscribeShards)
@@ -30,10 +31,34 @@ proc enrConfiguration*(
     return err("could not initialize ENR with shards")
 
   let record = enrBuilder.build().valueOr:
-    error "failed to create enr record", error = error
     return err($error)
 
   return ok(record)
+
+proc enrConfiguration*(
+    conf: WakuConf, netConfig: NetConfig
+): Result[enr.Record, string] =
+  for retained in countdown(netConfig.enrMultiaddrs.len, 0):
+    let multiaddrs = netConfig.enrMultiaddrs[0 ..< retained]
+    let record = tryBuildEnrRecord(conf, netConfig, multiaddrs).valueOr:
+      if retained > 0:
+        warn "failed to create enr record, retrying with fewer multiaddrs",
+          error = error,
+          totalMultiaddrs = netConfig.enrMultiaddrs.len,
+          retainedMultiaddrs = retained - 1,
+          removedMultiaddr = multiaddrs[^1]
+        continue
+
+      error "failed to create enr record", error = error
+      return err($error)
+
+    if retained < netConfig.enrMultiaddrs.len:
+      warn "created enr record after trimming multiaddrs",
+        totalMultiaddrs = netConfig.enrMultiaddrs.len, retainedMultiaddrs = retained
+
+    return ok(record)
+
+  return err("failed to create enr record")
 
 proc dnsResolve*(
     domain: string, dnsAddrsNameServers: seq[IpAddress]

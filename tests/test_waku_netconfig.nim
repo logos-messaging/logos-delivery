@@ -152,6 +152,31 @@ suite "Waku NetConfig":
       netConfig.announcedAddresses.len == 1 # DNS address
       netConfig.announcedAddresses[0] == dns4TcpEndPoint(dns4DomainName, extPort)
 
+  asyncTest "AnnouncedAddresses and enrMultiaddrs deduplicate dns4DomainName and extMultiAddrs overlap":
+    let
+      conf = defaultTestWakuConf()
+      dns4DomainName = "example.com"
+      extPort = Port(1234)
+      dns4Address = dns4TcpEndPoint(dns4DomainName, extPort)
+
+    let netConfigRes = NetConfig.init(
+      bindIp = conf.endpointConf.p2pListenAddress,
+      bindPort = conf.endpointConf.p2pTcpPort,
+      dns4DomainName = some(dns4DomainName),
+      extPort = some(extPort),
+      extMultiAddrs = @[dns4Address],
+    )
+
+    assert netConfigRes.isOk(), $netConfigRes.error
+
+    let netConfig = netConfigRes.get()
+
+    check:
+      netConfig.announcedAddresses.len == 1
+      netConfig.announcedAddresses[0] == dns4Address
+      netConfig.enrMultiAddrs.len == 1
+      netConfig.enrMultiAddrs[0] == dns4Address
+
   asyncTest "AnnouncedAddresses includes WebSocket addresses when enabled":
     var confBuilder = defaultTestWakuConfBuilder()
 
