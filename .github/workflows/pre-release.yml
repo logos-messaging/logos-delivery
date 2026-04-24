@@ -66,8 +66,8 @@ jobs:
           make V=1 CI=false NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
             update
 
-          make V=1 CI=false\
-            NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" \
+          make V=1 CI=false POSTGRES=1\
+            NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
             wakunode2\
             chat2\
             tools
