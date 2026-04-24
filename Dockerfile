@@ -5,7 +5,7 @@ ARG NIMFLAGS
 ARG MAKE_TARGET=wakunode2
 ARG NIM_COMMIT
 ARG HEAPTRACK_BUILD=0
-ARG POSTGRES=1
+ARG POSTGRES=0
 
 # Get build tools and required header files
 RUN apk add --no-cache bash git build-base openssl-dev linux-headers curl jq libbsd-dev
