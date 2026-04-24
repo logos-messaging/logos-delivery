@@ -3,6 +3,7 @@
 import std/options, results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
 import libp2p/peerid
 import
+  ../common/option_shims,
   ../waku_core/peers,
   ../node/peer_manager,
   ../utils/requests,

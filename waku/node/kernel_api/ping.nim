@@ -11,7 +11,7 @@ import
   libp2p/transports/tcptransport,
   libp2p/utility
 
-import ../waku_node, ../peer_manager
+import ../../common/option_shims, ../waku_node, ../peer_manager
 
 logScope:
   topics = "waku node ping api"
