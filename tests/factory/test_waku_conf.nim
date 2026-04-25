@@ -4,7 +4,7 @@ import
   libp2p/crypto/[crypto, secp],
   libp2p/multiaddress,
   nimcrypto/utils,
-  std/[options, random, sequtils],
+  std/[net, options, random, sequtils],
   results,
   testutils/unittests
 import

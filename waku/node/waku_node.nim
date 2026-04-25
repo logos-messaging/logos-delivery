@@ -62,7 +62,7 @@ import
     events/message_events,
   ],
   waku/discovery/waku_kademlia,
-  ./net_config,
+  waku/net/[bound_ports, net_config],
   ./peer_manager,
   ./health_monitor/health_status,
   ./health_monitor/topic_health
@@ -101,6 +101,7 @@ type
     listenAddresses*: seq[string]
     enrUri*: string #multiaddrStrings*: seq[string]
     mixPubKey*: Option[string]
+    ports*: BoundPorts
 
   # NOTE based on Eth2Node in NBC eth2_network.nim
   WakuNode* = ref object
@@ -140,6 +141,7 @@ type
     wakuMix*: WakuMix
     kademliaDiscoveryLoop*: Future[void]
     wakuKademlia*: WakuKademlia
+    ports*: BoundPorts
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -224,6 +226,7 @@ proc new*(
     announcedAddresses: netConfig.announcedAddresses,
     topicSubscriptionQueue: queue,
     rateLimitSettings: rateLimitSettings,
+    ports: BoundPorts.init(),
   )
 
   peerManager.setShardGetter(node.getShardsGetter(@[]))
@@ -248,7 +251,7 @@ proc info*(node: WakuNode): WakuInfo =
     var fulladdr = $address & "/p2p/" & $peerInfo.peerId
     listenStr &= fulladdr
   let enrUri = node.enr.toUri()
-  var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri)
+  var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri, ports: node.ports)
   if not node.wakuMix.isNil():
     let keyStr = node.wakuMix.pubKey.to0xHex()
     wakuInfo.mixPubKey = some(keyStr)

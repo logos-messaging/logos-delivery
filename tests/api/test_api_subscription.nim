@@ -73,8 +73,6 @@ proc createApiNodeConf(
     raiseAssert error
   conf.mode = mode
   conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
   conf.clusterId = 3'u16
   conf.numShardsInNetwork = numShards
   conf.reliabilityEnabled = true

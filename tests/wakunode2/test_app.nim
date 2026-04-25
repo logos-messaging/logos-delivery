@@ -1,14 +1,13 @@
 {.used.}
 
 import
+  std/json,
   testutils/unittests,
   chronicles,
   chronos,
-  libp2p/crypto/crypto,
-  libp2p/crypto/secp,
-  libp2p/multiaddress,
-  libp2p/switch
-import ../testlib/wakucore, ../testlib/wakunode
+  libp2p/[crypto/crypto, crypto/secp, multiaddress, switch],
+  tests/testlib/[wakucore, wakunode],
+  waku/factory/conf_builder/conf_builder
 
 include waku/factory/waku, waku/common/enr/typed_record
 
@@ -99,3 +98,36 @@ suite "Wakunode2 - Waku initialization":
     ## Cleanup
     (waitFor waku.stop()).isOkOr:
       raiseAssert error
+
+  test "MyBoundPorts should report a bound port for each enabled service":
+    var builder = defaultTestWakuConfBuilder()
+    builder.discv5Conf.withEnabled(true)
+    builder.restServerConf.withEnabled(true)
+    builder.restServerConf.withPort(Port(0))
+    builder.restServerConf.withRelayCacheCapacity(50'u32)
+    builder.metricsServerConf.withEnabled(true)
+    builder.webSocketConf.withEnabled(true)
+    builder.webSocketConf.withWebSocketPort(Port(0))
+
+    let conf = builder.build().valueOr:
+      raiseAssert error
+
+    var waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+    defer:
+      (waitFor waku.stop()).isOkOr:
+        raiseAssert error
+
+    (waitFor startWaku(addr waku)).isOkOr:
+      raiseAssert error
+
+    let portsJson = waku.stateInfo.getNodeInfoItem(NodeInfoId.MyBoundPorts)
+    let parsed = parseJson(portsJson)
+
+    check:
+      parsed.kind == JObject
+      parsed["tcp"].getInt() != 0
+      parsed["webSocket"].getInt() != 0
+      parsed["rest"].getInt() != 0
+      parsed["discv5Udp"].getInt() != 0
+      parsed["metrics"].getInt() != 0

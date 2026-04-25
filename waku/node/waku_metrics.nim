@@ -2,8 +2,7 @@
 
 import chronicles, chronos, metrics, metrics/chronos_httpserver
 import
-  ../waku_rln_relay/protocol_metrics as rln_metrics,
-  ../utils/collector,
+  waku/[net/auto_port, waku_rln_relay/protocol_metrics as rln_metrics, utils/collector],
   ./peer_manager,
   ./waku_node
 
@@ -57,27 +56,35 @@ proc startMetricsLog*() =
 
   discard setTimer(Moment.fromNow(LogInterval), logMetrics)
 
+type StartedMetricsServer* = tuple[server: MetricsHttpServerRef, port: Port]
+
 proc startMetricsServer(
     serverIp: IpAddress, serverPort: Port
-): Future[Result[MetricsHttpServerRef, string]] {.async.} =
-  info "Starting metrics HTTP server", serverIp = $serverIp, serverPort = $serverPort
+): Future[Result[StartedMetricsServer, string]] {.async.} =
+  proc attempt(
+      port: Port
+  ): Future[Result[StartedMetricsServer, string]] {.async: (raises: []).} =
+    info "Starting metrics HTTP server", serverIp = $serverIp, serverPort = $port
 
-  let server = MetricsHttpServerRef.new($serverIp, serverPort).valueOr:
-    return err("metrics HTTP server start failed: " & $error)
+    let server = MetricsHttpServerRef.new($serverIp, port).valueOr:
+      return err($error)
 
-  try:
-    await server.start()
-  except CatchableError:
-    return err("metrics HTTP server start failed: " & getCurrentExceptionMsg())
+    try:
+      await server.start()
+    except CatchableError:
+      return err(getCurrentExceptionMsg())
 
-  info "Metrics HTTP server started", serverIp = $serverIp, serverPort = $serverPort
-  return ok(server)
+    info "Metrics HTTP server started", serverIp = $serverIp, serverPort = $port
+    return ok((server: server, port: port))
+
+  let started = (await tryWithAutoPort[StartedMetricsServer](serverPort, attempt)).valueOr:
+    return err("metrics HTTP server start failed: " & error)
+  return ok(started)
 
 proc startMetricsServerAndLogging*(
     conf: MetricsServerConf, portsShift: uint16
-): Future[Result[MetricsHttpServerRef, string]] {.async.} =
-  var metricsServer: MetricsHttpServerRef
-  metricsServer = (
+): Future[Result[StartedMetricsServer, string]] {.async.} =
+  let started = (
     await (
       startMetricsServer(conf.httpAddress, Port(conf.httpPort.uint16 + portsShift))
     )
@@ -87,4 +94,4 @@ proc startMetricsServerAndLogging*(
   if conf.logging:
     startMetricsLog()
 
-  return ok(metricsServer)
+  return ok(started)
