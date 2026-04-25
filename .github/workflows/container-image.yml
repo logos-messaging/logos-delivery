@@ -83,7 +83,7 @@ jobs:
         id: build
         if: ${{ steps.secrets.outcome == 'success' }}
         run: |
-          make -j${NPROC} V=1 NIMFLAGS="-d:disableMarchNative -d:postgres -d:chronicles_colors:none" wakunode2
+          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" wakunode2
 
           SHORT_REF=$(git rev-parse --short HEAD)
 

@@ -145,7 +145,7 @@ proc preProcessPayload(
   # convert to skip range before processing
   for i in 0 ..< payload.ranges.len:
     let rangeType = payload.ranges[i][1]
-    if rangeType != RangeType.Skip:
+    if rangeType == RangeType.Skip:
       continue
 
     let upperBound = payload.ranges[i][0].b.time

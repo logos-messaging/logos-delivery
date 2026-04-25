@@ -4,7 +4,7 @@ on:
   push:
     tags:
     - 'v*' # "e.g. v0.4"
-  
+
   workflow_dispatch:
 
 env:
@@ -65,6 +65,16 @@ jobs:
 
           echo "libwaku=${LIBWAKU_ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            LIBLOGOSDELIVERY_ARTIFACT_NAME=$(echo "liblogosdelivery-${VERSION}-${{matrix.arch}}-${{runner.os}}-linux.deb" | tr "[:upper:]" "[:lower:]")
+          fi
+
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            LIBLOGOSDELIVERY_ARTIFACT_NAME=$(echo "liblogosdelivery-${VERSION}-${{matrix.arch}}-macos.tar.gz" | tr "[:upper:]" "[:lower:]")
+          fi
+
+          echo "liblogosdelivery=${LIBLOGOSDELIVERY_ARTIFACT_NAME}" >> $GITHUB_OUTPUT
+
       - name: Install build dependencies
         run: |
           if [[ "${{ runner.os }}" == "Linux" ]]; then
@@ -76,12 +86,15 @@ jobs:
           OS=$([[ "${{runner.os}}" == "macOS" ]] && echo "macosx" || echo "linux")
 
           make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" V=1 update
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false wakunode2
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false wakunode2
           make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" CI=false chat2
           tar -cvzf ${{steps.vars.outputs.waku}} ./build/
 
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false libwaku
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}} -d:postgres" CI=false STATIC=1 libwaku
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false libwaku
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false STATIC=1 libwaku
+
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false liblogosdelivery
+          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false STATIC=1 liblogosdelivery
 
       - name: Create distributable libwaku package
         run: |
@@ -109,6 +122,32 @@ jobs:
             tar -cvzf ${{steps.vars.outputs.libwaku}} ./build/libwaku.dylib ./build/libwaku.a ./library/libwaku.h
           fi
 
+      - name: Create distributable liblogosdelivery package
+        run: |
+          VERSION=${{ steps.version.outputs.version }}
+
+          if [[ "${{ runner.os }}" == "Linux" ]]; then
+            rm -rf pkg
+            mkdir -p pkg/DEBIAN pkg/usr/local/lib pkg/usr/local/include
+            cp build/liblogosdelivery.so pkg/usr/local/lib/
+            cp build/liblogosdelivery.a pkg/usr/local/lib/
+            cp liblogosdelivery/liblogosdelivery.h pkg/usr/local/include/
+
+            echo "Package: logosdelivery" >> pkg/DEBIAN/control
+            echo "Version: ${VERSION}" >> pkg/DEBIAN/control
+            echo "Priority: optional" >> pkg/DEBIAN/control
+            echo "Section: libs" >> pkg/DEBIAN/control
+            echo "Architecture: ${{matrix.arch}}" >> pkg/DEBIAN/control
+            echo "Maintainer: Logos Messaging Team" >> pkg/DEBIAN/control
+            echo "Description: Logos Delivery library" >> pkg/DEBIAN/control
+
+            dpkg-deb --build pkg ${{steps.vars.outputs.liblogosdelivery}}
+          fi
+
+          if [[ "${{ runner.os }}" == "macOS" ]]; then
+            tar -cvzf ${{steps.vars.outputs.liblogosdelivery}} ./build/liblogosdelivery.dylib ./build/liblogosdelivery.a ./liblogosdelivery/liblogosdelivery.h
+          fi
+
       - name: Upload waku artifact
         uses: actions/upload-artifact@v4.4.0
         with:
@@ -121,4 +160,11 @@ jobs:
         with:
           name: libwaku-${{ steps.version.outputs.version }}-${{ matrix.arch }}-${{ runner.os }}
           path: ${{ steps.vars.outputs.libwaku }}
+          if-no-files-found: error
+
+      - name: Upload liblogosdelivery artifact
+        uses: actions/upload-artifact@v4.4.0
+        with:
+          name: liblogosdelivery-${{ steps.version.outputs.version }}-${{ matrix.arch }}-${{ runner.os }}
+          path: ${{ steps.vars.outputs.liblogosdelivery }}
           if-no-files-found: error
