@@ -49,9 +49,6 @@ proc build*(b: Discv5ConfBuilder): Result[Option[Discv5Conf], string] =
   if not b.enabled.get(false):
     return ok(none(Discv5Conf))
 
-  if b.udpPort.isNone():
-    return err("discv5.udpPort is not specified")
-
   return ok(
     some(
       Discv5Conf(
@@ -60,7 +57,7 @@ proc build*(b: Discv5ConfBuilder): Result[Option[Discv5Conf], string] =
         bucketIpLimit: b.bucketIpLimit.get(2),
         enrAutoUpdate: b.enrAutoUpdate.get(true),
         tableIpLimit: b.tableIpLimit.get(10),
-        udpPort: b.udpPort.get(),
+        udpPort: b.udpPort.get(Port(0)),
       )
     )
   )

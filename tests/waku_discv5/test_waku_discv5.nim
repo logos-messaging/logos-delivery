@@ -507,7 +507,7 @@ suite "Waku Discovery v5":
         waku.conf.endpointConf.p2pListenAddress,
         waku.conf.portsShift,
       ).valueOr:
-        raiseAssert error
+        raiseAssert "failed setup discv5 in test: " & $error
 
       check:
         waku.node.peerManager.switch.peerStore.peers().anyIt(
@@ -539,7 +539,7 @@ suite "Waku Discovery v5":
         waku.conf.endpointConf.p2pListenAddress,
         waku.conf.portsShift,
       ).valueOr:
-        raiseAssert error
+        raiseAssert "failed setup discv5 in test: " & $error
 
       check:
         not waku.node.peerManager.switch.peerStore.peers().anyIt(

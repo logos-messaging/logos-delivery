@@ -75,6 +75,10 @@ suite "Waku v2 REST API - Debug":
 
     let restAddress = parseIpAddress("0.0.0.0")
     let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
     installDebugApiHandlers(restServer.router, node)
     restServer.start()
 
@@ -89,9 +93,6 @@ suite "Waku v2 REST API - Debug":
       response.data.ports.rest == some(1003'u16)
       response.data.ports.discv5Udp == some(1004'u16)
       response.data.ports.metrics == some(1005'u16)
-
-    await restServer.stop()
-    await restServer.closeWait()
 
   asyncTest "Get node version - GET /version":
     # Given

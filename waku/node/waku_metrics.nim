@@ -2,8 +2,7 @@
 
 import chronicles, chronos, metrics, metrics/chronos_httpserver
 import
-  waku/
-    [common/auto_port, waku_rln_relay/protocol_metrics as rln_metrics, utils/collector],
+  waku/[net/auto_port, waku_rln_relay/protocol_metrics as rln_metrics, utils/collector],
   ./peer_manager,
   ./waku_node
 
@@ -62,34 +61,25 @@ type StartedMetricsServer* = tuple[server: MetricsHttpServerRef, port: Port]
 proc startMetricsServer(
     serverIp: IpAddress, serverPort: Port
 ): Future[Result[StartedMetricsServer, string]] {.async.} =
-  let autoMode = serverPort == Port(0)
-  let attempts = if autoMode: AutoPortRetryCount else: 1
-  var lastErr = ""
-
-  for attempt in 1 .. attempts:
-    let port =
-      if autoMode:
-        Port(getAutoPort())
-      else:
-        serverPort
+  proc attempt(
+      port: Port
+  ): Future[Result[StartedMetricsServer, string]] {.async: (raises: []).} =
     info "Starting metrics HTTP server", serverIp = $serverIp, serverPort = $port
 
     let server = MetricsHttpServerRef.new($serverIp, port).valueOr:
-      lastErr = $error
-      continue
+      return err($error)
 
     try:
       await server.start()
     except CatchableError:
-      lastErr = getCurrentExceptionMsg()
-      continue
+      return err(getCurrentExceptionMsg())
 
     info "Metrics HTTP server started", serverIp = $serverIp, serverPort = $port
     return ok((server: server, port: port))
 
-  if autoMode:
-    return err("metrics HTTP server: auto-port bind exhausted; last error: " & lastErr)
-  return err("metrics HTTP server start failed: " & lastErr)
+  let started = (await tryWithAutoPort[StartedMetricsServer](serverPort, attempt)).valueOr:
+    return err("metrics HTTP server start failed: " & error)
+  return ok(started)
 
 proc startMetricsServerAndLogging*(
     conf: MetricsServerConf, portsShift: uint16

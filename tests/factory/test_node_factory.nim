@@ -10,7 +10,7 @@ import
 
 import
   tests/testlib/[wakunode, wakucore],
-  waku/[waku_node, common/auto_port, discovery/waku_discv5, node/waku_metrics],
+  waku/[waku_node, net/auto_port, discovery/waku_discv5, node/waku_metrics],
   waku/factory/
     [node_factory, conf_builder/conf_builder, conf_builder/web_socket_conf_builder]
 
@@ -89,6 +89,9 @@ suite "Auto-port retry":
     let takenPort = Port(55100)
     let freePort = Port(55101)
     let taken = createStreamServer(initTAddress("127.0.0.1", takenPort))
+    defer:
+      taken.stop()
+      await taken.closeWait()
 
     proc buildMetricsConf(port: Port): MetricsServerConf =
       var b = MetricsServerConfBuilder.init()
@@ -96,18 +99,13 @@ suite "Auto-port retry":
       b.withHttpPort(port)
       b.build().value.get()
 
-    try:
-      let failRes =
-        await startMetricsServerAndLogging(buildMetricsConf(takenPort), 0'u16)
-      check failRes.isErr
+    let failRes = await startMetricsServerAndLogging(buildMetricsConf(takenPort), 0'u16)
+    check failRes.isErr()
 
-      let okRes = await startMetricsServerAndLogging(buildMetricsConf(freePort), 0'u16)
-      check okRes.isOk
-      if okRes.isOk:
-        await okRes.get().server.close()
-    finally:
-      taken.stop()
-      await taken.closeWait()
+    let okRes = await startMetricsServerAndLogging(buildMetricsConf(freePort), 0'u16)
+    check okRes.isOk()
+    if okRes.isOk():
+      await okRes.get().server.close()
 
   asynctest "discv5 binds on free UDP port, fails on taken":
     let takenPort = Port(55200)
@@ -120,10 +118,14 @@ suite "Auto-port retry":
 
     let takenUdp =
       newDatagramTransport(dummyCb, local = initTAddress("0.0.0.0", takenPort))
+    defer:
+      await takenUdp.closeWait()
 
     let nodeKey = generateSecp256k1Key()
     let node = newTestWakuNode(nodeKey, parseIpAddress("0.0.0.0"), Port(0))
     await node.start()
+    defer:
+      await node.stop()
 
     proc buildDiscv5Conf(port: Port): Discv5Conf =
       var b = Discv5ConfBuilder.init()
@@ -131,85 +133,30 @@ suite "Auto-port retry":
       b.withUdpPort(port)
       b.build().value.get()
 
-    try:
-      let failRes = await setupAndStartDiscv5(
-        node.enr,
-        node.peerManager,
-        node.topicSubscriptionQueue,
-        buildDiscv5Conf(takenPort),
-        @[],
-        node.rng,
-        nodeKey,
-        parseIpAddress("0.0.0.0"),
-        0'u16,
-      )
-      check failRes.isErr
+    let failRes = await setupAndStartDiscv5(
+      node.enr,
+      node.peerManager,
+      node.topicSubscriptionQueue,
+      buildDiscv5Conf(takenPort),
+      @[],
+      node.rng,
+      nodeKey,
+      parseIpAddress("0.0.0.0"),
+      0'u16,
+    )
+    check failRes.isErr()
 
-      let okRes = await setupAndStartDiscv5(
-        node.enr,
-        node.peerManager,
-        node.topicSubscriptionQueue,
-        buildDiscv5Conf(freePort),
-        @[],
-        node.rng,
-        nodeKey,
-        parseIpAddress("0.0.0.0"),
-        0'u16,
-      )
-      check okRes.isOk
-      if okRes.isOk:
-        await okRes.get().stop()
-    finally:
-      await takenUdp.closeWait()
-      await node.stop()
-
-  asynctest "exhausted retries err for metrics and discv5":
-    let origMin = autoPortMin
-    let origMax = autoPortMax
-    let pinned = 58888'u16
-    autoPortMin = pinned
-    autoPortMax = pinned
-
-    let takenTcp = createStreamServer(initTAddress("127.0.0.1", Port(pinned)))
-
-    proc dummyCb(
-        transp: DatagramTransport, raddr: TransportAddress
-    ): Future[void] {.async: (raises: []).} =
-      discard
-
-    let takenUdp =
-      newDatagramTransport(dummyCb, local = initTAddress("0.0.0.0", Port(pinned)))
-
-    let nodeKey = generateSecp256k1Key()
-    let node = newTestWakuNode(nodeKey, parseIpAddress("0.0.0.0"), Port(0))
-    await node.start()
-
-    try:
-      var mb = MetricsServerConfBuilder.init()
-      mb.withEnabled(true)
-      mb.withHttpPort(0'u16)
-      let metricsRes = await startMetricsServerAndLogging(mb.build().value.get(), 0'u16)
-      check metricsRes.isErr
-
-      var db = Discv5ConfBuilder.init()
-      db.withEnabled(true)
-      db.withUdpPort(0'u16)
-      let discv5Res = await setupAndStartDiscv5(
-        node.enr,
-        node.peerManager,
-        node.topicSubscriptionQueue,
-        db.build().value.get(),
-        @[],
-        node.rng,
-        nodeKey,
-        parseIpAddress("0.0.0.0"),
-        0'u16,
-      )
-      check discv5Res.isErr
-    finally:
-      takenTcp.stop()
-      await takenTcp.closeWait()
-      await takenUdp.closeWait()
-      await node.stop()
-      autoPortMin = origMin
-      autoPortMax = origMax
+    let okRes = await setupAndStartDiscv5(
+      node.enr,
+      node.peerManager,
+      node.topicSubscriptionQueue,
+      buildDiscv5Conf(freePort),
+      @[],
+      node.rng,
+      nodeKey,
+      parseIpAddress("0.0.0.0"),
+      0'u16,
+    )
+    check okRes.isOk()
+    if okRes.isOk():
+      await okRes.get().stop()

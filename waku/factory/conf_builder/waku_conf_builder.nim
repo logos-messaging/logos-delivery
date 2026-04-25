@@ -576,9 +576,7 @@ proc build*(
       warn "Nat Strategy is not specified, defaulting to none"
       "none"
 
-  if builder.p2pTcpPort.isNone():
-    return err("p2pTcpPort is not specified")
-  let p2pTcpPort = builder.p2pTcpPort.get()
+  let p2pTcpPort = builder.p2pTcpPort.get(Port(0))
 
   let p2pListenAddress =
     if builder.p2pListenAddress.isSome():

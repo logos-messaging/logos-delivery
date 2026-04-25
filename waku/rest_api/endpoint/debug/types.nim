@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import chronicles, json_serialization, json_serialization/std/options
-import ../../../waku_node, ../serdes
+import waku/[waku_node, net/bound_ports, rest_api/endpoint/serdes]
 import std/typetraits
 
 #### Types
@@ -76,7 +76,7 @@ proc readValue*(
   var
     listenAddresses: Option[seq[string]]
     enrUri: Option[string]
-    ports: BoundPorts
+    ports = BoundPorts.init()
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -97,7 +97,7 @@ proc readValue*(
         )
       value.mixPubKey = some(reader.readValue(string))
     of "ports":
-      ports = reader.readValue(BoundPorts)
+      reader.readValue(ports)
     else:
       unrecognizedFieldWarning(value)
 

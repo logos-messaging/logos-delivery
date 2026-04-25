@@ -62,7 +62,7 @@ import
     events/message_events,
   ],
   waku/discovery/waku_kademlia,
-  ./net_config,
+  waku/net/[bound_ports, net_config],
   ./peer_manager,
   ./health_monitor/health_status,
   ./health_monitor/topic_health
@@ -96,13 +96,6 @@ const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
 # key and crypto modules different
 type
-  BoundPorts* = object ## Set by the factory once each service has bound to a port.
-    tcp*: Option[uint16]
-    webSocket*: Option[uint16]
-    rest*: Option[uint16]
-    discv5Udp*: Option[uint16]
-    metrics*: Option[uint16]
-
   # TODO: Move to application instance (e.g., `WakuNode2`)
   WakuInfo* = object # NOTE One for simplicity, can extend later as needed
     listenAddresses*: seq[string]
@@ -233,6 +226,7 @@ proc new*(
     announcedAddresses: netConfig.announcedAddresses,
     topicSubscriptionQueue: queue,
     rateLimitSettings: rateLimitSettings,
+    ports: BoundPorts.init(),
   )
 
   peerManager.setShardGetter(node.getShardsGetter(@[]))
@@ -253,9 +247,7 @@ proc info*(node: WakuNode): WakuInfo =
   let peerInfo = node.switch.peerInfo
 
   var listenStr: seq[string]
-  # Post-bind: when a transport was given port=0, this reflects the real
-  # OS-assigned port rather than the pre-bind configured 0.
-  for address in peerInfo.listenAddrs:
+  for address in node.announcedAddresses:
     var fulladdr = $address & "/p2p/" & $peerInfo.peerId
     listenStr &= fulladdr
   let enrUri = node.enr.toUri()
