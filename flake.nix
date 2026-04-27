@@ -56,13 +56,14 @@
       packages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
-          mkPkg = zerokitRln: import ./nix/default.nix {
-            inherit pkgs zerokitRln;
+          liblogosdelivery = pkgs.callPackage ./nix/default.nix {
+            inherit pkgs;
             src = ./.;
+            zerokitRln = zerokit.packages.${system}.rln;
           };
-        in rec {
-          liblogosdelivery = mkPkg zerokit.packages.${system}.rln;
-          default          = liblogosdelivery;
+        in {
+          inherit liblogosdelivery;
+          default = liblogosdelivery;
         }
       );
 
