@@ -17,6 +17,9 @@ import
 
 # override nim-libp2p default value (which is also 1)
 const MaxConnectionsPerPeer* = 1
+# nim-libp2p#2329 made libp2p's MaxConnections const private
+# (renamed to DefaultMaxConnections); redeclare here to keep waku's cap explicit.
+const MaxConnections* = 50
 
 proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
   b.withTransport(

@@ -68,11 +68,9 @@ proc new*(
   # initial self-signed peer record published to the DHT
   if params.advertiseMix:
     if params.mixPubKey.isSome():
-      let alreadyAdvertising = kademlia.startAdvertising(
+      kademlia.startAdvertising(
         ServiceInfo(id: MixProtocolID, data: @(params.mixPubKey.get()))
       )
-      if alreadyAdvertising:
-        warn "mix service was already being advertised"
       debug "extended kademlia advertising mix service",
         keyHex = byteutils.toHex(params.mixPubKey.get()),
         bootstrapNodes = params.bootstrapNodes.len
@@ -162,17 +160,18 @@ proc lookupMixPeers*(
     return err("cannot lookup mix peers: kademlia not mounted")
 
   let mixService = ServiceInfo(id: MixProtocolID, data: @[])
-  var records: seq[ExtendedPeerRecord]
-  try:
-    records = await wk.protocol.lookup(mixService)
-  except CatchableError:
-    return err("mix peer lookup failed: " & getCurrentExceptionMsg())
+  let advertisements =
+    try:
+      (await wk.protocol.lookup(mixService)).valueOr:
+        return err("mix peer lookup failed: " & error)
+    except CatchableError:
+      return err("mix peer lookup failed: " & getCurrentExceptionMsg())
 
-  debug "mix peer lookup returned records", numRecords = records.len
+  debug "mix peer lookup returned records", numRecords = advertisements.len
 
   var added = 0
-  for record in records:
-    let peerOpt = remotePeerInfoFrom(record)
+  for ad in advertisements:
+    let peerOpt = remotePeerInfoFrom(ad.data)
     if peerOpt.isNone():
       continue
 
@@ -202,7 +201,7 @@ proc runDiscoveryLoop(
 
       var records: seq[ExtendedPeerRecord]
       try:
-        records = await wk.protocol.randomRecords()
+        records = await wk.protocol.lookupRandom()
       except CatchableError as e:
         warn "extended kademlia discovery failed", error = e.msg
         await sleepAsync(interval)
