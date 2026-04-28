@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[os, strutils, sequtils, sysrand, math],
+  std/[options, os, strutils, sequtils, sysrand, math],
   stew/byteutils,
   testutils/unittests,
   chronos,

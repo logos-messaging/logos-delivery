@@ -10,6 +10,7 @@ import
   presto/common
 
 import
+  waku/common/option_shims,
   waku/node/peer_manager,
   waku/waku_lightpush_legacy/common,
   ../../../waku_node,

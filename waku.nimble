@@ -159,9 +159,13 @@ task chat2mix, "Build example Waku chat mix usage":
   #buildBinary name, "examples/", "-d:chronicles_log_level=WARN"
 
   let name = "chat2mix"
+  # Sink uses textlines (stdout) instead of textlines[file]: the latter
+  # currently triggers a chronicles compile-time macro-eval bug with Nim 2.2.4.
+  # Callers can redirect stdout to a file (the existing run_chat_mix*.sh
+  # scripts already do this).
   buildBinary name,
     "apps/chat2mix/",
-    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level='TRACE' "
+    "-d:chronicles_sinks=textlines -d:chronicles_log_level='TRACE' "
   #  -d:ssl - cause unlisted exception error in libp2p/utility...
 
 task chat2bridge, "Build chat2bridge":

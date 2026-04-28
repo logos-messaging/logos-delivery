@@ -9,8 +9,8 @@ import
   libp2p/[peerid, multiaddress, switch],
   libp2p/extended_peer_record,
   libp2p/crypto/curve25519,
-  libp2p/protocols/[kademlia, kad_disco],
-  libp2p/protocols/kademlia_discovery/types as kad_types,
+  libp2p/protocols/[kademlia, service_discovery],
+  libp2p/protocols/service_discovery/types as kad_types,
   libp2p/protocols/mix/mix_protocol
 
 import waku/waku_core, waku/node/peer_manager
@@ -19,20 +19,20 @@ logScope:
   topics = "waku extended kademlia discovery"
 
 const
-  DefaultExtendedKademliaDiscoveryInterval* = chronos.seconds(5)
-  ExtendedKademliaDiscoveryStartupDelay* = chronos.seconds(5)
+  DefaultExtendedServiceDiscoveryInterval* = chronos.seconds(5)
+  ExtendedServiceDiscoveryStartupDelay* = chronos.seconds(5)
 
 type
   MixNodePoolSizeProvider* = proc(): int {.gcsafe, raises: [].}
   NodeStartedProvider* = proc(): bool {.gcsafe, raises: [].}
 
-  ExtendedKademliaDiscoveryParams* = object
+  ExtendedServiceDiscoveryParams* = object
     bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
     mixPubKey*: Option[Curve25519Key]
     advertiseMix*: bool = false
 
   WakuKademlia* = ref object
-    protocol*: KademliaDiscovery
+    protocol*: ServiceDiscovery
     peerManager: PeerManager
     discoveryLoop: Future[void]
     running*: bool
@@ -42,7 +42,7 @@ type
 proc new*(
     T: type WakuKademlia,
     switch: Switch,
-    params: ExtendedKademliaDiscoveryParams,
+    params: ExtendedServiceDiscoveryParams,
     peerManager: PeerManager,
     getMixNodePoolSize: MixNodePoolSizeProvider = nil,
     isNodeStarted: NodeStartedProvider = nil,
@@ -50,13 +50,13 @@ proc new*(
   if params.bootstrapNodes.len == 0:
     info "creating kademlia discovery as seed node (no bootstrap nodes)"
 
-  let kademlia = KademliaDiscovery.new(
+  let kademlia = ServiceDiscovery.new(
     switch,
     bootstrapNodes = params.bootstrapNodes,
     config = KadDHTConfig.new(
       validator = kad_types.ExtEntryValidator(), selector = kad_types.ExtEntrySelector()
     ),
-    codec = ExtendedKademliaDiscoveryCodec,
+    codec = ExtendedServiceDiscoveryCodec,
   )
 
   try:
@@ -197,7 +197,7 @@ proc runDiscoveryLoop(
     while wk.running:
       # Wait for node to be started
       if not wk.isNodeStarted.isNil() and not wk.isNodeStarted():
-        await sleepAsync(ExtendedKademliaDiscoveryStartupDelay)
+        await sleepAsync(ExtendedServiceDiscoveryStartupDelay)
         continue
 
       var records: seq[ExtendedPeerRecord]
@@ -247,7 +247,7 @@ proc runDiscoveryLoop(
 
 proc start*(
     wk: WakuKademlia,
-    interval: Duration = DefaultExtendedKademliaDiscoveryInterval,
+    interval: Duration = DefaultExtendedServiceDiscoveryInterval,
     minMixPeers: int = 0,
 ): Future[Result[void, string]] {.async: (raises: []).} =
   if wk.running:

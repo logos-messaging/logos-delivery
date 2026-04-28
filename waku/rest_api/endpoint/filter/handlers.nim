@@ -10,6 +10,7 @@ import
   presto/route,
   presto/common
 import
+  ../../../common/option_shims,
   ../../../waku_core,
   ../../../waku_node,
   ../../../node/peer_manager,

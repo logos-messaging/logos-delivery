@@ -11,6 +11,7 @@ import
   libp2p/protocols/mix/mix_metrics,
   libp2p/protocols/mix/delay_strategy,
   libp2p/protocols/mix/spam_protection,
+  libp2p/protocols/mix/cover_traffic,
   libp2p/[multiaddress, multicodec, peerid, peerinfo],
   eth/common/keys
 
@@ -87,6 +88,7 @@ proc new*(
     bootnodes: seq[MixNodePubInfo],
     publishMessage: PublishMessage,
     userMessageLimit: Option[int] = none(int),
+    disableSpamProtection: bool = false,
 ): WakuMixResult[T] =
   let mixPubKey = public(mixPrivKey)
   trace "mixPubKey", mixPubKey = mixPubKey
@@ -97,33 +99,50 @@ proc new*(
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
   )
 
-  # Initialize spam protection with persistent credentials
-  # Use peerID in keystore path so multiple peers can run from same directory
-  # Tree path is shared across all nodes to maintain the full membership set
-  let peerId = peermgr.switch.peerInfo.peerId
-  var spamProtectionConfig = defaultConfig()
-  spamProtectionConfig.keystorePath = "rln_keystore_" & $peerId & ".json"
-  spamProtectionConfig.keystorePassword = "mix-rln-password"
-  if userMessageLimit.isSome():
-    spamProtectionConfig.userMessageLimit = userMessageLimit.get()
-  # rlnResourcesPath left empty to use bundled resources (via "tree_height_/" placeholder)
+  let totalSlots = userMessageLimit.get(2)
+  let ct = ConstantRateCoverTraffic.new(
+    totalSlots = totalSlots,
+    epochDuration = 10.seconds,
+    useInternalEpochTimer = disableSpamProtection,
+  )
 
-  let spamProtection = newMixRlnSpamProtection(spamProtectionConfig).valueOr:
-    return err("failed to create spam protection: " & error)
+  var spamProtectionOpt = default(Opt[SpamProtection])
+  if not disableSpamProtection:
+    # Initialize spam protection with persistent credentials
+    let peerId = peermgr.switch.peerInfo.peerId
+    var spamProtectionConfig = defaultConfig()
+    spamProtectionConfig.keystorePath = "rln_keystore_" & $peerId & ".json"
+    spamProtectionConfig.keystorePassword = "mix-rln-password"
+    if userMessageLimit.isSome():
+      spamProtectionConfig.userMessageLimit = userMessageLimit.get()
+
+    let spamProtection = newMixRlnSpamProtection(spamProtectionConfig).valueOr:
+      return err("failed to create spam protection: " & error)
+    spamProtectionOpt = Opt.some(SpamProtection(spamProtection))
+  else:
+    info "mix spam protection disabled"
+
+  var mixRlnSpam: MixRlnSpamProtection
+  if spamProtectionOpt.isSome():
+    mixRlnSpam = MixRlnSpamProtection(spamProtectionOpt.get())
 
   var m = WakuMix(
     peerManager: peermgr,
     clusterId: clusterId,
     pubKey: mixPubKey,
-    mixRlnSpamProtection: spamProtection,
     publishMessage: publishMessage,
+    mixRlnSpamProtection: mixRlnSpam,
   )
   procCall MixProtocol(m).init(
     localMixNodeInfo,
     peermgr.switch,
-    spamProtection = Opt.some(SpamProtection(spamProtection)),
-    delayStrategy =
-      ExponentialDelayStrategy.new(meanDelayMs = 100, rng = crypto.newRng()),
+    spamProtection = spamProtectionOpt,
+    delayStrategy = Opt.some(
+      DelayStrategy(
+        ExponentialDelayStrategy.new(meanDelay = 100, rng = crypto.newRng())
+      )
+    ),
+    coverTraffic = Opt.some(CoverTraffic(ct)),
   )
 
   processBootNodes(bootnodes, peermgr, m)
@@ -140,6 +159,8 @@ proc setupSpamProtectionCallbacks(mix: WakuMix) =
   ## Set up the publish callback for spam protection coordination.
   ## This enables the plugin to broadcast membership updates and proof metadata
   ## via Waku relay.
+  if mix.mixRlnSpamProtection.isNil():
+    return
   if mix.publishMessage.isNil():
     warn "PublishMessage callback not available, spam protection coordination disabled"
     return
