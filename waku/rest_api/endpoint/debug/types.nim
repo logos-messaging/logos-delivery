@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import chronicles, json_serialization, json_serialization/std/options
-import waku/[waku_node, net/bound_ports, rest_api/endpoint/serdes]
+import ../../../waku_node, ../serdes
 import std/typetraits
 
 #### Types
@@ -10,7 +10,6 @@ type DebugWakuInfo* = object
   listenAddresses*: seq[string]
   enrUri*: Option[string]
   mixPubKey*: Option[string]
-  ports*: BoundPorts
 
 #### Type conversion
 
@@ -19,44 +18,9 @@ proc toDebugWakuInfo*(nodeInfo: WakuInfo): DebugWakuInfo =
     listenAddresses: nodeInfo.listenAddresses,
     enrUri: some(nodeInfo.enrUri),
     mixPubKey: nodeInfo.mixPubKey,
-    ports: nodeInfo.ports,
   )
 
 #### Serialization and deserialization
-
-proc writeValue*(
-    writer: var JsonWriter[RestJson], value: BoundPorts
-) {.raises: [IOError].} =
-  writer.beginRecord()
-  if value.tcp.isSome():
-    writer.writeField("tcp", value.tcp.get())
-  if value.webSocket.isSome():
-    writer.writeField("webSocket", value.webSocket.get())
-  if value.rest.isSome():
-    writer.writeField("rest", value.rest.get())
-  if value.discv5Udp.isSome():
-    writer.writeField("discv5Udp", value.discv5Udp.get())
-  if value.metrics.isSome():
-    writer.writeField("metrics", value.metrics.get())
-  writer.endRecord()
-
-proc readValue*(
-    reader: var JsonReader[RestJson], value: var BoundPorts
-) {.raises: [SerializationError, IOError].} =
-  for fieldName in readObjectFields(reader):
-    case fieldName
-    of "tcp":
-      value.tcp = some(reader.readValue(uint16))
-    of "webSocket":
-      value.webSocket = some(reader.readValue(uint16))
-    of "rest":
-      value.rest = some(reader.readValue(uint16))
-    of "discv5Udp":
-      value.discv5Udp = some(reader.readValue(uint16))
-    of "metrics":
-      value.metrics = some(reader.readValue(uint16))
-    else:
-      unrecognizedFieldWarning(value)
 
 proc writeValue*(
     writer: var JsonWriter[RestJson], value: DebugWakuInfo
@@ -67,7 +31,6 @@ proc writeValue*(
     writer.writeField("enrUri", value.enrUri.get())
   if value.mixPubKey.isSome():
     writer.writeField("mixPubKey", value.mixPubKey.get())
-  writer.writeField("ports", value.ports)
   writer.endRecord()
 
 proc readValue*(
@@ -76,7 +39,6 @@ proc readValue*(
   var
     listenAddresses: Option[seq[string]]
     enrUri: Option[string]
-    ports = BoundPorts.init()
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -96,8 +58,6 @@ proc readValue*(
           "Multiple `mixPubKey` fields found", "DebugWakuInfo"
         )
       value.mixPubKey = some(reader.readValue(string))
-    of "ports":
-      reader.readValue(ports)
     else:
       unrecognizedFieldWarning(value)
 
@@ -105,8 +65,5 @@ proc readValue*(
     reader.raiseUnexpectedValue("Field `listenAddresses` is missing")
 
   value = DebugWakuInfo(
-    listenAddresses: listenAddresses.get,
-    enrUri: enrUri,
-    mixPubKey: value.mixPubKey,
-    ports: ports,
+    listenAddresses: listenAddresses.get, enrUri: enrUri, mixPubKey: value.mixPubKey
   )

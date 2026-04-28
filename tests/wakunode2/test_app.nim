@@ -99,18 +99,30 @@ suite "Wakunode2 - Waku initialization":
     (waitFor waku.stop()).isOkOr:
       raiseAssert error
 
-  test "MyBoundPorts should report a bound port for each enabled service":
+  test "unspecified service ports default to 0 then bind non-zero":
     var builder = defaultTestWakuConfBuilder()
     builder.discv5Conf.withEnabled(true)
     builder.restServerConf.withEnabled(true)
-    builder.restServerConf.withPort(Port(0))
     builder.restServerConf.withRelayCacheCapacity(50'u32)
     builder.metricsServerConf.withEnabled(true)
     builder.webSocketConf.withEnabled(true)
-    builder.webSocketConf.withWebSocketPort(Port(0))
+
+    # the p2pTcp option is private
+    check:
+      builder.discv5Conf.udpPort.isNone()
+      builder.restServerConf.port.isNone()
+      builder.metricsServerConf.httpPort.isNone()
+      builder.webSocketConf.webSocketPort.isNone()
 
     let conf = builder.build().valueOr:
       raiseAssert error
+
+    check:
+      conf.endpointConf.p2pTcpPort == Port(0)
+      conf.discv5Conf.get().udpPort == Port(0)
+      conf.restServerConf.get().port == Port(0)
+      conf.metricsServerConf.get().httpPort == Port(0)
+      conf.webSocketConf.get().port == Port(0)
 
     var waku = (waitFor Waku.new(conf)).valueOr:
       raiseAssert error

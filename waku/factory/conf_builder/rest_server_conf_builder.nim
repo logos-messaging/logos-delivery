@@ -46,8 +46,6 @@ proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
 
   if b.listenAddress.isNone():
     return err("restServer.listenAddress is not specified")
-  if b.port.isNone():
-    return err("restServer.port is not specified")
   if b.relayCacheCapacity.isNone():
     return err("restServer.relayCacheCapacity is not specified")
 
@@ -56,7 +54,7 @@ proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
       RestServerConf(
         allowOrigin: b.allowOrigin,
         listenAddress: b.listenAddress.get(),
-        port: b.port.get(),
+        port: b.port.get(Port(0)),
         admin: b.admin.get(false),
         relayCacheCapacity: b.relayCacheCapacity.get(),
       )

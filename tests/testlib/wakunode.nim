@@ -27,7 +27,6 @@ import
 # TODO: migrate to usage of a test cluster conf
 proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   var builder = WakuConfBuilder.init()
-  builder.withP2pTcpPort(Port(0))
   builder.withP2pListenAddress(parseIpAddress("0.0.0.0"))
   builder.restServerConf.withListenAddress(parseIpAddress("127.0.0.1"))
   builder.withDnsAddrsNameServers(

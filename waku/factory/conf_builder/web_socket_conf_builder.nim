@@ -41,14 +41,11 @@ proc build*(b: WebSocketConfBuilder): Result[Option[WebSocketConf], string] =
   if not b.enabled.get(false):
     return ok(none(WebSocketConf))
 
-  if b.webSocketPort.isNone():
-    return err("websocket.port is not specified")
-
   if not b.secureEnabled.get(false):
     return ok(
       some(
         WebSocketConf(
-          port: b.websocketPort.get(), secureConf: none(WebSocketSecureConf)
+          port: b.webSocketPort.get(Port(0)), secureConf: none(WebSocketSecureConf)
         )
       )
     )
@@ -61,7 +58,7 @@ proc build*(b: WebSocketConfBuilder): Result[Option[WebSocketConf], string] =
   return ok(
     some(
       WebSocketConf(
-        port: b.webSocketPort.get(),
+        port: b.webSocketPort.get(Port(0)),
         secureConf: some(
           WebSocketSecureConf(keyPath: b.keyPath.get(), certPath: b.certPath.get())
         ),

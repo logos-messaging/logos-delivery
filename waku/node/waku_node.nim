@@ -101,7 +101,6 @@ type
     listenAddresses*: seq[string]
     enrUri*: string #multiaddrStrings*: seq[string]
     mixPubKey*: Option[string]
-    ports*: BoundPorts
 
   # NOTE based on Eth2Node in NBC eth2_network.nim
   WakuNode* = ref object
@@ -251,7 +250,7 @@ proc info*(node: WakuNode): WakuInfo =
     var fulladdr = $address & "/p2p/" & $peerInfo.peerId
     listenStr &= fulladdr
   let enrUri = node.enr.toUri()
-  var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri, ports: node.ports)
+  var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri)
   if not node.wakuMix.isNil():
     let keyStr = node.wakuMix.pubKey.to0xHex()
     wakuInfo.mixPubKey = some(keyStr)
