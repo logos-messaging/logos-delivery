@@ -19,7 +19,8 @@ import
   libp2p/transports/[transport, tcptransport, wstransport],
   libp2p/peeraddrpolicy
 
-# override nim-libp2p default value (which is also 1)
+# override nim-libp2p default values (which are also 50 & 1)
+const MaxConnections* = 50
 const MaxConnectionsPerPeer* = 1
 
 proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
