@@ -576,7 +576,7 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     if kadBootstrapPeers.len > 0:
       node.wakuKademlia = WakuKademlia.new(
         node.switch,
-        ExtendedKademliaDiscoveryParams(
+        ExtendedServiceDiscoveryParams(
           bootstrapNodes: kadBootstrapPeers,
           mixPubKey: some(mixPubKey),
           advertiseMix: false,
