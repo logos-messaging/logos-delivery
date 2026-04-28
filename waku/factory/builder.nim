@@ -189,7 +189,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
       wsAddress = builder.netConfig.get().wsHostAddress,
       transportFlags = {ServerFlags.ReuseAddr, ServerFlags.TcpNoDelay},
       rng = rng,
-      maxConnections = builder.switchMaxConnections.get(builders.MaxConnections),
+      maxConnections = builder.switchMaxConnections.get(MaxConnections),
       wssEnabled = builder.netConfig.get().wssEnabled,
       secureKeyPath = builder.switchSslSecureKey.get(""),
       secureCertPath = builder.switchSslSecureCert.get(""),
@@ -209,7 +209,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     maxServicePeers = some(builder.maxServicePeers),
     colocationLimit = builder.colocationLimit,
     shardedPeerManagement = builder.shardAware,
-    maxConnections = builder.switchMaxConnections.get(builders.MaxConnections),
+    maxConnections = builder.switchMaxConnections.get(MaxConnections),
   )
 
   var node: WakuNode
