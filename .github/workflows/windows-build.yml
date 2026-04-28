@@ -75,10 +75,16 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+      # Use the prebuilt Windows binary instead of `nimble install nimble@...`,
+      # which triggers a koch self-bootstrap that races Windows Defender on
+      # bin\nim.exe and fails with "Access is denied".
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
-        cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+        mkdir -p "$HOME/.nimble/bin"
+        curl -fsSL -o /tmp/nimble.zip \
+          "https://github.com/nim-lang/nimble/releases/download/v${{ env.NIMBLE_VERSION }}/nimble-windows_x64.zip"
+        unzip -o /tmp/nimble.zip -d "$HOME/.nimble/bin"
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+        "$HOME/.nimble/bin/nimble.exe" --version
 
     - name: Patch nimble.lock for Windows nim checksum
       # nimble.exe uses Windows Git (core.autocrlf=true by default), which converts LF→CRLF
