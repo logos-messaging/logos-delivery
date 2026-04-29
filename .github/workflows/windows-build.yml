@@ -22,6 +22,7 @@ jobs:
 
     env:
       MSYSTEM: MINGW64
+      NIMBLE_DIR: ${{ github.workspace }}/nimbledeps
 
     steps:
     - name: Checkout code

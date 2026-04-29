@@ -218,7 +218,7 @@ testwaku: | $(NIMBLEDEPS_STAMP) build rln-deps librln
 
 wakunode2: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble --localdeps wakunode2
+		nimble wakunode2
 
 benchmarks: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -425,7 +425,7 @@ else ifeq ($(detected_OS),Linux)
 endif
 
 libwaku: | $(NIMBLEDEPS_STAMP) librln
-	nimble --localdeps --verbose libwaku$(BUILD_COMMAND) waku.nimble
+	nimble --verbose libwaku$(BUILD_COMMAND) waku.nimble
 
 liblogosdelivery: | $(NIMBLEDEPS_STAMP) librln
 	nimble --verbose liblogosdelivery$(BUILD_COMMAND) waku.nimble
