@@ -98,7 +98,7 @@ jobs:
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        export PATH="$HOME/.nimble/bin:$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
@@ -110,12 +110,12 @@ jobs:
     - name: Building wakunode2.exe
       timeout-minutes: 45
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        export PATH="$HOME/.nimble/bin:$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         make wakunode2 V=3 -j${{ env.NPROC }}
 
     - name: Building libwaku.dll
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        export PATH="$HOME/.nimble/bin:$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         make libwaku STATIC=0 V=1 -j
 
     - name: Check Executable
