@@ -146,6 +146,26 @@ make test/tests/common/test_enr_builder.nim
 ### Testing against `js-waku`
 Refer to [js-waku repo](https://github.com/waku-org/js-waku/tree/master/packages/tests) for instructions.
 
+## Port override environment variables
+
+Every listening port can be overridden with an environment variable. When the
+variable is set to a valid `uint16`, it takes precedence over both the default
+and any supplied configuration for that port.
+
+| Port config             | Env variable                     |
+| ----------------------- | -------------------------------- |
+| `--tcp-port`            | `LOGOS_DELIVERY_P2P_TCP_PORT`    |
+| `--discv5-udp-port`     | `LOGOS_DELIVERY_DISCV5_UDP_PORT` |
+| `--rest-port`           | `LOGOS_DELIVERY_REST_PORT`       |
+| `--metrics-server-port` | `LOGOS_DELIVERY_METRICS_PORT`    |
+| `--websocket-port`      | `LOGOS_DELIVERY_WEBSOCKET_PORT`  |
+
+Effective port is determined in this order:
+
+1. Config parameter (CLI flag or library API)
+2. Environment variable
+3. Any post-processing (e.g. `--ports-shift`)
+
 ## Formatting
 
 Nim files are expected to be formatted using the [`nph`](https://github.com/arnetheduck/nph) version present in `vendor/nph`.

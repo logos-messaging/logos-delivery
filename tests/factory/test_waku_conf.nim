@@ -4,7 +4,7 @@ import
   libp2p/crypto/[crypto, secp],
   libp2p/multiaddress,
   nimcrypto/utils,
-  std/[options, random, sequtils],
+  std/[net, options, os, random, sequtils],
   results,
   testutils/unittests
 import
@@ -346,3 +346,99 @@ suite "Waku Conf Builder - rate limits":
 
     ## Then
     assert res.isOk(), $res.error
+
+suite "Waku Conf Builder - env port overrides":
+  proc clearPortEnv() =
+    for name in [
+      EnvP2pTcpPort, EnvDiscv5UdpPort, EnvRestPort, EnvMetricsPort, EnvWebSocketPort
+    ]:
+      delEnv(name)
+
+  test "non-numeric env is ignored":
+    clearPortEnv()
+    putEnv(EnvP2pTcpPort, "notanumber")
+    defer:
+      delEnv(EnvP2pTcpPort)
+
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.withP2pTcpPort(60000.uint16)
+
+    let conf = builder.build().expect("build should succeed")
+
+    check conf.endpointConf.p2pTcpPort == 60000.Port
+
+  test "out-of-range env is ignored":
+    clearPortEnv()
+    putEnv(EnvP2pTcpPort, "999999")
+    defer:
+      delEnv(EnvP2pTcpPort)
+
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.withP2pTcpPort(60000.uint16)
+
+    let conf = builder.build().expect("build should succeed")
+
+    check conf.endpointConf.p2pTcpPort == 60000.Port
+
+  test "env=0 is accepted":
+    clearPortEnv()
+    putEnv(EnvP2pTcpPort, "0")
+    defer:
+      delEnv(EnvP2pTcpPort)
+
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.withP2pTcpPort(60000.uint16)
+
+    let conf = builder.build().expect("build should succeed")
+
+    check conf.endpointConf.p2pTcpPort == 0.Port
+
+  test "env overrides every configured port":
+    clearPortEnv()
+    putEnv(EnvP2pTcpPort, "60001")
+    putEnv(EnvDiscv5UdpPort, "60002")
+    putEnv(EnvRestPort, "60003")
+    putEnv(EnvMetricsPort, "60004")
+    putEnv(EnvWebSocketPort, "60005")
+    defer:
+      clearPortEnv()
+
+    var builder = WakuConfBuilder.init()
+    builder.withP2pTcpPort(50000.uint16)
+    builder.discv5Conf.withEnabled(true)
+    builder.discv5Conf.withUdpPort(50001.uint)
+    builder.restServerConf.withEnabled(true)
+    builder.restServerConf.withListenAddress(parseIpAddress("127.0.0.1"))
+    builder.restServerConf.withPort(50002.uint16)
+    builder.restServerConf.withRelayCacheCapacity(0.uint32)
+    builder.metricsServerConf.withEnabled(true)
+    builder.metricsServerConf.withHttpPort(50003.uint16)
+    builder.webSocketConf.withEnabled(true)
+    builder.webSocketConf.withWebSocketPort(50004.uint16)
+
+    let conf = builder.build().expect("build should succeed")
+
+    check conf.endpointConf.p2pTcpPort == 60001.Port
+    check conf.discv5Conf.get().udpPort == 60002.Port
+    check conf.restServerConf.get().port == 60003.Port
+    check conf.metricsServerConf.get().httpPort == 60004.Port
+    check conf.webSocketConf.get().port == 60005.Port
+
+  test "env override preserves portsShift":
+    clearPortEnv()
+    putEnv(EnvP2pTcpPort, "61234")
+    defer:
+      delEnv(EnvP2pTcpPort)
+
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.withP2pTcpPort(60000.uint16)
+    builder.withPortsShift(5.uint16)
+
+    let conf = builder.build().expect("build should succeed")
+
+    check conf.endpointConf.p2pTcpPort == 61234.Port
+    check conf.portsShift == 5.uint16

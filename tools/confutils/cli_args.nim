@@ -192,8 +192,11 @@ type WakuNodeConf* = object
       name: "listen-address"
     .}: IpAddress
 
-    tcpPort* {.desc: "TCP listening port.", defaultValue: 60000, name: "tcp-port".}:
-      Port
+    tcpPort* {.
+      desc: "TCP listening port. (env var override: " & EnvP2pTcpPort & ")",
+      defaultValue: 60000,
+      name: "tcp-port"
+    .}: Port
 
     portsShift* {.
       desc: "Add a shift to all port numbers.", defaultValue: 0, name: "ports-shift"
@@ -489,7 +492,8 @@ with the drawback of consuming some more bandwidth.""",
     .}: IpAddress
 
     restPort* {.
-      desc: "Listening port of the REST HTTP server.",
+      desc:
+        "Listening port of the REST HTTP server. (env var override: " & EnvRestPort & ")",
       defaultValue: 8645,
       name: "rest-port"
     .}: uint16
@@ -530,7 +534,9 @@ with the drawback of consuming some more bandwidth.""",
     .}: IpAddress
 
     metricsServerPort* {.
-      desc: "Listening HTTP port of the metrics server.",
+      desc:
+        "Listening HTTP port of the metrics server. (env var override: " & EnvMetricsPort &
+        ")",
       defaultValue: 8008,
       name: "metrics-server-port"
     .}: uint16
@@ -564,7 +570,9 @@ with the drawback of consuming some more bandwidth.""",
     .}: Option[bool]
 
     discv5UdpPort* {.
-      desc: "Listening UDP port for Node Discovery v5.",
+      desc:
+        "Listening UDP port for Node Discovery v5. (env var override: " &
+        EnvDiscv5UdpPort & ")",
       defaultValue: 9000,
       name: "discv5-udp-port"
     .}: Port
@@ -664,7 +672,9 @@ with the drawback of consuming some more bandwidth.""",
     .}: bool
 
     websocketPort* {.
-      desc: "WebSocket listening port.", defaultValue: 8000, name: "websocket-port"
+      desc: "WebSocket listening port. (env var override: " & EnvWebSocketPort & ")",
+      defaultValue: 8000,
+      name: "websocket-port"
     .}: Port
 
     websocketSecureSupport* {.
