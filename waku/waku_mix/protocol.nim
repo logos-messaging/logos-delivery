@@ -5,13 +5,13 @@ import chronicles, std/[options, sequtils], chronos, results, metrics
 import
   libp2p/crypto/curve25519,
   libp2p/crypto/crypto,
-  libp2p/protocols/mix,
-  libp2p/protocols/mix/mix_node,
-  libp2p/protocols/mix/mix_protocol,
-  libp2p/protocols/mix/mix_metrics,
-  libp2p/protocols/mix/delay_strategy,
-  libp2p/protocols/mix/spam_protection,
-  libp2p/protocols/mix/cover_traffic,
+  libp2p_mix,
+  libp2p_mix/mix_node,
+  libp2p_mix/mix_protocol,
+  libp2p_mix/mix_metrics,
+  libp2p_mix/delay_strategy,
+  libp2p_mix/spam_protection,
+  libp2p_mix/cover_traffic,
   libp2p/[multiaddress, multicodec, peerid, peerinfo],
   eth/common/keys
 

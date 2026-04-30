@@ -11,7 +11,7 @@ import
   libp2p/crypto/curve25519,
   libp2p/protocols/[kademlia, service_discovery],
   libp2p/protocols/service_discovery/types as kad_types,
-  libp2p/protocols/mix/mix_protocol
+  libp2p_mix/mix_protocol
 
 import waku/waku_core, waku/node/peer_manager
 

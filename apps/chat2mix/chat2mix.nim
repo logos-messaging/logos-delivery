@@ -29,9 +29,9 @@ import
     peerid, # Implement how peers interact
     protobuf/minprotobuf, # message serialisation/deserialisation from and to protobufs
     nameresolving/dnsresolver,
-    protocols/mix/curve25519,
-    protocols/mix/mix_protocol,
   ] # define DNS resolution
+import libp2p_mix/curve25519
+import libp2p_mix/mix_protocol
 import
   waku/[
     waku_core,
