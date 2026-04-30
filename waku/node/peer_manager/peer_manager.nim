@@ -404,13 +404,25 @@ proc disconnectNode*(pm: PeerManager, peer: RemotePeerInfo) {.async.} =
   let peerId = peer.peerId
   await pm.disconnectNode(peerId)
 
+proc activeServiceStreams(pm: PeerManager, peerId: PeerId): seq[string] =
+  ## Returns the protocol strings of any open service streams for peerId.
+  ## Relay streams are excluded: they are exactly what eviction manages.
+  for connPeerId, muxers in pm.switch.connManager.getConnections():
+    if connPeerId != peerId:
+      continue
+    for m in muxers:
+      for stream in m.getStreams():
+        if stream.protocol.len > 0 and stream.protocol != WakuRelayCodec:
+          result.add(stream.protocol)
+
 proc evictPeer(pm: PeerManager, peerId: PeerId) {.async.} =
   ## Policy-based eviction (relay-peer limit, IP colocation, pruning).
-  ## Skips the disconnect when the peer has an active store-query stream so
-  ## that in-flight store requests are not aborted by unrelated limit checks.
-  let (storeInPeers, storeOutPeers) = pm.connectedPeers(WakuStoreCodec)
-  if storeInPeers.contains(peerId) or storeOutPeers.contains(peerId):
-    debug "skipping peer eviction: active store stream", peerId = peerId
+  ## Skips the disconnect when the peer has an in-flight stream for any
+  ## service protocol to avoid aborting active requests.
+  let serviceStreams = pm.activeServiceStreams(peerId)
+  if serviceStreams.len > 0:
+    trace "skipping peer eviction: active service streams",
+      peerId = peerId, protocols = serviceStreams
     return
   await pm.switch.disconnect(peerId)
 
