@@ -225,9 +225,10 @@ proc evaluateAndCleanUp(self: SendService) =
       it.state != DeliveryState.FailedToDeliver
   )
 
-  # remove propagated ephemeral messages as no store check is possible
+  # remove propagated messages when no store confirmation will follow
   self.taskCache.keepItIf(
-    not (it.isEphemeral() and it.state == DeliveryState.SuccessfullyPropagated)
+    not (it.state == DeliveryState.SuccessfullyPropagated and
+      (it.isEphemeral() or not self.checkStoreForMessages))
   )
 
 proc trySendMessages(self: SendService) {.async.} =
