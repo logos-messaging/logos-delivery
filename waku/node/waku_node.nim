@@ -23,8 +23,8 @@ import
   libp2p/transports/wstransport,
   libp2p/utility,
   libp2p/utils/offsettedseq,
-  libp2p/protocols/mix,
-  libp2p/protocols/mix/mix_protocol
+  libp2p_mix,
+  libp2p_mix/mix_protocol
 
 import
   waku/[

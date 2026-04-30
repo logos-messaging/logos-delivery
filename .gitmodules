@@ -200,3 +200,7 @@
 	url = https://github.com/logos-co/mix-rln-spam-protection-plugin.git
 	ignore = untracked
 	branch = master
+[submodule "vendor/nim-libp2p-mix"]
+	path = vendor/nim-libp2p-mix
+	url = git@github.com:logos-co/nim-libp2p-mix.git
+	branch = master
