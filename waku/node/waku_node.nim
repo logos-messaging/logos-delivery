@@ -635,9 +635,6 @@ proc stop*(node: WakuNode) {.async.} =
       not node.wakuPeerExchangeClient.pxLoopHandle.isNil():
     await node.wakuPeerExchangeClient.pxLoopHandle.cancelAndWait()
 
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.stop()
-
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.stopWait()
 
