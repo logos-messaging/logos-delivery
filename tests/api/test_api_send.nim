@@ -17,8 +17,8 @@ type SendEventOutcome {.pure.} = enum
 type SendEventListenerManager = ref object
   brokerCtx: BrokerContext
   sentListener: MessageSentEventListener
-  errorListener: MessageErrorEventListener
-  propagatedListener: MessagePropagatedEventListener
+  errorListener: MessageSendErrorEventListener
+  propagatedListener: MessageSendPropagatedEventListener
   sentFuture: Future[void]
   errorFuture: Future[void]
   propagatedFuture: Future[void]
@@ -48,9 +48,9 @@ proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerMan
   ).valueOr:
     raiseAssert error
 
-  manager.errorListener = MessageErrorEvent.listen(
+  manager.errorListener = MessageSendErrorEvent.listen(
     brokerCtx,
-    proc(event: MessageErrorEvent) {.async: (raises: []).} =
+    proc(event: MessageSendErrorEvent) {.async: (raises: []).} =
       inc manager.errorCount
       manager.errorRequestIds.add(event.requestId)
       echo "ERROR EVENT TRIGGERED (#", manager.errorCount, "): ", event.error
@@ -62,9 +62,9 @@ proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerMan
   ).valueOr:
     raiseAssert error
 
-  manager.propagatedListener = MessagePropagatedEvent.listen(
+  manager.propagatedListener = MessageSendPropagatedEvent.listen(
     brokerCtx,
-    proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
+    proc(event: MessageSendPropagatedEvent) {.async: (raises: []).} =
       inc manager.propagatedCount
       manager.propagatedRequestIds.add(event.requestId)
       echo "PROPAGATED EVENT TRIGGERED (#",
@@ -79,8 +79,8 @@ proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerMan
 
 proc teardown(manager: SendEventListenerManager) =
   MessageSentEvent.dropListener(manager.brokerCtx, manager.sentListener)
-  MessageErrorEvent.dropListener(manager.brokerCtx, manager.errorListener)
-  MessagePropagatedEvent.dropListener(manager.brokerCtx, manager.propagatedListener)
+  MessageSendErrorEvent.dropListener(manager.brokerCtx, manager.errorListener)
+  MessageSendPropagatedEvent.dropListener(manager.brokerCtx, manager.propagatedListener)
 
 proc waitForEvents(
     manager: SendEventListenerManager, timeout: Duration
