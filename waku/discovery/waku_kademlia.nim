@@ -26,6 +26,7 @@ type WakuKademlia* = ref object
   loopInterval: Duration
   #periodicWalkFut: Future[void]
   periodicLookupFut: Future[void]
+  discoveredServices*: seq[string]
 
 proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
   debug "processing kademlia record",
@@ -123,6 +124,15 @@ proc lookup*(
 
   return peerInfos
 
+proc registerLookupService*(self: WakuKademlia, serviceId: string) =
+  if serviceId notin self.discoveredServices:
+    self.protocol.startDiscovering(serviceId)
+    self.discoveredServices.add(serviceId)
+
+proc advertiseService*(self: WakuKademlia, service: ServiceInfo) =
+  self.protocol.addProvidedService(service)
+  self.registerLookupService(service.id)
+
 #[ proc periodicRandomWalk(
     self: WakuKademlia, interval: Duration
 ) {.async: (raises: [CancelledError]).} =
@@ -141,11 +151,13 @@ proc periodicLookup(
   while true:
     await sleepAsync(interval)
 
-    # For testing lets use only one hard-coded service
-    # Same as the advertised one
-    let peers = await self.lookup("delivery")
+    let services = self.discoveredServices
+    if services.len == 0:
+      continue
 
-    debug "lookup complete", peer_found = peers.len
+    for serviceId in services:
+      let peers = await self.lookup(serviceId)
+      debug "periodic lookup complete", service = serviceId, peerCount = peers.len
 
 proc new*(
     T: type WakuKademlia,
@@ -168,8 +180,15 @@ proc new*(
     xprPublishing = xprPublishing,
   )
 
+  var initialServices: seq[string]
+  for svc in providedServices:
+    initialServices.add(svc.id)
+
   return WakuKademlia(
-    protocol: kademlia, peerManager: peerManager, loopInterval: loopInterval
+    protocol: kademlia,
+    peerManager: peerManager,
+    loopInterval: loopInterval,
+    discoveredServices: initialServices,
   )
 
 proc start*(self: WakuKademlia) =

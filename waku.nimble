@@ -432,6 +432,12 @@ task chat2mix, "Build example Waku chat mix usage":
     "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level=TRACE "
   #  -d:ssl - cause unlisted exception error in libp2p/utility...
 
+task chat2disco, "Build example Waku chat with service discovery":
+  let name = "chat2disco"
+  buildBinary name,
+    "apps/chat2disco/",
+    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level=DEBUG "
+
 task chat2bridge, "Build chat2bridge":
   let name = "chat2bridge"
   buildBinary name, "apps/chat2bridge/"
