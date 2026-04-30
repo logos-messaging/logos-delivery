@@ -62,7 +62,7 @@ import
     events/message_events,
   ],
   waku/discovery/waku_kademlia,
-  ./net_config,
+  waku/net/[bound_ports, net_config],
   ./peer_manager,
   ./health_monitor/health_status,
   ./health_monitor/topic_health
@@ -140,6 +140,7 @@ type
     wakuMix*: WakuMix
     kademliaDiscoveryLoop*: Future[void]
     wakuKademlia*: WakuKademlia
+    ports*: BoundPorts
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -224,6 +225,7 @@ proc new*(
     announcedAddresses: netConfig.announcedAddresses,
     topicSubscriptionQueue: queue,
     rateLimitSettings: rateLimitSettings,
+    ports: BoundPorts.init(),
   )
 
   peerManager.setShardGetter(node.getShardsGetter(@[]))

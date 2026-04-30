@@ -202,6 +202,11 @@ proc new*(
     else:
       nil
 
+  if not restServer.isNil():
+    let boundRestPort = restServer.httpServer.address.port
+    node.ports.rest = some(boundRestPort.uint16)
+    wakuConf.restServerConf.get().port = boundRestPort
+
   # Set the extMultiAddrsOnly flag so the node knows not to replace explicit addresses
   node.extMultiAddrsOnly = wakuConf.endpointConf.extMultiAddrsOnly
 
@@ -249,7 +254,7 @@ proc getPorts(
   return ok((tcpPort: tcpPort, websocketPort: websocketPort))
 
 proc getRunningNetConfig(waku: ptr Waku): Future[Result[NetConfig, string]] {.async.} =
-  var conf = waku[].conf
+  let conf = waku[].conf
   let (tcpPort, websocketPort) = getPorts(waku[].node.switch.peerInfo.listenAddrs).valueOr:
     return err("Could not retrieve ports: " & error)
 
@@ -280,6 +285,10 @@ proc updateEnr(waku: ptr Waku): Future[Result[void, string]] {.async.} =
     return err("cluster-id mismatch configured shards")
 
   waku[].node.enr = record
+
+  # If TCP/WS was configured with port 0, node.announcedAddresses was built
+  # pre-bind with a port value of 0. In any case, the resync is harmless.
+  waku[].node.announcedAddresses = netConf.announcedAddresses
 
   return ok()
 
@@ -312,11 +321,8 @@ proc updateAddressInENR(waku: ptr Waku): Result[void, string] =
   return ok()
 
 proc updateWaku(waku: ptr Waku): Future[Result[void, string]] {.async.} =
-  let conf = waku[].conf
-  if conf.endpointConf.p2pTcpPort == Port(0) or
-      (conf.websocketConf.isSome() and conf.websocketConf.get.port == Port(0)):
-    (await updateEnr(waku)).isOkOr:
-      return err("error calling updateEnr: " & $error)
+  (await updateEnr(waku)).isOkOr:
+    return err("error calling updateEnr: " & $error)
 
   ?updateAnnouncedAddrWithPrimaryIpAddr(waku[].node)
 
@@ -390,29 +396,39 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
   (await startNode(waku.node, waku.conf, waku.dynamicBootstrapNodes)).isOkOr:
     return err("error while calling startNode: " & $error)
 
-  ## Update waku data that is set dynamically on node start
-  try:
-    (await updateWaku(waku)).isOkOr:
-      return err("Error in updateApp: " & $error)
-  except CatchableError:
-    return err("Caught exception in updateApp: " & getCurrentExceptionMsg())
+  let bound = getPorts(waku.node.switch.peerInfo.listenAddrs).valueOr:
+    return err("failed to read bound ports from switch: " & $error)
+  if bound.tcpPort.isSome():
+    waku[].node.ports.tcp = some(bound.tcpPort.get().uint16)
+  if bound.websocketPort.isSome():
+    waku[].node.ports.webSocket = some(bound.websocketPort.get().uint16)
 
   ## Discv5
   if conf.discv5Conf.isSome():
-    waku[].wakuDiscV5 = waku_discv5.setupDiscoveryV5(
-      waku.node.enr,
-      waku.node.peerManager,
-      waku.node.topicSubscriptionQueue,
-      conf.discv5Conf.get(),
-      waku.dynamicBootstrapNodes,
-      waku.rng,
-      conf.nodeKey,
-      conf.endpointConf.p2pListenAddress,
-      conf.portsShift,
-    )
+    waku[].wakuDiscV5 = (
+      await waku_discv5.setupAndStartDiscv5(
+        waku.node.enr,
+        waku.node.peerManager,
+        waku.node.topicSubscriptionQueue,
+        conf.discv5Conf.get(),
+        waku.dynamicBootstrapNodes,
+        waku.rng,
+        conf.nodeKey,
+        conf.endpointConf.p2pListenAddress,
+        conf.portsShift,
+      )
+    ).valueOr:
+      return err("failed to start waku discovery v5: " & error)
 
-    (await waku.wakuDiscV5.start()).isOkOr:
-      return err("failed to start waku discovery v5: " & $error)
+    waku[].node.ports.discv5Udp = some(waku[].wakuDiscV5.udpPort.uint16)
+    waku[].conf.discv5Conf.get().udpPort = waku[].wakuDiscV5.udpPort
+
+  ## Update waku data that is set dynamically on node start
+  try:
+    (await updateWaku(waku)).isOkOr:
+      return err("Error in updateWaku: " & $error)
+  except CatchableError:
+    return err("Caught exception in updateWaku: " & getCurrentExceptionMsg())
 
   ## Reliability
   if not waku[].deliveryService.isNil():
@@ -482,14 +498,15 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
 
   if conf.metricsServerConf.isSome():
     try:
-      waku[].metricsServer = (
-        await (
-          waku_metrics.startMetricsServerAndLogging(
-            conf.metricsServerConf.get(), conf.portsShift
-          )
+      let (server, port) = (
+        await waku_metrics.startMetricsServerAndLogging(
+          conf.metricsServerConf.get(), conf.portsShift
         )
       ).valueOr:
         return err("Starting monitoring and external interfaces failed: " & error)
+      waku[].metricsServer = server
+      waku[].node.ports.metrics = some(port.uint16)
+      waku[].conf.metricsServerConf.get().httpPort = port
     except CatchableError:
       return err(
         "Caught exception starting monitoring and external interfaces failed: " &

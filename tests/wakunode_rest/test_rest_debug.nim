@@ -1,6 +1,7 @@
 {.used.}
 
 import
+  std/options,
   testutils/unittests,
   presto,
   presto/client as presto_client,
