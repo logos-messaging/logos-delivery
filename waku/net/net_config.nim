@@ -156,12 +156,16 @@ proc init*(
   if extMultiAddrs.len > 0:
     announcedAddresses.add(extMultiAddrs)
 
+  announcedAddresses = announcedAddresses.deduplicate()
+
   let
     # enrMultiaddrs are just addresses which cannot be represented in ENR, as described in
     # https://rfc.vac.dev/spec/31/#many-connection-types
-    enrMultiaddrs = announcedAddresses.filterIt(
-      it.hasProtocol("dns4") or it.hasProtocol("dns6") or it.hasProtocol("ws") or
-        it.hasProtocol("wss")
+    enrMultiaddrs = deduplicate(
+      announcedAddresses.filterIt(
+        it.hasProtocol("dns4") or it.hasProtocol("dns6") or it.hasProtocol("ws") or
+          it.hasProtocol("wss")
+      )
     )
 
   ok(

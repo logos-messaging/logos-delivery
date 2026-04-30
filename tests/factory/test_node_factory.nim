@@ -1,18 +1,21 @@
 {.used.}
 
 import
-  std/[net, options, strutils],
+  std/[net, options, sequtils, strutils],
   testutils/unittests,
   chronos,
   chronos/transports/[stream, datagram, common],
   metrics/chronos_httpserver,
-  libp2p/[crypto/crypto, multiaddress, protocols/connectivity/relay/relay]
+  libp2p/[crypto/crypto, multiaddress, protocols/connectivity/relay/relay],
+  eth/p2p/discoveryv5/enr
 
 import
   tests/testlib/[wakunode, wakucore],
-  waku/[waku_node, net/auto_port, discovery/waku_discv5, node/waku_metrics],
-  waku/factory/
-    [node_factory, conf_builder/conf_builder, conf_builder/web_socket_conf_builder]
+  waku/[waku_node, waku_enr, net/auto_port, discovery/waku_discv5, node/waku_metrics],
+  waku/factory/[
+    node_factory, internal_config, conf_builder/conf_builder,
+    conf_builder/web_socket_conf_builder,
+  ]
 
 suite "Node Factory":
   asynctest "Set up a node based on default configurations":
@@ -42,6 +45,45 @@ suite "Node Factory":
       not node.isNil()
       not node.wakuStore.isNil()
       not node.wakuArchive.isNil()
+
+  test "ENR configuration trims multiaddrs until record fits":
+    var conf = defaultTestWakuConf()
+    let bindIp = conf.endpointConf.p2pListenAddress
+    let bindPort = Port(30303)
+
+    let oversizedMultiaddrs = (0 .. 11).mapIt(
+      MultiAddress
+        .init(
+          "/dns4/very-long-logical-hostname-" & $it &
+            ".example.logos.dev.status.im/tcp/30303/wss"
+        )
+        .get()
+    )
+
+    let netConfig = NetConfig.init(
+      clusterId = conf.clusterId,
+      bindIp = bindIp,
+      bindPort = bindPort,
+      extMultiAddrs = oversizedMultiaddrs,
+      extMultiAddrsOnly = true,
+      wakuFlags = some(conf.wakuFlags),
+    ).valueOr:
+      raiseAssert error
+
+    let record = enrConfiguration(conf, netConfig).valueOr:
+      raiseAssert error
+
+    let typedRecord = record.toTyped()
+    require typedRecord.isOk()
+
+    let multiaddrsOpt = typedRecord.value.multiaddrs
+    require multiaddrsOpt.isSome()
+
+    let retainedMultiaddrs = multiaddrsOpt.get()
+    check:
+      retainedMultiaddrs.len < oversizedMultiaddrs.len
+      retainedMultiaddrs.len > 0
+      retainedMultiaddrs == oversizedMultiaddrs[0 ..< retainedMultiaddrs.len]
 
 asynctest "Set up a node with Filter enabled":
   var confBuilder = defaultTestWakuConfBuilder()

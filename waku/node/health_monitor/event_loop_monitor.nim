@@ -10,6 +10,9 @@ declarePublicGauge event_loop_load,
   "chronos event loop load EWMA by window (1.0 = sustained lag at MaxAcceptedLag)",
   labels = ["window"]
 
+declarePublicCounter event_loop_accumulated_lag_secs,
+  "chronos event loop total accumulated lag in seconds since node start"
+
 type OnLagChange* = proc(lagTooHigh: bool) {.gcsafe, raises: [].}
 
 proc eventLoopMonitorLoop*(onLagChange: OnLagChange = nil) {.async.} =
@@ -54,6 +57,8 @@ proc eventLoopMonitorLoop*(onLagChange: OnLagChange = nil) {.async.} =
 
     let lagSecs = lag.nanoseconds.float64 / 1_000_000_000.0
     let load = lagSecs / maxAcceptedLagSecs
+
+    event_loop_accumulated_lag_secs.inc(lagSecs)
 
     ewma1m = alpha1m * load + (1.0 - alpha1m) * ewma1m
     ewma5m = alpha5m * load + (1.0 - alpha5m) * ewma5m
