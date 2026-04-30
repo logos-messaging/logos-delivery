@@ -22,6 +22,7 @@ jobs:
 
     env:
       MSYSTEM: MINGW64
+      NIMBLE_DIR: ${{ github.workspace }}/nimbledeps
 
     steps:
     - name: Checkout code
@@ -75,10 +76,16 @@ jobs:
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
     - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+      # Use the prebuilt Windows binary instead of `nimble install nimble@...`,
+      # which triggers a koch self-bootstrap that races Windows Defender on
+      # bin\nim.exe and fails with "Access is denied".
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
-        cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+        mkdir -p "$HOME/.nimble/bin"
+        curl -fsSL -o /tmp/nimble.zip \
+          "https://github.com/nim-lang/nimble/releases/download/v${{ env.NIMBLE_VERSION }}/nimble-windows_x64.zip"
+        unzip -o /tmp/nimble.zip -d "$HOME/.nimble/bin"
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+        "$HOME/.nimble/bin/nimble.exe" --version
 
     - name: Patch nimble.lock for Windows nim checksum
       # nimble.exe uses Windows Git (core.autocrlf=true by default), which converts LF→CRLF
@@ -91,7 +98,7 @@ jobs:
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        export PATH="$HOME/.nimble/bin:$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
@@ -101,13 +108,14 @@ jobs:
       run: mkdir -p tmp
 
     - name: Building wakunode2.exe
+      timeout-minutes: 45
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        export PATH="$HOME/.nimble/bin:$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         make wakunode2 V=3 -j${{ env.NPROC }}
 
     - name: Building libwaku.dll
       run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        export PATH="$HOME/.nimble/bin:$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         make libwaku STATIC=0 V=1 -j
 
     - name: Check Executable
