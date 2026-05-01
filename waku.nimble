@@ -433,6 +433,10 @@ task chat2mix, "Build example Waku chat mix usage":
   #  -d:ssl - cause unlisted exception error in libp2p/utility...
 
 task chat2disco, "Build example Waku chat with service discovery":
+  # NOTE For debugging, set debug level. For chat usage we want minimal log
+  # output to STDOUT. Can be fixed by redirecting logs to file (e.g.)
+  #buildBinary name, "examples/", "-d:chronicles_log_level=WARN"
+  
   let name = "chat2disco"
   buildBinary name,
     "apps/chat2disco/",
