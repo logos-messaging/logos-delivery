@@ -240,6 +240,10 @@ chat2mix: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2mix
 
+chat2disco: | $(NIMBLEDEPS_STAMP) build deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		nimble chat2disco
+
 rln-db-inspector: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble rln_db_inspector

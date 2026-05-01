@@ -1,32 +1,28 @@
-import chronicles, chronos, std/strutils, regex
-
 import
+  chronicles,
+  chronos,
+  confutils,
+  confutils/defs,
+  confutils/std/net,
   eth/keys,
   libp2p/crypto/crypto,
   libp2p/crypto/secp,
-  libp2p/crypto/curve25519,
-  libp2p/multiaddress,
-  libp2p/multicodec,
   nimcrypto/utils,
-  confutils,
-  confutils/defs,
-  confutils/std/net
+  std/strutils
+import waku/waku_core
 
-import waku/waku_core, waku/waku_mix
+const
+  defaultMetricsAddress* = parseIpAddress("127.0.0.1")
+  defaultDnsResolver1* = parseIpAddress("1.1.1.1")
+  defaultDnsResolver2* = parseIpAddress("1.0.0.1")
 
 type
   Fleet* = enum
     none
-    sandbox
+    prod
     test
 
-  EthRpcUrl* = distinct string
-
-  Chat2Conf* = object ## General node config
-    edgemode* {.
-      defaultValue: true, desc: "Run the app in edge mode", name: "edge-mode"
-    .}: bool
-
+  Chat2DiscoConf* = object ## General node config
     logLevel* {.
       desc: "Sets the log level.", defaultValue: LogLevel.INFO, name: "log-level"
     .}: LogLevel
@@ -57,23 +53,6 @@ type
       defaultValue: "any"
     .}: string
 
-    ## Persistence config
-    dbPath* {.
-      desc: "The database path for peristent storage", defaultValue: "", name: "db-path"
-    .}: string
-
-    persistPeers* {.
-      desc: "Enable peer persistence: true|false",
-      defaultValue: false,
-      name: "persist-peers"
-    .}: bool
-
-    persistMessages* {.
-      desc: "Enable message persistence: true|false",
-      defaultValue: false,
-      name: "persist-messages"
-    .}: bool
-
     ## Relay config
     relay* {.
       desc: "Enable relay protocol: true|false", defaultValue: true, name: "relay"
@@ -81,8 +60,7 @@ type
 
     staticnodes* {.
       desc: "Peer multiaddr to directly connect with. Argument may be repeated.",
-      name: "staticnode",
-      defaultValue: @[]
+      name: "staticnode"
     .}: seq[string]
 
     keepAlive* {.
@@ -94,57 +72,24 @@ type
     clusterId* {.
       desc:
         "Cluster id that the node is running in. Node in a different cluster id is disconnected.",
-      defaultValue: 1,
+      defaultValue: 0,
       name: "cluster-id"
     .}: uint16
-
-    numShardsInNetwork* {.
-      desc: "Number of shards in the network",
-      defaultValue: 8,
-      name: "num-shards-in-network"
-    .}: uint32
 
     shards* {.
       desc:
         "Shards index to subscribe to [0..NUM_SHARDS_IN_NETWORK-1]. Argument may be repeated.",
-      defaultValue: @[
-        uint16(0),
-        uint16(1),
-        uint16(2),
-        uint16(3),
-        uint16(4),
-        uint16(5),
-        uint16(6),
-        uint16(7),
-      ],
+      defaultValue: @[uint16(0)],
       name: "shard"
     .}: seq[uint16]
 
     ## Store config
     store* {.
-      desc: "Enable store protocol: true|false", defaultValue: false, name: "store"
+      desc: "Enable store protocol: true|false", defaultValue: true, name: "store"
     .}: bool
 
     storenode* {.
       desc: "Peer multiaddr to query for storage.", defaultValue: "", name: "storenode"
-    .}: string
-
-    ## Filter config
-    filter* {.
-      desc: "Enable filter protocol: true|false", defaultValue: false, name: "filter"
-    .}: bool
-
-    ## Lightpush config
-    lightpush* {.
-      desc: "Enable lightpush protocol: true|false",
-      defaultValue: false,
-      name: "lightpush"
-    .}: bool
-
-    servicenode* {.
-      desc: "Peer multiaddr to request lightpush and filter services",
-      defaultValue: "",
-      name: "servicenode"
     .}: string
 
     ## Metrics config
@@ -156,7 +101,7 @@ type
 
     metricsServerAddress* {.
       desc: "Listening address of the metrics server.",
-      defaultValue: parseIpAddress("127.0.0.1"),
+      defaultValue: defaultMetricsAddress,
       name: "metrics-server-address"
     .}: IpAddress
 
@@ -173,36 +118,30 @@ type
     .}: bool
 
     ## DNS discovery config
-    dnsDiscovery* {.
-      desc:
-        "Deprecated, please set dns-discovery-url instead. Enable discovering nodes via DNS",
-      defaultValue: false,
-      name: "dns-discovery"
-    .}: bool
-
     dnsDiscoveryUrl* {.
       desc: "URL for DNS node list in format 'enrtree://<key>@<fqdn>'",
       defaultValue: "",
       name: "dns-discovery-url"
     .}: string
 
-    dnsDiscoveryNameServers* {.
-      desc: "DNS name server IPs to query. Argument may be repeated.",
-      defaultValue: @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
-      name: "dns-discovery-name-server"
+    dnsAddrsNameServers* {.
+      desc:
+        "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated.",
+      defaultValue: @[defaultDnsResolver1, defaultDnsResolver2],
+      name: "dns-addrs-name-server"
     .}: seq[IpAddress]
 
     ## Chat2 configuration
     fleet* {.
       desc:
         "Select the fleet to connect to. This sets the DNS discovery URL to the selected fleet.",
-      defaultValue: Fleet.none,
+      defaultValue: Fleet.prod,
       name: "fleet"
     .}: Fleet
 
     contentTopic* {.
       desc: "Content topic for chat messages.",
-      defaultValue: "/toy-chat/2/baixa-chiado/proto",
+      defaultValue: "/chat2disco/1/default/proto",
       name: "content-topic"
     .}: string
 
@@ -234,7 +173,6 @@ type
 proc parseCmdArg*(T: type crypto.PrivateKey, p: string): T =
   try:
     let key = SkPrivateKey.init(utils.fromHex(p)).tryGet()
-    # XXX: Here at the moment
     result = crypto.PrivateKey(scheme: Secp256k1, skkey: key)
   except CatchableError as e:
     raise newException(ValueError, "Invalid private key")
@@ -260,39 +198,5 @@ proc parseCmdArg*(T: type Port, p: string): T =
 proc completeCmdArg*(T: type Port, val: string): seq[string] =
   return @[]
 
-proc parseCmdArg*(T: type Option[uint], p: string): T =
-  try:
-    some(parseUint(p))
-  except CatchableError:
-    raise newException(ValueError, "Invalid unsigned integer")
-
-proc completeCmdArg*(T: type EthRpcUrl, val: string): seq[string] =
-  return @[]
-
-proc parseCmdArg*(T: type EthRpcUrl, s: string): T =
-  ## allowed patterns:
-  ## http://url:port
-  ## https://url:port
-  ## http://url:port/path
-  ## https://url:port/path
-  ## http://url/with/path
-  ## http://url:port/path?query
-  ## https://url:port/path?query
-  ## disallowed patterns:
-  ## any valid/invalid ws or wss url
-  var httpPattern =
-    re2"^(https?):\/\/((localhost)|([\w_-]+(?:(?:\.[\w_-]+)+)))(:[0-9]{1,5})?([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])*"
-  var wsPattern =
-    re2"^(wss?):\/\/((localhost)|([\w_-]+(?:(?:\.[\w_-]+)+)))(:[0-9]{1,5})?([\w.,@?^=%&:\/~+#-]*[\w@?^=%&\/~+#-])*"
-  if regex.match(s, wsPattern):
-    raise newException(
-      ValueError, "Websocket RPC URL is not supported, Please use an HTTP URL"
-    )
-  if not regex.match(s, httpPattern):
-    raise newException(ValueError, "Invalid HTTP RPC URL")
-  return EthRpcUrl(s)
-
-func defaultListenAddress*(conf: Chat2Conf): IpAddress =
-  # TODO: How should we select between IPv4 and IPv6
-  # Maybe there should be a config option for this.
+func defaultListenAddress*(conf: Chat2DiscoConf): IpAddress =
   (static parseIpAddress("0.0.0.0"))

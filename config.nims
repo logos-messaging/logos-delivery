@@ -90,6 +90,9 @@ if not defined(macosx) and not defined(android):
       nimStackTraceOverride
     switch("import", "libbacktrace")
 
+# Shim to provide valueOr and withValue for Option[T]
+switch("import", "waku/common/option_shim")
+
 --define:
   nimOldCaseObjects
   # https://github.com/status-im/nim-confutils/issues/9

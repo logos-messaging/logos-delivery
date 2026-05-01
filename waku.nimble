@@ -27,7 +27,7 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#ff8d51857b4b79a68468e7bcc27b2026cca02996",
+  "https://github.com/vacp2p/nim-libp2p.git#9b6fedca059f3c054582407be9268e2999c7d05d",
   "eth",
   "nat_traversal",
   "dnsdisc",
@@ -431,6 +431,16 @@ task chat2mix, "Build example Waku chat mix usage":
     "apps/chat2mix/",
     "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level=TRACE "
   #  -d:ssl - cause unlisted exception error in libp2p/utility...
+
+task chat2disco, "Build example Waku chat with service discovery":
+  # NOTE For debugging, set debug level. For chat usage we want minimal log
+  # output to STDOUT. Can be fixed by redirecting logs to file (e.g.)
+  #buildBinary name, "examples/", "-d:chronicles_log_level=WARN"
+  
+  let name = "chat2disco"
+  buildBinary name,
+    "apps/chat2disco/",
+    "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level=DEBUG "
 
 task chat2bridge, "Build chat2bridge":
   let name = "chat2bridge"
