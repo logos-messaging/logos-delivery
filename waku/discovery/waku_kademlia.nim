@@ -126,7 +126,7 @@ proc lookup*(
 
 proc registerLookupService*(self: WakuKademlia, serviceId: string) =
   if serviceId notin self.discoveredServices:
-    self.protocol.startDiscovering(serviceId)
+    discard self.protocol.startDiscovering(serviceId)
     self.discoveredServices.add(serviceId)
 
 proc advertiseService*(self: WakuKademlia, service: ServiceInfo) =
@@ -163,8 +163,8 @@ proc new*(
     T: type WakuKademlia,
     switch: Switch,
     peerManager: PeerManager,
-    bootstrapNodes: seq[(PeerId, seq[MultiAddress])],
-    providedServices: var seq[ServiceInfo],
+    bootstrapNodes: seq[(PeerId, seq[MultiAddress])] = @[],
+    providedServices: seq[ServiceInfo] = @[],
     loopInterval: Duration = DefaultKademliaDiscoveryInterval,
     xprPublishing: bool = false,
 ): T =

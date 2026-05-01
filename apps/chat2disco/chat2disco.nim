@@ -7,7 +7,7 @@ when not (compileOption("threads")):
 
 {.push raises: [].}
 
-import std/[strformat, strutils, times, options, random, sequtils, tables]
+import std/[strformat, strutils, times, options, sequtils, tables]
 import
   confutils,
   chronicles,
@@ -27,14 +27,12 @@ import
     peerinfo,
     peerid,
     protobuf/minprotobuf,
-    nameresolving/dnsresolver,
     extended_peer_record,
   ]
 import
   waku/[
     waku_core,
     waku_enr,
-    discovery/waku_dnsdisc,
     discovery/waku_kademlia,
     waku_node,
     node/waku_metrics,
@@ -42,7 +40,6 @@ import
     factory/builder,
     common/utils/nat,
     waku_relay,
-    waku_store/common,
   ],
   ./config_chat2disco
 
@@ -314,7 +311,7 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
   var enrBuilder = EnrBuilder.init(nodeKey)
 
   let record = enrBuilder.build().valueOr:
-    error "failed to create enr record", error = error
+    error "failed to create enr record", error
     quit(QuitFailure)
 
   let node = block:
@@ -337,35 +334,30 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
 
   if conf.relay:
     (await node.mountRelay()).isOkOr:
-      echo "failed to mount relay: " & error
-      return
+      error "failed to mount relay", error
+      quit(QuitFailure)
 
   await node.mountLibp2pPing()
 
-  # Setup kademlia discovery if bootstrap nodes are provided
-  var providedServices: seq[ServiceInfo] = @[]
-
+  var kadBootstrapPeers: seq[(PeerId, seq[MultiAddress])] = @[]
   if conf.kadBootstrapNodes.len > 0:
-    var kadBootstrapPeers: seq[(PeerId, seq[MultiAddress])]
     for nodeStr in conf.kadBootstrapNodes:
       let (peerId, ma) = parseFullAddress(nodeStr).valueOr:
         error "Failed to parse kademlia bootstrap node", node = nodeStr, error = error
         continue
       kadBootstrapPeers.add((peerId, @[ma]))
 
-    if kadBootstrapPeers.len > 0:
-      node.wakuKademlia = WakuKademlia.new(
-        node.switch, node.peerManager, kadBootstrapPeers, providedServices
-      )
-  else:
-    # Create as seed node (no bootstrap) so we can still advertise services
-    node.wakuKademlia =
-      WakuKademlia.new(node.switch, node.peerManager, @[], providedServices)
+  node.wakuKademlia = WakuKademlia.new(node.switch, node.peerManager, kadBootstrapPeers)
 
+  let catchRes = catch:
+    node.switch.mount(node.wakuKademlia.protocol)
+
+  if catchRes.isErr():
+    error "failed to mount kademlia discovery", error = catchRes.error.msg
+    quit(QuitFailure)
+
+  # node start include kademlia
   await node.start()
-
-  if not node.wakuKademlia.isNil():
-    node.wakuKademlia.start()
 
   let nick = await readNick(transp)
   echo "Welcome, " & nick & "!"
@@ -379,78 +371,9 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     prompt: false,
   )
 
-  if conf.staticnodes.len > 0:
-    echo "Connecting to static peers..."
-    await node.connectToNodes(conf.staticnodes)
-
-  var dnsDiscoveryUrl = none(string)
-
-  if conf.fleet != Fleet.none:
-    echo "Connecting to " & $conf.fleet & " fleet using DNS discovery..."
-
-    if conf.fleet == Fleet.test:
-      dnsDiscoveryUrl = some(
-        "enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im"
-      )
-    else:
-      dnsDiscoveryUrl = some(
-        "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
-      )
-  elif conf.dnsDiscoveryUrl != "":
-    info "Discovering nodes using Waku DNS discovery", url = conf.dnsDiscoveryUrl
-    dnsDiscoveryUrl = some(conf.dnsDiscoveryUrl)
-
-  var discoveredNodes: seq[RemotePeerInfo]
-
-  if dnsDiscoveryUrl.isSome:
-    var nameServers: seq[TransportAddress]
-    for ip in conf.dnsAddrsNameServers:
-      nameServers.add(initTAddress(ip, Port(53)))
-
-    let dnsResolver = DnsResolver.new(nameServers)
-
-    proc resolver(domain: string): Future[string] {.async, gcsafe.} =
-      trace "resolving", domain = domain
-      let resolved = await dnsResolver.resolveTxt(domain)
-      return resolved[0]
-
-    let wakuDnsDiscovery = WakuDnsDiscovery.init(dnsDiscoveryUrl.get(), resolver)
-    if wakuDnsDiscovery.isOk:
-      let discoveredPeers = await wakuDnsDiscovery.get().findPeers()
-      if discoveredPeers.isOk:
-        info "Connecting to discovered peers"
-        discoveredNodes = discoveredPeers.get()
-        echo "Discovered and connecting to " & $discoveredNodes
-        waitFor chat.node.connectToNodes(discoveredNodes)
-      else:
-        warn "Failed to find peers via DNS discovery", error = discoveredPeers.error
-    else:
-      warn "Failed to init Waku DNS discovery", error = wakuDnsDiscovery.error
-
   let peerInfo = node.switch.peerInfo
   let listenStr = $peerInfo.addrs[0] & "/p2p/" & $peerInfo.peerId
   echo &"Listening on\n {listenStr}"
-
-  if (conf.storenode != "") or (conf.store == true):
-    await node.mountStore()
-
-    var storenode: Option[RemotePeerInfo]
-
-    if conf.storenode != "":
-      let peerInfo = parsePeerInfo(conf.storenode)
-      if peerInfo.isOk():
-        storenode = some(peerInfo.value)
-      else:
-        error "Incorrect conf.storenode", error = peerInfo.error
-    elif discoveredNodes.len > 0:
-      echo "Store enabled, but no store nodes configured. Choosing one at random from discovered peers"
-      storenode = some(discoveredNodes[rand(0 .. len(discoveredNodes) - 1)])
-
-    if storenode.isSome():
-      echo "Connecting to storenode: " & $(storenode.get())
-
-      node.mountStoreClient()
-      node.peerManager.addServicePeer(storenode.get(), WakuStoreCodec)
 
   # Subscribe to relay topic
   if conf.relay:

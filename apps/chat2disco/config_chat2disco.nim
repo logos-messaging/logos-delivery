@@ -13,15 +13,8 @@ import waku/waku_core
 
 const
   defaultMetricsAddress* = parseIpAddress("127.0.0.1")
-  defaultDnsResolver1* = parseIpAddress("1.1.1.1")
-  defaultDnsResolver2* = parseIpAddress("1.0.0.1")
 
 type
-  Fleet* = enum
-    none
-    prod
-    test
-
   Chat2DiscoConf* = object ## General node config
     logLevel* {.
       desc: "Sets the log level.", defaultValue: LogLevel.INFO, name: "log-level"
@@ -58,11 +51,6 @@ type
       desc: "Enable relay protocol: true|false", defaultValue: true, name: "relay"
     .}: bool
 
-    staticnodes* {.
-      desc: "Peer multiaddr to directly connect with. Argument may be repeated.",
-      name: "staticnode"
-    .}: seq[string]
-
     keepAlive* {.
       desc: "Enable keep-alive for idle connections: true|false",
       defaultValue: false,
@@ -82,15 +70,6 @@ type
       defaultValue: @[uint16(0)],
       name: "shard"
     .}: seq[uint16]
-
-    ## Store config
-    store* {.
-      desc: "Enable store protocol: true|false", defaultValue: true, name: "store"
-    .}: bool
-
-    storenode* {.
-      desc: "Peer multiaddr to query for storage.", defaultValue: "", name: "storenode"
-    .}: string
 
     ## Metrics config
     metricsServer* {.
@@ -117,28 +96,7 @@ type
       name: "metrics-logging"
     .}: bool
 
-    ## DNS discovery config
-    dnsDiscoveryUrl* {.
-      desc: "URL for DNS node list in format 'enrtree://<key>@<fqdn>'",
-      defaultValue: "",
-      name: "dns-discovery-url"
-    .}: string
-
-    dnsAddrsNameServers* {.
-      desc:
-        "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated.",
-      defaultValue: @[defaultDnsResolver1, defaultDnsResolver2],
-      name: "dns-addrs-name-server"
-    .}: seq[IpAddress]
-
     ## Chat2 configuration
-    fleet* {.
-      desc:
-        "Select the fleet to connect to. This sets the DNS discovery URL to the selected fleet.",
-      defaultValue: Fleet.prod,
-      name: "fleet"
-    .}: Fleet
-
     contentTopic* {.
       desc: "Content topic for chat messages.",
       defaultValue: "/chat2disco/1/default/proto",
