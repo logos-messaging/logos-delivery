@@ -118,6 +118,5 @@ if defined(android):
   switch("cincludes", sysRoot & "/usr/include/")
 # begin Nimble config (version 2)
 when withDir(thisDir(), system.fileExists("nimble.paths")):
-  --noNimblePath
   include "nimble.paths"
 # end Nimble config
