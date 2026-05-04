@@ -29,12 +29,6 @@ type WakuKademlia* = ref object
   discoveredServices*: seq[string]
 
 proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
-  debug "processing kademlia record",
-    peerId = record.peerId,
-    numAddresses = record.addresses.len,
-    numServices = record.services.len,
-    serviceIds = record.services.mapIt(it.id)
-
   if record.addresses.len == 0:
     trace "kademlia record missing addresses", peerId = record.peerId
     return none(RemotePeerInfo)
@@ -180,6 +174,9 @@ proc new*(
       selector = ExtEntrySelector(),
       disableBootstrapping = disableBootstrapping,
     ),
+    # change from defaults for local testing
+    discoConfig =
+      ServiceDiscoveryConfig.new(advertExpiry = 60.secs, ipSimCoefficient = 0.0),
     services = providedServices,
     xprPublishing = xprPublishing,
   )
