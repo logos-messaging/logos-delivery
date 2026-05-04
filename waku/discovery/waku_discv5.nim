@@ -478,7 +478,7 @@ proc setupAndStartDiscv5*(
       return err(error)
     let startRes = await wd.start()
     if startRes.isErr():
-      return err(startRes.error)
+      return err("failed to start discovery, attempt: " & startRes.error)
     return ok(wd)
 
   let wd = (await tryWithAutoPort[WakuDiscoveryV5](conf.udpPort, attempt)).valueOr:

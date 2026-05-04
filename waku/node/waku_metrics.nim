@@ -67,12 +67,13 @@ proc startMetricsServer(
     info "Starting metrics HTTP server", serverIp = $serverIp, serverPort = $port
 
     let server = MetricsHttpServerRef.new($serverIp, port).valueOr:
-      return err($error)
+      return err("fail to start service metrics server, attempt:" & $error)
 
     try:
       await server.start()
     except CatchableError:
-      return err(getCurrentExceptionMsg())
+      return
+        err("exception while startMetricsServer, attempt: " & getCurrentExceptionMsg())
 
     info "Metrics HTTP server started", serverIp = $serverIp, serverPort = $port
     return ok((server: server, port: port))

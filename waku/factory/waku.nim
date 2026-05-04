@@ -204,7 +204,7 @@ proc new*(
 
   if not restServer.isNil():
     let boundRestPort = restServer.httpServer.address.port
-    node.ports.rest = some(boundRestPort.uint16)
+    node.ports.rest = boundRestPort.uint16
     wakuConf.restServerConf.get().port = boundRestPort
 
   # Set the extMultiAddrsOnly flag so the node knows not to replace explicit addresses
@@ -398,10 +398,8 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
 
   let bound = getPorts(waku.node.switch.peerInfo.listenAddrs).valueOr:
     return err("failed to read bound ports from switch: " & $error)
-  if bound.tcpPort.isSome():
-    waku[].node.ports.tcp = some(bound.tcpPort.get().uint16)
-  if bound.websocketPort.isSome():
-    waku[].node.ports.webSocket = some(bound.websocketPort.get().uint16)
+  waku[].node.ports.tcp = bound.tcpPort.get(Port(0)).uint16
+  waku[].node.ports.webSocket = bound.websocketPort.get(Port(0)).uint16
 
   ## Discv5
   if conf.discv5Conf.isSome():
@@ -420,7 +418,7 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
     ).valueOr:
       return err("failed to start waku discovery v5: " & error)
 
-    waku[].node.ports.discv5Udp = some(waku[].wakuDiscV5.udpPort.uint16)
+    waku[].node.ports.discv5Udp = waku[].wakuDiscV5.udpPort.uint16
     waku[].conf.discv5Conf.get().udpPort = waku[].wakuDiscV5.udpPort
 
   ## Update waku data that is set dynamically on node start
@@ -505,7 +503,7 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
       ).valueOr:
         return err("Starting monitoring and external interfaces failed: " & error)
       waku[].metricsServer = server
-      waku[].node.ports.metrics = some(port.uint16)
+      waku[].node.ports.metrics = port.uint16
       waku[].conf.metricsServerConf.get().httpPort = port
     except CatchableError:
       return err(

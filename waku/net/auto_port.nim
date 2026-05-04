@@ -7,10 +7,10 @@ const
   AutoPortRetryCount* = 20
   AutoPortMin = 50000'u16
   AutoPortMax = 59000'u16
-
-var rng = initRand()
+  AutoPortAttemptTimeout = chronos.seconds(30)
 
 proc getAutoPort*(): uint16 =
+  var rng = initRand()
   uint16(rng.rand(AutoPortMin.int .. AutoPortMax.int))
 
 proc tryWithAutoPort*[T](
@@ -29,10 +29,20 @@ proc tryWithAutoPort*[T](
         Port(getAutoPort())
       else:
         startingPort
-    let res = await attempt(port)
+    let fut = attempt(port)
+    let res =
+      try:
+        if await fut.withTimeout(AutoPortAttemptTimeout):
+          await fut
+        else:
+          fut.cancelSoon()
+          Result[T, string].err("bind attempt timed out")
+      except CancelledError:
+        fut.cancelSoon()
+        Result[T, string].err("bind attempt cancelled")
     if res.isOk():
       return ok(res.get())
     lastErr = res.error
   if autoMode:
     return err("auto-port exhausted; last error: " & lastErr)
-  return err(lastErr)
+  return err("port bind failed: " & lastErr)

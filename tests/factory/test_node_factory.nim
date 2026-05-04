@@ -13,7 +13,9 @@ import
   tests/testlib/[wakunode, wakucore],
   waku/[waku_node, waku_enr, net/auto_port, discovery/waku_discv5, node/waku_metrics],
   waku/factory/[
-    node_factory, internal_config, conf_builder/conf_builder,
+    node_factory,
+    internal_config,
+    conf_builder/conf_builder,
     conf_builder/web_socket_conf_builder,
   ]
 
