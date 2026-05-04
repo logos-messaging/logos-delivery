@@ -404,16 +404,6 @@ proc disconnectNode*(pm: PeerManager, peer: RemotePeerInfo) {.async.} =
   let peerId = peer.peerId
   await pm.disconnectNode(peerId)
 
-proc evictPeer(pm: PeerManager, peerId: PeerId) {.async.} =
-  ## Policy-based eviction (relay-peer limit, IP colocation, pruning).
-  ## Skips the disconnect when the peer has an in-flight store stream to
-  ## avoid aborting active store requests.
-  let (storeInPeers, storeOutPeers) = pm.connectedPeers(WakuStoreCodec)
-  if storeInPeers.contains(peerId) or storeOutPeers.contains(peerId):
-    trace "skipping peer eviction: active store stream", peerId = peerId
-    return
-  await pm.switch.disconnect(peerId)
-
 # Dialing should be used for just protocols that require a stream to write and read
 # This shall not be used to dial Relay protocols, since that would create
 # unneccesary unused streams.
@@ -528,6 +518,16 @@ proc connectedPeers*(
           outPeers.add(peerId)
 
   return (inPeers, outPeers)
+
+proc evictPeer(pm: PeerManager, peerId: PeerId) {.async.} =
+  ## Policy-based eviction (relay-peer limit, IP colocation, pruning).
+  ## Skips the disconnect when the peer has an in-flight store stream to
+  ## avoid aborting active store requests.
+  let (storeInPeers, storeOutPeers) = pm.connectedPeers(WakuStoreCodec)
+  if storeInPeers.contains(peerId) or storeOutPeers.contains(peerId):
+    trace "skipping peer eviction: active store stream", peerId = peerId
+    return
+  await pm.switch.disconnect(peerId)
 
 proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]) =
   ## Returns the PeerIds of peers with an active socket connection.
