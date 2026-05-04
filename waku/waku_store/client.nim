@@ -8,7 +8,8 @@ import
   metrics,
   bearssl/rand
 import
-  ../node/peer_manager, ../utils/requests, ./protocol_metrics, ./common, ./rpc_codec
+  ../node/peer_manager, ../utils/requests,
+  ./protocol_metrics, ./common, ./rpc_codec
 
 logScope:
   topics = "waku store client"
@@ -42,20 +43,24 @@ proc sendStoreRequest(
   let writeRes = catch:
     await connection.writeLP(req.encode().buffer)
   if writeRes.isErr():
+    self.peerManager.griefPeer(connection.peerId, MinGriefScore) # stream error: transient
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: writeRes.error.msg))
 
   let readRes = catch:
     await connection.readLp(DefaultMaxRpcSize.int)
 
   let buf = readRes.valueOr:
+    self.peerManager.griefPeer(connection.peerId, MinGriefScore) # stream error: transient
     return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: error.msg))
 
   let res = StoreQueryResponse.decode(buf).valueOr:
     waku_store_errors.inc(labelValues = [DecodeRpcFailure])
+    self.peerManager.griefPeer(connection.peerId, MediumGriefScore) # decode failure: protocol violation
     return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: DecodeRpcFailure))
 
   if res.statusCode != uint32(StatusCode.SUCCESS):
     waku_store_errors.inc(labelValues = [NoSuccessStatusCode])
+    self.peerManager.griefPeer(connection.peerId, LowGriefScore) # non-success response: rejection
     return err(StoreError.new(res.statusCode, res.statusDesc))
 
   if req.pubsubTopic.isSome():

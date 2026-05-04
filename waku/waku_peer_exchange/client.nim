@@ -32,6 +32,7 @@ proc request*(
   except CatchableError as exc:
     error "exception when handling peer exchange request", error = exc.msg
     waku_px_client_errors.inc(labelValues = ["error_sending_or_receiving_px_req"])
+    wpx.peerManager.griefPeer(conn.peerId, MinGriefScore) # stream error: transient
     callResult = (
       status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
       status_desc: some($exc.msg),
@@ -46,6 +47,7 @@ proc request*(
 
   let decoded = PeerExchangeRpc.decode(buffer).valueOr:
     error "peer exchange request error decoding buffer", error = $error
+    wpx.peerManager.griefPeer(conn.peerId, MediumGriefScore) # decode failure: protocol violation
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.BAD_RESPONSE,
@@ -54,6 +56,7 @@ proc request*(
     )
   if decoded.response.status_code != PeerExchangeResponseStatusCode.SUCCESS:
     error "peer exchange request error", status_code = decoded.response.status_code
+    wpx.peerManager.griefPeer(conn.peerId, LowGriefScore) # non-success response: rejection
     return err(
       (
         status_code: decoded.response.status_code,

@@ -203,6 +203,7 @@ suite "Waku Peer Exchange":
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start()])
       await allFutures([node1.mountPeerExchange(), node2.mountPeerExchange()])
+      await allFutures([node1.mountPeerExchangeClient(), node2.mountPeerExchangeClient()])
 
       # Create connection
       let connOpt = await node2.peerManager.dialPeer(
