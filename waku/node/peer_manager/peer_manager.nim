@@ -174,14 +174,15 @@ proc addActiveStoreRequest*(pm: PeerManager, peerId: PeerId) {.gcsafe.} =
   pm.activeStoreRequests.mgetOrPut(peerId, 0).inc()
 
 proc removeActiveStoreRequest*(pm: PeerManager, peerId: PeerId) {.gcsafe.} =
-  if not pm.activeStoreRequests.contains(peerId):
+  let count = pm.activeStoreRequests.getOrDefault(peerId, 0)
+  if count == 0:
     return
 
-  let count = pm.activeStoreRequests[peerId] - 1
-  if count <= 0:
+  let newCount = count - 1
+  if newCount <= 0:
     pm.activeStoreRequests.del(peerId)
   else:
-    pm.activeStoreRequests[peerId] = count
+    pm.activeStoreRequests[peerId] = newCount
 
 proc hasActiveStoreRequest*(pm: PeerManager, peerId: PeerId): bool {.gcsafe.} =
   pm.activeStoreRequests.contains(peerId)
