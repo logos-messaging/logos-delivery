@@ -107,6 +107,7 @@ type PeerManager* = ref object of RootObj
   online: bool ## state managed by online_monitor module
   getShards: GetShards
   maxConnections: int
+  activeStoreRequests*: Table[PeerId, int]
 
 #~~~~~~~~~~~~~~~~~~~#
 # Helper Functions  #
@@ -168,6 +169,22 @@ proc addPeer*(
 
 proc getPeer*(pm: PeerManager, peerId: PeerId): RemotePeerInfo =
   return pm.switch.peerStore.getPeer(peerId)
+
+proc addActiveStoreRequest*(pm: PeerManager, peerId: PeerId) {.gcsafe.} =
+  pm.activeStoreRequests.mgetOrPut(peerId, 0).inc()
+
+proc removeActiveStoreRequest*(pm: PeerManager, peerId: PeerId) {.gcsafe.} =
+  if not pm.activeStoreRequests.contains(peerId):
+    return
+
+  let count = pm.activeStoreRequests[peerId] - 1
+  if count <= 0:
+    pm.activeStoreRequests.del(peerId)
+  else:
+    pm.activeStoreRequests[peerId] = count
+
+proc hasActiveStoreRequest*(pm: PeerManager, peerId: PeerId): bool {.gcsafe.} =
+  pm.activeStoreRequests.contains(peerId)
 
 proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
   ## Load peers from storage, if available
@@ -521,11 +538,10 @@ proc connectedPeers*(
 
 proc evictPeer(pm: PeerManager, peerId: PeerId) {.async.} =
   ## Policy-based eviction (relay-peer limit, IP colocation, pruning).
-  ## Skips the disconnect when the peer has an in-flight store stream to
+  ## Skips the disconnect when the peer has an in-flight store request to
   ## avoid aborting active store requests.
-  let (storeInPeers, storeOutPeers) = pm.connectedPeers(WakuStoreCodec)
-  if storeInPeers.contains(peerId) or storeOutPeers.contains(peerId):
-    trace "skipping peer eviction: active store stream", peerId = peerId
+  if pm.hasActiveStoreRequest(peerId):
+    trace "skipping peer eviction: active store request", peerId = peerId
     return
   await pm.switch.disconnect(peerId)
 
@@ -1224,6 +1240,7 @@ proc new*(
 
   pm.serviceSlots = initTable[string, RemotePeerInfo]()
   pm.ipTable = initTable[string, seq[PeerId]]()
+  pm.activeStoreRequests = initTable[PeerId, int]()
 
   if not storage.isNil():
     trace "found persistent peer storage"
