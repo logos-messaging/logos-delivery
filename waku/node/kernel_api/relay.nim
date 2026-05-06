@@ -92,12 +92,6 @@ proc registerRelayHandler(
     node.wakuStoreReconciliation.messageIngress(topic, msg)
 
   proc internalHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
-    let msgHash = topic.computeMessageHash(msg)
-    debug "AAAA relay internalHandler emitting MessageSeenEvent",
-      topic = topic,
-      contenttopic = msg.contentTopic,
-      msg_hash = shortLog(msgHash),
-      payload_len = msg.payload.len
     MessageSeenEvent.emit(node.brokerCtx, topic, msg)
 
   let uniqueTopicHandler = proc(
