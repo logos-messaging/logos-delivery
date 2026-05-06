@@ -51,6 +51,9 @@ With the [plan](https://roadmap.logos.co/messaging/roadmap/milestones/2026-statu
    Each FFI library creates its own `Waku` instance via `Waku.new(...)`. A consumer that wanted *both* the Messaging API and a kernel call (e.g. Store) couldn't just link both `.so`s — they'd be running two independent libp2p stacks.
 3. **Duplicated plumbing** \
     Both libraries implement: FFI context, JSON config parsing, lifecycle, etc.
+4. **`createNode` implementations diverge** \
+    NOTE: This is purely an AI-detected issue. \
+    `liblogosdelivery` parses JSON case-insensitively and rejects unknown fields; `libwaku` doesn't. `libwaku` also strips `restServerConf` after parsing; `liblogosdelivery` keeps it. 
 
 ## Proposal
 
@@ -59,16 +62,16 @@ With the [plan](https://roadmap.logos.co/messaging/roadmap/milestones/2026-statu
 
 2. **Tiered surface inside the library** \
    Library exposes:
-   - Reliable Channel API
+   - Reliable Channels API
    - Messaging API
    - Kernel API
 
-   RC API and Messaging API are the supported, stable surface. Kernel API is the advanced surface, explicitely marked as "use on your own risk, subject to change at any moment".
+   Reliable Channels API and Messaging API are the supported, stable surface. Kernel API is the advanced surface, explicitly marked as "use at your own risk, subject to change at any moment".
 
    Tiering is expressed via separate C headers, not a separate library and not a longer symbol prefix.
 
 3. (maybe) **Control what reaches Logos Core** \
-   Not every symbol from has to be exposed in the Logos Core module API — that's a second layer of filtering we keep at the module boundary.
+   Not every symbol has to be exposed in the Logos Core module API — that's a second layer of filtering we keep at the module boundary.
 
 ### Splitting the C header
 
@@ -81,42 +84,43 @@ The "advanced / unsupported" signal comes from `#include "liblogosdelivery_kerne
 
 ### Object-oriented accessor
 
-With a "single node" requirement, we might end up with these node methods next to each other, exposing Kernel API next to the Messaging, instead of hiding it.
+With a "single node" requirement, we might end up with these node methods next to each other, exposing Kernel API next to the Messaging API, instead of hiding it.
+
 ```nim
 # Object with methods. Pseudocode.
 Node {
     proc send(...)
     proc subscribe(...)
-    proc relay(...)
-    proc lightpush(...)
-    proc store(...)
-    proc peerexchange(...)
+    proc relay(...): Relay
+    proc lightpush(...): LightPush
+    proc store(...): Store
 }
 ```
 
 To actually hide it, I think we should group the kernel API under an object-oriented accessor like this:
+
 ```nim
 # Object with methods. Pseudocode.
 Node {
-    proc send(Node node, ...)
-    proc subscribe(Node node, ...)
-    proc kernel(Node node): Kernel
+    proc send(...)
+    proc subscribe(...)
+    proc kernel(): Kernel
 }
 
 Kernel {
-    proc relay(Node node)
-    proc lightpush(Node node)
-    proc store(Node node)
-    proc peerexchange(Node node)
+    proc relay(...): Relay
+    proc lightpush(...): LightPush
+    proc store(): Store
 }
 ```
 
-Then the usage looks as something like this:
-```
+Then the usage looks something like this:
+
+```nim
 node = createNode("logos.dev", Core)
 
 # Access Messaging API
-node.send(...) 
+node.send(...)
 
 # Access Kernel API
 node.kernel().store().query(...)
@@ -126,35 +130,26 @@ node.kernel().store().query(...)
 
 I'm not sure if "kernel" is the right word. In reality, "Kernel API" is not an API, it's a group of protocol APIs (relay, lightpush, store, etc). So maybe we should call it just `protocols`?
 
-Applying this to the example above, it would looks like this:
-```
+Applying this to the example above, it would look like this:
+
+```nim
 node.protocols().store().query(...)
 ```
 
-Same could be applied to file naming: `liblogosdelivery_kernel.h` -> `liblogosdelivery_protocols.h`.
+The same could be applied to file naming: `liblogosdelivery_kernel.h` → `liblogosdelivery_protocols.h`.
 
-## Code changes
+## Suggested code changes
 
-1. **Split [`liblogosdelivery.h`](liblogosdelivery/liblogosdelivery.h) into two headers.** Keep the existing one as the Messaging API surface. Add `liblogosdelivery_kernel.h` for the advanced surface. Both pull symbols from the same `.so`. Hand-authored — Nim's `exportc` doesn't auto-split.
-2. **Move kernel calls inside `liblogosdelivery`.** Bring every per-protocol call from [`library/kernel_api/`](library/kernel_api/) (peer manager, discovery, ping, debug, relay, store, lightpush, filter) under `liblogosdelivery/`. All keep the `logosdelivery_` prefix; declarations land in `liblogosdelivery_kernel.h`.
-3. **Add Store access** under the kernel header. Required by Status for the 2026 GA milestone.
-4. **Unify `createNode` and JSON parsing.** Pick the `liblogosdelivery` semantics (case-insensitive, reject-unknown). Resolve the `restServerConf` divergence — strip it for FFI, keep it for CLI.
-5. **Unify lifecycle plumbing.** One `FFIContext`, one set of `start_node` / `stop_node` / `destroy`. Shared between both headers.
-6. **Migrate `libwaku` consumers** one by one. Each moves to the merged library; their kernel calls map to the new declarations in `liblogosdelivery_kernel.h`.
-7. **Remove `library/libwaku`** once nothing references it. Non-breaking by sequencing.
-
-<details>
-<summary>Surface comparison</summary>
-
-`liblogosdelivery` (high-level, today):
-- `logosdelivery_create_node` / `start_node` / `stop_node` / `destroy`
-- `logosdelivery_subscribe` / `unsubscribe`
-- `logosdelivery_send` — returns `requestId`
-- `logosdelivery_set_event_callback` — events: `message_sent`, `message_propagated`, `message_received`, `message_error`, `connection_status_change`
-- `logosdelivery_get_available_node_info_ids` / `get_node_info` / `get_available_configs`
-
-`library/libwaku` (low-level, today):
-- `waku_new` / `waku_destroy`
-- per-protocol modules included from [`libwaku.nim:19-28`](library/libwaku.nim#L19-L28): `peer_manager_api`, `discovery_api`, `node_lifecycle_api`, `debug_node_api`, `ping_api`, `relay_api`, `store_api`, `lightpush_api`, `filter_api`.
-
-</details>
+1. **Decide kernel naming:** `kernel` vs `protocols` \
+    Locks in the C header filename, the Nim accessor (`node.kernel()` / `node.protocols()`), and the symbol grouping in docs. Everything below assumes `kernel` as a placeholder.
+2. **Split [`liblogosdelivery.h`](liblogosdelivery/liblogosdelivery.h) into two headers** \
+    Keep the existing one as the Messaging + Reliable Channel API surface. Add `liblogosdelivery_kernel.h` for the advanced surface. Both pull symbols from the same `.so`. Hand-authored — Nim's `exportc` doesn't auto-split.
+3. **Move kernel calls inside `liblogosdelivery`** \
+    Bring every per-protocol call from [`library/kernel_api/`](library/kernel_api/) (discovery, ping, debug, relay, store, lightpush, filter) under `liblogosdelivery/`
+4. **Add the Nim object-oriented accessor** \
+    Group per-protocol calls under a `Kernel` object reachable via `node.kernel()`. Messaging-API methods (`send`, `subscribe`, …) stay on `Node` directly.
+5. **Unify `createNode` and JSON parsing** \
+    Pick the `liblogosdelivery` semantics (case-insensitive, reject-unknown). Resolve the `restServerConf` divergence — strip it for FFI, keep it for CLI.
+6. **Unify lifecycle plumbing** 
+    One `FFIContext`, one set of `start_node` / `stop_node` / `destroy`. Shared between both headers.
+7.  **Remove `library/libwaku`** once nothing references it.
