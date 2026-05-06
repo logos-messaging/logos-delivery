@@ -138,7 +138,6 @@ type
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
       ## Kernel API Relay appHandlers (if any)
     wakuMix*: WakuMix
-    kademliaDiscoveryLoop*: Future[void]
     wakuKademlia*: WakuKademlia
 
 proc deduceRelayShard(
@@ -322,6 +321,24 @@ proc mountMix*(
     node.switch.mount(node.wakuMix)
   catchRes.isOkOr:
     return err(error.msg)
+  return ok()
+
+proc mountKademlia*(
+    node: WakuNode, config: KademliaDiscoveryConf
+): Result[void, string] =
+  if not node.wakuKademlia.isNil():
+    return err("WakuKademlia already mounted, skipping")
+
+  let wk = WakuKademlia.new(node.switch, node.peerManager, config).valueOr:
+    return err("failed to create service discovery: " & error)
+
+  node.wakuKademlia = wk
+
+  let mountRes = catch:
+    node.switch.mount(wk.protocol)
+  mountRes.isOkOr:
+    return err("failed to mount service discovery: " & error.msg)
+
   return ok()
 
 ## Waku Sync
@@ -590,6 +607,10 @@ proc start*(node: WakuNode) {.async.} =
 
   node.started = true
 
+  if not node.wakuKademlia.isNil():
+    (await node.wakuKademlia.start()).isOkOr:
+      error "failed to start service discovery", error = error
+
   if not node.wakuFilterClient.isNil():
     node.wakuFilterClient.registerPushHandler(
       proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
@@ -611,6 +632,9 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.stopProvidersAndListeners()
 
+  if not node.wakuKademlia.isNil():
+    await node.wakuKademlia.stop()
+
   ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()
 
@@ -631,9 +655,6 @@ proc stop*(node: WakuNode) {.async.} =
   if not node.wakuPeerExchangeClient.isNil() and
       not node.wakuPeerExchangeClient.pxLoopHandle.isNil():
     await node.wakuPeerExchangeClient.pxLoopHandle.cancelAndWait()
-
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.stop()
 
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.stopWait()

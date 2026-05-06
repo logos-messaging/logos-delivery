@@ -7,7 +7,8 @@ import
   libp2p/protocols/connectivity/relay/relay,
   libp2p/nameresolving/dnsresolver,
   libp2p/crypto/crypto,
-  libp2p/crypto/curve25519
+  libp2p/crypto/curve25519,
+  libp2p/protocols/mix/mix_protocol
 
 import
   ./internal_config,
@@ -34,7 +35,8 @@ import
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
-  ../common/rate_limit/setting
+  ../common/rate_limit/setting,
+  ../events/discovery_events
 
 ## Peer persistence
 
@@ -165,31 +167,30 @@ proc setupProtocols(
     (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
 
-  # Setup extended kademlia discovery
+  # Setup service discovery
   if conf.kademliaDiscoveryConf.isSome():
-    let mixPubKey =
-      if conf.mixConf.isSome():
-        some(conf.mixConf.get().mixPubKey)
-      else:
-        none(Curve25519Key)
+    let kadConf = conf.kademliaDiscoveryConf.get()
 
-    node.wakuKademlia = WakuKademlia.new(
-      node.switch,
-      ExtendedKademliaDiscoveryParams(
-        bootstrapNodes: conf.kademliaDiscoveryConf.get().bootstrapNodes,
-        mixPubKey: mixPubKey,
-        advertiseMix: conf.mixConf.isSome(),
-      ),
-      node.peerManager,
-      getMixNodePoolSize = proc(): int {.gcsafe, raises: [].} =
-        if node.wakuMix.isNil():
-          0
-        else:
-          node.getMixNodePoolSize(),
-      isNodeStarted = proc(): bool {.gcsafe, raises: [].} =
-        node.started,
-    ).valueOr:
-      return err("failed to setup kademlia discovery: " & error)
+    if conf.mixConf.isSome():
+      kadConf.servicesToAdvertise.add(
+        ServiceInfo(id: MixProtocolID, data: @(conf.mixConf.get().mixPubKey))
+      )
+
+    if conf.mixConf.isSome() and MixProtocolID notin kadConf.servicesToDiscover:
+      kadConf.servicesToDiscover.add(MixProtocolID)
+
+    node.mountKademlia(kadConf).isOkOr:
+      return err("failed to setup service discovery: " & error)
+
+    # Register ServicePeersRequest provider
+    ServicePeersRequest.setProvider(
+      node.brokerCtx,
+      proc(serviceId: string): Future[Result[ServicePeersRequest, string]] {.async.} =
+        let peers = (await node.wakuKademlia.lookupServicePeers(serviceId)).valueOr:
+          return err(error)
+        return ok(ServicePeersRequest(serviceId: serviceId, peers: peers)),
+    ).isOkOr:
+      error "Can't set provider for ServicePeersRequest", error = error
 
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()
@@ -449,11 +450,6 @@ proc startNode*(
   # Maintain relay connections
   if conf.relay:
     node.peerManager.start()
-
-  if not node.wakuKademlia.isNil():
-    let minMixPeers = if conf.mixConf.isSome(): 4 else: 0
-    (await node.wakuKademlia.start(minMixPeers = minMixPeers)).isOkOr:
-      return err("failed to start kademlia discovery: " & error)
 
   return ok()
 
