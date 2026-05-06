@@ -113,15 +113,19 @@ proc checkStore*(self: RecvService) {.async.} =
     let missedHashes: seq[WakuMessageHash] =
       msgHashesInStore.filterIt(not rxMsgHashes.contains(it))
 
-    ## Now retrieve the missing WakuMessages and deliver them
-    let missingMsgsRet = await self.getMissingMsgsFromStore(missedHashes)
-    if missingMsgsRet.isOk():
-      for msgTuple in missingMsgsRet.get():
-        if self.processIncomingMessageOfInterest(msgTuple.pubsubTopic, msgTuple.msg):
-          info "recv service store-recovered message",
-            msg_hash = shortLog(msgTuple.hash), pubsubTopic = msgTuple.pubsubTopic
-    else:
-      error "failed to retrieve missing messages: ", error = $missingMsgsRet.error
+    if missedHashes.len > 0:
+      info "missed messages detected, checking store for missed messages",
+        pubsubTopic = pubsubTopic, missedCount = missedHashes.len
+
+      ## Now retrieve the missing WakuMessages and deliver them
+      let missingMsgsRet = await self.getMissingMsgsFromStore(missedHashes)
+      if missingMsgsRet.isOk():
+        for msgTuple in missingMsgsRet.get():
+          if self.processIncomingMessageOfInterest(msgTuple.pubsubTopic, msgTuple.msg):
+            info "recv service store-recovered message",
+              msg_hash = shortLog(msgTuple.hash), pubsubTopic = msgTuple.pubsubTopic
+      else:
+        error "failed to retrieve missing messages: ", error = $missingMsgsRet.error
 
   ## update next check times
   self.startTimeToCheck = self.endTimeToCheck
