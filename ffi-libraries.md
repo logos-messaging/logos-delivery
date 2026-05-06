@@ -31,46 +31,107 @@ With the [plan](https://roadmap.logos.co/messaging/roadmap/milestones/2026-statu
 - Messaging API consumers (e.g. Status) can access Store API from the same node they created using Messaging API.
 - The default surface stays minimal — Messaging API is the front door for developers.
 
-## Principles
-
-1. **One library.** Two FFI plumbings duplicated across `createNode`, lifecycle, FFI context, JSON parsing is maintenance debt with no upside.
-2. **Tiered surface inside the library.** Messaging API is the supported, recommended, stable surface. Kernel calls are the advanced surface — usable when explicitly needed (Store for Status; per-protocol calls for advanced tooling), not the default. Tiering is expressed via separate C headers, not a separate library and not a longer symbol prefix (see [Proposal](#proposal)).
-3. **"Don't promise stability" is a documentation concern, not a separate-library concern.** A consumer that wants the kernel API just adds another link line today — the split doesn't actually prevent misuse. Headers, naming, and docs do.
-4. **We MAY control what we expose to Logos Core**. Not all library functions have to be exposed to Logos Core module API, and this is also where we could control what users have access to.
-
 ## Problems
+
+> [!CAUTION] 
+> 
+> ### Stability promise
+> 
+> The split was meant to prevent misuse of protocols. But I believe it doesn't:
+> 
+> - Linking another `.so` is one build-file line — nothing fails.
+> - Both libraries ship from the same repo at the same cadence; neither artifact carries a "use at your own risk" signal.
+> - "Stable" vs "may change" is a claim made in docs and headers, not in the `.so` boundary.
+>
+> **Headers, naming, and docs are what communicate the tier.**
 
 1. **Status needs Store, Messaging API excludes it** \
     The split forces a false choice: pollute the Messaging API with Store (compromises minimalism), or push Status to `libwaku` (defeats the "one library for messaging consumers" promise).
-1. **Two libraries means two nodes** \
+2. **Two libraries means two nodes** \
    Each FFI library creates its own `Waku` instance via `Waku.new(...)`. A consumer that wanted *both* the Messaging API and a kernel call (e.g. Store) couldn't just link both `.so`s — they'd be running two independent libp2p stacks.
-2. **Duplicated plumbing** \
+3. **Duplicated plumbing** \
     Both libraries implement: FFI context, JSON config parsing, lifecycle, etc.
-
-## 
 
 ## Proposal
 
-Merge into a single library — keep [`liblogosdelivery`](liblogosdelivery/) as the host, retire `library/libwaku`.
+1. **Merge into one library** \
+   Keep [`liblogosdelivery`](liblogosdelivery/) as the host, retire `library/libwaku`.
 
-Answering
+2. **Tiered surface inside the library** \
+   Library exposes:
+   - Reliable Channel API
+   - Messaging API
+   - Kernel API
 
-All symbols share the same `logosdelivery_` prefix. Tiering is expressed by splitting the C header:
+   RC API and Messaging API are the supported, stable surface. Kernel API is the advanced surface, explicitely marked as "use on your own risk, subject to change at any moment".
 
-| Header | Tier | Audience | Stability promise |
-|-|-|-|-|
-| `liblogosdelivery.h` | Messaging API | Default — app developers, Logos Core | Stable, supported |
-| `liblogosdelivery_kernel.h` | Kernel / advanced | Status (Store), advanced tooling | "Use at your own risk", may change |
+   Tiering is expressed via separate C headers, not a separate library and not a longer symbol prefix.
 
-Both headers expose symbols from the same `.so`, so they share node lifecycle, FFI context, JSON config parsing — no duplication, single `Waku` instance.
+3. (maybe) **Control what reaches Logos Core** \
+   Not every symbol from has to be exposed in the Logos Core module API — that's a second layer of filtering we keep at the module boundary.
 
-This is a common C pattern (SDL, OpenSSL, POSIX). The "advanced / unsupported" signal comes from `#include "liblogosdelivery_kernel.h"` — the consumer makes a deliberate choice to opt in. Symbol names stay short: `logosdelivery_store_query(...)` instead of `logosdelivery_kernel_store_query(...)`.
+### Splitting the C header
 
-This answers the 2026 GA roadmap's open question: **low-level access lives in the same library, behind a separate header**. Status `#include`s `liblogosdelivery_kernel.h`, calls `logosdelivery_store_query(...)`, and shares the existing node.
+| Header | Tier | Stability promise |
+|-|-|-|
+| `liblogosdelivery.h` | Messaging API<br>Reliable Channel API | Stable, supported |
+| `liblogosdelivery_kernel.h` | Kernel / advanced | "Use at your own risk", may change |
 
-### Naming side-note
+The "advanced / unsupported" signal comes from `#include "liblogosdelivery_kernel.h"` — the consumer opts in deliberately. Symbol names stay short: `logosdelivery_store_query(...)` instead of `logosdelivery_kernel_store_query(...)`.
 
-Filipe's point in #3714: drop "waku" from public surfaces, keep it for internals / unsupported things. The merged library is a natural moment to apply this — pick a final public prefix (`logosdelivery_`, `lm_`, …) and stick with it. Open.
+### Object-oriented accessor
+
+With a "single node" requirement, we might end up with these node methods next to each other, exposing Kernel API next to the Messaging, instead of hiding it.
+```nim
+# Object with methods. Pseudocode.
+Node {
+    proc send(...)
+    proc subscribe(...)
+    proc relay(...)
+    proc lightpush(...)
+    proc store(...)
+    proc peerexchange(...)
+}
+```
+
+To actually hide it, I think we should group the kernel API under an object-oriented accessor like this:
+```nim
+# Object with methods. Pseudocode.
+Node {
+    proc send(Node node, ...)
+    proc subscribe(Node node, ...)
+    proc kernel(Node node): Kernel
+}
+
+Kernel {
+    proc relay(Node node)
+    proc lightpush(Node node)
+    proc store(Node node)
+    proc peerexchange(Node node)
+}
+```
+
+Then the usage looks as something like this:
+```
+node = createNode("logos.dev", Core)
+
+# Access Messaging API
+node.send(...) 
+
+# Access Kernel API
+node.kernel().store().query(...)
+```
+
+### Naming
+
+I'm not sure if "kernel" is the right word. In reality, "Kernel API" is not an API, it's a group of protocol APIs (relay, lightpush, store, etc). So maybe we should call it just `protocols`?
+
+Applying this to the example above, it would looks like this:
+```
+node.protocols().store().query(...)
+```
+
+Same could be applied to file naming: `liblogosdelivery_kernel.h` -> `liblogosdelivery_protocols.h`.
 
 ## Code changes
 
