@@ -465,23 +465,12 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
       kadBootstrapPeers.add((peerId, @[ma]))
 
     if kadBootstrapPeers.len > 0:
-      node.wakuKademlia = WakuKademlia.new(
-        node.switch,
-        ExtendedKademliaDiscoveryParams(
-          bootstrapNodes: kadBootstrapPeers,
-          mixPubKey: some(mixPubKey),
-          advertiseMix: false,
-        ),
-        node.peerManager,
-        getMixNodePoolSize = proc(): int {.gcsafe, raises: [].} =
-          if node.wakuMix.isNil():
-            0
-          else:
-            node.getMixNodePoolSize(),
-        isNodeStarted = proc(): bool {.gcsafe, raises: [].} =
-          node.started,
-      ).valueOr:
-        error "failed to setup kademlia discovery", error = error
+      node.mountKademlia(
+        KademliaDiscoveryConf(
+          bootstrapNodes: kadBootstrapPeers, servicesToDiscover: @[MixProtocolID]
+        )
+      ).isOkOr:
+        error "failed to setup service discovery", error = error
         quit(QuitFailure)
 
   #await node.mountRendezvousClient(conf.clusterId)
@@ -489,10 +478,6 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   await node.start()
 
   node.peerManager.start()
-  if not node.wakuKademlia.isNil():
-    (await node.wakuKademlia.start(minMixPeers = MinMixNodePoolSize)).isOkOr:
-      error "failed to start kademlia discovery", error = error
-      quit(QuitFailure)
 
   await node.mountLibp2pPing()
   #await node.mountPeerExchangeClient()
