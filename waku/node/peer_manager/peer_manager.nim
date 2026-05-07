@@ -537,7 +537,7 @@ proc connectedPeers*(
 
   return (inPeers, outPeers)
 
-proc evictPeer(pm: PeerManager, peerId: PeerId) {.async.} =
+proc evictPeer*(pm: PeerManager, peerId: PeerId) {.async.} =
   ## Policy-based eviction (relay-peer limit, IP colocation, pruning).
   ## Skips the disconnect when the peer has an in-flight store request to
   ## avoid aborting active store requests.
