@@ -42,6 +42,8 @@ endif
 ##########
 ## Main ##
 ##########
+# The Makefile automatically bootstraps dependency setup when needed for build and test targets.
+# `make update` is an explicit refresh target and is not required manually for normal builds.
 .PHONY: all test update clean examples deps nimble install-nim install-nimble
 
 # default target
@@ -77,6 +79,8 @@ $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
 	$(MAKE) rebuild-nat-libs-nimbledeps
 	touch $@
 
+# `update` refreshes the local dependency stamp and lockfile.
+# Most targets already depend on $(NIMBLEDEPS_STAMP) and will update automatically as needed.
 update:
 	rm -f $(NIMBLEDEPS_STAMP)
 	$(MAKE) $(NIMBLEDEPS_STAMP)
