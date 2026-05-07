@@ -225,9 +225,9 @@ proc getPeersByShard*(
     peerStore: PeerStore, cluster, shard: uint16
 ): seq[RemotePeerInfo] =
   return peerStore.peers().filterIt(
-    (it.enr.isSome() and it.enr.get().containsShard(cluster, shard)) or
-      it.shards.contains(shard)
-  )
+      (it.enr.isSome() and it.enr.get().containsShard(cluster, shard)) or
+        it.shards.contains(shard)
+    )
 
 proc getPeersByCapability*(
     peerStore: PeerStore, cap: Capabilities
