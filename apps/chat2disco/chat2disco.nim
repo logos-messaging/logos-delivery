@@ -13,7 +13,7 @@ import
   chronicles,
   chronos,
   eth/keys,
-  bearssl,
+
   stew/byteutils,
   results,
   metrics,
@@ -286,7 +286,7 @@ proc readInput(wfd: AsyncFD) {.thread, raises: [Defect, CatchableError].} =
     discard waitFor transp.write(line & "\r\n")
 
 {.pop.}
-proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
+proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   let
     transp = fromPipe(rfd)
     conf = Chat2DiscoConf.load()
@@ -294,7 +294,7 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
       if conf.nodekey.isSome():
         conf.nodekey.get()
       else:
-        PrivateKey.random(Secp256k1, rng[]).tryGet()
+        PrivateKey.random(Secp256k1, rng).tryGet()
 
   # set log level
   if conf.logLevel != LogLevel.NONE:
@@ -418,7 +418,7 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
 
   runForever()
 
-proc main(rng: ref HmacDrbgContext) {.async.} =
+proc main(rng: crypto.Rng) {.async.} =
   let (rfd, wfd) = createAsyncPipe()
   if rfd == asyncInvalidPipe or wfd == asyncInvalidPipe:
     raise newException(ValueError, "Could not initialize pipe!")

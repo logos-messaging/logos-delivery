@@ -22,7 +22,7 @@ type TestResponseTuple = tuple[status: int, data: string, headers: HttpTable]
 
 proc testWakuNode(): WakuNode =
   let
-    privkey = crypto.PrivateKey.random(Secp256k1, rng[]).tryGet()
+    privkey = crypto.PrivateKey.random(Secp256k1, rng).tryGet()
     bindIp = parseIpAddress("0.0.0.0")
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)

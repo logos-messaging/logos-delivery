@@ -43,13 +43,13 @@ proc messagePushHandler(
     contentTopic = message.contentTopic,
     timestamp = message.timestamp
 
-proc setupAndSubscribe(rng: ref HmacDrbgContext) {.async.} =
+proc setupAndSubscribe(rng: crypto.Rng) {.async.} =
   # use notice to filter all waku messaging
   setupLog(logging.LogLevel.NOTICE, logging.LogFormat.TEXT)
 
   notice "starting subscriber", wakuPort = wakuPort
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[])[]
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng)[]
     ip = parseIpAddress("0.0.0.0")
     flags = CapabilitiesBitfield.init(relay = true)
 

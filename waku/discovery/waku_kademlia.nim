@@ -7,7 +7,7 @@ import
   results,
   libp2p/crypto/curve25519,
   libp2p/crypto/crypto,
-  libp2p/protocols/mix/mix_protocol,
+  libp2p_mix/mix_protocol,
   libp2p/[peerid, multiaddress, switch],
   libp2p/extended_peer_record,
   libp2p/protocols/[kademlia, service_discovery],
@@ -174,6 +174,7 @@ proc new*(
       selector = ExtEntrySelector(),
       disableBootstrapping = disableBootstrapping,
     ),
+    rng = switch.rng,
     # change from defaults for local testing
     discoConfig =
       ServiceDiscoveryConfig.new(advertExpiry = 60.secs, ipSimCoefficient = 0.0),

@@ -1,5 +1,5 @@
 import chronicles, std/options, results
-import libp2p/crypto/crypto, libp2p/crypto/curve25519, libp2p/protocols/mix/curve25519
+import libp2p/crypto/crypto, libp2p/crypto/curve25519, libp2p_mix/curve25519
 import ../waku_conf, waku/waku_mix
 
 logScope:

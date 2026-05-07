@@ -9,7 +9,7 @@ import
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/extended_peer_record,
-  libp2p/protocols/mix/mix_protocol
+  libp2p_mix/mix_protocol
 
 import
   ./internal_config,
@@ -57,7 +57,7 @@ proc setupPeerStorage(): Result[Option[WakuPeerStorage], string] =
 proc initNode(
     conf: WakuConf,
     netConfig: NetConfig,
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     record: enr.Record,
     peerStore: Option[WakuPeerStorage],
     relay: Relay,
@@ -483,7 +483,7 @@ proc startNode*(
   return ok()
 
 proc setupNode*(
-    wakuConf: WakuConf, rng: ref HmacDrbgContext = crypto.newRng(), relay: Relay
+    wakuConf: WakuConf, rng: crypto.Rng = crypto.newRng(), relay: Relay
 ): Future[Result[WakuNode, string]] {.async.} =
   let netConfig = (
     await networkConfiguration(

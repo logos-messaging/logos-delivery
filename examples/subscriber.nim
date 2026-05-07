@@ -35,13 +35,13 @@ const bootstrapNode =
 const wakuPort = 50000
 const discv5Port = 8000
 
-proc setupAndSubscribe(rng: ref HmacDrbgContext) {.async.} =
+proc setupAndSubscribe(rng: crypto.Rng) {.async.} =
   # use notice to filter all waku messaging
   setupLog(logging.LogLevel.NOTICE, logging.LogFormat.TEXT)
 
   notice "starting subscriber", wakuPort = wakuPort, discv5Port = discv5Port
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[])[]
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng)[]
     ip = parseIpAddress("0.0.0.0")
     flags = CapabilitiesBitfield.init(relay = true)
 

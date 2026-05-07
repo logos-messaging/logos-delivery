@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/options, results, stew/byteutils, chronicles, chronos, metrics, bearssl/rand
+import std/options, results, stew/byteutils, chronicles, chronos, metrics, libp2p/crypto/crypto
 import
   ../node/peer_manager/peer_manager,
   ../waku_core,
@@ -14,7 +14,7 @@ logScope:
   topics = "waku lightpush legacy"
 
 type WakuLegacyLightPush* = ref object of LPProtocol
-  rng*: ref rand.HmacDrbgContext
+  rng*: Rng
   peerManager*: PeerManager
   pushHandler*: PushMessageHandler
   requestRateLimiter*: RequestRateLimiter
@@ -116,7 +116,7 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
 proc new*(
     T: type WakuLegacyLightPush,
     peerManager: PeerManager,
-    rng: ref rand.HmacDrbgContext,
+    rng: crypto.Rng,
     pushHandler: PushMessageHandler,
     rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
 ): T =

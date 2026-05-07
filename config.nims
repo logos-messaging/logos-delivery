@@ -5,6 +5,8 @@ if defined(release):
 else:
   switch("nimcache", "nimcache/debug/$projectName")
 
+switch("passL", getCurrentDir() / "librln_v0.9.0.a")
+
 if defined(windows):
   switch("passL", "rln.lib")
   switch("define", "postgres=false")
@@ -120,7 +122,6 @@ if defined(android):
   switch("passL", "--sysroot=" & sysRoot)
   switch("cincludes", sysRoot & "/usr/include/")
 # begin Nimble config (version 2)
---noNimblePath
 when withDir(thisDir(), system.fileExists("nimble.paths")):
   include "nimble.paths"
 # end Nimble config

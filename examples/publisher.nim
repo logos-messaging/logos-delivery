@@ -37,13 +37,13 @@ const bootstrapNode =
 const wakuPort = 60000
 const discv5Port = 9000
 
-proc setupAndPublish(rng: ref HmacDrbgContext) {.async.} =
+proc setupAndPublish(rng: crypto.Rng) {.async.} =
   # use notice to filter all waku messaging
   setupLog(logging.LogLevel.NOTICE, logging.LogFormat.TEXT)
 
   notice "starting publisher", wakuPort = wakuPort, discv5Port = discv5Port
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[]).get()
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng).get()
     ip = parseIpAddress("0.0.0.0")
     flags = CapabilitiesBitfield.init(relay = true)
 

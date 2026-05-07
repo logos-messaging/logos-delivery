@@ -12,7 +12,7 @@ import std/[options, strutils]
 import stew/byteutils
 import chronos
 import chronicles
-import bearssl/rand
+import libp2p/crypto/crypto
 import stew/endians2
 import nimcrypto/[sha2, hmac]
 
@@ -168,9 +168,9 @@ proc setCipherStateKey*(cs: var CipherState, key: ChaChaPolyKey) =
   cs.k = key
 
 # Generates a random Symmetric Cipher State for test purposes
-proc randomCipherState*(rng: var HmacDrbgContext, nonce: uint64 = 0): CipherState =
+proc randomCipherState*(rng: crypto.Rng, nonce: uint64 = 0): CipherState =
   var randomCipherState: CipherState
-  hmacDrbgGenerate(rng, randomCipherState.k)
+  rng.generate(randomCipherState.k)
   setNonce(randomCipherState, nonce)
   return randomCipherState
 

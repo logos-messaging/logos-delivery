@@ -446,7 +446,7 @@ proc createEthAccount*(
   let gasPrice = Quantity(await web3.provider.eth_gasPrice())
   web3.defaultAccount = accounts[0]
 
-  let pk = keys.PrivateKey.random(rng[])
+  let pk = keys.PrivateKey.random(rng)
   let acc = Address(toCanonicalAddress(pk.toPublicKey()))
 
   var tx: TransactionArgs
@@ -464,7 +464,7 @@ proc createEthAccount*(
   return (pk, acc)
 
 proc createEthAccount*(web3: Web3): (keys.PrivateKey, Address) =
-  let pk = keys.PrivateKey.random(rng[])
+  let pk = keys.PrivateKey.random(rng)
   let acc = Address(toCanonicalAddress(pk.toPublicKey()))
 
   return (pk, acc)

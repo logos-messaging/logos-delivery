@@ -366,7 +366,8 @@ proc new*(
       triggerSelf = true,
       msgIdProvider = defaultMessageIdProvider,
       maxMessageSize = maxMessageSize,
-      parameters = GossipsubParameters,
+      rng = switch.rng,
+      parameters = GossipSubParams.init(),
     )
     w.brokerCtx = globalBrokerContext()
 

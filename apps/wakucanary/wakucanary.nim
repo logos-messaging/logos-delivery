@@ -159,7 +159,7 @@ proc pingNode(
     error "Failed to ping the peer", peer = peerInfo, err = msg
     return false
 
-proc main(rng: ref HmacDrbgContext): Future[int] {.async.} =
+proc main(rng: crypto.Rng): Future[int] {.async.} =
   let conf: WakuCanaryConf = WakuCanaryConf.load()
 
   # create dns resolver
@@ -190,7 +190,7 @@ proc main(rng: ref HmacDrbgContext): Future[int] {.async.} =
     quit(QuitFailure)
 
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[])[]
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng)[]
     bindIp = parseIpAddress("0.0.0.0")
     wsBindPort = Port(conf.nodePort + WebSocketPortOffset)
     nodeTcpPort = Port(conf.nodePort)

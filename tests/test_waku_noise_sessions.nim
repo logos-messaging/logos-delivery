@@ -25,22 +25,22 @@ procSuite "Waku Noise Sessions":
     let hsPattern = NoiseHandshakePatterns["WakuPairing"]
 
     # Alice static/ephemeral key initialization and commitment
-    let aliceStaticKey = genKeyPair(rng[])
-    let aliceEphemeralKey = genKeyPair(rng[])
-    let s = randomSeqByte(rng[], 32)
+    let aliceStaticKey = genKeyPair(rng)
+    let aliceEphemeralKey = genKeyPair(rng)
+    let s = randomSeqByte(rng, 32)
     let aliceCommittedStaticKey = commitPublicKey(getPublicKey(aliceStaticKey), s)
 
     # Bob static/ephemeral key initialization and commitment
-    let bobStaticKey = genKeyPair(rng[])
-    let bobEphemeralKey = genKeyPair(rng[])
-    let r = randomSeqByte(rng[], 32)
+    let bobStaticKey = genKeyPair(rng)
+    let bobEphemeralKey = genKeyPair(rng)
+    let r = randomSeqByte(rng, 32)
     let bobCommittedStaticKey = commitPublicKey(getPublicKey(bobStaticKey), r)
 
     # Content Topic information
     let applicationName = "waku-noise-sessions"
     let applicationVersion = "0.1"
     let shardId = "10"
-    let qrMessageNametag = randomSeqByte(rng[], MessageNametagLength)
+    let qrMessageNametag = randomSeqByte(rng, MessageNametagLength)
 
     # Out-of-band Communication
 
@@ -133,7 +133,7 @@ procSuite "Waku Noise Sessions":
     # and the (encrypted) transport message
     # The message is sent with a messageNametag equal to the one received through the QR code
     aliceStep = stepHandshake(
-        rng[],
+        rng,
         aliceHS,
         transportMessage = sentTransportMessage,
         messageNametag = qrMessageNametag,
@@ -168,7 +168,7 @@ procSuite "Waku Noise Sessions":
     # Bob reads Alice's payloads, and returns the (decrypted) transport message Alice sent to him
     # Note that Bob verifies if the received payloadv2 has the expected messageNametag set
     bobStep = stepHandshake(
-        rng[], bobHS, readPayloadV2 = readPayloadV2, messageNametag = qrMessageNametag
+        rng, bobHS, readPayloadV2 = readPayloadV2, messageNametag = qrMessageNametag
       )
       .get()
 
@@ -199,7 +199,7 @@ procSuite "Waku Noise Sessions":
 
     # At this step, Bob writes and returns a payload
     bobStep = stepHandshake(
-        rng[],
+        rng,
         bobHS,
         transportMessage = sentTransportMessage,
         messageNametag = bobMessageNametag,
@@ -233,7 +233,7 @@ procSuite "Waku Noise Sessions":
 
     # While Alice reads and returns the (decrypted) transport message
     aliceStep = stepHandshake(
-        rng[],
+        rng,
         aliceHS,
         readPayloadV2 = readPayloadV2,
         messageNametag = aliceMessageNametag,
@@ -265,7 +265,7 @@ procSuite "Waku Noise Sessions":
 
     # Similarly as in first step, Alice writes a Waku2 payload containing the handshake message and the (encrypted) transport message
     aliceStep = stepHandshake(
-        rng[],
+        rng,
         aliceHS,
         transportMessage = sentTransportMessage,
         messageNametag = aliceMessageNametag,
@@ -299,7 +299,7 @@ procSuite "Waku Noise Sessions":
 
     # Bob reads Alice's payloads, and returns the (decrypted) transport message Alice sent to him
     bobStep = stepHandshake(
-        rng[], bobHS, readPayloadV2 = readPayloadV2, messageNametag = bobMessageNametag
+        rng, bobHS, readPayloadV2 = readPayloadV2, messageNametag = bobMessageNametag
       )
       .get()
 
@@ -333,7 +333,7 @@ procSuite "Waku Noise Sessions":
     # Note that we exchange more than the number of messages contained in the nametag buffer to test if they are filled correctly as the communication proceeds
     for i in 0 .. 10 * MessageNametagBufferSize:
       # Alice writes to Bob
-      message = randomSeqByte(rng[], 32)
+      message = randomSeqByte(rng, 32)
       payload2 = writeMessage(
         aliceHSResult,
         message,
@@ -350,7 +350,7 @@ procSuite "Waku Noise Sessions":
         message == readMessage
 
       # Bob writes to Alice
-      message = randomSeqByte(rng[], 32)
+      message = randomSeqByte(rng, 32)
       payload2 = writeMessage(
         bobHSResult,
         message,
@@ -368,13 +368,13 @@ procSuite "Waku Noise Sessions":
 
     # We test how nametag buffers help in detecting lost messages
     # Alice writes two messages to Bob, but only the second is received
-    message = randomSeqByte(rng[], 32)
+    message = randomSeqByte(rng, 32)
     payload2 = writeMessage(
       aliceHSResult,
       message,
       outboundMessageNametagBuffer = aliceHSResult.nametagsOutbound,
     )
-    message = randomSeqByte(rng[], 32)
+    message = randomSeqByte(rng, 32)
     payload2 = writeMessage(
       aliceHSResult,
       message,
@@ -390,7 +390,7 @@ procSuite "Waku Noise Sessions":
 
     # We adjust bob nametag buffer for next test (i.e. the missed message is correctly recovered)
     delete(bobHSResult.nametagsInbound, 2)
-    message = randomSeqByte(rng[], 32)
+    message = randomSeqByte(rng, 32)
     payload2 = writeMessage(
       bobHSResult, message, outboundMessageNametagBuffer = bobHSResult.nametagsOutbound
     )
@@ -405,7 +405,7 @@ procSuite "Waku Noise Sessions":
       message == readMessage
 
     # We test if a missing nametag is correctly detected
-    message = randomSeqByte(rng[], 32)
+    message = randomSeqByte(rng, 32)
     payload2 = writeMessage(
       aliceHSResult,
       message,

@@ -5,12 +5,12 @@ import chronicles, std/options, chronos, results, metrics
 import
   libp2p/crypto/curve25519,
   libp2p/crypto/crypto,
-  libp2p/protocols/mix,
-  libp2p/protocols/mix/mix_node,
-  libp2p/protocols/mix/mix_protocol,
-  libp2p/protocols/mix/mix_metrics,
-  libp2p/protocols/mix/delay_strategy,
-  libp2p/protocols/mix/delay,
+  libp2p_mix,
+  libp2p_mix/mix_node,
+  libp2p_mix/mix_protocol,
+  libp2p_mix/mix_metrics,
+  libp2p_mix/delay_strategy,
+  libp2p_mix/delay,
   libp2p/[multiaddress, peerid, switch],
   libp2p/extended_peer_record,
   eth/common/keys

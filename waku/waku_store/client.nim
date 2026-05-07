@@ -6,7 +6,7 @@ import
   chronicles,
   chronos,
   metrics,
-  bearssl/rand
+  libp2p/crypto/crypto
 import
   ../node/peer_manager, ../utils/requests, ./protocol_metrics, ./common, ./rpc_codec
 
@@ -20,11 +20,11 @@ const MaxQueryRetries = 5 # Maximum number of store peers to try before giving u
 
 type WakuStoreClient* = ref object
   peerManager: PeerManager
-  rng: ref rand.HmacDrbgContext
+  rng: Rng
   storeMsgMetricsPerShard*: Table[string, float64]
 
 proc new*(
-    T: type WakuStoreClient, peerManager: PeerManager, rng: ref rand.HmacDrbgContext
+    T: type WakuStoreClient, peerManager: PeerManager, rng: crypto.Rng
 ): T {.gcsafe.} =
   WakuStoreClient(peerManager: peerManager, rng: rng)
 

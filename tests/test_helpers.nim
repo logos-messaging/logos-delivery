@@ -1,4 +1,4 @@
-import chronos, bearssl/rand, eth/[keys, p2p]
+import chronos, eth/[keys, p2p]
 
 import libp2p/crypto/crypto
 
@@ -9,10 +9,10 @@ proc localAddress*(port: int): Address =
   result = Address(udpPort: port, tcpPort: port, ip: parseIpAddress("127.0.0.1"))
 
 proc setupTestNode*(
-    rng: ref HmacDrbgContext, capabilities: varargs[ProtocolInfo, `protocolInfo`]
+    rng: crypto.Rng, capabilities: varargs[ProtocolInfo, `protocolInfo`]
 ): EthereumNode =
   let
-    keys1 = keys.KeyPair.random(rng[])
+    keys1 = keys.KeyPair.random(rng)
     address = localAddress(nextPort)
   result = newEthereumNode(
     keys1,
@@ -29,11 +29,11 @@ proc setupTestNode*(
 
 # Copied from here: https://github.com/status-im/nim-libp2p/blob/d522537b19a532bc4af94fcd146f779c1f23bad0/tests/helpers.nim#L28
 type RngWrap = object
-  rng: ref rand.HmacDrbgContext
+  rng: Rng
 
 var rngVar: RngWrap
 
-proc getRng(): ref rand.HmacDrbgContext =
+proc getRng(): Rng =
   # TODO if `rngVar` is a threadvar like it should be, there are random and
   #      spurious compile failures on mac - this is not gcsafe but for the
   #      purpose of the tests, it's ok as long as we only use a single thread
@@ -42,5 +42,5 @@ proc getRng(): ref rand.HmacDrbgContext =
       rngVar.rng = crypto.newRng()
     rngVar.rng
 
-template rng*(): ref rand.HmacDrbgContext =
+template rng*(): Rng =
   getRng()

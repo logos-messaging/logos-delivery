@@ -7,6 +7,8 @@ import
   chronicles,
   metrics,
   libp2p/multiaddress,
+  libp2p/crypto/crypto,
+  libp2p/crypto/rng,
   eth/keys as eth_keys,
   eth/p2p/discoveryv5/node,
   eth/p2p/discoveryv5/protocol
@@ -80,7 +82,7 @@ proc shardingPredicate*(
 
 proc new*(
     T: type WakuDiscoveryV5,
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     conf: WakuDiscoveryV5Config,
     record: Option[waku_enr.Record],
     peerManager: Option[PeerManager] = none(PeerManager),
@@ -88,7 +90,7 @@ proc new*(
       newAsyncEventQueue[SubscriptionEvent](30),
 ): T =
   let protocol = newProtocol(
-    rng = rng,
+    rng = bearSslDrbgRef(rng),
     config = conf.discv5Config.get(protocol.defaultDiscoveryConfig),
     bindPort = conf.port,
     bindIp = conf.address,
@@ -405,7 +407,7 @@ proc setupDiscoveryV5*(
     nodeTopicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent],
     conf: Discv5Conf,
     dynamicBootstrapNodes: seq[RemotePeerInfo],
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     key: crypto.PrivateKey,
     p2pListenAddress: IpAddress,
     portsShift: uint16,

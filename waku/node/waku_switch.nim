@@ -64,7 +64,7 @@ proc newWakuSwitch*(
     wsAddress = none(MultiAddress),
     secureManagers: openarray[SecureProtocol] = [SecureProtocol.Noise],
     transportFlags: set[ServerFlags] = {},
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     inTimeout: Duration = 5.minutes,
     outTimeout: Duration = 5.minutes,
     maxConnections = MaxConnections,
@@ -78,7 +78,7 @@ proc newWakuSwitch*(
     secureCertPath: string = "",
     agentString = none(string), # defaults to nim-libp2p version
     peerStoreCapacity = none(int), # defaults to 1.25 maxConnections
-    rendezvous: RendezVous = nil,
+    rendezvous: RendezVousConfig = nil,
     circuitRelay: Relay,
     maxNumRelays: int = 5,
 ): Switch {.raises: [Defect, IOError, LPError].} =

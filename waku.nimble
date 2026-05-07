@@ -27,7 +27,7 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#df777fc66cc100191dbefd3c222a4472b4d3b924",
+  "https://github.com/vacp2p/nim-libp2p.git#e41a3ab8ff143fa30e75357f81200545590f0ec6",
   "eth",
   "nat_traversal",
   "dnsdisc",
@@ -60,6 +60,7 @@ requires "nim >= 2.2.4",
 
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
+requires "https://github.com/logos-co/nim-libp2p-mix"
 
 requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135fae3a3803eed8490d4"
 

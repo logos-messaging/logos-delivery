@@ -106,10 +106,10 @@ proc new*(
     switch: switch,
     rng: rng,
     sema: newAsyncSemaphore(MaxSimultanesousAdvertisements),
-    minDuration: rendezvous.MinimumAcceptedDuration,
-    maxDuration: rendezvous.MaximumDuration,
-    minTTL: rendezvous.MinimumAcceptedDuration.seconds.uint64,
-    maxTTL: rendezvous.MaximumDuration.seconds.uint64,
+    config: RendezVousConfig.new(
+      minDuration = rendezvous.MinimumDuration,
+      maxDuration = rendezvous.MaximumDuration,
+    ),
     peers: @[], # Will be populated from selectPeer calls
     cookiesSaved: initTable[PeerId, Table[string, seq[byte]]](),
     peerRecordValidator: checkWakuPeerRecord,
