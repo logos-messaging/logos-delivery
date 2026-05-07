@@ -50,9 +50,7 @@ if [ "${HTTP_STATUS}" = "200" ]; then
   echo "Downloading pre-built binary from ${BINARY_URL}..."
   curl -fL "${BINARY_URL}" -o "${WORK_DIR}/nim.tar.xz"
   tar -xJf "${WORK_DIR}/nim.tar.xz" -C "${WORK_DIR}"
-  rm -rf "${NIM_DEST}"
-  mkdir -p "${HOME}/.nim"
-  cp -r "${WORK_DIR}/nim-${NIM_VERSION}" "${NIM_DEST}"
+  SRC_DIR="${WORK_DIR}/nim-${NIM_VERSION}"
 else
   echo "No pre-built binary found for ${OS}_${ARCH}. Building from source..."
   SRC_URL="https://github.com/nim-lang/Nim/archive/refs/tags/v${NIM_VERSION}.tar.gz"
@@ -60,10 +58,14 @@ else
   tar -xzf "${WORK_DIR}/nim-src.tar.gz" -C "${WORK_DIR}"
   cd "${WORK_DIR}/Nim-${NIM_VERSION}"
   sh build_all.sh
-  rm -rf "${NIM_DEST}"
-  mkdir -p "${HOME}/.nim"
-  cp -r "${WORK_DIR}/Nim-${NIM_VERSION}" "${NIM_DEST}"
+  SRC_DIR="${WORK_DIR}/Nim-${NIM_VERSION}"
 fi
+
+# rm -rf can fail with "Directory not empty" on overlay filesystems (e.g. Docker).
+# Using cp -r src/. dst/ handles both cases: dst absent (clean) or partially present.
+rm -rf "${NIM_DEST}" 2>/dev/null || true
+mkdir -p "${NIM_DEST}"
+cp -r "${SRC_DIR}/." "${NIM_DEST}/"
 
 mkdir -p "${HOME}/.nimble/bin"
 for bin_path in "${NIM_DEST}/bin/"*; do
