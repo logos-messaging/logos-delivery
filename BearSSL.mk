@@ -38,7 +38,7 @@ endif
 	+ [ -e "$(BEARSSL_CSOURCES_DIR)/build" ] && \
 		"$(MAKE)" -C "$(BEARSSL_CSOURCES_DIR)" clean || true
 
-rebuild-bearssl-nimbledeps: | clean-bearssl-nimbledeps
+rebuild-bearssl-nimbledeps:
 ifeq ($(BEARSSL_NIMBLEDEPS_DIR),)
 	$(error No bearssl package found under nimbledeps/pkgs2/ — run 'make update' first)
 endif

@@ -39,7 +39,7 @@ endif
 	+ [ -e "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/libnatpmp-upstream" ] && \
 		"$(MAKE)" -C "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/libnatpmp-upstream" CC=$(CC) clean $(HANDLE_OUTPUT) || true
 
-rebuild-nat-libs-nimbledeps: | clean-cross-nimbledeps
+rebuild-nat-libs-nimbledeps:
 ifeq ($(NAT_TRAVERSAL_NIMBLEDEPS_DIR),)
 	$(error No nat_traversal package found under nimbledeps/pkgs2/ — run 'make update' first)
 endif
