@@ -97,12 +97,7 @@ install-nim:
 	scripts/install_nim.sh $(REQUIRED_NIM_VERSION)
 
 install-nimble: install-nim
-	@nimble_ver=$$(nimble --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1); \
-	if [ "$$nimble_ver" = "$(REQUIRED_NIMBLE_VERSION)" ]; then \
-	  echo "nimble $(REQUIRED_NIMBLE_VERSION) already installed, skipping."; \
-	else \
-	  cd $$(mktemp -d) && nimble install "nimble@$(REQUIRED_NIMBLE_VERSION)" -y; \
-	fi
+	scripts/install_nimble.sh $(REQUIRED_NIMBLE_VERSION)
 
 build:
 	mkdir -p build
