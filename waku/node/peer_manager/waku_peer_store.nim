@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[tables, sequtils, sets, options, strutils],
+  std/[tables, sequtils, sets, options, strutils, random, times],
   chronos,
   chronicles,
   eth/p2p/discoveryv5/enr,
@@ -42,6 +42,11 @@ type
 
   # Keeps track of peer shards
   ShardBook* = ref object of PeerBook[seq[uint16]]
+
+proc randomizePeers(peers: var seq[RemotePeerInfo]) =
+  let time = int64(times.epochTime() * 1000) and 0x7fff_ffff
+  var rand = initRand(time)
+  shuffle(rand, peers)
 
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
   let addresses =
@@ -90,7 +95,9 @@ proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
     )
     .toHashSet()
 
-  return allKeys.mapIt(peerStore.getPeer(it))
+  var peers = allKeys.mapIt(peerStore.getPeer(it))
+  randomizePeers(peers)
+  return peers
 
 proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin) =
   ## Storing MixPubKey even if peer is already present as this info might be new
@@ -200,24 +207,24 @@ proc getWakuProtos*(peerStore: PeerStore): seq[string] =
 proc getPeersByDirection*(
     peerStore: PeerStore, direction: PeerDirection
 ): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.direction == direction)
+  return peerStore.peers().filterIt(it.direction == direction)
 
 proc getDisconnectedPeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.connectedness != Connected)
+  return peerStore.peers().filterIt(it.connectedness != Connected)
 
 proc getConnectedPeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.connectedness == Connected)
+  return peerStore.peers().filterIt(it.connectedness == Connected)
 
 proc getPeersByProtocol*(peerStore: PeerStore, proto: string): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.protocols.contains(proto))
+  return peerStore.peers().filterIt(it.protocols.contains(proto))
 
 proc getReachablePeers*(peerStore: PeerStore): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(it.connectedness != CannotConnect)
+  return peerStore.peers().filterIt(it.connectedness != CannotConnect)
 
 proc getPeersByShard*(
     peerStore: PeerStore, cluster, shard: uint16
 ): seq[RemotePeerInfo] =
-  return peerStore.peers.filterIt(
+  return peerStore.peers().filterIt(
     (it.enr.isSome() and it.enr.get().containsShard(cluster, shard)) or
       it.shards.contains(shard)
   )
@@ -226,7 +233,7 @@ proc getPeersByCapability*(
     peerStore: PeerStore, cap: Capabilities
 ): seq[RemotePeerInfo] =
   return
-    peerStore.peers.filterIt(it.enr.isSome() and it.enr.get().supportsCapability(cap))
+    peerStore.peers().filterIt(it.enr.isSome() and it.enr.get().supportsCapability(cap))
 
 template forEnrPeers*(
     peerStore: PeerStore,
