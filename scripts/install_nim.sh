@@ -17,26 +17,28 @@ if [ -z "${NIM_VERSION}" ]; then
   exit 1
 fi
 
-# Check if the right version is already installed
-nim_ver=$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-if [ "${nim_ver}" = "${NIM_VERSION}" ]; then
-  echo "Nim ${NIM_VERSION} already installed, skipping."
+NIM_DEST="${HOME}/.nim/nim-${NIM_VERSION}"
+
+# Check if nim is already installed at our expected location (not just anywhere in PATH).
+# Checking PATH version is not sufficient: a system-installed nim of the right version
+# won't have its stdlib at ${NIM_DEST}/lib/, causing downstream compilation failures.
+if [ -f "${NIM_DEST}/lib/system.nim" ]; then
+  echo "Nim ${NIM_VERSION} already installed at ${NIM_DEST}, re-linking binaries."
+  mkdir -p "${HOME}/.nimble/bin"
+  for bin_path in "${NIM_DEST}/bin/"*; do
+    ln -sf "${bin_path}" "${HOME}/.nimble/bin/$(basename "${bin_path}")"
+  done
   exit 0
 fi
 
-if [ -n "${nim_ver}" ]; then
-  newer=$(printf '%s\n%s\n' "${NIM_VERSION}" "${nim_ver}" | sort -V | tail -1)
-  if [ "${newer}" = "${nim_ver}" ]; then
-    echo "WARNING: Nim ${nim_ver} is installed; this repo is validated against ${NIM_VERSION}." >&2
-    echo "WARNING: The build will proceed but may behave differently." >&2
-    exit 0
-  fi
+nim_ver=$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+if [ -n "${nim_ver}" ] && [ "${nim_ver}" != "${NIM_VERSION}" ]; then
+  echo "INFO: Nim ${nim_ver} found in PATH; installing Nim ${NIM_VERSION} to ${NIM_DEST}." >&2
 fi
 
 OS=$(uname -s | tr 'A-Z' 'a-z' | sed 's/darwin/macosx/')
 ARCH=$(uname -m | sed 's/x86_64/x64/;s/aarch64/arm64/')
 
-NIM_DEST="${HOME}/.nim/nim-${NIM_VERSION}"
 BINARY_URL="https://nim-lang.org/download/nim-${NIM_VERSION}-${OS}_${ARCH}.tar.xz"
 WORK_DIR=$(mktemp -d)
 trap 'rm -rf "${WORK_DIR}"' EXIT
