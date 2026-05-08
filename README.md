@@ -26,11 +26,9 @@ The standard developer tools, including a C compiler, GNU Make, Bash, and Git. M
 You'll also need an installation of Rust and its toolchain (specifically `rustc` and `cargo`).
 The easiest way to install these, is using `rustup`:
 
-Supported toolchain versions:
+Recommended and tested toolchain versions:
 - Nim 2.2.4
 - Nimble 0.22.3
-
-These versions are enforced by the repository configuration and the Makefile.
 
 Rust:
 ```bash
