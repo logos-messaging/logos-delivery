@@ -5,6 +5,14 @@ import ../waku_conf, ./store_sync_conf_builder
 logScope:
   topics = "waku conf builder store service"
 
+const
+  DefaultStoreEnabled*: bool = false
+  DefaultStoreDbMigration*: bool = true
+  DefaultStoreDbVacuum*: bool = false
+  DefaultStoreMaxNumDbConnections*: int = 50
+  DefaultStoreResume*: bool = false
+  DefaultStoreRetentionPolicy*: string = "time:" & $2.days.seconds
+
 ##################################
 ## Store Service Config Builder ##
 ##################################
@@ -77,7 +85,7 @@ proc validateRetentionPolicies(policies: seq[string]): Result[void, string] =
   return ok()
 
 proc build*(b: StoreServiceConfBuilder): Result[Option[StoreServiceConf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultStoreEnabled):
     return ok(none(StoreServiceConf))
 
   if b.dbUrl.get("") == "":
@@ -88,7 +96,7 @@ proc build*(b: StoreServiceConfBuilder): Result[Option[StoreServiceConf], string
 
   let retentionPolicies =
     if b.retentionPolicies.len == 0:
-      @["time:" & $2.days.seconds]
+      @[DefaultStoreRetentionPolicy]
     else:
       validateRetentionPolicies(b.retentionPolicies).isOkOr:
         return err("invalid retention policies: " & error)
@@ -97,12 +105,12 @@ proc build*(b: StoreServiceConfBuilder): Result[Option[StoreServiceConf], string
   return ok(
     some(
       StoreServiceConf(
-        dbMigration: b.dbMigration.get(true),
+        dbMigration: b.dbMigration.get(DefaultStoreDbMigration),
         dbURl: b.dbUrl.get(),
-        dbVacuum: b.dbVacuum.get(false),
-        maxNumDbConnections: b.maxNumDbConnections.get(50),
+        dbVacuum: b.dbVacuum.get(DefaultStoreDbVacuum),
+        maxNumDbConnections: b.maxNumDbConnections.get(DefaultStoreMaxNumDbConnections),
         retentionPolicies: retentionPolicies,
-        resume: b.resume.get(false),
+        resume: b.resume.get(DefaultStoreResume),
         storeSyncConf: storeSyncConf,
       )
     )

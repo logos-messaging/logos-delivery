@@ -1,14 +1,16 @@
-import chronicles, chronos, results
+import std/[net, options]
+
+import chronicles, chronos, libp2p/peerid, results
 
 import waku/factory/waku
 import waku/[requests/health_requests, waku_core, waku_node]
 import waku/node/delivery_service/send_service
 import waku/node/delivery_service/subscription_manager
-import libp2p/peerid
 import ../../tools/confutils/cli_args
+import ../../tools/confutils/messaging_conf
 import ./[api_conf, types]
 
-export cli_args
+export cli_args, messaging_conf
 
 logScope:
   topics = "api"
@@ -23,6 +25,30 @@ proc createNode*(conf: WakuNodeConf): Future[Result[Waku, string]] {.async.} =
     return err("Failed setting up Waku: " & $error)
 
   return ok(wakuRes)
+
+proc seedDeveloperProfile(conf: var WakuNodeConf) =
+  # TODO: Remember to add QUIC port here as well when that is added.
+  var devPorts = WakuNodeConfOverlay.init()
+  devPorts.tcpPort = some(Port(0))
+  devPorts.discv5UdpPort = some(Port(0))
+  devPorts.websocketPort = some(Port(0))
+  applyAsOverride(conf, devPorts)
+
+proc createNode*(
+    preset = "",
+    mode = cli_args.WakuMode.Core,
+    overrides = WakuNodeConfOverlay.init(),
+    additions = WakuNodeConfOverlay.init(),
+): Future[Result[Waku, string]] {.async.} =
+  ## Create a Waku node from messaging-API parameters.
+  var conf = defaultWakuNodeConf().valueOr:
+    return err("Failed creating default conf: " & error)
+  conf.mode = mode
+  conf.preset = preset
+  seedDeveloperProfile(conf)
+  applyAsOverride(conf, overrides)
+  applyAsAddition(conf, additions)
+  return await createNode(conf)
 
 proc checkApiAvailability(w: Waku): Result[void, string] =
   if w.isNil():

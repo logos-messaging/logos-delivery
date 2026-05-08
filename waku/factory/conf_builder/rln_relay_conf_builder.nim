@@ -4,6 +4,11 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder rln relay"
 
+const
+  DefaultRlnRelayEnabled*: bool = false
+  DefaultRlnRelayEpochSizeSec*: uint64 = 1
+  DefaultRlnRelayUserMessageLimit*: uint64 = 1
+
 ##############################
 ## RLN Relay Config Builder ##
 ##############################
@@ -56,7 +61,7 @@ proc withUserMessageLimit*(b: var RlnRelayConfBuilder, userMessageLimit: uint64)
   b.userMessageLimit = some(userMessageLimit)
 
 proc build*(b: RlnRelayConfBuilder): Result[Option[RlnRelayConf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultRlnRelayEnabled):
     return ok(none(RlnRelayConf))
 
   if b.chainId.isNone():
@@ -78,11 +83,6 @@ proc build*(b: RlnRelayConfBuilder): Result[Option[RlnRelayConf], string] =
     return err("rlnRelay.ethClientUrls is not specified")
   if b.ethContractAddress.get("") == "":
     return err("rlnRelay.ethContractAddress is not specified")
-  if b.epochSizeSec.isNone():
-    return err("rlnRelay.epochSizeSec is not specified")
-  if b.userMessageLimit.isNone():
-    return err("rlnRelay.userMessageLimit is not specified")
-
   return ok(
     some(
       RlnRelayConf(
@@ -92,8 +92,8 @@ proc build*(b: RlnRelayConfBuilder): Result[Option[RlnRelayConf], string] =
         dynamic: b.dynamic.get(),
         ethClientUrls: b.ethClientUrls.get(),
         ethContractAddress: b.ethContractAddress.get(),
-        epochSizeSec: b.epochSizeSec.get(),
-        userMessageLimit: b.userMessageLimit.get(),
+        epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
+        userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
       )
     )
   )

@@ -4,7 +4,10 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder rest server"
 
-const DefaultRestPort*: Port = Port(8645)
+const
+  DefaultRestEnabled*: bool = false
+  DefaultRestPort*: Port = Port(8645)
+  DefaultRestAdmin*: bool = false
 
 ################################
 ## REST Server Config Builder ##
@@ -43,7 +46,7 @@ proc withRelayCacheCapacity*(b: var RestServerConfBuilder, relayCacheCapacity: u
   b.relayCacheCapacity = some(relayCacheCapacity)
 
 proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultRestEnabled):
     return ok(none(RestServerConf))
 
   if b.listenAddress.isNone():
@@ -57,7 +60,7 @@ proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
         allowOrigin: b.allowOrigin,
         listenAddress: b.listenAddress.get(),
         port: b.port.get(DefaultRestPort),
-        admin: b.admin.get(false),
+        admin: b.admin.get(DefaultRestAdmin),
         relayCacheCapacity: b.relayCacheCapacity.get(),
       )
     )

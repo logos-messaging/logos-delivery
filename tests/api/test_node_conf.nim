@@ -37,7 +37,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.mode = Core
-    conf.clusterId = 1
+    conf.clusterId = some(1'u16)
 
     ## When
     let wakuConfRes = conf.toWakuConf()
@@ -58,7 +58,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.mode = Edge
-    conf.clusterId = 1
+    conf.clusterId = some(1'u16)
 
     ## When
     let wakuConfRes = conf.toWakuConf()
@@ -81,7 +81,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
     conf.mode = cli_args.WakuMode.noMode
     conf.relay = true
     conf.lightpush = false
-    conf.clusterId = 5
+    conf.clusterId = some(5'u16)
 
     ## When
     let wakuConfRes = conf.toWakuConf()
@@ -122,7 +122,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     let conf = confRes.get()
     check:
       conf.mode == cli_args.WakuMode.noMode
-      conf.clusterId == 0
+      conf.clusterId.isNone()
       conf.logLevel == logging.LogLevel.INFO
 
   test "JSON with mode and clusterId":
@@ -134,7 +134,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     let conf = confRes.get()
     check:
       conf.mode == Core
-      conf.clusterId == 42
+      conf.clusterId == some(42'u16)
 
   test "JSON with Edge mode":
     ## Given / When
@@ -165,7 +165,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     require confRes.isOk()
     let conf = confRes.get()
     check:
-      conf.clusterId == 99
+      conf.clusterId == some(99'u16)
       conf.numShardsInNetwork == 16
 
   test "JSON with unknown fields is silently ignored":
@@ -177,7 +177,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     require confRes.isOk()
     let conf = confRes.get()
     check:
-      conf.clusterId == 5
+      conf.clusterId == some(5'u16)
 
   test "Invalid JSON syntax returns error":
     ## Given / When

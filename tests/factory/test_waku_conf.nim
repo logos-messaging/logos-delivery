@@ -206,8 +206,9 @@ suite "Waku Conf - build with cluster conf":
       assert conf.rlnRelayConf.isSome
 
       let rlnRelayConf = conf.rlnRelayConf.get()
-      check rlnRelayConf.ethContractAddress.string ==
-        networkConf.rlnRelayEthContractAddress
+      # actually match the explicit contractAddress, which is the value set on the builder above
+      # this proves that an explicit builder call wins over the same field set via the preset
+      check rlnRelayConf.ethContractAddress.string == contractAddress
       check rlnRelayConf.dynamic == networkConf.rlnRelayDynamic
       check rlnRelayConf.chainId == networkConf.rlnRelayChainId
       check rlnRelayConf.epochSizeSec == networkConf.rlnEpochSizeSec
@@ -247,10 +248,6 @@ suite "Waku Conf - build with cluster conf":
     let networkConf = NetworkConf.LogosDevConf()
     var builder = WakuConfBuilder.init()
     builder.withNetworkConf(networkConf)
-    # Note: builder.withNumShardsInCluster() is not called when the
-    # value that comes from the CLI path is 0 (which means it was
-    # either set to 0 or was left unset).
-    builder.withShardingConf(StaticSharding)
 
     ## When
     let conf = builder.build().expect("build should succeed")
