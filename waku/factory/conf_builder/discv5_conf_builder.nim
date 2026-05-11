@@ -4,6 +4,8 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder discv5"
 
+const DefaultDiscv5UdpPort*: Port = Port(9000)
+
 ###########################
 ## Discv5 Config Builder ##
 ###########################
@@ -57,7 +59,7 @@ proc build*(b: Discv5ConfBuilder): Result[Option[Discv5Conf], string] =
         bucketIpLimit: b.bucketIpLimit.get(2),
         enrAutoUpdate: b.enrAutoUpdate.get(true),
         tableIpLimit: b.tableIpLimit.get(10),
-        udpPort: b.udpPort.get(Port(0)),
+        udpPort: b.udpPort.get(DefaultDiscv5UdpPort),
       )
     )
   )

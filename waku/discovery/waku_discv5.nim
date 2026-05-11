@@ -410,6 +410,8 @@ proc setupDiscoveryV5*(
     p2pListenAddress: IpAddress,
     portsShift: uint16,
 ): Result[WakuDiscoveryV5, string] =
+  ## Public only for testing. Callers should use `setupAndStartDiscv5`, which
+  ## additionally handles `udpPort == 0` via auto-port retry.
   if conf.udpPort == Port(0):
     return err(
       "setupDiscoveryV5: udpPort must be non-zero; " &

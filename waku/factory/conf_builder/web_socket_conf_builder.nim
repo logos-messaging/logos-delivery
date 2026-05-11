@@ -4,6 +4,8 @@ import waku/factory/waku_conf
 logScope:
   topics = "waku conf builder websocket"
 
+const DefaultWebSocketPort*: Port = Port(8000)
+
 ##############################
 ## WebSocket Config Builder ##
 ##############################
@@ -45,7 +47,8 @@ proc build*(b: WebSocketConfBuilder): Result[Option[WebSocketConf], string] =
     return ok(
       some(
         WebSocketConf(
-          port: b.webSocketPort.get(Port(0)), secureConf: none(WebSocketSecureConf)
+          port: b.webSocketPort.get(DefaultWebSocketPort),
+          secureConf: none(WebSocketSecureConf),
         )
       )
     )
@@ -58,7 +61,7 @@ proc build*(b: WebSocketConfBuilder): Result[Option[WebSocketConf], string] =
   return ok(
     some(
       WebSocketConf(
-        port: b.webSocketPort.get(Port(0)),
+        port: b.webSocketPort.get(DefaultWebSocketPort),
         secureConf: some(
           WebSocketSecureConf(keyPath: b.keyPath.get(), certPath: b.certPath.get())
         ),

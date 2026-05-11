@@ -34,7 +34,9 @@ import
 logScope:
   topics = "waku conf builder"
 
-const DefaultMaxConnections* = 150
+const
+  DefaultMaxConnections* = 150
+  DefaultP2pTcpPort*: Port = Port(60000)
 
 type MaxMessageSizeKind* = enum
   mmskNone
@@ -576,7 +578,7 @@ proc build*(
       warn "Nat Strategy is not specified, defaulting to none"
       "none"
 
-  let p2pTcpPort = builder.p2pTcpPort.get(Port(0))
+  let p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
 
   let p2pListenAddress =
     if builder.p2pListenAddress.isSome():

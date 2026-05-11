@@ -4,6 +4,8 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder rest server"
 
+const DefaultRestPort*: Port = Port(8645)
+
 ################################
 ## REST Server Config Builder ##
 ################################
@@ -54,7 +56,7 @@ proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
       RestServerConf(
         allowOrigin: b.allowOrigin,
         listenAddress: b.listenAddress.get(),
-        port: b.port.get(Port(0)),
+        port: b.port.get(DefaultRestPort),
         admin: b.admin.get(false),
         relayCacheCapacity: b.relayCacheCapacity.get(),
       )

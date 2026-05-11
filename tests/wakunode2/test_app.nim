@@ -99,20 +99,18 @@ suite "Wakunode2 - Waku initialization":
     (waitFor waku.stop()).isOkOr:
       raiseAssert error
 
-  test "unspecified service ports default to 0 then bind non-zero":
+  test "explicit port=0 triggers auto-bind across all services":
     var builder = defaultTestWakuConfBuilder()
+    builder.withP2pTcpPort(Port(0))
     builder.discv5Conf.withEnabled(true)
+    builder.discv5Conf.withUdpPort(Port(0))
     builder.restServerConf.withEnabled(true)
     builder.restServerConf.withRelayCacheCapacity(50'u32)
+    builder.restServerConf.withPort(Port(0))
     builder.metricsServerConf.withEnabled(true)
+    builder.metricsServerConf.withHttpPort(Port(0))
     builder.webSocketConf.withEnabled(true)
-
-    # the p2pTcp option is private
-    check:
-      builder.discv5Conf.udpPort.isNone()
-      builder.restServerConf.port.isNone()
-      builder.metricsServerConf.httpPort.isNone()
-      builder.webSocketConf.webSocketPort.isNone()
+    builder.webSocketConf.withWebSocketPort(Port(0))
 
     let conf = builder.build().valueOr:
       raiseAssert error

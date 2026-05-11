@@ -424,9 +424,9 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
   ## Update waku data that is set dynamically on node start
   try:
     (await updateWaku(waku)).isOkOr:
-      return err("Error in updateWaku: " & $error)
+      return err("Error in startWaku: " & $error)
   except CatchableError:
-    return err("Caught exception in updateWaku: " & getCurrentExceptionMsg())
+    return err("Caught exception in startWaku: " & getCurrentExceptionMsg())
 
   ## Reliability
   if not waku[].deliveryService.isNil():

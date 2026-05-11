@@ -45,7 +45,7 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
   of NodeInfoId.MyPeerId:
     return $PeerId(self.node.peerId())
   of NodeInfoId.MyBoundPorts:
-    return self.node.ports.toJsonString()
+    return $self.node.ports
   else:
     return "unknown info item id"
 

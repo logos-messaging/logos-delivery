@@ -16,5 +16,5 @@ proc init*(T: type BoundPorts): BoundPorts =
     tcp: 0'u16, webSocket: 0'u16, rest: 0'u16, discv5Udp: 0'u16, metrics: 0'u16
   )
 
-proc toJsonString*(p: BoundPorts): string =
+proc `$`*(p: BoundPorts): string =
   return $(%*p)
