@@ -8,11 +8,13 @@ import
   results
 
 import
-  ../waku_conf,
-  ../networks_config,
-  ../../common/logging,
-  ../../common/utils/parse_size_units,
-  ../../waku_enr/capabilities,
+  waku/[
+    factory/waku_conf,
+    factory/networks_config,
+    common/logging,
+    common/utils/parse_size_units,
+    waku_enr/capabilities,
+  ],
   tools/confutils/entry_nodes
 
 import
@@ -32,7 +34,9 @@ import
 logScope:
   topics = "waku conf builder"
 
-const DefaultMaxConnections* = 150
+const
+  DefaultMaxConnections* = 150
+  DefaultP2pTcpPort*: Port = Port(60000)
 
 type MaxMessageSizeKind* = enum
   mmskNone
@@ -574,12 +578,7 @@ proc build*(
       warn "Nat Strategy is not specified, defaulting to none"
       "none"
 
-  let p2pTcpPort =
-    if builder.p2pTcpPort.isSome():
-      builder.p2pTcpPort.get()
-    else:
-      warn "P2P Listening TCP Port is not specified, listening on 60000"
-      60000.Port
+  let p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
 
   let p2pListenAddress =
     if builder.p2pListenAddress.isSome():
