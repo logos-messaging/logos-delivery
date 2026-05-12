@@ -28,7 +28,7 @@ import ../protocol_types
 type
   CSize = csize_t
 
-  CFr* = object                     ## opaque ark_bn254::Fr handle
+  CFr* = object ## opaque ark_bn254::Fr handle
   FFI_RLNProof* = object
   FFI_RLNPartialProof* = object
   FFI_RLNWitnessInput* = object
@@ -107,8 +107,9 @@ proc ffi_rln_free*(rln: ptr RLN) {.importc: "ffi_rln_free", cdecl.}
 
 # --- Keygen ---------------------------------------------------------------
 
-proc ffi_extended_key_gen*(): CResultVecCFrVecU8
-  {.importc: "ffi_extended_key_gen", cdecl.}
+proc ffi_extended_key_gen*(): CResultVecCFrVecU8 {.
+  importc: "ffi_extended_key_gen", cdecl
+.}
 
 proc ffi_seeded_extended_key_gen*(
   seed: ptr Vec_uint8
@@ -135,8 +136,9 @@ proc ffi_rln_partial_witness_input_new*(
   user_message_limit: ptr CFr,
   path_elements: ptr Vec_CFr,
   identity_path_index: ptr Vec_uint8,
-): CResultPartialWitnessInputPtrVecU8
-  {.importc: "ffi_rln_partial_witness_input_new", cdecl.}
+): CResultPartialWitnessInputPtrVecU8 {.
+  importc: "ffi_rln_partial_witness_input_new", cdecl
+.}
 
 proc ffi_rln_partial_witness_input_free*(
   witness: ptr FFI_RLNPartialWitnessInput
@@ -152,8 +154,7 @@ proc ffi_generate_rln_proof*(
 
 proc ffi_generate_partial_zk_proof*(
   rln: ptr ptr RLN, partial_witness: ptr ptr FFI_RLNPartialWitnessInput
-): CResultPartialProofPtrVecU8
-  {.importc: "ffi_generate_partial_zk_proof", cdecl.}
+): CResultPartialProofPtrVecU8 {.importc: "ffi_generate_partial_zk_proof", cdecl.}
 
 proc ffi_finish_rln_proof*(
   rln: ptr ptr RLN,
@@ -164,10 +165,7 @@ proc ffi_finish_rln_proof*(
 # --- Verification ---------------------------------------------------------
 
 proc ffi_verify_with_roots*(
-  rln: ptr ptr RLN,
-  proof: ptr ptr FFI_RLNProof,
-  roots: ptr Vec_CFr,
-  x: ptr CFr,
+  rln: ptr ptr RLN, proof: ptr ptr FFI_RLNProof, roots: ptr Vec_CFr, x: ptr CFr
 ): CBoolResult {.importc: "ffi_verify_with_roots", cdecl.}
 
 # --- Proof serialization --------------------------------------------------
@@ -180,8 +178,7 @@ proc ffi_bytes_le_to_rln_proof*(
   bytes: ptr Vec_uint8
 ): CResultProofPtrVecU8 {.importc: "ffi_bytes_le_to_rln_proof", cdecl.}
 
-proc ffi_rln_proof_free*(p: ptr FFI_RLNProof)
-  {.importc: "ffi_rln_proof_free", cdecl.}
+proc ffi_rln_proof_free*(p: ptr FFI_RLNProof) {.importc: "ffi_rln_proof_free", cdecl.}
 
 proc ffi_rln_partial_proof_to_bytes_le*(
   partial_proof: ptr ptr FFI_RLNPartialProof
@@ -189,11 +186,11 @@ proc ffi_rln_partial_proof_to_bytes_le*(
 
 proc ffi_bytes_le_to_rln_partial_proof*(
   bytes: ptr Vec_uint8
-): CResultPartialProofPtrVecU8
-  {.importc: "ffi_bytes_le_to_rln_partial_proof", cdecl.}
+): CResultPartialProofPtrVecU8 {.importc: "ffi_bytes_le_to_rln_partial_proof", cdecl.}
 
-proc ffi_rln_partial_proof_free*(p: ptr FFI_RLNPartialProof)
-  {.importc: "ffi_rln_partial_proof_free", cdecl.}
+proc ffi_rln_partial_proof_free*(
+  p: ptr FFI_RLNPartialProof
+) {.importc: "ffi_rln_partial_proof_free", cdecl.}
 
 # --- Proof values (extract root / x / y / nullifier from a proof) ---------
 
@@ -217,41 +214,43 @@ proc ffi_rln_proof_values_get_nullifier*(
   pv: ptr ptr FFI_RLNProofValues
 ): CResultCFrPtrVecU8 {.importc: "ffi_rln_proof_values_get_nullifier", cdecl.}
 
-proc ffi_rln_proof_values_free*(pv: ptr FFI_RLNProofValues)
-  {.importc: "ffi_rln_proof_values_free", cdecl.}
+proc ffi_rln_proof_values_free*(
+  pv: ptr FFI_RLNProofValues
+) {.importc: "ffi_rln_proof_values_free", cdecl.}
 
 # --- Slashing -------------------------------------------------------------
 
 proc ffi_compute_id_secret*(
-  share1_x: ptr CFr, share1_y: ptr CFr,
-  share2_x: ptr CFr, share2_y: ptr CFr,
+  share1_x: ptr CFr, share1_y: ptr CFr, share2_x: ptr CFr, share2_y: ptr CFr
 ): CResultCFrPtrVecU8 {.importc: "ffi_compute_id_secret", cdecl.}
 
 # --- Primitives: CFr ------------------------------------------------------
 
 proc ffi_cfr_zero*(): ptr CFr {.importc: "ffi_cfr_zero", cdecl.}
 
-proc ffi_cfr_to_bytes_le*(cfr: ptr CFr): Vec_uint8
-  {.importc: "ffi_cfr_to_bytes_le", cdecl.}
+proc ffi_cfr_to_bytes_le*(
+  cfr: ptr CFr
+): Vec_uint8 {.importc: "ffi_cfr_to_bytes_le", cdecl.}
 
-proc ffi_bytes_le_to_cfr*(bytes: ptr Vec_uint8): CResultCFrPtrVecU8
-  {.importc: "ffi_bytes_le_to_cfr", cdecl.}
+proc ffi_bytes_le_to_cfr*(
+  bytes: ptr Vec_uint8
+): CResultCFrPtrVecU8 {.importc: "ffi_bytes_le_to_cfr", cdecl.}
 
 proc ffi_cfr_free*(cfr: ptr CFr) {.importc: "ffi_cfr_free", cdecl.}
 
 # --- Primitives: Vec_CFr --------------------------------------------------
 
-proc ffi_vec_cfr_new*(capacity: CSize): Vec_CFr
-  {.importc: "ffi_vec_cfr_new", cdecl.}
+proc ffi_vec_cfr_new*(capacity: CSize): Vec_CFr {.importc: "ffi_vec_cfr_new", cdecl.}
 
-proc ffi_vec_cfr_push*(v: ptr Vec_CFr, cfr: ptr CFr)
-  {.importc: "ffi_vec_cfr_push", cdecl.}
+proc ffi_vec_cfr_push*(
+  v: ptr Vec_CFr, cfr: ptr CFr
+) {.importc: "ffi_vec_cfr_push", cdecl.}
 
-proc ffi_vec_cfr_len*(v: ptr Vec_CFr): CSize
-  {.importc: "ffi_vec_cfr_len", cdecl.}
+proc ffi_vec_cfr_len*(v: ptr Vec_CFr): CSize {.importc: "ffi_vec_cfr_len", cdecl.}
 
-proc ffi_vec_cfr_get*(v: ptr Vec_CFr, i: CSize): ptr CFr
-  {.importc: "ffi_vec_cfr_get", cdecl.}
+proc ffi_vec_cfr_get*(
+  v: ptr Vec_CFr, i: CSize
+): ptr CFr {.importc: "ffi_vec_cfr_get", cdecl.}
 
 proc ffi_vec_cfr_free*(v: Vec_CFr) {.importc: "ffi_vec_cfr_free", cdecl.}
 
@@ -259,13 +258,13 @@ proc ffi_vec_cfr_free*(v: Vec_CFr) {.importc: "ffi_vec_cfr_free", cdecl.}
 
 proc ffi_vec_u8_free*(v: Vec_uint8) {.importc: "ffi_vec_u8_free", cdecl.}
 
-proc ffi_c_string_free*(s: Vec_uint8)
-  {.importc: "ffi_c_string_free", cdecl.}
+proc ffi_c_string_free*(s: Vec_uint8) {.importc: "ffi_c_string_free", cdecl.}
 
 # --- Hash helpers ---------------------------------------------------------
 
-proc ffi_hash_to_field_le*(input: ptr Vec_uint8): CResultCFrPtrVecU8
-  {.importc: "ffi_hash_to_field_le", cdecl.}
+proc ffi_hash_to_field_le*(
+  input: ptr Vec_uint8
+): CResultCFrPtrVecU8 {.importc: "ffi_hash_to_field_le", cdecl.}
 
 proc ffi_poseidon_hash_pair*(
   a: ptr CFr, b: ptr CFr
@@ -289,9 +288,12 @@ proc consumeError*(prefix: string, data: Vec_uint8): string =
   let msg = asString(data)
   if hasError(data):
     ffi_c_string_free(data)
-  if prefix.len == 0: msg
-  elif msg.len == 0: prefix
-  else: prefix & msg
+  if prefix.len == 0:
+    msg
+  elif msg.len == 0:
+    prefix
+  else:
+    prefix & msg
 
 proc toVecUint8*(data: openArray[byte]): Vec_uint8 =
   ## Wrap Nim-owned bytes as a Vec_uint8 view. NOTE: the resulting Vec_uint8
@@ -351,9 +353,7 @@ proc hashToFieldLe*(data: openArray[byte]): RlnRelayResult[ptr CFr] =
     return ok(res.ok)
   err(consumeError("Failed to hash to field: ", res.err))
 
-proc poseidonPairLe*(
-    a, b: openArray[byte]
-): RlnRelayResult[array[32, byte]] =
+proc poseidonPairLe*(a, b: openArray[byte]): RlnRelayResult[array[32, byte]] =
   ## Poseidon hash of exactly two 32-byte field elements (little-endian).
   ## zerokit v2 FFI only exposes pair-input Poseidon; unary is not supported.
   let aPtr = bytesToCfrLe(a).valueOr:

@@ -1,11 +1,9 @@
 import
   chronicles,
-  options,
   eth/keys,
-  stew/[arrayops, byteutils, endians2],
+  stew/[arrayops, endians2],
   stint,
   results,
-  std/[sequtils, strutils, tables],
   nimcrypto/keccak as keccak
 
 import ./rln_interface, ../conversion_utils, ../protocol_types, ../protocol_metrics
@@ -52,12 +50,14 @@ proc buildProofBytesLe(
   var encoded = newSeq[byte](RlnProofWireSize)
   var offset = 0
 
-  encoded[offset] = 0x00'u8; inc offset  # outer RLNProof version
+  encoded[offset] = 0x00'u8
+  inc offset # outer RLNProof version
 
   copyMem(addr encoded[offset], unsafeAddr proof.proof[0], ZksnarkProofSize)
   offset += ZksnarkProofSize
 
-  encoded[offset] = 0x00'u8; inc offset  # inner RLNProofValues version
+  encoded[offset] = 0x00'u8
+  inc offset # inner RLNProofValues version
 
   copyMem(addr encoded[offset], unsafeAddr proof.merkleRoot[0], FieldElementSize)
   offset += FieldElementSize
@@ -72,9 +72,7 @@ proc buildProofBytesLe(
   ok(encoded)
 
 proc proofPtrToRateLimitProof(
-    proofPtr: ptr FFI_RLNProof,
-    epoch: Epoch,
-    rlnIdentifier: RlnIdentifier,
+    proofPtr: ptr FFI_RLNProof, epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[RateLimitProof] =
   ## Extract a RateLimitProof from an FFI proof handle. Uses
   ## ffi_rln_proof_to_bytes_le for the zkSNARK bytes (offset 1, after the
@@ -126,9 +124,8 @@ proc proofPtrToRateLimitProof(
     return err(error)
 
   let nullifierRes = ffi_rln_proof_values_get_nullifier(addr pvHandle)
-  output.nullifier =
-    cfrResultToBytes(nullifierRes, "Failed to read proof nullifier: ").valueOr:
-      return err(error)
+  output.nullifier = cfrResultToBytes(nullifierRes, "Failed to read proof nullifier: ").valueOr:
+    return err(error)
 
   # externalNullifier is derived from epoch + rlnIdentifier; recompute for
   # consistency with the existing protocol_types.nim contract.
@@ -138,9 +135,7 @@ proc proofPtrToRateLimitProof(
 
   ok(output)
 
-proc parseCredentialVec(
-    vec: var Vec_CFr
-): RlnRelayResult[IdentityCredential] =
+proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
   ## ffi_extended_key_gen returns a Vec_CFr of exactly 4 elements:
   ## [ idTrapdoor, idNullifier, idSecretHash, idCommitment ].
   if int(ffi_vec_cfr_len(addr vec)) != 4:
@@ -213,8 +208,8 @@ proc poseidon*(data: seq[seq[byte]]): RlnRelayResult[array[32, byte]] =
   ## different hash than the v0.9 multi-input proc would have.
   if data.len != 2:
     return err(
-      "Only 2-input Poseidon hashing is supported by zerokit v2 FFI, got " &
-        $data.len & " inputs"
+      "Only 2-input Poseidon hashing is supported by zerokit v2 FFI, got " & $data.len &
+        " inputs"
     )
   poseidonPairLe(data[0], data[1])
 
@@ -289,8 +284,8 @@ proc generateRlnProofWithWitness*(
   let depth = witness.identity_path_index.len
   if witness.path_elements.len != depth * FieldElementSize:
     return err(
-      "Invalid Merkle path: expected " & $(depth * FieldElementSize) &
-        " bytes for " & $depth & " levels, got " & $witness.path_elements.len
+      "Invalid Merkle path: expected " & $(depth * FieldElementSize) & " bytes for " &
+        $depth & " levels, got " & $witness.path_elements.len
     )
 
   # Build the Vec_CFr of path elements.
