@@ -463,7 +463,7 @@ proc setupAndStartDiscv5*(
     nodeTopicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent],
     conf: Discv5Conf,
     dynamicBootstrapNodes: seq[RemotePeerInfo],
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     key: crypto.PrivateKey,
     p2pListenAddress: IpAddress,
     portsShift: uint16,

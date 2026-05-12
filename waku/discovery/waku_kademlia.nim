@@ -120,7 +120,7 @@ proc lookup*(
 
 proc registerLookupService*(self: WakuKademlia, serviceId: string) =
   if serviceId notin self.discoveredServices:
-    discard self.protocol.startDiscovering(serviceId)
+    discard self.protocol.registerInterest(serviceId)
     self.discoveredServices.add(serviceId)
 
 proc advertiseService*(self: WakuKademlia, service: ServiceInfo) =

@@ -33,7 +33,7 @@ requires "nim >= 2.2.4",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "websock >= 0.3.0",
+  "https://github.com/status-im/nim-websock#42c37b4172519566db016810eccfce8a02cc1cdf",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "secp256k1",
@@ -64,7 +64,7 @@ requires "https://github.com/logos-co/nim-libp2p-mix.git#6c5f43ae715443dc72048a1
 
 requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135fae3a3803eed8490d4"
 
-requires "https://github.com/vacp2p/nim-lsquic"
+requires "lsquic >= 0.4.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
 proc getMyCPU(): string =
