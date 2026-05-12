@@ -11,7 +11,7 @@ import
 import ./rln_interface, ../conversion_utils, ../protocol_types, ../protocol_metrics
 import ../../waku_core, ../../waku_keystore
 
-{.push raises: [].}
+{.push raises: [], gcsafe.}
 
 logScope:
   topics = "waku rln_relay ffi"
@@ -19,6 +19,13 @@ logScope:
 # ===========================================================================
 # Internal helpers (private — wrappers.nim only)
 # ===========================================================================
+
+# Forward declaration: `buildProofBytesLe` and `proofPtrToRateLimitProof`
+# below use this, but its body is defined further down with the rest of the
+# public API.
+proc generateExternalNullifier*(
+  epoch: Epoch, rlnIdentifier: RlnIdentifier
+): RlnRelayResult[ExternalNullifier]
 
 proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
   ## Build a Vec_CFr from a list of Merkle roots for ffi_verify_with_roots.
@@ -355,12 +362,14 @@ proc verifyRlnProof*(
     rlnInstance: ptr RLN,
     proof: RateLimitProof,
     signal: openArray[byte],
-    validRoots: seq[MerkleNode] = @[],
+    validRoots: seq[MerkleNode],
 ): RlnRelayResult[bool] =
-  ## Verify an RLN proof. If `validRoots` is non-empty, uses
-  ## ffi_verify_with_roots (windowed verification matching the contract's
-  ## recentRoots ring buffer); otherwise verifies against the instance's
-  ## current root via ffi_verify_rln_proof.
+  ## Verify an RLN proof against a set of valid roots from the contract's
+  ## recentRoots ring buffer. validRoots must be non-empty; in stateless mode
+  ## there is no internal Merkle tree so ffi_verify_rln_proof is not available.
+  if validRoots.len == 0:
+    return err("verifyRlnProof requires at least one valid root (stateless mode)")
+
   let proofBytes = buildProofBytesLe(proof, proof.rlnIdentifier).valueOr:
     return err(error)
 
@@ -380,18 +389,12 @@ proc verifyRlnProof*(
   var ctx = rlnInstance
   var proofHandle = proofRes.ok
 
-  if validRoots.len > 0:
-    var roots = toRootVec(validRoots).valueOr:
-      return err("Failed to build root vector: " & error)
-    defer:
-      ffi_vec_cfr_free(roots)
+  var roots = toRootVec(validRoots).valueOr:
+    return err("Failed to build root vector: " & error)
+  defer:
+    ffi_vec_cfr_free(roots)
 
-    let verifyRes = ffi_verify_with_roots(addr ctx, addr proofHandle, addr roots, xFr)
-    if hasError(verifyRes.err):
-      return err(consumeError("Proof verification failed: ", verifyRes.err))
-    return ok(verifyRes.ok)
-
-  let verifyRes = ffi_verify_rln_proof(addr ctx, addr proofHandle, xFr)
+  let verifyRes = ffi_verify_with_roots(addr ctx, addr proofHandle, addr roots, xFr)
   if hasError(verifyRes.err):
     return err(consumeError("Proof verification failed: ", verifyRes.err))
   ok(verifyRes.ok)

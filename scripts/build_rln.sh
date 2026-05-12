@@ -37,7 +37,12 @@ fi
 # `stateless` feature: logos-delivery does not maintain a local Merkle tree
 # (post-PR #3312); the contract is the source of truth and the path is fetched
 # via getMerkleProof(index). The stateless build compiles out tree code.
-cargo build --release -p rln --manifest-path "${build_dir}/rln/Cargo.toml" --features stateless
+#
+# --no-default-features is required because zerokit's default features include
+# `pmtree-ft` (a Merkle tree backend); `stateless` and any Merkle-tree feature
+# are mutually exclusive (rln/src/lib.rs:32 compile_error).
+cargo build --release -p rln --manifest-path "${build_dir}/rln/Cargo.toml" \
+    --no-default-features --features stateless
 cp "${build_dir}/target/release/librln.a" "${output_filename}"
 
 echo "Successfully built ${output_filename}"

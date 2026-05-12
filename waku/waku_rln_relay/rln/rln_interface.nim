@@ -19,7 +19,7 @@
 import results
 import ../protocol_types
 
-{.push raises: [].}
+{.push raises: [], gcsafe.}
 
 # ===========================================================================
 # FFI primitive types
@@ -162,10 +162,6 @@ proc ffi_finish_rln_proof*(
 ): CResultProofPtrVecU8 {.importc: "ffi_finish_rln_proof", cdecl.}
 
 # --- Verification ---------------------------------------------------------
-
-proc ffi_verify_rln_proof*(
-  rln: ptr ptr RLN, proof: ptr ptr FFI_RLNProof, x: ptr CFr
-): CBoolResult {.importc: "ffi_verify_rln_proof", cdecl.}
 
 proc ffi_verify_with_roots*(
   rln: ptr ptr RLN,
