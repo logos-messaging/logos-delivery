@@ -34,23 +34,19 @@ suite "Waku rln relay":
   teardown:
     stopAnvil(anvilProc)
 
-  test "key_gen Nim Wrappers":
-    let merkleDepth: csize_t = 20
+  test "ffi_extended_key_gen raw FFI":
+    # When we call the raw key-generation FFI
+    let res = ffi_extended_key_gen()
 
-    # keysBufferPtr will hold the generated identity credential i.e., id trapdoor, nullifier, secret hash and commitment
-    var keysBuffer: Buffer
-    let
-      keysBufferPtr = addr(keysBuffer)
-      done = key_gen(keysBufferPtr, true)
+    # Then it succeeds and returns exactly 4 field elements
+    # (idTrapdoor, idNullifier, idSecretHash, idCommitment — each 32 bytes)
     require:
-      # check whether the keys are generated successfully
-      done
-
-    let generatedKeys = cast[ptr array[4 * 32, byte]](keysBufferPtr.`ptr`)[]
+      not hasError(res.err)
+    var vec = res.ok
+    defer:
+      ffi_vec_cfr_free(vec)
     check:
-      # the id trapdoor, nullifier, secert hash and commitment together are 4*32 bytes
-      generatedKeys.len == 4 * 32
-    info "generated keys: ", generatedKeys
+      int(ffi_vec_cfr_len(addr vec)) == 4
 
   test "membership Key Generation":
     let idCredentialsRes = membershipKeyGen()
