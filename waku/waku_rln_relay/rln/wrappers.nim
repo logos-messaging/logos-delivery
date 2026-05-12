@@ -1,10 +1,4 @@
-import
-  chronicles,
-  eth/keys,
-  stew/[arrayops, endians2],
-  stint,
-  results,
-  nimcrypto/keccak as keccak
+import chronicles, eth/keys, stew/[arrayops, endians2], stint, results
 
 import ./rln_interface, ../conversion_utils, ../protocol_types, ../protocol_metrics
 import ../../waku_core, ../../waku_keystore
@@ -170,10 +164,7 @@ proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
 proc membershipKeyGen*(): RlnRelayResult[IdentityCredential] =
   ## generates a IdentityCredential that can be used for the registration into the rln membership contract
   ## Returns an error if the key generation fails
-  let res = ffi_extended_key_gen()
-  if hasError(res.err):
-    return err(consumeError("Key generation failed: ", res.err))
-  var vec = res.ok
+  var vec = ffi_extended_key_gen()
   defer:
     ffi_vec_cfr_free(vec)
   parseCredentialVec(vec)
@@ -242,14 +233,25 @@ proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnRelayResult[seq[seq[byt
 proc generateExternalNullifier*(
     epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[ExternalNullifier] =
-  ## External nullifier = Poseidon(keccak(epoch), keccak(rlnIdentifier)).
-  ## The keccak pre-hash is preserved from the v0.9 behaviour so that the
-  ## value matches what previously-registered identities and verifiers expect.
-  let epochHash = keccak.keccak256.digest(@(epoch))
-  let rlnIdentifierHash = keccak.keccak256.digest(@(rlnIdentifier))
-  let externalNullifier = poseidon(@[@(epochHash), @(rlnIdentifierHash)]).valueOr:
-    return err("Failed to compute external nullifier: " & error)
-  return ok(externalNullifier)
+  ## External nullifier = Poseidon(H(epoch), H(rlnIdentifier)) where H is
+  ## ffi_hash_to_field_le (keccak + modular reduction to BN254 scalar field).
+  let epochFr = hashToFieldLe(@epoch).valueOr:
+    return err("Failed to hash epoch to field: " & error)
+  defer:
+    ffi_cfr_free(epochFr)
+  let rlnIdFr = hashToFieldLe(@rlnIdentifier).valueOr:
+    return err("Failed to hash rlnIdentifier to field: " & error)
+  defer:
+    ffi_cfr_free(rlnIdFr)
+  let cfr = ffi_poseidon_hash_pair(epochFr, rlnIdFr)
+  if cfr.isNil:
+    return err("Failed to compute external nullifier")
+  defer:
+    ffi_cfr_free(cfr)
+  cfrToBytesLe(cfr).mapErr(
+    proc(e: string): string =
+      "Failed to serialize external nullifier: " & e
+  )
 
 proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
   let externalNullifier = generateExternalNullifier(proof.epoch, proof.rlnIdentifier).valueOr:

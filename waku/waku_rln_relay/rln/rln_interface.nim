@@ -107,13 +107,11 @@ proc ffi_rln_free*(rln: ptr RLN) {.importc: "ffi_rln_free", cdecl.}
 
 # --- Keygen ---------------------------------------------------------------
 
-proc ffi_extended_key_gen*(): CResultVecCFrVecU8 {.
-  importc: "ffi_extended_key_gen", cdecl
-.}
+proc ffi_extended_key_gen*(): Vec_CFr {.importc: "ffi_extended_key_gen", cdecl.}
 
 proc ffi_seeded_extended_key_gen*(
   seed: ptr Vec_uint8
-): CResultVecCFrVecU8 {.importc: "ffi_seeded_extended_key_gen", cdecl.}
+): Vec_CFr {.importc: "ffi_seeded_extended_key_gen", cdecl.}
 
 # --- Witness construction -------------------------------------------------
 
@@ -264,11 +262,11 @@ proc ffi_c_string_free*(s: Vec_uint8) {.importc: "ffi_c_string_free", cdecl.}
 
 proc ffi_hash_to_field_le*(
   input: ptr Vec_uint8
-): CResultCFrPtrVecU8 {.importc: "ffi_hash_to_field_le", cdecl.}
+): ptr CFr {.importc: "ffi_hash_to_field_le", cdecl.}
 
 proc ffi_poseidon_hash_pair*(
   a: ptr CFr, b: ptr CFr
-): CResultCFrPtrVecU8 {.importc: "ffi_poseidon_hash_pair", cdecl.}
+): ptr CFr {.importc: "ffi_poseidon_hash_pair", cdecl.}
 
 # ===========================================================================
 # Memory-hygiene helpers
@@ -348,10 +346,10 @@ proc cfrResultToBytes*(
 proc hashToFieldLe*(data: openArray[byte]): RlnRelayResult[ptr CFr] =
   ## Caller MUST ffi_cfr_free the returned ptr.
   var vec = toVecUint8(data)
-  let res = ffi_hash_to_field_le(addr vec)
-  if not res.ok.isNil:
-    return ok(res.ok)
-  err(consumeError("Failed to hash to field: ", res.err))
+  let cfr = ffi_hash_to_field_le(addr vec)
+  if cfr.isNil:
+    return err("Failed to hash to field")
+  ok(cfr)
 
 proc poseidonPairLe*(a, b: openArray[byte]): RlnRelayResult[array[32, byte]] =
   ## Poseidon hash of exactly two 32-byte field elements (little-endian).
@@ -364,9 +362,9 @@ proc poseidonPairLe*(a, b: openArray[byte]): RlnRelayResult[array[32, byte]] =
     return err(error)
   defer:
     ffi_cfr_free(bPtr)
-  let res = ffi_poseidon_hash_pair(aPtr, bPtr)
-  if res.ok.isNil:
-    return err(consumeError("Poseidon hash failed: ", res.err))
+  let cfr = ffi_poseidon_hash_pair(aPtr, bPtr)
+  if cfr.isNil:
+    return err("Poseidon hash failed")
   defer:
-    ffi_cfr_free(res.ok)
-  cfrToBytesLe(res.ok)
+    ffi_cfr_free(cfr)
+  cfrToBytesLe(cfr)

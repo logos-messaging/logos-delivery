@@ -373,7 +373,11 @@ method generateProof*(
     let chunk = g.merkleProofCache[i * 32 .. (i + 1) * 32 - 1]
     path_elements.add(chunk.reversed())
 
-  let x = keccak.keccak256.digest(data)
+  let xCfr = hashToFieldLe(data).valueOr:
+    return err("Failed to hash signal to field: " & error)
+  let x = cfrToBytesLe(xCfr).valueOr:
+    return err("Failed to serialize signal hash: " & error)
+  ffi_cfr_free(xCfr)
 
   let extNullifier = generateExternalNullifier(epoch, rlnIdentifier).valueOr:
     return err("Failed to compute external nullifier: " & error)
@@ -391,9 +395,7 @@ method generateProof*(
   # Generate the proof via the high-level wrapper (zerokit v2.0 FFI).
   # The wrapper handles witness construction, FFI memory management, and
   # parsing the proof handle into a RateLimitProof.
-  let output = generateRlnProofWithWitness(
-    g.rlnInstance, witness, epoch, rlnIdentifier
-  ).valueOr:
+  let output = generateRlnProofWithWitness(g.rlnInstance, witness, epoch, rlnIdentifier).valueOr:
     return err("Failed to generate proof: " & error)
 
   info "Proof generated successfully", proof = output
