@@ -11,7 +11,7 @@ import
   stint,
   json,
   std/[strutils, tables, algorithm, strformat],
-  stew/[byteutils, arrayops],
+  stew/byteutils,
   sequtils
 
 import
@@ -388,57 +388,13 @@ method generateProof*(
     external_nullifier: extNullifier,
   )
 
-  let serializedWitness = serialize(witness)
-
-  var input_witness_buffer = toBuffer(serializedWitness)
-
-  # Generate the proof using the zerokit API
-  var output_witness_buffer: Buffer
-  let witness_success = generate_proof_with_witness(
-    g.rlnInstance, addr input_witness_buffer, addr output_witness_buffer
-  )
-
-  if not witness_success:
-    return err("Failed to generate proof")
-
-  # Parse the proof into a RateLimitProof object
-  var proofValue = cast[ptr array[320, byte]](output_witness_buffer.`ptr`)
-  let proofBytes: array[320, byte] = proofValue[]
-
-  ## Parse the proof as [ proof<128> | root<32> | external_nullifier<32> | share_x<32> | share_y<32> | nullifier<32> ]
-  let
-    proofOffset = 128
-    rootOffset = proofOffset + 32
-    externalNullifierOffset = rootOffset + 32
-    shareXOffset = externalNullifierOffset + 32
-    shareYOffset = shareXOffset + 32
-    nullifierOffset = shareYOffset + 32
-
-  var
-    zkproof: ZKSNARK
-    proofRoot, shareX, shareY: MerkleNode
-    externalNullifier: ExternalNullifier
-    nullifier: Nullifier
-
-  discard zkproof.copyFrom(proofBytes[0 .. proofOffset - 1])
-  discard proofRoot.copyFrom(proofBytes[proofOffset .. rootOffset - 1])
-  discard
-    externalNullifier.copyFrom(proofBytes[rootOffset .. externalNullifierOffset - 1])
-  discard shareX.copyFrom(proofBytes[externalNullifierOffset .. shareXOffset - 1])
-  discard shareY.copyFrom(proofBytes[shareXOffset .. shareYOffset - 1])
-  discard nullifier.copyFrom(proofBytes[shareYOffset .. nullifierOffset - 1])
-
-  # Create the RateLimitProof object
-  let output = RateLimitProof(
-    proof: zkproof,
-    merkleRoot: proofRoot,
-    externalNullifier: externalNullifier,
-    epoch: epoch,
-    rlnIdentifier: rlnIdentifier,
-    shareX: shareX,
-    shareY: shareY,
-    nullifier: nullifier,
-  )
+  # Generate the proof via the high-level wrapper (zerokit v2.0 FFI).
+  # The wrapper handles witness construction, FFI memory management, and
+  # parsing the proof handle into a RateLimitProof.
+  let output = generateRlnProofWithWitness(
+    g.rlnInstance, witness, epoch, rlnIdentifier
+  ).valueOr:
+    return err("Failed to generate proof: " & error)
 
   info "Proof generated successfully", proof = output
 
@@ -450,33 +406,16 @@ method verifyProof*(
     g: OnchainGroupManager, input: seq[byte], proof: RateLimitProof
 ): GroupManagerResult[bool] {.gcsafe.} =
   ## -- Verifies an RLN rate-limit proof against the set of valid Merkle roots --
+  # The wrapper handles wire serialization (with version-byte prefix),
+  # signal hashing, and ffi_verify_with_roots invocation. Pass the current
+  # valid-roots window so verification is robust to root advances within
+  # the AcceptableRootWindowSize.
+  let validProof = verifyRlnProof(
+    g.rlnInstance, proof, input, g.validRoots.items().toSeq()
+  ).valueOr:
+    return err("could not verify the proof: " & error)
 
-  var normalizedProof = proof
-
-  let externalNullifier = generateExternalNullifier(proof.epoch, proof.rlnIdentifier).valueOr:
-    return err("Failed to compute external nullifier: " & error)
-  normalizedProof.externalNullifier = externalNullifier
-
-  let proofBytes = serialize(normalizedProof, input)
-  let proofBuffer = proofBytes.toBuffer()
-
-  let rootsBytes = serialize(g.validRoots.items().toSeq())
-  let rootsBuffer = rootsBytes.toBuffer()
-
-  var validProof: bool # out-param
-  let ffiOk = verify_with_roots(
-    g.rlnInstance, # RLN context created at init()
-    addr proofBuffer, # (proof + signal)
-    addr rootsBuffer, # valid Merkle roots
-    addr validProof # will be set by the FFI call
-    ,
-  )
-
-  if not ffiOk:
-    return err("could not verify the proof")
-  else:
-    info "Proof verified successfully"
-
+  info "Proof verified", isValid = validProof
   return ok(validProof)
 
 method onRegister*(g: OnchainGroupManager, cb: OnRegisterCallback) {.gcsafe.} =
