@@ -22,13 +22,13 @@ proc ts*(offset = 0, origin = now()): Timestamp =
 # Switch
 
 proc generateEcdsaKey*(): libp2p_keys.PrivateKey =
-  libp2p_keys.PrivateKey.random(ECDSA, rng[]).get()
+  libp2p_keys.PrivateKey.random(ECDSA, rng).get()
 
 proc generateEcdsaKeyPair*(): libp2p_keys.KeyPair =
-  libp2p_keys.KeyPair.random(ECDSA, rng[]).get()
+  libp2p_keys.KeyPair.random(ECDSA, rng).get()
 
 proc generateSecp256k1Key*(): libp2p_keys.PrivateKey =
-  libp2p_keys.PrivateKey.random(Secp256k1, rng[]).get()
+  libp2p_keys.PrivateKey.random(Secp256k1, rng).get()
 
 proc ethSecp256k1Key*(hex: string): eth_keys.PrivateKey =
   eth_keys.PrivateKey.fromHex(hex).get()

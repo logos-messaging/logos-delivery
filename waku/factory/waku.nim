@@ -59,7 +59,7 @@ const git_version* {.strdefine.} = "n/a"
 type Waku* = ref object
   stateInfo*: WakuStateInfo
   conf*: WakuConf
-  rng*: ref HmacDrbgContext
+  rng*: crypto.Rng
 
   key: crypto.PrivateKey
 
@@ -81,7 +81,7 @@ type Waku* = ref object
   brokerCtx*: BrokerContext
 
 proc setupSwitchServices(
-    waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: ref HmacDrbgContext
+    waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: crypto.Rng
 ) =
   proc onReservation(addresses: seq[MultiAddress]) {.gcsafe, raises: [].} =
     info "circuit relay handler new reserve event",

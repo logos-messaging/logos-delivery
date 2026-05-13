@@ -50,7 +50,6 @@ type StoreSyncConf* {.requiresInit.} = object
 type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
-  mixnodes*: seq[MixNodePubInfo]
 
 type KademliaDiscoveryConf* = object
   bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]

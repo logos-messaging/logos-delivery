@@ -35,13 +35,13 @@ const
   LightpushPubsubTopic = PubsubTopic("/waku/2/rs/1/0")
   LightpushContentTopic = ContentTopic("/examples/1/light-pubsub-example/proto")
 
-proc setupAndPublish(rng: ref HmacDrbgContext) {.async.} =
+proc setupAndPublish(rng: crypto.Rng) {.async.} =
   # use notice to filter all waku messaging
   setupLog(logging.LogLevel.NOTICE, logging.LogFormat.TEXT)
 
   notice "starting publisher", wakuPort = wakuPort
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[]).get()
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng).get()
     ip = parseIpAddress("0.0.0.0")
     flags = CapabilitiesBitfield.init(relay = true)
 

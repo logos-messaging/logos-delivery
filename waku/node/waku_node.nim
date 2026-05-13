@@ -8,7 +8,6 @@ import
   results,
   eth/keys,
   nimcrypto,
-  bearssl/rand,
   stew/byteutils,
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
@@ -23,8 +22,8 @@ import
   libp2p/transports/wstransport,
   libp2p/utility,
   libp2p/utils/offsettedseq,
-  libp2p/protocols/mix,
-  libp2p/protocols/mix/mix_protocol
+  libp2p_mix,
+  libp2p_mix/mix_protocol
 
 import
   waku/[
@@ -126,7 +125,7 @@ type
     wakuAutoSharding*: Option[Sharding]
     enr*: enr.Record
     libp2pPing*: Ping
-    rng*: ref rand.HmacDrbgContext
+    rng*: crypto.Rng
     brokerCtx*: BrokerContext
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
@@ -207,7 +206,7 @@ proc new*(
     peerManager: PeerManager,
     rateLimitSettings: ProtocolRateLimitSettings = DefaultProtocolRateLimit,
     # TODO: make this argument required after tests are updated
-    rng: ref HmacDrbgContext = crypto.newRng(),
+    rng: crypto.Rng = crypto.newRng(),
 ): T {.raises: [Defect, LPError, IOError, TLSStreamProtocolError].} =
   ## Creates a Waku Node instance.
 
@@ -299,10 +298,7 @@ proc getMixNodePoolSize*(node: WakuNode): int =
   return node.wakuMix.poolSize()
 
 proc mountMix*(
-    node: WakuNode,
-    clusterId: uint16,
-    mixPrivKey: Curve25519Key,
-    mixnodes: seq[MixNodePubInfo],
+    node: WakuNode, mixPrivKey: Curve25519Key
 ): Future[Result[void, string]] {.async.} =
   info "mounting mix protocol", nodeId = node.info #TODO log the config used
 
@@ -314,10 +310,13 @@ proc mountMix*(
   info "local addr", localaddr = localaddrStr
 
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes
+    mixPrivKey = mixPrivKey,
+    nodeAddr = localaddrStr,
+    switch = node.switch,
+    wakuKademlia = node.wakuKademlia,
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
-    return
+    return err("Waku Mix protocol initialization failed: " & error)
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
   node.wakuMix.registerDestReadBehavior(WakuLightPushCodec, readLp(int(-1)))
   let catchRes = catch:
@@ -575,6 +574,9 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
 
+  if not node.wakuKademlia.isNil():
+    node.wakuKademlia.start()
+
   ## The switch uses this mapper to update peer info addrs
   ## with announced addrs after start
   let addressMapper = proc(
@@ -634,11 +636,11 @@ proc stop*(node: WakuNode) {.async.} =
       not node.wakuPeerExchangeClient.pxLoopHandle.isNil():
     await node.wakuPeerExchangeClient.pxLoopHandle.cancelAndWait()
 
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.stop()
-
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.stopWait()
+
+  if not node.wakuKademlia.isNil():
+    node.wakuKademlia.stop()
 
   node.started = false
 

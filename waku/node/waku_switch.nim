@@ -9,20 +9,25 @@ import
   libp2p/crypto/crypto,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/rendezvous,
-  libp2p/protocols/connectivity/relay/relay,
+  libp2p/protocols/connectivity/relay/[client, relay],
+  libp2p/protocols/connectivity/autonat/[client, service],
+  libp2p/services/hpservice,
+  libp2p/services/autorelayservice,
   libp2p/nameresolving/nameresolver,
   libp2p/builders,
   libp2p/switch,
-  libp2p/transports/[transport, tcptransport, wstransport]
+  libp2p/transports/[transport, tcptransport, wstransport],
+  libp2p/peeraddrpolicy
 
-# override nim-libp2p default value (which is also 1)
+# override nim-libp2p default values (which are also 50 & 1)
+const MaxConnections* = 50
 const MaxConnectionsPerPeer* = 1
 
-proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
+#[ proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
   b.withTransport(
     proc(upgr: Upgrade, privateKey: crypto.PrivateKey): Transport =
       WsTransport.new(upgr)
-  )
+  ) ]#
 
 proc getSecureKey(path: string): TLSPrivateKey {.raises: [Defect, IOError].} =
   trace "Key path is.", path = path
@@ -42,7 +47,7 @@ proc getSecureCert(path: string): TLSCertificate {.raises: [Defect, IOError].} =
   except TLSStreamProtocolError as exc:
     info "exception raised from getSecureCert", err = exc.msg
 
-proc withWssTransport*(
+#[ proc withWssTransport*(
     b: SwitchBuilder, secureKeyPath: string, secureCertPath: string
 ): SwitchBuilder {.raises: [Defect, IOError].} =
   let key: TLSPrivateKey = getSecureKey(secureKeyPath)
@@ -51,7 +56,7 @@ proc withWssTransport*(
     tlsPrivateKey = key,
     tlsCertificate = cert,
     {TLSFlags.NoVerifyHost, TLSFlags.NoVerifyServerName}, # THIS IS INSECURE, NO?
-  )
+  ) ]#
 
 proc newWakuSwitch*(
     privKey = none(crypto.PrivateKey),
@@ -59,12 +64,12 @@ proc newWakuSwitch*(
     wsAddress = none(MultiAddress),
     secureManagers: openarray[SecureProtocol] = [SecureProtocol.Noise],
     transportFlags: set[ServerFlags] = {},
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     inTimeout: Duration = 5.minutes,
     outTimeout: Duration = 5.minutes,
     maxConnections = MaxConnections,
-    maxIn = -1,
-    maxOut = -1,
+    maxIn = int.high,
+    maxOut = int.high,
     maxConnsPerPeer = MaxConnectionsPerPeer,
     nameResolver: NameResolver = nil,
     sendSignedPeerRecord = false,
@@ -73,15 +78,20 @@ proc newWakuSwitch*(
     secureCertPath: string = "",
     agentString = none(string), # defaults to nim-libp2p version
     peerStoreCapacity = none(int), # defaults to 1.25 maxConnections
-    rendezvous: RendezVous = nil,
+    rendezvous: RendezVousConfig = nil,
     circuitRelay: Relay,
+    maxNumRelays: int = 5,
 ): Switch {.raises: [Defect, IOError, LPError].} =
+  let
+    autonatService = AutonatService.new(AutonatClient(), rng)
+    autoRelayService = AutoRelayService.new(maxNumRelays, RelayClient.new(), nil, rng)
+    hpService: Service = HPService.new(autonatService, autoRelayService)
+
   var b = SwitchBuilder
     .new()
     .withRng(rng)
     .withMaxConnections(maxConnections)
-    .withMaxIn(maxIn)
-    .withMaxOut(maxOut)
+    .withMaxInOut(maxIn, maxOut)
     .withMaxConnsPerPeer(maxConnsPerPeer)
     .withYamux()
     .withMplex(inTimeout, outTimeout)
@@ -89,8 +99,9 @@ proc newWakuSwitch*(
     .withTcpTransport(transportFlags)
     .withNameResolver(nameResolver)
     .withSignedPeerRecord(sendSignedPeerRecord)
-    .withCircuitRelay(circuitRelay)
-    .withAutonat()
+    #.withAddressPolicy(publicRoutableAddressPolicy)
+    #.withCircuitRelay(circuitRelay)
+    #.withServices(@[hpService])
 
   if peerStoreCapacity.isSome():
     b = b.withPeerStore(peerStoreCapacity.get())
@@ -104,10 +115,10 @@ proc newWakuSwitch*(
   if wsAddress.isSome():
     b = b.withAddresses(@[wsAddress.get(), address])
 
-    if wssEnabled:
+    #[ if wssEnabled:
       b = b.withWssTransport(secureKeyPath, secureCertPath)
     else:
-      b = b.withWsTransport()
+      b = b.withWsTransport() ]#
   else:
     b = b.withAddress(address)
 

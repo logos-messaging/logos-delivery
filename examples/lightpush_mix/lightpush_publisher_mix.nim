@@ -7,8 +7,8 @@ import
   confutils,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
-  libp2p/protocols/mix,
-  libp2p/protocols/mix/curve25519,
+  libp2p_mix,
+  libp2p_mix/curve25519,
   libp2p/multiaddress,
   eth/keys,
   eth/p2p/discoveryv5/enr,
@@ -48,13 +48,13 @@ proc splitPeerIdAndAddr(maddr: string): (string, string) =
     peerId = parts[1]
   return (address, peerId)
 
-proc setupAndPublish(rng: ref HmacDrbgContext, conf: LightPushMixConf) {.async.} =
+proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
   # use notice to filter all waku messaging
   setupLog(logging.LogLevel.DEBUG, logging.LogFormat.TEXT)
   notice "starting publisher", wakuPort = conf.port
 
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[]).get()
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng).get()
     ip = parseIpAddress("0.0.0.0")
     flags = CapabilitiesBitfield.init(relay = true)
 

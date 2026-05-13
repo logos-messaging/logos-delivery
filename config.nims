@@ -5,6 +5,8 @@ if defined(release):
 else:
   switch("nimcache", "nimcache/debug/$projectName")
 
+switch("passL", getCurrentDir() / "librln_v0.9.0.a")
+
 if defined(windows):
   switch("passL", "rln.lib")
   switch("define", "postgres=false")
@@ -90,6 +92,9 @@ if not defined(macosx) and not defined(android):
       nimStackTraceOverride
     switch("import", "libbacktrace")
 
+# Shim to provide valueOr and withValue for Option[T]
+switch("import", "waku/common/option_shim")
+
 --define:
   nimOldCaseObjects
   # https://github.com/status-im/nim-confutils/issues/9
@@ -118,6 +123,5 @@ if defined(android):
   switch("cincludes", sysRoot & "/usr/include/")
 # begin Nimble config (version 2)
 when withDir(thisDir(), system.fileExists("nimble.paths")):
-  --noNimblePath
   include "nimble.paths"
 # end Nimble config

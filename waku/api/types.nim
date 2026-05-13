@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import bearssl/rand, std/times, chronos
+import std/times, chronos, libp2p/crypto/crypto
 import stew/byteutils
 import waku/utils/requests as request_utils
 import waku/waku_core/[topics/content_topic, message/message, time]
@@ -19,7 +19,7 @@ type
     PartiallyConnected
     Connected
 
-proc new*(T: typedesc[RequestId], rng: ref HmacDrbgContext): T =
+proc new*(T: typedesc[RequestId], rng: crypto.Rng): T =
   ## Generate a new RequestId using the provided RNG.
   RequestId(request_utils.generateRequestId(rng))
 

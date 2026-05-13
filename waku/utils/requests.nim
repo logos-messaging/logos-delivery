@@ -2,9 +2,9 @@
 
 {.push raises: [].}
 
-import bearssl/rand, stew/byteutils
+import libp2p/crypto/crypto, stew/byteutils
 
-proc generateRequestId*(rng: ref HmacDrbgContext): string =
+proc generateRequestId*(rng: crypto.Rng): string =
   var bytes: array[10, byte]
-  hmacDrbgGenerate(rng[], bytes)
+  rng.generate(bytes)
   return byteutils.toHex(bytes)

@@ -21,9 +21,9 @@ import
   ../testlib/[common, wakucore, wakunode, testasync, futures, testutils],
   ../waku_filter_v2/waku_filter_utils
 
-proc generateRequestId(rng: ref HmacDrbgContext): string =
+proc generateRequestId(rng: crypto.Rng): string =
   var bytes: array[10, byte]
-  hmacDrbgGenerate(rng[], bytes)
+  rng.generate(bytes)
   return toHex(bytes)
 
 proc createRequest(

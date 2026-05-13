@@ -27,13 +27,13 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#ff8d51857b4b79a68468e7bcc27b2026cca02996",
+  "https://github.com/vacp2p/nim-libp2p.git#d4cd68b91b82f34a0ede3766ab1ca8119d5015f8",
   "eth",
   "nat_traversal",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "websock >= 0.3.0",
+  "https://github.com/status-im/nim-websock#42c37b4172519566db016810eccfce8a02cc1cdf",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "secp256k1",
@@ -60,10 +60,11 @@ requires "nim >= 2.2.4",
 
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
+requires "https://github.com/logos-co/nim-libp2p-mix.git#6c5f43ae715443dc72048a12b0ea3afc06f0fa2b"
 
 requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135fae3a3803eed8490d4"
 
-requires "https://github.com/vacp2p/nim-lsquic"
+requires "lsquic >= 0.4.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
 proc getMyCPU(): string =
@@ -433,6 +434,16 @@ task chat2mix, "Build example Waku chat mix usage":
     "apps/chat2mix/",
     "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level=TRACE "
   #  -d:ssl - cause unlisted exception error in libp2p/utility...
+
+task chat2disco, "Build example Waku chat with service discovery":
+  # NOTE For debugging, set debug level. For chat usage we want minimal log
+  # output to STDOUT. Can be fixed by redirecting logs to file (e.g.)
+  #buildBinary name, "examples/", "-d:chronicles_log_level=WARN"
+  
+  let name = "chat2disco"
+  buildBinary name,
+    "apps/chat2disco/",
+    "-d:chronicles_sinks=textlines -d:chronicles_log_level=DEBUG "
 
 task chat2bridge, "Build chat2bridge":
   let name = "chat2bridge"

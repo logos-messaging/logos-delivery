@@ -8,7 +8,6 @@ import
   results,
   chronicles,
   chronos,
-  bearssl/rand,
   libp2p/crypto/crypto,
   libp2p/protocols/protocol,
   libp2p/protobuf/minprotobuf,
@@ -30,7 +29,7 @@ type StoreQueryRequestHandler* =
 
 type WakuStore* = ref object of LPProtocol
   peerManager: PeerManager
-  rng: ref rand.HmacDrbgContext
+  rng: Rng
   requestHandler*: StoreQueryRequestHandler
   requestRateLimiter*: RequestRateLimiter
 
@@ -156,7 +155,7 @@ proc initProtocolHandler(self: WakuStore) =
 proc new*(
     T: type WakuStore,
     peerManager: PeerManager,
-    rng: ref rand.HmacDrbgContext,
+    rng: crypto.Rng,
     requestHandler: StoreQueryRequestHandler,
     rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
 ): T =

@@ -1,4 +1,4 @@
-import std/[times, random], bearssl/rand, libp2p/crypto/crypto
+import std/[times, random], libp2p/crypto/crypto
 
 ## Randomization
 
@@ -11,14 +11,14 @@ proc randomize*() =
 ## RNG
 # Copied from here: https://github.com/status-im/nim-libp2p/blob/d522537b19a532bc4af94fcd146f779c1f23bad0/tests/helpers.nim#L28
 
-type Rng = object
-  rng: ref HmacDrbgContext
+type RngState = object
+  rng: Rng
 
 # Typically having a module variable is considered bad design. This case should
 # be considered as an exception and it should be used only in the tests.
-var rngVar: Rng
+var rngVar: RngState
 
-proc getRng(): ref HmacDrbgContext =
+proc getRng(): Rng =
   # TODO: if `rngVar` is a threadvar like it should be, there are random and
   #      spurious compile failures on mac - this is not gcsafe but for the
   #      purpose of the tests, it's ok as long as we only use a single thread
@@ -28,5 +28,5 @@ proc getRng(): ref HmacDrbgContext =
 
     rngVar.rng
 
-template rng*(): ref HmacDrbgContext =
+template rng*(): Rng =
   getRng()

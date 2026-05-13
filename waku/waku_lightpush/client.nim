@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/options, results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
+import std/options, results, chronicles, chronos, metrics, libp2p/crypto/crypto, stew/byteutils
 import libp2p/peerid, libp2p/stream/connection
 import
   ../waku_core/peers,
@@ -16,11 +16,11 @@ logScope:
   topics = "waku lightpush client"
 
 type WakuLightPushClient* = ref object
-  rng*: ref rand.HmacDrbgContext
+  rng*: Rng
   peerManager*: PeerManager
 
 proc new*(
-    T: type WakuLightPushClient, peerManager: PeerManager, rng: ref rand.HmacDrbgContext
+    T: type WakuLightPushClient, peerManager: PeerManager, rng: crypto.Rng
 ): T =
   WakuLightPushClient(peerManager: peerManager, rng: rng)
 

@@ -7,7 +7,7 @@ import
   chronicles,
   chronos,
   metrics,
-  bearssl/rand
+  libp2p/crypto/crypto
 import
   ../node/peer_manager/peer_manager,
   ../waku_core,
@@ -22,7 +22,7 @@ logScope:
   topics = "waku lightpush"
 
 type WakuLightPush* = ref object of LPProtocol
-  rng*: ref rand.HmacDrbgContext
+  rng*: Rng
   peerManager*: PeerManager
   pushHandler*: PushMessageHandler
   requestRateLimiter*: RequestRateLimiter
@@ -156,7 +156,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
 proc new*(
     T: type WakuLightPush,
     peerManager: PeerManager,
-    rng: ref rand.HmacDrbgContext,
+    rng: crypto.Rng,
     pushHandler: PushMessageHandler,
     autoSharding: Option[Sharding],
     rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
