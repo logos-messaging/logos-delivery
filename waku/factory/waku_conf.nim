@@ -1,10 +1,12 @@
 import
   std/[net, options, strutils],
   chronicles,
+  chronos,
   libp2p/crypto/crypto,
   libp2p/multiaddress,
   libp2p/crypto/curve25519,
   libp2p/peerid,
+  libp2p/extended_peer_record,
   secp256k1,
   results
 
@@ -54,7 +56,10 @@ type MixConf* = ref object
 
 type KademliaDiscoveryConf* = object
   bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
-    ## Bootstrap nodes for extended kademlia discovery.
+  servicesToAdvertise*: seq[ServiceInfo]
+  servicesToDiscover*: seq[string]
+  randomLookupInterval*: Duration
+  serviceLookupInterval*: Duration
 
 type StoreServiceConf* {.requiresInit.} = object
   dbMigration*: bool
