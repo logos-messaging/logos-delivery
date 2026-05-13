@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[tables, sequtils, sets, options, strutils, random, times],
+  std/[tables, sequtils, sets, options, strutils],
   chronos,
   chronicles,
   eth/p2p/discoveryv5/enr,
@@ -42,11 +42,6 @@ type
 
   # Keeps track of peer shards
   ShardBook* = ref object of PeerBook[seq[uint16]]
-
-proc randomizePeers(peers: var seq[RemotePeerInfo]) =
-  let time = int64(times.epochTime() * 1000) and 0x7fff_ffff
-  var rand = initRand(time)
-  shuffle(rand, peers)
 
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
   let addresses =
@@ -95,9 +90,7 @@ proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
     )
     .toHashSet()
 
-  var peers = allKeys.mapIt(peerStore.getPeer(it))
-  randomizePeers(peers)
-  return peers
+  return allKeys.mapIt(peerStore.getPeer(it))
 
 proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin) =
   ## Storing MixPubKey even if peer is already present as this info might be new

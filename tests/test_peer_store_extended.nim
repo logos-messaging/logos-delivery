@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[sequtils, times, sets],
+  std/[sequtils, times],
   chronos,
   libp2p/crypto/crypto,
   libp2p/peerid,
@@ -186,25 +186,6 @@ suite "Extended nim-libp2p Peer Store":
       p3.origin == Discv5
       p3.numberFailedConn == 3
       p3.lastFailedConn == Moment.init(1003, Second)
-
-  test "peers() randomizes returned ordering across calls":
-    let firstOrder = peerStore.peers().mapIt(it.peerId)
-    var differentOrder: seq[PeerId] = @[]
-    var seed = int64(times.epochTime() * 1000)
-
-    for _ in 0 ..< 10:
-      while int64(times.epochTime() * 1000) == seed:
-        ## enforce certain delay to ensure different seed for randomization across calls to peers()
-        discard
-      seed = int64(times.epochTime() * 1000)
-      let nextOrder = peerStore.peers().mapIt(it.peerId)
-      if nextOrder != firstOrder:
-        differentOrder = nextOrder
-        break
-
-    check differentOrder.len == firstOrder.len
-    check differentOrder != firstOrder
-    check differentOrder.toHashSet() == firstOrder.toHashSet()
 
   test "peers() returns all StoredInfo matching a specific protocol":
     # When
