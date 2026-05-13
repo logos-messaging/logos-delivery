@@ -1,5 +1,7 @@
 import std/[sequtils, sets, tables, options, strutils], chronos, chronicles, results
 import libp2p/[peerid, peerinfo]
+import brokers/broker_context
+
 import
   waku/[
     waku_core,
@@ -10,7 +12,6 @@ import
     waku_filter_v2/common as filter_common,
     waku_filter_v2/client as filter_client,
     waku_filter_v2/protocol as filter_protocol,
-    common/broker/broker_context,
     events/health_events,
     events/peer_events,
     requests/health_requests,
@@ -530,7 +531,7 @@ proc stopEdgeFilterLoops(self: SubscriptionManager) {.async: (raises: []).} =
       if not fut.finished:
         await fut.cancelAndWait()
 
-  WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)
+  await WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)
 
 # ---------------------------------------------------------------------------
 # SubscriptionManager Lifecycle (calls Edge behavior above)

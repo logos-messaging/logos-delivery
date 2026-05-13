@@ -56,7 +56,9 @@ requires "nim >= 2.2.4",
   "zlib",
   # Debug & Testing
   "testutils",
-  "unittest2"
+  "unittest2",
+  "brokers >= 2.0.1",
+  "https://github.com/NagyZoltanPeter/nim-brokers.git#6e7b7cc1ec0d0989d50da58af84f4b9a8dfc8a6f"
 
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"

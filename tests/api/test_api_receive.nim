@@ -3,6 +3,7 @@
 import std/[options, sequtils, net, sets]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, crypto/crypto]
+import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
 
@@ -11,7 +12,6 @@ import
   waku/[
     waku_node,
     waku_core,
-    common/broker/broker_context,
     events/message_events,
     waku_relay/protocol,
     waku_archive,
@@ -52,8 +52,8 @@ proc newReceiveEventListenerManager(
 
   return manager
 
-proc teardown(manager: ReceiveEventListenerManager) =
-  MessageReceivedEvent.dropListener(manager.brokerCtx, manager.receivedListener)
+proc teardown(manager: ReceiveEventListenerManager) {.async.} =
+  await MessageReceivedEvent.dropListener(manager.brokerCtx, manager.receivedListener)
 
 proc waitForEvents(
     manager: ReceiveEventListenerManager, timeout: Duration
@@ -182,7 +182,7 @@ suite "Messaging API, Receive Service (store recovery)":
     # listen before triggering store check
     let eventManager = newReceiveEventListenerManager(subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     # trigger store check, should recover and deliver via MessageReceivedEvent
     await subscriber.deliveryService.recvService.checkStore()

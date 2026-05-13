@@ -1,0 +1,444 @@
+## Public facade and main driver types for the persistency library.
+##
+## ``Persistency`` is the per-root coordinator; one instance owns one
+## directory and any number of named jobs. ``Job`` is the per-job handle:
+## one tenant, one DB file, one worker thread, one BrokerContext.
+##
+## ## Two ways to drive a job
+##
+## **By Job ref** — capture the handle from `openJob` and call methods on
+## it. Cheapest, no map lookup per call:
+##
+## ```nim
+## let p = Persistency.new("/var/lib/wakustore").get()
+## let j = p.openJob("alpha").get()
+## j.persistPut("msg", k, payload)
+## let v = waitFor j.get("msg", k)
+## ```
+##
+## **By job id string** — useful when the caller doesn't want to thread
+## the ``Job`` ref around (config-driven services, RPC dispatchers). The
+## Job must still have been opened previously; the string-form procs look
+## it up in `Persistency.jobs`:
+##
+## ```nim
+## discard p.openJob("alpha")
+## p.persistPut("alpha", "msg", k, payload)         # void, logs if not open
+## let v = waitFor p.get("alpha", "msg", k)         # Result, peJobNotFound if missing
+## ```
+##
+## ## Drain semantics
+##
+## Writes are fire-and-forget (PersistEvent). A read issued immediately
+## after a write is racy by design in v1. To bridge the race:
+##   * use ``deleteAcked`` (it round-trips through the read path), or
+##   * poll ``exists`` until it returns true, or
+##   * yield with ``await sleepAsync(...)``.
+
+{.push raises: [].}
+
+import std/[locks, options, os, sequtils, tables]
+import chronos, chronicles, results
+import brokers/[event_broker, request_broker, broker_context]
+import waku/requests/lifecycle_requests
+import ./[types, keys, payload, backend_comm, backend_thread]
+
+export types, keys, payload
+
+logScope:
+  topics = "persistency"
+
+# ── Driver types ────────────────────────────────────────────────────────
+
+type
+  Job* = ref object
+    ## Per-job handle. Owns its BrokerContext and the worker thread that
+    ## services it. Created and torn down via `Persistency.openJob` /
+    ## `Persistency.closeJob`.
+    id*: string
+    context*: BrokerContext
+    runtime: JobRuntime ## internal — managed by openJob/closeJob
+    running*: bool
+
+  Persistency* = ref object
+    ## Per-root coordinator. One Persistency instance manages a directory
+    ## of per-job SQLite files at ``rootDir/<jobId>.db``.
+    rootDir*: string
+    jobs*: Table[string, Job]
+
+# ── Singleton state ─────────────────────────────────────────────────────
+#
+# Persistency is a process-wide singleton: one rootDir at a time. The
+# `instance` factory is the only public constructor; `new` below is
+# private and skips the singleton bookkeeping (used internally and never
+# called twice with conflicting rootDirs).
+
+var
+  gPersistency {.global.}: Persistency
+  gPersistencyLock {.global.}: Lock
+
+once:
+  gPersistencyLock.initLock()
+
+# ── Lifecycle ───────────────────────────────────────────────────────────
+
+proc dbPathFor(p: Persistency, jobId: string): string =
+  p.rootDir / (jobId & ".db")
+
+proc new(T: type Persistency, rootDir: string): Result[T, PersistencyError] =
+  ## Private. Build a Persistency value without touching the singleton
+  ## slot. Open-or-create semantics on ``rootDir``:
+  ##
+  ## * If ``rootDir`` does not exist, it is created (with missing parents).
+  ## * If ``rootDir`` exists and is a directory, it is reused as-is.
+  ## * If ``rootDir`` exists but is not a directory, returns
+  ##   ``peInvalidArgument``.
+  if fileExists(rootDir) and not dirExists(rootDir):
+    return err(
+      persistencyErr(
+        peInvalidArgument, "rootDir exists and is not a directory: " & rootDir
+      )
+    )
+  if not dirExists(rootDir):
+    try:
+      createDir(rootDir)
+    except OSError, IOError:
+      return
+        err(persistencyErr(peBackend, "createDir failed: " & getCurrentExceptionMsg()))
+  ok(T(rootDir: rootDir, jobs: initTable[string, Job]()))
+
+proc reset*(T: type Persistency) {.gcsafe.} =
+  ## Tear down the singleton: close every open job, clear the Teardown
+  ## provider, and free the slot so a subsequent ``Persistency.instance``
+  ## starts fresh. Idempotent. Tests use this in `defer`; production
+  ## shutdown drives it indirectly via the Teardown request flow.
+  {.cast(gcsafe).}:
+    acquire(gPersistencyLock)
+    defer: release(gPersistencyLock)
+    if gPersistency != nil:
+      let p = gPersistency
+      gPersistency = nil
+      p.close()
+    Teardown.clearProviders()
+
+proc closeAllJobsAndClear() {.gcsafe.} =
+  ## Internal: close every open job on the singleton instance and clear
+  ## the slot. Does NOT touch the Teardown providers (that's
+  ## ``Waku.stop()``'s job after the request resolves). Called from the
+  ## Teardown handler.
+  {.cast(gcsafe).}:
+    let p = gPersistency
+    if p == nil:
+      return
+    var ids: seq[string]
+    for id in p.jobs.keys:
+      ids.add(id)
+    for id in ids:
+      let job = p.jobs.getOrDefault(id, nil)
+      if job != nil:
+        stopStorageThread(job.runtime)
+        job.runtime = nil
+        job.running = false
+        p.jobs.del(id)
+    gPersistency = nil
+
+proc registerTeardown() {.gcsafe.} =
+  ## Wire the Teardown handler. Don't go through `Persistency.reset` here:
+  ## that would call `Teardown.clearProviders()` while we are still
+  ## inside a provider dispatch. `Waku.stop()` runs `clearAllProviders`
+  ## itself after the request resolves.
+  proc onTeardown(): Future[Result[Teardown, string]] {.async.} =
+    {.cast(gcsafe).}:
+      let p = gPersistency
+      let jobIds =
+        if p != nil: toSeq(p.jobs.keys) else: @[]
+      info "Persistency shutting down jobs", jobcount = jobIds.len
+      closeAllJobsAndClear()
+      return ok(Teardown(component: "persistency jobs:" & $jobIds))
+
+  let regRes = Teardown.setProvider(onTeardown)
+  if regRes.isErr:
+    error "Teardown.setProvider failed", err = regRes.error
+
+proc instance*(T: type Persistency, rootDir: string):
+    Result[T, PersistencyError] {.gcsafe.} =
+  ## Get-or-init the process-wide Persistency singleton.
+  ##
+  ## * First call: opens ``rootDir`` and registers the Teardown handler.
+  ## * Later calls with the same ``rootDir``: returns the live instance
+  ##   (idempotent).
+  ## * Later calls with a different ``rootDir``: returns
+  ##   ``peInvalidArgument`` — the singleton can only be re-targeted via
+  ##   ``Persistency.reset`` (or by the Teardown shutdown flow).
+  {.cast(gcsafe).}:
+    acquire(gPersistencyLock)
+    defer: release(gPersistencyLock)
+
+    if gPersistency != nil:
+      if gPersistency.rootDir == rootDir:
+        return ok(gPersistency)
+      return err(persistencyErr(
+        peInvalidArgument,
+        "Persistency already initialised with rootDir " & gPersistency.rootDir &
+          "; cannot re-init with " & rootDir))
+
+    let p = ?Persistency.new(rootDir)
+    gPersistency = p
+    registerTeardown()
+    ok(p)
+
+proc instance*(T: type Persistency):
+    Result[T, PersistencyError] {.gcsafe.} =
+  ## No-args form: succeeds only if the singleton is already initialised.
+  ## Use this from services that must not be the first to touch
+  ## persistency.
+  {.cast(gcsafe).}:
+    acquire(gPersistencyLock)
+    defer: release(gPersistencyLock)
+    if gPersistency.isNil:
+      return err(persistencyErr(peClosed, "Persistency not initialised"))
+    ok(gPersistency)
+
+proc openJob*(p: Persistency, jobId: string): Result[Job, PersistencyError] =
+  ## Open-or-create a job under this Persistency.
+  ##
+  ## * If the job is already open in this process, the existing ``Job``
+  ##   ref is returned (idempotent).
+  ## * Otherwise a worker thread is spawned and the SQLite file at
+  ##   ``<rootDir>/<jobId>.db`` is opened. If the file does not exist it
+  ##   is created and the schema initialised; if it already exists it is
+  ##   reopened in place and its data is preserved.
+  let existing = p.jobs.getOrDefault(jobId, nil)
+  if existing != nil:
+    return ok(existing)
+
+  let ctx = NewBrokerContext()
+  let rt = ?startStorageThread(ctx, dbPathFor(p, jobId))
+  let job = Job(id: jobId, context: ctx, runtime: rt, running: true)
+  p.jobs[jobId] = job
+  ok(job)
+
+proc closeJob*(p: Persistency, jobId: string) =
+  ## Stop the worker, join its thread, and forget the job. No-op if the
+  ## job isn't open.
+  let job = p.jobs.getOrDefault(jobId, nil)
+  if job == nil:
+    return
+  stopStorageThread(job.runtime)
+  job.runtime = nil
+  job.running = false
+  p.jobs.del(jobId)
+
+proc close*(p: Persistency) =
+  ## Close every open job. Idempotent.
+  var ids: seq[string]
+  for id in p.jobs.keys:
+    ids.add(id)
+  for id in ids:
+    p.closeJob(id)
+
+proc dropJob*(p: Persistency, jobId: string) =
+  ## Close the job if open, then delete its DB file (plus -wal / -shm
+  ## sidecars). Best-effort: a missing file is not an error.
+  p.closeJob(jobId)
+  let path = dbPathFor(p, jobId)
+  for suffix in ["", "-wal", "-shm"]:
+    try:
+      removeFile(path & suffix)
+    except OSError, IOError:
+      discard
+
+# ── String lookup ───────────────────────────────────────────────────────
+
+proc job*(p: Persistency, jobId: string): Result[Job, PersistencyError] =
+  ## Look up an already-open job. Returns ``peJobNotFound`` if no such
+  ## job has been opened (``openJob`` first).
+  let j = p.jobs.getOrDefault(jobId, nil)
+  if j != nil:
+    ok(j)
+  else:
+    err(persistencyErr(peJobNotFound, "no open job with id: " & jobId))
+
+proc `[]`*(p: Persistency, jobId: string): Job {.raises: [KeyError].} =
+  ## Subscript sugar for `job` — raises ``KeyError`` if the job isn't
+  ## open. Prefer `job(p, id)` when you want a typed error.
+  p.jobs[jobId]
+
+proc hasJob*(p: Persistency, jobId: string): bool {.inline.} =
+  p.jobs.hasKey(jobId)
+
+# ── Writes (fire-and-forget) — Job form ─────────────────────────────────
+
+proc persist*(t: Job, ops: openArray[TxOp]) =
+  ## Emit a batched persist event. The handler treats >1 ops as a single
+  ## BEGIN IMMEDIATE/COMMIT transaction (see backend_sqlite.applyOps).
+  ## ``waitFor`` is bounded by the mt emit's ``sendSync`` — a brief
+  ## channel push, not a wait on the listener.
+  var seqOps: seq[TxOp]
+  seqOps.setLen(ops.len)
+  for i in 0 ..< ops.len:
+    seqOps[i] = ops[i]
+  try:
+    waitFor PersistEvent.emit(t.context, PersistEvent(ops: seqOps))
+  except CatchableError:
+    discard ## emit is async (raises: []); waitFor never raises in practice
+
+proc persist*(t: Job, op: TxOp) {.inline.} =
+  persist(t, [op])
+
+proc persistPut*(t: Job, category: string, key: Key, payload: openArray[byte]) =
+  var p = newSeq[byte](payload.len)
+  for i in 0 ..< payload.len:
+    p[i] = payload[i]
+  persist(t, TxOp(category: category, key: key, kind: txPut, payload: p))
+
+proc persistDelete*(t: Job, category: string, key: Key) {.inline.} =
+  persist(t, TxOp(category: category, key: key, kind: txDelete))
+
+proc persistEncoded*[T](t: Job, category: string, key: Key, value: T) {.inline.} =
+  ## Convenience: encode `value` via `toPayload` and put it. Use the raw
+  ## `persistPut(... openArray[byte])` form when you already have bytes
+  ## (e.g. an externally-produced CBOR blob).
+  persistPut(t, category, key, toPayload(value))
+
+# ── Writes (fire-and-forget) — string-lookup form ───────────────────────
+#
+# These look up the Job by id and dispatch. If the job isn't open we log
+# a warning and drop the write — consistent with the fire-and-forget
+# contract; the caller has no return channel to inspect.
+
+proc jobOrWarn(p: Persistency, jobId: string): Job =
+  ## Lookup helper for the fire-and-forget write paths. Returns nil and
+  ## logs a warning if the job isn't open. Isolated as a non-generic proc
+  ## so chronicles' `warn` macro expands cleanly (it doesn't, when called
+  ## from inside a generic proc's body).
+  result = p.jobs.getOrDefault(jobId, nil)
+  if result == nil:
+    warn "persistency: write dropped, job not open", jobId
+
+template withJobOrWarn(p: Persistency, jobId: string, j, body: untyped) =
+  let `j` = p.jobOrWarn(jobId)
+  if `j` != nil:
+    body
+
+proc persist*(p: Persistency, jobId: string, ops: openArray[TxOp]) =
+  withJobOrWarn(p, jobId, j):
+    j.persist(ops)
+
+proc persist*(p: Persistency, jobId: string, op: TxOp) {.inline.} =
+  p.persist(jobId, [op])
+
+proc persistPut*(
+    p: Persistency, jobId: string, category: string, key: Key, payload: openArray[byte]
+) =
+  # openArray can't be captured by the template, so look up explicitly.
+  let j = p.jobOrWarn(jobId)
+  if j != nil:
+    j.persistPut(category, key, payload)
+
+proc persistDelete*(p: Persistency, jobId: string, category: string, key: Key) =
+  withJobOrWarn(p, jobId, j):
+    j.persistDelete(category, key)
+
+proc persistEncoded*[T](
+    p: Persistency, jobId: string, category: string, key: Key, value: T
+) =
+  let j = p.jobOrWarn(jobId)
+  if j != nil:
+    j.persistEncoded(category, key, value)
+
+# ── Reads (async, typed errors) — Job form ──────────────────────────────
+
+template liftErr(s: string): PersistencyError =
+  decodeErr(s)
+
+proc get*(
+    t: Job, category: string, key: Key
+): Future[Result[Option[seq[byte]], PersistencyError]] {.async.} =
+  let r = await KvGet.request(t.context, category, key)
+  if r.isErr:
+    return err(liftErr(r.error()))
+  return ok(r.get().value)
+
+proc exists*(
+    t: Job, category: string, key: Key
+): Future[Result[bool, PersistencyError]] {.async.} =
+  let r = await KvExists.request(t.context, category, key)
+  if r.isErr:
+    return err(liftErr(r.error()))
+  return ok(r.get().value)
+
+proc scan*(
+    t: Job, category: string, range: KeyRange, reverse = false
+): Future[Result[seq[KvRow], PersistencyError]] {.async.} =
+  let r = await KvScan.request(t.context, category, range, reverse)
+  if r.isErr:
+    return err(liftErr(r.error()))
+  return ok(r.get().rows)
+
+proc scanPrefix*(
+    t: Job, category: string, prefix: Key, reverse = false
+): Future[Result[seq[KvRow], PersistencyError]] {.async.} =
+  let rng = prefixRange(prefix)
+  let r = await KvScan.request(t.context, category, rng, reverse)
+  if r.isErr:
+    return err(liftErr(r.error()))
+  return ok(r.get().rows)
+
+proc count*(
+    t: Job, category: string, range: KeyRange
+): Future[Result[int, PersistencyError]] {.async.} =
+  let r = await KvCount.request(t.context, category, range)
+  if r.isErr:
+    return err(liftErr(r.error()))
+  return ok(r.get().n)
+
+proc deleteAcked*(
+    t: Job, category: string, key: Key
+): Future[Result[bool, PersistencyError]] {.async.} =
+  ## Goes through the read path so the caller learns whether a row was
+  ## actually removed.
+  let r = await KvDelete.request(t.context, category, key)
+  if r.isErr:
+    return err(liftErr(r.error()))
+  return ok(r.get().existed)
+
+# ── Reads (async, typed errors) — string-lookup form ────────────────────
+
+proc get*(
+    p: Persistency, jobId: string, category: string, key: Key
+): Future[Result[Option[seq[byte]], PersistencyError]] {.async.} =
+  let j = ?p.job(jobId)
+  return await j.get(category, key)
+
+proc exists*(
+    p: Persistency, jobId: string, category: string, key: Key
+): Future[Result[bool, PersistencyError]] {.async.} =
+  let j = ?p.job(jobId)
+  return await j.exists(category, key)
+
+proc scan*(
+    p: Persistency, jobId: string, category: string, range: KeyRange, reverse = false
+): Future[Result[seq[KvRow], PersistencyError]] {.async.} =
+  let j = ?p.job(jobId)
+  return await j.scan(category, range, reverse)
+
+proc scanPrefix*(
+    p: Persistency, jobId: string, category: string, prefix: Key, reverse = false
+): Future[Result[seq[KvRow], PersistencyError]] {.async.} =
+  let j = ?p.job(jobId)
+  return await j.scanPrefix(category, prefix, reverse)
+
+proc count*(
+    p: Persistency, jobId: string, category: string, range: KeyRange
+): Future[Result[int, PersistencyError]] {.async.} =
+  let j = ?p.job(jobId)
+  return await j.count(category, range)
+
+proc deleteAcked*(
+    p: Persistency, jobId: string, category: string, key: Key
+): Future[Result[bool, PersistencyError]] {.async.} =
+  let j = ?p.job(jobId)
+  return await j.deleteAcked(category, key)
+
+{.pop.}

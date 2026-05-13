@@ -1,11 +1,10 @@
 import chronicles, chronos, results
 import std/options
-
+import brokers/broker_context
 import
   waku/node/peer_manager,
   waku/waku_core,
-  waku/waku_lightpush/[common, client, rpc],
-  waku/common/broker/broker_context
+  waku/waku_lightpush/[common, client, rpc]
 
 import ./[delivery_task, send_processor]
 

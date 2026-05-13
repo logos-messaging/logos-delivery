@@ -16,7 +16,8 @@ import
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/stream/connection,
-  libp2p/switch
+  libp2p/switch,
+  brokers/broker_context
 
 import
   waku/waku_core,
@@ -24,7 +25,6 @@ import
   waku/requests/health_requests,
   waku/events/health_events,
   ./message_id,
-  waku/common/broker/broker_context,
   waku/events/peer_events
 
 from waku/waku_core/codecs import WakuRelayCodec
@@ -526,7 +526,7 @@ method stop*(w: WakuRelay) {.async: (raises: []).} =
   info "stop"
   await procCall GossipSub(w).stop()
 
-  WakuPeerEvent.dropListener(w.brokerCtx, w.peerEventListener)
+  await WakuPeerEvent.dropListener(w.brokerCtx, w.peerEventListener)
 
   if not w.topicHealthLoopHandle.isNil():
     await w.topicHealthLoopHandle.cancelAndWait()

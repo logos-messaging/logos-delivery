@@ -140,7 +140,8 @@ type
 
     metricsServerAddress* {.
       desc: "Listening address of the metrics server.",
-      defaultValue: parseIpAddress("127.0.0.1"),
+      defaultValue:
+        IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
       name: "metrics-server-address"
     .}: IpAddress
 
@@ -173,7 +174,10 @@ type
     dnsAddrsNameServers* {.
       desc:
         "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated.",
-      defaultValue: @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
+      defaultValue: @[
+        IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 1, 1, 1]),
+        IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 0, 0, 1]),
+      ],
       name: "dns-addrs-name-server"
     .}: seq[IpAddress]
 
@@ -348,4 +352,4 @@ proc parseCmdArg*(T: type EthRpcUrl, s: string): T =
 func defaultListenAddress*(conf: Chat2Conf): IpAddress =
   # TODO: How should we select between IPv4 and IPv6
   # Maybe there should be a config option for this.
-  (static parseIpAddress("0.0.0.0"))
+  (static IpAddress(family: IpAddressFamily.IPv4, address_v4: [0'u8, 0, 0, 0]))

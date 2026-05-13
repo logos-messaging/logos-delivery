@@ -7,6 +7,7 @@ import
   presto,
   presto/client as presto_client,
   libp2p/crypto/crypto
+import brokers/broker_context
 import
   waku/[
     common/base64,
@@ -20,13 +21,13 @@ import
     rest_api/endpoint/relay/handlers as relay_rest_interface,
     rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
-    waku_rln_relay,
-    common/broker/broker_context,
+    waku_rln_relay
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
+
 
 proc testWakuNode(): WakuNode =
   let
