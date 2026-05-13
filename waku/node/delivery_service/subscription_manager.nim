@@ -61,7 +61,16 @@ type SubscriptionManager* = ref object of RootObj
 iterator subscribedTopics*(
     self: SubscriptionManager
 ): (PubsubTopic, HashSet[ContentTopic]) =
+  ## Iterate over all subscribed content topics, batched per shard.
+  ## This is guaranteed to return a non-empty `topics` (content topics) list on iteration.
+
   for pubsub, topics in self.contentTopicSubs.pairs:
+    # We are iterating over subscribed content topics; if we are subscribed to
+    # a shard but have no subscription (interest) for any content topic in that
+    # shard, then avoid triggering an iteration that doesn't advance the intent
+    # to iterate over content topic subscriptions.
+    if topics.len == 0:
+      continue
     yield (pubsub, topics)
 
 proc edgeFilterPeerCount*(sm: SubscriptionManager, shard: PubsubTopic): int =

@@ -138,7 +138,20 @@ suite "Messaging API, Receive Service (store recovery)":
         break
       await sleepAsync(100.milliseconds)
 
-    # publish before subscriber exists, gets archived
+    # create the subscriber before publishing.
+    # RecvService captures startTimeToCheck at construction time; the
+    # message's timestamp must land after that point to fall inside
+    # checkStore's time window.
+    var subscriber: Waku
+    lockNewGlobalBrokerContext:
+      subscriber = (await createNode(createApiNodeConf(numShards))).expect(
+        "Failed to create subscriber"
+      )
+      (await startWaku(addr subscriber)).expect("Failed to start subscriber")
+
+    # publish after the subscriber exists but before it connects to the
+    # store; the message reaches the archive but the subscriber doesn't
+    # see it via live relay.
     let missedPayload = "This message was missed".toBytes()
     let missedMsg = WakuMessage(
       payload: missedPayload, contentTopic: testTopic, version: 0, timestamp: now()
@@ -159,15 +172,8 @@ suite "Messaging API, Receive Service (store recovery)":
         await sleepAsync(100.milliseconds)
       raiseAssert "Message was not archived in time"
 
-    # create subscriber
-    var subscriber: Waku
-    lockNewGlobalBrokerContext:
-      subscriber = (await createNode(createApiNodeConf(numShards))).expect(
-        "Failed to create subscriber"
-      )
-      (await startWaku(addr subscriber)).expect("Failed to start subscriber")
-
-    # connect subscriber to store (not publisher, so msg won't come via relay to it)
+    # connect subscriber to store after the message is already archived so
+    # gossipsub doesn't replay it via the live path
     await subscriber.node.connectToNodes(@[storeNodePeerInfo])
 
     # subscribe to content topic

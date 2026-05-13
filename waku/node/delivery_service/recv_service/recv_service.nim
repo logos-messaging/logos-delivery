@@ -78,10 +78,16 @@ proc processIncomingMessage(
   ## recently-seen, emit a MessageReceivedEvent, and return true.
 
   if not self.subscriptionManager.isSubscribed(pubsubTopic, message.contentTopic):
+    trace "skipping message as I am not subscribed",
+      shard = pubsubTopic, contentTopic = message.contentTopic
     return false
 
   let msgHash = computeMessageHash(pubsubTopic, message)
   if self.recentReceivedMsgs.anyIt(it.msgHash == msgHash):
+    trace "skipping duplicate message",
+      shard = pubsubTopic,
+      contentTopic = message.contentTopic,
+      msg_hash = msgHash.to0xHex()
     return false
 
   let rxMsg = RecvMessage(msgHash: msgHash, rxTime: message.timestamp)
@@ -96,10 +102,6 @@ proc checkStore*(self: RecvService) {.async.} =
 
   ## query store and deliver new recovered messages per subscribed topic
   for pubsubTopic, contentTopics in self.subscriptionManager.subscribedTopics:
-    # skip Store query if we are not subscribed to any content topics on the shard
-    if contentTopics.len == 0:
-      continue
-
     let storeResp: StoreQueryResponse = (
       await self.node.wakuStoreClient.queryToAny(
         StoreQueryRequest(
