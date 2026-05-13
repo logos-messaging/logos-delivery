@@ -150,10 +150,10 @@ proc setShardInfo*(peerStore: PeerStore, peerId: PeerID, shards: seq[uint16]) =
   peerStore[ShardBook][peerId] = shards
 
 proc peers*(peerStore: PeerStore, proto: string): seq[RemotePeerInfo] =
-  peerStore.peers.filterIt(it.protocols.contains(proto))
+  peerStore.peers().filterIt(it.protocols.contains(proto))
 
 proc peers*(peerStore: PeerStore, protocolMatcher: Matcher): seq[RemotePeerInfo] =
-  peerStore.peers.filterIt(it.protocols.anyIt(protocolMatcher(it)))
+  peerStore.peers().filterIt(it.protocols.anyIt(protocolMatcher(it)))
 
 proc connectedness*(peerStore: PeerStore, peerId: PeerId): Connectedness =
   peerStore[ConnectionBook].book.getOrDefault(peerId, NotConnected)
