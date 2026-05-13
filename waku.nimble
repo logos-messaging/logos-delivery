@@ -9,13 +9,13 @@ author = "Status Research & Development GmbH"
 description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
 
-const RequiredNimVersion = "2.2.4"
+const RequiredNimVersion = "2.2.10"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
 const RequiredNimbleVersion = "0.22.3"
   ## Enforced nimble version to ensure a reproducible flow
 
 ### Dependencies
-requires "nim >= 2.2.4",
+requires "nim >= 2.2.10",
   "chronos >= 4.2.0",
   "taskpools",
   # Logging & Configuration
