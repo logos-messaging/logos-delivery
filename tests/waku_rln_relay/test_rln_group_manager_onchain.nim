@@ -3,7 +3,7 @@
 {.push raises: [].}
 
 import
-  std/[options, sequtils, deques, random, locks, osproc],
+  std/[options, sequtils, deques, random, locks, osproc, algorithm],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -425,3 +425,84 @@ suite "Onchain group manager":
 
     check:
       isReady == true
+
+  test "proof roundtrip: generateRlnProofWithWitness -> verifyRlnProof":
+    ## Smoke test for the full FFI cycle:
+    ## proof gen -> wire serialization -> deserialization -> ffi_verify_with_roots.
+    ## Any silent bug in buildProofBytesLe, ffi_bytes_le_to_rln_proof, or the
+    ## verify call will surface as a wrong bool or an unexpected error here.
+    let credentials = generateCredentials()
+
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    discard waitFor manager.updateRoots()
+    let roots = manager.validRoots.items().toSeq()
+    require:
+      roots.len > 0
+
+    let proofElements = (waitFor manager.fetchMerkleProofElements()).valueOr:
+      raiseAssert "fetchMerkleProofElements failed: " & error
+
+    let signal = "Hello, RLN!".toBytes()
+    let epoch = default(Epoch)
+
+    # Build RLNWitnessInput the same way group_manager.generateProof does.
+    var pathElements = newSeq[byte]()
+    for i in 0 ..< proofElements.len div 32:
+      pathElements.add(proofElements[i * 32 .. (i + 1) * 32 - 1].reversed())
+
+    let xCfr = hashToFieldLe(signal).valueOr:
+      raiseAssert "hashToFieldLe failed: " & error
+    defer:
+      ffi_cfr_free(xCfr)
+    let x = cfrToBytesLe(xCfr).valueOr:
+      raiseAssert "cfrToBytesLe failed: " & error
+
+    let extNullifier = generateExternalNullifier(epoch, DefaultRlnIdentifier).valueOr:
+      raiseAssert "generateExternalNullifier failed: " & error
+
+    let witness = RLNWitnessInput(
+      identity_secret: seqToField(credentials.idSecretHash),
+      user_message_limit: uint64ToField(uint64(UserMessageLimit(20))),
+      message_id: uint64ToField(uint64(MessageId(1))),
+      path_elements: pathElements,
+      identity_path_index: uint64ToIndex(manager.membershipIndex.get(), 20),
+      x: x,
+      external_nullifier: extNullifier,
+    )
+
+    # Step 1: generate proof via the FFI wrapper
+    let proof = generateRlnProofWithWitness(
+      manager.rlnInstance, witness, epoch, DefaultRlnIdentifier
+    ).valueOr:
+      raiseAssert "generateRlnProofWithWitness failed: " & error
+
+    let zeroField = default(array[32, byte])
+    check:
+      proof.merkleRoot != zeroField
+      proof.nullifier != zeroField
+
+    # Step 2: serialize -> deserialize -> verify (the actual roundtrip)
+    let verified = verifyRlnProof(manager.rlnInstance, proof, signal, roots).valueOr:
+      raiseAssert "verifyRlnProof failed: " & error
+    check verified == true
+
+    # Step 3: wrong signal -> x mismatch -> false
+    let wrongSignalVerified = verifyRlnProof(
+      manager.rlnInstance, proof, "wrong".toBytes(), roots
+    ).valueOr:
+      raiseAssert "verifyRlnProof (wrong signal) failed: " & error
+    check wrongSignalVerified == false
+
+    # Step 4: bad root -> root not in set -> false
+    # byte[31] in LE is the MSB; 0x01 < 0x30 so this is a canonical field element.
+    var badRoot: MerkleNode
+    for i in 0 ..< 32:
+      badRoot[i] = 0x01
+    let badRootVerified = verifyRlnProof(manager.rlnInstance, proof, signal, @[badRoot]).valueOr:
+      raiseAssert "verifyRlnProof (bad root) failed: " & error
+    check badRootVerified == false
