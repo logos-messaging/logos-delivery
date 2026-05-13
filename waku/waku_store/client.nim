@@ -33,7 +33,9 @@ proc sendStoreRequest(
 ): Future[StoreQueryResult] {.async, gcsafe.} =
   var req = request
 
+  self.peerManager.addActiveStoreRequest(connection.peerId)
   defer:
+    self.peerManager.removeActiveStoreRequest(connection.peerId)
     await connection.closeWithEof()
 
   if req.requestId == "":

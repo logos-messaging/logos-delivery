@@ -107,6 +107,7 @@ type PeerManager* = ref object of RootObj
   online: bool ## state managed by online_monitor module
   getShards: GetShards
   maxConnections: int
+  activeStoreRequests*: Table[PeerId, int]
 
 #~~~~~~~~~~~~~~~~~~~#
 # Helper Functions  #
@@ -168,6 +169,23 @@ proc addPeer*(
 
 proc getPeer*(pm: PeerManager, peerId: PeerId): RemotePeerInfo =
   return pm.switch.peerStore.getPeer(peerId)
+
+proc addActiveStoreRequest*(pm: PeerManager, peerId: PeerId) {.gcsafe.} =
+  pm.activeStoreRequests.mgetOrPut(peerId, 0).inc()
+
+proc removeActiveStoreRequest*(pm: PeerManager, peerId: PeerId) {.gcsafe.} =
+  let count = pm.activeStoreRequests.getOrDefault(peerId, 0)
+  if count == 0:
+    return
+
+  let newCount = count - 1
+  if newCount <= 0:
+    pm.activeStoreRequests.del(peerId)
+  else:
+    pm.activeStoreRequests[peerId] = newCount
+
+proc hasActiveStoreRequest*(pm: PeerManager, peerId: PeerId): bool {.gcsafe.} =
+  pm.activeStoreRequests.contains(peerId)
 
 proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
   ## Load peers from storage, if available
@@ -519,6 +537,15 @@ proc connectedPeers*(
 
   return (inPeers, outPeers)
 
+proc evictPeer*(pm: PeerManager, peerId: PeerId) {.async.} =
+  ## Policy-based eviction (relay-peer limit, IP colocation, pruning).
+  ## Skips the disconnect when the peer has an in-flight store request to
+  ## avoid aborting active store requests.
+  if pm.hasActiveStoreRequest(peerId):
+    trace "skipping peer eviction: active store request", peerId = peerId
+    return
+  await pm.switch.disconnect(peerId)
+
 proc capablePeers*(pm: PeerManager, protocol: string): (seq[PeerId], seq[PeerId]) =
   ## Returns the PeerIds of peers with an active socket connection.
   ## If a protocol is specified, it returns peers that have identified
@@ -770,11 +797,11 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
     let inRelayPeers = pm.connectedPeers(WakuRelayCodec)[0]
     if inRelayPeers.len > pm.inRelayPeersTarget and
         peerStore.hasPeer(peerId, WakuRelayCodec):
-      info "disconnecting relay peer because reached max num in-relay peers",
+      info "relay peer limit reached, evicting peer",
         peerId = peerId,
         inRelayPeers = inRelayPeers.len,
         inRelayPeersTarget = pm.inRelayPeersTarget
-      await pm.switch.disconnect(peerId)
+      await pm.evictPeer(peerId)
 
     ## Apply max ip colocation limit
     if (let ip = pm.getPeerIp(peerId); ip.isSome()):
@@ -787,7 +814,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
       if pm.colocationLimit != 0 and peersBehindIp.len > pm.colocationLimit:
         for peerId in peersBehindIp[0 ..< (peersBehindIp.len - pm.colocationLimit)]:
           info "Pruning connection due to ip colocation", peerId = peerId, ip = ip
-          asyncSpawn(pm.switch.disconnect(peerId))
+          asyncSpawn(pm.evictPeer(peerId))
           peerStore.delete(peerId)
 
     WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventConnected)
@@ -1100,7 +1127,7 @@ proc pruneInRelayConns(pm: PeerManager, amount: int) {.async.} =
 
   for p in inRelayPeers[0 ..< connsToPrune]:
     trace "Pruning Peer", Peer = $p
-    asyncSpawn(pm.switch.disconnect(p))
+    asyncSpawn(pm.evictPeer(p))
 
 proc addExtPeerEventHandler*(
     pm: PeerManager, eventHandler: PeerEventHandler, eventKind: PeerEventKind
@@ -1214,6 +1241,7 @@ proc new*(
 
   pm.serviceSlots = initTable[string, RemotePeerInfo]()
   pm.ipTable = initTable[string, seq[PeerId]]()
+  pm.activeStoreRequests = initTable[PeerId, int]()
 
   if not storage.isNil():
     trace "found persistent peer storage"

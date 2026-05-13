@@ -54,6 +54,44 @@ procSuite "Peer Manager":
       nodes[0].peerManager.switch.peerStore.connectedness(nodes[1].peerInfo.peerId) ==
         Connectedness.Connected
 
+  asyncTest "Peer manager tracks active store request state":
+    let nodes = toSeq(0 ..< 2).mapIt(
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      )
+
+    await allFutures(nodes.mapIt(it.start()))
+    await allFutures(nodes.mapIt(it.mountRelay()))
+
+    let peerId = nodes[1].peerInfo.peerId
+    require (
+      await nodes[0].peerManager.connectPeer(nodes[1].peerInfo.toRemotePeerInfo())
+    )
+    await sleepAsync(chronos.milliseconds(500))
+
+    nodes[0].peerManager.addActiveStoreRequest(peerId)
+    check:
+      nodes[0].peerManager.hasActiveStoreRequest(peerId)
+
+    await nodes[0].peerManager.evictPeer(peerId)
+    await sleepAsync(chronos.milliseconds(100))
+
+    check:
+      nodes[0].peerManager.switch.peerStore.connectedness(peerId) ==
+        Connectedness.Connected
+
+    nodes[0].peerManager.removeActiveStoreRequest(peerId)
+    check:
+      not nodes[0].peerManager.hasActiveStoreRequest(peerId)
+
+    await nodes[0].peerManager.evictPeer(peerId)
+    await sleepAsync(chronos.milliseconds(100))
+
+    check:
+      nodes[0].peerManager.switch.peerStore.connectedness(peerId) !=
+        Connectedness.Connected
+
+    await allFutures(nodes.mapIt(it.stop()))
+
   asyncTest "dialPeer() works":
     # Create 2 nodes
     let nodes = toSeq(0 ..< 2).mapIt(
