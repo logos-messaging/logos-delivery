@@ -393,9 +393,6 @@ method generateProof*(
     external_nullifier: extNullifier,
   )
 
-  # Generate the proof via the high-level wrapper (zerokit v2.0 FFI).
-  # The wrapper handles witness construction, FFI memory management, and
-  # parsing the proof handle into a RateLimitProof.
   let output = generateRlnProofWithWitness(g.rlnInstance, witness, epoch, rlnIdentifier).valueOr:
     return err("Failed to generate proof: " & error)
 
@@ -408,11 +405,6 @@ method generateProof*(
 method verifyProof*(
     g: OnchainGroupManager, input: seq[byte], proof: RateLimitProof
 ): GroupManagerResult[bool] {.gcsafe.} =
-  ## -- Verifies an RLN rate-limit proof against the set of valid Merkle roots --
-  # The wrapper handles wire serialization (with version-byte prefix),
-  # signal hashing, and ffi_verify_with_roots invocation. Pass the current
-  # valid-roots window so verification is robust to root advances within
-  # the AcceptableRootWindowSize.
   let validProof = verifyRlnProof(
     g.rlnInstance, proof, input, g.validRoots.items().toSeq()
   ).valueOr:

@@ -427,10 +427,7 @@ suite "Onchain group manager":
       isReady == true
 
   test "proof roundtrip: generateRlnProofWithWitness -> verifyRlnProof":
-    ## Smoke test for the full FFI cycle:
-    ## proof gen -> wire serialization -> deserialization -> ffi_verify_with_roots.
-    ## Any silent bug in buildProofBytesLe, ffi_bytes_le_to_rln_proof, or the
-    ## verify call will surface as a wrong bool or an unexpected error here.
+    ## Smoke test: proof gen -> wire serialize -> deserialize -> ffi_verify_with_roots.
     let credentials = generateCredentials()
 
     (waitFor manager.init()).isOkOr:

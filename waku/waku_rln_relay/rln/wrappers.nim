@@ -34,10 +34,7 @@ proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
 proc buildProofBytesLe(
     proof: RateLimitProof, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[seq[byte]] =
-  ## Serialize a RateLimitProof into the v2.0.1 wire format expected by
-  ## ffi_bytes_le_to_rln_proof. Layout (290 bytes):
-  ##   [ 0x00 | proof<128> | 0x00 | root<32> | ext_nullifier<32>
-  ##           | shareX<32> | shareY<32> | nullifier<32> ]
+  ## Serialize a RateLimitProof into the 290-byte wire format for ffi_bytes_le_to_rln_proof.
   let externalNullifier = generateExternalNullifier(proof.epoch, rlnIdentifier).valueOr:
     return err("Failed to compute external nullifier: " & error)
 
@@ -68,9 +65,7 @@ proc buildProofBytesLe(
 proc proofPtrToRateLimitProof(
     proofPtr: ptr FFI_RLNProof, epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[RateLimitProof] =
-  ## Extract a RateLimitProof from an FFI proof handle. Uses
-  ## ffi_rln_proof_to_bytes_le for the zkSNARK bytes (offset 1, after the
-  ## outer version byte) and the proof-values getters for root/x/y/null.
+  ## Extract a RateLimitProof from an FFI proof handle.
   var proofHandle = proofPtr
   let proofBytesRes = ffi_rln_proof_to_bytes_le(addr proofHandle)
   if hasError(proofBytesRes.err):
@@ -170,11 +165,7 @@ proc membershipKeyGen*(): RlnRelayResult[IdentityCredential] =
   parseCredentialVec(vec)
 
 proc createRLNInstanceLocal(): RLNResult =
-  ## generates an instance of RLN
-  ## An RLN instance supports zkSNARK proof generation and verification.
-  ## In stateless mode (logos-delivery default since PR #3312), no internal
-  ## Merkle tree is allocated; the contract is the source of truth and the
-  ## per-message path is supplied via getMerkleProof(index).
+  ## Creates a stateless RLN instance (no local Merkle tree).
   let res = ffi_rln_new()
   if res.ok.isNil:
     let msg = consumeError("error in parameters generation: ", res.err)
@@ -191,12 +182,7 @@ proc createRLNInstance*(): RLNResult =
   return res
 
 proc poseidon*(data: seq[seq[byte]]): RlnRelayResult[array[32, byte]] =
-  ## a thin layer on top of the Nim wrapper of the poseidon hasher.
-  ##
-  ## zerokit v2 FFI only exposes pair-input Poseidon. logos-delivery's only
-  ## callers (toLeaf, generateExternalNullifier) pass exactly two inputs;
-  ## any other arity is rejected here rather than silently producing a
-  ## different hash than the v0.9 multi-input proc would have.
+  ## Poseidon hash of exactly 2 inputs; zerokit v2 FFI only exposes the pair variant.
   if data.len != 2:
     return err(
       "Only 2-input Poseidon hashing is supported by zerokit v2 FFI, got " & $data.len &
@@ -275,14 +261,7 @@ proc generateRlnProofWithWitness*(
     epoch: Epoch,
     rlnIdentifier: RlnIdentifier,
 ): RlnRelayResult[RateLimitProof] =
-  ## Build a v2.0.1 witness from the v0.9-shaped RLNWitnessInput record and
-  ## generate a proof. Replaces the raw `generate_proof_with_witness` FFI
-  ## call. The caller is responsible for computing `witness.x` (signal hash)
-  ## and `witness.external_nullifier` (same scheme as
-  ## generateExternalNullifier above).
-  ##
-  ## path_elements is depth*32 bytes of concatenated field elements;
-  ## identity_path_index is depth bytes of 0/1 direction bits.
+  ## Generate an RLN proof from a RLNWitnessInput.
   let depth = witness.identity_path_index.len
   if witness.path_elements.len != depth * FieldElementSize:
     return err(
@@ -361,9 +340,7 @@ proc verifyRlnProof*(
     signal: openArray[byte],
     validRoots: seq[MerkleNode],
 ): RlnRelayResult[bool] =
-  ## Verify an RLN proof against a set of valid roots from the contract's
-  ## recentRoots ring buffer. validRoots must be non-empty; in stateless mode
-  ## there is no internal Merkle tree so ffi_verify_rln_proof is not available.
+  ## Verify an RLN proof against a set of valid Merkle roots.
   if validRoots.len == 0:
     return err("verifyRlnProof requires at least one valid root (stateless mode)")
 
@@ -392,10 +369,7 @@ proc verifyRlnProof*(
     ffi_vec_cfr_free(roots)
 
   let verifyRes = ffi_verify_with_roots(addr ctx, addr proofHandle, addr roots, xFr)
-  # In v2.0.1, ALL verification failures (invalid root, invalid proof, signal
-  # mismatch) return ok=false with a non-nil err. Free the diagnostic string
-  # but map the result to ok(bool): callers check the bool, not whether an
-  # exception occurred.
+  # v2.0.1: err is non-nil for all failures; free it and return the bool.
   if hasError(verifyRes.err):
     ffi_c_string_free(verifyRes.err)
   ok(verifyRes.ok)
