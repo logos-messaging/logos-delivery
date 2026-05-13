@@ -375,9 +375,10 @@ method generateProof*(
 
   let xCfr = hashToFieldLe(data).valueOr:
     return err("Failed to hash signal to field: " & error)
+  defer:
+    ffi_cfr_free(xCfr)
   let x = cfrToBytesLe(xCfr).valueOr:
     return err("Failed to serialize signal hash: " & error)
-  ffi_cfr_free(xCfr)
 
   let extNullifier = generateExternalNullifier(epoch, rlnIdentifier).valueOr:
     return err("Failed to compute external nullifier: " & error)

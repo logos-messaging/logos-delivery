@@ -392,6 +392,10 @@ proc verifyRlnProof*(
     ffi_vec_cfr_free(roots)
 
   let verifyRes = ffi_verify_with_roots(addr ctx, addr proofHandle, addr roots, xFr)
+  # In v2.0.1, ALL verification failures (invalid root, invalid proof, signal
+  # mismatch) return ok=false with a non-nil err. Free the diagnostic string
+  # but map the result to ok(bool): callers check the bool, not whether an
+  # exception occurred.
   if hasError(verifyRes.err):
-    return err(consumeError("Proof verification failed: ", verifyRes.err))
+    ffi_c_string_free(verifyRes.err)
   ok(verifyRes.ok)

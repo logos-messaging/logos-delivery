@@ -253,6 +253,9 @@ suite "Onchain group manager":
     manager.merkleProofCache = newSeq[byte](640)
     for i in 0 ..< 640:
       manager.merkleProofCache[i] = byte(rand(255))
+    # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
+    for i in 0 ..< 20:
+      manager.merkleProofCache[i * 32] = 0
 
     let messageBytes = "Hello".toBytes()
 
@@ -335,6 +338,9 @@ suite "Onchain group manager":
     manager.merkleProofCache = newSeq[byte](640)
     for i in 0 ..< 640:
       manager.merkleProofCache[i] = byte(rand(255))
+    # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
+    for i in 0 ..< 20:
+      manager.merkleProofCache[i * 32] = 0
 
     let epoch = default(Epoch)
     info "epoch in bytes", epochHex = epoch.inHex()
