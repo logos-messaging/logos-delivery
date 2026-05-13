@@ -263,7 +263,8 @@ proc mountRelay*(
     node.wakuRelay.routingRecordsHandler.add(peerExchangeHandler.get())
 
   if node.started:
-    await node.startRelay()
+    await node.wakuRelay.start()
+    await node.reconnectRelayPeers()
 
   node.switch.mount(node.wakuRelay, protocolMatcher(WakuRelayCodec))
 

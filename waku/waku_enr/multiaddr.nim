@@ -74,7 +74,7 @@ func stripPeerId(multiaddr: MultiAddress): MultiAddress =
   return cleanAddr
 
 func withMultiaddrs*(builder: var EnrBuilder, multiaddrs: seq[MultiAddress]) =
-  let multiaddrs = multiaddrs.map(stripPeerId)
+  let multiaddrs = deduplicate(multiaddrs.map(stripPeerId))
   let value = encodeMultiaddrs(multiaddrs)
   builder.addFieldPair(MultiaddrEnrField, value)
 

@@ -244,7 +244,8 @@ proc handleMessage*(
 ) {.async.} =
   let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
 
-  info "handling message", pubsubTopic = pubsubTopic, msg_hash = msgHash
+  info "handling message",
+    pubsubTopic = pubsubTopic, contentTopic = message.contentTopic, msg_hash = msgHash
 
   let handleMessageStartTime = Moment.now()
 

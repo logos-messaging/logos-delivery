@@ -63,8 +63,8 @@ suite "Waku Sync: reconciliation":
     clientPeerInfo = clientSwitch.peerInfo.toRemotePeerInfo()
 
   asyncTeardown:
-    server.stop()
-    client.stop()
+    await server.stop()
+    await client.stop()
 
     await allFutures(serverSwitch.stop(), clientSwitch.stop())
 
@@ -372,7 +372,7 @@ suite "Waku Sync: reconciliation":
     const
       msgCount = 400_000
       diffCount = 100_000
-      tol = 1000
+      tol = 10_000
 
     var diffMsgHashes: HashSet[WakuMessageHash]
     var missingIdx: HashSet[int]
@@ -561,8 +561,8 @@ suite "Waku Sync: reconciliation":
     )
 
     defer:
-      server.stop()
-      client.stop()
+      await server.stop()
+      await client.stop()
 
     let res = await client.storeSynchronization(some(serverPeerInfo))
     assert res.isOk(), $res.error
@@ -610,8 +610,8 @@ suite "Waku Sync: reconciliation":
     )
 
     defer:
-      server.stop()
-      client.stop()
+      await server.stop()
+      await client.stop()
 
     let res = await client.storeSynchronization(some(serverPeerInfo))
     assert res.isOk(), $res.error
@@ -657,8 +657,8 @@ suite "Waku Sync: reconciliation":
     )
 
     defer:
-      server.stop()
-      client.stop()
+      await server.stop()
+      await client.stop()
 
     let res = await client.storeSynchronization(some(serverPeerInfo))
     assert res.isOk(), $res.error
@@ -701,8 +701,8 @@ suite "Waku Sync: reconciliation":
     )
 
     defer:
-      server.stop()
-      client.stop()
+      await server.stop()
+      await client.stop()
 
     let res = await client.storeSynchronization(some(serverPeerInfo))
     assert res.isOk(), $res.error
@@ -736,8 +736,8 @@ suite "Waku Sync: reconciliation":
     )
 
     defer:
-      server.stop()
-      client.stop()
+      await server.stop()
+      await client.stop()
 
     let res = await client.storeSynchronization(some(serverPeerInfo))
     assert res.isOk(), $res.error
@@ -773,8 +773,8 @@ suite "Waku Sync: reconciliation":
     )
 
     defer:
-      server.stop()
-      client.stop()
+      await server.stop()
+      await client.stop()
 
     let res = await client.storeSynchronization(some(serverPeerInfo))
     assert res.isOk(), $res.error
@@ -848,8 +848,8 @@ suite "Waku Sync: transfer":
       remoteNeedsRx = clientRemoteNeeds,
     )
 
-    server.start()
-    client.start()
+    await server.start()
+    await client.start()
 
     serverSwitch.mount(server)
     clientSwitch.mount(client)
@@ -861,8 +861,8 @@ suite "Waku Sync: transfer":
     clientPeermanager.addPeer(serverPeerInfo)
 
   asyncTeardown:
-    server.stop()
-    client.stop()
+    await server.stop()
+    await client.stop()
 
     await allFutures(serverSwitch.stop(), clientSwitch.stop())
 

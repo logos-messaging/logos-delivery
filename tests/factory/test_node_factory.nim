@@ -1,13 +1,23 @@
 {.used.}
 
-import testutils/unittests, chronos, libp2p/protocols/connectivity/relay/relay
+import
+  std/[net, options, sequtils, strutils],
+  testutils/unittests,
+  chronos,
+  chronos/transports/[stream, datagram, common],
+  metrics/chronos_httpserver,
+  libp2p/[crypto/crypto, multiaddress, protocols/connectivity/relay/relay],
+  eth/p2p/discoveryv5/enr
 
 import
-  ../testlib/wakunode,
-  waku/waku_node,
-  waku/factory/node_factory,
-  waku/factory/conf_builder/conf_builder,
-  waku/factory/conf_builder/web_socket_conf_builder
+  tests/testlib/[wakunode, wakucore],
+  waku/[waku_node, waku_enr, net/auto_port, discovery/waku_discv5, node/waku_metrics],
+  waku/factory/[
+    node_factory,
+    internal_config,
+    conf_builder/conf_builder,
+    conf_builder/web_socket_conf_builder,
+  ]
 
 suite "Node Factory":
   asynctest "Set up a node based on default configurations":
@@ -37,6 +47,45 @@ suite "Node Factory":
       not node.isNil()
       not node.wakuStore.isNil()
       not node.wakuArchive.isNil()
+
+  test "ENR configuration trims multiaddrs until record fits":
+    var conf = defaultTestWakuConf()
+    let bindIp = conf.endpointConf.p2pListenAddress
+    let bindPort = Port(30303)
+
+    let oversizedMultiaddrs = (0 .. 11).mapIt(
+      MultiAddress
+        .init(
+          "/dns4/very-long-logical-hostname-" & $it &
+            ".example.logos.dev.status.im/tcp/30303/wss"
+        )
+        .get()
+    )
+
+    let netConfig = NetConfig.init(
+      clusterId = conf.clusterId,
+      bindIp = bindIp,
+      bindPort = bindPort,
+      extMultiAddrs = oversizedMultiaddrs,
+      extMultiAddrsOnly = true,
+      wakuFlags = some(conf.wakuFlags),
+    ).valueOr:
+      raiseAssert error
+
+    let record = enrConfiguration(conf, netConfig).valueOr:
+      raiseAssert error
+
+    let typedRecord = record.toTyped()
+    require typedRecord.isOk()
+
+    let multiaddrsOpt = typedRecord.value.multiaddrs
+    require multiaddrsOpt.isSome()
+
+    let retainedMultiaddrs = multiaddrsOpt.get()
+    check:
+      retainedMultiaddrs.len < oversizedMultiaddrs.len
+      retainedMultiaddrs.len > 0
+      retainedMultiaddrs == oversizedMultiaddrs[0 ..< retainedMultiaddrs.len]
 
 asynctest "Set up a node with Filter enabled":
   var confBuilder = defaultTestWakuConfBuilder()
@@ -68,5 +117,90 @@ asynctest "Start a node based on default test configuration":
   check:
     node.started == true
 
+  # Default conf has p2pTcpPort=0, so the OS must have assigned a real port.
+  var hasNonZeroTcp = false
+  for a in node.switch.peerInfo.listenAddrs:
+    let s = $a
+    if ("/tcp/" in s) and not ("/tcp/0" in s):
+      hasNonZeroTcp = true
+  check hasNonZeroTcp
+
   ## Cleanup
   await node.stop()
+
+suite "Auto-port retry":
+  asynctest "metrics binds on free TCP port, fails on taken":
+    let takenPort = Port(55100)
+    let freePort = Port(55101)
+    let taken = createStreamServer(initTAddress("127.0.0.1", takenPort))
+    defer:
+      taken.stop()
+      await taken.closeWait()
+
+    proc buildMetricsConf(port: Port): MetricsServerConf =
+      var b = MetricsServerConfBuilder.init()
+      b.withEnabled(true)
+      b.withHttpPort(port)
+      b.build().value.get()
+
+    let failRes = await startMetricsServerAndLogging(buildMetricsConf(takenPort), 0'u16)
+    check failRes.isErr()
+
+    let okRes = await startMetricsServerAndLogging(buildMetricsConf(freePort), 0'u16)
+    check okRes.isOk()
+    if okRes.isOk():
+      await okRes.get().server.close()
+
+  asynctest "discv5 binds on free UDP port, fails on taken":
+    let takenPort = Port(55200)
+    let freePort = Port(55201)
+
+    proc dummyCb(
+        transp: DatagramTransport, raddr: TransportAddress
+    ): Future[void] {.async: (raises: []).} =
+      discard
+
+    let takenUdp =
+      newDatagramTransport(dummyCb, local = initTAddress("0.0.0.0", takenPort))
+    defer:
+      await takenUdp.closeWait()
+
+    let nodeKey = generateSecp256k1Key()
+    let node = newTestWakuNode(nodeKey, parseIpAddress("0.0.0.0"), Port(0))
+    await node.start()
+    defer:
+      await node.stop()
+
+    proc buildDiscv5Conf(port: Port): Discv5Conf =
+      var b = Discv5ConfBuilder.init()
+      b.withEnabled(true)
+      b.withUdpPort(port)
+      b.build().value.get()
+
+    let failRes = await setupAndStartDiscv5(
+      node.enr,
+      node.peerManager,
+      node.topicSubscriptionQueue,
+      buildDiscv5Conf(takenPort),
+      @[],
+      node.rng,
+      nodeKey,
+      parseIpAddress("0.0.0.0"),
+      0'u16,
+    )
+    check failRes.isErr()
+
+    let okRes = await setupAndStartDiscv5(
+      node.enr,
+      node.peerManager,
+      node.topicSubscriptionQueue,
+      buildDiscv5Conf(freePort),
+      @[],
+      node.rng,
+      nodeKey,
+      parseIpAddress("0.0.0.0"),
+      0'u16,
+    )
+    check okRes.isOk()
+    if okRes.isOk():
+      await okRes.get().stop()

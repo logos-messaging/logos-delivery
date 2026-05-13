@@ -21,6 +21,7 @@ import
     node/health_monitor/health_report,
     node/health_monitor/connection_status,
     node/health_monitor/protocol_health,
+    node/health_monitor/event_loop_monitor,
     requests/health_requests,
   ]
 
@@ -36,6 +37,7 @@ type NodeHealthMonitor* = ref object
   onlineMonitor*: OnlineMonitor
   keepAliveFut: Future[void]
   healthLoopFut: Future[void]
+  eventLoopMonitorFut: Future[void]
   healthUpdateEvent: AsyncEvent
   connectionStatus: ConnectionStatus
   onConnectionStatusChange*: ConnectionStatusChangeHandler
@@ -48,6 +50,9 @@ type NodeHealthMonitor* = ref object
   relayObserver: PubSubObserver
   peerEventListener: WakuPeerEventListener
   shardHealthListener: EventShardTopicHealthChangeListener
+  eventLoopLagExceeded: bool
+    ## set to true when the chronos event loop lag exceeds the severe threshold,
+    ## causing the node health to be reported as EVENT_LOOP_LAGGING until lag recovers.
 
 func getHealth*(report: HealthReport, kind: WakuProtocol): ProtocolHealth =
   for h in report.protocolsHealth:
@@ -441,7 +446,8 @@ proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.}
     hm.cachedProtocols = await hm.getAllProtocolHealthInfo()
     hm.connectionStatus = hm.calculateConnectionState()
 
-  report.nodeHealth = HealthStatus.READY
+  report.nodeHealth =
+    if hm.eventLoopLagExceeded: HealthStatus.EVENT_LOOP_LAGGING else: HealthStatus.READY
   report.connectionStatus = hm.connectionStatus
   report.protocolsHealth = hm.cachedProtocols
   return report
@@ -461,7 +467,8 @@ proc getSyncNodeHealthReport*(hm: NodeHealthMonitor): HealthReport =
     hm.cachedProtocols = hm.getSyncAllProtocolHealthInfo()
     hm.connectionStatus = hm.calculateConnectionState()
 
-  report.nodeHealth = HealthStatus.READY
+  report.nodeHealth =
+    if hm.eventLoopLagExceeded: HealthStatus.EVENT_LOOP_LAGGING else: HealthStatus.READY
   report.connectionStatus = hm.connectionStatus
   report.protocolsHealth = hm.cachedProtocols
   return report
@@ -694,9 +701,15 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
   hm.healthUpdateEvent.fire()
 
   hm.healthLoopFut = hm.healthLoop()
+  hm.eventLoopMonitorFut = eventLoopMonitorLoop(
+    proc(lagTooHigh: bool) {.gcsafe, raises: [].} =
+      hm.eventLoopLagExceeded = lagTooHigh
+      hm.healthUpdateEvent.fire()
+  )
 
   hm.startKeepalive().isOkOr:
     return err("startHealthMonitor: failed starting keep alive: " & error)
+
   return ok()
 
 proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
@@ -708,6 +721,9 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
 
   if not isNil(hm.healthLoopFut):
     await hm.healthLoopFut.cancelAndWait()
+
+  if not isNil(hm.eventLoopMonitorFut):
+    await hm.eventLoopMonitorFut.cancelAndWait()
 
   WakuPeerEvent.dropListener(hm.node.brokerCtx, hm.peerEventListener)
   EventShardTopicHealthChange.dropListener(hm.node.brokerCtx, hm.shardHealthListener)

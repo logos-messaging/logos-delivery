@@ -85,7 +85,8 @@ pipeline {
             "--label=commit='${git.commit()}' " +
             "--label=version='${git.describe('--tags')}' " +
             "--build-arg=MAKE_TARGET='${params.MAKE_TARGET}' " +
-            "--build-arg=NIMFLAGS='${params.NIMFLAGS} -d:postgres -d:heaptracker ' " +
+            "--build-arg=NIMFLAGS='${params.NIMFLAGS} -d:heaptracker ' " +
+            "--build-arg=POSTGRES='1' " +
             "--build-arg=LOG_LEVEL='${params.LOWEST_LOG_LEVEL_ALLOWED}' "  +
             "--build-arg=DEBUG='${params.DEBUG ? "1" : "0"} ' " +
             "--build-arg=NIM_COMMIT='NIM_COMMIT=heaptrack_support_v2.0.12' " +
@@ -98,7 +99,8 @@ pipeline {
             "--label=commit='${git.commit()}' " +
             "--label=version='${git.describe('--tags')}' " +
             "--build-arg=MAKE_TARGET='${params.MAKE_TARGET}' " +
-            "--build-arg=NIMFLAGS='${params.NIMFLAGS} -d:postgres ' " +
+            "--build-arg=NIMFLAGS='${params.NIMFLAGS}' " +
+            "--build-arg=POSTGRES='1' " +
             "--build-arg=LOG_LEVEL='${params.LOWEST_LOG_LEVEL_ALLOWED}' "  +
             "--build-arg=DEBUG='${params.DEBUG ? "1" : "0"} ' " +
             "--target='prod' ."

@@ -8,11 +8,13 @@ import
   results
 
 import
-  ../waku_conf,
-  ../networks_config,
-  ../../common/logging,
-  ../../common/utils/parse_size_units,
-  ../../waku_enr/capabilities,
+  waku/[
+    factory/waku_conf,
+    factory/networks_config,
+    common/logging,
+    common/utils/parse_size_units,
+    waku_enr/capabilities,
+  ],
   tools/confutils/entry_nodes
 
 import
@@ -32,7 +34,9 @@ import
 logScope:
   topics = "waku conf builder"
 
-const DefaultMaxConnections* = 150
+const
+  DefaultMaxConnections* = 150
+  DefaultP2pTcpPort*: Port = Port(60000)
 
 type MaxMessageSizeKind* = enum
   mmskNone
@@ -299,7 +303,6 @@ proc buildShardingConf(
     bNumShardsInCluster: Option[uint16],
     bSubscribeShards: Option[seq[uint16]],
 ): (ShardingConf, seq[uint16]) =
-  echo "bSubscribeShards: ", bSubscribeShards
   case bShardingConfKind.get(AutoSharding)
   of StaticSharding:
     (ShardingConf(kind: StaticSharding), bSubscribeShards.get(@[]))
@@ -374,17 +377,17 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
     warn "Sharding Conf was provided alongside a network conf",
       used = networkConf.shardingConf.kind, discarded = builder.shardingConf
 
-  if builder.numShardsInCluster.isSome():
-    warn "Num Shards In Cluster was provided alongside a network conf",
-      used = networkConf.shardingConf.numShardsInCluster,
-      discarded = builder.numShardsInCluster
-
   case networkConf.shardingConf.kind
   of StaticSharding:
     builder.shardingConf = some(StaticSharding)
   of AutoSharding:
     builder.shardingConf = some(AutoSharding)
-    builder.numShardsInCluster = some(networkConf.shardingConf.numShardsInCluster)
+    if builder.numShardsInCluster.isSome():
+      warn "Num Shards In Cluster overrides network conf preset",
+        used = builder.numShardsInCluster.get(),
+        ignored = networkConf.shardingConf.numShardsInCluster
+    else:
+      builder.numShardsInCluster = some(networkConf.shardingConf.numShardsInCluster)
 
   if networkConf.discv5Discovery:
     if builder.discv5Conf.enabled.isNone:
@@ -575,12 +578,7 @@ proc build*(
       warn "Nat Strategy is not specified, defaulting to none"
       "none"
 
-  let p2pTcpPort =
-    if builder.p2pTcpPort.isSome():
-      builder.p2pTcpPort.get()
-    else:
-      warn "P2P Listening TCP Port is not specified, listening on 60000"
-      60000.Port
+  let p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
 
   let p2pListenAddress =
     if builder.p2pListenAddress.isSome():

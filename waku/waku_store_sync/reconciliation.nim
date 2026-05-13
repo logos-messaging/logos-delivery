@@ -145,7 +145,7 @@ proc preProcessPayload(
   # convert to skip range before processing
   for i in 0 ..< payload.ranges.len:
     let rangeType = payload.ranges[i][1]
-    if rangeType != RangeType.Skip:
+    if rangeType == RangeType.Skip:
       continue
 
     let upperBound = payload.ranges[i][0].b.time
@@ -468,7 +468,7 @@ proc idsReceiverLoop(self: SyncReconciliation) {.async.} =
 
     self.messageIngress(id, pubsub, content)
 
-proc start*(self: SyncReconciliation) =
+method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
   if self.started:
     return
 
@@ -484,13 +484,16 @@ proc start*(self: SyncReconciliation) =
 
   info "Store Sync Reconciliation protocol started"
 
-proc stop*(self: SyncReconciliation) =
-  if self.syncInterval > ZeroDuration:
-    self.periodicSyncFut.cancelSoon()
+method stop*(self: SyncReconciliation) {.async: (raises: []).} =
+  defer:
+    self.started = false
 
   if self.syncInterval > ZeroDuration:
-    self.periodicPruneFut.cancelSoon()
+    await self.periodicSyncFut.cancelAndWait()
 
-  self.idsReceiverFut.cancelSoon()
+  if self.syncInterval > ZeroDuration:
+    await self.periodicPruneFut.cancelAndWait()
+
+  await self.idsReceiverFut.cancelAndWait()
 
   info "Store Sync Reconciliation protocol stopped"

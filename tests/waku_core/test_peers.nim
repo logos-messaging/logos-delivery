@@ -1,5 +1,6 @@
 {.used.}
 
+import std/options
 import
   results,
   testutils/unittests,

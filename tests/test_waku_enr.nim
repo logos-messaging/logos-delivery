@@ -271,6 +271,44 @@ suite "Waku ENR - Multiaddresses":
       multiaddrs.contains(expectedAddr1)
       multiaddrs.contains(addr2)
 
+  test "encode and decode record with multiaddrs field deduplicates duplicate entries":
+    ## Given
+    let
+      enrSeqNum = 1u64
+      enrPrivKey = generatesecp256k1key()
+
+    let
+      addr1 = MultiAddress
+        .init(
+          "/ip4/127.0.0.1/tcp/80/ws/p2p/16Uiu2HAm4v86W3bmT1BiH6oSPzcsSr31iDQpSN5Qa882BCjjwgrD"
+        )
+        .get()
+      addr1NoPeerId = MultiAddress.init("/ip4/127.0.0.1/tcp/80/ws").get()
+      addr2 = MultiAddress.init("/ip4/127.0.0.1/tcp/443/wss").get()
+
+    ## When
+    var builder = EnrBuilder.init(enrPrivKey, seqNum = enrSeqNum)
+    builder.withMultiaddrs(@[addr1, addr1NoPeerId, addr2, addr2])
+
+    let recordRes = builder.build()
+
+    require recordRes.isOk()
+    let record = recordRes.tryGet()
+
+    let typedRecord = record.toTyped()
+    require typedRecord.isOk()
+
+    let multiaddrsOpt = typedRecord.value.multiaddrs
+
+    ## Then
+    check multiaddrsOpt.isSome()
+
+    let multiaddrs = multiaddrsOpt.get()
+    check:
+      multiaddrs.len == 2
+      multiaddrs.contains(addr1NoPeerId)
+      multiaddrs.contains(addr2)
+
 suite "Waku ENR - Relay static sharding":
   test "new relay shards object with single invalid shard id":
     ## Given

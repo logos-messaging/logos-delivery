@@ -223,6 +223,7 @@ proc logMessageInfo*(
       msg_id = msg_id_short,
       from_peer_id = remotePeerId,
       topic = topic,
+      contentTopic = msg.contentTopic,
       receivedTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
   else:
@@ -232,6 +233,7 @@ proc logMessageInfo*(
       msg_id = msg_id_short,
       to_peer_id = remotePeerId,
       topic = topic,
+      contentTopic = msg.contentTopic,
       sentTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
 
@@ -515,12 +517,12 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
 
-method start*(w: WakuRelay) {.async, base.} =
+method start*(w: WakuRelay) {.async: (raises: [CancelledError]).} =
   info "start"
   await procCall GossipSub(w).start()
   w.topicHealthLoopHandle = w.topicsHealthLoop()
 
-method stop*(w: WakuRelay) {.async, base.} =
+method stop*(w: WakuRelay) {.async: (raises: []).} =
   info "stop"
   await procCall GossipSub(w).stop()
 
@@ -616,7 +618,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   # Otherwise this might lead to unintended behaviour.
   if not w.topicValidator.hasKey(pubSubTopic):
     let newValidator = w.generateOrderedValidator()
-    procCall GossipSub(w).addValidator(pubSubTopic, w.generateOrderedValidator())
+    procCall GossipSub(w).addValidator(pubSubTopic, newValidator)
     w.topicValidator[pubSubTopic] = newValidator
 
   # set this topic parameters for scoring
@@ -680,7 +682,8 @@ proc publish*(
   let data = message.encode().buffer
 
   let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
-  notice "start publish Waku message", msg_hash = msgHash, pubsubTopic = pubsubTopic
+  notice "start publish Waku message",
+    msg_hash = msgHash, pubsubTopic = pubsubTopic, contentTopic = message.contentTopic
 
   let relayedPeerCount = await procCall GossipSub(w).publish(pubsubTopic, data)
 

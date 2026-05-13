@@ -201,14 +201,18 @@ proc validateMessage*(
 
   if timeDiff > rlnPeer.rlnMaxTimestampGap:
     warn "invalid message: timestamp difference exceeds threshold",
-      timeDiff = timeDiff, maxTimestampGap = rlnPeer.rlnMaxTimestampGap
+      timeDiff = timeDiff,
+      maxTimestampGap = rlnPeer.rlnMaxTimestampGap,
+      contentTopic = msg.contentTopic
     waku_rln_invalid_messages_total.inc(labelValues = ["invalid_timestamp"])
     return MessageValidationResult.Invalid
 
   let computedEpoch = rlnPeer.calcEpoch(messageTime)
   if proof.epoch != computedEpoch:
     warn "invalid message: timestamp mismatches epoch",
-      proofEpoch = fromEpoch(proof.epoch), computedEpoch = fromEpoch(computedEpoch)
+      proofEpoch = fromEpoch(proof.epoch),
+      computedEpoch = fromEpoch(computedEpoch),
+      contentTopic = msg.contentTopic
     waku_rln_invalid_messages_total.inc(labelValues = ["timestamp_mismatch"])
     return MessageValidationResult.Invalid
 
@@ -216,7 +220,8 @@ proc validateMessage*(
   if not rootValidationRes:
     warn "invalid message: provided root does not belong to acceptable window of roots",
       provided = proof.merkleRoot.inHex(),
-      validRoots = rlnPeer.groupManager.validRoots.mapIt(it.inHex())
+      validRoots = rlnPeer.groupManager.validRoots.mapIt(it.inHex()),
+      contentTopic = msg.contentTopic
     waku_rln_invalid_messages_total.inc(labelValues = ["invalid_root"])
     return MessageValidationResult.Invalid
 
@@ -233,12 +238,14 @@ proc validateMessage*(
 
   proofVerificationRes.isOkOr:
     waku_rln_errors_total.inc(labelValues = ["proof_verification"])
-    warn "invalid message: proof verification failed", payloadLen = msg.payload.len
+    warn "invalid message: proof verification failed",
+      payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     return MessageValidationResult.Invalid
 
   if not proofVerificationRes.value():
     # invalid proof
-    warn "invalid message: invalid proof", payloadLen = msg.payload.len
+    warn "invalid message: invalid proof",
+      payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     waku_rln_invalid_messages_total.inc(labelValues = ["invalid_proof"])
     return MessageValidationResult.Invalid
 
@@ -252,11 +259,13 @@ proc validateMessage*(
   if hasDup.isErr():
     waku_rln_errors_total.inc(labelValues = ["duplicate_check"])
   elif hasDup.value == true:
-    trace "invalid message: message is spam", payloadLen = msg.payload.len
+    trace "invalid message: message is spam",
+      payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     waku_rln_spam_messages_total.inc()
     return MessageValidationResult.Spam
 
-  trace "message is valid", payloadLen = msg.payload.len
+  trace "message is valid",
+    payloadLen = msg.payload.len, contentTopic = msg.contentTopic
   # Metric increment moved to validator to include shard label
   return MessageValidationResult.Valid
 

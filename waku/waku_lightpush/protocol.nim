@@ -68,6 +68,7 @@ proc handleRequest(
     peer_id = peerId,
     requestId = pushRequest.requestId,
     pubsubTopic = pushRequest.pubsubTopic,
+    contentTopic = pushRequest.message.contentTopic,
     msg_hash = msg_hash,
     receivedTime = getNowInNanosecondTime()
 
