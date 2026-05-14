@@ -1,11 +1,11 @@
-import std/[options], stew/results, testutils/unittests
+import std/[options], results, testutils/unittests
 
 import
   waku/node/peer_manager/peer_store/migrations,
   ../../waku_archive/archive_utils,
   ../../testlib/[simple_mock]
 
-import std/[tables, strutils, os], stew/results, chronicles
+import std/[tables, strutils, os], results, chronicles
 
 import waku/common/databases/db_sqlite, waku/common/databases/common
 

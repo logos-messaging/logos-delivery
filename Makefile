@@ -24,6 +24,7 @@ export PATH := $(HOME)/.nimble/bin:$(PATH)
 # NIM binary location
 NIM_BINARY := $(shell which nim 2>/dev/null)
 NPH := $(HOME)/.nimble/bin/nph
+NIMBLE := $(HOME)/.nimble/bin/nimble
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
@@ -80,7 +81,7 @@ $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
 update:
 	rm -f $(NIMBLEDEPS_STAMP)
 	$(MAKE) $(NIMBLEDEPS_STAMP)
-	nimble lock
+	$(NIMBLE) lock
 
 clean:
 	rm -rf build 2> /dev/null || true
