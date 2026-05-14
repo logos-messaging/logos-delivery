@@ -114,7 +114,8 @@ proc reset*(T: type Persistency) {.gcsafe.} =
   ## shutdown drives it indirectly via the Teardown request flow.
   {.cast(gcsafe).}:
     acquire(gPersistencyLock)
-    defer: release(gPersistencyLock)
+    defer:
+      release(gPersistencyLock)
     if gPersistency != nil:
       let p = gPersistency
       gPersistency = nil
@@ -151,7 +152,10 @@ proc registerTeardown() {.gcsafe.} =
     {.cast(gcsafe).}:
       let p = gPersistency
       let jobIds =
-        if p != nil: toSeq(p.jobs.keys) else: @[]
+        if p != nil:
+          toSeq(p.jobs.keys)
+        else:
+          @[]
       info "Persistency shutting down jobs", jobcount = jobIds.len
       closeAllJobsAndClear()
       return ok(Teardown(component: "persistency jobs:" & $jobIds))
@@ -160,8 +164,9 @@ proc registerTeardown() {.gcsafe.} =
   if regRes.isErr:
     error "Teardown.setProvider failed", err = regRes.error
 
-proc instance*(T: type Persistency, rootDir: string):
-    Result[T, PersistencyError] {.gcsafe.} =
+proc instance*(
+    T: type Persistency, rootDir: string
+): Result[T, PersistencyError] {.gcsafe.} =
   ## Get-or-init the process-wide Persistency singleton.
   ##
   ## * First call: opens ``rootDir`` and registers the Teardown handler.
@@ -172,29 +177,33 @@ proc instance*(T: type Persistency, rootDir: string):
   ##   ``Persistency.reset`` (or by the Teardown shutdown flow).
   {.cast(gcsafe).}:
     acquire(gPersistencyLock)
-    defer: release(gPersistencyLock)
+    defer:
+      release(gPersistencyLock)
 
     if gPersistency != nil:
       if gPersistency.rootDir == rootDir:
         return ok(gPersistency)
-      return err(persistencyErr(
-        peInvalidArgument,
-        "Persistency already initialised with rootDir " & gPersistency.rootDir &
-          "; cannot re-init with " & rootDir))
+      return err(
+        persistencyErr(
+          peInvalidArgument,
+          "Persistency already initialised with rootDir " & gPersistency.rootDir &
+            "; cannot re-init with " & rootDir,
+        )
+      )
 
     let p = ?Persistency.new(rootDir)
     gPersistency = p
     registerTeardown()
     ok(p)
 
-proc instance*(T: type Persistency):
-    Result[T, PersistencyError] {.gcsafe.} =
+proc instance*(T: type Persistency): Result[T, PersistencyError] {.gcsafe.} =
   ## No-args form: succeeds only if the singleton is already initialised.
   ## Use this from services that must not be the first to touch
   ## persistency.
   {.cast(gcsafe).}:
     acquire(gPersistencyLock)
-    defer: release(gPersistencyLock)
+    defer:
+      release(gPersistencyLock)
     if gPersistency.isNil:
       return err(persistencyErr(peClosed, "Persistency not initialised"))
     ok(gPersistency)

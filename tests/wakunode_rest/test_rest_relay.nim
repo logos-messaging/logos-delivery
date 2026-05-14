@@ -21,13 +21,12 @@ import
     rest_api/endpoint/relay/handlers as relay_rest_interface,
     rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
-    waku_rln_relay
+    waku_rln_relay,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
-
 
 proc testWakuNode(): WakuNode =
   let

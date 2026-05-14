@@ -19,7 +19,7 @@
 ## ``stopStorageThread`` after ``joinThread`` returns.
 
 import std/[options, os]
-import std/atomics  # std/concurrency/atomics is the same module in Nim 2.2
+import std/atomics # std/concurrency/atomics is the same module in Nim 2.2
 import chronos, chronicles, results
 import brokers/[event_broker, request_broker, broker_context]
 import ./[types, backend_comm, backend_sqlite]
@@ -37,11 +37,11 @@ type
 
   StorageThreadArg = object
     ctx: BrokerContext
-    dbPath: cstring             ## allocShared0'd; freed in closeJob
-    dbPathLen: int              ## bytes including the trailing NUL
+    dbPath: cstring ## allocShared0'd; freed in closeJob
+    dbPathLen: int ## bytes including the trailing NUL
     shutdownFlag: Atomic[int]
-    readyFlag: Atomic[int]      ## values from ReadyState
-    errBuf: array[256, char]    ## last error message, NUL-terminated
+    readyFlag: Atomic[int] ## values from ReadyState
+    errBuf: array[256, char] ## last error message, NUL-terminated
 
   StorageThread = Thread[ptr StorageThreadArg]
 
@@ -74,7 +74,8 @@ proc errMsg(a: ptr StorageThreadArg): string =
 
 # ── provider closures ───────────────────────────────────────────────────
 
-proc encode(e: PersistencyError): string = encodeErr(e)
+proc encode(e: PersistencyError): string =
+  encodeErr(e)
 
 template unwrapErr(r: untyped): string =
   ## Disambiguates Result's `error` accessor from chronicles' `error` macro
@@ -83,43 +84,44 @@ template unwrapErr(r: untyped): string =
     let pe: PersistencyError = r.error()
     encode(pe)
 
-proc registerProviders(
-    backend: KvBackend, ctx: BrokerContext
-): Result[void, string] =
+proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, string] =
   ## Wires the 5 RequestBroker providers + the PersistEvent listener.
   ## All closures capture `backend` by reference (it lives for the entire
   ## thread lifetime).
 
-  proc onGet(category: string, key: Key):
-      Future[Result[KvGet, string]] {.async.} =
+  proc onGet(category: string, key: Key): Future[Result[KvGet, string]] {.async.} =
     let r = backend.getOne(category, key)
     if r.isErr:
       return err(unwrapErr(r))
     ok(KvGet(value: r.get()))
 
-  proc onExists(category: string, key: Key):
-      Future[Result[KvExists, string]] {.async.} =
+  proc onExists(
+      category: string, key: Key
+  ): Future[Result[KvExists, string]] {.async.} =
     let r = backend.existsOne(category, key)
     if r.isErr:
       return err(unwrapErr(r))
     ok(KvExists(value: r.get()))
 
-  proc onScan(category: string, range: KeyRange, reverse: bool):
-      Future[Result[KvScan, string]] {.async.} =
+  proc onScan(
+      category: string, range: KeyRange, reverse: bool
+  ): Future[Result[KvScan, string]] {.async.} =
     let r = backend.scanRange(category, range, reverse)
     if r.isErr:
       return err(unwrapErr(r))
     ok(KvScan(rows: r.get()))
 
-  proc onCount(category: string, range: KeyRange):
-      Future[Result[KvCount, string]] {.async.} =
+  proc onCount(
+      category: string, range: KeyRange
+  ): Future[Result[KvCount, string]] {.async.} =
     let r = backend.countRange(category, range)
     if r.isErr:
       return err(unwrapErr(r))
     ok(KvCount(n: r.get()))
 
-  proc onDelete(category: string, key: Key):
-      Future[Result[KvDelete, string]] {.async.} =
+  proc onDelete(
+      category: string, key: Key
+  ): Future[Result[KvDelete, string]] {.async.} =
     let r = backend.deleteOne(category, key)
     if r.isErr:
       return err(unwrapErr(r))
@@ -220,14 +222,13 @@ proc storageThreadMain(arg: ptr StorageThreadArg) {.thread.} =
 
 # ── lifecycle ───────────────────────────────────────────────────────────
 
-type
-  JobRuntime* = ref object
-    ## Opaque per-job runtime owned by `persistency.nim`. Holds the typed
-    ## Thread handle + shared arg pointer so closeJob can shut the worker
-    ## down. Created by `startStorageThread` and torn down by
-    ## `stopStorageThread`.
-    arg*: ptr StorageThreadArg
-    thread*: StorageThread
+type JobRuntime* = ref object
+  ## Opaque per-job runtime owned by `persistency.nim`. Holds the typed
+  ## Thread handle + shared arg pointer so closeJob can shut the worker
+  ## down. Created by `startStorageThread` and torn down by
+  ## `stopStorageThread`.
+  arg*: ptr StorageThreadArg
+  thread*: StorageThread
 
 proc startStorageThread*(
     ctx: BrokerContext, dbPath: string

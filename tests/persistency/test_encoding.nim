@@ -12,18 +12,22 @@ proc cmpBytes(a, b: Key): int =
   let bb = bytes(b)
   let n = min(ab.len, bb.len)
   for i in 0 ..< n:
-    if ab[i] != bb[i]: return cmp(ab[i], bb[i])
+    if ab[i] != bb[i]:
+      return cmp(ab[i], bb[i])
   cmp(ab.len, bb.len)
 
 template str(b: seq[byte]): string =
   var s = newString(b.len)
-  for i, x in b: s[i] = char(x)
+  for i, x in b:
+    s[i] = char(x)
   s
 
 # Shared payload types used by multiple tests.
 type
   Mood = enum
-    moodCalm, moodHappy, moodAngry
+    moodCalm
+    moodHappy
+    moodAngry
 
   Header = object
     sender: string
@@ -35,7 +39,6 @@ type
     body: seq[byte]
 
 procSuite "Persistency generic encoding":
-
   # ── Key macro: composite types ────────────────────────────────────────
 
   test "key macro accepts plain tuples":
@@ -72,14 +75,13 @@ procSuite "Persistency generic encoding":
     check toKey(Header(sender: "a", epoch: 1)) == key("a", 1'i64)
 
   test "tuple-encoded keys preserve field-major sort order":
-    let inputs =
-      @[
-        key(("a", 0'i64)),
-        key(("a", 1'i64)),
-        key(("a", int64.high)),
-        key(("b", int64.low)),
-        key(("b", 0'i64)),
-      ]
+    let inputs = @[
+      key(("a", 0'i64)),
+      key(("a", 1'i64)),
+      key(("a", int64.high)),
+      key(("b", int64.low)),
+      key(("b", 0'i64)),
+    ]
     var shuffled = @[inputs[3], inputs[0], inputs[4], inputs[2], inputs[1]]
     shuffled.sort(cmpBytes)
     check shuffled == inputs
@@ -94,7 +96,7 @@ procSuite "Persistency generic encoding":
   # ── Payload macro / toPayload ─────────────────────────────────────────
 
   test "toPayload encodes primitives":
-    check str(toPayload("hi")).len == 4   # 2-byte len prefix + 2 chars
+    check str(toPayload("hi")).len == 4 # 2-byte len prefix + 2 chars
     check toPayload(42'i64).len == 8
     check toPayload(true) == @[1'u8]
     check toPayload(false) == @[0'u8]
@@ -106,9 +108,7 @@ procSuite "Persistency generic encoding":
       body: @[0xAA'u8, 0xBB, 0xCC],
     )
     let p = toPayload(m)
-    let pManual = payload(
-      "alice", 9'i64, int64(ord(moodHappy)), @[0xAA'u8, 0xBB, 0xCC]
-    )
+    let pManual = payload("alice", 9'i64, int64(ord(moodHappy)), @[0xAA'u8, 0xBB, 0xCC])
     check p == pManual
 
   test "payload macro concatenates parts":
@@ -125,9 +125,11 @@ procSuite "Persistency generic encoding":
   test "persistEncoded round-trips a struct through SQLite":
     let root = getTempDir() / ("persistency_enc_" & $epochTime().int)
     removeDir(root)
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let job = p.openJob("t").get()
 
     let m = Msg(
@@ -145,7 +147,8 @@ procSuite "Persistency generic encoding":
       let r = waitFor job.get("msg", k)
       check r.isOk
       got = r.get()
-      if got.isSome: break
+      if got.isSome:
+        break
       sleep(2)
     check got.isSome
     check got.get == toPayload(m)

@@ -19,7 +19,6 @@ import
   ../common/rate_limit/setting,
   ../common/utils/parse_size_units
 
-
 type
   WakuNodeBuilder* = object # General
     nodeRng: Option[ref crypto.HmacDrbgContext]

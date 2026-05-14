@@ -43,10 +43,7 @@ proc bindBlob(s: ptr sqlite3_stmt, n: cint, val: seq[byte]): cint =
     sqlite3_bind_blob(s, n, nil, 0.cint, SQLITE_TRANSIENT)
 
 proc runRead(
-    db: SqliteDatabase,
-    sql: string,
-    params: openArray[seq[byte]],
-    onRow: RowHandler,
+    db: SqliteDatabase, sql: string, params: openArray[seq[byte]], onRow: RowHandler
 ): Result[void, PersistencyError] =
   var s: ptr sqlite3_stmt
   let rc = sqlite3_prepare_v2(db.env, sql.cstring, sql.len.cint, addr s, nil)
@@ -78,9 +75,7 @@ proc prepareStatements(b: KvBackend): DatabaseResult[void] =
     void,
   )
   b.deleteStmt = ?b.db.prepareStmt(
-    "DELETE FROM kv WHERE category = ? AND key = ?;",
-    (seq[byte], seq[byte]),
-    void,
+    "DELETE FROM kv WHERE category = ? AND key = ?;", (seq[byte], seq[byte]), void
   )
   ok()
 
@@ -142,9 +137,7 @@ proc execSql(b: KvBackend, sql: string): Result[void, PersistencyError] =
     return err(toErr(sql & ": " & r.error))
   ok()
 
-proc applyOps*(
-    b: KvBackend, ops: openArray[TxOp]
-): Result[void, PersistencyError] =
+proc applyOps*(b: KvBackend, ops: openArray[TxOp]): Result[void, PersistencyError] =
   ## Single op = auto-commit. Multiple ops = BEGIN IMMEDIATE / COMMIT, with
   ## ROLLBACK on first failure. This is the single source of truth for write
   ## SQL — Phase 3's PersistEvent listener calls straight into here.
@@ -225,9 +218,7 @@ proc scanRange*(
     ?b.db.runRead(sql, [catBytes(category), keyBytes(range.start)], onRow)
   else:
     ?b.db.runRead(
-      sql,
-      [catBytes(category), keyBytes(range.start), keyBytes(range.stop)],
-      onRow,
+      sql, [catBytes(category), keyBytes(range.start), keyBytes(range.stop)], onRow
     )
   ok(rows)
 
@@ -249,8 +240,6 @@ proc countRange*(
     ?b.db.runRead(sql, [catBytes(category), keyBytes(range.start)], onRow)
   else:
     ?b.db.runRead(
-      sql,
-      [catBytes(category), keyBytes(range.start), keyBytes(range.stop)],
-      onRow,
+      sql, [catBytes(category), keyBytes(range.start), keyBytes(range.stop)], onRow
     )
   ok(int(n))

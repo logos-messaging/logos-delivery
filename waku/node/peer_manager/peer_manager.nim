@@ -9,7 +9,7 @@ import
   metrics,
   libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
   brokers/broker_context
-  
+
 import
   waku/[
     waku_core,

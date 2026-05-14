@@ -22,7 +22,18 @@ procSuite "Persistency SQLite backend":
     defer:
       b.close()
 
-    b.applyOps([TxOp(category: "msg", key: key("c1", 1'i64), kind: txPut, payload: payload("hello"))]).get()
+    b
+      .applyOps(
+        [
+          TxOp(
+            category: "msg",
+            key: key("c1", 1'i64),
+            kind: txPut,
+            payload: payload("hello"),
+          )
+        ]
+      )
+      .get()
 
     let got = b.getOne("msg", key("c1", 1'i64)).get()
     check got.isSome
@@ -54,13 +65,21 @@ procSuite "Persistency SQLite backend":
     let b = openBackendInMemory().get()
     defer:
       b.close()
-    b.applyOps(
-      [
-        TxOp(category: "msg", key: key("c1", 1'i64), kind: txPut, payload: payload("a")),
-        TxOp(category: "msg", key: key("c1", 2'i64), kind: txPut, payload: payload("b")),
-        TxOp(category: "msg", key: key("c1", 3'i64), kind: txPut, payload: payload("c")),
-      ]
-    ).get()
+    b
+      .applyOps(
+        [
+          TxOp(
+            category: "msg", key: key("c1", 1'i64), kind: txPut, payload: payload("a")
+          ),
+          TxOp(
+            category: "msg", key: key("c1", 2'i64), kind: txPut, payload: payload("b")
+          ),
+          TxOp(
+            category: "msg", key: key("c1", 3'i64), kind: txPut, payload: payload("c")
+          ),
+        ]
+      )
+      .get()
     check b.countRange("msg", prefixRange(key("c1"))).get() == 3
 
   test "scanRange ascending yields rows in key order":
@@ -70,7 +89,9 @@ procSuite "Persistency SQLite backend":
     let inserts = @[5'i64, 1, 4, 2, 3]
     var ops: seq[TxOp] = @[]
     for i in inserts:
-      ops.add(TxOp(category: "msg", key: key("c1", i), kind: txPut, payload: payload($i)))
+      ops.add(
+        TxOp(category: "msg", key: key("c1", i), kind: txPut, payload: payload($i))
+      )
     b.applyOps(ops).get()
 
     let rows = b.scanRange("msg", prefixRange(key("c1"))).get()
@@ -85,9 +106,11 @@ procSuite "Persistency SQLite backend":
     defer:
       b.close()
     for i in [1'i64, 2, 3]:
-      b.applyOps(
-        [TxOp(category: "msg", key: key("c1", i), kind: txPut, payload: payload($i))]
-      ).get()
+      b
+        .applyOps(
+          [TxOp(category: "msg", key: key("c1", i), kind: txPut, payload: payload($i))]
+        )
+        .get()
     let rows = b.scanRange("msg", prefixRange(key("c1")), reverse = true).get()
     check rows.len == 3
     check str(rows[0].payload) == "3"
@@ -98,12 +121,14 @@ procSuite "Persistency SQLite backend":
     defer:
       b.close()
     for i in [1'i64, 2, 3, 4, 5]:
-      b.applyOps(
-        [TxOp(category: "msg", key: key("c1", i), kind: txPut, payload: payload($i))]
-      ).get()
+      b
+        .applyOps(
+          [TxOp(category: "msg", key: key("c1", i), kind: txPut, payload: payload($i))]
+        )
+        .get()
     let rng = KeyRange(start: key("c1", 2'i64), stop: key("c1", 4'i64))
     let rows = b.scanRange("msg", rng).get()
-    check rows.len == 2  # 2 and 3, not 4
+    check rows.len == 2 # 2 and 3, not 4
     check str(rows[0].payload) == "2"
     check str(rows[1].payload) == "3"
 
@@ -112,9 +137,11 @@ procSuite "Persistency SQLite backend":
     defer:
       b.close()
     for i in [1'i64, 2, 3]:
-      b.applyOps(
-        [TxOp(category: "msg", key: key("c1", i), kind: txPut, payload: payload($i))]
-      ).get()
+      b
+        .applyOps(
+          [TxOp(category: "msg", key: key("c1", i), kind: txPut, payload: payload($i))]
+        )
+        .get()
     let rng = KeyRange(start: key("c1", 2'i64), stop: rawKey(@[]))
     let rows = b.scanRange("msg", rng).get()
     check rows.len == 2
@@ -125,12 +152,16 @@ procSuite "Persistency SQLite backend":
     defer:
       b.close()
     let k = key("c1", 1'i64)
-    b.applyOps(
-      [
-        TxOp(category: "log", key: k, kind: txPut, payload: payload("log-1")),
-        TxOp(category: "outgoing", key: k, kind: txPut, payload: payload("outgoing-1")),
-      ]
-    ).get()
+    b
+      .applyOps(
+        [
+          TxOp(category: "log", key: k, kind: txPut, payload: payload("log-1")),
+          TxOp(
+            category: "outgoing", key: k, kind: txPut, payload: payload("outgoing-1")
+          ),
+        ]
+      )
+      .get()
     check str(b.getOne("log", k).get().get) == "log-1"
     check str(b.getOne("outgoing", k).get().get) == "outgoing-1"
     check b.countRange("log", prefixRange(key("c1"))).get() == 1
@@ -141,12 +172,14 @@ procSuite "Persistency SQLite backend":
     defer:
       b.close()
     let k = key("c1", 1'i64)
-    b.applyOps(
-      [
-        TxOp(category: "msg", key: k, kind: txPut, payload: payload("v")),
-        TxOp(category: "msg", key: k, kind: txDelete),
-      ]
-    ).get()
+    b
+      .applyOps(
+        [
+          TxOp(category: "msg", key: k, kind: txPut, payload: payload("v")),
+          TxOp(category: "msg", key: k, kind: txDelete),
+        ]
+      )
+      .get()
     check not b.existsOne("msg", k).get()
 
   test "missing key returns none":

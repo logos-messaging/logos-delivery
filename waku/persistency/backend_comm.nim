@@ -57,13 +57,17 @@ proc mtMarshalValue*(
 ): bool {.gcsafe.} =
   ## TxOp is a case object: write the discriminator, then only the
   ## fields that belong to the active branch.
-  if not mtMarshalValue(buf, cap, value.category, pos): return false
-  if not mtMarshalValue(buf, cap, value.key, pos):      return false
+  if not mtMarshalValue(buf, cap, value.category, pos):
+    return false
+  if not mtMarshalValue(buf, cap, value.key, pos):
+    return false
   let kind = uint8(ord(value.kind))
-  if not mtMarshalValue(buf, cap, kind, pos):           return false
+  if not mtMarshalValue(buf, cap, kind, pos):
+    return false
   case value.kind
   of txPut:
-    if not mtMarshalValue(buf, cap, value.payload, pos): return false
+    if not mtMarshalValue(buf, cap, value.payload, pos):
+      return false
   of txDelete:
     discard
   return true
@@ -75,13 +79,17 @@ proc mtUnmarshalValue*(
     category: string
     key: Key
     kindByte: uint8
-  if not mtUnmarshalValue(buf, len, category, pos): return false
-  if not mtUnmarshalValue(buf, len, key, pos):      return false
-  if not mtUnmarshalValue(buf, len, kindByte, pos): return false
+  if not mtUnmarshalValue(buf, len, category, pos):
+    return false
+  if not mtUnmarshalValue(buf, len, key, pos):
+    return false
+  if not mtUnmarshalValue(buf, len, kindByte, pos):
+    return false
   case TxOpKind(kindByte)
   of txPut:
     var payload: seq[byte]
-    if not mtUnmarshalValue(buf, len, payload, pos): return false
+    if not mtUnmarshalValue(buf, len, payload, pos):
+      return false
     value = TxOp(category: category, key: key, kind: txPut, payload: payload)
   of txDelete:
     value = TxOp(category: category, key: key, kind: txDelete)
@@ -94,32 +102,40 @@ EventBroker(mt):
 RequestBroker(mt):
   type KvGet* = object
     value*: Option[seq[byte]]
-  proc signature*(category: string, key: Key):
-    Future[Result[KvGet, string]] {.async.}
+
+  proc signature*(category: string, key: Key): Future[Result[KvGet, string]] {.async.}
 
 RequestBroker(mt):
   type KvExists* = object
     value*: bool
-  proc signature*(category: string, key: Key):
-    Future[Result[KvExists, string]] {.async.}
+
+  proc signature*(
+    category: string, key: Key
+  ): Future[Result[KvExists, string]] {.async.}
 
 RequestBroker(mt):
   type KvScan* = object
     rows*: seq[KvRow]
-  proc signature*(category: string, range: KeyRange, reverse: bool):
-    Future[Result[KvScan, string]] {.async.}
+
+  proc signature*(
+    category: string, range: KeyRange, reverse: bool
+  ): Future[Result[KvScan, string]] {.async.}
 
 RequestBroker(mt):
   type KvCount* = object
     n*: int
-  proc signature*(category: string, range: KeyRange):
-    Future[Result[KvCount, string]] {.async.}
+
+  proc signature*(
+    category: string, range: KeyRange
+  ): Future[Result[KvCount, string]] {.async.}
 
 RequestBroker(mt):
   type KvDelete* = object
     existed*: bool
-  proc signature*(category: string, key: Key):
-    Future[Result[KvDelete, string]] {.async.}
+
+  proc signature*(
+    category: string, key: Key
+  ): Future[Result[KvDelete, string]] {.async.}
 
 # ── string<->PersistencyError boundary helpers ──────────────────────────
 

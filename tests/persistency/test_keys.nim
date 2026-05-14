@@ -15,33 +15,38 @@ proc cmpBytes(a, b: Key): int =
 
 procSuite "Persistency keys":
   test "string components sort by length, then byte order":
-    var ks =
-      @[key("ab"), key(""), key("a"), key("aa"), key("b")]
+    var ks = @[key("ab"), key(""), key("a"), key("aa"), key("b")]
     ks.sort(cmpBytes)
     # length-prefix encoding => shorter strings always sort before longer
     # ones; same-length strings sort in byte order.
     check ks == @[key(""), key("a"), key("b"), key("aa"), key("ab")]
 
   test "same-length strings sort in byte order":
-    var ks =
-      @[key("delta"), key("alpha"), key("gamma"), key("bravo")]
+    var ks = @[key("delta"), key("alpha"), key("gamma"), key("bravo")]
     ks.sort(cmpBytes)
     check ks == @[key("alpha"), key("bravo"), key("delta"), key("gamma")]
 
   test "int64 sign-flip preserves order across negative/zero/positive":
-    let inputs =
-      @[
-        key("c", int64.low),
-        key("c", -2'i64),
-        key("c", -1'i64),
-        key("c", 0'i64),
-        key("c", 1'i64),
-        key("c", 2'i64),
-        key("c", int64.high),
-      ]
+    let inputs = @[
+      key("c", int64.low),
+      key("c", -2'i64),
+      key("c", -1'i64),
+      key("c", 0'i64),
+      key("c", 1'i64),
+      key("c", 2'i64),
+      key("c", int64.high),
+    ]
     var shuffled = inputs
     # rotate so the natural order is not the input order
-    shuffled = @[shuffled[3], shuffled[6], shuffled[0], shuffled[5], shuffled[1], shuffled[4], shuffled[2]]
+    shuffled = @[
+      shuffled[3],
+      shuffled[6],
+      shuffled[0],
+      shuffled[5],
+      shuffled[1],
+      shuffled[4],
+      shuffled[2],
+    ]
     shuffled.sort(cmpBytes)
     check shuffled == inputs
 
@@ -62,29 +67,27 @@ procSuite "Persistency keys":
     # First component "a" / "b" — both length 1, so byte order applies.
     # Second components grouped by first; within each group, again
     # length-then-byte: "" (len 0) < "a","z" (len 1) < "ab" (len 2).
-    let inputs =
-      @[
-        key("a", ""),
-        key("a", "a"),
-        key("a", "z"),
-        key("a", "ab"),
-        key("b", ""),
-        key("b", "a"),
-      ]
+    let inputs = @[
+      key("a", ""),
+      key("a", "a"),
+      key("a", "z"),
+      key("a", "ab"),
+      key("b", ""),
+      key("b", "a"),
+    ]
     var shuffled = inputs.reversed()
     shuffled.sort(cmpBytes)
     check shuffled == inputs
 
   test "composite (string, int64) tuple ordering":
-    let inputs =
-      @[
-        key("a", int64.low),
-        key("a", -1'i64),
-        key("a", 0'i64),
-        key("a", 1'i64),
-        key("b", int64.low),
-        key("b", 0'i64),
-      ]
+    let inputs = @[
+      key("a", int64.low),
+      key("a", -1'i64),
+      key("a", 0'i64),
+      key("a", 1'i64),
+      key("b", int64.low),
+      key("b", 0'i64),
+    ]
     var shuffled = inputs.reversed()
     shuffled.sort(cmpBytes)
     check shuffled == inputs
@@ -104,8 +107,13 @@ procSuite "Persistency keys":
 
   test "prefixRange.stop excludes the prefix and admits all extensions":
     let r = prefixRange(key("a"))
-    let extensions =
-      @[key("a"), key("a", 0'i64), key("a", int64.high), key("a", "x"), key("a", uint64.high)]
+    let extensions = @[
+      key("a"),
+      key("a", 0'i64),
+      key("a", int64.high),
+      key("a", "x"),
+      key("a", uint64.high),
+    ]
     for k in extensions:
       check r.start <= k
       check k < r.stop

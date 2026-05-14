@@ -13,11 +13,12 @@ proc tmpRoot(label: string): string =
   p
 
 procSuite "Persistency singleton":
-
   test "instance(rootDir) is idempotent with the same rootDir":
     let root = tmpRoot("idem")
-    defer: removeDir(root)
-    defer: Persistency.reset()
+    defer:
+      removeDir(root)
+    defer:
+      Persistency.reset()
 
     let p1 = Persistency.instance(root).get()
     let p2 = Persistency.instance(root).get()
@@ -26,9 +27,12 @@ procSuite "Persistency singleton":
   test "instance(rootDir) refuses re-init with a different rootDir":
     let rootA = tmpRoot("a")
     let rootB = tmpRoot("b")
-    defer: removeDir(rootA)
-    defer: removeDir(rootB)
-    defer: Persistency.reset()
+    defer:
+      removeDir(rootA)
+    defer:
+      removeDir(rootB)
+    defer:
+      Persistency.reset()
 
     discard Persistency.instance(rootA).get()
     let r = Persistency.instance(rootB)
@@ -37,8 +41,10 @@ procSuite "Persistency singleton":
 
   test "no-arg instance() fails before init, succeeds after":
     let root = tmpRoot("noarg")
-    defer: removeDir(root)
-    defer: Persistency.reset()
+    defer:
+      removeDir(root)
+    defer:
+      Persistency.reset()
 
     let before = Persistency.instance()
     check before.isErr
@@ -51,9 +57,12 @@ procSuite "Persistency singleton":
   test "reset() makes the next instance() target a different rootDir":
     let rootA = tmpRoot("rs-a")
     let rootB = tmpRoot("rs-b")
-    defer: removeDir(rootA)
-    defer: removeDir(rootB)
-    defer: Persistency.reset()
+    defer:
+      removeDir(rootA)
+    defer:
+      removeDir(rootB)
+    defer:
+      Persistency.reset()
 
     let pA = Persistency.instance(rootA).get()
     check pA.rootDir == rootA
@@ -64,15 +73,18 @@ procSuite "Persistency singleton":
     check pA != pB
 
   test "reset() is idempotent":
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     Persistency.reset()
     Persistency.reset()
     check Persistency.instance().isErr
 
   test "Teardown.request closes the singleton and fires our provider":
     let root = tmpRoot("teardown")
-    defer: removeDir(root)
-    defer: Persistency.reset()  # belt-and-braces in case the request path fails
+    defer:
+      removeDir(root)
+    defer:
+      Persistency.reset() # belt-and-braces in case the request path fails
 
     let p = Persistency.instance(root).get()
     discard p.openJob("alpha").get()

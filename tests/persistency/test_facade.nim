@@ -32,12 +32,13 @@ proc waitUntilExists(t: Job, category: string, k: Key, timeoutMs = 1000): bool =
   false
 
 procSuite "Persistency facade":
-
   test "persistPut then get round-trips":
     let root = tmpRoot("put_get")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let t = p.openJob("t").get()
 
     let k = key("c", 1'i64)
@@ -50,16 +51,18 @@ procSuite "Persistency facade":
 
   test "persist (batch) is atomic and visible together":
     let root = tmpRoot("batch")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let t = p.openJob("t").get()
 
     var ops: seq[TxOp]
     for i in 1'i64 .. 4:
-      ops.add(TxOp(
-        category: "msg", key: key("c", i), kind: txPut, payload: payload($i)
-      ))
+      ops.add(
+        TxOp(category: "msg", key: key("c", i), kind: txPut, payload: payload($i))
+      )
     t.persist(ops)
     check t.waitUntilExists("msg", key("c", 4'i64))
 
@@ -68,9 +71,11 @@ procSuite "Persistency facade":
 
   test "scanPrefix returns rows in key order":
     let root = tmpRoot("scan")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let t = p.openJob("t").get()
 
     for i in [3'i64, 1, 4, 1, 5, 9, 2]:
@@ -88,9 +93,11 @@ procSuite "Persistency facade":
 
   test "scanPrefix reverse=true returns rows in reverse order":
     let root = tmpRoot("scan_rev")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let t = p.openJob("t").get()
 
     for i in 1'i64 .. 3:
@@ -104,9 +111,11 @@ procSuite "Persistency facade":
 
   test "deleteAcked round-trips and reports row presence":
     let root = tmpRoot("delete")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let t = p.openJob("t").get()
 
     let k = key("c", 1'i64)
@@ -122,9 +131,11 @@ procSuite "Persistency facade":
 
   test "persistDelete fire-and-forget removes the row":
     let root = tmpRoot("fadel")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let t = p.openJob("t").get()
 
     let k = key("c", 1'i64)
@@ -143,9 +154,11 @@ procSuite "Persistency facade":
 
   test "two jobs do not see each other's data via the facade":
     let root = tmpRoot("iso")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let a = p.openJob("a").get()
     let b = p.openJob("b").get()
 

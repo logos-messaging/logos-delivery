@@ -22,8 +22,9 @@ proc tmpRoot(label: string): string =
   p
 
 # Bridge the persist->read race (writes are fire-and-forget in v1).
-proc waitUntilExists(p: Persistency, jobId, category: string, k: Key,
-                     timeoutMs = 1000): bool =
+proc waitUntilExists(
+    p: Persistency, jobId, category: string, k: Key, timeoutMs = 1000
+): bool =
   let deadline = epochTime() + (timeoutMs.float / 1000.0)
   while epochTime() < deadline:
     let r = waitFor p.exists(jobId, category, k)
@@ -33,12 +34,13 @@ proc waitUntilExists(p: Persistency, jobId, category: string, k: Key,
   false
 
 procSuite "Persistency string-id lookup":
-
   test "job(p, id) returns peJobNotFound when not open":
     let root = tmpRoot("notfound")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
 
     let r = p.job("nope")
     check r.isErr
@@ -46,20 +48,24 @@ procSuite "Persistency string-id lookup":
 
   test "job(p, id) returns the Job after openJob":
     let root = tmpRoot("found")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
 
     let opened = p.openJob("alpha").get()
     let looked = p.job("alpha").get()
     check looked.id == "alpha"
-    check looked == opened  # same ref, no need to peek at .context
+    check looked == opened # same ref, no need to peek at .context
 
   test "hasJob mirrors p.job()":
     let root = tmpRoot("has")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
 
     check not p.hasJob("x")
     discard p.openJob("x")
@@ -69,18 +75,22 @@ procSuite "Persistency string-id lookup":
 
   test "subscript [] returns the open Job":
     let root = tmpRoot("subscript")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     discard p.openJob("a").get()
     let j = p["a"]
     check j.id == "a"
 
   test "string-lookup persistPut + get round-trips without a Job ref":
     let root = tmpRoot("rw")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     discard p.openJob("svc").get()
 
     let k = key("c", 1'i64)
@@ -93,9 +103,11 @@ procSuite "Persistency string-id lookup":
 
   test "string-lookup reads short-circuit with peJobNotFound":
     let root = tmpRoot("missingread")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
 
     let g = waitFor p.get("nope", "msg", key("k"))
     check g.isErr
@@ -111,9 +123,11 @@ procSuite "Persistency string-id lookup":
 
   test "string-lookup writes to an unknown job are dropped, not raised":
     let root = tmpRoot("missingwrite")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
 
     # Should not raise and should not leak any state.
     p.persistPut("ghost", "msg", key("k"), payloadBytes("v"))
@@ -123,12 +137,15 @@ procSuite "Persistency string-id lookup":
 
   test "string-lookup persistEncoded round-trips a struct":
     let root = tmpRoot("encoded")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     type Item = object
       tag: string
       n: int64
+
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     discard p.openJob("e").get()
 
     let k = key("items", 1'i64)
@@ -141,9 +158,11 @@ procSuite "Persistency string-id lookup":
 
   test "string-lookup scan returns the same rows as Job-form":
     let root = tmpRoot("scan")
-    defer: removeDir(root)
+    defer:
+      removeDir(root)
     let p = Persistency.instance(root).get()
-    defer: Persistency.reset()
+    defer:
+      Persistency.reset()
     let j = p.openJob("s").get()
 
     for i in 1'i64 .. 3:

@@ -82,12 +82,23 @@ proc encodePart*(dest: var seq[byte], i: int64) =
 proc encodePart*(dest: var seq[byte], u: uint64) =
   appendBE64(dest, u)
 
-proc encodePart*(dest: var seq[byte], i: int)   {.inline.} = encodePart(dest, i.int64)
-proc encodePart*(dest: var seq[byte], i: int32) {.inline.} = encodePart(dest, i.int64)
-proc encodePart*(dest: var seq[byte], i: int16) {.inline.} = encodePart(dest, i.int64)
-proc encodePart*(dest: var seq[byte], i: int8)  {.inline.} = encodePart(dest, i.int64)
-proc encodePart*(dest: var seq[byte], u: uint32) {.inline.} = encodePart(dest, u.uint64)
-proc encodePart*(dest: var seq[byte], u: uint16) {.inline.} = encodePart(dest, u.uint64)
+proc encodePart*(dest: var seq[byte], i: int) {.inline.} =
+  encodePart(dest, i.int64)
+
+proc encodePart*(dest: var seq[byte], i: int32) {.inline.} =
+  encodePart(dest, i.int64)
+
+proc encodePart*(dest: var seq[byte], i: int16) {.inline.} =
+  encodePart(dest, i.int64)
+
+proc encodePart*(dest: var seq[byte], i: int8) {.inline.} =
+  encodePart(dest, i.int64)
+
+proc encodePart*(dest: var seq[byte], u: uint32) {.inline.} =
+  encodePart(dest, u.uint64)
+
+proc encodePart*(dest: var seq[byte], u: uint16) {.inline.} =
+  encodePart(dest, u.uint64)
 
 proc encodePart*(dest: var seq[byte], b: bool) =
   dest.add(if b: 1'u8 else: 0'u8)

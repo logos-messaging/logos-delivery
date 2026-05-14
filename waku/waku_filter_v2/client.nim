@@ -12,8 +12,7 @@ import
   brokers/broker_context
 
 import
-  waku/
-    [node/peer_manager, waku_core, events/delivery_events],
+  waku/[node/peer_manager, waku_core, events/delivery_events],
   ./common,
   ./protocol_metrics,
   ./rpc_codec,
