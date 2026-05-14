@@ -25,7 +25,7 @@
   };
 
   jwt = pkgs.fetchgit {
-    url = "https://github.com/yglukhov/nim-jwt.git";
+    url = "https://github.com/vacp2p/nim-jwt.git";
     rev = "18f8378de52b241f321c1f9ea905456e89b95c6f";
     sha256 = "1986czmszdxj6g9yr7xn1fx8y2y9mwpb3f1bn9nc6973qawsdm0p";
     fetchSubmodules = true;
@@ -96,8 +96,8 @@
 
   faststreams = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-faststreams";
-    rev = "50889cd16ec8771106cdd0eeea460039e8571e06";
-    sha256 = "1hd4bhvw5lzwg924i8dif5mi61h0ayiplq38djvrdbfsjdhw2zvw";
+    rev = "ce27581a3e881f782f482cb66dc5b07a02bd615e";
+    sha256 = "0y6bw2scnmr8cxj4fg18w7f34l2bh9qwg5nhlgd84m9fpr5bqarn";
     fetchSubmodules = true;
   };
 
@@ -159,8 +159,8 @@
 
   brokers = pkgs.fetchgit {
     url = "https://github.com/NagyZoltanPeter/nim-brokers.git";
-    rev = "6e7b7cc1ec0d0989d50da58af84f4b9a8dfc8a6f";
-    sha256 = "12j0cmrzw658daasy1vk2yz0ndssnsf2lybdvqjqjks61np3044c";
+    rev = "2093ca4d50e581adda73fee7fd16231f990f4cbe";
+    sha256 = "0a4ix2q6riqfrd0hfnajisy159qdmk5imwzymppj23rwc8n7d2dx";
     fetchSubmodules = true;
   };
 

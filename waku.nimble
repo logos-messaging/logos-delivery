@@ -71,7 +71,7 @@ requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135f
 # pin below bypasses the registry and locks the exact commit of the
 # v2.0.1 tag. Revert to the bare form once nim-lang/packages is
 # updated.
-requires "https://github.com/NagyZoltanPeter/nim-brokers.git#6e7b7cc1ec0d0989d50da58af84f4b9a8dfc8a6f"
+requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v2.0.1"
 
 requires "https://github.com/vacp2p/nim-lsquic"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
