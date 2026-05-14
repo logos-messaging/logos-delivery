@@ -698,6 +698,12 @@ with the drawback of consuming some more bandwidth.""",
       name: "rate-limit"
     .}: seq[string]
 
+    localStoragePath* {.
+      desc: "Path to store local data.",
+      defaultValue: "./data",
+      name: "local-storage-path"
+    .}: string
+
 ## Parsing
 
 # NOTE: Keys are different in nim-libp2p
@@ -1118,6 +1124,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   if n.rateLimits.len > 0:
     b.rateLimitConf.withRateLimits(n.rateLimits)
+
+  b.withLocalStoragePath(n.localStoragePath)
 
   b.kademliaDiscoveryConf.withEnabled(n.enableKadDiscovery)
   b.kademliaDiscoveryConf.withBootstrapNodes(n.kadBootstrapNodes)

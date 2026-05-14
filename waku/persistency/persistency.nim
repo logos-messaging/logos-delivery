@@ -87,12 +87,19 @@ proc dbPathFor(p: Persistency, jobId: string): string =
 
 proc new(T: type Persistency, rootDir: string): Result[T, PersistencyError] =
   ## Private. Build a Persistency value without touching the singleton
-  ## slot. Open-or-create semantics on ``rootDir``:
+  ## slot. Validates ``rootDir`` but does **not** create it — directory
+  ## materialisation is deferred to the first ``openJob`` call. Semantics:
   ##
-  ## * If ``rootDir`` does not exist, it is created (with missing parents).
-  ## * If ``rootDir`` exists and is a directory, it is reused as-is.
+  ## * If ``rootDir`` is empty, returns ``peInvalidArgument``.
+  ## * If ``rootDir`` exists and is a directory, accept it.
   ## * If ``rootDir`` exists but is not a directory, returns
   ##   ``peInvalidArgument``.
+  ## * If ``rootDir`` does not exist, walk up the parent chain: the first
+  ##   existing ancestor must be a directory; otherwise returns
+  ##   ``peInvalidArgument``. This catches "obviously broken" paths early
+  ##   without actually touching the filesystem.
+  if rootDir.len == 0:
+    return err(persistencyErr(peInvalidArgument, "rootDir is empty"))
   if fileExists(rootDir) and not dirExists(rootDir):
     return err(
       persistencyErr(
@@ -100,12 +107,29 @@ proc new(T: type Persistency, rootDir: string): Result[T, PersistencyError] =
       )
     )
   if not dirExists(rootDir):
-    try:
-      createDir(rootDir)
-    except OSError, IOError:
-      return
-        err(persistencyErr(peBackend, "createDir failed: " & getCurrentExceptionMsg()))
+    var parent = parentDir(rootDir)
+    while parent.len > 0 and not dirExists(parent):
+      if fileExists(parent):
+        return err(
+          persistencyErr(
+            peInvalidArgument,
+            "rootDir ancestor exists and is not a directory: " & parent,
+          )
+        )
+      parent = parentDir(parent)
   ok(T(rootDir: rootDir, jobs: initTable[string, Job]()))
+
+proc ensureRootDir(p: Persistency): Result[void, PersistencyError] =
+  ## Materialise ``rootDir`` on demand. Idempotent; called from
+  ## ``openJob`` so an unused Persistency leaves no directory behind.
+  if dirExists(p.rootDir):
+    return ok()
+  try:
+    createDir(p.rootDir)
+  except OSError, IOError:
+    return
+      err(persistencyErr(peBackend, "createDir failed: " & getCurrentExceptionMsg()))
+  ok()
 
 proc reset*(T: type Persistency) {.gcsafe.} =
   ## Tear down the singleton: close every open job, clear the Teardown
@@ -169,7 +193,10 @@ proc instance*(
 ): Result[T, PersistencyError] {.gcsafe.} =
   ## Get-or-init the process-wide Persistency singleton.
   ##
-  ## * First call: opens ``rootDir`` and registers the Teardown handler.
+  ## * First call: validates ``rootDir`` (without creating it) and
+  ##   registers the Teardown handler. The directory itself is created
+  ##   lazily by the first ``openJob`` call, so a Persistency that never
+  ##   opens a job leaves no filesystem footprint.
   ## * Later calls with the same ``rootDir``: returns the live instance
   ##   (idempotent).
   ## * Later calls with a different ``rootDir``: returns
@@ -213,13 +240,17 @@ proc openJob*(p: Persistency, jobId: string): Result[Job, PersistencyError] =
   ##
   ## * If the job is already open in this process, the existing ``Job``
   ##   ref is returned (idempotent).
-  ## * Otherwise a worker thread is spawned and the SQLite file at
+  ## * Otherwise ``rootDir`` is materialised on demand (created with
+  ##   missing parents on first use; no-op on subsequent calls), a worker
+  ##   thread is spawned, and the SQLite file at
   ##   ``<rootDir>/<jobId>.db`` is opened. If the file does not exist it
   ##   is created and the schema initialised; if it already exists it is
   ##   reopened in place and its data is preserved.
   let existing = p.jobs.getOrDefault(jobId, nil)
   if existing != nil:
     return ok(existing)
+
+  ?p.ensureRootDir()
 
   let ctx = NewBrokerContext()
   let rt = ?startStorageThread(ctx, dbPathFor(p, jobId))

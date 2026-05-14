@@ -62,6 +62,32 @@ procSuite "Persistency lifecycle":
     check r.isErr
     check r.error.kind == peInvalidArgument
 
+  test "Persistency.instance defers rootDir creation until first openJob":
+    let root = tmpRoot("lazy")
+    defer:
+      removeDir(root)
+    check not dirExists(root)
+
+    let p = Persistency.instance(root).get()
+    defer:
+      Persistency.reset()
+    # instance() must not have touched the filesystem
+    check not dirExists(root)
+
+    discard p.openJob("first").get()
+    # first openJob materialises the directory
+    check dirExists(root)
+
+  test "Persistency.instance refuses a path whose ancestor is not a directory":
+    let parent = tmpRoot("bad-parent")
+    defer:
+      removeFile(parent)
+    writeFile(parent, "not a directory")
+    let root = parent / "child"
+    let r = Persistency.instance(root)
+    check r.isErr
+    check r.error.kind == peInvalidArgument
+
   test "openJob reuses an existing DB file across processes-of-one":
     let root = tmpRoot("reopen")
     defer:
@@ -99,7 +125,7 @@ procSuite "Persistency lifecycle":
     check a.id == b.id
     check a.context == b.context
 
-  test "Persistency.instance creates rootDir and openJob launches a worker":
+  test "openJob materialises rootDir and launches a worker":
     let root = tmpRoot("basic")
     defer:
       removeDir(root)
