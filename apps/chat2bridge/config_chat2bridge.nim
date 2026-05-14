@@ -45,7 +45,7 @@ type Chat2MatterbridgeConf* = object
 
   metricsServerAddress* {.
     desc: "Listening address of the metrics server",
-    defaultValue: static parseIpAddress("127.0.0.1"),
+    defaultValue: (static parseIpAddress("127.0.0.1")),
     name: "metrics-server-address"
   .}: IpAddress
 
@@ -94,7 +94,7 @@ type Chat2MatterbridgeConf* = object
   # Matterbridge options
   mbHostAddress* {.
     desc: "Listening address of the Matterbridge host",
-    defaultValue: static parseIpAddress("127.0.0.1"),
+    defaultValue: (static parseIpAddress("127.0.0.1")),
     name: "mb-host-address"
   .}: IpAddress
 

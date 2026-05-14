@@ -162,7 +162,7 @@ type
 
     metricsServerAddress* {.
       desc: "Listening address of the metrics server.",
-      defaultValue: static parseIpAddress("127.0.0.1"),
+      defaultValue: (static parseIpAddress("127.0.0.1")),
       name: "metrics-server-address"
     .}: IpAddress
 
@@ -194,7 +194,7 @@ type
 
     dnsDiscoveryNameServers* {.
       desc: "DNS name server IPs to query. Argument may be repeated.",
-      defaultValue: @[static parseIpAddress("1.1.1.1"), static parseIpAddress("1.0.0.1")],
+      defaultValue: @[(static parseIpAddress("1.1.1.1")), (static parseIpAddress("1.0.0.1"))],
       name: "dns-discovery-name-server"
     .}: seq[IpAddress]
 

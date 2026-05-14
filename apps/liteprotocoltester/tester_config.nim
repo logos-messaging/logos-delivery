@@ -133,7 +133,7 @@ type LiteProtocolTesterConf* = object
   ## Tester REST service configuration
   restAddress* {.
     desc: "Listening address of the REST HTTP server.",
-    defaultValue: static parseIpAddress("127.0.0.1"),
+    defaultValue: (static parseIpAddress("127.0.0.1")),
     name: "rest-address"
   .}: IpAddress
 
