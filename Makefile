@@ -72,7 +72,7 @@ waku.nims:
 
 $(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
 	$(MAKE) install-nimble
-	nimble setup --localdeps
+	$(NIMBLE) setup --localdeps
 	$(MAKE) build-nph
 	$(MAKE) rebuild-bearssl-nimbledeps
 	$(MAKE) rebuild-nat-libs-nimbledeps
