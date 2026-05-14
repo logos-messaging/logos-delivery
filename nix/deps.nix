@@ -25,7 +25,7 @@
   };
 
   jwt = pkgs.fetchgit {
-    url = "https://github.com/vacp2p/nim-jwt.git";
+    url = "https://github.com/yglukhov/nim-jwt.git";
     rev = "18f8378de52b241f321c1f9ea905456e89b95c6f";
     sha256 = "1986czmszdxj6g9yr7xn1fx8y2y9mwpb3f1bn9nc6973qawsdm0p";
     fetchSubmodules = true;
@@ -96,8 +96,8 @@
 
   faststreams = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-faststreams";
-    rev = "ce27581a3e881f782f482cb66dc5b07a02bd615e";
-    sha256 = "0y6bw2scnmr8cxj4fg18w7f34l2bh9qwg5nhlgd84m9fpr5bqarn";
+    rev = "50889cd16ec8771106cdd0eeea460039e8571e06";
+    sha256 = "1hd4bhvw5lzwg924i8dif5mi61h0ayiplq38djvrdbfsjdhw2zvw";
     fetchSubmodules = true;
   };
 
@@ -129,6 +129,13 @@
     fetchSubmodules = true;
   };
 
+  cbor_serialization = pkgs.fetchgit {
+    url = "https://github.com/vacp2p/nim-cbor-serialization";
+    rev = "1664160e04d153573373afddc552b9cbf6fbe4dc";
+    sha256 = "0c1rj4fk0fcqvsf0yqhxvm8h10aww75gi4yfsjhlczh88ypywii2";
+    fetchSubmodules = true;
+  };
+
   json_serialization = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-json-serialization";
     rev = "c343b0e243d9e17e2c40f3a8a24340f7c4a71d44";
@@ -147,6 +154,13 @@
     url = "https://github.com/status-im/nim-presto";
     rev = "d66043dd7ede146442e6c39720c76a20bde5225f";
     sha256 = "1hrppcak32aigrdv3mqk124w81yy9jv1prs57vqqhfj83gl930vi";
+    fetchSubmodules = true;
+  };
+
+  brokers = pkgs.fetchgit {
+    url = "https://github.com/NagyZoltanPeter/nim-brokers.git";
+    rev = "6e7b7cc1ec0d0989d50da58af84f4b9a8dfc8a6f";
+    sha256 = "12j0cmrzw658daasy1vk2yz0ndssnsf2lybdvqjqjks61np3044c";
     fetchSubmodules = true;
   };
 
@@ -262,11 +276,3 @@
     fetchSubmodules = true;
   };
 
-  ffi = pkgs.fetchgit {
-    url = "https://github.com/logos-messaging/nim-ffi";
-    rev = "06111de155253b34e47ed2aaed1d61d08d62cc1b";
-    sha256 = "0rb0d2i519amgsp7q0bn6m5465z1vwj4rab89529pyiivh3fgh8j";
-    fetchSubmodules = true;
-  };
-
-}
