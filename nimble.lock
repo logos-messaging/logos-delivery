@@ -2,13 +2,13 @@
   "version": 2,
   "packages": {
     "nim": {
-      "version": "2.2.10",
-      "vcsRevision": "69b2e842c1c6fac021b6dbef968328cf26f1715f",
+      "version": "2.2.4",
+      "vcsRevision": "911e0dbb1f76de61fa0215ab1bb85af5334cc9a8",
       "url": "https://github.com/nim-lang/Nim.git",
       "downloadMethod": "git",
       "dependencies": [],
       "checksums": {
-        "sha1": "17ec440fdb89f8903db29a17898af590087d2b64"
+        "sha1": "68bb85cbfb1832ce4db43943911b046c3af3caab"
       }
     },
     "unittest2": {
@@ -52,7 +52,7 @@
     "jwt": {
       "version": "#18f8378de52b241f321c1f9ea905456e89b95c6f",
       "vcsRevision": "18f8378de52b241f321c1f9ea905456e89b95c6f",
-      "url": "https://github.com/yglukhov/nim-jwt.git",
+      "url": "https://github.com/vacp2p/nim-jwt.git",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
@@ -189,8 +189,8 @@
       }
     },
     "faststreams": {
-      "version": "0.5.1",
-      "vcsRevision": "50889cd16ec8771106cdd0eeea460039e8571e06",
+      "version": "0.5.0",
+      "vcsRevision": "ce27581a3e881f782f482cb66dc5b07a02bd615e",
       "url": "https://github.com/status-im/nim-faststreams",
       "downloadMethod": "git",
       "dependencies": [
@@ -199,7 +199,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "969ceb3666e807db8fe5c8df63466749822367a9"
+        "sha1": "ee61e507b805ae1df7ec936f03f2d101b0d72383"
       }
     },
     "snappy": {
@@ -476,7 +476,7 @@
       }
     },
     "lsquic": {
-      "version": "#4fb03ee7bfb39aecb3316889fdcb60bec3d0936f",
+      "version": "0.0.1",
       "vcsRevision": "4fb03ee7bfb39aecb3316889fdcb60bec3d0936f",
       "url": "https://github.com/vacp2p/nim-lsquic",
       "downloadMethod": "git",
