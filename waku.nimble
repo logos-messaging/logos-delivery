@@ -56,14 +56,22 @@ requires "nim >= 2.2.4",
   "zlib",
   # Debug & Testing
   "testutils",
-  "unittest2",
-  "brokers >= 2.0.1",
-  "https://github.com/NagyZoltanPeter/nim-brokers.git#6e7b7cc1ec0d0989d50da58af84f4b9a8dfc8a6f"
+  "unittest2"
 
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
 
 requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135fae3a3803eed8490d4"
+
+# brokers: pinned by URL+commit rather than the bare `brokers >= 2.0.1`
+# form because the nim-lang/packages registry entry for `brokers` only
+# carries metadata for the original v0.1.0 publication. Until that
+# registry entry is refreshed, the local SAT solver enumerates "0.1.0"
+# as the only available version and cannot satisfy `>= 2.0.1`. The URL
+# pin below bypasses the registry and locks the exact commit of the
+# v2.0.1 tag. Revert to the bare form once nim-lang/packages is
+# updated.
+requires "https://github.com/NagyZoltanPeter/nim-brokers.git#6e7b7cc1ec0d0989d50da58af84f4b9a8dfc8a6f"
 
 requires "https://github.com/vacp2p/nim-lsquic"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
