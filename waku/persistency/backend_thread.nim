@@ -30,10 +30,10 @@ logScope:
   topics = "persistency thread"
 
 type
-  ReadyState = enum
-    rsPending = 0
-    rsReady = 1
-    rsError = 2
+  ReadyState {.pure.} = enum
+    Pending = 0
+    Ready = 1
+    Error = 2
 
   StorageThreadArg = object
     ctx: BrokerContext
@@ -56,7 +56,7 @@ proc allocArg(ctx: BrokerContext, dbPath: string): ptr StorageThreadArg =
     copyMem(result.dbPath, unsafeAddr dbPath[0], dbPath.len)
 
 proc freeArg(a: ptr StorageThreadArg) =
-  if a == nil:
+  if a.isNil():
     return
   if a.dbPath != nil:
     deallocShared(a.dbPath)
@@ -134,11 +134,10 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
     if r.isErr:
       let pe: PersistencyError = r.error()
       error "PersistEvent applyOps failed",
-        err = pe.msg, kind = $pe.kind, opCount = ev.ops.len
+        error = pe.msg, kind = $pe.kind, opCount = ev.ops.len
 
-  let getRes = KvGet.setProvider(ctx, onGet)
-  if getRes.isErr:
-    return err("KvGet.setProvider: " & getRes.error())
+  KvGet.setProvider(ctx, onGet).isOkOr:
+    return err("KvGet.setProvider: " & error)
 
   let existsRes = KvExists.setProvider(ctx, onExists)
   if existsRes.isErr:

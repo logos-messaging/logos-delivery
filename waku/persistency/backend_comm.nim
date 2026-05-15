@@ -1,7 +1,7 @@
 ## Cross-thread broker declarations for the persistency library.
 ##
 ## One EventBroker (writes, fire-and-forget) and five RequestBrokers (reads
-## + acked delete). All in (mt) mode: the listener / provider runs on the
+## + acked delete). All in multi-thread (mt) mode: the listener / provider runs on the
 ## job's storage thread; callers on any thread reach it via the shared
 ## BrokerContext owned by the Job.
 ##
