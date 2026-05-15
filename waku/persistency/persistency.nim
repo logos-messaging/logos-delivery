@@ -10,10 +10,10 @@
 ## it. Cheapest, no map lookup per call:
 ##
 ## ```nim
-## let p = Persistency.new("/var/lib/wakustore").get()
+## let p = Persistency.instance("/var/lib/wakustore").get()
 ## let j = p.openJob("alpha").get()
-## j.persistPut("msg", k, payload)
-## let v = waitFor j.get("msg", k)
+## await j.persistPut("msg", k, payload)
+## let v = await j.get("msg", k)
 ## ```
 ##
 ## **By job id string** — useful when the caller doesn't want to thread
@@ -23,14 +23,17 @@
 ##
 ## ```nim
 ## discard p.openJob("alpha")
-## p.persistPut("alpha", "msg", k, payload)         # void, logs if not open
-## let v = waitFor p.get("alpha", "msg", k)         # Result, peJobNotFound if missing
+## await p.persistPut("alpha", "msg", k, payload)   # logs and resolves if not open
+## let v = await p.get("alpha", "msg", k)           # Result, peJobNotFound if missing
 ## ```
 ##
 ## ## Drain semantics
 ##
-## Writes are fire-and-forget (PersistEvent). A read issued immediately
-## after a write is racy by design in v1. To bridge the race:
+## Writes return a ``Future[void]`` that resolves once the PersistEvent
+## has been pushed onto the worker thread's channel — **not** once the
+## SQL has run. The listener is still fire-and-forget on the SQL side, so
+## a read issued immediately after an awaited write is still racy by
+## design in v1. To bridge the race:
 ##   * use ``deleteAcked`` (it round-trips through the read path), or
 ##   * poll ``exists`` until it returns true, or
 ##   * yield with ``await sleepAsync(...)``.
@@ -309,37 +312,29 @@ proc hasJob*(p: Persistency, jobId: string): bool {.inline.} =
 
 # ── Writes (fire-and-forget) — Job form ─────────────────────────────────
 
-proc persist*(t: Job, ops: openArray[TxOp]) =
+proc persist*(t: Job, ops: seq[TxOp]): Future[void] {.async.} =
   ## Emit a batched persist event. The handler treats >1 ops as a single
   ## BEGIN IMMEDIATE/COMMIT transaction (see backend_sqlite.applyOps).
-  ## ``waitFor`` is bounded by the mt emit's ``sendSync`` — a brief
-  ## channel push, not a wait on the listener.
-  var seqOps: seq[TxOp]
-  seqOps.setLen(ops.len)
-  for i in 0 ..< ops.len:
-    seqOps[i] = ops[i]
-  try:
-    waitFor PersistEvent.emit(t.context, PersistEvent(ops: seqOps))
-  except CatchableError:
-    discard ## emit is async (raises: []); waitFor never raises in practice
+  await PersistEvent.emit(t.context, PersistEvent(ops: ops))
 
-proc persist*(t: Job, op: TxOp) {.inline.} =
-  persist(t, [op])
+proc persist*(t: Job, op: TxOp): Future[void] {.async.} =
+  await persist(t, @[op])
 
-proc persistPut*(t: Job, category: string, key: Key, payload: openArray[byte]) =
-  var p = newSeq[byte](payload.len)
-  for i in 0 ..< payload.len:
-    p[i] = payload[i]
-  persist(t, TxOp(category: category, key: key, kind: txPut, payload: p))
+proc persistPut*(
+    t: Job, category: string, key: Key, payload: seq[byte]
+): Future[void] {.async.} =
+  await persist(t, TxOp(category: category, key: key, kind: txPut, payload: payload))
 
-proc persistDelete*(t: Job, category: string, key: Key) {.inline.} =
-  persist(t, TxOp(category: category, key: key, kind: txDelete))
+proc persistDelete*(t: Job, category: string, key: Key): Future[void] {.async.} =
+  await persist(t, TxOp(category: category, key: key, kind: txDelete))
 
-proc persistEncoded*[T](t: Job, category: string, key: Key, value: T) {.inline.} =
+proc persistEncoded*[T](
+    t: Job, category: string, key: Key, value: T
+): Future[void] {.async.} =
   ## Convenience: encode `value` via `toPayload` and put it. Use the raw
-  ## `persistPut(... openArray[byte])` form when you already have bytes
+  ## `persistPut(..., seq[byte])` form when you already have bytes
   ## (e.g. an externally-produced CBOR blob).
-  persistPut(t, category, key, toPayload(value))
+  await persistPut(t, category, key, toPayload(value))
 
 # ── Writes (fire-and-forget) — string-lookup form ───────────────────────
 #
@@ -361,31 +356,34 @@ template withJobOrWarn(p: Persistency, jobId: string, j, body: untyped) =
   if `j` != nil:
     body
 
-proc persist*(p: Persistency, jobId: string, ops: openArray[TxOp]) =
-  withJobOrWarn(p, jobId, j):
-    j.persist(ops)
-
-proc persist*(p: Persistency, jobId: string, op: TxOp) {.inline.} =
-  p.persist(jobId, [op])
-
-proc persistPut*(
-    p: Persistency, jobId: string, category: string, key: Key, payload: openArray[byte]
-) =
-  # openArray can't be captured by the template, so look up explicitly.
+proc persist*(p: Persistency, jobId: string, ops: seq[TxOp]): Future[void] {.async.} =
   let j = p.jobOrWarn(jobId)
   if j != nil:
-    j.persistPut(category, key, payload)
+    await j.persist(ops)
 
-proc persistDelete*(p: Persistency, jobId: string, category: string, key: Key) =
-  withJobOrWarn(p, jobId, j):
-    j.persistDelete(category, key)
+proc persist*(p: Persistency, jobId: string, op: TxOp): Future[void] {.async.} =
+  await p.persist(jobId, @[op])
+
+proc persistPut*(
+    p: Persistency, jobId: string, category: string, key: Key, payload: seq[byte]
+): Future[void] {.async.} =
+  let j = p.jobOrWarn(jobId)
+  if j != nil:
+    await j.persistPut(category, key, payload)
+
+proc persistDelete*(
+    p: Persistency, jobId: string, category: string, key: Key
+): Future[void] {.async.} =
+  let j = p.jobOrWarn(jobId)
+  if j != nil:
+    await j.persistDelete(category, key)
 
 proc persistEncoded*[T](
     p: Persistency, jobId: string, category: string, key: Key, value: T
-) =
+): Future[void] {.async.} =
   let j = p.jobOrWarn(jobId)
   if j != nil:
-    j.persistEncoded(category, key, value)
+    await j.persistEncoded(category, key, value)
 
 # ── Reads (async, typed errors) — Job form ──────────────────────────────
 

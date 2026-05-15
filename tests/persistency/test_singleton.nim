@@ -12,7 +12,7 @@ proc tmpRoot(label: string): string =
   removeDir(p)
   p
 
-procSuite "Persistency singleton":
+suite "Persistency singleton":
   test "instance(rootDir) is idempotent with the same rootDir":
     let root = tmpRoot("idem")
     defer:
@@ -79,7 +79,7 @@ procSuite "Persistency singleton":
     Persistency.reset()
     check Persistency.instance().isErr
 
-  test "Teardown.request closes the singleton and fires our provider":
+  asyncTest "Teardown.request closes the singleton and fires our provider":
     let root = tmpRoot("teardown")
     defer:
       removeDir(root)
@@ -92,7 +92,7 @@ procSuite "Persistency singleton":
     check p.hasJob("alpha")
     check p.hasJob("beta")
 
-    let res = waitFor Teardown.request()
+    let res = await Teardown.request()
     check res.isOk
     let components = res.get()
     # Our provider returns one Teardown value mentioning both job ids.

@@ -38,7 +38,7 @@ type
     mood: Mood
     body: seq[byte]
 
-procSuite "Persistency generic encoding":
+suite "Persistency generic encoding":
   # ── Key macro: composite types ────────────────────────────────────────
 
   test "key macro accepts plain tuples":
@@ -122,7 +122,7 @@ procSuite "Persistency generic encoding":
 
   # ── End-to-end through the facade ─────────────────────────────────────
 
-  test "persistEncoded round-trips a struct through SQLite":
+  asyncTest "persistEncoded round-trips a struct through SQLite":
     let root = getTempDir() / ("persistency_enc_" & $epochTime().int)
     removeDir(root)
     defer:
@@ -138,17 +138,17 @@ procSuite "Persistency generic encoding":
       body: @[1'u8, 2, 3],
     )
     let k = key("channel-42", m.header.epoch)
-    job.persistEncoded("msg", k, m)
+    await job.persistEncoded("msg", k, m)
 
     # Poll for the row, then read it back as raw bytes.
     let deadline = epochTime() + 1.0
     var got: Option[seq[byte]]
     while epochTime() < deadline:
-      let r = waitFor job.get("msg", k)
+      let r = await job.get("msg", k)
       check r.isOk
       got = r.get()
       if got.isSome:
         break
-      sleep(2)
+      await sleepAsync(chronos.milliseconds(2))
     check got.isSome
     check got.get == toPayload(m)

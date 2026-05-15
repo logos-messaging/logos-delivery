@@ -26,16 +26,18 @@ proc tmpRoot(label: string): string =
 # Cross-thread persist: emit a PersistEvent then poll until the row shows up
 # via KvExists. The PersistEvent listener is fire-and-forget, so reads
 # immediately after emit are racy by design (documented in v1).
-proc waitFor(t: Job, category: string, k: Key, timeoutMs = 1000): bool =
+proc pollExists(
+    t: Job, category: string, k: Key, timeoutMs = 1000
+): Future[bool] {.async.} =
   let deadline = epochTime() + (timeoutMs.float / 1000.0)
   while epochTime() < deadline:
-    let r = waitFor KvExists.request(t.context, category, k)
+    let r = await KvExists.request(t.context, category, k)
     if r.isOk and r.get().value:
       return true
-    sleep(2)
-  false
+    await sleepAsync(chronos.milliseconds(2))
+  return false
 
-procSuite "Persistency lifecycle":
+suite "Persistency lifecycle":
   test "Persistency.instance accepts a pre-existing rootDir":
     let root = tmpRoot("preexisting")
     defer:
@@ -88,7 +90,7 @@ procSuite "Persistency lifecycle":
     check r.isErr
     check r.error.kind == peInvalidArgument
 
-  test "openJob reuses an existing DB file across processes-of-one":
+  asyncTest "openJob reuses an existing DB file across processes-of-one":
     let root = tmpRoot("reopen")
     defer:
       removeDir(root)
@@ -97,8 +99,9 @@ procSuite "Persistency lifecycle":
     block firstSession:
       let p = Persistency.instance(root).get()
       let j = p.openJob("persist").get()
-      j.persistPut("msg", key("c", 1'i64), payloadBytes("v1"))
-      check j.waitFor("msg", key("c", 1'i64))
+      await j.persistPut("msg", key("c", 1'i64), payloadBytes("v1"))
+      let ckOk1 = await j.pollExists("msg", key("c", 1'i64))
+      check ckOk1
       Persistency.reset()
 
     check fileExists(root / "persist.db")
@@ -109,7 +112,8 @@ procSuite "Persistency lifecycle":
       defer:
         Persistency.reset()
       let j = p.openJob("persist").get()
-      let got = (waitFor KvGet.request(j.context, "msg", key("c", 1'i64))).get()
+      let aw1 = await KvGet.request(j.context, "msg", key("c", 1'i64))
+      let got = aw1.get()
       check got.value.isSome
       check str(got.value.get) == "v1"
 
@@ -139,7 +143,7 @@ procSuite "Persistency lifecycle":
     check t.running
     check fileExists(root / "alpha.db")
 
-  test "persist then read round-trips via brokers":
+  asyncTest "persist then read round-trips via brokers":
     let root = tmpRoot("rw")
     defer:
       removeDir(root)
@@ -152,14 +156,16 @@ procSuite "Persistency lifecycle":
     let ev = PersistEvent(
       ops: @[TxOp(category: "msg", key: k, kind: txPut, payload: payloadBytes("hello"))]
     )
-    waitFor PersistEvent.emit(t.context, ev)
-    check t.waitFor("msg", k)
+    await PersistEvent.emit(t.context, ev)
+    let ckOk2 = await t.pollExists("msg", k)
+    check ckOk2
 
-    let got = (waitFor KvGet.request(t.context, "msg", k)).get()
+    let aw2 = await KvGet.request(t.context, "msg", k)
+    let got = aw2.get()
     check got.value.isSome
     check str(got.value.get) == "hello"
 
-  test "two jobs run in parallel with isolated DBs":
+  asyncTest "two jobs run in parallel with isolated DBs":
     let root = tmpRoot("isolation")
     defer:
       removeDir(root)
@@ -172,7 +178,7 @@ procSuite "Persistency lifecycle":
     check a.context != b.context
 
     let k = key("shared", 1'i64)
-    waitFor PersistEvent.emit(
+    await PersistEvent.emit(
       a.context,
       PersistEvent(
         ops: @[
@@ -182,7 +188,7 @@ procSuite "Persistency lifecycle":
         ]
       ),
     )
-    waitFor PersistEvent.emit(
+    await PersistEvent.emit(
       b.context,
       PersistEvent(
         ops: @[
@@ -190,11 +196,15 @@ procSuite "Persistency lifecycle":
         ]
       ),
     )
-    check a.waitFor("msg", k)
-    check b.waitFor("msg", k)
+    let ckOk3 = await a.pollExists("msg", k)
+    check ckOk3
+    let ckOk4 = await b.pollExists("msg", k)
+    check ckOk4
 
-    let aGot = (waitFor KvGet.request(a.context, "msg", k)).get()
-    let bGot = (waitFor KvGet.request(b.context, "msg", k)).get()
+    let aw3 = await KvGet.request(a.context, "msg", k)
+    let aGot = aw3.get()
+    let aw4 = await KvGet.request(b.context, "msg", k)
+    let bGot = aw4.get()
     check str(aGot.value.get) == "from-alpha"
     check str(bGot.value.get) == "from-beta"
 
@@ -202,7 +212,7 @@ procSuite "Persistency lifecycle":
     check fileExists(root / "alpha.db")
     check fileExists(root / "beta.db")
 
-  test "closeJob joins the worker and frees the slot":
+  asyncTest "closeJob joins the worker and frees the slot":
     let root = tmpRoot("close")
     defer:
       removeDir(root)
@@ -216,7 +226,7 @@ procSuite "Persistency lifecycle":
     check not t.running
 
     # After close, requests on the old context have no provider.
-    let r = waitFor KvExists.request(ctx, "msg", key("k"))
+    let r = await KvExists.request(ctx, "msg", key("k"))
     check r.isErr
 
   test "dropJob removes the DB file":
@@ -231,7 +241,7 @@ procSuite "Persistency lifecycle":
     p.dropJob("ephemeral")
     check not fileExists(root / "ephemeral.db")
 
-  test "scan and count over a range":
+  asyncTest "scan and count over a range":
     let root = tmpRoot("scan")
     defer:
       removeDir(root)
@@ -245,20 +255,23 @@ procSuite "Persistency lifecycle":
       ops.add(
         TxOp(category: "msg", key: key("c", i), kind: txPut, payload: payloadBytes($i))
       )
-    waitFor PersistEvent.emit(t.context, PersistEvent(ops: ops))
+    await PersistEvent.emit(t.context, PersistEvent(ops: ops))
     # Wait for the last insert to land.
-    check t.waitFor("msg", key("c", 5'i64))
+    let ckOk5 = await t.pollExists("msg", key("c", 5'i64))
+    check ckOk5
 
     let rng = prefixRange(key("c"))
-    let cnt = (waitFor KvCount.request(t.context, "msg", rng)).get()
+    let aw5 = await KvCount.request(t.context, "msg", rng)
+    let cnt = aw5.get()
     check cnt.n == 5
 
-    let scn = (waitFor KvScan.request(t.context, "msg", rng, false)).get()
+    let aw6 = await KvScan.request(t.context, "msg", rng, false)
+    let scn = aw6.get()
     check scn.rows.len == 5
     check str(scn.rows[0].payload) == "1"
     check str(scn.rows[4].payload) == "5"
 
-  test "acked delete reports whether the row existed":
+  asyncTest "acked delete reports whether the row existed":
     let root = tmpRoot("delete")
     defer:
       removeDir(root)
@@ -268,18 +281,22 @@ procSuite "Persistency lifecycle":
     let t = p.openJob("t").get()
 
     let k = key("d", 1'i64)
-    let r1 = (waitFor KvDelete.request(t.context, "msg", k)).get()
+    let aw7 = await KvDelete.request(t.context, "msg", k)
+    let r1 = aw7.get()
     check r1.existed == false
 
-    waitFor PersistEvent.emit(
+    await PersistEvent.emit(
       t.context,
       PersistEvent(
         ops: @[TxOp(category: "msg", key: k, kind: txPut, payload: payloadBytes("v"))]
       ),
     )
-    check t.waitFor("msg", k)
+    let ckOk6 = await t.pollExists("msg", k)
+    check ckOk6
 
-    let r2 = (waitFor KvDelete.request(t.context, "msg", k)).get()
+    let aw8 = await KvDelete.request(t.context, "msg", k)
+    let r2 = aw8.get()
     check r2.existed == true
-    let r3 = (waitFor KvExists.request(t.context, "msg", k)).get()
+    let aw9 = await KvExists.request(t.context, "msg", k)
+    let r3 = aw9.get()
     check r3.value == false

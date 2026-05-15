@@ -13,7 +13,7 @@ proc cmpBytes(a, b: Key): int =
       return cmp(ab[i], bb[i])
   cmp(ab.len, bb.len)
 
-procSuite "Persistency keys":
+suite "Persistency keys":
   test "string components sort by length, then byte order":
     var ks = @[key("ab"), key(""), key("a"), key("aa"), key("b")]
     ks.sort(cmpBytes)

@@ -24,16 +24,16 @@ proc tmpRoot(label: string): string =
 # Bridge the persist->read race (writes are fire-and-forget in v1).
 proc waitUntilExists(
     p: Persistency, jobId, category: string, k: Key, timeoutMs = 1000
-): bool =
+): Future[bool] {.async.} =
   let deadline = epochTime() + (timeoutMs.float / 1000.0)
   while epochTime() < deadline:
-    let r = waitFor p.exists(jobId, category, k)
+    let r = await p.exists(jobId, category, k)
     if r.isOk and r.get():
       return true
-    sleep(2)
-  false
+    await sleepAsync(chronos.milliseconds(2))
+  return false
 
-procSuite "Persistency string-id lookup":
+suite "Persistency string-id lookup":
   test "job(p, id) returns peJobNotFound when not open":
     let root = tmpRoot("notfound")
     defer:
@@ -84,7 +84,7 @@ procSuite "Persistency string-id lookup":
     let j = p["a"]
     check j.id == "a"
 
-  test "string-lookup persistPut + get round-trips without a Job ref":
+  asyncTest "string-lookup persistPut + get round-trips without a Job ref":
     let root = tmpRoot("rw")
     defer:
       removeDir(root)
@@ -94,14 +94,16 @@ procSuite "Persistency string-id lookup":
     discard p.openJob("svc").get()
 
     let k = key("c", 1'i64)
-    p.persistPut("svc", "msg", k, payloadBytes("hello"))
-    check p.waitUntilExists("svc", "msg", k)
+    await p.persistPut("svc", "msg", k, payloadBytes("hello"))
+    let ckOk1 = await p.waitUntilExists("svc", "msg", k)
+    check ckOk1
 
-    let got = (waitFor p.get("svc", "msg", k)).get()
+    let aw1 = await p.get("svc", "msg", k)
+    let got = aw1.get()
     check got.isSome
     check str(got.get) == "hello"
 
-  test "string-lookup reads short-circuit with peJobNotFound":
+  asyncTest "string-lookup reads short-circuit with peJobNotFound":
     let root = tmpRoot("missingread")
     defer:
       removeDir(root)
@@ -109,19 +111,19 @@ procSuite "Persistency string-id lookup":
     defer:
       Persistency.reset()
 
-    let g = waitFor p.get("nope", "msg", key("k"))
+    let g = await p.get("nope", "msg", key("k"))
     check g.isErr
     check g.error.kind == peJobNotFound
 
-    let c = waitFor p.count("nope", "msg", prefixRange(key("k")))
+    let c = await p.count("nope", "msg", prefixRange(key("k")))
     check c.isErr
     check c.error.kind == peJobNotFound
 
-    let d = waitFor p.deleteAcked("nope", "msg", key("k"))
+    let d = await p.deleteAcked("nope", "msg", key("k"))
     check d.isErr
     check d.error.kind == peJobNotFound
 
-  test "string-lookup writes to an unknown job are dropped, not raised":
+  asyncTest "string-lookup writes to an unknown job are dropped, not raised":
     let root = tmpRoot("missingwrite")
     defer:
       removeDir(root)
@@ -130,12 +132,12 @@ procSuite "Persistency string-id lookup":
       Persistency.reset()
 
     # Should not raise and should not leak any state.
-    p.persistPut("ghost", "msg", key("k"), payloadBytes("v"))
-    p.persistDelete("ghost", "msg", key("k"))
-    p.persistEncoded("ghost", "msg", key("k"), 42'i64)
+    await p.persistPut("ghost", "msg", key("k"), payloadBytes("v"))
+    await p.persistDelete("ghost", "msg", key("k"))
+    await p.persistEncoded("ghost", "msg", key("k"), 42'i64)
     check not p.hasJob("ghost")
 
-  test "string-lookup persistEncoded round-trips a struct":
+  asyncTest "string-lookup persistEncoded round-trips a struct":
     let root = tmpRoot("encoded")
     defer:
       removeDir(root)
@@ -149,14 +151,16 @@ procSuite "Persistency string-id lookup":
     discard p.openJob("e").get()
 
     let k = key("items", 1'i64)
-    p.persistEncoded("e", "msg", k, Item(tag: "alpha", n: 7))
-    check p.waitUntilExists("e", "msg", k)
+    await p.persistEncoded("e", "msg", k, Item(tag: "alpha", n: 7))
+    let ckOk2 = await p.waitUntilExists("e", "msg", k)
+    check ckOk2
 
-    let got = (waitFor p.get("e", "msg", k)).get()
+    let aw2 = await p.get("e", "msg", k)
+    let got = aw2.get()
     check got.isSome
     check got.get == toPayload(Item(tag: "alpha", n: 7))
 
-  test "string-lookup scan returns the same rows as Job-form":
+  asyncTest "string-lookup scan returns the same rows as Job-form":
     let root = tmpRoot("scan")
     defer:
       removeDir(root)
@@ -166,11 +170,14 @@ procSuite "Persistency string-id lookup":
     let j = p.openJob("s").get()
 
     for i in 1'i64 .. 3:
-      p.persistPut("s", "msg", key("c", i), payloadBytes($i))
-    check p.waitUntilExists("s", "msg", key("c", 3'i64))
+      await p.persistPut("s", "msg", key("c", i), payloadBytes($i))
+    let ckOk3 = await p.waitUntilExists("s", "msg", key("c", 3'i64))
+    check ckOk3
 
-    let viaId = (waitFor p.scanPrefix("s", "msg", key("c"))).get()
-    let viaRef = (waitFor j.scanPrefix("msg", key("c"))).get()
+    let aw3 = await p.scanPrefix("s", "msg", key("c"))
+    let viaId = aw3.get()
+    let aw4 = await j.scanPrefix("msg", key("c"))
+    let viaRef = aw4.get()
     check viaId.len == viaRef.len
     for i in 0 ..< viaId.len:
       check viaId[i].key == viaRef[i].key

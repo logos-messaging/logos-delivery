@@ -16,7 +16,7 @@ proc payload(s: string): seq[byte] =
   for i, c in s:
     result[i] = byte(c)
 
-procSuite "Persistency SQLite backend":
+suite "Persistency SQLite backend":
   test "open in-memory backend and round-trip a single value":
     let b = openBackendInMemory().get()
     defer:
