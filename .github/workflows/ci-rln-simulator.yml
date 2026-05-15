@@ -12,6 +12,12 @@ name: Daily RLN simulator E2E
 # AVX-512 portability issue in container-image.yml does not apply here.
 
 on:
+  # TEMPORARY: remove this push block before merging — it exists only so the
+  # workflow can be exercised on this PR branch (workflow_dispatch is not
+  # available until the workflow lands on the default branch).
+  push:
+    branches:
+      - ci/daily-rln-simulator
   schedule:
     - cron: '0 4 * * *'        # daily, 30 min before ci-daily.yml
   workflow_dispatch:
