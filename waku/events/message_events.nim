@@ -10,14 +10,14 @@ EventBroker:
 
 EventBroker:
   # Event emitted when a message send operation fails
-  type MessageErrorEvent* = object
+  type MessageSendErrorEvent* = object
     requestId*: RequestId
     messageHash*: string
     error*: string
 
 EventBroker:
   # Confirmation that a message has been correctly delivered to some neighbouring nodes.
-  type MessagePropagatedEvent* = object
+  type MessageSendPropagatedEvent* = object
     requestId*: RequestId
     messageHash*: string
 

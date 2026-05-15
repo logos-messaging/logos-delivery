@@ -87,7 +87,9 @@ jobs:
           key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
-        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        # Also run if sentinel file is missing: guards against a corrupt cache
+        # saved after a partial install (e.g. interrupted run).
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true' || !hashFiles('nimbledeps/.nimble-setup')
         run: |
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
@@ -140,7 +142,9 @@ jobs:
           key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
-        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        # Also run if sentinel file is missing: guards against a corrupt cache
+        # saved after a partial install (e.g. interrupted run).
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true' || !hashFiles('nimbledeps/.nimble-setup')
         run: |
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
@@ -219,7 +223,9 @@ jobs:
           key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
-        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        # Also run if sentinel file is missing: guards against a corrupt cache
+        # saved after a partial install (e.g. interrupted run).
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true' || !hashFiles('nimbledeps/.nimble-setup')
         run: |
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps

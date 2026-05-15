@@ -16,26 +16,26 @@ proc periodicSender(w: Waku): Future[void] {.async.} =
     echo "Failed to listen to message sent event: ", error
     return
 
-  let errorListener = MessageErrorEvent.listen(
-    proc(event: MessageErrorEvent) {.async: (raises: []).} =
+  let errorListener = MessageSendErrorEvent.listen(
+    proc(event: MessageSendErrorEvent) {.async: (raises: []).} =
       echo "Message failed to send with request ID: ",
         event.requestId, " error: ", event.error
   ).valueOr:
-    echo "Failed to listen to message error event: ", error
+    echo "Failed to listen to message send error event: ", error
     return
 
-  let propagatedListener = MessagePropagatedEvent.listen(
-    proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
+  let propagatedListener = MessageSendPropagatedEvent.listen(
+    proc(event: MessageSendPropagatedEvent) {.async: (raises: []).} =
       echo "Message propagated with request ID: ",
         event.requestId, " hash: ", event.messageHash
   ).valueOr:
-    echo "Failed to listen to message propagated event: ", error
+    echo "Failed to listen to message send propagated event: ", error
     return
 
   defer:
     MessageSentEvent.dropListener(sentListener)
-    MessageErrorEvent.dropListener(errorListener)
-    MessagePropagatedEvent.dropListener(propagatedListener)
+    MessageSendErrorEvent.dropListener(errorListener)
+    MessageSendPropagatedEvent.dropListener(propagatedListener)
 
   ## Periodically sends a Waku message every 30 seconds
   var counter = 0

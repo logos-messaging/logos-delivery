@@ -131,34 +131,34 @@ proc logosdelivery_start_node(
     ctx.myLib[].brokerCtx,
     proc(event: MessageSentEvent) {.async: (raises: []).} =
       callEventCallback(ctx, "onMessageSent"):
-        $newJsonEvent("message_sent", event),
+        $newJsonEvent("message:sent", event),
   ).valueOr:
     chronicles.error "MessageSentEvent.listen failed", err = $error
     return err("MessageSentEvent.listen failed: " & $error)
 
-  let errorListener = MessageErrorEvent.listen(
+  let errorListener = MessageSendErrorEvent.listen(
     ctx.myLib[].brokerCtx,
-    proc(event: MessageErrorEvent) {.async: (raises: []).} =
-      callEventCallback(ctx, "onMessageError"):
-        $newJsonEvent("message_error", event),
+    proc(event: MessageSendErrorEvent) {.async: (raises: []).} =
+      callEventCallback(ctx, "onMessageSendError"):
+        $newJsonEvent("message:send-error", event),
   ).valueOr:
-    chronicles.error "MessageErrorEvent.listen failed", err = $error
-    return err("MessageErrorEvent.listen failed: " & $error)
+    chronicles.error "MessageSendErrorEvent.listen failed", err = $error
+    return err("MessageSendErrorEvent.listen failed: " & $error)
 
-  let propagatedListener = MessagePropagatedEvent.listen(
+  let propagatedListener = MessageSendPropagatedEvent.listen(
     ctx.myLib[].brokerCtx,
-    proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
-      callEventCallback(ctx, "onMessagePropagated"):
-        $newJsonEvent("message_propagated", event),
+    proc(event: MessageSendPropagatedEvent) {.async: (raises: []).} =
+      callEventCallback(ctx, "onMessageSendPropagated"):
+        $newJsonEvent("message:send-propagated", event),
   ).valueOr:
-    chronicles.error "MessagePropagatedEvent.listen failed", err = $error
-    return err("MessagePropagatedEvent.listen failed: " & $error)
+    chronicles.error "MessageSendPropagatedEvent.listen failed", err = $error
+    return err("MessageSendPropagatedEvent.listen failed: " & $error)
 
   let receivedListener = MessageReceivedEvent.listen(
     ctx.myLib[].brokerCtx,
     proc(event: MessageReceivedEvent) {.async: (raises: []).} =
       callEventCallback(ctx, "onMessageReceived"):
-        $newJsonEvent("message_received", event),
+        $newJsonEvent("message:received", event),
   ).valueOr:
     chronicles.error "MessageReceivedEvent.listen failed", err = $error
     return err("MessageReceivedEvent.listen failed: " & $error)
@@ -184,9 +184,9 @@ proc logosdelivery_stop_node(
   requireInitializedNode(ctx, "STOP_NODE"):
     return err(errMsg)
 
-  MessageErrorEvent.dropAllListeners(ctx.myLib[].brokerCtx)
+  MessageSendErrorEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   MessageSentEvent.dropAllListeners(ctx.myLib[].brokerCtx)
-  MessagePropagatedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
+  MessageSendPropagatedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   MessageReceivedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   EventConnectionStatusChange.dropAllListeners(ctx.myLib[].brokerCtx)
 
