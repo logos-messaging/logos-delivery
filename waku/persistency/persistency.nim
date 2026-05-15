@@ -393,53 +393,47 @@ template liftErr(s: string): PersistencyError =
 proc get*(
     t: Job, category: string, key: Key
 ): Future[Result[Option[seq[byte]], PersistencyError]] {.async.} =
-  let r = await KvGet.request(t.context, category, key)
-  if r.isErr:
-    return err(liftErr(r.error()))
-  return ok(r.get().value)
+  let r = (await KvGet.request(t.context, category, key)).valueOr:
+    return err(liftErr(error))
+  return ok(r.value)
 
 proc exists*(
     t: Job, category: string, key: Key
 ): Future[Result[bool, PersistencyError]] {.async.} =
-  let r = await KvExists.request(t.context, category, key)
-  if r.isErr:
-    return err(liftErr(r.error()))
-  return ok(r.get().value)
+  let r = (await KvExists.request(t.context, category, key)).valueOr:
+    return err(liftErr(error))
+  return ok(r.value)
 
 proc scan*(
     t: Job, category: string, range: KeyRange, reverse = false
 ): Future[Result[seq[KvRow], PersistencyError]] {.async.} =
-  let r = await KvScan.request(t.context, category, range, reverse)
-  if r.isErr:
-    return err(liftErr(r.error()))
-  return ok(r.get().rows)
+  let r = (await KvScan.request(t.context, category, range, reverse)).valueOr:
+    return err(liftErr(error))
+  return ok(r.rows)
 
 proc scanPrefix*(
     t: Job, category: string, prefix: Key, reverse = false
 ): Future[Result[seq[KvRow], PersistencyError]] {.async.} =
   let rng = prefixRange(prefix)
-  let r = await KvScan.request(t.context, category, rng, reverse)
-  if r.isErr:
-    return err(liftErr(r.error()))
-  return ok(r.get().rows)
+  let r = (await KvScan.request(t.context, category, rng, reverse)).valueOr:
+    return err(liftErr(error))
+  return ok(r.rows)
 
 proc count*(
     t: Job, category: string, range: KeyRange
 ): Future[Result[int, PersistencyError]] {.async.} =
-  let r = await KvCount.request(t.context, category, range)
-  if r.isErr:
-    return err(liftErr(r.error()))
-  return ok(r.get().n)
+  let r = (await KvCount.request(t.context, category, range)).valueOr:
+    return err(liftErr(error))
+  return ok(r.n)
 
 proc deleteAcked*(
     t: Job, category: string, key: Key
 ): Future[Result[bool, PersistencyError]] {.async.} =
   ## Goes through the read path so the caller learns whether a row was
   ## actually removed.
-  let r = await KvDelete.request(t.context, category, key)
-  if r.isErr:
-    return err(liftErr(r.error()))
-  return ok(r.get().existed)
+  let r = (await KvDelete.request(t.context, category, key)).valueOr:
+    return err(liftErr(error))
+  return ok(r.existed)
 
 # ── Reads (async, typed errors) — string-lookup form ────────────────────
 
