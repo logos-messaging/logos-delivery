@@ -57,7 +57,7 @@ proc `<`*(a, b: Key): bool =
   for i in 0 ..< n:
     if ab[i] != bb[i]:
       return ab[i] < bb[i]
-  ab.len < bb.len
+  return ab.len < bb.len
 
 proc `<=`*(a, b: Key): bool {.inline.} =
   a == b or a < b
@@ -66,7 +66,7 @@ proc rawKey*(b: openArray[byte]): Key =
   var s = newSeq[byte](b.len)
   for i, v in b:
     s[i] = v
-  Key(s)
+  return Key(s)
 
 proc rawKey*(b: sink seq[byte]): Key {.inline.} =
   Key(b)

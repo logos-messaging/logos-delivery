@@ -48,12 +48,13 @@ type
 # ── arg helpers ─────────────────────────────────────────────────────────
 
 proc allocArg(ctx: BrokerContext, dbPath: string): ptr StorageThreadArg =
-  result = cast[ptr StorageThreadArg](allocShared0(sizeof(StorageThreadArg)))
-  result.ctx = ctx
-  result.dbPathLen = dbPath.len + 1
-  result.dbPath = cast[cstring](allocShared0(result.dbPathLen))
+  let arg = cast[ptr StorageThreadArg](allocShared0(sizeof(StorageThreadArg)))
+  arg.ctx = ctx
+  arg.dbPathLen = dbPath.len + 1
+  arg.dbPath = cast[cstring](allocShared0(arg.dbPathLen))
   if dbPath.len > 0:
-    copyMem(result.dbPath, unsafeAddr dbPath[0], dbPath.len)
+    copyMem(arg.dbPath, unsafeAddr dbPath[0], dbPath.len)
+  return arg
 
 proc freeArg(a: ptr StorageThreadArg) =
   if a.isNil():
@@ -93,7 +94,7 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
     let r = backend.getOne(category, key)
     if r.isErr:
       return err(unwrapErr(r))
-    ok(KvGet(value: r.get()))
+    return ok(KvGet(value: r.get()))
 
   proc onExists(
       category: string, key: Key
@@ -101,7 +102,7 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
     let r = backend.existsOne(category, key)
     if r.isErr:
       return err(unwrapErr(r))
-    ok(KvExists(value: r.get()))
+    return ok(KvExists(value: r.get()))
 
   proc onScan(
       category: string, range: KeyRange, reverse: bool
@@ -109,7 +110,7 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
     let r = backend.scanRange(category, range, reverse)
     if r.isErr:
       return err(unwrapErr(r))
-    ok(KvScan(rows: r.get()))
+    return ok(KvScan(rows: r.get()))
 
   proc onCount(
       category: string, range: KeyRange
@@ -117,7 +118,7 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
     let r = backend.countRange(category, range)
     if r.isErr:
       return err(unwrapErr(r))
-    ok(KvCount(n: r.get()))
+    return ok(KvCount(n: r.get()))
 
   proc onDelete(
       category: string, key: Key
@@ -125,7 +126,7 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
     let r = backend.deleteOne(category, key)
     if r.isErr:
       return err(unwrapErr(r))
-    ok(KvDelete(existed: r.get()))
+    return ok(KvDelete(existed: r.get()))
 
   # PersistEvent listener — fire-and-forget; we log on backend failure
   # because the caller has no return channel.
@@ -159,7 +160,7 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
   if listenRes.isErr:
     return err("PersistEvent.listen: " & listenRes.error())
 
-  ok()
+  return ok()
 
 proc clearProviders(ctx: BrokerContext) =
   KvGet.clearProvider(ctx)

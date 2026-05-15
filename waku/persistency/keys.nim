@@ -138,7 +138,7 @@ proc toKey*[T](v: T): Key =
   ## Single-value Key constructor. Equivalent to `key(v)`.
   var buf: seq[byte] = @[]
   encodePart(buf, v)
-  Key(buf)
+  return Key(buf)
 
 macro key*(parts: varargs[typed]): Key =
   ## Variadic Key builder. Accepts any mix of types for which `encodePart`
@@ -158,7 +158,7 @@ macro key*(parts: varargs[typed]): Key =
       encodePart(`bufSym`, `p`)
   body.add quote do:
     Key(`bufSym`)
-  result = newBlockStmt(body)
+  return newBlockStmt(body)
 
 # ── Range helpers ───────────────────────────────────────────────────────
 
@@ -167,16 +167,14 @@ proc prefixRange*(prefix: Key): KeyRange =
   ## starting with `prefix`. If `prefix` is all 0xFF, the upper bound is
   ## empty (open-ended); the backend treats `stop.len == 0` as "no upper
   ## bound".
-  result.start = prefix
   var stop = bytes(prefix)
   var i = stop.len - 1
   while i >= 0:
     if stop[i] != 0xFF'u8:
       stop[i] = stop[i] + 1'u8
       stop.setLen(i + 1)
-      result.stop = Key(stop)
-      return
+      return KeyRange(start: prefix, stop: Key(stop))
     dec i
-  result.stop = Key(@[])
+  return KeyRange(start: prefix, stop: Key(@[]))
 
 {.pop.}

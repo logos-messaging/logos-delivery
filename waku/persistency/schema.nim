@@ -41,7 +41,7 @@ proc applyPragmas*(db: SqliteDatabase): DatabaseResult[void] =
   ]:
     db.query(stmt, NoopRowHandler).isOkOr:
       return err("pragma failed: " & stmt & ": " & error)
-  ok()
+  return ok()
 
 proc ensureSchema*(db: SqliteDatabase): DatabaseResult[void] =
   db.query(CreateKvTableSql, NoopRowHandler).isOkOr:
@@ -55,4 +55,4 @@ proc ensureSchema*(db: SqliteDatabase): DatabaseResult[void] =
       "incompatible persistency user_version: got " & $userVersion & ", expected " &
         $PersistencyUserVersion
     )
-  ok()
+  return ok()

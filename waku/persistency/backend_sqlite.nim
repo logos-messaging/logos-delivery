@@ -21,20 +21,22 @@ proc toErr(msg: string): PersistencyError {.inline.} =
   persistencyErr(peBackend, msg)
 
 proc catBytes(category: string): seq[byte] =
-  result = newSeq[byte](category.len)
+  var buf = newSeq[byte](category.len)
   for i, c in category:
-    result[i] = byte(c)
+    buf[i] = byte(c)
+  return buf
 
 proc keyBytes(key: Key): seq[byte] {.inline.} =
   bytes(key)
 
 proc readBlob(s: ptr sqlite3_stmt, col: cint): seq[byte] =
   let n = sqlite3_column_bytes(s, col)
-  result = newSeq[byte](n)
+  var buf = newSeq[byte](n)
   if n > 0:
     let src = cast[ptr UncheckedArray[byte]](sqlite3_column_blob(s, col))
     for i in 0 ..< n:
-      result[i] = src[i]
+      buf[i] = src[i]
+  return buf
 
 proc bindBlob(s: ptr sqlite3_stmt, n: cint, val: seq[byte]): cint =
   if val.len > 0:
@@ -66,7 +68,7 @@ proc runRead(
       break
     else:
       return err(toErr("step: " & $sqlite3_errstr(v)))
-  ok()
+  return ok()
 
 proc prepareStatements(b: KvBackend): DatabaseResult[void] =
   b.putStmt = ?b.db.prepareStmt(
@@ -77,7 +79,7 @@ proc prepareStatements(b: KvBackend): DatabaseResult[void] =
   b.deleteStmt = ?b.db.prepareStmt(
     "DELETE FROM kv WHERE category = ? AND key = ?;", (seq[byte], seq[byte]), void
   )
-  ok()
+  return ok()
 
 proc openBackend*(path: string): Result[KvBackend, PersistencyError] =
   let dbRes = SqliteDatabase.new(path)
@@ -93,7 +95,7 @@ proc openBackend*(path: string): Result[KvBackend, PersistencyError] =
   let b = KvBackend(db: db)
   prepareStatements(b).isOkOr:
     return err(toErr(error))
-  ok(b)
+  return ok(b)
 
 proc openBackendInMemory*(): Result[KvBackend, PersistencyError] =
   ## Convenience for tests.
@@ -110,7 +112,7 @@ proc openBackendInMemory*(): Result[KvBackend, PersistencyError] =
   let b = KvBackend(db: db)
   prepareStatements(b).isOkOr:
     return err(toErr(error))
-  ok(b)
+  return ok(b)
 
 proc close*(b: KvBackend) =
   if b.db != nil:
@@ -129,13 +131,13 @@ proc applyOne(b: KvBackend, op: TxOp): Result[void, PersistencyError] =
     let r = b.deleteStmt.exec((catBytes(op.category), keyBytes(op.key)))
     if r.isErr:
       return err(toErr("delete failed: " & r.error))
-  ok()
+  return ok()
 
 proc execSql(b: KvBackend, sql: string): Result[void, PersistencyError] =
   let r = b.db.query(sql, NoopRowHandler)
   if r.isErr:
     return err(toErr(sql & ": " & r.error))
-  ok()
+  return ok()
 
 proc applyOps*(b: KvBackend, ops: openArray[TxOp]): Result[void, PersistencyError] =
   ## Single op = auto-commit. Multiple ops = BEGIN IMMEDIATE / COMMIT, with
@@ -153,7 +155,7 @@ proc applyOps*(b: KvBackend, ops: openArray[TxOp]): Result[void, PersistencyErro
       discard b.execSql("ROLLBACK;")
       return r
   ?b.execSql("COMMIT;")
-  ok()
+  return ok()
 
 proc getOne*(
     b: KvBackend, category: string, key: Key
@@ -167,7 +169,7 @@ proc getOne*(
     [catBytes(category), keyBytes(key)],
     onRow,
   )
-  ok(found)
+  return ok(found)
 
 proc existsOne*(
     b: KvBackend, category: string, key: Key
@@ -181,7 +183,7 @@ proc existsOne*(
     [catBytes(category), keyBytes(key)],
     onRow,
   )
-  ok(present)
+  return ok(present)
 
 proc deleteOne*(
     b: KvBackend, category: string, key: Key
@@ -193,7 +195,7 @@ proc deleteOne*(
   let r = b.deleteStmt.exec((catBytes(category), keyBytes(key)))
   if r.isErr:
     return err(toErr("delete: " & r.error))
-  ok(true)
+  return ok(true)
 
 proc scanRange*(
     b: KvBackend, category: string, range: KeyRange, reverse = false
@@ -220,7 +222,7 @@ proc scanRange*(
     ?b.db.runRead(
       sql, [catBytes(category), keyBytes(range.start), keyBytes(range.stop)], onRow
     )
-  ok(rows)
+  return ok(rows)
 
 proc countRange*(
     b: KvBackend, category: string, range: KeyRange
@@ -242,4 +244,4 @@ proc countRange*(
     ?b.db.runRead(
       sql, [catBytes(category), keyBytes(range.start), keyBytes(range.stop)], onRow
     )
-  ok(int(n))
+  return ok(int(n))

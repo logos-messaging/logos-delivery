@@ -33,8 +33,9 @@ export keys.encodePart
 
 proc toPayload*[T](v: T): seq[byte] =
   ## Single-value payload constructor. Equivalent to `payload(v)`.
-  result = @[]
-  encodePart(result, v)
+  var buf: seq[byte] = @[]
+  encodePart(buf, v)
+  return buf
 
 macro payload*(parts: varargs[typed]): seq[byte] =
   ## Variadic payload builder. Same encoder as `key(...)`; only the return
@@ -47,6 +48,6 @@ macro payload*(parts: varargs[typed]): seq[byte] =
     body.add quote do:
       encodePart(`bufSym`, `p`)
   body.add bufSym
-  result = newBlockStmt(body)
+  return newBlockStmt(body)
 
 {.pop.}

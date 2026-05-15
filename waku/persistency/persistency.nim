@@ -121,7 +121,7 @@ proc new(T: type Persistency, rootDir: string): Result[T, PersistencyError] =
           )
         )
       parent = parentDir(parent)
-  ok(T(rootDir: rootDir, jobs: initTable[string, Job]()))
+  return ok(T(rootDir: rootDir, jobs: initTable[string, Job]()))
 
 proc ensureRootDir(p: Persistency): Result[void, PersistencyError] =
   ## Materialise ``rootDir`` on demand. Idempotent; called from
@@ -133,7 +133,7 @@ proc ensureRootDir(p: Persistency): Result[void, PersistencyError] =
   except OSError, IOError:
     return
       err(persistencyErr(peBackend, "createDir failed: " & getCurrentExceptionMsg()))
-  ok()
+  return ok()
 
 proc reset*(T: type Persistency) {.gcsafe.} =
   ## Tear down the singleton: close every open job, clear the Teardown
@@ -180,7 +180,7 @@ proc instance*(
 
     let p = ?Persistency.new(rootDir)
     gPersistency = p
-    ok(p)
+    return ok(p)
 
 proc instance*(T: type Persistency): Result[T, PersistencyError] {.gcsafe.} =
   ## No-args form: succeeds only if the singleton is already initialised.
@@ -192,7 +192,7 @@ proc instance*(T: type Persistency): Result[T, PersistencyError] {.gcsafe.} =
       release(gPersistencyLock)
     if gPersistency.isNil:
       return err(persistencyErr(peClosed, "Persistency not initialised"))
-    ok(gPersistency)
+    return ok(gPersistency)
 
 proc openJob*(p: Persistency, jobId: string): Result[Job, PersistencyError] =
   ## Open-or-create a job under this Persistency.
@@ -215,7 +215,7 @@ proc openJob*(p: Persistency, jobId: string): Result[Job, PersistencyError] =
   let rt = ?startStorageThread(ctx, dbPathFor(p, jobId))
   let job = Job(id: jobId, context: ctx, runtime: rt, running: true)
   p.jobs[jobId] = job
-  ok(job)
+  return ok(job)
 
 proc closeJob*(p: Persistency, jobId: string) =
   ## Stop the worker, join its thread, and forget the job. No-op if the
@@ -254,9 +254,9 @@ proc job*(p: Persistency, jobId: string): Result[Job, PersistencyError] =
   ## job has been opened (``openJob`` first).
   let j = p.jobs.getOrDefault(jobId, nil)
   if j != nil:
-    ok(j)
+    return ok(j)
   else:
-    err(persistencyErr(peJobNotFound, "no open job with id: " & jobId))
+    return err(persistencyErr(peJobNotFound, "no open job with id: " & jobId))
 
 proc `[]`*(p: Persistency, jobId: string): Job {.raises: [KeyError].} =
   ## Subscript sugar for `job` — raises ``KeyError`` if the job isn't
@@ -303,18 +303,19 @@ proc jobOrWarn(p: Persistency, jobId: string): Job =
   ## logs a warning if the job isn't open. Isolated as a non-generic proc
   ## so chronicles' `warn` macro expands cleanly (it doesn't, when called
   ## from inside a generic proc's body).
-  result = p.jobs.getOrDefault(jobId, nil)
-  if result == nil:
+  let job = p.jobs.getOrDefault(jobId, nil)
+  if job.isNil():
     warn "persistency: write dropped, job not open", jobId
+  return job
 
 template withJobOrWarn(p: Persistency, jobId: string, j, body: untyped) =
   let `j` = p.jobOrWarn(jobId)
-  if `j` != nil:
+  if not `j`.isNil():
     body
 
 proc persist*(p: Persistency, jobId: string, ops: seq[TxOp]): Future[void] {.async.} =
   let j = p.jobOrWarn(jobId)
-  if j != nil:
+  if not j.isNil():
     await j.persist(ops)
 
 proc persist*(p: Persistency, jobId: string, op: TxOp): Future[void] {.async.} =
@@ -324,21 +325,21 @@ proc persistPut*(
     p: Persistency, jobId: string, category: string, key: Key, payload: seq[byte]
 ): Future[void] {.async.} =
   let j = p.jobOrWarn(jobId)
-  if j != nil:
+  if not j.isNil():
     await j.persistPut(category, key, payload)
 
 proc persistDelete*(
     p: Persistency, jobId: string, category: string, key: Key
 ): Future[void] {.async.} =
   let j = p.jobOrWarn(jobId)
-  if j != nil:
+  if not j.isNil():
     await j.persistDelete(category, key)
 
 proc persistEncoded*[T](
     p: Persistency, jobId: string, category: string, key: Key, value: T
 ): Future[void] {.async.} =
   let j = p.jobOrWarn(jobId)
-  if j != nil:
+  if not j.isNil():
     await j.persistEncoded(category, key, value)
 
 # ── Reads (async, typed errors) — Job form ──────────────────────────────
