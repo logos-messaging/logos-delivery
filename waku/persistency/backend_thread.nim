@@ -67,7 +67,7 @@ proc recordErr(a: ptr StorageThreadArg, msg: string) =
   for i in 0 ..< n:
     a.errBuf[i] = msg[i]
   a.errBuf[n] = '\0'
-  a.readyFlag.store(int(rsError), moRelease)
+  a.readyFlag.store(int(ReadyState.Error), moRelease)
 
 proc errMsg(a: ptr StorageThreadArg): string =
   $cast[cstring](a.errBuf[0].addr)
@@ -173,7 +173,7 @@ proc clearProviders(ctx: BrokerContext) =
 
 proc storageThreadMain(arg: ptr StorageThreadArg) {.thread.} =
   ## Worker thread entrypoint. Errors during setup are surfaced via
-  ## arg.errBuf + readyFlag=rsError; the spawning thread checks both.
+  ## arg.errBuf + readyFlag=ReadyState.Error; the spawning thread checks both.
 
   setThreadBrokerContext(arg.ctx)
 
@@ -202,7 +202,7 @@ proc storageThreadMain(arg: ptr StorageThreadArg) {.thread.} =
     arg.recordErr(regRes.error)
     return
 
-  arg.readyFlag.store(int(rsReady), moRelease)
+  arg.readyFlag.store(int(ReadyState.Ready), moRelease)
 
   proc awaitShutdown() {.async.} =
     while arg.shutdownFlag.load(moAcquire) != 1:
@@ -237,7 +237,7 @@ proc startStorageThread*(
   ## returns peBackend with the worker's error message).
   let arg = allocArg(ctx, dbPath)
   arg.shutdownFlag.store(0, moRelease)
-  arg.readyFlag.store(int(rsPending), moRelease)
+  arg.readyFlag.store(int(ReadyState.Pending), moRelease)
 
   var rt = JobRuntime(arg: arg)
   try:
@@ -250,9 +250,9 @@ proc startStorageThread*(
   # before signaling, so this is bounded by SQLite open time.
   while true:
     let s = arg.readyFlag.load(moAcquire)
-    if s == int(rsReady):
+    if s == int(ReadyState.Ready):
       return ok(rt)
-    if s == int(rsError):
+    if s == int(ReadyState.Error):
       let msg = errMsg(arg)
       joinThread(rt.thread)
       freeArg(arg)

@@ -5,7 +5,6 @@ import chronos, results
 import testutils/unittests
 import brokers/multi_request_broker
 import waku/persistency/persistency
-import waku/requests/lifecycle_requests
 
 proc tmpRoot(label: string): string =
   let p = getTempDir() / ("persistency_singleton_" & label & "_" & $epochTime().int)
@@ -78,33 +77,3 @@ suite "Persistency singleton":
     Persistency.reset()
     Persistency.reset()
     check Persistency.instance().isErr
-
-  asyncTest "Teardown.request closes the singleton and fires our provider":
-    let root = tmpRoot("teardown")
-    defer:
-      removeDir(root)
-    defer:
-      Persistency.reset() # belt-and-braces in case the request path fails
-
-    let p = Persistency.instance(root).get()
-    discard p.openJob("alpha").get()
-    discard p.openJob("beta").get()
-    check p.hasJob("alpha")
-    check p.hasJob("beta")
-
-    let res = await Teardown.request()
-    check res.isOk
-    let components = res.get()
-    # Our provider returns one Teardown value mentioning both job ids.
-    check components.len >= 1
-    var foundPersistency = false
-    for c in components:
-      if c.component.startsWith("persistency jobs:"):
-        foundPersistency = true
-    check foundPersistency
-
-    # The singleton slot is now clear -- next instance() with the same
-    # rootDir produces a fresh instance.
-    let p2 = Persistency.instance(root).get()
-    check p2 != p
-    check not p2.hasJob("alpha")

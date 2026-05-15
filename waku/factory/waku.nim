@@ -43,7 +43,6 @@ import
     discovery/waku_discv5,
     discovery/autonat_service,
     requests/health_requests,
-    requests/lifecycle_requests,
     factory/node_factory,
     factory/internal_config,
     factory/app_callbacks,
@@ -531,15 +530,7 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   try:
     waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
 
-    let teardownRes = await Teardown.request()
-    if teardownRes.isErr():
-      error "Teardown request failed", error = teardownRes.error
-      return err("Teardown request failed: " & teardownRes.error)
-    else:
-      info "Teardown request completed successfully",
-        components = teardownRes.get().mapIt(it.component)
-
-    Teardown.clearProviders()
+    Persistency.reset()
 
     if not waku.metricsServer.isNil():
       await waku.metricsServer.stop()

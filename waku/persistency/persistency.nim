@@ -43,7 +43,6 @@
 import std/[locks, options, os, sequtils, tables]
 import chronos, chronicles, results
 import brokers/[event_broker, request_broker, broker_context]
-import waku/requests/lifecycle_requests
 import ./[types, keys, payload, backend_comm, backend_thread]
 
 export types, keys, payload
@@ -137,8 +136,7 @@ proc ensureRootDir(p: Persistency): Result[void, PersistencyError] =
 proc reset*(T: type Persistency) {.gcsafe.} =
   ## Tear down the singleton: close every open job, clear the Teardown
   ## provider, and free the slot so a subsequent ``Persistency.instance``
-  ## starts fresh. Idempotent. Tests use this in `defer`; production
-  ## shutdown drives it indirectly via the Teardown request flow.
+  ## starts fresh. Idempotent. Tests use this in `defer`;.
   {.cast(gcsafe).}:
     acquire(gPersistencyLock)
     defer:
@@ -147,49 +145,6 @@ proc reset*(T: type Persistency) {.gcsafe.} =
       let p = gPersistency
       gPersistency = nil
       p.close()
-    Teardown.clearProviders()
-
-proc closeAllJobsAndClear() {.gcsafe.} =
-  ## Internal: close every open job on the singleton instance and clear
-  ## the slot. Does NOT touch the Teardown providers (that's
-  ## ``Waku.stop()``'s job after the request resolves). Called from the
-  ## Teardown handler.
-  {.cast(gcsafe).}:
-    let p = gPersistency
-    if p == nil:
-      return
-    var ids: seq[string]
-    for id in p.jobs.keys:
-      ids.add(id)
-    for id in ids:
-      let job = p.jobs.getOrDefault(id, nil)
-      if job != nil:
-        stopStorageThread(job.runtime)
-        job.runtime = nil
-        job.running = false
-        p.jobs.del(id)
-    gPersistency = nil
-
-proc registerTeardown() {.gcsafe.} =
-  ## Wire the Teardown handler. Don't go through `Persistency.reset` here:
-  ## that would call `Teardown.clearProviders()` while we are still
-  ## inside a provider dispatch. `Waku.stop()` runs `clearAllProviders`
-  ## itself after the request resolves.
-  proc onTeardown(): Future[Result[Teardown, string]] {.async.} =
-    {.cast(gcsafe).}:
-      let p = gPersistency
-      let jobIds =
-        if p != nil:
-          toSeq(p.jobs.keys)
-        else:
-          @[]
-      info "Persistency shutting down jobs", jobcount = jobIds.len
-      closeAllJobsAndClear()
-      return ok(Teardown(component: "persistency jobs:" & $jobIds))
-
-  let regRes = Teardown.setProvider(onTeardown)
-  if regRes.isErr:
-    error "Teardown.setProvider failed", err = regRes.error
 
 proc instance*(
     T: type Persistency, rootDir: string
@@ -223,7 +178,6 @@ proc instance*(
 
     let p = ?Persistency.new(rootDir)
     gPersistency = p
-    registerTeardown()
     ok(p)
 
 proc instance*(T: type Persistency): Result[T, PersistencyError] {.gcsafe.} =
