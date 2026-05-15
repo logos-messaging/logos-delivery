@@ -1,6 +1,7 @@
 {.push raises: [].}
 
 import chronicles, results, stint
+import waku/waku_core/message/default_values
 
 logScope:
   topics = "waku networks conf"
@@ -17,7 +18,7 @@ type
     of StaticSharding:
       discard
 
-type NetworkConf* = object
+type NetworkConf* = object ## A network "preset" (--preset=twn, --preset=logos.dev).
   maxMessageSize*: string # TODO: static convert to a uint64
   clusterId*: uint16
   rlnRelay*: bool
@@ -41,7 +42,7 @@ type NetworkConf* = object
 proc TheWakuNetworkConf*(T: type NetworkConf): NetworkConf =
   const RelayChainId = 59141'u256
   return NetworkConf(
-    maxMessageSize: "150KiB",
+    maxMessageSize: DefaultMaxWakuMessageSizeStr,
     clusterId: 1,
     rlnRelay: true,
     rlnRelayEthContractAddress: "0xB9cd878C90E49F797B4431fBF4fb333108CB90e6",
@@ -68,7 +69,7 @@ proc TheWakuNetworkConf*(T: type NetworkConf): NetworkConf =
 proc LogosDevConf*(T: type NetworkConf): NetworkConf =
   const ZeroChainId = 0'u256
   return NetworkConf(
-    maxMessageSize: "150KiB",
+    maxMessageSize: DefaultMaxWakuMessageSizeStr,
     clusterId: 2,
     rlnRelay: false,
     rlnRelayEthContractAddress: "",

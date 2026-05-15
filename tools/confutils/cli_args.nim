@@ -117,20 +117,23 @@ type WakuNodeConf* = object
     name: "rln-relay-eth-private-key"
   .}: string
 
-  # TODO: Remove "Default is" when it's already visible on the CLI
+  # Option-typed; desc states the default since the CLI can't auto-show it for none().
   rlnRelayUserMessageLimit* {.
     desc:
-      "Set a user message limit for the rln membership registration. Must be a positive integer. Default is 1.",
-    defaultValue: 1,
+      "Set a user message limit for the rln membership registration. Must be a positive integer. Default is " &
+      $DefaultRlnRelayUserMessageLimit & ".",
+    defaultValue: none(uint64),
     name: "rln-relay-user-message-limit"
-  .}: uint64
+  .}: Option[uint64]
 
+  # Option-typed; desc states the default since the CLI can't auto-show it for none().
   rlnEpochSizeSec* {.
     desc:
-      "Epoch size in seconds used to rate limit RLN memberships. Default is 1 second.",
-    defaultValue: 1,
+      "Epoch size in seconds used to rate limit RLN memberships. Default is " &
+      $DefaultRlnRelayEpochSizeSec & " second.",
+    defaultValue: none(uint64),
     name: "rln-relay-epoch-sec"
-  .}: uint64
+  .}: Option[uint64]
 
   maxMessageSize* {.
     desc:
@@ -170,12 +173,15 @@ type WakuNodeConf* = object
       name: "preset"
     .}: string
 
+    # Option-typed; desc states the default since the CLI can't auto-show it for none().
     clusterId* {.
-      desc:
-        "Cluster id that the node is running in. Node in a different cluster id is disconnected.",
-      defaultValue: 0,
+      desc: static(
+        "Cluster id that the node is running in. Node in a different cluster id is disconnected. Default is " &
+          $DefaultClusterId & "."
+      ),
+      defaultValue: none(uint16),
       name: "cluster-id"
-    .}: uint16
+    .}: Option[uint16]
 
     agentString* {.
       defaultValue: "logos-delivery-" & cli_args.git_version,
@@ -291,11 +297,14 @@ hence would have reachability issues.""",
       name: "relay-shard-manager"
     .}: bool
 
+    # Option-typed; desc states the default since the CLI can't auto-show it for none().
     rlnRelay* {.
-      desc: "Enable spam protection through rln-relay: true|false.",
-      defaultValue: false,
+      desc:
+        "Enable spam protection through rln-relay: true|false. Default is " &
+        $DefaultRlnRelayEnabled & ".",
+      defaultValue: none(bool),
       name: "rln-relay"
-    .}: bool
+    .}: Option[bool]
 
     rlnRelayCredIndex* {.
       desc: "the index of the onchain commitment to use",
@@ -304,9 +313,9 @@ hence would have reachability issues.""",
 
     rlnRelayDynamic* {.
       desc: "Enable  waku-rln-relay with on-chain dynamic group management: true|false.",
-      defaultValue: false,
+      defaultValue: none(bool),
       name: "rln-relay-dynamic"
-    .}: bool
+    .}: Option[bool]
 
     entryNodes* {.
       desc:
@@ -466,13 +475,14 @@ hence would have reachability issues.""",
     .}: string
 
     ## Reliability config
+    # Option-typed; desc states the default since the CLI can't auto-show it for none().
     reliabilityEnabled* {.
       desc:
-        """Adds an extra effort in the delivery/reception of messages by leveraging store-v3 requests.
-with the drawback of consuming some more bandwidth.""",
-      defaultValue: true,
+        """Adds an extra effort in the delivery/reception of messages by leveraging store-v3 requests, with the drawback of consuming some more bandwidth. Default is """ &
+        $DefaultP2pReliability & ".",
+      defaultValue: none(bool),
       name: "reliability"
-    .}: bool
+    .}: Option[bool]
 
     ## REST HTTP config
     rest* {.
@@ -557,8 +567,11 @@ with the drawback of consuming some more bandwidth.""",
     .}: string
 
     ## Discovery v5 config
+    # Option-typed; desc states the default since the CLI can't auto-show it for none().
     discv5Discovery* {.
-      desc: "Enable discovering nodes via Node Discovery v5.",
+      desc:
+        "Enable discovering nodes via Node Discovery v5. Default is " &
+        $DefaultDiscv5Enabled & ".",
       defaultValue: none(bool),
       name: "discv5-discovery"
     .}: Option[bool]
@@ -627,8 +640,12 @@ with the drawback of consuming some more bandwidth.""",
     .}: bool
 
     #Mix config
-    mix* {.desc: "Enable mix protocol: true|false", defaultValue: false, name: "mix".}:
-      bool
+    # Option-typed; desc states the default since the CLI can't auto-show it for none().
+    mix* {.
+      desc: "Enable mix protocol: true|false. Default is " & $DefaultMix & ".",
+      defaultValue: none(bool),
+      name: "mix"
+    .}: Option[bool]
 
     mixkey* {.
       desc:
@@ -643,12 +660,14 @@ with the drawback of consuming some more bandwidth.""",
     .}: seq[MixNodePubInfo]
 
     # Kademlia Discovery config
+    # Option-typed; desc states the default since the CLI can't auto-show it for none().
     enableKadDiscovery* {.
       desc:
-        "Enable extended kademlia discovery. Can be enabled without bootstrap nodes for the first node in the network.",
-      defaultValue: false,
+        "Enable extended kademlia discovery. Can be enabled without bootstrap nodes for the first node in the network. Default is " &
+        $DefaultKadEnabled & ".",
+      defaultValue: none(bool),
       name: "enable-kad-discovery"
-    .}: bool
+    .}: Option[bool]
 
     kadBootstrapNodes* {.
       desc:
@@ -913,7 +932,7 @@ proc toKeystoreGeneratorConf*(n: WakuNodeConf): RlnKeystoreGeneratorConf =
     chainId: UInt256.fromBytesBE(n.rlnRelayChainId.toBytesBE()),
     ethClientUrls: n.ethClientUrls.mapIt(string(it)),
     ethContractAddress: n.rlnRelayEthContractAddress,
-    userMessageLimit: n.rlnRelayUserMessageLimit,
+    userMessageLimit: n.rlnRelayUserMessageLimit.get(DefaultRlnRelayUserMessageLimit),
     ethPrivateKey: n.rlnRelayEthPrivateKey,
     credPath: n.rlnRelayCredPath,
     credPassword: n.rlnRelayCredPassword,
@@ -947,7 +966,7 @@ proc toNetworkConf(
 proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   var b = WakuConfBuilder.init()
 
-  let networkConf = toNetworkConf(n.preset, some(n.clusterId)).valueOr:
+  let networkConf = toNetworkConf(n.preset, n.clusterId).valueOr:
     return err("Error determining cluster from preset: " & $error)
 
   if networkConf.isSome():
@@ -956,7 +975,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withLogLevel(n.logLevel)
   b.withLogFormat(n.logFormat)
 
-  b.rlnRelayConf.withEnabled(n.rlnRelay)
+  if n.rlnRelay.isSome():
+    b.rlnRelayConf.withEnabled(n.rlnRelay.get())
   if n.rlnRelayCredPath != "":
     b.rlnRelayConf.withCredPath(n.rlnRelayCredPath)
   if n.rlnRelayCredPassword != "":
@@ -968,18 +988,22 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   if n.rlnRelayChainId != 0:
     b.rlnRelayConf.withChainId(n.rlnRelayChainId)
-  b.rlnRelayConf.withUserMessageLimit(n.rlnRelayUserMessageLimit)
-  b.rlnRelayConf.withEpochSizeSec(n.rlnEpochSizeSec)
+  if n.rlnRelayUserMessageLimit.isSome():
+    b.rlnRelayConf.withUserMessageLimit(n.rlnRelayUserMessageLimit.get())
+  if n.rlnEpochSizeSec.isSome():
+    b.rlnRelayConf.withEpochSizeSec(n.rlnEpochSizeSec.get())
 
   if n.rlnRelayCredIndex.isSome():
     b.rlnRelayConf.withCredIndex(n.rlnRelayCredIndex.get())
-  b.rlnRelayConf.withDynamic(n.rlnRelayDynamic)
+  if n.rlnRelayDynamic.isSome():
+    b.rlnRelayConf.withDynamic(n.rlnRelayDynamic.get())
 
   if n.maxMessageSize != "":
     b.withMaxMessageSize(n.maxMessageSize)
 
   b.withProtectedShards(n.protectedShards)
-  b.withClusterId(n.clusterId)
+  if n.clusterId.isSome():
+    b.withClusterId(n.clusterId.get())
 
   b.withAgentString(n.agentString)
 
@@ -1033,7 +1057,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.numShardsInNetwork != 0:
     b.withNumShardsInCluster(n.numShardsInNetwork)
     b.withShardingConf(AutoSharding)
-  else:
+  elif networkConf.isNone():
     b.withShardingConf(StaticSharding)
 
   # It is not possible to pass an empty sequence on the CLI
@@ -1066,9 +1090,10 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.storeServiceConf.storeSyncConf.withRangeSec(n.storeSyncRange)
   b.storeServiceConf.storeSyncConf.withRelayJitterSec(n.storeSyncRelayJitter)
 
-  b.mixConf.withEnabled(n.mix)
+  if n.mix.isSome():
+    b.mixConf.withEnabled(n.mix.get())
+    b.withMix(n.mix.get())
   b.mixConf.withMixNodes(n.mixnodes)
-  b.withMix(n.mix)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
 
@@ -1078,7 +1103,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.filterServiceConf.withMaxCriteria(n.filterMaxCriteria)
 
   b.withLightPush(n.lightpush)
-  b.withP2pReliability(n.reliabilityEnabled)
+  if n.reliabilityEnabled.isSome():
+    b.withP2pReliability(n.reliabilityEnabled.get())
 
   b.restServerConf.withEnabled(n.rest)
   b.restServerConf.withListenAddress(n.restAddress)
@@ -1119,7 +1145,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.rateLimits.len > 0:
     b.rateLimitConf.withRateLimits(n.rateLimits)
 
-  b.kademliaDiscoveryConf.withEnabled(n.enableKadDiscovery)
+  if n.enableKadDiscovery.isSome():
+    b.kademliaDiscoveryConf.withEnabled(n.enableKadDiscovery.get())
   b.kademliaDiscoveryConf.withBootstrapNodes(n.kadBootstrapNodes)
 
   # Mode-driven configuration overrides

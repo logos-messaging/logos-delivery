@@ -96,7 +96,7 @@ when isMainModule:
 
   wakuNodeConf.shards = @[conf.shard]
   wakuNodeConf.contentTopics = conf.contentTopics
-  wakuNodeConf.clusterId = conf.clusterId
+  wakuNodeConf.clusterId = some(conf.clusterId)
   ## TODO: Depending on the tester needs we might extend here with shards, clusterId, etc...
 
   wakuNodeConf.metricsServer = true

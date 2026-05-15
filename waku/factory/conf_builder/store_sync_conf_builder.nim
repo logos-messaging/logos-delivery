@@ -4,6 +4,8 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder store sync"
 
+const DefaultStoreSyncEnabled*: bool = false
+
 ##################################
 ## Store Sync Config Builder ##
 ##################################
@@ -30,7 +32,7 @@ proc withRelayJitterSec*(b: var StoreSyncConfBuilder, relayJitterSec: uint32) =
   b.relayJitterSec = some(relayJitterSec)
 
 proc build*(b: StoreSyncConfBuilder): Result[Option[StoreSyncConf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultStoreSyncEnabled):
     return ok(none(StoreSyncConf))
 
   if b.rangeSec.isNone():

@@ -5,6 +5,8 @@ import ../waku_conf, waku/waku_mix
 logScope:
   topics = "waku conf builder mix"
 
+const DefaultMixEnabled*: bool = false
+
 ##################################
 ## Mix Config Builder ##
 ##################################
@@ -26,7 +28,7 @@ proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   b.mixNodes = mixNodes
 
 proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultMixEnabled):
     return ok(none[MixConf]())
   else:
     if b.mixKey.isSome():

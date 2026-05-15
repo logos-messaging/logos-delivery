@@ -5,18 +5,20 @@ import waku/factory/waku_conf
 logScope:
   topics = "waku conf builder kademlia discovery"
 
+const DefaultKadEnabled*: bool = false
+
 #######################################
 ## Kademlia Discovery Config Builder ##
 #######################################
 type KademliaDiscoveryConfBuilder* = object
-  enabled*: bool
+  enabled*: Option[bool]
   bootstrapNodes*: seq[string]
 
 proc init*(T: type KademliaDiscoveryConfBuilder): KademliaDiscoveryConfBuilder =
   KademliaDiscoveryConfBuilder()
 
 proc withEnabled*(b: var KademliaDiscoveryConfBuilder, enabled: bool) =
-  b.enabled = enabled
+  b.enabled = some(enabled)
 
 proc withBootstrapNodes*(
     b: var KademliaDiscoveryConfBuilder, bootstrapNodes: seq[string]
@@ -27,7 +29,7 @@ proc build*(
     b: KademliaDiscoveryConfBuilder
 ): Result[Option[KademliaDiscoveryConf], string] =
   # Kademlia is enabled if explicitly enabled OR if bootstrap nodes are provided
-  let enabled = b.enabled or b.bootstrapNodes.len > 0
+  let enabled = b.enabled.get(DefaultKadEnabled) or b.bootstrapNodes.len > 0
   if not enabled:
     return ok(none(KademliaDiscoveryConf))
 
