@@ -1,4 +1,5 @@
 import
+  std/options,
   confutils,
   confutils/defs,
   confutils/std/net,
@@ -64,9 +65,9 @@ type Chat2MatterbridgeConf* = object
 
   nodekey* {.
     desc: "P2P node private key as hex",
-    defaultValue: crypto.PrivateKey.random(Secp256k1, newRng()[]).tryGet(),
+    defaultValueDesc: "random",
     name: "nodekey"
-  .}: crypto.PrivateKey
+  .}: Option[crypto.PrivateKey]
 
   store* {.
     desc: "Flag whether to start store protocol", defaultValue: true, name: "store"
