@@ -5,7 +5,7 @@ import
   chronos,
   eth/keys,
   bearssl,
-  stew/[results],
+  results,
   metrics,
   metrics/chronos_httpserver
 

@@ -1,4 +1,5 @@
 import
+  std/options,
   confutils,
   confutils/defs,
   confutils/std/net,
@@ -45,7 +46,8 @@ type Chat2MatterbridgeConf* = object
 
   metricsServerAddress* {.
     desc: "Listening address of the metrics server",
-    defaultValue: parseIpAddress("127.0.0.1"),
+    defaultValue:
+      IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
     name: "metrics-server-address"
   .}: IpAddress
 
@@ -63,9 +65,9 @@ type Chat2MatterbridgeConf* = object
 
   nodekey* {.
     desc: "P2P node private key as hex",
-    defaultValue: crypto.PrivateKey.random(Secp256k1, newRng()[]).tryGet(),
+    defaultValueDesc: "random",
     name: "nodekey"
-  .}: crypto.PrivateKey
+  .}: Option[crypto.PrivateKey]
 
   store* {.
     desc: "Flag whether to start store protocol", defaultValue: true, name: "store"
@@ -94,7 +96,8 @@ type Chat2MatterbridgeConf* = object
   # Matterbridge options
   mbHostAddress* {.
     desc: "Listening address of the Matterbridge host",
-    defaultValue: parseIpAddress("127.0.0.1"),
+    defaultValue:
+      IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
     name: "mb-host-address"
   .}: IpAddress
 

@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  stew/results,
+  results,
   chronos,
   testutils/unittests,
   libp2p/crypto/crypto as libp2p_keys,

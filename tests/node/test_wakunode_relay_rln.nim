@@ -2,7 +2,7 @@
 
 import
   std/[tempfiles, strutils, options],
-  stew/results,
+  results,
   testutils/unittests,
   chronos,
   libp2p/switch,
