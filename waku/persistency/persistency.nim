@@ -50,6 +50,8 @@ export types, keys, payload
 logScope:
   topics = "persistency"
 
+const DefaultStoragePath* = "./data"
+
 # ── Driver types ────────────────────────────────────────────────────────
 
 type

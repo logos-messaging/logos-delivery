@@ -14,6 +14,7 @@ import
     common/logging,
     common/utils/parse_size_units,
     waku_enr/capabilities,
+    persistency/persistency,
   ],
   tools/confutils/entry_nodes
 
@@ -724,7 +725,7 @@ proc build*(
     relayShardedPeerManagement: relayShardedPeerManagement,
     p2pReliability: builder.p2pReliability.get(false),
     wakuFlags: wakuFlags,
-    localStoragePath: builder.localStoragePath.get("./data"),
+    localStoragePath: builder.localStoragePath.get(DefaultStoragePath),
   )
 
   ?wakuConf.validate()
