@@ -152,6 +152,8 @@ type WakuConf* {.requiresInit.} = ref object
 
   p2pReliability*: bool
 
+  localStoragePath*: string
+
 proc logConf*(conf: WakuConf) =
   info "Configuration: Enabled protocols",
     relay = conf.relay,

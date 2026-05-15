@@ -1,6 +1,6 @@
 import chronos
+import brokers/broker_context
 import ./delivery_task
-import waku/common/broker/broker_context
 
 {.push raises: [].}
 

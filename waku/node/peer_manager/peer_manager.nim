@@ -8,6 +8,9 @@ import
   chronicles,
   metrics,
   libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
+  brokers/broker_context
+
+import
   waku/[
     waku_core,
     waku_relay,
@@ -21,7 +24,6 @@ import
     common/enr,
     common/callbacks,
     common/utils/parse_size_units,
-    common/broker/broker_context,
     node/health_monitor/online_monitor,
   ],
   ./peer_store/peer_storage,

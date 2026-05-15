@@ -2,6 +2,7 @@
 
 import
   std/[json, options, sequtils, strutils, tables], testutils/unittests, chronos, results
+import brokers/broker_context
 
 import
   waku/[
@@ -23,7 +24,6 @@ import
     events/health_events,
     events/peer_events,
     waku_archive,
-    common/broker/broker_context,
   ]
 
 import ../testlib/[wakunode, wakucore], ../waku_archive/archive_utils
@@ -277,7 +277,7 @@ suite "Health Monitor - events":
     await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
 
     let metadataOk = await metadataFut.withTimeout(TestConnectivityTimeLimit)
-    WakuPeerEvent.dropListener(nodeA.brokerCtx, metadataLis)
+    await WakuPeerEvent.dropListener(nodeA.brokerCtx, metadataLis)
     require metadataOk
 
     let connectTimeLimit = Moment.now() + TestConnectivityTimeLimit
@@ -380,7 +380,7 @@ suite "Health Monitor - events":
     await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
 
     let metadataOk = await metadataFut.withTimeout(TestConnectivityTimeLimit)
-    WakuPeerEvent.dropListener(nodeA.brokerCtx, metadataLis)
+    await WakuPeerEvent.dropListener(nodeA.brokerCtx, metadataLis)
     require metadataOk
 
     var deadline = Moment.now() + TestConnectivityTimeLimit
@@ -413,7 +413,7 @@ suite "Health Monitor - events":
     subMgr.subscribe(contentTopic).expect("Failed to subscribe")
 
     let shardHealthOk = await shardHealthFut.withTimeout(TestConnectivityTimeLimit)
-    EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
+    await EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
 
     check shardHealthOk == true
     check subMgr.edgeFilterSubStates.len > 0

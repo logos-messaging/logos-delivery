@@ -5,6 +5,7 @@
 import std/[tables, sequtils, options, sets]
 import chronos, chronicles, libp2p/utility
 import ../[subscription_manager]
+import brokers/broker_context
 import
   waku/[
     waku_core,
@@ -14,7 +15,6 @@ import
     waku_core/topics,
     events/message_events,
     waku_node,
-    common/broker/broker_context,
   ]
 
 const StoreCheckPeriod = chronos.minutes(5) ## How often to perform store queries
@@ -179,7 +179,7 @@ proc startRecvService*(self: RecvService) =
     quit(QuitFailure)
 
 proc stopRecvService*(self: RecvService) {.async.} =
-  MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
+  await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
   if not self.msgCheckerHandler.isNil():
     await self.msgCheckerHandler.cancelAndWait()
     self.msgCheckerHandler = nil

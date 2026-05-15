@@ -8,7 +8,4 @@ import
   ./test_parse_size,
   ./test_requestratelimiter,
   ./test_ratelimit_setting,
-  ./test_timed_map,
-  ./test_event_broker,
-  ./test_request_broker,
-  ./test_multi_request_broker
+  ./test_timed_map

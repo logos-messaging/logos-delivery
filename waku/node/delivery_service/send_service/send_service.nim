@@ -3,6 +3,7 @@
 
 import std/[sequtils, tables, options]
 import chronos, chronicles, libp2p/utility
+import brokers/broker_context
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
   ../[subscription_manager],
@@ -17,7 +18,6 @@ import
     waku_lightpush/client,
     waku_lightpush/callbacks,
     events/message_events,
-    common/broker/broker_context,
   ]
 
 logScope:

@@ -3,6 +3,7 @@
 import std/[strutils, sequtils, net, options, sets, tables]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
+import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 
 import
@@ -10,7 +11,6 @@ import
   waku/[
     waku_node,
     waku_core,
-    common/broker/broker_context,
     events/message_events,
     waku_relay/protocol,
     node/kernel_api/filter,
@@ -51,8 +51,8 @@ proc newReceiveEventListenerManager(
 
   return manager
 
-proc teardown(manager: ReceiveEventListenerManager) =
-  MessageReceivedEvent.dropListener(manager.brokerCtx, manager.receivedListener)
+proc teardown(manager: ReceiveEventListenerManager) {.async.} =
+  await MessageReceivedEvent.dropListener(manager.brokerCtx, manager.receivedListener)
 
 proc waitForEvents(
     manager: ReceiveEventListenerManager, timeout: Duration
@@ -208,7 +208,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     discard (await net.publishToMesh(testTopic, "Hello, world!".toBytes())).expect(
       "Publish failed"
@@ -229,7 +229,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     discard (await net.publishToMesh(ignoredTopic, "Ghost Msg".toBytes())).expect(
       "Publish failed"
@@ -250,7 +250,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     discard (await net.publishToMesh(testTopic, "Should be dropped".toBytes())).expect(
       "Publish failed"
@@ -271,7 +271,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     net.subscriber.unsubscribe(topicA).expect("failed to unsub A")
 
@@ -298,7 +298,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     discard (await net.publishToMesh(glitchTopic, "Ghost Msg".toBytes())).expect(
       "Publish failed"
@@ -322,7 +322,7 @@ suite "Messaging API, SubscriptionManager":
       (await net.publishToMesh(testTopic, "Msg 1".toBytes())).expect("Pub 1 failed")
 
     require await eventManager.waitForEvents(TestTimeout)
-    eventManager.teardown()
+    await eventManager.teardown()
 
     # Unsubscribe and verify teardown
     net.subscriber.unsubscribe(testTopic).expect("Unsub failed")
@@ -332,7 +332,7 @@ suite "Messaging API, SubscriptionManager":
       (await net.publishToMesh(testTopic, "Ghost".toBytes())).expect("Ghost pub failed")
 
     check not await eventManager.waitForEvents(NegativeTestTimeout)
-    eventManager.teardown()
+    await eventManager.teardown()
 
     # Resubscribe
     (await net.subscriber.subscribe(testTopic)).expect("Resub failed")
@@ -364,7 +364,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 2)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     discard (await net.publishToMesh(topicA, "Msg on Shard A".toBytes())).expect(
       "Publish A failed"
@@ -400,7 +400,7 @@ suite "Messaging API, SubscriptionManager":
 
       # here we just give a chance for any messages that we don't expect to arrive
       await sleepAsync(1.seconds)
-      eventManager.teardown()
+      await eventManager.teardown()
 
       # weak check (but catches most bugs)
       require eventManager.receivedMessages.len == expected.len
@@ -451,7 +451,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     discard (await net.publishToMeshAfterEdgeReady(testTopic, "Hello, edge!".toBytes())).expect(
       "Publish failed"
@@ -472,7 +472,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     discard (await net.publishToMesh(ignoredTopic, "Ghost Msg".toBytes())).expect(
       "Publish failed"
@@ -493,7 +493,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     discard (await net.publishToMesh(testTopic, "Should be dropped".toBytes())).expect(
       "Publish failed"
@@ -517,7 +517,7 @@ suite "Messaging API, SubscriptionManager":
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     net.subscriber.unsubscribe(topicA).expect("failed to unsub A")
 
@@ -546,7 +546,7 @@ suite "Messaging API, SubscriptionManager":
     )
 
     require await eventManager.waitForEvents(TestTimeout)
-    eventManager.teardown()
+    await eventManager.teardown()
 
     net.subscriber.unsubscribe(testTopic).expect("Unsub failed")
     eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
@@ -555,7 +555,7 @@ suite "Messaging API, SubscriptionManager":
       (await net.publishToMesh(testTopic, "Ghost".toBytes())).expect("Ghost pub failed")
 
     check not await eventManager.waitForEvents(NegativeTestTimeout)
-    eventManager.teardown()
+    await eventManager.teardown()
 
     (await net.subscriber.subscribe(testTopic)).expect("Resub failed")
     eventManager = newReceiveEventListenerManager(net.subscriber.brokerCtx, 1)
@@ -653,7 +653,7 @@ suite "Messaging API, SubscriptionManager":
 
     require await eventManager.waitForEvents(TestTimeout)
     check eventManager.receivedMessages[0].payload == "Before failover".toBytes()
-    eventManager.teardown()
+    await eventManager.teardown()
 
     # Disconnect meshBuddy from edge (keeps relay mesh alive for publishing)
     await subscriber.node.disconnectNode(meshBuddyPeerInfo)
@@ -678,7 +678,7 @@ suite "Messaging API, SubscriptionManager":
 
     require await eventManager.waitForEvents(TestTimeout)
     check eventManager.receivedMessages[0].payload == "After failover".toBytes()
-    eventManager.teardown()
+    await eventManager.teardown()
 
     (await subscriber.stop()).expect("Failed to stop subscriber")
     await meshBuddy.stop()
@@ -801,7 +801,7 @@ suite "Messaging API, SubscriptionManager":
 
     require await eventManager.waitForEvents(TestTimeout)
     check eventManager.receivedMessages[0].payload == "After replacement".toBytes()
-    eventManager.teardown()
+    await eventManager.teardown()
 
     (await subscriber.stop()).expect("Failed to stop subscriber")
     await sparePeer.stop()

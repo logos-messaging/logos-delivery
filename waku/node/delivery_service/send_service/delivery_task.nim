@@ -1,6 +1,6 @@
 import std/[options, times], chronos
+import brokers/broker_context
 import waku/waku_core, waku/api/types, waku/requests/node_requests
-import waku/common/broker/broker_context
 
 type DeliveryState* {.pure.} = enum
   Entry

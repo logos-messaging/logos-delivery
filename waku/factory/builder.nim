@@ -8,15 +8,16 @@ import
   libp2p/builders,
   libp2p/nameresolving/nameresolver,
   libp2p/transports/wstransport,
-  libp2p/protocols/connectivity/relay/relay
+  libp2p/protocols/connectivity/relay/relay,
+  brokers/broker_context
+
 import
   ../waku_enr,
   ../discovery/waku_discv5,
   ../waku_node,
   ../node/peer_manager,
   ../common/rate_limit/setting,
-  ../common/utils/parse_size_units,
-  ../common/broker/broker_context
+  ../common/utils/parse_size_units
 
 type
   WakuNodeBuilder* = object # General
