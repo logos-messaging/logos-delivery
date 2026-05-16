@@ -1,4 +1,4 @@
-name: Daily RLN simulator E2E
+name: RLN E2E — Simulator (daily)
 
 # Validates the full RLN flow end-to-end against logos-delivery-simulator:
 # keystore generation, on-chain registration, gossipsub propagation,
@@ -124,10 +124,10 @@ jobs:
 
       - name: Clone logos-delivery-simulator
         run: |
-          git clone --depth 1 https://github.com/logos-messaging/logos-delivery-simulator.git "$RUNNER_TEMP/sim"
+          git clone --depth 1 https://github.com/logos-messaging/logos-delivery-simulator.git "$RUNNER_TEMP/logos-delivery-simulator"
 
       - name: Write simulator .env
-        working-directory: ${{ runner.temp }}/sim
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
         run: |
           cat > .env <<EOF
           LD_IMAGE=nwaku-rln-ci:test
@@ -145,12 +145,12 @@ jobs:
           EOF
 
       - name: Bring up simulator (RLN subset)
-        working-directory: ${{ runner.temp }}/sim
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
         run: |
           docker compose up -d foundry contract-repo-deployer nwaku-token-init bootstrap nwaku
 
       - name: Wait for contract deployer
-        working-directory: ${{ runner.temp }}/sim
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
         run: |
           for _ in $(seq 1 60); do
             st=$(docker inspect logos-delivery-simulator-contract-repo-deployer-1 --format='{{.State.Status}}' 2>/dev/null || echo missing)
@@ -165,7 +165,7 @@ jobs:
           fi
 
       - name: Wait for nwaku fleet to register
-        working-directory: ${{ runner.temp }}/sim
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
         run: |
           N=${{ steps.cfg.outputs.num_nodes }}
           for _ in $(seq 1 60); do
@@ -196,7 +196,7 @@ jobs:
 
       - name: Collect logs on failure
         if: failure()
-        working-directory: ${{ runner.temp }}/sim
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
         run: |
           mkdir -p "$RUNNER_TEMP/logs"
           for c in $(docker ps -a --filter 'name=logos-delivery-simulator-' --format '{{.Names}}'); do
@@ -213,7 +213,7 @@ jobs:
 
       - name: Tear down
         if: always()
-        working-directory: ${{ runner.temp }}/sim
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
         run: docker compose down -v || true
 
       - name: Notify Discord
