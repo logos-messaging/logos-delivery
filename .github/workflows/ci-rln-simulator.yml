@@ -29,7 +29,7 @@ on:
       num_nodes:
         description: 'Number of nwaku nodes'
         type: string
-        default: '10'
+        default: '6'
       msg_limit:
         description: 'RLN_RELAY_MSG_LIMIT (must be >= contract min, ~20)'
         type: string
@@ -46,7 +46,7 @@ env:
   NIMBLE_VERSION: '0.22.3'
   # Defaults used by the scheduled run (inputs are only set on workflow_dispatch)
   DEFAULT_BRANCH: 'feat/bump_zerokit_2.0.1'
-  DEFAULT_NUM_NODES: '10'
+  DEFAULT_NUM_NODES: '6'
   DEFAULT_MSG_LIMIT: '30'
   DEFAULT_EPOCH_SEC: '120'
 

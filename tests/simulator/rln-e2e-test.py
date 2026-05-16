@@ -186,6 +186,33 @@ def _burst_until_blocked(node_url: str, msg_limit: int, overshoot: int = 3):
     return n_200, n_500, n_err, two_hundred_after_block
 
 
+def _publish_until_ok(node_url: str, attempts: int = 20, spacing: float = 5.0) -> bool:
+    """Retry a single publish until it returns 200 or attempts run out.
+    Tolerates the post-startup window where discv5/gossipsub mesh is still
+    forming and the RLN publish path transiently 500s."""
+    for _ in range(attempts):
+        if waku_publish(node_url, b"warmup", timeout=10.0) == 200:
+            return True
+        time.sleep(spacing)
+    return False
+
+
+def scenario_warmup(nodes: list[str], attempts: int = 20) -> Result:
+    """Readiness gate: every node must successfully publish at least once.
+    This absorbs mesh-formation churn so PROPAGATION/RATE_LIMIT aren't
+    judging a not-yet-connected fleet. Consumes 1 nonce/node — well within
+    msg_limit, and RATE_LIMIT's tolerance accounts for it."""
+    with cf.ThreadPoolExecutor(max_workers=min(8, len(nodes))) as ex:
+        ready = list(ex.map(lambda n: _publish_until_ok(url_of(n), attempts), nodes))
+    not_ready = [n for n, ok in zip(nodes, ready) if not ok]
+    return Result(
+        "WARMUP",
+        not not_ready,
+        f"{len(nodes) - len(not_ready)}/{len(nodes)} nodes publishing"
+        + (f"; never ready: {not_ready[:5]}" if not_ready else ""),
+    )
+
+
 def scenario_rate_limit(nodes: list[str], msg_limit: int, tolerance: int = 3) -> Result:
     """Per-node burst of msg_limit+3 messages within one epoch.
 
@@ -198,7 +225,10 @@ def scenario_rate_limit(nodes: list[str], msg_limit: int, tolerance: int = 3) ->
     successes in [msg_limit - tolerance, msg_limit]. successes > msg_limit OR
     a 200 after the first 500 means the epoch rolled mid-burst (raise
     RLN_RELAY_EPOCH_SEC) — reported as a timing skew, not an RLN failure."""
-    with cf.ThreadPoolExecutor(max_workers=len(nodes)) as ex:
+    # Cap concurrency: firing len(nodes)*(msg_limit+3) publishes all at once
+    # saturates small CI runners (2 vCPU) and causes publish-path timeouts
+    # that masquerade as rate-limit failures.
+    with cf.ThreadPoolExecutor(max_workers=min(5, len(nodes))) as ex:
         per_node = list(
             ex.map(lambda n: _burst_until_blocked(url_of(n), msg_limit), nodes)
         )
@@ -329,7 +359,11 @@ def main() -> int:
         print("\nABORTING — could not subscribe nodes to pubsub topic.")
         return _summarize(results)
 
-    # Propagation first — needs a fresh quota on the sender node.
+    # Readiness gate: wait out mesh-formation churn before judging behaviour.
+    if not run(scenario_warmup, nodes):
+        print("\nABORTING — fleet never reached a publishable state.")
+        return _summarize(results)
+
     run(scenario_propagation, nodes[0], nodes[1:])
     # Rate limit: per-node burst, asserts exactly msg_limit then 500.
     # Requires epoch_sec large enough that the burst can't straddle an epoch.
