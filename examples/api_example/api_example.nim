@@ -33,9 +33,9 @@ proc periodicSender(w: Waku): Future[void] {.async.} =
     return
 
   defer:
-    MessageSentEvent.dropListener(sentListener)
-    MessageErrorEvent.dropListener(errorListener)
-    MessagePropagatedEvent.dropListener(propagatedListener)
+    await MessageSentEvent.dropListener(sentListener)
+    await MessageErrorEvent.dropListener(errorListener)
+    await MessagePropagatedEvent.dropListener(propagatedListener)
 
   ## Periodically sends a Waku message every 30 seconds
   var counter = 0

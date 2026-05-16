@@ -14,6 +14,7 @@ import
     common/logging,
     common/utils/parse_size_units,
     waku_enr/capabilities,
+    persistency/persistency,
   ],
   tools/confutils/entry_nodes
 
@@ -135,6 +136,8 @@ type WakuConfBuilder* = object
   relayServiceRatio: Option[string]
   circuitRelayClient: Option[bool]
   p2pReliability: Option[bool]
+
+  localStoragePath: Option[string]
 
 proc init*(T: type WakuConfBuilder): WakuConfBuilder =
   WakuConfBuilder(
@@ -271,6 +274,9 @@ proc withRelayShardedPeerManagement*(
 
 proc withP2pReliability*(b: var WakuConfBuilder, p2pReliability: bool) =
   b.p2pReliability = some(p2pReliability)
+
+proc withLocalStoragePath*(b: var WakuConfBuilder, localStoragePath: string) =
+  b.localStoragePath = some(localStoragePath)
 
 proc withExtMultiAddrs*(builder: var WakuConfBuilder, extMultiAddrs: seq[string]) =
   builder.extMultiAddrs = concat(builder.extMultiAddrs, extMultiAddrs)
@@ -719,6 +725,7 @@ proc build*(
     relayShardedPeerManagement: relayShardedPeerManagement,
     p2pReliability: builder.p2pReliability.get(false),
     wakuFlags: wakuFlags,
+    localStoragePath: builder.localStoragePath.get(DefaultStoragePath),
   )
 
   ?wakuConf.validate()

@@ -93,7 +93,9 @@ proc initProtocolHandler(self: WakuStore) =
     var resBuf: StoreResp
     var queryDuration: float
 
+    self.peerManager.addActiveStoreRequest(conn.peerId)
     defer:
+      self.peerManager.removeActiveStoreRequest(conn.peerId)
       await conn.closeWithEof()
 
     self.requestRateLimiter.checkUsageLimit(WakuStoreCodec, conn):

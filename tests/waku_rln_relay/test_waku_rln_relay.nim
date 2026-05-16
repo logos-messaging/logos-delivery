@@ -8,6 +8,9 @@ import
   chronicles,
   stint,
   libp2p/crypto/crypto
+
+import brokers/broker_context
+
 import
   waku/[
     waku_core,
@@ -15,7 +18,6 @@ import
     waku_rln_relay/rln,
     waku_rln_relay/protocol_metrics,
     waku_keystore,
-    common/broker/broker_context,
   ],
   ./rln/waku_rln_relay_utils,
   ./utils_onchain,

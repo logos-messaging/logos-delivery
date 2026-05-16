@@ -18,6 +18,7 @@ import
   presto,
   metrics,
   metrics/chronos_httpserver,
+  brokers/broker_context,
   waku/[
     waku_core,
     waku_node,
@@ -30,7 +31,6 @@ import
     waku_enr/multiaddr,
     api/types,
     common/logging,
-    common/broker/broker_context,
     node/peer_manager,
     node/health_monitor,
     node/waku_metrics,
@@ -46,6 +46,7 @@ import
     factory/node_factory,
     factory/internal_config,
     factory/app_callbacks,
+    persistency/persistency,
   ],
   ./waku_conf,
   ./waku_state_info
@@ -393,6 +394,12 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
     else:
       waku[].dynamicBootstrapNodes = dynamicBootstrapNodesRes.get()
 
+  ## Initialize persistency singleton instance - we don't need the instance itself here,
+  ## but this ensures it's initialized before any store job starts.
+  discard Persistency.instance(conf.localStoragePath).valueOr:
+    error "Failed to initialize persistency instance", error = $error
+    return err("Failed to initialize persistency instance: " & $error)
+
   (await startNode(waku.node, waku.conf, waku.dynamicBootstrapNodes)).isOkOr:
     return err("error while calling startNode: " & $error)
 
@@ -522,6 +529,8 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   try:
     waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
+
+    Persistency.reset()
 
     if not waku.metricsServer.isNil():
       await waku.metricsServer.stop()

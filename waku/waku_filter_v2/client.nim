@@ -8,10 +8,11 @@ import
   chronos,
   libp2p/protocols/protocol,
   bearssl/rand,
-  stew/byteutils
+  stew/byteutils,
+  brokers/broker_context
+
 import
-  waku/
-    [node/peer_manager, waku_core, events/delivery_events, common/broker/broker_context],
+  waku/[node/peer_manager, waku_core, events/delivery_events],
   ./common,
   ./protocol_metrics,
   ./rpc_codec,

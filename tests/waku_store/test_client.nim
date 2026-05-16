@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, testutils/unittests, chronos, libp2p/crypto/crypto
+import std/[options, sets], testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   waku/[node/peer_manager, waku_core, waku_store, waku_store/client, common/paging],
@@ -223,3 +223,24 @@ suite "Store Client":
         not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         queryResponse.isErr()
         queryResponse.error.kind == ErrorCode.PEER_DIAL_FAILURE
+
+    asyncTest "queryToAny shuffles peers across calls":
+      # Register several fake store peers (no servers running) so every dial
+      # fails. PEER_DIAL_FAILURE carries the peerId of the last peer tried in
+      # the shuffled order, so observing different "last" peerIds across calls
+      # confirms shuffle is active inside queryToAny.
+      for _ in 0 ..< 3:
+        let fakeSwitch = newTestSwitch()
+        let peerInfo = fakeSwitch.peerInfo.toRemotePeerInfo()
+        peerInfo.protocols = @[WakuStoreCodec]
+        clientSwitch.peerStore.addPeer(peerInfo)
+
+      var observedLastPeers: HashSet[string]
+      for _ in 0 ..< 20:
+        let res = await client.queryToAny(storeQuery)
+        check:
+          res.isErr()
+          res.error.kind == ErrorCode.PEER_DIAL_FAILURE
+        observedLastPeers.incl(res.error.address)
+
+      check observedLastPeers.len >= 2

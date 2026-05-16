@@ -1,5 +1,7 @@
 import std/[sequtils, sets, tables, options, strutils], chronos, chronicles, results
 import libp2p/[peerid, peerinfo]
+import brokers/broker_context
+
 import
   waku/[
     waku_core,
@@ -10,7 +12,6 @@ import
     waku_filter_v2/common as filter_common,
     waku_filter_v2/client as filter_client,
     waku_filter_v2/protocol as filter_protocol,
-    common/broker/broker_context,
     events/health_events,
     events/peer_events,
     requests/health_requests,
@@ -61,7 +62,16 @@ type SubscriptionManager* = ref object of RootObj
 iterator subscribedTopics*(
     self: SubscriptionManager
 ): (PubsubTopic, HashSet[ContentTopic]) =
+  ## Iterate over all subscribed content topics, batched per shard.
+  ## This is guaranteed to return a non-empty `topics` (content topics) list on iteration.
+
   for pubsub, topics in self.contentTopicSubs.pairs:
+    # We are iterating over subscribed content topics; if we are subscribed to
+    # a shard but have no subscription (interest) for any content topic in that
+    # shard, then avoid triggering an iteration that doesn't advance the intent
+    # to iterate over content topic subscriptions.
+    if topics.len == 0:
+      continue
     yield (pubsub, topics)
 
 proc edgeFilterPeerCount*(sm: SubscriptionManager, shard: PubsubTopic): int =
@@ -521,7 +531,7 @@ proc stopEdgeFilterLoops(self: SubscriptionManager) {.async: (raises: []).} =
       if not fut.finished:
         await fut.cancelAndWait()
 
-  WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)
+  await WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)
 
 # ---------------------------------------------------------------------------
 # SubscriptionManager Lifecycle (calls Edge behavior above)

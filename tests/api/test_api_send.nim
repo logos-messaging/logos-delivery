@@ -2,10 +2,10 @@
 
 import std/strutils
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
+import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
-import
-  waku, waku/[waku_node, waku_core, waku_relay/protocol, common/broker/broker_context]
+import waku, waku/[waku_node, waku_core, waku_relay/protocol]
 import waku/factory/waku_conf
 import tools/confutils/cli_args
 
@@ -77,10 +77,12 @@ proc newSendEventListenerManager(brokerCtx: BrokerContext): SendEventListenerMan
 
   return manager
 
-proc teardown(manager: SendEventListenerManager) =
-  MessageSentEvent.dropListener(manager.brokerCtx, manager.sentListener)
-  MessageErrorEvent.dropListener(manager.brokerCtx, manager.errorListener)
-  MessagePropagatedEvent.dropListener(manager.brokerCtx, manager.propagatedListener)
+proc teardown(manager: SendEventListenerManager) {.async.} =
+  await MessageSentEvent.dropListener(manager.brokerCtx, manager.sentListener)
+  await MessageErrorEvent.dropListener(manager.brokerCtx, manager.errorListener)
+  await MessagePropagatedEvent.dropListener(
+    manager.brokerCtx, manager.propagatedListener
+  )
 
 proc waitForEvents(
     manager: SendEventListenerManager, timeout: Duration
@@ -270,7 +272,7 @@ suite "Waku API - Send":
 
     let eventManager = newSendEventListenerManager(node.brokerCtx)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     let envelope = MessageEnvelope.init(
       ContentTopic("/waku/2/default-content/proto"), "test payload"
@@ -302,7 +304,7 @@ suite "Waku API - Send":
 
     let eventManager = newSendEventListenerManager(node.brokerCtx)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     let envelope = MessageEnvelope.init(
       ContentTopic("/waku/2/default-content/proto"), "test payload"
@@ -332,7 +334,7 @@ suite "Waku API - Send":
 
     let eventManager = newSendEventListenerManager(node.brokerCtx)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     let envelope = MessageEnvelope.init(
       ContentTopic("/waku/2/default-content/proto"), "test payload"
@@ -362,7 +364,7 @@ suite "Waku API - Send":
 
     let eventManager = newSendEventListenerManager(node.brokerCtx)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     let envelope = MessageEnvelope.init(
       ContentTopic("/waku/2/default-content/proto"), "test payload"
@@ -416,7 +418,7 @@ suite "Waku API - Send":
 
     let eventManager = newSendEventListenerManager(node.brokerCtx)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     let envelope = MessageEnvelope.init(
       ContentTopic("/waku/2/default-content/proto"), "test payload"
