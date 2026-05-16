@@ -65,11 +65,28 @@ jobs:
           echo "msg_limit=${{ github.event.inputs.msg_limit || env.DEFAULT_MSG_LIMIT }}" >> $GITHUB_OUTPUT
           echo "epoch_sec=${{ github.event.inputs.epoch_sec || env.DEFAULT_EPOCH_SEC }}" >> $GITHUB_OUTPUT
 
+      # First checkout: the ref that triggered this workflow (CI branch /
+      # master). This is where the e2e test script lives — the build branch
+      # may not contain it.
+      - name: Checkout CI ref (for the test script)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      - name: Stash e2e test script outside the workspace
+        run: |
+          test -f tests/simulator/rln-e2e-test.py \
+            || { echo "tests/simulator/rln-e2e-test.py missing on CI ref"; exit 1; }
+          cp tests/simulator/rln-e2e-test.py "$RUNNER_TEMP/rln-e2e-test.py"
+
+      # Second checkout: the branch to build & test. Overwrites the workspace;
+      # the stashed test script in RUNNER_TEMP survives.
       - name: Checkout logos-delivery (${{ steps.cfg.outputs.branch }})
         uses: actions/checkout@v4
         with:
           ref: ${{ steps.cfg.outputs.branch }}
           submodules: false
+          clean: true
 
       - name: Get submodules hash
         id: submodules
@@ -182,9 +199,12 @@ jobs:
 
       - name: Run RLN e2e scenarios
         run: |
+          TEST_SCRIPT="$RUNNER_TEMP/rln-e2e-test.py"
+          test -f "$TEST_SCRIPT" \
+            || { echo "stashed test script missing at $TEST_SCRIPT"; exit 1; }
           docker run --rm \
             --network logos-delivery-simulator_simulation \
-            -v "$GITHUB_WORKSPACE/tests/simulator/rln-e2e-test.py:/test.py:ro" \
+            -v "$TEST_SCRIPT:/test.py:ro" \
             python:3.11-slim \
             sh -c "pip install --quiet --disable-pip-version-check requests && \
                    python /test.py \
