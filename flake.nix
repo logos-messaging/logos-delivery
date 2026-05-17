@@ -21,7 +21,10 @@
     # External flake input: Zerokit pinned to a specific commit.
     # Update the rev here when a new zerokit version is needed.
     zerokit = {
-      url = "github:vacp2p/zerokit/53b18098e6d5d046e3eb1ac338a8f4f651432477";
+      # Pinned to v2.0.1 (5d5e42059e0325331dc2f37c8a1c61b255391c52) to match
+      # the vendor/zerokit submodule. Keep these two in sync: the nix build
+      # links librln from this input, the Makefile build from the submodule.
+      url = "github:vacp2p/zerokit/5d5e42059e0325331dc2f37c8a1c61b255391c52";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
