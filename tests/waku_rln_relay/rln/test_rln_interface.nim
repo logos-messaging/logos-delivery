@@ -1,17 +1,36 @@
-import testutils/unittests
+import testutils/unittests, results
 
-import waku/waku_rln_relay/rln/rln_interface, ./buffer_utils
+import waku/waku_rln_relay/rln/rln_interface
+import waku/waku_rln_relay/rln/wrappers
 
-suite "Buffer":
-  suite "toBuffer":
+suite "Vec_uint8":
+  suite "toVecUint8":
     test "valid":
       # Given
       let bytes: seq[byte] = @[0x01, 0x02, 0x03]
 
-      # When
-      let buffer = bytes.toBuffer()
+      # When — wrap as a Vec_uint8 view then read the bytes back
+      var vec = toVecUint8(bytes)
+      let roundtrip = vecToSeq(vec)
 
-      # Then
-      let expectedBuffer: seq[uint8] = @[1, 2, 3]
+      # Then — byte values are preserved
       check:
-        buffer == expectedBuffer
+        roundtrip == bytes
+
+suite "RlnConfig":
+  suite "createRLNInstance":
+    test "ok":
+      # When we create the RLN instance (stateless build — no tree_depth arg)
+      let rlnRes = createRLNInstance()
+
+      # Then it succeeds
+      check:
+        rlnRes.isOk()
+
+    test "default":
+      # When we create the RLN instance
+      let rlnRes = createRLNInstance()
+
+      # Then it succeeds
+      check:
+        rlnRes.isOk()

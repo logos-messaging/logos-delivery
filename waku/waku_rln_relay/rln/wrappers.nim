@@ -1,115 +1,172 @@
-import std/json
-import
-  chronicles,
-  options,
-  eth/keys,
-  stew/[arrayops, byteutils, endians2],
-  stint,
-  results,
-  std/[sequtils, strutils, tables],
-  nimcrypto/keccak as keccak
+import chronicles, eth/keys, stew/[arrayops, endians2], stint, results
 
 import ./rln_interface, ../conversion_utils, ../protocol_types, ../protocol_metrics
 import ../../waku_core, ../../waku_keystore
 
+{.push raises: [], gcsafe.}
+
 logScope:
   topics = "waku rln_relay ffi"
+
+# ===========================================================================
+# Internal helpers (private — wrappers.nim only)
+# ===========================================================================
+
+# Forward declaration: `buildProofBytesLe` and `proofPtrToRateLimitProof`
+# below use this, but its body is defined further down with the rest of the
+# public API.
+proc generateExternalNullifier*(
+  epoch: Epoch, rlnIdentifier: RlnIdentifier
+): RlnRelayResult[ExternalNullifier]
+
+proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
+  ## Build a Vec_CFr from a list of Merkle roots for ffi_verify_with_roots.
+  ## Caller MUST ffi_vec_cfr_free the returned Vec_CFr.
+  var roots = ffi_vec_cfr_new(csize_t(validRoots.len))
+  for root in validRoots:
+    let cfr = bytesToCfrLe(root).valueOr:
+      ffi_vec_cfr_free(roots)
+      return err(error)
+    ffi_vec_cfr_push(addr roots, cfr)
+    ffi_cfr_free(cfr)
+  ok(roots)
+
+proc buildProofBytesLe(proof: RateLimitProof): RlnRelayResult[seq[byte]] =
+  ## Serialize a RateLimitProof into the 290-byte wire format for ffi_bytes_le_to_rln_proof.
+  var encoded = newSeq[byte](RlnProofWireSize)
+  var offset = 0
+
+  encoded[offset] = 0x00'u8
+  inc offset # outer RLNProof version
+
+  copyMem(addr encoded[offset], unsafeAddr proof.proof[0], ZksnarkProofSize)
+  offset += ZksnarkProofSize
+
+  encoded[offset] = 0x00'u8
+  inc offset # inner RLNProofValues version
+
+  copyMem(addr encoded[offset], unsafeAddr proof.merkleRoot[0], FieldElementSize)
+  offset += FieldElementSize
+  copyMem(addr encoded[offset], unsafeAddr proof.externalNullifier[0], FieldElementSize)
+  offset += FieldElementSize
+  copyMem(addr encoded[offset], unsafeAddr proof.shareX[0], FieldElementSize)
+  offset += FieldElementSize
+  copyMem(addr encoded[offset], unsafeAddr proof.shareY[0], FieldElementSize)
+  offset += FieldElementSize
+  copyMem(addr encoded[offset], unsafeAddr proof.nullifier[0], FieldElementSize)
+
+  ok(encoded)
+
+proc proofPtrToRateLimitProof(
+    proofPtr: ptr FFI_RLNProof, epoch: Epoch, rlnIdentifier: RlnIdentifier
+): RlnRelayResult[RateLimitProof] =
+  ## Extract a RateLimitProof from an FFI proof handle.
+  var proofHandle = proofPtr
+  let proofBytesRes = ffi_rln_proof_to_bytes_le(addr proofHandle)
+  if hasError(proofBytesRes.err):
+    return err(consumeError("Failed to serialize proof: ", proofBytesRes.err))
+  defer:
+    ffi_vec_u8_free(proofBytesRes.ok)
+
+  let serialized = vecToSeq(proofBytesRes.ok)
+  if serialized.len < RlnProofWireSize:
+    return err("Serialized proof too short: " & $serialized.len)
+
+  let proofValues = ffi_rln_proof_get_values(addr proofHandle)
+  if proofValues.isNil:
+    return err("Failed to extract proof values")
+  defer:
+    ffi_rln_proof_values_free(proofValues)
+
+  var output: RateLimitProof
+  output.epoch = epoch
+  output.rlnIdentifier = rlnIdentifier
+
+  # zkSNARK bytes: skip the leading version byte, take 128.
+  copyMem(addr output.proof[0], unsafeAddr serialized[1], ZksnarkProofSize)
+
+  var pvHandle = proofValues
+
+  let rootPtr = ffi_rln_proof_values_get_root(addr pvHandle)
+  if rootPtr.isNil:
+    return err("Failed to read proof root")
+  defer:
+    ffi_cfr_free(rootPtr)
+  output.merkleRoot = cfrToBytesLe(rootPtr).valueOr:
+    return err(error)
+
+  let xPtr = ffi_rln_proof_values_get_x(addr pvHandle)
+  if xPtr.isNil:
+    return err("Failed to read proof x")
+  defer:
+    ffi_cfr_free(xPtr)
+  output.shareX = cfrToBytesLe(xPtr).valueOr:
+    return err(error)
+
+  let yRes = ffi_rln_proof_values_get_y(addr pvHandle)
+  output.shareY = cfrResultToBytes(yRes, "Failed to read proof y: ").valueOr:
+    return err(error)
+
+  let nullifierRes = ffi_rln_proof_values_get_nullifier(addr pvHandle)
+  output.nullifier = cfrResultToBytes(nullifierRes, "Failed to read proof nullifier: ").valueOr:
+    return err(error)
+
+  # externalNullifier is derived from epoch + rlnIdentifier; recompute for
+  # consistency with the existing protocol_types.nim contract.
+  let extNullifier = generateExternalNullifier(epoch, rlnIdentifier).valueOr:
+    return err("Failed to compute external nullifier: " & error)
+  output.externalNullifier = extNullifier
+
+  ok(output)
+
+proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
+  ## ffi_extended_key_gen returns a Vec_CFr of exactly 4 elements:
+  ## [ idTrapdoor, idNullifier, idSecretHash, idCommitment ].
+  if int(ffi_vec_cfr_len(addr vec)) != 4:
+    return err("Unexpected credential element count")
+
+  template readField(idx: int): seq[byte] =
+    let f = ffi_vec_cfr_get(addr vec, csize_t(idx))
+    if f.isNil:
+      return err("Missing credential field from zerokit")
+    let bytes = cfrToBytesLe(f).valueOr:
+      return err(error)
+    @bytes
+
+  let idTrapdoor = readField(0)
+  let idNullifier = readField(1)
+  let idSecretHash = readField(2)
+  let idCommitment = readField(3)
+
+  ok(
+    IdentityCredential(
+      idTrapdoor: idTrapdoor,
+      idNullifier: idNullifier,
+      idSecretHash: idSecretHash,
+      idCommitment: idCommitment,
+    )
+  )
+
+# ===========================================================================
+# Public API (signatures preserved from v0.9 wrappers)
+# ===========================================================================
 
 proc membershipKeyGen*(): RlnRelayResult[IdentityCredential] =
   ## generates a IdentityCredential that can be used for the registration into the rln membership contract
   ## Returns an error if the key generation fails
-
-  # keysBufferPtr will hold the generated identity tuple i.e., trapdoor, nullifier, secret hash and commitment
-  var
-    keysBuffer: Buffer
-    keysBufferPtr = addr(keysBuffer)
-    done = key_gen(keysBufferPtr, true)
-
-  # check whether the keys are generated successfully
-  if (done == false):
-    return err("error in key generation")
-
-  if (keysBuffer.len != 4 * 32):
-    return err("keysBuffer is of invalid length")
-
-  var generatedKeys = cast[ptr array[4 * 32, byte]](keysBufferPtr.`ptr`)[]
-  # the public and secret keys together are 64 bytes
-
-  # TODO define a separate proc to decode the generated keys to the secret and public components
-  var
-    idTrapdoor: array[32, byte]
-    idNullifier: array[32, byte]
-    idSecretHash: array[32, byte]
-    idCommitment: array[32, byte]
-  for (i, x) in idTrapdoor.mpairs:
-    x = generatedKeys[i + 0 * 32]
-  for (i, x) in idNullifier.mpairs:
-    x = generatedKeys[i + 1 * 32]
-  for (i, x) in idSecretHash.mpairs:
-    x = generatedKeys[i + 2 * 32]
-  for (i, x) in idCommitment.mpairs:
-    x = generatedKeys[i + 3 * 32]
-
-  var identityCredential = IdentityCredential(
-    idTrapdoor: @idTrapdoor,
-    idNullifier: @idNullifier,
-    idSecretHash: @idSecretHash,
-    idCommitment: @idCommitment,
-  )
-
-  return ok(identityCredential)
-
-type RlnTreeConfig = ref object of RootObj
-  cache_capacity: int
-  mode: string
-  compression: bool
-  flush_every_ms: int
-
-type RlnConfig = ref object of RootObj
-  resources_folder: string
-  tree_config: RlnTreeConfig
-
-proc `%`(c: RlnConfig): JsonNode =
-  ## wrapper around the generic JObject constructor.
-  ## We don't need to have a separate proc for the tree_config field
-  let tree_config = %{
-    "cache_capacity": %c.tree_config.cache_capacity,
-    "mode": %c.tree_config.mode,
-    "compression": %c.tree_config.compression,
-    "flush_every_ms": %c.tree_config.flush_every_ms,
-  }
-  return %[("resources_folder", %c.resources_folder), ("tree_config", %tree_config)]
+  var vec = ffi_extended_key_gen()
+  defer:
+    ffi_vec_cfr_free(vec)
+  parseCredentialVec(vec)
 
 proc createRLNInstanceLocal(): RLNResult =
-  ## generates an instance of RLN
-  ## An RLN instance supports both zkSNARKs logics and Merkle tree data structure and operations
-  ## Returns an error if the instance creation fails
-
-  let rln_config = RlnConfig(
-    resources_folder: "tree_height_/",
-    tree_config: RlnTreeConfig(
-      cache_capacity: 15_000,
-      mode: "high_throughput",
-      compression: false,
-      flush_every_ms: 500,
-    ),
-  )
-
-  var serialized_rln_config = $(%rln_config)
-
-  var
-    rlnInstance: ptr RLN
-    merkleDepth: csize_t = uint(20)
-    configBuffer =
-      serialized_rln_config.toOpenArrayByte(0, serialized_rln_config.high).toBuffer()
-
-  # create an instance of RLN
-  let res = new_circuit(merkleDepth, addr configBuffer, addr rlnInstance)
-  # check whether the circuit parameters are generated successfully
-  if (res == false):
-    info "error in parameters generation"
-    return err("error in parameters generation")
-  return ok(rlnInstance)
+  ## Creates a stateless RLN instance (no local Merkle tree).
+  let res = ffi_rln_new()
+  if res.ok.isNil:
+    let msg = consumeError("error in parameters generation: ", res.err)
+    info "error in parameters generation", err = msg
+    return err(msg)
+  ok(res.ok)
 
 proc createRLNInstance*(): RLNResult =
   ## Wraps the rln instance creation for metrics
@@ -119,22 +176,9 @@ proc createRLNInstance*(): RLNResult =
     res = createRLNInstanceLocal()
   return res
 
-proc poseidon*(data: seq[seq[byte]]): RlnRelayResult[array[32, byte]] =
-  ## a thin layer on top of the Nim wrapper of the poseidon hasher
-  var inputBytes = serialize(data)
-  var
-    hashInputBuffer = inputBytes.toBuffer()
-    outputBuffer: Buffer # will holds the hash output
-
-  let hashSuccess = poseidon(addr hashInputBuffer, addr outputBuffer, true)
-
-  # check whether the hash call is done successfully
-  if not hashSuccess:
-    return err("error in poseidon hash")
-
-  let output = cast[ptr array[32, byte]](outputBuffer.`ptr`)[]
-
-  return ok(output)
+proc poseidon*(left, right: seq[byte]): RlnRelayResult[array[32, byte]] =
+  ## Poseidon hash of exactly 2 inputs; zerokit v2 FFI only exposes the pair variant.
+  poseidonPairLe(left, right)
 
 proc toLeaf*(rateCommitment: RateCommitment): RlnRelayResult[seq[byte]] =
   let idCommitment = rateCommitment.idCommitment
@@ -147,7 +191,7 @@ proc toLeaf*(rateCommitment: RateCommitment): RlnRelayResult[seq[byte]] =
     return err(
       "could not convert the user message limit to bytes: " & getCurrentExceptionMsg()
     )
-  let leaf = poseidon(@[@idCommitment, @userMessageLimit]).valueOr:
+  let leaf = poseidon(@idCommitment, @userMessageLimit).valueOr:
     return err("could not convert the rate commitment to a leaf")
   var retLeaf = newSeq[byte](leaf.len)
   for i in 0 ..< leaf.len:
@@ -165,11 +209,25 @@ proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnRelayResult[seq[seq[byt
 proc generateExternalNullifier*(
     epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[ExternalNullifier] =
-  let epochHash = keccak.keccak256.digest(@(epoch))
-  let rlnIdentifierHash = keccak.keccak256.digest(@(rlnIdentifier))
-  let externalNullifier = poseidon(@[@(epochHash), @(rlnIdentifierHash)]).valueOr:
-    return err("Failed to compute external nullifier: " & error)
-  return ok(externalNullifier)
+  ## External nullifier = Poseidon(H(epoch), H(rlnIdentifier)) where H is
+  ## ffi_hash_to_field_le (keccak + modular reduction to BN254 scalar field).
+  let epochFr = hashToFieldLe(@epoch).valueOr:
+    return err("Failed to hash epoch to field: " & error)
+  defer:
+    ffi_cfr_free(epochFr)
+  let rlnIdFr = hashToFieldLe(@rlnIdentifier).valueOr:
+    return err("Failed to hash rlnIdentifier to field: " & error)
+  defer:
+    ffi_cfr_free(rlnIdFr)
+  let cfr = ffi_poseidon_hash_pair(epochFr, rlnIdFr)
+  if cfr.isNil:
+    return err("Failed to compute external nullifier")
+  defer:
+    ffi_cfr_free(cfr)
+  cfrToBytesLe(cfr).mapErr(
+    proc(e: string): string =
+      "Failed to serialize external nullifier: " & e
+  )
 
 proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
   let externalNullifier = generateExternalNullifier(proof.epoch, proof.rlnIdentifier).valueOr:
@@ -182,3 +240,126 @@ proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
       externalNullifier: externalNullifier,
     )
   )
+
+# ===========================================================================
+# New high-level proof gen / verify (replaces v0.9 raw FFI call sites)
+# ===========================================================================
+
+proc generateRlnProofWithWitness*(
+    rlnInstance: ptr RLN,
+    witness: RLNWitnessInput,
+    epoch: Epoch,
+    rlnIdentifier: RlnIdentifier,
+): RlnRelayResult[RateLimitProof] =
+  ## Generate an RLN proof from a RLNWitnessInput.
+  let depth = witness.identity_path_index.len
+  if witness.path_elements.len != depth * FieldElementSize:
+    return err(
+      "Invalid Merkle path: expected " & $(depth * FieldElementSize) & " bytes for " &
+        $depth & " levels, got " & $witness.path_elements.len
+    )
+
+  # Build the Vec_CFr of path elements.
+  var pathElementsVec = ffi_vec_cfr_new(csize_t(depth))
+  defer:
+    ffi_vec_cfr_free(pathElementsVec)
+
+  for i in 0 ..< depth:
+    let start = i * FieldElementSize
+    let element = bytesToCfrLe(
+      witness.path_elements.toOpenArray(start, start + FieldElementSize - 1)
+    ).valueOr:
+      return err(error)
+    ffi_vec_cfr_push(addr pathElementsVec, element)
+    ffi_cfr_free(element)
+
+  var pathIndexVec = toVecUint8(witness.identity_path_index)
+
+  let identitySecret = bytesToCfrLe(witness.identity_secret).valueOr:
+    return err(error)
+  defer:
+    ffi_cfr_free(identitySecret)
+
+  let userLimit = bytesToCfrLe(witness.user_message_limit).valueOr:
+    return err(error)
+  defer:
+    ffi_cfr_free(userLimit)
+
+  let messageIdFr = bytesToCfrLe(witness.message_id).valueOr:
+    return err(error)
+  defer:
+    ffi_cfr_free(messageIdFr)
+
+  let xFr = bytesToCfrLe(witness.x).valueOr:
+    return err(error)
+  defer:
+    ffi_cfr_free(xFr)
+
+  let externalNullifierFr = bytesToCfrLe(witness.external_nullifier).valueOr:
+    return err(error)
+  defer:
+    ffi_cfr_free(externalNullifierFr)
+
+  let witnessRes = ffi_rln_witness_input_new(
+    identitySecret,
+    userLimit,
+    messageIdFr,
+    addr pathElementsVec,
+    addr pathIndexVec,
+    xFr,
+    externalNullifierFr,
+  )
+  if witnessRes.ok.isNil:
+    return err(consumeError("Failed to create witness: ", witnessRes.err))
+  defer:
+    ffi_rln_witness_input_free(witnessRes.ok)
+
+  var ctx = rlnInstance
+  var witnessHandle = witnessRes.ok
+  let proofRes = ffi_generate_rln_proof(addr ctx, addr witnessHandle)
+  if proofRes.ok.isNil:
+    return err(consumeError("Failed to generate RLN proof: ", proofRes.err))
+  defer:
+    ffi_rln_proof_free(proofRes.ok)
+
+  proofPtrToRateLimitProof(proofRes.ok, epoch, rlnIdentifier)
+
+proc verifyRlnProof*(
+    rlnInstance: ptr RLN,
+    proof: RateLimitProof,
+    signal: openArray[byte],
+    validRoots: seq[MerkleNode],
+): RlnRelayResult[bool] =
+  ## Verify an RLN proof against a set of valid Merkle roots.
+  if validRoots.len == 0:
+    return err("verifyRlnProof requires at least one valid root (stateless mode)")
+
+  let proofBytes = buildProofBytesLe(proof).valueOr:
+    return err(error)
+
+  var proofVec = toVecUint8(proofBytes)
+  let proofRes = ffi_bytes_le_to_rln_proof(addr proofVec)
+  if proofRes.ok.isNil:
+    return
+      err(consumeError("Failed to deserialize proof for verification: ", proofRes.err))
+  defer:
+    ffi_rln_proof_free(proofRes.ok)
+
+  let xFr = hashToFieldLe(signal).valueOr:
+    return err(error)
+  defer:
+    ffi_cfr_free(xFr)
+
+  var ctx = rlnInstance
+  var proofHandle = proofRes.ok
+
+  var roots = toRootVec(validRoots).valueOr:
+    return err("Failed to build root vector: " & error)
+  defer:
+    ffi_vec_cfr_free(roots)
+
+  let verifyRes = ffi_verify_with_roots(addr ctx, addr proofHandle, addr roots, xFr)
+  # v2.0.1: err is non-nil for all failures; free it and return the bool.
+  if hasError(verifyRes.err):
+    ffi_c_string_free(verifyRes.err)
+  ok(verifyRes.ok)

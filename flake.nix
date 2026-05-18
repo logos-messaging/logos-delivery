@@ -21,7 +21,10 @@
     # External flake input: Zerokit pinned to a specific commit.
     # Update the rev here when a new zerokit version is needed.
     zerokit = {
-      url = "github:vacp2p/zerokit/53b18098e6d5d046e3eb1ac338a8f4f651432477";
+      # Pinned to v2.0.1 (5d5e42059e0325331dc2f37c8a1c61b255391c52) to match
+      # the vendor/zerokit submodule. Keep these two in sync: the nix build
+      # links librln from this input, the Makefile build from the submodule.
+      url = "github:vacp2p/zerokit/5d5e42059e0325331dc2f37c8a1c61b255391c52";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -56,10 +59,41 @@
       packages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
+
+          # zerokit's own flake package (zerokit.packages.<sys>.rln) hardcodes
+          # an outdated cargoHash at the v2.0.1 tag; it only "works" upstream
+          # because nix-cache.status.im serves the vendor FOD by that stale
+          # hash. On a cold self-hosted runner the real hash is computed and
+          # the build fails. We rebuild librln here from the same pinned
+          # zerokit source, mirroring zerokit's nix/default.nix but with the
+          # correct cargoHash. Keep this in sync with the zerokit input rev.
+          rustToolchain = pkgs.rust-bin.stable.latest.default;
+          zerokitRln = pkgs.rustPlatform.buildRustPackage {
+            pname = "zerokit";
+            version = "2.0.1";
+            src = zerokit;
+            cargo = rustToolchain;
+            rustc = rustToolchain;
+            cargoHash = "sha256-3wFnSJYUSQ01tQLe4nZGUZdoU1A9vsl9dpJU3vPeiHo=";
+            nativeBuildInputs = [ pkgs.rust-cbindgen ];
+            doCheck = false;
+            buildPhase = ''
+              export CARGO_HOME=$TMPDIR/cargo
+              cargo build --lib --release --manifest-path rln/Cargo.toml
+            '';
+            installPhase = ''
+              set -eu
+              mkdir -p $out/lib $out/include
+              find target -type f -name 'librln.*' -not -path '*/deps/*' \
+                -exec cp -v '{}' "$out/lib/" \;
+              cbindgen ./rln -l c > "$out/include/rln.h"
+            '';
+          };
+
           liblogosdelivery = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
-            zerokitRln = zerokit.packages.${system}.rln;
+            inherit zerokitRln;
           };
         in {
           inherit liblogosdelivery;

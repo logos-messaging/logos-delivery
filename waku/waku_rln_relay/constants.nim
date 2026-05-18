@@ -25,8 +25,6 @@ const
   # the size of poseidon hash output as the number hex digits
   HashHexSize* = int(HashBitSize / 4)
 
-const DefaultRlnTreePath* = "rln_tree.db"
-
 const
   # pre-processed "rln/waku-rln-relay/v2.0.0" to array[32, byte]
   DefaultRlnIdentifier*: RlnIdentifier = [
