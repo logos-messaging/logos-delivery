@@ -20,8 +20,14 @@ type
 proc isConfigured*(self: EncryptionHook): bool =
   not self.encrypt.isNil() and not self.decrypt.isNil()
 
-proc send*(self: EncryptionHook, payload: seq[byte]): seq[byte] =
+proc encrypt*(self: EncryptionHook, payload: seq[byte]): seq[byte] =
   ## Stage 4 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
   ## For now: passthrough — return the payload unencrypted.
-  ## TODO: invoke `self.encrypt` when configured and surface errors.
+  ## TODO: invoke the configured `EncryptFn` when present and surface errors.
+  return payload
+
+proc decrypt*(self: EncryptionHook, payload: seq[byte]): seq[byte] =
+  ## Stage 1 of the incoming pipeline (decryption -> sds -> reassemble -> emit).
+  ## For now: passthrough — return the payload as-is.
+  ## TODO: invoke the configured `DecryptFn` when present and surface errors.
   return payload

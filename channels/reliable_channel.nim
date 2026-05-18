@@ -13,10 +13,11 @@
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/tables
+import std/[options, tables]
 import results
 import chronos
 import bearssl/rand
+import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
 
 import waku/node/delivery_service/delivery_service
@@ -31,6 +32,11 @@ import ./encryption/encryption
 export
   delivery_service, send_service, events, segmentation, scalable_data_sync,
   rate_limit_manager, encryption
+
+const Lip173Meta* = "LIP173"
+  ## Wire-level marker for the Reliable Channel layer. A `WakuMessage`
+  ## whose `meta` field does not equal these bytes is not addressed to
+  ## this layer and is silently dropped on ingress.
 
 type
   ReliablePayload* = object
@@ -92,7 +98,7 @@ proc onReadyToSend*(self: ReliableChannel, msgs: seq[SdsMessage]) =
   ##
   ##   ... -> rate_limit_manager -> [encryption] -> dispatch
   for m in msgs:
-    let wireBytes = self.encryption.send(m.encode())
+    let wireBytes = self.encryption.encrypt(m.encode())
     let envelope = MessageEnvelope(
       contentTopic: self.contentTopic, payload: wireBytes, ephemeral: false
     )
@@ -138,3 +144,38 @@ proc send*(
     self.rateLimit.enqueueToSend(sdsMsg)
 
   return ok(parentReqId)
+
+proc onMessageReceived*(self: ReliableChannel, wakuMsg: WakuMessage) =
+  ## Ingress pipeline made visible:
+  ##
+  ##   WakuMessage -> ReliablePayload -> decrypt -> sds -> reassemble -> emit
+  ##
+  ## Invoked from the waku `MessageReceivedEvent` listener after the
+  ## inbound `WakuMessage` has been filtered to this channel's
+  ## `contentTopic`. Each stage is a minimal stub for now.
+  let inWakuMsg: WakuMessage = wakuMsg
+
+  if string.fromBytes(inWakuMsg.meta) != Lip173Meta:
+    ## Not a Reliable Channel message — silently drop it.
+    return
+
+  ## TODO: decode the `ReliablePayload` wrapper out of `inWakuMsg.payload`
+  ## properly (currently treated as the raw SDS bytes).
+  let reliablePayload: ReliablePayload =
+    ReliablePayload(channelId: self.channelId, payload: inWakuMsg.payload)
+
+  let plaintext: seq[byte] = self.encryption.decrypt(reliablePayload.payload)
+
+  let sdsMsg: SdsMessage = SdsMessage.decode(plaintext)
+  let processedSds: SdsMessage = self.sds.handleIncoming(sdsMsg)
+
+  let segment: SegmentMessageProto =
+    SegmentMessageProto.decode(processedSds.content)
+  let reassembled: Option[ReassemblyResult] =
+    self.segmentation.handleIncomingSegment(segment)
+
+  if reassembled.isSome():
+    ## TODO: emit the channel-level `MessageReceivedEvent` carrying
+    ## `reassembled.get().payload` once the event is wired into the
+    ## EventBroker.
+    discard reassembled

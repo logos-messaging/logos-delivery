@@ -8,6 +8,8 @@
 import std/[options, tables]
 import results
 
+import waku/events/message_events as waku_message_events
+
 import ./reliable_channel
 import ./encryption/encryption
 import ./encryption/noop_encryption
@@ -82,6 +84,19 @@ proc createReliableChannel*(
     proc(evt: ReadyToSendEvent): Future[void] {.async: (raises: []).} =
       if evt.channelId == chn.channelId:
         chn.onReadyToSend(evt.msgs)
+    ,
+  )
+
+  ## Run the incoming pipeline whenever waku reports a received
+  ## message on this channel's content topic:
+  ##   decryption -> sds -> segmentation reassembly -> emit.
+  discard waku_message_events.MessageReceivedEvent.listen(
+    globalBrokerContext(),
+    proc(
+        evt: waku_message_events.MessageReceivedEvent
+    ): Future[void] {.async: (raises: []).} =
+      if evt.message.contentTopic == chn.contentTopic:
+        chn.onMessageReceived(evt.message)
     ,
   )
 
