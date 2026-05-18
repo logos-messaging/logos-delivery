@@ -71,7 +71,7 @@ proc createReliableChannel*(
     contentTopic = contentTopic,
     senderId = senderId,
     segmentation = SegmentationHandler.new(segConfig),
-    sds = SdsHandler.new(sdsConfig),
+    sdsHandler = SdsHandler.new(sdsConfig),
     rateLimit = RateLimitManager.new(rateConfig, channelId),
     encryption = enc,
   )
@@ -124,7 +124,7 @@ proc send*(
   let chn = manager.channels.getOrDefault(channelId)
   if chn.isNil():
     return err("unknown channel: " & channelId)
-  return chn.send(appPayload)
+  return chn.send(appPayload, ephemeral)
 
 proc processInboundMessage*(
     manager: ReliableChannelManager, channelId: ChannelId, inMsg: MessageEnvelope
@@ -135,7 +135,7 @@ proc processInboundMessage*(
   ## - validate LIP173 meta on the WakuMessage
   ## - decode `ReliablePayload`
   ## - decrypt via chn.encryption
-  ## - feed into chn.sds.handleIncoming
+  ## - feed into chn.sdsHandler.handleIncoming
   ## - feed resulting segment into chn.segmentation.handleIncomingSegment
   ## - on reassembly completion, emit MessageReceivedEvent
   discard

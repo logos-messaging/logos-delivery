@@ -53,7 +53,7 @@ type
       ## construction. Used to mint `ReliableRequestId`s and
       ## delivery-service `RequestId`s.
     segmentation*: SegmentationHandler
-    sds*: SdsHandler
+    sdsHandler*: SdsHandler
     rateLimit*: RateLimitManager
     encryption*: EncryptionHook
 
@@ -61,11 +61,14 @@ type
       ## Maps each reliable-channel-level (parent) `ReliableRequestId`
       ## returned to the caller of `send` to the set of delivery-service
       ## `RequestId`s it fanned out into (one per dispatched segment).
-    pendingRequests*: seq[ReliableRequestId]
-      ## FIFO of parent `ReliableRequestId`s awaiting release by the rate
-      ## limiter. One entry is pushed per segment enqueued and popped per
-      ## segment handed to the delivery service. Relies on FIFO release
-      ## from `rate_limit_manager`, which is the case in this skeleton.
+    pendingRequests*: seq[tuple[parent: ReliableRequestId, ephemeral: bool]]
+      ## FIFO of pending dispatches awaiting release by the rate limiter.
+      ## Each entry pairs a parent `ReliableRequestId` with the caller's
+      ## `ephemeral` flag so the corresponding `MessageEnvelope` can be
+      ## stamped correctly when the rate limiter releases the batch.
+      ## One entry is pushed per segment enqueued and popped per segment
+      ## handed to the delivery service. Relies on FIFO release from
+      ## `rate_limit_manager`, which is the case in this skeleton.
 
 proc new*(
     T: type ReliableChannel,
@@ -74,7 +77,7 @@ proc new*(
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
     segmentation: SegmentationHandler,
-    sds: SdsHandler,
+    sdsHandler: SdsHandler,
     rateLimit: RateLimitManager,
     encryption: EncryptionHook,
 ): T =
@@ -85,7 +88,7 @@ proc new*(
     senderId: senderId,
     rng: libp2p_crypto.newRng(),
     segmentation: segmentation,
-    sds: sds,
+    sdsHandler: sdsHandler,
     rateLimit: rateLimit,
     encryption: encryption,
     requestIds: initTable[ReliableRequestId, seq[RequestId]](),
@@ -98,29 +101,28 @@ proc onReadyToSend*(self: ReliableChannel, msgs: seq[SdsMessage]) =
   ##
   ##   ... -> rate_limit_manager -> [encryption] -> dispatch
   for m in msgs:
+    ## Each `m` was preceded by exactly one push onto `pendingRequests`
+    ## in `send`, so this pop is always safe in the current skeleton.
+    let pending = self.pendingRequests[0]
+    self.pendingRequests.delete(0)
+
     let wireBytes = self.encryption.encrypt(m.encode())
     let envelope = MessageEnvelope(
-      contentTopic: self.contentTopic, payload: wireBytes, ephemeral: false
+      contentTopic: self.contentTopic,
+      payload: wireBytes,
+      ephemeral: pending.ephemeral,
     )
 
     let deliveryReqId = RequestId.new(self.rng)
     let deliveryTask = DeliveryTask.new(deliveryReqId, envelope, globalBrokerContext()).valueOr:
       ## TODO: emit MessageSendErrorEvent for the parent request id.
-      if self.pendingRequests.len > 0:
-        self.pendingRequests.delete(0)
       continue
 
     asyncSpawn self.deliveryService.sendService.send(deliveryTask)
-
-    if self.pendingRequests.len == 0:
-      ## TODO: log/track unparented dispatch — shouldn't happen in skeleton.
-      continue
-    let parent = self.pendingRequests[0]
-    self.pendingRequests.delete(0)
-    self.requestIds.mgetOrPut(parent, @[]).add(deliveryReqId)
+    self.requestIds.mgetOrPut(pending.parent, @[]).add(deliveryReqId)
 
 proc send*(
-    self: ReliableChannel, payload: seq[byte]
+    self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
 ): Result[ReliableRequestId, string] =
   ## Single application-level send. The first three stages of the
   ## outgoing pipeline are chained explicitly so the flow is visible
@@ -130,7 +132,9 @@ proc send*(
   ##
   ## `rate_limit_manager.enqueueToSend` emits a `ReadyToSendEvent` with
   ## the SDS messages cleared for transmission; the channel's listener
-  ## then runs the final stage (encryption -> dispatch).
+  ## then runs the final stage (encryption -> dispatch). The `ephemeral`
+  ## flag is carried alongside each segment in `pendingRequests` and
+  ## stamped onto the eventual `MessageEnvelope`.
   ##
   ## The returned `ReliableRequestId` is the parent of one-or-more
   ## delivery-service `RequestId`s; the mapping is recorded in
@@ -139,8 +143,8 @@ proc send*(
   self.requestIds[parentReqId] = @[]
 
   for segment in self.segmentation.performSegmentation(payload):
-    let sdsMsg = self.sds.wrapOutgoing(self.channelId, self.senderId, segment)
-    self.pendingRequests.add(parentReqId)
+    let sdsMsg = self.sdsHandler.wrapOutgoing(self.channelId, self.senderId, segment)
+    self.pendingRequests.add((parent: parentReqId, ephemeral: ephemeral))
     self.rateLimit.enqueueToSend(sdsMsg)
 
   return ok(parentReqId)
@@ -167,7 +171,7 @@ proc onMessageReceived*(self: ReliableChannel, wakuMsg: WakuMessage) =
   let plaintext: seq[byte] = self.encryption.decrypt(reliablePayload.payload)
 
   let sdsMsg: SdsMessage = SdsMessage.decode(plaintext)
-  let processedSds: SdsMessage = self.sds.handleIncoming(sdsMsg)
+  let processedSds: SdsMessage = self.sdsHandler.handleIncoming(sdsMsg)
 
   let segment: SegmentMessageProto =
     SegmentMessageProto.decode(processedSds.content)
