@@ -1,26 +1,27 @@
 ## Reliable Channel event types emitted to API consumers.
 
-import ./scalable_data_sync/scalable_data_sync
+import waku/api/types
+
+import ./types as channel_types
+
+export types, channel_types
 
 type
-  ChannelId* = SdsChannelID
-  RequestId* = string
-
   MessageReceivedEvent* = object
     channelId*: ChannelId
     senderId*: SdsParticipantID
     payload*: seq[byte]
 
   MessageSentEvent* = object
-    requestId*: RequestId
+    requestId*: ReliableRequestId
 
   MessageDeliveredEvent* = object
-    requestId*: RequestId
+    requestId*: ReliableRequestId
 
   MessageSendErrorEvent* = object
-    requestId*: RequestId
+    requestId*: ReliableRequestId
     reason*: string
 
   MessageDeliveryErrorEvent* = object
-    requestId*: RequestId
+    requestId*: ReliableRequestId
     reason*: string

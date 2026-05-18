@@ -9,14 +9,14 @@ type SegmentMessageProto* = object
   paritySegmentCount*: uint32 ## number of parity segments
   isParity*: bool ## true for parity segments, false (default) for data segments
 
-proc isParityMessage*(s: SegmentMessageProto): bool =
-  s.isParity
+proc isParityMessage*(self: SegmentMessageProto): bool =
+  self.isParity
 
-proc isValid*(s: SegmentMessageProto): bool =
+proc isValid*(self: SegmentMessageProto): bool =
   ## Validates hash length (32 bytes), segment indices and counts.
   discard
 
-proc encode*(s: SegmentMessageProto): seq[byte] =
+proc encode*(self: SegmentMessageProto): seq[byte] =
   discard
 
 proc decode*(T: type SegmentMessageProto, buf: seq[byte]): T =
