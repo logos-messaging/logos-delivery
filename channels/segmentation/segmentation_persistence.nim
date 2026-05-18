@@ -11,12 +11,12 @@ type
     kind*: SegmentationPersistenceKind
 
 method put*(
-    p: SegmentationPersistence, key: seq[byte], value: seq[byte]
+    self: SegmentationPersistence, key: seq[byte], value: seq[byte]
 ) {.base.} =
   discard
 
-method get*(p: SegmentationPersistence, key: seq[byte]): seq[byte] {.base.} =
+method get*(self: SegmentationPersistence, key: seq[byte]): seq[byte] {.base.} =
   discard
 
-method delete*(p: SegmentationPersistence, key: seq[byte]) {.base.} =
+method delete*(self: SegmentationPersistence, key: seq[byte]) {.base.} =
   discard

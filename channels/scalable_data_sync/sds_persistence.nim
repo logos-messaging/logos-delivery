@@ -11,16 +11,16 @@ type
     kind*: SdsPersistenceKind
 
 method storeOutgoing*(
-    p: SdsPersistence, msg: SdsMessage
+    self: SdsPersistence, msg: SdsMessage
 ) {.base.} =
   discard
 
 method markAcknowledged*(
-    p: SdsPersistence, messageId: SdsMessageID
+    self: SdsPersistence, messageId: SdsMessageID
 ) {.base.} =
   discard
 
 method unackedOlderThan*(
-    p: SdsPersistence, ageMs: int
+    self: SdsPersistence, ageMs: int
 ): seq[SdsMessage] {.base.} =
   discard

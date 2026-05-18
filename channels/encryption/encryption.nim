@@ -17,5 +17,11 @@ type
     encrypt*: EncryptFn
     decrypt*: DecryptFn
 
-proc isConfigured*(h: EncryptionHook): bool =
-  not h.encrypt.isNil() and not h.decrypt.isNil()
+proc isConfigured*(self: EncryptionHook): bool =
+  not self.encrypt.isNil() and not self.decrypt.isNil()
+
+proc send*(self: EncryptionHook, payload: seq[byte]): seq[byte] =
+  ## Stage 4 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
+  ## For now: passthrough — return the payload unencrypted.
+  ## TODO: invoke `self.encrypt` when configured and surface errors.
+  return payload

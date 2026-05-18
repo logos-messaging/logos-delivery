@@ -16,20 +16,30 @@ export reliable_channel
 
 type ReliableChannelManager* = ref object
   channels: Table[ChannelId, ReliableChannel]
+  deliveryService*: DeliveryService
+    ## The single send/receive surface all owned channels dispatch through.
 
-proc new*(T: type ReliableChannelManager): T =
-  T(channels: initTable[ChannelId, ReliableChannel]())
+proc new*(
+    T: type ReliableChannelManager, deliveryService: DeliveryService
+): T =
+  return T(
+    channels: initTable[ChannelId, ReliableChannel](),
+    deliveryService: deliveryService,
+  )
 
 proc createReliableChannel*(
     manager: ReliableChannelManager,
-    node: WakuNode,
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
     encryption: Option[EncryptionHook] = none(EncryptionHook),
 ): Result[ChannelId, string] =
-  ## Spec: createReliableChannel(node, channelId, contentTopic, senderId, encryption?)
-  ## Segmentation, SDS and rate-limit configs are taken from the node's NodeConfig.
+  ## Spec entry point. The `DeliveryService` and `rng` the channel needs
+  ## are sourced from the owning `ReliableChannelManager` rather than
+  ## passed per call.
+  ##
+  ## Segmentation, SDS and rate-limit configs will eventually be read
+  ## from the node's `NodeConfig`. Defaults for now.
   if manager.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
 
@@ -38,16 +48,43 @@ proc createReliableChannel*(
       encryption.get
     else:
       newNoopEncryptionHook()
-  let chn = ReliableChannel(
-    node: node,
-    channelId: channelId,
-    contentTopic: contentTopic,
-    senderId: senderId,
-    segmentation: SegmentationHandler.new(node.segmentationConfig),
-    sds: SdsHandler.new(node.sdsConfig),
-    rateLimit: RateLimitManager.new(node.rateLimitConfig),
-    encryption: enc,
+  let segConfig = SegmentationConfig(
+    segmentSizeBytes: DefaultSegmentSizeBytes,
+    enableReedSolomon: false,
+    persistence: nil,
   )
+  let sdsConfig = SdsConfig(
+    acknowledgementTimeoutMs: DefaultAcknowledgementTimeoutMs,
+    maxRetransmissions: DefaultMaxRetransmissions,
+    causalHistorySize: DefaultCausalHistorySize,
+    persistence: nil,
+  )
+  let rateConfig = RateLimitConfig(
+    epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
+  )
+
+  let chn = ReliableChannel.new(
+    deliveryService = manager.deliveryService,
+    channelId = channelId,
+    contentTopic = contentTopic,
+    senderId = senderId,
+    segmentation = SegmentationHandler.new(segConfig),
+    sds = SdsHandler.new(sdsConfig),
+    rateLimit = RateLimitManager.new(rateConfig, channelId),
+    encryption = enc,
+  )
+  ## Continue the outgoing pipeline once the rate limiter releases a
+  ## batch of SDS messages: rate_limit_manager -> encryption -> dispatch.
+  ## The listener filters on `channelId` since all reliable channels
+  ## share the global broker context.
+  discard ReadyToSendEvent.listen(
+    globalBrokerContext(),
+    proc(evt: ReadyToSendEvent): Future[void] {.async: (raises: []).} =
+      if evt.channelId == chn.channelId:
+        chn.onReadyToSend(evt.msgs)
+    ,
+  )
+
   manager.channels[channelId] = chn
   return ok(channelId)
 
@@ -65,30 +102,14 @@ proc send*(
     channelId: ChannelId,
     appPayload: seq[byte],
     ephemeral: bool = false,
-): Result[RequestId, string] =
-  ## Single application-level send. Internally produces one or more
-  ## segment-level dispatches; the returned RequestId maps to all of them.
+): Result[ReliableRequestId, string] =
+  ## Spec-level entry point. Looks the channel up by id and delegates
+  ## to `ReliableChannel.send`, which exposes the visible pipeline
+  ## segmentation -> sds -> rate_limit_manager -> encryption.
   let chn = manager.channels.getOrDefault(channelId)
   if chn.isNil():
     return err("unknown channel: " & channelId)
-
-  let segments = chn.segmentation.segmentMessage(appPayload)
-  for segment in segments:
-    let sdsMsg = chn.sds.wrapOutgoing(chn.channelId, chn.senderId, segment.payload)
-    chn.rateLimit.enqueue(sdsMsg)
-
-  return ok()
-
-proc processSendQueue*(manager: ReliableChannelManager, channelId: ChannelId) =
-  ## Drain ready messages from the rate limiter and dispatch them via
-  ## the underlying Messaging API.
-  let chn = manager.channels.getOrDefault(channelId)
-  if chn.isNil():
-    return
-  let ready = chn.rateLimit.dequeueReady()
-  for sdsMsg in ready:
-    discard sdsMsg
-    ## TODO: encrypt(sdsMsg payload) -> wrap as ReliablePayload -> WakuMessage
+  return chn.send(appPayload)
 
 proc processInboundMessage*(
     manager: ReliableChannelManager, channelId: ChannelId, inMsg: MessageEnvelope
