@@ -74,14 +74,15 @@ suite "Waku rln relay":
     let rln = rlnInstance.get()
 
     # prepare the input — hex-decoded then reversed to little-endian field elements
-    let msg = @[
-      hexToSeqByte("126f4c026cd731979365f79bd345a46d673c5a3f6f588bdc718e6356d02b6fdc")
-        .reversed(),
-      hexToSeqByte("1f0e5db2b69d599166ab16219a97b82b662085c93220382b39f9f911d3b943b1")
-        .reversed(),
-    ]
+    let
+      left = hexToSeqByte(
+        "126f4c026cd731979365f79bd345a46d673c5a3f6f588bdc718e6356d02b6fdc"
+      ).reversed()
+      right = hexToSeqByte(
+        "1f0e5db2b69d599166ab16219a97b82b662085c93220382b39f9f911d3b943b1"
+      ).reversed()
 
-    let hashRes = poseidon(msg)
+    let hashRes = poseidon(left, right)
 
     check:
       hashRes.isOk()

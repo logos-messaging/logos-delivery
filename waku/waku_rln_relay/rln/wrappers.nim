@@ -31,13 +31,8 @@ proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
     ffi_cfr_free(cfr)
   ok(roots)
 
-proc buildProofBytesLe(
-    proof: RateLimitProof, rlnIdentifier: RlnIdentifier
-): RlnRelayResult[seq[byte]] =
+proc buildProofBytesLe(proof: RateLimitProof): RlnRelayResult[seq[byte]] =
   ## Serialize a RateLimitProof into the 290-byte wire format for ffi_bytes_le_to_rln_proof.
-  let externalNullifier = generateExternalNullifier(proof.epoch, rlnIdentifier).valueOr:
-    return err("Failed to compute external nullifier: " & error)
-
   var encoded = newSeq[byte](RlnProofWireSize)
   var offset = 0
 
@@ -52,7 +47,7 @@ proc buildProofBytesLe(
 
   copyMem(addr encoded[offset], unsafeAddr proof.merkleRoot[0], FieldElementSize)
   offset += FieldElementSize
-  copyMem(addr encoded[offset], unsafeAddr externalNullifier[0], FieldElementSize)
+  copyMem(addr encoded[offset], unsafeAddr proof.externalNullifier[0], FieldElementSize)
   offset += FieldElementSize
   copyMem(addr encoded[offset], unsafeAddr proof.shareX[0], FieldElementSize)
   offset += FieldElementSize
@@ -181,14 +176,9 @@ proc createRLNInstance*(): RLNResult =
     res = createRLNInstanceLocal()
   return res
 
-proc poseidon*(data: seq[seq[byte]]): RlnRelayResult[array[32, byte]] =
+proc poseidon*(left, right: seq[byte]): RlnRelayResult[array[32, byte]] =
   ## Poseidon hash of exactly 2 inputs; zerokit v2 FFI only exposes the pair variant.
-  if data.len != 2:
-    return err(
-      "Only 2-input Poseidon hashing is supported by zerokit v2 FFI, got " & $data.len &
-        " inputs"
-    )
-  poseidonPairLe(data[0], data[1])
+  poseidonPairLe(left, right)
 
 proc toLeaf*(rateCommitment: RateCommitment): RlnRelayResult[seq[byte]] =
   let idCommitment = rateCommitment.idCommitment
@@ -201,7 +191,7 @@ proc toLeaf*(rateCommitment: RateCommitment): RlnRelayResult[seq[byte]] =
     return err(
       "could not convert the user message limit to bytes: " & getCurrentExceptionMsg()
     )
-  let leaf = poseidon(@[@idCommitment, @userMessageLimit]).valueOr:
+  let leaf = poseidon(@idCommitment, @userMessageLimit).valueOr:
     return err("could not convert the rate commitment to a leaf")
   var retLeaf = newSeq[byte](leaf.len)
   for i in 0 ..< leaf.len:
@@ -344,7 +334,7 @@ proc verifyRlnProof*(
   if validRoots.len == 0:
     return err("verifyRlnProof requires at least one valid root (stateless mode)")
 
-  let proofBytes = buildProofBytesLe(proof, proof.rlnIdentifier).valueOr:
+  let proofBytes = buildProofBytesLe(proof).valueOr:
     return err(error)
 
   var proofVec = toVecUint8(proofBytes)

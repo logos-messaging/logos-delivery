@@ -327,7 +327,7 @@ proc getRootFromProofAndIndex(
   # it's currently not used anywhere, but can be used to verify the root from the proof and index
   # Compute leaf hash from idCommitment and messageLimit
   let messageLimitField = uint64ToField(g.userMessageLimit.get())
-  var hash = poseidon(@[g.idCredentials.get().idCommitment, @messageLimitField]).valueOr:
+  var hash = poseidon(g.idCredentials.get().idCommitment, @messageLimitField).valueOr:
     return err("Failed to compute leaf hash: " & error)
 
   for i in 0 ..< bits.len:
@@ -335,9 +335,9 @@ proc getRootFromProofAndIndex(
 
     let hashRes =
       if bits[i] == 0:
-        poseidon(@[@hash, sibling])
+        poseidon(@hash, sibling)
       else:
-        poseidon(@[sibling, @hash])
+        poseidon(sibling, @hash)
 
     hash = hashRes.valueOr:
       return err("Failed to compute poseidon hash: " & error)
