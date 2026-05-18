@@ -71,6 +71,17 @@ extern "C"
                  void *userData,
                  const char *messageJson);
 
+  // Query historical messages via Waku Store against peerAddr (comma-separated multiaddrs).
+  // jsonQuery: JSON matching StoreQueryRequest fields (see logos-delivery library store_api).
+  // On success, the callback message is UTF-8 JSON (hex-encoded StoreQueryResponse).
+  // timeoutMs is reserved for future use (RPC timeouts apply internally today).
+  int logosdelivery_query_store(void *ctx,
+                        FFICallBack callback,
+                        void *userData,
+                        const char *jsonQuery,
+                        const char *peerAddr,
+                        int timeoutMs);
+
   // Sets a callback that will be invoked whenever an event occurs.
   // It is crucial that the passed callback is fast, non-blocking and potentially thread-safe.
   void logosdelivery_set_event_callback(void *ctx,
