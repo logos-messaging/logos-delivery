@@ -43,6 +43,7 @@ jobs:
           - 'tools/**'
           - 'tests/all_tests_v2.nim'
           - 'tests/**'
+          - 'channels/**'
           docker:
           - 'docker/**'
 
