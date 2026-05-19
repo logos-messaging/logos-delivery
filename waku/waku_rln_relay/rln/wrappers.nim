@@ -84,8 +84,6 @@ proc proofPtrToRateLimitProof(
   output.nullifier = cfrResultToBytes(nullifierRes, "Failed to read proof nullifier: ").valueOr:
     return err(error)
 
-  # Read externalNullifier straight off the proof values (v2.0.2 getter)
-  # instead of recomputing from epoch + rlnIdentifier.
   let extNullPtr = ffi_rln_proof_values_get_external_nullifier(addr pvHandle)
   if extNullPtr.isNil:
     return err("Failed to read proof external nullifier")
@@ -314,9 +312,7 @@ proc verifyRlnProof*(
   # externalNullifier is not a protobuf wire field (RateLimitProof.encode
   # writes only fields 1-7); a received proof has it zeroed, so recompute it
   # from epoch + rlnIdentifier before feeding ffi_rln_proof_new.
-  let externalNullifier = generateExternalNullifier(
-    proof.epoch, proof.rlnIdentifier
-  ).valueOr:
+  let externalNullifier = generateExternalNullifier(proof.epoch, proof.rlnIdentifier).valueOr:
     return err("Failed to compute external nullifier: " & error)
 
   var groth16Vec = toVecUint8(proof.proof)
@@ -345,7 +341,8 @@ proc verifyRlnProof*(
     addr groth16Vec, rootFr, extNullFr, shareXFr, shareYFr, nullifierFr
   )
   if proofRes.ok.isNil:
-    return err(consumeError("Failed to build RLN proof for verification: ", proofRes.err))
+    return
+      err(consumeError("Failed to build RLN proof for verification: ", proofRes.err))
   defer:
     ffi_rln_proof_free(proofRes.ok)
 
