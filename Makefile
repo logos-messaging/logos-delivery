@@ -176,7 +176,7 @@ deps: | nimble
 .PHONY: librln
 
 LIBRLN_BUILDDIR := $(CURDIR)/vendor/zerokit
-LIBRLN_VERSION := v2.0.1
+LIBRLN_VERSION := v2.0.2
 
 ifeq ($(detected_OS),Windows)
 LIBRLN_FILE ?= rln.lib

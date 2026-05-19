@@ -31,8 +31,16 @@ proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
     ffi_cfr_free(cfr)
   ok(roots)
 
-proc buildProofBytesLe(proof: RateLimitProof): RlnRelayResult[seq[byte]] =
+proc buildProofBytesLe(
+    proof: RateLimitProof, rlnIdentifier: RlnIdentifier
+): RlnRelayResult[seq[byte]] =
   ## Serialize a RateLimitProof into the 290-byte wire format for ffi_bytes_le_to_rln_proof.
+  ## externalNullifier is NOT a protobuf wire field (RateLimitProof.encode writes
+  ## only fields 1-7); a deserialized proof has it zeroed, so it must be recomputed
+  ## from epoch + rlnIdentifier here rather than read from proof.externalNullifier.
+  let externalNullifier = generateExternalNullifier(proof.epoch, rlnIdentifier).valueOr:
+    return err("Failed to compute external nullifier: " & error)
+
   var encoded = newSeq[byte](RlnProofWireSize)
   var offset = 0
 
@@ -47,7 +55,7 @@ proc buildProofBytesLe(proof: RateLimitProof): RlnRelayResult[seq[byte]] =
 
   copyMem(addr encoded[offset], unsafeAddr proof.merkleRoot[0], FieldElementSize)
   offset += FieldElementSize
-  copyMem(addr encoded[offset], unsafeAddr proof.externalNullifier[0], FieldElementSize)
+  copyMem(addr encoded[offset], unsafeAddr externalNullifier[0], FieldElementSize)
   offset += FieldElementSize
   copyMem(addr encoded[offset], unsafeAddr proof.shareX[0], FieldElementSize)
   offset += FieldElementSize
@@ -334,7 +342,7 @@ proc verifyRlnProof*(
   if validRoots.len == 0:
     return err("verifyRlnProof requires at least one valid root (stateless mode)")
 
-  let proofBytes = buildProofBytesLe(proof).valueOr:
+  let proofBytes = buildProofBytesLe(proof, proof.rlnIdentifier).valueOr:
     return err(error)
 
   var proofVec = toVecUint8(proofBytes)
