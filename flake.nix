@@ -89,8 +89,14 @@
             inherit zerokitRln;
             gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
+
+          wakucanary = pkgs.callPackage ./nix/wakucanary.nix {
+            inherit pkgs;
+            src = ./.;
+            zerokitRln = zerokit.packages.${system}.rln;
+          };
         in {
-          inherit liblogosdelivery;
+          inherit liblogosdelivery wakucanary;
           # Expose the cargoHash-corrected librln so downstream consumers
           # (e.g. logos-delivery-module) bundle the exact same librln this
           # build links, instead of pulling zerokit's rln directly — whose
