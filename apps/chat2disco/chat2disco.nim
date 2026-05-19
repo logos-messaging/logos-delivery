@@ -13,7 +13,6 @@ import
   chronicles,
   chronos,
   eth/keys,
-
   stew/byteutils,
   results,
   metrics,
@@ -28,6 +27,7 @@ import
     peerid,
     protobuf/minprotobuf,
     extended_peer_record,
+    nameresolving/dnsresolver,
   ]
 import
   waku/[
@@ -319,17 +319,21 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     builder.withNodeKey(nodeKey)
     builder.withRecord(record)
 
-    builder
-      .withNetworkConfigurationDetails(
-        conf.listenAddress,
-        Port(uint16(conf.tcpPort) + conf.portsShift),
-        extIp,
-        extTcpPort,
-        wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
-        wsEnabled = conf.websocketSupport,
-        wssEnabled = conf.websocketSecureSupport,
-      )
-      .tryGet()
+    let netConf = NetConfig.init(
+      bindIp = conf.listenAddress,
+      bindPort = Port(uint16(conf.tcpPort) + conf.portsShift),
+      extIp = extIp,
+      extPort = extTcpPort,
+      dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
+    ).valueOR:
+      error "invalid network configuration", error
+      quit(QuitFailure)
+
+    let nameResolver =
+      DnsResolver.new(conf.dnsAddrsNameServers.mapIt(initTAddress(it, Port(53))))
+
+    builder.withNetworkConfiguration(netConf)
+    builder.withSwitchConfiguration(nameResolver = nameResolver)
     builder.build().tryGet()
 
   if conf.relay:

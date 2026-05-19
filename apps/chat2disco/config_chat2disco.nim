@@ -116,6 +116,17 @@ type Chat2DiscoConf* = object ## General node config
     name: "websocket-secure-support"
   .}: bool
 
+  ## DNS Resolution config
+  dnsAddrsNameServers* {.
+    desc:
+      "DNS name server IPs to query for DNS multiaddrs resolution. Argument may be repeated.",
+    defaultValue: @[
+      IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 1, 1, 1]),
+      IpAddress(family: IpAddressFamily.IPv4, address_v4: [1'u8, 0, 0, 1]),
+    ],
+    name: "dns-addrs-name-server"
+  .}: seq[IpAddress]
+
   ## Kademlia Discovery config
   kadBootstrapNodes* {.
     desc:
