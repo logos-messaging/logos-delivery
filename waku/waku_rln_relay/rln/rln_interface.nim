@@ -176,6 +176,17 @@ proc ffi_bytes_le_to_rln_proof*(
   bytes: ptr Vec_uint8
 ): CResultProofPtrVecU8 {.importc: "ffi_bytes_le_to_rln_proof", cdecl.}
 
+# v2.0.2: construct an RLNProof directly from its field elements (single
+# message-id variant), avoiding the manual 290-byte wire layout.
+proc ffi_rln_proof_new*(
+  groth16Bytes: ptr Vec_uint8,
+  root: ptr CFr,
+  externalNullifier: ptr CFr,
+  x: ptr CFr,
+  y: ptr CFr,
+  nullifier: ptr CFr,
+): CResultProofPtrVecU8 {.importc: "ffi_rln_proof_new", cdecl.}
+
 proc ffi_rln_proof_free*(p: ptr FFI_RLNProof) {.importc: "ffi_rln_proof_free", cdecl.}
 
 proc ffi_rln_partial_proof_to_bytes_le*(
@@ -203,6 +214,10 @@ proc ffi_rln_proof_values_get_root*(
 proc ffi_rln_proof_values_get_x*(
   pv: ptr ptr FFI_RLNProofValues
 ): ptr CFr {.importc: "ffi_rln_proof_values_get_x", cdecl.}
+
+proc ffi_rln_proof_values_get_external_nullifier*(
+  pv: ptr ptr FFI_RLNProofValues
+): ptr CFr {.importc: "ffi_rln_proof_values_get_external_nullifier", cdecl.}
 
 proc ffi_rln_proof_values_get_y*(
   pv: ptr ptr FFI_RLNProofValues

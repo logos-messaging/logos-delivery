@@ -12,9 +12,8 @@ logScope:
 # Internal helpers (private — wrappers.nim only)
 # ===========================================================================
 
-# Forward declaration: `buildProofBytesLe` and `proofPtrToRateLimitProof`
-# below use this, but its body is defined further down with the rest of the
-# public API.
+# Forward declaration: `verifyRlnProof` below uses this, but its body is
+# defined further down with the rest of the public API.
 proc generateExternalNullifier*(
   epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[ExternalNullifier]
@@ -30,40 +29,6 @@ proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
     ffi_vec_cfr_push(addr roots, cfr)
     ffi_cfr_free(cfr)
   ok(roots)
-
-proc buildProofBytesLe(
-    proof: RateLimitProof, rlnIdentifier: RlnIdentifier
-): RlnRelayResult[seq[byte]] =
-  ## Serialize a RateLimitProof into the 290-byte wire format for ffi_bytes_le_to_rln_proof.
-  ## externalNullifier is NOT a protobuf wire field (RateLimitProof.encode writes
-  ## only fields 1-7); a deserialized proof has it zeroed, so it must be recomputed
-  ## from epoch + rlnIdentifier here rather than read from proof.externalNullifier.
-  let externalNullifier = generateExternalNullifier(proof.epoch, rlnIdentifier).valueOr:
-    return err("Failed to compute external nullifier: " & error)
-
-  var encoded = newSeq[byte](RlnProofWireSize)
-  var offset = 0
-
-  encoded[offset] = 0x00'u8
-  inc offset # outer RLNProof version
-
-  copyMem(addr encoded[offset], unsafeAddr proof.proof[0], ZksnarkProofSize)
-  offset += ZksnarkProofSize
-
-  encoded[offset] = 0x00'u8
-  inc offset # inner RLNProofValues version
-
-  copyMem(addr encoded[offset], unsafeAddr proof.merkleRoot[0], FieldElementSize)
-  offset += FieldElementSize
-  copyMem(addr encoded[offset], unsafeAddr externalNullifier[0], FieldElementSize)
-  offset += FieldElementSize
-  copyMem(addr encoded[offset], unsafeAddr proof.shareX[0], FieldElementSize)
-  offset += FieldElementSize
-  copyMem(addr encoded[offset], unsafeAddr proof.shareY[0], FieldElementSize)
-  offset += FieldElementSize
-  copyMem(addr encoded[offset], unsafeAddr proof.nullifier[0], FieldElementSize)
-
-  ok(encoded)
 
 proc proofPtrToRateLimitProof(
     proofPtr: ptr FFI_RLNProof, epoch: Epoch, rlnIdentifier: RlnIdentifier
@@ -119,11 +84,15 @@ proc proofPtrToRateLimitProof(
   output.nullifier = cfrResultToBytes(nullifierRes, "Failed to read proof nullifier: ").valueOr:
     return err(error)
 
-  # externalNullifier is derived from epoch + rlnIdentifier; recompute for
-  # consistency with the existing protocol_types.nim contract.
-  let extNullifier = generateExternalNullifier(epoch, rlnIdentifier).valueOr:
-    return err("Failed to compute external nullifier: " & error)
-  output.externalNullifier = extNullifier
+  # Read externalNullifier straight off the proof values (v2.0.2 getter)
+  # instead of recomputing from epoch + rlnIdentifier.
+  let extNullPtr = ffi_rln_proof_values_get_external_nullifier(addr pvHandle)
+  if extNullPtr.isNil:
+    return err("Failed to read proof external nullifier")
+  defer:
+    ffi_cfr_free(extNullPtr)
+  output.externalNullifier = cfrToBytesLe(extNullPtr).valueOr:
+    return err(error)
 
   ok(output)
 
@@ -342,14 +311,41 @@ proc verifyRlnProof*(
   if validRoots.len == 0:
     return err("verifyRlnProof requires at least one valid root (stateless mode)")
 
-  let proofBytes = buildProofBytesLe(proof, proof.rlnIdentifier).valueOr:
-    return err(error)
+  # externalNullifier is not a protobuf wire field (RateLimitProof.encode
+  # writes only fields 1-7); a received proof has it zeroed, so recompute it
+  # from epoch + rlnIdentifier before feeding ffi_rln_proof_new.
+  let externalNullifier = generateExternalNullifier(
+    proof.epoch, proof.rlnIdentifier
+  ).valueOr:
+    return err("Failed to compute external nullifier: " & error)
 
-  var proofVec = toVecUint8(proofBytes)
-  let proofRes = ffi_bytes_le_to_rln_proof(addr proofVec)
+  var groth16Vec = toVecUint8(proof.proof)
+  let rootFr = bytesToCfrLe(proof.merkleRoot).valueOr:
+    return err("Failed to convert root: " & error)
+  defer:
+    ffi_cfr_free(rootFr)
+  let extNullFr = bytesToCfrLe(externalNullifier).valueOr:
+    return err("Failed to convert external nullifier: " & error)
+  defer:
+    ffi_cfr_free(extNullFr)
+  let shareXFr = bytesToCfrLe(proof.shareX).valueOr:
+    return err("Failed to convert shareX: " & error)
+  defer:
+    ffi_cfr_free(shareXFr)
+  let shareYFr = bytesToCfrLe(proof.shareY).valueOr:
+    return err("Failed to convert shareY: " & error)
+  defer:
+    ffi_cfr_free(shareYFr)
+  let nullifierFr = bytesToCfrLe(proof.nullifier).valueOr:
+    return err("Failed to convert nullifier: " & error)
+  defer:
+    ffi_cfr_free(nullifierFr)
+
+  let proofRes = ffi_rln_proof_new(
+    addr groth16Vec, rootFr, extNullFr, shareXFr, shareYFr, nullifierFr
+  )
   if proofRes.ok.isNil:
-    return
-      err(consumeError("Failed to deserialize proof for verification: ", proofRes.err))
+    return err(consumeError("Failed to build RLN proof for verification: ", proofRes.err))
   defer:
     ffi_rln_proof_free(proofRes.ok)
 
