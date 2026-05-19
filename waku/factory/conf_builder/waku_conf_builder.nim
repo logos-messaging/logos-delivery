@@ -8,11 +8,14 @@ import
   results
 
 import
-  ../waku_conf,
-  ../networks_config,
-  ../../common/logging,
-  ../../common/utils/parse_size_units,
-  ../../waku_enr/capabilities,
+  waku/[
+    factory/waku_conf,
+    factory/networks_config,
+    common/logging,
+    common/utils/parse_size_units,
+    waku_enr/capabilities,
+    persistency/persistency,
+  ],
   tools/confutils/entry_nodes
 
 import
@@ -32,7 +35,9 @@ import
 logScope:
   topics = "waku conf builder"
 
-const DefaultMaxConnections* = 150
+const
+  DefaultMaxConnections* = 150
+  DefaultP2pTcpPort*: Port = Port(60000)
 
 type MaxMessageSizeKind* = enum
   mmskNone
@@ -131,6 +136,8 @@ type WakuConfBuilder* = object
   relayServiceRatio: Option[string]
   circuitRelayClient: Option[bool]
   p2pReliability: Option[bool]
+
+  localStoragePath: Option[string]
 
 proc init*(T: type WakuConfBuilder): WakuConfBuilder =
   WakuConfBuilder(
@@ -267,6 +274,9 @@ proc withRelayShardedPeerManagement*(
 
 proc withP2pReliability*(b: var WakuConfBuilder, p2pReliability: bool) =
   b.p2pReliability = some(p2pReliability)
+
+proc withLocalStoragePath*(b: var WakuConfBuilder, localStoragePath: string) =
+  b.localStoragePath = some(localStoragePath)
 
 proc withExtMultiAddrs*(builder: var WakuConfBuilder, extMultiAddrs: seq[string]) =
   builder.extMultiAddrs = concat(builder.extMultiAddrs, extMultiAddrs)
@@ -574,12 +584,7 @@ proc build*(
       warn "Nat Strategy is not specified, defaulting to none"
       "none"
 
-  let p2pTcpPort =
-    if builder.p2pTcpPort.isSome():
-      builder.p2pTcpPort.get()
-    else:
-      warn "P2P Listening TCP Port is not specified, listening on 60000"
-      60000.Port
+  let p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
 
   let p2pListenAddress =
     if builder.p2pListenAddress.isSome():
@@ -720,6 +725,7 @@ proc build*(
     relayShardedPeerManagement: relayShardedPeerManagement,
     p2pReliability: builder.p2pReliability.get(false),
     wakuFlags: wakuFlags,
+    localStoragePath: builder.localStoragePath.get(DefaultStoragePath),
   )
 
   ?wakuConf.validate()

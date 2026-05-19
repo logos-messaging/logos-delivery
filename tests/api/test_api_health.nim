@@ -2,11 +2,12 @@
 
 import std/[options, sequtils, times]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
+import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 
 import
   waku,
-  waku/[waku_node, waku_core, waku_relay/protocol, common/broker/broker_context],
+  waku/[waku_node, waku_core, waku_relay/protocol],
   waku/node/health_monitor/[topic_health, health_status, protocol_health, health_report],
   waku/requests/health_requests,
   waku/requests/node_requests,
@@ -43,7 +44,7 @@ proc waitForConnectionStatus(
     if not await future.withTimeout(TestTimeout):
       raiseAssert "Timeout waiting for status: " & $expected
   finally:
-    EventConnectionStatusChange.dropListener(brokerCtx, handle)
+    await EventConnectionStatusChange.dropListener(brokerCtx, handle)
 
 proc waitForShardHealthy(
     brokerCtx: BrokerContext
@@ -67,7 +68,7 @@ proc waitForShardHealthy(
     else:
       raiseAssert "Timeout waiting for shard health event"
   finally:
-    EventShardTopicHealthChange.dropListener(brokerCtx, handle)
+    await EventShardTopicHealthChange.dropListener(brokerCtx, handle)
 
 suite "LM API health checking":
   var

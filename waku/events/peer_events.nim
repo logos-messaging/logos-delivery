@@ -1,4 +1,4 @@
-import waku/common/broker/event_broker
+import brokers/event_broker
 import libp2p/switch
 
 type WakuPeerEventKind* {.pure.} = enum

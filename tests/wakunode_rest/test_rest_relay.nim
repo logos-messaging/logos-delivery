@@ -7,6 +7,7 @@ import
   presto,
   presto/client as presto_client,
   libp2p/crypto/crypto
+import brokers/broker_context
 import
   waku/[
     common/base64,
@@ -21,7 +22,6 @@ import
     rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
     waku_rln_relay,
-    common/broker/broker_context,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,

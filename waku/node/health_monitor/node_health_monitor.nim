@@ -725,8 +725,10 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
   if not isNil(hm.eventLoopMonitorFut):
     await hm.eventLoopMonitorFut.cancelAndWait()
 
-  WakuPeerEvent.dropListener(hm.node.brokerCtx, hm.peerEventListener)
-  EventShardTopicHealthChange.dropListener(hm.node.brokerCtx, hm.shardHealthListener)
+  await WakuPeerEvent.dropListener(hm.node.brokerCtx, hm.peerEventListener)
+  await EventShardTopicHealthChange.dropListener(
+    hm.node.brokerCtx, hm.shardHealthListener
+  )
 
   if not isNil(hm.node.wakuRelay) and not isNil(hm.relayObserver):
     hm.node.wakuRelay.removeObserver(hm.relayObserver)

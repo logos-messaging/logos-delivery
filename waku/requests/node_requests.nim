@@ -1,5 +1,5 @@
 import std/options
-import waku/common/broker/[request_broker, multi_request_broker]
+import brokers/[request_broker, multi_request_broker]
 import waku/waku_core/[topics]
 
 RequestBroker(sync):

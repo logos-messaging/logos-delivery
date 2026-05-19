@@ -263,6 +263,21 @@
         "sha1": "8bc8c30b107fdba73b677e5f257c6c42ae1cdc8e"
       }
     },
+    "cbor_serialization": {
+      "version": "0.3.0",
+      "vcsRevision": "1664160e04d153573373afddc552b9cbf6fbe4dc",
+      "url": "https://github.com/vacp2p/nim-cbor-serialization",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim",
+        "serialization",
+        "stew",
+        "results"
+      ],
+      "checksums": {
+        "sha1": "ab126eae09a6e39c72972a6a0b83cb06a2ffe8f0"
+      }
+    },
     "json_serialization": {
       "version": "0.4.4",
       "vcsRevision": "c343b0e243d9e17e2c40f3a8a24340f7c4a71d44",
@@ -310,6 +325,23 @@
       ],
       "checksums": {
         "sha1": "8df97c45683abe2337bdff43b844c4fbcc124ca2"
+      }
+    },
+    "brokers": {
+      "version": "#v2.0.1",
+      "vcsRevision": "2093ca4d50e581adda73fee7fd16231f990f4cbe",
+      "url": "https://github.com/NagyZoltanPeter/nim-brokers.git",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim",
+        "chronos",
+        "results",
+        "chronicles",
+        "testutils",
+        "cbor_serialization"
+      ],
+      "checksums": {
+        "sha1": "cc74c987af94537e9d44d1b0143aa417299040c5"
       }
     },
     "stint": {
@@ -585,6 +617,26 @@
       ],
       "checksums": {
         "sha1": "09e1b2fdad55b973724d61227971afc0df0b7a81"
+      }
+    },
+    "sds": {
+      "version": "#2e9a7683f0e180bf112135fae3a3803eed8490d4",
+      "vcsRevision": "2e9a7683f0e180bf112135fae3a3803eed8490d4",
+      "url": "https://github.com/logos-messaging/nim-sds.git",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim",
+        "chronos",
+        "libp2p",
+        "chronicles",
+        "stew",
+        "stint",
+        "metrics",
+        "results",
+        "taskpools"
+      ],
+      "checksums": {
+        "sha1": "d13f1bf8d1b90b27e9edfc063b043831242cda19"
       }
     },
     "ffi": {

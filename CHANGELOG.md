@@ -1,3 +1,11 @@
+## v0.38.1 (2026-05-07)
+
+### Changes
+
+- Evict peer instead of abrupt disconnect and avoid sending unnecessary store requests ([#3857](https://github.com/logos-messaging/logos-delivery/pull/3857)) ([75dbeb1b](https://github.com/logos-messaging/logos-delivery/commit/75dbeb1be785df5e61c9ab0bcf8393349b9d0f5e) and [7e59b2c2](https://github.com/logos-messaging/logos-delivery/commit/7e59b2c2))
+
+- RecvService now delivers store-recovered messages via MessageReceivedEvent and includes check for missed hashes before processing ([#3805](https://github.com/logos-messaging/logos-delivery/pull/3805)) ([494ea946](https://github.com/logos-messaging/logos-delivery/commit/494ea946))
+
 ## v0.38.0 (2026-03-16)
 
 ### Notes

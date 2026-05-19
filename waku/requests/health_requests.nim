@@ -1,4 +1,4 @@
-import waku/common/broker/request_broker
+import brokers/request_broker
 
 import waku/api/types
 import waku/node/health_monitor/[protocol_health, topic_health, health_report]

@@ -7,13 +7,14 @@ import
   chronicles,
   chronos,
   libp2p/switch,
-  libp2p/protocols/pubsub/pubsub
+  libp2p/protocols/pubsub/pubsub,
+  brokers/broker_context
+
 import
   waku/[waku_core, waku_node, waku_rln_relay],
   ../testlib/[wakucore, futures, wakunode, testutils],
   ./utils_onchain,
-  ./rln/waku_rln_relay_utils,
-  waku/common/broker/broker_context
+  ./rln/waku_rln_relay_utils
 
 from std/times import epochTime
 

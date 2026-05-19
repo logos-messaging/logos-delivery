@@ -3,6 +3,7 @@
 import std/[options, sequtils, net, sets]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, crypto/crypto]
+import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
 
@@ -11,7 +12,6 @@ import
   waku/[
     waku_node,
     waku_core,
-    common/broker/broker_context,
     events/message_events,
     waku_relay/protocol,
     waku_archive,
@@ -52,8 +52,8 @@ proc newReceiveEventListenerManager(
 
   return manager
 
-proc teardown(manager: ReceiveEventListenerManager) =
-  MessageReceivedEvent.dropListener(manager.brokerCtx, manager.receivedListener)
+proc teardown(manager: ReceiveEventListenerManager) {.async.} =
+  await MessageReceivedEvent.dropListener(manager.brokerCtx, manager.receivedListener)
 
 proc waitForEvents(
     manager: ReceiveEventListenerManager, timeout: Duration
@@ -138,7 +138,20 @@ suite "Messaging API, Receive Service (store recovery)":
         break
       await sleepAsync(100.milliseconds)
 
-    # publish before subscriber exists, gets archived
+    # create the subscriber before publishing.
+    # RecvService captures startTimeToCheck at construction time; the
+    # message's timestamp must land after that point to fall inside
+    # checkStore's time window.
+    var subscriber: Waku
+    lockNewGlobalBrokerContext:
+      subscriber = (await createNode(createApiNodeConf(numShards))).expect(
+        "Failed to create subscriber"
+      )
+      (await startWaku(addr subscriber)).expect("Failed to start subscriber")
+
+    # publish after the subscriber exists but before it connects to the
+    # store; the message reaches the archive but the subscriber doesn't
+    # see it via live relay.
     let missedPayload = "This message was missed".toBytes()
     let missedMsg = WakuMessage(
       payload: missedPayload, contentTopic: testTopic, version: 0, timestamp: now()
@@ -159,15 +172,8 @@ suite "Messaging API, Receive Service (store recovery)":
         await sleepAsync(100.milliseconds)
       raiseAssert "Message was not archived in time"
 
-    # create subscriber
-    var subscriber: Waku
-    lockNewGlobalBrokerContext:
-      subscriber = (await createNode(createApiNodeConf(numShards))).expect(
-        "Failed to create subscriber"
-      )
-      (await startWaku(addr subscriber)).expect("Failed to start subscriber")
-
-    # connect subscriber to store (not publisher, so msg won't come via relay to it)
+    # connect subscriber to store after the message is already archived so
+    # gossipsub doesn't replay it via the live path
     await subscriber.node.connectToNodes(@[storeNodePeerInfo])
 
     # subscribe to content topic
@@ -176,7 +182,7 @@ suite "Messaging API, Receive Service (store recovery)":
     # listen before triggering store check
     let eventManager = newReceiveEventListenerManager(subscriber.brokerCtx, 1)
     defer:
-      eventManager.teardown()
+      await eventManager.teardown()
 
     # trigger store check, should recover and deliver via MessageReceivedEvent
     await subscriber.deliveryService.recvService.checkStore()

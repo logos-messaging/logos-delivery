@@ -5,7 +5,7 @@ import chronos, confutils/toml/std/net, libp2p/multiaddress, testutils/unittests
 import ./testlib/wakunode, waku/waku_enr/capabilities
 
 include
-  waku/node/net_config,
+  waku/net/net_config,
   waku/factory/conf_builder/web_socket_conf_builder,
   waku/factory/conf_builder/conf_builder
 

@@ -184,11 +184,11 @@ proc logosdelivery_stop_node(
   requireInitializedNode(ctx, "STOP_NODE"):
     return err(errMsg)
 
-  MessageErrorEvent.dropAllListeners(ctx.myLib[].brokerCtx)
-  MessageSentEvent.dropAllListeners(ctx.myLib[].brokerCtx)
-  MessagePropagatedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
-  MessageReceivedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
-  EventConnectionStatusChange.dropAllListeners(ctx.myLib[].brokerCtx)
+  await MessageErrorEvent.dropAllListeners(ctx.myLib[].brokerCtx)
+  await MessageSentEvent.dropAllListeners(ctx.myLib[].brokerCtx)
+  await MessagePropagatedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
+  await MessageReceivedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
+  await EventConnectionStatusChange.dropAllListeners(ctx.myLib[].brokerCtx)
 
   (await ctx.myLib[].stop()).isOkOr:
     let errMsg = $error

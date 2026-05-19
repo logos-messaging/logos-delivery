@@ -13,7 +13,9 @@ import
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/protocols/pubsub/pubsub,
   results,
-  stew/[byteutils, arrayops]
+  stew/[byteutils, arrayops],
+  brokers/broker_context
+
 import
   ./group_manager,
   ./rln,
@@ -30,7 +32,6 @@ import
     waku_core,
     requests/rln_requests,
     waku_keystore,
-    common/broker/broker_context,
   ]
 
 logScope:

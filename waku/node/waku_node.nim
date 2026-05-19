@@ -24,7 +24,9 @@ import
   libp2p/utility,
   libp2p/utils/offsettedseq,
   libp2p/protocols/mix,
-  libp2p/protocols/mix/mix_protocol
+  libp2p/protocols/mix/mix_protocol,
+  brokers/broker_context,
+  brokers/request_broker
 
 import
   waku/[
@@ -53,8 +55,6 @@ import
     common/rate_limit/setting,
     common/callbacks,
     common/nimchronos,
-    common/broker/broker_context,
-    common/broker/request_broker,
     waku_mix,
     requests/node_requests,
     requests/health_requests,
@@ -62,7 +62,7 @@ import
     events/message_events,
   ],
   waku/discovery/waku_kademlia,
-  ./net_config,
+  waku/net/[bound_ports, net_config],
   ./peer_manager,
   ./health_monitor/health_status,
   ./health_monitor/topic_health
@@ -140,6 +140,7 @@ type
     wakuMix*: WakuMix
     kademliaDiscoveryLoop*: Future[void]
     wakuKademlia*: WakuKademlia
+    ports*: BoundPorts
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -224,6 +225,7 @@ proc new*(
     announcedAddresses: netConfig.announcedAddresses,
     topicSubscriptionQueue: queue,
     rateLimitSettings: rateLimitSettings,
+    ports: BoundPorts.init(),
   )
 
   peerManager.setShardGetter(node.getShardsGetter(@[]))

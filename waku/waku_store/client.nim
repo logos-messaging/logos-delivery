@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[options, tables, sequtils, algorithm],
+  std/[options, tables, sequtils, algorithm, random],
   results,
   chronicles,
   chronos,
@@ -33,7 +33,9 @@ proc sendStoreRequest(
 ): Future[StoreQueryResult] {.async, gcsafe.} =
   var req = request
 
+  self.peerManager.addActiveStoreRequest(connection.peerId)
   defer:
+    self.peerManager.removeActiveStoreRequest(connection.peerId)
     await connection.closeWithEof()
 
   if req.requestId == "":
@@ -98,7 +100,8 @@ proc queryToAny*(
   if peers.len == 0:
     return err(StoreError(kind: BAD_RESPONSE, cause: "no service store peer connected"))
 
-  # Shuffle to distribute load and limit retries
+  # Shuffle to distribute load across store peers and limit retries
+  shuffle(peers)
   let peersToTry = peers[0 ..< min(peers.len, MaxQueryRetries)]
 
   var lastError: StoreError

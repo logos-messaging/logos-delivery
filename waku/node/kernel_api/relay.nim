@@ -16,7 +16,8 @@ import
   libp2p/builders,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utility
+  libp2p/utility,
+  brokers/broker_context
 
 import
   waku/[
@@ -29,7 +30,6 @@ import
     waku_rln_relay,
     node/waku_node,
     node/peer_manager,
-    common/broker/broker_context,
     events/message_events,
   ]
 
