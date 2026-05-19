@@ -36,6 +36,21 @@
 
       forAllSystems = nixpkgs.lib.genAttrs systems;
 
+      lib = nixpkgs.lib;
+
+      # Single source of truth for the semver: the `version` field of
+      # waku.nimble. Kept in sync with git tags by the version-check CI.
+      nimbleVersion =
+        let line = lib.findFirst (l: lib.hasPrefix "version = " l)
+                     "version = \"unknown\""
+                     (lib.splitString "\n" (builtins.readFile ./waku.nimble));
+        in lib.removeSuffix "\"" (lib.removePrefix "version = \"" line);
+
+      # A flake sandbox has no .git, so `git describe` is impossible; the
+      # commit comes from the flake metadata instead.
+      shortRev = self.shortRev or self.dirtyShortRev or "dirty";
+      fullRev  = self.rev or self.dirtyRev or "dirty";
+
       nimbleOverlay = final: prev: {
         nimble = prev.nimble.overrideAttrs (_: {
           version = "0.22.3";
@@ -60,6 +75,8 @@
             inherit pkgs;
             src = ./.;
             zerokitRln = zerokit.packages.${system}.rln;
+            gitVersion = "${nimbleVersion}-g${shortRev}";
+            gitCommit  = fullRev;
           };
         in {
           inherit liblogosdelivery;

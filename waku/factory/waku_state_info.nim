@@ -11,6 +11,7 @@ import waku/[waku_node, net/bound_ports]
 type
   NodeInfoId* {.pure.} = enum
     Version
+    Commit
     Metrics
     MyMultiaddresses
     MyENR
@@ -36,6 +37,8 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
   case infoItemId
   of NodeInfoId.Version:
     return git_version
+  of NodeInfoId.Commit:
+    return git_commit
   of NodeInfoId.Metrics:
     return getMetrics()
   of NodeInfoId.MyMultiaddresses:

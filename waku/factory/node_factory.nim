@@ -410,7 +410,7 @@ proc startNode*(
   ## Connect to static nodes and start
   ## keep-alive, if configured.
 
-  info "Running nwaku node", version = git_version
+  info "Running nwaku node", version = git_version, commit = git_commit
   try:
     await node.start()
   except CatchableError:
