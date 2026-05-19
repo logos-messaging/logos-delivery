@@ -90,9 +90,10 @@
             gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
 
-          wakucanary = pkgs.callPackage ./nix/wakucanary.nix {
+          wakucanary = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
+            targets = ["wakucanary"];
             zerokitRln = zerokit.packages.${system}.rln;
           };
         in {
