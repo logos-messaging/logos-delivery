@@ -49,7 +49,6 @@
       # A flake sandbox has no .git, so `git describe` is impossible; the
       # commit comes from the flake metadata instead.
       shortRev = self.shortRev or self.dirtyShortRev or "dirty";
-      fullRev  = self.rev or self.dirtyRev or "dirty";
 
       nimbleOverlay = final: prev: {
         nimble = prev.nimble.overrideAttrs (_: {
@@ -76,7 +75,6 @@
             src = ./.;
             zerokitRln = zerokit.packages.${system}.rln;
             gitVersion = "${nimbleVersion}-g${shortRev}";
-            gitCommit  = fullRev;
           };
         in {
           inherit liblogosdelivery;

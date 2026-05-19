@@ -2,7 +2,6 @@
 , src
 , zerokitRln
 , gitVersion           ? "n/a"
-, gitCommit            ? "n/a"
 , enablePostgres       ? true
 , enableNimDebugDlOpen ? true
 , chroniclesLogLevel   ? null
@@ -13,8 +12,7 @@ let
 
   nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
-         "--define:git_version=${gitVersion}"
-         "--define:git_commit=${gitCommit}" ]
+         "--define:git_version=${gitVersion}" ]
     ++ pkgs.lib.optional enablePostgres       "--define:postgres"
     ++ pkgs.lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
     ++ pkgs.lib.optional (chroniclesLogLevel != null)

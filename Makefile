@@ -115,10 +115,6 @@ TARGET ?= prod
 GIT_VERSION ?= $(shell git describe --abbrev=6 --always --tags)
 NIM_PARAMS := $(NIM_PARAMS) -d:git_version=\"$(GIT_VERSION)\"
 
-## Git commit
-GIT_COMMIT ?= $(shell git rev-parse HEAD)
-NIM_PARAMS := $(NIM_PARAMS) -d:git_commit=\"$(GIT_COMMIT)\"
-
 ## Heaptracker options
 HEAPTRACKER ?= 0
 HEAPTRACKER_INJECT ?= 0

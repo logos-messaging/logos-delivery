@@ -89,9 +89,6 @@ randomize()
 # Git version in git describe format (defined compile time)
 const git_version* {.strdefine.} = "n/a"
 
-# Full git commit SHA of the build (defined compile time)
-const git_commit* {.strdefine.} = "n/a"
-
 # Default clientId
 const clientId* = "Nimbus Waku v2 node"
 
@@ -565,7 +562,7 @@ proc start*(node: WakuNode) {.async.} =
   ## all its mounted protocols.
 
   waku_version.set(1, labelValues = [git_version])
-  info "Starting Waku node", version = git_version, commit = git_commit
+  info "Starting Waku node", version = git_version
 
   var zeroPortPresent = false
   for address in node.announcedAddresses:
