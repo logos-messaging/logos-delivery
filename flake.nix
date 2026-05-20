@@ -74,7 +74,7 @@
             inherit pkgs;
             src = ./.;
             zerokitRln = zerokit.packages.${system}.rln;
-            gitVersion = "${nimbleVersion}-g${shortRev}";
+            gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
         in {
           inherit liblogosdelivery;
