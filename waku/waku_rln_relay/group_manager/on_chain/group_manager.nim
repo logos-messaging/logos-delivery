@@ -557,6 +557,10 @@ method stop*(g: OnchainGroupManager): Future[void] {.async, gcsafe.} =
     g.ethRpc.get().ondisconnect = nil
     await g.ethRpc.get().close()
 
+  if not g.rlnInstance.isNil:
+    ffi_rln_free(g.rlnInstance)
+    g.rlnInstance = nil
+
   g.initialized = false
 
 method isReady*(g: OnchainGroupManager): Future[bool] {.async.} =
