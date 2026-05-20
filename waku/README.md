@@ -45,15 +45,16 @@ Setting up a `wakunode2` on the smallest [digital ocean](https://docs.digitaloce
 make test
 ```
 
-To run a specific test.
+To run a specific test file or test case:
 ```bash
-# Get a shell with the right environment variables set
-./env.sh bash
-# Run a specific test
-nim c -r ./tests/test_waku_filter_legacy.nim
+# Run all tests in a specific file
+make test tests/waku_filter_v2/test_waku_filter.nim
+
+# Run a specific test case within a file
+make test tests/waku_filter_v2/test_waku_filter.nim "specific test name"
 ```
 
-You can also alter compile options. For example, if you want a less verbose output you can do the following. For more, refer to the [compiler flags](https://nim-lang.org/docs/nimc.html#compiler-usage) and [chronicles documentation](https://github.com/status-im/nim-chronicles#compile-time-configuration).
+Alternatively, you can invoke the Nim compiler directly. For more on available flags, refer to the [compiler flags](https://nim-lang.org/docs/nimc.html#compiler-usage) and [chronicles documentation](https://github.com/status-im/nim-chronicles#compile-time-configuration).
 
 ```bash
 nim c -r -d:chronicles_log_level=WARN --verbosity=0 --hints=off ./tests/waku_filter_v2/test_waku_filter.nim
@@ -232,6 +233,3 @@ mkdir -p ./ssl_dir/
 openssl req -x509 -newkey rsa:4096 -keyout ./ssl_dir/key.pem -out ./ssl_dir/cert.pem -sha256 -nodes
 wakunode2 --websocket-secure-support=true --websocket-secure-key-path="./ssl_dir/key.pem" --websocket-secure-cert-path="./ssl_dir/cert.pem"
 ```
-
-
-
