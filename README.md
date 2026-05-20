@@ -5,9 +5,9 @@
 This repository implements a set of libp2p protocols aimed to bring
 private communications.
 
-- Nim implementation of [these specs](https://lip.logos.co/messaging/draft/10/waku2.html).
+- Nim implementation of [these specs](https://github.com/logos-co/logos-lips/tree/master/docs/messaging).
 - C library that exposes the implemented protocols.
-- CLI application that allows you to run an lmn node.
+- CLI application that allows you to run a logos-delivery node.
 - Examples.
 - Various tests of above.
 
@@ -26,14 +26,14 @@ The standard developer tools, including a C compiler, GNU Make, Bash, and Git.
 You'll also need an installation of Rust and its toolchain (specifically `rustc` and `cargo`).
 The easiest way to install these, is using `rustup`:
 
-Recommended and tested toolchain versions:
-- Nim 2.2.4
-- Nimble 0.22.3
-
 Rust:
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
+
+Recommended and tested toolchain versions:
+- Nim 2.2.4
+- Nimble 0.22.3
 
 ### Wakunode
 
@@ -55,9 +55,9 @@ To join the network, you need to know the address of at least one bootstrap node
 Please refer to the [Waku README](https://github.com/logos-messaging/logos-delivery/blob/master/waku/README.md) for more information.
 
 For more on how to run `wakunode2`, refer to:
-- [Run using binaries](https://docs.waku.org/guides/nwaku/build-source)
-- [Run using docker](https://docs.waku.org/guides/nwaku/run-docker)
-- [Run using docker-compose](https://docs.waku.org/guides/nwaku/run-docker-compose)
+- [Run using binaries](https://docs.waku.org/run-node/build-source)
+- [Run using docker](https://docs.waku.org/run-node/run-docker)
+- [Run using docker-compose](https://docs.waku.org/run-node/run-docker-compose)
 
 #### Issues
 ##### WSL
@@ -108,13 +108,9 @@ If `wakunode2.exe` isn't generated:
 This repository is bundled with a Nim runtime that includes the necessary dependencies for the project.
 
 Before you can utilize the runtime you'll need to build the project, as detailed in a previous section.
-This will generate a `vendor` directory containing various dependencies, including the `nimbus-build-system` which has the bundled nim runtime.
+This will generate a `nimbledeps/pkgs2` directory containing various dependencies.
 
-After successfully building the project, you may bring the bundled runtime into scope by running:
-```bash
-source env.sh
-```
-If everything went well, you should see your prompt suffixed with `[Nimbus env]$`. Now you can run `nim` commands as usual.
+If everything went well, you should see your prompt suffixed with `[SuccessX]`. Now you can run `nim` commands as usual.
 
 ### Test Suite
 
@@ -185,7 +181,7 @@ For bug reports, please [tag your issue with the `bug` label](https://github.com
 
 If you believe the reported issue requires critical attention, please [use the `critical` label](https://github.com/logos-messaging/logos-delivery/issues/new?labels=critical,bug) to assist with triaging.
 
-To get help, or participate in the conversation, join the [Logos Discord](https://discord.waku.org/) server.
+To get help, or participate in the conversation, join the [Logos Discord](https://discord.gg/logosnetwork) server.
 
 ### Docs
 
