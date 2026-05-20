@@ -116,7 +116,9 @@ jobs:
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
-          touch nimbledeps/.nimble-setup
+
+      - name: Refresh nimbledeps stamp
+        run: touch nimbledeps/.nimble-setup
 
       - name: Build binaries
         run: make V=1 all
@@ -193,7 +195,9 @@ jobs:
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
-          touch nimbledeps/.nimble-setup
+
+      - name: Refresh nimbledeps stamp
+        run: touch nimbledeps/.nimble-setup
 
       - name: Run tests
         run: |
@@ -272,7 +276,9 @@ jobs:
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
-          touch nimbledeps/.nimble-setup
+
+      - name: Refresh nimbledeps stamp
+        run: touch nimbledeps/.nimble-setup
 
       - name: Build nph
         run: |
