@@ -63,6 +63,8 @@ type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
+  userMessageLimit*: Opt[int]
+  disableSpamProtection*: bool
 
 type StoreServiceConf* = object
   dbMigration*: bool

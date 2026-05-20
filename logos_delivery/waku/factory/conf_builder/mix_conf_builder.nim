@@ -18,6 +18,8 @@ type MixConfBuilder* = object
   enabled: Opt[bool]
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
+  userMessageLimit: Opt[int]
+  disableSpamProtection: bool
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -31,6 +33,12 @@ proc withMixKey*(b: var MixConfBuilder, mixKey: string) =
 proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   b.mixNodes = mixNodes
 
+proc withUserMessageLimit*(b: var MixConfBuilder, limit: int) =
+  b.userMessageLimit = Opt.some(limit)
+
+proc withDisableSpamProtection*(b: var MixConfBuilder, disable: bool) =
+  b.disableSpamProtection = disable
+
 proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):
     return ok(Opt.none(MixConf))
@@ -40,7 +48,13 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
       let mixPubKey = public(mixPrivKey)
       return ok(
         Opt.some(
-          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+          MixConf(
+            mixKey: mixPrivKey,
+            mixPubKey: mixPubKey,
+            mixNodes: b.mixNodes,
+            userMessageLimit: b.userMessageLimit,
+            disableSpamProtection: b.disableSpamProtection,
+          )
         )
       )
     else:
@@ -48,6 +62,12 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
         return err("Generate key pair error: " & $error)
       return ok(
         Opt.some(
-          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+          MixConf(
+            mixKey: mixPrivKey,
+            mixPubKey: mixPubKey,
+            mixNodes: b.mixNodes,
+            userMessageLimit: b.userMessageLimit,
+            disableSpamProtection: b.disableSpamProtection,
+          )
         )
       )
