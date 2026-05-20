@@ -8,12 +8,9 @@ import ../../waku_core, ../../waku_keystore
 logScope:
   topics = "waku rln_relay ffi"
 
-# ===========================================================================
-# Internal helpers (private — wrappers.nim only)
-# ===========================================================================
+# --- Internal helpers -------------------------------------------------------
 
-# Forward declaration: `verifyRlnProof` below uses this, but its body is
-# defined further down with the rest of the public API.
+# Forward decl — body is defined below with the public API.
 proc generateExternalNullifier*(
   epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[ExternalNullifier]
@@ -122,13 +119,10 @@ proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
     )
   )
 
-# ===========================================================================
-# Public API (signatures preserved from v0.9 wrappers)
-# ===========================================================================
+# --- Public API -------------------------------------------------------------
 
 proc membershipKeyGen*(): RlnRelayResult[IdentityCredential] =
-  ## generates a IdentityCredential that can be used for the registration into the rln membership contract
-  ## Returns an error if the key generation fails
+  ## Generate an IdentityCredential for on-chain RLN membership registration.
   var vec = ffi_extended_key_gen()
   defer:
     ffi_vec_cfr_free(vec)
@@ -216,9 +210,7 @@ proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
     )
   )
 
-# ===========================================================================
-# New high-level proof gen / verify (replaces v0.9 raw FFI call sites)
-# ===========================================================================
+# --- Proof generation & verification ----------------------------------------
 
 proc generateRlnProofWithWitness*(
     rlnInstance: ptr RLN,
@@ -360,7 +352,7 @@ proc verifyRlnProof*(
     ffi_vec_cfr_free(roots)
 
   let verifyRes = ffi_verify_with_roots(addr ctx, addr proofHandle, addr roots, xFr)
-  # v2.0.1: err is non-nil for all failures; free it and return the bool.
+  # zerokit FFI quirk: err is non-nil for all failures; free it and return the bool.
   if hasError(verifyRes.err):
     ffi_c_string_free(verifyRes.err)
   ok(verifyRes.ok)

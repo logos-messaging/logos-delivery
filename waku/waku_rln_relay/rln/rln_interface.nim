@@ -1,4 +1,4 @@
-## Nim wrappers for librln (zerokit v2.0.1, safer-ffi typed handles).
+## Nim wrappers for librln (zerokit v2.0.2, safer-ffi typed handles).
 ##
 ## Built against the `stateless` zerokit feature: tree-mutation FFI is not
 ## bound here because logos-delivery does not maintain a local Merkle tree
@@ -10,7 +10,7 @@
 ## the FFI owns memory the caller must release with the corresponding
 ## ffi_*_free. Use `defer:` immediately after acquisition.
 ##
-## Wire format (v2.0.1 single-message-id):
+## Wire format (v2.0.2 single-message-id):
 ##   RLNProof:        [ 0x00 | proof<128> | RLNProofValues(0x00) ]
 ##   RLNProofValues:  [ 0x00 | root<32> | external_nullifier<32> |
 ##                     x<32> | y<32> | nullifier<32> ]
@@ -21,9 +21,7 @@ import ../protocol_types
 
 {.push raises: [], gcsafe.}
 
-# ===========================================================================
-# FFI primitive types
-# ===========================================================================
+# --- Types ------------------------------------------------------------------
 
 type
   CSize = csize_t
@@ -90,10 +88,7 @@ const
   ## + inner RLNProofValues (inner version + 5 field elements).
   RlnProofWireSize* = 1 + ZksnarkProofSize + 1 + 5 * FieldElementSize
 
-# ===========================================================================
-# FFI declarations
-# Source of truth: vendor/zerokit/rln/src/ffi/{ffi_rln,ffi_utils}.rs
-# ===========================================================================
+# FFI declarations — source of truth: vendor/zerokit/rln/src/ffi/{ffi_rln,ffi_utils}.rs
 
 # --- RLN instance lifecycle (stateless variants) --------------------------
 
@@ -283,9 +278,7 @@ proc ffi_poseidon_hash_pair*(
   a: ptr CFr, b: ptr CFr
 ): ptr CFr {.importc: "ffi_poseidon_hash_pair", cdecl.}
 
-# ===========================================================================
-# Memory-hygiene helpers
-# ===========================================================================
+# --- Memory-hygiene helpers -------------------------------------------------
 
 proc hasError*(data: Vec_uint8): bool =
   not data.dataPtr.isNil
