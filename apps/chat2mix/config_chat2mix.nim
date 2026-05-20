@@ -162,7 +162,8 @@ type
 
     metricsServerAddress* {.
       desc: "Listening address of the metrics server.",
-      defaultValue: parseIpAddress("127.0.0.1"),
+      defaultValue:
+        IpAddress(family: IpAddressFamily.IPv4, address_v4: [127.byte, 0, 0, 1]),
       name: "metrics-server-address"
     .}: IpAddress
 
@@ -194,7 +195,11 @@ type
 
     dnsDiscoveryNameServers* {.
       desc: "DNS name server IPs to query. Argument may be repeated.",
-      defaultValue: @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
+      defaultValue:
+        @[
+          IpAddress(family: IpAddressFamily.IPv4, address_v4: [1.byte, 1, 1, 1]),
+          IpAddress(family: IpAddressFamily.IPv4, address_v4: [1.byte, 0, 0, 1]),
+        ],
       name: "dns-discovery-name-server"
     .}: seq[IpAddress]
 
@@ -235,6 +240,13 @@ type
         "Peer multiaddr for kademlia discovery bootstrap node (must include /p2p/<peerID>). Argument may be repeated.",
       name: "kad-bootstrap-node"
     .}: seq[string]
+
+    ## RLN spam protection config
+    rlnUserMessageLimit* {.
+      desc: "Maximum messages per epoch for RLN spam protection.",
+      defaultValue: 100,
+      name: "rln-user-message-limit"
+    .}: int
 
 proc parseCmdArg*(T: type MixNodePubInfo, p: string): T =
   let elements = p.split(":")

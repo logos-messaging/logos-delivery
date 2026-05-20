@@ -53,13 +53,14 @@ requires "nim >= 2.2.4",
   "unicodedb",
   "results",
   "minilru",
-  "zlib",
+  "zlib < 0.2",
   # Debug & Testing
   "testutils",
   "unittest2"
 
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin.git#037f8e100bfedffdbad1c4442e760d10a2437428"
 
 requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135fae3a3803eed8490d4"
 

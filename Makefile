@@ -173,10 +173,15 @@ deps: | nimble
 ##################
 ##     RLN      ##
 ##################
-.PHONY: librln
+.PHONY: librln mix-librln
 
 LIBRLN_BUILDDIR := $(CURDIR)/vendor/zerokit
 LIBRLN_VERSION := v0.9.0
+MIX_LIBRLN_VERSION ?= v2.0.0
+MIX_LIBRLN_REPO ?= https://github.com/vacp2p/zerokit.git
+MIX_LIBRLN_SRCDIR ?= $(CURDIR)/build/zerokit_$(MIX_LIBRLN_VERSION)
+MIX_LIBRLN_FILE ?= $(CURDIR)/build/librln_mix_$(MIX_LIBRLN_VERSION).a
+MIX_LIBRLN_NIM_PARAMS := --passL:$(MIX_LIBRLN_FILE) --passL:-lm
 
 ifeq ($(detected_OS),Windows)
 LIBRLN_FILE ?= rln.lib
@@ -189,12 +194,20 @@ $(LIBRLN_FILE):
 	echo -e $(BUILD_MSG) "$@" && \
 		bash scripts/build_rln.sh $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(LIBRLN_FILE)
 
+$(MIX_LIBRLN_FILE):
+	echo -e $(BUILD_MSG) "$@" && \
+		./scripts/build_rln_mix.sh $(MIX_LIBRLN_SRCDIR) $(MIX_LIBRLN_VERSION) $(MIX_LIBRLN_FILE) $(MIX_LIBRLN_REPO)
+
 librln: | $(LIBRLN_FILE)
 	$(eval NIM_PARAMS += --passL:$(LIBRLN_FILE) --passL:-lm)
+
+mix-librln: | $(MIX_LIBRLN_FILE)
+	$(eval NIM_PARAMS += --passL:$(MIX_LIBRLN_FILE) --passL:-lm)
 
 clean-librln:
 	cargo clean --manifest-path vendor/zerokit/rln/Cargo.toml
 	rm -f $(LIBRLN_FILE)
+	rm -f $(MIX_LIBRLN_FILE)
 
 clean: | clean-librln
 
@@ -216,7 +229,7 @@ testwaku: | $(NIMBLEDEPS_STAMP) build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble test
 
-wakunode2: | $(NIMBLEDEPS_STAMP) build deps librln
+wakunode2: | $(NIMBLEDEPS_STAMP) build deps librln mix-librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble wakunode2
 
@@ -236,7 +249,7 @@ chat2: | $(NIMBLEDEPS_STAMP) build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2
 
-chat2mix: | $(NIMBLEDEPS_STAMP) build deps librln
+chat2mix: | $(NIMBLEDEPS_STAMP) build deps librln mix-librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		nimble chat2mix
 
