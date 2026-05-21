@@ -39,10 +39,6 @@ const Lip173Meta* = "LIP173"
   ## this layer and is silently dropped on ingress.
 
 type
-  ReliableChannelPayload* = object
-    channelId*: ChannelId
-    payload*: seq[byte]
-
   ReliableChannel* = ref object
     ## Spec-defined public type. Fields are private so callers cannot
     ## mutate internals and break invariants (e.g. rewriting the
@@ -167,29 +163,19 @@ proc send*(
   return ok(parentReqId)
 
 proc onMessageReceived*(
-    self: ReliableChannel, wakuMsg: WakuMessage
+    self: ReliableChannel, payload: seq[byte]
 ) {.async: (raises: []).} =
   ## Ingress pipeline made visible:
   ##
-  ##   WakuMessage -> ReliableChannelPayload -> decrypt -> sds -> reassemble -> emit
+  ##   payload -> decrypt -> sds -> reassemble -> emit
   ##
-  ## Invoked from the waku `MessageReceivedEvent` listener after the
-  ## inbound `WakuMessage` has been filtered to this channel's
-  ## `contentTopic`. Each stage is a minimal stub for now.
-  let inWakuMsg: WakuMessage = wakuMsg
-
-  if string.fromBytes(inWakuMsg.meta) != Lip173Meta:
-    ## Not a Reliable Channel message — silently drop it.
-    return
-
-  ## TODO: decode the `ReliableChannelPayload` wrapper out of `inWakuMsg.payload`
-  ## properly (currently treated as the raw SDS bytes).
-  let reliablePayload: ReliableChannelPayload =
-    ReliableChannelPayload(channelId: self.channelId, payload: inWakuMsg.payload)
-
-  let decRes = await Decrypt.request(reliablePayload.payload)
+  ## The ReliableChannelManager already validated LIP173 on the WakuMessage and
+  ## stripped the wire framing, so the channel only sees the raw
+  ## payload bytes for itself. Each stage below is a minimal stub for
+  ## now.
+  let decRes = await Decrypt.request(payload)
   let plaintext: seq[byte] =
-    if decRes.isOk(): seq[byte](decRes.get()) else: reliablePayload.payload
+    if decRes.isOk(): seq[byte](decRes.get()) else: payload
 
   let sdsMsg: SdsMessage = SdsMessage.decode(plaintext)
   let processedSds: SdsMessage = self.sdsHandler.handleIncoming(sdsMsg)
@@ -200,7 +186,7 @@ proc onMessageReceived*(
     self.segmentation.handleIncomingSegment(segment)
 
   if reassembled.isSome():
-    ## TODO: emit the channel-level `MessageReceivedEvent` carrying
+    ## TODO: emit the channel-level `ChannelMessageReceivedEvent` carrying
     ## `reassembled.get().payload` once the event is wired into the
     ## EventBroker.
     discard reassembled
