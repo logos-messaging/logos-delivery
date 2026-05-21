@@ -37,6 +37,26 @@ let
     if pkgs.stdenv.hostPlatform.isWindows then "dll"
     else if pkgs.stdenv.hostPlatform.isDarwin then "dylib"
     else "so";
+
+  # Shared `nim c` invocation. Callers vary the output, the source file and a
+  # few mode-specific flags (e.g. --app:lib, --noMain, --header); everything
+  # else (paths, defines, threading, gc, nimcache, rln linkage) is constant.
+  # $NAT_TRAV and $NIMCACHE are shell variables defined in buildPhase.
+  nimCompile = { outFile, sourceFile, extraArgs ? [] }: ''
+    nim c \
+      --noNimblePath \
+      ${pathArgs} \
+      --path:$NAT_TRAV \
+      --path:$NAT_TRAV/src \
+      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
+      ${nimDefineArgs} \
+      --threads:on \
+      --mm:refc \
+      --nimcache:$NIMCACHE \
+      --out:${outFile} \
+      ${pkgs.lib.concatStringsSep " \\\n      " extraArgs} \
+      ${sourceFile}
+  '';
 in
 pkgs.stdenv.mkDerivation {
   pname = if buildWakucanary then "wakucanary" else "liblogosdelivery";
@@ -76,56 +96,36 @@ pkgs.stdenv.mkDerivation {
 
     ${if buildWakucanary then ''
     echo "== Building wakucanary =="
-    nim c \
-      --noNimblePath \
-      ${pathArgs} \
-      --path:. \
-      --path:$NAT_TRAV \
-      --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
-      ${nimDefineArgs} \
-      --threads:on \
-      --mm:refc \
-      --out:build/wakucanary \
-      --nimcache:$NIMCACHE \
-      apps/wakucanary/wakucanary.nim
+    ${nimCompile {
+      outFile = "build/wakucanary";
+      sourceFile = "apps/wakucanary/wakucanary.nim";
+      extraArgs = [ "--path:." ];
+    }}
     '' else ''
     echo "== Building liblogosdelivery (dynamic) =="
-    nim c \
-      --noNimblePath \
-      ${pathArgs} \
-      --path:$NAT_TRAV \
-      --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
-      ${nimDefineArgs} \
-      --out:build/liblogosdelivery.${libExt} \
-      --app:lib \
-      --threads:on \
-      --opt:size \
-      --noMain \
-      --mm:refc \
-      --header \
-      --nimMainPrefix:liblogosdelivery \
-      --nimcache:$NIMCACHE \
-      liblogosdelivery/liblogosdelivery.nim
+    ${nimCompile {
+      outFile = "build/liblogosdelivery.${libExt}";
+      sourceFile = "liblogosdelivery/liblogosdelivery.nim";
+      extraArgs = [
+        "--app:lib"
+        "--opt:size"
+        "--noMain"
+        "--header"
+        "--nimMainPrefix:liblogosdelivery"
+      ];
+    }}
 
     echo "== Building liblogosdelivery (static) =="
-    nim c \
-      --noNimblePath \
-      ${pathArgs} \
-      --path:$NAT_TRAV \
-      --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
-      ${nimDefineArgs} \
-      --out:build/liblogosdelivery.a \
-      --app:staticlib \
-      --threads:on \
-      --opt:size \
-      --noMain \
-      --mm:refc \
-      --nimMainPrefix:liblogosdelivery \
-      --nimcache:$NIMCACHE \
-      liblogosdelivery/liblogosdelivery.nim
+    ${nimCompile {
+      outFile = "build/liblogosdelivery.a";
+      sourceFile = "liblogosdelivery/liblogosdelivery.nim";
+      extraArgs = [
+        "--app:staticlib"
+        "--opt:size"
+        "--noMain"
+        "--nimMainPrefix:liblogosdelivery"
+      ];
+    }}
     ''}
   '';
 
