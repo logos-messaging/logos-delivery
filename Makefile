@@ -173,10 +173,13 @@ deps: | nimble
 ##################
 ##     RLN      ##
 ##################
-.PHONY: librln
+.PHONY: librln print-librln-version
 
 LIBRLN_BUILDDIR := $(CURDIR)/vendor/zerokit
 LIBRLN_VERSION := v0.9.0
+
+print-librln-version:
+	@echo "$(LIBRLN_VERSION)"
 
 ifeq ($(detected_OS),Windows)
 LIBRLN_FILE ?= rln.lib

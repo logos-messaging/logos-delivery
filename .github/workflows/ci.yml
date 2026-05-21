@@ -72,25 +72,16 @@ jobs:
         id: zerokit-sha
         run: echo "sha=$(git submodule status vendor/zerokit | awk '{print $1}' | sed 's/^[+-]//')" >> $GITHUB_OUTPUT
 
+      - name: Get librln version
+        id: librln-version
+        run: echo "version=$(make print-librln-version)" >> $GITHUB_OUTPUT
+
       - name: Cache librln
         id: cache-librln
         uses: actions/cache@v3
         with:
-          path: librln_v0.9.0.a
-          key: ${{ runner.os }}-librln-v0.9.0-${{ steps.zerokit-sha.outputs.sha }}
-
-      - name: Cache cargo
-        if: steps.cache-librln.outputs.cache-hit != 'true'
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            vendor/zerokit/target/
-          key: ${{ runner.os }}-cargo-zerokit-${{ steps.zerokit-sha.outputs.sha }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-zerokit-
+          path: librln_${{ steps.librln-version.outputs.version }}.a
+          key: ${{ runner.os }}-librln-${{ steps.librln-version.outputs.version }}-${{ steps.zerokit-sha.outputs.sha }}
 
       - name: Install Nim ${{ env.NIM_VERSION }}
         uses: jiro4989/setup-nim-action@v2
@@ -154,25 +145,16 @@ jobs:
         id: zerokit-sha
         run: echo "sha=$(git submodule status vendor/zerokit | awk '{print $1}' | sed 's/^[+-]//')" >> $GITHUB_OUTPUT
 
+      - name: Get librln version
+        id: librln-version
+        run: echo "version=$(make print-librln-version)" >> $GITHUB_OUTPUT
+
       - name: Cache librln
         id: cache-librln
         uses: actions/cache@v3
         with:
-          path: librln_v0.9.0.a
-          key: ${{ runner.os }}-librln-v0.9.0-${{ steps.zerokit-sha.outputs.sha }}
-
-      - name: Cache cargo
-        if: steps.cache-librln.outputs.cache-hit != 'true'
-        uses: actions/cache@v3
-        with:
-          path: |
-            ~/.cargo/registry/index/
-            ~/.cargo/registry/cache/
-            ~/.cargo/git/db/
-            vendor/zerokit/target/
-          key: ${{ runner.os }}-cargo-zerokit-${{ steps.zerokit-sha.outputs.sha }}
-          restore-keys: |
-            ${{ runner.os }}-cargo-zerokit-
+          path: librln_${{ steps.librln-version.outputs.version }}.a
+          key: ${{ runner.os }}-librln-${{ steps.librln-version.outputs.version }}-${{ steps.zerokit-sha.outputs.sha }}
 
       - name: Install Nim ${{ env.NIM_VERSION }}
         uses: jiro4989/setup-nim-action@v2
