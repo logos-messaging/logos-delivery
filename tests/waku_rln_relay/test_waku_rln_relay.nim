@@ -385,6 +385,82 @@ suite "Waku rln relay":
       msgValidate1 == MessageValidationResult.Valid
       msgValidate2 == MessageValidationResult.Valid
 
+  asyncTest "RLN FFI procs are leak-safe under repeated proof gen/verify":
+    ## v2.0 FFI wrappers free their inputs manually. Repeating each proc and
+    ## re-checking its result catches double-free/use-after-free; the RSS delta
+    ## guards against gross leaks.
+
+    proc rssKb(): int =
+      ## RSS in KB; -1 if unavailable so a measurement glitch can't fail the test.
+      try:
+        result =
+          parseInt(execProcess("ps -o rss= -p " & $getCurrentProcessId()).strip())
+      except CatchableError:
+        result = -1
+
+    # poseidon: cheap, so a high iteration count gives a clear leak signal
+    let rlnInstance = createRLNInstanceWrapper()
+    require:
+      rlnInstance.isOk()
+    let rln = rlnInstance.get()
+    defer:
+      ffi_rln_free(rln)
+
+    let
+      left = hexToSeqByte(
+          "126f4c026cd731979365f79bd345a46d673c5a3f6f588bdc718e6356d02b6fdc"
+        )
+        .reversed()
+      right = hexToSeqByte(
+          "1f0e5db2b69d599166ab16219a97b82b662085c93220382b39f9f911d3b943b1"
+        )
+        .reversed()
+      expected = "180543bc9afb81d9c2282df9c9946f87b4596cf6d3fec2cc32b6637427685353"
+
+    for _ in 0 ..< 1_000: # warmup to reach allocator steady state
+      discard poseidon(left, right)
+    GC_fullCollect()
+    let rssBeforePoseidon = rssKb()
+
+    for _ in 0 ..< 10_000:
+      let h = poseidon(left, right)
+      doAssert h.isOk(), "poseidon failed mid-loop: " & $h.error
+      doAssert h.get().inHex() == expected, "poseidon result changed"
+    GC_fullCollect()
+    let rssAfterPoseidon = rssKb()
+
+    # generous slack so allocator/page noise never flakes this
+    if rssBeforePoseidon >= 0 and rssAfterPoseidon >= 0:
+      check rssAfterPoseidon - rssBeforePoseidon < 50_000 # < 50 MB
+
+    # full proof generate -> verify cycle
+    let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = MembershipIndex(5))
+    var wakuRlnRelay: WakuRlnRelay
+    lockNewGlobalBrokerContext:
+      wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
+        raiseAssert $error
+
+    let mgr = cast[OnchainGroupManager](wakuRlnRelay.groupManager)
+    (waitFor mgr.register(generateCredentials(), UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
+
+    let epoch = wakuRlnRelay.getCurrentEpoch()
+    GC_fullCollect()
+    let rssBeforeProof = rssKb()
+
+    for i in 0 ..< 50:
+      var wm =
+        WakuMessage(payload: ("leak-test " & $i).toBytes(), timestamp: now())
+      # messageId within the registered limit so each proof generates
+      wakuRlnRelay.unsafeAppendRLNProof(wm, epoch, MessageId(i mod 20)).isOkOr:
+        raiseAssert "proof generation failed mid-loop: " & $error
+      discard wakuRlnRelay.validateMessageAndUpdateLog(wm)
+
+    GC_fullCollect()
+    let rssAfterProof = rssKb()
+    if rssBeforeProof >= 0 and rssAfterProof >= 0:
+      check rssAfterProof - rssBeforeProof < 50_000 # < 50 MB
+
   test "toIDCommitment and toUInt256":
     let idCredentialRes = membershipKeyGen()
     require:
