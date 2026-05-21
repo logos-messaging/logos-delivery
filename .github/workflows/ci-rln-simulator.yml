@@ -124,7 +124,6 @@ jobs:
 
       - name: Build wakunode2
         run: |
-          make update
           make -j${NPROC} V=1 POSTGRES=1 \
             NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" \
             wakunode2
