@@ -13,15 +13,15 @@ type
     payload*: seq[byte]
 
   MessageSentEvent* = object
-    requestId*: ReliableRequestId
+    requestId*: RequestId
 
   MessageDeliveredEvent* = object
-    requestId*: ReliableRequestId
+    requestId*: RequestId
 
   MessageSendErrorEvent* = object
-    requestId*: ReliableRequestId
+    requestId*: RequestId
     reason*: string
 
   MessageDeliveryErrorEvent* = object
-    requestId*: ReliableRequestId
+    requestId*: RequestId
     reason*: string

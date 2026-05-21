@@ -117,7 +117,7 @@ proc send*(
     channelId: ChannelId,
     appPayload: seq[byte],
     ephemeral: bool = false,
-): Result[ReliableRequestId, string] =
+): Result[RequestId, string] =
   ## Spec-level entry point. Looks the channel up by id and delegates
   ## to `ReliableChannel.send`, which exposes the visible pipeline
   ## segmentation -> sds -> rate_limit_manager -> encryption.

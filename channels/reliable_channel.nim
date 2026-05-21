@@ -50,20 +50,20 @@ type
     senderId*: SdsParticipantID
     rng: ref HmacDrbgContext
       ## Private. Each channel owns its own RNG, created locally at
-      ## construction. Used to mint `ReliableRequestId`s and
+      ## construction. Used to mint `RequestId`s and
       ## delivery-service `RequestId`s.
     segmentation*: SegmentationHandler
     sdsHandler*: SdsHandler
     rateLimit*: RateLimitManager
     encryption*: EncryptionHook
 
-    requestIds*: Table[ReliableRequestId, seq[RequestId]]
-      ## Maps each reliable-channel-level (parent) `ReliableRequestId`
+    requestIds*: Table[RequestId, seq[RequestId]]
+      ## Maps each reliable-channel-level (parent) `RequestId`
       ## returned to the caller of `send` to the set of delivery-service
       ## `RequestId`s it fanned out into (one per dispatched segment).
-    pendingRequests*: seq[tuple[parent: ReliableRequestId, ephemeral: bool]]
+    pendingRequests*: seq[tuple[parent: RequestId, ephemeral: bool]]
       ## FIFO of pending dispatches awaiting release by the rate limiter.
-      ## Each entry pairs a parent `ReliableRequestId` with the caller's
+      ## Each entry pairs a parent `RequestId` with the caller's
       ## `ephemeral` flag so the corresponding `MessageEnvelope` can be
       ## stamped correctly when the rate limiter releases the batch.
       ## One entry is pushed per segment enqueued and popped per segment
@@ -91,7 +91,7 @@ proc new*(
     sdsHandler: sdsHandler,
     rateLimit: rateLimit,
     encryption: encryption,
-    requestIds: initTable[ReliableRequestId, seq[RequestId]](),
+    requestIds: initTable[RequestId, seq[RequestId]](),
     pendingRequests: @[],
   )
 
@@ -128,7 +128,7 @@ proc onReadyToSend*(self: ReliableChannel, msgs: seq[SdsMessage]) =
 
 proc send*(
     self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
-): Result[ReliableRequestId, string] =
+): Result[RequestId, string] =
   ## Single application-level send. The first three stages of the
   ## outgoing pipeline are chained explicitly so the flow is visible
   ## at a glance:
@@ -141,10 +141,10 @@ proc send*(
   ## flag is carried alongside each segment in `pendingRequests` and
   ## stamped onto the eventual `MessageEnvelope`.
   ##
-  ## The returned `ReliableRequestId` is the parent of one-or-more
+  ## The returned `RequestId` is the parent of one-or-more
   ## delivery-service `RequestId`s; the mapping is recorded in
   ## `self.requestIds`.
-  let parentReqId = ReliableRequestId.new(self.rng)
+  let parentReqId = RequestId.new(self.rng)
   self.requestIds[parentReqId] = @[]
 
   for segment in self.segmentation.performSegmentation(payload):
