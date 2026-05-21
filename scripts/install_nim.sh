@@ -19,9 +19,18 @@ fi
 
 NIM_DEST="${HOME}/.nim/nim-${NIM_VERSION}"
 
-# Check if nim is already installed at our expected location (not just anywhere in PATH).
-# Checking PATH version is not sufficient: a system-installed nim of the right version
-# won't have its stdlib at ${NIM_DEST}/lib/, causing downstream compilation failures.
+# 1. A matching Nim is already on PATH (e.g. provided by CI's setup-nim-action,
+#    choosenim, or a previous run of this script). Use it as-is: installing over it
+#    would symlink a freshly downloaded Nim into ~/.nimble/bin (first on PATH) and
+#    shadow a known-good toolchain, which has caused C-backend build failures.
+nim_ver=$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+if [ "${nim_ver}" = "${NIM_VERSION}" ]; then
+  echo "Nim ${NIM_VERSION} already on PATH ($(command -v nim)), skipping install."
+  exit 0
+fi
+
+# 2. Already installed at our expected location from a previous run, but not on PATH.
+#    Re-link binaries into ~/.nimble/bin.
 if [ -f "${NIM_DEST}/lib/system.nim" ]; then
   echo "Nim ${NIM_VERSION} already installed at ${NIM_DEST}, re-linking binaries."
   mkdir -p "${HOME}/.nimble/bin"
@@ -31,8 +40,7 @@ if [ -f "${NIM_DEST}/lib/system.nim" ]; then
   exit 0
 fi
 
-nim_ver=$(nim --version 2>/dev/null | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-if [ -n "${nim_ver}" ] && [ "${nim_ver}" != "${NIM_VERSION}" ]; then
+if [ -n "${nim_ver}" ]; then
   echo "INFO: Nim ${nim_ver} found in PATH; installing Nim ${NIM_VERSION} to ${NIM_DEST}." >&2
 fi
 
