@@ -9,7 +9,7 @@
 ## bearssl (nimbledeps)  ##
 ###########################
 # Rebuilds libbearssl.a from the package installed by nimble under
-# nimbledeps/pkgs2/. Used by `make update` / $(NIMBLEDEPS_STAMP).
+# nimbledeps/pkgs2/. Invoked via $(NIMBLEDEPS_STAMP) / build-deps.
 #
 # BEARSSL_NIMBLEDEPS_DIR is evaluated at parse time, so targets that
 # depend on it must be invoked via a recursive $(MAKE) call so the sub-make
@@ -29,18 +29,11 @@ else
   PORTABLE_BEARSSL_CFLAGS := -W -Wall -Os -fPIC
 endif
 
-.PHONY: clean-bearssl-nimbledeps rebuild-bearssl-nimbledeps
+.PHONY: rebuild-bearssl-nimbledeps
 
-clean-bearssl-nimbledeps:
+rebuild-bearssl-nimbledeps:
 ifeq ($(BEARSSL_NIMBLEDEPS_DIR),)
-	$(error No bearssl package found under nimbledeps/pkgs2/ — run 'make update' first)
-endif
-	+ [ -e "$(BEARSSL_CSOURCES_DIR)/build" ] && \
-		"$(MAKE)" -C "$(BEARSSL_CSOURCES_DIR)" clean || true
-
-rebuild-bearssl-nimbledeps: | clean-bearssl-nimbledeps
-ifeq ($(BEARSSL_NIMBLEDEPS_DIR),)
-	$(error No bearssl package found under nimbledeps/pkgs2/ — run 'make update' first)
+	$(error No bearssl package found under nimbledeps/pkgs2/ — run 'make build-deps' first)
 endif
 	@echo "Rebuilding bearssl from $(BEARSSL_CSOURCES_DIR)"
 	+ "$(MAKE)" -C "$(BEARSSL_CSOURCES_DIR)" CFLAGS="$(PORTABLE_BEARSSL_CFLAGS)" lib
