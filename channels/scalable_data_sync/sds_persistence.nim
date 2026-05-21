@@ -1,4 +1,9 @@
 ## Persistence backend for SDS outgoing buffer and causal history.
+##
+## TODO (raised in PR review): this surface is duplicating concerns that
+## should come from the SDS module itself. Once the SDS module exposes a
+## complete persistence contract, drop this file and import that surface
+## instead of re-declaring it here.
 
 import sds/message
 

@@ -39,36 +39,35 @@ const Lip173Meta* = "LIP173"
   ## this layer and is silently dropped on ingress.
 
 type
-  ReliablePayload* = object
+  ReliableChannelPayload* = object
     channelId*: ChannelId
     payload*: seq[byte]
 
   ReliableChannel* = ref object
-    deliveryService*: DeliveryService
-    channelId*: ChannelId
-    contentTopic*: ContentTopic
-    senderId*: SdsParticipantID
+    ## Spec-defined public type. Fields are private so callers cannot
+    ## mutate internals and break invariants (e.g. rewriting the
+    ## delivery service mid-flight, or corrupting `requestIds`).
+    ## Getters are added below for the few values consumers may need.
+    deliveryService: DeliveryService
+    channelId: ChannelId
+    contentTopic: ContentTopic
+    senderId: SdsParticipantID
     rng: ref HmacDrbgContext
-      ## Private. Each channel owns its own RNG, created locally at
-      ## construction. Used to mint `RequestId`s and
-      ## delivery-service `RequestId`s.
-    segmentation*: SegmentationHandler
-    sdsHandler*: SdsHandler
-    rateLimit*: RateLimitManager
-    encryption*: EncryptionHook
+    segmentation: SegmentationHandler
+    sdsHandler: SdsHandler
+    rateLimit: RateLimitManager
 
-    requestIds*: Table[RequestId, seq[RequestId]]
-      ## Maps each reliable-channel-level (parent) `RequestId`
-      ## returned to the caller of `send` to the set of delivery-service
-      ## `RequestId`s it fanned out into (one per dispatched segment).
-    pendingRequests*: seq[tuple[parent: RequestId, ephemeral: bool]]
-      ## FIFO of pending dispatches awaiting release by the rate limiter.
-      ## Each entry pairs a parent `RequestId` with the caller's
-      ## `ephemeral` flag so the corresponding `MessageEnvelope` can be
-      ## stamped correctly when the rate limiter releases the batch.
-      ## One entry is pushed per segment enqueued and popped per segment
-      ## handed to the delivery service. Relies on FIFO release from
-      ## `rate_limit_manager`, which is the case in this skeleton.
+    requestIds: Table[RequestId, seq[RequestId]]
+    pendingRequests: seq[tuple[parent: RequestId, ephemeral: bool]]
+
+func getChannelId*(self: ReliableChannel): ChannelId {.inline.} =
+  self.channelId
+
+func getContentTopic*(self: ReliableChannel): ContentTopic {.inline.} =
+  self.contentTopic
+
+func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
+  self.senderId
 
 proc new*(
     T: type ReliableChannel,
@@ -76,28 +75,36 @@ proc new*(
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
-    segmentation: SegmentationHandler,
-    sdsHandler: SdsHandler,
-    rateLimit: RateLimitManager,
-    encryption: EncryptionHook,
+    segConfig: SegmentationConfig,
+    sdsConfig: SdsConfig,
+    rateConfig: RateLimitConfig,
+    brokerCtx: BrokerContext = globalBrokerContext(),
 ): T =
+  ## Pipeline handlers (segmentation/SDS/rate-limit) are constructed
+  ## inside the channel rather than handed in by the caller — they are
+  ## implementation details of the channel, not knobs the API consumer
+  ## should be wiring up. Encryption is delegated to the `Encrypt`/
+  ## `Decrypt` request brokers, so the channel keeps no per-instance
+  ## encryption state either.
   return T(
     deliveryService: deliveryService,
     channelId: channelId,
     contentTopic: contentTopic,
     senderId: senderId,
     rng: libp2p_crypto.newRng(),
-    segmentation: segmentation,
-    sdsHandler: sdsHandler,
-    rateLimit: rateLimit,
-    encryption: encryption,
+    segmentation: SegmentationHandler.new(segConfig),
+    sdsHandler: SdsHandler.new(sdsConfig),
+    rateLimit: RateLimitManager.new(rateConfig, channelId, brokerCtx),
     requestIds: initTable[RequestId, seq[RequestId]](),
     pendingRequests: @[],
   )
 
-proc onReadyToSend*(self: ReliableChannel, msgs: seq[SdsMessage]) =
+proc onReadyToSend*(
+    self: ReliableChannel, msgs: seq[seq[byte]]
+) {.async: (raises: []).} =
   ## Tail of the outgoing pipeline. Invoked from the `ReadyToSendEvent`
-  ## listener once `rate_limit_manager` releases a batch of SDS messages:
+  ## listener once `rate_limit_manager` releases a batch of opaque
+  ## blobs (already-encoded SDS messages):
   ##
   ##   ... -> rate_limit_manager -> [encryption] -> dispatch
   for m in msgs:
@@ -111,7 +118,9 @@ proc onReadyToSend*(self: ReliableChannel, msgs: seq[SdsMessage]) =
     ## decryption before it can route, which breaks selective dispatch.
     ## Leave routing metadata (channelId, causal-history references) in
     ## clear and encrypt only the application payload.
-    let wireBytes = self.encryption.encrypt(m.encode())
+    let encRes = await Encrypt.request(m)
+    let wireBytes =
+      if encRes.isOk(): seq[byte](encRes.get()) else: m
     let envelope = MessageEnvelope(
       contentTopic: self.contentTopic,
       payload: wireBytes,
@@ -148,16 +157,21 @@ proc send*(
   self.requestIds[parentReqId] = @[]
 
   for segment in self.segmentation.performSegmentation(payload):
-    let sdsMsg = self.sdsHandler.wrapOutgoing(self.channelId, self.senderId, segment)
+    ## Encode the segment to bytes here so SDS stays agnostic of the
+    ## segmentation wire format.
+    let sdsMsg =
+      self.sdsHandler.wrapOutgoing(self.channelId, self.senderId, segment.encode())
     self.pendingRequests.add((parent: parentReqId, ephemeral: ephemeral))
-    self.rateLimit.enqueueToSend(sdsMsg)
+    self.rateLimit.enqueueToSend(sdsMsg.encode())
 
   return ok(parentReqId)
 
-proc onMessageReceived*(self: ReliableChannel, wakuMsg: WakuMessage) =
+proc onMessageReceived*(
+    self: ReliableChannel, wakuMsg: WakuMessage
+) {.async: (raises: []).} =
   ## Ingress pipeline made visible:
   ##
-  ##   WakuMessage -> ReliablePayload -> decrypt -> sds -> reassemble -> emit
+  ##   WakuMessage -> ReliableChannelPayload -> decrypt -> sds -> reassemble -> emit
   ##
   ## Invoked from the waku `MessageReceivedEvent` listener after the
   ## inbound `WakuMessage` has been filtered to this channel's
@@ -168,12 +182,14 @@ proc onMessageReceived*(self: ReliableChannel, wakuMsg: WakuMessage) =
     ## Not a Reliable Channel message — silently drop it.
     return
 
-  ## TODO: decode the `ReliablePayload` wrapper out of `inWakuMsg.payload`
+  ## TODO: decode the `ReliableChannelPayload` wrapper out of `inWakuMsg.payload`
   ## properly (currently treated as the raw SDS bytes).
-  let reliablePayload: ReliablePayload =
-    ReliablePayload(channelId: self.channelId, payload: inWakuMsg.payload)
+  let reliablePayload: ReliableChannelPayload =
+    ReliableChannelPayload(channelId: self.channelId, payload: inWakuMsg.payload)
 
-  let plaintext: seq[byte] = self.encryption.decrypt(reliablePayload.payload)
+  let decRes = await Decrypt.request(reliablePayload.payload)
+  let plaintext: seq[byte] =
+    if decRes.isOk(): seq[byte](decRes.get()) else: reliablePayload.payload
 
   let sdsMsg: SdsMessage = SdsMessage.decode(plaintext)
   let processedSds: SdsMessage = self.sdsHandler.handleIncoming(sdsMsg)

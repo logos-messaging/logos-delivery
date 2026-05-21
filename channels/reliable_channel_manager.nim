@@ -5,13 +5,12 @@
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/[options, tables]
+import std/tables
 import results
 
 import waku/events/message_events as waku_message_events
 
 import ./reliable_channel
-import ./encryption/encryption
 import ./encryption/noop_encryption
 
 export reliable_channel
@@ -20,13 +19,17 @@ type ReliableChannelManager* = ref object
   channels: Table[ChannelId, ReliableChannel]
   deliveryService*: DeliveryService
     ## The single send/receive surface all owned channels dispatch through.
+  brokerCtx: BrokerContext
 
 proc new*(
-    T: type ReliableChannelManager, deliveryService: DeliveryService
+    T: type ReliableChannelManager,
+    deliveryService: DeliveryService,
+    brokerCtx: BrokerContext = globalBrokerContext(),
 ): T =
   return T(
     channels: initTable[ChannelId, ReliableChannel](),
     deliveryService: deliveryService,
+    brokerCtx: brokerCtx,
   )
 
 proc createReliableChannel*(
@@ -34,22 +37,18 @@ proc createReliableChannel*(
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
-    encryption: Option[EncryptionHook] = none(EncryptionHook),
 ): Result[ChannelId, string] =
   ## Spec entry point. The `DeliveryService` and `rng` the channel needs
   ## are sourced from the owning `ReliableChannelManager` rather than
-  ## passed per call.
+  ## passed per call. Encryption is wired up through the `Encrypt`/
+  ## `Decrypt` request brokers — the application installs its own
+  ## providers (or `setNoopEncryption()`) before traffic flows.
   ##
   ## Segmentation, SDS and rate-limit configs will eventually be read
   ## from the node's `NodeConfig`. Defaults for now.
   if manager.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
 
-  let enc =
-    if encryption.isSome and encryption.get.isConfigured():
-      encryption.get
-    else:
-      newNoopEncryptionHook()
   let segConfig = SegmentationConfig(
     segmentSizeBytes: DefaultSegmentSizeBytes,
     enableReedSolomon: false,
@@ -70,20 +69,20 @@ proc createReliableChannel*(
     channelId = channelId,
     contentTopic = contentTopic,
     senderId = senderId,
-    segmentation = SegmentationHandler.new(segConfig),
-    sdsHandler = SdsHandler.new(sdsConfig),
-    rateLimit = RateLimitManager.new(rateConfig, channelId),
-    encryption = enc,
+    segConfig = segConfig,
+    sdsConfig = sdsConfig,
+    rateConfig = rateConfig,
+    brokerCtx = manager.brokerCtx,
   )
   ## Continue the outgoing pipeline once the rate limiter releases a
   ## batch of SDS messages: rate_limit_manager -> encryption -> dispatch.
   ## The listener filters on `channelId` since all reliable channels
-  ## share the global broker context.
+  ## owned by the same manager share the same broker context.
   discard ReadyToSendEvent.listen(
-    globalBrokerContext(),
+    manager.brokerCtx,
     proc(evt: ReadyToSendEvent): Future[void] {.async: (raises: []).} =
-      if evt.channelId == chn.channelId:
-        chn.onReadyToSend(evt.msgs)
+      if evt.channelId == chn.getChannelId:
+        await chn.onReadyToSend(evt.msgs)
     ,
   )
 
@@ -91,12 +90,12 @@ proc createReliableChannel*(
   ## message on this channel's content topic:
   ##   decryption -> sds -> segmentation reassembly -> emit.
   discard waku_message_events.MessageReceivedEvent.listen(
-    globalBrokerContext(),
+    manager.brokerCtx,
     proc(
         evt: waku_message_events.MessageReceivedEvent
     ): Future[void] {.async: (raises: []).} =
-      if evt.message.contentTopic == chn.contentTopic:
-        chn.onMessageReceived(evt.message)
+      if evt.message.contentTopic == chn.getContentTopic:
+        await chn.onMessageReceived(evt.message)
     ,
   )
 
@@ -126,16 +125,8 @@ proc send*(
     return err("unknown channel: " & channelId)
   return chn.send(appPayload, ephemeral)
 
-proc processInboundMessage*(
-    manager: ReliableChannelManager, channelId: ChannelId, inMsg: MessageEnvelope
-) =
-  ## Entry point for messages delivered by the Messaging API.
-  ##
-  ## TODO:
-  ## - validate LIP173 meta on the WakuMessage
-  ## - decode `ReliablePayload`
-  ## - decrypt via chn.encryption
-  ## - feed into chn.sdsHandler.handleIncoming
-  ## - feed resulting segment into chn.segmentation.handleIncomingSegment
-  ## - on reassembly completion, emit MessageReceivedEvent
-  discard
+## Inbound messages are not handed to the manager by direct call: the
+## listener registered in `createReliableChannel` for
+## `waku_message_events.MessageReceivedEvent` invokes
+## `chn.onMessageReceived` itself. This keeps the lower layer
+## (MessagingAPI/Waku) unaware of the existence of ReliableChannel.

@@ -7,9 +7,8 @@
 
 import sds/message
 import ./sds_persistence
-import ../segmentation/segment_message_proto
 
-export message, sds_persistence, segment_message_proto
+export message, sds_persistence
 
 const
   DefaultAcknowledgementTimeoutMs* = 5_000
@@ -33,11 +32,11 @@ proc wrapOutgoing*(
     self: SdsHandler,
     channelId: SdsChannelID,
     senderId: SdsParticipantID,
-    segment: SegmentMessageProto,
+    payload: seq[byte],
 ): SdsMessage =
   ## Stage 2 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
-  ## Wraps a single segment from the segmentation stage into an `SdsMessage`,
-  ## populating causal history, lamport timestamp and bloom filter.
+  ## SDS is intentionally segmentation-agnostic: the caller encodes the
+  ## segment to bytes before handing it over here.
   ##
   ## TODO: real causal-history/lamport/bloom-filter population.
   discard

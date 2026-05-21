@@ -9,22 +9,25 @@ import std/times
 import sds/message
 import waku/common/broker/event_broker
 
-export message, event_broker
+export event_broker, broker_context
+export message.SdsChannelID
 
 const
   DefaultEpochPeriodSec* = 600
   DefaultMessagesPerEpoch* = 1
 
 EventBroker:
-  ## Emitted by `enqueueToSend` carrying the batch of SDS messages that
-  ## may now leave the rate limiter and continue down the outgoing
-  ## pipeline (encryption -> dispatch).
+  ## Emitted by `enqueueToSend` carrying the batch of opaque message
+  ## blobs that may now leave the rate limiter and continue down the
+  ## outgoing pipeline (encryption -> dispatch). Bytes only: the rate
+  ## limiter is intentionally agnostic of SDS, so anything serialisable
+  ## can flow through it.
   ##
   ## `channelId` lets listeners filter to their own channel, since all
   ## reliable channels share the underlying Waku node's broker context.
   type ReadyToSendEvent* = object
     channelId*: SdsChannelID
-    msgs*: seq[SdsMessage]
+    msgs*: seq[seq[byte]]
 
 type
   RateLimitConfig* = object
@@ -33,13 +36,17 @@ type
 
   RateLimitManager* = ref object
     config*: RateLimitConfig
-    queue*: seq[SdsMessage]
+    queue*: seq[seq[byte]]
     currentEpochStart*: Time
     sentInCurrentEpoch*: int
     channelId*: SdsChannelID ## tag for the emitted `ReadyToSendEvent`
+    brokerCtx: BrokerContext
 
 proc new*(
-    T: type RateLimitManager, config: RateLimitConfig, channelId: SdsChannelID
+    T: type RateLimitManager,
+    config: RateLimitConfig,
+    channelId: SdsChannelID,
+    brokerCtx: BrokerContext = globalBrokerContext(),
 ): T =
   return T(
     config: config,
@@ -47,9 +54,10 @@ proc new*(
     currentEpochStart: getTime(),
     sentInCurrentEpoch: 0,
     channelId: channelId,
+    brokerCtx: brokerCtx,
   )
 
-proc enqueueToSend*(self: RateLimitManager, msg: SdsMessage) =
+proc enqueueToSend*(self: RateLimitManager, msg: seq[byte]) =
   ## Stage 3 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
   ##
   ## For now: enqueue the message and immediately dequeue the full
@@ -62,10 +70,10 @@ proc enqueueToSend*(self: RateLimitManager, msg: SdsMessage) =
   self.queue = @[]
 
   ReadyToSendEvent.emit(
-    globalBrokerContext(), ReadyToSendEvent(channelId: self.channelId, msgs: ready)
+    self.brokerCtx, ReadyToSendEvent(channelId: self.channelId, msgs: ready)
   )
 
-proc dequeueReady*(self: RateLimitManager): seq[SdsMessage] =
+proc dequeueReady*(self: RateLimitManager): seq[seq[byte]] =
   ## Returns the set of queued messages that may be dispatched now
   ## without exceeding the configured rate limit. Advances epoch
   ## bookkeeping as needed.
