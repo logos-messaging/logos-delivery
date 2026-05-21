@@ -17,6 +17,10 @@ For more details see the [source code](waku/README.md)
 
 These instructions are generic. For more detailed instructions, see the source code above.
 
+Recommended and tested toolchain versions (these are installed when you follow the build instructions below):
+- Nim 2.2.4
+- Nimble 0.22.3
+
 ### Prerequisites
 
 The standard developer tools, including a C compiler, GNU Make, Bash, and Git.
@@ -30,10 +34,6 @@ Rust:
 ```bash
 curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 ```
-
-Recommended and tested toolchain versions:
-- Nim 2.2.4
-- Nimble 0.22.3
 
 ### Wakunode
 
