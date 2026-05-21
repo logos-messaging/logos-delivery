@@ -7,9 +7,13 @@
 
 import std/tables
 import results
+import chronos
 import stew/byteutils
 
+import waku/api/api
+import waku/api/api_conf
 import waku/events/message_events as waku_message_events
+import waku/factory/waku as waku_factory
 
 import ./reliable_channel
 import ./encryption/noop_encryption
@@ -18,18 +22,30 @@ export reliable_channel
 
 type ReliableChannelManager* = ref object
   channels: Table[ChannelId, ReliableChannel]
-  deliveryService*: DeliveryService
-    ## The single send/receive surface all owned channels dispatch through.
+  deliveryService: DeliveryService
+    ## Owned by the manager. The ownership chain is
+    ##   ReliableChannelManager -> DeliveryService -> Waku -> WakuNode.
+    ## Hidden so callers can't substitute their own and bypass the
+    ## manager's pipeline.
   brokerCtx: BrokerContext
 
 proc new*(
     T: type ReliableChannelManager,
-    deliveryService: DeliveryService,
+    conf: WakuNodeConf,
     brokerCtx: BrokerContext = globalBrokerContext(),
-): T =
+): Future[Result[T, string]] {.async.} =
+
+  ## TODO !! The proper ownership chain is:
+  ## ReliableChannelManager -> DeliveryService (MessagingClient) -> Waku (Kernel/Protocols) -> WakuNode,
+  ## and this will be implemented in the future. For now, `createNode`
+  ## is called here to get a DeliveryService instance, and the WakuNode is immediately discarded.
+  ## This is a temporary workaround to get the API
+
+  let waku = ?(await createNode(conf))
+
   let manager = T(
     channels: initTable[ChannelId, ReliableChannel](),
-    deliveryService: deliveryService,
+    deliveryService: waku.deliveryService,
     brokerCtx: brokerCtx,
   )
 
@@ -70,7 +86,17 @@ proc new*(
     ,
   )
 
-  return manager
+  return ok(manager)
+
+proc start*(self: ReliableChannelManager): Result[void, string] =
+  ## Bring the owned DeliveryService up. Separated from `new` so callers
+  ## can register encryption providers / create channels before traffic
+  ## starts flowing.
+  self.deliveryService.startDeliveryService()
+
+proc stop*(self: ReliableChannelManager) {.async.} =
+  if not self.deliveryService.isNil():
+    await self.deliveryService.stopDeliveryService()
 
 proc createReliableChannel*(
     self: ReliableChannelManager,
