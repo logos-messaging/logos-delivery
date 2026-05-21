@@ -106,6 +106,11 @@ proc onReadyToSend*(self: ReliableChannel, msgs: seq[SdsMessage]) =
     let pending = self.pendingRequests[0]
     self.pendingRequests.delete(0)
 
+    ## TODO: revisit which fields of the SDS message must be encrypted.
+    ## Encrypting the whole encoded blob forces every receiver to attempt
+    ## decryption before it can route, which breaks selective dispatch.
+    ## Leave routing metadata (channelId, causal-history references) in
+    ## clear and encrypt only the application payload.
     let wireBytes = self.encryption.encrypt(m.encode())
     let envelope = MessageEnvelope(
       contentTopic: self.contentTopic,
