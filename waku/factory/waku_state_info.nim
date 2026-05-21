@@ -5,7 +5,7 @@
 ## accessible through the debug API.
 
 import std/[tables, sequtils, strutils]
-import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid
+import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
 import waku/[waku_node, net/bound_ports]
 
 type
@@ -16,6 +16,7 @@ type
     MyENR
     MyPeerId
     MyBoundPorts
+    MyMixPubKey
 
   WakuStateInfo* {.requiresInit.} = object
     node: WakuNode
@@ -46,6 +47,11 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
     return $PeerId(self.node.peerId())
   of NodeInfoId.MyBoundPorts:
     return $self.node.ports
+  of NodeInfoId.MyMixPubKey:
+    ## Empty when the mix protocol is not mounted on this node.
+    if self.node.wakuMix.isNil():
+      return ""
+    return self.node.wakuMix.pubKey.to0xHex()
   else:
     return "unknown info item id"
 
