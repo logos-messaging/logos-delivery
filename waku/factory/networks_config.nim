@@ -92,6 +92,35 @@ proc LogosDevConf*(T: type NetworkConf): NetworkConf =
     ],
   )
 
+# cluster-id=2 (Logos Test Network)
+# Cluster configuration for the Logos Test Network.
+proc LogosTestConf*(T: type NetworkConf): NetworkConf =
+  const ZeroChainId = 0'u256
+  return NetworkConf(
+    maxMessageSize: "150KiB",
+    clusterId: 2,
+    rlnRelay: false,
+    rlnRelayEthContractAddress: "",
+    rlnRelayDynamic: false,
+    rlnRelayChainId: ZeroChainId,
+    rlnEpochSizeSec: 0,
+    rlnRelayUserMessageLimit: 0,
+    shardingConf: ShardingConf(kind: AutoSharding, numShardsInCluster: 8),
+    enableKadDiscovery: true,
+    mix: true,
+    p2pReliability: true,
+    discv5Discovery: true,
+    discv5BootstrapNodes: @[],
+    entryNodes: @[
+      "/dns4/node-01.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmQ9X2xDfPG3uL77V9piYDhjq14JhKCtcmNYsTMKNqrKCj",
+      "/dns4/node-02.do-ams3.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmB8NYprrfQrgWVzsJtYWkfjsXbmJEGNMG6othXsQ53BwG",
+      "/dns4/node-01.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmF8WtwGPmeGHgYAX2277jHgy5cW9F7zsB8EqUjBZQAZQ3",
+      "/dns4/node-02.gc-us-central1-a.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmUuXhUW9bdJpzN1kfDziFiUZo4bszTk66cvr7uuyCHXR7",
+      "/dns4/node-01.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAmL3oU95jh1BZHozn3uNhx8HEneirgr8M1jEAapzXGDqRF",
+      "/dns4/node-02.ac-cn-hongkong-c.logos.test.status.im/tcp/30303/p2p/16Uiu2HAm28CoBZjpyxsanC8tQpbvZ7bZJnVYuB1EgFzb571qpWsV",
+    ],
+  )
+
 proc validateShards*(
     shardingConf: ShardingConf, shards: seq[uint16]
 ): Result[void, string] =
