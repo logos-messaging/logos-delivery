@@ -19,7 +19,7 @@ on:
       branch:
         description: 'logos-delivery branch to build & test'
         type: string
-        default: 'feat/bump_zerokit_2.0.1'   # change to 'master' after #3868 merges
+        default: 'master'
       num_nodes:
         description: 'Number of nwaku nodes'
         type: string
@@ -39,7 +39,7 @@ env:
   NIM_VERSION: '2.2.4'
   NIMBLE_VERSION: '0.22.3'
   # Defaults used by the scheduled run (inputs are only set on workflow_dispatch)
-  DEFAULT_BRANCH: 'feat/bump_zerokit_2.0.1'
+  DEFAULT_BRANCH: 'master'
   DEFAULT_NUM_NODES: '6'
   DEFAULT_MSG_LIMIT: '30'
   DEFAULT_EPOCH_SEC: '120'
