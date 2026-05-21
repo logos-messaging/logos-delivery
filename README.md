@@ -186,3 +186,4 @@ To get help, or participate in the conversation, join the [Waku Discord](https:/
 ### Docs
 
 * [REST API Documentation](https://waku-org.github.io/waku-rest-api/)
+* [Waku Website](https://waku.org/)
