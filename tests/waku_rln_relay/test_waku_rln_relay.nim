@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, os, sequtils, tempfiles, strutils, osproc],
+  std/[options, os, sequtils, tempfiles, strutils, osproc, algorithm],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -36,23 +36,16 @@ suite "Waku rln relay":
   teardown:
     stopAnvil(anvilProc)
 
-  test "key_gen Nim Wrappers":
-    let merkleDepth: csize_t = 20
+  test "ffi_extended_key_gen raw FFI":
+    # When we call the raw key-generation FFI
+    var vec = ffi_extended_key_gen()
 
-    # keysBufferPtr will hold the generated identity credential i.e., id trapdoor, nullifier, secret hash and commitment
-    var keysBuffer: Buffer
-    let
-      keysBufferPtr = addr(keysBuffer)
-      done = key_gen(keysBufferPtr, true)
-    require:
-      # check whether the keys are generated successfully
-      done
-
-    let generatedKeys = cast[ptr array[4 * 32, byte]](keysBufferPtr.`ptr`)[]
+    # Then it returns exactly 4 field elements
+    # (idTrapdoor, idNullifier, idSecretHash, idCommitment — each 32 bytes)
+    defer:
+      ffi_vec_cfr_free(vec)
     check:
-      # the id trapdoor, nullifier, secert hash and commitment together are 4*32 bytes
-      generatedKeys.len == 4 * 32
-    info "generated keys: ", generatedKeys
+      int(ffi_vec_cfr_len(addr vec)) == 4
 
   test "membership Key Generation":
     let idCredentialsRes = membershipKeyGen()
@@ -80,18 +73,22 @@ suite "Waku rln relay":
       rlnInstance.isOk()
     let rln = rlnInstance.get()
 
-    # prepare the input
-    let msg = @[
-      "126f4c026cd731979365f79bd345a46d673c5a3f6f588bdc718e6356d02b6fdc".toBytes(),
-      "1f0e5db2b69d599166ab16219a97b82b662085c93220382b39f9f911d3b943b1".toBytes(),
-    ]
+    # prepare the input — hex-decoded then reversed to little-endian field elements
+    let
+      left = hexToSeqByte(
+          "126f4c026cd731979365f79bd345a46d673c5a3f6f588bdc718e6356d02b6fdc"
+        )
+        .reversed()
+      right = hexToSeqByte(
+          "1f0e5db2b69d599166ab16219a97b82b662085c93220382b39f9f911d3b943b1"
+        )
+        .reversed()
 
-    let hashRes = poseidon(msg)
+    let hashRes = poseidon(left, right)
 
-    # Value taken from zerokit
     check:
       hashRes.isOk()
-      "28a15a991fe3d2a014485c7fa905074bfb55c0909112f865ded2be0a26a932c3" ==
+      "180543bc9afb81d9c2282df9c9946f87b4596cf6d3fec2cc32b6637427685353" ==
         hashRes.get().inHex()
 
   test "RateLimitProof Protobuf encode/init test":

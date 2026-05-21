@@ -11,7 +11,7 @@ import
   stint,
   json,
   std/[strutils, tables, algorithm, strformat],
-  stew/[byteutils, arrayops],
+  stew/byteutils,
   sequtils
 
 import
@@ -327,7 +327,7 @@ proc getRootFromProofAndIndex(
   # it's currently not used anywhere, but can be used to verify the root from the proof and index
   # Compute leaf hash from idCommitment and messageLimit
   let messageLimitField = uint64ToField(g.userMessageLimit.get())
-  var hash = poseidon(@[g.idCredentials.get().idCommitment, @messageLimitField]).valueOr:
+  var hash = poseidon(g.idCredentials.get().idCommitment, @messageLimitField).valueOr:
     return err("Failed to compute leaf hash: " & error)
 
   for i in 0 ..< bits.len:
@@ -335,9 +335,9 @@ proc getRootFromProofAndIndex(
 
     let hashRes =
       if bits[i] == 0:
-        poseidon(@[@hash, sibling])
+        poseidon(@hash, sibling)
       else:
-        poseidon(@[sibling, @hash])
+        poseidon(sibling, @hash)
 
     hash = hashRes.valueOr:
       return err("Failed to compute poseidon hash: " & error)
@@ -373,7 +373,12 @@ method generateProof*(
     let chunk = g.merkleProofCache[i * 32 .. (i + 1) * 32 - 1]
     path_elements.add(chunk.reversed())
 
-  let x = keccak.keccak256.digest(data)
+  let xCfr = hashToFieldLe(data).valueOr:
+    return err("Failed to hash signal to field: " & error)
+  defer:
+    ffi_cfr_free(xCfr)
+  let x = cfrToBytesLe(xCfr).valueOr:
+    return err("Failed to serialize signal hash: " & error)
 
   let extNullifier = generateExternalNullifier(epoch, rlnIdentifier).valueOr:
     return err("Failed to compute external nullifier: " & error)
@@ -388,57 +393,8 @@ method generateProof*(
     external_nullifier: extNullifier,
   )
 
-  let serializedWitness = serialize(witness)
-
-  var input_witness_buffer = toBuffer(serializedWitness)
-
-  # Generate the proof using the zerokit API
-  var output_witness_buffer: Buffer
-  let witness_success = generate_proof_with_witness(
-    g.rlnInstance, addr input_witness_buffer, addr output_witness_buffer
-  )
-
-  if not witness_success:
-    return err("Failed to generate proof")
-
-  # Parse the proof into a RateLimitProof object
-  var proofValue = cast[ptr array[320, byte]](output_witness_buffer.`ptr`)
-  let proofBytes: array[320, byte] = proofValue[]
-
-  ## Parse the proof as [ proof<128> | root<32> | external_nullifier<32> | share_x<32> | share_y<32> | nullifier<32> ]
-  let
-    proofOffset = 128
-    rootOffset = proofOffset + 32
-    externalNullifierOffset = rootOffset + 32
-    shareXOffset = externalNullifierOffset + 32
-    shareYOffset = shareXOffset + 32
-    nullifierOffset = shareYOffset + 32
-
-  var
-    zkproof: ZKSNARK
-    proofRoot, shareX, shareY: MerkleNode
-    externalNullifier: ExternalNullifier
-    nullifier: Nullifier
-
-  discard zkproof.copyFrom(proofBytes[0 .. proofOffset - 1])
-  discard proofRoot.copyFrom(proofBytes[proofOffset .. rootOffset - 1])
-  discard
-    externalNullifier.copyFrom(proofBytes[rootOffset .. externalNullifierOffset - 1])
-  discard shareX.copyFrom(proofBytes[externalNullifierOffset .. shareXOffset - 1])
-  discard shareY.copyFrom(proofBytes[shareXOffset .. shareYOffset - 1])
-  discard nullifier.copyFrom(proofBytes[shareYOffset .. nullifierOffset - 1])
-
-  # Create the RateLimitProof object
-  let output = RateLimitProof(
-    proof: zkproof,
-    merkleRoot: proofRoot,
-    externalNullifier: externalNullifier,
-    epoch: epoch,
-    rlnIdentifier: rlnIdentifier,
-    shareX: shareX,
-    shareY: shareY,
-    nullifier: nullifier,
-  )
+  let output = generateRlnProofWithWitness(g.rlnInstance, witness, epoch, rlnIdentifier).valueOr:
+    return err("Failed to generate proof: " & error)
 
   info "Proof generated successfully", proof = output
 
@@ -449,34 +405,12 @@ method generateProof*(
 method verifyProof*(
     g: OnchainGroupManager, input: seq[byte], proof: RateLimitProof
 ): GroupManagerResult[bool] {.gcsafe.} =
-  ## -- Verifies an RLN rate-limit proof against the set of valid Merkle roots --
+  let validProof = verifyRlnProof(
+    g.rlnInstance, proof, input, g.validRoots.items().toSeq()
+  ).valueOr:
+    return err("could not verify the proof: " & error)
 
-  var normalizedProof = proof
-
-  let externalNullifier = generateExternalNullifier(proof.epoch, proof.rlnIdentifier).valueOr:
-    return err("Failed to compute external nullifier: " & error)
-  normalizedProof.externalNullifier = externalNullifier
-
-  let proofBytes = serialize(normalizedProof, input)
-  let proofBuffer = proofBytes.toBuffer()
-
-  let rootsBytes = serialize(g.validRoots.items().toSeq())
-  let rootsBuffer = rootsBytes.toBuffer()
-
-  var validProof: bool # out-param
-  let ffiOk = verify_with_roots(
-    g.rlnInstance, # RLN context created at init()
-    addr proofBuffer, # (proof + signal)
-    addr rootsBuffer, # valid Merkle roots
-    addr validProof # will be set by the FFI call
-    ,
-  )
-
-  if not ffiOk:
-    return err("could not verify the proof")
-  else:
-    info "Proof verified successfully"
-
+  info "Proof verified", isValid = validProof
   return ok(validProof)
 
 method onRegister*(g: OnchainGroupManager, cb: OnRegisterCallback) {.gcsafe.} =
@@ -622,6 +556,10 @@ method stop*(g: OnchainGroupManager): Future[void] {.async, gcsafe.} =
   if g.ethRpc.isSome():
     g.ethRpc.get().ondisconnect = nil
     await g.ethRpc.get().close()
+
+  if not g.rlnInstance.isNil:
+    ffi_rln_free(g.rlnInstance)
+    g.rlnInstance = nil
 
   g.initialized = false
 

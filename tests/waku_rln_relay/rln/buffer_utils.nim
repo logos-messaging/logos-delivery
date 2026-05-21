@@ -1,11 +1,4 @@
-import waku/waku_rln_relay/rln/rln_interface
-
-proc `==`*(a: Buffer, b: seq[uint8]): bool =
-  if a.len != uint(b.len):
-    return false
-
-  let bufferArray = cast[ptr UncheckedArray[uint8]](a.ptr)
-  for i in 0 ..< b.len:
-    if bufferArray[i] != b[i]:
-      return false
-  return true
+# buffer_utils.nim — intentionally empty.
+# The v0.9 Buffer type and toBuffer helper were removed in the zerokit v2.0.1
+# migration. This file is kept as a placeholder so that any future test imports
+# do not break the build; the content that was here is no longer needed.
