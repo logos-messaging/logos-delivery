@@ -59,7 +59,8 @@ proc proofPtrToRateLimitProof(
   defer:
     ffi_cfr_free(rootPtr)
   output.merkleRoot = cfrToBytesLe(rootPtr).valueOr:
-    return err("failed call to cfrToBytesLe (root) in proofPtrToRateLimitProof: " & error)
+    return
+      err("failed call to cfrToBytesLe (root) in proofPtrToRateLimitProof: " & error)
 
   let xPtr = ffi_rln_proof_values_get_x(addr pvHandle)
   if xPtr.isNil():
@@ -67,7 +68,8 @@ proc proofPtrToRateLimitProof(
   defer:
     ffi_cfr_free(xPtr)
   output.shareX = cfrToBytesLe(xPtr).valueOr:
-    return err("failed call to cfrToBytesLe (shareX) in proofPtrToRateLimitProof: " & error)
+    return
+      err("failed call to cfrToBytesLe (shareX) in proofPtrToRateLimitProof: " & error)
 
   let yRes = ffi_rln_proof_values_get_y(addr pvHandle)
   output.shareY = cfrResultToBytes(yRes, "Failed to read proof y: ").valueOr:
@@ -214,7 +216,9 @@ proc buildPathElementsVec(
       pathElements.toOpenArray(start, start + FieldElementSize - 1)
     ).valueOr:
       ffi_vec_cfr_free(vec)
-      return err("failed call to bytesToCfrLe (path element) in buildPathElementsVec: " & error)
+      return err(
+        "failed call to bytesToCfrLe (path element) in buildPathElementsVec: " & error
+      )
     ffi_vec_cfr_push(addr vec, element)
     ffi_cfr_free(element)
   ok(vec)
@@ -239,15 +243,20 @@ proc buildWitnessInput(
   var pathIndexVec = toVecUint8(witness.identity_path_index)
 
   let identitySecret = bytesToCfrLe(witness.identity_secret).valueOr:
-    return err("failed call to bytesToCfrLe (identity_secret) in buildWitnessInput: " & error)
+    return err(
+      "failed call to bytesToCfrLe (identity_secret) in buildWitnessInput: " & error
+    )
   defer:
     ffi_cfr_free(identitySecret)
   let userLimit = bytesToCfrLe(witness.user_message_limit).valueOr:
-    return err("failed call to bytesToCfrLe (user_message_limit) in buildWitnessInput: " & error)
+    return err(
+      "failed call to bytesToCfrLe (user_message_limit) in buildWitnessInput: " & error
+    )
   defer:
     ffi_cfr_free(userLimit)
   let messageIdFr = bytesToCfrLe(witness.message_id).valueOr:
-    return err("failed call to bytesToCfrLe (message_id) in buildWitnessInput: " & error)
+    return
+      err("failed call to bytesToCfrLe (message_id) in buildWitnessInput: " & error)
   defer:
     ffi_cfr_free(messageIdFr)
   let xFr = bytesToCfrLe(witness.x).valueOr:
@@ -255,16 +264,25 @@ proc buildWitnessInput(
   defer:
     ffi_cfr_free(xFr)
   let externalNullifierFr = bytesToCfrLe(witness.external_nullifier).valueOr:
-    return err("failed call to bytesToCfrLe (external_nullifier) in buildWitnessInput: " & error)
+    return err(
+      "failed call to bytesToCfrLe (external_nullifier) in buildWitnessInput: " & error
+    )
   defer:
     ffi_cfr_free(externalNullifierFr)
 
   let witnessRes = ffi_rln_witness_input_new(
-    identitySecret, userLimit, messageIdFr, addr pathElementsVec, addr pathIndexVec,
-    xFr, externalNullifierFr,
+    identitySecret,
+    userLimit,
+    messageIdFr,
+    addr pathElementsVec,
+    addr pathIndexVec,
+    xFr,
+    externalNullifierFr,
   )
   if witnessRes.ok.isNil():
-    return err(consumeError("Failed to create witness in buildWitnessInput: ", witnessRes.err))
+    return err(
+      consumeError("Failed to create witness in buildWitnessInput: ", witnessRes.err)
+    )
   return ok(witnessRes.ok)
 
 proc generateRlnProofWithWitness*(
@@ -274,7 +292,8 @@ proc generateRlnProofWithWitness*(
     rlnIdentifier: RlnIdentifier,
 ): RlnRelayResult[RateLimitProof] =
   let witnessHandle = buildWitnessInput(witness).valueOr:
-    return err("failed call to buildWitnessInput in generateRlnProofWithWitness: " & error)
+    return
+      err("failed call to buildWitnessInput in generateRlnProofWithWitness: " & error)
   defer:
     ffi_rln_witness_input_free(witnessHandle)
 
@@ -299,7 +318,8 @@ proc buildRlnProof(
   defer:
     ffi_cfr_free(rootFr)
   let extNullFr = bytesToCfrLe(externalNullifier).valueOr:
-    return err("failed call to bytesToCfrLe (externalNullifier) in buildRlnProof: " & error)
+    return
+      err("failed call to bytesToCfrLe (externalNullifier) in buildRlnProof: " & error)
   defer:
     ffi_cfr_free(extNullFr)
   let shareXFr = bytesToCfrLe(proof.shareX).valueOr:
@@ -319,7 +339,8 @@ proc buildRlnProof(
     addr groth16Vec, rootFr, extNullFr, shareXFr, shareYFr, nullifierFr
   )
   if proofRes.ok.isNil():
-    return err(consumeError("Failed to build RLN proof in buildRlnProof: ", proofRes.err))
+    return
+      err(consumeError("Failed to build RLN proof in buildRlnProof: ", proofRes.err))
   return ok(proofRes.ok)
 
 proc verifyRlnProof*(
