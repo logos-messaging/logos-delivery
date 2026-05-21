@@ -8,21 +8,18 @@ import ../../waku_core, ../../waku_keystore
 logScope:
   topics = "waku rln_relay ffi"
 
-# --- Internal helpers -------------------------------------------------------
-
-# Forward decl — body is defined below with the public API.
+# Forward decl; body defined below.
 proc generateExternalNullifier*(
   epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[ExternalNullifier]
 
 proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
-  ## Build a Vec_CFr from a list of Merkle roots for ffi_verify_with_roots.
   ## Caller MUST ffi_vec_cfr_free the returned Vec_CFr.
   var roots = ffi_vec_cfr_new(csize_t(validRoots.len))
   for root in validRoots:
     let cfr = bytesToCfrLe(root).valueOr:
       ffi_vec_cfr_free(roots)
-      return err(error)
+      return err("failed call to bytesToCfrLe in toRootVec: " & error)
     ffi_vec_cfr_push(addr roots, cfr)
     ffi_cfr_free(cfr)
   ok(roots)
@@ -30,7 +27,6 @@ proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
 proc proofPtrToRateLimitProof(
     proofPtr: ptr FFI_RLNProof, epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[RateLimitProof] =
-  ## Extract a RateLimitProof from an FFI proof handle.
   var proofHandle = proofPtr
   let proofBytesRes = ffi_rln_proof_to_bytes_le(addr proofHandle)
   if hasError(proofBytesRes.err):
@@ -43,7 +39,7 @@ proc proofPtrToRateLimitProof(
     return err("Serialized proof too short: " & $serialized.len)
 
   let proofValues = ffi_rln_proof_get_values(addr proofHandle)
-  if proofValues.isNil:
+  if proofValues.isNil():
     return err("Failed to extract proof values")
   defer:
     ffi_rln_proof_values_free(proofValues)
@@ -58,20 +54,20 @@ proc proofPtrToRateLimitProof(
   var pvHandle = proofValues
 
   let rootPtr = ffi_rln_proof_values_get_root(addr pvHandle)
-  if rootPtr.isNil:
+  if rootPtr.isNil():
     return err("Failed to read proof root")
   defer:
     ffi_cfr_free(rootPtr)
   output.merkleRoot = cfrToBytesLe(rootPtr).valueOr:
-    return err(error)
+    return err("failed call to cfrToBytesLe (root) in proofPtrToRateLimitProof: " & error)
 
   let xPtr = ffi_rln_proof_values_get_x(addr pvHandle)
-  if xPtr.isNil:
+  if xPtr.isNil():
     return err("Failed to read proof x")
   defer:
     ffi_cfr_free(xPtr)
   output.shareX = cfrToBytesLe(xPtr).valueOr:
-    return err(error)
+    return err("failed call to cfrToBytesLe (shareX) in proofPtrToRateLimitProof: " & error)
 
   let yRes = ffi_rln_proof_values_get_y(addr pvHandle)
   output.shareY = cfrResultToBytes(yRes, "Failed to read proof y: ").valueOr:
@@ -82,27 +78,29 @@ proc proofPtrToRateLimitProof(
     return err(error)
 
   let extNullPtr = ffi_rln_proof_values_get_external_nullifier(addr pvHandle)
-  if extNullPtr.isNil:
+  if extNullPtr.isNil():
     return err("Failed to read proof external nullifier")
   defer:
     ffi_cfr_free(extNullPtr)
   output.externalNullifier = cfrToBytesLe(extNullPtr).valueOr:
-    return err(error)
+    return err(
+      "failed call to cfrToBytesLe (externalNullifier) in proofPtrToRateLimitProof: " &
+        error
+    )
 
   ok(output)
 
 proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
-  ## ffi_extended_key_gen returns a Vec_CFr of exactly 4 elements:
-  ## [ idTrapdoor, idNullifier, idSecretHash, idCommitment ].
+  ## Vec_CFr order: idTrapdoor, idNullifier, idSecretHash, idCommitment.
   if int(ffi_vec_cfr_len(addr vec)) != 4:
     return err("Unexpected credential element count")
 
   template readField(idx: int): seq[byte] =
     let f = ffi_vec_cfr_get(addr vec, csize_t(idx))
-    if f.isNil:
+    if f.isNil():
       return err("Missing credential field from zerokit")
     let bytes = cfrToBytesLe(f).valueOr:
-      return err(error)
+      return err("failed call to cfrToBytesLe in parseCredentialVec: " & error)
     @bytes
 
   let idTrapdoor = readField(0)
@@ -110,7 +108,7 @@ proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
   let idSecretHash = readField(2)
   let idCommitment = readField(3)
 
-  ok(
+  return ok(
     IdentityCredential(
       idTrapdoor: idTrapdoor,
       idNullifier: idNullifier,
@@ -119,10 +117,7 @@ proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
     )
   )
 
-# --- Public API -------------------------------------------------------------
-
 proc membershipKeyGen*(): RlnRelayResult[IdentityCredential] =
-  ## Generate an IdentityCredential for on-chain RLN membership registration.
   var vec = ffi_extended_key_gen()
   defer:
     ffi_vec_cfr_free(vec)
@@ -131,15 +126,14 @@ proc membershipKeyGen*(): RlnRelayResult[IdentityCredential] =
 proc createRLNInstanceLocal(): RLNResult =
   ## Creates a stateless RLN instance (no local Merkle tree).
   let res = ffi_rln_new()
-  if res.ok.isNil:
+  if res.ok.isNil():
     let msg = consumeError("error in parameters generation: ", res.err)
     info "error in parameters generation", err = msg
     return err(msg)
   ok(res.ok)
 
 proc createRLNInstance*(): RLNResult =
-  ## Wraps the rln instance creation for metrics
-  ## Returns an error if the instance creation fails
+  ## Wraps createRLNInstanceLocal with metrics timing.
   var res: RLNResult
   waku_rln_instance_creation_duration_seconds.nanosecondTime:
     res = createRLNInstanceLocal()
@@ -178,8 +172,7 @@ proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnRelayResult[seq[seq[byt
 proc generateExternalNullifier*(
     epoch: Epoch, rlnIdentifier: RlnIdentifier
 ): RlnRelayResult[ExternalNullifier] =
-  ## External nullifier = Poseidon(H(epoch), H(rlnIdentifier)) where H is
-  ## ffi_hash_to_field_le (keccak + modular reduction to BN254 scalar field).
+  ## externalNullifier = Poseidon(H(epoch), H(rlnIdentifier)); H = ffi_hash_to_field_le.
   let epochFr = hashToFieldLe(@epoch).valueOr:
     return err("Failed to hash epoch to field: " & error)
   defer:
@@ -189,7 +182,7 @@ proc generateExternalNullifier*(
   defer:
     ffi_cfr_free(rlnIdFr)
   let cfr = ffi_poseidon_hash_pair(epochFr, rlnIdFr)
-  if cfr.isNil:
+  if cfr.isNil():
     return err("Failed to compute external nullifier")
   defer:
     ffi_cfr_free(cfr)
@@ -210,15 +203,27 @@ proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
     )
   )
 
-# --- Proof generation & verification ----------------------------------------
+proc buildPathElementsVec(
+    pathElements: seq[byte], depth: int
+): RlnRelayResult[Vec_CFr] =
+  ## Caller MUST ffi_vec_cfr_free the returned Vec_CFr.
+  var vec = ffi_vec_cfr_new(csize_t(depth))
+  for i in 0 ..< depth:
+    let start = i * FieldElementSize
+    let element = bytesToCfrLe(
+      pathElements.toOpenArray(start, start + FieldElementSize - 1)
+    ).valueOr:
+      ffi_vec_cfr_free(vec)
+      return err("failed call to bytesToCfrLe (path element) in buildPathElementsVec: " & error)
+    ffi_vec_cfr_push(addr vec, element)
+    ffi_cfr_free(element)
+  ok(vec)
 
-proc generateRlnProofWithWitness*(
-    rlnInstance: ptr RLN,
-    witness: RLNWitnessInput,
-    epoch: Epoch,
-    rlnIdentifier: RlnIdentifier,
-): RlnRelayResult[RateLimitProof] =
-  ## Generate an RLN proof from a RLNWitnessInput.
+proc buildWitnessInput(
+    witness: RLNWitnessInput
+): RlnRelayResult[ptr FFI_RLNWitnessInput] =
+  ## ffi_rln_witness_input_new copies all inputs, so the intermediate CFrs/vecs
+  ## are freed here. Caller MUST ffi_rln_witness_input_free the returned handle.
   let depth = witness.identity_path_index.len
   if witness.path_elements.len != depth * FieldElementSize:
     return err(
@@ -226,70 +231,96 @@ proc generateRlnProofWithWitness*(
         $depth & " levels, got " & $witness.path_elements.len
     )
 
-  # Build the Vec_CFr of path elements.
-  var pathElementsVec = ffi_vec_cfr_new(csize_t(depth))
+  var pathElementsVec = buildPathElementsVec(witness.path_elements, depth).valueOr:
+    return err("failed call to buildPathElementsVec in buildWitnessInput: " & error)
   defer:
     ffi_vec_cfr_free(pathElementsVec)
-
-  for i in 0 ..< depth:
-    let start = i * FieldElementSize
-    let element = bytesToCfrLe(
-      witness.path_elements.toOpenArray(start, start + FieldElementSize - 1)
-    ).valueOr:
-      return err(error)
-    ffi_vec_cfr_push(addr pathElementsVec, element)
-    ffi_cfr_free(element)
 
   var pathIndexVec = toVecUint8(witness.identity_path_index)
 
   let identitySecret = bytesToCfrLe(witness.identity_secret).valueOr:
-    return err(error)
+    return err("failed call to bytesToCfrLe (identity_secret) in buildWitnessInput: " & error)
   defer:
     ffi_cfr_free(identitySecret)
-
   let userLimit = bytesToCfrLe(witness.user_message_limit).valueOr:
-    return err(error)
+    return err("failed call to bytesToCfrLe (user_message_limit) in buildWitnessInput: " & error)
   defer:
     ffi_cfr_free(userLimit)
-
   let messageIdFr = bytesToCfrLe(witness.message_id).valueOr:
-    return err(error)
+    return err("failed call to bytesToCfrLe (message_id) in buildWitnessInput: " & error)
   defer:
     ffi_cfr_free(messageIdFr)
-
   let xFr = bytesToCfrLe(witness.x).valueOr:
-    return err(error)
+    return err("failed call to bytesToCfrLe (x) in buildWitnessInput: " & error)
   defer:
     ffi_cfr_free(xFr)
-
   let externalNullifierFr = bytesToCfrLe(witness.external_nullifier).valueOr:
-    return err(error)
+    return err("failed call to bytesToCfrLe (external_nullifier) in buildWitnessInput: " & error)
   defer:
     ffi_cfr_free(externalNullifierFr)
 
   let witnessRes = ffi_rln_witness_input_new(
-    identitySecret,
-    userLimit,
-    messageIdFr,
-    addr pathElementsVec,
-    addr pathIndexVec,
-    xFr,
-    externalNullifierFr,
+    identitySecret, userLimit, messageIdFr, addr pathElementsVec, addr pathIndexVec,
+    xFr, externalNullifierFr,
   )
-  if witnessRes.ok.isNil:
-    return err(consumeError("Failed to create witness: ", witnessRes.err))
+  if witnessRes.ok.isNil():
+    return err(consumeError("Failed to create witness in buildWitnessInput: ", witnessRes.err))
+  return ok(witnessRes.ok)
+
+proc generateRlnProofWithWitness*(
+    rlnInstance: ptr RLN,
+    witness: RLNWitnessInput,
+    epoch: Epoch,
+    rlnIdentifier: RlnIdentifier,
+): RlnRelayResult[RateLimitProof] =
+  let witnessHandle = buildWitnessInput(witness).valueOr:
+    return err("failed call to buildWitnessInput in generateRlnProofWithWitness: " & error)
   defer:
-    ffi_rln_witness_input_free(witnessRes.ok)
+    ffi_rln_witness_input_free(witnessHandle)
 
   var ctx = rlnInstance
-  var witnessHandle = witnessRes.ok
-  let proofRes = ffi_generate_rln_proof(addr ctx, addr witnessHandle)
-  if proofRes.ok.isNil:
+  var wh = witnessHandle
+  let proofRes = ffi_generate_rln_proof(addr ctx, addr wh)
+  if proofRes.ok.isNil():
     return err(consumeError("Failed to generate RLN proof: ", proofRes.err))
   defer:
     ffi_rln_proof_free(proofRes.ok)
 
-  proofPtrToRateLimitProof(proofRes.ok, epoch, rlnIdentifier)
+  return proofPtrToRateLimitProof(proofRes.ok, epoch, rlnIdentifier)
+
+proc buildRlnProof(
+    proof: RateLimitProof, externalNullifier: ExternalNullifier
+): RlnRelayResult[ptr FFI_RLNProof] =
+  ## ffi_rln_proof_new copies all inputs, so the intermediate CFrs are freed
+  ## here. Caller MUST ffi_rln_proof_free the returned handle.
+  var groth16Vec = toVecUint8(proof.proof)
+  let rootFr = bytesToCfrLe(proof.merkleRoot).valueOr:
+    return err("failed call to bytesToCfrLe (root) in buildRlnProof: " & error)
+  defer:
+    ffi_cfr_free(rootFr)
+  let extNullFr = bytesToCfrLe(externalNullifier).valueOr:
+    return err("failed call to bytesToCfrLe (externalNullifier) in buildRlnProof: " & error)
+  defer:
+    ffi_cfr_free(extNullFr)
+  let shareXFr = bytesToCfrLe(proof.shareX).valueOr:
+    return err("failed call to bytesToCfrLe (shareX) in buildRlnProof: " & error)
+  defer:
+    ffi_cfr_free(shareXFr)
+  let shareYFr = bytesToCfrLe(proof.shareY).valueOr:
+    return err("failed call to bytesToCfrLe (shareY) in buildRlnProof: " & error)
+  defer:
+    ffi_cfr_free(shareYFr)
+  let nullifierFr = bytesToCfrLe(proof.nullifier).valueOr:
+    return err("failed call to bytesToCfrLe (nullifier) in buildRlnProof: " & error)
+  defer:
+    ffi_cfr_free(nullifierFr)
+
+  let proofRes = ffi_rln_proof_new(
+    addr groth16Vec, rootFr, extNullFr, shareXFr, shareYFr, nullifierFr
+  )
+  if proofRes.ok.isNil():
+    return err(consumeError("Failed to build RLN proof in buildRlnProof: ", proofRes.err))
+  return ok(proofRes.ok)
 
 proc verifyRlnProof*(
     rlnInstance: ptr RLN,
@@ -297,62 +328,33 @@ proc verifyRlnProof*(
     signal: openArray[byte],
     validRoots: seq[MerkleNode],
 ): RlnRelayResult[bool] =
-  ## Verify an RLN proof against a set of valid Merkle roots.
   if validRoots.len == 0:
     return err("verifyRlnProof requires at least one valid root (stateless mode)")
 
-  # externalNullifier is not a protobuf wire field (RateLimitProof.encode
-  # writes only fields 1-7); a received proof has it zeroed, so recompute it
-  # from epoch + rlnIdentifier before feeding ffi_rln_proof_new.
+  # externalNullifier isn't a protobuf wire field, so a received proof has it
+  # zeroed; recompute from epoch + rlnIdentifier.
   let externalNullifier = generateExternalNullifier(proof.epoch, proof.rlnIdentifier).valueOr:
-    return err("Failed to compute external nullifier: " & error)
+    return err("failed call to generateExternalNullifier in verifyRlnProof: " & error)
 
-  var groth16Vec = toVecUint8(proof.proof)
-  let rootFr = bytesToCfrLe(proof.merkleRoot).valueOr:
-    return err("Failed to convert root: " & error)
+  let proofHandlePtr = buildRlnProof(proof, externalNullifier).valueOr:
+    return err("failed call to buildRlnProof in verifyRlnProof: " & error)
   defer:
-    ffi_cfr_free(rootFr)
-  let extNullFr = bytesToCfrLe(externalNullifier).valueOr:
-    return err("Failed to convert external nullifier: " & error)
-  defer:
-    ffi_cfr_free(extNullFr)
-  let shareXFr = bytesToCfrLe(proof.shareX).valueOr:
-    return err("Failed to convert shareX: " & error)
-  defer:
-    ffi_cfr_free(shareXFr)
-  let shareYFr = bytesToCfrLe(proof.shareY).valueOr:
-    return err("Failed to convert shareY: " & error)
-  defer:
-    ffi_cfr_free(shareYFr)
-  let nullifierFr = bytesToCfrLe(proof.nullifier).valueOr:
-    return err("Failed to convert nullifier: " & error)
-  defer:
-    ffi_cfr_free(nullifierFr)
-
-  let proofRes = ffi_rln_proof_new(
-    addr groth16Vec, rootFr, extNullFr, shareXFr, shareYFr, nullifierFr
-  )
-  if proofRes.ok.isNil:
-    return
-      err(consumeError("Failed to build RLN proof for verification: ", proofRes.err))
-  defer:
-    ffi_rln_proof_free(proofRes.ok)
+    ffi_rln_proof_free(proofHandlePtr)
 
   let xFr = hashToFieldLe(signal).valueOr:
-    return err(error)
+    return err("failed call to hashToFieldLe (signal) in verifyRlnProof: " & error)
   defer:
     ffi_cfr_free(xFr)
 
-  var ctx = rlnInstance
-  var proofHandle = proofRes.ok
-
   var roots = toRootVec(validRoots).valueOr:
-    return err("Failed to build root vector: " & error)
+    return err("failed call to toRootVec in verifyRlnProof: " & error)
   defer:
     ffi_vec_cfr_free(roots)
 
+  var ctx = rlnInstance
+  var proofHandle = proofHandlePtr
   let verifyRes = ffi_verify_with_roots(addr ctx, addr proofHandle, addr roots, xFr)
   # zerokit FFI quirk: err is non-nil for all failures; free it and return the bool.
   if hasError(verifyRes.err):
     ffi_c_string_free(verifyRes.err)
-  ok(verifyRes.ok)
+  return ok(verifyRes.ok)
