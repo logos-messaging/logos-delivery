@@ -21,7 +21,10 @@
     # External flake input: Zerokit pinned to a specific commit.
     # Update the rev here when a new zerokit version is needed.
     zerokit = {
-      url = "github:vacp2p/zerokit/53b18098e6d5d046e3eb1ac338a8f4f651432477";
+      # Pinned to v2.0.2 (5e64cb8822bee65eed6cf459f95ae72b80c6ba63) to match
+      # the vendor/zerokit submodule. Keep these two in sync: the nix build
+      # links librln from this input, the Makefile build from the submodule.
+      url = "github:vacp2p/zerokit/5e64cb8822bee65eed6cf459f95ae72b80c6ba63";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };
@@ -35,6 +38,20 @@
       ];
 
       forAllSystems = nixpkgs.lib.genAttrs systems;
+
+      lib = nixpkgs.lib;
+
+      # Single source of truth for the semver: the `version` field of
+      # waku.nimble. Kept in sync with git tags by the version-check CI.
+      nimbleVersion =
+        let line = lib.findFirst (l: lib.hasPrefix "version = " l)
+                     "version = \"unknown\""
+                     (lib.splitString "\n" (builtins.readFile ./waku.nimble));
+        in lib.removeSuffix "\"" (lib.removePrefix "version = \"" line);
+
+      # A flake sandbox has no .git, so `git describe` is impossible; the
+      # commit comes from the flake metadata instead.
+      shortRev = self.shortRev or self.dirtyShortRev or "dirty";
 
       nimbleOverlay = final: prev: {
         nimble = prev.nimble.overrideAttrs (_: {
@@ -56,10 +73,42 @@
       packages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
+
+          # zerokit's nix/default.nix hardcodes a cargoHash that is stale for
+          # our pinned nixpkgs on a cold runner (the status.im substituter is
+          # untrusted here, so the cargo-vendor FOD is recomputed). v2.0.2 did
+          # NOT fix this for consumers — its committed hash is the old v2.0.1
+          # value while v2.0.2's Cargo.lock changed. Rebuild librln here from
+          # the pinned zerokit source with the correct cargoHash. Keep the
+          # version + cargoHash in sync with the zerokit input rev.
+          rustToolchain = pkgs.rust-bin.stable.latest.default;
+          zerokitRln = pkgs.rustPlatform.buildRustPackage {
+            pname = "zerokit";
+            version = "2.0.2";
+            src = zerokit;
+            cargo = rustToolchain;
+            rustc = rustToolchain;
+            cargoHash = "sha256-PNwEdZLgGQPqQDrEK2hsQtSybVfBbD6xn4K47fPFJUU=";
+            nativeBuildInputs = [ pkgs.rust-cbindgen ];
+            doCheck = false;
+            buildPhase = ''
+              export CARGO_HOME=$TMPDIR/cargo
+              cargo build --lib --release --manifest-path rln/Cargo.toml
+            '';
+            installPhase = ''
+              set -eu
+              mkdir -p $out/lib $out/include
+              find target -type f -name 'librln.*' -not -path '*/deps/*' \
+                -exec cp -v '{}' "$out/lib/" \;
+              cbindgen ./rln -l c > "$out/include/rln.h"
+            '';
+          };
+
           liblogosdelivery = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
-            zerokitRln = zerokit.packages.${system}.rln;
+            inherit zerokitRln;
+            gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
         in {
           inherit liblogosdelivery;

@@ -219,6 +219,22 @@ suite "WakuNodeConf - preset integration":
     check:
       wakuConf.clusterId == 2
 
+  test "LogosTest preset applies LogosTestConf":
+    ## Given
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.preset = "logostest"
+
+    ## When
+    let wakuConfRes = conf.toWakuConf()
+
+    ## Then
+    require wakuConfRes.isOk()
+    let wakuConf = wakuConfRes.get()
+    require wakuConf.validate().isOk()
+    check:
+      wakuConf.clusterId == 2
+
   test "Invalid preset returns error":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:

@@ -1,6 +1,9 @@
 {.used.}
 
-import std/options, chronos, libp2p/crypto/crypto
+import std/options, chronos, chronicles, libp2p/crypto/crypto
+
+logScope:
+  topics = "test waku_lightpush_legacy"
 
 import
   waku/node/peer_manager,

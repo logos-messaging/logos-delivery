@@ -18,7 +18,7 @@ For detailed info on the release process refer to https://github.com/logos-messa
 All items below are to be completed by the owner of the given release.
 
 - [ ] Create release branch with major and minor only ( e.g. release/v0.X ) if it doesn't exist.
-- [ ] Update the `version` field in `waku.nimble` to match the release version (e.g. `version = "0.X.0"`).
+- [ ] Update the `version` field in `waku.nimble` to match the release version (e.g. `version = "0.X.0"`) **and merge it before assigning any tag** - the `release-assets` workflow gates artifact build/upload.
 - [ ] Assign release candidate tag to the release branch HEAD (e.g. `v0.X.0-rc.0`, `v0.X.0-rc.1`, ... `v0.X.0-rc.N`).
 - [ ] Generate and edit release notes in CHANGELOG.md.
 

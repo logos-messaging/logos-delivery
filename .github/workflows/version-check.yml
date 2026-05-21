@@ -1,0 +1,49 @@
+name: version check
+permissions:
+  contents: read
+
+on:
+  pull_request:
+    branches: [master]
+
+jobs:
+  # PR check: waku.nimble version must be >= the nearest tag reachable from
+  # this branch (`git describe --tags --abbrev=0`, i.e. ancestor-aware).
+  # Because we check out the PR HEAD (not the simulated merge ref), a branch
+  # that predates a release tag does not see that tag in its history, so a
+  # newly pushed tag does NOT break in-flight PRs. Once the branch merges/
+  # rebases past the tag, the bump is then enforced. This keeps waku.nimble
+  # fixed as early as possible, independent of whether a release is cut.
+  # The exact tag==nimble guarantee at release time lives in
+  # release-assets.yml, which gates artifact publishing on it.
+  nimble-not-behind-tag:
+    runs-on: ubuntu-22.04
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ github.event.pull_request.head.sha }}
+      - name: Compare waku.nimble version with nearest ancestor tag
+        run: |
+          set -euo pipefail
+          NIMBLE_VERSION=$(grep -m1 '^version = ' waku.nimble | sed -E 's/version = "([^"]+)"/\1/')
+          # Nearest tag reachable from HEAD; --abbrev=0 drops the -<n>-g<sha>
+          # suffix so we get the bare tag (e.g. v0.38.0).
+          BASE_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          BASE_TAG=${BASE_TAG#v}
+          # Compare on the base version, ignoring any -rc.N prerelease suffix.
+          BASE_TAG=${BASE_TAG%%-*}
+          echo "waku.nimble version: ${NIMBLE_VERSION}"
+          echo "ancestor git tag:    ${BASE_TAG:-<none>}"
+          if [ -z "${BASE_TAG}" ]; then
+            echo "No ancestor release tag; skipping."
+            exit 0
+          fi
+          # lowest of the two by version sort must be the tag => nimble >= tag
+          LOWEST=$(printf '%s\n%s\n' "${NIMBLE_VERSION}" "${BASE_TAG}" | sort -V | head -1)
+          if [ "${LOWEST}" != "${BASE_TAG}" ] && [ "${NIMBLE_VERSION}" != "${BASE_TAG}" ]; then
+            echo "::error::waku.nimble version (${NIMBLE_VERSION}) is behind its"
+            echo "::error::ancestor git tag (v${BASE_TAG}). Bump 'version' in waku.nimble."
+            exit 1
+          fi
+          echo "OK: waku.nimble is not behind its ancestor tag."
