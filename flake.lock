@@ -72,17 +72,15 @@
         "rust-overlay": "rust-overlay_2"
       },
       "locked": {
-        "lastModified": 1771279884,
-        "narHash": "sha256-tzkQPwSl4vPTUo1ixHh6NCENjsBDroMKTjifg2q8QX8=",
         "owner": "vacp2p",
         "repo": "zerokit",
-        "rev": "53b18098e6d5d046e3eb1ac338a8f4f651432477",
+        "rev": "5e64cb8822bee65eed6cf459f95ae72b80c6ba63",
         "type": "github"
       },
       "original": {
         "owner": "vacp2p",
         "repo": "zerokit",
-        "rev": "53b18098e6d5d046e3eb1ac338a8f4f651432477",
+        "rev": "5e64cb8822bee65eed6cf459f95ae72b80c6ba63",
         "type": "github"
       }
     }
