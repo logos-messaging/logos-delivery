@@ -123,9 +123,9 @@
   };
 
   confutils = pkgs.fetchgit {
-    url = "https://github.com/status-im/nim-confutils";
-    rev = "7728f6bd81a1eedcfe277d02ea85fdb805bcc05a";
-    sha256 = "18bj1ilx10jm2vmqx2wy2xl9rzy7alymi2m4n9jgpa4sbxnfh0x3";
+    url = "https://github.com/igor-sirotin/nim-confutils";
+    rev = "0292f00d981f29a6c18648be8ee9d4f2ce268df9";
+    sha256 = "1vppqplwlpl7a61r8iki5hlzvhd8lnq41ixpqslv35dnm482c55j";
     fetchSubmodules = true;
   };
 

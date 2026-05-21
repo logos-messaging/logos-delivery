@@ -250,8 +250,8 @@
     },
     "confutils": {
       "version": "0.1.0",
-      "vcsRevision": "7728f6bd81a1eedcfe277d02ea85fdb805bcc05a",
-      "url": "https://github.com/status-im/nim-confutils",
+      "vcsRevision": "0292f00d981f29a6c18648be8ee9d4f2ce268df9",
+      "url": "https://github.com/igor-sirotin/nim-confutils",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
@@ -260,7 +260,7 @@
         "results"
       ],
       "checksums": {
-        "sha1": "8bc8c30b107fdba73b677e5f257c6c42ae1cdc8e"
+        "sha1": "2fbe6418ddd9f79fb11a0addd7666a3e787adbe0"
       }
     },
     "cbor_serialization": {

@@ -33,17 +33,7 @@ proc createWaku(
       let formattedString = ($jsonNode[confField]).strip(chars = {'\"'})
       # Override conf field with the value set in the json-string
       try:
-        when typeof(confValue) is Port:
-          # Accept port 0 so callers can request an OS-assigned ephemeral port.
-          # confutils's parseCmdArg(Port, ...) rejects 0, so parse directly here.
-          let intVal = parseInt(formattedString)
-          if intVal < 0 or intVal > 65535:
-            raise newException(ValueError,
-              "Port must be an integer in the range 0-65535. Value: " &
-                formattedString)
-          confValue = Port(intVal)
-        else:
-          confValue = parseCmdArg(typeof(confValue), formattedString)
+        confValue = parseCmdArg(typeof(confValue), formattedString)
       except Exception:
         return err(
           "exception in createWaku when parsing configuration. exc: " &
