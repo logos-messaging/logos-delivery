@@ -1,33 +1,25 @@
-## Optional encryption hook for the Reliable Channel API.
+## Optional encryption hooks for the Reliable Channel API.
+##
+## Modelled as `RequestBroker`s: the broker pattern lets the channel
+## delegate work to a provider that may live in any module without
+## introducing a direct dependency. If no provider is registered the
+## broker returns an error, so installing the noop providers from
+## `noop_encryption` is required when the application does not want
+## actual encryption.
 ##
 ## Applied per-segment after SDS processing on outgoing, and before
 ## SDS processing on incoming. No specific scheme is mandated.
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import results
+import waku/common/broker/request_broker
 
-type
-  EncryptionError* = object of CatchableError
+export request_broker
 
-  EncryptFn* = proc(payload: seq[byte]): Result[seq[byte], string] {.gcsafe, raises: [].}
-  DecryptFn* = proc(payload: seq[byte]): Result[seq[byte], string] {.gcsafe, raises: [].}
+RequestBroker:
+  type Encrypt* = seq[byte]
+  proc signature*(payload: seq[byte]): Future[Result[Encrypt, string]] {.async.}
 
-  EncryptionHook* = object
-    encrypt*: EncryptFn
-    decrypt*: DecryptFn
-
-proc isConfigured*(self: EncryptionHook): bool =
-  not self.encrypt.isNil() and not self.decrypt.isNil()
-
-proc encrypt*(self: EncryptionHook, payload: seq[byte]): seq[byte] =
-  ## Stage 4 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
-  ## For now: passthrough — return the payload unencrypted.
-  ## TODO: invoke the configured `EncryptFn` when present and surface errors.
-  return payload
-
-proc decrypt*(self: EncryptionHook, payload: seq[byte]): seq[byte] =
-  ## Stage 1 of the incoming pipeline (decryption -> sds -> reassemble -> emit).
-  ## For now: passthrough — return the payload as-is.
-  ## TODO: invoke the configured `DecryptFn` when present and surface errors.
-  return payload
+RequestBroker:
+  type Decrypt* = seq[byte]
+  proc signature*(payload: seq[byte]): Future[Result[Decrypt, string]] {.async.}

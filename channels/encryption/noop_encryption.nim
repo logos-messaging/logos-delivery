@@ -1,14 +1,18 @@
-## No-op encryption hook. Useful as the default when no encryption is
-## configured by the application.
+## No-op encryption providers. Install these when the application does
+## not want actual encryption so the `Encrypt` / `Decrypt` brokers have
+## something to dispatch to.
 
 import results
+import chronos
 import ./encryption
 
-proc noopEncrypt(payload: seq[byte]): Result[seq[byte], string] {.gcsafe, raises: [].} =
-  return ok(payload)
+proc setNoopEncryption*() =
+  discard Encrypt.setProvider(
+    proc(payload: seq[byte]): Future[Result[Encrypt, string]] {.async.} =
+      return ok(Encrypt(payload))
+  )
 
-proc noopDecrypt(payload: seq[byte]): Result[seq[byte], string] {.gcsafe, raises: [].} =
-  return ok(payload)
-
-proc init*(T: typedesc[EncryptionHook]): T =
-  return T(encrypt: noopEncrypt, decrypt: noopDecrypt)
+  discard Decrypt.setProvider(
+    proc(payload: seq[byte]): Future[Result[Decrypt, string]] {.async.} =
+      return ok(Decrypt(payload))
+  )
