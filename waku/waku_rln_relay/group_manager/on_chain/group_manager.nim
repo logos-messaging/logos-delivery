@@ -259,37 +259,34 @@ proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
 
   return true
 
-proc trackRootChanges*(g: OnchainGroupManager) {.async: (raises: [CatchableError]).} =
-  try:
-    initializedGuard(g)
-    const rpcDelay = 5.seconds
+proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
+  ?checkInitialized(g)
+  const rpcDelay = 5.seconds
 
-    while true:
-      await sleepAsync(rpcDelay)
-      let rootUpdated = await g.updateRoots()
+  while true:
+    await sleepAsync(rpcDelay)
+    let rootUpdated = await g.updateRoots()
 
-      if rootUpdated:
-        ## The membership set on-chain has changed (some new members have joined or some members have left)
-        if g.membershipIndex.isSome():
-          ## A membership index exists only if the node has registered with RLN.
-          ## Non-registered nodes cannot have Merkle proof elements.
-          let proofResult = await g.fetchMerkleProofElements()
-          if proofResult.isErr():
-            error "Failed to fetch Merkle proof", error = proofResult.error
-          else:
-            g.merkleProofCache = proofResult.get()
+    if rootUpdated:
+      ## The membership set on-chain has changed (some new members have joined or some members have left)
+      if g.membershipIndex.isSome():
+        ## A membership index exists only if the node has registered with RLN.
+        ## Non-registered nodes cannot have Merkle proof elements.
+        let proofResult = await g.fetchMerkleProofElements()
+        if proofResult.isErr():
+          error "Failed to fetch Merkle proof", error = proofResult.error
+        else:
+          g.merkleProofCache = proofResult.get()
 
-        let nextFreeIndex = await g.fetchNextFreeIndex()
-        if nextFreeIndex.isErr():
-          error "Failed to fetch next free index", error = nextFreeIndex.error
-          raise newException(
-            CatchableError, "Failed to fetch next free index: " & nextFreeIndex.error
-          )
+      let nextFreeIndex = await g.fetchNextFreeIndex()
+      if nextFreeIndex.isErr():
+        error "Failed to fetch next free index", error = nextFreeIndex.error
+        raise newException(
+          CatchableError, "Failed to fetch next free index: " & nextFreeIndex.error
+        )
 
-        let memberCount = cast[int64](nextFreeIndex.get())
-        waku_rln_number_registered_memberships.set(float64(memberCount))
-  except CatchableError:
-    error "Fatal error in trackRootChanges", error = getCurrentExceptionMsg()
+      let memberCount = cast[int64](nextFreeIndex.get())
+      waku_rln_number_registered_memberships.set(float64(memberCount))
 
 method register*(
     g: OnchainGroupManager, rateCommitment: RateCommitment
