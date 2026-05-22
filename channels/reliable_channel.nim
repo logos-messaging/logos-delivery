@@ -184,6 +184,9 @@ proc onMessageReceived*(
   ## The ReliableChannelManager already validated LIP173 on the WakuMessage and
   ## stripped the wire framing, so the channel only sees the raw
   ## payload bytes for itself.
+  
+  ## Notice that the following "request" is implemented implicitly as a broker call to
+  ## the `Decrypt` request broker.
   let decRes = await Decrypt.request(payload)
   let plaintext: seq[byte] =
     if decRes.isOk(): seq[byte](decRes.get()) else: payload
