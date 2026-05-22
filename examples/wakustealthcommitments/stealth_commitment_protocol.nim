@@ -95,61 +95,54 @@ proc sendResponse*(
 type SCPHandler* = proc(msg: WakuMessage): Future[void] {.async.}
 proc getSCPHandler(self: StealthCommitmentProtocol): SCPHandler =
   let handler = proc(msg: WakuMessage): Future[void] {.async.} =
-    let decodedRes = WakuStealthCommitmentMsg.decode(msg.payload)
-    if decodedRes.isErr():
-      error "could not decode scp message"
-    let decoded = decodedRes.get()
+    let decoded = WakuStealthCommitmentMsg.decode(msg.payload).valueOr:
+      error "could not decode scp message", error = error
+      quit(QuitFailure)
     if decoded.request == false:
       # check if the generated stealth commitment belongs to the receiver
       # if not, continue
-      let ephemeralPubKeyRes =
-        deserialize(StealthCommitmentFFI.PublicKey, decoded.ephemeralPubKey.get())
-      if ephemeralPubKeyRes.isErr():
-        error "could not deserialize ephemeral public key: ",
-          err = ephemeralPubKeyRes.error()
-      let ephemeralPubKey = ephemeralPubKeyRes.get()
-      let stealthCommitmentPrivateKeyRes = StealthCommitmentFFI.generateStealthPrivateKey(
+      let ephemeralPubKey = deserialize(
+        StealthCommitmentFFI.PublicKey, decoded.ephemeralPubKey.get()
+      ).valueOr:
+        error "could not deserialize ephemeral public key: ", error = error
+        quit(QuitFailure)
+      let stealthCommitmentPrivateKey = StealthCommitmentFFI.generateStealthPrivateKey(
         ephemeralPubKey,
         self.spendingKeyPair.privateKey,
         self.viewingKeyPair.privateKey,
         decoded.viewTag.get(),
-      )
-      if stealthCommitmentPrivateKeyRes.isErr():
-        info "received stealth commitment does not belong to the receiver: ",
-          err = stealthCommitmentPrivateKeyRes.error()
-
-      let stealthCommitmentPrivateKey = stealthCommitmentPrivateKeyRes.get()
+      ).valueOr:
+        error "received stealth commitment does not belong to the receiver: ",
+          error = error
+        quit(QuitFailure)
       info "received stealth commitment belongs to the receiver: ",
         stealthCommitmentPrivateKey,
         stealthCommitmentPubKey = decoded.stealthCommitment.get()
       return
     # send response
     # deseralize the keys
-    let spendingKeyRes =
-      deserialize(StealthCommitmentFFI.PublicKey, decoded.spendingPubKey.get())
-    if spendingKeyRes.isErr():
-      error "could not deserialize spending key: ", err = spendingKeyRes.error()
-    let spendingKey = spendingKeyRes.get()
-    let viewingKeyRes =
-      (deserialize(StealthCommitmentFFI.PublicKey, decoded.viewingPubKey.get()))
-    if viewingKeyRes.isErr():
-      error "could not deserialize viewing key: ", err = viewingKeyRes.error()
-    let viewingKey = viewingKeyRes.get()
+    let spendingKey = deserialize(
+      StealthCommitmentFFI.PublicKey, decoded.spendingPubKey.get()
+    ).valueOr:
+      error "could not deserialize spending key: ", error = error
+      quit(QuitFailure)
+    let viewingKey = (
+      deserialize(StealthCommitmentFFI.PublicKey, decoded.viewingPubKey.get())
+    ).valueOr:
+      error "could not deserialize viewing key: ", error = error
+      quit(QuitFailure)
 
     info "received spending key", spendingKey
     info "received viewing key", viewingKey
-    let ephemeralKeyPairRes = StealthCommitmentFFI.generateKeyPair()
-    if ephemeralKeyPairRes.isErr():
-      error "could not generate ephemeral key pair: ", err = ephemeralKeyPairRes.error()
-    let ephemeralKeyPair = ephemeralKeyPairRes.get()
+    let ephemeralKeyPair = StealthCommitmentFFI.generateKeyPair().valueOr:
+      error "could not generate ephemeral key pair: ", error = error
+      quit(QuitFailure)
 
-    let stealthCommitmentRes = StealthCommitmentFFI.generateStealthCommitment(
+    let stealthCommitment = StealthCommitmentFFI.generateStealthCommitment(
       spendingKey, viewingKey, ephemeralKeyPair.privateKey
-    )
-    if stealthCommitmentRes.isErr():
-      error "could not generate stealth commitment: ",
-        err = stealthCommitmentRes.error()
-    let stealthCommitment = stealthCommitmentRes.get()
+    ).valueOr:
+      error "could not generate stealth commitment: ", error = error
+      quit(QuitFailure)
 
     (
       await self.sendResponse(
@@ -157,7 +150,7 @@ proc getSCPHandler(self: StealthCommitmentProtocol): SCPHandler =
         stealthCommitment.viewTag,
       )
     ).isOkOr:
-      error "could not send response: ", err = $error
+      error "could not send response: ", error = $error
 
   return handler
 

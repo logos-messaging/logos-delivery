@@ -25,11 +25,8 @@ proc handleSelfStoreRequest*(
   let handlerResult = catch:
     await self.requestHandler(req)
 
-  let resResult =
-    if handlerResult.isErr():
-      return err("exception in handleSelfStoreRequest: " & handlerResult.error.msg)
-    else:
-      handlerResult.get()
+  let resResult = handlerResult.valueOr:
+    return err("exception in handleSelfStoreRequest: " & error.msg)
 
   let res = resResult.valueOr:
     return err("error in handleSelfStoreRequest: " & $error)

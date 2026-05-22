@@ -174,8 +174,8 @@ proc runStmt*(
       let len = paramValues.len
       discard dbConnWrapper.getDbConn().prepare(stmtName, sql(stmtDefinition), len)
 
-    if res.isErr():
-      return err("failed prepare in runStmt: " & res.error.msg)
+    res.isOkOr:
+      return err("failed prepare in runStmt: " & error.msg)
 
     pool.conns[connIndex].inclPreparedStmt(stmtName)
 

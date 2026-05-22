@@ -9,21 +9,21 @@ import
   libp2p/crypto/crypto
 import
   waku/[
-    waku_api/message_cache,
+    rest_api/message_cache,
     waku_core,
     waku_node,
     node/peer_manager,
-    waku_api/rest/server,
-    waku_api/rest/client,
-    waku_api/rest/responses,
-    waku_api/rest/filter/types,
-    waku_api/rest/filter/handlers as filter_api,
-    waku_api/rest/filter/client as filter_api_client,
+    rest_api/endpoint/server,
+    rest_api/endpoint/client,
+    rest_api/endpoint/responses,
+    rest_api/endpoint/filter/types,
+    rest_api/endpoint/filter/handlers as filter_rest_interface,
+    rest_api/endpoint/filter/client as filter_rest_client,
     waku_relay,
     waku_filter_v2/subscriptions,
     waku_filter_v2/common,
-    waku_api/rest/relay/handlers as relay_api,
-    waku_api/rest/relay/client as relay_api_client,
+    rest_api/endpoint/relay/handlers as relay_rest_interface,
+    rest_api/endpoint/relay/client as relay_rest_client,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode
@@ -176,12 +176,11 @@ suite "Waku v2 Rest API - Filter V2":
     )
     discard await restFilterTest.client.filterPostSubscriptions(requestBody)
 
-    let contentFilters =
-      @[
-        ContentTopic("1"),
-        ContentTopic("2"),
-        ContentTopic("3"), # ,ContentTopic("4") # Keep this subscription for check
-      ]
+    let contentFilters = @[
+      ContentTopic("1"),
+      ContentTopic("2"),
+      ContentTopic("3"), # ,ContentTopic("4") # Keep this subscription for check
+    ]
 
     let requestBodyUnsub = FilterUnsubscribeRequest(
       requestId: "4321",

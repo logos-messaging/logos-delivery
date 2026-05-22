@@ -3,9 +3,6 @@
 # Executables shall be put in an ignored build/ directory
 /build
 
-# Nimble packages
-/vendor/.nimble
-
 # Generated Files
 *.generated.nim
 
@@ -45,9 +42,6 @@ node_modules/
 rlnKeystore.json
 *.tar.gz
 
-# Nimbus Build System
-nimbus-build-system.paths
-
 # sqlite db
 *.db
 *.db-shm
@@ -58,6 +52,10 @@ nimbus-build-system.paths
 
 /examples/nodejs/build/
 /examples/rust/target/
+
+# Xcode user data
+xcuserdata/
+*.xcuserstate
 
 
 # Coverage
@@ -79,3 +77,12 @@ waku_handler.moc.cpp
 
 # Nix build result
 result
+
+# llms
+AGENTS.md
+nimble.develop
+nimble.paths
+nimbledeps
+
+**/anvil_state/state-deployed-contracts-mint-and-approved.json
+.gitnexus

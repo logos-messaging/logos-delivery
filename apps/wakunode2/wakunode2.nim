@@ -5,7 +5,6 @@ import
   chronicles,
   chronos,
   metrics,
-  libbacktrace,
   system/ansi_c,
   libp2p/crypto/crypto
 import
@@ -14,7 +13,7 @@ import
     common/logging,
     factory/waku,
     node/health_monitor,
-    waku_api/rest/builder as rest_server_builder,
+    rest_api/endpoint/builder as rest_server_builder,
     waku_core/message/default_values,
   ]
 
@@ -62,7 +61,8 @@ when isMainModule:
 
     info "Setting up shutdown hooks"
     proc asyncStopper(waku: Waku) {.async: (raises: [Exception]).} =
-      await waku.stop()
+      (await waku.stop()).isOkOr:
+        error "Waku shutdown failed", error = error
       quit(QuitSuccess)
 
     # Handle Ctrl-C SIGINT
@@ -87,12 +87,13 @@ when isMainModule:
     when defined(posix):
       proc handleSigsegv(signal: cint) {.noconv.} =
         # Require --debugger:native
-        fatal "Shutting down after receiving SIGSEGV", stacktrace = getBacktrace()
+        fatal "Shutting down after receiving SIGSEGV"
 
         # Not available in -d:release mode
         writeStackTrace()
 
-        waitFor waku.stop()
+        (waitFor waku.stop()).isOkOr:
+          error "Waku shutdown failed", error = error
         quit(QuitFailure)
 
       c_signal(ansi_c.SIGSEGV, handleSigsegv)

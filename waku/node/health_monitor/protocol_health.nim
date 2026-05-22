@@ -1,5 +1,8 @@
 import std/[options, strformat]
 import ./health_status
+import waku/common/waku_protocol
+
+export waku_protocol
 
 type ProtocolHealth* = object
   protocol*: string
@@ -39,8 +42,7 @@ proc shuttingDown*(p: var ProtocolHealth): ProtocolHealth =
 proc `$`*(p: ProtocolHealth): string =
   return fmt"protocol: {p.protocol}, health: {p.health}, description: {p.desc}"
 
-proc init*(p: typedesc[ProtocolHealth], protocol: string): ProtocolHealth =
-  let p = ProtocolHealth(
-    protocol: protocol, health: HealthStatus.NOT_MOUNTED, desc: none[string]()
+proc init*(p: typedesc[ProtocolHealth], protocol: WakuProtocol): ProtocolHealth =
+  return ProtocolHealth(
+    protocol: $protocol, health: HealthStatus.NOT_MOUNTED, desc: none[string]()
   )
-  return p

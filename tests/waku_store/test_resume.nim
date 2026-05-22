@@ -50,19 +50,18 @@ suite "Store Resume - End to End":
   var clientDriver {.threadvar.}: ArchiveDriver
 
   asyncSetup:
-    let messages =
-      @[
-        fakeWakuMessage(@[byte 00]),
-        fakeWakuMessage(@[byte 01]),
-        fakeWakuMessage(@[byte 02]),
-        fakeWakuMessage(@[byte 03]),
-        fakeWakuMessage(@[byte 04]),
-        fakeWakuMessage(@[byte 05]),
-        fakeWakuMessage(@[byte 06]),
-        fakeWakuMessage(@[byte 07]),
-        fakeWakuMessage(@[byte 08]),
-        fakeWakuMessage(@[byte 09]),
-      ]
+    let messages = @[
+      fakeWakuMessage(@[byte 00]),
+      fakeWakuMessage(@[byte 01]),
+      fakeWakuMessage(@[byte 02]),
+      fakeWakuMessage(@[byte 03]),
+      fakeWakuMessage(@[byte 04]),
+      fakeWakuMessage(@[byte 05]),
+      fakeWakuMessage(@[byte 06]),
+      fakeWakuMessage(@[byte 07]),
+      fakeWakuMessage(@[byte 08]),
+      fakeWakuMessage(@[byte 09]),
+    ]
 
     let
       serverKey = generateSecp256k1Key()

@@ -265,8 +265,7 @@ proc getPageSize*(db: SqliteDatabase): DatabaseResult[int64] =
   proc handler(s: RawStmtPtr) =
     size = sqlite3_column_int64(s, 0)
 
-  let res = db.query("PRAGMA page_size;", handler)
-  if res.isErr():
+  db.query("PRAGMA page_size;", handler).isOkOr:
     return err("failed to get page_size")
 
   return ok(size)
@@ -277,8 +276,7 @@ proc getFreelistCount*(db: SqliteDatabase): DatabaseResult[int64] =
   proc handler(s: RawStmtPtr) =
     count = sqlite3_column_int64(s, 0)
 
-  let res = db.query("PRAGMA freelist_count;", handler)
-  if res.isErr():
+  db.query("PRAGMA freelist_count;", handler).isOkOr:
     return err("failed to get freelist_count")
 
   return ok(count)
@@ -289,8 +287,7 @@ proc getPageCount*(db: SqliteDatabase): DatabaseResult[int64] =
   proc handler(s: RawStmtPtr) =
     count = sqlite3_column_int64(s, 0)
 
-  let res = db.query("PRAGMA page_count;", handler)
-  if res.isErr():
+  db.query("PRAGMA page_count;", handler).isOkOr:
     return err("failed to get page_count")
 
   return ok(count)
@@ -319,8 +316,7 @@ proc gatherSqlitePageStats*(db: SqliteDatabase): DatabaseResult[(int64, int64, i
 
 proc vacuum*(db: SqliteDatabase): DatabaseResult[void] =
   ## The VACUUM command rebuilds the database file, repacking it into a minimal amount of disk space.
-  let res = db.query("VACUUM;", NoopRowHandler)
-  if res.isErr():
+  db.query("VACUUM;", NoopRowHandler).isOkOr:
     return err("vacuum failed")
 
   return ok()
@@ -339,8 +335,7 @@ proc getUserVersion*(database: SqliteDatabase): DatabaseResult[int64] =
   proc handler(s: ptr sqlite3_stmt) =
     version = sqlite3_column_int64(s, 0)
 
-  let res = database.query("PRAGMA user_version;", handler)
-  if res.isErr():
+  database.query("PRAGMA user_version;", handler).isOkOr:
     return err("failed to get user_version")
 
   ok(version)
@@ -354,8 +349,7 @@ proc setUserVersion*(database: SqliteDatabase, version: int64): DatabaseResult[v
   ##
   ## For more info check: https://www.sqlite.org/pragma.html#pragma_user_version
   let query = "PRAGMA user_version=" & $version & ";"
-  let res = database.query(query, NoopRowHandler)
-  if res.isErr():
+  database.query(query, NoopRowHandler).isOkOr:
     return err("failed to set user_version")
 
   ok()
@@ -400,11 +394,9 @@ proc filterMigrationScripts(
     if direction != "" and not script.toLower().endsWith("." & direction & ".sql"):
       return false
 
-    let scriptVersionRes = getMigrationScriptVersion(script)
-    if scriptVersionRes.isErr():
+    let scriptVersion = getMigrationScriptVersion(script).valueOr:
       return false
 
-    let scriptVersion = scriptVersionRes.value
     return lowVersion < scriptVersion and scriptVersion <= highVersion
 
   paths.filter(filterPredicate)
@@ -476,10 +468,9 @@ proc migrate*(
     for statement in script.breakIntoStatements():
       info "executing migration statement", statement = statement
 
-      let execRes = db.query(statement, NoopRowHandler)
-      if execRes.isErr():
+      db.query(statement, NoopRowHandler).isOkOr:
         error "failed to execute migration statement",
-          statement = statement, error = execRes.error
+          statement = statement, error = error
         return err("failed to execute migration statement")
 
       info "migration statement executed succesfully", statement = statement
@@ -497,9 +488,8 @@ proc performSqliteVacuum*(db: SqliteDatabase): DatabaseResult[void] =
 
   info "starting sqlite database vacuuming"
 
-  let resVacuum = db.vacuum()
-  if resVacuum.isErr():
-    return err("failed to execute vacuum: " & resVacuum.error)
+  db.vacuum().isOkOr:
+    return err("failed to execute vacuum: " & error)
 
   info "finished sqlite database vacuuming"
   ok()

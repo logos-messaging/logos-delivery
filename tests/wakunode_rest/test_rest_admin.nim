@@ -14,12 +14,12 @@ import
     waku_node,
     waku_filter_v2/client,
     node/peer_manager,
-    waku_api/rest/server,
-    waku_api/rest/client,
-    waku_api/rest/responses,
-    waku_api/rest/admin/types,
-    waku_api/rest/admin/handlers as admin_api,
-    waku_api/rest/admin/client as admin_api_client,
+    rest_api/endpoint/server,
+    rest_api/endpoint/client,
+    rest_api/endpoint/responses,
+    rest_api/endpoint/admin/types,
+    rest_api/endpoint/admin/handlers as admin_rest_interface,
+    rest_api/endpoint/admin/client as admin_rest_client,
     waku_relay,
     waku_peer_exchange,
   ],
@@ -65,7 +65,7 @@ suite "Waku v2 Rest API - Admin":
     ): Future[void] {.async, gcsafe.} =
       await sleepAsync(0.milliseconds)
 
-    let shard = RelayShard(clusterId: clusterId, shardId: 0)
+    let shard = RelayShard(clusterId: clusterId, shardId: 5)
     node1.subscribe((kind: PubsubSub, topic: $shard), simpleHandler).isOkOr:
       assert false, "Failed to subscribe to topic: " & $error
     node2.subscribe((kind: PubsubSub, topic: $shard), simpleHandler).isOkOr:
@@ -211,6 +211,18 @@ suite "Waku v2 Rest API - Admin":
     # Connecting to both peers
     let conn2 = await node1.peerManager.connectPeer(peerInfo2)
     let conn3 = await node1.peerManager.connectPeer(peerInfo3)
+
+    var count = 0
+    while count < 20:
+      ## Wait ~1s at most for the peer store to update shard info
+      let getRes = await client.getPeers()
+      if getRes.data.allIt(it.shards == @[5.uint16]):
+        break
+
+      count.inc()
+      await sleepAsync(50.milliseconds)
+
+    assert count < 20, "Timeout waiting for shards to be updated in peer store"
 
     # Check successful connections
     check:

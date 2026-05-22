@@ -56,7 +56,7 @@ declarePublicGauge(
 )
 declarePublicGauge(
   waku_rln_membership_insertion_duration_seconds,
-  "time taken to insert a new member into the local merkle tree",
+  "time taken to process a new membership registration",
 )
 declarePublicGauge(
   waku_rln_membership_credentials_import_duration_seconds,

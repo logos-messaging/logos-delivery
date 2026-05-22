@@ -11,7 +11,7 @@ import
   libp2p/wire
 
 import
-  ../wakunode2/cli_args,
+  tools/confutils/cli_args,
   waku/[
     common/enr,
     waku_node,
@@ -181,7 +181,7 @@ proc pxLookupServiceNode*(
     if not await futPeers.withTimeout(30.seconds):
       notice "Cannot get peers from PX", round = 5 - trialCount
     else:
-      if futPeers.value().isErr():
+      futPeers.value().isOkOr:
         info "PeerExchange reported error", error = futPeers.read().error
         return err()
 

@@ -7,7 +7,7 @@ import
   ./retention_policy_capacity,
   ./retention_policy_size
 
-proc new*(
+proc new(
     T: type RetentionPolicy, retPolicy: string
 ): RetentionPolicyResult[Option[RetentionPolicy]] =
   let retPolicy = retPolicy.toLower
@@ -83,3 +83,14 @@ proc new*(
     return ok(some(retPolicy))
   else:
     return err("unknown retention policy")
+
+proc new*(
+    T: typedesc[RetentionPolicy], retPolicies: seq[string]
+): RetentionPolicyResult[seq[RetentionPolicy]] =
+  var policies: seq[RetentionPolicy]
+  for retPolicy in retPolicies:
+    let policy = RetentionPolicy.new(retPolicy).valueOr:
+      return err(error)
+    if policy.isSome():
+      policies.add(policy.get())
+  return ok(policies)

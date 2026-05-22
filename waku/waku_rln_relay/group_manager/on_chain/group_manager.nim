@@ -11,7 +11,7 @@ import
   stint,
   json,
   std/[strutils, tables, algorithm, strformat],
-  stew/[byteutils, arrayops],
+  stew/byteutils,
   sequtils
 
 import
@@ -50,24 +50,23 @@ type
 proc fetchMerkleProofElements*(
     g: OnchainGroupManager
 ): Future[Result[seq[byte], string]] {.async.} =
-  try:
-    let membershipIndex = g.membershipIndex.get()
-    let index40 = stuint(membershipIndex, 40)
+  let membershipIndex = g.membershipIndex.get()
+  let index40 = stuint(membershipIndex, 40)
 
-    let methodSig = "getMerkleProof(uint40)"
-    var paddedParam = newSeq[byte](32)
-    let indexBytes = index40.toBytesBE()
-    for i in 0 ..< min(indexBytes.len, paddedParam.len):
-      paddedParam[paddedParam.len - indexBytes.len + i] = indexBytes[i]
+  let methodSig = "getMerkleProof(uint40)"
+  var paddedParam = newSeq[byte](32)
+  let indexBytes = index40.toBytesBE()
+  for i in 0 ..< min(indexBytes.len, paddedParam.len):
+    paddedParam[paddedParam.len - indexBytes.len + i] = indexBytes[i]
 
-    let response = await sendEthCallWithParams(
-      ethRpc = g.ethRpc.get(),
-      functionSignature = methodSig,
-      params = paddedParam,
-      fromAddress = g.ethRpc.get().defaultAccount,
-      toAddress = fromHex(Address, g.ethContractAddress),
-      chainId = g.chainId,
-    )
+  let response = await sendEthCallWithParams(
+    ethRpc = g.ethRpc.get(),
+    functionSignature = methodSig,
+    params = paddedParam,
+    fromAddress = g.ethRpc.get().defaultAccount,
+    toAddress = fromHex(Address, g.ethContractAddress),
+    chainId = g.chainId,
+  )
 
     return response
   except CatchableError:
@@ -111,25 +110,21 @@ proc fetchMerkleRoot*(
 proc fetchNextFreeIndex*(
     g: OnchainGroupManager
 ): Future[Result[UInt256, string]] {.async.} =
-  try:
-    let nextFreeIndex = await sendEthCallWithoutParams(
-      ethRpc = g.ethRpc.get(),
-      functionSignature = "nextFreeIndex()",
-      fromAddress = g.ethRpc.get().defaultAccount,
-      toAddress = fromHex(Address, g.ethContractAddress),
-      chainId = g.chainId,
-    )
-    return nextFreeIndex
-  except CatchableError:
-    error "Failed to fetch next free index", error = getCurrentExceptionMsg()
-    return err("Failed to fetch next free index: " & getCurrentExceptionMsg())
+  let nextFreeIndex = await sendEthCallWithoutParams(
+    ethRpc = g.ethRpc.get(),
+    functionSignature = "nextFreeIndex()",
+    fromAddress = g.ethRpc.get().defaultAccount,
+    toAddress = fromHex(Address, g.ethContractAddress),
+    chainId = g.chainId,
+  )
+  return nextFreeIndex
 
 proc fetchMembershipStatus*(
     g: OnchainGroupManager, idCommitment: IDCommitment
 ): Future[Result[bool, string]] {.async.} =
-  try:
-    let params = idCommitment.reversed()
-    let resultBytes = await sendEthCallWithParams(
+  let params = idCommitment.reversed()
+  let responseBytes = (
+    await sendEthCallWithParams(
       ethRpc = g.ethRpc.get(),
       functionSignature = "isInMembershipSet(uint256)",
       params = params,
@@ -137,32 +132,25 @@ proc fetchMembershipStatus*(
       toAddress = fromHex(Address, g.ethContractAddress),
       chainId = g.chainId,
     )
-    if resultBytes.isErr():
-      return err("Failed to check membership: " & resultBytes.error)
-    let responseBytes = resultBytes.get()
+  ).valueOr:
+    return err("Failed to check membership: " & error)
 
-    return ok(responseBytes.len == 32 and responseBytes[^1] == 1'u8)
-  except CatchableError:
-    error "Failed to fetch membership set membership", error = getCurrentExceptionMsg()
-    return err("Failed to fetch membership set membership: " & getCurrentExceptionMsg())
+  return ok(responseBytes.len == 32 and responseBytes[^1] == 1'u8)
 
 proc fetchMaxMembershipRateLimit*(
     g: OnchainGroupManager
 ): Future[Result[UInt256, string]] {.async.} =
-  try:
-    let maxMembershipRateLimit = await sendEthCallWithoutParams(
-      ethRpc = g.ethRpc.get(),
-      functionSignature = "maxMembershipRateLimit()",
-      fromAddress = g.ethRpc.get().defaultAccount,
-      toAddress = fromHex(Address, g.ethContractAddress),
-      chainId = g.chainId,
-    )
-    return maxMembershipRateLimit
-  except CatchableError:
-    error "Failed to fetch max membership rate limit", error = getCurrentExceptionMsg()
-    return err("Failed to fetch max membership rate limit: " & getCurrentExceptionMsg())
+  let maxMembershipRateLimit = await sendEthCallWithoutParams(
+    ethRpc = g.ethRpc.get(),
+    functionSignature = "maxMembershipRateLimit()",
+    fromAddress = g.ethRpc.get().defaultAccount,
+    toAddress = fromHex(Address, g.ethContractAddress),
+    chainId = g.chainId,
+  )
 
-template initializedGuard(g: OnchainGroupManager): untyped =
+  return maxMembershipRateLimit
+
+proc checkInitialized(g: OnchainGroupManager): Result[void, string] =
   if not g.initialized:
     raise newException(CatchableError, "OnchainGroupManager is not initialized")
 
@@ -287,37 +275,32 @@ proc trackRootChanges*(g: OnchainGroupManager) {.async: (raises: [CatchableError
     initializedGuard(g)
     const rpcDelay = 5.seconds
 
-    while true:
-      await sleepAsync(rpcDelay)
-      let rootUpdated = await g.updateRoots()
+  while true:
+    await sleepAsync(rpcDelay)
+    let rootUpdated = await g.updateRoots()
 
-      if rootUpdated:
-        ## The membership set on-chain has changed (some new members have joined or some members have left)
-        if g.membershipIndex.isSome():
-          ## A membership index exists only if the node has registered with RLN.
-          ## Non-registered nodes cannot have Merkle proof elements.
-          let proofResult = await g.fetchMerkleProofElements()
-          if proofResult.isErr():
-            error "Failed to fetch Merkle proof", error = proofResult.error
-          else:
-            g.merkleProofCache = proofResult.get()
+    if rootUpdated:
+      ## The membership set on-chain has changed (some new members have joined or some members have left)
+      if g.membershipIndex.isSome():
+        ## A membership index exists only if the node has registered with RLN.
+        ## Non-registered nodes cannot have Merkle proof elements.
+        let proofResult = await g.fetchMerkleProofElements()
+        if proofResult.isErr():
+          error "Failed to fetch Merkle proof", error = proofResult.error
+        else:
+          g.merkleProofCache = proofResult.get()
 
-        let nextFreeIndex = await g.fetchNextFreeIndex()
-        if nextFreeIndex.isErr():
-          error "Failed to fetch next free index", error = nextFreeIndex.error
-          raise newException(
-            CatchableError, "Failed to fetch next free index: " & nextFreeIndex.error
-          )
+      let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
+        error "Failed to fetch next free index", error = error
+        return err("Failed to fetch next free index: " & error)
 
-        let memberCount = cast[int64](nextFreeIndex.get())
-        waku_rln_number_registered_memberships.set(float64(memberCount))
-  except CatchableError:
-    error "Fatal error in trackRootChanges", error = getCurrentExceptionMsg()
+      let memberCount = cast[int64](nextFreeIndex)
+      waku_rln_number_registered_memberships.set(float64(memberCount))
 
 method register*(
     g: OnchainGroupManager, rateCommitment: RateCommitment
-): Future[void] {.async: (raises: [Exception]).} =
-  initializedGuard(g)
+): Future[Result[void, string]] {.async.} =
+  ?checkInitialized(g)
 
   try:
     let leaf = rateCommitment.toLeaf().get()
@@ -326,65 +309,99 @@ method register*(
       info "registering member via callback", rateCommitment = leaf, index = idx
       await g.registerCb.get()(@[Membership(rateCommitment: leaf, index: idx)])
     g.latestIndex.inc()
-  except CatchableError:
-    raise newException(ValueError, getCurrentExceptionMsg())
+  except Exception as e:
+    return err("Failed to call register callback: " & e.msg)
+
+  return ok()
 
 method register*(
     g: OnchainGroupManager,
     identityCredential: IdentityCredential,
     userMessageLimit: UserMessageLimit,
-): Future[void] {.async: (raises: [Exception]).} =
-  initializedGuard(g)
+): Future[Result[void, string]] {.async.} =
+  ?checkInitialized(g)
 
   let ethRpc = g.ethRpc.get()
   let wakuRlnContract = g.wakuRlnContract.get()
 
-  var gasPrice: int
-  g.retryWrapper(gasPrice, "Failed to get gas price"):
-    int(await ethRpc.provider.eth_gasPrice()) * 2
+  let gasPrice = (
+    await retryWrapper(
+      RetryStrategy.new(),
+      "Failed to get gas price",
+      proc(): Future[int] {.async.} =
+        let fetchedGasPrice = uint64(await ethRpc.provider.eth_gasPrice())
+        if fetchedGasPrice > uint64(high(int) div 2):
+          warn "Gas price overflow detected, capping at maximum int value",
+            fetchedGasPrice = fetchedGasPrice, maxInt = high(int)
+          return high(int)
+        else:
+          let calculatedGasPrice = int(fetchedGasPrice) * 2
+          debug "Gas price calculated",
+            fetchedGasPrice = fetchedGasPrice, gasPrice = calculatedGasPrice
+          return calculatedGasPrice,
+    )
+  ).valueOr:
+    return err("Failed to get gas price: " & error)
+
   let idCommitmentHex = identityCredential.idCommitment.inHex()
-  info "identityCredential idCommitmentHex", idCommitment = idCommitmentHex
+  debug "identityCredential idCommitmentHex", idCommitment = idCommitmentHex
   let idCommitment = identityCredential.idCommitment.toUInt256()
   let idCommitmentsToErase: seq[UInt256] = @[]
   info "registering the member",
     idCommitment = idCommitment,
     userMessageLimit = userMessageLimit,
     idCommitmentsToErase = idCommitmentsToErase
-  var txHash: TxHash
-  g.retryWrapper(txHash, "Failed to register the member"):
-    await wakuRlnContract
-    .register(idCommitment, userMessageLimit.stuint(32), idCommitmentsToErase)
-    .send(gasPrice = gasPrice)
+  let txHash = (
+    await retryWrapper(
+      RetryStrategy.new(),
+      "Failed to register the member",
+      proc(): Future[TxHash] {.async.} =
+        return await wakuRlnContract
+          .register(idCommitment, userMessageLimit.stuint(32), idCommitmentsToErase)
+          .send(gasPrice = gasPrice),
+    )
+  ).valueOr:
+    return err("Failed to register member: " & error)
 
   # wait for the transaction to be mined
-  var tsReceipt: ReceiptObject
-  g.retryWrapper(tsReceipt, "Failed to get the transaction receipt"):
-    await ethRpc.getMinedTransactionReceipt(txHash)
-  info "registration transaction mined", txHash = txHash
+  let tsReceipt = (
+    await retryWrapper(
+      RetryStrategy.new(),
+      "Failed to get the transaction receipt",
+      proc(): Future[ReceiptObject] {.async.} =
+        return await ethRpc.getMinedTransactionReceipt(txHash),
+    )
+  ).valueOr:
+    return err("Failed to get transaction receipt: " & error)
+  debug "registration transaction mined", txHash = txHash
   g.registrationTxHash = some(txHash)
   # the receipt topic holds the hash of signature of the raised events
-  # TODO: make this robust. search within the event list for the event
-  info "ts receipt", receipt = tsReceipt[]
+  debug "ts receipt", receipt = tsReceipt[]
 
   if tsReceipt.status.isNone():
-    raise newException(ValueError, "Transaction failed: status is None")
+    return err("Transaction failed: status is None")
   if tsReceipt.status.get() != 1.Quantity:
-    raise newException(
-      ValueError, "Transaction failed with status: " & $tsReceipt.status.get()
-    )
+    return err("Transaction failed with status: " & $tsReceipt.status.get())
 
-  ## Extract MembershipRegistered event from transaction logs (third event)
-  let thirdTopic = tsReceipt.logs[2].topics[0]
-  info "third topic", thirdTopic = thirdTopic
-  if thirdTopic !=
-      cast[FixedBytes[32]](keccak.keccak256.digest(
-        "MembershipRegistered(uint256,uint256,uint32)"
-      ).data):
-    raise newException(ValueError, "register: unexpected event signature")
+  ## Search through all transaction logs to find the MembershipRegistered event
+  let expectedEventSignature = cast[FixedBytes[32]](keccak.keccak256.digest(
+    "MembershipRegistered(uint256,uint256,uint32)"
+  ).data)
 
-  ## Parse MembershipRegistered event data: rateCommitment(256) || membershipRateLimit(256) || index(32)
-  let arguments = tsReceipt.logs[2].data
-  info "tx log data", arguments = arguments
+  var membershipRegisteredLog: Option[LogObject]
+  for log in tsReceipt.logs:
+    if log.topics.len > 0 and log.topics[0] == expectedEventSignature:
+      membershipRegisteredLog = some(log)
+      break
+
+  if membershipRegisteredLog.isNone():
+    return err("register: MembershipRegistered event not found in transaction logs")
+
+  let registrationLog = membershipRegisteredLog.get()
+
+  ## Parse MembershipRegistered event data: idCommitment(256) || membershipRateLimit(256) || index(32)
+  let arguments = registrationLog.data
+  trace "registration transaction log data", arguments = arguments
   let
     ## Extract membership index from transaction log data (big endian)
     membershipIndex = UInt256.fromBytesBE(arguments[64 .. 95])
@@ -402,20 +419,28 @@ method register*(
 
   if g.registerCb.isSome():
     let member = Membership(rateCommitment: rateCommitment, index: g.latestIndex)
-    await g.registerCb.get()(@[member])
+    try:
+      await g.registerCb.get()(@[member])
+    except Exception as e:
+      return err("Failed to call register callback: " & e.msg)
   g.latestIndex.inc()
 
-  return
+  return ok()
 
 method withdraw*(
     g: OnchainGroupManager, idCommitment: IDCommitment
-): Future[void] {.async: (raises: [Exception]).} =
-  initializedGuard(g) # TODO: after slashing is enabled on the contract
+): Future[Result[void, string]] {.async.} =
+  checkInitialized(g).isOkOr:
+    return err(error)
+  return ok()
 
 method withdrawBatch*(
     g: OnchainGroupManager, idCommitments: seq[IDCommitment]
-): Future[void] {.async: (raises: [Exception]).} =
-  initializedGuard(g)
+): Future[Result[void, string]] {.async.} =
+  checkInitialized(g).isOkOr:
+    return err(error)
+
+  return ok()
 
 proc getRootFromProofAndIndex(
     g: OnchainGroupManager, elements: seq[byte], bits: seq[byte]
@@ -424,23 +449,20 @@ proc getRootFromProofAndIndex(
   # it's currently not used anywhere, but can be used to verify the root from the proof and index
   # Compute leaf hash from idCommitment and messageLimit
   let messageLimitField = uint64ToField(g.userMessageLimit.get())
-  let leafHashRes = poseidon(@[g.idCredentials.get().idCommitment, @messageLimitField])
-  if leafHashRes.isErr():
-    return err("Failed to compute leaf hash: " & leafHashRes.error)
+  var hash = poseidon(g.idCredentials.get().idCommitment, @messageLimitField).valueOr:
+    return err("Failed to compute leaf hash: " & error)
 
-  var hash = leafHashRes.get()
   for i in 0 ..< bits.len:
     let sibling = elements[i * 32 .. (i + 1) * 32 - 1]
 
     let hashRes =
       if bits[i] == 0:
-        poseidon(@[@hash, sibling])
+        poseidon(@hash, sibling)
       else:
-        poseidon(@[sibling, @hash])
+        poseidon(sibling, @hash)
 
     hash = hashRes.valueOr:
       return err("Failed to compute poseidon hash: " & error)
-    hash = hashRes.get()
 
   return ok(hash)
 
@@ -450,7 +472,7 @@ method generateProof*(
     epoch: Epoch,
     messageId: MessageId,
     rlnIdentifier = DefaultRlnIdentifier,
-): GroupManagerResult[RateLimitProof] {.gcsafe, raises: [].} =
+): GroupManagerResult[RateLimitProof] {.gcsafe.} =
   ## Generates an RLN proof using the cached Merkle proof and custom witness
   # Ensure identity credentials and membership index are set
   if g.idCredentials.isNone():
@@ -473,9 +495,14 @@ method generateProof*(
     let chunk = g.merkleProofCache[i * 32 .. (i + 1) * 32 - 1]
     path_elements.add(chunk.reversed())
 
-  let x = keccak.keccak256.digest(data)
+  let xCfr = hashToFieldLe(data).valueOr:
+    return err("Failed to hash signal to field: " & error)
+  defer:
+    ffi_cfr_free(xCfr)
+  let x = cfrToBytesLe(xCfr).valueOr:
+    return err("Failed to serialize signal hash: " & error)
 
-  let extNullifier = poseidon(@[@(epoch), @(rlnIdentifier)]).valueOr:
+  let extNullifier = generateExternalNullifier(epoch, rlnIdentifier).valueOr:
     return err("Failed to compute external nullifier: " & error)
 
   let witness = RLNWitnessInput(
@@ -488,57 +515,8 @@ method generateProof*(
     external_nullifier: extNullifier,
   )
 
-  let serializedWitness = serialize(witness)
-
-  var input_witness_buffer = toBuffer(serializedWitness)
-
-  # Generate the proof using the zerokit API
-  var output_witness_buffer: Buffer
-  let witness_success = generate_proof_with_witness(
-    g.rlnInstance, addr input_witness_buffer, addr output_witness_buffer
-  )
-
-  if not witness_success:
-    return err("Failed to generate proof")
-
-  # Parse the proof into a RateLimitProof object
-  var proofValue = cast[ptr array[320, byte]](output_witness_buffer.`ptr`)
-  let proofBytes: array[320, byte] = proofValue[]
-
-  ## Parse the proof as [ proof<128> | root<32> | external_nullifier<32> | share_x<32> | share_y<32> | nullifier<32> ]
-  let
-    proofOffset = 128
-    rootOffset = proofOffset + 32
-    externalNullifierOffset = rootOffset + 32
-    shareXOffset = externalNullifierOffset + 32
-    shareYOffset = shareXOffset + 32
-    nullifierOffset = shareYOffset + 32
-
-  var
-    zkproof: ZKSNARK
-    proofRoot, shareX, shareY: MerkleNode
-    externalNullifier: ExternalNullifier
-    nullifier: Nullifier
-
-  discard zkproof.copyFrom(proofBytes[0 .. proofOffset - 1])
-  discard proofRoot.copyFrom(proofBytes[proofOffset .. rootOffset - 1])
-  discard
-    externalNullifier.copyFrom(proofBytes[rootOffset .. externalNullifierOffset - 1])
-  discard shareX.copyFrom(proofBytes[externalNullifierOffset .. shareXOffset - 1])
-  discard shareY.copyFrom(proofBytes[shareXOffset .. shareYOffset - 1])
-  discard nullifier.copyFrom(proofBytes[shareYOffset .. nullifierOffset - 1])
-
-  # Create the RateLimitProof object
-  let output = RateLimitProof(
-    proof: zkproof,
-    merkleRoot: proofRoot,
-    externalNullifier: externalNullifier,
-    epoch: epoch,
-    rlnIdentifier: rlnIdentifier,
-    shareX: shareX,
-    shareY: shareY,
-    nullifier: nullifier,
-  )
+  let output = generateRlnProofWithWitness(g.rlnInstance, witness, epoch, rlnIdentifier).valueOr:
+    return err("Failed to generate proof: " & error)
 
   info "Proof generated successfully", proof = output
 
@@ -548,36 +526,13 @@ method generateProof*(
 
 method verifyProof*(
     g: OnchainGroupManager, input: seq[byte], proof: RateLimitProof
-): GroupManagerResult[bool] {.gcsafe, raises: [].} =
-  ## -- Verifies an RLN rate-limit proof against the set of valid Merkle roots --
-
-  var normalizedProof = proof
-
-  normalizedProof.externalNullifier = poseidon(
-    @[@(proof.epoch), @(proof.rlnIdentifier)]
+): GroupManagerResult[bool] {.gcsafe.} =
+  let validProof = verifyRlnProof(
+    g.rlnInstance, proof, input, g.validRoots.items().toSeq()
   ).valueOr:
-    return err("Failed to compute external nullifier: " & error)
+    return err("could not verify the proof: " & error)
 
-  let proofBytes = serialize(normalizedProof, input)
-  let proofBuffer = proofBytes.toBuffer()
-
-  let rootsBytes = serialize(g.validRoots.items().toSeq())
-  let rootsBuffer = rootsBytes.toBuffer()
-
-  var validProof: bool # out-param
-  let ffiOk = verify_with_roots(
-    g.rlnInstance, # RLN context created at init()
-    addr proofBuffer, # (proof + signal)
-    addr rootsBuffer, # valid Merkle roots
-    addr validProof # will be set by the FFI call
-    ,
-  )
-
-  if not ffiOk:
-    return err("could not verify the proof")
-  else:
-    info "Proof verified successfully"
-
+  info "Proof verified", isValid = validProof
   return ok(validProof)
 
 method onRegister*(g: OnchainGroupManager, cb: OnRegisterCallback) {.gcsafe.} =
@@ -589,25 +544,31 @@ method onWithdraw*(g: OnchainGroupManager, cb: OnWithdrawCallback) {.gcsafe.} =
 proc establishConnection(
     g: OnchainGroupManager
 ): Future[GroupManagerResult[Web3]] {.async.} =
-  var ethRpc: Web3
+  let ethRpc = (
+    await retryWrapper(
+      RetryStrategy.new(),
+      "Failed to connect to the Ethereum client",
+      proc(): Future[Web3] {.async.} =
+        var innerEthRpc: Web3
+        var connected = false
+        for clientUrl in g.ethClientUrls:
+          ## We give a chance to the user to provide multiple clients
+          ## and we try to connect to each of them
+          try:
+            innerEthRpc = await newWeb3(clientUrl)
+            connected = true
+            break
+          except CatchableError:
+            error "failed connect Eth client", error = getCurrentExceptionMsg()
 
-  g.retryWrapper(ethRpc, "Failed to connect to the Ethereum client"):
-    var innerEthRpc: Web3
-    var connected = false
-    for clientUrl in g.ethClientUrls:
-      ## We give a chance to the user to provide multiple clients
-      ## and we try to connect to each of them
-      try:
-        innerEthRpc = await newWeb3(clientUrl)
-        connected = true
-        break
-      except CatchableError:
-        error "failed connect Eth client", error = getCurrentExceptionMsg()
+        ## this exception is handled by the retrywrapper
+        if not connected:
+          raise newException(CatchableError, "all failed")
 
-    if not connected:
-      raise newException(CatchableError, "all failed")
-
-    innerEthRpc
+        return innerEthRpc,
+    )
+  ).valueOr:
+    return err("Failed to establish Ethereum connection: " & error)
 
   return ok(ethRpc)
 
@@ -616,9 +577,15 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
   let ethRpc: Web3 = (await establishConnection(g)).valueOr:
     return err("failed to connect to Ethereum clients: " & $error)
 
-  var fetchedChainId: UInt256
-  g.retryWrapper(fetchedChainId, "Failed to get the chain id"):
-    await ethRpc.provider.eth_chainId()
+  let fetchedChainId = (
+    await retryWrapper(
+      RetryStrategy.new(),
+      "Failed to get the chain id",
+      proc(): Future[UInt256] {.async.} =
+        return await ethRpc.provider.eth_chainId(),
+    )
+  ).valueOr:
+    return err("Failed to get chain id: " & error)
 
   # Set the chain id
   if g.chainId == 0:
@@ -692,8 +659,10 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
   proc onDisconnect() {.async.} =
     error "Ethereum client disconnected"
 
-    var newEthRpc: Web3 = (await g.establishConnection()).valueOr:
-      g.onFatalErrorAction("failed to connect to Ethereum clients onDisconnect")
+    let newEthRpc: Web3 = (await g.establishConnection()).valueOr:
+      error "Fatal: failed to reconnect to Ethereum clients after disconnect",
+        error = error
+      g.onFatalErrorAction("failed to reconnect to Ethereum clients: " & error)
       return
 
     newEthRpc.ondisconnect = ethRpc.ondisconnect
@@ -710,15 +679,21 @@ method stop*(g: OnchainGroupManager): Future[void] {.async, gcsafe.} =
     g.ethRpc.get().ondisconnect = nil
     await g.ethRpc.get().close()
 
+  if not g.rlnInstance.isNil:
+    ffi_rln_free(g.rlnInstance)
+    g.rlnInstance = nil
+
   g.initialized = false
 
 method isReady*(g: OnchainGroupManager): Future[bool] {.async.} =
-  initializedGuard(g)
+  checkInitialized(g).isOkOr:
+    return false
 
   if g.ethRpc.isNone():
+    error "Ethereum RPC client is not configured"
     return false
 
   if g.wakuRlnContract.isNone():
+    error "Waku RLN contract is not configured"
     return false
-
   return true

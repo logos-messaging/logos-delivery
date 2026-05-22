@@ -5,7 +5,6 @@ import libp2p/peerid, libp2p/stream/connection
 import
   ../waku_core/peers,
   ../node/peer_manager,
-  ../node/delivery_monitor/publish_observer,
   ../utils/requests,
   ../waku_core,
   ./common,
@@ -17,17 +16,24 @@ logScope:
   topics = "waku lightpush client"
 
 type WakuLightPushClient* = ref object
-  peerManager*: PeerManager
   rng*: ref rand.HmacDrbgContext
-  publishObservers: seq[PublishObserver]
+  peerManager*: PeerManager
 
 proc new*(
     T: type WakuLightPushClient, peerManager: PeerManager, rng: ref rand.HmacDrbgContext
 ): T =
   WakuLightPushClient(peerManager: peerManager, rng: rng)
 
-proc addPublishObserver*(wl: WakuLightPushClient, obs: PublishObserver) =
-  wl.publishObservers.add(obs)
+proc ensureTimestampSet(message: var WakuMessage) =
+  if message.timestamp == 0:
+    message.timestamp = getNowInNanosecondTime()
+
+## Short log string for peer identifiers (overloads for convenience)
+func shortPeerId(peer: PeerId): string =
+  shortLog(peer)
+
+func shortPeerId(peer: RemotePeerInfo): string =
+  shortLog(peer.peerId)
 
 proc sendPushRequest(
     wl: WakuLightPushClient,
@@ -74,64 +80,47 @@ proc publish*(
     wl: WakuLightPushClient,
     pubSubTopic: Option[PubsubTopic] = none(PubsubTopic),
     wakuMessage: WakuMessage,
-    peer: PeerId | RemotePeerInfo,
+    dest: Connection | PeerId | RemotePeerInfo,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
   var message = wakuMessage
-  if message.timestamp == 0:
-    message.timestamp = getNowInNanosecondTime()
+  ensureTimestampSet(message)
 
-  when peer is PeerId:
-    info "publish",
-      peerId = shortLog(peer),
-      msg_hash = computeMessageHash(pubsubTopic.get(""), message).to0xHex
-  else:
-    info "publish",
-      peerId = shortLog(peer.peerId),
-      msg_hash = computeMessageHash(pubsubTopic.get(""), message).to0xHex
+  let msgHash = computeMessageHash(pubSubTopic.get(""), message).to0xHex()
 
-  let pushRequest = LightpushRequest(
-    requestId: generateRequestId(wl.rng), pubSubTopic: pubSubTopic, message: message
+  let peerIdStr =
+    when dest is Connection:
+      shortPeerId(dest.peerId)
+    else:
+      shortPeerId(dest)
+
+  info "publish",
+    myPeerId = wl.peerManager.switch.peerInfo.peerId,
+    peerId = peerIdStr,
+    msgHash = msgHash,
+    sentTime = getNowInNanosecondTime()
+
+  let request = LightpushRequest(
+    requestId: generateRequestId(wl.rng), pubsubTopic: pubSubTopic, message: message
   )
-  let publishedCount = ?await wl.sendPushRequest(pushRequest, peer)
 
-  for obs in wl.publishObservers:
-    obs.onMessagePublished(pubSubTopic.get(""), message)
+  let relayPeerCount =
+    when dest is Connection:
+      ?await wl.sendPushRequest(request, dest.peerId, some(dest))
+    else:
+      ?await wl.sendPushRequest(request, dest)
 
-  return lightpushSuccessResult(publishedCount)
+  return lightpushSuccessResult(relayPeerCount)
 
 proc publishToAny*(
-    wl: WakuLightPushClient, pubSubTopic: PubsubTopic, wakuMessage: WakuMessage
+    wl: WakuLightPushClient, pubsubTopic: PubsubTopic, wakuMessage: WakuMessage
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
-  ## This proc is similar to the publish one but in this case
-  ## we don't specify a particular peer and instead we get it from peer manager
-
-  var message = wakuMessage
-  if message.timestamp == 0:
-    message.timestamp = getNowInNanosecondTime()
-
+  # Like publish, but selects a peer automatically from the peer manager
   let peer = wl.peerManager.selectPeer(WakuLightPushCodec).valueOr:
     # TODO: check if it is matches the situation - shall we distinguish client side missing peers from server side?
     return lighpushErrorResult(
       LightPushErrorCode.NO_PEERS_TO_RELAY, "no suitable remote peers"
     )
-
-  info "publishToAny",
-    my_peer_id = wl.peerManager.switch.peerInfo.peerId,
-    peer_id = peer.peerId,
-    msg_hash = computeMessageHash(pubsubTopic, message).to0xHex,
-    sentTime = getNowInNanosecondTime()
-
-  let pushRequest = LightpushRequest(
-    requestId: generateRequestId(wl.rng),
-    pubSubTopic: some(pubSubTopic),
-    message: message,
-  )
-  let publishedCount = ?await wl.sendPushRequest(pushRequest, peer)
-
-  for obs in wl.publishObservers:
-    obs.onMessagePublished(pubSubTopic, message)
-
-  return lightpushSuccessResult(publishedCount)
+  return await wl.publish(some(pubsubTopic), wakuMessage, peer)
 
 proc publishWithConn*(
     wl: WakuLightPushClient,
@@ -140,22 +129,4 @@ proc publishWithConn*(
     conn: Connection,
     destPeer: PeerId,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
-  info "publishWithConn",
-    my_peer_id = wl.peerManager.switch.peerInfo.peerId,
-    peer_id = destPeer,
-    msg_hash = computeMessageHash(pubsubTopic, message).to0xHex,
-    sentTime = getNowInNanosecondTime()
-
-  let pushRequest = LightpushRequest(
-    requestId: generateRequestId(wl.rng),
-    pubSubTopic: some(pubSubTopic),
-    message: message,
-  )
-  #TODO: figure out how to not pass destPeer as this is just a hack
-  let publishedCount =
-    ?await wl.sendPushRequest(pushRequest, destPeer, conn = some(conn))
-
-  for obs in wl.publishObservers:
-    obs.onMessagePublished(pubSubTopic, message)
-
-  return lightpushSuccessResult(publishedCount)
+  return await wl.publish(some(pubSubTopic), message, conn)

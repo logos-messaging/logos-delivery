@@ -11,8 +11,8 @@ import
   waku/[
     waku_node,
     node/waku_node as waku_node2,
-    waku_api/rest/server,
-    waku_api/rest/debug/handlers as debug_api,
+    rest_api/endpoint/server,
+    rest_api/endpoint/debug/handlers as debug_rest_interface,
   ],
   ../testlib/common,
   ../testlib/wakucore,

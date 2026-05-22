@@ -49,13 +49,9 @@ proc setupAndPublish(rng: ref HmacDrbgContext) {.async.} =
 
   var enrBuilder = EnrBuilder.init(nodeKey)
 
-  let recordRes = enrBuilder.build()
-  let record =
-    if recordRes.isErr():
-      error "failed to create enr record", error = recordRes.error
-      quit(QuitFailure)
-    else:
-      recordRes.get()
+  let record = enrBuilder.build().valueOr:
+    error "failed to create enr record", error = error
+    quit(QuitFailure)
 
   var builder = WakuNodeBuilder.init()
   builder.withNodeKey(nodeKey)

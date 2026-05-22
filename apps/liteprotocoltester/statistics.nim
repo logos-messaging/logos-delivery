@@ -8,6 +8,8 @@ import
   results,
   libp2p/peerid
 
+from std/sugar import `=>`
+
 import ./tester_message, ./lpt_metrics
 
 type
@@ -114,12 +116,7 @@ proc addMessage*(
   if not self.contains(peerId):
     self[peerId] = Statistics.init()
 
-  let shortSenderId = block:
-    let senderPeer = PeerId.init(msg.sender)
-    if senderPeer.isErr():
-      msg.sender
-    else:
-      senderPeer.get().shortLog()
+  let shortSenderId = PeerId.init(msg.sender).map(p => p.shortLog()).valueOr(msg.sender)
 
   discard catch:
     self[peerId].addMessage(shortSenderId, msg, msgHash)
@@ -220,10 +217,7 @@ proc echoStat*(self: Statistics, peerId: string) =
 |  {self.missingIndices()} |
 *------------------------------------------------------------------------------------------*""".fmt()
 
-  if printable.isErr():
-    echo "Error while printing statistics: " & printable.error().msg
-  else:
-    echo printable.get()
+  echo printable.valueOr("Error while printing statistics: " & error.msg)
 
 proc jsonStat*(self: Statistics): string =
   let minL, maxL, avgL = self.calcLatency()
@@ -243,20 +237,18 @@ proc jsonStat*(self: Statistics): string =
            }},
           "lostIndices": {self.missingIndices()}
      }}""".fmt()
-  if json.isErr:
-    return "{\"result:\": \"" & json.error.msg & "\"}"
 
-  return json.get()
+  return json.valueOr("{\"result:\": \"" & error.msg & "\"}")
 
 proc echoStats*(self: var PerPeerStatistics) =
   for peerId, stats in self.pairs:
     let peerLine = catch:
       "Receiver statistics from peer {peerId}".fmt()
-    if peerLine.isErr:
+    peerLine.isOkOr:
       echo "Error while printing statistics"
-    else:
-      echo peerLine.get()
-      stats.echoStat(peerId)
+      continue
+    echo peerLine.get()
+    stats.echoStat(peerId)
 
 proc jsonStats*(self: PerPeerStatistics): string =
   try:

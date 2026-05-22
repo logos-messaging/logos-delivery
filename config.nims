@@ -9,12 +9,6 @@ if defined(windows):
   switch("passL", "rln.lib")
   switch("define", "postgres=false")
 
-  # Automatically add all vendor subdirectories
-  for dir in walkDir("./vendor"):
-    if dir.kind == pcDir:
-      switch("path", dir.path)
-      switch("path", dir.path / "src")
-
   # disable timestamps in Windows PE headers - https://wiki.debian.org/ReproducibleBuilds/TimestampsInPEBinaries
   switch("passL", "-Wl,--no-insert-timestamp")
   # increase stack size
@@ -25,10 +19,6 @@ if defined(windows):
   if defined(i386):
     # set the IMAGE_FILE_LARGE_ADDRESS_AWARE flag so we can use PAE, if enabled, and access more than 2 GiB of RAM
     switch("passL", "-Wl,--large-address-aware")
-
-  # The dynamic Chronicles output currently prevents us from using colors on Windows
-  # because these require direct manipulations of the stdout File object.
-  switch("define", "chronicles_colors=off")
 
 # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#ssse3-supplemental-sse3
 # suggests that SHA256 hashing with SSSE3 is 20% faster than without SSSE3, so
@@ -52,9 +42,10 @@ if defined(disableMarchNative):
       switch("passL", "-march=haswell -mtune=generic")
     else:
       if defined(marchOptimized):
-        # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#bmi2--adx
-        switch("passC", "-march=broadwell -mtune=generic")
-        switch("passL", "-march=broadwell -mtune=generic")
+        # -march=broadwell: https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#bmi2--adx
+        # Changed to x86-64-v2 for broader support
+        switch("passC", "-march=x86-64-v2 -mtune=generic")
+        switch("passL", "-march=x86-64-v2 -mtune=generic")
       else:
         switch("passC", "-mssse3")
         switch("passL", "-mssse3")
@@ -76,6 +67,7 @@ else:
   on
 --opt:
   speed
+
 --excessiveStackTrace:
   on
 # enable metric collection
@@ -85,16 +77,15 @@ else:
 --define:
   nimTypeNames
 
-switch("define", "withoutPCRE")
-
 # the default open files limit is too low on macOS (512), breaking the
 # "--debugger:native" build. It can be increased with `ulimit -n 1024`.
 if not defined(macosx) and not defined(android):
   # add debugging symbols and original files and line numbers
   --debugger:
     native
-  if not (defined(windows) and defined(i386)) and not defined(disable_libbacktrace):
+  when defined(enable_libbacktrace):
     # light-weight stack traces using libbacktrace and libunwind
+    # opt-in: pass -d:enable_libbacktrace (requires libbacktrace in project deps)
     --define:
       nimStackTraceOverride
     switch("import", "libbacktrace")
@@ -125,3 +116,8 @@ if defined(android):
   switch("passC", "--sysroot=" & sysRoot)
   switch("passL", "--sysroot=" & sysRoot)
   switch("cincludes", sysRoot & "/usr/include/")
+# begin Nimble config (version 2)
+--noNimblePath
+when withDir(thisDir(), system.fileExists("nimble.paths")):
+  include "nimble.paths"
+# end Nimble config

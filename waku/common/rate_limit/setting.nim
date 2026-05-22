@@ -7,7 +7,6 @@ type RateLimitSetting* = tuple[volume: int, period: Duration]
 
 type RateLimitedProtocol* = enum
   GLOBAL
-  STOREV2
   STOREV3
   LIGHTPUSH
   PEEREXCHG
@@ -47,8 +46,6 @@ proc translate(sProtocol: string): RateLimitedProtocol {.raises: [ValueError].} 
   case sProtocol
   of "global":
     return GLOBAL
-  of "storev2":
-    return STOREV2
   of "storev3":
     return STOREV3
   of "lightpush":
@@ -65,7 +62,6 @@ proc fillSettingTable(
 ) {.raises: [ValueError].} =
   if sProtocol == "store":
     # generic store will only applies to version which is not listed directly
-    discard t.hasKeyOrPut(STOREV2, setting)
     discard t.hasKeyOrPut(STOREV3, setting)
   else:
     let protocol = translate(sProtocol)
@@ -87,7 +83,7 @@ proc parse*(
   ## group4: Unit of period - only h:hour, m:minute, s:second, ms:millisecond allowed
   ## whitespaces are allowed lazily
   const parseRegex =
-    """^\s*((store|storev2|storev3|lightpush|px|filter)\s*:)?\s*(\d+)\s*\/\s*(\d+)\s*(s|h|m|ms)\s*$"""
+    """^\s*((store|storev3|lightpush|px|filter)\s*:)?\s*(\d+)\s*\/\s*(\d+)\s*(s|h|m|ms)\s*$"""
   const regexParseSize = re2(parseRegex)
   for settingStr in settings:
     let aSetting = settingStr.toLower()

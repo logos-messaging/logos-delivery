@@ -12,14 +12,14 @@ import waku/node/waku_switch, ./testlib/common, ./testlib/wakucore
 
 proc newCircuitRelayClientSwitch(relayClient: RelayClient): Switch =
   SwitchBuilder
-  .new()
-  .withRng(rng())
-  .withAddresses(@[MultiAddress.init("/ip4/0.0.0.0/tcp/0").tryGet()])
-  .withTcpTransport()
-  .withMplex()
-  .withNoise()
-  .withCircuitRelay(relayClient)
-  .build()
+    .new()
+    .withRng(rng())
+    .withAddresses(@[MultiAddress.init("/ip4/0.0.0.0/tcp/0").tryGet()])
+    .withTcpTransport()
+    .withMplex()
+    .withNoise()
+    .withCircuitRelay(relayClient)
+    .build()
 
 suite "Waku Switch":
   asyncTest "Waku Switch works with AutoNat":

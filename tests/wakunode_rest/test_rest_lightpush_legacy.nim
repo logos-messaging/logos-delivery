@@ -10,17 +10,17 @@ import
 
 import
   waku/[
-    waku_api/message_cache,
+    rest_api/message_cache,
     waku_core,
     waku_node,
     node/peer_manager,
     waku_lightpush_legacy/common,
-    waku_api/rest/server,
-    waku_api/rest/client,
-    waku_api/rest/responses,
-    waku_api/rest/legacy_lightpush/types,
-    waku_api/rest/legacy_lightpush/handlers as lightpush_api,
-    waku_api/rest/legacy_lightpush/client as lightpush_api_client,
+    rest_api/endpoint/server,
+    rest_api/endpoint/client,
+    rest_api/endpoint/responses,
+    rest_api/endpoint/legacy_lightpush/types,
+    rest_api/endpoint/legacy_lightpush/handlers as lightpush_rest_interface,
+    rest_api/endpoint/legacy_lightpush/client as lightpush_rest_client,
     waku_relay,
     common/rate_limit/setting,
   ],
@@ -61,7 +61,7 @@ proc init(
     assert false, "Failed to mount relay"
   (await testSetup.serviceNode.mountRelay()).isOkOr:
     assert false, "Failed to mount relay"
-  await testSetup.serviceNode.mountLegacyLightPush(rateLimit)
+  check (await testSetup.serviceNode.mountLegacyLightPush(rateLimit)).isOk()
   testSetup.pushNode.mountLegacyLightPushClient()
 
   testSetup.serviceNode.peerManager.addServicePeer(

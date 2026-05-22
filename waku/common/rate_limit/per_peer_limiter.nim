@@ -20,7 +20,7 @@ proc mgetOrPut(
     perPeerRateLimiter: var PerPeerRateLimiter, peerId: PeerId
 ): var Option[TokenBucket] =
   return perPeerRateLimiter.peerBucket.mgetOrPut(
-    peerId, newTokenBucket(perPeerRateLimiter.setting, ReplenishMode.Compensating)
+    peerId, newTokenBucket(perPeerRateLimiter.setting, ReplenishMode.Continuous)
   )
 
 template checkUsageLimit*(

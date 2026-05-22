@@ -8,11 +8,15 @@ import
   results
 
 import
-  ../waku_conf,
-  ../networks_config,
-  ../../common/logging,
-  ../../common/utils/parse_size_units,
-  ../../waku_enr/capabilities
+  waku/[
+    factory/waku_conf,
+    factory/networks_config,
+    common/logging,
+    common/utils/parse_size_units,
+    waku_enr/capabilities,
+    persistency/persistency,
+  ],
+  tools/confutils/entry_nodes
 
 import
   ./filter_service_conf_builder,
@@ -25,10 +29,15 @@ import
   ./metrics_server_conf_builder,
   ./rate_limit_conf_builder,
   ./rln_relay_conf_builder,
-  ./mix_conf_builder
+  ./mix_conf_builder,
+  ./kademlia_discovery_conf_builder
 
 logScope:
   topics = "waku conf builder"
+
+const
+  DefaultMaxConnections* = 150
+  DefaultP2pTcpPort*: Port = Port(60000)
 
 type MaxMessageSizeKind* = enum
   mmskNone
@@ -78,6 +87,7 @@ type WakuConfBuilder* = object
   mixConf*: MixConfBuilder
   webSocketConf*: WebSocketConfBuilder
   rateLimitConf*: RateLimitConfBuilder
+  kademliaDiscoveryConf*: KademliaDiscoveryConfBuilder
   # End conf builders
   relay: Option[bool]
   lightPush: Option[bool]
@@ -127,6 +137,8 @@ type WakuConfBuilder* = object
   circuitRelayClient: Option[bool]
   p2pReliability: Option[bool]
 
+  localStoragePath: Option[string]
+
 proc init*(T: type WakuConfBuilder): WakuConfBuilder =
   WakuConfBuilder(
     dnsDiscoveryConf: DnsDiscoveryConfBuilder.init(),
@@ -138,6 +150,7 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     storeServiceConf: StoreServiceConfBuilder.init(),
     webSocketConf: WebSocketConfBuilder.init(),
     rateLimitConf: RateLimitConfBuilder.init(),
+    kademliaDiscoveryConf: KademliaDiscoveryConfBuilder.init(),
   )
 
 proc withNetworkConf*(b: var WakuConfBuilder, networkConf: NetworkConf) =
@@ -248,9 +261,6 @@ proc withAgentString*(b: var WakuConfBuilder, agentString: string) =
 proc withColocationLimit*(b: var WakuConfBuilder, colocationLimit: int) =
   b.colocationLimit = some(colocationLimit)
 
-proc withMaxRelayPeers*(b: var WakuConfBuilder, maxRelayPeers: int) =
-  b.maxRelayPeers = some(maxRelayPeers)
-
 proc withRelayServiceRatio*(b: var WakuConfBuilder, relayServiceRatio: string) =
   b.relayServiceRatio = some(relayServiceRatio)
 
@@ -264,6 +274,9 @@ proc withRelayShardedPeerManagement*(
 
 proc withP2pReliability*(b: var WakuConfBuilder, p2pReliability: bool) =
   b.p2pReliability = some(p2pReliability)
+
+proc withLocalStoragePath*(b: var WakuConfBuilder, localStoragePath: string) =
+  b.localStoragePath = some(localStoragePath)
 
 proc withExtMultiAddrs*(builder: var WakuConfBuilder, extMultiAddrs: seq[string]) =
   builder.extMultiAddrs = concat(builder.extMultiAddrs, extMultiAddrs)
@@ -296,7 +309,6 @@ proc buildShardingConf(
     bNumShardsInCluster: Option[uint16],
     bSubscribeShards: Option[seq[uint16]],
 ): (ShardingConf, seq[uint16]) =
-  echo "bSubscribeShards: ", bSubscribeShards
   case bShardingConfKind.get(AutoSharding)
   of StaticSharding:
     (ShardingConf(kind: StaticSharding), bSubscribeShards.get(@[]))
@@ -350,10 +362,13 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
     builder.rlnRelayConf.withEpochSizeSec(networkConf.rlnEpochSizeSec)
 
     if builder.rlnRelayConf.userMessageLimit.isSome():
-      warn "RLN Relay Dynamic was provided alongside a network conf",
+      warn "RLN Relay User Message Limit was provided alongside a network conf",
         used = networkConf.rlnRelayUserMessageLimit,
         discarded = builder.rlnRelayConf.userMessageLimit
-    builder.rlnRelayConf.withUserMessageLimit(networkConf.rlnRelayUserMessageLimit)
+    if builder.rlnRelayConf.userMessageLimit.get(0) == 0:
+      ## only override with the "preset" value if there was not explicit set value
+      builder.rlnRelayConf.withUserMessageLimit(networkConf.rlnRelayUserMessageLimit)
+
   # End Apply relay parameters
 
   case builder.maxMessageSize.kind
@@ -368,17 +383,17 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
     warn "Sharding Conf was provided alongside a network conf",
       used = networkConf.shardingConf.kind, discarded = builder.shardingConf
 
-  if builder.numShardsInCluster.isSome():
-    warn "Num Shards In Cluster was provided alongside a network conf",
-      used = networkConf.shardingConf.numShardsInCluster,
-      discarded = builder.numShardsInCluster
-
   case networkConf.shardingConf.kind
   of StaticSharding:
     builder.shardingConf = some(StaticSharding)
   of AutoSharding:
     builder.shardingConf = some(AutoSharding)
-    builder.numShardsInCluster = some(networkConf.shardingConf.numShardsInCluster)
+    if builder.numShardsInCluster.isSome():
+      warn "Num Shards In Cluster overrides network conf preset",
+        used = builder.numShardsInCluster.get(),
+        ignored = networkConf.shardingConf.numShardsInCluster
+    else:
+      builder.numShardsInCluster = some(networkConf.shardingConf.numShardsInCluster)
 
   if networkConf.discv5Discovery:
     if builder.discv5Conf.enabled.isNone:
@@ -390,6 +405,42 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
         used = networkConf.discv5BootstrapNodes,
         discarded = builder.discv5Conf.bootstrapNodes
     builder.discv5Conf.withBootstrapNodes(networkConf.discv5BootstrapNodes)
+
+  if networkConf.enableKadDiscovery:
+    if not builder.kademliaDiscoveryConf.enabled:
+      builder.kademliaDiscoveryConf.withEnabled(networkConf.enableKadDiscovery)
+
+    if builder.kademliaDiscoveryConf.bootstrapNodes.len == 0 and
+        networkConf.kadBootstrapNodes.len > 0:
+      builder.kademliaDiscoveryConf.withBootstrapNodes(networkConf.kadBootstrapNodes)
+
+  if networkConf.mix:
+    if builder.mix.isNone:
+      builder.mix = some(networkConf.mix)
+
+  if builder.p2pReliability.isNone:
+    builder.withP2pReliability(networkConf.p2pReliability)
+
+  # Process entry nodes from network config - classify and distribute
+  if networkConf.entryNodes.len > 0:
+    let processed = processEntryNodes(networkConf.entryNodes)
+    if processed.isOk():
+      let (enrTreeUrls, bootstrapEnrs, staticNodesFromEntry) = processed.get()
+
+      # Set ENRTree URLs for DNS discovery
+      if enrTreeUrls.len > 0:
+        for url in enrTreeUrls:
+          builder.dnsDiscoveryConf.withEnrTreeUrl(url)
+
+      # Set ENR records as bootstrap nodes for discv5
+      if bootstrapEnrs.len > 0:
+        builder.discv5Conf.withBootstrapNodes(bootstrapEnrs)
+
+      # Add static nodes (multiaddrs and those extracted from ENR entries)
+      if staticNodesFromEntry.len > 0:
+        builder.withStaticNodes(staticNodesFromEntry)
+    else:
+      warn "Failed to process entry nodes from network conf", error = processed.error()
 
 proc build*(
     builder: var WakuConfBuilder, rng: ref HmacDrbgContext = crypto.newRng()
@@ -507,6 +558,9 @@ proc build*(
   let rateLimit = builder.rateLimitConf.build().valueOr:
     return err("Rate limits Conf building failed: " & $error)
 
+  let kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
+    return err("Kademlia Discovery Conf building failed: " & $error)
+
   # End - Build sub-configs
 
   let logLevel =
@@ -530,12 +584,7 @@ proc build*(
       warn "Nat Strategy is not specified, defaulting to none"
       "none"
 
-  let p2pTcpPort =
-    if builder.p2pTcpPort.isSome():
-      builder.p2pTcpPort.get()
-    else:
-      warn "P2P Listening TCP Port is not specified, listening on 60000"
-      60000.Port
+  let p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
 
   let p2pListenAddress =
     if builder.p2pListenAddress.isSome():
@@ -592,11 +641,16 @@ proc build*(
     if builder.maxConnections.isSome():
       builder.maxConnections.get()
     else:
-      warn "Max Connections was not specified, defaulting to 300"
-      300
+      warn "Max connections not specified, defaulting to DefaultMaxConnections",
+        default = DefaultMaxConnections
+      DefaultMaxConnections
+
+  if maxConnections < DefaultMaxConnections:
+    warn "max-connections less than DefaultMaxConnections; we suggest using DefaultMaxConnections or more for better connectivity",
+      provided = maxConnections, recommended = DefaultMaxConnections
 
   # TODO: Do the git version thing here
-  let agentString = builder.agentString.get("nwaku")
+  let agentString = builder.agentString.get("logos-delivery")
 
   # TODO: use `DefaultColocationLimit`. the user of this value should
   # probably be defining a config object
@@ -606,7 +660,7 @@ proc build*(
   let relayShardedPeerManagement = builder.relayShardedPeerManagement.get(false)
 
   let wakuFlags = CapabilitiesBitfield.init(
-    lightpush = lightPush,
+    lightpush = lightPush and relay,
     filter = filterServiceConf.isSome,
     store = storeServiceConf.isSome,
     relay = relay,
@@ -624,6 +678,7 @@ proc build*(
     restServerConf: restServerConf,
     dnsDiscoveryConf: dnsDiscoveryConf,
     mixConf: mixConf,
+    kademliaDiscoveryConf: kademliaDiscoveryConf,
     # end confs
     nodeKey: nodeKey,
     clusterId: clusterId,
@@ -663,13 +718,14 @@ proc build*(
     agentString: agentString,
     colocationLimit: colocationLimit,
     maxRelayPeers: builder.maxRelayPeers,
-    relayServiceRatio: builder.relayServiceRatio.get("60:40"),
+    relayServiceRatio: builder.relayServiceRatio.get("50:50"),
     rateLimit: rateLimit,
     circuitRelayClient: builder.circuitRelayClient.get(false),
     staticNodes: builder.staticNodes,
     relayShardedPeerManagement: relayShardedPeerManagement,
     p2pReliability: builder.p2pReliability.get(false),
     wakuFlags: wakuFlags,
+    localStoragePath: builder.localStoragePath.get(DefaultStoragePath),
   )
 
   ?wakuConf.validate()

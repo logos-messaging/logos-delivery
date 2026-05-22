@@ -1,13 +1,16 @@
 {.used.}
 
 import
-  std/[options, os, sequtils, tempfiles, strutils, osproc],
+  std/[options, os, sequtils, tempfiles, strutils, osproc, algorithm],
   stew/byteutils,
   testutils/unittests,
   chronos,
   chronicles,
   stint,
   libp2p/crypto/crypto
+
+import brokers/broker_context
+
 import
   waku/[
     waku_core,
@@ -27,29 +30,22 @@ suite "Waku rln relay":
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil()
-    manager = waitFor setupOnchainGroupManager()
+    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
   teardown:
     stopAnvil(anvilProc)
 
-  test "key_gen Nim Wrappers":
-    let merkleDepth: csize_t = 20
+  test "ffi_extended_key_gen raw FFI":
+    # When we call the raw key-generation FFI
+    var vec = ffi_extended_key_gen()
 
-    # keysBufferPtr will hold the generated identity credential i.e., id trapdoor, nullifier, secret hash and commitment
-    var keysBuffer: Buffer
-    let
-      keysBufferPtr = addr(keysBuffer)
-      done = key_gen(keysBufferPtr, true)
-    require:
-      # check whether the keys are generated successfully
-      done
-
-    let generatedKeys = cast[ptr array[4 * 32, byte]](keysBufferPtr.`ptr`)[]
+    # Then it returns exactly 4 field elements
+    # (idTrapdoor, idNullifier, idSecretHash, idCommitment — each 32 bytes)
+    defer:
+      ffi_vec_cfr_free(vec)
     check:
-      # the id trapdoor, nullifier, secert hash and commitment together are 4*32 bytes
-      generatedKeys.len == 4 * 32
-    info "generated keys: ", generatedKeys
+      int(ffi_vec_cfr_len(addr vec)) == 4
 
   test "membership Key Generation":
     let idCredentialsRes = membershipKeyGen()
@@ -70,53 +66,6 @@ suite "Waku rln relay":
 
     info "the generated identity credential: ", idCredential
 
-  test "hash Nim Wrappers":
-    # create an RLN instance
-    let rlnInstance = createRLNInstanceWrapper()
-    require:
-      rlnInstance.isOk()
-
-    # prepare the input
-    let
-      msg = "Hello".toBytes()
-      hashInput = encodeLengthPrefix(msg)
-      hashInputBuffer = toBuffer(hashInput)
-
-    # prepare other inputs to the hash function
-    let outputBuffer = default(Buffer)
-
-    let hashSuccess = sha256(unsafeAddr hashInputBuffer, unsafeAddr outputBuffer, true)
-    require:
-      hashSuccess
-    let outputArr = cast[ptr array[32, byte]](outputBuffer.`ptr`)[]
-
-    check:
-      "1e32b3ab545c07c8b4a7ab1ca4f46bc31e4fdc29ac3b240ef1d54b4017a26e4c" ==
-        outputArr.inHex()
-
-    let
-      hashOutput = cast[ptr array[32, byte]](outputBuffer.`ptr`)[]
-      hashOutputHex = hashOutput.toHex()
-
-    info "hash output", hashOutputHex
-
-  test "sha256 hash utils":
-    # create an RLN instance
-    let rlnInstance = createRLNInstanceWrapper()
-    require:
-      rlnInstance.isOk()
-    let rln = rlnInstance.get()
-
-    # prepare the input
-    let msg = "Hello".toBytes()
-
-    let hashRes = sha256(msg)
-
-    check:
-      hashRes.isOk()
-      "1e32b3ab545c07c8b4a7ab1ca4f46bc31e4fdc29ac3b240ef1d54b4017a26e4c" ==
-        hashRes.get().inHex()
-
   test "poseidon hash utils":
     # create an RLN instance
     let rlnInstance = createRLNInstanceWrapper()
@@ -124,19 +73,22 @@ suite "Waku rln relay":
       rlnInstance.isOk()
     let rln = rlnInstance.get()
 
-    # prepare the input
-    let msg =
-      @[
-        "126f4c026cd731979365f79bd345a46d673c5a3f6f588bdc718e6356d02b6fdc".toBytes(),
-        "1f0e5db2b69d599166ab16219a97b82b662085c93220382b39f9f911d3b943b1".toBytes(),
-      ]
+    # prepare the input — hex-decoded then reversed to little-endian field elements
+    let
+      left = hexToSeqByte(
+          "126f4c026cd731979365f79bd345a46d673c5a3f6f588bdc718e6356d02b6fdc"
+        )
+        .reversed()
+      right = hexToSeqByte(
+          "1f0e5db2b69d599166ab16219a97b82b662085c93220382b39f9f911d3b943b1"
+        )
+        .reversed()
 
-    let hashRes = poseidon(msg)
+    let hashRes = poseidon(left, right)
 
-    # Value taken from zerokit
     check:
       hashRes.isOk()
-      "28a15a991fe3d2a014485c7fa905074bfb55c0909112f865ded2be0a26a932c3" ==
+      "180543bc9afb81d9c2282df9c9946f87b4596cf6d3fec2cc32b6637427685353" ==
         hashRes.get().inHex()
 
   test "RateLimitProof Protobuf encode/init test":
@@ -280,17 +232,16 @@ suite "Waku rln relay":
     let index = MembershipIndex(5)
 
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = index)
-    let wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
-      raiseAssert $error
+    var wakuRlnRelay: WakuRlnRelay
+    lockNewGlobalBrokerContext:
+      wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
+        raiseAssert $error
 
     let manager = cast[OnchainGroupManager](wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     let epoch1 = wakuRlnRelay.getCurrentEpoch()
 
@@ -337,17 +288,16 @@ suite "Waku rln relay":
 
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = index)
 
-    let wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
-      raiseAssert $error
+    var wakuRlnRelay: WakuRlnRelay
+    lockNewGlobalBrokerContext:
+      wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
+        raiseAssert $error
 
     let manager = cast[OnchainGroupManager](wakuRlnRelay.groupManager)
     let idCredentials = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     # usually it's 20 seconds but we set it to 1 for testing purposes which make the test faster
     wakuRlnRelay.rlnMaxTimestampGap = 1
@@ -387,31 +337,29 @@ suite "Waku rln relay":
   asyncTest "multiple senders with same external nullifier":
     let index1 = MembershipIndex(5)
     let rlnConf1 = getWakuRlnConfig(manager = manager, index = index1)
-    let wakuRlnRelay1 = (await WakuRlnRelay.new(rlnConf1)).valueOr:
-      raiseAssert "failed to create waku rln relay: " & $error
+    var wakuRlnRelay1: WakuRlnRelay
+    lockNewGlobalBrokerContext:
+      wakuRlnRelay1 = (await WakuRlnRelay.new(rlnConf1)).valueOr:
+        raiseAssert "failed to create waku rln relay: " & $error
 
     let manager1 = cast[OnchainGroupManager](wakuRlnRelay1.groupManager)
     let idCredentials1 = generateCredentials()
 
-    try:
-      waitFor manager1.register(idCredentials1, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     let index2 = MembershipIndex(6)
     let rlnConf2 = getWakuRlnConfig(manager = manager, index = index2)
-    let wakuRlnRelay2 = (await WakuRlnRelay.new(rlnConf2)).valueOr:
-      raiseAssert "failed to create waku rln relay: " & $error
+    var wakuRlnRelay2: WakuRlnRelay
+    lockNewGlobalBrokerContext:
+      wakuRlnRelay2 = (await WakuRlnRelay.new(rlnConf2)).valueOr:
+        raiseAssert "failed to create waku rln relay: " & $error
 
     let manager2 = cast[OnchainGroupManager](wakuRlnRelay2.groupManager)
     let idCredentials2 = generateCredentials()
 
-    try:
-      waitFor manager2.register(idCredentials2, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     # get the current epoch time
     let epoch = wakuRlnRelay1.getCurrentEpoch()
@@ -495,7 +443,7 @@ suite "Waku rln relay":
         password = password,
         appInfo = RLNAppInfo,
       )
-      .isOk()
+        .isOk()
 
     let readKeystoreRes = getMembershipCredentials(
       path = filepath,
@@ -533,9 +481,10 @@ suite "Waku rln relay":
       let wakuRlnConfig = getWakuRlnConfig(
         manager = manager, index = index, epochSizeSec = rlnEpochSizeSec.uint64
       )
-
-      let wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
-        raiseAssert $error
+      var wakuRlnRelay: WakuRlnRelay
+      lockNewGlobalBrokerContext:
+        wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
+          raiseAssert $error
 
       let rlnMaxEpochGap = wakuRlnRelay.rlnMaxEpochGap
       let testProofMetadata = default(ProofMetadata)

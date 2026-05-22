@@ -119,12 +119,11 @@ suite "Waku Sync – reconciliation":
       pubsubTopics: @[DefaultPubsubTopic],
       contentTopics: @[DefaultContentTopic],
       ranges: @[(wholeRange, RangeType.Fingerprint)],
-      fingerprints:
-        @[
-          remote.computeFingerprint(
-            wholeRange, @[DefaultPubsubTopic], @[DefaultContentTopic]
-          )
-        ],
+      fingerprints: @[
+        remote.computeFingerprint(
+          wholeRange, @[DefaultPubsubTopic], @[DefaultContentTopic]
+        )
+      ],
       itemSets: @[],
     )
 
@@ -180,12 +179,11 @@ suite "Waku Sync – reconciliation":
       pubsubTopics: @[DefaultPubsubTopic],
       contentTopics: @[DefaultContentTopic],
       ranges: @[(sliceWhole, RangeType.Fingerprint)],
-      fingerprints:
-        @[
-          remote.computeFingerprint(
-            sliceWhole, @[DefaultPubsubTopic], @[DefaultContentTopic]
-          )
-        ],
+      fingerprints: @[
+        remote.computeFingerprint(
+          sliceWhole, @[DefaultPubsubTopic], @[DefaultContentTopic]
+        )
+      ],
       itemSets: @[],
     )
 
@@ -207,12 +205,11 @@ suite "Waku Sync – reconciliation":
       pubsubTopics: @[DefaultPubsubTopic],
       contentTopics: @[DefaultContentTopic],
       ranges: @[(subSlice, RangeType.Fingerprint)],
-      fingerprints:
-        @[
-          remote.computeFingerprint(
-            subSlice, @[DefaultPubsubTopic], @[DefaultContentTopic]
-          )
-        ],
+      fingerprints: @[
+        remote.computeFingerprint(
+          subSlice, @[DefaultPubsubTopic], @[DefaultContentTopic]
+        )
+      ],
       itemSets: @[],
     )
 
@@ -272,12 +269,9 @@ suite "Waku Sync – reconciliation":
       pubsubTopics: @[DefaultPubsubTopic],
       contentTopics: @[DefaultContentTopic],
       ranges: @[(slice, RangeType.Fingerprint)],
-      fingerprints:
-        @[
-          remote.computeFingerprint(
-            slice, @[DefaultPubsubTopic], @[DefaultContentTopic]
-          )
-        ],
+      fingerprints: @[
+        remote.computeFingerprint(slice, @[DefaultPubsubTopic], @[DefaultContentTopic])
+      ],
       itemSets: @[],
     )
 

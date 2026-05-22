@@ -59,12 +59,8 @@ proc getShardsFromContentTopics*(
     else:
       @[contentTopics]
 
-  let parseRes = NsContentTopic.parse(topics)
-  let nsContentTopics =
-    if parseRes.isErr():
-      return err("Cannot parse content topic: " & $parseRes.error)
-    else:
-      parseRes.get()
+  let nsContentTopics = NsContentTopic.parse(topics).valueOr:
+    return err("Cannot parse content topic: " & $error)
 
   var topicMap = initTable[RelayShard, seq[NsContentTopic]]()
   for content in nsContentTopics:

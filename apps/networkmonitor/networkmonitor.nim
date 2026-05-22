@@ -443,12 +443,8 @@ proc initAndStartApp(
     error "failed to add sharded topics to ENR", error = error
     return err("failed to add sharded topics to ENR: " & $error)
 
-  let recordRes = builder.build()
-  let record =
-    if recordRes.isErr():
-      return err("cannot build record: " & $recordRes.error)
-    else:
-      recordRes.get()
+  let record = builder.build().valueOr:
+    return err("cannot build record: " & $error)
 
   var nodeBuilder = WakuNodeBuilder.init()
 
@@ -461,21 +457,15 @@ proc initAndStartApp(
     relayServiceRatio = "13.33:86.67",
     shardAware = true,
   )
-  let res = nodeBuilder.withNetworkConfigurationDetails(bindIp, nodeTcpPort)
-  if res.isErr():
-    return err("node building error" & $res.error)
+  nodeBuilder.withNetworkConfigurationDetails(bindIp, nodeTcpPort).isOkOr:
+    return err("node building error" & $error)
 
-  let nodeRes = nodeBuilder.build()
-  let node =
-    if nodeRes.isErr():
-      return err("node building error" & $res.error)
-    else:
-      nodeRes.get()
+  let node = nodeBuilder.build().valueOr:
+    return err("node building error" & $error)
 
-  var discv5BootstrapEnrsRes = await getBootstrapFromDiscDns(conf)
-  if discv5BootstrapEnrsRes.isErr():
+  var discv5BootstrapEnrs = (await getBootstrapFromDiscDns(conf)).valueOr:
     error("failed discovering peers from DNS")
-  var discv5BootstrapEnrs = discv5BootstrapEnrsRes.get()
+    quit(QuitFailure)
 
   # parse enrURIs from the configuration and add the resulting ENRs to the discv5BootstrapEnrs seq
   for enrUri in conf.bootstrapNodes:
@@ -553,12 +543,10 @@ proc subscribeAndHandleMessages(
 when isMainModule:
   # known issue: confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
   {.pop.}
-  let confRes = NetworkMonitorConf.loadConfig()
-  if confRes.isErr():
-    error "could not load cli variables", err = confRes.error
-    quit(1)
+  var conf = NetworkMonitorConf.loadConfig().valueOr:
+    error "could not load cli variables", error = error
+    quit(QuitFailure)
 
-  var conf = confRes.get()
   info "cli flags", conf = conf
 
   if conf.clusterId == 1:
@@ -586,37 +574,30 @@ when isMainModule:
 
   # start metrics server
   if conf.metricsServer:
-    let res =
-      startMetricsServer(conf.metricsServerAddress, Port(conf.metricsServerPort))
-    if res.isErr():
-      error "could not start metrics server", err = res.error
-      quit(1)
+    startMetricsServer(conf.metricsServerAddress, Port(conf.metricsServerPort)).isOkOr:
+      error "could not start metrics server", error = error
+      quit(QuitFailure)
 
   # start rest server for custom metrics
-  let res = startRestApiServer(conf, allPeersInfo, msgPerContentTopic)
-  if res.isErr():
-    error "could not start rest api server", err = res.error
-    quit(1)
+  startRestApiServer(conf, allPeersInfo, msgPerContentTopic).isOkOr:
+    error "could not start rest api server", error = error
+    quit(QuitFailure)
 
   # create a rest client
-  let clientRest =
-    RestClientRef.new(url = "http://ip-api.com", connectTimeout = ctime.seconds(2))
-  if clientRest.isErr():
-    error "could not start rest api client", err = res.error
-    quit(1)
-  let restClient = clientRest.get()
+  let restClient = RestClientRef.new(
+    url = "http://ip-api.com", connectTimeout = ctime.seconds(2)
+  ).valueOr:
+    error "could not start rest api client", error = error
+    quit(QuitFailure)
 
   # start waku node
-  let nodeRes = waitFor initAndStartApp(conf)
-  if nodeRes.isErr():
-    error "could not start node"
-    quit 1
-
-  let (node, discv5) = nodeRes.get()
+  let (node, discv5) = (waitFor initAndStartApp(conf)).valueOr:
+    error "could not start node", error = error
+    quit(QuitFailure)
 
   (waitFor node.mountRelay()).isOkOr:
-    error "failed to mount waku relay protocol: ", err = error
-    quit 1
+    error "failed to mount waku relay protocol: ", error = error
+    quit(QuitFailure)
 
   waitFor node.mountLibp2pPing()
 
@@ -640,12 +621,12 @@ when isMainModule:
     try:
       waitFor node.mountRlnRelay(rlnConf)
     except CatchableError:
-      error "failed to setup RLN", err = getCurrentExceptionMsg()
-      quit 1
+      error "failed to setup RLN", error = getCurrentExceptionMsg()
+      quit(QuitFailure)
 
   node.mountMetadata(conf.clusterId, conf.shards).isOkOr:
-    error "failed to mount waku metadata protocol: ", err = error
-    quit 1
+    error "failed to mount waku metadata protocol: ", error = error
+    quit(QuitFailure)
 
   for shard in conf.shards:
     # Subscribe the node to the shards, to count messages

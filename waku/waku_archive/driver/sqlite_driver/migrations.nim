@@ -36,9 +36,8 @@ proc isSchemaVersion7*(db: SqliteDatabase): DatabaseResult[bool] =
 
   let query =
     """SELECT l.name FROM pragma_table_info("Message") as l WHERE l.pk != 0;"""
-  let res = db.query(query, queryRowCallback)
-  if res.isErr():
-    return err("failed to determine the current SchemaVersion: " & $res.error)
+  db.query(query, queryRowCallback).isOkOr:
+    return err("failed to determine the current SchemaVersion: " & $error)
 
   if pkColumns == @["pubsubTopic", "id", "storedAt"]:
     return ok(true)
@@ -65,10 +64,8 @@ proc migrate*(db: SqliteDatabase, targetVersion = SchemaVersion): DatabaseResult
     ## Force the correct schema version
     ?db.setUserVersion(7)
 
-  let migrationRes =
-    migrate(db, targetVersion, migrationsScriptsDir = MessageStoreMigrationPath)
-  if migrationRes.isErr():
-    return err("failed to execute migration scripts: " & migrationRes.error)
+  migrate(db, targetVersion, migrationsScriptsDir = MessageStoreMigrationPath).isOkOr:
+    return err("failed to execute migration scripts: " & error)
 
   info "finished message store's sqlite database migration"
   return ok()

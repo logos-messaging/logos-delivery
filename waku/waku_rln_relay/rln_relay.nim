@@ -13,7 +13,9 @@ import
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/protocols/pubsub/pubsub,
   results,
-  stew/[byteutils, arrayops]
+  stew/[byteutils, arrayops],
+  brokers/broker_context
+
 import
   ./group_manager,
   ./rln,
@@ -24,10 +26,13 @@ import
   ./nonce_manager
 
 import
-  ../common/error_handling,
-  ../waku_relay, # for WakuRelayHandler
-  ../waku_core,
-  ../waku_keystore
+  waku/[
+    common/error_handling,
+    waku_relay, # for WakuRelayHandler
+    waku_core,
+    requests/rln_requests,
+    waku_keystore,
+  ]
 
 logScope:
   topics = "waku rln_relay"
@@ -64,7 +69,8 @@ type WakuRLNRelay* = ref object of RootObj
   onFatalErrorAction*: OnFatalErrorHandler
   nonceManager*: NonceManager
   epochMonitorFuture*: Future[void]
-  rootChangesFuture*: Future[void]
+  rootChangesFuture*: Future[Result[void, string]]
+  brokerCtx*: BrokerContext
 
 proc calcEpoch*(rlnPeer: WakuRLNRelay, t: float64): Epoch =
   ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
@@ -91,6 +97,7 @@ proc stop*(rlnPeer: WakuRLNRelay) {.async: (raises: [Exception]).} =
 
   # stop the group sync, and flush data to tree db
   info "stopping rln-relay"
+  RequestGenerateRlnProof.clearProvider(rlnPeer.brokerCtx)
   await rlnPeer.groupManager.stop()
 
 proc hasDuplicate*(
@@ -178,11 +185,8 @@ proc validateMessage*(
   ## `timeOption` indicates Unix epoch time (fractional part holds sub-seconds)
   ## if `timeOption` is supplied, then the current epoch is calculated based on that
 
-  let decodeRes = RateLimitProof.init(msg.proof)
-  if decodeRes.isErr():
+  let proof = RateLimitProof.init(msg.proof).valueOr:
     return MessageValidationResult.Invalid
-
-  let proof = decodeRes.get()
 
   # track message count for metrics
   waku_rln_messages_total.inc()
@@ -198,14 +202,18 @@ proc validateMessage*(
 
   if timeDiff > rlnPeer.rlnMaxTimestampGap:
     warn "invalid message: timestamp difference exceeds threshold",
-      timeDiff = timeDiff, maxTimestampGap = rlnPeer.rlnMaxTimestampGap
+      timeDiff = timeDiff,
+      maxTimestampGap = rlnPeer.rlnMaxTimestampGap,
+      contentTopic = msg.contentTopic
     waku_rln_invalid_messages_total.inc(labelValues = ["invalid_timestamp"])
     return MessageValidationResult.Invalid
 
   let computedEpoch = rlnPeer.calcEpoch(messageTime)
   if proof.epoch != computedEpoch:
     warn "invalid message: timestamp mismatches epoch",
-      proofEpoch = fromEpoch(proof.epoch), computedEpoch = fromEpoch(computedEpoch)
+      proofEpoch = fromEpoch(proof.epoch),
+      computedEpoch = fromEpoch(computedEpoch),
+      contentTopic = msg.contentTopic
     waku_rln_invalid_messages_total.inc(labelValues = ["timestamp_mismatch"])
     return MessageValidationResult.Invalid
 
@@ -213,7 +221,8 @@ proc validateMessage*(
   if not rootValidationRes:
     warn "invalid message: provided root does not belong to acceptable window of roots",
       provided = proof.merkleRoot.inHex(),
-      validRoots = rlnPeer.groupManager.validRoots.mapIt(it.inHex())
+      validRoots = rlnPeer.groupManager.validRoots.mapIt(it.inHex()),
+      contentTopic = msg.contentTopic
     waku_rln_invalid_messages_total.inc(labelValues = ["invalid_root"])
     return MessageValidationResult.Invalid
 
@@ -228,33 +237,36 @@ proc validateMessage*(
     let proofVerificationRes =
       rlnPeer.groupManager.verifyProof(msg.toRLNSignal(), proof)
 
-  if proofVerificationRes.isErr():
+  proofVerificationRes.isOkOr:
     waku_rln_errors_total.inc(labelValues = ["proof_verification"])
-    warn "invalid message: proof verification failed", payloadLen = msg.payload.len
+    warn "invalid message: proof verification failed",
+      payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     return MessageValidationResult.Invalid
 
   if not proofVerificationRes.value():
     # invalid proof
-    warn "invalid message: invalid proof", payloadLen = msg.payload.len
+    warn "invalid message: invalid proof",
+      payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     waku_rln_invalid_messages_total.inc(labelValues = ["invalid_proof"])
     return MessageValidationResult.Invalid
 
   # check if double messaging has happened
-  let proofMetadataRes = proof.extractMetadata()
-  if proofMetadataRes.isErr():
+  let proofMetadata = proof.extractMetadata().valueOr:
     waku_rln_errors_total.inc(labelValues = ["proof_metadata_extraction"])
     return MessageValidationResult.Invalid
 
   let msgEpoch = proof.epoch
-  let hasDup = rlnPeer.hasDuplicate(msgEpoch, proofMetadataRes.get())
+  let hasDup = rlnPeer.hasDuplicate(msgEpoch, proofMetadata)
   if hasDup.isErr():
     waku_rln_errors_total.inc(labelValues = ["duplicate_check"])
   elif hasDup.value == true:
-    trace "invalid message: message is spam", payloadLen = msg.payload.len
+    trace "invalid message: message is spam",
+      payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     waku_rln_spam_messages_total.inc()
     return MessageValidationResult.Spam
 
-  trace "message is valid", payloadLen = msg.payload.len
+  trace "message is valid",
+    payloadLen = msg.payload.len, contentTopic = msg.contentTopic
   # Metric increment moved to validator to include shard label
   return MessageValidationResult.Valid
 
@@ -266,28 +278,24 @@ proc validateMessageAndUpdateLog*(
 
   let isValidMessage = rlnPeer.validateMessage(msg)
 
-  let decodeRes = RateLimitProof.init(msg.proof)
-  if decodeRes.isErr():
+  let msgProof = RateLimitProof.init(msg.proof).valueOr:
     return MessageValidationResult.Invalid
 
-  let msgProof = decodeRes.get()
-  let proofMetadataRes = msgProof.extractMetadata()
-
-  if proofMetadataRes.isErr():
+  let proofMetadata = msgProof.extractMetadata().valueOr:
     return MessageValidationResult.Invalid
 
   # insert the message to the log (never errors) only if the
   # message is valid.
   if isValidMessage == MessageValidationResult.Valid:
-    discard rlnPeer.updateLog(msgProof.epoch, proofMetadataRes.get())
+    discard rlnPeer.updateLog(msgProof.epoch, proofMetadata)
 
   return isValidMessage
 
-proc appendRLNProof*(
-    rlnPeer: WakuRLNRelay, msg: var WakuMessage, senderEpochTime: float64
-): RlnRelayResult[void] =
-  ## returns true if it can create and append a `RateLimitProof` to the supplied `msg`
-  ## returns false otherwise
+proc createRlnProof(
+    rlnPeer: WakuRLNRelay, msg: WakuMessage, senderEpochTime: float64
+): RlnRelayResult[seq[byte]] =
+  ## returns a new `RateLimitProof` for the supplied `msg`
+  ## returns an error if it cannot create the proof
   ## `senderEpochTime` indicates the number of seconds passed since Unix epoch. The fractional part holds sub-seconds.
   ## The `epoch` field of `RateLimitProof` is derived from the provided `senderEpochTime` (using `calcEpoch()`)
 
@@ -299,7 +307,14 @@ proc appendRLNProof*(
   let proof = rlnPeer.groupManager.generateProof(input, epoch, nonce).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
 
-  msg.proof = proof.encode().buffer
+  return ok(proof.encode().buffer)
+
+proc appendRLNProof*(
+    rlnPeer: WakuRLNRelay, msg: var WakuMessage, senderEpochTime: float64
+): RlnRelayResult[void] =
+  msg.proof = rlnPeer.createRlnProof(msg, senderEpochTime).valueOr:
+    return err($error)
+
   return ok()
 
 proc clearNullifierLog*(rlnPeer: WakuRlnRelay) =
@@ -333,19 +348,15 @@ proc generateRlnValidator*(
     trace "rln-relay topic validator is called"
     wakuRlnRelay.clearNullifierLog()
 
-    let decodeRes = RateLimitProof.init(message.proof)
-
-    if decodeRes.isErr():
-      trace "generateRlnValidator reject", error = decodeRes.error
+    let msgProof = RateLimitProof.init(message.proof).valueOr:
+      trace "generateRlnValidator reject", error = error
       return pubsub.ValidationResult.Reject
-
-    let msgProof = decodeRes.get()
 
     # validate the message and update log
     let validationRes = wakuRlnRelay.validateMessageAndUpdateLog(message)
 
     let
-      proof = toHex(msgProof.proof)
+      proof = byteutils.toHex(msgProof.proof)
       epoch = fromEpoch(msgProof.epoch)
       root = inHex(msgProof.merkleRoot)
       shareX = inHex(msgProof.shareX)
@@ -441,6 +452,7 @@ proc mount(
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
     rlnMaxTimestampGap: uint64(MaxClockGapSeconds),
     onFatalErrorAction: conf.onFatalErrorAction,
+    brokerCtx: globalBrokerContext(),
   )
 
   # track root changes on smart contract merkle tree
@@ -450,9 +462,22 @@ proc mount(
 
   # Start epoch monitoring in the background
   wakuRlnRelay.epochMonitorFuture = monitorEpochs(wakuRlnRelay)
+
+  RequestGenerateRlnProof.setProvider(
+    wakuRlnRelay.brokerCtx,
+    proc(
+        msg: WakuMessage, senderEpochTime: float64
+    ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
+      let proof = createRlnProof(wakuRlnRelay, msg, senderEpochTime).valueOr:
+        return err("Could not create RLN proof: " & $error)
+
+      return ok(RequestGenerateRlnProof(proof: proof)),
+  ).isOkOr:
+    return err("Proof generator provider cannot be set: " & $error)
+
   return ok(wakuRlnRelay)
 
-proc isReady*(rlnPeer: WakuRLNRelay): Future[bool] {.async: (raises: [Exception]).} =
+proc isReady*(rlnPeer: WakuRLNRelay): Future[bool] {.async.} =
   ## returns true if the rln-relay protocol is ready to relay messages
   ## returns false otherwise
 

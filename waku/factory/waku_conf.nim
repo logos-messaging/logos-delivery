@@ -4,12 +4,13 @@ import
   libp2p/crypto/crypto,
   libp2p/multiaddress,
   libp2p/crypto/curve25519,
+  libp2p/peerid,
   secp256k1,
   results
 
 import
   ../waku_rln_relay/rln_relay,
-  ../waku_api/rest/builder,
+  ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
   ../node/waku_metrics,
   ../common/logging,
@@ -38,7 +39,7 @@ type ProtectedShard* {.requiresInit.} = object
 
 type DnsDiscoveryConf* {.requiresInit.} = object
   enrTreeUrl*: string
-  # TODO: should probably only have one set of name servers (see dnsaddrs) 
+  # TODO: should probably only have one set of name servers (see dnsaddrs)
   nameServers*: seq[IpAddress]
 
 type StoreSyncConf* {.requiresInit.} = object
@@ -51,13 +52,16 @@ type MixConf* = ref object
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
 
+type KademliaDiscoveryConf* = object
+  bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
+    ## Bootstrap nodes for extended kademlia discovery.
+
 type StoreServiceConf* {.requiresInit.} = object
   dbMigration*: bool
   dbURl*: string
   dbVacuum*: bool
-  supportV2*: bool
   maxNumDbConnections*: int
-  retentionPolicy*: string
+  retentionPolicies*: seq[string]
   resume*: bool
   storeSyncConf*: Option[StoreSyncConf]
 
@@ -109,6 +113,7 @@ type WakuConf* {.requiresInit.} = ref object
   metricsServerConf*: Option[MetricsServerConf]
   webSocketConf*: Option[WebSocketConf]
   mixConf*: Option[MixConf]
+  kademliaDiscoveryConf*: Option[KademliaDiscoveryConf]
 
   portsShift*: uint16
   dnsAddrsNameServers*: seq[IpAddress]
@@ -147,6 +152,8 @@ type WakuConf* {.requiresInit.} = ref object
 
   p2pReliability*: bool
 
+  localStoragePath*: string
+
 proc logConf*(conf: WakuConf) =
   info "Configuration: Enabled protocols",
     relay = conf.relay,
@@ -154,7 +161,8 @@ proc logConf*(conf: WakuConf) =
     store = conf.storeServiceConf.isSome(),
     filter = conf.filterServiceConf.isSome(),
     lightPush = conf.lightPush,
-    peerExchange = conf.peerExchangeService
+    peerExchange = conf.peerExchangeService,
+    rendezvous = conf.rendezvous
 
   info "Configuration. Network", cluster = conf.clusterId
 

@@ -22,6 +22,12 @@ proc withEnabled*(b: var FilterServiceConfBuilder, enabled: bool) =
 proc withMaxPeersToServe*(b: var FilterServiceConfBuilder, maxPeersToServe: uint32) =
   b.maxPeersToServe = some(maxPeersToServe)
 
+proc withMaxPeersToServeIfNotAssigned*(
+    b: var FilterServiceConfBuilder, maxPeersToServe: uint32
+) =
+  if b.maxPeersToServe.isNone():
+    b.maxPeersToServe = some(maxPeersToServe)
+
 proc withSubscriptionTimeout*(
     b: var FilterServiceConfBuilder, subscriptionTimeout: uint16
 ) =

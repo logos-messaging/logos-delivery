@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/options,
+  std/[options, strutils],
   testutils/unittests,
   chronos,
   libp2p/crypto/[crypto, secp],
@@ -23,9 +23,8 @@ import
 suite "Waku external config - default values":
   test "Default sharding value":
     ## Setup
-    let defaultShardingMode = AutoSharding
-    let defaultNumShardsInCluster = 1.uint16
-    let defaultSubscribeShards = @[0.uint16]
+    let defaultShardingMode = StaticSharding
+    let defaultSubscribeShards: seq[uint16] = @[]
 
     ## Given
     let preConfig = defaultWakuNodeConf().get()
@@ -37,7 +36,6 @@ suite "Waku external config - default values":
     ## Then
     let conf = res.get()
     check conf.shardingConf.kind == defaultShardingMode
-    check conf.shardingConf.numShardsInCluster == defaultNumShardsInCluster
     check conf.subscribeShards == defaultSubscribeShards
 
   test "Default shards value in static sharding":
@@ -141,43 +139,6 @@ suite "Waku external config - apply preset":
     ## Then
     assert res.isErr(), "Invalid shard was accepted"
 
-  test "Apply TWN preset when cluster id = 1":
-    ## Setup
-    let expectedConf = NetworkConf.TheWakuNetworkConf()
-
-    ## Given
-    let preConfig = WakuNodeConf(
-      cmd: noCommand,
-      clusterId: 1.uint16,
-      relay: true,
-      ethClientUrls: @["http://someaddress".EthRpcUrl],
-    )
-
-    ## When
-    let res = preConfig.toWakuConf()
-    assert res.isOk(), $res.error
-
-    ## Then
-    let conf = res.get()
-    check conf.maxMessageSizeBytes ==
-      uint64(parseCorrectMsgSize(expectedConf.maxMessageSize))
-    check conf.clusterId == expectedConf.clusterId
-    check conf.rlnRelayConf.isSome() == expectedConf.rlnRelay
-    if conf.rlnRelayConf.isSome():
-      let rlnRelayConf = conf.rlnRelayConf.get()
-      check rlnRelayConf.ethContractAddress == expectedConf.rlnRelayEthContractAddress
-      check rlnRelayConf.dynamic == expectedConf.rlnRelayDynamic
-      check rlnRelayConf.chainId == expectedConf.rlnRelayChainId
-      check rlnRelayConf.epochSizeSec == expectedConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == expectedConf.rlnRelayUserMessageLimit
-      check conf.shardingConf.kind == expectedConf.shardingConf.kind
-      check conf.shardingConf.numShardsInCluster ==
-        expectedConf.shardingConf.numShardsInCluster
-    check conf.discv5Conf.isSome() == expectedConf.discv5Discovery
-    if conf.discv5Conf.isSome():
-      let discv5Conf = conf.discv5Conf.get()
-      check discv5Conf.bootstrapNodes == expectedConf.discv5BootstrapNodes
-
 suite "Waku external config - node key":
   test "Passed node key is used":
     ## Setup
@@ -249,7 +210,7 @@ suite "Waku external config - Shards":
     let vRes = wakuConf.validate()
     assert vRes.isOk(), $vRes.error
 
-  test "Imvalid shard is passed without num shards":
+  test "Any shard is valid without num shards in static sharding mode":
     ## Setup
 
     ## Given
@@ -259,7 +220,88 @@ suite "Waku external config - Shards":
     let res = wakuNodeConf.toWakuConf()
 
     ## Then
-    assert res.isErr(), "Invalid shard was accepted"
+    let wakuConf = res.get()
+    let vRes = wakuConf.validate()
+    assert vRes.isOk(), $vRes.error
+
+suite "Waku external config - store retention policy":
+  test "Default retention policy":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    # storeMessageRetentionPolicy keeps its default: "time:<2 days in seconds>"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    assert res.isOk(), $res.error
+    let wakuConf = res.get()
+    require wakuConf.storeServiceConf.isSome()
+    check wakuConf.storeServiceConf.get().retentionPolicies ==
+      @["time:" & $2.days.seconds]
+
+  test "Single custom retention policy":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    conf.storeMessageRetentionPolicy = "capacity:50000"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    assert res.isOk(), $res.error
+    let wakuConf = res.get()
+    require wakuConf.storeServiceConf.isSome()
+    check wakuConf.storeServiceConf.get().retentionPolicies == @["capacity:50000"]
+
+  test "Retention policies with whitespace around semicolons and colons":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    conf.storeMessageRetentionPolicy = "time:3600 ; capacity:10000 ; size     : 30GB"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    assert res.isOk(), $res.error
+    let wakuConf = res.get()
+    require wakuConf.storeServiceConf.isSome()
+    check wakuConf.storeServiceConf.get().retentionPolicies ==
+      @["time:3600", "capacity:10000", "size:30GB"]
+
+  test "Invalid retention policy type returns error":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    conf.storeMessageRetentionPolicy = "foo:1234"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    check res.isErr()
+    check res.error.contains("unknown retention policy type")
+
+  test "Duplicated retention policy type returns error":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = true
+    conf.storeMessageDbUrl = "sqlite://test.db"
+    conf.storeMessageRetentionPolicy = "time:3600;time:7200;capacity:10000"
+
+    ## When
+    let res = conf.toWakuConf()
+
+    ## Then
+    check res.isErr()
+    check res.error.contains("duplicated retention policy type")
 
 suite "Waku external config - http url parsing":
   test "Basic HTTP URLs without authentication":

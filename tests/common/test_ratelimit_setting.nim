@@ -25,7 +25,6 @@ suite "RateLimitSetting":
   test "Parse rate limit setting - ok":
     let test1 = "10/2m"
     let test2 = "  store : 10  /1h"
-    let test2a = "storev2 : 10  /1h"
     let test2b = "storeV3:        12  /1s"
     let test3 = "LIGHTPUSH: 10/ 1m"
     let test4 = "px:10/2 s "
@@ -34,7 +33,6 @@ suite "RateLimitSetting":
     let expU = UnlimitedRateLimit
     let exp1: RateLimitSetting = (10, 2.minutes)
     let exp2: RateLimitSetting = (10, 1.hours)
-    let exp2a: RateLimitSetting = (10, 1.hours)
     let exp2b: RateLimitSetting = (12, 1.seconds)
     let exp3: RateLimitSetting = (10, 1.minutes)
     let exp4: RateLimitSetting = (10, 2.seconds)
@@ -42,7 +40,6 @@ suite "RateLimitSetting":
 
     let res1 = ProtocolRateLimitSettings.parse(@[test1])
     let res2 = ProtocolRateLimitSettings.parse(@[test2])
-    let res2a = ProtocolRateLimitSettings.parse(@[test2a])
     let res2b = ProtocolRateLimitSettings.parse(@[test2b])
     let res3 = ProtocolRateLimitSettings.parse(@[test3])
     let res4 = ProtocolRateLimitSettings.parse(@[test4])
@@ -53,15 +50,7 @@ suite "RateLimitSetting":
       res1.get() == {GLOBAL: exp1, FILTER: FilterDefaultPerPeerRateLimit}.toTable()
       res2.isOk()
       res2.get() ==
-        {
-          GLOBAL: expU,
-          FILTER: FilterDefaultPerPeerRateLimit,
-          STOREV2: exp2,
-          STOREV3: exp2,
-        }.toTable()
-      res2a.isOk()
-      res2a.get() ==
-        {GLOBAL: expU, FILTER: FilterDefaultPerPeerRateLimit, STOREV2: exp2a}.toTable()
+        {GLOBAL: expU, FILTER: FilterDefaultPerPeerRateLimit, STOREV3: exp2}.toTable()
       res2b.isOk()
       res2b.get() ==
         {GLOBAL: expU, FILTER: FilterDefaultPerPeerRateLimit, STOREV3: exp2b}.toTable()
@@ -77,7 +66,6 @@ suite "RateLimitSetting":
   test "Parse rate limit setting - err":
     let test1 = "10/2d"
     let test2 = "  stre : 10  /1h"
-    let test2a = "storev2 10  /1h"
     let test2b = "storev3:        12 1s"
     let test3 = "somethingelse: 10/ 1m"
     let test4 = ":px:10/2 s "
@@ -85,7 +73,6 @@ suite "RateLimitSetting":
 
     let res1 = ProtocolRateLimitSettings.parse(@[test1])
     let res2 = ProtocolRateLimitSettings.parse(@[test2])
-    let res2a = ProtocolRateLimitSettings.parse(@[test2a])
     let res2b = ProtocolRateLimitSettings.parse(@[test2b])
     let res3 = ProtocolRateLimitSettings.parse(@[test3])
     let res4 = ProtocolRateLimitSettings.parse(@[test4])
@@ -94,7 +81,6 @@ suite "RateLimitSetting":
     check:
       res1.isErr()
       res2.isErr()
-      res2a.isErr()
       res2b.isErr()
       res3.isErr()
       res4.isErr()
@@ -103,13 +89,12 @@ suite "RateLimitSetting":
   test "Parse rate limit setting - complex":
     let expU = UnlimitedRateLimit
 
-    let test1 = @["lightpush:2/2ms", "10/2m", " store: 3/3s", " storev2:12/12s"]
+    let test1 = @["lightpush:2/2ms", "10/2m", " store: 3/3s"]
     let exp1 = {
       GLOBAL: (10, 2.minutes),
       FILTER: FilterDefaultPerPeerRateLimit,
       LIGHTPUSH: (2, 2.milliseconds),
       STOREV3: (3, 3.seconds),
-      STOREV2: (12, 12.seconds),
     }.toTable()
 
     let res1 = ProtocolRateLimitSettings.parse(test1)
@@ -118,7 +103,6 @@ suite "RateLimitSetting":
       res1.isOk()
       res1.get() == exp1
       res1.get().getSetting(PEEREXCHG) == (10, 2.minutes)
-      res1.get().getSetting(STOREV2) == (12, 12.seconds)
       res1.get().getSetting(STOREV3) == (3, 3.seconds)
       res1.get().getSetting(LIGHTPUSH) == (2, 2.milliseconds)
 
@@ -127,7 +111,6 @@ suite "RateLimitSetting":
       GLOBAL: expU,
       LIGHTPUSH: (2, 2.milliseconds),
       STOREV3: (3, 3.seconds),
-      STOREV2: (3, 3.seconds),
       FILTER: (4, 42.milliseconds),
       PEEREXCHG: (10, 10.hours),
     }.toTable()
@@ -138,13 +121,9 @@ suite "RateLimitSetting":
       res2.isOk()
       res2.get() == exp2
 
-    let test3 =
-      @["storev2:1/1s", "store:3/3s", "storev3:4/42ms", "storev3:5/5s", "storev3:6/6s"]
+    let test3 = @["store:3/3s", "storev3:4/42ms", "storev3:5/5s", "storev3:6/6s"]
     let exp3 = {
-      GLOBAL: expU,
-      FILTER: FilterDefaultPerPeerRateLimit,
-      STOREV3: (6, 6.seconds),
-      STOREV2: (1, 1.seconds),
+      GLOBAL: expU, FILTER: FilterDefaultPerPeerRateLimit, STOREV3: (6, 6.seconds)
     }.toTable()
 
     let res3 = ProtocolRateLimitSettings.parse(test3)

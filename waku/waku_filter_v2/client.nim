@@ -8,11 +8,11 @@ import
   chronos,
   libp2p/protocols/protocol,
   bearssl/rand,
-  stew/byteutils
+  stew/byteutils,
+  brokers/broker_context
+
 import
-  ../node/peer_manager,
-  ../node/delivery_monitor/subscriptions_observer,
-  ../waku_core,
+  waku/[node/peer_manager, waku_core, events/delivery_events],
   ./common,
   ./protocol_metrics,
   ./rpc_codec,
@@ -22,18 +22,15 @@ logScope:
   topics = "waku filter client"
 
 type WakuFilterClient* = ref object of LPProtocol
+  brokerCtx: BrokerContext
   rng: ref HmacDrbgContext
   peerManager: PeerManager
   pushHandlers: seq[FilterPushHandler]
-  subscrObservers: seq[SubscriptionObserver]
 
 func generateRequestId(rng: ref HmacDrbgContext): string =
   var bytes: array[10, byte]
   hmacDrbgGenerate(rng[], bytes)
-  return toHex(bytes)
-
-proc addSubscrObserver*(wfc: WakuFilterClient, obs: SubscriptionObserver) =
-  wfc.subscrObservers.add(obs)
+  return byteutils.toHex(bytes)
 
 proc sendSubscribeRequest(
     wfc: WakuFilterClient,
@@ -80,13 +77,10 @@ proc sendSubscribeRequest(
     waku_filter_errors.inc(labelValues = [errMsg])
     return err(FilterSubscribeError.badResponse(errMsg))
 
-  let respDecodeRes = FilterSubscribeResponse.decode(respBuf)
-  if respDecodeRes.isErr():
+  let response = FilterSubscribeResponse.decode(respBuf).valueOr:
     trace "Failed to decode filter subscribe response", servicePeer
     waku_filter_errors.inc(labelValues = [decodeRpcFailure])
     return err(FilterSubscribeError.badResponse(decodeRpcFailure))
-
-  let response = respDecodeRes.get()
 
   # DOS protection rate limit checks does not know about request id
   if response.statusCode != FilterSubscribeErrorKind.TOO_MANY_REQUESTS.uint32 and
@@ -108,11 +102,19 @@ proc sendSubscribeRequest(
   return ok()
 
 proc ping*(
-    wfc: WakuFilterClient, servicePeer: RemotePeerInfo
+    wfc: WakuFilterClient, servicePeer: RemotePeerInfo, timeout = chronos.seconds(0)
 ): Future[FilterSubscribeResult] {.async.} =
   info "sending ping", servicePeer = shortLog($servicePeer)
   let requestId = generateRequestId(wfc.rng)
   let filterSubscribeRequest = FilterSubscribeRequest.ping(requestId)
+
+  if timeout > chronos.seconds(0):
+    let fut = wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
+    if not await fut.withTimeout(timeout):
+      return err(
+        FilterSubscribeError.parse(uint32(FilterSubscribeErrorKind.PEER_DIAL_FAILURE))
+      )
+    return fut.read()
 
   return await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
 
@@ -135,8 +137,7 @@ proc subscribe*(
 
   ?await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
 
-  for obs in wfc.subscrObservers:
-    obs.onSubscribe(pubSubTopic, contentTopicSeq)
+  OnFilterSubscribeEvent.emit(wfc.brokerCtx, pubsubTopic, contentTopicSeq)
 
   return ok()
 
@@ -159,8 +160,7 @@ proc unsubscribe*(
 
   ?await wfc.sendSubscribeRequest(servicePeer, filterSubscribeRequest)
 
-  for obs in wfc.subscrObservers:
-    obs.onUnsubscribe(pubSubTopic, contentTopicSeq)
+  OnFilterUnSubscribeEvent.emit(wfc.brokerCtx, pubsubTopic, contentTopicSeq)
 
   return ok()
 
@@ -213,6 +213,9 @@ proc initProtocolHandler(wfc: WakuFilterClient) =
 proc new*(
     T: type WakuFilterClient, peerManager: PeerManager, rng: ref HmacDrbgContext
 ): T =
-  let wfc = WakuFilterClient(rng: rng, peerManager: peerManager, pushHandlers: @[])
+  let brokerCtx = globalBrokerContext()
+  let wfc = WakuFilterClient(
+    brokerCtx: brokerCtx, rng: rng, peerManager: peerManager, pushHandlers: @[]
+  )
   wfc.initProtocolHandler()
   wfc

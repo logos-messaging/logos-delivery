@@ -26,13 +26,12 @@ proc checkAndGenerateRLNProof*(
     time = getTime().toUnix()
     senderEpochTime = float64(time)
   var msgWithProof = message
-  rlnPeer.get().appendRLNProof(msgWithProof, senderEpochTime).isOkOr:
-    return err(error)
+  ?(rlnPeer.get().appendRLNProof(msgWithProof, senderEpochTime))
   return ok(msgWithProof)
 
 proc getNilPushHandler*(): PushMessageHandler =
   return proc(
-      peer: PeerId, pubsubTopic: string, message: WakuMessage
+      pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult] {.async.} =
     return lightpushResultInternalError("no waku relay found")
 
@@ -40,7 +39,7 @@ proc getRelayPushHandler*(
     wakuRelay: WakuRelay, rlnPeer: Option[WakuRLNRelay] = none[WakuRLNRelay]()
 ): PushMessageHandler =
   return proc(
-      peer: PeerId, pubsubTopic: string, message: WakuMessage
+      pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult] {.async.} =
     # append RLN proof
     let msgWithProof = checkAndGenerateRLNProof(rlnPeer, message).valueOr:
@@ -49,12 +48,10 @@ proc getRelayPushHandler*(
     (await wakuRelay.validateMessage(pubSubTopic, msgWithProof)).isOkOr:
       return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, $error)
 
-    let publishedResult = await wakuRelay.publish(pubsubTopic, msgWithProof)
-
-    if publishedResult.isErr():
+    let publishedResult = (await wakuRelay.publish(pubsubTopic, msgWithProof)).valueOr:
       let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
       notice "Lightpush request has not been published to any peers",
-        msg_hash = msgHash, reason = $publishedResult.error
-      return mapPubishingErrorToPushResult(publishedResult.error)
+        msg_hash = msgHash, reason = $error
+      return mapPubishingErrorToPushResult(error)
 
-    return lightpushSuccessResult(publishedResult.get().uint32)
+    return lightpushSuccessResult(publishedResult.uint32)

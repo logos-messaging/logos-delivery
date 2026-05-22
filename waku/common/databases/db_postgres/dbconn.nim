@@ -48,8 +48,8 @@ proc check(db: DbConn): Result[void, string] =
     return err("exception in check: " & getCurrentExceptionMsg())
 
   if message.len > 0:
-    let truncatedErr = message[0 .. 80]
-      ## libpq sometimes gives extremely long error messages
+    let truncatedErr = message[0 ..< min(80, message.len)]
+    error "postgres check issue. see truncated db error.", error = truncatedErr
     return err(truncatedErr)
 
   return ok()
@@ -63,9 +63,8 @@ proc openDbConn(connString: string): Result[DbConn, string] =
     return err("exception opening new connection: " & getCurrentExceptionMsg())
 
   if conn.status != CONNECTION_OK:
-    let checkRes = conn.check()
-    if checkRes.isErr():
-      return err("failed to connect to database: " & checkRes.error)
+    conn.check().isOkOr:
+      return err("failed to connect to database: " & error)
 
     return err("unknown reason")
 
@@ -212,11 +211,10 @@ proc waitQueryToFinish(
     pqclear(pqResult)
 
 proc containsRiskyPatterns(input: string): bool =
-  let riskyPatterns =
-    @[
-      " OR ", " AND ", " UNION ", " SELECT ", "INSERT ", "DELETE ", "UPDATE ", "DROP ",
-      "EXEC ", "--", "/*", "*/",
-    ]
+  let riskyPatterns = @[
+    " OR ", " AND ", " UNION ", " SELECT ", "INSERT ", "DELETE ", "UPDATE ", "DROP ",
+    "EXEC ", "--", "/*", "*/",
+  ]
 
   for pattern in riskyPatterns:
     if pattern.toLowerAscii() in input.toLowerAscii():

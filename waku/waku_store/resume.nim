@@ -92,8 +92,8 @@ proc initTransferHandler(
         let catchable = catch:
           await wakuStoreClient.query(req, peer)
 
-        if catchable.isErr():
-          return err("store client error: " & catchable.error.msg)
+        catchable.isOkOr:
+          return err("store client error: " & error.msg)
 
         let res = catchable.get()
         let response = res.valueOr:
@@ -105,8 +105,8 @@ proc initTransferHandler(
           let handleRes = catch:
             await wakuArchive.handleMessage(kv.pubsubTopic.get(), kv.message.get())
 
-          if handleRes.isErr():
-            error "message transfer failed", error = handleRes.error.msg
+          handleRes.isOkOr:
+            error "message transfer failed", error = error.msg
             continue
 
         if req.paginationCursor.isNone():

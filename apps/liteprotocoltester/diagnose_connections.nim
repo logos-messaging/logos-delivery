@@ -14,7 +14,7 @@ import
   libp2p/wire
 
 import
-  ../../tools/confutils/cli_args,
+  tools/confutils/cli_args,
   waku/[
     node/peer_manager,
     waku_lightpush/common,
@@ -59,7 +59,4 @@ proc logSelfPeers*(pm: PeerManager) =
 {allPeers(pm)}
 *------------------------------------------------------------------------------------------*""".fmt()
 
-  if printable.isErr():
-    echo "Error while printing statistics: " & printable.error().msg
-  else:
-    echo printable.get()
+  echo printable.valueOr("Error while printing statistics: " & error.msg)

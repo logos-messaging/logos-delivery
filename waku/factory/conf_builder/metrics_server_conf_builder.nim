@@ -4,6 +4,8 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder metrics server"
 
+const DefaultMetricsHttpPort*: Port = Port(8008)
+
 ###################################
 ## Metrics Server Config Builder ##
 ###################################
@@ -40,7 +42,7 @@ proc build*(b: MetricsServerConfBuilder): Result[Option[MetricsServerConf], stri
     some(
       MetricsServerConf(
         httpAddress: b.httpAddress.get(static parseIpAddress("127.0.0.1")),
-        httpPort: b.httpPort.get(8008.Port),
+        httpPort: b.httpPort.get(DefaultMetricsHttpPort),
         logging: b.logging.get(false),
       )
     )

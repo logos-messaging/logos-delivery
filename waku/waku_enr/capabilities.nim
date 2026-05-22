@@ -94,11 +94,10 @@ func waku2*(record: TypedRecord): Option[CapabilitiesBitfield] =
   some(CapabilitiesBitfield(field.get()[0]))
 
 proc supportsCapability*(r: Record, cap: Capabilities): bool =
-  let recordRes = r.toTyped()
-  if recordRes.isErr():
+  let recordRes = r.toTyped().valueOr:
     return false
 
-  let bitfieldOpt = recordRes.value.waku2
+  let bitfieldOpt = recordRes.waku2
   if bitfieldOpt.isNone():
     return false
 
@@ -106,11 +105,10 @@ proc supportsCapability*(r: Record, cap: Capabilities): bool =
   bitfield.supportsCapability(cap)
 
 proc getCapabilities*(r: Record): seq[Capabilities] =
-  let recordRes = r.toTyped()
-  if recordRes.isErr():
+  let recordRes = r.toTyped().valueOr:
     return @[]
 
-  let bitfieldOpt = recordRes.value.waku2
+  let bitfieldOpt = recordRes.waku2
   if bitfieldOpt.isNone():
     return @[]
 

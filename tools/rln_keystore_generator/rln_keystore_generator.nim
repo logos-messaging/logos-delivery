@@ -31,12 +31,10 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
   trace "configuration", conf = $conf
 
   # 2. generate credentials
-  let credentialRes = membershipKeyGen()
-  if credentialRes.isErr():
-    error "failure while generating credentials", error = credentialRes.error
-    quit(1)
+  let credential = membershipKeyGen().valueOr:
+    error "failure while generating credentials", error = error
+    quit(QuitFailure)
 
-  let credential = credentialRes.get()
   info "credentials",
     idTrapdoor = credential.idTrapdoor.inHex(),
     idNullifier = credential.idNullifier.inHex(),
@@ -45,7 +43,7 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
 
   if not conf.execute:
     info "not executing, exiting"
-    quit(0)
+    quit(QuitSuccess)
 
   var onFatalErrorAction = proc(msg: string) {.gcsafe, closure.} =
     ## Action to be taken when an internal error occurs during the node run.
@@ -66,20 +64,22 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
   try:
     (waitFor groupManager.init()).isOkOr:
       error "failure while initializing OnchainGroupManager", error = $error
-      quit(1)
+      quit(QuitFailure)
   # handling the exception is required since waitFor raises an exception
   except Exception, CatchableError:
     error "failure while initializing OnchainGroupManager",
       error = getCurrentExceptionMsg()
-    quit(1)
+    quit(QuitFailure)
 
   # 4. register on-chain
   try:
-    waitFor groupManager.register(credential, conf.userMessageLimit)
+    (waitFor groupManager.register(credential, conf.userMessageLimit)).isOkOr:
+      error "Failed to register on-chain", error = error
+      quit(QuitFailure)
   except Exception, CatchableError:
     error "failure while registering credentials on-chain",
       error = getCurrentExceptionMsg()
-    quit(1)
+    quit(QuitFailure)
 
   info "Transaction hash", txHash = groupManager.registrationTxHash.get()
 
@@ -99,11 +99,9 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
     userMessageLimit: conf.userMessageLimit,
   )
 
-  let persistRes =
-    addMembershipCredentials(conf.credPath, keystoreCred, conf.credPassword, RLNAppInfo)
-  if persistRes.isErr():
-    error "failed to persist credentials", error = persistRes.error
-    quit(1)
+  addMembershipCredentials(conf.credPath, keystoreCred, conf.credPassword, RLNAppInfo).isOkOr:
+    error "failed to persist credentials", error = error
+    quit(QuitFailure)
 
   info "credentials persisted", path = conf.credPath
 
@@ -111,5 +109,5 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
     waitFor groupManager.stop()
   except CatchableError:
     error "failure while stopping OnchainGroupManager", error = getCurrentExceptionMsg()
-    quit(0) # 0 because we already registered on-chain
-  quit(0)
+    quit(QuitSuccess) # 0 because we already registered on-chain
+  quit(QuitSuccess)

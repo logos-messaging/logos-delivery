@@ -4,7 +4,7 @@ import
   libp2p/crypto/[crypto, secp],
   libp2p/multiaddress,
   nimcrypto/utils,
-  std/[options, sequtils],
+  std/[net, options, random, sequtils],
   results,
   testutils/unittests
 import
@@ -22,11 +22,13 @@ suite "Waku Conf - build with cluster conf":
     builder.withRelayServiceRatio("50:50")
     # Mount all shards in network
     let expectedShards = toSeq[0.uint16 .. 7.uint16]
+    let userMessageLimit = rand(1 .. 1000).uint64
 
     ## Given
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
     builder.withNetworkConf(networkConf)
     builder.withRelay(true)
+    builder.rlnRelayConf.withUserMessageLimit(userMessageLimit)
 
     ## When
     let resConf = builder.build()
@@ -54,7 +56,7 @@ suite "Waku Conf - build with cluster conf":
       check rlnRelayConf.dynamic == networkConf.rlnRelayDynamic
       check rlnRelayConf.chainId == networkConf.rlnRelayChainId
       check rlnRelayConf.epochSizeSec == networkConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == networkConf.rlnRelayUserMessageLimit
+      check rlnRelayConf.userMessageLimit == userMessageLimit.uint
 
   test "Cluster Conf is passed, but relay is disabled":
     ## Setup
@@ -174,11 +176,13 @@ suite "Waku Conf - build with cluster conf":
     # Mount all shards in network
     let expectedShards = toSeq[0.uint16 .. 7.uint16]
     let contractAddress = "0x0123456789ABCDEF"
+    let userMessageLimit = rand(1 .. 1000).uint64
 
     ## Given
     builder.rlnRelayConf.withEthContractAddress(contractAddress)
     builder.withNetworkConf(networkConf)
     builder.withRelay(true)
+    builder.rlnRelayConf.withUserMessageLimit(userMessageLimit)
 
     ## When
     let resConf = builder.build()
@@ -207,7 +211,55 @@ suite "Waku Conf - build with cluster conf":
       check rlnRelayConf.dynamic == networkConf.rlnRelayDynamic
       check rlnRelayConf.chainId == networkConf.rlnRelayChainId
       check rlnRelayConf.epochSizeSec == networkConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == networkConf.rlnRelayUserMessageLimit
+      check rlnRelayConf.userMessageLimit == userMessageLimit.uint
+
+  test "num-shards-in-network > 0 overrides preset":
+    ## Setup
+    let networkConf = NetworkConf.LogosDevConf()
+    var builder = WakuConfBuilder.init()
+
+    # Sanity check
+    check networkConf.shardingConf.kind == AutoSharding
+    check networkConf.shardingConf.numShardsInCluster > 1
+
+    ## Given: preset says >1 shards but user explicitly sets 1
+    builder.withNetworkConf(networkConf)
+    builder.withNumShardsInCluster(1)
+    builder.withShardingConf(AutoSharding)
+
+    ## When
+    let conf = builder.build().expect("build should succeed")
+
+    ## Then: user value wins, not preset
+    conf.validate().expect("conf should validate")
+    check conf.shardingConf.kind == AutoSharding
+    check conf.shardingConf.numShardsInCluster == 1
+
+  test "num-shards-in-network == 0 does not override preset":
+    ## Passing an AutoSharding preset and trying to override with
+    ## --num-shards-in-network=0 (which is StaticSharding) doesn't work.
+    ## Note that --num-shards-in-network=0 and omitting the switch are
+    ## internally the same. Promoting the config to an Option[uint16] is
+    ## probably not worth it since overriding an AutoSharding preset with
+    ## StaticSharding shouldn't make any sense (that is, no use case).
+
+    ## Given: emulate --preset=logos.dev --num-shards-in-network=0
+    let networkConf = NetworkConf.LogosDevConf()
+    var builder = WakuConfBuilder.init()
+    builder.withNetworkConf(networkConf)
+    # Note: builder.withNumShardsInCluster() is not called when the
+    # value that comes from the CLI path is 0 (which means it was
+    # either set to 0 or was left unset).
+    builder.withShardingConf(StaticSharding)
+
+    ## When
+    let conf = builder.build().expect("build should succeed")
+
+    ## Then: preset wins and StaticSharding user intent is lost
+    conf.validate().expect("conf should validate")
+    check conf.shardingConf.kind == networkConf.shardingConf.kind
+    check conf.shardingConf.numShardsInCluster ==
+      networkConf.shardingConf.numShardsInCluster
 
 suite "Waku Conf - node key":
   test "Node key is generated":

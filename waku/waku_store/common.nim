@@ -15,7 +15,7 @@ const
 
 type WakuStoreResult*[T] = Result[T, string]
 
-## Public API types
+## API types
 
 type
   StoreQueryRequest* = object

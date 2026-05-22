@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import ../../apps/wakunode2/cli_args
+import tools/confutils/cli_args
 import waku/[common/logging, factory/[waku, networks_config]]
 import
   std/[options, strutils, os, sequtils],
@@ -18,12 +18,9 @@ proc setup*(): Waku =
   const versionString = "version / git commit hash: " & waku.git_version
   let rng = crypto.newRng()
 
-  let confRes = WakuNodeConf.load(version = versionString)
-  if confRes.isErr():
-    error "failure while loading the configuration", error = $confRes.error
+  let conf = WakuNodeConf.load(version = versionString).valueOr:
+    error "failure while loading the configuration", error = $error
     quit(QuitFailure)
-
-  var conf = confRes.get()
 
   let twnNetworkConf = NetworkConf.TheWakuNetworkConf()
   if len(conf.shards) != 0:

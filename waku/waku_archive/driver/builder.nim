@@ -32,71 +32,54 @@ proc new*(
   ## maxNumConn - defines the maximum number of connections to handle simultaneously (Postgres)
   ## onFatalErrorAction - called if, e.g., the connection with db got lost
 
-  let dbUrlValidationRes = dburl.validateDbUrl(url)
-  if dbUrlValidationRes.isErr():
-    return err("DbUrl failure in ArchiveDriver.new: " & dbUrlValidationRes.error)
+  dburl.validateDbUrl(url).isOkOr:
+    return err("DbUrl failure in ArchiveDriver.new: " & error)
 
-  let engineRes = dburl.getDbEngine(url)
-  if engineRes.isErr():
-    return err("error getting db engine in setupWakuArchiveDriver: " & engineRes.error)
-
-  let engine = engineRes.get()
+  let engine = dburl.getDbEngine(url).valueOr:
+    return err("error getting db engine in setupWakuArchiveDriver: " & error)
 
   case engine
   of "sqlite":
-    let pathRes = dburl.getDbPath(url)
-    if pathRes.isErr():
-      return err("error get path in setupWakuArchiveDriver: " & pathRes.error)
+    let path = dburl.getDbPath(url).valueOr:
+      return err("error get path in setupWakuArchiveDriver: " & error)
 
-    let dbRes = SqliteDatabase.new(pathRes.get())
-    if dbRes.isErr():
-      return err("error in setupWakuArchiveDriver: " & dbRes.error)
-
-    let db = dbRes.get()
+    let db = SqliteDatabase.new(path).valueOr:
+      return err("error in setupWakuArchiveDriver: " & error)
 
     # SQLite vacuum
-    let sqliteStatsRes = db.gatherSqlitePageStats()
-    if sqliteStatsRes.isErr():
-      return err("error while gathering sqlite stats: " & $sqliteStatsRes.error)
+    let (pageSize, pageCount, freelistCount) = db.gatherSqlitePageStats().valueOr:
+      return err("error while gathering sqlite stats: " & $error)
 
-    let (pageSize, pageCount, freelistCount) = sqliteStatsRes.get()
     info "sqlite database page stats",
       pageSize = pageSize, pages = pageCount, freePages = freelistCount
 
     if vacuum and (pageCount > 0 and freelistCount > 0):
-      let vacuumRes = db.performSqliteVacuum()
-      if vacuumRes.isErr():
-        return err("error in vacuum sqlite: " & $vacuumRes.error)
+      db.performSqliteVacuum().isOkOr:
+        return err("error in vacuum sqlite: " & $error)
 
     # Database migration
     if migrate:
-      let migrateRes = archive_driver_sqlite_migrations.migrate(db)
-      if migrateRes.isErr():
-        return err("error in migrate sqlite: " & $migrateRes.error)
+      archive_driver_sqlite_migrations.migrate(db).isOkOr:
+        return err("error in migrate sqlite: " & $error)
 
     info "setting up sqlite waku archive driver"
-    let res = SqliteDriver.new(db)
-    if res.isErr():
-      return err("failed to init sqlite archive driver: " & res.error)
+    let res = SqliteDriver.new(db).valueOr:
+      return err("failed to init sqlite archive driver: " & error)
 
-    return ok(res.get())
+    return ok(res)
   of "postgres":
     when defined(postgres):
-      let res = PostgresDriver.new(
+      let driver = PostgresDriver.new(
         dbUrl = url,
         maxConnections = maxNumConn,
         onFatalErrorAction = onFatalErrorAction,
-      )
-      if res.isErr():
-        return err("failed to init postgres archive driver: " & res.error)
-
-      let driver = res.get()
+      ).valueOr:
+        return err("failed to init postgres archive driver: " & error)
 
       # Database migration
       if migrate:
-        let migrateRes = await archive_postgres_driver_migrations.migrate(driver)
-        if migrateRes.isErr():
-          return err("ArchiveDriver build failed in migration: " & $migrateRes.error)
+        (await archive_postgres_driver_migrations.migrate(driver)).isOkOr:
+          return err("ArchiveDriver build failed in migration: " & $error)
 
       ## This should be started once we make sure the 'messages' table exists
       ## Hence, this should be run after the migration is completed.

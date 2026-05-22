@@ -93,7 +93,9 @@ proc initProtocolHandler(self: WakuStore) =
     var resBuf: StoreResp
     var queryDuration: float
 
+    self.peerManager.addActiveStoreRequest(conn.peerId)
     defer:
+      self.peerManager.removeActiveStoreRequest(conn.peerId)
       await conn.closeWithEof()
 
     self.requestRateLimiter.checkUsageLimit(WakuStoreCodec, conn):
@@ -132,8 +134,8 @@ proc initProtocolHandler(self: WakuStore) =
     let writeRes = catch:
       await conn.writeLp(resBuf.resp)
 
-    if writeRes.isErr():
-      error "Connection write error", error = writeRes.error.msg
+    writeRes.isOkOr:
+      error "Connection write error", error = error.msg
       return
 
     if successfulQuery:

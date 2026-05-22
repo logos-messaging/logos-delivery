@@ -1,116 +1,138 @@
-{
-  config ? {},
-  pkgs ? import <nixpkgs> { },
-  src ? ../.,
-  targets ? ["libwaku-android-arm64"],
-  verbosity ? 2,
-  useSystemNim ? true,
-  quickAndDirty ? true,
-  stableSystems ? [
-    "x86_64-linux" "aarch64-linux"
-  ],
-  androidArch,
-  abidir,
-  zerokitPkg,
+{ pkgs
+, src
+, zerokitRln
+, gitVersion           ? "n/a"
+, enablePostgres       ? true
+, enableNimDebugDlOpen ? true
+, chroniclesLogLevel   ? null
 }:
 
-assert pkgs.lib.assertMsg ((src.submodules or true) == true)
-  "Unable to build without submodules. Append '?submodules=1#' to the URI.";
-
 let
-  inherit (pkgs) stdenv lib writeScriptBin callPackage;
+  deps      = import ./deps.nix    { inherit pkgs; };
 
-  revision = lib.substring 0 8 (src.rev or "dirty");
+  nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
+       [ "--define:disable_libbacktrace"
+         "--define:git_version=${gitVersion}" ]
+    ++ pkgs.lib.optional enablePostgres       "--define:postgres"
+    ++ pkgs.lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
+    ++ pkgs.lib.optional (chroniclesLogLevel != null)
+         "--define:chronicles_log_level=${toString chroniclesLogLevel}"
+  );
 
-in stdenv.mkDerivation rec {
+  # nat_traversal is excluded from the static pathArgs; it is handled
+  # separately in buildPhase (its bundled C libs must be compiled first).
+  otherDeps = builtins.removeAttrs deps [ "nat_traversal" ];
 
-  pname = "nwaku";
+  # Some packages (e.g. regex, unicodedb) put their .nim files under src/
+  # while others use the repo root. Pass both so the compiler finds either layout.
+  pathArgs =
+    builtins.concatStringsSep " "
+      (builtins.concatMap (p: [ "--path:${p}" "--path:${p}/src" ])
+        (builtins.attrValues otherDeps));
 
-  version = "1.0.0-${revision}";
+  libExt =
+    if pkgs.stdenv.hostPlatform.isWindows then "dll"
+    else if pkgs.stdenv.hostPlatform.isDarwin then "dylib"
+    else "so";
+in
+pkgs.stdenv.mkDerivation {
+  pname = "liblogosdelivery";
+  version = "dev";
 
   inherit src;
 
-  buildInputs = with pkgs; [
-    openssl
-    gmp
-    zip
-  ];
+  nativeBuildInputs = with pkgs; [
+    nim-2_2
+    git
+    gnumake
+    which
+  ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.cctools ];
 
-  # Dependencies that should only exist in the build environment.
-  nativeBuildInputs = let
-    # Fix for Nim compiler calling 'git rev-parse' and 'lsb_release'.
-    fakeGit = writeScriptBin "git" "echo ${version}";
-    # Fix for the zerokit package that is built with cargo/rustup/cross.
-    fakeCargo = writeScriptBin "cargo" "echo ${version}";
-    # Fix for the zerokit package that is built with cargo/rustup/cross.
-    fakeRustup = writeScriptBin "rustup" "echo ${version}";
-    # Fix for the zerokit package that is built with cargo/rustup/cross.
-    fakeCross = writeScriptBin "cross" "echo ${version}";
-  in
-    with pkgs; [
-      cmake
-      which
-      lsb-release
-      zerokitPkg
-      nim-unwrapped-2_0
-      fakeGit
-      fakeCargo
-      fakeRustup
-      fakeCross
-  ];
+  buildInputs = [ zerokitRln ]
+    ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
 
-  # Environment variables required for Android builds
-  ANDROID_SDK_ROOT="${pkgs.androidPkgs.sdk}";
-  ANDROID_NDK_HOME="${pkgs.androidPkgs.ndk}";
-  NIMFLAGS = "-d:disableMarchNative -d:git_revision_override=${revision}";
-  XDG_CACHE_HOME = "/tmp";
-  androidManifest = "<manifest xmlns:android=\"http://schemas.android.com/apk/res/android\" package=\"com.example.mylibrary\" />";
+  buildPhase = ''
+    export HOME=$TMPDIR
+    export XDG_CACHE_HOME=$TMPDIR/.cache
+    export NIMBLE_DIR=$TMPDIR/.nimble
+    export NIMCACHE=$TMPDIR/nimcache
 
-  makeFlags = targets ++ [
-    "V=${toString verbosity}"
-    "QUICK_AND_DIRTY_COMPILER=${if quickAndDirty then "1" else "0"}"
-    "QUICK_AND_DIRTY_NIMBLE=${if quickAndDirty then "1" else "0"}"
-    "USE_SYSTEM_NIM=${if useSystemNim then "1" else "0"}"
-  ];
+    mkdir -p build $NIMCACHE
 
-  configurePhase = ''
-    patchShebangs . vendor/nimbus-build-system > /dev/null
-    make nimbus-build-system-paths
-    make nimbus-build-system-nimble-dir
-  '';
+    # nat_traversal bundles C sub-libraries that must be compiled before linking.
+    # Copy the fetchgit store path to a writable tmpdir, build, then pass to nim.
+    NAT_TRAV=$TMPDIR/nat_traversal
+    cp -r ${deps.nat_traversal} $NAT_TRAV
+    chmod -R +w $NAT_TRAV
 
-  preBuild = ''
-    ln -s waku.nimble waku.nims
-    pushd vendor/nimbus-build-system/vendor/Nim
-    mkdir dist
-    cp -r ${callPackage ./nimble.nix {}}    dist/nimble
-    chmod 777 -R dist/nimble
-    mkdir -p dist/nimble/dist
-    cp -r ${callPackage ./checksums.nix {}} dist/checksums  # need both
-    cp -r ${callPackage ./checksums.nix {}} dist/nimble/dist/checksums
-    cp -r ${callPackage ./atlas.nix {}}     dist/atlas
-    chmod 777 -R dist/atlas
-    mkdir dist/atlas/dist
-    cp -r ${callPackage ./sat.nix {}}       dist/nimble/dist/sat
-    cp -r ${callPackage ./sat.nix {}}       dist/atlas/dist/sat
-    cp -r ${callPackage ./csources.nix {}}  csources_v2
-    chmod 777 -R dist/nimble csources_v2
-    popd
-    mkdir -p vendor/zerokit/target/${androidArch}/release
-    cp ${zerokitPkg}/librln.so vendor/zerokit/target/${androidArch}/release/
+    make -C $NAT_TRAV/vendor/miniupnp/miniupnpc \
+      CFLAGS="-Os -fPIC" build/libminiupnpc.a
+
+    make -C $NAT_TRAV/vendor/libnatpmp-upstream \
+      CFLAGS="-Wall -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4" libnatpmp.a
+
+    echo "== Building liblogosdelivery (dynamic) =="
+    nim c \
+      --noNimblePath \
+      ${pathArgs} \
+      --path:$NAT_TRAV \
+      --path:$NAT_TRAV/src \
+      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
+      ${nimDefineArgs} \
+      --out:build/liblogosdelivery.${libExt} \
+      --app:lib \
+      --threads:on \
+      --opt:size \
+      --noMain \
+      --mm:refc \
+      --header \
+      --nimMainPrefix:liblogosdelivery \
+      --nimcache:$NIMCACHE \
+      liblogosdelivery/liblogosdelivery.nim
+
+    echo "== Building liblogosdelivery (static) =="
+    nim c \
+      --noNimblePath \
+      ${pathArgs} \
+      --path:$NAT_TRAV \
+      --path:$NAT_TRAV/src \
+      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
+      ${nimDefineArgs} \
+      --out:build/liblogosdelivery.a \
+      --app:staticlib \
+      --threads:on \
+      --opt:size \
+      --noMain \
+      --mm:refc \
+      --nimMainPrefix:liblogosdelivery \
+      --nimcache:$NIMCACHE \
+      liblogosdelivery/liblogosdelivery.nim
   '';
 
   installPhase = ''
-    mkdir -p $out/jni
-    cp -r ./build/android/${abidir}/* $out/jni/
-    echo '${androidManifest}' > $out/jni/AndroidManifest.xml
-    cd $out && zip -r libwaku.aar *
+    runHook preInstall
+    mkdir -p $out/lib $out/include
+    cp build/liblogosdelivery.${libExt} $out/lib/ 2>/dev/null || true
+    cp build/liblogosdelivery.a         $out/lib/ 2>/dev/null || true
+    cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
+    runHook postInstall
   '';
 
-  meta = with pkgs.lib; {
-    description = "NWaku derivation to build libwaku for mobile targets using Android NDK and Rust.";
-    homepage = "https://github.com/status-im/nwaku";
-    license = licenses.mit;
-    platforms = stableSystems;
-  };
+  # Bundle librln alongside liblogosdelivery so the output is self-contained.
+  # Use --add-rpath (not --set-rpath) so fixupPhase's stdenv RUNPATH injection
+  # for libstdc++ is preserved.
+  postInstall =
+    pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+      cp ${zerokitRln}/lib/librln.dylib $out/lib/
+      chmod +w $out/lib/librln.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -id @rpath/liblogosdelivery.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
+      old=$(otool -L $out/lib/liblogosdelivery.dylib | awk 'NR>1{print $1}' | grep librln)
+      install_name_tool -change "$old" @rpath/librln.dylib $out/lib/liblogosdelivery.dylib
+      install_name_tool -add_rpath @loader_path $out/lib/liblogosdelivery.dylib
+    ''
+    + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+      cp ${zerokitRln}/lib/librln.so $out/lib/
+      patchelf --add-rpath '$ORIGIN' $out/lib/liblogosdelivery.so
+    '';
 }

@@ -13,7 +13,8 @@ import
   chronos,
   eth/keys,
   bearssl,
-  stew/[byteutils, results],
+  stew/[byteutils],
+  results,
   metrics,
   metrics/chronos_httpserver
 import
@@ -36,7 +37,6 @@ import
     waku_lightpush_legacy/rpc,
     waku_enr,
     discovery/waku_dnsdisc,
-    waku_store_legacy,
     waku_node,
     node/waku_metrics,
     node/peer_manager,
@@ -50,8 +50,7 @@ import
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
 import ../../waku/waku_rln_relay
 
-const Help =
-  """
+const Help = """
   Commands: /[?|help|connect|nick|exit]
   help: Prints this help
   connect: dials a remote peer
@@ -317,27 +316,19 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
   if conf.logLevel != LogLevel.NONE:
     setLogLevel(conf.logLevel)
 
-  let natRes = setupNat(
+  let (extIp, extTcpPort, extUdpPort) = setupNat(
     conf.nat,
     clientId,
     Port(uint16(conf.tcpPort) + conf.portsShift),
     Port(uint16(conf.udpPort) + conf.portsShift),
-  )
-
-  if natRes.isErr():
-    raise newException(ValueError, "setupNat error " & natRes.error)
-
-  let (extIp, extTcpPort, extUdpPort) = natRes.get()
+  ).valueOr:
+    raise newException(ValueError, "setupNat error " & error)
 
   var enrBuilder = EnrBuilder.init(nodeKey)
 
-  let recordRes = enrBuilder.build()
-  let record =
-    if recordRes.isErr():
-      error "failed to create enr record", error = recordRes.error
-      quit(QuitFailure)
-    else:
-      recordRes.get()
+  let record = enrBuilder.build().valueOr:
+    error "failed to create enr record", error = error
+    quit(QuitFailure)
 
   let node = block:
     var builder = WakuNodeBuilder.init()
@@ -345,16 +336,16 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
     builder.withRecord(record)
 
     builder
-    .withNetworkConfigurationDetails(
-      conf.listenAddress,
-      Port(uint16(conf.tcpPort) + conf.portsShift),
-      extIp,
-      extTcpPort,
-      wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
-      wsEnabled = conf.websocketSupport,
-      wssEnabled = conf.websocketSecureSupport,
-    )
-    .tryGet()
+      .withNetworkConfigurationDetails(
+        conf.listenAddress,
+        Port(uint16(conf.tcpPort) + conf.portsShift),
+        extIp,
+        extTcpPort,
+        wsBindPort = Port(uint16(conf.websocketPort) + conf.portsShift),
+        wsEnabled = conf.websocketSupport,
+        wssEnabled = conf.websocketSecureSupport,
+      )
+      .tryGet()
     builder.build().tryGet()
 
   await node.start()
@@ -488,7 +479,9 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
   if conf.lightpushnode != "":
     let peerInfo = parsePeerInfo(conf.lightpushnode)
     if peerInfo.isOk():
-      await mountLegacyLightPush(node)
+      (await node.mountLegacyLightPush()).isOkOr:
+        error "failed to mount legacy lightpush", error = error
+        quit(QuitFailure)
       node.mountLegacyLightPushClient()
       node.peerManager.addServicePeer(peerInfo.value, WakuLightpushCodec)
     else:

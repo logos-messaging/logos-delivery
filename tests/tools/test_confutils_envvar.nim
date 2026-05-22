@@ -19,7 +19,7 @@ type TestConf = object
     Option[InputFile]
 
   listenAddress* {.
-    defaultValue: parseIpAddress("127.0.0.1"),
+    defaultValue: IpAddress(family: IpAddressFamily.IPv4, address_v4: [127u8, 0, 0, 1]),
     desc: "Listening address",
     name: "listen-address"
   .}: IpAddress
@@ -62,9 +62,15 @@ suite "nim-confutils - envvar":
     ## Then
     check confLoadRes.isOk()
 
+    let parsedIpAddress =
+      try:
+        parseIpAddress(listenAddress)
+      except ValueError:
+        IpAddress(family: IpAddressFamily.IPv4, address_v4: [0u8, 0, 0, 0])
+
     let conf = confLoadRes.get()
     check:
-      conf.listenAddress == parseIpAddress(listenAddress)
+      conf.listenAddress == parsedIpAddress
       conf.tcpPort == Port(8080)
 
       conf.configFile.isSome()

@@ -50,9 +50,7 @@ proc loadAppKeystore*(
 
   # If no keystore exists at path we create a new empty one with passed keystore parameters
   if fileExists(path) == false:
-    let newKeystoreRes = createAppKeystore(path, appInfo, separator)
-    if newKeystoreRes.isErr():
-      return err(newKeystoreRes.error)
+    ?createAppKeystore(path, appInfo, separator)
 
   try:
     # We read all the file contents
@@ -175,13 +173,9 @@ proc addMembershipCredentials*(
 ): KeystoreResult[void] =
   # We load the keystore corresponding to the desired parameters
   # This call ensures that JSON has all required fields
-  let jsonKeystoreRes = loadAppKeystore(path, appInfo, separator)
-
-  if jsonKeystoreRes.isErr():
-    return err(jsonKeystoreRes.error)
 
   # We load the JSON node corresponding to the app keystore
-  var jsonKeystore = jsonKeystoreRes.get()
+  let jsonKeystore = ?loadAppKeystore(path, appInfo, separator)
 
   try:
     if jsonKeystore.hasKey("credentials"):
@@ -193,21 +187,16 @@ proc addMembershipCredentials*(
         return ok()
 
       let encodedMembershipCredential = membership.encode()
-      let keyfileRes = createKeyFileJson(encodedMembershipCredential, password)
-      if keyfileRes.isErr():
-        return err(
-          AppKeystoreError(kind: KeystoreCreateKeyfileError, msg: $keyfileRes.error)
-        )
-
       # We add it to the credentials field of the keystore
-      jsonKeystore["credentials"][key] = keyfileRes.get()
+      jsonKeystore["credentials"][key] = createKeyFileJson(
+        encodedMembershipCredential, password
+      ).valueOr:
+        return err(AppKeystoreError(kind: KeystoreCreateKeyfileError, msg: $error))
   except CatchableError:
     return err(AppKeystoreError(kind: KeystoreJsonError, msg: getCurrentExceptionMsg()))
 
   # We save to disk the (updated) keystore.
-  let saveRes = save(jsonKeystore, path, separator)
-  if saveRes.isErr():
-    return err(saveRes.error)
+  ?save(jsonKeystore, path, separator)
 
   return ok()
 
@@ -218,13 +207,9 @@ proc getMembershipCredentials*(
 ): KeystoreResult[KeystoreMembership] =
   # We load the keystore corresponding to the desired parameters
   # This call ensures that JSON has all required fields
-  let jsonKeystoreRes = loadAppKeystore(path, appInfo)
-
-  if jsonKeystoreRes.isErr():
-    return err(jsonKeystoreRes.error)
 
   # We load the JSON node corresponding to the app keystore
-  var jsonKeystore = jsonKeystoreRes.get()
+  let jsonKeystore = ?loadAppKeystore(path, appInfo)
 
   try:
     if jsonKeystore.hasKey("credentials"):
@@ -254,15 +239,10 @@ proc getMembershipCredentials*(
           )
         keystoreCredential = keystoreCredentials[key]
 
-      let decodedKeyfileRes = decodeKeyFileJson(keystoreCredential, password)
-      if decodedKeyfileRes.isErr():
-        return err(
-          AppKeystoreError(
-            kind: KeystoreReadKeyfileError, msg: $decodedKeyfileRes.error
-          )
-        )
+      let decodedKeyfile = decodeKeyFileJson(keystoreCredential, password).valueOr:
+        return err(AppKeystoreError(kind: KeystoreReadKeyfileError, msg: $error))
       # we parse the json decrypted keystoreCredential
-      let decodedCredentialRes = decode(decodedKeyfileRes.get())
+      let decodedCredentialRes = decode(decodedKeyfile)
       let keyfileMembershipCredential = decodedCredentialRes.get()
       return ok(keyfileMembershipCredential)
   except CatchableError:

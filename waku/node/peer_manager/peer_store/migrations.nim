@@ -18,16 +18,14 @@ proc migrate*(db: SqliteDatabase, targetVersion = SchemaVersion): DatabaseResult
   ## it runs migration scripts if the `user_version` is outdated. The `migrationScriptsDir` path
   ## points to the directory holding the migrations scripts once the db is updated, it sets the
   ## `user_version` to the `tragetVersion`.
-  ## 
+  ##
   ## If not `targetVersion` is provided, it defaults to `SchemaVersion`.
   ##
   ## NOTE: Down migration it is not currently supported
   info "starting peer store's sqlite database migration"
 
-  let migrationRes =
-    migrate(db, targetVersion, migrationsScriptsDir = PeerStoreMigrationPath)
-  if migrationRes.isErr():
-    return err("failed to execute migration scripts: " & migrationRes.error)
+  migrate(db, targetVersion, migrationsScriptsDir = PeerStoreMigrationPath).isOkOr:
+    return err("failed to execute migration scripts: " & error)
 
   info "finished peer store's sqlite database migration"
   ok()

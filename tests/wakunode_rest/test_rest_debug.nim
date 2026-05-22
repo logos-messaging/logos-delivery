@@ -1,6 +1,7 @@
 {.used.}
 
 import
+  std/options,
   testutils/unittests,
   presto,
   presto/client as presto_client,
@@ -12,11 +13,11 @@ import
     waku_node,
     node/waku_node as waku_node2,
       # TODO: Remove after moving `git_version` to the app code.
-    waku_api/rest/server,
-    waku_api/rest/client,
-    waku_api/rest/responses,
-    waku_api/rest/debug/handlers as debug_api,
-    waku_api/rest/debug/client as debug_api_client,
+    rest_api/endpoint/server,
+    rest_api/endpoint/client,
+    rest_api/endpoint/responses,
+    rest_api/endpoint/debug/handlers as debug_rest_interface,
+    rest_api/endpoint/debug/client as debug_rest_client,
   ],
   ../testlib/common,
   ../testlib/wakucore,

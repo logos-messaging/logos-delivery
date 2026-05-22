@@ -10,17 +10,17 @@ import
 
 import
   waku/[
-    waku_api/message_cache,
+    rest_api/message_cache,
     waku_core,
     waku_node,
     node/peer_manager,
     waku_lightpush/common,
-    waku_api/rest/server,
-    waku_api/rest/client,
-    waku_api/rest/responses,
-    waku_api/rest/lightpush/types,
-    waku_api/rest/lightpush/handlers as lightpush_api,
-    waku_api/rest/lightpush/client as lightpush_api_client,
+    rest_api/endpoint/server,
+    rest_api/endpoint/client,
+    rest_api/endpoint/responses,
+    rest_api/endpoint/lightpush/types,
+    rest_api/endpoint/lightpush/handlers as lightpush_rest_interface,
+    rest_api/endpoint/lightpush/client as lightpush_rest_client,
     waku_relay,
     common/rate_limit/setting,
   ],
@@ -61,7 +61,7 @@ proc init(
     assert false, "Failed to mount relay: " & $error
   (await testSetup.serviceNode.mountRelay()).isOkOr:
     assert false, "Failed to mount relay: " & $error
-  await testSetup.serviceNode.mountLightPush(rateLimit)
+  check (await testSetup.serviceNode.mountLightPush(rateLimit)).isOk()
   testSetup.pushNode.mountLightPushClient()
 
   testSetup.serviceNode.peerManager.addServicePeer(

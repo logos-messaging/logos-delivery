@@ -62,13 +62,9 @@ proc setupAndSubscribe(rng: ref HmacDrbgContext) {.async.} =
     "Building ENR with relay sharding failed"
   )
 
-  let recordRes = enrBuilder.build()
-  let record =
-    if recordRes.isErr():
-      error "failed to create enr record", error = recordRes.error
-      quit(QuitFailure)
-    else:
-      recordRes.get()
+  let record = enrBuilder.build().valueOr:
+    error "failed to create enr record", error = error
+    quit(QuitFailure)
 
   var builder = WakuNodeBuilder.init()
   builder.withNodeKey(nodeKey)
@@ -92,20 +88,18 @@ proc setupAndSubscribe(rng: ref HmacDrbgContext) {.async.} =
   while true:
     notice "maintaining subscription"
     # First use filter-ping to check if we have an active subscription
-    let pingRes = await node.wakuFilterClient.ping(filterPeer)
-    if pingRes.isErr():
+    if (await node.wakuFilterClient.ping(filterPeer)).isErr():
       # No subscription found. Let's subscribe.
       notice "no subscription found. Sending subscribe request"
 
-      let subscribeRes = await node.wakuFilterClient.subscribe(
-        filterPeer, FilterPubsubTopic, @[FilterContentTopic]
-      )
-
-      if subscribeRes.isErr():
-        notice "subscribe request failed. Quitting.", err = subscribeRes.error
+      (
+        await node.wakuFilterClient.subscribe(
+          filterPeer, FilterPubsubTopic, @[FilterContentTopic]
+        )
+      ).isOkOr:
+        notice "subscribe request failed. Quitting.", error = error
         break
-      else:
-        notice "subscribe request successful."
+      notice "subscribe request successful."
     else:
       notice "subscription found."
 

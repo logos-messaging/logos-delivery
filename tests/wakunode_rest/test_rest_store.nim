@@ -17,12 +17,12 @@ import
     waku_core/time,
     waku_node,
     node/peer_manager,
-    waku_api/rest/server,
-    waku_api/rest/client,
-    waku_api/rest/responses,
-    waku_api/rest/store/handlers as store_api,
-    waku_api/rest/store/client as store_api_client,
-    waku_api/rest/store/types,
+    rest_api/endpoint/server,
+    rest_api/endpoint/client,
+    rest_api/endpoint/responses,
+    rest_api/endpoint/store/handlers as store_rest_interface,
+    rest_api/endpoint/store/client as store_rest_client,
+    rest_api/endpoint/store/types,
     waku_archive,
     waku_archive/driver/queue_driver,
     waku_archive/driver/sqlite_driver,
@@ -34,7 +34,7 @@ import
   ../testlib/wakunode
 
 logScope:
-  topics = "waku node rest store_api test"
+  topics = "waku node rest store_rest_interface test"
 
 proc put(
     store: ArchiveDriver, pubsubTopic: PubsubTopic, message: WakuMessage
@@ -115,17 +115,16 @@ procSuite "Waku Rest API - Store v3":
     await sleepAsync(1.seconds())
 
     # Now prime it with some history before tests
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
-        fakeWakuMessage(@[byte 1], ts = 1),
-        fakeWakuMessage(@[byte 1, byte 2], ts = 2),
-        fakeWakuMessage(@[byte 1], ts = 3),
-        fakeWakuMessage(@[byte 1], ts = 4),
-        fakeWakuMessage(@[byte 1], ts = 5),
-        fakeWakuMessage(@[byte 1], ts = 6),
-        fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("c2"), ts = 9),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
+      fakeWakuMessage(@[byte 1], ts = 1),
+      fakeWakuMessage(@[byte 1, byte 2], ts = 2),
+      fakeWakuMessage(@[byte 1], ts = 3),
+      fakeWakuMessage(@[byte 1], ts = 4),
+      fakeWakuMessage(@[byte 1], ts = 5),
+      fakeWakuMessage(@[byte 1], ts = 6),
+      fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("c2"), ts = 9),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 
@@ -191,17 +190,16 @@ procSuite "Waku Rest API - Store v3":
     peerSwitch.mount(node.wakuStore)
 
     # Now prime it with some history before tests
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
-        fakeWakuMessage(@[byte 1], ts = 1),
-        fakeWakuMessage(@[byte 1, byte 2], ts = 2),
-        fakeWakuMessage(@[byte 1], ts = 3),
-        fakeWakuMessage(@[byte 1], ts = 4),
-        fakeWakuMessage(@[byte 1], ts = 5),
-        fakeWakuMessage(@[byte 1], ts = 6),
-        fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("c2"), ts = 9),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
+      fakeWakuMessage(@[byte 1], ts = 1),
+      fakeWakuMessage(@[byte 1, byte 2], ts = 2),
+      fakeWakuMessage(@[byte 1], ts = 3),
+      fakeWakuMessage(@[byte 1], ts = 4),
+      fakeWakuMessage(@[byte 1], ts = 5),
+      fakeWakuMessage(@[byte 1], ts = 6),
+      fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("c2"), ts = 9),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 
@@ -262,19 +260,18 @@ procSuite "Waku Rest API - Store v3":
 
     # Now prime it with some history before tests
     let timeOrigin = wakucore.now()
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 02], ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 03], ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 04], ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 05], ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 06], ts = ts(60, timeOrigin)),
-        fakeWakuMessage(@[byte 07], ts = ts(70, timeOrigin)),
-        fakeWakuMessage(@[byte 08], ts = ts(80, timeOrigin)),
-        fakeWakuMessage(@[byte 09], ts = ts(90, timeOrigin)),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 02], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 03], ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 04], ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 05], ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 06], ts = ts(60, timeOrigin)),
+      fakeWakuMessage(@[byte 07], ts = ts(70, timeOrigin)),
+      fakeWakuMessage(@[byte 08], ts = ts(80, timeOrigin)),
+      fakeWakuMessage(@[byte 09], ts = ts(90, timeOrigin)),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 
@@ -357,12 +354,11 @@ procSuite "Waku Rest API - Store v3":
     peerSwitch.mount(node.wakuStore)
 
     # Now prime it with some history before tests
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("2"), ts = 0),
-        fakeWakuMessage(@[byte 1], ts = 1),
-        fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("2"), ts = 9),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("2"), ts = 0),
+      fakeWakuMessage(@[byte 1], ts = 1),
+      fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("2"), ts = 9),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 
@@ -431,12 +427,11 @@ procSuite "Waku Rest API - Store v3":
     peerSwitch.mount(node.wakuStore)
 
     # Now prime it with some history before tests
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
-        fakeWakuMessage(@[byte 1], ts = 1),
-        fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("ct2"), ts = 9),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
+      fakeWakuMessage(@[byte 1], ts = 1),
+      fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("ct2"), ts = 9),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 
@@ -485,7 +480,7 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_TEXT
       response.data.messages.len == 0
       response.data.statusDesc ==
-        "Failed parsing remote peer info [MultiAddress.init [multiaddress: Invalid MultiAddress, must start with `/`]]"
+        "Failed parsing remote peer info: MultiAddress.init [multiaddress: Invalid MultiAddress, must start with `/`]"
 
     await restServer.stop()
     await restServer.closeWait()
@@ -521,12 +516,11 @@ procSuite "Waku Rest API - Store v3":
     peerSwitch.mount(node.wakuStore)
 
     # Now prime it with some history before tests
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
-        fakeWakuMessage(@[byte 1], ts = 1),
-        fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("ct2"), ts = 9),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
+      fakeWakuMessage(@[byte 1], ts = 1),
+      fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("ct2"), ts = 9),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 
@@ -594,12 +588,11 @@ procSuite "Waku Rest API - Store v3":
     await node.mountStore()
 
     # Now prime it with some history before tests
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
-        fakeWakuMessage(@[byte 1], ts = 1),
-        fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("ct2"), ts = 9),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 0], contentTopic = ContentTopic("ct1"), ts = 0),
+      fakeWakuMessage(@[byte 1], ts = 1),
+      fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("ct2"), ts = 9),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 
@@ -640,14 +633,13 @@ procSuite "Waku Rest API - Store v3":
     await node.mountStore()
 
     # Now prime it with some history before tests
-    let msgList =
-      @[
-        fakeWakuMessage(
-          @[byte 0], contentTopic = ContentTopic("ct1"), ts = 0, meta = (@[byte 8])
-        ),
-        fakeWakuMessage(@[byte 1], ts = 1),
-        fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("ct2"), ts = 9),
-      ]
+    let msgList = @[
+      fakeWakuMessage(
+        @[byte 0], contentTopic = ContentTopic("ct1"), ts = 0, meta = (@[byte 8])
+      ),
+      fakeWakuMessage(@[byte 1], ts = 1),
+      fakeWakuMessage(@[byte 9], contentTopic = ContentTopic("ct2"), ts = 9),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 
@@ -757,19 +749,18 @@ procSuite "Waku Rest API - Store v3":
 
     # Now prime it with some history before tests
     let timeOrigin = wakucore.now()
-    let msgList =
-      @[
-        fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
-        fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin)),
-        fakeWakuMessage(@[byte 02], ts = ts(20, timeOrigin)),
-        fakeWakuMessage(@[byte 03], ts = ts(30, timeOrigin)),
-        fakeWakuMessage(@[byte 04], ts = ts(40, timeOrigin)),
-        fakeWakuMessage(@[byte 05], ts = ts(50, timeOrigin)),
-        fakeWakuMessage(@[byte 06], ts = ts(60, timeOrigin)),
-        fakeWakuMessage(@[byte 07], ts = ts(70, timeOrigin)),
-        fakeWakuMessage(@[byte 08], ts = ts(80, timeOrigin)),
-        fakeWakuMessage(@[byte 09], ts = ts(90, timeOrigin)),
-      ]
+    let msgList = @[
+      fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin)),
+      fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin)),
+      fakeWakuMessage(@[byte 02], ts = ts(20, timeOrigin)),
+      fakeWakuMessage(@[byte 03], ts = ts(30, timeOrigin)),
+      fakeWakuMessage(@[byte 04], ts = ts(40, timeOrigin)),
+      fakeWakuMessage(@[byte 05], ts = ts(50, timeOrigin)),
+      fakeWakuMessage(@[byte 06], ts = ts(60, timeOrigin)),
+      fakeWakuMessage(@[byte 07], ts = ts(70, timeOrigin)),
+      fakeWakuMessage(@[byte 08], ts = ts(80, timeOrigin)),
+      fakeWakuMessage(@[byte 09], ts = ts(90, timeOrigin)),
+    ]
     for msg in msgList:
       require (await driver.put(DefaultPubsubTopic, msg)).isOk()
 

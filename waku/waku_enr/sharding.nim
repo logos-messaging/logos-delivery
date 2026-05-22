@@ -64,16 +64,15 @@ func topicsToRelayShards*(topics: seq[string]): Result[Option[RelayShards], stri
   let parsedTopicsRes = topics.mapIt(RelayShard.parse(it))
 
   for res in parsedTopicsRes:
-    if res.isErr():
-      return err("failed to parse topic: " & $res.error)
+    res.isOkOr:
+      return err("failed to parse topic: " & $error)
 
   if parsedTopicsRes.anyIt(it.get().clusterId != parsedTopicsRes[0].get().clusterId):
     return err("use shards with the same cluster Id.")
 
-  let relayShard =
-    ?RelayShards.init(
-      parsedTopicsRes[0].get().clusterId, parsedTopicsRes.mapIt(it.get().shardId)
-    )
+  let relayShard = ?RelayShards.init(
+    parsedTopicsRes[0].get().clusterId, parsedTopicsRes.mapIt(it.get().shardId)
+  )
 
   return ok(some(relayShard))
 
@@ -84,11 +83,10 @@ func contains*(rs: RelayShards, shard: RelayShard): bool =
   return rs.contains(shard.clusterId, shard.shardId)
 
 func contains*(rs: RelayShards, topic: PubsubTopic): bool =
-  let parseRes = RelayShard.parse(topic)
-  if parseRes.isErr():
+  let parseRes = RelayShard.parse(topic).valueOr:
     return false
 
-  rs.contains(parseRes.value)
+  rs.contains(parseRes)
 
 # ENR builder extension
 
@@ -239,12 +237,11 @@ proc containsShard*(r: Record, shard: RelayShard): bool =
   return containsShard(r, shard.clusterId, shard.shardId)
 
 proc containsShard*(r: Record, topic: PubsubTopic): bool =
-  let parseRes = RelayShard.parse(topic)
-  if parseRes.isErr():
-    info "invalid static sharding topic", topic = topic, error = parseRes.error
+  let parseRes = RelayShard.parse(topic).valueOr:
+    info "invalid static sharding topic", topic = topic, error = error
     return false
 
-  containsShard(r, parseRes.value)
+  containsShard(r, parseRes)
 
 proc isClusterMismatched*(record: Record, clusterId: uint16): bool =
   ## Check the ENR sharding info for matching cluster id

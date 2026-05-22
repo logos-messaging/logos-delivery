@@ -126,23 +126,22 @@ proc toMatterbridge(
 
   assert chat2Msg.isOk
 
-  let postRes = cmb.mbClient.postMessage(
-    text = string.fromBytes(chat2Msg[].payload), username = chat2Msg[].nick
-  )
-
-  if postRes.isErr() or (postRes[] == false):
+  if not cmb.mbClient
+    .postMessage(
+      text = string.fromBytes(chat2Msg[].payload), username = chat2Msg[].nick
+    )
+    .containsValue(true):
     chat2_mb_dropped.inc(labelValues = ["duplicate"])
     error "Matterbridge host unreachable. Dropping message."
 
 proc pollMatterbridge(cmb: Chat2MatterBridge, handler: MbMessageHandler) {.async.} =
   while cmb.running:
-    if (let getRes = cmb.mbClient.getMessages(); getRes.isOk()):
-      for jsonNode in getRes[]:
-        await handler(jsonNode)
-    else:
+    let msg = cmb.mbClient.getMessages().valueOr:
       error "Matterbridge host unreachable. Sleeping before retrying."
       await sleepAsync(chronos.seconds(10))
-
+      continue
+    for jsonNode in msg:
+      await handler(jsonNode)
     await sleepAsync(cmb.pollPeriod)
 
 ##############
@@ -178,10 +177,10 @@ proc new*(
     builder.withNodeKey(nodev2Key)
 
     builder
-    .withNetworkConfigurationDetails(
-      nodev2BindIp, nodev2BindPort, nodev2ExtIp, nodev2ExtPort
-    )
-    .tryGet()
+      .withNetworkConfigurationDetails(
+        nodev2BindIp, nodev2BindPort, nodev2ExtIp, nodev2ExtPort
+      )
+      .tryGet()
     builder.build().tryGet()
 
   return Chat2MatterBridge(
@@ -243,7 +242,7 @@ proc stop*(cmb: Chat2MatterBridge) {.async: (raises: [Exception]).} =
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
 when isMainModule:
-  import waku/common/utils/nat, waku/waku_api/message_cache
+  import waku/common/utils/nat, waku/rest_api/message_cache
 
   let
     rng = newRng()
@@ -252,25 +251,21 @@ when isMainModule:
   if conf.logLevel != LogLevel.NONE:
     setLogLevel(conf.logLevel)
 
-  let natRes = setupNat(
+  let (nodev2ExtIp, nodev2ExtPort, _) = setupNat(
     conf.nat,
     clientId,
     Port(uint16(conf.libp2pTcpPort) + conf.portsShift),
     Port(uint16(conf.udpPort) + conf.portsShift),
-  )
-  if natRes.isErr():
-    error "Error in setupNat", error = natRes.error
+  ).valueOr:
+    raise newException(ValueError, "setupNat error " & error)
 
-  # Load address configuration
-  let
-    (nodev2ExtIp, nodev2ExtPort, _) = natRes.get()
-    ## The following heuristic assumes that, in absence of manual
-    ## config, the external port is the same as the bind port.
-    extPort =
-      if nodev2ExtIp.isSome() and nodev2ExtPort.isNone():
-        some(Port(uint16(conf.libp2pTcpPort) + conf.portsShift))
-      else:
-        nodev2ExtPort
+  ## The following heuristic assumes that, in absence of manual
+  ## config, the external port is the same as the bind port.
+  let extPort =
+    if nodev2ExtIp.isSome() and nodev2ExtPort.isNone():
+      some(Port(uint16(conf.libp2pTcpPort) + conf.portsShift))
+    else:
+      nodev2ExtPort
 
   let bridge = Chat2Matterbridge.new(
     mbHostUri = "http://" & $initTAddress(conf.mbHostAddress, Port(conf.mbHostPort)),

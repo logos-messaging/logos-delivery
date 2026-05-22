@@ -127,11 +127,10 @@ proc parse*(
 ): ParsingResult[seq[NsContentTopic]] =
   var res: seq[NsContentTopic] = @[]
   for contentTopic in topics:
-    let parseRes = NsContentTopic.parse(contentTopic)
-    if parseRes.isErr():
-      let error: ParsingError = parseRes.error
-      return ParsingResult[seq[NsContentTopic]].err(error)
-    res.add(parseRes.value)
+    let parseRes = NsContentTopic.parse(contentTopic).valueOr:
+      let pError: ParsingError = error
+      return ParsingResult[seq[NsContentTopic]].err(pError)
+    res.add(parseRes)
   return ParsingResult[seq[NsContentTopic]].ok(res)
 
 # Content topic compatibility

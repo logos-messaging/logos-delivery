@@ -78,12 +78,11 @@ proc createTableQuery(table: string): SqlQueryStr =
 
 proc createTable*(db: SqliteDatabase): DatabaseResult[void] =
   let query = createTableQuery(DbTable)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 ## Create indices
@@ -93,12 +92,11 @@ proc createOldestMessageTimestampIndexQuery(table: string): SqlQueryStr =
 
 proc createOldestMessageTimestampIndex*(db: SqliteDatabase): DatabaseResult[void] =
   let query = createOldestMessageTimestampIndexQuery(DbTable)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 ## Insert message
@@ -129,8 +127,7 @@ proc getMessageCount*(db: SqliteDatabase): DatabaseResult[int64] =
     count = sqlite3_column_int64(s, 0)
 
   let query = countMessagesQuery(DbTable)
-  let res = db.query(query, queryRowCallback)
-  if res.isErr():
+  db.query(query, queryRowCallback).isOkOr:
     return err("failed to count number of messages in the database")
 
   return ok(count)
@@ -146,8 +143,7 @@ proc selectOldestTimestamp*(db: SqliteDatabase): DatabaseResult[Timestamp] {.inl
     timestamp = queryRowTimestampCallback(s, 0)
 
   let query = selectOldestMessageTimestampQuery(DbTable)
-  let res = db.query(query, queryRowCallback)
-  if res.isErr():
+  db.query(query, queryRowCallback).isOkOr:
     return err("failed to get the oldest receiver timestamp from the database")
 
   return ok(timestamp)
@@ -163,8 +159,7 @@ proc selectNewestTimestamp*(db: SqliteDatabase): DatabaseResult[Timestamp] {.inl
     timestamp = queryRowTimestampCallback(s, 0)
 
   let query = selectNewestMessageTimestampQuery(DbTable)
-  let res = db.query(query, queryRowCallback)
-  if res.isErr():
+  db.query(query, queryRowCallback).isOkOr:
     return err("failed to get the newest receiver timestamp from the database")
 
   return ok(timestamp)
@@ -178,12 +173,11 @@ proc deleteMessagesOlderThanTimestamp*(
     db: SqliteDatabase, ts: int64
 ): DatabaseResult[void] =
   let query = deleteMessagesOlderThanTimestampQuery(DbTable, ts)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 ## Delete oldest messages not within limit
@@ -199,12 +193,11 @@ proc deleteOldestMessagesNotWithinLimit*(
 ): DatabaseResult[void] =
   # NOTE: The word `limit` here refers the store capacity/maximum number-of-messages allowed limit
   let query = deleteOldestMessagesNotWithinLimitQuery(DbTable, limit = limit)
-  discard
-    ?db.query(
-      query,
-      proc(s: ptr sqlite3_stmt) =
-        discard,
-    )
+  discard ?db.query(
+    query,
+    proc(s: ptr sqlite3_stmt) =
+      discard,
+  )
   return ok()
 
 ## Select all messages

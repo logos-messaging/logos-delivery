@@ -22,7 +22,7 @@ import
     factory/conf_builder/conf_builder,
     factory/waku,
     node/waku_node,
-    node/api,
+    node/kernel_api,
     node/peer_manager,
   ],
   ../testlib/[wakucore, testasync, assertions, futures, wakunode, testutils],
@@ -426,7 +426,6 @@ suite "Waku Discovery v5":
       confBuilder.withNodeKey(libp2p_keys.PrivateKey.random(Secp256k1, myRng[])[])
       confBuilder.discv5Conf.withEnabled(true)
       confBuilder.discv5Conf.withUdpPort(9000.Port)
-
       let conf = confBuilder.build().valueOr:
         raiseAssert error
 
@@ -468,6 +467,9 @@ suite "Waku Discovery v5":
       # leave some time for discv5 to act
       await sleepAsync(chronos.seconds(10))
 
+      # Connect peers via peer manager to ensure identify happens
+      discard await waku0.node.peerManager.connectPeer(waku1.node.switch.peerInfo)
+
       var r = waku0.node.peerManager.selectPeer(WakuPeerExchangeCodec)
       assert r.isSome(), "could not retrieve peer mounting WakuPeerExchangeCodec"
 
@@ -480,7 +482,7 @@ suite "Waku Discovery v5":
       r = waku2.node.peerManager.selectPeer(WakuPeerExchangeCodec)
       assert r.isSome(), "could not retrieve peer mounting WakuPeerExchangeCodec"
 
-      r = waku2.node.peerManager.selectPeer(RendezVousCodec)
+      r = waku2.node.peerManager.selectPeer(WakuRendezVousCodec)
       assert r.isSome(), "could not retrieve peer mounting RendezVousCodec"
 
     asyncTest "Discv5 bootstrap nodes should be added to the peer store":
@@ -504,7 +506,8 @@ suite "Waku Discovery v5":
         waku.conf.nodeKey,
         waku.conf.endpointConf.p2pListenAddress,
         waku.conf.portsShift,
-      )
+      ).valueOr:
+        raiseAssert "failed setup discv5 in test: " & $error
 
       check:
         waku.node.peerManager.switch.peerStore.peers().anyIt(
@@ -535,7 +538,8 @@ suite "Waku Discovery v5":
         waku.conf.nodeKey,
         waku.conf.endpointConf.p2pListenAddress,
         waku.conf.portsShift,
-      )
+      ).valueOr:
+        raiseAssert "failed setup discv5 in test: " & $error
 
       check:
         not waku.node.peerManager.switch.peerStore.peers().anyIt(

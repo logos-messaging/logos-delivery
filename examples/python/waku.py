@@ -1,23 +1,32 @@
-from flask import Flask
 import ctypes
 import argparse
+import sys
+
+if sys.platform == "darwin":
+    _lib_ext = "dylib"
+elif sys.platform == "win32":
+    _lib_ext = "dll"
+else:
+    _lib_ext = "so"
+
+_lib_path = f"build/libwaku.{_lib_ext}"
 
 libwaku = object
 try:
     # This python script should be run from the root repo folder
-    libwaku = ctypes.CDLL("build/libwaku.so")
-except Exception as e:
-    print("Exception: ", e)
-    print("""
-The 'libwaku.so' library can be created with the next command from
+    libwaku = ctypes.CDLL(_lib_path)
+except OSError as e:
+    print(f"Exception: {e}")
+    print(f"""
+The '{_lib_path}' library can be created with the next command from
 the repo's root folder: `make libwaku`.
 
-And it should build the library in 'build/libwaku.so'.
+And it should build the library in '{_lib_path}'.
 
-Therefore, make sure the LD_LIBRARY_PATH env var points at the location that
-contains the 'libwaku.so' library.
+Therefore, make sure the library path env var points at the location that
+contains the '{_lib_path}' library.
 """)
-    exit(-1)
+    exit(1)
 
 def handle_event(ret, msg, user_data):
     print("Event received: %s" % msg)
@@ -102,8 +111,8 @@ print("Waku Relay enabled: {}".format(args.relay))
 # Set the event callback
 callback = callback_type(handle_event) # This line is important so that the callback is not gc'ed
 
-libwaku.waku_set_event_callback.argtypes = [callback_type, ctypes.c_void_p]
-libwaku.waku_set_event_callback(callback, ctypes.c_void_p(0))
+libwaku.set_event_callback.argtypes = [callback_type, ctypes.c_void_p]
+libwaku.set_event_callback(callback, ctypes.c_void_p(0))
 
 # Start the node
 libwaku.waku_start.argtypes = [ctypes.c_void_p,
@@ -117,32 +126,32 @@ libwaku.waku_start(ctx,
 
 # Subscribe to the default pubsub topic
 libwaku.waku_relay_subscribe.argtypes = [ctypes.c_void_p,
-                                         ctypes.c_char_p,
                                          callback_type,
-                                         ctypes.c_void_p]
+                                         ctypes.c_void_p,
+                                         ctypes.c_char_p]
 libwaku.waku_relay_subscribe(ctx,
-                             default_pubsub_topic.encode('utf-8'),
                              callback_type(
                                     #onErrCb
                                     lambda ret, msg, len:
                                         print("Error calling waku_relay_subscribe: %s" %
                                                 msg.decode('utf-8'))
                              ),
-                             ctypes.c_void_p(0))
+                             ctypes.c_void_p(0),
+                             default_pubsub_topic.encode('utf-8'))
 
 libwaku.waku_connect.argtypes = [ctypes.c_void_p,
-                                 ctypes.c_char_p,
-                                 ctypes.c_int,
                                  callback_type,
-                                 ctypes.c_void_p]
+                                 ctypes.c_void_p,
+                                 ctypes.c_char_p,
+                                 ctypes.c_int]
 libwaku.waku_connect(ctx,
-                     args.peer.encode('utf-8'),
-                     10000,
                      # onErrCb
                      callback_type(
                          lambda ret, msg, len:
                            print("Error calling waku_connect: %s" % msg.decode('utf-8'))),
-                     ctypes.c_void_p(0))
+                     ctypes.c_void_p(0),
+                     args.peer.encode('utf-8'),
+                     10000)
 
 # app = Flask(__name__)
 # @app.route("/")

@@ -4,6 +4,8 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder rest server"
 
+const DefaultRestPort*: Port = Port(8645)
+
 ################################
 ## REST Server Config Builder ##
 ################################
@@ -46,8 +48,6 @@ proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
 
   if b.listenAddress.isNone():
     return err("restServer.listenAddress is not specified")
-  if b.port.isNone():
-    return err("restServer.port is not specified")
   if b.relayCacheCapacity.isNone():
     return err("restServer.relayCacheCapacity is not specified")
 
@@ -56,7 +56,7 @@ proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
       RestServerConf(
         allowOrigin: b.allowOrigin,
         listenAddress: b.listenAddress.get(),
-        port: b.port.get(),
+        port: b.port.get(DefaultRestPort),
         admin: b.admin.get(false),
         relayCacheCapacity: b.relayCacheCapacity.get(),
       )

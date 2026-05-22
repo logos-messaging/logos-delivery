@@ -50,10 +50,11 @@ proc handleRequest*(
       peer_id = peerId,
       requestId = requestId,
       pubsubTopic = pubsubTopic,
+      contentTopic = message.contentTopic,
       msg_hash = msg_hash,
       receivedTime = getNowInNanosecondTime()
 
-    let handleRes = await wl.pushHandler(peerId, pubsubTopic, message)
+    let handleRes = await wl.pushHandler(pubsubTopic, message)
     isSuccess = handleRes.isOk()
     pushResponseInfo = (if isSuccess: "OK" else: handleRes.error)
 

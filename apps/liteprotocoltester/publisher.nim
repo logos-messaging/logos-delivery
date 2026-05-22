@@ -89,10 +89,7 @@ proc reportSentMessages() =
 |{numMessagesToSend+failedToSendCount:>11} |{messagesSent:>11} |{failedToSendCount:>11} |
 *----------------------------------------*""".fmt()
 
-  if report.isErr:
-    echo "Error while printing statistics"
-  else:
-    echo report.get()
+  echo report.valueOr("Error while printing statistics")
 
   echo "*--------------------------------------------------------------------------------------------------*"
   echo "|  Failure cause                                                                         |  count   |"

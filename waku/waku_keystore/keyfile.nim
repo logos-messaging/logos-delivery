@@ -1,4 +1,4 @@
-# This implementation is originally taken from nim-eth keyfile module https://github.com/status-im/nim-eth/blob/master/eth/keyfile and adapted to 
+# This implementation is originally taken from nim-eth keyfile module https://github.com/status-im/nim-eth/blob/master/eth/keyfile and adapted to
 # - create keyfiles for arbitrary-long input byte data (rather than fixed-size private keys)
 # - allow storage of multiple keyfiles (encrypted with different passwords) in same file and iteration among successful decryptions
 # - enable/disable at compilation time the keyfile id and version fields
@@ -517,26 +517,15 @@ func decryptSecret(crypto: Crypto, dkey: DKey): KfResult[seq[byte]] =
 proc decodeKeyFileJson*(j: JsonNode, password: string): KfResult[seq[byte]] =
   ## Decode secret from keyfile json object ``j`` using
   ## password string ``password``.
-  let res = decodeCrypto(j)
-  if res.isErr:
-    return err(res.error)
-  let crypto = res.get()
+  let crypto = ?decodeCrypto(j)
 
   case crypto.kind
   of PBKDF2:
-    let res = decodePbkdf2Params(crypto.kdfParams)
-    if res.isErr:
-      return err(res.error)
-
-    let params = res.get()
+    let params = ?decodePbkdf2Params(crypto.kdfParams)
     let dkey = ?deriveKey(password, params.salt, PBKDF2, params.prf, params.c)
     return decryptSecret(crypto, dkey)
   of SCRYPT:
-    let res = decodeScryptParams(crypto.kdfParams)
-    if res.isErr:
-      return err(res.error)
-
-    let params = res.get()
+    let params = ?decodeScryptParams(crypto.kdfParams)
     let dkey = ?deriveKey(password, params.salt, params.n, params.r, params.p)
     return decryptSecret(crypto, dkey)
 

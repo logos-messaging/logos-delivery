@@ -3,22 +3,22 @@ use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
 use std::{slice, thread, time};
 
-pub type WakuCallback = unsafe extern "C" fn(c_int, *const c_char, usize, *const c_void);
+pub type FFICallBack = unsafe extern "C" fn(c_int, *const c_char, usize, *const c_void);
 
 extern "C" {
     pub fn waku_new(
         config_json: *const u8,
-        cb: WakuCallback,
+        cb: FFICallBack,
         user_data: *const c_void,
     ) -> *mut c_void;
 
-    pub fn waku_version(ctx: *const c_void, cb: WakuCallback, user_data: *const c_void) -> c_int;
+    pub fn waku_version(ctx: *const c_void, cb: FFICallBack, user_data: *const c_void) -> c_int;
 
-    pub fn waku_start(ctx: *const c_void, cb: WakuCallback, user_data: *const c_void) -> c_int;
+    pub fn waku_start(ctx: *const c_void, cb: FFICallBack, user_data: *const c_void) -> c_int;
 
     pub fn waku_default_pubsub_topic(
         ctx: *mut c_void,
-        cb: WakuCallback,
+        cb: FFICallBack,
         user_data: *const c_void,
     ) -> *mut c_void;
 }
@@ -40,7 +40,7 @@ pub unsafe extern "C" fn trampoline<C>(
     closure(return_val, &buffer_utf8);
 }
 
-pub fn get_trampoline<C>(_closure: &C) -> WakuCallback
+pub fn get_trampoline<C>(_closure: &C) -> FFICallBack
 where
     C: FnMut(i32, &str),
 {

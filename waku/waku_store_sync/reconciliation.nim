@@ -79,7 +79,8 @@ proc messageIngress*(
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
   self.storage.insert(id, pubsubTopic, msg.contentTopic).isOkOr:
-    error "failed to insert new message", msg_hash = $id.hash.toHex(), error = $error
+    error "failed to insert new message",
+      msg_hash = byteutils.toHex(id.hash), error = $error
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -87,7 +88,7 @@ proc messageIngress*(
     pubsubTopic: PubsubTopic,
     msg: WakuMessage,
 ) =
-  trace "message ingress", msg_hash = msgHash.toHex(), msg = msg
+  trace "message ingress", msg_hash = byteutils.toHex(msgHash), msg = msg
 
   if msg.ephemeral:
     return
@@ -95,7 +96,8 @@ proc messageIngress*(
   let id = SyncID(time: msg.timestamp, hash: msgHash)
 
   self.storage.insert(id, pubsubTopic, msg.contentTopic).isOkOr:
-    error "failed to insert new message", msg_hash = $id.hash.toHex(), error = $error
+    error "failed to insert new message",
+      msg_hash = byteutils.toHex(id.hash), error = $error
 
 proc messageIngress*(
     self: SyncReconciliation,
@@ -104,7 +106,8 @@ proc messageIngress*(
     contentTopic: ContentTopic,
 ) =
   self.storage.insert(id, pubsubTopic, contentTopic).isOkOr:
-    error "failed to insert new message", msg_hash = $id.hash.toHex(), error = $error
+    error "failed to insert new message",
+      msg_hash = byteutils.toHex(id.hash), error = $error
 
 proc preProcessPayload(
     self: SyncReconciliation, payload: RangesData
@@ -142,7 +145,7 @@ proc preProcessPayload(
   # convert to skip range before processing
   for i in 0 ..< payload.ranges.len:
     let rangeType = payload.ranges[i][1]
-    if rangeType != RangeType.Skip:
+    if rangeType == RangeType.Skip:
       continue
 
     let upperBound = payload.ranges[i][0].b.time
@@ -230,10 +233,9 @@ proc processRequest(
     let writeRes = catch:
       await conn.writeLP(rawPayload)
 
-    if writeRes.isErr():
+    writeRes.isOkOr:
       await conn.close()
-      return
-        err("remote " & $conn.peerId & " connection write error: " & writeRes.error.msg)
+      return err("remote " & $conn.peerId & " connection write error: " & error.msg)
 
     trace "sync payload sent",
       local = self.peerManager.switch.peerInfo.peerId,
@@ -286,11 +288,9 @@ proc initiate(
   let writeRes = catch:
     await connection.writeLP(sendPayload)
 
-  if writeRes.isErr():
+  writeRes.isOkOr:
     await connection.close()
-    return err(
-      "remote " & $connection.peerId & " connection write error: " & writeRes.error.msg
-    )
+    return err("remote " & $connection.peerId & " connection write error: " & error.msg)
 
   trace "sync payload sent",
     local = self.peerManager.switch.peerInfo.peerId,
@@ -468,7 +468,7 @@ proc idsReceiverLoop(self: SyncReconciliation) {.async.} =
 
     self.messageIngress(id, pubsub, content)
 
-proc start*(self: SyncReconciliation) =
+method start*(self: SyncReconciliation) {.async: (raises: [CancelledError]).} =
   if self.started:
     return
 
@@ -484,13 +484,16 @@ proc start*(self: SyncReconciliation) =
 
   info "Store Sync Reconciliation protocol started"
 
-proc stop*(self: SyncReconciliation) =
-  if self.syncInterval > ZeroDuration:
-    self.periodicSyncFut.cancelSoon()
+method stop*(self: SyncReconciliation) {.async: (raises: []).} =
+  defer:
+    self.started = false
 
   if self.syncInterval > ZeroDuration:
-    self.periodicPruneFut.cancelSoon()
+    await self.periodicSyncFut.cancelAndWait()
 
-  self.idsReceiverFut.cancelSoon()
+  if self.syncInterval > ZeroDuration:
+    await self.periodicPruneFut.cancelAndWait()
+
+  await self.idsReceiverFut.cancelAndWait()
 
   info "Store Sync Reconciliation protocol stopped"

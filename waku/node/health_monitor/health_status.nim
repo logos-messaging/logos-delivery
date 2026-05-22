@@ -7,6 +7,7 @@ type HealthStatus* {.pure.} = enum
   NOT_READY
   NOT_MOUNTED
   SHUTTING_DOWN
+  EVENT_LOOP_LAGGING
 
 proc init*(t: typedesc[HealthStatus], strRep: string): Result[HealthStatus, string] =
   try:

@@ -35,7 +35,7 @@ suite "Waku Legacy Lightpush Client":
   asyncSetup:
     handlerFuture = newPushHandlerFuture()
     handler = proc(
-        peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+        pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult[void]] {.async.} =
       let msgLen = message.encode().buffer.len
       if msgLen > int(DefaultMaxWakuMessageSize) + 64 * 1024:
@@ -282,7 +282,7 @@ suite "Waku Legacy Lightpush Client":
         handlerError = "handler-error"
         handlerFuture2 = newFuture[void]()
         handler2 = proc(
-            peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+            pubsubTopic: PubsubTopic, message: WakuMessage
         ): Future[WakuLightPushResult[void]] {.async.} =
           handlerFuture2.complete()
           return err(handlerError)

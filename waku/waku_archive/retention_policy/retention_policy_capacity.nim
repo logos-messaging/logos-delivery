@@ -50,6 +50,9 @@ proc new*(T: type CapacityRetentionPolicy, capacity = DefaultCapacity): T =
     capacity: capacity, totalCapacity: totalCapacity, deleteWindow: deleteWindow
   )
 
+method `$`*(p: CapacityRetentionPolicy): string =
+  "capacity:" & $p.capacity
+
 method execute*(
     p: CapacityRetentionPolicy, driver: ArchiveDriver
 ): Future[RetentionPolicyResult[void]] {.async.} =

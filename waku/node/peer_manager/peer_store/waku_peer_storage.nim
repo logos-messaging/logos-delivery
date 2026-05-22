@@ -67,7 +67,7 @@ proc encode*(remotePeerInfo: RemotePeerInfo): PeerStorageResult[ProtoBuffer] =
 
   let catchRes = catch:
     pb.write(4, remotePeerInfo.publicKey)
-  if catchRes.isErr():
+  catchRes.isOkOr:
     return err("Enncoding public key failed: " & catchRes.error.msg)
 
   pb.write(5, uint32(ord(remotePeerInfo.connectedness)))
@@ -154,14 +154,11 @@ method getAll*(
   let catchRes = catch:
     db.database.query("SELECT peerId, storedInfo FROM Peer", peer)
 
-  let queryRes =
-    if catchRes.isErr():
-      return err("failed to extract peer from query result: " & catchRes.error.msg)
-    else:
-      catchRes.get()
+  let queryRes = catchRes.valueOr:
+    return err("failed to extract peer from query result: " & catchRes.error.msg)
 
-  if queryRes.isErr():
-    return err("peer storage query failed: " & queryRes.error)
+  queryRes.isOkOr:
+    return err("peer storage query failed: " & error)
 
   return ok()
 

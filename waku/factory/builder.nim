@@ -8,7 +8,9 @@ import
   libp2p/builders,
   libp2p/nameresolving/nameresolver,
   libp2p/transports/wstransport,
-  libp2p/protocols/connectivity/relay/relay
+  libp2p/protocols/connectivity/relay/relay,
+  brokers/broker_context
+
 import
   ../waku_enr,
   ../discovery/waku_discv5,
@@ -83,20 +85,19 @@ proc withNetworkConfigurationDetails*(
 ): WakuNodeBuilderResult {.
     deprecated: "use 'builder.withNetworkConfiguration()' instead"
 .} =
-  let netConfig =
-    ?NetConfig.init(
-      bindIp = bindIp,
-      bindPort = bindPort,
-      extIp = extIp,
-      extPort = extPort,
-      extMultiAddrs = extMultiAddrs,
-      wsBindPort = some(wsBindPort),
-      wsEnabled = wsEnabled,
-      wssEnabled = wssEnabled,
-      wakuFlags = wakuFlags,
-      dns4DomainName = dns4DomainName,
-      dnsNameServers = dnsNameServers,
-    )
+  let netConfig = ?NetConfig.init(
+    bindIp = bindIp,
+    bindPort = bindPort,
+    extIp = extIp,
+    extPort = extPort,
+    extMultiAddrs = extMultiAddrs,
+    wsBindPort = some(wsBindPort),
+    wsEnabled = wsEnabled,
+    wssEnabled = wssEnabled,
+    wakuFlags = wakuFlags,
+    dns4DomainName = dns4DomainName,
+    dnsNameServers = dnsNameServers,
+  )
   builder.withNetworkConfiguration(netConfig)
   ok()
 
@@ -209,6 +210,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     maxServicePeers = some(builder.maxServicePeers),
     colocationLimit = builder.colocationLimit,
     shardedPeerManagement = builder.shardAware,
+    maxConnections = builder.switchMaxConnections.get(builders.MaxConnections),
   )
 
   var node: WakuNode

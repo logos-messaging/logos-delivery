@@ -8,10 +8,10 @@ import
   std/[options, sequtils, net],
   results
 
-import ../common/utils/nat, ../node/net_config, ../waku_enr, ../waku_core, ./waku_conf
+import waku/[common/utils/nat, net/net_config, waku_enr, waku_core], ./waku_conf
 
-proc enrConfiguration*(
-    conf: WakuConf, netConfig: NetConfig
+proc tryBuildEnrRecord(
+    conf: WakuConf, netConfig: NetConfig, multiaddrs: seq[MultiAddress]
 ): Result[enr.Record, string] =
   var enrBuilder = EnrBuilder.init(conf.nodeKey)
 
@@ -22,22 +22,43 @@ proc enrConfiguration*(
   if netConfig.wakuFlags.isSome():
     enrBuilder.withWakuCapabilities(netConfig.wakuFlags.get())
 
-  enrBuilder.withMultiaddrs(netConfig.enrMultiaddrs)
+  if multiaddrs.len > 0:
+    enrBuilder.withMultiaddrs(multiaddrs)
 
   enrBuilder.withWakuRelaySharding(
     RelayShards(clusterId: conf.clusterId, shardIds: conf.subscribeShards)
   ).isOkOr:
     return err("could not initialize ENR with shards")
 
-  let recordRes = enrBuilder.build()
-  let record =
-    if recordRes.isErr():
-      error "failed to create record", error = recordRes.error
-      return err($recordRes.error)
-    else:
-      recordRes.get()
+  let record = enrBuilder.build().valueOr:
+    return err($error)
 
   return ok(record)
+
+proc enrConfiguration*(
+    conf: WakuConf, netConfig: NetConfig
+): Result[enr.Record, string] =
+  for retained in countdown(netConfig.enrMultiaddrs.len, 0):
+    let multiaddrs = netConfig.enrMultiaddrs[0 ..< retained]
+    let record = tryBuildEnrRecord(conf, netConfig, multiaddrs).valueOr:
+      if retained > 0:
+        warn "failed to create enr record, retrying with fewer multiaddrs",
+          error = error,
+          totalMultiaddrs = netConfig.enrMultiaddrs.len,
+          retainedMultiaddrs = retained - 1,
+          removedMultiaddr = multiaddrs[^1]
+        continue
+
+      error "failed to create enr record", error = error
+      return err($error)
+
+    if retained < netConfig.enrMultiaddrs.len:
+      warn "created enr record after trimming multiaddrs",
+        totalMultiaddrs = netConfig.enrMultiaddrs.len, retainedMultiaddrs = retained
+
+    return ok(record)
+
+  return err("failed to create enr record")
 
 proc dnsResolve*(
     domain: string, dnsAddrsNameServers: seq[IpAddress]
@@ -70,16 +91,13 @@ proc networkConfiguration*(
 ): Future[NetConfigResult] {.async.} =
   ## `udpPort` is only supplied to satisfy underlying APIs but is not
   ## actually a supported transport for libp2p traffic.
-  let natRes = setupNat(
+  var (extIp, extTcpPort, _) = setupNat(
     conf.natStrategy.string,
     clientId,
     Port(uint16(conf.p2pTcpPort) + portsShift),
     Port(uint16(conf.p2pTcpPort) + portsShift),
-  )
-  if natRes.isErr():
-    return err("failed to setup NAT: " & $natRes.error)
-
-  var (extIp, extTcpPort, _) = natRes.get()
+  ).valueOr:
+    return err("failed to setup NAT: " & $error)
 
   let
     discv5UdpPort =
@@ -101,12 +119,10 @@ proc networkConfiguration*(
   # Resolve and use DNS domain IP
   if conf.dns4DomainName.isSome() and extIp.isNone():
     try:
-      let dnsRes = await dnsResolve(conf.dns4DomainName.get(), dnsAddrsNameServers)
+      let dns = (await dnsResolve(conf.dns4DomainName.get(), dnsAddrsNameServers)).valueOr:
+        return err($error) # Pass error down the stack
 
-      if dnsRes.isErr():
-        return err($dnsRes.error) # Pass error down the stack
-
-      extIp = some(parseIpAddress(dnsRes.get()))
+      extIp = some(parseIpAddress(dns))
     except CatchableError:
       return
         err("Could not update extIp to resolved DNS IP: " & getCurrentExceptionMsg())

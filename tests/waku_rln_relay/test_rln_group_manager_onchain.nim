@@ -3,7 +3,7 @@
 {.push raises: [].}
 
 import
-  std/[options, sequtils, deques, random, locks, osproc],
+  std/[options, sequtils, deques, random, locks, osproc, algorithm],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -33,8 +33,8 @@ suite "Onchain group manager":
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil()
-    manager = waitFor setupOnchainGroupManager()
+    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
   teardown:
     stopAnvil(anvilProc)
@@ -74,10 +74,11 @@ suite "Onchain group manager":
       raiseAssert "Expected error when keystore file doesn't exist"
 
   test "trackRootChanges: should guard against uninitialized state":
-    try:
-      discard manager.trackRootChanges()
-    except CatchableError:
-      check getCurrentExceptionMsg().len == 38
+    let initializedResult = waitFor manager.trackRootChanges()
+
+    check:
+      initializedResult.isErr()
+      initializedResult.error == "OnchainGroupManager is not initialized"
 
   test "trackRootChanges: should sync to the state of the group":
     let credentials = generateCredentials()
@@ -86,10 +87,8 @@ suite "Onchain group manager":
 
     let merkleRootBefore = waitFor manager.fetchMerkleRoot()
 
-    try:
-      waitFor manager.register(credentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     discard waitFor withTimeout(trackRootChanges(manager), 15.seconds)
 
@@ -110,13 +109,11 @@ suite "Onchain group manager":
 
     let merkleRootBefore = waitFor manager.fetchMerkleRoot()
 
-    try:
-      for i in 0 ..< credentials.len():
-        info "Registering credential", index = i, credential = credentials[i]
-        waitFor manager.register(credentials[i], UserMessageLimit(20))
-        discard waitFor manager.updateRoots()
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    for i in 0 ..< credentials.len():
+      info "Registering credential", index = i, credential = credentials[i]
+      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
+        assert false, "Failed to register credential " & $i & ": " & error
+      discard waitFor manager.updateRoots()
 
     let merkleRootAfter = waitFor manager.fetchMerkleRoot()
 
@@ -127,16 +124,15 @@ suite "Onchain group manager":
   test "register: should guard against uninitialized state":
     let dummyCommitment = default(IDCommitment)
 
-    try:
-      waitFor manager.register(
-        RateCommitment(
-          idCommitment: dummyCommitment, userMessageLimit: UserMessageLimit(20)
-        )
+    let res = waitFor manager.register(
+      RateCommitment(
+        idCommitment: dummyCommitment, userMessageLimit: UserMessageLimit(20)
       )
-    except CatchableError:
-      assert true
-    except Exception:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    )
+
+    check:
+      res.isErr()
+      res.error == "OnchainGroupManager is not initialized"
 
   test "register: should register successfully":
     # TODO :- similar to ```trackRootChanges: should fetch history correctly```
@@ -146,11 +142,8 @@ suite "Onchain group manager":
     let idCredentials = generateCredentials()
     let merkleRootBefore = waitFor manager.fetchMerkleRoot()
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling register: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     let merkleRootAfter = waitFor manager.fetchMerkleRoot()
 
@@ -177,26 +170,25 @@ suite "Onchain group manager":
 
     manager.onRegister(callback)
 
-    try:
+    (
       waitFor manager.register(
         RateCommitment(
           idCommitment: idCommitment, userMessageLimit: UserMessageLimit(20)
         )
       )
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    ).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     waitFor fut
 
   test "withdraw: should guard against uninitialized state":
     let idSecretHash = generateCredentials().idSecretHash
 
-    try:
-      waitFor manager.withdraw(idSecretHash)
-    except CatchableError:
-      assert true
-    except Exception:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    let res = waitFor manager.withdraw(idSecretHash)
+
+    check:
+      res.isErr()
+      res.error == "OnchainGroupManager is not initialized"
 
   test "validateRoot: should validate good root":
     let idCredentials = generateCredentials()
@@ -217,10 +209,8 @@ suite "Onchain group manager":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
-    try:
-      waitFor manager.register(idCredentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned : " & getCurrentExceptionMsg()
 
     waitFor fut
 
@@ -263,6 +253,9 @@ suite "Onchain group manager":
     manager.merkleProofCache = newSeq[byte](640)
     for i in 0 ..< 640:
       manager.merkleProofCache[i] = byte(rand(255))
+    # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
+    for i in 0 ..< 20:
+      manager.merkleProofCache[i * 32] = 0
 
     let messageBytes = "Hello".toBytes()
 
@@ -299,10 +292,8 @@ suite "Onchain group manager":
 
     manager.onRegister(callback)
 
-    try:
-      waitFor manager.register(credentials, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
     waitFor fut
 
     let rootUpdated = waitFor manager.updateRoots()
@@ -337,11 +328,8 @@ suite "Onchain group manager":
 
     let idCredential = generateCredentials()
 
-    try:
-      waitFor manager.register(idCredential, UserMessageLimit(20))
-    except Exception, CatchableError:
-      assert false,
-        "exception raised when calling startGroupSync: " & getCurrentExceptionMsg()
+    (waitFor manager.register(idCredential, UserMessageLimit(20))).isOkOr:
+      assert false, "error returned when calling register: " & error
 
     let messageBytes = "Hello".toBytes()
 
@@ -350,6 +338,9 @@ suite "Onchain group manager":
     manager.merkleProofCache = newSeq[byte](640)
     for i in 0 ..< 640:
       manager.merkleProofCache[i] = byte(rand(255))
+    # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
+    for i in 0 ..< 20:
+      manager.merkleProofCache[i * 32] = 0
 
     let epoch = default(Epoch)
     info "epoch in bytes", epochHex = epoch.inHex()
@@ -395,14 +386,12 @@ suite "Onchain group manager":
 
       return callback
 
-    try:
-      manager.onRegister(generateCallback(futures, credentials))
+    manager.onRegister(generateCallback(futures, credentials))
 
-      for i in 0 ..< credentials.len():
-        waitFor manager.register(credentials[i], UserMessageLimit(20))
-        discard waitFor manager.updateRoots()
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    for i in 0 ..< credentials.len():
+      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
+        assert false, "Failed to register credential " & $i & ": " & error
+      discard waitFor manager.updateRoots()
 
     waitFor allFutures(futures)
 
@@ -436,3 +425,81 @@ suite "Onchain group manager":
 
     check:
       isReady == true
+
+  test "proof roundtrip: generateRlnProofWithWitness -> verifyRlnProof":
+    ## Smoke test: proof gen -> wire serialize -> deserialize -> ffi_verify_with_roots.
+    let credentials = generateCredentials()
+
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    discard waitFor manager.updateRoots()
+    let roots = manager.validRoots.items().toSeq()
+    require:
+      roots.len > 0
+
+    let proofElements = (waitFor manager.fetchMerkleProofElements()).valueOr:
+      raiseAssert "fetchMerkleProofElements failed: " & error
+
+    let signal = "Hello, RLN!".toBytes()
+    let epoch = default(Epoch)
+
+    # Build RLNWitnessInput the same way group_manager.generateProof does.
+    var pathElements = newSeq[byte]()
+    for i in 0 ..< proofElements.len div 32:
+      pathElements.add(proofElements[i * 32 .. (i + 1) * 32 - 1].reversed())
+
+    let xCfr = hashToFieldLe(signal).valueOr:
+      raiseAssert "hashToFieldLe failed: " & error
+    defer:
+      ffi_cfr_free(xCfr)
+    let x = cfrToBytesLe(xCfr).valueOr:
+      raiseAssert "cfrToBytesLe failed: " & error
+
+    let extNullifier = generateExternalNullifier(epoch, DefaultRlnIdentifier).valueOr:
+      raiseAssert "generateExternalNullifier failed: " & error
+
+    let witness = RLNWitnessInput(
+      identity_secret: seqToField(credentials.idSecretHash),
+      user_message_limit: uint64ToField(uint64(UserMessageLimit(20))),
+      message_id: uint64ToField(uint64(MessageId(1))),
+      path_elements: pathElements,
+      identity_path_index: uint64ToIndex(manager.membershipIndex.get(), 20),
+      x: x,
+      external_nullifier: extNullifier,
+    )
+
+    # Step 1: generate proof via the FFI wrapper
+    let proof = generateRlnProofWithWitness(
+      manager.rlnInstance, witness, epoch, DefaultRlnIdentifier
+    ).valueOr:
+      raiseAssert "generateRlnProofWithWitness failed: " & error
+
+    let zeroField = default(array[32, byte])
+    check:
+      proof.merkleRoot != zeroField
+      proof.nullifier != zeroField
+
+    # Step 2: serialize -> deserialize -> verify (the actual roundtrip)
+    let verified = verifyRlnProof(manager.rlnInstance, proof, signal, roots).valueOr:
+      raiseAssert "verifyRlnProof failed: " & error
+    check verified == true
+
+    # Step 3: wrong signal -> x mismatch -> false
+    let wrongSignalVerified = verifyRlnProof(
+      manager.rlnInstance, proof, "wrong".toBytes(), roots
+    ).valueOr:
+      raiseAssert "verifyRlnProof (wrong signal) failed: " & error
+    check wrongSignalVerified == false
+
+    # Step 4: bad root -> root not in set -> false
+    # byte[31] in LE is the MSB; 0x01 < 0x30 so this is a canonical field element.
+    var badRoot: MerkleNode
+    for i in 0 ..< 32:
+      badRoot[i] = 0x01
+    let badRootVerified = verifyRlnProof(manager.rlnInstance, proof, signal, @[badRoot]).valueOr:
+      raiseAssert "verifyRlnProof (bad root) failed: " & error
+    check badRootVerified == false

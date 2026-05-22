@@ -33,8 +33,8 @@ proc respond(
 
   let res = catch:
     await conn.writeLP(response.encode().buffer)
-  if res.isErr():
-    return err(res.error.msg)
+  res.isOkOr:
+    return err(error.msg)
 
   return ok()
 
@@ -53,17 +53,14 @@ proc request*(
   # close no matter what
   let closeRes = catch:
     await conn.closeWithEof()
-  if closeRes.isErr():
-    return err("close failed: " & closeRes.error.msg)
+  closeRes.isOkOr:
+    return err("close failed: " & error.msg)
 
-  if writeRes.isErr():
-    return err("write failed: " & writeRes.error.msg)
+  writeRes.isOkOr:
+    return err("write failed: " & error.msg)
 
-  let buffer =
-    if readRes.isErr():
-      return err("read failed: " & readRes.error.msg)
-    else:
-      readRes.get()
+  let buffer = readRes.valueOr:
+    return err("read failed: " & error.msg)
 
   let response = WakuMetadataResponse.decode(buffer).valueOr:
     return err("decode failed: " & $error)
@@ -111,9 +108,3 @@ proc new*(T: type WakuMetadata, clusterId: uint32, getShards: GetShards): T =
     clusterId = wm.clusterId, shards = wm.getShards()
 
   return wm
-
-proc start*(wm: WakuMetadata) =
-  wm.started = true
-
-proc stop*(wm: WakuMetadata) =
-  wm.started = false

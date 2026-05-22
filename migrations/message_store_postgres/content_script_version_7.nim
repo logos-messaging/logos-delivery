@@ -1,5 +1,4 @@
-const ContentScriptVersion_7* =
-  """
+const ContentScriptVersion_7* = """
 
 -- Create lookup table
 CREATE TABLE IF NOT EXISTS messages_lookup (

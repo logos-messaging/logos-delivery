@@ -1,0 +1,247 @@
+[
+  {
+    "path": "vendor/db_connector",
+    "url": "https://github.com/nim-lang/db_connector.git",
+    "rev": "74aef399e5c232f95c9fc5c987cebac846f09d62"
+  }
+  ,
+  {
+    "path": "vendor/dnsclient.nim",
+    "url": "https://github.com/ba0f3/dnsclient.nim.git",
+    "rev": "23214235d4784d24aceed99bbfe153379ea557c8"
+  }
+  ,
+  {
+    "path": "vendor/nim-bearssl",
+    "url": "https://github.com/status-im/nim-bearssl.git",
+    "rev": "11e798b62b8e6beabe958e048e9e24c7e0f9ee63"
+  }
+  ,
+  {
+    "path": "vendor/nim-chronicles",
+    "url": "https://github.com/status-im/nim-chronicles.git",
+    "rev": "54f5b726025e8c7385e3a6529d3aa27454c6e6ff"
+  }
+  ,
+  {
+    "path": "vendor/nim-chronos",
+    "url": "https://github.com/status-im/nim-chronos.git",
+    "rev": "85af4db764ecd3573c4704139560df3943216cf1"
+  }
+  ,
+  {
+    "path": "vendor/nim-confutils",
+    "url": "https://github.com/status-im/nim-confutils.git",
+    "rev": "e214b3992a31acece6a9aada7d0a1ad37c928f3b"
+  }
+  ,
+  {
+    "path": "vendor/nim-dnsdisc",
+    "url": "https://github.com/status-im/nim-dnsdisc.git",
+    "rev": "b71d029f4da4ec56974d54c04518bada00e1b623"
+  }
+  ,
+  {
+    "path": "vendor/nim-eth",
+    "url": "https://github.com/status-im/nim-eth.git",
+    "rev": "d9135e6c3c5d6d819afdfb566aa8d958756b73a8"
+  }
+  ,
+  {
+    "path": "vendor/nim-faststreams",
+    "url": "https://github.com/status-im/nim-faststreams.git",
+    "rev": "c3ac3f639ed1d62f59d3077d376a29c63ac9750c"
+  }
+  ,
+  {
+    "path": "vendor/nim-ffi",
+    "url": "https://github.com/logos-messaging/nim-ffi",
+    "rev": "06111de155253b34e47ed2aaed1d61d08d62cc1b"
+  }
+  ,
+  {
+    "path": "vendor/nim-http-utils",
+    "url": "https://github.com/status-im/nim-http-utils.git",
+    "rev": "79cbab1460f4c0cdde2084589d017c43a3d7b4f1"
+  }
+  ,
+  {
+    "path": "vendor/nim-json-rpc",
+    "url": "https://github.com/status-im/nim-json-rpc.git",
+    "rev": "9665c265035f49f5ff94bbffdeadde68e19d6221"
+  }
+  ,
+  {
+    "path": "vendor/nim-json-serialization",
+    "url": "https://github.com/status-im/nim-json-serialization.git",
+    "rev": "b65fd6a7e64c864dabe40e7dfd6c7d07db0014ac"
+  }
+  ,
+  {
+    "path": "vendor/nim-jwt",
+    "url": "https://github.com/vacp2p/nim-jwt.git",
+    "rev": "18f8378de52b241f321c1f9ea905456e89b95c6f"
+  }
+  ,
+  {
+    "path": "vendor/nim-libbacktrace",
+    "url": "https://github.com/status-im/nim-libbacktrace.git",
+    "rev": "d8bd4ce5c46bb6d2f984f6b3f3d7380897d95ecb"
+  }
+  ,
+  {
+    "path": "vendor/nim-libp2p",
+    "url": "https://github.com/vacp2p/nim-libp2p.git",
+    "rev": "eb7e6ff89889e41b57515f891ba82986c54809fb"
+  }
+  ,
+  {
+    "path": "vendor/nim-lsquic",
+    "url": "https://github.com/vacp2p/nim-lsquic",
+    "rev": "f3fe33462601ea34eb2e8e9c357c92e61f8d121b"
+  }
+  ,
+  {
+    "path": "vendor/nim-metrics",
+    "url": "https://github.com/status-im/nim-metrics.git",
+    "rev": "ecf64c6078d1276d3b7d9b3d931fbdb70004db11"
+  }
+  ,
+  {
+    "path": "vendor/nim-minilru",
+    "url": "https://github.com/status-im/nim-minilru.git",
+    "rev": "0c4b2bce959591f0a862e9b541ba43c6d0cf3476"
+  }
+  ,
+  {
+    "path": "vendor/nim-nat-traversal",
+    "url": "https://github.com/status-im/nim-nat-traversal.git",
+    "rev": "860e18c37667b5dd005b94c63264560c35d88004"
+  }
+  ,
+  {
+    "path": "vendor/nim-presto",
+    "url": "https://github.com/status-im/nim-presto.git",
+    "rev": "92b1c7ff141e6920e1f8a98a14c35c1fa098e3be"
+  }
+  ,
+  {
+    "path": "vendor/nim-regex",
+    "url": "https://github.com/nitely/nim-regex.git",
+    "rev": "4593305ed1e49731fc75af1dc572dd2559aad19c"
+  }
+  ,
+  {
+    "path": "vendor/nim-results",
+    "url": "https://github.com/arnetheduck/nim-results.git",
+    "rev": "df8113dda4c2d74d460a8fa98252b0b771bf1f27"
+  }
+  ,
+  {
+    "path": "vendor/nim-secp256k1",
+    "url": "https://github.com/status-im/nim-secp256k1.git",
+    "rev": "9dd3df62124aae79d564da636bb22627c53c7676"
+  }
+  ,
+  {
+    "path": "vendor/nim-serialization",
+    "url": "https://github.com/status-im/nim-serialization.git",
+    "rev": "6f525d5447d97256750ca7856faead03e562ed20"
+  }
+  ,
+  {
+    "path": "vendor/nim-sqlite3-abi",
+    "url": "https://github.com/arnetheduck/nim-sqlite3-abi.git",
+    "rev": "bdf01cf4236fb40788f0733466cdf6708783cbac"
+  }
+  ,
+  {
+    "path": "vendor/nim-stew",
+    "url": "https://github.com/status-im/nim-stew.git",
+    "rev": "e5740014961438610d336cd81706582dbf2c96f0"
+  }
+  ,
+  {
+    "path": "vendor/nim-stint",
+    "url": "https://github.com/status-im/nim-stint.git",
+    "rev": "470b7892561b5179ab20bd389a69217d6213fe58"
+  }
+  ,
+  {
+    "path": "vendor/nim-taskpools",
+    "url": "https://github.com/status-im/nim-taskpools.git",
+    "rev": "9e8ccc754631ac55ac2fd495e167e74e86293edb"
+  }
+  ,
+  {
+    "path": "vendor/nim-testutils",
+    "url": "https://github.com/status-im/nim-testutils.git",
+    "rev": "94d68e796c045d5b37cabc6be32d7bfa168f8857"
+  }
+  ,
+  {
+    "path": "vendor/nim-toml-serialization",
+    "url": "https://github.com/status-im/nim-toml-serialization.git",
+    "rev": "fea85b27f0badcf617033ca1bc05444b5fd8aa7a"
+  }
+  ,
+  {
+    "path": "vendor/nim-unicodedb",
+    "url": "https://github.com/nitely/nim-unicodedb.git",
+    "rev": "66f2458710dc641dd4640368f9483c8a0ec70561"
+  }
+  ,
+  {
+    "path": "vendor/nim-unittest2",
+    "url": "https://github.com/status-im/nim-unittest2.git",
+    "rev": "8b51e99b4a57fcfb31689230e75595f024543024"
+  }
+  ,
+  {
+    "path": "vendor/nim-web3",
+    "url": "https://github.com/status-im/nim-web3.git",
+    "rev": "81ee8ce479d86acb73be7c4f365328e238d9b4a3"
+  }
+  ,
+  {
+    "path": "vendor/nim-websock",
+    "url": "https://github.com/status-im/nim-websock.git",
+    "rev": "ebe308a79a7b440a11dfbe74f352be86a3883508"
+  }
+  ,
+  {
+    "path": "vendor/nim-zlib",
+    "url": "https://github.com/status-im/nim-zlib.git",
+    "rev": "daa8723fd32299d4ca621c837430c29a5a11e19a"
+  }
+  ,
+  {
+    "path": "vendor/nimbus-build-system",
+    "url": "https://github.com/status-im/nimbus-build-system.git",
+    "rev": "e6c2c9da39c2d368d9cf420ac22692e99715d22c"
+  }
+  ,
+  {
+    "path": "vendor/nimcrypto",
+    "url": "https://github.com/cheatfate/nimcrypto.git",
+    "rev": "721fb99ee099b632eb86dfad1f0d96ee87583774"
+  }
+  ,
+  {
+    "path": "vendor/nph",
+    "url": "https://github.com/arnetheduck/nph.git",
+    "rev": "c6e03162dc2820d3088660f644818d7040e95791"
+  }
+  ,
+  {
+    "path": "vendor/waku-rlnv2-contract",
+    "url": "https://github.com/logos-messaging/waku-rlnv2-contract.git",
+    "rev": "8a338f354481e8a3f3d64a72e38fad4c62e32dcd"
+  }
+  ,
+  {
+    "path": "vendor/zerokit",
+    "url": "https://github.com/vacp2p/zerokit.git",
+    "rev": "70c79fbc989d4f87d9352b2f4bddcb60ebe55b19"
+  }
+]

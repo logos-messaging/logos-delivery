@@ -38,7 +38,7 @@ suite "Waku Lightpush Client":
   asyncSetup:
     handlerFuture = newPushHandlerFuture()
     handler = proc(
-        peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+        pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
       let msgLen = message.encode().buffer.len
       if msgLen > int(DefaultMaxWakuMessageSize) + 64 * 1024:
@@ -287,7 +287,7 @@ suite "Waku Lightpush Client":
         handlerError = "handler-error"
         handlerFuture2 = newFuture[void]()
         handler2 = proc(
-            peer: PeerId, pubsubTopic: PubsubTopic, message: WakuMessage
+            pubsubTopic: PubsubTopic, message: WakuMessage
         ): Future[WakuLightPushResult] {.async.} =
           handlerFuture2.complete()
           return lighpushErrorResult(LightPushErrorCode.PAYLOAD_TOO_LARGE, handlerError)

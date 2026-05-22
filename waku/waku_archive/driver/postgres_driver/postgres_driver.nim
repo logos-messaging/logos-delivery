@@ -5,6 +5,7 @@ import
   stew/[byteutils, arrayops],
   results,
   chronos,
+  metrics,
   db_connector/[postgres, db_common],
   chronicles
 import
@@ -15,6 +16,15 @@ import
   ../../../common/databases/db_postgres as waku_postgres,
   ./postgres_healthcheck,
   ./partitions_manager
+
+logScope:
+  topics = "postgres driver"
+
+declarePublicGauge postgres_payload_size_bytes,
+  "Payload size in bytes of correctly stored messages"
+
+logScope:
+  topics = "postgres driver"
 
 type PostgresDriver* = ref object of ArchiveDriver
   ## Establish a separate pools for read/write operations
@@ -41,8 +51,7 @@ const SelectClause =
 
 const SelectNoCursorAscStmtName = "SelectWithoutCursorAsc"
 const SelectNoCursorAscStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           timestamp >= $4 AND
@@ -50,8 +59,7 @@ const SelectNoCursorAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $6;"""
 
 const SelectNoCursorNoDataAscStmtName = "SelectWithoutCursorAndDataAsc"
-const SelectNoCursorNoDataAscStmtDef =
-  """SELECT messageHash FROM messages
+const SelectNoCursorNoDataAscStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -61,8 +69,7 @@ const SelectNoCursorNoDataAscStmtDef =
 
 const SelectNoCursorDescStmtName = "SelectWithoutCursorDesc"
 const SelectNoCursorDescStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           timestamp >= $4 AND
@@ -70,8 +77,7 @@ const SelectNoCursorDescStmtDef =
     ORDER BY timestamp DESC, messageHash DESC LIMIT $6;"""
 
 const SelectNoCursorNoDataDescStmtName = "SelectWithoutCursorAndDataDesc"
-const SelectNoCursorNoDataDescStmtDef =
-  """SELECT messageHash FROM messages
+const SelectNoCursorNoDataDescStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -81,8 +87,7 @@ const SelectNoCursorNoDataDescStmtDef =
 
 const SelectWithCursorDescStmtName = "SelectWithCursorDesc"
 const SelectWithCursorDescStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           (timestamp, messageHash) < ($4,$5) AND
@@ -91,8 +96,7 @@ const SelectWithCursorDescStmtDef =
     ORDER BY timestamp DESC, messageHash DESC LIMIT $8;"""
 
 const SelectWithCursorNoDataDescStmtName = "SelectWithCursorNoDataDesc"
-const SelectWithCursorNoDataDescStmtDef =
-  """SELECT messageHash FROM messages
+const SelectWithCursorNoDataDescStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -103,8 +107,7 @@ const SelectWithCursorNoDataDescStmtDef =
 
 const SelectWithCursorAscStmtName = "SelectWithCursorAsc"
 const SelectWithCursorAscStmtDef =
-  SelectClause &
-  """WHERE contentTopic IN ($1) AND
+  SelectClause & """WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
           (timestamp, messageHash) > ($4,$5) AND
@@ -113,8 +116,7 @@ const SelectWithCursorAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $8;"""
 
 const SelectWithCursorNoDataAscStmtName = "SelectWithCursorNoDataAsc"
-const SelectWithCursorNoDataAscStmtDef =
-  """SELECT messageHash FROM messages
+const SelectWithCursorNoDataAscStmtDef = """SELECT messageHash FROM messages
     WHERE contentTopic IN ($1) AND
           messageHash IN ($2) AND
           pubsubTopic = $3 AND
@@ -124,8 +126,7 @@ const SelectWithCursorNoDataAscStmtDef =
     ORDER BY timestamp ASC, messageHash ASC LIMIT $8;"""
 
 const SelectCursorByHashName = "SelectMessageByHashInMessagesLookup"
-const SelectCursorByHashDef =
-  """SELECT timestamp FROM messages_lookup
+const SelectCursorByHashDef = """SELECT timestamp FROM messages_lookup
     WHERE messageHash = $1"""
 
 const
@@ -186,11 +187,11 @@ proc timeCursorCallbackImpl(pqResult: ptr PGresult, timeCursor: var Option[Times
   let catchable = catch:
     parseBiggestInt(rawTimestamp)
 
-  if catchable.isErr():
-    error "could not parse correctly", error = catchable.error.msg
+  let time = catchable.valueOr:
+    error "could not parse correctly", error = error.msg
     return
 
-  timeCursor = some(catchable.get())
+  timeCursor = some(time)
 
 proc hashCallbackImpl(
     pqResult: ptr PGresult, rows: var seq[(WakuMessageHash, PubsubTopic, WakuMessage)]
@@ -214,11 +215,10 @@ proc hashCallbackImpl(
     let catchable = catch:
       parseHexStr(rawHash)
 
-    if catchable.isErr():
-      error "could not parse correctly", error = catchable.error.msg
+    let hashHex = catchable.valueOr:
+      error "could not parse correctly", error = error.msg
       return
 
-    let hashHex = catchable.get()
     let msgHash = fromBytes(hashHex.toOpenArrayByte(0, 31))
 
     rows.add((msgHash, "", WakuMessage()))
@@ -294,13 +294,13 @@ method put*(
     pubsubTopic: PubsubTopic,
     message: WakuMessage,
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  let messageHash = toHex(messageHash)
+  let messageHash = byteutils.toHex(messageHash)
 
   let contentTopic = message.contentTopic
-  let payload = toHex(message.payload)
+  let payload = byteutils.toHex(message.payload)
   let version = $message.version
   let timestamp = $message.timestamp
-  let meta = toHex(message.meta)
+  let meta = byteutils.toHex(message.meta)
 
   trace "put PostgresDriver",
     messageHash, contentTopic, payload, version, timestamp, meta
@@ -334,13 +334,17 @@ method put*(
     return err("could not put msg in messages table: " & $error)
 
   ## Now add the row to messages_lookup
-  return await s.writeConnPool.runStmt(
+  let ret = await s.writeConnPool.runStmt(
     InsertRowInMessagesLookupStmtName,
     InsertRowInMessagesLookupStmtDefinition,
     @[messageHash, timestamp],
     @[int32(messageHash.len), int32(timestamp.len)],
     @[int32(0), int32(0)],
   )
+
+  if ret.isOk():
+    postgres_payload_size_bytes.set(message.payload.len)
+  return ret
 
 method getAllMessages*(
     s: PostgresDriver
@@ -368,6 +372,7 @@ proc getPartitionsList(
 ): Future[ArchiveDriverResult[seq[string]]] {.async.} =
   ## Retrieves the seq of partition table names.
   ## e.g: @["messages_1708534333_1708534393", "messages_1708534273_1708534333"]
+  ## This returns the partitions that are attached to the main messages table.
   var partitions: seq[string]
   proc rowCallback(pqResult: ptr PGresult) =
     for iRow in 0 ..< pqResult.pqNtuples():
@@ -393,6 +398,49 @@ proc getPartitionsList(
     return err("getPartitionsList failed in query: " & $error)
 
   return ok(partitions)
+
+## fwd declaration. The implementation is below.
+proc dropPartition(
+  self: PostgresDriver, partitionName: string
+): Future[ArchiveDriverResult[void]] {.async.}
+
+proc dropOrphanPartitions(
+    s: PostgresDriver
+): Future[ArchiveDriverResult[void]] {.async.} =
+  ## Tries to remove partitions that weren't correctly removed during retention policy execution.
+  ## Orphan partition is a partition that is not attached to the main messages table.
+  ## Therefore, it is not used for queries and can be safely removed.
+  var partitions: seq[string]
+  proc rowCallback(pqResult: ptr PGresult) =
+    for iRow in 0 ..< pqResult.pqNtuples():
+      let partitionName = $(pqgetvalue(pqResult, iRow, 0))
+      partitions.add(partitionName)
+
+  (
+    await s.readConnPool.pgQuery(
+      """
+        SELECT c.relname AS partition_name
+          FROM pg_class c
+          LEFT JOIN pg_inherits i ON i.inhrelid = c.oid
+          WHERE c.relname LIKE 'messages_%'
+            AND c.relname != 'messages_lookup'
+            AND c.relkind = 'r'        -- only regular tables
+            AND i.inhrelid IS NULL     -- detached partition
+          ORDER BY partition_name
+      """,
+      newSeq[string](0),
+      rowCallback,
+    )
+  ).isOkOr:
+    return err("dropOrphanPartitions failed in query: " & $error)
+
+  for partition in partitions:
+    info "orphan partition found", partitionName = partition
+    (await s.dropPartition(partition)).isOkOr:
+      error "failed to drop orphan partition", partitionName = partition, error = $error
+      continue
+
+  return ok()
 
 proc getTimeCursor(
     s: PostgresDriver, hashHex: string
@@ -432,7 +480,7 @@ proc getMessagesArbitraryQuery(
   var args: seq[string]
 
   if cursor.isSome():
-    let hashHex = toHex(cursor.get())
+    let hashHex = byteutils.toHex(cursor.get())
 
     let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -513,7 +561,7 @@ proc getMessageHashesArbitraryQuery(
   var args: seq[string]
 
   if cursor.isSome():
-    let hashHex = toHex(cursor.get())
+    let hashHex = byteutils.toHex(cursor.get())
 
     let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -623,7 +671,7 @@ proc getMessagesPreparedStmt(
 
     return ok(rows)
 
-  let hashHex = toHex(cursor.get())
+  let hashHex = byteutils.toHex(cursor.get())
 
   let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -716,7 +764,7 @@ proc getMessageHashesPreparedStmt(
 
     return ok(rows)
 
-  let hashHex = toHex(cursor.get())
+  let hashHex = byteutils.toHex(cursor.get())
 
   let timeCursor = ?await s.getTimeCursor(hashHex)
 
@@ -889,11 +937,10 @@ method getMessages*(
 
       let splittedHashes = hashes[i ..< stop]
 
-      let subRows =
-        ?await s.getMessagesWithinLimits(
-          includeData, contentTopics, pubsubTopic, cursor, startTime, endTime,
-          splittedHashes, maxPageSize, ascendingOrder, requestId,
-        )
+      let subRows = ?await s.getMessagesWithinLimits(
+        includeData, contentTopics, pubsubTopic, cursor, startTime, endTime,
+        splittedHashes, maxPageSize, ascendingOrder, requestId,
+      )
 
       for row in subRows:
         row
@@ -953,11 +1000,10 @@ method getDatabaseSize*(
 method getMessagesCount*(
     s: PostgresDriver
 ): Future[ArchiveDriverResult[int64]] {.async.} =
-  let intRes = await s.getInt("SELECT COUNT(1) FROM messages")
-  if intRes.isErr():
-    return err("error in getMessagesCount: " & intRes.error)
+  let intRes = (await s.getInt("SELECT COUNT(1) FROM messages")).valueOr:
+    return err("error in getMessagesCount: " & error)
 
-  return ok(intRes.get())
+  return ok(intRes)
 
 method getOldestMessageTimestamp*(
     s: PostgresDriver
@@ -970,47 +1016,44 @@ method getOldestMessageTimestamp*(
 
   let oldestPartitionTimeNanoSec = oldestPartition.getPartitionStartTimeInNanosec()
 
-  let intRes = await s.getInt("SELECT MIN(timestamp) FROM messages")
-  if intRes.isErr():
+  let intRes = (await s.getInt("SELECT MIN(timestamp) FROM messages")).valueOr:
     ## Just return the oldest partition time considering the partitions set
     return ok(Timestamp(oldestPartitionTimeNanoSec))
 
-  return ok(Timestamp(min(intRes.get(), oldestPartitionTimeNanoSec)))
+  return ok(Timestamp(min(intRes, oldestPartitionTimeNanoSec)))
 
 method getNewestMessageTimestamp*(
     s: PostgresDriver
 ): Future[ArchiveDriverResult[Timestamp]] {.async.} =
-  let intRes = await s.getInt("SELECT MAX(timestamp) FROM messages")
+  let intRes = (await s.getInt("SELECT MAX(timestamp) FROM messages")).valueOr:
+    return err("error in getNewestMessageTimestamp: " & error)
 
-  if intRes.isErr():
-    return err("error in getNewestMessageTimestamp: " & intRes.error)
-
-  return ok(Timestamp(intRes.get()))
+  return ok(Timestamp(intRes))
 
 method deleteOldestMessagesNotWithinLimit*(
     s: PostgresDriver, limit: int
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  var execRes = await s.writeConnPool.pgQuery(
-    """DELETE FROM messages WHERE messageHash NOT IN
+  (
+    await s.writeConnPool.pgQuery(
+      """DELETE FROM messages WHERE messageHash NOT IN
                           (
                         SELECT messageHash FROM messages ORDER BY timestamp DESC LIMIT ?
                           );""",
-    @[$limit],
-  )
-  if execRes.isErr():
-    return err("error in deleteOldestMessagesNotWithinLimit: " & execRes.error)
-
-  execRes = await s.writeConnPool.pgQuery(
-    """DELETE FROM messages_lookup WHERE messageHash NOT IN
-                          (
-                        SELECT messageHash FROM messages ORDER BY timestamp DESC LIMIT ?
-                          );""",
-    @[$limit],
-  )
-  if execRes.isErr():
-    return err(
-      "error in deleteOldestMessagesNotWithinLimit messages_lookup: " & execRes.error
+      @[$limit],
     )
+  ).isOkOr:
+    return err("error in deleteOldestMessagesNotWithinLimit: " & error)
+
+  (
+    await s.writeConnPool.pgQuery(
+      """DELETE FROM messages_lookup WHERE messageHash NOT IN
+                          (
+                        SELECT messageHash FROM messages ORDER BY timestamp DESC LIMIT ?
+                          );""",
+      @[$limit],
+    )
+  ).isOkOr:
+    return err("error in deleteOldestMessagesNotWithinLimit messages_lookup: " & error)
 
   return ok()
 
@@ -1264,11 +1307,18 @@ proc loopPartitionFactory(
     self: PostgresDriver, onFatalError: OnFatalErrorHandler
 ) {.async.} =
   ## Loop proc that continuously checks whether we need to create a new partition.
-  ## Notice that the deletion of partitions is handled by the retention policy modules.
+  ## Notice that the deletion of partitions is mostly handled by the retention policy modules.
+  ## This loop only removes orphan partitions which were detached but not properly removed by the
+  ## retention policy module due to some error. However, the main task of this loop is to create
+  ## new partitions when needed.
 
   info "starting loopPartitionFactory"
 
   while true:
+    trace "loopPartitionFactory iteration started"
+    (await self.dropOrphanPartitions()).isOkOr:
+      onFatalError("error when dropping orphan partitions: " & $error)
+
     trace "Check if a new partition is needed"
 
     ## Let's make the 'partition_manager' aware of the current partitions
@@ -1326,14 +1376,24 @@ proc getTableSize*(
 
   return ok(tableSize)
 
-proc removePartition(
+proc dropPartition(
+    self: PostgresDriver, partitionName: string
+): Future[ArchiveDriverResult[void]] {.async.} =
+  let dropPartitionQuery = "DROP TABLE " & partitionName
+  info "drop partition", query = dropPartitionQuery
+  (await self.performWriteQuery(dropPartitionQuery)).isOkOr:
+    return err(fmt"error in dropPartition: {dropPartitionQuery}: " & $error)
+
+  return ok()
+
+proc detachAndDropPartition(
     self: PostgresDriver, partition: Partition
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Removes the desired partition and also removes the rows from messages_lookup table
+  ## Detaches and drops the desired partition and also removes the rows from messages_lookup table
   ## whose rows belong to the partition time range
 
   let partitionName = partition.getName()
-  info "beginning of removePartition", partitionName
+  info "beginning of detachAndDropPartition", partitionName
 
   let partSize = (await self.getTableSize(partitionName)).valueOr("")
 
@@ -1344,8 +1404,10 @@ proc removePartition(
   (await self.performWriteQuery(detachPartitionQuery)).isOkOr:
     info "detected error when trying to detach partition", error
 
-    if ($error).contains("FINALIZE") or
-        ($error).contains("already pending detach in part"):
+    if ($error).contains("FINALIZE") or ($error).contains("already pending"):
+      ## We assume "already pending detach in partitioned table ..." as possible error
+      debug "enforce detach with FINALIZE because of detected error", error
+
       ## We assume the database is suggesting to use FINALIZE when detaching a partition
       let detachPartitionFinalizeQuery =
         "ALTER TABLE messages DETACH PARTITION " & partitionName & " FINALIZE;"
@@ -1356,11 +1418,8 @@ proc removePartition(
     else:
       return err(fmt"error in {detachPartitionQuery}: " & $error)
 
-  ## Drop the partition
-  let dropPartitionQuery = "DROP TABLE " & partitionName
-  info "removeOldestPartition drop partition", query = dropPartitionQuery
-  (await self.performWriteQuery(dropPartitionQuery)).isOkOr:
-    return err(fmt"error in {dropPartitionQuery}: " & $error)
+  ## Drop partition
+  ?(await self.dropPartition(partitionName))
 
   info "removed partition", partition_name = partitionName, partition_size = partSize
   self.partitionMngr.removeOldestPartitionName()
@@ -1385,8 +1444,18 @@ proc removePartitionsOlderThan(
   var oldestPartition = self.partitionMngr.getOldestPartition().valueOr:
     return err("could not get oldest partition in removePartitionOlderThan: " & $error)
 
-  while not oldestPartition.containsMoment(tsInSec):
-    (await self.removePartition(oldestPartition)).isOkOr:
+  debug "oldest partition info",
+    partitionName = oldestPartition.getName(),
+    partitionLastMoment = oldestPartition.getLastMoment(),
+    tsInSec
+
+  while oldestPartition.getLastMoment() < tsInSec:
+    info "start removing partition whose first record is older than the specified timestamp",
+      partitionName = oldestPartition.getName(),
+      partitionFirstMoment = oldestPartition.getLastMoment(),
+      tsInSec
+
+    (await self.detachAndDropPartition(oldestPartition)).isOkOr:
       return err("issue in removePartitionsOlderThan: " & $error)
 
     oldestPartition = self.partitionMngr.getOldestPartition().valueOr:
@@ -1414,7 +1483,7 @@ proc removeOldestPartition(
         info "Skipping to remove the current partition"
         return ok()
 
-  return await self.removePartition(oldestPartition)
+  return await self.detachAndDropPartition(oldestPartition)
 
 proc containsAnyPartition*(self: PostgresDriver): bool =
   return not self.partitionMngr.isEmpty()
