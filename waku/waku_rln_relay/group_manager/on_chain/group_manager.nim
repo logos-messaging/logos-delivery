@@ -68,10 +68,7 @@ proc fetchMerkleProofElements*(
     chainId = g.chainId,
   )
 
-    return response
-  except CatchableError:
-    error "Failed to fetch Merkle proof elements", error = getCurrentExceptionMsg()
-    return err("Failed to fetch merkle proof elements: " & getCurrentExceptionMsg())
+  return response
 
 # proc fetchMerkleRoot*(
 #     g: OnchainGroupManager
@@ -90,22 +87,19 @@ proc fetchMerkleProofElements*(
 #     return err("Failed to fetch merkle root: " & getCurrentExceptionMsg())
 
 ##  params = @[] - added empty params as way to get the raw return bytes (seq[bytes])
+## 
 proc fetchMerkleRoot*(
     g: OnchainGroupManager
 ): Future[Result[seq[byte], string]] {.async.} =
-  try:
-    let merkleRoots = await sendEthCallWithParams(
-      ethRpc = g.ethRpc.get(),
-      functionSignature = "getRecentRoots()",
-      params = @[],
-      fromAddress = g.ethRpc.get().defaultAccount,
-      toAddress = fromHex(Address, g.ethContractAddress),
-      chainId = g.chainId,
-    )
-    return merkleRoots
-  except CatchableError:
-    error "Failed to fetch Merkle recent roots list", error = getCurrentExceptionMsg()
-    return err("Failed to fetch merkle recent roots list: " & getCurrentExceptionMsg())
+  let merkleRoots = await sendEthCallWithParams(
+    ethRpc = g.ethRpc.get(),
+    functionSignature = "getRecentRoots()",
+    params = @[],
+    fromAddress = g.ethRpc.get().defaultAccount,
+    toAddress = fromHex(Address, g.ethContractAddress),
+    chainId = g.chainId,
+  )
+  return merkleRoots
 
 proc fetchNextFreeIndex*(
     g: OnchainGroupManager
@@ -152,7 +146,8 @@ proc fetchMaxMembershipRateLimit*(
 
 proc checkInitialized(g: OnchainGroupManager): Result[void, string] =
   if not g.initialized:
-    raise newException(CatchableError, "OnchainGroupManager is not initialized")
+    return err("OnchainGroupManager is not initialized")
+  return ok()
 
 template retryWrapper(
     g: OnchainGroupManager, res: auto, errStr: string, body: untyped
@@ -275,27 +270,32 @@ proc trackRootChanges*(g: OnchainGroupManager) {.async: (raises: [CatchableError
     initializedGuard(g)
     const rpcDelay = 5.seconds
 
-  while true:
-    await sleepAsync(rpcDelay)
-    let rootUpdated = await g.updateRoots()
+    while true:
+      await sleepAsync(rpcDelay)
+      let rootUpdated = await g.updateRoots()
 
-    if rootUpdated:
-      ## The membership set on-chain has changed (some new members have joined or some members have left)
-      if g.membershipIndex.isSome():
-        ## A membership index exists only if the node has registered with RLN.
-        ## Non-registered nodes cannot have Merkle proof elements.
-        let proofResult = await g.fetchMerkleProofElements()
-        if proofResult.isErr():
-          error "Failed to fetch Merkle proof", error = proofResult.error
-        else:
-          g.merkleProofCache = proofResult.get()
+      if rootUpdated:
+        ## The membership set on-chain has changed (some new members have joined or some members have left)
+        if g.membershipIndex.isSome():
+          ## A membership index exists only if the node has registered with RLN.
+          ## Non-registered nodes cannot have Merkle proof elements.
+          let proofResult = await g.fetchMerkleProofElements()
+          if proofResult.isErr():
+            error "Failed to fetch Merkle proof", error = proofResult.error
+          else:
+            g.merkleProofCache = proofResult.get()
 
-      let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
-        error "Failed to fetch next free index", error = error
-        return err("Failed to fetch next free index: " & error)
+        let nextFreeIndex = await g.fetchNextFreeIndex()
+        if nextFreeIndex.isErr():
+          error "Failed to fetch next free index", error = nextFreeIndex.error
+          raise newException(
+            CatchableError, "Failed to fetch next free index: " & nextFreeIndex.error
+          )
 
-      let memberCount = cast[int64](nextFreeIndex)
-      waku_rln_number_registered_memberships.set(float64(memberCount))
+        let memberCount = cast[int64](nextFreeIndex.get())
+        waku_rln_number_registered_memberships.set(float64(memberCount))
+  except CatchableError:
+    error "Fatal error in trackRootChanges", error = getCurrentExceptionMsg()
 
 method register*(
     g: OnchainGroupManager, rateCommitment: RateCommitment
