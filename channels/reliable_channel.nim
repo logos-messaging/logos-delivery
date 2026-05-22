@@ -55,6 +55,12 @@ type
 
     requestIds: Table[RequestId, seq[RequestId]]
     pendingRequests: seq[tuple[parent: RequestId, ephemeral: bool]]
+    brokerCtx: BrokerContext
+      ## Captured here so the channel emits `ChannelMessageReceivedEvent`
+      ## on the same broker context the owning manager registered its
+      ## listeners on. Without this, an emit via `globalBrokerContext()`
+      ## would land on whatever context happens to be thread-local at
+      ## emit time, which is not necessarily the manager's.
 
 func getChannelId*(self: ReliableChannel): ChannelId {.inline.} =
   self.channelId
@@ -93,6 +99,7 @@ proc new*(
     rateLimit: RateLimitManager.new(rateConfig, channelId, brokerCtx),
     requestIds: initTable[RequestId, seq[RequestId]](),
     pendingRequests: @[],
+    brokerCtx: brokerCtx,
   )
 
 proc onReadyToSend*(
@@ -198,7 +205,14 @@ proc onMessageReceived*(
   let segment = SegmentMessageProto.decode(unwrapped.get().content)
   let reassembled = self.segmentation.handleIncomingSegment(segment)
   if reassembled.isSome():
-    ## TODO: emit `ChannelMessageReceivedEvent` carrying
-    ## `reassembled.get().payload` once the channel-level event surface
-    ## is wired into the EventBroker.
-    discard reassembled
+    ## Emit on the captured `brokerCtx` (the manager's), so the
+    ## application listener that the manager has set up on that same
+    ## context picks the event up.
+    ChannelMessageReceivedEvent.emit(
+      self.brokerCtx,
+      ChannelMessageReceivedEvent(
+        channelId: self.channelId,
+        senderId: self.senderId,
+        payload: reassembled.get().payload,
+      ),
+    )
