@@ -91,6 +91,11 @@
           };
         in {
           inherit liblogosdelivery;
+          # Expose the cargoHash-corrected librln so downstream consumers
+          # (e.g. logos-delivery-module) bundle the exact same librln this
+          # build links, instead of pulling zerokit's rln directly — whose
+          # committed cargoHash is stale for v2.0.2 (see zerokitRln above).
+          rln = zerokitRln;
           default = liblogosdelivery;
         }
       );
