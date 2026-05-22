@@ -35,7 +35,6 @@ proc new*(
     conf: WakuNodeConf,
     brokerCtx: BrokerContext = globalBrokerContext(),
 ): Future[Result[T, string]] {.async.} =
-
   ## TODO !! The proper ownership chain is:
   ## ReliableChannelManager -> DeliveryService (MessagingClient) -> Waku (Kernel/Protocols) -> WakuNode,
   ## and this will be implemented in the future. For now, `createNode`

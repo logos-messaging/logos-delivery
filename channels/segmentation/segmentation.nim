@@ -42,18 +42,17 @@ proc performSegmentation*(
   ## Stage 1 of the outgoing pipeline.
   ## Skeleton behaviour: emit exactly one segment carrying the whole
   ## payload. Real chunking and Reed-Solomon parity will replace this.
-  return
-    @[
-      SegmentMessageProto(
-        entireMessageHash: @[],
-        dataSegmentIndex: 0,
-        dataSegmentCount: 1,
-        payload: payload,
-        paritySegmentIndex: 0,
-        paritySegmentCount: 0,
-        isParity: false,
-      )
-    ]
+  return @[
+    SegmentMessageProto(
+      entireMessageHash: @[],
+      dataSegmentIndex: 0,
+      dataSegmentCount: 1,
+      payload: payload,
+      paritySegmentIndex: 0,
+      paritySegmentCount: 0,
+      isParity: false,
+    )
+  ]
 
 proc handleIncomingSegment*(
     self: SegmentationHandler, segment: SegmentMessageProto

@@ -8,8 +8,7 @@ import ./scalable_data_sync/scalable_data_sync
 export scalable_data_sync
 export api_types
 
-type
-  ChannelId* = SdsChannelID
+type ChannelId* = SdsChannelID
 
 proc hash*(r: RequestId): Hash =
   ## Allows `RequestId` to be used as a `Table` key.

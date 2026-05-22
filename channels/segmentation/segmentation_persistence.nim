@@ -10,9 +10,7 @@ type
   SegmentationPersistence* = ref object of RootObj
     kind*: SegmentationPersistenceKind
 
-method put*(
-    self: SegmentationPersistence, key: seq[byte], value: seq[byte]
-) {.base.} =
+method put*(self: SegmentationPersistence, key: seq[byte], value: seq[byte]) {.base.} =
   discard
 
 method get*(self: SegmentationPersistence, key: seq[byte]): seq[byte] {.base.} =

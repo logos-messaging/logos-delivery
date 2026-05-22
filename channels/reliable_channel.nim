@@ -39,28 +39,27 @@ const Lip173Meta* = "LIP173"
   ## whose `meta` field does not equal these bytes is not addressed to
   ## this layer and is silently dropped on ingress.
 
-type
-  ReliableChannel* = ref object
-    ## Spec-defined public type. Fields are private so callers cannot
-    ## mutate internals and break invariants. Getters are added below
-    ## for the few values consumers may need.
-    deliveryService: DeliveryService
-    channelId: ChannelId
-    contentTopic: ContentTopic
-    senderId: SdsParticipantID
-    rng: ref HmacDrbgContext
-    segmentation: SegmentationHandler
-    sdsHandler: SdsHandler
-    rateLimit: RateLimitManager
+type ReliableChannel* = ref object
+  ## Spec-defined public type. Fields are private so callers cannot
+  ## mutate internals and break invariants. Getters are added below
+  ## for the few values consumers may need.
+  deliveryService: DeliveryService
+  channelId: ChannelId
+  contentTopic: ContentTopic
+  senderId: SdsParticipantID
+  rng: ref HmacDrbgContext
+  segmentation: SegmentationHandler
+  sdsHandler: SdsHandler
+  rateLimit: RateLimitManager
 
-    requestIds: Table[RequestId, seq[RequestId]]
-    pendingRequests: seq[tuple[parent: RequestId, ephemeral: bool]]
-    brokerCtx: BrokerContext
-      ## Captured here so the channel emits `ChannelMessageReceivedEvent`
-      ## on the same broker context the owning manager registered its
-      ## listeners on. Without this, an emit via `globalBrokerContext()`
-      ## would land on whatever context happens to be thread-local at
-      ## emit time, which is not necessarily the manager's.
+  requestIds: Table[RequestId, seq[RequestId]]
+  pendingRequests: seq[tuple[parent: RequestId, ephemeral: bool]]
+  brokerCtx: BrokerContext
+    ## Captured here so the channel emits `ChannelMessageReceivedEvent`
+    ## on the same broker context the owning manager registered its
+    ## listeners on. Without this, an emit via `globalBrokerContext()`
+    ## would land on whatever context happens to be thread-local at
+    ## emit time, which is not necessarily the manager's.
 
 func getChannelId*(self: ReliableChannel): ChannelId {.inline.} =
   self.channelId
@@ -123,12 +122,13 @@ proc onReadyToSend*(
     ## clear and encrypt only the application payload.
     let encRes = await Encrypt.request(m)
     let wireBytes =
-      if encRes.isOk(): seq[byte](encRes.get()) else: m
+      if encRes.isOk():
+        seq[byte](encRes.get())
+      else:
+        m
 
     let envelope = MessageEnvelope(
-      contentTopic: self.contentTopic,
-      payload: wireBytes,
-      ephemeral: pending.ephemeral,
+      contentTopic: self.contentTopic, payload: wireBytes, ephemeral: pending.ephemeral
     )
 
     let deliveryReqId = RequestId.new(self.rng)
@@ -172,10 +172,10 @@ proc send*(
   for segment in self.segmentation.performSegmentation(payload):
     ## Encode the segment to bytes here so SDS stays agnostic of the
     ## segmentation wire format.
-    let sdsBytes = self.sdsHandler
-      .wrapOutgoing(self.channelId, self.senderId, segment.encode())
-      .valueOr:
-        return err("SDS wrap failed: " & error)
+    let sdsBytes = self.sdsHandler.wrapOutgoing(
+      self.channelId, self.senderId, segment.encode()
+    ).valueOr:
+      return err("SDS wrap failed: " & error)
     self.pendingRequests.add((parent: parentReqId, ephemeral: ephemeral))
     self.rateLimit.enqueueToSend(sdsBytes)
 
@@ -191,12 +191,15 @@ proc onMessageReceived*(
   ## The ReliableChannelManager already validated LIP173 on the WakuMessage and
   ## stripped the wire framing, so the channel only sees the raw
   ## payload bytes for itself.
-  
+
   ## Notice that the following "request" is implemented implicitly as a broker call to
   ## the `Decrypt` request broker.
   let decRes = await Decrypt.request(payload)
   let plaintext: seq[byte] =
-    if decRes.isOk(): seq[byte](decRes.get()) else: payload
+    if decRes.isOk():
+      seq[byte](decRes.get())
+    else:
+      payload
 
   let unwrapped = self.sdsHandler.handleIncoming(plaintext)
   if unwrapped.isErr():
