@@ -74,35 +74,14 @@
         let
           pkgs = pkgsFor system;
 
-          # zerokit's nix/default.nix hardcodes a cargoHash that is stale for
-          # our pinned nixpkgs on a cold runner (the status.im substituter is
-          # untrusted here, so the cargo-vendor FOD is recomputed). v2.0.2 did
-          # NOT fix this for consumers — its committed hash is the old v2.0.1
-          # value while v2.0.2's Cargo.lock changed. Rebuild librln here from
-          # the pinned zerokit source with the correct cargoHash. Keep the
-          # version + cargoHash in sync with the zerokit input rev.
-          rustToolchain = pkgs.rust-bin.stable.latest.default;
-          zerokitRln = pkgs.rustPlatform.buildRustPackage {
-            pname = "zerokit";
-            version = "2.0.2";
-            src = zerokit;
-            cargo = rustToolchain;
-            rustc = rustToolchain;
-            cargoHash = "sha256-PNwEdZLgGQPqQDrEK2hsQtSybVfBbD6xn4K47fPFJUU=";
-            nativeBuildInputs = [ pkgs.rust-cbindgen ];
-            doCheck = false;
-            buildPhase = ''
-              export CARGO_HOME=$TMPDIR/cargo
-              cargo build --lib --release --manifest-path rln/Cargo.toml
-            '';
-            installPhase = ''
-              set -eu
-              mkdir -p $out/lib $out/include
-              find target -type f -name 'librln.*' -not -path '*/deps/*' \
-                -exec cp -v '{}' "$out/lib/" \;
-              cbindgen ./rln -l c > "$out/include/rln.h"
-            '';
-          };
+          # HACK: Fix for stale cargoHash in 2.0.2 release.
+          zerokitRln = zerokit.packages.${system}.rln.overrideAttrs (old: {
+            cargoDeps = old.cargoDeps.overrideAttrs (oldCargoDeps: {
+              vendorStaging = oldCargoDeps.vendorStaging.overrideAttrs (_: {
+                outputHash = "sha256-PNwEdZLgGQPqQDrEK2hsQtSybVfBbD6xn4K47fPFJUU=";
+              });
+            });
+          });
 
           liblogosdelivery = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
@@ -112,6 +91,11 @@
           };
         in {
           inherit liblogosdelivery;
+          # Expose the cargoHash-corrected librln so downstream consumers
+          # (e.g. logos-delivery-module) bundle the exact same librln this
+          # build links, instead of pulling zerokit's rln directly — whose
+          # committed cargoHash is stale for v2.0.2 (see zerokitRln above).
+          rln = zerokitRln;
           default = liblogosdelivery;
         }
       );

@@ -1,0 +1,271 @@
+name: RLN E2E — Simulator
+
+# Validates the full RLN flow end-to-end against logos-delivery-simulator:
+# keystore generation, on-chain registration, gossipsub propagation,
+# per-epoch rate-limit enforcement, and epoch-boundary recovery.
+#
+# Why this exists: logos-dev runs with RLN disabled, so there is no
+# production traffic exercising RLN. Until RLN is enabled there, this is
+# the only end-to-end coverage of the RLN + zerokit path.
+#
+# The image is built ON the runner and tested ON the same runner, so the
+# AVX-512 portability issue in container-image.yml does not apply here.
+#
+# No own schedule: ci-daily.yml is the single daily entry point and calls
+# this via workflow_call. workflow_dispatch allows manual runs.
+# Run defaults live in tests/simulator/rln-sim.env; inputs override per-run.
+
+on:
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        default: ''
+      num_nodes:
+        type: string
+        default: ''
+      msg_limit:
+        type: string
+        default: ''
+      epoch_sec:
+        type: string
+        default: ''
+  workflow_dispatch:
+    inputs:
+      branch:
+        description: 'logos-delivery branch to build & test (blank = use rln-sim.env)'
+        type: string
+        default: ''
+      num_nodes:
+        description: 'Number of nwaku nodes (blank = use rln-sim.env)'
+        type: string
+        default: ''
+      msg_limit:
+        description: 'RLN_RELAY_MSG_LIMIT, must be >= contract min ~20 (blank = use rln-sim.env)'
+        type: string
+        default: ''
+      epoch_sec:
+        description: 'RLN_RELAY_EPOCH_SEC, large enough a burst cannot straddle an epoch (blank = use rln-sim.env)'
+        type: string
+        default: ''
+
+env:
+  NPROC: 2
+  MAKEFLAGS: "-j2"
+  NIM_VERSION: '2.2.4'
+  NIMBLE_VERSION: '0.22.3'
+
+jobs:
+  rln-e2e:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 120
+    name: rln-e2e
+
+    steps:
+      # First checkout: the ref that triggered this workflow (CI branch /
+      # master). This is where the e2e test script and rln-sim.env live —
+      # the build branch may not contain them.
+      - name: Checkout CI ref (for the test script)
+        uses: actions/checkout@v4
+        with:
+          submodules: false
+
+      # Defaults come from tests/simulator/rln-sim.env (single source of truth);
+      # a non-blank input (dispatch or workflow_call) overrides the matching value.
+      - name: Resolve parameters
+        id: cfg
+        env:
+          IN_BRANCH: ${{ inputs.branch }}
+          IN_NUM_NODES: ${{ inputs.num_nodes }}
+          IN_MSG_LIMIT: ${{ inputs.msg_limit }}
+          IN_EPOCH_SEC: ${{ inputs.epoch_sec }}
+        run: |
+          set -euo pipefail
+          set -a; . tests/simulator/rln-sim.env; set +a
+          {
+            echo "branch=${IN_BRANCH:-$BRANCH}"
+            echo "num_nodes=${IN_NUM_NODES:-$NUM_NODES}"
+            echo "msg_limit=${IN_MSG_LIMIT:-$MSG_LIMIT}"
+            echo "epoch_sec=${IN_EPOCH_SEC:-$EPOCH_SEC}"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: Stash e2e test script outside the workspace
+        run: |
+          test -f tests/simulator/rln-e2e-test.py \
+            || { echo "tests/simulator/rln-e2e-test.py missing on CI ref"; exit 1; }
+          cp tests/simulator/rln-e2e-test.py "$RUNNER_TEMP/rln-e2e-test.py"
+
+      # Second checkout: the branch to build & test. Overwrites the workspace;
+      # the stashed test script in RUNNER_TEMP survives.
+      - name: Checkout logos-delivery (${{ steps.cfg.outputs.branch }})
+        uses: actions/checkout@v4
+        with:
+          ref: ${{ steps.cfg.outputs.branch }}
+          submodules: false
+          clean: true
+
+      - name: Get submodules hash
+        id: submodules
+        run: echo "hash=$(git submodule status | awk '{print $1}' | sort | shasum -a 256 | sed 's/[ -]*//g')" >> $GITHUB_OUTPUT
+
+      - name: Cache submodules
+        uses: actions/cache@v3
+        with:
+          path: |
+            vendor/
+            .git/modules
+          key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
+
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: |
+          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+
+      - name: Cache nimble deps
+        id: cache-nimbledeps
+        uses: actions/cache@v3
+        with:
+          path: |
+            nimbledeps/
+            nimble.paths
+          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+
+      - name: Install nimble deps
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        run: |
+          nimble setup --localdeps -y
+          make rebuild-nat-libs-nimbledeps
+          make rebuild-bearssl-nimbledeps
+          touch nimbledeps/.nimble-setup
+
+      - name: Build wakunode2
+        run: |
+          make -j${NPROC} V=1 POSTGRES=1 \
+            NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" \
+            wakunode2
+
+      - name: Build local Docker image
+        run: |
+          docker build -t nwaku-rln-ci:test -f docker/binaries/Dockerfile.bn.amd64 .
+
+      - name: Clone logos-delivery-simulator
+        run: |
+          git clone --depth 1 https://github.com/logos-messaging/logos-delivery-simulator.git "$RUNNER_TEMP/logos-delivery-simulator"
+
+      - name: Write simulator .env
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
+        run: |
+          cat > .env <<EOF
+          LD_IMAGE=nwaku-rln-ci:test
+          NUM_LD_NODES=${{ steps.cfg.outputs.num_nodes }}
+          MSG_SIZE_KBYTES=1
+          TRAFFIC_DELAY_SECONDS=5
+          RLN_RELAY_EPOCH_SEC=${{ steps.cfg.outputs.epoch_sec }}
+          RLN_RELAY_MSG_LIMIT=${{ steps.cfg.outputs.msg_limit }}
+          MAX_MESSAGE_LIMIT=100
+          RPC_URL=http://foundry:8545
+          PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
+          ETH_FROM=0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
+          RLN_CONTRACT_REPO_COMMIT=e75ac913e579ad872f54b2225eec35d1de3d98b0
+          WATCHTOWER_ENABLED=false
+          EOF
+
+      - name: Bring up simulator (RLN subset)
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
+        run: |
+          docker compose up -d foundry contract-repo-deployer nwaku-token-init bootstrap nwaku
+
+      - name: Wait for contract deployer
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
+        run: |
+          for _ in $(seq 1 60); do
+            st=$(docker inspect logos-delivery-simulator-contract-repo-deployer-1 --format='{{.State.Status}}' 2>/dev/null || echo missing)
+            [ "$st" = "exited" ] && break
+            echo "deployer status: $st"; sleep 15
+          done
+          ec=$(docker inspect logos-delivery-simulator-contract-repo-deployer-1 --format='{{.State.ExitCode}}')
+          echo "deployer exit code: $ec"
+          if [ "$ec" != "0" ]; then
+            docker logs logos-delivery-simulator-contract-repo-deployer-1 2>&1 | tail -50
+            exit 1
+          fi
+
+      - name: Wait for nwaku fleet to register
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
+        run: |
+          N=${{ steps.cfg.outputs.num_nodes }}
+          for _ in $(seq 1 60); do
+            up=$(docker ps --filter 'name=logos-delivery-simulator-nwaku-' --filter 'status=running' --format '{{.Names}}' | wc -l)
+            echo "nwaku running: $up/$N"
+            [ "$up" -ge "$N" ] && break
+            sleep 15
+          done
+          # nwaku-1 must reach the "registered + started" marker
+          timeout 300 docker logs -f logos-delivery-simulator-nwaku-1 2>&1 \
+            | grep -m1 -E "Segmentation fault|Illegal instruction|Failed to register on-chain|I am a nwaku node" \
+            | tee /tmp/nwaku1.verdict
+          grep -q "I am a nwaku node" /tmp/nwaku1.verdict
+
+      - name: Run RLN e2e scenarios
+        run: |
+          TEST_SCRIPT="$RUNNER_TEMP/rln-e2e-test.py"
+          test -f "$TEST_SCRIPT" \
+            || { echo "stashed test script missing at $TEST_SCRIPT"; exit 1; }
+          docker run --rm \
+            --network logos-delivery-simulator_simulation \
+            -v "$TEST_SCRIPT:/test.py:ro" \
+            python:3.11-slim \
+            sh -c "pip install --quiet --disable-pip-version-check requests && \
+                   python /test.py \
+                     --hostname-prefix logos-delivery-simulator-nwaku- \
+                     --num-nodes ${{ steps.cfg.outputs.num_nodes }} \
+                     --msg-limit ${{ steps.cfg.outputs.msg_limit }} \
+                     --epoch-sec ${{ steps.cfg.outputs.epoch_sec }} \
+                     --health-deadline-sec 600"
+
+      - name: Collect logs on failure
+        if: failure()
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
+        run: |
+          mkdir -p "$RUNNER_TEMP/logs"
+          for c in $(docker ps -a --filter 'name=logos-delivery-simulator-' --format '{{.Names}}'); do
+            docker logs "$c" > "$RUNNER_TEMP/logs/$c.log" 2>&1 || true
+          done
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: simulator-logs
+          path: ${{ runner.temp }}/logs
+          retention-days: 7
+
+      - name: Tear down
+        if: always()
+        working-directory: ${{ runner.temp }}/logos-delivery-simulator
+        run: docker compose down -v || true
+
+      - name: Notify Discord
+        if: always()
+        env:
+          DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
+        run: |
+          [ -z "$DISCORD_WEBHOOK_URL" ] && exit 0
+          STATUS="${{ job.status }}"
+          BRANCH="${{ steps.cfg.outputs.branch }}"
+          RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"
+          if [ "$STATUS" = "success" ]; then COLOR=3066993; TITLE="✅ RLN E2E passed"; else COLOR=15158332; TITLE="❌ RLN E2E failed"; fi
+          curl -H "Content-Type: application/json" -X POST -d "{
+            \"embeds\":[{\"title\":\"$TITLE\",\"color\":$COLOR,
+              \"fields\":[
+                {\"name\":\"Branch\",\"value\":\"$BRANCH\",\"inline\":true},
+                {\"name\":\"Status\",\"value\":\"$STATUS\",\"inline\":true}],
+              \"url\":\"$RUN_URL\",
+              \"footer\":{\"text\":\"Daily RLN simulator E2E\"}}]}" \
+            "$DISCORD_WEBHOOK_URL"
