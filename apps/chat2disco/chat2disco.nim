@@ -54,11 +54,10 @@ logScope:
   topics = "chat2disco"
 
 const Help = """
-  Commands: /[?|help|create|rooms|switch|nick|exit]
+  Commands: /[?|help|room|rooms|nick|exit]
   help: Prints this help
-  create <room>: Create/join a chat room via service discovery
+  room <room>: Create, join, or switch to a chat room
   rooms: List joined rooms
-  switch <room>: Switch active room for sending messages
   nick: change nickname
   exit: exits chat session
 """
@@ -141,6 +140,11 @@ proc readNick(transp: StreamTransport): Future[string] {.async.} =
   stdout.flushFile()
   return await transp.readLine()
 
+proc readRoom(transp: StreamTransport): Future[string] {.async.} =
+  stdout.write("Choose or create a room >> ")
+  stdout.flushFile()
+  return await transp.readLine()
+
 proc startMetricsServer(
     serverIp: IpAddress, serverPort: Port
 ): Result[MetricsHttpServerRef, string] =
@@ -182,10 +186,33 @@ proc publish(c: Chat, line: string) =
   except CatchableError:
     error "caught error publishing message: ", error = getCurrentExceptionMsg()
 
-# TODO This should read or be subscribe handler subscribe
-proc readAndPrint(c: Chat) {.async.} =
-  while true:
-    await sleepAsync(100.millis)
+proc createRoom(c: Chat, roomName: string) {.async.} =
+  let serviceIdStr = "/waku/chat-room/" & roomName & "/1.0.0"
+  let contentTopic = "/chat2disco/1/" & roomName & "/proto"
+
+  let serviceInfo = ServiceInfo(id: serviceIdStr, data: @[])
+
+  if not c.node.wakuKademlia.isNil():
+    c.node.wakuKademlia.advertiseService(serviceInfo)
+    echo &"Advertising service: {serviceIdStr}"
+
+    let peers = await c.node.wakuKademlia.lookup(serviceIdStr)
+    echo &"Discovered {peers.len} peer(s) for room '{roomName}'"
+
+    if peers.len > 0:
+      await c.node.connectToNodes(peers)
+      echo "Connected to discovered peers"
+
+    c.rooms[roomName] = ChatRoom(
+      serviceId: serviceIdStr, contentTopic: contentTopic, discovered: peers
+    )
+  else:
+    echo "Warning: Kademlia not available. Room created locally only."
+    c.rooms[roomName] =
+      ChatRoom(serviceId: serviceIdStr, contentTopic: contentTopic, discovered: @[])
+
+  c.currentRoom = roomName
+  echo &"Created/joined room '{roomName}'. Content topic: {contentTopic}"
 
 # TODO Implement
 proc writeAndPrint(c: Chat) {.async.} =
@@ -196,62 +223,25 @@ proc writeAndPrint(c: Chat) {.async.} =
     if line.startsWith("/help") or line.startsWith("/?") or not c.started:
       echo Help
       continue
-    elif line.startsWith("/create"):
-      let roomName = line[7 ..^ 1].strip()
+    elif line.startsWith("/room"):
+      let roomName = line[5 ..^ 1].strip()
       if roomName.len == 0:
-        echo "Usage: /create <room-name>"
+        echo "Usage: /room <room-name>"
         continue
 
       if roomName in c.rooms:
-        echo &"Already in room '{roomName}'. Use /switch {roomName} to make it active."
-        continue
-
-      let serviceIdStr = "/waku/chat-room/" & roomName & "/1.0.0"
-      let contentTopic = "/chat2disco/1/" & roomName & "/proto"
-
-      let serviceInfo = ServiceInfo(id: serviceIdStr, data: @[])
-
-      if not c.node.wakuKademlia.isNil():
-        c.node.wakuKademlia.advertiseService(serviceInfo)
-        echo &"Advertising service: {serviceIdStr}"
-
-        let peers = await c.node.wakuKademlia.lookup(serviceIdStr)
-        echo &"Discovered {peers.len} peer(s) for room '{roomName}'"
-
-        if peers.len > 0:
-          await c.node.connectToNodes(peers)
-          echo "Connected to discovered peers"
-
-        c.rooms[roomName] = ChatRoom(
-          serviceId: serviceIdStr, contentTopic: contentTopic, discovered: peers
-        )
+        c.currentRoom = roomName
+        echo &"Switched to room '{roomName}'"
       else:
-        echo "Warning: Kademlia not available. Room created locally only."
-        c.rooms[roomName] =
-          ChatRoom(serviceId: serviceIdStr, contentTopic: contentTopic, discovered: @[])
-
-      c.currentRoom = roomName
-      echo &"Created/joined room '{roomName}'. Content topic: {contentTopic}"
+        await c.createRoom(roomName)
     elif line.startsWith("/rooms"):
       if c.rooms.len == 0:
-        echo "No rooms joined yet. Use /create <room-name> to create one."
+        echo "No rooms joined yet. Use /room <room-name> to create one."
       else:
         echo "Joined rooms:"
         for name, room in c.rooms:
           let marker = if name == c.currentRoom: " *" else: ""
           echo &"  {name} ({room.discovered.len} peers){marker}"
-    elif line.startsWith("/switch"):
-      let roomName = line[7 ..^ 1].strip()
-      if roomName.len == 0:
-        echo "Usage: /switch <room-name>"
-        continue
-
-      if roomName notin c.rooms:
-        echo &"Room '{roomName}' not found. Use /create {roomName} to create it."
-        continue
-
-      c.currentRoom = roomName
-      echo &"Switched to room '{roomName}'"
     elif line.startsWith("/nick"):
       c.nick = await readNick(c.transp)
       echo "You are now known as " & c.nick
@@ -267,7 +257,7 @@ proc writeAndPrint(c: Chat) {.async.} =
     else:
       if c.started:
         if c.rooms.len == 0:
-          echo "No room active. Use /create <room-name> first."
+          echo "No room active. Use /room <room-name> first."
         else:
           c.publish(line)
       else:
@@ -280,7 +270,6 @@ proc writeAndPrint(c: Chat) {.async.} =
 
 proc readWriteLoop(c: Chat) {.async.} =
   asyncSpawn c.writeAndPrint()
-  asyncSpawn c.readAndPrint()
 
 proc readInput(wfd: AsyncFD) {.thread, raises: [Defect, CatchableError].} =
   let transp = fromPipe(wfd)
@@ -405,6 +394,10 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     prompt: false,
   )
 
+  let roomName = await readRoom(transp)
+  if roomName.len > 0:
+    await chat.createRoom(roomName)
+
   let peerInfo = node.switch.peerInfo
   let listenStr = $peerInfo.addrs[0] & "/p2p/" & $peerInfo.peerId
   echo &"Listening on\n {listenStr}"
@@ -412,6 +405,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   # Subscribe to relay topic
   if conf.relay:
     proc handler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async, gcsafe.} =
+      var matched = false
       for roomName, room in chat.rooms:
         if msg.contentTopic == room.contentTopic:
           let chatLine = getChatLine(msg.payload)
@@ -426,7 +420,16 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
             echo prefix & chatLine
           chat.prompt = false
           showChatPrompt(chat)
+          matched = true
           break
+      if not matched:
+        let chatLine = getChatLine(msg.payload)
+        try:
+          echo &"[unknown] {chatLine}"
+        except ValueError:
+          echo "[unknown] " & chatLine
+        chat.prompt = false
+        showChatPrompt(chat)
 
     node.subscribe(
       (kind: PubsubSub, topic: DefaultPubsubTopic), WakuRelayHandler(handler)
