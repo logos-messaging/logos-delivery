@@ -87,9 +87,7 @@ suite "Reliable Channel - ingress":
 
     waku_message_events.MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
-        messageHash: "", message: inboundMsg
-      ),
+      waku_message_events.MessageReceivedEvent(messageHash: "", message: inboundMsg),
     )
 
     let arrived = await received.withTimeout(TestTimeout)
@@ -141,9 +139,7 @@ suite "Reliable Channel - ingress":
 
     waku_message_events.MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
-        messageHash: "", message: inboundMsg
-      ),
+      waku_message_events.MessageReceivedEvent(messageHash: "", message: inboundMsg),
     )
 
     ## Give the event broker a chance to fan out.
