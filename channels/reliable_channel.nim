@@ -22,6 +22,7 @@ import libp2p/crypto/crypto as libp2p_crypto
 
 import waku/node/delivery_service/delivery_service
 import waku/node/delivery_service/send_service
+import waku/waku_core/topics
 
 import ./events
 import ./segmentation/segmentation
@@ -41,9 +42,8 @@ const Lip173Meta* = "LIP173"
 type
   ReliableChannel* = ref object
     ## Spec-defined public type. Fields are private so callers cannot
-    ## mutate internals and break invariants (e.g. rewriting the
-    ## delivery service mid-flight, or corrupting `requestIds`).
-    ## Getters are added below for the few values consumers may need.
+    ## mutate internals and break invariants. Getters are added below
+    ## for the few values consumers may need.
     deliveryService: DeliveryService
     channelId: ChannelId
     contentTopic: ContentTopic
@@ -89,7 +89,7 @@ proc new*(
     senderId: senderId,
     rng: libp2p_crypto.newRng(),
     segmentation: SegmentationHandler.new(segConfig),
-    sdsHandler: SdsHandler.new(sdsConfig),
+    sdsHandler: SdsHandler.new(sdsConfig, senderId),
     rateLimit: RateLimitManager.new(rateConfig, channelId, brokerCtx),
     requestIds: initTable[RequestId, seq[RequestId]](),
     pendingRequests: @[],
@@ -117,6 +117,7 @@ proc onReadyToSend*(
     let encRes = await Encrypt.request(m)
     let wireBytes =
       if encRes.isOk(): seq[byte](encRes.get()) else: m
+
     let envelope = MessageEnvelope(
       contentTopic: self.contentTopic,
       payload: wireBytes,
@@ -125,8 +126,14 @@ proc onReadyToSend*(
 
     let deliveryReqId = RequestId.new(self.rng)
     let deliveryTask = DeliveryTask.new(deliveryReqId, envelope, globalBrokerContext()).valueOr:
-      ## TODO: emit MessageSendErrorEvent for the parent request id.
+      ## TODO: emit waku `MessageErrorEvent` for the parent request id.
       continue
+
+    ## Stamp the LIP173 wire-level marker so the ingress side of any
+    ## peer can route this WakuMessage to its Reliable Channel layer.
+    ## Done on the constructed WakuMessage rather than via the envelope
+    ## because `MessageEnvelope` does not expose a `meta` field.
+    deliveryTask.msg.meta = Lip173Meta.toBytes()
 
     asyncSpawn self.deliveryService.sendService.send(deliveryTask)
     self.requestIds.mgetOrPut(pending.parent, @[]).add(deliveryReqId)
@@ -149,16 +156,21 @@ proc send*(
   ## The returned `RequestId` is the parent of one-or-more
   ## delivery-service `RequestId`s; the mapping is recorded in
   ## `self.requestIds`.
+  if payload.len == 0:
+    return err("empty payload")
+
   let parentReqId = RequestId.new(self.rng)
   self.requestIds[parentReqId] = @[]
 
   for segment in self.segmentation.performSegmentation(payload):
     ## Encode the segment to bytes here so SDS stays agnostic of the
     ## segmentation wire format.
-    let sdsMsg =
-      self.sdsHandler.wrapOutgoing(self.channelId, self.senderId, segment.encode())
+    let sdsBytes = self.sdsHandler
+      .wrapOutgoing(self.channelId, self.senderId, segment.encode())
+      .valueOr:
+        return err("SDS wrap failed: " & error)
     self.pendingRequests.add((parent: parentReqId, ephemeral: ephemeral))
-    self.rateLimit.enqueueToSend(sdsMsg.encode())
+    self.rateLimit.enqueueToSend(sdsBytes)
 
   return ok(parentReqId)
 
@@ -171,22 +183,19 @@ proc onMessageReceived*(
   ##
   ## The ReliableChannelManager already validated LIP173 on the WakuMessage and
   ## stripped the wire framing, so the channel only sees the raw
-  ## payload bytes for itself. Each stage below is a minimal stub for
-  ## now.
+  ## payload bytes for itself.
   let decRes = await Decrypt.request(payload)
   let plaintext: seq[byte] =
     if decRes.isOk(): seq[byte](decRes.get()) else: payload
 
-  let sdsMsg: SdsMessage = SdsMessage.decode(plaintext)
-  let processedSds: SdsMessage = self.sdsHandler.handleIncoming(sdsMsg)
+  let unwrapped = self.sdsHandler.handleIncoming(plaintext)
+  if unwrapped.isErr():
+    return
 
-  let segment: SegmentMessageProto =
-    SegmentMessageProto.decode(processedSds.content)
-  let reassembled: Option[ReassemblyResult] =
-    self.segmentation.handleIncomingSegment(segment)
-
+  let segment = SegmentMessageProto.decode(unwrapped.get().content)
+  let reassembled = self.segmentation.handleIncomingSegment(segment)
   if reassembled.isSome():
-    ## TODO: emit the channel-level `ChannelMessageReceivedEvent` carrying
-    ## `reassembled.get().payload` once the event is wired into the
-    ## EventBroker.
+    ## TODO: emit `ChannelMessageReceivedEvent` carrying
+    ## `reassembled.get().payload` once the channel-level event surface
+    ## is wired into the EventBroker.
     discard reassembled

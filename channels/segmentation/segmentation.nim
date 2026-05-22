@@ -4,6 +4,9 @@
 ## reassembles them on reception. Supports optional Reed-Solomon parity
 ## segments for loss recovery, as per the Reliable Channel API spec.
 ##
+## For the skeleton everything fits in a single segment: real chunking
+## and Reed-Solomon parity will be plugged in later.
+##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
 import std/options
@@ -36,12 +39,9 @@ proc new*(T: type SegmentationHandler, config: SegmentationConfig): T =
 proc performSegmentation*(
     self: SegmentationHandler, payload: seq[byte]
 ): seq[SegmentMessageProto] =
-  ## Stage 1 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
-  ## Split `payload` into segments according to handler config; when
-  ## `enableReedSolomon` is true, parity segments are appended.
-  ##
-  ## For now: emit a single segment carrying the entire payload.
-  ## TODO: real chunking + Reed-Solomon parity.
+  ## Stage 1 of the outgoing pipeline.
+  ## Skeleton behaviour: emit exactly one segment carrying the whole
+  ## payload. Real chunking and Reed-Solomon parity will replace this.
   return
     @[
       SegmentMessageProto(
@@ -58,9 +58,14 @@ proc performSegmentation*(
 proc handleIncomingSegment*(
     self: SegmentationHandler, segment: SegmentMessageProto
 ): Option[ReassemblyResult] =
-  ## Process an incoming segment. Returns Some(ReassemblyResult) when
-  ## the full message has been reassembled (and hash-verified), else None.
-  return none(ReassemblyResult)
+  ## Skeleton behaviour: every segment is already a complete message
+  ## (since `performSegmentation` always emits one), so just hand the
+  ## payload straight back.
+  return some(
+    ReassemblyResult(
+      payload: segment.payload, entireMessageHash: segment.entireMessageHash
+    )
+  )
 
 proc cleanupSegments*(self: SegmentationHandler) =
   ## Drop expired partial-reassembly state.

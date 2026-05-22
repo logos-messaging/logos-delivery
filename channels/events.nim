@@ -10,7 +10,7 @@
 ## senderId, channelId), so it lives here.
 
 import waku/events/message_events as waku_message_events
-import waku/common/broker/event_broker
+import brokers/event_broker
 
 import ./types as channel_types
 

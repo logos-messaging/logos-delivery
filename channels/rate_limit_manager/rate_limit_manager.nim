@@ -3,11 +3,15 @@
 ## Tracks messages sent per RLN epoch and delays dispatch when the
 ## limit is approached, ensuring RLN compliance on enforcing relays.
 ##
+## For the skeleton this is a pass-through: messages are immediately
+## released as ready-to-send. Real epoch budgeting will be added later.
+##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
 import std/times
-import sds/message
-import waku/common/broker/event_broker
+import message
+import brokers/event_broker
+import brokers/broker_context
 
 export event_broker, broker_context
 export message.SdsChannelID
@@ -31,6 +35,7 @@ EventBroker:
 
 type
   RateLimitConfig* = object
+    enabled*: bool ## spec: rate limiting opt-in; SHOULD be true when RLN active
     epochPeriodSec*: int
     messagesPerEpoch*: int
 
@@ -58,25 +63,16 @@ proc new*(
   )
 
 proc enqueueToSend*(self: RateLimitManager, msg: seq[byte]) =
-  ## Stage 3 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
-  ##
-  ## For now: enqueue the message and immediately dequeue the full
-  ## queue, emitting `ReadyToSendEvent` with the batch ready to be sent.
-  ## TODO: park `msg` on `self.queue` and only emit when the RLN-epoch
-  ## budget allows; advance epoch bookkeeping on `dequeueReady`.
-  self.queue.add(msg)
-
-  let ready = self.queue
-  self.queue = @[]
-
+  ## Skeleton behaviour: enqueue and immediately release as a single
+  ## ready batch. Real per-epoch budgeting will park messages on
+  ## `self.queue` and emit only when the budget allows.
   ReadyToSendEvent.emit(
-    self.brokerCtx, ReadyToSendEvent(channelId: self.channelId, msgs: ready)
+    self.brokerCtx, ReadyToSendEvent(channelId: self.channelId, msgs: @[msg])
   )
 
 proc dequeueReady*(self: RateLimitManager): seq[seq[byte]] =
   ## Returns the set of queued messages that may be dispatched now
-  ## without exceeding the configured rate limit. Advances epoch
-  ## bookkeeping as needed.
+  ## without exceeding the configured rate limit.
   discard
 
 proc resetEpoch*(self: RateLimitManager) =

@@ -14,6 +14,7 @@ import waku/api/api
 import waku/api/api_conf
 import waku/events/message_events as waku_message_events
 import waku/factory/waku as waku_factory
+import waku/waku_core/topics
 
 import ./reliable_channel
 import ./encryption/noop_encryption

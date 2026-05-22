@@ -5,7 +5,7 @@
 ## complete persistence contract, drop this file and import that surface
 ## instead of re-declaring it here.
 
-import sds/message
+import message
 
 type
   SdsPersistenceKind* {.pure.} = enum

@@ -3,12 +3,18 @@
 ## Provides end-to-end delivery guarantees via causal history tracking,
 ## acknowledgements, and retransmission of unacknowledged segments.
 ##
+## Skeleton: `wrapOutgoing` and `handleIncoming` are pass-throughs so
+## the send/receive circuit can exercise the surrounding pipeline.
+## Real SDS wrapping will plug in via `nim-sds` later.
+##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import sds/message
+import results
+import message as sds_message
+
 import ./sds_persistence
 
-export message, sds_persistence
+export sds_message, sds_persistence
 
 const
   DefaultAcknowledgementTimeoutMs* = 5_000
@@ -24,31 +30,33 @@ type
 
   SdsHandler* = ref object
     config*: SdsConfig
+    participantId*: SdsParticipantID
 
-proc new*(T: type SdsHandler, config: SdsConfig): T =
-  return T(config: config)
+proc new*(
+    T: type SdsHandler,
+    config: SdsConfig,
+    participantId: SdsParticipantID = SdsParticipantID(""),
+): T =
+  return T(config: config, participantId: participantId)
 
 proc wrapOutgoing*(
     self: SdsHandler,
     channelId: SdsChannelID,
     senderId: SdsParticipantID,
     payload: seq[byte],
-): SdsMessage =
+): Result[seq[byte], string] =
   ## Stage 2 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
-  ## SDS is intentionally segmentation-agnostic: the caller encodes the
-  ## segment to bytes before handing it over here.
-  ##
-  ## TODO: real causal-history/lamport/bloom-filter population.
-  discard
+  ## Skeleton: pass the encoded segment through unchanged. Real causal
+  ## history / lamport / bloom-filter population will replace this.
+  return ok(payload)
 
 proc handleIncoming*(
-    self: SdsHandler, msg: SdsMessage
-): SdsMessage =
-  ## Update local SDS state from an incoming message. May trigger
-  ## repair requests (SDS-R) for missing causal history entries.
-  discard
+    self: SdsHandler, msg: seq[byte]
+): Result[tuple[content: seq[byte], channelId: SdsChannelID], string] =
+  ## Skeleton: pass the bytes through; channel id is left empty until
+  ## the real wire format provides it.
+  return ok((content: msg, channelId: SdsChannelID("")))
 
-proc tickRetransmissions*(self: SdsHandler): seq[SdsMessage] =
-  ## Returns messages whose ack timeout has elapsed and should be
-  ## retransmitted.
+proc tickRetransmissions*(self: SdsHandler) =
+  ## Drives retransmissions of unacknowledged messages.
   discard

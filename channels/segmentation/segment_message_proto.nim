@@ -1,4 +1,7 @@
 ## Wire format for a single segment, per the Reliable Channel API spec.
+##
+## Skeleton: encode/decode treat the segment as just its payload bytes,
+## since for now we only ever produce a single segment per send.
 
 type SegmentMessageProto* = object
   entireMessageHash*: seq[byte] ## Keccak256(original payload), 32 bytes
@@ -17,7 +20,15 @@ proc isValid*(self: SegmentMessageProto): bool =
   discard
 
 proc encode*(self: SegmentMessageProto): seq[byte] =
-  discard
+  self.payload
 
 proc decode*(T: type SegmentMessageProto, buf: seq[byte]): T =
-  discard
+  T(
+    entireMessageHash: @[],
+    dataSegmentIndex: 0,
+    dataSegmentCount: 1,
+    payload: buf,
+    paritySegmentIndex: 0,
+    paritySegmentCount: 0,
+    isParity: false,
+  )

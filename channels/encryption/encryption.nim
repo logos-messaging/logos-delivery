@@ -12,7 +12,7 @@
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import waku/common/broker/request_broker
+import brokers/request_broker
 
 export request_broker
 
