@@ -165,7 +165,7 @@ type WakuNodeConf* = object
 
     preset* {.
       desc:
-        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 2). Overrides other values.",
+        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 2). 'logos.test' is the Logos Test Network (cluster 2). Overrides other values.",
       defaultValue: "",
       name: "preset"
     .}: string
@@ -947,6 +947,8 @@ proc toNetworkConf(
     ok(some(NetworkConf.TheWakuNetworkConf()))
   of "logos.dev", "logosdev":
     ok(some(NetworkConf.LogosDevConf()))
+  of "logos.test", "logostest":
+    ok(some(NetworkConf.LogosTestConf()))
   else:
     err("Invalid --preset value passed: " & lcPreset)
 
