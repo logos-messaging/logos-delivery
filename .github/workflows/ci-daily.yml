@@ -77,3 +77,8 @@ jobs:
             }" \
             "$DISCORD_WEBHOOK_URL"
 
+  # RLN end-to-end against the simulator. Defaults from tests/simulator/rln-sim.env.
+  rln-simulator:
+    uses: ./.github/workflows/ci-rln-simulator.yml
+    secrets: inherit
+

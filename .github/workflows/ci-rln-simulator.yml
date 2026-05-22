@@ -1,4 +1,4 @@
-name: RLN E2E — Simulator (daily)
+name: RLN E2E — Simulator
 
 # Validates the full RLN flow end-to-end against logos-delivery-simulator:
 # keystore generation, on-chain registration, gossipsub propagation,
@@ -10,39 +10,50 @@ name: RLN E2E — Simulator (daily)
 #
 # The image is built ON the runner and tested ON the same runner, so the
 # AVX-512 portability issue in container-image.yml does not apply here.
+#
+# No own schedule: ci-daily.yml is the single daily entry point and calls
+# this via workflow_call. workflow_dispatch allows manual runs.
+# Run defaults live in tests/simulator/rln-sim.env; inputs override per-run.
 
 on:
-  schedule:
-    - cron: '0 4 * * *'        # daily, 30 min before ci-daily.yml
+  workflow_call:
+    inputs:
+      branch:
+        type: string
+        default: ''
+      num_nodes:
+        type: string
+        default: ''
+      msg_limit:
+        type: string
+        default: ''
+      epoch_sec:
+        type: string
+        default: ''
   workflow_dispatch:
     inputs:
       branch:
-        description: 'logos-delivery branch to build & test'
+        description: 'logos-delivery branch to build & test (blank = use rln-sim.env)'
         type: string
-        default: 'master'
+        default: ''
       num_nodes:
-        description: 'Number of nwaku nodes'
+        description: 'Number of nwaku nodes (blank = use rln-sim.env)'
         type: string
-        default: '6'
+        default: ''
       msg_limit:
-        description: 'RLN_RELAY_MSG_LIMIT (must be >= contract min, ~20)'
+        description: 'RLN_RELAY_MSG_LIMIT, must be >= contract min ~20 (blank = use rln-sim.env)'
         type: string
-        default: '30'
+        default: ''
       epoch_sec:
-        description: 'RLN_RELAY_EPOCH_SEC (large enough that a burst cannot straddle an epoch)'
+        description: 'RLN_RELAY_EPOCH_SEC, large enough a burst cannot straddle an epoch (blank = use rln-sim.env)'
         type: string
-        default: '120'
+        default: ''
 
 env:
   NPROC: 2
   MAKEFLAGS: "-j2"
   NIM_VERSION: '2.2.4'
   NIMBLE_VERSION: '0.22.3'
-  # Defaults used by the scheduled run (inputs are only set on workflow_dispatch)
-  DEFAULT_BRANCH: 'master'
-  DEFAULT_NUM_NODES: '6'
-  DEFAULT_MSG_LIMIT: '30'
-  DEFAULT_EPOCH_SEC: '120'
 
 jobs:
   rln-e2e:
@@ -51,21 +62,32 @@ jobs:
     name: rln-e2e
 
     steps:
-      - name: Resolve parameters
-        id: cfg
-        run: |
-          echo "branch=${{ github.event.inputs.branch || env.DEFAULT_BRANCH }}" >> $GITHUB_OUTPUT
-          echo "num_nodes=${{ github.event.inputs.num_nodes || env.DEFAULT_NUM_NODES }}" >> $GITHUB_OUTPUT
-          echo "msg_limit=${{ github.event.inputs.msg_limit || env.DEFAULT_MSG_LIMIT }}" >> $GITHUB_OUTPUT
-          echo "epoch_sec=${{ github.event.inputs.epoch_sec || env.DEFAULT_EPOCH_SEC }}" >> $GITHUB_OUTPUT
-
       # First checkout: the ref that triggered this workflow (CI branch /
-      # master). This is where the e2e test script lives — the build branch
-      # may not contain it.
+      # master). This is where the e2e test script and rln-sim.env live —
+      # the build branch may not contain them.
       - name: Checkout CI ref (for the test script)
         uses: actions/checkout@v4
         with:
           submodules: false
+
+      # Defaults come from tests/simulator/rln-sim.env (single source of truth);
+      # a non-blank input (dispatch or workflow_call) overrides the matching value.
+      - name: Resolve parameters
+        id: cfg
+        env:
+          IN_BRANCH: ${{ inputs.branch }}
+          IN_NUM_NODES: ${{ inputs.num_nodes }}
+          IN_MSG_LIMIT: ${{ inputs.msg_limit }}
+          IN_EPOCH_SEC: ${{ inputs.epoch_sec }}
+        run: |
+          set -euo pipefail
+          set -a; . tests/simulator/rln-sim.env; set +a
+          {
+            echo "branch=${IN_BRANCH:-$BRANCH}"
+            echo "num_nodes=${IN_NUM_NODES:-$NUM_NODES}"
+            echo "msg_limit=${IN_MSG_LIMIT:-$MSG_LIMIT}"
+            echo "epoch_sec=${IN_EPOCH_SEC:-$EPOCH_SEC}"
+          } >> "$GITHUB_OUTPUT"
 
       - name: Stash e2e test script outside the workspace
         run: |
