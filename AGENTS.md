@@ -98,7 +98,8 @@ Note: The build uses `--mm:refc` memory management (passed automatically by the 
 make wakunode2          # Build main node binary
 make test               # Run all tests
 make testcommon         # Run common tests only
-make libwaku            # Build the C library (liblogosdelivery)
+make libwaku            # Build the legacy C library (libwaku)
+make liblogosdelivery. # Build actual C FFI library
 make chat2              # Build chat example
 make install-nph        # Install git hook for auto-formatting
 ```
