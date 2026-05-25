@@ -70,10 +70,8 @@ endif
 waku.nims:
 	ln -s waku.nimble $@
 
-$(NIMBLEDEPS_STAMP): nimble.lock | waku.nims
-	$(MAKE) install-nimble
+$(NIMBLEDEPS_STAMP): nimble.lock | install-nimble build-nph waku.nims
 	nimble setup --localdeps
-	$(MAKE) build-nph
 	touch $@
 
 # Must be phony so the recipe always runs and the sub-make re-evaluates
