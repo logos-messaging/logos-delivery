@@ -260,7 +260,7 @@ proc validateMessage*(
   if hasDup.isErr():
     waku_rln_errors_total.inc(labelValues = ["duplicate_check"])
   elif hasDup.value == true:
-    trace "invalid message: message is spam",
+    debug "invalid message: message is spam",
       payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     waku_rln_spam_messages_total.inc()
     return MessageValidationResult.Spam
