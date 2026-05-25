@@ -500,7 +500,8 @@ Language: Nim 2.x | License: MIT or Apache 2.0
 - `tests/all_tests_waku.nim` - All Waku protocol tests
 - `tests/all_tests_wakunode2.nim` - Node application tests
 - `tests/all_tests_common.nim` - Common utilities tests
-
+#### in-flight testing
+- any test can be run separately by issuing `make test tests/<relativepath>/<unit-test-source>.nim`
 ### Key Dependencies
 - `chronos` - Async framework
 - `nim-results` - Result type for error handling
