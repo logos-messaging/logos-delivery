@@ -37,6 +37,9 @@ See [documentation](https://docs.waku.org/learn/) for architectural details.
 - ENR (Ethereum Node Record): Node identity and capability advertisement
 - Multiaddr: libp2p addressing format (e.g., `/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2...`)
 - PubsubTopic: Gossipsub topic for message routing (shard-based, e.g., `/waku/2/rs/<cluster-id>/<shard-id>`; the default is `/waku/2/rs/0/0`)
+  - cluster-id: network id
+  - shard-id: shard differentiator inside the network - drivers mesh forming.
+    - autosharding: network supports n (configured) shards [0..n-1], shard derived from ContentTopic
 - ContentTopic: Application-level message categorization (e.g., `/my-app/1/chat/proto`)
 - Sharding: Partitioning network traffic across topics (static or auto-sharding)
 - RLN (Rate Limiting Nullifier): Zero-knowledge proof system for spam prevention
