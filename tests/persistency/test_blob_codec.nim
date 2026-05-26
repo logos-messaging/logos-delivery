@@ -56,12 +56,14 @@ suite "Persistency blob codec":
     check fromBlob(toBlob(u), UnacknowledgedMessage) == u
 
   test "IncomingMessage round-trips (HashSet)":
-    let inc = IncomingMessage.init(sampleMessage(), toHashSet(["dep-a", "dep-b", "dep-c"]))
+    let inc =
+      IncomingMessage.init(sampleMessage(), toHashSet(["dep-a", "dep-b", "dep-c"]))
     check fromBlob(toBlob(inc), IncomingMessage) == inc
 
   test "repair tuples round-trip":
-    let outPair =
-      ("msg-42".SdsMessageID, OutgoingRepairEntry.init(sampleHistory(), initTime(10, 0)))
+    let outPair = (
+      "msg-42".SdsMessageID, OutgoingRepairEntry.init(sampleHistory(), initTime(10, 0))
+    )
     check fromBlob(toBlob(outPair), (SdsMessageID, OutgoingRepairEntry)) == outPair
 
     let inPair = (

@@ -136,7 +136,9 @@ proc writePart*(buf: var seq[byte], b: seq[byte]) =
   for x in b:
     buf.add(x)
 
-proc readPart*(r: var ReadCtx, _: typedesc[seq[byte]]): seq[byte] {.raises: [ValueError].} =
+proc readPart*(
+    r: var ReadCtx, _: typedesc[seq[byte]]
+): seq[byte] {.raises: [ValueError].} =
   let n = int(readPart(r, uint32))
   r.need(n)
   result = newSeq[byte](n)
@@ -206,9 +208,7 @@ proc writePart*[T: tuple](buf: var seq[byte], v: T) =
   for f in fields(v):
     writePart(buf, f)
 
-proc readPart*[T: tuple](
-    r: var ReadCtx, _: typedesc[T]
-): T {.raises: [ValueError].} =
+proc readPart*[T: tuple](r: var ReadCtx, _: typedesc[T]): T {.raises: [ValueError].} =
   mixin readPart
   for f in fields(result):
     f = readPart(r, typeof(f))
@@ -264,7 +264,9 @@ macro BlobCodec*(T: typedesc): untyped =
     name = ident "writePart",
     params = [
       newEmptyNode(),
-      newIdentDefs(bufId, nnkVarTy.newTree(nnkBracketExpr.newTree(ident "seq", ident "byte"))),
+      newIdentDefs(
+        bufId, nnkVarTy.newTree(nnkBracketExpr.newTree(ident "seq", ident "byte"))
+      ),
       newIdentDefs(vId, tSym),
     ],
     body = writeBody,
@@ -287,9 +289,9 @@ macro BlobCodec*(T: typedesc): untyped =
     ],
     body = readBody,
   )
-  readProc.addPragma(nnkExprColonExpr.newTree(
-    ident "raises", nnkBracket.newTree(ident "ValueError")
-  ))
+  readProc.addPragma(
+    nnkExprColonExpr.newTree(ident "raises", nnkBracket.newTree(ident "ValueError"))
+  )
 
   result = newStmtList(writeProc, readProc)
 

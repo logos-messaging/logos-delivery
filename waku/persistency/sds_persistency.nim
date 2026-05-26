@@ -76,9 +76,7 @@ BlobCodec(IncomingRepairEntry)
 
 # ── Async backing procs ─────────────────────────────────────────────────
 
-proc doLoadAll(
-    job: Job, channelId: SdsChannelID
-): Future[ChannelSnapshot] {.async.} =
+proc doLoadAll(job: Job, channelId: SdsChannelID): Future[ChannelSnapshot] {.async.} =
   var snap = ChannelSnapshot()
   let chanKey = toKey(channelId)
 
@@ -90,11 +88,9 @@ proc doLoadAll(
         try:
           snap.lamportTimestamp = fromBlob(opt.get, int64)
         except ValueError as e:
-          warn "sds-persistency: invalid lamport bytes",
-            channelId, err = e.msg
+          warn "sds-persistency: invalid lamport bytes", channelId, err = e.msg
     else:
-      warn "sds-persistency: get lamport failed",
-        channelId, err = $r.error
+      warn "sds-persistency: get lamport failed", channelId, err = $r.error
 
   block log:
     let r = await job.scanPrefix(CatLog, chanKey)
@@ -111,8 +107,7 @@ proc doLoadAll(
           result = cmp(a.messageId, b.messageId)
       snap.messageHistory = msgs
     else:
-      warn "sds-persistency: scan log failed",
-        channelId, err = $r.error
+      warn "sds-persistency: scan log failed", channelId, err = $r.error
 
   block outgoing:
     let r = await job.scanPrefix(CatOutgoing, chanKey)
@@ -121,11 +116,9 @@ proc doLoadAll(
         try:
           snap.outgoingBuffer.add(fromBlob(row.payload, UnacknowledgedMessage))
         except ValueError as e:
-          warn "sds-persistency: invalid outgoing row",
-            channelId, err = e.msg
+          warn "sds-persistency: invalid outgoing row", channelId, err = e.msg
     else:
-      warn "sds-persistency: scan outgoing failed",
-        channelId, err = $r.error
+      warn "sds-persistency: scan outgoing failed", channelId, err = $r.error
 
   block incoming:
     let r = await job.scanPrefix(CatIncoming, chanKey)
@@ -134,11 +127,9 @@ proc doLoadAll(
         try:
           snap.incomingBuffer.add(fromBlob(row.payload, IncomingMessage))
         except ValueError as e:
-          warn "sds-persistency: invalid incoming row",
-            channelId, err = e.msg
+          warn "sds-persistency: invalid incoming row", channelId, err = e.msg
     else:
-      warn "sds-persistency: scan incoming failed",
-        channelId, err = $r.error
+      warn "sds-persistency: scan incoming failed", channelId, err = $r.error
 
   block outRepair:
     let r = await job.scanPrefix(CatOutRepair, chanKey)
@@ -149,11 +140,9 @@ proc doLoadAll(
             fromBlob(row.payload, (SdsMessageID, OutgoingRepairEntry))
           )
         except ValueError as e:
-          warn "sds-persistency: invalid out-repair row",
-            channelId, err = e.msg
+          warn "sds-persistency: invalid out-repair row", channelId, err = e.msg
     else:
-      warn "sds-persistency: scan out-repair failed",
-        channelId, err = $r.error
+      warn "sds-persistency: scan out-repair failed", channelId, err = $r.error
 
   block inRepair:
     let r = await job.scanPrefix(CatInRepair, chanKey)
@@ -164,11 +153,9 @@ proc doLoadAll(
             fromBlob(row.payload, (SdsMessageID, IncomingRepairEntry))
           )
         except ValueError as e:
-          warn "sds-persistency: invalid in-repair row",
-            channelId, err = e.msg
+          warn "sds-persistency: invalid in-repair row", channelId, err = e.msg
     else:
-      warn "sds-persistency: scan in-repair failed",
-        channelId, err = $r.error
+      warn "sds-persistency: scan in-repair failed", channelId, err = $r.error
 
   return snap
 
@@ -180,8 +167,7 @@ proc doDropChannel(job: Job, channelId: SdsChannelID): Future[void] {.async.} =
   var ops: seq[TxOp] = @[]
   var hintIds: seq[SdsMessageID] = @[]
 
-  let cats =
-    [CatLog, CatOutgoing, CatIncoming, CatOutRepair, CatInRepair]
+  let cats = [CatLog, CatOutgoing, CatIncoming, CatOutRepair, CatInRepair]
   for cat in cats:
     let r = await job.scanPrefix(cat, chanKey)
     if r.isOk:
