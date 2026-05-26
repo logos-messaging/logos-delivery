@@ -82,7 +82,11 @@ proc writePart*(buf: var seq[byte], v: int) =
   writePart(buf, int64(v))
 
 proc readPart*(r: var ReadCtx, _: typedesc[int]): int {.raises: [ValueError].} =
-  int(readPart(r, int64))
+  let x = readPart(r, int64)
+  when sizeof(int) < sizeof(int64):
+    if x < int64(low(int)) or x > int64(high(int)):
+      raise newException(ValueError, "int out of range: " & $x)
+  result = int(x)
 
 # ── Small scalars ───────────────────────────────────────────────────────
 
@@ -114,7 +118,12 @@ proc writePart*[E: enum](buf: var seq[byte], v: E) =
   writePart(buf, int64(ord(v)))
 
 proc readPart*[E: enum](r: var ReadCtx, _: typedesc[E]): E {.raises: [ValueError].} =
-  E(readPart(r, int64))
+  let x = readPart(r, int64)
+  let lo = int64(ord(low(E)))
+  let hi = int64(ord(high(E)))
+  if x < lo or x > hi:
+    raise newException(ValueError, "enum value out of range: " & $x)
+  result = E(x)
 
 # ── string / seq[byte] (4-byte length) ──────────────────────────────────
 
@@ -124,7 +133,10 @@ proc writePart*(buf: var seq[byte], s: string) =
     buf.add(byte(c))
 
 proc readPart*(r: var ReadCtx, _: typedesc[string]): string {.raises: [ValueError].} =
-  let n = int(readPart(r, uint32))
+  let nU = readPart(r, uint32)
+  if nU > uint32(high(int)):
+    raise newException(ValueError, "string length out of range: " & $nU)
+  let n = int(nU)
   r.need(n)
   result = newString(n)
   for i in 0 ..< n:
@@ -139,7 +151,10 @@ proc writePart*(buf: var seq[byte], b: seq[byte]) =
 proc readPart*(
     r: var ReadCtx, _: typedesc[seq[byte]]
 ): seq[byte] {.raises: [ValueError].} =
-  let n = int(readPart(r, uint32))
+  let nU = readPart(r, uint32)
+  if nU > uint32(high(int)):
+    raise newException(ValueError, "blob length out of range: " & $nU)
+  let n = int(nU)
   r.need(n)
   result = newSeq[byte](n)
   for i in 0 ..< n:
@@ -183,11 +198,13 @@ proc readPart*[T](
     r: var ReadCtx, _: typedesc[seq[T]]
 ): seq[T] {.raises: [ValueError].} =
   mixin readPart
-  let n = int(readPart(r, uint32))
+  let nU = readPart(r, uint32)
+  if nU > uint32(high(int)):
+    raise newException(ValueError, "sequence length out of range: " & $nU)
+  let n = int(nU)
   result = newSeqOfCap[T](n)
   for _ in 0 ..< n:
     result.add(readPart(r, T))
-
 proc writePart*[T](buf: var seq[byte], s: HashSet[T]) =
   mixin writePart
   writePart(buf, uint32(s.len))
@@ -198,11 +215,13 @@ proc readPart*[T](
     r: var ReadCtx, _: typedesc[HashSet[T]]
 ): HashSet[T] {.raises: [ValueError].} =
   mixin readPart
-  let n = int(readPart(r, uint32))
+  let nU = readPart(r, uint32)
+  if nU > uint32(high(int)):
+    raise newException(ValueError, "set length out of range: " & $nU)
+  let n = int(nU)
   result = initHashSet[T](max(n, 2))
   for _ in 0 ..< n:
     result.incl(readPart(r, T))
-
 proc writePart*[T: tuple](buf: var seq[byte], v: T) =
   mixin writePart
   for f in fields(v):
@@ -305,6 +324,8 @@ proc toBlob*[T](v: T): seq[byte] =
 proc fromBlob*[T](bytes: openArray[byte], _: typedesc[T]): T {.raises: [ValueError].} =
   mixin readPart
   var r = initReadCtx(bytes)
-  readPart(r, T)
+  result = readPart(r, T)
+  if r.pos != r.buf.len:
+    raise newException(ValueError, "trailing payload bytes: " & $(r.buf.len - r.pos))
 
 {.pop.}

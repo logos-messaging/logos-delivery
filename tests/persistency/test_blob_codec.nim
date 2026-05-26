@@ -87,3 +87,8 @@ suite "Persistency blob codec":
       discard fromBlob(bytes[0 ..< bytes.len - 5], SdsMessage)
     expect ValueError:
       discard fromBlob(@[0xFF'u8, 0xFF, 0xFF, 0xFF], string) # claims 4 GiB
+
+  test "trailing input raises ValueError":
+    let bytes = toBlob(sampleMessage())
+    expect ValueError:
+      discard fromBlob(bytes & @[0x00'u8], SdsMessage)

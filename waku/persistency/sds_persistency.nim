@@ -10,12 +10,13 @@
 ## {.async: (raises: []), gcsafe.}`) — SDS awaits them on its own chronos
 ## loop. We map each onto the matching async `Job` op:
 ##
-##  * **Writes (save*/remove*)** — `await` the Job op through the `safePut`/
-##    `safeDelete` helpers, which trap any backend error and log it rather
-##    than raising (the contract forbids raising).
+##  * **Writes (save*/remove*)** — call the fire-and-forget `Job.persist*` ops
+##    through the `safePut`/`safeDelete` helpers, which trap any backend error
+##    and log it rather than raising (the contract forbids raising). Note that
+##    Persistency v1 only guarantees the event has been queued when the Future
+##    resolves — reads immediately after an awaited write can still be racy.
 ##  * **`dropChannel`** — awaits `doDropChannel`, which batches every row of
-##    the channel into one transactional `persist` so the wipe is atomic
-##    (called from removeChannel / resetReliabilityManager).
+##    the channel into one transactional `persist` (atomic when applied).
 ##  * **`loadAllForChannel`** — awaits `doLoadAll` and returns the snapshot
 ##    the SDS bootstrap path needs.
 ##
