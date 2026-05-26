@@ -1,6 +1,7 @@
 { pkgs
 , src
 , zerokitRln
+, targets              ? []
 , gitVersion           ? "n/a"
 , enablePostgres       ? true
 , enableNimDebugDlOpen ? true
@@ -9,6 +10,8 @@
 
 let
   deps      = import ./deps.nix    { inherit pkgs; };
+
+  buildWakucanary = builtins.elem "wakucanary" targets;
 
   nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
@@ -34,9 +37,29 @@ let
     if pkgs.stdenv.hostPlatform.isWindows then "dll"
     else if pkgs.stdenv.hostPlatform.isDarwin then "dylib"
     else "so";
+
+  # Shared `nim c` invocation. Callers vary the output, the source file and a
+  # few mode-specific flags (e.g. --app:lib, --noMain, --header); everything
+  # else (paths, defines, threading, gc, nimcache, rln linkage) is constant.
+  # $NAT_TRAV and $NIMCACHE are shell variables defined in buildPhase.
+  nimCompile = { outFile, sourceFile, extraArgs ? [] }: ''
+    nim c \
+      --noNimblePath \
+      ${pathArgs} \
+      --path:$NAT_TRAV \
+      --path:$NAT_TRAV/src \
+      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
+      ${nimDefineArgs} \
+      --threads:on \
+      --mm:refc \
+      --nimcache:$NIMCACHE \
+      --out:${outFile} \
+      ${pkgs.lib.concatStringsSep " \\\n      " extraArgs} \
+      ${sourceFile}
+  '';
 in
 pkgs.stdenv.mkDerivation {
-  pname = "liblogosdelivery";
+  pname = if buildWakucanary then "wakucanary" else "liblogosdelivery";
   version = "dev";
 
   inherit src;
@@ -71,45 +94,47 @@ pkgs.stdenv.mkDerivation {
     make -C $NAT_TRAV/vendor/libnatpmp-upstream \
       CFLAGS="-Wall -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4" libnatpmp.a
 
+    ${if buildWakucanary then ''
+    echo "== Building wakucanary =="
+    ${nimCompile {
+      outFile = "build/wakucanary";
+      sourceFile = "apps/wakucanary/wakucanary.nim";
+      extraArgs = [ "--path:." ];
+    }}
+    '' else ''
     echo "== Building liblogosdelivery (dynamic) =="
-    nim c \
-      --noNimblePath \
-      ${pathArgs} \
-      --path:$NAT_TRAV \
-      --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
-      ${nimDefineArgs} \
-      --out:build/liblogosdelivery.${libExt} \
-      --app:lib \
-      --threads:on \
-      --opt:size \
-      --noMain \
-      --mm:refc \
-      --header \
-      --nimMainPrefix:liblogosdelivery \
-      --nimcache:$NIMCACHE \
-      liblogosdelivery/liblogosdelivery.nim
+    ${nimCompile {
+      outFile = "build/liblogosdelivery.${libExt}";
+      sourceFile = "liblogosdelivery/liblogosdelivery.nim";
+      extraArgs = [
+        "--app:lib"
+        "--opt:size"
+        "--noMain"
+        "--header"
+        "--nimMainPrefix:liblogosdelivery"
+      ];
+    }}
 
     echo "== Building liblogosdelivery (static) =="
-    nim c \
-      --noNimblePath \
-      ${pathArgs} \
-      --path:$NAT_TRAV \
-      --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
-      ${nimDefineArgs} \
-      --out:build/liblogosdelivery.a \
-      --app:staticlib \
-      --threads:on \
-      --opt:size \
-      --noMain \
-      --mm:refc \
-      --nimMainPrefix:liblogosdelivery \
-      --nimcache:$NIMCACHE \
-      liblogosdelivery/liblogosdelivery.nim
+    ${nimCompile {
+      outFile = "build/liblogosdelivery.a";
+      sourceFile = "liblogosdelivery/liblogosdelivery.nim";
+      extraArgs = [
+        "--app:staticlib"
+        "--opt:size"
+        "--noMain"
+        "--nimMainPrefix:liblogosdelivery"
+      ];
+    }}
+    ''}
   '';
 
-  installPhase = ''
+  installPhase = if buildWakucanary then ''
+    runHook preInstall
+    mkdir -p $out/bin $out/lib
+    cp build/wakucanary $out/bin/
+    runHook postInstall
+  '' else ''
     runHook preInstall
     mkdir -p $out/lib $out/include
     cp build/liblogosdelivery.${libExt} $out/lib/ 2>/dev/null || true
@@ -118,21 +143,47 @@ pkgs.stdenv.mkDerivation {
     runHook postInstall
   '';
 
-  # Bundle librln alongside liblogosdelivery so the output is self-contained.
+  # Bundle librln alongside the produced artifact so the output is self-contained.
   # Use --add-rpath (not --set-rpath) so fixupPhase's stdenv RUNPATH injection
   # for libstdc++ is preserved.
   postInstall =
-    pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
-      cp ${zerokitRln}/lib/librln.dylib $out/lib/
-      chmod +w $out/lib/librln.dylib $out/lib/liblogosdelivery.dylib
-      install_name_tool -id @rpath/liblogosdelivery.dylib $out/lib/liblogosdelivery.dylib
-      install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
-      old=$(otool -L $out/lib/liblogosdelivery.dylib | awk 'NR>1{print $1}' | grep librln)
-      install_name_tool -change "$old" @rpath/librln.dylib $out/lib/liblogosdelivery.dylib
-      install_name_tool -add_rpath @loader_path $out/lib/liblogosdelivery.dylib
-    ''
-    + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
-      cp ${zerokitRln}/lib/librln.so $out/lib/
-      patchelf --add-rpath '$ORIGIN' $out/lib/liblogosdelivery.so
-    '';
+    if buildWakucanary then
+      pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+        cp ${zerokitRln}/lib/librln.dylib $out/lib/
+        chmod +w $out/lib/librln.dylib $out/bin/wakucanary
+        install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
+        old=$(otool -L $out/bin/wakucanary | awk 'NR>1{print $1}' | grep librln || true)
+        if [ -n "$old" ]; then
+          install_name_tool -change "$old" @rpath/librln.dylib $out/bin/wakucanary
+        fi
+        install_name_tool -add_rpath @loader_path/../lib $out/bin/wakucanary
+      ''
+      + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+        cp ${zerokitRln}/lib/librln.so $out/lib/
+        patchelf --add-rpath '$ORIGIN/../lib' $out/bin/wakucanary
+      ''
+    else
+      pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+        cp ${zerokitRln}/lib/librln.dylib $out/lib/
+        chmod +w $out/lib/librln.dylib $out/lib/liblogosdelivery.dylib
+        install_name_tool -id @rpath/liblogosdelivery.dylib $out/lib/liblogosdelivery.dylib
+        install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
+        old=$(otool -L $out/lib/liblogosdelivery.dylib | awk 'NR>1{print $1}' | grep librln)
+        install_name_tool -change "$old" @rpath/librln.dylib $out/lib/liblogosdelivery.dylib
+        install_name_tool -add_rpath @loader_path $out/lib/liblogosdelivery.dylib
+      ''
+      + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+        cp ${zerokitRln}/lib/librln.so $out/lib/
+        patchelf --add-rpath '$ORIGIN' $out/lib/liblogosdelivery.so
+      '';
+
+  meta = with pkgs.lib; {
+    description =
+      if buildWakucanary
+      then "Waku network canary tool"
+      else "logos-delivery shared/static library";
+    homepage = "https://github.com/logos-messaging/logos-delivery";
+    license  = licenses.mit;
+    platforms = platforms.unix;
+  };
 }
