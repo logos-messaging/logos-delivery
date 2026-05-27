@@ -38,28 +38,27 @@ proc new*(T: type SegmentationHandler, config: SegmentationConfig): T =
 
 proc performSegmentation*(
     self: SegmentationHandler, payload: seq[byte]
-): seq[SegmentMessageProto] =
-  ## Stage 1 of the outgoing pipeline.
+): seq[seq[byte]] =
   ## Skeleton behaviour: emit exactly one segment carrying the whole
   ## payload. Real chunking and Reed-Solomon parity will replace this.
-  return @[
-    SegmentMessageProto(
-      entireMessageHash: @[],
-      dataSegmentIndex: 0,
-      dataSegmentCount: 1,
-      payload: payload,
-      paritySegmentIndex: 0,
-      paritySegmentCount: 0,
-      isParity: false,
-    )
-  ]
+  let segment = SegmentMessageProto(
+    entireMessageHash: @[],
+    dataSegmentIndex: 0,
+    dataSegmentCount: 1,
+    payload: payload,
+    paritySegmentIndex: 0,
+    paritySegmentCount: 0,
+    isParity: false,
+  )
+  return @[segment.encode()]
 
 proc handleIncomingSegment*(
-    self: SegmentationHandler, segment: SegmentMessageProto
+    self: SegmentationHandler, segmentBytes: seq[byte]
 ): Option[ReassemblyResult] =
   ## Skeleton behaviour: every segment is already a complete message
   ## (since `performSegmentation` always emits one), so just hand the
   ## payload straight back.
+  let segment = SegmentMessageProto.decode(segmentBytes)
   return some(
     ReassemblyResult(
       payload: segment.payload, entireMessageHash: segment.entireMessageHash

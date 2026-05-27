@@ -148,11 +148,11 @@ proc send*(
   let parentReqId = RequestId.new(self.rng)
   self.requestIds[parentReqId] = @[]
 
-  for segment in self.segmentation.performSegmentation(payload):
-    ## Encode the segment to bytes here so SDS stays agnostic of the
-    ## segmentation wire format.
+  for segmentBytes in self.segmentation.performSegmentation(payload):
+    ## Segments arrive already encoded; the segmentation module owns
+    ## the wire format so SDS only ever sees opaque bytes.
     let sdsBytes = self.sdsHandler.wrapOutgoing(
-      self.channelId, self.senderId, segment.encode()
+      self.channelId, self.senderId, segmentBytes
     ).valueOr:
       return err("SDS wrap failed: " & error)
     self.pendingRequests.add((parent: parentReqId, ephemeral: ephemeral))
@@ -190,8 +190,7 @@ proc onMessageReceived(
   if unwrapped.isErr():
     return
 
-  let segment = SegmentMessageProto.decode(unwrapped.get().content)
-  let reassembled = self.segmentation.handleIncomingSegment(segment)
+  let reassembled = self.segmentation.handleIncomingSegment(unwrapped.get().content)
   if reassembled.isSome():
     ## Emit on the captured `brokerCtx` (the manager's), so the
     ## application listener that the manager has set up on that same
