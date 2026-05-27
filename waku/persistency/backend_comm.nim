@@ -68,7 +68,7 @@ proc mtMarshalValue*(
   of txPut:
     if not mtMarshalValue(buf, cap, value.payload, pos):
       return false
-  of txDelete:
+  of txDelete, txDeletePrefix:
     discard
   return true
 
@@ -93,6 +93,8 @@ proc mtUnmarshalValue*(
     value = TxOp(category: category, key: key, kind: txPut, payload: payload)
   of txDelete:
     value = TxOp(category: category, key: key, kind: txDelete)
+  of txDeletePrefix:
+    value = TxOp(category: category, key: key, kind: txDeletePrefix)
   return true
 
 EventBroker(mt):

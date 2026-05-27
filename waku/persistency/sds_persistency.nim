@@ -75,6 +75,32 @@ BlobCodec(IncomingMessage)
 BlobCodec(OutgoingRepairEntry)
 BlobCodec(IncomingRepairEntry)
 
+# ── Write helpers ───────────────────────────────────────────────────────
+#
+# The Persistence write fields are async with `raises: []`, but the Job ops
+# raise `CatchableError`. These wrappers trap and log so the closures stay
+# raise-free, preserving the "errors are logged, never raised" contract.
+
+proc safePut(
+    job: Job, category: string, k: Key, payload: seq[byte]
+) {.async: (raises: []).} =
+  try:
+    await job.persistPut(category, k, payload)
+  except CatchableError as e:
+    warn "sds-persistency: put failed", category, err = e.msg
+
+proc safeDelete(job: Job, category: string, k: Key) {.async: (raises: []).} =
+  try:
+    await job.persistDelete(category, k)
+  except CatchableError as e:
+    warn "sds-persistency: delete failed", category, err = e.msg
+
+proc safePersist(job: Job, ops: seq[TxOp]) {.async: (raises: []).} =
+  try:
+    await job.persist(ops)
+  except CatchableError as e:
+    warn "sds-persistency: persist batch failed", opCount = ops.len, err = e.msg
+
 # ── Async backing procs ─────────────────────────────────────────────────
 
 proc doLoadAll(job: Job, channelId: SdsChannelID): Future[ChannelSnapshot] {.async.} =
@@ -154,53 +180,26 @@ proc doLoadAll(job: Job, channelId: SdsChannelID): Future[ChannelSnapshot] {.asy
   return snap
 
 proc doDropChannel(job: Job, channelId: SdsChannelID): Future[void] {.async.} =
-  ## Collect every row belonging to the channel and submit them as a single
-  ## TxOp batch — the backend applies that as one BEGIN IMMEDIATE/COMMIT,
-  ## which is the atomicity the SDS contract asks for.
+  ## Delete every row belonging to the channel in one transactional batch.
+  ## Uses txDeletePrefix to push bulk deletes to the worker thread — no
+  ## caller-side scans needed. Hint rows (keyed by msgId, not channelId)
+  ## are not cleaned here; they are cascade-deleted by removeLogEntry during
+  ## normal rolling-history eviction, so by the time a channel is dropped
+  ## the only remaining hints belong to the still-live log tail. Those
+  ## become harmless orphans (never reloaded — hints are re-derived on
+  ## demand from the onRetrievalHint callback).
   let chanKey = toKey(channelId)
-  var ops: seq[TxOp] = @[]
-  var hintIds: seq[SdsMessageID] = @[]
-
-  let cats = [CatLog, CatOutgoing, CatIncoming, CatOutRepair, CatInRepair]
-  for cat in cats:
-    let rows = (await job.scanPrefix(cat, chanKey)).valueOr:
-      warn "sds-persistency: scan during drop failed",
-        channelId, category = cat, err = $error
-      continue
-    for row in rows:
-      ops.add(TxOp(category: cat, key: row.key, kind: txDelete))
-      if cat == CatLog:
-        try:
-          hintIds.add(fromBlob(row.payload, SdsMessage).messageId)
-        except ValueError:
-          discard
-
-  ops.add(TxOp(category: CatLamport, key: chanKey, kind: txDelete))
-  for id in hintIds:
-    ops.add(TxOp(category: CatHint, key: toKey(id), kind: txDelete))
-
-  if ops.len > 0:
-    await job.persist(ops)
-
-# ── Write helpers ───────────────────────────────────────────────────────
-#
-# The Persistence write fields are async with `raises: []`, but the Job ops
-# raise `CatchableError`. These wrappers trap and log so the closures stay
-# raise-free, preserving the "errors are logged, never raised" contract.
-
-proc safePut(
-    job: Job, category: string, k: Key, payload: seq[byte]
-) {.async: (raises: []).} =
-  try:
-    await job.persistPut(category, k, payload)
-  except CatchableError as e:
-    warn "sds-persistency: put failed", category, err = e.msg
-
-proc safeDelete(job: Job, category: string, k: Key) {.async: (raises: []).} =
-  try:
-    await job.persistDelete(category, k)
-  except CatchableError as e:
-    warn "sds-persistency: delete failed", category, err = e.msg
+  await safePersist(
+    job,
+    @[
+      TxOp(category: CatLog, key: chanKey, kind: txDeletePrefix),
+      TxOp(category: CatOutgoing, key: chanKey, kind: txDeletePrefix),
+      TxOp(category: CatIncoming, key: chanKey, kind: txDeletePrefix),
+      TxOp(category: CatOutRepair, key: chanKey, kind: txDeletePrefix),
+      TxOp(category: CatInRepair, key: chanKey, kind: txDeletePrefix),
+      TxOp(category: CatLamport, key: chanKey, kind: txDelete),
+    ],
+  )
 
 # ── Public factory ──────────────────────────────────────────────────────
 
@@ -233,7 +232,15 @@ proc newSdsPersistence*(job: Job): Persistence {.gcsafe, raises: [].} =
   persistence.removeLogEntry = proc(
       channelId: SdsChannelID, msgId: SdsMessageID
   ): Future[void] {.async: (raises: []), gcsafe.} =
-    await safeDelete(job, CatLog, key(channelId, msgId))
+    # Atomic batch: delete the log row and its associated retrieval hint in
+    # one transaction so they can't diverge.
+    await safePersist(
+      job,
+      @[
+        TxOp(category: CatLog, key: key(channelId, msgId), kind: txDelete),
+        TxOp(category: CatHint, key: toKey(msgId), kind: txDelete),
+      ],
+    )
 
   persistence.setRetrievalHint = proc(
       msgId: SdsMessageID, hint: seq[byte]
