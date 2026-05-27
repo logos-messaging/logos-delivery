@@ -1,7 +1,7 @@
 {.used.}
 
 import testutils/unittests
-import stew/results, waku/waku_core/message, waku/waku_core/time, ./testlib/common
+import results, waku/waku_core/message, waku/waku_core/time, ./testlib/common
 
 suite "Waku Payload":
   test "Encode/Decode waku message with timestamp":

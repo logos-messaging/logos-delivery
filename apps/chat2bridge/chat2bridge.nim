@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[tables, times, strutils, hashes, sequtils, json],
+  std/[tables, times, strutils, hashes, sequtils, json, options],
   chronos,
   confutils,
   chronicles,
@@ -267,10 +267,16 @@ when isMainModule:
     else:
       nodev2ExtPort
 
+  let nodev2Key =
+    if conf.nodekey.isSome():
+      conf.nodekey.get()
+    else:
+      crypto.PrivateKey.random(Secp256k1, rng[]).tryGet()
+
   let bridge = Chat2Matterbridge.new(
     mbHostUri = "http://" & $initTAddress(conf.mbHostAddress, Port(conf.mbHostPort)),
     mbGateway = conf.mbGateway,
-    nodev2Key = conf.nodekey,
+    nodev2Key = nodev2Key,
     nodev2BindIp = conf.listenAddress,
     nodev2BindPort = Port(uint16(conf.libp2pTcpPort) + conf.portsShift),
     nodev2ExtIp = nodev2ExtIp,

@@ -24,6 +24,7 @@ export PATH := $(HOME)/.nimble/bin:$(PATH)
 # NIM binary location
 NIM_BINARY := $(shell which nim 2>/dev/null)
 NPH := $(HOME)/.nimble/bin/nph
+NIMBLE := $(HOME)/.nimble/bin/nimble
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
@@ -71,7 +72,7 @@ waku.nims:
 	ln -s waku.nimble $@
 
 $(NIMBLEDEPS_STAMP): nimble.lock | install-nimble build-nph waku.nims
-	nimble setup --localdeps
+	$(NIMBLE) setup --localdeps
 	touch $@
 
 # Must be phony so the recipe always runs and the sub-make re-evaluates
