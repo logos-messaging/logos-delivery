@@ -93,11 +93,17 @@ proc onReadyToSend(
     ## Leave routing metadata (channelId, causal-history references) in
     ## clear and encrypt only the application payload.
     let encRes = await Encrypt.request(m)
-    let wireBytes =
-      if encRes.isOk():
-        seq[byte](encRes.get())
-      else:
-        m
+    let encrypted = encRes.valueOr:
+      MessageErrorEvent.emit(
+        self.brokerCtx,
+        MessageErrorEvent(
+          requestId: pending.parent,
+          messageHash: "",
+          error: "encryption failed: " & error,
+        ),
+      )
+      continue
+    let wireBytes = seq[byte](encrypted)
 
     let envelope = MessageEnvelope(
       contentTopic: self.contentTopic, payload: wireBytes, ephemeral: pending.ephemeral
