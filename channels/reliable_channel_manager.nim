@@ -49,45 +49,6 @@ proc new*(
     brokerCtx: brokerCtx,
   )
 
-  ## Single ingress listener for the whole manager. The DeliveryService
-  ## recv path emits `MessageReceivedEvent` for every WakuMessage it
-  ## sees; the manager:
-  ##   1. drops anything whose `meta` is not the Reliable Channel
-  ##      spec marker (foreign traffic);
-  ##   2. decodes the `ReliableChannelPayload` wrapper once;
-  ##   3. dispatches the typed payload to every channel whose
-  ##      `contentTopic` matches (multiple channels may subscribe to
-  ##      the same topic).
-  ## Doing the wrapper decode here keeps the channels free of
-  ## wire-format concerns, and keeps the DeliveryService unaware of
-  ## ReliableChannel altogether.
-  discard waku_message_events.MessageReceivedEvent.listen(
-    manager.brokerCtx,
-    proc(
-        evt: waku_message_events.MessageReceivedEvent
-    ): Future[void] {.async: (raises: []).} =
-      if string.fromBytes(evt.message.meta) != LipWireReliableChannelVersion:
-        return
-
-      for chn in manager.channels.values:
-        if chn.getContentTopic() == evt.message.contentTopic:
-          await chn.onMessageReceived(evt.message.payload)
-          break
-    ,
-  )
-
-  ## Single egress listener: rate_limit_manager emits a
-  ## `ReadyToSendEvent` tagged with `channelId`, so the dispatch here
-  ## is a direct table lookup.
-  discard ReadyToSendEvent.listen(
-    manager.brokerCtx,
-    proc(evt: ReadyToSendEvent): Future[void] {.async: (raises: []).} =
-      let chn = manager.channels.getOrDefault(evt.channelId)
-      if not chn.isNil():
-        await chn.onReadyToSend(evt.msgs)
-    ,
-  )
-
   return ok(manager)
 
 proc start*(self: ReliableChannelManager): Result[void, string] =
@@ -169,8 +130,9 @@ proc send*(
     return err("unknown channel: " & channelId)
   return chn.send(appPayload, ephemeral)
 
-## Inbound messages are not handed to the manager by direct call: the
-## single `MessageReceivedEvent` listener registered in `new` looks the
-## owning channel up by `contentTopic` and invokes its
-## `onMessageReceived`. This keeps the lower layer (MessagingAPI/Waku)
-## unaware of the existence of ReliableChannel.
+## Inbound messages are not handed to the manager by direct call. Each
+## `ReliableChannel` installs its own `MessageReceivedEvent` listener
+## in `ReliableChannel.new`, filters by spec marker and `contentTopic`,
+## and routes to its private `onMessageReceived`. This keeps the lower
+## layer (MessagingAPI/Waku) unaware of the existence of ReliableChannel
+## and keeps the manager out of per-channel event dispatch.

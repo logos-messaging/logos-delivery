@@ -73,38 +73,7 @@ func getContentTopic*(self: ReliableChannel): ContentTopic {.inline.} =
 func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
   self.senderId
 
-proc new*(
-    T: type ReliableChannel,
-    deliveryService: DeliveryService,
-    channelId: ChannelId,
-    contentTopic: ContentTopic,
-    senderId: SdsParticipantID,
-    segConfig: SegmentationConfig,
-    sdsConfig: SdsConfig,
-    rateConfig: RateLimitConfig,
-    brokerCtx: BrokerContext = globalBrokerContext(),
-): T =
-  ## Pipeline handlers (segmentation/SDS/rate-limit) are constructed
-  ## inside the channel rather than handed in by the caller — they are
-  ## implementation details of the channel, not knobs the API consumer
-  ## should be wiring up. Encryption is delegated to the `Encrypt`/
-  ## `Decrypt` request brokers, so the channel keeps no per-instance
-  ## encryption state either.
-  return T(
-    deliveryService: deliveryService,
-    channelId: channelId,
-    contentTopic: contentTopic,
-    senderId: senderId,
-    rng: libp2p_crypto.newRng(),
-    segmentation: SegmentationHandler.new(segConfig),
-    sdsHandler: SdsHandler.new(sdsConfig, senderId),
-    rateLimit: RateLimitManager.new(rateConfig, channelId, brokerCtx),
-    requestIds: initTable[RequestId, seq[RequestId]](),
-    pendingRequests: @[],
-    brokerCtx: brokerCtx,
-  )
-
-proc onReadyToSend*(
+proc onReadyToSend(
     self: ReliableChannel, msgs: seq[seq[byte]]
 ) {.async: (raises: []).} =
   ## Tail of the outgoing pipeline. Invoked from the `ReadyToSendEvent`
@@ -185,16 +154,16 @@ proc send*(
 
   return ok(parentReqId)
 
-proc onMessageReceived*(
+proc onMessageReceived(
     self: ReliableChannel, payload: seq[byte]
 ) {.async: (raises: []).} =
   ## Ingress pipeline made visible:
   ##
   ##   payload -> decrypt -> sds -> reassemble -> emit
   ##
-  ## The ReliableChannelManager already validated the spec marker on the WakuMessage and
-  ## stripped the wire framing, so the channel only sees the raw
-  ## payload bytes for itself.
+  ## Invoked from this channel's `MessageReceivedEvent` listener, which
+  ## already filtered on the spec marker and on `contentTopic`. The
+  ## channel only sees the raw payload bytes for itself.
 
   ## Notice that the following "request" is implemented implicitly as a broker call to
   ## the `Decrypt` request broker.
@@ -223,3 +192,62 @@ proc onMessageReceived*(
         payload: reassembled.get().payload,
       ),
     )
+
+proc new*(
+    T: type ReliableChannel,
+    deliveryService: DeliveryService,
+    channelId: ChannelId,
+    contentTopic: ContentTopic,
+    senderId: SdsParticipantID,
+    segConfig: SegmentationConfig,
+    sdsConfig: SdsConfig,
+    rateConfig: RateLimitConfig,
+    brokerCtx: BrokerContext = globalBrokerContext(),
+): T =
+  ## Pipeline handlers (segmentation/SDS/rate-limit) are constructed
+  ## inside the channel rather than handed in by the caller — they are
+  ## implementation details of the channel, not knobs the API consumer
+  ## should be wiring up. Encryption is delegated to the `Encrypt`/
+  ## `Decrypt` request brokers, so the channel keeps no per-instance
+  ## encryption state either.
+  let chn = T(
+    deliveryService: deliveryService,
+    channelId: channelId,
+    contentTopic: contentTopic,
+    senderId: senderId,
+    rng: libp2p_crypto.newRng(),
+    segmentation: SegmentationHandler.new(segConfig),
+    sdsHandler: SdsHandler.new(sdsConfig, senderId),
+    rateLimit: RateLimitManager.new(rateConfig, channelId, brokerCtx),
+    requestIds: initTable[RequestId, seq[RequestId]](),
+    pendingRequests: @[],
+    brokerCtx: brokerCtx,
+  )
+
+  ## Each channel owns its own egress + ingress listeners on
+  ## `chn.brokerCtx`, filtered to traffic addressed to this channel.
+  ## Keeping the listeners (and the procs they call) inside the
+  ## channel lets `onReadyToSend` and `onMessageReceived` stay private
+  ## — the manager doesn't need to know about them.
+  discard ReadyToSendEvent.listen(
+    chn.brokerCtx,
+    proc(evt: ReadyToSendEvent): Future[void] {.async: (raises: []).} =
+      if evt.channelId == chn.channelId:
+        await chn.onReadyToSend(evt.msgs)
+    ,
+  )
+
+  discard MessageReceivedEvent.listen(
+    chn.brokerCtx,
+    proc(evt: MessageReceivedEvent): Future[void] {.async: (raises: []).} =
+      ## Drop foreign traffic (non-Reliable-Channel `meta`) and traffic
+      ## for other channels before doing any decode work.
+      if string.fromBytes(evt.message.meta) != LipWireReliableChannelVersion:
+        return
+      if evt.message.contentTopic != chn.contentTopic:
+        return
+      await chn.onMessageReceived(evt.message.payload)
+    ,
+  )
+
+  return chn
