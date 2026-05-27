@@ -72,6 +72,7 @@ proc new*(
       for chn in manager.channels.values:
         if chn.getContentTopic() == evt.message.contentTopic:
           await chn.onMessageReceived(evt.message.payload)
+          break
     ,
   )
 
