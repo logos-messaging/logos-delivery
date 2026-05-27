@@ -161,7 +161,7 @@ proc send*(
   return ok(parentReqId)
 
 proc onMessageReceived(
-    self: ReliableChannel, payload: seq[byte]
+    self: ReliableChannel, messageHash: string, payload: seq[byte]
 ) {.async: (raises: []).} =
   ## Ingress pipeline made visible:
   ##
@@ -174,13 +174,19 @@ proc onMessageReceived(
   ## Notice that the following "request" is implemented implicitly as a broker call to
   ## the `Decrypt` request broker.
   let decRes = await Decrypt.request(payload)
-  let plaintext: seq[byte] =
-    if decRes.isOk():
-      seq[byte](decRes.get())
-    else:
-      payload
+  let plaintext = decRes.valueOr:
+    MessageErrorEvent.emit(
+      self.brokerCtx,
+      MessageErrorEvent(
+        requestId: RequestId(""),
+        messageHash: messageHash,
+        error: "decryption failed: " & error,
+      ),
+    )
+    return
+  let plaintextBytes = seq[byte](plaintext)
 
-  let unwrapped = self.sdsHandler.handleIncoming(plaintext)
+  let unwrapped = self.sdsHandler.handleIncoming(plaintextBytes)
   if unwrapped.isErr():
     return
 
@@ -252,7 +258,7 @@ proc new*(
         return
       if evt.message.contentTopic != chn.contentTopic:
         return
-      await chn.onMessageReceived(evt.message.payload)
+      await chn.onMessageReceived(evt.messageHash, evt.message.payload)
     ,
   )
 
