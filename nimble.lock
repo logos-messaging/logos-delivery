@@ -2,7 +2,7 @@
   "version": 2,
   "packages": {
     "nim": {
-      "version": "2.2.10",
+      "version": "2.2.4",
       "vcsRevision": "9fe2137fa2f3f66cf5a44f357d461829ac9e20c4",
       "url": "https://github.com/nim-lang/Nim.git",
       "downloadMethod": "git",
