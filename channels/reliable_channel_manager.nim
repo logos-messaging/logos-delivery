@@ -52,7 +52,8 @@ proc new*(
   ## Single ingress listener for the whole manager. The DeliveryService
   ## recv path emits `MessageReceivedEvent` for every WakuMessage it
   ## sees; the manager:
-  ##   1. drops anything whose `meta` is not LIP173 (foreign traffic);
+  ##   1. drops anything whose `meta` is not the Reliable Channel
+  ##      spec marker (foreign traffic);
   ##   2. decodes the `ReliableChannelPayload` wrapper once;
   ##   3. dispatches the typed payload to every channel whose
   ##      `contentTopic` matches (multiple channels may subscribe to
@@ -65,7 +66,7 @@ proc new*(
     proc(
         evt: waku_message_events.MessageReceivedEvent
     ): Future[void] {.async: (raises: []).} =
-      if string.fromBytes(evt.message.meta) != Lip173Meta:
+      if string.fromBytes(evt.message.meta) != LipWireReliableChannelVersion:
         return
 
       for chn in manager.channels.values:

@@ -31,13 +31,13 @@ proc createApiNodeConf(): WakuNodeConf =
   return conf
 
 suite "Reliable Channel - ingress":
-  asyncTest "manager dispatches LIP173 WakuMessage to the right channel":
+  asyncTest "manager dispatches marked WakuMessage to the right channel":
     ## Unit test for the receive side of the API: instead of standing
     ## up two libp2p nodes and a relay mesh, we drive the manager
     ## directly by emitting a `MessageReceivedEvent` (the exact event
     ## the DeliveryService emits when a `WakuMessage` arrives off the
     ## wire). The manager must:
-    ##   - drop non-LIP173 traffic
+    ##   - drop traffic missing the Reliable Channel spec marker
     ##   - dispatch the matching channel's `onMessageReceived`
     ##   - emit `ChannelMessageReceivedEvent` with the payload
     const
@@ -74,7 +74,7 @@ suite "Reliable Channel - ingress":
       .expect("listen ChannelMessageReceivedEvent")
 
     ## Build a `WakuMessage` that looks like one that came in off the
-    ## wire from a peer: the LIP173 meta marker plus the right content
+    ## wire from a peer: the spec marker on `meta` plus the right content
     ## topic. The manager's ingress listener should pick it up,
     ## decrypt (noop), unwrap SDS (pass-through), reassemble (one
     ## segment), and finally emit `ChannelMessageReceivedEvent`.
@@ -82,7 +82,7 @@ suite "Reliable Channel - ingress":
       payload: appPayload,
       contentTopic: contentTopic,
       version: 0,
-      meta: Lip173Meta.toBytes(),
+      meta: LipWireReliableChannelVersion.toBytes(),
     )
 
     waku_message_events.MessageReceivedEvent.emit(
@@ -97,7 +97,7 @@ suite "Reliable Channel - ingress":
 
     await manager.stop()
 
-  asyncTest "manager drops non-LIP173 WakuMessage":
+  asyncTest "manager drops unmarked WakuMessage":
     ## Mirror of the above: same content topic, but `meta` is empty
     ## (i.e. foreign traffic). The channel-level event must NOT fire.
     const
@@ -134,7 +134,7 @@ suite "Reliable Channel - ingress":
       payload: appPayload,
       contentTopic: contentTopic,
       version: 0,
-      meta: @[], ## no LIP173 marker
+      meta: @[], ## no Reliable Channel spec marker
     )
 
     waku_message_events.MessageReceivedEvent.emit(

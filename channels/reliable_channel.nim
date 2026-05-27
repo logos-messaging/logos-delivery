@@ -34,10 +34,13 @@ export
   delivery_service, send_service, events, segmentation, scalable_data_sync,
   rate_limit_manager, encryption
 
-const Lip173Meta* = "LIP173"
-  ## Wire-level marker for the Reliable Channel layer. A `WakuMessage`
-  ## whose `meta` field does not equal these bytes is not addressed to
-  ## this layer and is silently dropped on ingress.
+const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
+  ## Wire-format spec marker for the Reliable Channel layer, as defined
+  ## in the reliable-channel-api LIP (`Wire Format / Spec Marker`).
+  ## A `WakuMessage` whose `meta` field does not equal these bytes is
+  ## not addressed to this layer and is silently dropped on ingress.
+  ## The trailing `/N` is the wire-format version and is bumped only
+  ## on breaking on-the-wire changes; implementations pin one version.
 
 type ReliableChannel* = ref object
   ## Spec-defined public type. Fields are private so callers cannot
@@ -136,11 +139,12 @@ proc onReadyToSend*(
       ## TODO: emit waku `MessageErrorEvent` for the parent request id.
       continue
 
-    ## Stamp the LIP173 wire-level marker so the ingress side of any
-    ## peer can route this WakuMessage to its Reliable Channel layer.
-    ## Done on the constructed WakuMessage rather than via the envelope
-    ## because `MessageEnvelope` does not expose a `meta` field.
-    deliveryTask.msg.meta = Lip173Meta.toBytes()
+    ## Stamp the Reliable Channel wire-format spec marker so the ingress
+    ## side of any peer can route this WakuMessage to its Reliable
+    ## Channel layer. Done on the constructed WakuMessage rather than
+    ## via the envelope because `MessageEnvelope` does not expose a
+    ## `meta` field.
+    deliveryTask.msg.meta = LipWireReliableChannelVersion.toBytes()
 
     asyncSpawn self.deliveryService.sendService.send(deliveryTask)
     self.requestIds.mgetOrPut(pending.parent, @[]).add(deliveryReqId)
@@ -188,7 +192,7 @@ proc onMessageReceived*(
   ##
   ##   payload -> decrypt -> sds -> reassemble -> emit
   ##
-  ## The ReliableChannelManager already validated LIP173 on the WakuMessage and
+  ## The ReliableChannelManager already validated the spec marker on the WakuMessage and
   ## stripped the wire framing, so the channel only sees the raw
   ## payload bytes for itself.
 
