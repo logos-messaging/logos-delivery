@@ -61,6 +61,15 @@ proc stop*(self: ReliableChannelManager) {.async.} =
   if not self.deliveryService.isNil():
     await self.deliveryService.stopDeliveryService()
 
+proc getChannelForTest*(
+    self: ReliableChannelManager, channelId: ChannelId
+): ReliableChannel =
+  ## Test-only: returns the channel for `channelId`, or `nil` if none
+  ## exists. Production callers must address channels by `channelId`
+  ## through the manager's `send` / `closeChannel` API — direct
+  ## references bypass the manager's lifecycle and pipeline.
+  self.channels.getOrDefault(channelId)
+
 proc createReliableChannel*(
     self: ReliableChannelManager,
     channelId: ChannelId,

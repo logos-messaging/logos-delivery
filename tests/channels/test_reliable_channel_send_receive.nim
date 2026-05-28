@@ -147,3 +147,104 @@ suite "Reliable Channel - ingress":
     check not fired
 
     await manager.stop()
+
+suite "Reliable Channel - send state machine":
+  asyncTest "MessageSentEvent flips InFlight -> Confirmed and prunes":
+    ## Exercises the channel-side state machine in isolation. We
+    ## inject a pending entry already in `InFlight` (so we don't have
+    ## to drive — and race with — the real send pipeline), then emit
+    ## the delivery-layer `MessageSentEvent` for its `messagingReqId`.
+    ## The channel's own listener flips the entry to `Confirmed` and,
+    ## since it's the only segment for that `channelReqId`, prunes it.
+    const
+      channelId = ChannelId("sm-success-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-success")
+
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
+        "Failed to create manager"
+      )
+
+    setNoopEncryption()
+    discard manager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+
+    let chn = manager.getChannelForTest(channelId)
+    doAssert not chn.isNil()
+    check chn.pendingMessagingRequestsLenForTest == 0
+
+    let channelReqId = RequestId("test-channel-req")
+    let messagingReqId = RequestId("test-msg-req")
+    chn.forceInjectInFlightForTest(channelReqId, messagingReqId)
+    check chn.pendingMessagingRequestsLenForTest == 1
+
+    waku_message_events.MessageSentEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageSentEvent(requestId: messagingReqId, messageHash: ""),
+    )
+
+    let deadline = Moment.now() + 1.seconds
+    while Moment.now() < deadline and chn.pendingMessagingRequestsLenForTest > 0:
+      await sleepAsync(5.milliseconds)
+    check chn.pendingMessagingRequestsLenForTest == 0
+
+    await manager.stop()
+
+  asyncTest "channelReqId not pruned until ALL its segments are final":
+    ## Validates `pruneCompletedChannelReqs`'s "wait for siblings" rule:
+    ## a channel request with multiple segments is only dropped once
+    ## every segment is `Confirmed` or `Failed`. Confirm the first
+    ## segment and assert both entries are still tracked; fail the
+    ## second and assert both are pruned.
+    const
+      channelId = ChannelId("sm-multi-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-multi")
+
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
+        "Failed to create manager"
+      )
+
+    setNoopEncryption()
+    discard manager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+
+    let chn = manager.getChannelForTest(channelId)
+    doAssert not chn.isNil()
+
+    let channelReqId = RequestId("multi-channel-req")
+    let msgReqId1 = RequestId("multi-msg-req-1")
+    let msgReqId2 = RequestId("multi-msg-req-2")
+    chn.forceInjectInFlightForTest(channelReqId, msgReqId1)
+    chn.forceInjectInFlightForTest(channelReqId, msgReqId2)
+    check chn.pendingMessagingRequestsLenForTest == 2
+
+    waku_message_events.MessageSentEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageSentEvent(requestId: msgReqId1, messageHash: ""),
+    )
+    await sleepAsync(50.milliseconds)
+    ## Sibling msgReqId2 is still `InFlight`, so prune must NOT fire
+    ## yet — both entries remain tracked.
+    check chn.pendingMessagingRequestsLenForTest == 2
+
+    waku_message_events.MessageErrorEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageErrorEvent(
+        requestId: msgReqId2, messageHash: "", error: "synthetic"
+      ),
+    )
+    let deadline = Moment.now() + 1.seconds
+    while Moment.now() < deadline and chn.pendingMessagingRequestsLenForTest > 0:
+      await sleepAsync(5.milliseconds)
+    check chn.pendingMessagingRequestsLenForTest == 0
+
+    await manager.stop()
