@@ -11,7 +11,7 @@ import
   libp2p/utils/offsettedseq,
   libp2p/crypto/curve25519,
   libp2p/switch,
-  libp2p/utility
+  libp2p/utils/opt
 
 import metrics except collect
 
@@ -158,8 +158,7 @@ proc new*(
     expiredDT: Moment.now() - 1.days,
     sema: newAsyncSemaphore(SemaphoreDefaultSize),
     config: RendezVousConfig.new(
-      minDuration = rendezvous.MinimumDuration,
-      maxDuration = rendezvous.MaximumDuration,
+      minDuration = rendezvous.MinimumDuration, maxDuration = rendezvous.MaximumDuration
     ),
     peerRecordValidator: checkWakuPeerRecord,
   )

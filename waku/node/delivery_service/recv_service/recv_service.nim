@@ -3,7 +3,7 @@
 ##
 
 import std/[tables, sequtils, options, sets]
-import chronos, chronicles, libp2p/utility
+import chronos, chronicles, libp2p/utils/opt
 import ../[subscription_manager]
 import
   waku/[

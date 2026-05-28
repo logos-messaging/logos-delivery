@@ -16,7 +16,7 @@ import libp2p/crypto/crypto
 import stew/endians2
 import nimcrypto/[sha2, hmac]
 
-import libp2p/utility
+import libp2p/utils/opt
 import libp2p/crypto/[crypto, chacha20poly1305, hkdf]
 import libp2p/protocols/secure/secure
 

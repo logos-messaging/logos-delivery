@@ -2,7 +2,7 @@
 ##
 
 import std/[sequtils, tables, options]
-import chronos, chronicles, libp2p/utility
+import chronos, chronicles, libp2p/utils/opt
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
   ../[subscription_manager],

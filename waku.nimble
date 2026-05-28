@@ -25,15 +25,16 @@ requires "nim >= 2.2.4",
   "serialization",
   "json_serialization",
   "toml_serialization",
+  "https://github.com/status-im/nim-protobuf-serialization.git#ce97ba0a7376df298552f05559110979a63ec9a4",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#d4cd68b91b82f34a0ede3766ab1ca8119d5015f8",
+  "https://github.com/vacp2p/nim-libp2p.git#f54c7150a7ccbc4e9871bb8b56ecfd7e3e59f7de",
   "eth",
   "nat_traversal",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "https://github.com/status-im/nim-websock#42c37b4172519566db016810eccfce8a02cc1cdf",
+  "https://github.com/status-im/nim-websock.git#fb8ba71fefdfb3e8466f65a37e10964c85a000cc",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "secp256k1",
@@ -61,6 +62,7 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
 requires "https://github.com/logos-co/nim-libp2p-mix.git#6c5f43ae715443dc72048a12b0ea3afc06f0fa2b"
+requires "https://github.com/status-im/nim-websock.git#fb8ba71fefdfb3e8466f65a37e10964c85a000cc"
 
 requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135fae3a3803eed8490d4"
 

@@ -78,7 +78,7 @@ proc newWakuSwitch*(
     secureCertPath: string = "",
     agentString = none(string), # defaults to nim-libp2p version
     peerStoreCapacity = none(int), # defaults to 1.25 maxConnections
-    rendezvous: RendezVousConfig = nil,
+    rendezvous: RendezVousConfig = default(RendezVousConfig),
     circuitRelay: Relay,
     maxNumRelays: int = 5,
 ): Switch {.raises: [Defect, IOError, LPError].} =
@@ -94,7 +94,7 @@ proc newWakuSwitch*(
     .withTcpTransport(transportFlags)
     .withNameResolver(nameResolver)
     .withSignedPeerRecord(sendSignedPeerRecord)
-    .withAddressPolicy(publicRoutableAddressPolicy)
+    .withPrivateAddressFilter()
     .withCircuitRelay(circuitRelay)
 
   if peerStoreCapacity.isSome():
@@ -116,7 +116,6 @@ proc newWakuSwitch*(
   else:
     b = b.withAddress(address)
 
-  if not rendezvous.isNil():
-    b = b.withRendezVous(rendezvous)
+  b = b.withRendezVous(rendezvous)
 
   b.build()

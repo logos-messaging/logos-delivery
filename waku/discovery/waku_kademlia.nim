@@ -7,7 +7,6 @@ import
   results,
   libp2p/crypto/curve25519,
   libp2p/crypto/crypto,
-  libp2p_mix/mix_protocol,
   libp2p/[peerid, multiaddress, switch],
   libp2p/extended_peer_record,
   libp2p/protocols/[kademlia, service_discovery],
@@ -42,7 +41,7 @@ proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
 
   var mixPubKey = none(Curve25519Key)
   for service in record.services:
-    if service.id != MixProtocolID:
+    if service.id != "/mix/1.0.0":
       continue
 
     if service.data.len != Curve25519KeySize:
