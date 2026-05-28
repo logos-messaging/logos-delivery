@@ -90,7 +90,7 @@ proc fetchMerkleRootsCache*(
     g: OnchainGroupManager
 ): Future[Result[seq[byte], string]] {.async.} =
   let
-    # using sendEthCallWithParams to get return type of seq[bytes] for getRecentRoots() function which returns an array of bytes32 (5 recent roots)
+    # using sendEthCallWithParams to get return type of seq[bytes] for getRecentRoots() function which returns an array of bytes32
     merkleRoots = await sendEthCallWithParams(
       ethRpc = g.ethRpc.get(),
       functionSignature = "getRecentRoots()",
@@ -149,11 +149,10 @@ proc checkInitialized(g: OnchainGroupManager): Result[void, string] =
   return ok()
 
 proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
-  let rootRes = await g.fetchMerkleRoot()
-  if rootRes.isErr():
+  let rootRes = (await g.fetchMerkleRoot()).valueOr:
     return false
 
-  let merkleRoot = UInt256ToField(rootRes.get())
+  let merkleRoot = UInt256ToField(rootRes)
 
   if g.validRoots.len == 0:
     g.validRoots.addLast(merkleRoot)
@@ -215,14 +214,7 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
   if toAdd.len == 0:
     return false
 
-  # If this is the first time, just seed the deque with all provided roots
-  if g.validRoots.len == 0:
-    for r in newRootsDequeOrder:
-      g.validRoots.addLast(r)
-    debug "seeded recent roots", count = newRootsDequeOrder.len
-    return true
-
-  # Add all new roots to the "top" (tail) and trim to AcceptableRootWindowSize
+  # Append new roots to the tail; trim happens below if we exceed the window.
   for r in toAdd:
     g.validRoots.addLast(r)
   debug "appended recent roots", count = toAdd.len, roots = toAdd
@@ -235,7 +227,8 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
 
 proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
   ?checkInitialized(g)
-  const rpcDelay = 10.seconds
+
+  const rpcDelay = 5.seconds
 
   while true:
     let rootUpdated = await g.updateRecentRoots()
@@ -251,14 +244,11 @@ proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.a
         else:
           g.merkleProofCache = proofResult.get()
 
-      let nextFreeIndex = await g.fetchNextFreeIndex()
-      if nextFreeIndex.isErr():
-        error "Failed to fetch next free index", error = nextFreeIndex.error
-        raise newException(
-          CatchableError, "Failed to fetch next free index: " & nextFreeIndex.error
-        )
+      let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
+        error "Failed to fetch next free index", error = error
+        return err("Failed to fetch next free index: " & error)
 
-      let memberCount = cast[int64](nextFreeIndex.get())
+      let memberCount = cast[int64](nextFreeIndex)
       waku_rln_number_registered_memberships.set(float64(memberCount))
     await sleepAsync(rpcDelay)
 
