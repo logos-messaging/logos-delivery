@@ -261,7 +261,7 @@ proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
 
 proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
   ?checkInitialized(g)
-  const rpcDelay = 5.seconds
+  const rpcDelay = 10.seconds
 
   while true:
     let rootUpdated = await g.updateRoots()
