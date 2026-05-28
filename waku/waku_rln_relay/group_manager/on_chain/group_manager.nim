@@ -238,7 +238,7 @@ proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.a
   const rpcDelay = 10.seconds
 
   while true:
-    let rootUpdated = await g.updateRoots()
+    let rootUpdated = await g.updateRecentRoots()
 
     if rootUpdated:
       ## The membership set on-chain has changed (some new members have joined or some members have left)
