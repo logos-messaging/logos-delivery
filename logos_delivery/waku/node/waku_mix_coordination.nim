@@ -7,7 +7,6 @@
 import chronos, chronicles, std/options
 import
   ../waku_core,
-  ../waku_core/topics/sharding,
   ../waku_filter_v2/common,
   ./peer_manager,
   ../waku_filter_v2/client,

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import chronicles, std/[options, sequtils], chronos, results, metrics
+import chronicles, std/options, chronos, results, metrics
 
 import
   libp2p/crypto/curve25519,
@@ -19,7 +19,6 @@ import
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_enr,
-  logos_delivery/waku/node/peer_manager/waku_peer_store,
   mix_rln_spam_protection,
   logos_delivery/waku/waku_relay,
   logos_delivery/waku/common/nimchronos

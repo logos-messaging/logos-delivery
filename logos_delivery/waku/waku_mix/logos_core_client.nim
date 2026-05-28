@@ -4,7 +4,7 @@
 ## The C++ delivery module registers an RLN fetcher at startup; event-push
 ## caching avoids round-trips on the hot path.
 
-import std/[json, strutils, locks, algorithm, options]
+import std/[json, strutils, locks, options]
 import chronos, chronos/threadsync
 import results
 import chronicles
@@ -285,6 +285,14 @@ proc callRlnFetcherAsync*(methodName: string, params: string): Future[Result[str
       return err("RLN fetcher returned empty response")
     return ok(fetchRes.json)
 
+proc bytesToHexUpper*(bytes: openArray[byte]): string =
+  ## Uppercase hex without "0x" prefix. LEZ JSON RPC accepts both cases;
+  ## uppercase matches the existing register_member / is_member_registered
+  ## payload format.
+  result = newStringOfCap(bytes.len * 2)
+  for b in bytes:
+    result.add(toHex(int(b), 2))
+
 proc hexToBytes32(hex: string): Result[array[32, byte], string] =
   var h = hex
   if h.startsWith("0x") or h.startsWith("0X"):
@@ -298,16 +306,6 @@ proc hexToBytes32(hex: string): Result[array[32, byte], string] =
     except ValueError:
       return err("Invalid hex at position " & $i)
   ok(output)
-
-proc hexToBytes32LE(hex: string): Result[array[32, byte], string] =
-  ## Parse hex string to bytes in little-endian order (for zerokit field elements).
-  ## LEZ/Ethereum return big-endian hex; zerokit expects LE internally.
-  var res = hexToBytes32(hex).valueOr:
-    return err(error)
-  var reversed: array[32, byte]
-  for i in 0 ..< 32:
-    reversed[i] = res[31 - i]
-  ok(reversed)
 
 proc parseRootsJson*(snapshot: string): Result[seq[MerkleNode], string] =
   if snapshot.len == 0:
