@@ -158,6 +158,7 @@ jobs:
 
           export MAKEFLAGS="-j1"
           export NIMFLAGS="--colors:off -d:chronicles_colors:none -d:disableMarchNative"
+          export NIM_PARAMS="-d:disableMarchNative"
           export USE_LIBBACKTRACE=0
 
           make V=1 POSTGRES=$postgres_enabled test
