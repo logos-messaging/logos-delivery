@@ -11,6 +11,10 @@ type
     contentTopic*: ContentTopic
     payload*: seq[byte]
     ephemeral*: bool
+    meta*: seq[byte]
+      ## Opaque wire-format marker carried on the underlying WakuMessage.
+      ## Higher layers (e.g. Reliable Channel) stamp this so peers can route
+      ## ingress traffic to their corresponding layer. Empty by default.
 
   RequestId* = distinct string
 
@@ -34,12 +38,18 @@ proc init*(
     contentTopic: ContentTopic,
     payload: seq[byte] | string,
     ephemeral: bool = false,
+    meta: seq[byte] = @[],
 ): MessageEnvelope =
   when payload is seq[byte]:
-    MessageEnvelope(contentTopic: contentTopic, payload: payload, ephemeral: ephemeral)
+    MessageEnvelope(
+      contentTopic: contentTopic, payload: payload, ephemeral: ephemeral, meta: meta
+    )
   else:
     MessageEnvelope(
-      contentTopic: contentTopic, payload: payload.toBytes(), ephemeral: ephemeral
+      contentTopic: contentTopic,
+      payload: payload.toBytes(),
+      ephemeral: ephemeral,
+      meta: meta,
     )
 
 proc toWakuMessage*(envelope: MessageEnvelope): WakuMessage =
@@ -48,6 +58,7 @@ proc toWakuMessage*(envelope: MessageEnvelope): WakuMessage =
     contentTopic: envelope.contentTopic,
     payload: envelope.payload,
     ephemeral: envelope.ephemeral,
+    meta: envelope.meta,
     timestamp: getNowInNanosecondTime(),
   )
 
