@@ -156,8 +156,8 @@ proc subscribeShard*(
     added = true
   if added:
     self.edgeFilterWakeup.fire()
-    if not isNil(self.node.wakuRelay):
-      discard self.node.doRelaySubscribe(shard, handler)
+  if not isNil(self.node.wakuRelay):
+    discard self.node.doRelaySubscribe(shard, handler)
   return ok()
 
 proc unsubscribeShard*(
@@ -198,8 +198,8 @@ proc subscribe*(
     added = true
   if added:
     self.edgeFilterWakeup.fire()
-    if not isNil(self.node.wakuRelay):
-      discard self.node.doRelaySubscribe(shard, handler)
+  if not isNil(self.node.wakuRelay):
+    discard self.node.doRelaySubscribe(shard, handler)
   return ok()
 
 proc unsubscribe*(
