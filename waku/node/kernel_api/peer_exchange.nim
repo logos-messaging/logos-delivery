@@ -19,6 +19,7 @@ import
 
 import
   ../waku_node,
+  ../node_telemetry,
   ../../waku_peer_exchange,
   ../../waku_core,
   ../peer_manager,

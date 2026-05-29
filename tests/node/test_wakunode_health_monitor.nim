@@ -15,8 +15,7 @@ import
     node/health_monitor/protocol_health,
     node/health_monitor/topic_health,
     node/health_monitor/node_health_monitor,
-    node/delivery_service/delivery_service,
-    node/delivery_service/subscription_manager,
+    messaging_client,
     node/kernel_api/relay,
     node/kernel_api/store,
     node/kernel_api/lightpush,
@@ -27,6 +26,7 @@ import
   ]
 
 import ../testlib/[wakunode, wakucore], ../waku_archive/archive_utils
+import waku/node/subscription_manager
 
 const MockDLow = 4 # Mocked GossipSub DLow value
 
@@ -229,8 +229,8 @@ suite "Health Monitor - events":
       await nodeA.start()
 
     let ds =
-      DeliveryService.new(false, nodeA).expect("Failed to create DeliveryService")
-    ds.startDeliveryService().expect("Failed to start DeliveryService")
+      MessagingClient.new(false, nodeA).expect("Failed to create MessagingClient")
+    ds.start().expect("Failed to start MessagingClient")
 
     let monitorA = NodeHealthMonitor.new(nodeA)
 
@@ -317,7 +317,7 @@ suite "Health Monitor - events":
       lastStatus == ConnectionStatus.Disconnected
 
     await monitorA.stopHealthMonitor()
-    await ds.stopDeliveryService()
+    await ds.stop()
     await nodeA.stop()
 
   asyncTest "Edge health driven by confirmed filter subscriptions":
@@ -333,9 +333,9 @@ suite "Health Monitor - events":
       await nodeA.start()
 
     let ds =
-      DeliveryService.new(false, nodeA).expect("Failed to create DeliveryService")
-    ds.startDeliveryService().expect("Failed to start DeliveryService")
-    let subMgr = ds.subscriptionManager
+      MessagingClient.new(false, nodeA).expect("Failed to create MessagingClient")
+    ds.start().expect("Failed to start MessagingClient")
+    let subMgr = nodeA.subscriptionManager
 
     var nodeB: WakuNode
     lockNewGlobalBrokerContext:
@@ -416,7 +416,7 @@ suite "Health Monitor - events":
     await EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
 
     check shardHealthOk == true
-    check subMgr.edgeFilterSubStates.len > 0
+    check nodeA.subscriptionManager.edgeFilterSubStates.len > 0
 
     healthSignal.clear()
     deadline = Moment.now() + TestConnectivityTimeLimit
@@ -428,7 +428,7 @@ suite "Health Monitor - events":
 
     check lastStatus == ConnectionStatus.PartiallyConnected
 
-    await ds.stopDeliveryService()
+    await ds.stop()
     await monitorA.stopHealthMonitor()
     await nodeB.stop()
     await nodeA.stop()

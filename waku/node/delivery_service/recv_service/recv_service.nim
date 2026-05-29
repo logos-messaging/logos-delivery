@@ -4,17 +4,17 @@
 
 import std/[tables, sequtils, options, sets]
 import chronos, chronicles, libp2p/utility
-import ../[subscription_manager]
 import brokers/broker_context
 import
   waku/[
     waku_core,
+    waku_core/topics,
     waku_store/client,
     waku_store/common,
     waku_filter_v2/client,
-    waku_core/topics,
     events/message_events,
     waku_node,
+    node/subscription_manager,
   ]
 
 const StoreCheckPeriod = chronos.minutes(5) ## How often to perform store queries
@@ -38,7 +38,6 @@ type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
   node: WakuNode
   seenMsgListener: MessageSeenEventListener
-  subscriptionManager: SubscriptionManager
 
   recentReceivedMsgs: seq[RecvMessage]
 
@@ -77,7 +76,7 @@ proc processIncomingMessage(
   ## or if the message is a duplicate (recently-seen). Otherwise, save it as
   ## recently-seen, emit a MessageReceivedEvent, and return true.
 
-  if not self.subscriptionManager.isSubscribed(pubsubTopic, message.contentTopic):
+  if not self.node.subscriptionManager.isContentSubscribed(pubsubTopic, message.contentTopic):
     trace "skipping message as I am not subscribed",
       shard = pubsubTopic, contentTopic = message.contentTopic
     return false
@@ -101,7 +100,7 @@ proc checkStore*(self: RecvService) {.async.} =
   self.endTimeToCheck = getNowInNanosecondTime()
 
   ## query store and deliver new recovered messages per subscribed topic
-  for pubsubTopic, contentTopics in self.subscriptionManager.subscribedTopics:
+  for pubsubTopic, contentTopics in self.node.subscriptionManager.subscribedContentTopics:
     let storeResp: StoreQueryResponse = (
       await self.node.wakuStoreClient.queryToAny(
         StoreQueryRequest(
@@ -146,7 +145,7 @@ proc msgChecker(self: RecvService) {.async.} =
     await sleepAsync(StoreCheckPeriod)
     await self.checkStore()
 
-proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionManager): T =
+proc new*(T: typedesc[RecvService], node: WakuNode): T =
   ## The storeClient will help to acquire any possible missed messages
 
   let now = getNowInNanosecondTime()
@@ -154,7 +153,6 @@ proc new*(T: typedesc[RecvService], node: WakuNode, s: SubscriptionManager): T =
     node: node,
     startTimeToCheck: now,
     brokerCtx: node.brokerCtx,
-    subscriptionManager: s,
     recentReceivedMsgs: @[],
   )
 

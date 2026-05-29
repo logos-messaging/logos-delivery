@@ -172,7 +172,12 @@ proc logosdelivery_start_node(
     chronicles.error "ConnectionStatusChange.listen failed", err = $error
     return err("ConnectionStatusChange.listen failed: " & $error)
 
-  (await startWaku(addr ctx.myLib[])).isOkOr:
+  ctx.myLib[].mountMessagingClient().isOkOr:
+    let errMsg = $error
+    chronicles.error "mountMessagingClient failed", err = errMsg
+    return err("failed to mount messaging: " & errMsg)
+
+  (await ctx.myLib[].start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
     return err("failed to start: " & errMsg)

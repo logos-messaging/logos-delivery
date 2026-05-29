@@ -1,9 +1,10 @@
 import chronicles, chronos, results
 
 import waku/factory/waku
+import waku/messaging_client
 import waku/[requests/health_requests, waku_core, waku_node]
 import waku/node/delivery_service/send_service
-import waku/node/delivery_service/subscription_manager
+import waku/node/subscription_manager
 import libp2p/peerid
 import ../../tools/confutils/cli_args
 import ./[api_conf, types]
@@ -38,24 +39,24 @@ proc subscribe*(
 ): Future[Result[void, string]] {.async.} =
   ?checkApiAvailability(w)
 
-  return w.deliveryService.subscriptionManager.subscribe(contentTopic)
+  return w.node.subscriptionManager.subscribe(contentTopic)
 
 proc unsubscribe*(w: Waku, contentTopic: ContentTopic): Result[void, string] =
   ?checkApiAvailability(w)
 
-  return w.deliveryService.subscriptionManager.unsubscribe(contentTopic)
+  return w.node.subscriptionManager.unsubscribe(contentTopic)
 
 proc send*(
     w: Waku, envelope: MessageEnvelope
 ): Future[Result[RequestId, string]] {.async.} =
   ?checkApiAvailability(w)
 
-  let isSubbed = w.deliveryService.subscriptionManager
+  let isSubbed = w.node.subscriptionManager
     .isSubscribed(envelope.contentTopic)
     .valueOr(false)
   if not isSubbed:
     info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
-    w.deliveryService.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:
+    w.node.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:
       warn "Failed to auto-subscribe", error = error
       return err("Failed to auto-subscribe before sending: " & error)
 
@@ -71,6 +72,6 @@ proc send*(
     msgHash = deliveryTask.msgHash.to0xHex(),
     myPeerId = w.node.peerId()
 
-  asyncSpawn w.deliveryService.sendService.send(deliveryTask)
+  asyncSpawn w.messagingClient.sendService.send(deliveryTask)
 
   return ok(requestId)

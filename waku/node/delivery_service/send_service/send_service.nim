@@ -6,10 +6,10 @@ import chronos, chronicles, libp2p/utility
 import brokers/broker_context
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
-  ../[subscription_manager],
   waku/[
     waku_core,
     node/waku_node,
+    node/subscription_manager,
     node/peer_manager,
     waku_store/client,
     waku_store/common,
@@ -58,7 +58,6 @@ type SendService* = ref object of RootObj
 
   node: WakuNode
   checkStoreForMessages: bool
-  subscriptionManager: SubscriptionManager
 
 proc setupSendProcessorChain(
     peerManager: PeerManager,
@@ -99,7 +98,6 @@ proc new*(
     T: typedesc[SendService],
     preferP2PReliability: bool,
     w: WakuNode,
-    s: SubscriptionManager,
 ): Result[T, string] =
   if w.wakuRelay.isNil() and w.wakuLightpushClient.isNil():
     return err(
@@ -120,7 +118,6 @@ proc new*(
     sendProcessor: sendProcessorChain,
     node: w,
     checkStoreForMessages: checkStoreForMessages,
-    subscriptionManager: s,
   )
 
   return ok(sendService)
@@ -263,7 +260,7 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
   info "SendService.send: processing delivery task",
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
 
-  self.subscriptionManager.subscribe(task.msg.contentTopic).isOkOr:
+  self.node.subscriptionManager.subscribe(task.msg.contentTopic).isOkOr:
     error "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 

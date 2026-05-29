@@ -698,6 +698,13 @@ suite "WakuNode - Relay":
     node.unsubscribe((kind: ContentUnsub, topic: contentTopicB)).isOkOr:
       assert false, "Failed to unsubscribe to topic: " & $error
 
+    check node.wakuRelay.isSubscribed(shard)
+
+    node.unsubscribe((kind: ContentUnsub, topic: contentTopicA)).isOkOr:
+      assert false, "Failed to unsubscribe to topic: " & $error
+    node.unsubscribe((kind: ContentUnsub, topic: contentTopicC)).isOkOr:
+      assert false, "Failed to unsubscribe to topic: " & $error
+
     ## After unsubcription, the node should not be subscribed to the shard anymore
     check not node.wakuRelay.isSubscribed(shard)
 

@@ -14,6 +14,7 @@ import
     events/health_events,
     events/peer_events,
     node/waku_node,
+    node/node_telemetry,
     node/peer_manager,
     node/kernel_api,
     node/health_monitor/online_monitor,
