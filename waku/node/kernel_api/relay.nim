@@ -76,7 +76,8 @@ proc subscribe*(
     return err("Failed to decode subscription event: " & error)
 
   if contentTopicOp.isSome():
-    return node.subscriptionManager.subscribe(pubsubTopic, contentTopicOp.get(), handler)
+    return
+      node.subscriptionManager.subscribe(pubsubTopic, contentTopicOp.get(), handler)
   return node.subscriptionManager.subscribeShard(pubsubTopic, handler)
 
 proc unsubscribe*(

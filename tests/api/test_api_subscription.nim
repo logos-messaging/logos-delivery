@@ -187,7 +187,9 @@ proc edgePeersReached(w: Waku, shard: PubsubTopic, n: int): Future[bool] {.async
     await sleepAsync(100.milliseconds)
   return false
 
-proc edgePeersDroppedBelow(w: Waku, shard: PubsubTopic, n: int): Future[bool] {.async.} =
+proc edgePeersDroppedBelow(
+    w: Waku, shard: PubsubTopic, n: int
+): Future[bool] {.async.} =
   let deadline = Moment.now() + EdgeWaitTimeout
   while Moment.now() < deadline:
     if w.node.subscriptionManager.edgeFilterPeerCount(shard) < n:

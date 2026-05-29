@@ -76,7 +76,9 @@ proc processIncomingMessage(
   ## or if the message is a duplicate (recently-seen). Otherwise, save it as
   ## recently-seen, emit a MessageReceivedEvent, and return true.
 
-  if not self.node.subscriptionManager.isContentSubscribed(pubsubTopic, message.contentTopic):
+  if not self.node.subscriptionManager.isContentSubscribed(
+    pubsubTopic, message.contentTopic
+  ):
     trace "skipping message as I am not subscribed",
       shard = pubsubTopic, contentTopic = message.contentTopic
     return false

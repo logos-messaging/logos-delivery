@@ -93,7 +93,8 @@ type
 
   ShardSubscription* = object
     contentTopics*: HashSet[ContentTopic]
-    directShardSub*: bool ## shard subscribed directly (PubsubSub), independent of content-topic interest
+    directShardSub*: bool
+      ## shard subscribed directly (PubsubSub), independent of content-topic interest
 
   EdgeFilterSubState* = object
     peers*: seq[RemotePeerInfo]

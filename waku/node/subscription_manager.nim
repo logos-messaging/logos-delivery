@@ -150,8 +150,9 @@ proc subscribeShard*(
       entry.directShardSub = true
       added = true
   do:
-    self.shards[shard] =
-      ShardSubscription(contentTopics: initHashSet[ContentTopic](), directShardSub: true)
+    self.shards[shard] = ShardSubscription(
+      contentTopics: initHashSet[ContentTopic](), directShardSub: true
+    )
     added = true
   if added:
     self.edgeFilterWakeup.fire()
@@ -220,9 +221,7 @@ proc unsubscribe*(
         self.node.doRelayUnsubscribe(shard)
   return ok()
 
-proc subscribe*(
-    self: SubscriptionManager, topic: ContentTopic
-): Result[void, string] =
+proc subscribe*(self: SubscriptionManager, topic: ContentTopic): Result[void, string] =
   ## Subscribes to a content topic, resolving its shard via autosharding.
   let shard = ?self.getShardForContentTopic(topic)
   return self.subscribe(shard, topic)

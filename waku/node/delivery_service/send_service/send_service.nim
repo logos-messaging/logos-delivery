@@ -95,9 +95,7 @@ proc setupSendProcessorChain(
   return ok(processors[0])
 
 proc new*(
-    T: typedesc[SendService],
-    preferP2PReliability: bool,
-    w: WakuNode,
+    T: typedesc[SendService], preferP2PReliability: bool, w: WakuNode
 ): Result[T, string] =
   if w.wakuRelay.isNil() and w.wakuLightpushClient.isNil():
     return err(

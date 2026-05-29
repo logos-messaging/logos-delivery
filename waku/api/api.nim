@@ -51,9 +51,8 @@ proc send*(
 ): Future[Result[RequestId, string]] {.async.} =
   ?checkApiAvailability(w)
 
-  let isSubbed = w.node.subscriptionManager
-    .isSubscribed(envelope.contentTopic)
-    .valueOr(false)
+  let isSubbed =
+    w.node.subscriptionManager.isSubscribed(envelope.contentTopic).valueOr(false)
   if not isSubbed:
     info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
     w.node.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:

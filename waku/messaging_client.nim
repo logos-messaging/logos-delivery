@@ -1,7 +1,5 @@
 import results, chronos
-import
-  ./node/waku_node,
-  ./node/delivery_service/[recv_service, send_service]
+import ./node/waku_node, ./node/delivery_service/[recv_service, send_service]
 
 type MessagingClient* = ref object
   sendService*: SendService
