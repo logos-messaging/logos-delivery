@@ -187,9 +187,6 @@ suite "Reliable Channel - send state machine":
       )
       .expect("createReliableChannel")
 
-    let chn = manager.getChannelForTest(channelId)
-    doAssert not chn.isNil()
-
     let sentFut = newFuture[RequestId]("channel-sent")
     discard ChannelMessageSentEvent
       .listen(
@@ -201,7 +198,7 @@ suite "Reliable Channel - send state machine":
       )
       .expect("listen ChannelMessageSentEvent")
 
-    let channelReqId = chn.send("hello".toBytes()).expect("send")
+    let channelReqId = manager.send(channelId, "hello".toBytes()).expect("send")
 
     let dispatchDeadline = Moment.now() + 1.seconds
     while Moment.now() < dispatchDeadline and sendCalls == 0:
@@ -258,9 +255,6 @@ suite "Reliable Channel - send state machine":
       )
       .expect("createReliableChannel")
 
-    let chn = manager.getChannelForTest(channelId)
-    doAssert not chn.isNil()
-
     let sentFut = newFuture[RequestId]("channel-sent")
     let erroredFut = newFuture[RequestId]("channel-errored")
     discard ChannelMessageSentEvent
@@ -282,8 +276,8 @@ suite "Reliable Channel - send state machine":
       )
       .expect("listen ChannelMessageErrorEvent")
 
-    let channelReqId1 = chn.send("first".toBytes()).expect("send 1")
-    let channelReqId2 = chn.send("second".toBytes()).expect("send 2")
+    let channelReqId1 = manager.send(channelId, "first".toBytes()).expect("send 1")
+    let channelReqId2 = manager.send(channelId, "second".toBytes()).expect("send 2")
 
     let dispatchDeadline = Moment.now() + 1.seconds
     while Moment.now() < dispatchDeadline and msgReqIds.len < 2:
