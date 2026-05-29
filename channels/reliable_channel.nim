@@ -166,7 +166,7 @@ proc onMessageError(self: ReliableChannel, messagingReqId: RequestId) =
   self.pruneCompletedChannelReqs()
 
 proc onReadyToSend(
-    self: ReliableChannel, msgs: sink seq[seq[byte]]
+    self: ReliableChannel, readyToSendEvent: ReadyToSendEvent
 ) {.async: (raises: []).} =
   ## Tail of the outgoing pipeline. Invoked from the `ReadyToSendEvent`
   ## listener once `rate_limit_manager` releases a batch of opaque
@@ -174,7 +174,7 @@ proc onReadyToSend(
   ##
   ##   ... -> rate_limit_manager -> [encryption] -> dispatch
   var idx = 0
-  for m in msgs:
+  for m in readyToSendEvent.msgs:
     ## The first `AwaitingRateLimit` entry in push order is the one
     ## this `m` belongs to: `send()` adds one entry per segment, and
     ## `rate_limit_manager` re-emits them in the same FIFO order, so
@@ -395,7 +395,7 @@ proc new*(
     chn.brokerCtx,
     proc(evt: ReadyToSendEvent): Future[void] {.async: (raises: []).} =
       if evt.channelId == chn.channelId:
-        await chn.onReadyToSend(evt.msgs)
+        await chn.onReadyToSend(evt)
     ,
   )
 
