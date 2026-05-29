@@ -175,9 +175,7 @@ suite "Reliable Channel - send state machine":
     var sendCalls = 0
     let fakeSend: SendHandler = proc(
         env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.
-        async: (raises: [CatchableError]), gcsafe
-    .} =
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
       sendCalls.inc
       return ok(fakeMsgReqId)
 
@@ -242,9 +240,7 @@ suite "Reliable Channel - send state machine":
     var msgReqIds: seq[RequestId]
     let fakeSend: SendHandler = proc(
         env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.
-        async: (raises: [CatchableError]), gcsafe
-    .} =
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
       let id = RequestId("fake-msg-req-" & $(msgReqIds.len + 1))
       msgReqIds.add(id)
       return ok(id)

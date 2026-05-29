@@ -44,9 +44,7 @@ proc new*(
   let waku = ?(await createNode(conf))
 
   let manager = T(
-    channels: initTable[ChannelId, ReliableChannel](),
-    waku: waku,
-    brokerCtx: brokerCtx,
+    channels: initTable[ChannelId, ReliableChannel](), waku: waku, brokerCtx: brokerCtx
   )
 
   return ok(manager)

@@ -60,13 +60,11 @@ type
     ## messaging layer has its own richer `DeliveryState` (retries,
     ## propagated-vs-validated); here we only model what's needed to
     ## decide when a `channelReqId` is fully accounted for.
-    AwaitingRateLimit
-      ## Pushed by `send`; not yet released by rate_limit_manager.
+    AwaitingRateLimit ## Pushed by `send`; not yet released by rate_limit_manager.
     InFlight
       ## Released by rate_limit_manager and handed to delivery_service;
       ## `messagingReqId` is now set.
-    Confirmed
-      ## `MessageSentEvent` arrived for `messagingReqId`.
+    Confirmed ## `MessageSentEvent` arrived for `messagingReqId`.
     Failed
       ## `MessageErrorEvent` arrived for `messagingReqId`, or the local
       ## delivery-task construction failed before any id was reachable.
@@ -164,7 +162,7 @@ proc onMessageSent(self: ReliableChannel, messagingReqId: RequestId) =
   ## belong to this channel simply don't match and are no-ops.
   self.pendingMessagingRequests.applyItIf(
     it.segmentSendState == SegmentSendState.InFlight and
-    it.messagingReqId == some(messagingReqId)
+      it.messagingReqId == some(messagingReqId)
   ):
     it.segmentSendState = SegmentSendState.Confirmed
   self.pruneCompletedChannelReqs()
@@ -173,7 +171,7 @@ proc onMessageError(self: ReliableChannel, messagingReqId: RequestId) =
   ## Symmetric to `onMessageSent` but for `MessageErrorEvent`.
   self.pendingMessagingRequests.applyItIf(
     it.segmentSendState == SegmentSendState.InFlight and
-    it.messagingReqId == some(messagingReqId)
+      it.messagingReqId == some(messagingReqId)
   ):
     it.segmentSendState = SegmentSendState.Failed
   self.pruneCompletedChannelReqs()
@@ -196,7 +194,9 @@ proc onReadyToSend(
     ## live on until every sibling of their `channelReqId` is final,
     ## so we walk past those to find the next one that was awaiting for this batch.
     while idx < self.pendingMessagingRequests.len and
-        self.pendingMessagingRequests[idx].segmentSendState != SegmentSendState.AwaitingRateLimit:
+        self.pendingMessagingRequests[idx].segmentSendState !=
+        SegmentSendState.AwaitingRateLimit
+    :
       idx.inc()
     if idx >= self.pendingMessagingRequests.len:
       ## rate_limit_manager emitted more messages than we have pending —
@@ -219,9 +219,7 @@ proc onReadyToSend(
       MessageErrorEvent.emit(
         self.brokerCtx,
         MessageErrorEvent(
-          requestId: channelReqId,
-          messageHash: "",
-          error: "encryption failed: " & error,
+          requestId: channelReqId, messageHash: "", error: "encryption failed: " & error
         ),
       )
       ## Encryption failed *before* we could hand the segment to the
@@ -260,9 +258,7 @@ proc onReadyToSend(
       MessageErrorEvent.emit(
         self.brokerCtx,
         MessageErrorEvent(
-          requestId: channelReqId,
-          messageHash: "",
-          error: "waku send failed: " & error,
+          requestId: channelReqId, messageHash: "", error: "waku send failed: " & error
         ),
       )
       self.pendingMessagingRequests[idx].segmentSendState = SegmentSendState.Failed
@@ -390,9 +386,9 @@ proc new*(
   ## the send state machine without touching the network.
   let resolvedSendHandler =
     if sendHandler.isNil():
-      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
-          async: (raises: [CatchableError]), gcsafe
-      .} =
+      proc(
+          envelope: MessageEnvelope
+      ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
         return await waku.send(envelope)
     else:
       sendHandler
@@ -445,15 +441,13 @@ proc new*(
   discard MessageSentEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageSentEvent): Future[void] {.async: (raises: []).} =
-      chn.onMessageSent(evt.requestId)
-    ,
+      chn.onMessageSent(evt.requestId),
   )
 
   discard MessageErrorEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageErrorEvent): Future[void] {.async: (raises: []).} =
-      chn.onMessageError(evt.requestId)
-    ,
+      chn.onMessageError(evt.requestId),
   )
 
   return chn
