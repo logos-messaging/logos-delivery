@@ -144,21 +144,21 @@ proc onMessageSent(self: ReliableChannel, messagingReqId: RequestId) =
   ## the matching `InFlight` segment to `Confirmed` and prunes. The
   ## listener routes every event through here; entries that don't
   ## belong to this channel simply don't match and are no-ops.
-  for i in 0 ..< self.pendingMessagingRequests.len:
-    if self.pendingMessagingRequests[i].segmentSendState == SegmentSendState.InFlight and
-        self.pendingMessagingRequests[i].messagingReqId == some(messagingReqId):
-      self.pendingMessagingRequests[i].segmentSendState = SegmentSendState.Confirmed
-      self.pruneCompletedChannelReqs()
-      return
+  self.pendingMessagingRequests.applyItIf(
+    it.segmentSendState == SegmentSendState.InFlight and
+    it.messagingReqId == some(messagingReqId)
+  ):
+    it.segmentSendState = SegmentSendState.Confirmed
+  self.pruneCompletedChannelReqs()
 
 proc onMessageError(self: ReliableChannel, messagingReqId: RequestId) =
   ## Symmetric to `onMessageSent` but for `MessageErrorEvent`.
-  for i in 0 ..< self.pendingMessagingRequests.len:
-    if self.pendingMessagingRequests[i].segmentSendState == SegmentSendState.InFlight and
-        self.pendingMessagingRequests[i].messagingReqId == some(messagingReqId):
-      self.pendingMessagingRequests[i].segmentSendState = SegmentSendState.Failed
-      self.pruneCompletedChannelReqs()
-      return
+  self.pendingMessagingRequests.applyItIf(
+    it.segmentSendState == SegmentSendState.InFlight and
+    it.messagingReqId == some(messagingReqId)
+  ):
+    it.segmentSendState = SegmentSendState.Failed
+  self.pruneCompletedChannelReqs()
 
 proc onReadyToSend(
     self: ReliableChannel, msgs: seq[seq[byte]]
