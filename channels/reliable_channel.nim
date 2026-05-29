@@ -113,13 +113,6 @@ func getContentTopic*(self: ReliableChannel): ContentTopic {.inline.} =
 func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
   self.senderId
 
-func pendingMessagingRequestsLenForTest*(self: ReliableChannel): int {.inline.} =
-  ## Test-only: returns how many segments are still tracked in the
-  ## state machine. The internal segment lifecycle is not part of the
-  ## spec'd API; production callers must not observe it. Read-only — to
-  ## inject state, drive `send()` with a fake `SendHandler` instead.
-  return self.pendingMessagingRequests.len
-
 func isFinal(state: SegmentSendState): bool {.inline.} =
   return state in {SegmentSendState.Confirmed, SegmentSendState.Failed}
 
@@ -128,12 +121,41 @@ proc pruneCompletedChannelReqs(self: ReliableChannel) =
   ## has all of its segments in a final state. A single failing
   ## segment doesn't trigger a drop on its own — we wait until siblings
   ## are also accounted for, so the channel-level outcome is decided
-  ## from a complete picture.
-  var channelsWithPending = initHashSet[RequestId]()
+  ## from a complete picture. For each fully-final `channelReqId`, emit
+  ## the channel-level final event before the entries are dropped:
+  ## `ChannelMessageSentEvent` if every sibling Confirmed,
+  ## `ChannelMessageErrorEvent` if any sibling Failed.
+  var hasPending = initHashSet[RequestId]()
+  var anyFailed = initHashSet[RequestId]()
   for entry in self.pendingMessagingRequests:
     if not entry.segmentSendState.isFinal():
-      channelsWithPending.incl(entry.channelReqId)
-  self.pendingMessagingRequests.keepItIf(it.channelReqId in channelsWithPending)
+      hasPending.incl(entry.channelReqId)
+    elif entry.segmentSendState == SegmentSendState.Failed:
+      anyFailed.incl(entry.channelReqId)
+
+  var emitted = initHashSet[RequestId]()
+  for entry in self.pendingMessagingRequests:
+    if entry.channelReqId in hasPending or entry.channelReqId in emitted:
+      continue
+    emitted.incl(entry.channelReqId)
+    if entry.channelReqId in anyFailed:
+      ChannelMessageErrorEvent.emit(
+        self.brokerCtx,
+        ChannelMessageErrorEvent(
+          channelId: self.channelId,
+          requestId: entry.channelReqId,
+          error: "one or more segments failed",
+        ),
+      )
+    else:
+      ChannelMessageSentEvent.emit(
+        self.brokerCtx,
+        ChannelMessageSentEvent(
+          channelId: self.channelId, requestId: entry.channelReqId
+        ),
+      )
+
+  self.pendingMessagingRequests.keepItIf(it.channelReqId in hasPending)
 
 proc onMessageSent(self: ReliableChannel, messagingReqId: RequestId) =
   ## Invoked from this channel's `MessageSentEvent` listener. Flips

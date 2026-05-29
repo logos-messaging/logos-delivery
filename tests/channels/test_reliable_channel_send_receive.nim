@@ -149,14 +149,14 @@ suite "Reliable Channel - ingress":
     await manager.stop()
 
 suite "Reliable Channel - send state machine":
-  asyncTest "MessageSentEvent flips InFlight -> Confirmed and prunes":
+  asyncTest "MessageSentEvent finalises the channelReqId as Sent":
     ## Drives the real send pipeline (`send` -> segmentation -> SDS ->
     ## rate_limit -> encrypt -> dispatch) via a fake `SendHandler` that
-    ## returns canned `RequestId`s instead of hitting the network. Once
-    ## the segment reaches `InFlight`, the delivery-layer
-    ## `MessageSentEvent` is emitted and the entry must transition to
-    ## `Confirmed` and be pruned (it's the only segment for that
-    ## `channelReqId`).
+    ## returns a canned `RequestId` instead of hitting the network.
+    ## Emitting the delivery-layer `MessageSentEvent` must drive the
+    ## channel-level state machine through `Confirmed` and produce a
+    ## `ChannelMessageSentEvent` (channel-level terminal event) for the
+    ## `channelReqId` returned by `send()`.
     const
       channelId = ChannelId("sm-success-channel")
       contentTopic = ContentTopic("/reliable-channel/test/sm-success")
@@ -189,36 +189,45 @@ suite "Reliable Channel - send state machine":
 
     let chn = manager.getChannelForTest(channelId)
     doAssert not chn.isNil()
-    check chn.pendingMessagingRequestsLenForTest == 0
 
-    ## Small payload -> one segment -> exactly one `SendHandler` call.
-    discard chn.send("hello".toBytes()).expect("send")
+    let sentFut = newFuture[RequestId]("channel-sent")
+    discard ChannelMessageSentEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageSentEvent) {.async: (raises: []).} =
+          if not sentFut.finished() and evt.channelId == channelId:
+            sentFut.complete(evt.requestId)
+        ,
+      )
+      .expect("listen ChannelMessageSentEvent")
+
+    let channelReqId = chn.send("hello".toBytes()).expect("send")
 
     let dispatchDeadline = Moment.now() + 1.seconds
     while Moment.now() < dispatchDeadline and sendCalls == 0:
       await sleepAsync(5.milliseconds)
     check sendCalls == 1
-    check chn.pendingMessagingRequestsLenForTest == 1
 
     waku_message_events.MessageSentEvent.emit(
       brokerCtx,
       waku_message_events.MessageSentEvent(requestId: fakeMsgReqId, messageHash: ""),
     )
 
-    let pruneDeadline = Moment.now() + 1.seconds
-    while Moment.now() < pruneDeadline and chn.pendingMessagingRequestsLenForTest > 0:
-      await sleepAsync(5.milliseconds)
-    check chn.pendingMessagingRequestsLenForTest == 0
+    let finalised = await sentFut.withTimeout(1.seconds)
+    check finalised
+    if finalised:
+      check sentFut.read() == channelReqId
 
     await manager.stop()
 
-  asyncTest "two independent channelReqIds are pruned independently":
+  asyncTest "two independent channelReqIds are finalised independently":
     ## Two `send()` calls -> two independent `channelReqId`s, each with
     ## one segment under the current segmentation skeleton
     ## (`performSegmentation` always emits exactly one segment). The
     ## fake `SendHandler` returns distinct `messagingReqId`s; finalising
-    ## the first must prune only its entry, leaving the second tracked,
-    ## then finalising the second prunes the remainder.
+    ## the first emits `ChannelMessageSentEvent` for its `channelReqId`,
+    ## finalising the second as a failure emits `ChannelMessageErrorEvent`
+    ## for the other.
     const
       channelId = ChannelId("sm-multi-channel")
       contentTopic = ContentTopic("/reliable-channel/test/sm-multi")
@@ -252,25 +261,46 @@ suite "Reliable Channel - send state machine":
     let chn = manager.getChannelForTest(channelId)
     doAssert not chn.isNil()
 
-    discard chn.send("first".toBytes()).expect("send 1")
-    discard chn.send("second".toBytes()).expect("send 2")
+    let sentFut = newFuture[RequestId]("channel-sent")
+    let erroredFut = newFuture[RequestId]("channel-errored")
+    discard ChannelMessageSentEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageSentEvent) {.async: (raises: []).} =
+          if not sentFut.finished() and evt.channelId == channelId:
+            sentFut.complete(evt.requestId)
+        ,
+      )
+      .expect("listen ChannelMessageSentEvent")
+    discard ChannelMessageErrorEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageErrorEvent) {.async: (raises: []).} =
+          if not erroredFut.finished() and evt.channelId == channelId:
+            erroredFut.complete(evt.requestId)
+        ,
+      )
+      .expect("listen ChannelMessageErrorEvent")
+
+    let channelReqId1 = chn.send("first".toBytes()).expect("send 1")
+    let channelReqId2 = chn.send("second".toBytes()).expect("send 2")
 
     let dispatchDeadline = Moment.now() + 1.seconds
     while Moment.now() < dispatchDeadline and msgReqIds.len < 2:
       await sleepAsync(5.milliseconds)
     check msgReqIds.len == 2
-    check chn.pendingMessagingRequestsLenForTest == 2
 
     waku_message_events.MessageSentEvent.emit(
       brokerCtx,
       waku_message_events.MessageSentEvent(requestId: msgReqIds[0], messageHash: ""),
     )
-    let firstPruneDeadline = Moment.now() + 1.seconds
-    while Moment.now() < firstPruneDeadline and chn.pendingMessagingRequestsLenForTest > 1:
-      await sleepAsync(5.milliseconds)
-    ## Only the first `channelReqId` is fully accounted for; the second
-    ## one's segment is still `InFlight`, so exactly one entry remains.
-    check chn.pendingMessagingRequestsLenForTest == 1
+    let sentArrived = await sentFut.withTimeout(1.seconds)
+    check sentArrived
+    if sentArrived:
+      check sentFut.read() == channelReqId1
+    ## The second `channelReqId` must NOT have finalised yet — its
+    ## segment is still `InFlight`.
+    check not erroredFut.finished()
 
     waku_message_events.MessageErrorEvent.emit(
       brokerCtx,
@@ -278,10 +308,10 @@ suite "Reliable Channel - send state machine":
         requestId: msgReqIds[1], messageHash: "", error: "synthetic"
       ),
     )
-    let pruneDeadline = Moment.now() + 1.seconds
-    while Moment.now() < pruneDeadline and chn.pendingMessagingRequestsLenForTest > 0:
-      await sleepAsync(5.milliseconds)
-    check chn.pendingMessagingRequestsLenForTest == 0
+    let erroredArrived = await erroredFut.withTimeout(1.seconds)
+    check erroredArrived
+    if erroredArrived:
+      check erroredFut.read() == channelReqId2
 
     await manager.stop()
 
