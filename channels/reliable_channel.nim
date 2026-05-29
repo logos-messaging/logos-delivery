@@ -220,7 +220,6 @@ proc onReadyToSend(
       ## parent `channelReqId` can still be pruned once its siblings
       ## are also final.
       self.pendingMessagingRequests[idx].segmentSendState = SegmentSendState.Failed
-      self.pruneCompletedChannelReqs()
       idx.inc()
       continue
     let wireBytes = seq[byte](encrypted)
@@ -254,7 +253,6 @@ proc onReadyToSend(
         ),
       )
       self.pendingMessagingRequests[idx].segmentSendState = SegmentSendState.Failed
-      self.pruneCompletedChannelReqs()
       idx.inc()
       continue
 
@@ -262,6 +260,10 @@ proc onReadyToSend(
     self.pendingMessagingRequests[idx].segmentSendState = SegmentSendState.InFlight
     self.requestIds.mgetOrPut(channelReqId, @[]).add(messagingReqId)
     idx.inc()
+
+  ## Prune once after the index walk completes. Calling it inside the
+  ## loop would shift entries and misalign `idx` for the next iteration.
+  self.pruneCompletedChannelReqs()
 
 proc send*(
     self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
