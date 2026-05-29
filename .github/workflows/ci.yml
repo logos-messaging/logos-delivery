@@ -35,6 +35,9 @@ jobs:
           - 'nimble.lock'
           - 'waku.nimble'
           - 'Makefile'
+          - 'scripts/**'
+          - 'flake.nix'
+          - 'flake.lock'
           - 'library/**'
           - 'liblogosdelivery/**'
           v2:
