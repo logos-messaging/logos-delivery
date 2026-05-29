@@ -44,6 +44,13 @@ const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
   ## on breaking on-the-wire changes; implementations pin one version.
 
 type
+  SendHandler* = proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
+    async: (raises: [CatchableError]), gcsafe
+  .}
+    ## Egress dispatch boundary. Defaults to `waku.send`; tests inject a
+    ## fake that records calls and returns canned `RequestId`s so the
+    ## send state machine can be exercised end-to-end without a network.
+
   MessagePersistence {.pure.} = enum
     Persistent
     Ephemeral
@@ -81,7 +88,7 @@ type
     ## Spec-defined public type. Fields are private so callers cannot
     ## mutate internals and break invariants. Getters are added below
     ## for the few values consumers may need.
-    waku: Waku
+    sendHandler: SendHandler
     channelId: ChannelId
     contentTopic: ContentTopic
     senderId: SdsParticipantID
@@ -109,25 +116,9 @@ func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
 func pendingMessagingRequestsLenForTest*(self: ReliableChannel): int {.inline.} =
   ## Test-only: returns how many segments are still tracked in the
   ## state machine. The internal segment lifecycle is not part of the
-  ## spec'd API; production callers must not observe it.
+  ## spec'd API; production callers must not observe it. Read-only — to
+  ## inject state, drive `send()` with a fake `SendHandler` instead.
   return self.pendingMessagingRequests.len
-
-proc forceInjectInFlightForTest*(
-    self: ReliableChannel, channelReqId: RequestId, messagingReqId: RequestId
-) =
-  ## Test-only: inject a pending entry already in `InFlight`. Bypasses
-  ## `send` / `onReadyToSend` so unit tests can exercise final-state
-  ## handling and the `pruneCompletedChannelReqs` rule (drop only when
-  ## *all* siblings of a `channelReqId` are final) without having
-  ## to drive — and race with — the real send pipeline.
-  self.pendingMessagingRequests.add(
-    PendingMessagingRequest(
-      channelReqId: channelReqId,
-      messagingReqId: some(messagingReqId),
-      persistenceReqType: MessagePersistence.Persistent,
-      segmentSendState: SegmentSendState.InFlight,
-    )
-  )
 
 func isFinal(state: SegmentSendState): bool {.inline.} =
   return state in {SegmentSendState.Confirmed, SegmentSendState.Failed}
@@ -239,7 +230,7 @@ proc onReadyToSend(
     ## both failure modes (Result.err and exception) through one path.
     let sendRes =
       try:
-        await self.waku.send(envelope)
+        await self.sendHandler(envelope)
       except CatchableError as e:
         Result[RequestId, string].err("waku send raised: " & e.msg)
 
@@ -364,6 +355,7 @@ proc new*(
     sdsConfig: SdsConfig,
     rateConfig: RateLimitConfig,
     brokerCtx: BrokerContext = globalBrokerContext(),
+    sendHandler: SendHandler = nil,
 ): T =
   ## Pipeline handlers (segmentation/SDS/rate-limit) are constructed
   ## inside the channel rather than handed in by the caller — they are
@@ -371,8 +363,20 @@ proc new*(
   ## should be wiring up. Encryption is delegated to the `Encrypt`/
   ## `Decrypt` request brokers, so the channel keeps no per-instance
   ## encryption state either.
+  ##
+  ## `sendHandler` defaults to `waku.send`; tests pass a fake to drive
+  ## the send state machine without touching the network.
+  let resolvedSendHandler =
+    if sendHandler.isNil():
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
+          async: (raises: [CatchableError]), gcsafe
+      .} =
+        return await waku.send(envelope)
+    else:
+      sendHandler
+
   let chn = T(
-    waku: waku,
+    sendHandler: resolvedSendHandler,
     channelId: channelId,
     contentTopic: contentTopic,
     senderId: senderId,

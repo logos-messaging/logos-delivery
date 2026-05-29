@@ -75,6 +75,7 @@ proc createReliableChannel*(
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
+    sendHandler: SendHandler = nil,
 ): Result[ChannelId, string] =
   ## Spec entry point. The `DeliveryService` and `rng` the channel needs
   ## are sourced from the owning `ReliableChannelManager` rather than
@@ -84,6 +85,9 @@ proc createReliableChannel*(
   ##
   ## Segmentation, SDS and rate-limit configs will eventually be read
   ## from the node's `NodeConfig`. Defaults for now.
+  ##
+  ## `sendHandler` is left `nil` in production so the channel uses the
+  ## owned `waku.send`; tests pass a fake to bypass the network.
   if self.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
 
@@ -111,6 +115,7 @@ proc createReliableChannel*(
     sdsConfig = sdsConfig,
     rateConfig = rateConfig,
     brokerCtx = self.brokerCtx,
+    sendHandler = sendHandler,
   )
 
   self.channels[channelId] = chn
