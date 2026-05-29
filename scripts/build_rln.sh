@@ -1,8 +1,16 @@
 #!/usr/bin/env bash
 
-# This script is used to build the rln library for the current platform.
-# Previously downloaded prebuilt binaries, but due to compatibility issues
-# we now always build from source.
+# Provides the rln static library for the current platform.
+#
+# Strategy: if zerokit publishes a prebuilt `stateless` asset for this host's
+# target triple, download it — that's faster than compiling and avoids pulling
+# zerokit's ~100 crates from crates.io. Otherwise fall back to building from
+# the vendored zerokit submodule.
+#
+# (Prebuilt was dropped in #3712 and is restored here. The earlier "compatibility
+# issues" note was inaccurate: the release ships the same `stateless` librln.a
+# this script builds, and its glibc floor is GLIBC_2.18 — below every platform
+# we target. A missing asset just falls through to the source build.)
 
 set -e
 
@@ -15,8 +23,26 @@ output_filename=$3
 [[ -z "${rln_version}" ]]     && { echo "No rln version specified";     exit 1; }
 [[ -z "${output_filename}" ]] && { echo "No output filename specified"; exit 1; }
 
-echo "Building RLN library from source (version ${rln_version})..."
+# --- Prefer the prebuilt release asset --------------------------------------
+# Host target triple, e.g. x86_64-unknown-linux-gnu / aarch64-apple-darwin.
+host_triplet=$(rustc --version --verbose | awk '/host:/{print $2}')
+tarball="${host_triplet}-stateless-rln.tar.gz"
+url="https://github.com/vacp2p/zerokit/releases/download/${rln_version}/${tarball}"
 
+echo "Looking for prebuilt RLN: ${url}"
+if curl --silent --fail-with-body -L "${url}" -o "${tarball}"; then
+    echo "Downloaded prebuilt ${tarball}"
+    tar -xzf "${tarball}"
+    mv "release/librln.a" "${output_filename}"
+    rm -rf "${tarball}" release
+    echo "Using prebuilt ${output_filename}"
+    exit 0
+fi
+# curl --fail-with-body writes the error body to the file on HTTP failure.
+rm -f "${tarball}"
+echo "No prebuilt asset for ${host_triplet} at ${rln_version}; building from source."
+
+# --- Fall back to building from the vendored submodule ----------------------
 # Check if submodule version = version in Makefile
 cargo metadata --format-version=1 --no-deps --manifest-path "${build_dir}/rln/Cargo.toml"
 
@@ -33,7 +59,6 @@ if [[ "v${submodule_version}" != "${rln_version}" ]]; then
     exit 1
 fi
 
-# Build rln from source.
 # `stateless` feature: logos-delivery does not maintain a local Merkle tree
 # (post-PR #3312); the contract is the source of truth and the path is fetched
 # via getMerkleProof(index). The stateless build compiles out tree code.
