@@ -137,11 +137,7 @@ proc pruneCompletedChannelReqs(self: ReliableChannel) =
   ## segment doesn't trigger a drop on its own — we wait until siblings
   ## are also accounted for, so the channel-level outcome is decided
   ## from a complete picture.
-  var ongoing: HashSet[RequestId]
-  for entry in self.pendingMessagingRequests:
-    if not entry.segmentSendState.isFinal:
-      ongoing.incl(entry.channelReqId)
-  self.pendingMessagingRequests.keepItIf(it.channelReqId in ongoing)
+  self.pendingMessagingRequests.keepItIf(not it.segmentSendState.isFinal())
 
 proc onMessageSent(self: ReliableChannel, messagingReqId: RequestId) =
   ## Invoked from this channel's `MessageSentEvent` listener. Flips
