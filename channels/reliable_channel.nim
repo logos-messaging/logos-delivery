@@ -20,7 +20,8 @@ import bearssl/rand
 import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
 
-import waku/node/delivery_service/delivery_service
+import waku/api/api
+import waku/factory/waku as waku_factory
 import waku/node/delivery_service/send_service
 import waku/waku_core/topics
 
@@ -31,8 +32,8 @@ import ./rate_limit_manager/rate_limit_manager
 import ./encryption/encryption
 
 export
-  delivery_service, send_service, events, segmentation, scalable_data_sync,
-  rate_limit_manager, encryption
+  api, waku_factory, events, segmentation, scalable_data_sync, rate_limit_manager,
+  encryption
 
 const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
   ## Wire-format spec marker for the Reliable Channel layer, as defined
@@ -80,7 +81,7 @@ type
     ## Spec-defined public type. Fields are private so callers cannot
     ## mutate internals and break invariants. Getters are added below
     ## for the few values consumers may need.
-    deliveryService: DeliveryService
+    waku: Waku
     channelId: ChannelId
     contentTopic: ContentTopic
     senderId: SdsParticipantID
@@ -224,38 +225,41 @@ proc onReadyToSend(
       continue
     let wireBytes = seq[byte](encrypted)
 
+    ## The `meta` field carries the Reliable Channel wire-format spec
+    ## marker so the ingress side of any peer can route this WakuMessage
+    ## to its Reliable Channel layer.
     let envelope = MessageEnvelope(
-      contentTopic: self.contentTopic, payload: wireBytes, ephemeral: isEphemeral
+      contentTopic: self.contentTopic,
+      payload: wireBytes,
+      ephemeral: isEphemeral,
+      meta: LipWireReliableChannelVersion.toBytes(),
     )
 
-    let messagingReqId = RequestId.new(self.rng)
-    let deliveryTask = DeliveryTask.new(
-      messagingReqId, envelope, self.brokerCtx
-    ).valueOr:
+    ## `waku.send` is not annotated `(raises: [])`, but this listener is.
+    ## Convert any raise to a Result error so the state machine handles
+    ## both failure modes (Result.err and exception) through one path.
+    let sendRes =
+      try:
+        await self.waku.send(envelope)
+      except CatchableError as e:
+        Result[RequestId, string].err("waku send raised: " & e.msg)
+
+    let messagingReqId = sendRes.valueOr:
       MessageErrorEvent.emit(
         self.brokerCtx,
         MessageErrorEvent(
           requestId: channelReqId,
           messageHash: "",
-          error: "delivery task setup failed: " & error,
+          error: "waku send failed: " & error,
         ),
       )
-      self.pendingMessagingRequests[idx].messagingReqId = some(messagingReqId)
       self.pendingMessagingRequests[idx].segmentSendState = SegmentSendState.Failed
       self.pruneCompletedChannelReqs()
       idx.inc()
       continue
 
-    ## Stamp the Reliable Channel wire-format spec marker so the ingress
-    ## side of any peer can route this WakuMessage to its Reliable
-    ## Channel layer. Done on the constructed WakuMessage rather than
-    ## via the envelope because `MessageEnvelope` does not expose a
-    ## `meta` field.
-    deliveryTask.msg.meta = LipWireReliableChannelVersion.toBytes()
-
     self.pendingMessagingRequests[idx].messagingReqId = some(messagingReqId)
     self.pendingMessagingRequests[idx].segmentSendState = SegmentSendState.InFlight
-    asyncSpawn self.deliveryService.sendService.send(deliveryTask)
     self.requestIds.mgetOrPut(channelReqId, @[]).add(messagingReqId)
     idx.inc()
 
@@ -352,7 +356,7 @@ proc onMessageReceived(
 
 proc new*(
     T: type ReliableChannel,
-    deliveryService: DeliveryService,
+    waku: Waku,
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
@@ -368,7 +372,7 @@ proc new*(
   ## `Decrypt` request brokers, so the channel keeps no per-instance
   ## encryption state either.
   let chn = T(
-    deliveryService: deliveryService,
+    waku: waku,
     channelId: channelId,
     contentTopic: contentTopic,
     senderId: senderId,

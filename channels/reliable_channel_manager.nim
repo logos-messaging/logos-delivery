@@ -14,6 +14,7 @@ import waku/api/api
 import waku/api/api_conf
 import waku/events/message_events as waku_message_events
 import waku/factory/waku as waku_factory
+import waku/node/delivery_service/delivery_service
 import waku/waku_core/topics
 
 import ./reliable_channel
@@ -23,11 +24,10 @@ export reliable_channel
 
 type ReliableChannelManager* = ref object
   channels: Table[ChannelId, ReliableChannel]
-  deliveryService: DeliveryService
-    ## Owned by the manager. The ownership chain is
-    ##   ReliableChannelManager -> DeliveryService -> Waku -> WakuNode.
-    ## Hidden so callers can't substitute their own and bypass the
-    ## manager's pipeline.
+  waku: Waku
+    ## Owned by the manager. The channel layer reaches the messaging
+    ## API through `waku.send(envelope)`; constructing DeliveryTasks
+    ## directly would breach the layer boundary.
   brokerCtx: BrokerContext
 
 proc new*(
@@ -38,14 +38,14 @@ proc new*(
   ## TODO !! The proper ownership chain is:
   ## ReliableChannelManager -> DeliveryService (MessagingClient) -> Waku (Kernel/Protocols) -> WakuNode,
   ## and this will be implemented in the future. For now, `createNode`
-  ## is called here to get a DeliveryService instance, and the WakuNode is immediately discarded.
+  ## is called here to get a Waku instance, and the WakuNode is immediately discarded.
   ## This is a temporary workaround to get the API
 
   let waku = ?(await createNode(conf))
 
   let manager = T(
     channels: initTable[ChannelId, ReliableChannel](),
-    deliveryService: waku.deliveryService,
+    waku: waku,
     brokerCtx: brokerCtx,
   )
 
@@ -55,11 +55,11 @@ proc start*(self: ReliableChannelManager): Result[void, string] =
   ## Bring the owned DeliveryService up. Separated from `new` so callers
   ## can register encryption providers / create channels before traffic
   ## starts flowing.
-  self.deliveryService.startDeliveryService()
+  self.waku.deliveryService.startDeliveryService()
 
 proc stop*(self: ReliableChannelManager) {.async.} =
-  if not self.deliveryService.isNil():
-    await self.deliveryService.stopDeliveryService()
+  if not self.waku.isNil():
+    await self.waku.deliveryService.stopDeliveryService()
 
 proc getChannelForTest*(
     self: ReliableChannelManager, channelId: ChannelId
@@ -103,7 +103,7 @@ proc createReliableChannel*(
   )
 
   let chn = ReliableChannel.new(
-    deliveryService = self.deliveryService,
+    waku = self.waku,
     channelId = channelId,
     contentTopic = contentTopic,
     senderId = senderId,
