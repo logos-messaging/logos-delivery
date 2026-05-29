@@ -71,13 +71,14 @@ proc subscribe*(
     error "Invalid API call to `subscribe`. WakuRelay not mounted."
     return err("Invalid API call to `subscribe`. WakuRelay not mounted.")
 
-  let (pubsubTopic, contentTopicOp) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
+  let (pubsubTopic, _) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
     error "Failed to decode subscription event", error = error
     return err("Failed to decode subscription event: " & error)
 
-  if contentTopicOp.isSome():
-    return
-      node.subscriptionManager.subscribe(pubsubTopic, contentTopicOp.get(), handler)
+  # strict version
+  #if contentTopicOp.isSome():
+  #  return
+  #    node.subscriptionManager.subscribe(pubsubTopic, contentTopicOp.get(), handler)
   return node.subscriptionManager.subscribeShard(pubsubTopic, handler)
 
 proc unsubscribe*(
@@ -91,12 +92,13 @@ proc unsubscribe*(
     error "Invalid API call to `unsubscribe`. WakuRelay not mounted."
     return err("Invalid API call to `unsubscribe`. WakuRelay not mounted.")
 
-  let (pubsubTopic, contentTopicOp) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
+  let (pubsubTopic, _) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
     error "Failed to decode unsubscribe event", error = error
     return err("Failed to decode unsubscribe event: " & error)
 
-  if contentTopicOp.isSome():
-    return node.subscriptionManager.unsubscribe(pubsubTopic, contentTopicOp.get())
+  # strict version
+  #if contentTopicOp.isSome():
+  #  return node.subscriptionManager.unsubscribe(pubsubTopic, contentTopicOp.get())
   return node.subscriptionManager.unsubscribeAll(pubsubTopic)
 
 proc isSubscribed*(
