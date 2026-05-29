@@ -261,8 +261,6 @@ proc onReadyToSend(
     self.requestIds.mgetOrPut(channelReqId, @[]).add(messagingReqId)
     idx.inc()
 
-  ## Prune once after the index walk completes. Calling it inside the
-  ## loop would shift entries and misalign `idx` for the next iteration.
   self.pruneCompletedChannelReqs()
 
 proc send*(
