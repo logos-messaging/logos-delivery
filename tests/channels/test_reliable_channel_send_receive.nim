@@ -315,3 +315,137 @@ suite "Reliable Channel - send state machine":
     ## `messagingReqId`s from a fake `SendHandler`, finalise some, and
     ## assert prune only fires once every sibling is final.
     skip()
+
+  asyncTest "sibling MessageSentEvent during sendHandler await does not corrupt state":
+    ## Regression test for the prune-during-await race
+    ## (PR #3914 review comment r3324891059). The historical model
+    ## tracked segments in a flat `seq[PendingMessagingRequest]`,
+    ## so a sibling `MessageSentEvent` arriving while `onReadyToSend`
+    ## was paused at `await self.sendHandler(...)` would call
+    ## `keepItIf` on that seq, shift the entries under the live `idx`
+    ## walk, and either misassign the in-flight `messagingReqId` to
+    ## the wrong row or crash on out-of-bounds. The current model
+    ## keys per-request state by `channelReqId` in an `OrderedTable`,
+    ## so every lookup is by key (not position) and stays valid
+    ## across awaits. This test locks in the contract: both
+    ## `channelReqId`s must still produce exactly one terminal
+    ## `ChannelMessageSentEvent`.
+    const
+      channelId = ChannelId("sm-race-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-race")
+
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
+        "Failed to create manager"
+      )
+
+    setNoopEncryption()
+
+    var msgReqIds: seq[RequestId]
+    var sendsReturned = 0
+    let fakeSend: SendHandler = proc(
+        env: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+      ## Call 1: return immediately so the first segment's
+      ## `messagingReqId` lands in `inflightMessagingIds`. Call 2:
+      ## emit the final `MessageSentEvent` for the first segment,
+      ## then yield via `sleepAsync` so the listener task runs while
+      ## the second segment is still mid-`await` in `onReadyToSend`.
+      ## Under the old positional-index model this is exactly the
+      ## window that corrupted state; under the table-keyed model
+      ## the listener mutates a different key and leaves our entry
+      ## untouched.
+      let id = RequestId("race-msg-req-" & $(msgReqIds.len + 1))
+      msgReqIds.add(id)
+      if msgReqIds.len == 2:
+        waku_message_events.MessageSentEvent.emit(
+          brokerCtx,
+          waku_message_events.MessageSentEvent(requestId: msgReqIds[0], messageHash: ""),
+        )
+        await sleepAsync(50.milliseconds)
+      sendsReturned.inc()
+      return ok(id)
+
+    discard manager
+      .createReliableChannel(
+        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
+      )
+      .expect("createReliableChannel")
+
+    var finalisedReqIds: seq[RequestId]
+    let bothFinalised = newFuture[void]("both-finalised")
+    discard ChannelMessageSentEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageSentEvent) {.async: (raises: []).} =
+          if evt.channelId == channelId:
+            finalisedReqIds.add(evt.requestId)
+            if finalisedReqIds.len == 2 and not bothFinalised.finished():
+              bothFinalised.complete()
+        ,
+      )
+      .expect("listen ChannelMessageSentEvent")
+
+    let channelReqId1 = manager.send(channelId, "first".toBytes()).expect("send 1")
+
+    ## Let the first segment fully traverse the pipeline so entry[0]
+    ## is firmly `InFlight` with its `messagingReqId` set before send2
+    ## queues entry[1]. Without this, listener2 could see entry[0]
+    ## still `AwaitingRateLimit` and bind m2 to the wrong row — that
+    ## is a different, pre-existing concurrency assumption (rate-limit
+    ## FIFO between sibling sends) and not the bug we are testing.
+    let firstDispatched = Moment.now() + 1.seconds
+    while Moment.now() < firstDispatched and msgReqIds.len < 1:
+      await sleepAsync(5.milliseconds)
+    check msgReqIds.len == 1
+
+    let channelReqId2 = manager.send(channelId, "second".toBytes()).expect("send 2")
+
+    ## Wait until the second `fakeSend` has fully returned (not just
+    ## entered). `sendsReturned` ticks after the sleep inside the if
+    ## branch, so once it reaches 2 we know `fakeSend(m2)` has handed
+    ## control back to `onReadyToSend`. The extra `sleepAsync` below
+    ## then yields one more time so the chronos scheduler can run
+    ## `onReadyToSend`'s post-await continuation — which is where
+    ## `entry[1].messagingReqId = some(id2)` / state = `InFlight`
+    ## actually get written. Without that final yield, the emit below
+    ## would race the continuation and `MessageSentEvent(id2)` would
+    ## find no `InFlight` entry to match.
+    let dispatchDeadline = Moment.now() + 1.seconds
+    while Moment.now() < dispatchDeadline and sendsReturned < 2:
+      await sleepAsync(5.milliseconds)
+    check sendsReturned == 2
+    await sleepAsync(50.milliseconds)
+
+    ## Now finalise the second segment from the outside; its final
+    ## event must drive `channelReqId2` to `ChannelMessageSentEvent`.
+    ## If the race corrupted state during the await, the second
+    ## `messagingReqId` would never have been written to the right
+    ## entry and this event would silently never fire.
+    waku_message_events.MessageSentEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageSentEvent(requestId: msgReqIds[1], messageHash: ""),
+    )
+
+    ## Under the table-keyed model both events fire because no fiber
+    ## ever holds a positional reference: `onMessageSent(id1)` looks
+    ## up `channelReq1` by key, decrements its counters, and finalizes
+    ## (deleting that table key); meanwhile `onReadyToSend` is still
+    ## processing `channelReq2` — a different key — so its post-await
+    ## write to `inflightMessagingIds` lands on the correct, untouched
+    ## entry. The external `MessageSentEvent(id2)` below then resolves
+    ## `channelReq2`. Under the old `seq[PendingMessagingRequest]`
+    ## model the sibling listener's `keepItIf` would have shifted the
+    ## seq under the live `idx` walk and either crashed with
+    ## `IndexDefect` or silently lost `channelReqId2`'s terminal event.
+    let arrived = await bothFinalised.withTimeout(2.seconds)
+    check arrived
+    if arrived:
+      check finalisedReqIds.len == 2
+      check channelReqId1 in finalisedReqIds
+      check channelReqId2 in finalisedReqIds
+
+    await manager.stop()
