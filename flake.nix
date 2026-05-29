@@ -17,19 +17,9 @@
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
-
-    # External flake input: Zerokit pinned to a specific commit.
-    # Update the rev here when a new zerokit version is needed.
-    zerokit = {
-      # Pinned to v2.0.2 (5e64cb8822bee65eed6cf459f95ae72b80c6ba63) to match
-      # the vendor/zerokit submodule. Keep these two in sync: the nix build
-      # links librln from this input, the Makefile build from the submodule.
-      url = "github:vacp2p/zerokit/5e64cb8822bee65eed6cf459f95ae72b80c6ba63";
-      inputs.nixpkgs.follows = "nixpkgs";
-    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay, zerokit }:
+  outputs = { self, nixpkgs, rust-overlay }:
     let
       systems = [
         "x86_64-linux" "aarch64-linux"
@@ -69,19 +59,78 @@
         inherit system;
         overlays = [ (import rust-overlay) nimbleOverlay ];
       };
+
+      # Prebuilt zerokit librln, fetched from the upstream GitHub release
+      # rather than compiled from source. Building zerokit from source makes
+      # Nix's fetch-cargo-vendor-util pull ~100 crates from crates.io in one
+      # parallel burst, which crates.io's CDN intermittently answers with 403
+      # (per-IP rate limiting on the self-hosted runners), breaking nix CI.
+      # The release ships the exact `stateless` flavor this project links
+      # (see scripts/build_rln.sh), so we consume it directly — no Rust
+      # toolchain, no crates.io, no cargoHash to keep in sync.
+      #
+      # Keep `rlnVersion` aligned with `LIBRLN_VERSION` in the Makefile and
+      # the vendor/zerokit submodule. The hashes are the SRI sha256 of each
+      # release tarball; refresh all four when bumping the version.
+      rlnVersion = "v2.0.2";
+      rlnAssets = {
+        "x86_64-linux"   = { triple = "x86_64-unknown-linux-gnu";  hash = "sha256-qbrUdaetYKFhjzxUP/QcwD3JHWJ8qk/tCMK3yXceIAk="; };
+        "aarch64-linux"  = { triple = "aarch64-unknown-linux-gnu"; hash = "sha256-s4bWrmCcNTWHNyJwV73ilWNp58ZdAVG+TAgtWN1cTQs="; };
+        "x86_64-darwin"  = { triple = "x86_64-apple-darwin";       hash = "sha256-ZaHP5CApN66FYY7jxwOmGcF9kJR78Fng3k1qE2W08Mk="; };
+        "aarch64-darwin" = { triple = "aarch64-apple-darwin";      hash = "sha256-f2YppkPsKFdN00j+IY8fpvsebWTIb9lW/V1/vOTiVKU="; };
+      };
+
+      mkZerokitRln = system: pkgs:
+        let
+          asset = rlnAssets.${system} or
+            (throw "zerokit ${rlnVersion} has no prebuilt rln asset for system '${system}'");
+        in pkgs.stdenv.mkDerivation {
+          pname = "librln";
+          version = lib.removePrefix "v" rlnVersion;
+
+          src = pkgs.fetchurl {
+            url = "https://github.com/vacp2p/zerokit/releases/download/"
+                + "${rlnVersion}/${asset.triple}-stateless-rln.tar.gz";
+            hash = asset.hash;
+          };
+
+          # The tarball lays its files out under release/.
+          sourceRoot = "release";
+          dontConfigure = true;
+          dontBuild = true;
+
+          # The release .so was linked on a non-Nix toolchain; rewire its
+          # NEEDED libs (libgcc_s, libstdc++, glibc) onto the Nix closure so
+          # it loads inside the Nix-built consumer. autoPatchelfHook is a
+          # no-op for the static .a, and the whole step is skipped on Darwin
+          # (dylib install names are fixed downstream in nix/default.nix).
+          nativeBuildInputs =
+            pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.autoPatchelfHook ];
+          buildInputs =
+            pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
+
+          installPhase = ''
+            runHook preInstall
+            mkdir -p $out/lib
+            cp librln.a     $out/lib/ 2>/dev/null || true
+            cp librln.so    $out/lib/ 2>/dev/null || true
+            cp librln.dylib $out/lib/ 2>/dev/null || true
+            runHook postInstall
+          '';
+
+          meta = with pkgs.lib; {
+            description = "Prebuilt zerokit RLN library (stateless flavor)";
+            homepage = "https://github.com/vacp2p/zerokit";
+            license = with licenses; [ mit asl20 ];
+            platforms = builtins.attrNames rlnAssets;
+          };
+        };
     in {
       packages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
 
-          # HACK: Fix for stale cargoHash in 2.0.2 release.
-          zerokitRln = zerokit.packages.${system}.rln.overrideAttrs (old: {
-            cargoDeps = old.cargoDeps.overrideAttrs (oldCargoDeps: {
-              vendorStaging = oldCargoDeps.vendorStaging.overrideAttrs (_: {
-                outputHash = "sha256-PNwEdZLgGQPqQDrEK2hsQtSybVfBbD6xn4K47fPFJUU=";
-              });
-            });
-          });
+          zerokitRln = mkZerokitRln system pkgs;
 
           liblogosdelivery = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
@@ -94,14 +143,13 @@
             inherit pkgs;
             src = ./.;
             targets = ["wakucanary"];
-            zerokitRln = zerokit.packages.${system}.rln;
+            inherit zerokitRln;
           };
         in {
           inherit liblogosdelivery wakucanary;
-          # Expose the cargoHash-corrected librln so downstream consumers
+          # Expose the prebuilt librln so downstream consumers
           # (e.g. logos-delivery-module) bundle the exact same librln this
-          # build links, instead of pulling zerokit's rln directly — whose
-          # committed cargoHash is stale for v2.0.2 (see zerokitRln above).
+          # build links against.
           rln = zerokitRln;
           default = liblogosdelivery;
         }
