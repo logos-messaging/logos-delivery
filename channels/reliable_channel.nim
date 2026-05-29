@@ -165,7 +165,7 @@ proc onMessageError(self: ReliableChannel, messagingReqId: RequestId) =
   self.pruneCompletedChannelReqs()
 
 proc onReadyToSend(
-    self: ReliableChannel, msgs: seq[seq[byte]]
+    self: ReliableChannel, msgs: sink seq[seq[byte]]
 ) {.async: (raises: []).} =
   ## Tail of the outgoing pipeline. Invoked from the `ReadyToSendEvent`
   ## listener once `rate_limit_manager` releases a batch of opaque
