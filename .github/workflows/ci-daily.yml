@@ -8,7 +8,8 @@ on:
 env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
+  NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none -d:disableMarchNative"
+  NIM_PARAMS: "-d:disableMarchNative"
 
 jobs:
   build:
