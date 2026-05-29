@@ -29,7 +29,7 @@ EventBroker:
   ##
   ## `channelId` lets listeners filter to their own channel, since all
   ## reliable channels share the underlying Waku node's broker context.
-  type ReadyToSendEvent* = object
+  type ReadyToSendEvent* = ref object
     channelId*: SdsChannelID
     msgs*: seq[seq[byte]]
 

@@ -28,8 +28,11 @@ jobs:
           set -euo pipefail
           NIMBLE_VERSION=$(grep -m1 '^version = ' waku.nimble | sed -E 's/version = "([^"]+)"/\1/')
           # Nearest tag reachable from HEAD; --abbrev=0 drops the -<n>-g<sha>
-          # suffix so we get the bare tag (e.g. v0.38.0).
-          BASE_TAG=$(git describe --tags --abbrev=0 2>/dev/null || echo "")
+          # suffix so we get the bare tag (e.g. v0.38.0). `--match 'v*'` skips
+          # the moving `nightly` tag (auto-updated by the daily CI to point at
+          # master HEAD), which would otherwise be picked as the nearest tag
+          # and break the version-sort comparison below.
+          BASE_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
           BASE_TAG=${BASE_TAG#v}
           # Compare on the base version, ignoring any -rc.N prerelease suffix.
           BASE_TAG=${BASE_TAG%%-*}

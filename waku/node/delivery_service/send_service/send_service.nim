@@ -26,7 +26,7 @@ logScope:
 # This useful util is missing from sequtils, this extends applyIt with predicate...
 template applyItIf*(varSeq, pred, op: untyped) =
   for i in low(varSeq) .. high(varSeq):
-    let it {.inject.} = varSeq[i]
+    var it {.inject.} = varSeq[i]
     if pred:
       op
       varSeq[i] = it

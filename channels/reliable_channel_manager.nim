@@ -24,23 +24,28 @@ export reliable_channel
 type ReliableChannelManager* = ref object
   channels: Table[ChannelId, ReliableChannel]
   messagingClient: MessagingClient
-    ## Borrowed from the owning `Waku`. The ownership chain is
-    ##   Waku -> ReliableChannelManager -> MessagingClient (also Waku-owned).
-    ## Hidden so callers can't substitute their own and bypass the
-    ## manager's pipeline.
+    ## Borrowed from the owning `Waku`.
+  sendHandler: SendHandler
+    ## Default egress dispatch for channels created through this manager.
+    ## Constructed at mount time as a closure over `MessagingClient.send`
+    ## so the channel layer itself stays callable-only.
   brokerCtx: BrokerContext
 
 proc new*(
     T: type ReliableChannelManager,
     messagingClient: MessagingClient,
+    sendHandler: SendHandler,
     brokerCtx: BrokerContext = globalBrokerContext(),
 ): Result[T, string] =
   if messagingClient.isNil():
     return err("messaging client is required")
+  if sendHandler.isNil():
+    return err("sendHandler is required")
   ok(
     T(
       channels: initTable[ChannelId, ReliableChannel](),
       messagingClient: messagingClient,
+      sendHandler: sendHandler,
       brokerCtx: brokerCtx,
     )
   )
@@ -61,15 +66,19 @@ proc createReliableChannel*(
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
+    sendHandler: SendHandler = nil,
 ): Result[ChannelId, string] =
-  ## Spec entry point. The `MessagingClient` and `rng` the channel needs
-  ## are sourced from the owning `ReliableChannelManager` rather than
-  ## passed per call. Encryption is wired up through the `Encrypt`/
-  ## `Decrypt` request brokers — the application installs its own
-  ## providers (or `setNoopEncryption()`) before traffic flows.
+  ## Spec entry point. The `sendHandler` and `rng` the channel needs are
+  ## sourced from the owning `ReliableChannelManager` rather than passed
+  ## per call. Encryption is wired up through the `Encrypt`/`Decrypt`
+  ## request brokers — the application installs its own providers
+  ## (or `setNoopEncryption()`) before traffic flows.
   ##
   ## Segmentation, SDS and rate-limit configs will eventually be read
   ## from the node's `NodeConfig`. Defaults for now.
+  ##
+  ## `sendHandler` defaults to the manager's default (constructed at mount
+  ## from `MessagingClient.send`); tests pass a fake to bypass the network.
   if self.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
 
@@ -88,8 +97,14 @@ proc createReliableChannel*(
     epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
   )
 
+  let effectiveSendHandler =
+    if sendHandler.isNil():
+      self.sendHandler
+    else:
+      sendHandler
+
   let chn = ReliableChannel.new(
-    messagingClient = self.messagingClient,
+    sendHandler = effectiveSendHandler,
     channelId = channelId,
     contentTopic = contentTopic,
     senderId = senderId,

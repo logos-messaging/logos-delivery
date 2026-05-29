@@ -50,27 +50,4 @@ proc send*(
     w: Waku, envelope: MessageEnvelope
 ): Future[Result[RequestId, string]] {.async.} =
   ?checkApiAvailability(w)
-
-  let isSubbed =
-    w.node.subscriptionManager.isSubscribed(envelope.contentTopic).valueOr(false)
-  if not isSubbed:
-    info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
-    w.node.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:
-      warn "Failed to auto-subscribe", error = error
-      return err("Failed to auto-subscribe before sending: " & error)
-
-  let requestId = RequestId.new(w.rng)
-
-  let deliveryTask = DeliveryTask.new(requestId, envelope, w.brokerCtx).valueOr:
-    return err("API send: Failed to create delivery task: " & error)
-
-  info "API send: scheduling delivery task",
-    requestId = $requestId,
-    pubsubTopic = deliveryTask.pubsubTopic,
-    contentTopic = deliveryTask.msg.contentTopic,
-    msgHash = deliveryTask.msgHash.to0xHex(),
-    myPeerId = w.node.peerId()
-
-  asyncSpawn w.messagingClient.sendService.send(deliveryTask)
-
-  return ok(requestId)
+  return await w.messagingClient.send(envelope)

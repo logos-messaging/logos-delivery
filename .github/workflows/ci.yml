@@ -13,7 +13,8 @@ concurrency:
 env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none"
+  NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none -d:disableMarchNative"
+  NIM_PARAMS: "-d:disableMarchNative"
   NIM_VERSION: '2.2.4'
   NIMBLE_VERSION: '0.22.3'
 
@@ -160,7 +161,7 @@ jobs:
           fi
 
           export MAKEFLAGS="-j1"
-          export NIMFLAGS="--colors:off -d:chronicles_colors:none"
+          export NIMFLAGS="--colors:off -d:chronicles_colors:none -d:disableMarchNative"
           export USE_LIBBACKTRACE=0
 
           make V=1 POSTGRES=$postgres_enabled test
