@@ -2,15 +2,14 @@
 
 # Provides the rln static library for the current platform.
 #
-# Strategy: if zerokit publishes a prebuilt `stateless` asset for this host's
-# target triple, download it — that's faster than compiling and avoids pulling
-# zerokit's ~100 crates from crates.io. Otherwise fall back to building from
-# the vendored zerokit submodule.
+# If zerokit publishes a prebuilt `stateless` release asset for this platform,
+# download and use it: that is faster than compiling and avoids fetching
+# zerokit's many crate dependencies from crates.io. The asset is selected by
+# the Rust host target triple (the platform identifier reported by rustc,
+# e.g. x86_64-unknown-linux-gnu or aarch64-apple-darwin).
 #
-# (Prebuilt was dropped in #3712 and is restored here. The earlier "compatibility
-# issues" note was inaccurate: the release ships the same `stateless` librln.a
-# this script builds, and its glibc floor is GLIBC_2.18 — below every platform
-# we target. A missing asset just falls through to the source build.)
+# When no matching asset exists (e.g. Windows), build from the vendored
+# zerokit submodule instead.
 
 set -e
 

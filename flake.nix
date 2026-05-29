@@ -61,17 +61,17 @@
       };
 
       # Prebuilt zerokit librln, fetched from the upstream GitHub release
-      # rather than compiled from source. Building zerokit from source makes
-      # Nix's fetch-cargo-vendor-util pull ~100 crates from crates.io in one
-      # parallel burst, which crates.io's CDN intermittently answers with 403
-      # (per-IP rate limiting on the self-hosted runners), breaking nix CI.
-      # The release ships the exact `stateless` flavor this project links
-      # (see scripts/build_rln.sh), so we consume it directly — no Rust
-      # toolchain, no crates.io, no cargoHash to keep in sync.
+      # rather than compiled from source. Compiling zerokit makes Nix download
+      # its many crate dependencies from crates.io in one parallel burst, which
+      # crates.io intermittently rejects with HTTP 403 (rate limiting from the
+      # self-hosted runners' shared IP), breaking the nix build. The release
+      # ships the exact `stateless` library this project links (see
+      # scripts/build_rln.sh), so we use it directly — no Rust toolchain and
+      # no crates.io access needed.
       #
-      # Keep `rlnVersion` aligned with `LIBRLN_VERSION` in the Makefile and
-      # the vendor/zerokit submodule. The hashes are the SRI sha256 of each
-      # release tarball; refresh all four when bumping the version.
+      # Keep `rlnVersion` aligned with `LIBRLN_VERSION` in the Makefile and the
+      # vendor/zerokit submodule. Each hash is the sha256 of the release tarball
+      # for that platform; refresh all four when bumping the version.
       rlnVersion = "v2.0.2";
       rlnAssets = {
         "x86_64-linux"   = { triple = "x86_64-unknown-linux-gnu";  hash = "sha256-qbrUdaetYKFhjzxUP/QcwD3JHWJ8qk/tCMK3yXceIAk="; };
@@ -99,11 +99,11 @@
           dontConfigure = true;
           dontBuild = true;
 
-          # The release .so was linked on a non-Nix toolchain; rewire its
-          # NEEDED libs (libgcc_s, libstdc++, glibc) onto the Nix closure so
-          # it loads inside the Nix-built consumer. autoPatchelfHook is a
-          # no-op for the static .a, and the whole step is skipped on Darwin
-          # (dylib install names are fixed downstream in nix/default.nix).
+          # The release .so was linked outside Nix, so it references system
+          # libraries (libgcc_s, libstdc++, glibc) by bare name. autoPatchelfHook
+          # points those at the Nix versions so the library loads correctly when
+          # used by the Nix build. It does nothing for the static .a, and the
+          # step is skipped on macOS (dylib paths are fixed in nix/default.nix).
           nativeBuildInputs =
             pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.autoPatchelfHook ];
           buildInputs =
