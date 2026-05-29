@@ -3,6 +3,7 @@ name: Daily logos-delivery CI
 on:
   schedule:
     - cron: '30 6 * * *'
+  workflow_dispatch:
 
 env:
   NPROC: 2

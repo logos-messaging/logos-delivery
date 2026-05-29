@@ -627,16 +627,19 @@ proc stopEdgeFilterLoops(self: SubscriptionManager) {.async: (raises: []).} =
   await WakuPeerEvent.dropListener(self.node.brokerCtx, self.peerEventListener)
 
 proc start*(self: SubscriptionManager): Result[void, string] =
-  RequestEdgeShardHealth.setProvider(
+  let edgeShardHealthRes = RequestEdgeShardHealth.setProvider(
     self.node.brokerCtx,
     proc(shard: PubsubTopic): Result[RequestEdgeShardHealth, string] =
       self.edgeFilterSubStates.withValue(shard, state):
         return ok(RequestEdgeShardHealth(health: state.currentHealth))
       return ok(RequestEdgeShardHealth(health: TopicHealth.NOT_SUBSCRIBED)),
-  ).isOkOr:
-    error "Can't set provider for RequestEdgeShardHealth", error = error
+  )
+  self.ownsEdgeShardHealthProvider = edgeShardHealthRes.isOk()
+  if edgeShardHealthRes.isErr():
+    error "Can't set provider for RequestEdgeShardHealth",
+      error = edgeShardHealthRes.error
 
-  RequestEdgeFilterPeerCount.setProvider(
+  let edgeFilterPeerCountRes = RequestEdgeFilterPeerCount.setProvider(
     self.node.brokerCtx,
     proc(): Result[RequestEdgeFilterPeerCount, string] =
       var minPeers = high(int)
@@ -645,21 +648,31 @@ proc start*(self: SubscriptionManager): Result[void, string] =
       if minPeers == high(int):
         minPeers = 0
       return ok(RequestEdgeFilterPeerCount(peerCount: minPeers)),
-  ).isOkOr:
-    error "Can't set provider for RequestEdgeFilterPeerCount", error = error
+  )
+  self.ownsEdgeFilterPeerCountProvider = edgeFilterPeerCountRes.isOk()
+  if edgeFilterPeerCountRes.isErr():
+    error "Can't set provider for RequestEdgeFilterPeerCount",
+      error = edgeFilterPeerCountRes.error
 
-  # Start Edge workers if node is in Edge mode (which is
-  # currently mutually-exclusive with relay being mounted).
-  if self.node.wakuRelay.isNil():
+  # Start Edge workers only when we are in Edge mode (relay not mounted)
+  # AND the filter client is mounted (otherwise the loops have nothing
+  # to talk to and just spam "filter client is nil" warnings).
+  if self.node.wakuRelay.isNil() and not self.node.wakuFilterClient.isNil():
     return self.startEdgeFilterLoops()
 
   return ok()
 
 proc stop*(self: SubscriptionManager) {.async: (raises: []).} =
-  # Stop Edge workers if node is in Edge mode (which is
-  # currently mutually-exclusive with relay being mounted).
-  if self.node.wakuRelay.isNil():
+  # Stop Edge workers if we started them in `start` (Edge mode + filter client).
+  if self.node.wakuRelay.isNil() and not self.node.wakuFilterClient.isNil():
     await self.stopEdgeFilterLoops()
 
-  RequestEdgeShardHealth.clearProvider(self.node.brokerCtx)
-  RequestEdgeFilterPeerCount.clearProvider(self.node.brokerCtx)
+  # Only clear providers we actually registered: another SubscriptionManager
+  # sharing this brokerCtx may have won the race, and clearing its provider
+  # would leave the broker silently provider-less.
+  if self.ownsEdgeShardHealthProvider:
+    RequestEdgeShardHealth.clearProvider(self.node.brokerCtx)
+    self.ownsEdgeShardHealthProvider = false
+  if self.ownsEdgeFilterPeerCountProvider:
+    RequestEdgeFilterPeerCount.clearProvider(self.node.brokerCtx)
+    self.ownsEdgeFilterPeerCountProvider = false

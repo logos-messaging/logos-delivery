@@ -48,6 +48,7 @@ import
     factory/app_callbacks,
     persistency/persistency,
   ],
+  channels/reliable_channel_manager,
   ./waku_conf,
   ./waku_state_info
 
@@ -74,6 +75,8 @@ type Waku* = ref object
   healthMonitor*: NodeHealthMonitor
 
   messagingClient*: MessagingClient
+
+  reliableChannelManager*: ReliableChannelManager
 
   restServer*: WakuRestServerRef
   metricsServer*: MetricsHttpServerRef
@@ -367,6 +370,19 @@ proc mountMessagingClient*(waku: Waku): Result[void, string] =
     return err("could not create messaging client: " & $error)
   return ok()
 
+proc mountReliableChannelManager*(waku: Waku): Result[void, string] =
+  if not waku.reliableChannelManager.isNil():
+    return err("reliable channel manager already mounted")
+  if waku.messagingClient.isNil():
+    return err("reliable channel manager requires a mounted messaging client")
+  if waku.node.started:
+    return err("cannot mount reliable channel manager on a started node")
+  waku.reliableChannelManager = ReliableChannelManager.new(
+    waku.messagingClient, waku.brokerCtx
+  ).valueOr:
+    return err("could not create reliable channel manager: " & $error)
+  return ok()
+
 proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if waku.node.started:
     warn "start: waku node already started"
@@ -522,6 +538,10 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     waku.messagingClient.start().isOkOr:
       return err("failed to start messaging client: " & $error)
 
+  if not waku.reliableChannelManager.isNil():
+    waku.reliableChannelManager.start().isOkOr:
+      return err("failed to start reliable channel manager: " & $error)
+
   return ok()
 
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
@@ -538,6 +558,9 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
     if not waku.wakuDiscv5.isNil():
       await waku.wakuDiscv5.stop()
+
+    if not waku.reliableChannelManager.isNil():
+      await waku.reliableChannelManager.stop()
 
     if not waku.messagingClient.isNil():
       await waku.messagingClient.stop()

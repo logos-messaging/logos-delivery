@@ -1,4 +1,4 @@
-import stew/results, testutils/unittests
+import results, testutils/unittests
 
 import waku/node/peer_manager/peer_store/peer_storage, waku/waku_core/peers
 

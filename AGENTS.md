@@ -16,7 +16,7 @@ Key architectural decisions:
 
 Resource-restricted first: Protocols differentiate between full nodes (relay) and light clients (filter, lightpush, store). Light clients can participate without maintaining full message history or relay capabilities. This explains the client/server split in protocol implementations.
 
-Privacy through unlinkability: RLN (Rate Limiting Nullifier) provides DoS protection while preserving sender anonymity. Messages are routed through pubsub topics with automatic sharding across 8 shards. Code prioritizes metadata privacy alongside content encryption.
+Privacy through unlinkability: RLN (Rate Limiting Nullifier) provides DoS protection while preserving sender anonymity. Messages are routed through pubsub topics with automatic content-topic-based sharding (shard count is configurable; generation-zero defaults to 8 shards on cluster 0). Code prioritizes metadata privacy alongside content encryption.
 
 Scalability via sharding: The network uses automatic content-topic-based sharding to distribute traffic. This is why you'll see sharding logic throughout the codebase and why pubsub topic selection is protocol-level, not application-level.
 
@@ -36,7 +36,10 @@ See [documentation](https://docs.waku.org/learn/) for architectural details.
 ### Key Terminology
 - ENR (Ethereum Node Record): Node identity and capability advertisement
 - Multiaddr: libp2p addressing format (e.g., `/ip4/127.0.0.1/tcp/60000/p2p/16Uiu2...`)
-- PubsubTopic: Gossipsub topic for message routing (e.g., `/waku/2/default-waku/proto`)
+- PubsubTopic: Gossipsub topic for message routing (shard-based, e.g., `/waku/2/rs/<cluster-id>/<shard-id>`; the default is `/waku/2/rs/0/0`)
+  - cluster-id: network id
+  - shard-id: shard differentiator inside the network - drivers mesh forming.
+    - autosharding: network supports n (configured) shards [0..n-1], shard derived from ContentTopic
 - ContentTopic: Application-level message categorization (e.g., `/my-app/1/chat/proto`)
 - Sharding: Partitioning network traffic across topics (static or auto-sharding)
 - RLN (Rate Limiting Nullifier): Zero-knowledge proof system for spam prevention
@@ -77,29 +80,29 @@ type WakuFilter* = ref object of LPProtocol
 ### Build Requirements
 - Nim 2.x (check `waku.nimble` for minimum version)
 - Rust toolchain (required for RLN dependencies)
-- Build system: Make with nimbus-build-system
+- Build system: Make driven by Nimble (dependencies pinned in `nimble.lock`)
 
 ### Build System
-The project uses Makefile with nimbus-build-system (Status's Nim build framework):
+The project uses a Makefile that drives Nimble. Dependencies are resolved from
+`nimble.lock` into a local `nimbledeps/` directory (tracked by the
+`NIMBLEDEPS_STAMP` target).
 ```bash
-# Initial build (updates submodules)
+# Initial build (resolves Nimble deps automatically)
 make wakunode2
-
-# After git pull, update submodules
-make update
 
 # Build with custom flags
 make wakunode2 NIMFLAGS="-d:chronicles_log_level=DEBUG"
 ```
 
-Note: The build system uses `--mm:refc` memory management (automatically enforced). Only relevant if compiling outside the standard build system.
+Note: The build uses `--mm:refc` memory management (passed automatically by the Nimble tasks in `waku.nimble`). Only relevant if compiling outside the standard build system.
 
 ### Common Make Targets
 ```bash
 make wakunode2          # Build main node binary
 make test               # Run all tests
 make testcommon         # Run common tests only
-make libwakuStatic      # Build static C library
+make libwaku            # Build the legacy C library (libwaku)
+make liblogosdelivery. # Build actual C FFI library
 make chat2              # Build chat example
 make install-nph        # Install git hook for auto-formatting
 ```
@@ -127,7 +130,7 @@ suite "Waku ENR - Capabilities":
   test "check capabilities support":
     ## Given
     let bitfield: CapabilitiesBitfield = 0b0000_1101u8
-    
+
     ## Then
     check:
       bitfield.supportsCapability(Capabilities.Relay)
@@ -135,7 +138,7 @@ suite "Waku ENR - Capabilities":
 ```
 
 ### Code Formatting
-Mandatory: All code must be formatted with `nph` (vendored in `vendor/nph`)
+Mandatory: All code must be formatted with `nph` (installed via `make build-nph`, which fetches a pinned `nph` version with Nimble)
 ```bash
 # Format specific file
 make nph/waku/waku_core.nim
@@ -162,7 +165,6 @@ Compile with log level:
 nim c -d:chronicles_log_level=TRACE myfile.nim
 ```
 
-
 ## Code Conventions
 
 Common pitfalls:
@@ -181,8 +183,13 @@ Common pitfalls:
 - Exceptions: `XxxError` for CatchableError, `XxxDefect` for Defect
 - ref object types: `XxxRef` suffix
 
+### Calls and Member Access
+- Prefer dot call syntax for predicates: `x.isNil()` instead of `isNil(x)`
+- Use parentheses for "verbs" (operations/actions): `isSome()`, `handleRequest()`
+- Omit parentheses for "nouns" (properties/values): `.len`, `.high`
+
 ### Imports Organization
-Group imports: stdlib, external libs, internal modules:
+Stdlib + external in one `import` block, internal modules in a separate block:
 ```nim
 import
   std/[options, sequtils],      # stdlib
@@ -214,11 +221,11 @@ proc subscribe(
 ): Future[FilterSubscribeResult] {.async.} =
   if contentTopics.len > MaxContentTopicsPerRequest:
     return err(FilterSubscribeError.badRequest("exceeds maximum"))
-  
+
   # Handle Result with isOkOr
   (await wf.subscriptions.addSubscription(peerId, criteria)).isOkOr:
     return err(FilterSubscribeError.serviceUnavailable(error))
-  
+
   ok()
 ```
 
@@ -460,8 +467,7 @@ nim c -r \
 
 ### Vendor Directory
 - Never edit files directly in vendor - it is auto-generated from git submodules
-- Always run `make update` after pulling changes
-- Managed by `nimbus-build-system`
+- Nimble dependencies are resolved from `nimble.lock` into `nimbledeps/`
 
 ### Chronicles Performance
 - Log levels are configured at compile time for performance
@@ -475,7 +481,7 @@ nim c -r \
 
 ### RLN Dependencies
 - RLN code requires a Rust toolchain, which explains Rust imports in some modules
-- Pre-built `librln` libraries are checked into the repository
+- `librln` is built from the vendored `zerokit` submodule via the `librln`/`rln-deps` Make targets
 
 ## Quick Reference
 
@@ -483,18 +489,19 @@ Language: Nim 2.x | License: MIT or Apache 2.0
 
 ### Important Files
 - `Makefile` - Primary build interface
-- `waku.nimble` - Package definition and build tasks (called via nimbus-build-system)
-- `vendor/nimbus-build-system/` - Status's build framework
+- `waku.nimble` - Package definition and build tasks (invoked by the Makefile via Nimble)
+- `nimble.lock` - Pinned dependency versions resolved into `nimbledeps/`
 - `waku/node/waku_node.nim` - Core node implementation
 - `apps/wakunode2/wakunode2.nim` - Main CLI application
 - `waku/factory/waku_conf.nim` - Configuration types
-- `library/libwaku.nim` - C bindings entry point
+- `liblogosdelivery/liblogosdelivery.nim` - C bindings entry point
 
 ### Testing Entry Points
 - `tests/all_tests_waku.nim` - All Waku protocol tests
 - `tests/all_tests_wakunode2.nim` - Node application tests
 - `tests/all_tests_common.nim` - Common utilities tests
-
+#### in-flight testing
+- any test can be run separately by issuing `make test tests/<relativepath>/<unit-test-source>.nim`
 ### Key Dependencies
 - `chronos` - Async framework
 - `nim-results` - Result type for error handling

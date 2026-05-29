@@ -110,5 +110,7 @@ type
     edgeFilterSubLoopFut*: Future[void]
     edgeFilterConnectionLoopFut*: Future[void]
     peerEventListener*: WakuPeerEventListener
+    ownsEdgeShardHealthProvider*: bool
+    ownsEdgeFilterPeerCountProvider*: bool
 
 {.pop.}

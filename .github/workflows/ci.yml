@@ -43,6 +43,7 @@ jobs:
           - 'tools/**'
           - 'tests/all_tests_v2.nim'
           - 'tests/**'
+          - 'channels/**'
           docker:
           - 'docker/**'
 
@@ -175,20 +176,6 @@ jobs:
       node_nwaku: ${{ needs.build-docker-image.outputs.image }}
 
     secrets: inherit
-
-  js-waku-node:
-    needs: build-docker-image
-    uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
-    with:
-      nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
-      test_type: node
-
-  js-waku-node-optional:
-    needs: build-docker-image
-    uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
-    with:
-      nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
-      test_type: node-optional
 
   lint:
     name: "Lint"

@@ -177,6 +177,11 @@ proc logosdelivery_start_node(
     chronicles.error "mountMessagingClient failed", err = errMsg
     return err("failed to mount messaging: " & errMsg)
 
+  ctx.myLib[].mountReliableChannelManager().isOkOr:
+    let errMsg = $error
+    chronicles.error "mountReliableChannelManager failed", err = errMsg
+    return err("failed to mount reliable channel manager: " & errMsg)
+
   (await ctx.myLib[].start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg

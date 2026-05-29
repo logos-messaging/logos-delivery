@@ -116,7 +116,7 @@ type NetworkMonitorConf* = object
 
   metricsServerAddress* {.
     desc: "Listening address of the metrics server.",
-    defaultValue: parseIpAddress("127.0.0.1"),
+    defaultValue: IpAddress(family: IpAddressFamily.IPv4, address_v4: [127'u8, 0, 0, 1]),
     name: "metrics-server-address"
   .}: IpAddress
 

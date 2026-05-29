@@ -9,7 +9,7 @@
 ## nat-libs (nimbledeps) ##
 ###########################
 # Builds miniupnpc and libnatpmp from the package installed by nimble under
-# nimbledeps/pkgs2/. Used by `make update` / $(NIMBLEDEPS_STAMP).
+# nimbledeps/pkgs2/. Invoked via $(NIMBLEDEPS_STAMP) / build-deps.
 #
 # NAT_TRAVERSAL_NIMBLEDEPS_DIR is evaluated at parse time, so targets that
 # depend on it must be invoked via a recursive $(MAKE) call so the sub-make
@@ -28,20 +28,11 @@ else
   PORTABLE_NAT_MARCH :=
 endif
 
-.PHONY: clean-cross-nimbledeps rebuild-nat-libs-nimbledeps
+.PHONY: rebuild-nat-libs-nimbledeps
 
-clean-cross-nimbledeps:
+rebuild-nat-libs-nimbledeps:
 ifeq ($(NAT_TRAVERSAL_NIMBLEDEPS_DIR),)
-	$(error No nat_traversal package found under nimbledeps/pkgs2/ — run 'make update' first)
-endif
-	+ [ -e "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/miniupnp/miniupnpc" ] && \
-		"$(MAKE)" -C "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/miniupnp/miniupnpc" CC=$(CC) clean $(HANDLE_OUTPUT) || true
-	+ [ -e "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/libnatpmp-upstream" ] && \
-		"$(MAKE)" -C "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/libnatpmp-upstream" CC=$(CC) clean $(HANDLE_OUTPUT) || true
-
-rebuild-nat-libs-nimbledeps: | clean-cross-nimbledeps
-ifeq ($(NAT_TRAVERSAL_NIMBLEDEPS_DIR),)
-	$(error No nat_traversal package found under nimbledeps/pkgs2/ — run 'make update' first)
+	$(error No nat_traversal package found under nimbledeps/pkgs2/ — run 'make build-deps' first)
 endif
 	@echo "Rebuilding nat-libs from $(NAT_TRAVERSAL_NIMBLEDEPS_DIR)"
 ifeq ($(OS), Windows_NT)
