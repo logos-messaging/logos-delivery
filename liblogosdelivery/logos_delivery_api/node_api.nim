@@ -174,7 +174,7 @@ proc logosdelivery_start_node(
 
   ctx.myLib[].mountMessagingClient().isOkOr:
     let errMsg = $error
-    chronicles.error "mountMessagingClient failed", err = errMsg
+    chronicles.error "mountMessagingClient failed", error = errMsg
     return err("failed to mount messaging: " & errMsg)
 
   ctx.myLib[].mountReliableChannelManager().isOkOr:
