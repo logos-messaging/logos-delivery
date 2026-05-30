@@ -41,7 +41,7 @@ proc new*(
     return err("messaging client is required")
   if sendHandler.isNil():
     return err("sendHandler is required")
-  ok(
+  return ok(
     T(
       channels: initTable[ChannelId, ReliableChannel](),
       messagingClient: messagingClient,
