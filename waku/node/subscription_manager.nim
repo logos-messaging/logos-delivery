@@ -25,9 +25,10 @@ import
 
 {.push raises: [].}
 
-proc doRelaySubscribe(
+proc registerRelayHandler(
     node: WakuNode, shard: PubsubTopic, appHandler: WakuRelayHandler = nil
 ): bool =
+  ## Returns true iff we did a new (and only) subscription for this shard in GossipSub.
   let alreadySubscribed = node.wakuRelay.isSubscribed(shard)
 
   if not appHandler.isNil():
@@ -80,16 +81,37 @@ proc doRelaySubscribe(
       await node.legacyAppHandlers[topic](topic, msg)
 
   node.wakuRelay.subscribe(shard, uniqueTopicHandler)
-  node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: shard))
   return true
 
-proc doRelayUnsubscribe(node: WakuNode, shard: PubsubTopic) =
+proc unregisterRelayHandler(node: WakuNode, shard: PubsubTopic): bool =
+  ## Returns true iff we had a subscription for this shard in GossipSub and it was removed.
   if node.legacyAppHandlers.hasKey(shard):
     node.legacyAppHandlers.del(shard)
 
   if node.wakuRelay.isSubscribed(shard):
     node.wakuRelay.unsubscribe(shard)
+    return true
+  return false
+
+proc doRelaySubscribe(
+    node: WakuNode, shard: PubsubTopic, appHandler: WakuRelayHandler = nil
+): bool =
+  ## Subscribes the node to a shard.
+  ## Returns true if we actually subscribed (transitioned from unsubscribed to subscribed).
+  ## Emit the shard subscription event if we actually subscribed.
+  let installed = node.registerRelayHandler(shard, appHandler)
+  if installed:
+    node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: shard))
+  return installed
+
+proc doRelayUnsubscribe(node: WakuNode, shard: PubsubTopic): bool =
+  ## Unsubscribes the node from a shard.
+  ## Returns true if we actually unsubscribed (transitioned from subscribed to unsubscribed).
+  ## Emit the shard unsubscription event if we actually unsubscribed.
+  let unsubscribed = node.unregisterRelayHandler(shard)
+  if unsubscribed:
     node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: shard))
+  return unsubscribed
 
 proc new*(T: type SubscriptionManager, node: WakuNode): T =
   T(
@@ -176,7 +198,7 @@ proc unsubscribeShard*(
     if shardEmpty:
       self.shards.del(shard)
       if not isNil(self.node.wakuRelay):
-        self.node.doRelayUnsubscribe(shard)
+        discard self.node.doRelayUnsubscribe(shard)
   return ok()
 
 proc subscribe*(
@@ -218,7 +240,7 @@ proc unsubscribe*(
     if shardEmpty:
       self.shards.del(shard)
       if not isNil(self.node.wakuRelay):
-        self.node.doRelayUnsubscribe(shard)
+        discard self.node.doRelayUnsubscribe(shard)
   return ok()
 
 proc subscribe*(self: SubscriptionManager, topic: ContentTopic): Result[void, string] =
