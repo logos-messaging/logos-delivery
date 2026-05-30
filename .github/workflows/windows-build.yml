@@ -24,6 +24,20 @@ jobs:
       MSYSTEM: MINGW64
 
     steps:
+    - name: Configure Git to keep LF line endings
+      # Windows Git defaults to core.autocrlf=true, which converts LF→CRLF when
+      # nimble clones dependency packages into nimbledeps/. The CRLF conversion
+      # changes the SHA1 of the package source tree relative to the
+      # Linux-computed checksums stored in nimble.lock, so nimble decides the
+      # local copy is invalid and re-downloads on every subsequent invocation
+      # — and these retries can hang indefinitely on Windows runners.
+      # Disabling autocrlf globally makes nimble's child git clones produce
+      # the same tree (and SHA1) as on Linux.
+      shell: pwsh
+      run: |
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -79,14 +93,6 @@ jobs:
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
         cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-
-    - name: Patch nimble.lock for Windows nim checksum
-      # nimble.exe uses Windows Git (core.autocrlf=true by default), which converts LF→CRLF
-      # on checkout. This changes the SHA1 of the nim package source tree relative to the
-      # Linux-computed checksum stored in nimble.lock. Patch the lock file with the
-      # Windows-computed checksum before nimble reads it.
-      run: |
-        sed -i 's/68bb85cbfb1832ce4db43943911b046c3af3caab/a092a045d3a427d127a5334a6e59c76faff54686/g' nimble.lock
 
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
