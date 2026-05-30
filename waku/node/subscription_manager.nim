@@ -598,8 +598,17 @@ proc startEdgeFilterLoops(self: SubscriptionManager): Result[void, string] =
   self.peerEventListener = WakuPeerEvent.listen(
     self.node.brokerCtx,
     proc(evt: WakuPeerEvent) {.async: (raises: []), gcsafe.} =
-      if evt.kind == WakuPeerEventKind.EventDisconnected or
-          evt.kind == WakuPeerEventKind.EventMetadataUpdated:
+      if evt.kind == WakuPeerEventKind.EventDisconnected:
+        # We know a peer is gone, so if it was a service filter peer for this
+        # edge node, remove it from the list of service filter peers for each
+        # shard it served and re-evaluate shard health for the affected shards.
+        for shard, state in self.edgeFilterSubStates.mpairs:
+          let oldLen = state.peers.len
+          state.peers.keepItIf(it.peerId != evt.peerId)
+          if state.peers.len < oldLen:
+            self.updateShardHealth(shard, state)
+        self.edgeFilterWakeup.fire()
+      elif evt.kind == WakuPeerEventKind.EventMetadataUpdated:
         self.edgeFilterWakeup.fire()
     ,
   ).valueOr:
