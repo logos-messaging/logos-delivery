@@ -61,7 +61,7 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 requires "https://github.com/logos-messaging/nim-ffi"
 
-requires "https://github.com/logos-messaging/nim-sds.git#35a33adc9808a053f4ad7af8d07ff92075ba3462"
+requires "https://github.com/logos-messaging/nim-sds.git#4ccdd122fc4fa82f9ef69eef5dedd24ca2d9f420"
 
 # brokers: pinned by URL+commit rather than the bare `brokers >= 2.0.1`
 # form because the nim-lang/packages registry entry for `brokers` only
