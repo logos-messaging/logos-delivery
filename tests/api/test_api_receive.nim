@@ -6,6 +6,7 @@ import libp2p/[peerid, peerinfo, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
+import waku/messaging_client
 
 import
   waku,
@@ -16,7 +17,6 @@ import
     waku_relay/protocol,
     waku_archive,
     waku_archive/common as archive_common,
-    node/delivery_service/delivery_service,
     node/delivery_service/recv_service,
   ]
 import waku/factory/waku_conf
@@ -147,7 +147,8 @@ suite "Messaging API, Receive Service (store recovery)":
       subscriber = (await createNode(createApiNodeConf(numShards))).expect(
         "Failed to create subscriber"
       )
-      (await startWaku(addr subscriber)).expect("Failed to start subscriber")
+      subscriber.mountMessagingClient().expect("Failed to mount messaging")
+      (await subscriber.start()).expect("Failed to start subscriber")
 
     # publish after the subscriber exists but before it connects to the
     # store; the message reaches the archive but the subscriber doesn't
@@ -185,7 +186,7 @@ suite "Messaging API, Receive Service (store recovery)":
       await eventManager.teardown()
 
     # trigger store check, should recover and deliver via MessageReceivedEvent
-    await subscriber.deliveryService.recvService.checkStore()
+    await subscriber.messagingClient.recvService.checkStore()
 
     let received = await eventManager.waitForEvents(TestTimeout)
     check received

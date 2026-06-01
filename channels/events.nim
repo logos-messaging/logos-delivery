@@ -1,7 +1,7 @@
 ## Reliable Channel event types emitted to API consumers.
 ##
 ## Lifecycle events for individual segments (sent / propagated / errored)
-## are the same as the network-level ones the DeliveryService already
+## are the same as the network-level ones the MessagingClient already
 ## emits — `requestId` is shared across layers — so we just re-export
 ## `waku/events/message_events` and avoid declaring duplicates.
 ##

@@ -82,8 +82,12 @@ when isMainModule:
 
   echo("Waku node created successfully!")
 
+  node.mountMessagingClient().isOkOr:
+    echo "Failed to mount messaging: ", error
+    quit(QuitFailure)
+
   # Start the node
-  (waitFor startWaku(addr node)).isOkOr:
+  (waitFor node.start()).isOkOr:
     echo "Failed to start node: ", error
     quit(QuitFailure)
 

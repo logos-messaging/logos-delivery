@@ -103,7 +103,9 @@ suite "LM API health checking":
 
       client = (await createNode(conf)).valueOr:
         raiseAssert error
-      (await startWaku(addr client)).isOkOr:
+      client.mountMessagingClient().isOkOr:
+        raiseAssert error
+      (await client.start()).isOkOr:
         raiseAssert error
 
   asyncTeardown:
@@ -281,7 +283,9 @@ suite "LM API health checking":
       edgeWaku = (await createNode(edgeConf)).valueOr:
         raiseAssert "Failed to create edge node: " & error
 
-      (await startWaku(addr edgeWaku)).isOkOr:
+      edgeWaku.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount edge messaging: " & error
+      (await edgeWaku.start()).isOkOr:
         raiseAssert "Failed to start edge waku: " & error
 
       let relayReq = await RequestProtocolHealth.request(
