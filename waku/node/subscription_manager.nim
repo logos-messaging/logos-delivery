@@ -35,8 +35,8 @@ proc registerRelayHandler(
     if not alreadySubscribed or not node.legacyAppHandlers.hasKey(shard):
       node.legacyAppHandlers[shard] = appHandler
     else:
-      debug "Legacy appHandler already exists for active PubsubTopic, ignoring new handler",
-        topic = shard
+      debug "Legacy appHandler already exists for active shard, ignoring new handler",
+        shard
 
   if alreadySubscribed:
     return false
