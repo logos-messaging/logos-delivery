@@ -66,6 +66,17 @@ jobs:
           mingw-w64-x86_64-clang
           mingw-w64-x86_64-nasm
 
+    - name: Configure Git in MSYS2 to keep LF line endings
+      # The autocrlf=false above only configures Git for Windows. nimble clones
+      # its dependency packages from within the MSYS2 shell, whose git reads a
+      # separate global config ($HOME/.gitconfig under the MSYS2 root). Without
+      # repeating the setting here, CRLF conversion still alters dependency
+      # source trees, so their SHA1 no longer matches nimble.lock and nimble
+      # re-downloads (and hangs) on every invocation.
+      run: |
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+
     - name: Manually install nasm
       run: |
         bash scripts/install_nasm_in_windows.sh
