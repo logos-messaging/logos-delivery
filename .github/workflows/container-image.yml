@@ -15,6 +15,11 @@ env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC}"
+  # nim builds read compile flags from NIM_PARAMS (getNimParams in waku.nimble),
+  # not NIMFLAGS, so -d:disableMarchNative must live here or config.nims applies
+  # -march=native and secp256k1 fails to compile (see #3916, which set this in
+  # ci.yml but missed this workflow).
+  NIM_PARAMS: "-d:disableMarchNative"
   NIM_VERSION: '2.2.4'
   NIMBLE_VERSION: '0.22.3'
 
