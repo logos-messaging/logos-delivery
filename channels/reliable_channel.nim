@@ -125,6 +125,12 @@ func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
   self.senderId
 
 proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
+  ## Tries to finalize the channel-level request identified by `channelReqId` if
+  ## certain conditions are met, i.e., no segments are still awaiting dispatch or in flight,
+  ## and the total number of confirmed + failed segments equals the total expected segments.
+  ## Therefore, the channel-level request is removed from `self.channelReqs`
+  ## and the appropriate final event is emitted.
+  ## 
   let state = self.channelReqs.getOrDefault(channelReqId)
   if state.totalExpectedSegments == 0:
     ## Either already finalized (and removed) or never inserted.
