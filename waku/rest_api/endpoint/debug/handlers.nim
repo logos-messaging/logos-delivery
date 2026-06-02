@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 {.push raises: [].}
 
 import chronicles, json_serialization, presto/route

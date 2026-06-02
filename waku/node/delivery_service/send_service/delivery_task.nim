@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/[options, times], chronos
 import brokers/broker_context
 import waku/waku_core, waku/api/types, waku/requests/node_requests

@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/[atomics, options, atomics, macros]
 import chronicles, chronos, chronos/threadsync, ffi
 import

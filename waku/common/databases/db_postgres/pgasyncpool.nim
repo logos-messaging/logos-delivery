@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 # Simple async pool driver for postgress.
 # Inspired by: https://github.com/treeform/pg/
 {.push raises: [].}

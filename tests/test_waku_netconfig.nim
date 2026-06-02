@@ -1,3 +1,4 @@
+import std/options
 {.used.}
 
 import chronos, confutils/toml/std/net, libp2p/multiaddress, testutils/unittests

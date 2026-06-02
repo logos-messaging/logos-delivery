@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import chronicles, chronos, results
 
 import waku/factory/waku

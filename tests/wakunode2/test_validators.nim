@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[sequtils, sysrand, math],
+  std/[sequtils, sysrand, math, options],
   testutils/unittests,
   chronos,
   libp2p/crypto/crypto,

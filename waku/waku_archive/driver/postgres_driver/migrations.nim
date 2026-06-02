@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 {.push raises: [].}
 
 import std/strutils, results, chronicles, chronos

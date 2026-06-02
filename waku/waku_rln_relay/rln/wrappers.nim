@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import chronicles, eth/keys, stew/[arrayops, endians2], stint, results
 
 import ./rln_interface, ../conversion_utils, ../protocol_types, ../protocol_metrics

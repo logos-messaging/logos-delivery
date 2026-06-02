@@ -1,3 +1,4 @@
+import libp2p/crypto/rng
 {.used.}
 
 import
@@ -52,7 +53,7 @@ suite "Waku DNS Discovery":
       )
       .get() # No link entries
 
-    let treeKeys = keys.KeyPair.random(rng[])
+    let treeKeys = keys.KeyPair.random(keys.newRng()[])
 
     # Sign tree
     check:

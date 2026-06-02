@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import chronicles, std/[net, options], results
 import waku/common/rate_limit/setting
 

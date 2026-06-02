@@ -5,6 +5,7 @@
 
 {.push raises: [].}
 
+import libp2p/crypto/rng
 import std/[algorithm, base64, oids, options, strutils, tables, sequtils]
 import chronos
 import chronicles
@@ -28,9 +29,9 @@ logScope:
 #################################
 
 # Generates random byte sequences of given size
-proc randomSeqByte*(rng: var HmacDrbgContext, size: int): seq[byte] =
+proc randomSeqByte*(rng: Rng, size: int): seq[byte] =
   var output = newSeq[byte](size.uint32)
-  hmacDrbgGenerate(rng, output)
+  hmacDrbgGenerate(rng.bearSslDrbg, output)
   return output
 
 # Pads a payload according to PKCS#7 as per RFC 5652 https://datatracker.ietf.org/doc/html/rfc5652#section-6.3
@@ -149,7 +150,7 @@ proc isDefault*[T](value: T): bool =
 #################################
 
 # Generate random (public, private) Elliptic Curve key pairs
-proc genKeyPair*(rng: var HmacDrbgContext): KeyPair =
+proc genKeyPair*(rng: Rng): KeyPair =
   var keyPair: KeyPair
   keyPair.privateKey = EllipticCurveKey.random(rng)
   keyPair.publicKey = keyPair.privateKey.public()
@@ -319,18 +320,18 @@ proc dh*(private: EllipticCurveKey, public: EllipticCurveKey): EllipticCurveKey 
 #################################
 
 # Generates a random ChaChaPolyKey for testing encryption/decryption
-proc randomChaChaPolyKey*(rng: var HmacDrbgContext): ChaChaPolyKey =
+proc randomChaChaPolyKey*(rng: Rng): ChaChaPolyKey =
   var key: ChaChaPolyKey
-  hmacDrbgGenerate(rng, key)
+  hmacDrbgGenerate(rng.bearSslDrbg, key)
   return key
 
 # Generates a random ChaChaPoly Cipher State for testing encryption/decryption
-proc randomChaChaPolyCipherState*(rng: var HmacDrbgContext): ChaChaPolyCipherState =
+proc randomChaChaPolyCipherState*(rng: Rng): ChaChaPolyCipherState =
   var randomCipherState: ChaChaPolyCipherState
   randomCipherState.k = randomChaChaPolyKey(rng)
-  hmacDrbgGenerate(rng, randomCipherState.nonce)
+  hmacDrbgGenerate(rng.bearSslDrbg, randomCipherState.nonce)
   randomCipherState.ad = newSeq[byte](32)
-  hmacDrbgGenerate(rng, randomCipherState.ad)
+  hmacDrbgGenerate(rng.bearSslDrbg, randomCipherState.ad)
   return randomCipherState
 
 #################################################################
@@ -351,7 +352,7 @@ proc toNoisePublicKey*(publicKey: EllipticCurveKey): NoisePublicKey =
   return noisePublicKey
 
 # Generates a random Noise public key
-proc genNoisePublicKey*(rng: var HmacDrbgContext): NoisePublicKey =
+proc genNoisePublicKey*(rng: Rng): NoisePublicKey =
   var noisePublicKey: NoisePublicKey
   # We generate a random key pair
   let keyPair: KeyPair = genKeyPair(rng)
@@ -446,7 +447,7 @@ proc `==`*(p1, p2: PayloadV2): bool =
     (p1.transportMessage == p2.transportMessage)
 
 # Generates a random PayloadV2
-proc randomPayloadV2*(rng: var HmacDrbgContext): PayloadV2 =
+proc randomPayloadV2*(rng: Rng): PayloadV2 =
   var payload2: PayloadV2
   # We set a random messageNametag
   let randMessageNametag = randomSeqByte(rng, MessageNametagLength)

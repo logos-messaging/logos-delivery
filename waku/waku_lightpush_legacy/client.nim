@@ -1,3 +1,5 @@
+import libp2p/crypto/crypto
+import waku/compat/option_valueor
 {.push raises: [].}
 
 import std/options, results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
@@ -17,12 +19,12 @@ logScope:
 
 type WakuLegacyLightPushClient* = ref object
   peerManager*: PeerManager
-  rng*: ref rand.HmacDrbgContext
+  rng*: crypto.Rng
 
 proc new*(
     T: type WakuLegacyLightPushClient,
     peerManager: PeerManager,
-    rng: ref rand.HmacDrbgContext,
+    rng: crypto.Rng,
 ): T =
   WakuLegacyLightPushClient(peerManager: peerManager, rng: rng)
 

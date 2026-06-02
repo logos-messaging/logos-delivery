@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 ## Nim wrappers for librln (zerokit v2.0.2, safer-ffi typed handles).
 ##
 ## Built against the `stateless` zerokit feature: tree-mutation FFI is not

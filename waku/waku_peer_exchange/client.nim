@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/options, results, chronicles, chronos, metrics
 
 import ./common, ./rpc, ./rpc_codec, ../node/peer_manager

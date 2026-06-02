@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 ## RequestRateLimiter
 ##
 ## RequestRateLimiter is a general service protection mechanism.

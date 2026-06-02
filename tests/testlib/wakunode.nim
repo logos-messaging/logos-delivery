@@ -11,6 +11,7 @@ import
   waku/[
     waku_node,
     waku_core/topics,
+    node/waku_switch,
     node/peer_manager,
     waku_enr,
     discovery/waku_discv5,
@@ -55,7 +56,7 @@ proc newTestWakuNode*(
     extPort = none(Port),
     extMultiAddrs = newSeq[MultiAddress](),
     peerStorage: PeerStorage = nil,
-    maxConnections = builders.MaxConnections,
+    maxConnections = MaxConnections,
     wsBindPort: Port = (Port) 8000,
     wsEnabled: bool = false,
     wssEnabled: bool = false,

@@ -18,10 +18,12 @@ import
 # override nim-libp2p default value (which is also 1)
 const MaxConnectionsPerPeer* = 1
 
+const MaxConnections* = 50
+
 proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
   b.withTransport(
-    proc(upgr: Upgrade, privateKey: crypto.PrivateKey): Transport =
-      WsTransport.new(upgr)
+    proc(config: TransportConfig): Transport =
+      WsTransport.new(config.upgr, rng = config.rng)
   )
 
 proc getSecureKey(path: string): TLSPrivateKey {.raises: [Defect, IOError].} =
@@ -59,7 +61,7 @@ proc newWakuSwitch*(
     wsAddress = none(MultiAddress),
     secureManagers: openarray[SecureProtocol] = [SecureProtocol.Noise],
     transportFlags: set[ServerFlags] = {},
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     inTimeout: Duration = 5.minutes,
     outTimeout: Duration = 5.minutes,
     maxConnections = MaxConnections,
@@ -80,8 +82,7 @@ proc newWakuSwitch*(
     .new()
     .withRng(rng)
     .withMaxConnections(maxConnections)
-    .withMaxIn(maxIn)
-    .withMaxOut(maxOut)
+    .withMaxInOut(maxIn, maxOut)
     .withMaxConnsPerPeer(maxConnsPerPeer)
     .withYamux()
     .withMplex(inTimeout, outTimeout)
@@ -112,6 +113,6 @@ proc newWakuSwitch*(
     b = b.withAddress(address)
 
   if not rendezvous.isNil():
-    b = b.withRendezVous(rendezvous)
+    b = b.withRendezVous()
 
   b.build()

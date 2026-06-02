@@ -388,7 +388,7 @@ proc maintainSubscription(
 
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
-proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
+proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   let
     transp = fromPipe(rfd)
     conf = Chat2Conf.load()
@@ -396,7 +396,7 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
       if conf.nodekey.isSome():
         conf.nodekey.get()
       else:
-        PrivateKey.random(Secp256k1, rng[]).tryGet()
+        PrivateKey.random(Secp256k1, rng).tryGet()
 
   # set log level
   if conf.logLevel != LogLevel.NONE:
@@ -660,7 +660,7 @@ proc processInput(rfd: AsyncFD, rng: ref HmacDrbgContext) {.async.} =
 
   runForever()
 
-proc main(rng: ref HmacDrbgContext) {.async.} =
+proc main(rng: crypto.Rng) {.async.} =
   let (rfd, wfd) = createAsyncPipe()
   if rfd == asyncInvalidPipe or wfd == asyncInvalidPipe:
     raise newException(ValueError, "Could not initialize pipe!")

@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 ## Waku content topics definition and namespacing utils
 ##
 ## See 23/WAKU2-TOPICS RFC: https://rfc.vac.dev/spec/23/

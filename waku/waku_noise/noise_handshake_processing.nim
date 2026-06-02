@@ -4,6 +4,7 @@
 
 {.push raises: [].}
 
+import libp2p/crypto/rng
 import std/[options, strutils, tables]
 import chronos
 import chronicles
@@ -237,7 +238,7 @@ proc processMessagePatternPayload(
 
 # We process an input handshake message according to current handshake state and we return the next handshake step's handshake message
 proc processMessagePatternTokens(
-    rng: var rand.HmacDrbgContext,
+    rng: Rng,
     hs: var HandshakeState,
     inputHandshakeMessage: seq[NoisePublicKey] = @[],
 ): Result[seq[NoisePublicKey], cstring] {.
@@ -480,7 +481,7 @@ proc initialize*(
 # If the user is writing the handshake message, the transport message (if not empty) and eventually a non-empty message nametag has to be passed to transportMessage and messageNametag and readPayloadV2 can be left to its default value
 # It the user is reading the handshake message, the read payload v2 has to be passed to readPayloadV2 and the transportMessage can be left to its default values. Decryption is skipped if the payloadv2 read doesn't have a message nametag equal to messageNametag (empty input nametags are converted to all-0 MessageNametagLength bytes arrays)
 proc stepHandshake*(
-    rng: var rand.HmacDrbgContext,
+    rng: Rng,
     hs: var HandshakeState,
     readPayloadV2: PayloadV2 = default(PayloadV2),
     transportMessage: seq[byte] = @[],

@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/[options, sets], chronos, web3, stew/byteutils, stint, results, chronicles
 
 import waku/incentivization/rpc, tests/waku_rln_relay/utils_onchain

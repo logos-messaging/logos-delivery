@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/[options, json, strutils, net]
 import chronos, chronicles, results, confutils, confutils/std/net, ffi
 

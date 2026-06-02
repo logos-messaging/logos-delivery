@@ -1,3 +1,4 @@
+import libp2p/crypto/crypto
 #                Chronos Test Suite
 #            (c) Copyright 2022-Present
 #         Status Research & Development GmbH
@@ -17,9 +18,9 @@ import ../../waku/common/rate_limit/timed_map
 
 let proto = "ProtocolDescriptor"
 
-let conn1 = Connection(peerId: PeerId.random().tryGet())
-let conn2 = Connection(peerId: PeerId.random().tryGet())
-let conn3 = Connection(peerId: PeerId.random().tryGet())
+let conn1 = Connection(peerId: PeerId.random(newRng()).tryGet())
+let conn2 = Connection(peerId: PeerId.random(newRng()).tryGet())
+let conn3 = Connection(peerId: PeerId.random(newRng()).tryGet())
 
 suite "RateLimitSetting":
   test "Parse rate limit setting - ok":

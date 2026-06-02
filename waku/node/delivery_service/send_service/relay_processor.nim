@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/options
 import chronos, chronicles
 import brokers/broker_context

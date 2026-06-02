@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 ##
 ## This file is aimed to attend the requests that come directly
 ## from the 'self' node. It is expected to attend the store requests that

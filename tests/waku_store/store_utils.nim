@@ -10,7 +10,7 @@ proc newTestWakuStore*(
 ): Future[WakuStore] {.async.} =
   let
     peerManager = PeerManager.new(switch)
-    proto = WakuStore.new(peerManager, rng, handler)
+    proto = WakuStore.new(peerManager, common.rng(), handler)
 
   await proto.start()
   switch.mount(proto)
@@ -19,4 +19,4 @@ proc newTestWakuStore*(
 
 proc newTestWakuStoreClient*(switch: Switch): WakuStoreClient {.gcsafe.} =
   let peerManager = PeerManager.new(switch)
-  WakuStoreClient.new(peerManager, rng)
+  WakuStoreClient.new(peerManager, common.rng())

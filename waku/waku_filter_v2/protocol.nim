@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 ## Waku Filter protocol for subscribing and filtering messages
 
 {.push raises: [].}

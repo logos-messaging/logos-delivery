@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 {.push raises: [].}
 
 import std/options, results, stew/sorted_set, chronicles, chronos

@@ -19,7 +19,7 @@ proc newTestWakuLegacyLightpushNode*(
 ): Future[WakuLegacyLightPush] {.async.} =
   let
     peerManager = PeerManager.new(switch)
-    proto = WakuLegacyLightPush.new(peerManager, rng, handler, rateLimitSetting)
+    proto = WakuLegacyLightPush.new(peerManager, crypto.newRng(), handler, rateLimitSetting)
 
   await proto.start()
   switch.mount(proto)
@@ -28,4 +28,4 @@ proc newTestWakuLegacyLightpushNode*(
 
 proc newTestWakuLegacyLightpushClient*(switch: Switch): WakuLegacyLightPushClient =
   let peerManager = PeerManager.new(switch)
-  WakuLegacyLightPushClient.new(peerManager, rng)
+  WakuLegacyLightPushClient.new(peerManager, crypto.newRng())

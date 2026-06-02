@@ -22,16 +22,31 @@ proc ts*(offset = 0, origin = now()): Timestamp =
 # Switch
 
 proc generateEcdsaKey*(): libp2p_keys.PrivateKey =
-  libp2p_keys.PrivateKey.random(ECDSA, rng[]).get()
+  libp2p_keys.PrivateKey.random(ECDSA, common.rng()).get()
 
 proc generateEcdsaKeyPair*(): libp2p_keys.KeyPair =
-  libp2p_keys.KeyPair.random(ECDSA, rng[]).get()
+  libp2p_keys.KeyPair.random(ECDSA, common.rng()).get()
 
 proc generateSecp256k1Key*(): libp2p_keys.PrivateKey =
-  libp2p_keys.PrivateKey.random(Secp256k1, rng[]).get()
+  libp2p_keys.PrivateKey.random(Secp256k1, common.rng()).get()
 
 proc ethSecp256k1Key*(hex: string): eth_keys.PrivateKey =
   eth_keys.PrivateKey.fromHex(hex).get()
+
+proc newStandardSwitch*(
+    privKey = Opt.none(libp2p_keys.PrivateKey),
+    addrs: MultiAddress = MultiAddress.init("/ip4/127.0.0.1/tcp/0").get(),
+): Switch =
+  var b = SwitchBuilder
+    .new()
+    .withRng(common.rng())
+    .withAddress(addrs)
+    .withTcpTransport()
+    .withMplex()
+    .withNoise()
+  if privKey.isSome():
+    b = b.withPrivateKey(privKey.get())
+  b.build()
 
 proc newTestSwitch*(
     key = none(libp2p_keys.PrivateKey), address = none(MultiAddress)

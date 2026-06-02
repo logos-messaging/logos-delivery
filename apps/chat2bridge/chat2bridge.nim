@@ -271,7 +271,7 @@ when isMainModule:
     if conf.nodekey.isSome():
       conf.nodekey.get()
     else:
-      crypto.PrivateKey.random(Secp256k1, rng[]).tryGet()
+      crypto.PrivateKey.random(Secp256k1, rng).tryGet()
 
   let bridge = Chat2Matterbridge.new(
     mbHostUri = "http://" & $initTAddress(conf.mbHostAddress, Port(conf.mbHostPort)),

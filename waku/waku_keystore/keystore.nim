@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 {.push raises: [].}
 
 import options, json, strutils, sequtils, std/[tables, os]

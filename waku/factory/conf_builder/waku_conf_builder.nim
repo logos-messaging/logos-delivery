@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import
   libp2p/crypto/crypto,
   libp2p/multiaddress,
@@ -293,13 +294,13 @@ proc withStaticNodes*(builder: var WakuConfBuilder, staticNodes: seq[string]) =
 ## Building
 
 proc nodeKey(
-    builder: WakuConfBuilder, rng: ref HmacDrbgContext
+    builder: WakuConfBuilder, rng: crypto.Rng
 ): Result[crypto.PrivateKey, string] =
   if builder.nodeKey.isSome():
     return ok(builder.nodeKey.get())
   else:
     warn "missing node key, generating new set"
-    let nodeKey = crypto.PrivateKey.random(Secp256k1, rng[]).valueOr:
+    let nodeKey = crypto.PrivateKey.random(Secp256k1, rng).valueOr:
       error "Failed to generate key", error = error
       return err("Failed to generate key: " & $error)
     return ok(nodeKey)
@@ -443,7 +444,7 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
       warn "Failed to process entry nodes from network conf", error = processed.error()
 
 proc build*(
-    builder: var WakuConfBuilder, rng: ref HmacDrbgContext = crypto.newRng()
+    builder: var WakuConfBuilder, rng: crypto.Rng = crypto.newRng()
 ): Result[WakuConf, string] =
   ## Return a WakuConf that contains all mandatory parameters
   ## Applies some sane defaults that are applicable across any usage

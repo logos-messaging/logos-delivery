@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/[net, sequtils, strutils, json], strformat
 import chronicles, chronos, stew/byteutils, results, ffi
 import

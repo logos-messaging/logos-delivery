@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 ## This module is in charge of taking care of the messages that this node is expecting to
 ## receive and is backed by store-v3 requests to get an additional degree of certainty
 ##

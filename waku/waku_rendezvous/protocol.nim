@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -8,7 +9,6 @@ import
   stew/byteutils,
   libp2p/protocols/rendezvous,
   libp2p/protocols/rendezvous/protobuf,
-  libp2p/utils/semaphore,
   libp2p/utils/offsettedseq,
   libp2p/crypto/curve25519,
   libp2p/switch,
@@ -51,7 +51,7 @@ proc advertise*(
     self: WakuRendezVous,
     namespace: string,
     peers: seq[PeerId],
-    ttl: timer.Duration = self.minDuration,
+    ttl: timer.Duration = self.config.minDuration,
 ): Future[Result[void, string]] {.async: (raises: []).} =
   trace "advertising via waku rendezvous",
     namespace = namespace, ttl = ttl, peers = $peers, peerRecord = $self.getPeerRecord()
@@ -154,14 +154,16 @@ proc new*(
   let rng = newRng()
   let wrv = T(
     rng: rng,
-    salt: string.fromBytes(generateBytes(rng[], 8)),
+    salt: string.fromBytes(generateBytes(rng, 8)),
     registered: initOffsettedSeq[RegisteredData](),
     expiredDT: Moment.now() - 1.days,
     sema: newAsyncSemaphore(SemaphoreDefaultSize),
-    minDuration: rendezvous.MinimumAcceptedDuration,
-    maxDuration: rendezvous.MaximumDuration,
-    minTTL: rendezvous.MinimumAcceptedDuration.seconds.uint64,
-    maxTTL: rendezvous.MaximumDuration.seconds.uint64,
+    config: RendezVousConfig(
+      minDuration: rendezvous.MinimumAcceptedDuration,
+      maxDuration: rendezvous.MaximumDuration,
+      minTTL: rendezvous.MinimumAcceptedDuration.seconds.uint64,
+      maxTTL: rendezvous.MaximumDuration.seconds.uint64,
+    ),
     peerRecordValidator: checkWakuPeerRecord,
   )
 

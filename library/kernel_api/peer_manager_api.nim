@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/[sequtils, strutils, tables]
 import chronicles, chronos, results, options, json, ffi
 import waku/factory/waku, waku/node/waku_node, waku/node/peer_manager, ../declare_lib

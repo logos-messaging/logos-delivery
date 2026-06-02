@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -17,7 +18,7 @@ import
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
   libp2p/utility,
-  libp2p/protocols/mix
+  libp2p_mix
 
 import
   ../waku_node,

@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import std/[options, strutils, sequtils]
 import chronicles, results, chronos
 import ../waku_conf, ./store_sync_conf_builder

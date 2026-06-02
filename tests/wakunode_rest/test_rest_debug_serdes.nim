@@ -1,3 +1,4 @@
+import std/options
 {.used.}
 
 import results, stew/byteutils, testutils/unittests, json_serialization

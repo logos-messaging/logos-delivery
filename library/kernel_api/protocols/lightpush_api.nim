@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 import options, std/[json, strformat]
 import chronicles, chronos, results, ffi
 import

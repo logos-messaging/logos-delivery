@@ -1,3 +1,4 @@
+import waku/compat/option_valueor
 {.push raises: [].}
 
 import chronicles, std/options, chronos, results, metrics
@@ -5,11 +6,11 @@ import chronicles, std/options, chronos, results, metrics
 import
   libp2p/crypto/curve25519,
   libp2p/crypto/crypto,
-  libp2p/protocols/mix,
-  libp2p/protocols/mix/mix_node,
-  libp2p/protocols/mix/mix_protocol,
-  libp2p/protocols/mix/mix_metrics,
-  libp2p/protocols/mix/delay_strategy,
+  libp2p_mix,
+  libp2p_mix/mix_node,
+  libp2p_mix/mix_protocol,
+  libp2p_mix/mix_metrics,
+  libp2p_mix/delay_strategy,
   libp2p/[multiaddress, peerid],
   eth/common/keys
 
@@ -91,8 +92,9 @@ proc new*(
   procCall MixProtocol(m).init(
     localMixNodeInfo,
     peermgr.switch,
-    delayStrategy =
-      ExponentialDelayStrategy.new(meanDelayMs = 50, rng = crypto.newRng()),
+    delayStrategy = Opt.some(
+      DelayStrategy(ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng()))
+    ),
   )
 
   processBootNodes(bootnodes, peermgr, m)
