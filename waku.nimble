@@ -528,3 +528,67 @@ task liblogosdeliveryStaticLinux, "Generate bindings":
 
 task liblogosdeliveryStaticMac, "Generate bindings":
   buildLibStaticMac("liblogosdelivery", "liblogosdelivery")
+
+### Formatting tasks
+
+task nphchanges, "Run nph on .nim/.nims/.nimble files changed on this branch/PR":
+  ## Formats every Nim source file that differs from the base branch.
+  ## The set covers committed changes on the branch, working-tree edits
+  ## (staged or not) and untracked files. The base branch is auto-detected
+  ## (origin's default branch, else local main/master); override it with
+  ## the NPH_BASE_BRANCH env var.
+  let nph =
+    if findExe("nph").len > 0: findExe("nph")
+    else: getHomeDir() / ".nimble" / "bin" / "nph"
+  if not fileExists(nph):
+    quit "nph not found. Run `make build-nph` first.", 1
+
+  proc detectBaseBranch(): string =
+    # Explicit override wins.
+    if existsEnv("NPH_BASE_BRANCH"):
+      return getEnv("NPH_BASE_BRANCH")
+    # origin's default branch, e.g. "origin/main" -> "main".
+    let (head, hCode) =
+      gorgeEx("git symbolic-ref --short refs/remotes/origin/HEAD")
+    if hCode == 0 and head.strip().len > 0:
+      let parts = head.strip().split('/')
+      return parts[^1]
+    # Fall back to whichever local branch exists.
+    for candidate in ["main", "master"]:
+      let (_, vCode) =
+        gorgeEx("git rev-parse --verify --quiet " & candidate)
+      if vCode == 0:
+        return candidate
+    return "master"
+
+  let baseBranch = detectBaseBranch()
+
+  # Diff against the merge-base so we only touch what this branch introduced.
+  var diffRef = baseBranch
+  let (mergeBase, mbCode) = gorgeEx("git merge-base HEAD " & baseBranch)
+  if mbCode == 0 and mergeBase.strip().len > 0:
+    diffRef = mergeBase.strip()
+
+  let (changed, dCode) = gorgeEx("git diff --name-only --diff-filter=ACMR " & diffRef)
+  if dCode != 0:
+    quit "git diff failed: " & changed, 1
+  let (untracked, _) = gorgeEx("git ls-files --others --exclude-standard")
+
+  var files: seq[string]
+  for line in (changed & "\n" & untracked).splitLines():
+    let f = line.strip()
+    if f.len == 0:
+      continue
+    if not (f.endsWith(".nim") or f.endsWith(".nims") or f.endsWith(".nimble")):
+      continue
+    if fileExists(f) and f notin files:
+      files.add(f)
+
+  if files.len == 0:
+    echo "nphchanges: no changed .nim/.nims/.nimble files to format"
+    return
+
+  echo "nphchanges: formatting " & $files.len & " file(s) (base: " & baseBranch & ")"
+  for f in files:
+    echo "Formatting " & f
+    exec nph & " \"" & f & "\""
