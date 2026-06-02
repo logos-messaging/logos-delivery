@@ -109,6 +109,19 @@ jobs:
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
+        # nim and nimble have unstable cross-platform checksums: their source
+        # trees check out differently per OS (nim ships a .gitattributes that
+        # forces line endings on some files), so their SHA1 never matches the
+        # Linux-computed values in nimble.lock on Windows — even with autocrlf
+        # disabled. Strip them from the lock before setup; they are provided by
+        # the toolchain installed above, not resolved as project deps.
+        python -c "
+        import json
+        lock = json.load(open('nimble.lock'))
+        for key in ['nim', 'nimble']:
+          lock['packages'].pop(key, None)
+        json.dump(lock, open('nimble.lock', 'w'), indent=2)
+        "
         nimble setup --localdeps -y
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc

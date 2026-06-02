@@ -94,6 +94,17 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
+          # nim and nimble have unstable cross-platform checksums (their source
+          # trees check out differently per OS), so strip them from the lock
+          # before setup to avoid spurious mismatches; the toolchain installed
+          # above provides them, they are not resolved as project deps.
+          python3 -c "
+          import json
+          lock = json.load(open('nimble.lock'))
+          for key in ['nim', 'nimble']:
+            lock['packages'].pop(key, None)
+          json.dump(lock, open('nimble.lock', 'w'), indent=2)
+          "
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
@@ -147,6 +158,17 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
+          # nim and nimble have unstable cross-platform checksums (their source
+          # trees check out differently per OS), so strip them from the lock
+          # before setup to avoid spurious mismatches; the toolchain installed
+          # above provides them, they are not resolved as project deps.
+          python3 -c "
+          import json
+          lock = json.load(open('nimble.lock'))
+          for key in ['nim', 'nimble']:
+            lock['packages'].pop(key, None)
+          json.dump(lock, open('nimble.lock', 'w'), indent=2)
+          "
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
@@ -212,6 +234,17 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
+          # nim and nimble have unstable cross-platform checksums (their source
+          # trees check out differently per OS), so strip them from the lock
+          # before setup to avoid spurious mismatches; the toolchain installed
+          # above provides them, they are not resolved as project deps.
+          python3 -c "
+          import json
+          lock = json.load(open('nimble.lock'))
+          for key in ['nim', 'nimble']:
+            lock['packages'].pop(key, None)
+          json.dump(lock, open('nimble.lock', 'w'), indent=2)
+          "
           nimble setup --localdeps -y
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
