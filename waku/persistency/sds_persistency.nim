@@ -172,13 +172,6 @@ proc newSdsPersistence*(job: Job): Persistence {.gcsafe, raises: [].} =
       error "sds-persistency: dropChannel failed", channelId, err = e.msg
       return err(e.msg)
 
-  persistence.setRetrievalHint = proc(
-      msgId: SdsMessageID, hint: seq[byte]
-  ): Future[Result[void, string]] {.async: (raises: []), gcsafe.} =
-    ## Deliberate no-op — persisted hints are never read back (see module
-    ## header). Hints are supplied live via the onRetrievalHint provider.
-    return ok()
-
   return persistence
 
 {.pop.}
