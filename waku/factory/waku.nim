@@ -111,6 +111,17 @@ proc setupSwitchServices(
   else:
     waku.node.switch.services = @[Service(autonatService)]
 
+  # libp2p 2.0.0 split Service.setup out of Service.start: the switch runs setup
+  # only at build time (SwitchBuilder.setupServices), while switch.start calls
+  # just start. These services are created and attached post-build, so setup must
+  # be invoked explicitly here -- otherwise AutonatService.addressMapper stays nil
+  # and the peerInfo.update() inside start dereferences it (SIGSEGV).
+  for service in waku.node.switch.services:
+    try:
+      service.setup(waku.node.switch)
+    except CatchableError as e:
+      error "failed to set up libp2p switch service", error = e.msg
+
 ## Initialisation
 
 proc newCircuitRelay(isRelayClient: bool): Relay =
