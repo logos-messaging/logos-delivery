@@ -125,17 +125,24 @@ suite "Onchain group manager":
       manager.validRoots.len() == credentialCount
 
   test "trackRootChanges: should fetch history correctly: fetch root cache":
+    # Verify that the group_manager list of valid roots is updated correctly from the recent roots
+    # cache as new credentials are registered.
     # TODO: We can't use `trackRootChanges()` directly in this test because its current implementation
     #       relies on a busy loop rather than event-based monitoring. but that busy loop fetch root every 5 seconds
-    #       so we can't use it in this test. 
+    #       so we can't use it in this test.
 
-    const credentialCount = 6
+    const credentialCount = 5
     let credentials = generateCredentials(credentialCount)
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
     let merkleRootCacheBefore = (waitFor manager.fetchMerkleRootsCache()).valueOr:
-      raiseAssert "Failed to fetch merkle root before: " & error
+      raiseAssert "Failed to fetch merkle root cache before: " & error
+
+    check:
+      merkleRootCacheBefore.len == 5 * 32
+      merkleRootCacheBefore.allIt(it == 0'u8)
+      manager.validRoots.len() == 0
 
     for i in 0 ..< credentials.len():
       info "Registering credential", index = i, credential = credentials[i]
@@ -144,11 +151,13 @@ suite "Onchain group manager":
       discard waitFor manager.updateRecentRoots()
 
     let merkleRootCacheAfter = (waitFor manager.fetchMerkleRootsCache()).valueOr:
-      raiseAssert "Failed to fetch merkle root after: " & error
+      raiseAssert "Failed to fetch merkle root cache after: " & error
 
     check:
-      merkleRootCacheBefore != merkleRootCacheAfter
+      merkleRootCacheAfter.len == 5 * 32
+      not merkleRootCacheAfter.allIt(it == 0'u8)
       manager.validRoots.len() == credentialCount
+      manager.validRoots.items().toSeq().allIt(it != default(MerkleNode))
 
   test "trackRootChanges: oldest roots are evicted once the window is exceeded":
     const
