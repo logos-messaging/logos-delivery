@@ -222,9 +222,19 @@ testwaku: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) test
 
+# On Windows, build directly with nim instead of `nimble <task>`: nimble
+# re-resolves the lock on every invocation and re-clones each git-URL dep, and
+# those clones intermittently hang for hours on the MSYS2 runner. nim c reuses
+# the deps that `nimble setup` already installed (via nimble.paths) and clones
+# nothing. The flags mirror waku.nimble's buildBinary; keep them in sync.
 wakunode2: | build-deps build deps librln
+ifeq ($(detected_OS),Windows)
+	echo -e $(BUILD_MSG) "build/$@" && \
+		nim c --out:build/wakunode2 --mm:refc --cpu:amd64 $(NIM_PARAMS) -d:chronicles_log_level=TRACE apps/wakunode2/wakunode2.nim
+else
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) wakunode2
+endif
 
 benchmarks: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -430,8 +440,14 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
+# Windows: build directly with nim (see the wakunode2 target for why). Flags
+# mirror waku.nimble's buildLibrary dynamic path (libwakuDynamicWindows).
 libwaku: | build-deps librln
+ifeq ($(detected_OS),Windows)
+	nim c --out:build/libwaku.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/libwaku.nim
+else
 	$(NIMBLE) --verbose libwaku$(BUILD_COMMAND) waku.nimble
+endif
 
 liblogosdelivery: | build-deps librln
 	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) waku.nimble
