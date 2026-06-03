@@ -18,9 +18,10 @@ import ../../waku/common/rate_limit/timed_map
 
 let proto = "ProtocolDescriptor"
 
-let conn1 = Connection(peerId: PeerId.random(newRng()).tryGet())
-let conn2 = Connection(peerId: PeerId.random(newRng()).tryGet())
-let conn3 = Connection(peerId: PeerId.random(newRng()).tryGet())
+let rng = newRng()
+let conn1 = Connection(peerId: PeerId.random(rng).tryGet())
+let conn2 = Connection(peerId: PeerId.random(rng).tryGet())
+let conn3 = Connection(peerId: PeerId.random(rng).tryGet())
 
 suite "RateLimitSetting":
   test "Parse rate limit setting - ok":

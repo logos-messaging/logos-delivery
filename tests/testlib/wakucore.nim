@@ -37,11 +37,23 @@ proc newStandardSwitch*(
     privKey = Opt.none(libp2p_keys.PrivateKey),
     addrs: MultiAddress = MultiAddress.init("/ip4/127.0.0.1/tcp/0").get(),
 ): Switch =
+  ## Bare libp2p switch for tests. Replaces nim-libp2p's `newStandardSwitch`,
+  ## removed in 2.0.0. Mirrors the *substrate* of the production switch
+  ## (`newWakuSwitch`, waku/node/waku_switch.nim): same transport (TCP only — no
+  ## QUIC yet, like prod), security (Noise), and muxers (yamux first so it is the
+  ## one negotiated, then mplex). Tests therefore run on the same kernel peers
+  ## actually use in prod. NB: the removed libp2p `newStandardSwitch` was
+  ## mplex-only; mounting yamux here is intentional (match prod's muxer) — do not
+  ## "restore" it to mplex-only. Deliberately omits the prod services (autonat, circuit
+  ## relay, name resolver, NAT, signed peer record, connection limits): they add
+  ## port grief, network delays, and nondeterminism with no value to unit tests.
+  ## For a full-stack node, use newTestWakuNode / newWakuSwitch instead.
   var b = SwitchBuilder
     .new()
     .withRng(common.rng())
     .withAddress(addrs)
     .withTcpTransport()
+    .withYamux()
     .withMplex()
     .withNoise()
   if privKey.isSome():
