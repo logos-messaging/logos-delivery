@@ -14,8 +14,7 @@ import
   waku/[
     waku_core/topics/pubsub_topic,
     waku_core/topics/sharding,
-    node/waku_node,
-    node/kernel_api,
+    waku_node,
     common/paging,
     waku_core,
     waku_store/common,

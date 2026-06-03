@@ -5,8 +5,7 @@ import std/[options, sequtils, sets], testutils/unittests, chronos, libp2p/crypt
 import
   waku/[
     common/paging,
-    node/waku_node,
-    node/kernel_api,
+    waku_node,
     node/peer_manager,
     waku_core,
     waku_core/message/digest,

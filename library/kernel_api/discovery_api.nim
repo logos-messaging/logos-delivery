@@ -5,8 +5,7 @@ import
   waku/discovery/waku_dnsdisc,
   waku/discovery/waku_discv5,
   waku/waku_core/peers,
-  waku/node/waku_node,
-  waku/node/kernel_api,
+  waku/waku_node,
   library/declare_lib
 
 proc retrieveBootstrapNodes(

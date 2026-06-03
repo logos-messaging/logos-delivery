@@ -6,7 +6,7 @@ import
   waku/[
     waku_core,
     waku_core/topics/sharding,
-    node/node_types,
+    node/waku_node,
     node/node_telemetry,
     waku_relay,
     waku_archive,

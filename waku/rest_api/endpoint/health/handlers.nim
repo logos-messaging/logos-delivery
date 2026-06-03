@@ -1,7 +1,8 @@
 {.push raises: [].}
 
 import chronicles, json_serialization, presto/route
-import ../../../waku_node, ../responses, ../serdes, ./types
+import
+  ../../../waku_node, ../../../node/health_monitor, ../responses, ../serdes, ./types
 
 logScope:
   topics = "waku node rest health_api"

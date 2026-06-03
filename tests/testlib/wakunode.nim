@@ -10,6 +10,7 @@ import
 import
   waku/[
     waku_node,
+    net/net_config,
     waku_core/topics,
     node/peer_manager,
     waku_enr,

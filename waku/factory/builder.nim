@@ -15,6 +15,7 @@ import
   ../waku_enr,
   ../discovery/waku_discv5,
   ../waku_node,
+  ../net/net_config,
   ../node/peer_manager,
   ../common/rate_limit/setting,
   ../common/utils/parse_size_units
