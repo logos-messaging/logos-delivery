@@ -167,12 +167,10 @@ proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
   return false
 
 proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
-  let rootRes = await g.fetchMerkleRootsCache()
-  if rootRes.isErr():
-    error "Failed to fetch recent roots", error = rootRes.error
+  let bytes = (await g.fetchMerkleRoot()).valueOr:
+    error "Failed to fetch current Merkle root", error = error
     return false
 
-  let bytes = rootRes.get()
   if (bytes.len mod 32) != 0:
     error "Invalid recent roots payload length", length = bytes.len
     return false
@@ -215,8 +213,7 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
     return false
 
   # Append new roots to the tail; trim happens below if we exceed the window.
-  for r in toAdd:
-    g.validRoots.addLast(r)
+  toAdd.mapIt(g.validRoots.addLast(it))
   debug "appended recent roots", count = toAdd.len, roots = toAdd
 
   while g.validRoots.len > AcceptableRootWindowSize:
