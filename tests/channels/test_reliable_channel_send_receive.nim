@@ -315,3 +315,102 @@ suite "Reliable Channel - send state machine":
     ## `messagingReqId`s from a fake `SendHandler`, finalise some, and
     ## assert prune only fires once every sibling is final.
     skip()
+
+  asyncTest "sibling MessageSentEvent during sendHandler await does not corrupt state":
+    ## Regression test for the prune-during-await race
+    ## (PR #3914 review comment r3324891059). Locks in that a sibling
+    ## `MessageSentEvent` firing while `onReadyToSend` is paused at an
+    ## `await` does not lose the second `channelReqId`'s terminal
+    ## event.
+    const
+      channelId = ChannelId("sm-race-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-race")
+
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
+        "Failed to create manager"
+      )
+
+    setNoopEncryption()
+
+    var msgReqIds: seq[RequestId]
+    var sendsReturned = 0
+    let fakeSend: SendHandler = proc(
+        env: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+      ## Call 2 fires the first segment's terminal event and then
+      ## yields, so the listener task runs while the second segment
+      ## is still mid-`await` in `onReadyToSend` — the exact race
+      ## window the regression test targets.
+      let id = RequestId("race-msg-req-" & $(msgReqIds.len + 1))
+      msgReqIds.add(id)
+      if msgReqIds.len == 2:
+        waku_message_events.MessageSentEvent.emit(
+          brokerCtx,
+          waku_message_events.MessageSentEvent(requestId: msgReqIds[0], messageHash: ""),
+        )
+        await sleepAsync(50.milliseconds)
+      sendsReturned.inc()
+      return ok(id)
+
+    discard manager
+      .createReliableChannel(
+        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
+      )
+      .expect("createReliableChannel")
+
+    var finalisedReqIds: seq[RequestId]
+    let bothFinalised = newFuture[void]("both-finalised")
+    discard ChannelMessageSentEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageSentEvent) {.async: (raises: []).} =
+          if evt.channelId == channelId:
+            finalisedReqIds.add(evt.requestId)
+            if finalisedReqIds.len == 2 and not bothFinalised.finished():
+              bothFinalised.complete()
+        ,
+      )
+      .expect("listen ChannelMessageSentEvent")
+
+    let channelReqId1 = manager.send(channelId, "first".toBytes()).expect("send 1")
+
+    ## Drain the first segment fully before queueing the second, so
+    ## the rate-limit FIFO between sibling sends isn't itself under
+    ## test here.
+    let firstDispatched = Moment.now() + 1.seconds
+    while Moment.now() < firstDispatched and msgReqIds.len < 1:
+      await sleepAsync(5.milliseconds)
+    check msgReqIds.len == 1
+
+    let channelReqId2 = manager.send(channelId, "second".toBytes()).expect("send 2")
+
+    ## Wait until `fakeSend(m2)` has fully returned and yield once
+    ## more so `onReadyToSend`'s post-await continuation gets a chance
+    ## to register `id2` in `inflightMessagingIds` before we emit its
+    ## terminal event.
+    let dispatchDeadline = Moment.now() + 1.seconds
+    while Moment.now() < dispatchDeadline and sendsReturned < 2:
+      await sleepAsync(5.milliseconds)
+    check sendsReturned == 2
+    await sleepAsync(50.milliseconds)
+
+    ## Finalise the second segment from the outside. If the race
+    ## corrupted state, `channelReqId2`'s entry would never reach
+    ## `inflightMessagingIds` and this event would silently miss.
+    waku_message_events.MessageSentEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageSentEvent(requestId: msgReqIds[1], messageHash: ""),
+    )
+
+    let arrived = await bothFinalised.withTimeout(2.seconds)
+    check arrived
+    if arrived:
+      check finalisedReqIds.len == 2
+      check channelReqId1 in finalisedReqIds
+      check channelReqId2 in finalisedReqIds
+
+    await manager.stop()
