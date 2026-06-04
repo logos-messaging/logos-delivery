@@ -25,14 +25,10 @@ jobs:
 
     steps:
     - name: Configure Git to keep LF line endings
-      # Windows Git defaults to core.autocrlf=true, which converts LF→CRLF when
-      # nimble clones dependency packages into nimbledeps/. The CRLF conversion
-      # changes the SHA1 of the package source tree relative to the
-      # Linux-computed checksums stored in nimble.lock, so nimble decides the
-      # local copy is invalid and re-downloads on every subsequent invocation
-      # — and these retries can hang indefinitely on Windows runners.
-      # Disabling autocrlf globally makes nimble's child git clones produce
-      # the same tree (and SHA1) as on Linux.
+      # Windows Git defaults to core.autocrlf=true. The LF→CRLF conversion
+      # changes the SHA1 of nimble's cloned deps, so they no longer match
+      # nimble.lock and nimble re-downloads them on every run (hanging the
+      # job). Disable autocrlf so clones match the Linux-computed checksums.
       shell: pwsh
       run: |
         git config --global core.autocrlf false
@@ -67,12 +63,9 @@ jobs:
           mingw-w64-x86_64-nasm
 
     - name: Configure Git in MSYS2 to keep LF line endings
-      # The autocrlf=false above only configures Git for Windows. nimble clones
-      # its dependency packages from within the MSYS2 shell, whose git reads a
-      # separate global config ($HOME/.gitconfig under the MSYS2 root). Without
-      # repeating the setting here, CRLF conversion still alters dependency
-      # source trees, so their SHA1 no longer matches nimble.lock and nimble
-      # re-downloads (and hangs) on every invocation.
+      # The step above only configures Git for Windows. nimble clones its deps
+      # from the MSYS2 shell, whose git reads a separate global config, so the
+      # same setting must be repeated here.
       run: |
         git config --global core.autocrlf false
         git config --global core.eol lf
@@ -109,13 +102,11 @@ jobs:
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        # Use the CI-installed system nim instead of the nim pinned in
-        # nimble.lock. nim's source tree checks out differently on Windows
-        # (its .gitattributes forces line endings on some files), so its
-        # checksum never matches the Linux-computed value in the lock — not
-        # even with autocrlf disabled. --useSystemNim makes nimble ignore the
-        # locked nim (no download, no checksum) while still verifying every
-        # other locked dependency.
+        # nim's source tree checks out differently per platform (its own
+        # .gitattributes forces line endings), so its locked checksum never
+        # matches on Windows — even with autocrlf disabled. --useSystemNim
+        # uses the CI-installed nim and skips that check, while still
+        # verifying every other locked dependency.
         nimble setup --localdeps -y --useSystemNim
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc

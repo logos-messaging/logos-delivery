@@ -94,10 +94,9 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          # Use system nim instead of the nim pinned in nimble.lock: nim's
-          # source tree checksums differently across platforms, so the locked
-          # checksum is unreliable. --useSystemNim skips the locked nim while
-          # still verifying every other locked dependency.
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
           nimble setup --localdeps -y --useSystemNim
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
@@ -151,10 +150,9 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          # Use system nim instead of the nim pinned in nimble.lock: nim's
-          # source tree checksums differently across platforms, so the locked
-          # checksum is unreliable. --useSystemNim skips the locked nim while
-          # still verifying every other locked dependency.
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
           nimble setup --localdeps -y --useSystemNim
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
@@ -220,10 +218,9 @@ jobs:
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          # Use system nim instead of the nim pinned in nimble.lock: nim's
-          # source tree checksums differently across platforms, so the locked
-          # checksum is unreliable. --useSystemNim skips the locked nim while
-          # still verifying every other locked dependency.
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
           nimble setup --localdeps -y --useSystemNim
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
