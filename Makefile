@@ -24,13 +24,8 @@ export PATH := $(HOME)/.nimble/bin:$(PATH)
 # NIM binary location
 NIM_BINARY := $(shell which nim 2>/dev/null)
 NPH := $(HOME)/.nimble/bin/nph
-# Resolve nimble via PATH (not an absolute path): on the MSYS2 Windows runner
-# $(HOME)/.nimble/bin does not hold the binary, so a hardcoded path is "not
-# found", whereas PATH is populated for every platform (see export PATH above
-# and the workflow's GITHUB_PATH). --useSystemNim makes every invocation reuse
-# the nim already on PATH: nimble re-resolves the locked deps before each task,
-# and since setup runs with --localdeps the locked nim is never installed, so
-# without this nimble re-clones nim-lang/Nim — a fetch that hangs on Windows.
+# Resolve nimble via PATH (Windows has no $(HOME)/.nimble/bin); --useSystemNim
+# reuses the nim on PATH so nimble never re-clones the locked nim.
 NIMBLE := nimble --useSystemNim
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
@@ -222,11 +217,8 @@ testwaku: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) test
 
-# On Windows, build directly with nim instead of `nimble <task>`: nimble
-# re-resolves the lock on every invocation and re-clones each git-URL dep, and
-# those clones intermittently hang for hours on the MSYS2 runner. nim c reuses
-# the deps that `nimble setup` already installed (via nimble.paths) and clones
-# nothing. The flags mirror waku.nimble's buildBinary; keep them in sync.
+# Windows: build with nim directly — `nimble <task>` re-clones git deps every
+# build and they intermittently hang on the MSYS2 runner. Flags mirror waku.nimble.
 wakunode2: | build-deps build deps librln
 ifeq ($(detected_OS),Windows)
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -440,8 +432,7 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
-# Windows: build directly with nim (see the wakunode2 target for why). Flags
-# mirror waku.nimble's buildLibrary dynamic path (libwakuDynamicWindows).
+# Windows: build with nim directly (see wakunode2). Flags mirror waku.nimble.
 libwaku: | build-deps librln
 ifeq ($(detected_OS),Windows)
 	nim c --out:build/libwaku.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/libwaku.nim
