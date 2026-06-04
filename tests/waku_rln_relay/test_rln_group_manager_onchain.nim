@@ -307,7 +307,7 @@ suite "Onchain group manager":
       validProofRes.isOk()
     let validProof = validProofRes.get()
 
-    let validated = manager.validateRoot(validProof.merkleRoot)
+    let validated = waitFor manager.validateRoot(validProof.merkleRoot)
 
     check:
       validated
@@ -343,10 +343,89 @@ suite "Onchain group manager":
       validProofRes.isOk()
     let validProof = validProofRes.get()
 
-    let validated = manager.validateRoot(validProof.merkleRoot)
+    let validated = waitFor manager.validateRoot(validProof.merkleRoot)
 
     check:
       validated == false
+
+  test "validateRoot: refreshes from on-chain when root is unknown locally":
+    # Without an explicit updateRecentRoots, validateRoot must detect a
+    # missing root, refresh the local window from the contract cache, and
+    # find the root there.
+    const credentialCount = 3
+    let credentials = generateCredentials(credentialCount)
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    for i in 0 ..< credentials.len():
+      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
+        assert false, "Failed to register credential " & $i & ": " & error
+
+    let currentRoot = (waitFor manager.fetchMerkleRoot()).valueOr:
+      raiseAssert "Failed to fetch merkle root: " & error
+    let rootField = UInt256ToField(currentRoot)
+
+    check manager.validRoots.len() == 0
+
+    let validated = waitFor manager.validateRoot(rootField)
+
+    check:
+      validated
+      manager.validRoots.len() > 0
+
+  test "validateRoot: debounces refresh requests within the interval":
+    # After one refresh, a second miss within RootRefreshDebounceInterval
+    # must return false without issuing another RPC — observable via
+    # lastRefreshAt staying pinned to the first refresh's timestamp.
+    let credentials = generateCredentials()
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    var bogusRoot: MerkleNode
+    for i in 0 ..< bogusRoot.len:
+      bogusRoot[i] = 0xAB'u8
+
+    let firstResult = waitFor manager.validateRoot(bogusRoot)
+    let firstRefreshAt = manager.lastRefreshAt
+
+    let secondResult = waitFor manager.validateRoot(bogusRoot)
+
+    check:
+      not firstResult
+      not secondResult
+      manager.lastRefreshAt == firstRefreshAt
+
+  test "validateRoot: concurrent misses share a single in-flight refresh":
+    # Two validateRoot calls kicked off before the first's refresh resolves
+    # must both end up `true` for the new root. Without coalescing, the
+    # second call would fall through to the debounce gate and return false.
+    const credentialCount = 3
+    let credentials = generateCredentials(credentialCount)
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    for i in 0 ..< credentials.len():
+      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
+        assert false, "Failed to register credential " & $i & ": " & error
+
+    let currentRoot = (waitFor manager.fetchMerkleRoot()).valueOr:
+      raiseAssert "Failed to fetch merkle root: " & error
+    let rootField = UInt256ToField(currentRoot)
+
+    check manager.validRoots.len() == 0
+
+    let f1 = manager.validateRoot(rootField)
+    let f2 = manager.validateRoot(rootField)
+
+    waitFor allFutures(f1, f2)
+
+    check:
+      f1.read()
+      f2.read()
+      manager.validRoots.len() > 0
 
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()

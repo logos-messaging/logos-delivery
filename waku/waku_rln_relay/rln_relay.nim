@@ -177,7 +177,7 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
 
 proc validateMessage*(
     rlnPeer: WakuRLNRelay, msg: WakuMessage
-): MessageValidationResult =
+): Future[MessageValidationResult] {.async.} =
   ## validate the supplied `msg` based on the waku-rln-relay routing protocol i.e.,
   ## the `msg`'s epoch is within MaxEpochGap of the current epoch
   ## the `msg` has valid rate limit proof
@@ -217,7 +217,7 @@ proc validateMessage*(
     waku_rln_invalid_messages_total.inc(labelValues = ["timestamp_mismatch"])
     return MessageValidationResult.Invalid
 
-  let rootValidationRes = rlnPeer.groupManager.validateRoot(proof.merkleRoot)
+  let rootValidationRes = await rlnPeer.groupManager.validateRoot(proof.merkleRoot)
   if not rootValidationRes:
     warn "invalid message: provided root does not belong to acceptable window of roots",
       provided = proof.merkleRoot.inHex(),
@@ -272,11 +272,11 @@ proc validateMessage*(
 
 proc validateMessageAndUpdateLog*(
     rlnPeer: WakuRLNRelay, msg: WakuMessage
-): MessageValidationResult =
+): Future[MessageValidationResult] {.async.} =
   ## validates the message and updates the log to prevent double messaging
   ## in future messages
 
-  let isValidMessage = rlnPeer.validateMessage(msg)
+  let isValidMessage = await rlnPeer.validateMessage(msg)
 
   let msgProof = RateLimitProof.init(msg.proof).valueOr:
     return MessageValidationResult.Invalid
@@ -353,7 +353,7 @@ proc generateRlnValidator*(
       return pubsub.ValidationResult.Reject
 
     # validate the message and update log
-    let validationRes = wakuRlnRelay.validateMessageAndUpdateLog(message)
+    let validationRes = await wakuRlnRelay.validateMessageAndUpdateLog(message)
 
     let
       proof = byteutils.toHex(msgProof.proof)
