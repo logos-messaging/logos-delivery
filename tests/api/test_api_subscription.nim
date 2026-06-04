@@ -14,7 +14,7 @@ import
     waku_core,
     events/message_events,
     waku_relay/protocol,
-    node/kernel_api/filter,
+    node/waku_node/filter,
     node/subscription_manager,
   ]
 import waku/factory/waku_conf

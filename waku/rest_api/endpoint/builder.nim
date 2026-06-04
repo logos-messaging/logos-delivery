@@ -4,6 +4,7 @@ import net, tables
 import presto
 import
   waku/waku_node,
+  waku/node/health_monitor,
   waku/discovery/waku_discv5,
   waku/rest_api/message_cache,
   waku/rest_api/handlers,

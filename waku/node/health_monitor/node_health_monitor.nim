@@ -16,7 +16,7 @@ import
     node/waku_node,
     node/node_telemetry,
     node/peer_manager,
-    node/kernel_api,
+    node/waku_node/ping,
     node/health_monitor/online_monitor,
     node/health_monitor/health_status,
     node/health_monitor/health_report,

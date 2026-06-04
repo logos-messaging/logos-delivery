@@ -13,11 +13,9 @@ from std/times import epochTime
 
 import
   ../../../waku/[
-    node/waku_node,
     node/peer_manager,
     waku_core,
     waku_node,
-    node/kernel_api,
     common/error_handling,
     waku_rln_relay,
     waku_rln_relay/rln,

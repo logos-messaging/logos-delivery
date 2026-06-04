@@ -24,6 +24,16 @@ jobs:
       MSYSTEM: MINGW64
 
     steps:
+    - name: Configure Git to keep LF line endings
+      # Windows Git defaults to core.autocrlf=true. The LF→CRLF conversion
+      # changes the SHA1 of nimble's cloned deps, so they no longer match
+      # nimble.lock and nimble re-downloads them on every run (hanging the
+      # job). Disable autocrlf so clones match the Linux-computed checksums.
+      shell: pwsh
+      run: |
+        git config --global core.autocrlf false
+        git config --global core.eol lf
+
     - name: Checkout code
       uses: actions/checkout@v4
 
@@ -51,6 +61,14 @@ jobs:
           mingw-w64-x86_64-llvm
           mingw-w64-x86_64-clang
           mingw-w64-x86_64-nasm
+
+    - name: Configure Git in MSYS2 to keep LF line endings
+      # The step above only configures Git for Windows. nimble clones its deps
+      # from the MSYS2 shell, whose git reads a separate global config, so the
+      # same setting must be repeated here.
+      run: |
+        git config --global core.autocrlf false
+        git config --global core.eol lf
 
     - name: Manually install nasm
       run: |
@@ -80,19 +98,16 @@ jobs:
         cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
-    - name: Patch nimble.lock for Windows nim checksum
-      # nimble.exe uses Windows Git (core.autocrlf=true by default), which converts LF→CRLF
-      # on checkout. This changes the SHA1 of the nim package source tree relative to the
-      # Linux-computed checksum stored in nimble.lock. Patch the lock file with the
-      # Windows-computed checksum before nimble reads it.
-      run: |
-        sed -i 's/68bb85cbfb1832ce4db43943911b046c3af3caab/a092a045d3a427d127a5334a6e59c76faff54686/g' nimble.lock
-
     - name: Install nimble deps
       if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        nimble setup --localdeps -y
+        # nim's source tree checks out differently per platform (its own
+        # .gitattributes forces line endings), so its locked checksum never
+        # matches on Windows — even with autocrlf disabled. --useSystemNim
+        # uses the CI-installed nim and skips that check, while still
+        # verifying every other locked dependency.
+        nimble setup --localdeps -y --useSystemNim
         make rebuild-nat-libs-nimbledeps CC=gcc
         make rebuild-bearssl-nimbledeps CC=gcc
         touch nimbledeps/.nimble-setup

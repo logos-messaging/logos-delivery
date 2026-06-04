@@ -11,8 +11,7 @@ import
   waku/[
     waku_core,
     node/peer_manager,
-    node/waku_node,
-    node/kernel_api,
+    waku_node,
     waku_filter_v2,
     waku_filter_v2/client,
     waku_filter_v2/subscriptions,
