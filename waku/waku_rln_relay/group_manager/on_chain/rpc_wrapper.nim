@@ -76,10 +76,10 @@ proc sendEthCallWithoutParams*(
 proc sendEthCallWithParams*(
     ethRpc: Web3,
     functionSignature: string,
-    params: seq[byte],
     fromAddress: Address,
     toAddress: Address,
     chainId: UInt256,
+    params: seq[byte] = @[],
 ): Future[Result[seq[byte], string]] {.async.} =
   ## Workaround for web3 chainId=null issue with parameterized contract calls
   let functionHash =
