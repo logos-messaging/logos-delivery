@@ -34,6 +34,7 @@ import
     common/logging,
     node/peer_manager,
     node/health_monitor,
+    net/net_config,
     node/waku_metrics,
     node/subscription_manager,
     rest_api/message_cache,

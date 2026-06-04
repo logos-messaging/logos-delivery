@@ -17,6 +17,7 @@ import
   ./validator_signed,
   ../waku_enr/sharding,
   ../waku_node,
+  ../net/net_config,
   ../waku_core,
   ../waku_core/codecs,
   ../waku_rln_relay,

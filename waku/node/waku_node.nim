@@ -67,7 +67,11 @@ import
   ./peer_manager,
   ./health_monitor/health_status,
   ./health_monitor/topic_health,
-  ./node_telemetry
+  ./node_telemetry,
+  ./shard_subscription,
+  ./edge_filter_sub_state
+
+export shard_subscription, edge_filter_sub_state
 
 logScope:
   topics = "waku node"
@@ -85,8 +89,64 @@ const clientId* = "Nimbus Waku v2 node"
 
 const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
-import ./node_types
-export node_types
+type
+  # TODO: Move to application instance (e.g., `WakuNode2`)
+  WakuInfo* = object # NOTE One for simplicity, can extend later as needed
+    listenAddresses*: seq[string]
+    enrUri*: string #multiaddrStrings*: seq[string]
+    mixPubKey*: Option[string]
+
+  # NOTE based on Eth2Node in NBC eth2_network.nim
+  WakuNode* = ref object
+    peerManager*: PeerManager
+    switch*: Switch
+    wakuRelay*: WakuRelay
+    wakuArchive*: waku_archive.WakuArchive
+    wakuStore*: store.WakuStore
+    wakuStoreClient*: store_client.WakuStoreClient
+    wakuStoreResume*: StoreResume
+    wakuStoreReconciliation*: SyncReconciliation
+    wakuStoreTransfer*: SyncTransfer
+    wakuFilter*: waku_filter_v2.WakuFilter
+    wakuFilterClient*: filter_client.WakuFilterClient
+    wakuRlnRelay*: WakuRLNRelay
+    wakuLegacyLightPush*: WakuLegacyLightPush
+    wakuLegacyLightpushClient*: WakuLegacyLightPushClient
+    wakuLightPush*: WakuLightPush
+    wakuLightpushClient*: WakuLightPushClient
+    wakuPeerExchange*: WakuPeerExchange
+    wakuPeerExchangeClient*: WakuPeerExchangeClient
+    wakuMetadata*: WakuMetadata
+    wakuAutoSharding*: Option[Sharding]
+    enr*: enr.Record
+    libp2pPing*: Ping
+    rng*: ref rand.HmacDrbgContext
+    brokerCtx*: BrokerContext
+    wakuRendezvous*: WakuRendezVous
+    wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
+    announcedAddresses*: seq[MultiAddress]
+    extMultiAddrsOnly*: bool # When true, skip automatic IP address replacement
+    started*: bool # Indicates that node has started listening
+    topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
+    rateLimitSettings*: ProtocolRateLimitSettings
+    legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
+      ## Kernel API Relay appHandlers (if any)
+    subscriptionManager*: SubscriptionManager
+    wakuMix*: WakuMix
+    kademliaDiscoveryLoop*: Future[void]
+    wakuKademlia*: WakuKademlia
+    ports*: BoundPorts
+
+  SubscriptionManager* = ref object of RootObj
+    node*: WakuNode
+    shards*: Table[PubsubTopic, ShardSubscription]
+    edgeFilterSubStates*: Table[PubsubTopic, EdgeFilterSubState]
+    edgeFilterWakeup*: AsyncEvent
+    edgeFilterSubLoopFut*: Future[void]
+    edgeFilterConnectionLoopFut*: Future[void]
+    peerEventListener*: WakuPeerEventListener
+    ownsEdgeShardHealthProvider*: bool
+    ownsEdgeFilterPeerCountProvider*: bool
 
 import ./subscription_manager
 
