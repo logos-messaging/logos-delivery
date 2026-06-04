@@ -167,8 +167,8 @@ proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
   return false
 
 proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
-  ## Fetch recent roots from the contract roots cache and update the validRoots deque, ensuring we maintain a window of acceptable roots.
-  ## Contract returns array if uint256 roots, newest first, zero-padded to the cache size (e.g. 5).
+  ## Fetch recent roots from the contract roots cache and update the validRoots deque, ensuring we maintain a window of unique acceptable roots.
+  ## Contract returns array of uint256 roots, newest first, zero-padded to the cache size (e.g. 5).
   let bytes = (await g.fetchMerkleRootsCache()).valueOr:
     error "Failed to fetch current Merkle root", error = error
     return false
@@ -215,11 +215,11 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
     return false
 
   # Append new roots to the tail; trim happens below if we exceed the window.
-  toAdd.mapIt(g.validRoots.addLast(it))
-  debug "appended recent roots", count = toAdd.len, roots = toAdd
+  for root in toAdd:
+    g.validRoots.addLast(root)
+  debug "appended recent roots to list of valid roots", count = toAdd.len, roots = toAdd
 
   while g.validRoots.len > AcceptableRootWindowSize:
-    trace "removing old merkle root", root = g.validRoots[0]
     discard g.validRoots.popFirst()
 
   return true
