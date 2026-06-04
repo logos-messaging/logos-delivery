@@ -119,7 +119,7 @@ proc setupSwitchServices(
   for service in waku.node.switch.services:
     try:
       service.setup(waku.node.switch)
-    except CatchableError as e:
+    except ServiceSetupError as e:
       error "failed to set up libp2p switch service", error = e.msg
 
 ## Initialisation
