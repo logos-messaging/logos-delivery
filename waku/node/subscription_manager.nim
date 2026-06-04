@@ -301,7 +301,7 @@ const EdgeFilterLoopInterval = chronos.seconds(30)
 const EdgeFilterSubLoopDebounce = chronos.seconds(1)
   ## Debounce delay to coalesce rapid-fire wakeups into a single reconciliation pass.
 
-type EdgeDialTask = object
+type EdgeFilterSubscribeTask = object
   peer: RemotePeerInfo
   shard: PubsubTopic
   topics: seq[ContentTopic]
@@ -317,7 +317,7 @@ proc updateShardHealth(
 
 proc removePeer(self: SubscriptionManager, shard: PubsubTopic, peerId: PeerId) =
   ## Remove a peer from edgeFilterSubStates for the given shard,
-  ## update health, and wake the sub loop to dial a replacement.
+  ## update health, and wake the sub loop to filter-subscribe a replacement.
   ## Best-effort unsubscribe so the service peer stops pushing to us.
   self.edgeFilterSubStates.withValue(shard, state):
     var idx = -1
@@ -394,13 +394,14 @@ proc syncFilterDeltas(
   if removed.len > 0:
     discard await self.sendChunkedFilterRpc(peer, shard, removed, FilterUnsubscribe)
 
-proc dialFilterPeer(
+proc subscribeFilterPeer(
     self: SubscriptionManager,
     peer: RemotePeerInfo,
     shard: PubsubTopic,
     contentTopics: seq[ContentTopic],
 ) {.async.} =
-  ## Subscribe a new peer to all content topics on a shard and start tracking it.
+  ## Filter-subscribe to a service peer for all content topics on a shard and
+  ## start tracking it (note that the filter client dials the peer if not connected).
   self.edgeFilterSubStates.withValue(shard, state):
     state.pendingPeers.incl(peer.peerId)
 
@@ -410,16 +411,16 @@ proc dialFilterPeer(
 
     self.edgeFilterSubStates.withValue(shard, state):
       if state.peers.anyIt(it.peerId == peer.peerId):
-        trace "dialFilterPeer: peer already tracked, skipping duplicate",
+        trace "subscribeFilterPeer: peer already tracked, skipping duplicate",
           shard = shard, peer = peer.peerId
         return
 
       state.peers.add(peer)
       self.updateShardHealth(shard, state[])
-      trace "dialFilterPeer: successfully subscribed to all chunks",
+      trace "subscribeFilterPeer: successfully subscribed to all chunks",
         shard = shard, peer = peer.peerId, totalPeers = state.peers.len
     do:
-      trace "dialFilterPeer: shard removed while subscribing, discarding result",
+      trace "subscribeFilterPeer: shard removed while subscribing, discarding result",
         shard = shard, peer = peer.peerId
   finally:
     self.edgeFilterSubStates.withValue(shard, state):
@@ -480,7 +481,7 @@ proc selectFilterCandidates(
     filter_common.WakuFilterSubscribeCodec, some(shard)
   )
 
-  # Remove all already used in this shard or being dialed for it
+  # Remove all already used in this shard or being filter-subscribed for it
   allCandidates.keepItIf(it.peerId notin exclude)
 
   # Collect peer IDs already tracked on other shards
@@ -526,9 +527,9 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
     trace "edgeFilterSubLoop: desired state", numShards = newSynced.len
 
     # Step 1: read state across all shards at once and
-    # create a list of peer dial tasks and shard tracking to delete.
+    # create a list of peer filter-subscribe tasks and shard tracking to delete.
 
-    var dialTasks: seq[EdgeDialTask]
+    var subscribeTasks: seq[EdgeFilterSubscribeTask]
     var shardsToDelete: seq[PubsubTopic]
 
     for shard in allShards:
@@ -579,7 +580,7 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
             for p in state.pendingPeers:
               tracked.incl(p)
             let candidates = self.selectFilterCandidates(shard, tracked, needed)
-            let toDial = min(needed, candidates.len)
+            let toSubscribe = min(needed, candidates.len)
 
             trace "edgeFilterSubLoop: shard reconciliation",
               shard = shard,
@@ -587,18 +588,20 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
               num_pending = state.pending.len,
               num_needed = needed,
               num_available = candidates.len,
-              toDial = toDial
+              toSubscribe = toSubscribe
 
-            var dialTopics: seq[ContentTopic]
+            var subscribeTopics: seq[ContentTopic]
             newSynced.withValue(shard, curr):
-              dialTopics = toSeq(curr[])
+              subscribeTopics = toSeq(curr[])
 
-            for i in 0 ..< toDial:
-              dialTasks.add(
-                EdgeDialTask(peer: candidates[i], shard: shard, topics: dialTopics)
+            for i in 0 ..< toSubscribe:
+              subscribeTasks.add(
+                EdgeFilterSubscribeTask(
+                  peer: candidates[i], shard: shard, topics: subscribeTopics
+                )
               )
 
-    # Step 2: execute deferred shard tracking deletion and dial tasks.
+    # Step 2: execute deferred shard tracking deletion and filter-subscribe tasks.
 
     for shard in shardsToDelete:
       self.edgeFilterSubStates.withValue(shard, state):
@@ -607,8 +610,8 @@ proc edgeFilterSubLoop(self: SubscriptionManager) {.async.} =
             await fut.cancelAndWait()
       self.edgeFilterSubStates.del(shard)
 
-    for task in dialTasks:
-      let fut = self.dialFilterPeer(task.peer, task.shard, task.topics)
+    for task in subscribeTasks:
+      let fut = self.subscribeFilterPeer(task.peer, task.shard, task.topics)
       self.edgeFilterSubStates.withValue(task.shard, state):
         state.pending.add(fut)
 
