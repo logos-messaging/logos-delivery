@@ -284,6 +284,11 @@ proc persistPut*(
 proc persistDelete*(t: Job, category: string, key: Key): Future[void] {.async.} =
   await persist(t, TxOp(category: category, key: key, kind: txDelete))
 
+proc persistDeletePrefix*(
+    t: Job, category: string, prefix: Key
+): Future[void] {.async.} =
+  await persist(t, TxOp(category: category, key: prefix, kind: txDeletePrefix))
+
 proc persistEncoded*[T](
     t: Job, category: string, key: Key, value: T
 ): Future[void] {.async.} =
@@ -334,6 +339,13 @@ proc persistDelete*(
   let j = p.jobOrWarn(jobId)
   if not j.isNil():
     await j.persistDelete(category, key)
+
+proc persistDeletePrefix*(
+    p: Persistency, jobId: string, category: string, prefix: Key
+): Future[void] {.async.} =
+  let j = p.jobOrWarn(jobId)
+  if not j.isNil():
+    await j.persistDeletePrefix(category, prefix)
 
 proc persistEncoded*[T](
     p: Persistency, jobId: string, category: string, key: Key, value: T

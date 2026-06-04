@@ -7,7 +7,7 @@
 import std/options
 import results, sqlite3_abi
 import ../common/databases/[common, db_sqlite]
-import ./[types, schema]
+import ./[types, keys, schema]
 
 type
   KvBackend* = ref object
@@ -121,6 +121,37 @@ proc close*(b: KvBackend) =
     b.db.close()
     b.db = nil
 
+proc deletePrefix(
+    b: KvBackend, category: string, prefix: Key
+): Result[void, PersistencyError] =
+  let rng = prefixRange(prefix)
+  let openEnded = bytes(rng.stop).len == 0
+  let sql =
+    if openEnded:
+      "DELETE FROM kv WHERE category = ? AND key >= ?;"
+    else:
+      "DELETE FROM kv WHERE category = ? AND key >= ? AND key < ?;"
+  var s: ptr sqlite3_stmt
+  let rc = sqlite3_prepare_v2(b.db.env, sql.cstring, sql.len.cint, addr s, nil)
+  if rc != SQLITE_OK:
+    return err(toErr("deletePrefix prepare: " & $sqlite3_errstr(rc)))
+  defer:
+    discard sqlite3_finalize(s)
+  var bc = bindBlob(s, 1.cint, catBytes(category))
+  if bc != SQLITE_OK:
+    return err(toErr("deletePrefix bind cat: " & $sqlite3_errstr(bc)))
+  bc = bindBlob(s, 2.cint, keyBytes(rng.start))
+  if bc != SQLITE_OK:
+    return err(toErr("deletePrefix bind start: " & $sqlite3_errstr(bc)))
+  if not openEnded:
+    bc = bindBlob(s, 3.cint, keyBytes(rng.stop))
+    if bc != SQLITE_OK:
+      return err(toErr("deletePrefix bind stop: " & $sqlite3_errstr(bc)))
+  let v = sqlite3_step(s)
+  if v != SQLITE_DONE:
+    return err(toErr("deletePrefix step: " & $sqlite3_errstr(v)))
+  return ok()
+
 proc applyOne(b: KvBackend, op: TxOp): Result[void, PersistencyError] =
   case op.kind
   of txPut:
@@ -131,6 +162,8 @@ proc applyOne(b: KvBackend, op: TxOp): Result[void, PersistencyError] =
     let r = b.deleteStmt.exec((catBytes(op.category), keyBytes(op.key)))
     if r.isErr:
       return err(toErr("delete failed: " & r.error))
+  of txDeletePrefix:
+    ?b.deletePrefix(op.category, op.key)
   return ok()
 
 proc execSql(b: KvBackend, sql: string): Result[void, PersistencyError] =
