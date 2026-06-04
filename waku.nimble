@@ -59,19 +59,11 @@ requires "nim >= 2.2.4",
   "unittest2"
 
 # Packages not on nimble (use git URLs)
-requires "https://github.com/logos-messaging/nim-ffi"
+requires "https://github.com/logos-messaging/nim-ffi#v0.1.3"
 
-requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135fae3a3803eed8490d4"
+requires "https://github.com/logos-messaging/nim-sds.git#abdd40cc645f1b024c3ee99cced7e287c4e4c441"
 
-# brokers: pinned by URL+commit rather than the bare `brokers >= 2.0.1`
-# form because the nim-lang/packages registry entry for `brokers` only
-# carries metadata for the original v0.1.0 publication. Until that
-# registry entry is refreshed, the local SAT solver enumerates "0.1.0"
-# as the only available version and cannot satisfy `>= 2.0.1`. The URL
-# pin below bypasses the registry and locks the exact commit of the
-# v2.0.1 tag. Revert to the bare form once nim-lang/packages is
-# updated.
-requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v2.0.1"
+requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.1.1"
 
 requires "https://github.com/vacp2p/nim-lsquic"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
@@ -528,3 +520,67 @@ task liblogosdeliveryStaticLinux, "Generate bindings":
 
 task liblogosdeliveryStaticMac, "Generate bindings":
   buildLibStaticMac("liblogosdelivery", "liblogosdelivery")
+
+### Formatting tasks
+
+task nphchanges, "Run nph on .nim/.nims/.nimble files changed on this branch/PR":
+  ## Formats every Nim source file that differs from the base branch.
+  ## The set covers committed changes on the branch, working-tree edits
+  ## (staged or not) and untracked files. The base branch is auto-detected
+  ## (origin's default branch, else local main/master); override it with
+  ## the NPH_BASE_BRANCH env var.
+  let nph =
+    if findExe("nph").len > 0: findExe("nph")
+    else: getHomeDir() / ".nimble" / "bin" / "nph"
+  if not fileExists(nph):
+    quit "nph not found. Run `make build-nph` first.", 1
+
+  proc detectBaseBranch(): string =
+    # Explicit override wins.
+    if existsEnv("NPH_BASE_BRANCH"):
+      return getEnv("NPH_BASE_BRANCH")
+    # origin's default branch, e.g. "origin/main" -> "main".
+    let (head, hCode) =
+      gorgeEx("git symbolic-ref --short refs/remotes/origin/HEAD")
+    if hCode == 0 and head.strip().len > 0:
+      let parts = head.strip().split('/')
+      return parts[^1]
+    # Fall back to whichever local branch exists.
+    for candidate in ["main", "master"]:
+      let (_, vCode) =
+        gorgeEx("git rev-parse --verify --quiet " & candidate)
+      if vCode == 0:
+        return candidate
+    return "master"
+
+  let baseBranch = detectBaseBranch()
+
+  # Diff against the merge-base so we only touch what this branch introduced.
+  var diffRef = baseBranch
+  let (mergeBase, mbCode) = gorgeEx("git merge-base HEAD " & baseBranch)
+  if mbCode == 0 and mergeBase.strip().len > 0:
+    diffRef = mergeBase.strip()
+
+  let (changed, dCode) = gorgeEx("git diff --name-only --diff-filter=ACMR " & diffRef)
+  if dCode != 0:
+    quit "git diff failed: " & changed, 1
+  let (untracked, _) = gorgeEx("git ls-files --others --exclude-standard")
+
+  var files: seq[string]
+  for line in (changed & "\n" & untracked).splitLines():
+    let f = line.strip()
+    if f.len == 0:
+      continue
+    if not (f.endsWith(".nim") or f.endsWith(".nims") or f.endsWith(".nimble")):
+      continue
+    if fileExists(f) and f notin files:
+      files.add(f)
+
+  if files.len == 0:
+    echo "nphchanges: no changed .nim/.nims/.nimble files to format"
+    return
+
+  echo "nphchanges: formatting " & $files.len & " file(s) (base: " & baseBranch & ")"
+  for f in files:
+    echo "Formatting " & f
+    exec nph & " \"" & f & "\""
