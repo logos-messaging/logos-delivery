@@ -246,7 +246,8 @@ proc setupProtocols(
     node.mountAutoSharding(conf.clusterId, conf.shardingConf.numShardsInCluster).isOkOr:
       return err("failed to mount waku auto sharding: " & error)
   else:
-    warn("Auto sharding is disabled")
+    node.mountAutoSharding(conf.clusterId, conf.subscribeShards).isOkOr:
+      return err("failed to mount waku auto sharding: " & error)
 
   # Mount relay on all nodes
   var peerExchangeHandler = none(RoutingRecordsHandler)
