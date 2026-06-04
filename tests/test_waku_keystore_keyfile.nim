@@ -3,7 +3,6 @@
 import std/[json, os], stew/byteutils, testutils/unittests, chronos, eth/keys
 import logos_delivery/waku/waku_keystore, ./testlib/common
 
-
 suite "KeyFile test suite":
   test "Create/Save/Load single keyfile":
     # The password we use to encrypt our secret
