@@ -18,8 +18,7 @@
 ##  * **`loadChannel`** — bootstrap: returns the prior `ChannelData`
 ##    (meta + ordered message history) or an empty one. Surfaces errors.
 ##  * **`dropChannel`** — wipe all state for a channel. Surfaces errors.
-##  * **`setRetrievalHint`** — see below; deliberate no-op here.
-##
+##  
 ## Failure policy mirrors the interface docs: save/update/hint are non-fatal
 ## (we log and still return the error string); load/drop are durability-intent
 ## and propagate their error to the caller.
