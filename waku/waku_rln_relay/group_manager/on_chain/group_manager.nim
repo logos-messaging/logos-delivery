@@ -62,10 +62,10 @@ proc fetchMerkleProofElements*(
   let response = await sendEthCallWithParams(
     ethRpc = g.ethRpc.get(),
     functionSignature = methodSig,
-    params = paddedParam,
     fromAddress = g.ethRpc.get().defaultAccount,
     toAddress = fromHex(Address, g.ethContractAddress),
     chainId = g.chainId,
+    params = paddedParam,
   )
 
   return response
@@ -73,14 +73,32 @@ proc fetchMerkleProofElements*(
 proc fetchMerkleRoot*(
     g: OnchainGroupManager
 ): Future[Result[UInt256, string]] {.async.} =
-  let merkleRoot = await sendEthCallWithoutParams(
-    ethRpc = g.ethRpc.get(),
-    functionSignature = "root()",
-    fromAddress = g.ethRpc.get().defaultAccount,
-    toAddress = fromHex(Address, g.ethContractAddress),
-    chainId = g.chainId,
-  )
-  return merkleRoot
+  try:
+    let merkleRoot = await sendEthCallWithoutParams(
+      ethRpc = g.ethRpc.get(),
+      functionSignature = "root()",
+      fromAddress = g.ethRpc.get().defaultAccount,
+      toAddress = fromHex(Address, g.ethContractAddress),
+      chainId = g.chainId,
+    )
+    return merkleRoot
+  except CatchableError:
+    error "Failed to fetch Merkle root", error = getCurrentExceptionMsg()
+    return err("Failed to fetch merkle root: " & getCurrentExceptionMsg())
+
+proc fetchMerkleRootsCache*(
+    g: OnchainGroupManager
+): Future[Result[seq[byte], string]] {.async.} =
+  let
+    # using sendEthCallWithParams to get return type of seq[bytes] for getRecentRoots() function which returns an array of bytes32
+    merkleRoots = await sendEthCallWithParams(
+      ethRpc = g.ethRpc.get(),
+      functionSignature = "getRecentRoots()",
+      fromAddress = g.ethRpc.get().defaultAccount,
+      toAddress = fromHex(Address, g.ethContractAddress),
+      chainId = g.chainId,
+    )
+  return merkleRoots
 
 proc fetchNextFreeIndex*(
     g: OnchainGroupManager
@@ -102,10 +120,10 @@ proc fetchMembershipStatus*(
     await sendEthCallWithParams(
       ethRpc = g.ethRpc.get(),
       functionSignature = "isInMembershipSet(uint256)",
-      params = params,
       fromAddress = g.ethRpc.get().defaultAccount,
       toAddress = fromHex(Address, g.ethContractAddress),
       chainId = g.chainId,
+      params = params,
     )
   ).valueOr:
     return err("Failed to check membership: " & error)
@@ -148,14 +166,64 @@ proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
 
   return false
 
+proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
+  ## Fetch recent roots from the contract roots cache and update the validRoots deque, ensuring we maintain a window of unique acceptable roots.
+  ## Contract returns array of uint256 roots, newest first, zero-padded to the cache size (e.g. 5).
+  let bytes = (await g.fetchMerkleRootsCache()).valueOr:
+    error "Failed to fetch current Merkle root", error = error
+    return false
+
+  if (bytes.len mod 32) != 0:
+    error "Invalid recent roots payload length", length = bytes.len
+    return false
+
+  let chunkCount = bytes.len div 32
+  if chunkCount != RlnContractRootCacheSize:
+    warn "Unexpected number of recent roots returned; proceeding anyway",
+      count = chunkCount
+
+  # Parse 32-byte chunks (contract returns newest-first) into MerkleNode values,
+  # reversing to oldest-first and skipping zero roots.
+  var newRootsDequeOrder: seq[MerkleNode] = @[]
+  for startIdx in countdown(bytes.len - 32, 0, 32):
+    let u = UInt256.fromBytesBE(bytes.toOpenArray(startIdx, startIdx + 31))
+    if u.isZero:
+      continue
+    newRootsDequeOrder.add(UInt256ToField(u))
+
+  if newRootsDequeOrder.len == 0:
+    debug "no non-zero recent roots to add; skipping update"
+    return false
+
+  # Determine overlap with existing tail so we only append truly new roots
+  let overlap = min(g.validRoots.len, newRootsDequeOrder.len)
+  var matchLen = 0
+  for startIdx in (g.validRoots.len - overlap) ..< g.validRoots.len:
+    if g.validRoots[startIdx] == newRootsDequeOrder[0]:
+      matchLen = g.validRoots.len - startIdx
+      break
+
+  let toAdd = newRootsDequeOrder[matchLen ..< newRootsDequeOrder.len]
+  if toAdd.len == 0:
+    return false
+
+  # Append new roots to the tail; trim happens below if we exceed the window.
+  for root in toAdd:
+    g.validRoots.addLast(root)
+  debug "appended recent roots to list of valid roots", count = toAdd.len, roots = toAdd
+
+  while g.validRoots.len > AcceptableRootWindowSize:
+    discard g.validRoots.popFirst()
+
+  return true
+
 proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
   ?checkInitialized(g)
 
-  const rpcDelay = 5.seconds
+  const rpcDelay = 10.seconds
 
   while true:
-    await sleepAsync(rpcDelay)
-    let rootUpdated = await g.updateRoots()
+    let rootUpdated = await g.updateRecentRoots()
 
     if rootUpdated:
       ## The membership set on-chain has changed (some new members have joined or some members have left)
@@ -174,6 +242,7 @@ proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.a
 
       let memberCount = cast[int64](nextFreeIndex)
       waku_rln_number_registered_memberships.set(float64(memberCount))
+    await sleepAsync(rpcDelay)
 
 method register*(
     g: OnchainGroupManager, rateCommitment: RateCommitment
@@ -393,8 +462,11 @@ method generateProof*(
     external_nullifier: extNullifier,
   )
 
-  let output = generateRlnProofWithWitness(g.rlnInstance, witness, epoch, rlnIdentifier).valueOr:
-    return err("Failed to generate proof: " & error)
+  waku_rln_proof_generation_duration_seconds.nanosecondTime:
+    let output = generateRlnProofWithWitness(
+      g.rlnInstance, witness, epoch, rlnIdentifier
+    ).valueOr:
+      return err("Failed to generate proof: " & error)
 
   info "Proof generated successfully", proof = output
 
