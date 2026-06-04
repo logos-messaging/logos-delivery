@@ -59,7 +59,7 @@ requires "nim >= 2.2.4",
   "unittest2"
 
 # Packages not on nimble (use git URLs)
-requires "https://github.com/logos-messaging/nim-ffi"
+requires "https://github.com/logos-messaging/nim-ffi#v0.1.3"
 
 requires "https://github.com/logos-messaging/nim-sds.git#2e9a7683f0e180bf112135fae3a3803eed8490d4"
 
