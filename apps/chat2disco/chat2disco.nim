@@ -207,14 +207,18 @@ proc createRoom(c: Chat, roomName: string) {.async.} =
       echo "Connected to discovered peers"
 
     c.rooms[roomName] = ChatRoom(
-      serviceId: serviceIdStr, pubsubTopic: pubsubTopic,
-      contentTopic: contentTopic, discovered: peers
+      serviceId: serviceIdStr,
+      pubsubTopic: pubsubTopic,
+      contentTopic: contentTopic,
+      discovered: peers,
     )
   else:
     echo "Warning: Kademlia not available. Room created locally only."
     c.rooms[roomName] = ChatRoom(
-      serviceId: serviceIdStr, pubsubTopic: pubsubTopic,
-      contentTopic: contentTopic, discovered: @[]
+      serviceId: serviceIdStr,
+      pubsubTopic: pubsubTopic,
+      contentTopic: contentTopic,
+      discovered: @[],
     )
 
   # Unsubscribe from previous room's pubsub topic
@@ -226,11 +230,8 @@ proc createRoom(c: Chat, roomName: string) {.async.} =
   c.currentRoom = roomName
 
   # Subscribe to this room's pubsub topic
-  c.node.subscribe(
-    (kind: PubsubSub, topic: pubsubTopic), c.relayHandler
-  ).isOkOr:
-    error "failed to subscribe to room pubsub topic",
-      topic = pubsubTopic, error = error
+  c.node.subscribe((kind: PubsubSub, topic: pubsubTopic), c.relayHandler).isOkOr:
+    error "failed to subscribe to room pubsub topic", topic = pubsubTopic, error = error
 
   echo &"Created/joined room '{roomName}'. Pubsub topic: {pubsubTopic}"
 
@@ -251,7 +252,8 @@ proc writeAndPrint(c: Chat) {.async.} =
 
       if roomName in c.rooms:
         # Unsubscribe from current room, subscribe to target room
-        if c.currentRoom.len > 0 and c.currentRoom != roomName and c.currentRoom in c.rooms:
+        if c.currentRoom.len > 0 and c.currentRoom != roomName and
+            c.currentRoom in c.rooms:
           let oldTopic = c.rooms[c.currentRoom].pubsubTopic
           c.node.unsubscribe((kind: PubsubUnsub, topic: oldTopic)).isOkOr:
             error "failed to unsubscribe from room", topic = oldTopic, error = error
@@ -259,9 +261,7 @@ proc writeAndPrint(c: Chat) {.async.} =
         c.currentRoom = roomName
 
         let newTopic = c.rooms[roomName].pubsubTopic
-        c.node.subscribe(
-          (kind: PubsubSub, topic: newTopic), c.relayHandler
-        ).isOkOr:
+        c.node.subscribe((kind: PubsubSub, topic: newTopic), c.relayHandler).isOkOr:
           error "failed to subscribe to room pubsub topic",
             topic = newTopic, error = error
 
@@ -373,6 +373,11 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     node.announcedAddresses.setLen(0) ## remove previous addresses
     node.announcedAddresses.add(addresses)
 
+    # Also set the PeerInfo announcedAddrs (newer libp2p short-circuits mappers in expandAddrs
+    # when non-empty; reduces reliance on the waku capturing mapper during start + hp races).
+    if not node.switch.isNil and not node.switch.peerInfo.isNil:
+      node.switch.peerInfo.announcedAddrs = addresses
+
     info "chat2disco node announced addresses updated",
       announcedAddresses = node.announcedAddresses
 
@@ -382,6 +387,17 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     holePunchService = HPService.new(autonatService, autoRelayService)
 
   node.switch.services = @[Service(holePunchService)]
+
+  # Call setup explicitly (bypasses the deprecated switch.add which used to do it).
+  # Required after the libp2p update so that AutonatService (and AutoRelay via HP)
+  # populate their addressMapper / handlers before switch.start runs the services
+  # (otherwise enableAddressMapper=true + nil mapper leads to nil call / SEGV at 589).
+  try:
+    holePunchService.setup(node.switch)
+  except CatchableError as exc:
+    error "failed to setup hole punch / autonat service (address mappers etc.)",
+      error = exc.msg
+    quit(QuitFailure)
 
   if conf.relay:
     (await node.mountRelay()).isOkOr:

@@ -89,6 +89,12 @@ proc setupSwitchServices(
 
     waku.node.announcedAddresses.setLen(0) ## remove previous addresses
     waku.node.announcedAddresses.add(addresses)
+
+    # Also set the PeerInfo announcedAddrs (newer libp2p short-circuits mappers in expandAddrs
+    # when non-empty; reduces reliance on the waku capturing mapper during start + hp races).
+    if not isNil(waku.node.switch) and not isNil(waku.node.switch.peerInfo):
+      waku.node.switch.peerInfo.announcedAddrs = addresses
+
     info "waku node announced addresses updated",
       announcedAddresses = waku.node.announcedAddresses
 
@@ -106,8 +112,24 @@ proc setupSwitchServices(
     )
     let holePunchService = HPService.new(autonatService, autoRelayService)
     waku.node.switch.services = @[Service(holePunchService)]
+    # Call setup explicitly (bypasses the deprecated switch.add which used to do it).
+    # Required after the libp2p update so that AutonatService (and AutoRelay via HP)
+    # populate their addressMapper / handlers before switch.start (otherwise enableAddressMapper
+    # + nil mapper leads to nil call / SEGV at waku_node:589).
+    try:
+      holePunchService.setup(waku.node.switch)
+    except CatchableError as exc:
+      error "failed to setup hole punch / autonat service (address mappers etc.)",
+        error = exc.msg
+      # cannot easily quit here; re-raise so caller sees the init failure
+      raise
   else:
     waku.node.switch.services = @[Service(autonatService)]
+    try:
+      autonatService.setup(waku.node.switch)
+    except CatchableError as exc:
+      error "failed to setup autonat service (address mappers etc.)", error = exc.msg
+      raise
 
 ## Initialisation
 

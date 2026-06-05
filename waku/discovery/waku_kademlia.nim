@@ -88,6 +88,10 @@ proc toRemotePeerInfo(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
 proc lookup*(
     self: WakuKademlia, codec: string
 ): Future[seq[RemotePeerInfo]] {.async: (raises: []).} =
+  if self.protocol.isNil:
+    return @[]
+  # The underlying ServiceDiscovery/KadDHT is started by switch.start() (via ms.start);
+  # if called very early the protocol may still be starting its loops/handlers.
   let serviceId = hashServiceId(codec)
 
   let catchRes = catch:
@@ -144,6 +148,8 @@ proc periodicLookup(
   while true:
     await sleepAsync(interval)
 
+    if self.protocol.isNil:
+      continue
     let services = self.discoveredServices
     if services.len == 0:
       continue

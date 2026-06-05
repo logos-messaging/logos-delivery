@@ -466,6 +466,8 @@ proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string]
 
   ## Update the Switch addresses
   node.switch.peerInfo.addrs = newAnnouncedAddresses
+  # Keep announcedAddrs in sync so expandAddrs prefers it and skips mappers.
+  node.switch.peerInfo.announcedAddrs = newAnnouncedAddresses
 
   for transport in node.switch.transports:
     for address in transport.addrs:
@@ -573,16 +575,22 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
 
-  if not node.wakuKademlia.isNil():
-    node.wakuKademlia.start()
-
   ## The switch uses this mapper to update peer info addrs
-  ## with announced addrs after start
+  ## with announced addrs after start (and during start via autonat/hp etc.).
+  ## Guard + also set announcedAddrs (newer PeerInfo short-circuits mappers entirely
+  ## in expandAddrs when non-empty) to reduce capture/GC/race surface with the hp
+  ## onReservation callback that mutates announced during the services-start phase.
   let addressMapper = proc(
       listenAddrs: seq[MultiAddress]
   ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
-    return node.announcedAddresses
+    if node.isNil or node.switch.isNil or node.switch.peerInfo.isNil:
+      return listenAddrs
+    if node.announcedAddresses.len > 0:
+      return node.announcedAddresses
+    return listenAddrs
   node.switch.peerInfo.addressMappers.add(addressMapper)
+  if node.announcedAddresses.len > 0:
+    node.switch.peerInfo.announcedAddrs = node.announcedAddresses
 
   ## The switch will update addresses after start using the addressMapper
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
@@ -590,6 +598,14 @@ proc start*(node: WakuNode) {.async.} =
 
   # After switch.start, run custom Logos Delivery relay start logic
   await node.reconnectRelayPeers()
+
+  # Start user-level loops for mounted protocols (e.g. wakuKademlia periodic lookup)
+  # only *after* switch.start() has activated the underlying LPProtocol (ms.start calls
+  # the disco/kad .start which registers handlers/loops/started, starts transports etc.).
+  # The 60s sleep in the periodic still protects first work, but ordering is now correct
+  # and avoids any interleaving with start-time heartbeats/mappers in the new libp2p kad/service-disco.
+  if not node.wakuKademlia.isNil():
+    node.wakuKademlia.start()
 
   node.started = true
 

@@ -13,6 +13,15 @@ proc getAutonatService*(rng: crypto.Rng): AutonatService =
   ## minConfidence is used as threshold to determine the state.
   ## If maxQueueSize > numPeersToAsk past samples are considered
   ## in the calculation.
+  ##
+  ## NOTE: After obtaining the service (and wrapping in HPService if using holepunch),
+  ## the caller *must* call .setup(theSwitch) on it (or on the HPService) before adding
+  ## to switch.services and calling switch.start(). This populates the addressMapper
+  ## proc (and handlers) that autonat.start() assumes when enableAddressMapper (default).
+  ## Direct assignment to switch.services (as done in factory + chat2disco) bypasses
+  ## the deprecated switch.add() that used to auto-call setup. Missing setup + enable=true
+  ## leads to adding a nil mapper and nil call during peerInfo.update inside switch.start
+  ## (surfaces as SEGV at waku_node:589).
   let autonatService = AutonatService.new(
     autonatClient = AutonatClient.new(),
     rng = rng,
