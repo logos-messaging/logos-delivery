@@ -28,6 +28,10 @@ export group_manager_base
 logScope:
   topics = "waku rln_relay onchain_group_manager"
 
+const RootRefreshDebounceInterval* = 1.seconds
+  ## Minimum gap between on-demand recent-roots refreshes triggered by
+  ## `validateRoot` misses, to bound contract-call rate under spam.
+
 type
   WakuRlnContractWithSender = Sender[WakuRlnContract]
   OnchainGroupManager* = ref object of GroupManager
@@ -43,6 +47,10 @@ type
     registrationHandler*: Option[RegistrationHandler]
     latestProcessedBlock*: BlockNumber
     merkleProofCache*: seq[byte]
+    lastRefreshAt*: Moment
+    pendingRefresh*: Future[bool]
+      ## Non-nil while an on-demand recent-roots refresh is in flight, so that
+      ## concurrent `validateRoot` misses can ride along on a single RPC.
 
 # The below code is not working with the latest web3 version due to chainId being null (specifically on linea-sepolia)
 # TODO: find better solution than this custom sendEthCallWithoutParams call
@@ -217,25 +225,32 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
 
   return true
 
+proc syncFromContract*(g: OnchainGroupManager): Future[bool] {.async.} =
+  ## Refresh validRoots from the contract's recent-roots cache. If anything
+  ## changed and this node is a registered member, also refresh the local
+  ## Merkle proof cache so subsequent generateProof calls use the latest tree.
+  ## Returns whether validRoots was updated.
+  let rootUpdated = await g.updateRecentRoots()
+  if rootUpdated and g.membershipIndex.isSome():
+    ## A membership index exists only if the node has registered with RLN.
+    ## Non-registered nodes cannot have Merkle proof elements.
+    let proofResult = await g.fetchMerkleProofElements()
+    if proofResult.isErr():
+      error "Failed to fetch Merkle proof", error = proofResult.error
+    else:
+      g.merkleProofCache = proofResult.get()
+  return rootUpdated
+
 proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
   ?checkInitialized(g)
 
   const rpcDelay = 10.seconds
 
   while true:
-    let rootUpdated = await g.updateRecentRoots()
+    let rootUpdated = await g.syncFromContract()
 
     if rootUpdated:
       ## The membership set on-chain has changed (some new members have joined or some members have left)
-      if g.membershipIndex.isSome():
-        ## A membership index exists only if the node has registered with RLN.
-        ## Non-registered nodes cannot have Merkle proof elements.
-        let proofResult = await g.fetchMerkleProofElements()
-        if proofResult.isErr():
-          error "Failed to fetch Merkle proof", error = proofResult.error
-        else:
-          g.merkleProofCache = proofResult.get()
-
       let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
         error "Failed to fetch next free index", error = error
         return err("Failed to fetch next free index: " & error)
@@ -473,6 +488,34 @@ method generateProof*(
   waku_rln_remaining_proofs_per_epoch.dec()
   waku_rln_total_generated_proofs.inc()
   return ok(output)
+
+method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.async.} =
+  ## Validates the root against the local valid roots window. If the root is
+  ## not found, refresh the local window from the on-chain recent-roots cache
+  ## and re-check once before giving up. Concurrent misses share a single
+  ## in-flight refresh; new refreshes are debounced by
+  ## `RootRefreshDebounceInterval` to bound contract-call rate.
+  if g.indexOfRoot(root) >= 0:
+    return true
+
+  # Coalesce: if a refresh is already in flight, ride along instead of starting a new one.
+  if not g.pendingRefresh.isNil and not g.pendingRefresh.finished:
+    debug "Root validation missed but refresh already in flight; waiting for refresh to complete"
+    discard await g.pendingRefresh
+    return g.indexOfRoot(root) >= 0
+
+  # Debounce: don't queue another refresh too soon after the previous one.
+  let now = Moment.now()
+  if now - g.lastRefreshAt < RootRefreshDebounceInterval:
+    debug "Root validation missed but refresh is recently performed; skipping refresh"
+    return false
+
+  g.lastRefreshAt = now
+  debug "Root not found in valid roots; refreshing from contract cache"
+  g.pendingRefresh = g.syncFromContract()
+  discard await g.pendingRefresh
+
+  return g.indexOfRoot(root) >= 0
 
 method verifyProof*(
     g: OnchainGroupManager, input: seq[byte], proof: RateLimitProof

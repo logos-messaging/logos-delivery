@@ -269,13 +269,13 @@ suite "Waku rln relay":
 
     # Validate messages
     let
-      msgValidate1 = wakuRlnRelay.validateMessageAndUpdateLog(wm1)
+      msgValidate1 = await wakuRlnRelay.validateMessageAndUpdateLog(wm1)
       # wm2 is within the same epoch as wm1 → should be spam
-      msgValidate2 = wakuRlnRelay.validateMessageAndUpdateLog(wm2)
+      msgValidate2 = await wakuRlnRelay.validateMessageAndUpdateLog(wm2)
       # wm3 is in the next epoch → should be valid
-      msgValidate3 = wakuRlnRelay.validateMessageAndUpdateLog(wm3)
+      msgValidate3 = await wakuRlnRelay.validateMessageAndUpdateLog(wm3)
       # wm4 has no RLN proof → should be invalid
-      msgValidate4 = wakuRlnRelay.validateMessageAndUpdateLog(wm4)
+      msgValidate4 = await wakuRlnRelay.validateMessageAndUpdateLog(wm4)
 
     check:
       msgValidate1 == MessageValidationResult.Valid
@@ -323,12 +323,12 @@ suite "Waku rln relay":
       raiseAssert $error
 
     # validate the first message because it's timestamp is the same as the generated timestamp
-    let msgValidate1 = wakuRlnRelay.validateMessageAndUpdateLog(wm1)
+    let msgValidate1 = await wakuRlnRelay.validateMessageAndUpdateLog(wm1)
 
     # wait for 2 seconds to make the timestamp different from generated timestamp
     await sleepAsync(2.seconds)
 
-    let msgValidate2 = wakuRlnRelay.validateMessageAndUpdateLog(wm2)
+    let msgValidate2 = await wakuRlnRelay.validateMessageAndUpdateLog(wm2)
 
     check:
       msgValidate1 == MessageValidationResult.Valid
@@ -378,8 +378,8 @@ suite "Waku rln relay":
       raiseAssert $error
 
     let
-      msgValidate1 = wakuRlnRelay1.validateMessageAndUpdateLog(wm1)
-      msgValidate2 = wakuRlnRelay1.validateMessageAndUpdateLog(wm2)
+      msgValidate1 = await wakuRlnRelay1.validateMessageAndUpdateLog(wm1)
+      msgValidate2 = await wakuRlnRelay1.validateMessageAndUpdateLog(wm2)
 
     check:
       msgValidate1 == MessageValidationResult.Valid
