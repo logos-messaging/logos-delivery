@@ -30,12 +30,13 @@ import
     waku_enr/sharding,
     waku_enr/multiaddr,
     api/types,
+    messaging_client,
     common/logging,
     node/peer_manager,
     node/health_monitor,
+    net/net_config,
     node/waku_metrics,
-    node/delivery_service/delivery_service,
-    node/delivery_service/subscription_manager,
+    node/subscription_manager,
     rest_api/message_cache,
     rest_api/endpoint/server,
     rest_api/endpoint/builder as rest_server_builder,
@@ -48,6 +49,7 @@ import
     factory/app_callbacks,
     persistency/persistency,
   ],
+  channels/reliable_channel_manager,
   ./waku_conf,
   ./waku_state_info
 
@@ -73,7 +75,9 @@ type Waku* = ref object
 
   healthMonitor*: NodeHealthMonitor
 
-  deliveryService*: DeliveryService
+  messagingClient*: MessagingClient
+
+  reliableChannelManager*: ReliableChannelManager
 
   restServer*: WakuRestServerRef
   metricsServer*: MetricsHttpServerRef
@@ -215,10 +219,6 @@ proc new*(
     error "Failed setting up app callbacks", error = error
     return err("Failed setting up app callbacks: " & $error)
 
-  ## Delivery Monitor
-  let deliveryService = DeliveryService.new(wakuConf.p2pReliability, node).valueOr:
-    return err("could not create delivery service: " & $error)
-
   var waku = Waku(
     stateInfo: WakuStateInfo.init(node),
     conf: wakuConf,
@@ -226,7 +226,6 @@ proc new*(
     key: wakuConf.nodeKey,
     node: node,
     healthMonitor: healthMonitor,
-    deliveryService: deliveryService,
     appCallbacks: appCallbacks,
     restServer: restServer,
     brokerCtx: brokerCtx,
@@ -254,9 +253,9 @@ proc getPorts(
 
   return ok((tcpPort: tcpPort, websocketPort: websocketPort))
 
-proc getRunningNetConfig(waku: ptr Waku): Future[Result[NetConfig, string]] {.async.} =
-  let conf = waku[].conf
-  let (tcpPort, websocketPort) = getPorts(waku[].node.switch.peerInfo.listenAddrs).valueOr:
+proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.} =
+  let conf = waku.conf
+  let (tcpPort, websocketPort) = getPorts(waku.node.switch.peerInfo.listenAddrs).valueOr:
     return err("Could not retrieve ports: " & error)
 
   if tcpPort.isSome():
@@ -276,67 +275,67 @@ proc getRunningNetConfig(waku: ptr Waku): Future[Result[NetConfig, string]] {.as
 
   return ok(netConf)
 
-proc updateEnr(waku: ptr Waku): Future[Result[void, string]] {.async.} =
+proc updateEnr(waku: Waku): Future[Result[void, string]] {.async.} =
   let netConf: NetConfig = (await getRunningNetConfig(waku)).valueOr:
     return err("error calling updateNetConfig: " & $error)
-  let record = enrConfiguration(waku[].conf, netConf).valueOr:
+  let record = enrConfiguration(waku.conf, netConf).valueOr:
     return err("ENR setup failed: " & error)
 
-  if isClusterMismatched(record, waku[].conf.clusterId):
+  if isClusterMismatched(record, waku.conf.clusterId):
     return err("cluster-id mismatch configured shards")
 
-  waku[].node.enr = record
+  waku.node.enr = record
 
   # If TCP/WS was configured with port 0, node.announcedAddresses was built
   # pre-bind with a port value of 0. In any case, the resync is harmless.
-  waku[].node.announcedAddresses = netConf.announcedAddresses
+  waku.node.announcedAddresses = netConf.announcedAddresses
 
   return ok()
 
-proc updateAddressInENR(waku: ptr Waku): Result[void, string] =
-  let addresses: seq[MultiAddress] = waku[].node.announcedAddresses
+proc updateAddressInENR(waku: Waku): Result[void, string] =
+  let addresses: seq[MultiAddress] = waku.node.announcedAddresses
   let encodedAddrs = multiaddr.encodeMultiaddrs(addresses)
 
   ## First update the enr info contained in WakuNode
-  let keyBytes = waku[].key.getRawBytes().valueOr:
+  let keyBytes = waku.key.getRawBytes().valueOr:
     return err("failed to retrieve raw bytes from waku key: " & $error)
 
   let parsedPk = keys.PrivateKey.fromHex(keyBytes.toHex()).valueOr:
     return err("failed to parse the private key: " & $error)
 
   let enrFields = @[toFieldPair(MultiaddrEnrField, encodedAddrs)]
-  waku[].node.enr.update(parsedPk, extraFields = enrFields).isOkOr:
+  waku.node.enr.update(parsedPk, extraFields = enrFields).isOkOr:
     return err("failed to update multiaddress in ENR updateAddressInENR: " & $error)
 
   info "Waku node ENR updated successfully with new multiaddress",
-    enr = waku[].node.enr.toUri(), record = $(waku[].node.enr)
+    enr = waku.node.enr.toUri(), record = $(waku.node.enr)
 
   ## Now update the ENR infor in discv5
-  if not waku[].wakuDiscv5.isNil():
-    waku[].wakuDiscv5.protocol.localNode.record = waku[].node.enr
-    let enr = waku[].wakuDiscv5.protocol.localNode.record
+  if not waku.wakuDiscv5.isNil():
+    waku.wakuDiscv5.protocol.localNode.record = waku.node.enr
+    let enr = waku.wakuDiscv5.protocol.localNode.record
 
     info "Waku discv5 ENR updated successfully with new multiaddress",
       enr = enr.toUri(), record = $(enr)
 
   return ok()
 
-proc updateWaku(waku: ptr Waku): Future[Result[void, string]] {.async.} =
+proc updateWaku(waku: Waku): Future[Result[void, string]] {.async.} =
   (await updateEnr(waku)).isOkOr:
     return err("error calling updateEnr: " & $error)
 
-  ?updateAnnouncedAddrWithPrimaryIpAddr(waku[].node)
+  ?updateAnnouncedAddrWithPrimaryIpAddr(waku.node)
 
   ?updateAddressInENR(waku)
 
   return ok()
 
-proc startDnsDiscoveryRetryLoop(waku: ptr Waku): Future[void] {.async.} =
+proc startDnsDiscoveryRetryLoop(waku: Waku): Future[void] {.async.} =
   while true:
     await sleepAsync(30.seconds)
     if waku.conf.dnsDiscoveryConf.isSome():
       let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()
-      waku[].dynamicBootstrapNodes = (
+      waku.dynamicBootstrapNodes = (
         await waku_dnsdisc.retrieveDynamicBootstrapNodes(
           dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
         )
@@ -344,35 +343,61 @@ proc startDnsDiscoveryRetryLoop(waku: ptr Waku): Future[void] {.async.} =
         error "Retrieving dynamic bootstrap nodes failed", error = error
         continue
 
-    if not waku[].wakuDiscv5.isNil():
-      let dynamicBootstrapEnrs = waku[].dynamicBootstrapNodes
-        .filterIt(it.hasUdpPort())
-        .mapIt(it.enr.get().toUri())
+    if not waku.wakuDiscv5.isNil():
+      let dynamicBootstrapEnrs =
+        waku.dynamicBootstrapNodes.filterIt(it.hasUdpPort()).mapIt(it.enr.get().toUri())
       var discv5BootstrapEnrs: seq[enr.Record]
       # parse enrURIs from the configuration and add the resulting ENRs to the discv5BootstrapEnrs seq
       for enrUri in dynamicBootstrapEnrs:
         addBootstrapNode(enrUri, discv5BootstrapEnrs)
 
-      waku[].wakuDiscv5.updateBootstrapRecords(
-        waku[].wakuDiscv5.protocol.bootstrapRecords & discv5BootstrapEnrs
+      waku.wakuDiscv5.updateBootstrapRecords(
+        waku.wakuDiscv5.protocol.bootstrapRecords & discv5BootstrapEnrs
       )
 
     info "Connecting to dynamic bootstrap peers"
     try:
-      await connectToNodes(
-        waku[].node, waku[].dynamicBootstrapNodes, "dynamic bootstrap"
-      )
+      await connectToNodes(waku.node, waku.dynamicBootstrapNodes, "dynamic bootstrap")
     except CatchableError:
       error "failed to connect to dynamic bootstrap nodes: " & getCurrentExceptionMsg()
     return
 
-proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: []).} =
-  if waku[].node.started:
-    warn "startWaku: waku node already started"
+proc mountMessagingClient*(waku: Waku): Result[void, string] =
+  if not waku.messagingClient.isNil():
+    return err("messaging client already mounted")
+  if waku.node.started:
+    return err("cannot mount messaging client on a started node")
+  waku.messagingClient = MessagingClient.new(waku.conf.p2pReliability, waku.node).valueOr:
+    return err("could not create messaging client: " & $error)
+  return ok()
+
+proc mountReliableChannelManager*(waku: Waku): Result[void, string] =
+  if not waku.reliableChannelManager.isNil():
+    return err("reliable channel manager already mounted")
+  if waku.messagingClient.isNil():
+    return err("reliable channel manager requires a mounted messaging client")
+  if waku.node.started:
+    return err("cannot mount reliable channel manager on a started node")
+
+  let messagingClient = waku.messagingClient
+  let defaultSendHandler: SendHandler = proc(
+      envelope: MessageEnvelope
+  ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+    return await messagingClient.send(envelope)
+
+  waku.reliableChannelManager = ReliableChannelManager.new(
+    messagingClient, defaultSendHandler, waku.brokerCtx
+  ).valueOr:
+    return err("could not create reliable channel manager: " & $error)
+  return ok()
+
+proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
+  if waku.node.started:
+    warn "start: waku node already started"
     return ok()
 
   info "Retrieve dynamic bootstrap nodes"
-  let conf = waku[].conf
+  let conf = waku.conf
 
   if conf.dnsDiscoveryConf.isSome():
     let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()
@@ -390,9 +415,9 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
       error "Retrieving dynamic bootstrap nodes failed",
         error = dynamicBootstrapNodesRes.error
       # Start Dns Discovery retry loop
-      waku[].dnsRetryLoopHandle = waku.startDnsDiscoveryRetryLoop()
+      waku.dnsRetryLoopHandle = waku.startDnsDiscoveryRetryLoop()
     else:
-      waku[].dynamicBootstrapNodes = dynamicBootstrapNodesRes.get()
+      waku.dynamicBootstrapNodes = dynamicBootstrapNodesRes.get()
 
   ## Initialize persistency singleton instance - we don't need the instance itself here,
   ## but this ensures it's initialized before any store job starts.
@@ -405,12 +430,12 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
 
   let bound = getPorts(waku.node.switch.peerInfo.listenAddrs).valueOr:
     return err("failed to read bound ports from switch: " & $error)
-  waku[].node.ports.tcp = bound.tcpPort.get(Port(0)).uint16
-  waku[].node.ports.webSocket = bound.websocketPort.get(Port(0)).uint16
+  waku.node.ports.tcp = bound.tcpPort.get(Port(0)).uint16
+  waku.node.ports.webSocket = bound.websocketPort.get(Port(0)).uint16
 
   ## Discv5
   if conf.discv5Conf.isSome():
-    waku[].wakuDiscV5 = (
+    waku.wakuDiscV5 = (
       await waku_discv5.setupAndStartDiscv5(
         waku.node.enr,
         waku.node.peerManager,
@@ -425,23 +450,21 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
     ).valueOr:
       return err("failed to start waku discovery v5: " & error)
 
-    waku[].node.ports.discv5Udp = waku[].wakuDiscV5.udpPort.uint16
-    waku[].conf.discv5Conf.get().udpPort = waku[].wakuDiscV5.udpPort
+    waku.node.ports.discv5Udp = waku.wakuDiscV5.udpPort.uint16
+    waku.conf.discv5Conf.get().udpPort = waku.wakuDiscV5.udpPort
 
   ## Update waku data that is set dynamically on node start
   try:
     (await updateWaku(waku)).isOkOr:
-      return err("Error in startWaku: " & $error)
+      return err("Error in start: " & $error)
   except CatchableError:
-    return err("Caught exception in startWaku: " & getCurrentExceptionMsg())
+    return err("Caught exception in start: " & getCurrentExceptionMsg())
 
-  ## Reliability
-  if not waku[].deliveryService.isNil():
-    waku[].deliveryService.startDeliveryService().isOkOr:
-      return err("failed to start delivery service: " & $error)
+  waku.node.subscriptionManager.subscribeAllAutoshards().isOkOr:
+    return err("failed to auto-subscribe autosharding shards: " & $error)
 
   ## Health Monitor
-  waku[].healthMonitor.startHealthMonitor().isOkOr:
+  waku.healthMonitor.startHealthMonitor().isOkOr:
     return err("failed to start health monitor: " & $error)
 
   ## Setup RequestConnectionStatus provider
@@ -450,7 +473,7 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
     globalBrokerContext(),
     proc(): Result[RequestConnectionStatus, string] =
       try:
-        let healthReport = waku[].healthMonitor.getSyncNodeHealthReport()
+        let healthReport = waku.healthMonitor.getSyncNodeHealthReport()
         return
           ok(RequestConnectionStatus(connectionStatus: healthReport.connectionStatus))
       except CatchableError:
@@ -467,7 +490,7 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
     ): Future[Result[RequestProtocolHealth, string]] {.async.} =
       try:
         let protocolHealthStatus =
-          await waku[].healthMonitor.getProtocolHealthInfo(protocol)
+          await waku.healthMonitor.getProtocolHealthInfo(protocol)
         return ok(RequestProtocolHealth(healthStatus: protocolHealthStatus))
       except CatchableError:
         return err("Failed to get protocol health: " & getCurrentExceptionMsg()),
@@ -480,7 +503,7 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
     globalBrokerContext(),
     proc(): Future[Result[RequestHealthReport, string]] {.async.} =
       try:
-        let report = await waku[].healthMonitor.getNodeHealthReport()
+        let report = await waku.healthMonitor.getNodeHealthReport()
         return ok(RequestHealthReport(healthReport: report))
       except CatchableError:
         return err("Failed to get health report: " & getCurrentExceptionMsg()),
@@ -489,9 +512,9 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
 
   if conf.restServerConf.isSome():
     rest_server_builder.startRestServerProtocolSupport(
-      waku[].restServer,
-      waku[].node,
-      waku[].wakuDiscv5,
+      waku.restServer,
+      waku.node,
+      waku.wakuDiscv5,
       conf.restServerConf.get(),
       conf.relay,
       conf.lightPush,
@@ -509,21 +532,27 @@ proc startWaku*(waku: ptr Waku): Future[Result[void, string]] {.async: (raises: 
         )
       ).valueOr:
         return err("Starting monitoring and external interfaces failed: " & error)
-      waku[].metricsServer = server
-      waku[].node.ports.metrics = port.uint16
-      waku[].conf.metricsServerConf.get().httpPort = port
+      waku.metricsServer = server
+      waku.node.ports.metrics = port.uint16
+      waku.conf.metricsServerConf.get().httpPort = port
     except CatchableError:
       return err(
         "Caught exception starting monitoring and external interfaces failed: " &
           getCurrentExceptionMsg()
       )
-  waku[].healthMonitor.setOverallHealth(HealthStatus.READY)
+  waku.healthMonitor.setOverallHealth(HealthStatus.READY)
+
+  if not waku.messagingClient.isNil():
+    waku.messagingClient.start().isOkOr:
+      return err("failed to start messaging client: " & $error)
+
+  if not waku.reliableChannelManager.isNil():
+    waku.reliableChannelManager.start().isOkOr:
+      return err("failed to start reliable channel manager: " & $error)
 
   return ok()
 
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
-  ## Waku shutdown
-
   if not waku.node.started:
     warn "stop: attempting to stop node that isn't running"
 
@@ -538,9 +567,11 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     if not waku.wakuDiscv5.isNil():
       await waku.wakuDiscv5.stop()
 
-    if not waku.deliveryService.isNil():
-      await waku.deliveryService.stopDeliveryService()
-      waku.deliveryService = nil
+    if not waku.reliableChannelManager.isNil():
+      await waku.reliableChannelManager.stop()
+
+    if not waku.messagingClient.isNil():
+      await waku.messagingClient.stop()
 
     if not waku.node.isNil():
       await waku.node.stop()

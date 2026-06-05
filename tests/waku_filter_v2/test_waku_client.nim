@@ -3,7 +3,8 @@
 import std/[options, sequtils, json], testutils/unittests, results, chronos
 
 import
-  waku/node/[peer_manager, waku_node, kernel_api],
+  waku/node/peer_manager,
+  waku/waku_node,
   waku/waku_core,
   waku/waku_filter_v2/[common, client, subscriptions, protocol, rpc_codec],
   ../testlib/[wakucore, testasync, testutils, futures, sequtils, wakunode],

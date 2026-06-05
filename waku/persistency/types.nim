@@ -19,6 +19,7 @@ type
   TxOpKind* = enum
     txPut
     txDelete
+    txDeletePrefix
 
   TxOp* = object
     category*: string
@@ -27,6 +28,8 @@ type
     of txPut:
       payload*: seq[byte]
     of txDelete:
+      discard
+    of txDeletePrefix:
       discard
 
   PersistencyErrorKind* = enum

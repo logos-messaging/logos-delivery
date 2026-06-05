@@ -20,8 +20,7 @@ import bearssl/rand
 import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
 
-import waku/api/api
-import waku/factory/waku as waku_factory
+import waku/api/types
 import waku/node/delivery_service/send_service
 import waku/waku_core/topics
 
@@ -32,7 +31,7 @@ import ./rate_limit_manager/rate_limit_manager
 import ./encryption/encryption
 
 export
-  api, waku_factory, events, segmentation, scalable_data_sync, rate_limit_manager,
+  types, send_service, events, segmentation, scalable_data_sync, rate_limit_manager,
   encryption
 
 const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
@@ -47,9 +46,10 @@ type
   SendHandler* = proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
     async: (raises: [CatchableError]), gcsafe
   .}
-    ## Egress dispatch boundary. Defaults to `waku.send`; tests inject a
-    ## fake that records calls and returns canned `RequestId`s so the
-    ## send state machine can be exercised end-to-end without a network.
+    ## Egress dispatch boundary. Typically wraps `MessagingClient.send`;
+    ## tests inject a fake that records calls and returns canned
+    ## `RequestId`s so the send state machine can be exercised end-to-end
+    ## without a network.
 
   MessagePersistence {.pure.} = enum
     Persistent
@@ -264,20 +264,20 @@ proc onReadyToSend(
       meta: LipWireReliableChannelVersion.toBytes(),
     )
 
-    ## `waku.send` is not annotated `(raises: [])`, but this listener is.
+    ## `sendHandler` is not annotated `(raises: [])`, but this listener is.
     ## Convert any raise to a Result error so the state machine handles
     ## both failure modes (Result.err and exception) through one path.
     let sendRes =
       try:
         await self.sendHandler(envelope)
       except CatchableError as e:
-        Result[RequestId, string].err("waku send raised: " & e.msg)
+        Result[RequestId, string].err("messaging send raised: " & e.msg)
 
     let messagingReqId = sendRes.valueOr:
       MessageErrorEvent.emit(
         self.brokerCtx,
         MessageErrorEvent(
-          requestId: channelReqId, messageHash: "", error: "waku send failed: " & error
+          requestId: channelReqId, messageHash: "", error: "messaging send failed: " & error
         ),
       )
       self.markSegmentFailed(channelReqId)
@@ -374,7 +374,7 @@ proc onMessageReceived(
 
 proc new*(
     T: type ReliableChannel,
-    waku: Waku,
+    sendHandler: SendHandler,
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
@@ -382,7 +382,6 @@ proc new*(
     sdsConfig: SdsConfig,
     rateConfig: RateLimitConfig,
     brokerCtx: BrokerContext = globalBrokerContext(),
-    sendHandler: SendHandler = nil,
 ): T =
   ## Pipeline handlers (segmentation/SDS/rate-limit) are constructed
   ## inside the channel rather than handed in by the caller — they are
@@ -391,19 +390,11 @@ proc new*(
   ## `Decrypt` request brokers, so the channel keeps no per-instance
   ## encryption state either.
   ##
-  ## `sendHandler` defaults to `waku.send`; tests pass a fake to drive
-  ## the send state machine without touching the network.
-  let resolvedSendHandler =
-    if sendHandler.isNil():
-      proc(
-          envelope: MessageEnvelope
-      ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-        return await waku.send(envelope)
-    else:
-      sendHandler
-
+  ## `sendHandler` is the egress dispatch. The owning `ReliableChannelManager`
+  ## typically constructs it as a closure over `MessagingClient.send`. Tests
+  ## pass a fake to drive the send state machine without touching the network.
   let chn = T(
-    sendHandler: resolvedSendHandler,
+    sendHandler: sendHandler,
     channelId: channelId,
     contentTopic: contentTopic,
     senderId: senderId,

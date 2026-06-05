@@ -7,7 +7,7 @@ import
   waku/waku_core/message,
   waku/waku_core/topics/pubsub_topic,
   waku/waku_core/topics,
-  waku/node/kernel_api/relay,
+  waku/node/waku_node/relay,
   waku/waku_relay/protocol,
   waku/node/peer_manager,
   library/events/json_message_event,

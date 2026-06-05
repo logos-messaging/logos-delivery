@@ -21,8 +21,7 @@ import
     waku_enr/capabilities,
     factory/conf_builder/conf_builder,
     factory/waku,
-    node/waku_node,
-    node/kernel_api,
+    waku_node,
     node/peer_manager,
   ],
   ../testlib/[wakucore, testasync, assertions, futures, wakunode, testutils],
@@ -431,7 +430,7 @@ suite "Waku Discovery v5":
 
       let waku0 = (await Waku.new(conf)).valueOr:
         raiseAssert error
-      (waitFor startWaku(addr waku0)).isOkOr:
+      (waitFor waku0.start()).isOkOr:
         raiseAssert error
 
       confBuilder.withNodeKey(crypto.PrivateKey.random(Secp256k1, myRng[])[])
@@ -445,7 +444,7 @@ suite "Waku Discovery v5":
 
       let waku1 = (await Waku.new(conf1)).valueOr:
         raiseAssert error
-      (waitFor startWaku(addr waku1)).isOkOr:
+      (waitFor waku1.start()).isOkOr:
         raiseAssert error
 
       await waku1.node.mountPeerExchange()
@@ -461,7 +460,7 @@ suite "Waku Discovery v5":
 
       let waku2 = (await Waku.new(conf2)).valueOr:
         raiseAssert error
-      (waitFor startWaku(addr waku2)).isOkOr:
+      (waitFor waku2.start()).isOkOr:
         raiseAssert error
 
       # leave some time for discv5 to act

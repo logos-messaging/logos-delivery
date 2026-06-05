@@ -21,6 +21,7 @@ import
 
 import
   ../waku_node,
+  ../node_telemetry,
   ../../waku_core,
   ../../waku_core/topics/sharding,
   ../../waku_filter_v2,

@@ -35,7 +35,7 @@ suite "Reliable Channel - ingress":
     ## Unit test for the receive side of the API: instead of standing
     ## up two libp2p nodes and a relay mesh, we drive the manager
     ## directly by emitting a `MessageReceivedEvent` (the exact event
-    ## the DeliveryService emits when a `WakuMessage` arrives off the
+    ## the MessagingClient emits when a `WakuMessage` arrives off the
     ## wire). The manager must:
     ##   - drop traffic missing the Reliable Channel spec marker
     ##   - dispatch the matching channel's `onMessageReceived`
@@ -45,13 +45,15 @@ suite "Reliable Channel - ingress":
       contentTopic = ContentTopic("/reliable-channel/test/proto")
     let appPayload = "hello reliable channel".toBytes()
 
+    var waku: Waku
     var manager: ReliableChannelManager
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
-        "Failed to create manager"
-      )
+      waku = (await createNode(createApiNodeConf())).expect("createNode")
+      waku.mountMessagingClient().expect("mountMessagingClient")
+      waku.mountReliableChannelManager().expect("mountReliableChannelManager")
+      manager = waku.reliableChannelManager
 
     ## Noop encryption providers so the Encrypt/Decrypt brokers have
     ## something to dispatch to; without this the channel falls back to
@@ -95,7 +97,7 @@ suite "Reliable Channel - ingress":
     if arrived:
       check received.read() == appPayload
 
-    await manager.stop()
+    (await waku.stop()).expect("stop")
 
   asyncTest "manager drops unmarked WakuMessage":
     ## Mirror of the above: same content topic, but `meta` is empty
@@ -105,13 +107,15 @@ suite "Reliable Channel - ingress":
       contentTopic = ContentTopic("/reliable-channel/test/proto")
     let appPayload = "foreign payload".toBytes()
 
+    var waku: Waku
     var manager: ReliableChannelManager
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
-        "Failed to create manager"
-      )
+      waku = (await createNode(createApiNodeConf())).expect("createNode")
+      waku.mountMessagingClient().expect("mountMessagingClient")
+      waku.mountReliableChannelManager().expect("mountReliableChannelManager")
+      manager = waku.reliableChannelManager
 
     setNoopEncryption()
 
@@ -146,7 +150,7 @@ suite "Reliable Channel - ingress":
     await sleepAsync(100.milliseconds)
     check not fired
 
-    await manager.stop()
+    (await waku.stop()).expect("stop")
 
 suite "Reliable Channel - send state machine":
   asyncTest "MessageSentEvent finalises the channelReqId as Sent":
@@ -162,13 +166,15 @@ suite "Reliable Channel - send state machine":
       contentTopic = ContentTopic("/reliable-channel/test/sm-success")
       fakeMsgReqId = RequestId("fake-msg-req-1")
 
+    var waku: Waku
     var manager: ReliableChannelManager
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
-        "Failed to create manager"
-      )
+      waku = (await createNode(createApiNodeConf())).expect("createNode")
+      waku.mountMessagingClient().expect("mountMessagingClient")
+      waku.mountReliableChannelManager().expect("mountReliableChannelManager")
+      manager = waku.reliableChannelManager
 
     setNoopEncryption()
 
@@ -213,7 +219,7 @@ suite "Reliable Channel - send state machine":
     if finalised:
       check sentFut.read() == channelReqId
 
-    await manager.stop()
+    (await waku.stop()).expect("stop")
 
   asyncTest "two independent channelReqIds are finalised independently":
     ## Two `send()` calls -> two independent `channelReqId`s, each with
@@ -227,13 +233,15 @@ suite "Reliable Channel - send state machine":
       channelId = ChannelId("sm-multi-channel")
       contentTopic = ContentTopic("/reliable-channel/test/sm-multi")
 
+    var waku: Waku
     var manager: ReliableChannelManager
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
-        "Failed to create manager"
-      )
+      waku = (await createNode(createApiNodeConf())).expect("createNode")
+      waku.mountMessagingClient().expect("mountMessagingClient")
+      waku.mountReliableChannelManager().expect("mountReliableChannelManager")
+      manager = waku.reliableChannelManager
 
     setNoopEncryption()
 
@@ -303,7 +311,7 @@ suite "Reliable Channel - send state machine":
     if erroredArrived:
       check erroredFut.read() == channelReqId2
 
-    await manager.stop()
+    (await waku.stop()).expect("stop")
 
   asyncTest "TODO: channelReqId not pruned until ALL its segments are final":
     ## Placeholder for the multi-sibling prune rule. Today's
@@ -326,13 +334,15 @@ suite "Reliable Channel - send state machine":
       channelId = ChannelId("sm-race-channel")
       contentTopic = ContentTopic("/reliable-channel/test/sm-race")
 
+    var waku: Waku
     var manager: ReliableChannelManager
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      manager = (await ReliableChannelManager.new(createApiNodeConf())).expect(
-        "Failed to create manager"
-      )
+      waku = (await createNode(createApiNodeConf())).expect("createNode")
+      waku.mountMessagingClient().expect("mountMessagingClient")
+      waku.mountReliableChannelManager().expect("mountReliableChannelManager")
+      manager = waku.reliableChannelManager
 
     setNoopEncryption()
 
@@ -413,4 +423,4 @@ suite "Reliable Channel - send state machine":
       check channelReqId1 in finalisedReqIds
       check channelReqId2 in finalisedReqIds
 
-    await manager.stop()
+    (await waku.stop()).expect("stop")
