@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import std/[tables, strutils, os], results, chronicles
-import waku/common/databases/db_sqlite, waku/common/databases/common
+import logos_delivery/waku/common/databases/db_sqlite, logos_delivery/waku/common/databases/common
 
 logScope:
   topics = "waku node delivery_service"

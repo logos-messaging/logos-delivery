@@ -9,7 +9,7 @@ import
   libp2p/[peerinfo, switch, peerid, protocols/pubsub/pubsubpeer]
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_core/topics/pubsub_topic,
     waku_store/common,

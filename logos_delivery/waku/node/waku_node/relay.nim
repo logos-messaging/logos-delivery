@@ -20,7 +20,7 @@ import
   brokers/broker_context
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_relay,
     waku_core,
     waku_core/topics/sharding,

@@ -1,4 +1,4 @@
 import ./waku_relay/protocol
-import waku/node/health_monitor/topic_health
+import logos_delivery/waku/node/health_monitor/topic_health
 
 export protocol, topic_health

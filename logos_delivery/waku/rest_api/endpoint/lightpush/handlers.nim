@@ -10,8 +10,8 @@ import
   presto/common
 
 import
-  waku/node/peer_manager,
-  waku/waku_lightpush/common,
+  logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/waku_lightpush/common,
   ../../../waku_node,
   ../../handlers,
   ../serdes,

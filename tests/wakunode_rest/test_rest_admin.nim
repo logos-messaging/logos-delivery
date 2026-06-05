@@ -9,7 +9,7 @@ import
   libp2p/crypto/crypto
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_node,
     waku_filter_v2/client,

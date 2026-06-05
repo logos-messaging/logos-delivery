@@ -1,12 +1,12 @@
 import chronicles, chronos, results
 
-import waku/factory/waku
-import messaging/messaging_client
-import waku/[requests/health_requests, waku_core, waku_node]
-import messaging/delivery_service/send_service
-import waku/node/subscription_manager
+import logos_delivery/waku/factory/waku
+import logos_delivery/messaging/messaging_client
+import logos_delivery/waku/[requests/health_requests, waku_core, waku_node]
+import logos_delivery/messaging/delivery_service/send_service
+import logos_delivery/waku/node/subscription_manager
 import libp2p/peerid
-import ../../tools/confutils/cli_args
+import tools/confutils/cli_args
 import ./[api_conf, types]
 
 export cli_args

@@ -5,11 +5,11 @@ import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
-import messaging/messaging_client
+import logos_delivery/messaging/messaging_client
 
 import
-  waku,
-  waku/[
+  logos_delivery,
+  logos_delivery/waku/[
     waku_node,
     waku_core,
     events/message_events,
@@ -17,7 +17,7 @@ import
     node/waku_node/filter,
     node/subscription_manager,
   ]
-import waku/factory/waku_conf
+import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 
 const TestTimeout = chronos.seconds(10)

@@ -2,7 +2,7 @@
 
 import std/[options, sequtils, tables], testutils/unittests, chronos, chronicles
 import
-  waku/waku_metadata, waku/waku_metadata/rpc, ./testlib/wakucore, ./testlib/wakunode
+  logos_delivery/waku/waku_metadata, logos_delivery/waku/waku_metadata/rpc, ./testlib/wakucore, ./testlib/wakunode
 
 procSuite "Waku Protobufs":
   # TODO: Missing test coverage in many encode/decode protobuf functions

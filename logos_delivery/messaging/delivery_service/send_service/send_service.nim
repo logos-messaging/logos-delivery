@@ -6,7 +6,7 @@ import chronos, chronicles, libp2p/utility
 import brokers/broker_context
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     node/waku_node,
     node/subscription_manager,

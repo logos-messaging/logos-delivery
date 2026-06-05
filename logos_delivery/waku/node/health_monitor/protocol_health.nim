@@ -1,6 +1,6 @@
 import std/[options, strformat]
 import ./health_status
-import waku/common/waku_protocol
+import logos_delivery/waku/common/waku_protocol
 
 export waku_protocol
 

@@ -29,7 +29,7 @@ import
   brokers/request_broker
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_core/topics/sharding,
     waku_relay,
@@ -62,8 +62,8 @@ import
     events/message_events,
     events/peer_events,
   ],
-  waku/discovery/waku_kademlia,
-  waku/net/[bound_ports, net_config],
+  logos_delivery/waku/discovery/waku_kademlia,
+  logos_delivery/waku/net/[bound_ports, net_config],
   ./peer_manager,
   ./health_monitor/health_status,
   ./health_monitor/topic_health,

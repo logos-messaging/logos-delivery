@@ -19,7 +19,7 @@ import
   metrics,
   metrics/chronos_httpserver,
   brokers/broker_context,
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_node,
     waku_archive,
@@ -48,8 +48,8 @@ import
     factory/app_callbacks,
     persistency/persistency,
   ],
-  channels/reliable_channel_manager,
-  messaging/messaging_client,
+  logos_delivery/channels/reliable_channel_manager,
+  logos_delivery/messaging/messaging_client,
   ./waku_conf,
   ./waku_state_info
 

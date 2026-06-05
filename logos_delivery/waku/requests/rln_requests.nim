@@ -1,5 +1,5 @@
 import brokers/request_broker
-import waku/waku_core/message/message
+import logos_delivery/waku/waku_core/message/message
 
 RequestBroker:
   type RequestGenerateRlnProof* = object

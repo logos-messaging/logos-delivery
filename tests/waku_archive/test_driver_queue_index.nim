@@ -1,7 +1,7 @@
 {.used.}
 
 import std/random, testutils/unittests
-import waku/waku_core, waku/waku_archive/driver/queue_driver/index
+import logos_delivery/waku/waku_core, logos_delivery/waku/waku_archive/driver/queue_driver/index
 
 var rng = initRand()
 

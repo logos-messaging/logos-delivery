@@ -1,9 +1,9 @@
 {.used.}
 
 import std/[os, json], chronos, testutils/unittests
-import waku/waku_keystore, ./testlib/common
+import logos_delivery/waku/waku_keystore, ./testlib/common
 
-from waku/waku_noise/noise_utils import randomSeqByte
+from logos_delivery/waku/waku_noise/noise_utils import randomSeqByte
 
 procSuite "Credentials test suite":
   let testAppInfo = AppInfo(application: "test", appIdentifier: "1234", version: "0.1")

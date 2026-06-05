@@ -1,5 +1,5 @@
 import chronicles, std/[net, options], results
-import waku/common/rate_limit/setting
+import logos_delivery/waku/common/rate_limit/setting
 
 logScope:
   topics = "waku conf builder rate limit"

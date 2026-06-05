@@ -8,7 +8,7 @@ import
 import chronos, chronos/asyncsync
 import nimcrypto
 import
-  ../../waku/[
+  ../../logos_delivery/waku/[
     node/peer_manager,
     waku_core,
     waku_core/message,

@@ -8,7 +8,7 @@ import
   results
 
 import
-  waku/[
+  logos_delivery/waku/[
     factory/waku_conf,
     factory/networks_config,
     common/logging,

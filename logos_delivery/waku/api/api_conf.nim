@@ -4,11 +4,11 @@ import results
 import json_serialization, json_serialization/std/options as json_options
 
 import
-  waku/common/utils/parse_size_units,
-  waku/common/logging,
-  waku/factory/waku_conf,
-  waku/factory/conf_builder/conf_builder,
-  waku/factory/networks_config,
+  logos_delivery/waku/common/utils/parse_size_units,
+  logos_delivery/waku/common/logging,
+  logos_delivery/waku/factory/waku_conf,
+  logos_delivery/waku/factory/conf_builder/conf_builder,
+  logos_delivery/waku/factory/networks_config,
   tools/confutils/entry_nodes
 
 export json_serialization, json_options

@@ -8,7 +8,7 @@ import
   libp2p/peerid,
   libp2p/errors,
   confutils/toml/std/net
-import waku/[waku_core, waku_enr], ../testlib/wakucore
+import logos_delivery/waku/[waku_core, waku_enr], ../testlib/wakucore
 
 suite "Waku Core - Peers":
   test "Peer info parses correctly":

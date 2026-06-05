@@ -7,7 +7,7 @@ import
   libp2p/protocols/rendezvous,
   libp2p/protocols/pubsub,
   libp2p/protocols/pubsub/rpc/messages,
-  waku/[
+  logos_delivery/waku/[
     waku_relay,
     waku_rln_relay,
     api/types,

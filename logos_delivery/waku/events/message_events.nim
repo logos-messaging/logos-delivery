@@ -1,5 +1,5 @@
 import brokers/event_broker
-import waku/[api/types, waku_core/message, waku_core/topics]
+import logos_delivery/waku/[api/types, waku_core/message, waku_core/topics]
 export types
 
 EventBroker:

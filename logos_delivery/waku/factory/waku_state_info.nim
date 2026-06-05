@@ -6,7 +6,7 @@
 
 import std/[tables, sequtils, strutils]
 import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
-import waku/[waku_node, net/bound_ports]
+import logos_delivery/waku/[waku_node, net/bound_ports]
 
 type
   NodeInfoId* {.pure.} = enum

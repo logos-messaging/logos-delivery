@@ -20,14 +20,14 @@ import
   brokers/broker_context
 
 import
-  waku/waku_core,
-  waku/node/health_monitor/topic_health,
-  waku/requests/health_requests,
-  waku/events/health_events,
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/node/health_monitor/topic_health,
+  logos_delivery/waku/requests/health_requests,
+  logos_delivery/waku/events/health_events,
   ./message_id,
-  waku/events/peer_events
+  logos_delivery/waku/events/peer_events
 
-from waku/waku_core/codecs import WakuRelayCodec
+from logos_delivery/waku/waku_core/codecs import WakuRelayCodec
 export WakuRelayCodec
 
 type ShardMetrics = object

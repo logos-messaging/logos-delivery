@@ -9,7 +9,7 @@
 ## no analogue in the lower layer (reassembled application payload,
 ## senderId, channelId), so it lives here.
 
-import waku/events/message_events as waku_message_events
+import logos_delivery/waku/events/message_events as waku_message_events
 import brokers/event_broker
 
 import ./types as channel_types

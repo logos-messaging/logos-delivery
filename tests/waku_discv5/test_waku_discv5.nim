@@ -13,7 +13,7 @@ import
   libp2p/protocols/rendezvous
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core/topics,
     waku_core/codecs,
     waku_enr,

@@ -2,9 +2,9 @@
 
 import bearssl/rand, std/times, chronos
 import stew/byteutils
-import waku/utils/requests as request_utils
-import waku/waku_core/[topics/content_topic, message/message, time]
-import waku/requests/requests
+import logos_delivery/waku/utils/requests as request_utils
+import logos_delivery/waku/waku_core/[topics/content_topic, message/message, time]
+import logos_delivery/waku/requests/requests
 
 type
   MessageEnvelope* = object

@@ -7,7 +7,7 @@ import
   json_serialization/lexer,
   results,
   libp2p/protocols/pubsub/pubsubpeer
-import waku/[waku_core, node/peer_manager], ../serdes
+import logos_delivery/waku/[waku_core, node/peer_manager], ../serdes
 
 #### Types
 type WakuPeer* = object

@@ -3,22 +3,22 @@
 import net, tables
 import presto
 import
-  waku/waku_node,
-  waku/node/health_monitor,
-  waku/discovery/waku_discv5,
-  waku/rest_api/message_cache,
-  waku/rest_api/handlers,
-  waku/rest_api/endpoint/server,
-  waku/rest_api/endpoint/debug/handlers as rest_debug_endpoint,
-  waku/rest_api/endpoint/relay/handlers as rest_relay_endpoint,
-  waku/rest_api/endpoint/filter/handlers as rest_filter_endpoint,
-  waku/rest_api/endpoint/legacy_lightpush/handlers as rest_legacy_lightpush_endpoint,
-  waku/rest_api/endpoint/lightpush/handlers as rest_lightpush_endpoint,
-  waku/rest_api/endpoint/store/handlers as rest_store_endpoint,
-  waku/rest_api/endpoint/health/handlers as rest_health_endpoint,
-  waku/rest_api/endpoint/admin/handlers as rest_admin_endpoint,
-  waku/waku_core/topics,
-  waku/waku_relay/protocol
+  logos_delivery/waku/waku_node,
+  logos_delivery/waku/node/health_monitor,
+  logos_delivery/waku/discovery/waku_discv5,
+  logos_delivery/waku/rest_api/message_cache,
+  logos_delivery/waku/rest_api/handlers,
+  logos_delivery/waku/rest_api/endpoint/server,
+  logos_delivery/waku/rest_api/endpoint/debug/handlers as rest_debug_endpoint,
+  logos_delivery/waku/rest_api/endpoint/relay/handlers as rest_relay_endpoint,
+  logos_delivery/waku/rest_api/endpoint/filter/handlers as rest_filter_endpoint,
+  logos_delivery/waku/rest_api/endpoint/legacy_lightpush/handlers as rest_legacy_lightpush_endpoint,
+  logos_delivery/waku/rest_api/endpoint/lightpush/handlers as rest_lightpush_endpoint,
+  logos_delivery/waku/rest_api/endpoint/store/handlers as rest_store_endpoint,
+  logos_delivery/waku/rest_api/endpoint/health/handlers as rest_health_endpoint,
+  logos_delivery/waku/rest_api/endpoint/admin/handlers as rest_admin_endpoint,
+  logos_delivery/waku/waku_core/topics,
+  logos_delivery/waku/waku_relay/protocol
 
 ## Monitoring and external interfaces
 

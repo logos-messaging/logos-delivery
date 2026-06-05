@@ -9,7 +9,7 @@ import
   libp2p/multiaddress,
   libp2p/crypto/crypto
 import
-  waku/[
+  logos_delivery/waku/[
     common/waku_protocol,
     waku_node,
     node/waku_node as waku_node2,

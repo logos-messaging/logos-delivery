@@ -21,9 +21,9 @@ import
   json
 
 import
-  waku/factory/[waku_conf, conf_builder/conf_builder, networks_config],
-  waku/common/[logging],
-  waku/[
+  logos_delivery/waku/factory/[waku_conf, conf_builder/conf_builder, networks_config],
+  logos_delivery/waku/common/[logging],
+  logos_delivery/waku/[
     waku_enr,
     node/peer_manager,
     waku_core/topics/pubsub_topic,

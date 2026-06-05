@@ -13,7 +13,7 @@ import
   libp2p/protocols/kademlia_discovery/types as kad_types,
   libp2p/protocols/mix/mix_protocol
 
-import waku/waku_core, waku/node/peer_manager
+import logos_delivery/waku/waku_core, logos_delivery/waku/node/peer_manager
 
 logScope:
   topics = "waku extended kademlia discovery"

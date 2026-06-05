@@ -1,9 +1,9 @@
 import std/options
 import chronos, chronicles
 import brokers/broker_context
-import waku/[waku_core], waku/waku_lightpush/[common, rpc]
-import waku/requests/health_requests
-import waku/api/types
+import logos_delivery/waku/[waku_core], logos_delivery/waku/waku_lightpush/[common, rpc]
+import logos_delivery/waku/requests/health_requests
+import logos_delivery/waku/api/types
 import ./[delivery_task, send_processor]
 
 logScope:

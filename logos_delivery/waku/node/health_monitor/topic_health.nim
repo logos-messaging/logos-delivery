@@ -1,6 +1,6 @@
 import chronos
 
-import waku/waku_core
+import logos_delivery/waku/waku_core
 
 type TopicHealth* = enum
   UNHEALTHY

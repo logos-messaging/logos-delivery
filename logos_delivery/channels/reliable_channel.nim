@@ -20,9 +20,9 @@ import bearssl/rand
 import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
 
-import waku/api/types
-import messaging/delivery_service/send_service
-import waku/waku_core/topics
+import logos_delivery/waku/api/types
+import logos_delivery/messaging/delivery_service/send_service
+import logos_delivery/waku/waku_core/topics
 
 import ./events
 import ./segmentation/segmentation

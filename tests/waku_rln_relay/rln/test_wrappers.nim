@@ -1,6 +1,6 @@
 import testutils/unittests, results
 
-import waku/waku_rln_relay/rln, waku/waku_rln_relay/rln/wrappers, ./waku_rln_relay_utils
+import logos_delivery/waku/waku_rln_relay/rln, logos_delivery/waku/waku_rln_relay/rln/wrappers, ./waku_rln_relay_utils
 
 suite "membershipKeyGen":
   test "ok":

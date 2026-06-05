@@ -1,6 +1,6 @@
 import chronicles, std/options, results
 import libp2p/[peerid, multiaddress, peerinfo]
-import waku/factory/waku_conf
+import logos_delivery/waku/factory/waku_conf
 
 logScope:
   topics = "waku conf builder kademlia discovery"

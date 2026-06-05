@@ -6,12 +6,12 @@ import libp2p/[peerid, peerinfo, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
-import messaging/messaging_client
-import messaging/delivery_service/recv_service
+import logos_delivery/messaging/messaging_client
+import logos_delivery/messaging/delivery_service/recv_service
 
 import
-  waku,
-  waku/[
+  logos_delivery,
+  logos_delivery/waku/[
     waku_node,
     waku_core,
     events/message_events,
@@ -19,7 +19,7 @@ import
     waku_archive,
     waku_archive/common as archive_common,
   ]
-import waku/factory/waku_conf
+import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 
 const TestTimeout = chronos.seconds(60)

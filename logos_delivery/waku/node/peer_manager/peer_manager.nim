@@ -11,7 +11,7 @@ import
   brokers/broker_context
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_relay,
     waku_metadata,

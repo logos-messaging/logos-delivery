@@ -15,7 +15,7 @@ import
   ../waku_core/message/digest,
   ./common,
   ./archive_metrics,
-  waku/waku_archive/retention_policy/retention_policy_time
+  logos_delivery/waku/waku_archive/retention_policy/retention_policy_time
 
 logScope:
   topics = "waku archive"

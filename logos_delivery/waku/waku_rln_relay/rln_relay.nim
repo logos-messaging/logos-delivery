@@ -26,7 +26,7 @@ import
   ./nonce_manager
 
 import
-  waku/[
+  logos_delivery/waku/[
     common/error_handling,
     waku_relay, # for WakuRelayHandler
     waku_core,

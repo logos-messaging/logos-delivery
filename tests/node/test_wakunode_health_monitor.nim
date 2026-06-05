@@ -5,7 +5,7 @@ import
 import brokers/broker_context
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     common/waku_protocol,
     node/waku_node,
@@ -25,8 +25,8 @@ import
   ]
 
 import ../testlib/[wakunode, wakucore], ../waku_archive/archive_utils
-import waku/node/subscription_manager
-import messaging/messaging_client
+import logos_delivery/waku/node/subscription_manager
+import logos_delivery/messaging/messaging_client
 
 const MockDLow = 4 # Mocked GossipSub DLow value
 

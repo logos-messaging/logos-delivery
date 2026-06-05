@@ -1,7 +1,7 @@
 import std/sequtils
 import chronos, chronicles, libp2p/nameresolving/dnsresolver, libp2p/peerstore
 
-import ../peer_manager/waku_peer_store, waku/waku_core/peers
+import ../peer_manager/waku_peer_store, logos_delivery/waku/waku_core/peers
 
 type
   OnOnlineStateChange* = proc(online: bool) {.gcsafe, raises: [].}

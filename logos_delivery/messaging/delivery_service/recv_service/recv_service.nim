@@ -6,7 +6,7 @@ import std/[tables, sequtils, options, sets]
 import chronos, chronicles, libp2p/utility
 import brokers/broker_context
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_core/topics,
     waku_store/client,

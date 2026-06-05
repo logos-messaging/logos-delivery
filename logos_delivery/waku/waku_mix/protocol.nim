@@ -14,10 +14,10 @@ import
   eth/common/keys
 
 import
-  waku/node/peer_manager,
-  waku/waku_core,
-  waku/waku_enr,
-  waku/node/peer_manager/waku_peer_store
+  logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/waku_enr,
+  logos_delivery/waku/node/peer_manager/waku_peer_store
 
 logScope:
   topics = "waku mix"

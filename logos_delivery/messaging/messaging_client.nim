@@ -1,10 +1,10 @@
 import results, chronos
 import chronicles
 import
-  waku/api/types,
-  waku/node/[waku_node, subscription_manager],
-  messaging/delivery_service/[recv_service, send_service],
-  messaging/delivery_service/send_service/delivery_task
+  logos_delivery/waku/api/types,
+  logos_delivery/waku/node/[waku_node, subscription_manager],
+  logos_delivery/messaging/delivery_service/[recv_service, send_service],
+  logos_delivery/messaging/delivery_service/send_service/delivery_task
 
 type MessagingClient* = ref object
   node: WakuNode

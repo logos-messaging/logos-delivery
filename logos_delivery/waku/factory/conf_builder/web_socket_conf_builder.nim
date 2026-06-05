@@ -1,5 +1,5 @@
 import chronicles, std/[net, options], results
-import waku/factory/waku_conf
+import logos_delivery/waku/factory/waku_conf
 
 logScope:
   topics = "waku conf builder websocket"

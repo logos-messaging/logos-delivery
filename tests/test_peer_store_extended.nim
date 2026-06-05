@@ -9,7 +9,7 @@ import
   libp2p/multiaddress,
   testutils/unittests
 import
-  waku/
+  logos_delivery/waku/
     [node/peer_manager/peer_manager, node/peer_manager/waku_peer_store, waku_core/peers],
   ./testlib/wakucore
 
