@@ -15,7 +15,7 @@ proc `%`*(id: RequestId): JsonNode =
 
 registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
   proc(configJson: cstring): Future[Result[string, string]] {.async.} =
-    let conf = parseConfJson($configJson).valueOr:
+    let conf = parseNodeConfFromJson($configJson).valueOr:
       error "Failed to assemble WakuNodeConf from JSON",
         error = error, configJson = $configJson
       return err(error)

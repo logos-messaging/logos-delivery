@@ -37,7 +37,7 @@ import ./envvar as confEnvvarDefs, ./envvar_net as confEnvvarNet
 
 export
   confTomlDefs, confTomlNet, confEnvvarDefs, confEnvvarNet, ProtectedShard,
-  DefaultMaxWakuMessageSizeStr
+  DefaultMaxWakuMessageSizeStr, DefaultAgentString
 
 logScope:
   topics = "waku cli args"
@@ -47,10 +47,10 @@ const git_version* {.strdefine.} = "n/a"
 
 # CLI defaults that differ from confbuilder defaults
 const
-  DefaultCLIRelay = true
-  DefaultCLIPeerExchange = true
-  DefaultCLIRendezvous = true
-  DefaultCLINat = "any"
+  DefaultCLIRelay* = true
+  DefaultCLIPeerExchange* = true
+  DefaultCLIRendezvous* = true
+  DefaultCLINat* = "any"
 
 type ConfResult*[T] = Result[T, string]
 

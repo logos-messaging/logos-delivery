@@ -1,35 +1,16 @@
 {.used.}
 
-import std/[options, json, strutils], results, stint, testutils/unittests
+import std/[options], results, stint, testutils/unittests
 import json_serialization, confutils, confutils/std/net
 import
   tools/confutils/cli_args,
+  tools/confutils/conf_from_json,
   waku/api/api_conf,
   waku/factory/waku_conf,
   waku/factory/networks_config,
   waku/factory/conf_builder/conf_builder,
   waku/common/logging
 
-# Helper: parse JSON into WakuNodeConf using fieldPairs (same as liblogosdelivery)
-proc parseWakuNodeConfFromJson(jsonStr: string): Result[WakuNodeConf, string] =
-  var conf = defaultWakuNodeConf().valueOr:
-    return err(error)
-  var jsonNode: JsonNode
-  try:
-    jsonNode = parseJson(jsonStr)
-  except Exception:
-    return err("JSON parse error: " & getCurrentExceptionMsg())
-  for confField, confValue in fieldPairs(conf):
-    if jsonNode.contains(confField):
-      let formattedString = ($jsonNode[confField]).strip(chars = {'\"'})
-      try:
-        confValue = parseCmdArg(typeof(confValue), formattedString)
-      except Exception:
-        return err(
-          "Field '" & confField & "' parse error: " & getCurrentExceptionMsg() &
-            ". Value: " & formattedString
-        )
-  return ok(conf)
 
 suite "WakuNodeConf - mode-driven toWakuConf":
   test "Core mode enables service protocols":
@@ -115,7 +96,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
 suite "WakuNodeConf - JSON parsing with fieldPairs":
   test "Empty JSON produces valid default conf":
     ## Given / When
-    let confRes = parseWakuNodeConfFromJson("{}")
+    let confRes = parseNodeConfFromJson("{}")
 
     ## Then
     require confRes.isOk()
@@ -127,7 +108,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
 
   test "JSON with mode and clusterId":
     ## Given / When
-    let confRes = parseWakuNodeConfFromJson("""{"mode": "Core", "clusterId": 42}""")
+    let confRes = parseNodeConfFromJson("""{"mode": "Core", "clusterId": 42}""")
 
     ## Then
     require confRes.isOk()
@@ -138,7 +119,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
 
   test "JSON with Edge mode":
     ## Given / When
-    let confRes = parseWakuNodeConfFromJson("""{"mode": "Edge"}""")
+    let confRes = parseNodeConfFromJson("""{"mode": "Edge"}""")
 
     ## Then
     require confRes.isOk()
@@ -148,7 +129,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
 
   test "JSON with logLevel":
     ## Given / When
-    let confRes = parseWakuNodeConfFromJson("""{"logLevel": "DEBUG"}""")
+    let confRes = parseNodeConfFromJson("""{"logLevel": "DEBUG"}""")
 
     ## Then
     require confRes.isOk()
@@ -159,7 +140,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
   test "JSON with sharding config":
     ## Given / When
     let confRes =
-      parseWakuNodeConfFromJson("""{"clusterId": 99, "numShardsInNetwork": 16}""")
+      parseNodeConfFromJson("""{"clusterId": 99, "numShardsInNetwork": 16}""")
 
     ## Then
     require confRes.isOk()
@@ -168,20 +149,17 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
       conf.clusterId == some(99'u16)
       conf.numShardsInNetwork == 16
 
-  test "JSON with unknown fields is silently ignored":
+  test "JSON with unknown fields is rejected":
     ## Given / When
     let confRes =
-      parseWakuNodeConfFromJson("""{"unknownField": true, "clusterId": 5}""")
+      parseNodeConfFromJson("""{"unknownField": true, "clusterId": 5}""")
 
-    ## Then - unknown fields are just ignored (not in fieldPairs)
-    require confRes.isOk()
-    let conf = confRes.get()
-    check:
-      conf.clusterId == some(5'u16)
+    ## Then - the parser rejects unrecognized config keys
+    check confRes.isErr()
 
   test "Invalid JSON syntax returns error":
     ## Given / When
-    let confRes = parseWakuNodeConfFromJson("{ not valid json }")
+    let confRes = parseNodeConfFromJson("{ not valid json }")
 
     ## Then
     check confRes.isErr()
@@ -250,7 +228,7 @@ suite "WakuNodeConf - preset integration":
 suite "WakuNodeConf JSON -> WakuConf integration":
   test "Core mode JSON config produces valid WakuConf":
     ## Given
-    let confRes = parseWakuNodeConfFromJson(
+    let confRes = parseNodeConfFromJson(
       """{"mode": "Core", "clusterId": 55, "numShardsInNetwork": 6}"""
     )
     require confRes.isOk()
@@ -272,7 +250,7 @@ suite "WakuNodeConf JSON -> WakuConf integration":
 
   test "Edge mode JSON config produces valid WakuConf":
     ## Given
-    let confRes = parseWakuNodeConfFromJson("""{"mode": "Edge", "clusterId": 1}""")
+    let confRes = parseNodeConfFromJson("""{"mode": "Edge", "clusterId": 1}""")
     require confRes.isOk()
     let conf = confRes.get()
 
@@ -291,7 +269,7 @@ suite "WakuNodeConf JSON -> WakuConf integration":
   test "JSON with preset produces valid WakuConf":
     ## Given
     let confRes =
-      parseWakuNodeConfFromJson("""{"mode": "Core", "preset": "logosdev"}""")
+      parseNodeConfFromJson("""{"mode": "Core", "preset": "logosdev"}""")
     require confRes.isOk()
     let conf = confRes.get()
 
@@ -308,7 +286,7 @@ suite "WakuNodeConf JSON -> WakuConf integration":
 
   test "JSON with static nodes":
     ## Given
-    let confRes = parseWakuNodeConfFromJson(
+    let confRes = parseNodeConfFromJson(
       """{"mode": "Core", "clusterId": 42, "staticnodes": ["/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"]}"""
     )
     require confRes.isOk()
@@ -327,7 +305,7 @@ suite "WakuNodeConf JSON -> WakuConf integration":
   test "JSON with max message size":
     ## Given
     let confRes =
-      parseWakuNodeConfFromJson("""{"clusterId": 42, "maxMessageSize": "100KiB"}""")
+      parseNodeConfFromJson("""{"clusterId": 42, "maxMessageSize": "100KiB"}""")
     require confRes.isOk()
     let conf = confRes.get()
 

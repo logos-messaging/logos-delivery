@@ -109,7 +109,7 @@ proc assembleFullConf*(
   )
   return ok(conf)
 
-proc parseConfJson*(jsonStr: string): Result[WakuNodeConf, string] =
+proc parseNodeConfFromJson*(jsonStr: string): Result[WakuNodeConf, string] =
   ## Parse a flat JSON config whose keys are WakuNodeConf field names.
   var jsonNode: JsonNode
   try:
