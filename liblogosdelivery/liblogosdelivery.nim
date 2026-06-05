@@ -1,6 +1,6 @@
 import std/[atomics, options]
 import chronicles, chronos, chronos/threadsync, ffi
-import waku/factory/waku, waku/node/waku_node, ./declare_lib
+import logos_delivery/waku/factory/waku, logos_delivery/waku/node/waku_node, ./declare_lib
 
 ################################################################################
 ## Include different APIs, i.e. all procs with {.ffi.} pragma

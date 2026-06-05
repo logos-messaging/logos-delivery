@@ -1,6 +1,6 @@
 import std/options
 import chronos, results, confutils, confutils/defs
-import waku
+import logos_delivery
 
 type CliArgs = object
   ethRpcEndpoint* {.

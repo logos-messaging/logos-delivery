@@ -2,12 +2,12 @@ import std/[options, json, strutils, net]
 import chronos, chronicles, results, confutils, confutils/std/net, ffi
 
 import
-  waku/node/peer_manager/peer_manager,
+  logos_delivery/waku/node/peer_manager/peer_manager,
   tools/confutils/cli_args,
-  waku/factory/waku,
-  waku/factory/node_factory,
-  waku/factory/app_callbacks,
-  waku/rest_api/endpoint/builder,
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/factory/node_factory,
+  logos_delivery/waku/factory/app_callbacks,
+  logos_delivery/waku/rest_api/endpoint/builder,
   library/declare_lib
 
 proc createWaku(

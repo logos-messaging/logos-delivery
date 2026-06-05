@@ -24,9 +24,14 @@ export PATH := $(HOME)/.nimble/bin:$(PATH)
 # NIM binary location
 NIM_BINARY := $(shell which nim 2>/dev/null)
 NPH := $(HOME)/.nimble/bin/nph
+
+NIMBLE := nimble
+ifeq ($(detected_OS),Windows)
 # Resolve nimble via PATH (Windows has no $(HOME)/.nimble/bin); --useSystemNim
 # reuses the nim on PATH so nimble never re-clones the locked nim.
-NIMBLE := nimble --useSystemNim
+	NIMBLE := nimble --useSystemNim
+endif
+
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
