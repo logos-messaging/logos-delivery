@@ -46,7 +46,7 @@ suite "Wakunode2 - Waku initialization":
     var waku = (waitFor Waku.new(conf)).valueOr:
       raiseAssert error
 
-    (waitFor startWaku(addr waku)).isOkOr:
+    (waitFor waku.start()).isOkOr:
       raiseAssert error
 
     ## Then
@@ -71,7 +71,7 @@ suite "Wakunode2 - Waku initialization":
     var waku = (waitFor Waku.new(conf)).valueOr:
       raiseAssert error
 
-    (waitFor startWaku(addr waku)).isOkOr:
+    (waitFor waku.start()).isOkOr:
       raiseAssert error
 
     ## Then
@@ -128,7 +128,7 @@ suite "Wakunode2 - Waku initialization":
       (waitFor waku.stop()).isOkOr:
         raiseAssert error
 
-    (waitFor startWaku(addr waku)).isOkOr:
+    (waitFor waku.start()).isOkOr:
       raiseAssert error
 
     let portsJson = waku.stateInfo.getNodeInfoItem(NodeInfoId.MyBoundPorts)

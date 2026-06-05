@@ -60,23 +60,18 @@ import
     requests/health_requests,
     events/health_events,
     events/message_events,
+    events/peer_events,
   ],
   waku/discovery/waku_kademlia,
   waku/net/[bound_ports, net_config],
   ./peer_manager,
   ./health_monitor/health_status,
-  ./health_monitor/topic_health
+  ./health_monitor/topic_health,
+  ./node_telemetry,
+  ./shard_subscription,
+  ./edge_filter_sub_state
 
-declarePublicCounter waku_node_messages, "number of messages received", ["type"]
-
-declarePublicGauge waku_version,
-  "Waku version info (in git describe format)", ["version"]
-declarePublicCounter waku_node_errors, "number of wakunode errors", ["type"]
-declarePublicGauge waku_lightpush_peers, "number of lightpush peers"
-declarePublicGauge waku_filter_peers, "number of filter peers"
-declarePublicGauge waku_store_peers, "number of store peers"
-declarePublicGauge waku_px_peers,
-  "number of peers (in the node's peerManager) supporting the peer exchange protocol"
+export shard_subscription, edge_filter_sub_state
 
 logScope:
   topics = "waku node"
@@ -94,7 +89,6 @@ const clientId* = "Nimbus Waku v2 node"
 
 const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
-# key and crypto modules different
 type
   # TODO: Move to application instance (e.g., `WakuNode2`)
   WakuInfo* = object # NOTE One for simplicity, can extend later as needed
@@ -137,10 +131,24 @@ type
     rateLimitSettings*: ProtocolRateLimitSettings
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
       ## Kernel API Relay appHandlers (if any)
+    subscriptionManager*: SubscriptionManager
     wakuMix*: WakuMix
     kademliaDiscoveryLoop*: Future[void]
     wakuKademlia*: WakuKademlia
     ports*: BoundPorts
+
+  SubscriptionManager* = ref object of RootObj
+    node*: WakuNode
+    shards*: Table[PubsubTopic, ShardSubscription]
+    edgeFilterSubStates*: Table[PubsubTopic, EdgeFilterSubState]
+    edgeFilterWakeup*: AsyncEvent
+    edgeFilterSubLoopFut*: Future[void]
+    edgeFilterConnectionLoopFut*: Future[void]
+    peerEventListener*: WakuPeerEventListener
+    ownsEdgeShardHealthProvider*: bool
+    ownsEdgeFilterPeerCountProvider*: bool
+
+import ./subscription_manager
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -229,6 +237,8 @@ proc new*(
   )
 
   peerManager.setShardGetter(node.getShardsGetter(@[]))
+
+  node.subscriptionManager = SubscriptionManager.new(node)
 
   return node
 
@@ -600,6 +610,9 @@ proc start*(node: WakuNode) {.async.} =
 
   node.startProvidersAndListeners()
 
+  node.subscriptionManager.start().isOkOr:
+    error "failed to start subscription manager", error = error
+
   if not zeroPortPresent:
     updateAnnouncedAddrWithPrimaryIpAddr(node).isOkOr:
       error "failed update announced addr", error = $error
@@ -610,6 +623,8 @@ proc start*(node: WakuNode) {.async.} =
 
 proc stop*(node: WakuNode) {.async.} =
   ## By stopping the switch we are stopping all the underlying mounted protocols
+
+  await node.subscriptionManager.stop()
 
   node.stopProvidersAndListeners()
 

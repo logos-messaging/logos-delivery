@@ -13,6 +13,7 @@ import
 import
   ./certsgenerator,
   waku/[waku_enr, node/peer_manager, waku_core, waku_node, factory/builder],
+  waku/net/net_config,
   waku/waku_metadata/protocol,
   waku/common/callbacks
 

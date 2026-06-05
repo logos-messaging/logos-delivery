@@ -89,12 +89,15 @@ jobs:
           path: |
             nimbledeps/
             nimble.paths
-          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+          key: ${{ runner.os }}-nimbledeps-v2-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          nimble setup --localdeps -y
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
+          nimble setup --localdeps -y --useSystemNim
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
           touch nimbledeps/.nimble-setup
@@ -142,12 +145,15 @@ jobs:
           path: |
             nimbledeps/
             nimble.paths
-          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+          key: ${{ runner.os }}-nimbledeps-v2-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          nimble setup --localdeps -y
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
+          nimble setup --localdeps -y --useSystemNim
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
           touch nimbledeps/.nimble-setup
@@ -207,12 +213,15 @@ jobs:
           path: |
             nimbledeps/
             nimble.paths
-          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+          key: ${{ runner.os }}-nimbledeps-v2-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
 
       - name: Install nimble deps
         if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
         run: |
-          nimble setup --localdeps -y
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
+          nimble setup --localdeps -y --useSystemNim
           make rebuild-nat-libs-nimbledeps
           make rebuild-bearssl-nimbledeps
           touch nimbledeps/.nimble-setup

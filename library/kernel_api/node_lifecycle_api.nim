@@ -71,7 +71,7 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
 proc waku_start(
     ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
-  (await startWaku(ctx[].myLib)).isOkOr:
+  (await ctx.myLib[].start()).isOkOr:
     error "START_NODE failed", error = error
     return err("failed to start: " & $error)
   return ok("")

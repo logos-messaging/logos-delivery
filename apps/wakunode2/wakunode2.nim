@@ -55,7 +55,7 @@ when isMainModule:
       error "Waku initialization failed", error = error
       quit(QuitFailure)
 
-    (waitFor startWaku(addr waku)).isOkOr:
+    (waitFor waku.start()).isOkOr:
       error "Starting waku failed", error = error
       quit(QuitFailure)
 
