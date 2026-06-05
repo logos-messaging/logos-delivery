@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options], results, stint, testutils/unittests
+import std/[options, strutils], results, stint, testutils/unittests
 import json_serialization, confutils, confutils/std/net
 import
   tools/confutils/cli_args,
