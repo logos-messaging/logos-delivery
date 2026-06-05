@@ -5,10 +5,10 @@ logScope:
   topics = "waku conf builder filter service"
 
 const
-  DefaultFilterEnabled*: bool = false
-  DefaultFilterMaxPeersToServe*: uint32 = 500
-  DefaultFilterSubscriptionTimeout*: uint16 = 300
-  DefaultFilterMaxCriteria*: uint32 = 1000
+  DefaultFilterEnabled: bool = false
+  DefaultFilterMaxPeersToServe: uint32 = 500
+  DefaultFilterSubscriptionTimeout: uint16 = 300
+  DefaultFilterMaxCriteria: uint32 = 1000
 
 ###################################
 ## Filter Service Config Builder ##

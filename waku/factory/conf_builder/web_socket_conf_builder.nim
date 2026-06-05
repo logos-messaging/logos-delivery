@@ -5,9 +5,9 @@ logScope:
   topics = "waku conf builder websocket"
 
 const
-  DefaultWebSocketEnabled*: bool = false
-  DefaultWebSocketSecureEnabled*: bool = false
-  DefaultWebSocketPort*: Port = Port(8000)
+  DefaultWebSocketEnabled: bool = false
+  DefaultWebSocketSecureEnabled: bool = false
+  DefaultWebSocketPort: Port = Port(8000)
 
 ##############################
 ## WebSocket Config Builder ##

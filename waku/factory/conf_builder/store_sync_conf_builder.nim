@@ -4,7 +4,7 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder store sync"
 
-const DefaultStoreSyncEnabled*: bool = false
+const DefaultStoreSyncEnabled: bool = false
 
 ##################################
 ## Store Sync Config Builder ##

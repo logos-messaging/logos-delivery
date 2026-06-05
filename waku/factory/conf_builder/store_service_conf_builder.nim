@@ -6,12 +6,12 @@ logScope:
   topics = "waku conf builder store service"
 
 const
-  DefaultStoreEnabled*: bool = false
-  DefaultStoreDbMigration*: bool = true
-  DefaultStoreDbVacuum*: bool = false
-  DefaultStoreMaxNumDbConnections*: int = 50
-  DefaultStoreResume*: bool = false
-  DefaultStoreRetentionPolicy*: string = "time:" & $2.days.seconds
+  DefaultStoreEnabled: bool = false
+  DefaultStoreDbMigration: bool = true
+  DefaultStoreDbVacuum: bool = false
+  DefaultStoreMaxNumDbConnections: int = 50
+  DefaultStoreResume: bool = false
+  DefaultStoreRetentionPolicy: string = "time:" & $2.days.seconds
 
 ##################################
 ## Store Service Config Builder ##

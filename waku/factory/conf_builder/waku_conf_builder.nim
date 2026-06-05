@@ -42,34 +42,34 @@ logScope:
 const git_version {.strdefine.} = "(unknown)"
 
 const
-  DefaultMaxConnections* = 150
-  DefaultRelay*: bool = false
+  DefaultMaxConnections = 150
+  DefaultRelay: bool = false
     # historical confbuilder default; wakunode2 CLI deviates (true)
-  DefaultLightPush*: bool = false
-  DefaultPeerExchange*: bool = false
+  DefaultLightPush: bool = false
+  DefaultPeerExchange: bool = false
     # historical confbuilder default; wakunode2 CLI deviates (true)
-  DefaultStoreSyncMount*: bool = false
-  DefaultRendezvous*: bool = false
+  DefaultStoreSyncMount: bool = false
+  DefaultRendezvous: bool = false
     # historical confbuilder default; wakunode2 CLI deviates (true)
   DefaultMix*: bool = false
-  DefaultRelayPeerExchange*: bool = false
-  DefaultLogLevel*: logging.LogLevel = logging.LogLevel.INFO
-  DefaultLogFormat*: logging.LogFormat = logging.LogFormat.TEXT
-  DefaultNatStrategy*: string = "none"
-  DefaultP2pTcpPort*: Port = Port(60000)
-  DefaultP2pListenAddress*: IpAddress = static parseIpAddress("0.0.0.0")
-  DefaultPortsShift*: uint16 = 0
-  DefaultExtMultiAddrsOnly*: bool = false
-  DefaultDnsAddrsNameServers*: seq[IpAddress] =
+  DefaultRelayPeerExchange: bool = false
+  DefaultLogLevel: logging.LogLevel = logging.LogLevel.INFO
+  DefaultLogFormat: logging.LogFormat = logging.LogFormat.TEXT
+  DefaultNatStrategy: string = "none"
+  DefaultP2pTcpPort: Port = Port(60000)
+  DefaultP2pListenAddress: IpAddress = static parseIpAddress("0.0.0.0")
+  DefaultPortsShift: uint16 = 0
+  DefaultExtMultiAddrsOnly: bool = false
+  DefaultDnsAddrsNameServers: seq[IpAddress] =
     @[static parseIpAddress("1.1.1.1"), static parseIpAddress("1.0.0.1")]
-  DefaultPeerPersistence*: bool = false
+  DefaultPeerPersistence: bool = false
   DefaultAgentString*: string = "logos-delivery-" & git_version
-  DefaultRelayShardedPeerManagement*: bool = false
-  DefaultRelayServiceRatio*: string = "50:50"
-  DefaultCircuitRelayClient*: bool = false
+  DefaultRelayShardedPeerManagement: bool = false
+  DefaultRelayServiceRatio: string = "50:50"
+  DefaultCircuitRelayClient: bool = false
   DefaultP2pReliability*: bool = true
-  DefaultNumShardsInCluster*: uint16 = 1
-  DefaultShardingConfKind*: ShardingConfKind = AutoSharding
+  DefaultNumShardsInCluster: uint16 = 1
+  DefaultShardingConfKind: ShardingConfKind = AutoSharding
 
 type MaxMessageSizeKind* = enum
   mmskNone

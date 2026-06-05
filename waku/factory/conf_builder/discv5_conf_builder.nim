@@ -6,11 +6,11 @@ logScope:
 
 const
   DefaultDiscv5Enabled*: bool = false
-  DefaultDiscv5BitsPerHop*: int = 1
-  DefaultDiscv5BucketIpLimit*: uint = 2
-  DefaultDiscv5EnrAutoUpdate*: bool = true
-  DefaultDiscv5TableIpLimit*: uint = 10
-  DefaultDiscv5UdpPort*: Port = Port(9000)
+  DefaultDiscv5BitsPerHop: int = 1
+  DefaultDiscv5BucketIpLimit: uint = 2
+  DefaultDiscv5EnrAutoUpdate: bool = true
+  DefaultDiscv5TableIpLimit: uint = 10
+  DefaultDiscv5UdpPort: Port = Port(9000)
 
 ###########################
 ## Discv5 Config Builder ##

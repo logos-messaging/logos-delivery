@@ -5,7 +5,7 @@ import ../waku_conf, waku/waku_mix
 logScope:
   topics = "waku conf builder mix"
 
-const DefaultMixEnabled*: bool = false
+const DefaultMixEnabled: bool = false
 
 ##################################
 ## Mix Config Builder ##

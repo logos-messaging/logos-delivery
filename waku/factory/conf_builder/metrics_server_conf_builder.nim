@@ -5,10 +5,10 @@ logScope:
   topics = "waku conf builder metrics server"
 
 const
-  DefaultMetricsEnabled*: bool = false
-  DefaultMetricsHttpAddress*: IpAddress = static parseIpAddress("127.0.0.1")
-  DefaultMetricsHttpPort*: Port = Port(8008)
-  DefaultMetricsLogging*: bool = false
+  DefaultMetricsEnabled: bool = false
+  DefaultMetricsHttpAddress: IpAddress = static parseIpAddress("127.0.0.1")
+  DefaultMetricsHttpPort: Port = Port(8008)
+  DefaultMetricsLogging: bool = false
 
 ###################################
 ## Metrics Server Config Builder ##

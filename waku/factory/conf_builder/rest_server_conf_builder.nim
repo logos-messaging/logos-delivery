@@ -5,9 +5,9 @@ logScope:
   topics = "waku conf builder rest server"
 
 const
-  DefaultRestEnabled*: bool = false
-  DefaultRestPort*: Port = Port(8645)
-  DefaultRestAdmin*: bool = false
+  DefaultRestEnabled: bool = false
+  DefaultRestPort: Port = Port(8645)
+  DefaultRestAdmin: bool = false
 
 ################################
 ## REST Server Config Builder ##
