@@ -307,7 +307,7 @@ suite "Onchain group manager":
       validProofRes.isOk()
     let validProof = validProofRes.get()
 
-    let validated = manager.validateRoot(validProof.merkleRoot)
+    let validated = waitFor manager.validateRoot(validProof.merkleRoot)
 
     check:
       validated
@@ -343,7 +343,7 @@ suite "Onchain group manager":
       validProofRes.isOk()
     let validProof = validProofRes.get()
 
-    let validated = manager.validateRoot(validProof.merkleRoot)
+    let validated = waitFor manager.validateRoot(validProof.merkleRoot)
 
     check:
       validated == false
