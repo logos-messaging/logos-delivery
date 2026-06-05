@@ -45,6 +45,13 @@ logScope:
 # Git version in git describe format (defined at compile time)
 const git_version* {.strdefine.} = "n/a"
 
+# CLI defaults that differ from confbuilder defaults
+const
+  DefaultCLIRelay = true
+  DefaultCLIPeerExchange = true
+  DefaultCLIRendezvous = true
+  DefaultCLINat = "any"
+
 type ConfResult*[T] = Result[T, string]
 
 type EthRpcUrl* = distinct string
@@ -184,7 +191,7 @@ type WakuNodeConf* = object
     .}: Option[uint16]
 
     agentString* {.
-      defaultValue: "logos-delivery-" & cli_args.git_version,
+      defaultValue: DefaultAgentString,
       desc: "Node agent string which is used as identifier in network",
       name: "agent-string"
     .}: string
@@ -209,7 +216,7 @@ type WakuNodeConf* = object
       desc:
         "Specify method to use for determining public address. " &
         "Must be one of: any, none, upnp, pmp, extip:<IP>.",
-      defaultValue: "any"
+      defaultValue: DefaultCLINat
     .}: string
 
     extMultiAddrs* {.
@@ -281,7 +288,8 @@ hence would have reachability issues.""",
 
     ## Relay config
     relay* {.
-      desc: "Enable relay protocol: true|false", defaultValue: true, name: "relay"
+      desc: "Enable relay protocol: true|false", defaultValue: DefaultCLIRelay,
+      name: "relay"
     .}: bool
 
     relayPeerExchange* {.
@@ -621,7 +629,7 @@ hence would have reachability issues.""",
     ## waku peer exchange config
     peerExchange* {.
       desc: "Enable waku peer exchange protocol (responder side): true|false",
-      defaultValue: true,
+      defaultValue: DefaultCLIPeerExchange,
       name: "peer-exchange"
     .}: bool
 
@@ -635,7 +643,7 @@ hence would have reachability issues.""",
     ## Rendez vous
     rendezvous* {.
       desc: "Enable waku rendezvous discovery server",
-      defaultValue: true,
+      defaultValue: DefaultCLIRendezvous,
       name: "rendezvous"
     .}: bool
 
