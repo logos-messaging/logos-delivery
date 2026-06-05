@@ -8,7 +8,7 @@ import
   results,
   json_serialization as js
 import
-  waku/[
+  logos_delivery/waku/[
     common/logging,
     waku_node,
     node/peer_manager,

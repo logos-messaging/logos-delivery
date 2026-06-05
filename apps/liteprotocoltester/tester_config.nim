@@ -14,12 +14,12 @@ import
 import
   ../../tools/confutils/
     [cli_args, envvar as confEnvvarDefs, envvar_net as confEnvvarNet],
-  waku/[common/logging, waku_core, waku_core/topics/pubsub_topic]
+  logos_delivery/waku/[common/logging, waku_core, waku_core/topics/pubsub_topic]
 
 export confTomlDefs, confTomlNet, confEnvvarDefs, confEnvvarNet
 
 const
-  LitePubsubTopic* = PubsubTopic("/waku/2/rs/66/0")
+  LitePubsubTopic* = PubsubTopic("/logos_delivery/waku/2/rs/66/0")
   LiteContentTopic* = ContentTopic("/tester/1/light-pubsub-example/proto")
   DefaultMinTestMessageSizeStr* = "1KiB"
   DefaultMaxTestMessageSizeStr* = "150KiB"

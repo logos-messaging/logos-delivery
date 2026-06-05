@@ -12,26 +12,27 @@ import
   libp2p/multicodec
 import
   ./certsgenerator,
-  waku/[waku_enr, node/peer_manager, waku_core, waku_node, factory/builder],
-  waku/net/net_config,
-  waku/waku_metadata/protocol,
-  waku/common/callbacks
+  logos_delivery/waku/
+    [waku_enr, node/peer_manager, waku_core, waku_node, factory/builder],
+  logos_delivery/waku/net/net_config,
+  logos_delivery/waku/waku_metadata/protocol,
+  logos_delivery/waku/common/callbacks
 
 # protocols and their tag
 const ProtocolsTable = {
-  "store": "/vac/waku/store/",
-  "storev3": "/vac/waku/store-query/3",
-  "relay": "/vac/waku/relay/",
-  "lightpush": "/vac/waku/lightpush/",
-  "filter": "/vac/waku/filter-subscribe/2",
-  "filter-push": "/vac/waku/filter-push/",
+  "store": "/vac/logos_delivery/waku/store/",
+  "storev3": "/vac/logos_delivery/waku/store-query/3",
+  "relay": "/vac/logos_delivery/waku/relay/",
+  "lightpush": "/vac/logos_delivery/waku/lightpush/",
+  "filter": "/vac/logos_delivery/waku/filter-subscribe/2",
+  "filter-push": "/vac/logos_delivery/waku/filter-push/",
   "ipfs-id": "/ipfs/id/",
   "autonat": "/libp2p/autonat/",
   "circuit-relay": "/libp2p/circuit/relay/",
-  "metadata": "/vac/waku/metadata/",
+  "metadata": "/vac/logos_delivery/waku/metadata/",
   "rendezvous": "/rendezvous/",
   "ipfs-ping": "/ipfs/ping/",
-  "peer-exchange": "/vac/waku/peer-exchange/",
+  "peer-exchange": "/vac/logos_delivery/waku/peer-exchange/",
   "mix": "mix/1.0.0",
 }.toTable
 

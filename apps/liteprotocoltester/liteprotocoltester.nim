@@ -12,7 +12,7 @@ import
 
 import
   tools/confutils/cli_args,
-  waku/[
+  logos_delivery/waku/[
     common/enr,
     common/logging,
     factory/waku as waku_factory,
