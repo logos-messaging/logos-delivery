@@ -43,6 +43,9 @@ type
     registrationHandler*: Option[RegistrationHandler]
     latestProcessedBlock*: BlockNumber
     merkleProofCache*: seq[byte]
+    merkleProofPathStale*: bool
+    lastRootsRefresh*: Moment
+    rootsRefreshInFlight*: Future[void]
 
 # The below code is not working with the latest web3 version due to chainId being null (specifically on linea-sepolia)
 # TODO: find better solution than this custom sendEthCallWithoutParams call
@@ -216,6 +219,37 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
     discard g.validRoots.popFirst()
 
   return true
+
+const RootsRefreshMinInterval = 1.seconds
+
+proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
+  ## On-demand refresh of validRoots from the on-chain root cache.
+  ## Concurrent callers coalesce onto a single in-flight refresh, and
+  ## refreshes are throttled to at most one per RootsRefreshMinInterval.
+  ## The cached merkle proof path is marked stale whenever validRoots changes.
+  if g.rootsRefreshInFlight != nil and not g.rootsRefreshInFlight.finished():
+    await g.rootsRefreshInFlight
+    return
+
+  if Moment.now() - g.lastRootsRefresh < RootsRefreshMinInterval:
+    return
+
+  proc doRefresh(): Future[void] {.async.} =
+    if await g.updateRecentRoots():
+      g.merkleProofPathStale = true
+    g.lastRootsRefresh = Moment.now()
+
+  g.rootsRefreshInFlight = doRefresh()
+  await g.rootsRefreshInFlight
+
+method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.async.} =
+  ## Validates `root` against the valid-roots window. On a miss, triggers
+  ## a throttled on-demand refresh from the on-chain root cache and re-checks.
+  if g.indexOfRoot(root) >= 0:
+    return true
+
+  await g.refreshRoots()
+  return g.indexOfRoot(root) >= 0
 
 proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
   ?checkInitialized(g)

@@ -348,6 +348,75 @@ suite "Onchain group manager":
     check:
       validated == false
 
+  test "validateRoot: fast-paths without refresh when root is in window":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    discard waitFor manager.updateRecentRoots()
+    check manager.validRoots.len() > 0
+
+    let knownRoot = manager.validRoots[0]
+    let preRefreshTs = manager.lastRootsRefresh
+
+    let validated = waitFor manager.validateRoot(knownRoot)
+
+    check:
+      validated
+      # No refresh should have been triggered on a fast-path hit.
+      manager.lastRootsRefresh == preRefreshTs
+
+  test "validateRoot: triggers on-demand refresh when root is not in window":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # validRoots is intentionally not pre-populated — the refresh must happen
+    # inside validateRoot to bring the on-chain root into the window.
+    check:
+      manager.validRoots.len() == 0
+      manager.merkleProofPathStale == false
+
+    let onChainRootU256 = (waitFor manager.fetchMerkleRoot()).valueOr:
+      raiseAssert "failed to fetch root: " & error
+    let onChainRoot = UInt256ToField(onChainRootU256)
+
+    let validated = waitFor manager.validateRoot(onChainRoot)
+
+    check:
+      validated
+      manager.validRoots.len() > 0
+      manager.merkleProofPathStale
+
+  test "validateRoot: throttles refreshes to RootsRefreshMinInterval":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # First miss: an unknown root forces refreshRoots to run end-to-end.
+    var badRoot1: MerkleNode
+    badRoot1[0] = 0x42
+    discard waitFor manager.validateRoot(badRoot1)
+    let firstRefreshTs = manager.lastRootsRefresh
+
+    # Second miss within RootsRefreshMinInterval must be throttled out;
+    # lastRootsRefresh stays pinned to the previous refresh timestamp.
+    var badRoot2: MerkleNode
+    badRoot2[0] = 0x43
+    discard waitFor manager.validateRoot(badRoot2)
+
+    check:
+      manager.lastRootsRefresh == firstRefreshTs
+
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()
     (waitFor manager.init()).isOkOr:
