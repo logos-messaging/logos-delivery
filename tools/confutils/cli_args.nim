@@ -288,7 +288,8 @@ hence would have reachability issues.""",
 
     ## Relay config
     relay* {.
-      desc: "Enable relay protocol: true|false", defaultValue: DefaultCLIRelay,
+      desc: "Enable relay protocol: true|false",
+      defaultValue: DefaultCLIRelay,
       name: "relay"
     .}: bool
 

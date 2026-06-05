@@ -11,7 +11,6 @@ import
   waku/factory/conf_builder/conf_builder,
   waku/common/logging
 
-
 suite "WakuNodeConf - mode-driven toWakuConf":
   test "Core mode enables service protocols":
     ## Given
@@ -151,8 +150,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
 
   test "JSON with unknown fields is rejected":
     ## Given / When
-    let confRes =
-      parseNodeConfFromJson("""{"unknownField": true, "clusterId": 5}""")
+    let confRes = parseNodeConfFromJson("""{"unknownField": true, "clusterId": 5}""")
 
     ## Then - the parser rejects unrecognized config keys
     check confRes.isErr()
@@ -268,8 +266,7 @@ suite "WakuNodeConf JSON -> WakuConf integration":
 
   test "JSON with preset produces valid WakuConf":
     ## Given
-    let confRes =
-      parseNodeConfFromJson("""{"mode": "Core", "preset": "logosdev"}""")
+    let confRes = parseNodeConfFromJson("""{"mode": "Core", "preset": "logosdev"}""")
     require confRes.isOk()
     let conf = confRes.get()
 
