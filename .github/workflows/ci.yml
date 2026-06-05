@@ -34,7 +34,7 @@ jobs:
           common:
           - '.github/workflows/**'
           - 'nimble.lock'
-          - 'waku.nimble'
+          - 'logos_delivery.nimble'
           - 'Makefile'
           - 'scripts/**'
           - 'flake.nix'

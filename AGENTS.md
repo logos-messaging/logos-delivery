@@ -78,7 +78,7 @@ type WakuFilter* = ref object of LPProtocol
 ## Development Essentials
 
 ### Build Requirements
-- Nim 2.x (check `waku.nimble` for minimum version)
+- Nim 2.x (check `logos_delivery.nimble` for minimum version)
 - Rust toolchain (required for RLN dependencies)
 - Build system: Make driven by Nimble (dependencies pinned in `nimble.lock`)
 
@@ -94,7 +94,7 @@ make wakunode2
 make wakunode2 NIMFLAGS="-d:chronicles_log_level=DEBUG"
 ```
 
-Note: The build uses `--mm:refc` memory management (passed automatically by the Nimble tasks in `waku.nimble`). Only relevant if compiling outside the standard build system.
+Note: The build uses `--mm:refc` memory management (passed automatically by the Nimble tasks in `logos_delivery.nimble`). Only relevant if compiling outside the standard build system.
 
 ### Common Make Targets
 ```bash
@@ -476,7 +476,7 @@ nim c -r \
 
 ### Memory Management
 - Uses `refc` (reference counting with cycle collection)
-- Automatically enforced by the build system (hardcoded in `waku.nimble`)
+- Automatically enforced by the build system (hardcoded in `logos_delivery.nimble`)
 - Do not override unless absolutely necessary, as it breaks compatibility
 
 ### RLN Dependencies
@@ -489,7 +489,7 @@ Language: Nim 2.x | License: MIT or Apache 2.0
 
 ### Important Files
 - `Makefile` - Primary build interface
-- `waku.nimble` - Package definition and build tasks (invoked by the Makefile via Nimble)
+- `logos_delivery.nimble` - Package definition and build tasks (invoked by the Makefile via Nimble)
 - `nimble.lock` - Pinned dependency versions resolved into `nimbledeps/`
 - `waku/node/waku_node.nim` - Core node implementation
 - `apps/wakunode2/wakunode2.nim` - Main CLI application
@@ -511,7 +511,7 @@ Language: Nim 2.x | License: MIT or Apache 2.0
 - `presto` - REST server
 - `nimcrypto` - Cryptographic primitives
 
-Note: For specific version requirements, check `waku.nimble`.
+Note: For specific version requirements, check `logos_delivery.nimble`.
 
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence

@@ -6,8 +6,9 @@ mode = ScriptMode.Verbose
 ### Package
 version = "0.38.1"
 author = "Status Research & Development GmbH"
-description = "Waku, Private P2P Messaging for Resource-Restricted Devices"
+description = "Logos-delivery, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
+skipDirs = @["tests", "examples", "tools", "apps", "simulations", "metrics"]
 
 const RequiredNimVersion = "2.2.4"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.

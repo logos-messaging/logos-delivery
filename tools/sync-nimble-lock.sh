@@ -2,7 +2,7 @@
 #
 # sync-nimble-lock.sh
 #
-# Cross-check git-URL pinned `requires` in waku.nimble against nimble.lock and
+# Cross-check git-URL pinned `requires` in logos_delivery.nimble against nimble.lock and
 # sync the lock entry for any pin that CHANGED relative to a git base ref
 # (default: HEAD) -- and ONLY those entries. No other package is touched.
 #
@@ -19,7 +19,7 @@
 #
 # For each changed pin it updates exactly three fields of the matching lock
 # entry, preserving all formatting and every other entry byte-for-byte:
-#   version      = "#" + <rev-as-written-in-waku.nimble>   (commit or tag)
+#   version      = "#" + <rev-as-written-in-logos_delivery.nimble>   (commit or tag)
 #   vcsRevision  = git rev-parse of the ref                 (resolves tags)
 #   checksums.sha1 = the self-computed checksum
 #
@@ -82,7 +82,7 @@ APPLY = os.environ["SYNC_APPLY"] == "1"
 BASE = os.environ["SYNC_BASE"]
 PKGCACHE = os.environ["SYNC_PKGCACHE"]
 
-NIMBLE_FILE = os.path.join(ROOT, "waku.nimble")
+NIMBLE_FILE = os.path.join(ROOT, "logos_delivery.nimble")
 LOCK_FILE = os.path.join(ROOT, "nimble.lock")
 
 REQ_RE = re.compile(r'requires\s+"(https?://[^"#]+)#([^"]+)"')
@@ -180,7 +180,7 @@ def dep_requires_count(checkout_dir):
 # detect changes
 # ---------------------------------------------------------------------------
 def parse_changed(base):
-    r = git(["-C", ROOT, "diff", base, "--", "waku.nimble"], check=False)
+    r = git(["-C", ROOT, "diff", base, "--", "logos_delivery.nimble"], check=False)
     if r.returncode != 0:
         fail("git diff against %r failed: %s" % (base, r.stderr.strip()))
     changed, seen = [], set()
@@ -245,7 +245,7 @@ def main():
 
     changed = parse_changed(BASE)
     if not changed:
-        print("No changed git-URL `requires` in waku.nimble vs %s — nothing to sync." % BASE)
+        print("No changed git-URL `requires` in logos_delivery.nimble vs %s — nothing to sync." % BASE)
         return 0
 
     lock = json.load(open(LOCK_FILE))
@@ -264,13 +264,13 @@ def main():
             drift.append((url, rev, hit[0], hit[1].get("version")))
 
     if not drift:
-        print("nimble.lock already in sync with waku.nimble (%d changed pin(s) checked)." % len(changed))
+        print("nimble.lock already in sync with logos_delivery.nimble (%d changed pin(s) checked)." % len(changed))
         return 0
 
-    print("Dependency drift (waku.nimble vs nimble.lock):")
+    print("Dependency drift (logos_delivery.nimble vs nimble.lock):")
     for url, rev, name, cur in drift:
         tag = name or "(missing)"
-        print("  ~ %s [%s]\n      waku.nimble: #%s\n      nimble.lock: %s" % (url, tag, rev, cur))
+        print("  ~ %s [%s]\n      logos_delivery.nimble: #%s\n      nimble.lock: %s" % (url, tag, rev, cur))
 
     if not APPLY:
         print("\nRun with --apply to update nimble.lock (computes checksum itself; no `nimble lock`).")
