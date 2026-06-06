@@ -23,6 +23,8 @@ suite "Postgres driver":
 
     driver = PostgresDriver(driverRes.get())
 
+    (await driver.waitForPartition()).expect("Test has no DB partition")
+
   asyncTeardown:
     let resetRes = await driver.reset()
     if resetRes.isErr():
