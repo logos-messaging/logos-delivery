@@ -8,7 +8,9 @@ import
   std/[options, sequtils, net],
   results
 
-import logos_delivery/waku/[common/utils/nat, net/net_config, waku_enr, waku_core], ./waku_conf
+import
+  logos_delivery/waku/[common/utils/nat, net/net_config, waku_enr, waku_core],
+  ./waku_conf
 
 proc tryBuildEnrRecord(
     conf: WakuConf, netConfig: NetConfig, multiaddrs: seq[MultiAddress]

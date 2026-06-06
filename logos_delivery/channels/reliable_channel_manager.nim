@@ -23,8 +23,7 @@ export reliable_channel
 
 type ReliableChannelManager* = ref object
   channels: Table[ChannelId, ReliableChannel]
-  messagingClient: MessagingClient
-    ## Borrowed from the owning `Waku`.
+  messagingClient: MessagingClient ## Borrowed from the owning `Waku`.
   sendHandler: SendHandler
     ## Default egress dispatch for channels created through this manager.
     ## Constructed at mount time as a closure over `MessagingClient.send`
@@ -97,11 +96,7 @@ proc createReliableChannel*(
     epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
   )
 
-  let effectiveSendHandler =
-    if sendHandler.isNil():
-      self.sendHandler
-    else:
-      sendHandler
+  let effectiveSendHandler = if sendHandler.isNil(): self.sendHandler else: sendHandler
 
   let chn = ReliableChannel.new(
     sendHandler = effectiveSendHandler,

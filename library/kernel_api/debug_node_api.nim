@@ -9,7 +9,10 @@ import
   metrics,
   ffi
 import
-  logos_delivery/waku/factory/waku, logos_delivery/waku/node/waku_node, logos_delivery/waku/node/health_monitor, library/declare_lib
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/node/health_monitor,
+  library/declare_lib
 
 proc getMultiaddresses(node: WakuNode): seq[string] =
   return node.info().listenAddresses

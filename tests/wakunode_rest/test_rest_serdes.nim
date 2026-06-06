@@ -1,7 +1,9 @@
 {.used.}
 
 import results, stew/byteutils, chronicles, unittest2, json_serialization
-import logos_delivery/waku/rest_api/endpoint/serdes, logos_delivery/waku/rest_api/endpoint/debug/types
+import
+  logos_delivery/waku/rest_api/endpoint/serdes,
+  logos_delivery/waku/rest_api/endpoint/debug/types
 
 # TODO: Decouple this test suite from the `debug_rest_interface` module by defining
 #  private custom types for this test suite module

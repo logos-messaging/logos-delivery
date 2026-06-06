@@ -3,7 +3,8 @@
 import std/[options, sets], testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
-  logos_delivery/waku/[node/peer_manager, waku_core, waku_store, waku_store/client, common/paging],
+  logos_delivery/waku/
+    [node/peer_manager, waku_core, waku_store, waku_store/client, common/paging],
   ../testlib/[wakucore, testasync, futures],
   ./store_utils
 

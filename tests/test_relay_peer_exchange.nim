@@ -7,7 +7,11 @@ import
   libp2p/peerid,
   libp2p/protocols/pubsub/gossipsub
 
-import logos_delivery/waku/waku_core, logos_delivery/waku/waku_node, ./testlib/wakucore, ./testlib/wakunode
+import
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/waku_node,
+  ./testlib/wakucore,
+  ./testlib/wakunode
 
 procSuite "Relay (GossipSub) Peer Exchange":
   asyncTest "Mount relay without peer exchange handler":

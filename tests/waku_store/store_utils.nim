@@ -3,7 +3,8 @@
 import std/options, chronos, chronicles
 
 import
-  logos_delivery/waku/[node/peer_manager, waku_store, waku_store/client], ../testlib/[common, wakucore]
+  logos_delivery/waku/[node/peer_manager, waku_store, waku_store/client],
+  ../testlib/[common, wakucore]
 
 proc newTestWakuStore*(
     switch: Switch, handler: StoreQueryRequestHandler

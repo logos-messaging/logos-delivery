@@ -1,6 +1,8 @@
 import results, testutils/unittests
 
-import logos_delivery/waku/node/peer_manager/peer_store/peer_storage, logos_delivery/waku/waku_core/peers
+import
+  logos_delivery/waku/node/peer_manager/peer_store/peer_storage,
+  logos_delivery/waku/waku_core/peers
 
 suite "PeerStorage":
   var peerStorage {.threadvar.}: PeerStorage

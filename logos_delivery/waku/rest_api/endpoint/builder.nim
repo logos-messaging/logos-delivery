@@ -12,7 +12,8 @@ import
   logos_delivery/waku/rest_api/endpoint/debug/handlers as rest_debug_endpoint,
   logos_delivery/waku/rest_api/endpoint/relay/handlers as rest_relay_endpoint,
   logos_delivery/waku/rest_api/endpoint/filter/handlers as rest_filter_endpoint,
-  logos_delivery/waku/rest_api/endpoint/legacy_lightpush/handlers as rest_legacy_lightpush_endpoint,
+  logos_delivery/waku/rest_api/endpoint/legacy_lightpush/handlers as
+    rest_legacy_lightpush_endpoint,
   logos_delivery/waku/rest_api/endpoint/lightpush/handlers as rest_lightpush_endpoint,
   logos_delivery/waku/rest_api/endpoint/store/handlers as rest_store_endpoint,
   logos_delivery/waku/rest_api/endpoint/health/handlers as rest_health_endpoint,

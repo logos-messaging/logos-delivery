@@ -1,7 +1,8 @@
 import brokers/request_broker
 
 import logos_delivery/waku/api/types
-import logos_delivery/waku/node/health_monitor/[protocol_health, topic_health, health_report]
+import
+  logos_delivery/waku/node/health_monitor/[protocol_health, topic_health, health_report]
 import logos_delivery/waku/waku_core/topics
 import logos_delivery/waku/common/waku_protocol
 

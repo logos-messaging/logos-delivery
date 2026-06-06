@@ -17,7 +17,9 @@ import
   eth/p2p/discoveryv5/enr,
   eth/net/utils
 import
-  logos_delivery/waku/[waku_core, waku_node, node/peer_manager], ./testlib/wakucore, ./testlib/wakunode
+  logos_delivery/waku/[waku_core, waku_node, node/peer_manager],
+  ./testlib/wakucore,
+  ./testlib/wakunode
 
 suite "WakuNode":
   asyncTest "Protocol matcher works as expected":

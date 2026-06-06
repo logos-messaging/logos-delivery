@@ -3,7 +3,8 @@
 import std/options, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
-  logos_delivery/waku/[node/peer_manager, waku_core, waku_lightpush, waku_lightpush/client],
+  logos_delivery/waku/
+    [node/peer_manager, waku_core, waku_lightpush, waku_lightpush/client],
   ../testlib/wakucore,
   ./lightpush_utils
 

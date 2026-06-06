@@ -277,7 +277,9 @@ proc onReadyToSend(
       MessageErrorEvent.emit(
         self.brokerCtx,
         MessageErrorEvent(
-          requestId: channelReqId, messageHash: "", error: "messaging send failed: " & error
+          requestId: channelReqId,
+          messageHash: "",
+          error: "messaging send failed: " & error,
         ),
       )
       self.markSegmentFailed(channelReqId)

@@ -1,6 +1,10 @@
 import std/[sequtils, strutils, tables]
 import chronicles, chronos, results, options, json, ffi
-import logos_delivery/waku/factory/waku, logos_delivery/waku/node/waku_node, logos_delivery/waku/node/peer_manager, ../declare_lib
+import
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/node/peer_manager,
+  ../declare_lib
 
 type PeerInfo = object
   protocols: seq[string]
