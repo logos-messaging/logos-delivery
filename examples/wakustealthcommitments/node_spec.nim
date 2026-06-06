@@ -7,12 +7,11 @@ import
   chronicles,
   chronos,
   metrics,
-  libbacktrace,
   libp2p/crypto/crypto
 
 export
   networks_config, waku, logging, options, strutils, os, sequtils, stewNet, chronicles,
-  chronos, metrics, libbacktrace, crypto
+  chronos, metrics, crypto
 
 proc setup*(): Waku =
   const versionString = "version / git commit hash: " & waku.git_version

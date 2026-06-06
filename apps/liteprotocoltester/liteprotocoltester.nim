@@ -5,7 +5,6 @@ import
   chronicles,
   chronos,
   metrics,
-  libbacktrace,
   system/ansi_c,
   libp2p/crypto/crypto,
   confutils
@@ -156,7 +155,7 @@ when isMainModule:
   when defined(posix):
     proc handleSigsegv(signal: cint) {.noconv.} =
       # Require --debugger:native
-      fatal "Shutting down after receiving SIGSEGV", stacktrace = getBacktrace()
+      fatal "Shutting down after receiving SIGSEGV"
 
       # Not available in -d:release mode
       writeStackTrace()

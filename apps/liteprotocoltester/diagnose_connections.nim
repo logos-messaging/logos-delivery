@@ -8,7 +8,6 @@ import
   chronicles,
   chronos,
   metrics,
-  libbacktrace,
   libp2p/crypto/crypto,
   confutils,
   libp2p/wire

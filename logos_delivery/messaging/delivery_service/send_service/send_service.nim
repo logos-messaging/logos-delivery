@@ -1,7 +1,7 @@
 ## This module reinforces the publish operation with regular store-v3 requests.
 ##
 
-import std/[sequtils, tables, options]
+import std/[sequtils, tables, options, typetraits]
 import chronos, chronicles, libp2p/utility
 import brokers/broker_context
 import

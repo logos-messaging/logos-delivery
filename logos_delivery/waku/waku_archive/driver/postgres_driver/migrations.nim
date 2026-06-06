@@ -3,7 +3,7 @@
 import std/strutils, results, chronicles, chronos
 import
   ../../../common/databases/common,
-  ../../../../migrations/message_store_postgres/pg_migration_manager,
+  ../../../../../migrations/message_store_postgres/pg_migration_manager,
   ../postgres_driver
 
 logScope:
