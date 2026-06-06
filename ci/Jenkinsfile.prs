@@ -130,7 +130,7 @@ def versionWasChanged(version) {
   if (version == 'v2' && changes =~ "(?m)^(apps|tools)/.*") {
     return true
   }
-  if (changes =~ "(?m)^(waku|tests|examples)/(${version}|common)/.*") {
+  if (changes =~ "(?m)^(logos_delivery|tests|examples)/(${version}|common)/.*") {
     return true
   }
   return false
