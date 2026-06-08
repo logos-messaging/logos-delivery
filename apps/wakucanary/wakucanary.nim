@@ -20,19 +20,19 @@ import
 
 # protocols and their tag
 const ProtocolsTable = {
-  "store": "/vac/logos_delivery/waku/store/",
-  "storev3": "/vac/logos_delivery/waku/store-query/3",
-  "relay": "/vac/logos_delivery/waku/relay/",
-  "lightpush": "/vac/logos_delivery/waku/lightpush/",
-  "filter": "/vac/logos_delivery/waku/filter-subscribe/2",
-  "filter-push": "/vac/logos_delivery/waku/filter-push/",
+  "store": "/vac/waku/store/",
+  "storev3": "/vac/waku/store-query/3",
+  "relay": "/vac/waku/relay/",
+  "lightpush": "/vac/waku/lightpush/",
+  "filter": "/vac/waku/filter-subscribe/2",
+  "filter-push": "/vac/waku/filter-push/",
   "ipfs-id": "/ipfs/id/",
   "autonat": "/libp2p/autonat/",
   "circuit-relay": "/libp2p/circuit/relay/",
-  "metadata": "/vac/logos_delivery/waku/metadata/",
+  "metadata": "/vac/waku/metadata/",
   "rendezvous": "/rendezvous/",
   "ipfs-ping": "/ipfs/ping/",
-  "peer-exchange": "/vac/logos_delivery/waku/peer-exchange/",
+  "peer-exchange": "/vac/waku/peer-exchange/",
   "mix": "mix/1.0.0",
 }.toTable
 

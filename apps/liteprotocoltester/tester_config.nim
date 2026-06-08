@@ -19,7 +19,7 @@ import
 export confTomlDefs, confTomlNet, confEnvvarDefs, confEnvvarNet
 
 const
-  LitePubsubTopic* = PubsubTopic("/logos_delivery/waku/2/rs/66/0")
+  LitePubsubTopic* = PubsubTopic("/waku/2/rs/66/0")
   LiteContentTopic* = ContentTopic("/tester/1/light-pubsub-example/proto")
   DefaultMinTestMessageSizeStr* = "1KiB"
   DefaultMaxTestMessageSizeStr* = "150KiB"
