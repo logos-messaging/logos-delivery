@@ -20,12 +20,14 @@ import
     waku_enr/sharding,
     waku_enr/capabilities,
     events/peer_events,
+    common/option_shims,
     common/nimchronos,
     common/enr,
     common/callbacks,
     common/utils/parse_size_units,
     node/health_monitor/online_monitor,
   ],
+  ../waku_switch,
   ./peer_store/peer_storage,
   ./waku_peer_store
 

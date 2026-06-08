@@ -195,6 +195,10 @@ $(LIBRLN_FILE):
 	echo -e $(BUILD_MSG) "$@" && \
 		bash scripts/build_rln.sh $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(LIBRLN_FILE)
 
+# Single zerokit archive (stateless features) for both relay and mix plugin.
+# Plugin keeps its Merkle tree Nim-side, so it does not need the pmtree FFIs
+# the default features would expose -- and including a second archive built
+# with different features causes duplicate-symbol link errors.
 librln: | $(LIBRLN_FILE)
 	$(eval NIM_PARAMS += --passL:$(LIBRLN_FILE) --passL:-lm)
 

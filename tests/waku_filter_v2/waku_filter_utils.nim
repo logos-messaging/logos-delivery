@@ -36,7 +36,7 @@ proc newTestWakuFilter*(
 proc newTestWakuFilterClient*(switch: Switch): Future[WakuFilterClient] {.async.} =
   let
     peerManager = PeerManager.new(switch)
-    proto = WakuFilterClient.new(peerManager, rng)
+    proto = WakuFilterClient.new(peerManager, rng())
 
   await proto.start()
   switch.mount(proto)

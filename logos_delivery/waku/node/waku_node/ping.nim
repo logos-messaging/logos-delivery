@@ -12,6 +12,7 @@ import
   libp2p/utility
 
 import ../waku_node, ../peer_manager
+import libp2p/crypto/rng as libp2p_rng
 
 logScope:
   topics = "waku node ping api"
@@ -20,7 +21,9 @@ proc mountLibp2pPing*(node: WakuNode) {.async: (raises: []).} =
   info "mounting libp2p ping protocol"
 
   try:
-    node.libp2pPing = Ping.new(rng = node.rng)
+    # libp2p 1.15.3: Ping.new now expects libp2p's `Rng` (ref object
+    # wrapping a ref HmacDrbgContext).  Wrap the node's BearSSL rng.
+    node.libp2pPing = Ping.new(rng = libp2p_rng.newBearSslRng(node.rng))
   except Exception as e:
     error "failed to create ping", error = getCurrentExceptionMsg()
 

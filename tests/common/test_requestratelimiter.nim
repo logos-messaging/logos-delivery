@@ -9,7 +9,7 @@
 {.used.}
 
 import testutils/unittests
-import chronos, libp2p/stream/connection
+import chronos, libp2p/stream/connection, libp2p/crypto/crypto
 import std/options
 
 import ../../logos_delivery/waku/common/rate_limit/request_limiter
@@ -17,9 +17,9 @@ import ../../logos_delivery/waku/common/rate_limit/timed_map
 
 let proto = "ProtocolDescriptor"
 
-let conn1 = Connection(peerId: PeerId.random().tryGet())
-let conn2 = Connection(peerId: PeerId.random().tryGet())
-let conn3 = Connection(peerId: PeerId.random().tryGet())
+let conn1 = Connection(peerId: PeerId.random(newRng()).tryGet())
+let conn2 = Connection(peerId: PeerId.random(newRng()).tryGet())
+let conn3 = Connection(peerId: PeerId.random(newRng()).tryGet())
 
 suite "RequestRateLimiter":
   test "RequestRateLimiter Allow up to main bucket":

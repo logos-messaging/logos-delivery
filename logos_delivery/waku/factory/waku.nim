@@ -9,6 +9,8 @@ import
   libp2p/protocols/connectivity/relay/client,
   libp2p/wire,
   libp2p/crypto/crypto,
+  libp2p/crypto/rng as libp2p_rng,
+  bearssl/rand,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/services/autorelayservice,
   libp2p/services/hpservice,
@@ -106,12 +108,29 @@ proc setupSwitchServices(
     ## The node is considered to be behind a NAT or firewall and then it
     ## should struggle to be reachable and establish connections to other nodes
     const MaxNumRelayServers = 2
+    # libp2p 1.15.3: AutoRelayService.new now expects libp2p `Rng`.
     let autoRelayService = AutoRelayService.new(
-      MaxNumRelayServers, RelayClient(circuitRelay), onReservation, rng
+      MaxNumRelayServers,
+      RelayClient(circuitRelay),
+      onReservation,
+      libp2p_rng.newBearSslRng(rng),
     )
     let holePunchService = HPService.new(autonatService, autoRelayService)
+    # libp2p v2.0.0: switch.start() no longer auto-calls service.setup() (part
+    # of the Service lifecycle refactor in libp2p#2462). Without setup,
+    # HPService's wrapped Autonat/AutoRelay leave their addressMapper field
+    # nil, which makes peerInfo.expandAddrs SIGSEGV during start().
+    try:
+      holePunchService.setup(waku.node.switch)
+    except ServiceSetupError as e:
+      error "HPService setup failed", description = e.msg
     waku.node.switch.services = @[Service(holePunchService)]
   else:
+    # Same reason as above: AutonatService.setup() initializes addressMapper.
+    try:
+      autonatService.setup(waku.node.switch)
+    except ServiceSetupError as e:
+      error "AutonatService setup failed", description = e.msg
     waku.node.switch.services = @[Service(autonatService)]
 
 ## Initialisation
@@ -179,7 +198,7 @@ proc setupAppCallbacks(
 proc new*(
     T: type Waku, wakuConf: WakuConf, appCallbacks: AppCallbacks = nil
 ): Future[Result[Waku, string]] {.async.} =
-  let rng = crypto.newRng()
+  let rng = HmacDrbgContext.new()
   let brokerCtx = globalBrokerContext()
 
   logging.setupLog(wakuConf.logLevel, wakuConf.logFormat)

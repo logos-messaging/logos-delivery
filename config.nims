@@ -90,6 +90,14 @@ if not defined(macosx) and not defined(android):
       nimStackTraceOverride
     switch("import", "libbacktrace")
 
+# Auto-import the Option[T] valueOr/withValue shim for every compilation
+# unit (libp2p 1.15.3 dropped the Option overloads previously provided by
+# libp2p/utility).  Per-file imports follow cover-traffic's pattern for
+# the 15 files touched there, but our branch has additional downstream
+# call sites that need the shim too -- auto-import covers them without
+# requiring every file to remember the explicit import.
+switch("import", "logos_delivery/waku/common/option_shims")
+
 --define:
   nimOldCaseObjects
   # https://github.com/status-im/nim-confutils/issues/9

@@ -24,6 +24,7 @@ import
 
 import std/times except TimeInterval, Duration, seconds, minutes
 
+import ../option_shims
 import ./[single_token_limiter, service_metrics, timed_map]
 
 export token_bucket, setting, service_metrics

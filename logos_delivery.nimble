@@ -28,19 +28,23 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#ff8d51857b4b79a68468e7bcc27b2026cca02996",
+  # nim-libp2p: release/v2.0.0 tip (c43199378). SHA-pinned because vacp2p
+  # hasn't published a v2.0.0 git tag yet.
+  "https://github.com/vacp2p/nim-libp2p.git#c43199378f46d0aaf61be1cad1ee1d63e8f665d6",
   "eth",
   "nat_traversal",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "websock >= 0.3.0",
+  "https://github.com/status-im/nim-websock >= 0.4.0",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "secp256k1",
   "bearssl",
   # RPC & APIs
-  "https://github.com/status-im/nim-json-rpc.git#43bbf499143eb45046c83ac9794c9e3280a2b8e7",
+  # TODO: revert to status-im/nim-json-rpc once
+  # https://github.com/status-im/nim-json-rpc/pull/277 merges + tag cut.
+  "https://github.com/chaitanyaprem/nim-json-rpc.git#f05fad251a1ceb845db963902b54295e7f37fb99",
   "presto",
   "web3",
   # Database
@@ -62,12 +66,21 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 
 requires "https://github.com/logos-messaging/nim-ffi#v0.1.3"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin.git#23b278b4ab21193ad4e9ce76015f008db7332a6f"
+
+# nim-libp2p-mix: extracted mix protocol used by the plugin and by waku's
+# mix integration layer. Tip of experiment/drop-nimble-lock (PR #14, stacked
+# on chore/bump-libp2p-v2.0.0). Carries the v2.0.0 bump + sink overrides +
+# AddressConfidence.Infinite + deeper move-semantics propagation + the
+# lockfile-as-build-artefact cleanup. Re-bump to master SHA once #14 lands.
+# The plugin pins the same SHA — keeps the diamond dep collapsed.
+requires "https://github.com/logos-co/nim-libp2p-mix.git#50c4ab4fa788a33eb12a0a2cecaa708873352b58"
 
 requires "https://github.com/logos-messaging/nim-sds.git#abdd40cc645f1b024c3ee99cced7e287c4e4c441"
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.1.1"
 
-requires "https://github.com/vacp2p/nim-lsquic"
+requires "lsquic >= 0.4.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
 proc getMyCPU(): string =

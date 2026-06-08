@@ -24,9 +24,22 @@ proc getRng(): ref HmacDrbgContext =
   #      purpose of the tests, it's ok as long as we only use a single thread
   {.gcsafe.}:
     if rngVar.rng.isNil():
-      rngVar.rng = crypto.newRng()
+      # libp2p v2.0.0: crypto.newRng() returns the new `Rng` wrapper type;
+      # construct an HmacDrbgContext directly so the field type stays as
+      # `ref HmacDrbgContext` (what bearssl-style consumers expect).
+      rngVar.rng = HmacDrbgContext.new()
 
     rngVar.rng
 
 template rng*(): ref HmacDrbgContext =
   getRng()
+
+## Random byte sequences
+# Copied from waku/waku_noise/noise_utils.randomSeqByte to break the test
+# build's dependency on waku_noise (orphan code that is not part of any
+# production code path; only the keystore + relay-RLN tests reused this
+# helper for generating random secrets).
+proc randomSeqByte*(rng: var HmacDrbgContext, size: int): seq[byte] =
+  var output = newSeq[byte](size.uint32)
+  hmacDrbgGenerate(rng, output)
+  return output

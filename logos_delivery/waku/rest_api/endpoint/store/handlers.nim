@@ -3,6 +3,7 @@
 import
   std/[strformat, sugar], results, chronicles, uri, json_serialization, presto/route
 import
+  ../../../common/option_shims,
   ../../../waku_core,
   ../../../waku_store/common,
   ../../../waku_store/self_req_handler,

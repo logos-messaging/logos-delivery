@@ -7,7 +7,9 @@ import
   libp2p/protocols/connectivity/relay/relay,
   libp2p/nameresolving/dnsresolver,
   libp2p/crypto/crypto,
-  libp2p/crypto/curve25519
+  libp2p/crypto/curve25519,
+  libp2p/crypto/rng as libp2p_rng,
+  bearssl/rand
 
 import
   ./internal_config,
@@ -176,12 +178,13 @@ proc setupProtocols(
 
     node.wakuKademlia = WakuKademlia.new(
       node.switch,
-      ExtendedKademliaDiscoveryParams(
+      ExtendedServiceDiscoveryParams(
         bootstrapNodes: conf.kademliaDiscoveryConf.get().bootstrapNodes,
         mixPubKey: mixPubKey,
         advertiseMix: conf.mixConf.isSome(),
       ),
       node.peerManager,
+      rng = libp2p_rng.newBearSslRng(node.rng),
       getMixNodePoolSize = proc(): int {.gcsafe, raises: [].} =
         if node.wakuMix.isNil():
           0
@@ -459,7 +462,7 @@ proc startNode*(
   return ok()
 
 proc setupNode*(
-    wakuConf: WakuConf, rng: ref HmacDrbgContext = crypto.newRng(), relay: Relay
+    wakuConf: WakuConf, rng: ref HmacDrbgContext = HmacDrbgContext.new(), relay: Relay
 ): Future[Result[WakuNode, string]] {.async.} =
   let netConfig = (
     await networkConfiguration(

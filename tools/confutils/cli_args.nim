@@ -1153,4 +1153,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   of WakuMode.noMode:
     discard # use explicit CLI flags as-is
 
+  b.kademliaDiscoveryConf.withEnabled(n.enableKadDiscovery)
+  b.kademliaDiscoveryConf.withBootstrapNodes(n.kadBootstrapNodes)
+
   return b.build()

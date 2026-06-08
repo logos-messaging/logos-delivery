@@ -1,6 +1,8 @@
 import
   libp2p/crypto/crypto,
+  libp2p/crypto/rng as libp2p_rng,
   libp2p/multiaddress,
+  bearssl/rand,
   std/[net, options, sequtils],
   stint,
   chronicles,
@@ -299,7 +301,9 @@ proc nodeKey(
     return ok(builder.nodeKey.get())
   else:
     warn "missing node key, generating new set"
-    let nodeKey = crypto.PrivateKey.random(Secp256k1, rng[]).valueOr:
+    # libp2p 1.15.3: PrivateKey.random now expects the libp2p `Rng` (ref
+    # object wrapping a ref HmacDrbgContext).  Wrap the BearSSL rng.
+    let nodeKey = crypto.PrivateKey.random(Secp256k1, libp2p_rng.newBearSslRng(rng)).valueOr:
       error "Failed to generate key", error = error
       return err("Failed to generate key: " & $error)
     return ok(nodeKey)
@@ -443,7 +447,7 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
       warn "Failed to process entry nodes from network conf", error = processed.error()
 
 proc build*(
-    builder: var WakuConfBuilder, rng: ref HmacDrbgContext = crypto.newRng()
+    builder: var WakuConfBuilder, rng: ref HmacDrbgContext = HmacDrbgContext.new()
 ): Result[WakuConf, string] =
   ## Return a WakuConf that contains all mandatory parameters
   ## Applies some sane defaults that are applicable across any usage

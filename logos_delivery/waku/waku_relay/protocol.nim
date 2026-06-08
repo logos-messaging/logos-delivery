@@ -13,6 +13,7 @@ import
   chronicles,
   metrics,
   libp2p/multihash,
+  libp2p/crypto/rng,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/stream/connection,
@@ -366,6 +367,8 @@ proc new*(
       triggerSelf = true,
       msgIdProvider = defaultMessageIdProvider,
       maxMessageSize = maxMessageSize,
+      # libp2p 1.15.3 made `rng` a required parameter of PubSub.init.
+      rng = newRng(),
       parameters = GossipsubParameters,
     )
     w.brokerCtx = globalBrokerContext()

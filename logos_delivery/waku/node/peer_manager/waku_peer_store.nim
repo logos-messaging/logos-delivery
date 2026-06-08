@@ -7,9 +7,11 @@ import
   eth/p2p/discoveryv5/enr,
   libp2p/builders,
   libp2p/peerstore,
-  libp2p/crypto/curve25519
+  libp2p/crypto/curve25519,
+  libp2p_mix/pool
 
 import
+  ../../common/option_shims,
   ../../waku_core,
   ../../waku_enr/sharding,
   ../../waku_enr/capabilities,

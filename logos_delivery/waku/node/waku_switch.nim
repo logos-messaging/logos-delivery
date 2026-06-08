@@ -7,6 +7,7 @@ import
   chronicles,
   eth/keys,
   libp2p/crypto/crypto,
+  libp2p/crypto/rng as libp2p_rng,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/rendezvous,
   libp2p/protocols/connectivity/relay/relay,
@@ -18,11 +19,15 @@ import
 # override nim-libp2p default value (which is also 1)
 const MaxConnectionsPerPeer* = 1
 
-proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
-  b.withTransport(
-    proc(upgr: Upgrade, privateKey: crypto.PrivateKey): Transport =
-      WsTransport.new(upgr)
-  )
+# libp2p 1.15.3 ships a built-in `withWsTransport` matching this name, so
+# the plain-WS wrapper that used to live here is now redundant.  Callers
+# that did `b.withWsTransport()` resolve to libp2p's overload (zero args =
+# no TLS, no flags).  Callers passing `tlsPrivateKey=`/`tlsCertificate=`
+# also use libp2p's built-in.
+
+# nim-libp2p#2329 made libp2p's MaxConnections const private (renamed to
+# DefaultMaxConnections); redeclare here to keep waku's cap explicit.
+const MaxConnections* = 50
 
 proc getSecureKey(path: string): TLSPrivateKey {.raises: [Defect, IOError].} =
   trace "Key path is.", path = path
@@ -59,7 +64,7 @@ proc newWakuSwitch*(
     wsAddress = none(MultiAddress),
     secureManagers: openarray[SecureProtocol] = [SecureProtocol.Noise],
     transportFlags: set[ServerFlags] = {},
-    rng: ref HmacDrbgContext,
+    rng: libp2p_rng.Rng,
     inTimeout: Duration = 5.minutes,
     outTimeout: Duration = 5.minutes,
     maxConnections = MaxConnections,
@@ -73,15 +78,16 @@ proc newWakuSwitch*(
     secureCertPath: string = "",
     agentString = none(string), # defaults to nim-libp2p version
     peerStoreCapacity = none(int), # defaults to 1.25 maxConnections
-    rendezvous: RendezVous = nil,
+    rendezvous: Opt[RendezVousConfig] = Opt.none(RendezVousConfig),
     circuitRelay: Relay,
 ): Switch {.raises: [Defect, IOError, LPError].} =
-  var b = SwitchBuilder
-    .new()
-    .withRng(rng)
-    .withMaxConnections(maxConnections)
-    .withMaxIn(maxIn)
-    .withMaxOut(maxOut)
+  var b = SwitchBuilder.new().withRng(rng).withMaxConnections(maxConnections)
+  # libp2p 1.15.3 asserts both maxIn and maxOut > 0; only opt into independent
+  # in/out caps when the caller actually supplied them. Otherwise the single
+  # `withMaxConnections` cap from above remains in effect.
+  if maxIn > 0 and maxOut > 0:
+    b = b.withMaxInOut(maxIn, maxOut)
+  b = b
     .withMaxConnsPerPeer(maxConnsPerPeer)
     .withYamux()
     .withMplex(inTimeout, outTimeout)
@@ -111,7 +117,7 @@ proc newWakuSwitch*(
   else:
     b = b.withAddress(address)
 
-  if not rendezvous.isNil():
-    b = b.withRendezVous(rendezvous)
+  if rendezvous.isSome():
+    b = b.withRendezVous(rendezvous.get())
 
   b.build()

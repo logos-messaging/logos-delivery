@@ -400,7 +400,10 @@ proc new*(
     channelId: channelId,
     contentTopic: contentTopic,
     senderId: senderId,
-    rng: libp2p_crypto.newRng(),
+    # libp2p v2.0.0: newRng() now returns the `Rng` wrapper type, but the
+    # `rng` field is typed `ref HmacDrbgContext`. Construct an
+    # HmacDrbgContext directly (from bearssl/rand) to keep the field shape.
+    rng: HmacDrbgContext.new(),
     segmentation: SegmentationHandler.new(segConfig),
     sdsHandler: SdsHandler.new(sdsConfig, senderId),
     rateLimit: RateLimitManager.new(rateConfig, channelId, brokerCtx),

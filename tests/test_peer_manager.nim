@@ -955,7 +955,8 @@ procSuite "Peer Manager":
 
     # Create peer manager
     let pm = PeerManager.new(
-      switch = SwitchBuilder.new().withRng(rng).withMplex().withNoise().build(),
+      switch =
+        SwitchBuilder.new().withRng(crypto.newRng()).withMplex().withNoise().build(),
       storage = nil,
     )
 
@@ -1013,7 +1014,7 @@ procSuite "Peer Manager":
       let pm = PeerManager.new(
         switch = SwitchBuilder
           .new()
-          .withRng(rng)
+          .withRng(crypto.newRng())
           .withMplex()
           .withNoise()
           .withPeerStore(peerStoreSize)
@@ -1027,7 +1028,7 @@ procSuite "Peer Manager":
     let pm = PeerManager.new(
       switch = SwitchBuilder
         .new()
-        .withRng(rng)
+        .withRng(crypto.newRng())
         .withMplex()
         .withNoise()
         .withPeerStore(25)
@@ -1040,7 +1041,9 @@ procSuite "Peer Manager":
 
     # Create 30 peers and add them to the peerstore
     let peers = toSeq(1 .. 30)
-      .mapIt(parsePeerInfo("/ip4/0.0.0.0/tcp/0/p2p/" & $PeerId.random().get()))
+      .mapIt(
+        parsePeerInfo("/ip4/0.0.0.0/tcp/0/p2p/" & $PeerId.random(crypto.newRng()).get())
+      )
       .filterIt(it.isOk())
       .mapIt(it.value)
     for p in peers:
@@ -1091,7 +1094,7 @@ procSuite "Peer Manager":
     let pm = PeerManager.new(
       switch = SwitchBuilder
         .new()
-        .withRng(rng)
+        .withRng(crypto.newRng())
         .withMplex()
         .withNoise()
         .withPeerStore(25)
@@ -1148,7 +1151,7 @@ procSuite "Peer Manager":
       let pm = PeerManager.new(
         switch = SwitchBuilder
           .new()
-          .withRng(rng)
+          .withRng(crypto.newRng())
           .withMplex()
           .withNoise()
           .withPeerStore(25)
@@ -1164,7 +1167,7 @@ procSuite "Peer Manager":
       let pm = PeerManager.new(
         switch = SwitchBuilder
           .new()
-          .withRng(rng)
+          .withRng(crypto.newRng())
           .withMplex()
           .withNoise()
           .withPeerStore(25)
@@ -1178,7 +1181,7 @@ procSuite "Peer Manager":
     let pm = PeerManager.new(
       switch = SwitchBuilder
         .new()
-        .withRng(rng)
+        .withRng(crypto.newRng())
         .withMplex()
         .withNoise()
         .withPeerStore(25)
@@ -1327,7 +1330,8 @@ procSuite "Peer Manager":
 
     # Create peer manager
     let pm = PeerManager.new(
-      switch = SwitchBuilder.new().withRng(rng()).withMplex().withNoise().build(),
+      switch =
+        SwitchBuilder.new().withRng(crypto.newRng()).withMplex().withNoise().build(),
       storage = nil,
     )
 

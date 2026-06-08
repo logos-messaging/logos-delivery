@@ -5,7 +5,8 @@ import
   testutils/unittests,
   chronos,
   chronicles,
-  libp2p/[peerstore, crypto/crypto]
+  libp2p/[peerstore, crypto/crypto],
+  bearssl/rand
 
 import
   logos_delivery/waku/[
@@ -30,7 +31,7 @@ proc createRequest(
     pubsubTopic = none(PubsubTopic),
     contentTopics = newSeq[ContentTopic](),
 ): FilterSubscribeRequest =
-  let requestId = generateRequestId(rng)
+  let requestId = generateRequestId(rng())
 
   return FilterSubscribeRequest(
     requestId: requestId,

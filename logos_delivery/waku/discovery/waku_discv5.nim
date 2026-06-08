@@ -10,6 +10,7 @@ import
   eth/keys as eth_keys,
   eth/p2p/discoveryv5/node,
   eth/p2p/discoveryv5/protocol
+import ../common/option_shims
 import
   logos_delivery/waku/
     [net/auto_port, node/peer_manager/peer_manager, waku_core, waku_enr]

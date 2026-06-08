@@ -56,7 +56,7 @@ proc newTestWakuNode*(
     extPort = none(Port),
     extMultiAddrs = newSeq[MultiAddress](),
     peerStorage: PeerStorage = nil,
-    maxConnections = builders.MaxConnections,
+    maxConnections = DefaultMaxConnections,
     wsBindPort: Port = (Port) 8000,
     wsEnabled: bool = false,
     wssEnabled: bool = false,

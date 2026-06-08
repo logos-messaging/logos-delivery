@@ -52,7 +52,7 @@ suite "Waku DNS Discovery":
       )
       .get() # No link entries
 
-    let treeKeys = keys.KeyPair.random(rng[])
+    let treeKeys = keys.KeyPair.random(common.rng()[])
 
     # Sign tree
     check:

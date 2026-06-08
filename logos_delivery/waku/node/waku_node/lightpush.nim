@@ -17,7 +17,7 @@ import
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
   libp2p/utility,
-  libp2p/protocols/mix
+  libp2p_mix
 
 import
   ../waku_node,
@@ -28,6 +28,7 @@ import
   ../../waku_lightpush/client as lightpush_client,
   ../../waku_lightpush as lightpush_protocol,
   ../peer_manager,
+  ../../common/option_shims,
   ../../common/rate_limit/setting,
   ../../waku_rln_relay
 

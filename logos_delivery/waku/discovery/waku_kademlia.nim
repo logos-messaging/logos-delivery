@@ -9,9 +9,10 @@ import
   libp2p/[peerid, multiaddress, switch],
   libp2p/extended_peer_record,
   libp2p/crypto/curve25519,
-  libp2p/protocols/[kademlia, kad_disco],
-  libp2p/protocols/kademlia_discovery/types as kad_types,
-  libp2p/protocols/mix/mix_protocol
+  libp2p/protocols/[kademlia, service_discovery],
+  libp2p/protocols/service_discovery/types as kad_types,
+  libp2p/crypto/rng as libp2p_rng,
+  libp2p_mix/mix_protocol
 
 import logos_delivery/waku/waku_core, logos_delivery/waku/node/peer_manager
 
@@ -19,20 +20,20 @@ logScope:
   topics = "waku extended kademlia discovery"
 
 const
-  DefaultExtendedKademliaDiscoveryInterval* = chronos.seconds(5)
-  ExtendedKademliaDiscoveryStartupDelay* = chronos.seconds(5)
+  DefaultExtendedServiceDiscoveryInterval* = chronos.seconds(5)
+  ExtendedServiceDiscoveryStartupDelay* = chronos.seconds(5)
 
 type
   MixNodePoolSizeProvider* = proc(): int {.gcsafe, raises: [].}
   NodeStartedProvider* = proc(): bool {.gcsafe, raises: [].}
 
-  ExtendedKademliaDiscoveryParams* = object
+  ExtendedServiceDiscoveryParams* = object
     bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
     mixPubKey*: Option[Curve25519Key]
     advertiseMix*: bool = false
 
   WakuKademlia* = ref object
-    protocol*: KademliaDiscovery
+    protocol*: ServiceDiscovery
     peerManager: PeerManager
     discoveryLoop: Future[void]
     running*: bool
@@ -42,21 +43,24 @@ type
 proc new*(
     T: type WakuKademlia,
     switch: Switch,
-    params: ExtendedKademliaDiscoveryParams,
+    params: ExtendedServiceDiscoveryParams,
     peerManager: PeerManager,
+    rng: libp2p_rng.Rng,
     getMixNodePoolSize: MixNodePoolSizeProvider = nil,
     isNodeStarted: NodeStartedProvider = nil,
 ): Result[T, string] =
   if params.bootstrapNodes.len == 0:
     info "creating kademlia discovery as seed node (no bootstrap nodes)"
 
-  let kademlia = KademliaDiscovery.new(
+  # libp2p 1.15.3: ServiceDiscovery.new requires `rng: Rng` (libp2p type).
+  let kademlia = ServiceDiscovery.new(
     switch,
     bootstrapNodes = params.bootstrapNodes,
     config = KadDHTConfig.new(
       validator = kad_types.ExtEntryValidator(), selector = kad_types.ExtEntrySelector()
     ),
-    codec = ExtendedKademliaDiscoveryCodec,
+    rng = rng,
+    codec = ExtendedServiceDiscoveryCodec,
   )
 
   try:
@@ -68,11 +72,9 @@ proc new*(
   # initial self-signed peer record published to the DHT
   if params.advertiseMix:
     if params.mixPubKey.isSome():
-      let alreadyAdvertising = kademlia.startAdvertising(
+      kademlia.startAdvertising(
         ServiceInfo(id: MixProtocolID, data: @(params.mixPubKey.get()))
       )
-      if alreadyAdvertising:
-        warn "mix service was already being advertised"
       debug "extended kademlia advertising mix service",
         keyHex = byteutils.toHex(params.mixPubKey.get()),
         bootstrapNodes = params.bootstrapNodes.len
@@ -162,17 +164,18 @@ proc lookupMixPeers*(
     return err("cannot lookup mix peers: kademlia not mounted")
 
   let mixService = ServiceInfo(id: MixProtocolID, data: @[])
-  var records: seq[ExtendedPeerRecord]
-  try:
-    records = await wk.protocol.lookup(mixService)
-  except CatchableError:
-    return err("mix peer lookup failed: " & getCurrentExceptionMsg())
+  let advertisements =
+    try:
+      (await wk.protocol.lookup(mixService)).valueOr:
+        return err("mix peer lookup failed: " & error)
+    except CatchableError:
+      return err("mix peer lookup failed: " & getCurrentExceptionMsg())
 
-  debug "mix peer lookup returned records", numRecords = records.len
+  debug "mix peer lookup returned records", numRecords = advertisements.len
 
   var added = 0
-  for record in records:
-    let peerOpt = remotePeerInfoFrom(record)
+  for ad in advertisements:
+    let peerOpt = remotePeerInfoFrom(ad.data)
     if peerOpt.isNone():
       continue
 
@@ -194,15 +197,15 @@ proc runDiscoveryLoop(
   info "extended kademlia discovery loop started", interval = interval
 
   try:
-    while true:
+    while wk.running:
       # Wait for node to be started
       if not wk.isNodeStarted.isNil() and not wk.isNodeStarted():
-        await sleepAsync(ExtendedKademliaDiscoveryStartupDelay)
+        await sleepAsync(ExtendedServiceDiscoveryStartupDelay)
         continue
 
       var records: seq[ExtendedPeerRecord]
       try:
-        records = await wk.protocol.randomRecords()
+        records = await wk.protocol.lookupRandom()
       except CatchableError as e:
         warn "extended kademlia discovery failed", error = e.msg
         await sleepAsync(interval)
@@ -247,7 +250,7 @@ proc runDiscoveryLoop(
 
 proc start*(
     wk: WakuKademlia,
-    interval: Duration = DefaultExtendedKademliaDiscoveryInterval,
+    interval: Duration = DefaultExtendedServiceDiscoveryInterval,
     minMixPeers: int = 0,
 ): Future[Result[void, string]] {.async: (raises: []).} =
   if wk.running:
@@ -257,6 +260,8 @@ proc start*(
     await wk.protocol.start()
   except CatchableError as e:
     return err("failed to start kademlia discovery: " & e.msg)
+
+  wk.running = true
 
   wk.discoveryLoop = wk.runDiscoveryLoop(interval, minMixPeers)
 
