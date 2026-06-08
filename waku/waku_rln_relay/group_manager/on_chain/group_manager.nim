@@ -195,7 +195,7 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
     newRootsDequeOrder.add(UInt256ToField(u))
 
   if newRootsDequeOrder.len == 0:
-    debug "no non-zero recent roots to add; skipping update"
+    trace "no non-zero recent roots to add; skipping update"
     return false
 
   # Determine overlap with existing tail so we only append truly new roots
@@ -219,8 +219,6 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
     discard g.validRoots.popFirst()
 
   return true
-
-const RootsRefreshMinInterval = 1.seconds
 
 proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
   ## On-demand refresh of validRoots from the on-chain root cache.

@@ -1,4 +1,4 @@
-import stint
+import stint, chronos
 
 import ./protocol_types
 
@@ -9,6 +9,10 @@ const AcceptableRootWindowSize* = 50
 
 #Size if RLN contract root cache
 const RlnContractRootCacheSize* = 5
+
+# Minimum time between two consecutive root refreshes, to avoid refreshing the roots too often when receiving messages with old roots
+# Using Linea block generation time as reference, which is around 2 seconds
+const RootsRefreshMinInterval* = 2.seconds
 
 # RLN membership key and index files path
 const RlnCredentialsFilename* = "rlnCredentials.txt"
