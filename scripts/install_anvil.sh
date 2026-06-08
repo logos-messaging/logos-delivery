@@ -3,9 +3,6 @@
 # Install Foundry binaries (forge, cast, anvil, chisel).
 #
 # We bypass `foundryup` and pull the release tarball straight from GitHub.
-# foundryup's download path uses `curl` without `-f`, so a silent network blip
-# leaves a non-archive file in place that `tar tf` then rejects -- which broke
-# CI on macos-15 even though the release artifact itself is fine.
 
 set -euo pipefail
 
