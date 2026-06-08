@@ -11,15 +11,22 @@
   inputs = {
     # Pinning the commit to use same commit across different projects.
     # A commit from nixpkgs 25.11 release: https://github.com/NixOS/nixpkgs/tree/release-25.11
-    nixpkgs.url = "github:NixOS/nixpkgs?rev=23d72dabcb3b12469f57b37170fcbc1789bd7457";
+    # Includes the fetchCargoVendor crates.io CDN fix (nixpkgs 0fb82de3).
+    nixpkgs.url = "github:NixOS/nixpkgs?rev=535f3e6942cb1cead3929c604320d3db54b542b9";
 
     rust-overlay = {
       url = "github:oxalica/rust-overlay";
       inputs.nixpkgs.follows = "nixpkgs";
     };
+
+    # Zerokit v2.0.2; keep rev in sync with the vendor/zerokit submodule.
+    zerokit = {
+      url = "github:vacp2p/zerokit/5e64cb8822bee65eed6cf459f95ae72b80c6ba63";
+      inputs.nixpkgs.follows = "nixpkgs";
+    };
   };
 
-  outputs = { self, nixpkgs, rust-overlay }:
+  outputs = { self, nixpkgs, rust-overlay, zerokit }:
     let
       systems = [
         "x86_64-linux" "aarch64-linux"
@@ -59,78 +66,12 @@
         inherit system;
         overlays = [ (import rust-overlay) nimbleOverlay ];
       };
-
-      # Prebuilt zerokit librln, fetched from the upstream GitHub release
-      # rather than compiled from source. Compiling zerokit makes Nix download
-      # its many crate dependencies from crates.io in one parallel burst, which
-      # crates.io intermittently rejects with HTTP 403 (rate limiting from the
-      # self-hosted runners' shared IP), breaking the nix build. The release
-      # ships the exact `stateless` library this project links (see
-      # scripts/build_rln.sh), so we use it directly — no Rust toolchain and
-      # no crates.io access needed.
-      #
-      # Keep `rlnVersion` aligned with `LIBRLN_VERSION` in the Makefile and the
-      # vendor/zerokit submodule. Each hash is the sha256 of the release tarball
-      # for that platform; refresh all four when bumping the version.
-      rlnVersion = "v2.0.2";
-      rlnAssets = {
-        "x86_64-linux"   = { triple = "x86_64-unknown-linux-gnu";  hash = "sha256-qbrUdaetYKFhjzxUP/QcwD3JHWJ8qk/tCMK3yXceIAk="; };
-        "aarch64-linux"  = { triple = "aarch64-unknown-linux-gnu"; hash = "sha256-s4bWrmCcNTWHNyJwV73ilWNp58ZdAVG+TAgtWN1cTQs="; };
-        "x86_64-darwin"  = { triple = "x86_64-apple-darwin";       hash = "sha256-ZaHP5CApN66FYY7jxwOmGcF9kJR78Fng3k1qE2W08Mk="; };
-        "aarch64-darwin" = { triple = "aarch64-apple-darwin";      hash = "sha256-f2YppkPsKFdN00j+IY8fpvsebWTIb9lW/V1/vOTiVKU="; };
-      };
-
-      mkZerokitRln = system: pkgs:
-        let
-          asset = rlnAssets.${system} or
-            (throw "zerokit ${rlnVersion} has no prebuilt rln asset for system '${system}'");
-        in pkgs.stdenv.mkDerivation {
-          pname = "librln";
-          version = lib.removePrefix "v" rlnVersion;
-
-          src = pkgs.fetchurl {
-            url = "https://github.com/vacp2p/zerokit/releases/download/"
-                + "${rlnVersion}/${asset.triple}-stateless-rln.tar.gz";
-            hash = asset.hash;
-          };
-
-          # The tarball lays its files out under release/.
-          sourceRoot = "release";
-          dontConfigure = true;
-          dontBuild = true;
-
-          # The release .so was linked outside Nix, so it references system
-          # libraries (libgcc_s, libstdc++, glibc) by bare name. autoPatchelfHook
-          # points those at the Nix versions so the library loads correctly when
-          # used by the Nix build. It does nothing for the static .a, and the
-          # step is skipped on macOS (dylib paths are fixed in nix/default.nix).
-          nativeBuildInputs =
-            pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.autoPatchelfHook ];
-          buildInputs =
-            pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
-
-          installPhase = ''
-            runHook preInstall
-            mkdir -p $out/lib
-            cp librln.a     $out/lib/ 2>/dev/null || true
-            cp librln.so    $out/lib/ 2>/dev/null || true
-            cp librln.dylib $out/lib/ 2>/dev/null || true
-            runHook postInstall
-          '';
-
-          meta = with pkgs.lib; {
-            description = "Prebuilt zerokit RLN library (stateless flavor)";
-            homepage = "https://github.com/vacp2p/zerokit";
-            license = with licenses; [ mit asl20 ];
-            platforms = builtins.attrNames rlnAssets;
-          };
-        };
     in {
       packages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
 
-          zerokitRln = mkZerokitRln system pkgs;
+          zerokitRln = import ./nix/zerokit.nix { inherit zerokit system; };
 
           liblogosdelivery = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
@@ -147,9 +88,7 @@
           };
         in {
           inherit liblogosdelivery wakucanary;
-          # Expose the prebuilt librln so downstream consumers
-          # (e.g. logos-delivery-module) bundle the exact same librln this
-          # build links against.
+          # Expose librln so downstream consumers link the exact same build.
           rln = zerokitRln;
           default = liblogosdelivery;
         }
