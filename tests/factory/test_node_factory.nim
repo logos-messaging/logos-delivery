@@ -11,7 +11,7 @@ import
 
 import
   tests/testlib/[wakunode, wakucore],
-  waku/[
+  logos_delivery/waku/[
     waku_node,
     net/net_config,
     waku_enr,
@@ -19,7 +19,7 @@ import
     discovery/waku_discv5,
     node/waku_metrics,
   ],
-  waku/factory/[
+  logos_delivery/waku/factory/[
     node_factory,
     internal_config,
     conf_builder/conf_builder,

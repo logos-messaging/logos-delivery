@@ -3,7 +3,7 @@
 import
   std/[options, sequtils, algorithm], testutils/unittests, libp2p/protobuf/minprotobuf
 import
-  waku/[
+  logos_delivery/waku/[
     waku_archive,
     waku_archive/driver/queue_driver/queue_driver {.all.},
     waku_archive/driver/queue_driver/index,

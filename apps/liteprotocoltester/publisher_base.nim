@@ -1,5 +1,5 @@
 import chronos, results
-import waku/[waku_node, waku_core]
+import logos_delivery/waku/[waku_node, waku_core]
 
 type PublisherBase* = ref object of RootObj
   wakuNode*: WakuNode

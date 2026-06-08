@@ -1,11 +1,11 @@
 import chronicles, std/[options, tables, strutils], chronos, testutils/unittests
 
 import
-  waku/node/waku_node,
-  waku/waku_core,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/waku_core,
   ../../waku_lightpush/[lightpush_utils],
   ../../testlib/[wakucore, wakunode, futures, testasync],
-  waku/node/peer_manager/peer_manager
+  logos_delivery/waku/node/peer_manager/peer_manager
 
 suite "Peer Manager":
   suite "onPeerMetadata":

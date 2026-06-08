@@ -1,7 +1,7 @@
 import std/[times, options]
 import confutils, chronicles, chronos, results
 
-import waku/[waku_core, common/protobuf]
+import logos_delivery/waku/[waku_core, common/protobuf]
 import libp2p/protobuf/minprotobuf
 
 export

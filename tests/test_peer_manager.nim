@@ -16,7 +16,7 @@ import
   libp2p/protocols/pubsub/rpc/message,
   libp2p/peerid
 import
-  waku/[
+  logos_delivery/waku/[
     common/databases/db_sqlite,
     node/peer_manager/peer_manager,
     node/peer_manager/peer_store/waku_peer_storage,

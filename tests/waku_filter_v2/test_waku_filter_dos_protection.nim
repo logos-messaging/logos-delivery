@@ -9,8 +9,8 @@ import
   libp2p/peerstore
 
 import
-  waku/[node/peer_manager, waku_core],
-  waku/waku_filter_v2/[common, client, subscriptions, protocol],
+  logos_delivery/waku/[node/peer_manager, waku_core],
+  logos_delivery/waku/waku_filter_v2/[common, client, subscriptions, protocol],
   ../testlib/[wakucore, testasync, futures],
   ./waku_filter_utils
 

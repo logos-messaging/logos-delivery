@@ -4,11 +4,11 @@ import std/[options, json, strutils], results, stint, testutils/unittests
 import json_serialization, confutils, confutils/std/net
 import
   tools/confutils/cli_args,
-  waku/api/api_conf,
-  waku/factory/waku_conf,
-  waku/factory/networks_config,
-  waku/factory/conf_builder/conf_builder,
-  waku/common/logging
+  logos_delivery/waku/api/api_conf,
+  logos_delivery/waku/factory/waku_conf,
+  logos_delivery/waku/factory/networks_config,
+  logos_delivery/waku/factory/conf_builder/conf_builder,
+  logos_delivery/waku/common/logging
 
 # Helper: parse JSON into WakuNodeConf using fieldPairs (same as liblogosdelivery)
 proc parseWakuNodeConfFromJson(jsonStr: string): Result[WakuNodeConf, string] =
@@ -345,7 +345,7 @@ suite "WakuNodeConf JSON -> WakuConf integration":
 
 {.push warning[Deprecated]: off.}
 
-import waku/api/api_conf
+import logos_delivery/waku/api/api_conf
 
 suite "NodeConfig (deprecated) - toWakuConf":
   test "Minimal configuration":

@@ -39,11 +39,11 @@
       lib = nixpkgs.lib;
 
       # Single source of truth for the semver: the `version` field of
-      # waku.nimble. Kept in sync with git tags by the version-check CI.
+      # logos_delivery.nimble. Kept in sync with git tags by the version-check CI.
       nimbleVersion =
         let line = lib.findFirst (l: lib.hasPrefix "version = " l)
                      "version = \"unknown\""
-                     (lib.splitString "\n" (builtins.readFile ./waku.nimble));
+                     (lib.splitString "\n" (builtins.readFile ./logos_delivery.nimble));
         in lib.removeSuffix "\"" (lib.removePrefix "version = \"" line);
 
       # A flake sandbox has no .git, so `git describe` is impossible; the

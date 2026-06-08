@@ -2,7 +2,7 @@
 
 import chronos, testutils/unittests, std/options
 
-import waku
+import logos_delivery
 import tools/confutils/cli_args
 
 suite "Waku API - Create node":

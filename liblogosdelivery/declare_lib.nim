@@ -1,6 +1,6 @@
 import ffi
 import std/locks
-import waku/factory/waku
+import logos_delivery/waku/factory/waku
 
 declareLibrary("logosdelivery")
 

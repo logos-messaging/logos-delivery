@@ -1,6 +1,6 @@
 import std/[options, tables], testutils/unittests
 
-import waku/waku_core/topics, ../../testlib/[wakucore, tables, testutils]
+import logos_delivery/waku/waku_core/topics, ../../testlib/[wakucore, tables, testutils]
 
 const GenerationZeroShardsCount = 8
 const ClusterId = 1

@@ -1,7 +1,7 @@
 import std/[options, random], chronos, chronicles
 
 import
-  waku/[
+  logos_delivery/waku/[
     node/peer_manager,
     waku_core,
     waku_store_sync/common,
