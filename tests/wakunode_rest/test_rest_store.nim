@@ -10,7 +10,7 @@ import
   presto/client as presto_client,
   libp2p/crypto/crypto
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core/message,
     waku_core/message/digest,
     waku_core/topics,

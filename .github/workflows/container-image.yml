@@ -15,7 +15,7 @@ env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC}"
-  # waku.nimble reads compile flags from NIM_PARAMS, not NIMFLAGS. Without
+  # logos_delivery.nimble reads compile flags from NIM_PARAMS, not NIMFLAGS. Without
   # -d:disableMarchNative here, config.nims applies -march=native and
   # secp256k1 fails to compile.
   NIM_PARAMS: "-d:disableMarchNative"

@@ -1,7 +1,7 @@
 {.used.}
 
 import testutils/unittests, results
-import waku/common/utils/parse_size_units
+import logos_delivery/waku/common/utils/parse_size_units
 
 suite "Size serialization test":
   test "parse normal sizes":

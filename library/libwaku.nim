@@ -1,17 +1,17 @@
 import std/[atomics, options, atomics, macros]
 import chronicles, chronos, chronos/threadsync, ffi
 import
-  waku/waku_core/message/message,
-  waku/waku_core/topics/pubsub_topic,
-  waku/waku_relay,
+  logos_delivery/waku/waku_core/message/message,
+  logos_delivery/waku/waku_core/topics/pubsub_topic,
+  logos_delivery/waku/waku_relay,
   ./events/json_message_event,
   ./events/json_topic_health_change_event,
   ./events/json_connection_change_event,
   ./events/json_connection_status_change_event,
-  ../waku/factory/app_callbacks,
-  waku/factory/waku,
-  waku/node/waku_node,
-  waku/node/health_monitor/health_status,
+  ../logos_delivery/waku/factory/app_callbacks,
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/node/health_monitor/health_status,
   ./declare_lib
 
 ################################################################################

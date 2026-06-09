@@ -12,7 +12,7 @@ import
 from std/times import epochTime
 
 import
-  ../../../waku/[
+  ../../../logos_delivery/waku/[
     node/peer_manager,
     waku_core,
     waku_node,
@@ -27,8 +27,6 @@ import
   ../testlib/[wakucore, wakunode, testasync, futures, common, assertions],
   ../resources/payloads,
   ../waku_rln_relay/[utils_static, utils_onchain]
-
-from ../../waku/waku_noise/noise_utils import randomSeqByte
 
 proc buildRandomIdentityCredentials(): IdentityCredential =
   # We generate a random identity credential (inter-value constrains are not enforced, otherwise we need to load e.g. zerokit RLN keygen)

@@ -1,6 +1,6 @@
 import chronicles, chronos
 import
-  waku/[
+  logos_delivery/waku/[
     waku_archive,
     waku_archive/driver as driver_module,
     waku_archive/driver/builder,

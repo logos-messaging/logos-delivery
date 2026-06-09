@@ -1,7 +1,7 @@
 {.used.}
 
 import std/sequtils, stew/byteutils, stew/endians2, testutils/unittests
-import waku/waku_core, ../testlib/wakucore
+import logos_delivery/waku/waku_core, ../testlib/wakucore
 
 suite "Waku Message - Deterministic hashing":
   test "digest computation - empty meta field":

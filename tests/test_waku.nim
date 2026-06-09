@@ -4,10 +4,10 @@ import std/[net, options]
 
 import chronos, testutils/unittests
 
-import waku
+import logos_delivery
 import tools/confutils/cli_args
-import waku/factory/networks_config
-import waku/factory/conf_builder/conf_builder
+import logos_delivery/waku/factory/networks_config
+import logos_delivery/waku/factory/conf_builder/conf_builder
 
 suite "Waku API - Create node":
   asyncTest "Create node with minimal configuration":

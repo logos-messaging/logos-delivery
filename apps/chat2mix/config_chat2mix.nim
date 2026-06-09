@@ -12,7 +12,7 @@ import
   confutils/defs,
   confutils/std/net
 
-import waku/waku_core, waku/waku_mix
+import logos_delivery/waku/waku_core, logos_delivery/waku/waku_mix
 
 type
   Fleet* = enum

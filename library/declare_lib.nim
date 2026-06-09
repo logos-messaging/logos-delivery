@@ -1,5 +1,5 @@
 import ffi
-import waku/factory/waku
+import logos_delivery/waku/factory/waku
 
 declareLibrary("waku")
 

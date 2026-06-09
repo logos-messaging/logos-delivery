@@ -2,7 +2,7 @@
 
 import std/[sequtils, options], testutils/unittests, chronos
 import
-  waku/[
+  logos_delivery/waku/[
     waku_archive,
     waku_archive/driver/postgres_driver,
     waku_core,

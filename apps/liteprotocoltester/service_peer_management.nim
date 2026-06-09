@@ -5,14 +5,13 @@ import
   chronicles,
   chronos,
   metrics,
-  libbacktrace,
   libp2p/crypto/crypto,
   confutils,
   libp2p/wire
 
 import
   tools/confutils/cli_args,
-  waku/[
+  logos_delivery/waku/[
     common/enr,
     waku_node,
     node/peer_manager,

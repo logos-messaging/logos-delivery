@@ -6,7 +6,7 @@ import
   json_serialization/std/options,
   json_serialization/lexer
 
-import waku/rest_api/endpoint/serdes
+import logos_delivery/waku/rest_api/endpoint/serdes
 
 type ProtocolTesterMessage* = object
   sender*: string

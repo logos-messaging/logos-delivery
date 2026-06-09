@@ -30,3 +30,8 @@ proc getRng(): ref HmacDrbgContext =
 
 template rng*(): ref HmacDrbgContext =
   getRng()
+
+proc randomSeqByte*(rng: var HmacDrbgContext, size: int): seq[byte] =
+  var output = newSeq[byte](size.uint32)
+  hmacDrbgGenerate(rng, output)
+  return output

@@ -4,7 +4,7 @@ import
   std/[options, sequtils, random, algorithm], testutils/unittests, chronos, chronicles
 
 import
-  waku/[waku_archive, waku_core, waku_core/message/digest],
+  logos_delivery/waku/[waku_archive, waku_core, waku_core/message/digest],
   ../testlib/common,
   ../testlib/wakucore,
   ../waku_archive/archive_utils

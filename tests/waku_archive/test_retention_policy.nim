@@ -2,7 +2,7 @@
 
 import std/[sequtils, times], results, testutils/unittests, chronos
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_core/message/digest,
     waku_archive,

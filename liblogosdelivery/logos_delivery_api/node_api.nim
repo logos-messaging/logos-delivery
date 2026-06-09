@@ -1,10 +1,10 @@
 import std/json
 import chronos, chronicles, results, ffi
 import
-  waku/factory/waku,
-  waku/node/waku_node,
-  waku/api/[api, types],
-  waku/events/[message_events, health_events],
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/api/[api, types],
+  logos_delivery/waku/events/[message_events, health_events],
   tools/confutils/conf_from_json,
   ../declare_lib,
   ../json_event

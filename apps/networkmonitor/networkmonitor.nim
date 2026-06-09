@@ -17,7 +17,7 @@ import
   metrics/chronos_httpserver,
   presto/[route, server, client]
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     node/peer_manager,
     waku_node,
