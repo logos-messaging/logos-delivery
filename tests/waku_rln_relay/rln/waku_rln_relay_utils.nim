@@ -29,7 +29,7 @@ proc unsafeAppendRLNProof*(
       error "Failed to fetch Merkle proof", error = proofResult.error
     manager.merkleProofCache = proofResult.get()
 
-  let proof = manager.generateProof(msg.toRLNSignal(), epoch, messageId).valueOr:
+  let proof = (waitFor manager.generateProof(msg.toRLNSignal(), epoch, messageId)).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
 
   msg.proof = proof.encode().buffer

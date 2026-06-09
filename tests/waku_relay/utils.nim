@@ -76,9 +76,10 @@ proc sendRlnMessage*(
     completionFuture: Future[bool],
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
-  var message = WakuMessage(payload: payload, contentTopic: contentTopic)
-  doAssert(client.wakuRlnRelay.appendRLNProof(message, epochTime()).isOk())
-  discard await client.publish(some(pubsubTopic), message)
+  let msgRef = new WakuMessage
+  msgRef[] = WakuMessage(payload: payload, contentTopic: contentTopic)
+  doAssert((await client.wakuRlnRelay.appendRLNProof(msgRef, epochTime())).isOk())
+  discard await client.publish(some(pubsubTopic), msgRef[])
   let isCompleted = await completionFuture.withTimeout(FUTURE_TIMEOUT)
   return isCompleted
 
@@ -89,14 +90,14 @@ proc sendRlnMessageWithInvalidProof*(
     completionFuture: Future[bool],
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
+  let extraBytes: seq[byte] = @[byte(1), 2, 3]
+  let rateLimitProofRes = await client.wakuRlnRelay.groupManager.generateProof(
+    concat(payload, extraBytes),
+      # we add extra bytes to invalidate proof verification against original payload
+    client.wakuRlnRelay.getCurrentEpoch(),
+    messageId = MessageId(0),
+  )
   let
-    extraBytes: seq[byte] = @[byte(1), 2, 3]
-    rateLimitProofRes = client.wakuRlnRelay.groupManager.generateProof(
-      concat(payload, extraBytes),
-        # we add extra bytes to invalidate proof verification against original payload
-      client.wakuRlnRelay.getCurrentEpoch(),
-      messageId = MessageId(0),
-    )
     rateLimitProof = rateLimitProofRes.get().encode().buffer
     message =
       WakuMessage(payload: @payload, contentTopic: contentTopic, proof: rateLimitProof)

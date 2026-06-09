@@ -46,6 +46,7 @@ type
     merkleProofPathStale*: bool
     lastRootsRefresh*: Moment
     rootsRefreshInFlight*: Future[void]
+    proofPathRefreshInFlight*: Future[void]
 
 # The below code is not working with the latest web3 version due to chainId being null (specifically on linea-sepolia)
 # TODO: find better solution than this custom sendEthCallWithoutParams call
@@ -249,6 +250,32 @@ method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.a
   await g.refreshRoots()
   return g.indexOfRoot(root) >= 0
 
+proc ensureFreshMerkleProofPath(
+    g: OnchainGroupManager
+): Future[Result[void, string]] {.async.} =
+  ## Refreshes the cached Merkle proof path when stale or empty. Concurrent
+  ## callers coalesce onto a single in-flight fetch.
+  if not g.merkleProofPathStale and g.merkleProofCache.len > 0:
+    return ok()
+
+  if g.proofPathRefreshInFlight != nil and not g.proofPathRefreshInFlight.finished():
+    await g.proofPathRefreshInFlight
+  else:
+    proc doRefresh(): Future[void] {.async.} =
+      let res = await g.fetchMerkleProofElements()
+      if res.isOk():
+        g.merkleProofCache = res.get()
+        g.merkleProofPathStale = false
+      else:
+        error "failed to refresh merkle proof path", error = res.error
+
+    g.proofPathRefreshInFlight = doRefresh()
+    await g.proofPathRefreshInFlight
+
+  if g.merkleProofPathStale or g.merkleProofCache.len == 0:
+    return err("merkle proof path refresh failed")
+  return ok()
+
 proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
   ?checkInitialized(g)
 
@@ -267,6 +294,7 @@ proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.a
           error "Failed to fetch Merkle proof", error = proofResult.error
         else:
           g.merkleProofCache = proofResult.get()
+          g.merkleProofPathStale = false
 
       let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
         error "Failed to fetch next free index", error = error
@@ -451,7 +479,7 @@ method generateProof*(
     epoch: Epoch,
     messageId: MessageId,
     rlnIdentifier = DefaultRlnIdentifier,
-): GroupManagerResult[RateLimitProof] {.gcsafe.} =
+): Future[GroupManagerResult[RateLimitProof]] {.async.} =
   ## Generates an RLN proof using the cached Merkle proof and custom witness
   # Ensure identity credentials and membership index are set
   if g.idCredentials.isNone():
@@ -460,6 +488,8 @@ method generateProof*(
     return err("membership index is not set")
   if g.userMessageLimit.isNone():
     return err("user message limit is not set")
+
+  ?(await g.ensureFreshMerkleProofPath())
 
   if (g.merkleProofCache.len mod 32) != 0:
     return err("Invalid merkle proof cache length")

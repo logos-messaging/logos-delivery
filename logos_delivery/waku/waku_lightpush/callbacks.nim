@@ -13,7 +13,7 @@ import std/times, libp2p/peerid, stew/byteutils
 
 proc checkAndGenerateRLNProof*(
     rlnPeer: Option[WakuRLNRelay], message: WakuMessage
-): Result[WakuMessage, string] =
+): Future[Result[WakuMessage, string]] {.async.} =
   # check if the message already has RLN proof
   if message.proof.len > 0:
     return ok(message)
@@ -25,9 +25,10 @@ proc checkAndGenerateRLNProof*(
   let
     time = getTime().toUnix()
     senderEpochTime = float64(time)
-  var msgWithProof = message
-  ?(rlnPeer.get().appendRLNProof(msgWithProof, senderEpochTime))
-  return ok(msgWithProof)
+  let msgWithProof = new WakuMessage
+  msgWithProof[] = message
+  ?(await rlnPeer.get().appendRLNProof(msgWithProof, senderEpochTime))
+  return ok(msgWithProof[])
 
 proc getNilPushHandler*(): PushMessageHandler =
   return proc(
@@ -42,7 +43,7 @@ proc getRelayPushHandler*(
       pubsubTopic: string, message: WakuMessage
   ): Future[WakuLightPushResult] {.async.} =
     # append RLN proof
-    let msgWithProof = checkAndGenerateRLNProof(rlnPeer, message).valueOr:
+    let msgWithProof = (await checkAndGenerateRLNProof(rlnPeer, message)).valueOr:
       return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
 
     (await wakuRelay.validateMessage(pubSubTopic, msgWithProof)).isOkOr:
