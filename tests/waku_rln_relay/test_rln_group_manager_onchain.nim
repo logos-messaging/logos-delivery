@@ -517,6 +517,53 @@ suite "Onchain group manager":
       manager.merkleProofCache.len > 0
       waku_rln_number_registered_memberships.value() == float64(credentialCount)
 
+  test "generateProof: fast-paths without refresh when path cache is fresh":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Prime the cache with a real on-chain path so generateProof succeeds.
+    manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
+      raiseAssert "failed to fetch initial path: " & error
+    manager.merkleProofPathStale = false
+    manager.proofPathRefreshInFlight = nil
+
+    let proofRes = waitFor manager.generateProof(
+      data = "hello".toBytes(), epoch = default(Epoch), messageId = MessageId(1)
+    )
+
+    check:
+      proofRes.isOk()
+      # Hot path: no refresh future should have been created.
+      manager.proofPathRefreshInFlight == nil
+      manager.merkleProofPathStale == false
+
+  test "generateProof: refreshes cached path when marked stale":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Cache starts empty + stale; generateProof must refresh it before proving.
+    manager.merkleProofCache = @[]
+    manager.merkleProofPathStale = true
+    manager.proofPathRefreshInFlight = nil
+
+    let proofRes = waitFor manager.generateProof(
+      data = "hello".toBytes(), epoch = default(Epoch), messageId = MessageId(1)
+    )
+
+    check:
+      proofRes.isOk()
+      manager.merkleProofCache.len > 0
+      manager.merkleProofPathStale == false
+      manager.proofPathRefreshInFlight != nil
+
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()
     (waitFor manager.init()).isOkOr:
