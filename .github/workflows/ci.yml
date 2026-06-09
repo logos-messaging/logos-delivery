@@ -34,7 +34,7 @@ jobs:
           common:
           - '.github/workflows/**'
           - 'nimble.lock'
-          - 'waku.nimble'
+          - 'logos_delivery.nimble'
           - 'Makefile'
           - 'scripts/**'
           - 'flake.nix'
@@ -42,12 +42,11 @@ jobs:
           - 'library/**'
           - 'liblogosdelivery/**'
           v2:
-          - 'waku/**'
+          - 'logos_delivery/**'
           - 'apps/**'
           - 'tools/**'
           - 'tests/all_tests_v2.nim'
           - 'tests/**'
-          - 'channels/**'
           docker:
           - 'docker/**'
 
@@ -235,5 +234,5 @@ jobs:
           shopt -s extglob  # Enable extended globbing
           NPH=$(make print-nph-path)
           echo "using nph at ${NPH}"
-          "${NPH}" examples waku tests tools apps *.@(nim|nims|nimble)
+          "${NPH}" examples logos_delivery tests tools apps *.@(nim|nims|nimble)
           git diff --exit-code

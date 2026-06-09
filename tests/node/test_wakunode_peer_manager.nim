@@ -13,7 +13,7 @@ import
 from times import getTime, toUnix
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     node/peer_manager,
     waku_node,

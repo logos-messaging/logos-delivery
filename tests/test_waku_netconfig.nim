@@ -2,12 +2,12 @@
 
 import chronos, confutils/toml/std/net, libp2p/multiaddress, testutils/unittests
 
-import ./testlib/wakunode, waku/waku_enr/capabilities
+import ./testlib/wakunode, logos_delivery/waku/waku_enr/capabilities
 
 include
-  waku/net/net_config,
-  waku/factory/conf_builder/web_socket_conf_builder,
-  waku/factory/conf_builder/conf_builder
+  logos_delivery/waku/net/net_config,
+  logos_delivery/waku/factory/conf_builder/web_socket_conf_builder,
+  logos_delivery/waku/factory/conf_builder/conf_builder
 
 proc defaultTestWakuFlags(): CapabilitiesBitfield =
   CapabilitiesBitfield.init(

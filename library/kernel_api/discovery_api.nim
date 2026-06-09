@@ -1,11 +1,11 @@
 import std/json
 import chronos, chronicles, results, strutils, libp2p/multiaddress, ffi
 import
-  waku/factory/waku,
-  waku/discovery/waku_dnsdisc,
-  waku/discovery/waku_discv5,
-  waku/waku_core/peers,
-  waku/waku_node,
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/discovery/waku_dnsdisc,
+  logos_delivery/waku/discovery/waku_discv5,
+  logos_delivery/waku/waku_core/peers,
+  logos_delivery/waku/waku_node,
   library/declare_lib
 
 proc retrieveBootstrapNodes(

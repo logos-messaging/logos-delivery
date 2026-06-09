@@ -2,7 +2,7 @@
 
 import std/options, results, testutils/unittests
 import
-  waku/[
+  logos_delivery/waku/[
     waku_archive,
     waku_archive/driver/queue_driver/queue_driver {.all.},
     waku_archive/driver/queue_driver/index,

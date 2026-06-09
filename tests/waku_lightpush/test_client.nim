@@ -8,7 +8,7 @@ import
   libp2p/crypto/crypto
 
 import
-  waku/[
+  logos_delivery/waku/[
     node/peer_manager,
     waku_core,
     waku_lightpush,

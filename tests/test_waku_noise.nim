@@ -9,7 +9,7 @@ import
   libp2p/protobuf/minprotobuf,
   stew/endians2
 import
-  waku/[
+  logos_delivery/waku/[
     utils/noise as waku_message_utils,
     waku_noise/noise_types,
     waku_noise/noise_utils,

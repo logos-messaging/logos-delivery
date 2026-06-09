@@ -8,14 +8,14 @@ import
   libp2p/protocols/rendezvous
 
 import
-  waku/waku_core/peers,
-  waku/waku_core/codecs,
-  waku/waku_core,
-  waku/node/waku_node,
-  waku/node/peer_manager/peer_manager,
-  waku/waku_rendezvous/protocol,
-  waku/waku_rendezvous/common,
-  waku/waku_rendezvous/waku_peer_record,
+  logos_delivery/waku/waku_core/peers,
+  logos_delivery/waku/waku_core/codecs,
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/node/peer_manager/peer_manager,
+  logos_delivery/waku/waku_rendezvous/protocol,
+  logos_delivery/waku/waku_rendezvous/common,
+  logos_delivery/waku/waku_rendezvous/waku_peer_record,
   ./testlib/[wakucore, wakunode]
 
 procSuite "Waku Rendezvous":

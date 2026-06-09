@@ -17,7 +17,7 @@ import
   tests/testlib/testutils
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_rln_relay,
     waku_rln_relay/protocol_types,
     waku_rln_relay/constants,

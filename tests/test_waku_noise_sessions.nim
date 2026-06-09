@@ -2,7 +2,7 @@
 
 import std/tables, results, stew/byteutils, testutils/unittests
 import
-  waku/[
+  logos_delivery/waku/[
     common/protobuf,
     utils/noise as waku_message_utils,
     waku_noise/noise_types,

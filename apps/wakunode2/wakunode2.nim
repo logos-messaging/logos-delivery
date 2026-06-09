@@ -9,7 +9,7 @@ import
   libp2p/crypto/crypto
 import
   ../../tools/[rln_keystore_generator/rln_keystore_generator, confutils/cli_args],
-  waku/[
+  logos_delivery/waku/[
     common/logging,
     factory/waku,
     node/health_monitor,

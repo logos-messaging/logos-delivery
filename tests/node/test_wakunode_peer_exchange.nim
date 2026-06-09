@@ -13,7 +13,7 @@ import
   brokers/broker_context
 
 import
-  waku/
+  logos_delivery/waku/
     [waku_node, discovery/waku_discv5, waku_peer_exchange, node/peer_manager, waku_core],
   ../waku_peer_exchange/utils,
   ../testlib/[wakucore, wakunode, testasync]

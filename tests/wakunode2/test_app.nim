@@ -7,9 +7,9 @@ import
   chronos,
   libp2p/[crypto/crypto, crypto/secp, multiaddress, switch],
   tests/testlib/[wakucore, wakunode],
-  waku/factory/conf_builder/conf_builder
+  logos_delivery/waku/factory/conf_builder/conf_builder
 
-include waku/factory/waku, waku/common/enr/typed_record
+include logos_delivery/waku/factory/waku, logos_delivery/waku/common/enr/typed_record
 
 suite "Wakunode2 - Waku":
   test "compilation version should be reported":

@@ -10,7 +10,7 @@ import
   eth/p2p/discoveryv5/enr
 
 import
-  waku/[
+  logos_delivery/waku/[
     common/logging,
     node/peer_manager,
     waku_core,

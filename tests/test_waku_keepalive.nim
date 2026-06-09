@@ -10,9 +10,9 @@ import
   libp2p/stream/connection,
   libp2p/crypto/crypto
 import
-  waku/waku_core,
-  waku/waku_node,
-  waku/node/health_monitor,
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/waku_node,
+  logos_delivery/waku/node/health_monitor,
   ./testlib/wakucore,
   ./testlib/wakunode
 
