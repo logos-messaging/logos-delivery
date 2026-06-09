@@ -3,7 +3,7 @@
 import std/[options, net], testutils/unittests, chronos, results
 
 import
-  waku/[
+  logos_delivery/waku/[
     node/peer_manager,
     node/waku_node,
     waku_core,

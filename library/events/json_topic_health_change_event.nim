@@ -1,7 +1,7 @@
 import system, results, std/json
 import stew/byteutils
-import ../../waku/common/base64, ./json_base_event
-import ../../waku/waku_relay
+import ../../logos_delivery/waku/common/base64, ./json_base_event
+import ../../logos_delivery/waku/waku_relay
 
 type JsonTopicHealthChangeEvent* = ref object of JsonEvent
   pubsubTopic*: string

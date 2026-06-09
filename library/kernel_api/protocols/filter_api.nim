@@ -1,16 +1,16 @@
 import options, std/[strutils, sequtils]
 import chronicles, chronos, results, ffi
 import
-  waku/waku_filter_v2/client,
-  waku/waku_core/message/message,
-  waku/factory/waku,
-  waku/waku_relay,
-  waku/waku_filter_v2/common,
-  waku/waku_core/subscription/push_handler,
-  waku/node/peer_manager/peer_manager,
-  waku/waku_node,
-  waku/waku_core/topics/pubsub_topic,
-  waku/waku_core/topics/content_topic,
+  logos_delivery/waku/waku_filter_v2/client,
+  logos_delivery/waku/waku_core/message/message,
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/waku_relay,
+  logos_delivery/waku/waku_filter_v2/common,
+  logos_delivery/waku/waku_core/subscription/push_handler,
+  logos_delivery/waku/node/peer_manager/peer_manager,
+  logos_delivery/waku/waku_node,
+  logos_delivery/waku/waku_core/topics/pubsub_topic,
+  logos_delivery/waku/waku_core/topics/content_topic,
   library/events/json_message_event,
   library/declare_lib
 

@@ -9,7 +9,7 @@ import
   brokers/broker_context
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_node,
     node/peer_manager,
     discovery/waku_discv5,

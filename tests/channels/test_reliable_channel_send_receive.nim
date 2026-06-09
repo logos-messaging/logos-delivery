@@ -6,14 +6,14 @@ import brokers/broker_context
 
 import ../testlib/[common, wakucore, wakunode, testasync]
 
-import waku
-import waku/[waku_node, waku_core]
-import waku/factory/waku_conf
-import waku/events/message_events as waku_message_events
+import logos_delivery
+import logos_delivery/waku/[waku_node, waku_core]
+import logos_delivery/waku/factory/waku_conf
+import logos_delivery/waku/events/message_events as waku_message_events
 import tools/confutils/cli_args
 
-import channels/reliable_channel_manager
-import channels/encryption/noop_encryption
+import logos_delivery/channels/reliable_channel_manager
+import logos_delivery/channels/encryption/noop_encryption
 
 const TestTimeout = chronos.seconds(15)
 

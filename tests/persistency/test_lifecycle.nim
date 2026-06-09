@@ -4,8 +4,8 @@ import std/[options, os, times]
 import chronos, results
 import testutils/unittests
 import brokers/[event_broker, request_broker]
-import waku/persistency/persistency
-import waku/persistency/backend_comm
+import logos_delivery/waku/persistency/persistency
+import logos_delivery/waku/persistency/backend_comm
 
 proc payloadBytes(s: string): seq[byte] =
   result = newSeq[byte](s.len)

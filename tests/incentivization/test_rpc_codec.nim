@@ -1,6 +1,6 @@
 import std/options, testutils/unittests, chronos, libp2p/crypto/crypto, web3
 
-import waku/incentivization/[rpc, rpc_codec, common]
+import logos_delivery/waku/incentivization/[rpc, rpc_codec, common]
 
 suite "Waku Incentivization Eligibility Codec":
   asyncTest "encode eligibility proof from txid":

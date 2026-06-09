@@ -6,14 +6,15 @@ import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 
 import
-  waku,
-  waku/[waku_node, waku_core, waku_relay/protocol],
-  waku/node/health_monitor/[topic_health, health_status, protocol_health, health_report],
-  waku/requests/health_requests,
-  waku/requests/node_requests,
-  waku/events/health_events,
-  waku/common/waku_protocol,
-  waku/factory/waku_conf
+  logos_delivery,
+  logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol],
+  logos_delivery/waku/node/health_monitor/
+    [topic_health, health_status, protocol_health, health_report],
+  logos_delivery/waku/requests/health_requests,
+  logos_delivery/waku/requests/node_requests,
+  logos_delivery/waku/events/health_events,
+  logos_delivery/waku/common/waku_protocol,
+  logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 
 const TestTimeout = chronos.seconds(10)

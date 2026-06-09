@@ -1,5 +1,5 @@
 import results, options, chronos
-import waku/[waku_node, waku_core, waku_lightpush, waku_lightpush/common]
+import logos_delivery/waku/[waku_node, waku_core, waku_lightpush, waku_lightpush/common]
 import publisher_base
 
 type V3Publisher* = ref object of PublisherBase

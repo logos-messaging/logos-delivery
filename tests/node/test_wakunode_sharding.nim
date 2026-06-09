@@ -11,7 +11,7 @@ import
   libp2p/protocols/pubsub/pubsub
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core/topics/pubsub_topic,
     waku_core/topics/sharding,
     waku_node,

@@ -1,9 +1,9 @@
 import unittest, nimcrypto, std/sequtils
-import ../../waku/waku_store_sync/[reconciliation, common]
-import ../../waku/waku_store_sync/storage/seq_storage
-import ../../waku/waku_core/message/digest
-import ../../waku/waku_core/topics/pubsub_topic
-import ../../waku/waku_core/topics/content_topic
+import ../../logos_delivery/waku/waku_store_sync/[reconciliation, common]
+import ../../logos_delivery/waku/waku_store_sync/storage/seq_storage
+import ../../logos_delivery/waku/waku_core/message/digest
+import ../../logos_delivery/waku/waku_core/topics/pubsub_topic
+import ../../logos_delivery/waku/waku_core/topics/content_topic
 
 proc toDigest*(s: string): WakuMessageHash =
   let d = nimcrypto.keccak256.digest((s & "").toOpenArrayByte(0, s.high))

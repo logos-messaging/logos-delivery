@@ -1,7 +1,7 @@
 {.used.}
 
 import std/[options, sequtils], results, testutils/unittests
-import waku/waku_core, waku/waku_enr, ./testlib/wakucore
+import logos_delivery/waku/waku_core, logos_delivery/waku/waku_enr, ./testlib/wakucore
 
 suite "Waku ENR -  Capabilities bitfield":
   test "check capabilities support":

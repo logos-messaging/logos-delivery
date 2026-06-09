@@ -1,7 +1,7 @@
 import std/options, chronos, libp2p/crypto/crypto as libp2p_keys, eth/keys as eth_keys
 
 import
-  waku/
+  logos_delivery/waku/
     [waku_core/topics, waku_enr, discovery/waku_discv5, node/peer_manager/peer_manager],
   ../testlib/[common, wakucore]
 

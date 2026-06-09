@@ -13,7 +13,7 @@ import
   json_serialization as js
 
 import
-  waku/[
+  logos_delivery/waku/[
     common/logging,
     node/peer_manager,
     waku_node,

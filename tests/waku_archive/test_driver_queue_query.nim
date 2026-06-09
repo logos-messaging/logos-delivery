@@ -3,7 +3,7 @@
 import
   std/[options, sequtils, random, algorithm], testutils/unittests, chronos, chronicles
 import
-  waku/[
+  logos_delivery/waku/[
     waku_archive, waku_archive/driver/queue_driver, waku_core, waku_core/message/digest
   ],
   ../testlib/common,

@@ -2,7 +2,7 @@
 
 import std/options, testutils/unittests, chronos
 import
-  waku/
+  logos_delivery/waku/
     [common/protobuf, common/paging, waku_core, waku_store/common, waku_store/rpc_codec],
   ../testlib/wakucore
 

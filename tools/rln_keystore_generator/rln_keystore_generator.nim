@@ -6,7 +6,7 @@ else:
 import chronicles, results, std/[tempfiles, sequtils]
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_keystore,
     waku_rln_relay/rln,
     waku_rln_relay/conversion_utils,

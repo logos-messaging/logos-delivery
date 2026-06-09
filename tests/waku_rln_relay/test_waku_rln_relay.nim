@@ -12,7 +12,7 @@ import
 import brokers/broker_context
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_rln_relay,
     waku_rln_relay/rln,
