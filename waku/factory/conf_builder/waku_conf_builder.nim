@@ -481,6 +481,55 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
     else:
       warn "Failed to process entry nodes from network conf", error = processed.error()
 
+proc enforceSecurityConstraints(builder: WakuConfBuilder): Result[void, string] =
+  ## Errors if the resolved config violates a security constraint.
+
+  if builder.networkConf.isSome():
+    let preset = builder.networkConf.get()
+    let presetMandatesRln = preset.rlnRelay
+    let relayEnabled = builder.relay.get(DefaultRelay)
+    let rlnRelayConf = builder.rlnRelayConf
+    let rlnRelayEnabled = rlnRelayConf.enabled.get(false)
+
+    if relayEnabled and presetMandatesRln:
+      if not rlnRelayEnabled:
+        return
+          err("network preset mandates RLN relay: cannot relay with rln-relay disabled")
+
+      let contractOverridden =
+        rlnRelayConf.ethContractAddress.isSome() and
+        rlnRelayConf.ethContractAddress.get() != preset.rlnRelayEthContractAddress
+      if contractOverridden:
+        return err(
+          "network preset mandates its RLN contract: cannot relay with a different rln-relay-eth-contract-address"
+        )
+
+      let chainIdOverridden =
+        rlnRelayConf.chainId.isSome() and
+        rlnRelayConf.chainId.get() != preset.rlnRelayChainId
+      if chainIdOverridden:
+        return err(
+          "network preset mandates its RLN chain id: cannot relay with a different rln-relay-chain-id"
+        )
+
+      let dynamicOverridden =
+        rlnRelayConf.dynamic.isSome() and
+        rlnRelayConf.dynamic.get() != preset.rlnRelayDynamic
+      if dynamicOverridden:
+        return err(
+          "network preset mandates its RLN membership mode: cannot relay with a different rln-relay-dynamic"
+        )
+
+      let epochOverridden =
+        rlnRelayConf.epochSizeSec.isSome() and
+        rlnRelayConf.epochSizeSec.get() != preset.rlnEpochSizeSec
+      if epochOverridden:
+        return err(
+          "network preset mandates its RLN epoch size: cannot relay with a different rln-relay-epoch-sec"
+        )
+
+  ok()
+
 proc build*(
     builder: var WakuConfBuilder, rng: ref HmacDrbgContext = crypto.newRng()
 ): Result[WakuConf, string] =
@@ -490,6 +539,14 @@ proc build*(
   ## default when it is opinionated.
 
   applyNetworkConf(builder)
+
+  # We should not ignore any user-supplied config parameter: the user is
+  # allowed to override any preset parameter with any explicit config
+  # parameter. However, we do gate config building with an error if any
+  # one of these preset overrides is considered a security concern.
+  # This eliminates ambiguous behavior such as warning of an override and
+  # then ignoring it: either fail-fast or accept the override.
+  ?enforceSecurityConstraints(builder)
 
   let relay =
     if builder.relay.isSome():
