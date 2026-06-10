@@ -530,6 +530,9 @@ suite "Onchain group manager":
       raiseAssert "failed to fetch initial path: " & error
     manager.merkleProofPathStale = false
     manager.proofPathRefreshInFlight = nil
+    # generateProof now triggers refreshRoots on every call; pin lastRootsRefreshMoment
+    # to "just now" so the throttle short-circuits it for this fast-path assertion.
+    manager.lastRootsRefreshMoment = Moment.now()
 
     let proofRes = waitFor manager.generateProof(
       data = "hello".toBytes(), epoch = default(Epoch), messageId = MessageId(1)
