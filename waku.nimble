@@ -39,13 +39,11 @@ requires "nim >= 2.2.4",
   "secp256k1",
   "bearssl",
   # RPC & APIs
-  # DRAFT: json_rpc + web3 repointed to fcecin forks for the libp2p 2.0.0 bump.
-  # json_rpc fork relaxes the websock cap (<0.4.0 -> <0.5.0); web3 fork repoints
-  # its own json_rpc require to the same fork so the SAT graph unifies. Revert to
-  # status-im json_rpc + bare "web3" once the cap fix lands upstream.
-  "https://github.com/fcecin/nim-json-rpc-websock040#8ce09c2ccc08b23f433a054b2b1ccb022d9547dc",
+  # json_rpc pinned to the master commit that relaxes the nim-websock cap to allow
+  # v0.4.0 (PR #277, landed after the v0.6.0 tag) — needed by the libp2p 2.0.0 bump.
+  "https://github.com/status-im/nim-json-rpc.git#f62ed04d7c630ddd834e296b7e7db2e1aa72a315",
   "presto",
-  "https://github.com/fcecin/nim-web3-websock040#96f39ea1b633277c1d93eafd62759db1d498e359",
+  "web3",
   # Database
   "db_connector",
   "sqlite3_abi",
