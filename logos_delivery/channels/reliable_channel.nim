@@ -125,8 +125,7 @@ func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
   self.senderId
 
 proc stop*(self: ReliableChannel) {.async: (raises: []).} =
-  ## Stops the SDS background loops and releases their in-memory state.
-  ## Persisted SDS state survives for the next channel start.
+  ## Stops the SDS background loops. Persisted SDS state survives.
   await self.sdsHandler.stop()
 
 proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
@@ -308,9 +307,6 @@ proc send*(
   ## The returned `RequestId` is the channel-level parent of one-or-more
   ## messaging-layer `RequestId`s; the mapping is held in
   ## `self.channelReqs` until every segment is final.
-  ##
-  ## Async because the SDS wrap persists channel state (lamport clock,
-  ## outgoing buffer) before the segment is cleared for dispatch.
   if payload.len == 0:
     return err("empty payload")
 
@@ -337,10 +333,8 @@ proc send*(
   return ok(channelReqId)
 
 proc deliverToApp(self: ReliableChannel, content: seq[byte]) =
-  ## Tail of the ingress pipeline (reassemble -> emit). Reached on two
-  ## paths: directly from `onMessageReceived` when the segment's causal
-  ## dependencies were already met, and from the SDS `onContentReady`
-  ## callback when a parked segment is released.
+  ## Tail of the ingress pipeline (reassemble -> emit). Reached directly
+  ## from `onMessageReceived` or via the SDS `onContentReady` callback.
   let reassembled = self.segmentation.handleIncomingSegment(content)
   if reassembled.isSome():
     ## Emit on the captured `brokerCtx` (the manager's), so the
@@ -356,20 +350,17 @@ proc deliverToApp(self: ReliableChannel, content: seq[byte]) =
     )
 
 proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []).} =
-  ## Egress for SDS-R repair responses: a rebroadcast of an SDS envelope
-  ## we already delivered, so a peer that missed it can recover. Runs the
-  ## encrypt -> dispatch tail directly — repair traffic has no channel-level
-  ## request to track, so it must not enter the rate-limit queue whose
-  ## emissions are claimed FIFO by pending `channelReqId`s. Pacing is done
-  ## by SDS itself (`maxRepairRequests` / repair timing windows).
+  ## SDS-R repair rebroadcast. Runs the encrypt -> dispatch tail directly:
+  ## repair traffic has no channel-level request to track, so it must not
+  ## enter the rate-limit queue whose emissions are claimed FIFO by pending
+  ## `channelReqId`s. Pacing is done by SDS itself.
   let encRes = await Encrypt.request(wire)
   let encrypted = encRes.valueOr:
     debug "SDS repair rebroadcast dropped: encryption failed",
       channelId = self.channelId, error = error
     return
 
-  ## Ephemeral: the original message is already store-persisted; the
-  ## rebroadcast only needs to reach currently-connected peers.
+  ## Ephemeral: the original message is already store-persisted.
   let envelope = MessageEnvelope(
     contentTopic: self.contentTopic,
     payload: seq[byte](encrypted),
@@ -412,11 +403,8 @@ proc onMessageReceived(
     return
   let plaintextBytes = seq[byte](plaintext)
 
-  ## `ok(none)` means SDS consumed the message (duplicate, sync traffic,
-  ## or parked until causal dependencies arrive — delivered later through
-  ## `onContentReady`). `err` means the bytes are not a decodable SDS
-  ## envelope; both are dropped here without an error event, mirroring
-  ## the previous behaviour for undecodable ingress traffic.
+  ## `ok(none)` = consumed by SDS (duplicate, sync traffic, or parked until
+  ## dependencies arrive); `err` = not a decodable SDS envelope. Both drop.
   let unwrapped = (await self.sdsHandler.handleIncoming(plaintextBytes)).valueOr:
     return
   if unwrapped.isSome():
@@ -456,10 +444,8 @@ proc new*(
     brokerCtx: brokerCtx,
   )
 
-  ## SDS pushes two kinds of work back into the channel: segments released
-  ## once their causal dependencies are met (-> delivery tail) and SDS-R
-  ## repair rebroadcasts (-> dispatch tail). Wired here, before `start`
-  ## spins up the SDS background loops.
+  ## SDS pushes work back into the channel: released segments go to the
+  ## delivery tail, SDS-R rebroadcasts to the dispatch tail.
   chn.sdsHandler.onContentReady = proc(content: seq[byte]) {.gcsafe, raises: [].} =
     chn.deliverToApp(content)
   chn.sdsHandler.onRebroadcast = proc(wire: seq[byte]) {.gcsafe, raises: [].} =

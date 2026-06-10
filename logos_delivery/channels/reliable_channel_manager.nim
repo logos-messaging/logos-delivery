@@ -24,9 +24,8 @@ import ./encryption/noop_encryption
 export reliable_channel
 
 const SdsJobId = "sds"
-  ## Persistency job (one SQLite file + worker thread) shared by every
-  ## channel's SDS state; rows are keyed by channelId, and `openJob` is
-  ## idempotent so each channel creation reuses the same handle.
+  ## One persistency job shared by every channel's SDS state; rows are
+  ## keyed by channelId.
 
 type ReliableChannelManager* = ref object
   channels: Table[ChannelId, ReliableChannel]
@@ -64,18 +63,15 @@ proc start*(self: ReliableChannelManager): Result[void, string] =
   ok()
 
 proc stop*(self: ReliableChannelManager) {.async.} =
-  ## Stops every channel's SDS background loops. Persisted SDS state is
-  ## left intact for the next start.
+  ## Stops every channel's SDS background loops. Persisted state survives.
   for chn in self.channels.values:
     await chn.stop()
   self.channels.clear()
 
 proc sdsPersistence(): Option[Persistence] =
-  ## Durability backend for SDS, sourced from the process-wide Persistency
-  ## singleton (initialised in `Waku.start` from `conf.localStoragePath`).
-  ## Best-effort: when the singleton is not available (e.g. unit tests that
-  ## never start the node), SDS runs memory-only — reliability still works,
-  ## state just does not survive a restart.
+  ## SDS durability backend from the process-wide Persistency singleton
+  ## (initialised in `Waku.start`). Falls back to memory-only when the
+  ## singleton is unavailable (e.g. unit tests).
   let p = Persistency.instance().valueOr:
     info "SDS persistence disabled, running memory-only", reason = $error
     return none(Persistence)
@@ -141,7 +137,7 @@ proc closeChannel*(
     self: ReliableChannelManager, channelId: ChannelId
 ): Future[Result[void, string]] {.async: (raises: []).} =
   ## Stops the channel's SDS loops and releases the channel. Persisted SDS
-  ## state survives, so re-creating the channel restores its history.
+  ## state survives, so re-creating the channel restores it.
   let chn = self.channels.getOrDefault(channelId)
   if chn.isNil():
     return err("unknown channel: " & channelId)

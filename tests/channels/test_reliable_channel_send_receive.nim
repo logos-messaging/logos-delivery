@@ -18,8 +18,8 @@ import logos_delivery/channels/encryption/noop_encryption
 import logos_delivery/waku/persistency/keys
 import logos_delivery/waku/persistency/sds_persistency
 
-## Full nim-sds API: ingress tests act as the remote peer and need
-## `wrapOutgoingMessage` to produce real SDS envelopes for the wire.
+## Full nim-sds API: ingress tests act as the remote peer producing real
+## SDS envelopes.
 import sds
 
 const TestTimeout = chronos.seconds(15)
@@ -82,13 +82,9 @@ suite "Reliable Channel - ingress":
       )
       .expect("listen ChannelMessageReceivedEvent")
 
-    ## Build a `WakuMessage` that looks like one that came in off the
-    ## wire from a peer: the spec marker on `meta`, the right content
-    ## topic, and the payload wrapped in a real SDS envelope by a
-    ## stand-in remote peer. The manager's ingress listener should pick
-    ## it up, decrypt (noop), unwrap SDS (first message, no missing
-    ## dependencies), reassemble (one segment), and finally emit
-    ## `ChannelMessageReceivedEvent`.
+    ## Build a `WakuMessage` as it would arrive off the wire: spec marker
+    ## on `meta`, right content topic, payload wrapped in a real SDS
+    ## envelope by a stand-in remote peer.
     let remotePeer =
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let sdsWire = (
@@ -448,12 +444,9 @@ suite "Reliable Channel - send state machine":
 
 suite "Reliable Channel - SDS persistence":
   asyncTest "send persists SDS channel state through the persistency job":
-    ## End-to-end durability check for the SDS wiring: with the
-    ## process-wide Persistency singleton initialised (as `Waku.start`
-    ## does in production), a channel `send` must flush the SDS channel
-    ## snapshot (`sds.meta`) and the message-history append (`sds.log`)
-    ## through the shared "sds" job. Writes are fire-and-forget (the
-    ## Future resolves on enqueue, not apply), so reads poll.
+    ## With the Persistency singleton initialised (as `Waku.start` does),
+    ## a channel `send` must flush `sds.meta` and `sds.log` through the
+    ## shared "sds" job. Writes resolve on enqueue, so reads poll.
     const
       channelId = ChannelId("sds-persist-channel")
       contentTopic = ContentTopic("/reliable-channel/test/persist")
@@ -489,13 +482,11 @@ suite "Reliable Channel - SDS persistence":
 
     discard (await manager.send(channelId, "persist me".toBytes())).expect("send")
 
-    ## Same handle the channel layer writes through (`openJob` is
-    ## idempotent per job id).
+    ## Same handle the channel layer writes through (`openJob` is idempotent).
     let job = persistency.openJob("sds").expect("openJob sds")
     let chanKey = toKey(SdsChannelID(channelId))
 
     proc pollMetaExists(): Future[bool] {.async.} =
-      ## `sds.meta` keeps one blob per channel under the exact channel key.
       let deadline = Moment.now() + 2.seconds
       while Moment.now() < deadline:
         let r = await job.exists(CatMeta, chanKey)
@@ -505,8 +496,7 @@ suite "Reliable Channel - SDS persistence":
       return false
 
     proc pollLogRow(): Future[bool] {.async.} =
-      ## `sds.log` keys rows by (channelId, messageId) — scan the channel
-      ## prefix for the history append of the message just sent.
+      ## `sds.log` keys rows by (channelId, messageId) — scan the prefix.
       let deadline = Moment.now() + 2.seconds
       while Moment.now() < deadline:
         let r = await job.scanPrefix(CatLog, chanKey)
