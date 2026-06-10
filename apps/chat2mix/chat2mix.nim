@@ -33,7 +33,7 @@ import
     protocols/mix/mix_protocol,
   ] # define DNS resolution
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_lightpush/common,
     waku_lightpush/rpc,
@@ -52,7 +52,7 @@ import
   ./config_chat2mix
 
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
-import ../../waku/waku_rln_relay
+import ../../logos_delivery/waku/waku_rln_relay
 
 logScope:
   topics = "chat2 mix"

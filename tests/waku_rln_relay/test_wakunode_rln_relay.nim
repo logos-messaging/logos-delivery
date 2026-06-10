@@ -11,7 +11,7 @@ import
   brokers/broker_context
 
 import
-  waku/[waku_core, waku_node, waku_rln_relay],
+  logos_delivery/waku/[waku_core, waku_node, waku_rln_relay],
   ../testlib/[wakucore, futures, wakunode, testutils],
   ./utils_onchain,
   ./rln/waku_rln_relay_utils

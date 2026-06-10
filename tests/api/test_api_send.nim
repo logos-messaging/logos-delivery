@@ -5,8 +5,8 @@ import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
-import waku, waku/[waku_node, waku_core, waku_relay/protocol]
-import waku/factory/waku_conf
+import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
+import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 
 type SendEventOutcome {.pure.} = enum
@@ -126,9 +126,9 @@ proc createApiNodeConf(mode: cli_args.WakuMode = cli_args.WakuMode.Core): WakuNo
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
-  conf.clusterId = 3'u16
+  conf.clusterId = some(3'u16)
   conf.numShardsInNetwork = 1
-  conf.reliabilityEnabled = true
+  conf.reliabilityEnabled = some(true)
   conf.rest = false
   result = conf
 
@@ -241,7 +241,9 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await createNode(createApiNodeConf())).valueOr:
         raiseAssert error
-      (await startWaku(addr node)).isOkOr:
+      node.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount messaging: " & error
+      (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
       # node is not connected !
 
@@ -263,7 +265,9 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await createNode(createApiNodeConf())).valueOr:
         raiseAssert error
-      (await startWaku(addr node)).isOkOr:
+      node.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount messaging: " & error
+      (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
       await node.node.connectToNodes(
@@ -297,7 +301,9 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await createNode(createApiNodeConf())).valueOr:
         raiseAssert error
-      (await startWaku(addr node)).isOkOr:
+      node.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount messaging: " & error
+      (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
       await node.node.connectToNodes(@[relayNode1PeerInfo])
@@ -327,7 +333,9 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await createNode(createApiNodeConf())).valueOr:
         raiseAssert error
-      (await startWaku(addr node)).isOkOr:
+      node.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount messaging: " & error
+      (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
       await node.node.connectToNodes(@[lightpushNodePeerInfo])
@@ -357,7 +365,9 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await createNode(createApiNodeConf())).valueOr:
         raiseAssert error
-      (await startWaku(addr node)).isOkOr:
+      node.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount messaging: " & error
+      (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
       await node.node.connectToNodes(@[lightpushNodePeerInfo, storeNodePeerInfo])
@@ -411,7 +421,9 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (await createNode(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
         raiseAssert error
-      (await startWaku(addr node)).isOkOr:
+      node.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount messaging: " & error
+      (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
       await node.node.connectToNodes(@[fakeLightpushNodePeerInfo])

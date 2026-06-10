@@ -9,7 +9,7 @@ import
   libp2p/crypto/crypto
 import brokers/broker_context
 import
-  waku/[
+  logos_delivery/waku/[
     common/base64,
     waku_core,
     waku_node,

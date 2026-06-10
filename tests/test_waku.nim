@@ -1,24 +1,28 @@
 {.used.}
 
-import chronos, testutils/unittests, std/options
+import std/[net, options]
 
-import waku
+import chronos, testutils/unittests
+
+import logos_delivery
 import tools/confutils/cli_args
+import logos_delivery/waku/factory/networks_config
+import logos_delivery/waku/factory/conf_builder/conf_builder
 
 suite "Waku API - Create node":
   asyncTest "Create node with minimal configuration":
     ## Given
     var nodeConf = defaultWakuNodeConf().valueOr:
-      raiseAssert error
+      raiseAssert "defaultWakuNodeConf failed: " & error
     nodeConf.mode = Core
-    nodeConf.clusterId = 3'u16
+    nodeConf.clusterId = some(3'u16)
     nodeConf.rest = false
 
     # This is the actual minimal config but as the node auto-start, it is not suitable for tests
 
     ## When
     let node = (await createNode(nodeConf)).valueOr:
-      raiseAssert error
+      raiseAssert "createNode (minimal config) failed: " & error
 
     ## Then
     check:
@@ -29,9 +33,9 @@ suite "Waku API - Create node":
   asyncTest "Create node with full configuration":
     ## Given
     var nodeConf = defaultWakuNodeConf().valueOr:
-      raiseAssert error
+      raiseAssert "defaultWakuNodeConf failed: " & error
     nodeConf.mode = Core
-    nodeConf.clusterId = 99'u16
+    nodeConf.clusterId = some(99'u16)
     nodeConf.rest = false
     nodeConf.numShardsInNetwork = 16
     nodeConf.maxMessageSize = "1024 KiB"
@@ -44,7 +48,7 @@ suite "Waku API - Create node":
 
     ## When
     let node = (await createNode(nodeConf)).valueOr:
-      raiseAssert error
+      raiseAssert "createNode (full config) failed: " & error
 
     ## Then
     check:
@@ -61,9 +65,9 @@ suite "Waku API - Create node":
   asyncTest "Create node with mixed entry nodes (enrtree, multiaddr)":
     ## Given
     var nodeConf = defaultWakuNodeConf().valueOr:
-      raiseAssert error
+      raiseAssert "defaultWakuNodeConf failed: " & error
     nodeConf.mode = Core
-    nodeConf.clusterId = 42'u16
+    nodeConf.clusterId = some(42'u16)
     nodeConf.rest = false
     nodeConf.entryNodes = @[
       "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im",
@@ -72,7 +76,7 @@ suite "Waku API - Create node":
 
     ## When
     let node = (await createNode(nodeConf)).valueOr:
-      raiseAssert error
+      raiseAssert "createNode (mixed entry nodes) failed: " & error
 
     ## Then
     check:

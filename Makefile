@@ -24,7 +24,14 @@ export PATH := $(HOME)/.nimble/bin:$(PATH)
 # NIM binary location
 NIM_BINARY := $(shell which nim 2>/dev/null)
 NPH := $(HOME)/.nimble/bin/nph
-NIMBLE := $(HOME)/.nimble/bin/nimble
+
+NIMBLE := nimble
+ifeq ($(detected_OS),Windows)
+# Resolve nimble via PATH (Windows has no $(HOME)/.nimble/bin); --useSystemNim
+# reuses the nim on PATH so nimble never re-clones the locked nim.
+	NIMBLE := nimble --useSystemNim
+endif
+
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
@@ -68,10 +75,10 @@ endif
 %:
 	@true
 
-waku.nims:
-	ln -s waku.nimble $@
+logos_delivery.nims:
+	ln -s logos_delivery.nimble $@
 
-$(NIMBLEDEPS_STAMP): nimble.lock | install-nimble build-nph waku.nims
+$(NIMBLEDEPS_STAMP): nimble.lock | install-nimble build-nph logos_delivery.nims
 	$(NIMBLE) setup --localdeps
 	touch $@
 
@@ -89,8 +96,8 @@ clean:
 	rm nimble.paths 2> /dev/null || true
 	nimble clean
 
-REQUIRED_NIM_VERSION    := $(shell grep -E '^const RequiredNimVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
-REQUIRED_NIMBLE_VERSION := $(shell grep -E '^const RequiredNimbleVersion\s*=' waku.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+REQUIRED_NIM_VERSION    := $(shell grep -E '^const RequiredNimVersion\s*=' logos_delivery.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+REQUIRED_NIMBLE_VERSION := $(shell grep -E '^const RequiredNimbleVersion\s*=' logos_delivery.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
 
 install-nim:
 ifneq ($(detected_OS),Windows)
@@ -207,7 +214,7 @@ clean: | clean-librln
 
 testcommon: | build-deps build
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble testcommon
+		$(NIMBLE) testcommon
 
 ##########
 ## Waku ##
@@ -216,60 +223,67 @@ testcommon: | build-deps build
 
 testwaku: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble test
+		$(NIMBLE) test
 
+# Windows: build with nim directly — `nimble <task>` re-clones git deps every
+# build and they intermittently hang on the MSYS2 runner. Flags mirror logos_delivery.nimble.
 wakunode2: | build-deps build deps librln
+ifeq ($(detected_OS),Windows)
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble wakunode2
+		nim c --out:build/wakunode2 --mm:refc --cpu:amd64 $(NIM_PARAMS) -d:chronicles_log_level=TRACE apps/wakunode2/wakunode2.nim
+else
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(NIMBLE) wakunode2
+endif
 
 benchmarks: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble benchmarks
+		$(NIMBLE) benchmarks
 
 testwakunode2: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble testwakunode2
+		$(NIMBLE) testwakunode2
 
 example2: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble example2
+		$(NIMBLE) example2
 
 chat2: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble chat2
+		$(NIMBLE) chat2
 
 chat2mix: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble chat2mix
+		$(NIMBLE) chat2mix
 
 rln-db-inspector: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble rln_db_inspector
+		$(NIMBLE) rln_db_inspector
 
 chat2bridge: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble chat2bridge
+		$(NIMBLE) chat2bridge
 
 liteprotocoltester: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble liteprotocoltester
+		$(NIMBLE) liteprotocoltester
 
 lightpushwithmix: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble lightpushwithmix
+		$(NIMBLE) lightpushwithmix
 
 api_example: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) waku.nims
+		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) logos_delivery.nims
 
 build/%: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
-		nimble buildone $*
+		$(NIMBLE) buildone $*
 
 compile-test: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "$(TEST_FILE)" "\"$(TEST_NAME)\"" && \
-		nimble buildTest $(TEST_FILE) && \
-		nimble execTest $(TEST_FILE) "\"$(TEST_NAME)\""
+		$(NIMBLE) buildTest $(TEST_FILE) && \
+		$(NIMBLE) execTest $(TEST_FILE) "\"$(TEST_NAME)\""
 
 ################
 ## Waku tools ##
@@ -280,11 +294,11 @@ tools: networkmonitor wakucanary
 
 wakucanary: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble wakucanary
+		$(NIMBLE) wakucanary
 
 networkmonitor: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble networkmonitor
+		$(NIMBLE) networkmonitor
 
 ############
 ## Format ##
@@ -330,7 +344,7 @@ clean:
 
 docs: | build deps
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nimble doc --run --index:on --project --out:.gh-pages waku/waku.nim waku.nims
+		$(NIMBLE) doc --run --index:on --project --out:.gh-pages logos-delivery/logos-delivery.nim logos_delivery.nims
 
 coverage:
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -426,11 +440,16 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
+# Windows: build with nim directly (see wakunode2). Flags mirror logos_delivery.nimble.
 libwaku: | build-deps librln
-	nimble --verbose libwaku$(BUILD_COMMAND) waku.nimble
+ifeq ($(detected_OS),Windows)
+	nim c --out:build/libwaku.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/libwaku.nim
+else
+	$(NIMBLE) --verbose libwaku$(BUILD_COMMAND) logos_delivery.nimble
+endif
 
 liblogosdelivery: | build-deps librln
-	nimble --verbose liblogosdelivery$(BUILD_COMMAND) waku.nimble
+	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) logos_delivery.nimble
 
 logosdelivery_example: | build liblogosdelivery
 	@echo -e $(BUILD_MSG) "build/$@"
@@ -505,7 +524,7 @@ endif
 build-libwaku-for-android-arch:
 ifneq ($(findstring /nix/store,$(LIBRLN_FILE)),)
 	mkdir -p $(CURDIR)/build/android/$(ABIDIR)/
-	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) nimble libWakuAndroid
+	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) $(NIMBLE) libWakuAndroid
 else
 	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR)
 endif
@@ -562,7 +581,7 @@ else
 endif
 
 build-libwaku-for-ios-arch:
-	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) nimble libWakuIOS
+	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) $(NIMBLE) libWakuIOS
 
 libwaku-ios-device: IOS_ARCH=arm64
 libwaku-ios-device: IOS_SDK=iphoneos
@@ -592,4 +611,4 @@ release-notes:
 		-u $(shell id -u) \
 		docker.io/wakuorg/sv4git:latest \
 			release-notes |\
-			sed -E 's@#([0-9]+)@[#\1](https://github.com/waku-org/nwaku/issues/\1)@g'
+			sed -E 's@#([0-9]+)@[#\1](https://github.com/logos-messaging/logos-delivery/issues/\1)@g'

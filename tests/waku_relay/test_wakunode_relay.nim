@@ -9,7 +9,7 @@ import
   libp2p/protocols/pubsub/pubsub,
   libp2p/protocols/pubsub/gossipsub
 import
-  waku/[waku_core, node/peer_manager, waku_node, waku_relay],
+  logos_delivery/waku/[waku_core, node/peer_manager, waku_node, waku_relay],
   ../testlib/testutils,
   ../testlib/wakucore,
   ../testlib/wakunode

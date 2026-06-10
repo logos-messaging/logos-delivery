@@ -3,12 +3,12 @@
 import std/options, chronos, chronicles, libp2p/crypto/crypto
 
 import
-  waku/node/peer_manager,
-  waku/waku_core,
-  waku/waku_core/topics/sharding,
-  waku/waku_lightpush,
-  waku/waku_lightpush/[client, common],
-  waku/common/rate_limit/setting,
+  logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/waku_core/topics/sharding,
+  logos_delivery/waku/waku_lightpush,
+  logos_delivery/waku/waku_lightpush/[client, common],
+  logos_delivery/waku/common/rate_limit/setting,
   ../testlib/[common, wakucore]
 
 proc newTestWakuLightpushNode*(

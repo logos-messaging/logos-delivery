@@ -1,5 +1,5 @@
 import chronos, results, options
-import waku/[waku_node, waku_core]
+import logos_delivery/waku/[waku_node, waku_core]
 import publisher_base
 
 type LegacyPublisher* = ref object of PublisherBase

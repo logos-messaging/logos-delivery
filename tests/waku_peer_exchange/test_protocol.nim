@@ -5,10 +5,11 @@ import
   testutils/unittests,
   chronos,
   libp2p/[switch, peerId, crypto/crypto],
-  eth/[keys, p2p/discoveryv5/enr]
+  eth/[keys, p2p/discoveryv5/enr],
+  brokers/broker_context
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_node,
     node/peer_manager,
     discovery/waku_discv5,
@@ -31,110 +32,113 @@ suite "Waku Peer Exchange":
 
   suite "request":
     asyncTest "Retrieve and provide peer exchange peers from discv5":
-      ## Given (copied from test_waku_discv5.nim)
-      let
-        # todo: px flag
-        flags = CapabilitiesBitfield.init(
-          lightpush = false, filter = false, store = false, relay = true
+      lockNewGlobalBrokerContext:
+        ## Given (copied from test_waku_discv5.nim)
+        let
+          # todo: px flag
+          flags = CapabilitiesBitfield.init(
+            lightpush = false, filter = false, store = false, relay = true
+          )
+          bindIp = parseIpAddress("0.0.0.0")
+          extIp = parseIpAddress("127.0.0.1")
+
+          nodeKey1 = generateSecp256k1Key()
+          nodeTcpPort1 = Port(64010)
+          nodeUdpPort1 = Port(9000)
+          node1 = newTestWakuNode(
+            nodeKey1,
+            bindIp,
+            nodeTcpPort1,
+            some(extIp),
+            wakuFlags = some(flags),
+            discv5UdpPort = some(nodeUdpPort1),
+          )
+
+          nodeKey2 = generateSecp256k1Key()
+          nodeTcpPort2 = Port(64012)
+          nodeUdpPort2 = Port(9002)
+          node2 = newTestWakuNode(
+            nodeKey2,
+            bindIp,
+            nodeTcpPort2,
+            some(extIp),
+            wakuFlags = some(flags),
+            discv5UdpPort = some(nodeUdpPort2),
+          )
+
+          nodeKey3 = generateSecp256k1Key()
+          nodeTcpPort3 = Port(64014)
+          nodeUdpPort3 = Port(9004)
+          node3 = newTestWakuNode(
+            nodeKey3,
+            bindIp,
+            nodeTcpPort3,
+            some(extIp),
+            wakuFlags = some(flags),
+            discv5UdpPort = some(nodeUdpPort3),
+          )
+
+        # discv5
+        let conf1 = WakuDiscoveryV5Config(
+          discv5Config: none(DiscoveryConfig),
+          address: bindIp,
+          port: nodeUdpPort1,
+          privateKey: keys.PrivateKey(nodeKey1.skkey),
+          bootstrapRecords: @[],
+          autoupdateRecord: true,
         )
-        bindIp = parseIpAddress("0.0.0.0")
-        extIp = parseIpAddress("127.0.0.1")
 
-        nodeKey1 = generateSecp256k1Key()
-        nodeTcpPort1 = Port(64010)
-        nodeUdpPort1 = Port(9000)
-        node1 = newTestWakuNode(
-          nodeKey1,
-          bindIp,
-          nodeTcpPort1,
-          some(extIp),
-          wakuFlags = some(flags),
-          discv5UdpPort = some(nodeUdpPort1),
+        let disc1 = WakuDiscoveryV5.new(
+          node1.rng, conf1, some(node1.enr), some(node1.peerManager)
         )
 
-        nodeKey2 = generateSecp256k1Key()
-        nodeTcpPort2 = Port(64012)
-        nodeUdpPort2 = Port(9002)
-        node2 = newTestWakuNode(
-          nodeKey2,
-          bindIp,
-          nodeTcpPort2,
-          some(extIp),
-          wakuFlags = some(flags),
-          discv5UdpPort = some(nodeUdpPort2),
+        let conf2 = WakuDiscoveryV5Config(
+          discv5Config: none(DiscoveryConfig),
+          address: bindIp,
+          port: nodeUdpPort2,
+          privateKey: keys.PrivateKey(nodeKey2.skkey),
+          bootstrapRecords: @[disc1.protocol.getRecord()],
+          autoupdateRecord: true,
         )
 
-        nodeKey3 = generateSecp256k1Key()
-        nodeTcpPort3 = Port(64014)
-        nodeUdpPort3 = Port(9004)
-        node3 = newTestWakuNode(
-          nodeKey3,
-          bindIp,
-          nodeTcpPort3,
-          some(extIp),
-          wakuFlags = some(flags),
-          discv5UdpPort = some(nodeUdpPort3),
+        let disc2 = WakuDiscoveryV5.new(
+          node2.rng, conf2, some(node2.enr), some(node2.peerManager)
         )
 
-      # discv5
-      let conf1 = WakuDiscoveryV5Config(
-        discv5Config: none(DiscoveryConfig),
-        address: bindIp,
-        port: nodeUdpPort1,
-        privateKey: keys.PrivateKey(nodeKey1.skkey),
-        bootstrapRecords: @[],
-        autoupdateRecord: true,
-      )
+        await allFutures(node1.start(), node2.start(), node3.start())
+        let resultDisc1StartRes = await disc1.start()
+        assert resultDisc1StartRes.isOk(), resultDisc1StartRes.error
+        let resultDisc2StartRes = await disc2.start()
+        assert resultDisc2StartRes.isOk(), resultDisc2StartRes.error
 
-      let disc1 =
-        WakuDiscoveryV5.new(node1.rng, conf1, some(node1.enr), some(node1.peerManager))
+        ## When
+        var attempts = 10
+        while (disc1.protocol.nodesDiscovered < 1 or disc2.protocol.nodesDiscovered < 1) and
+            attempts > 0:
+          await sleepAsync(1.seconds)
+          attempts -= 1
 
-      let conf2 = WakuDiscoveryV5Config(
-        discv5Config: none(DiscoveryConfig),
-        address: bindIp,
-        port: nodeUdpPort2,
-        privateKey: keys.PrivateKey(nodeKey2.skkey),
-        bootstrapRecords: @[disc1.protocol.getRecord()],
-        autoupdateRecord: true,
-      )
+        # node2 can be connected, so will be returned by peer exchange
+        require (
+          await node1.peerManager.connectPeer(node2.switch.peerInfo.toRemotePeerInfo())
+        )
 
-      let disc2 =
-        WakuDiscoveryV5.new(node2.rng, conf2, some(node2.enr), some(node2.peerManager))
+        # Mount peer exchange
+        await node1.mountPeerExchange()
+        await node3.mountPeerExchange()
 
-      await allFutures(node1.start(), node2.start(), node3.start())
-      let resultDisc1StartRes = await disc1.start()
-      assert resultDisc1StartRes.isOk(), resultDisc1StartRes.error
-      let resultDisc2StartRes = await disc2.start()
-      assert resultDisc2StartRes.isOk(), resultDisc2StartRes.error
+        let dialResponse =
+          await node3.dialForPeerExchange(node1.switch.peerInfo.toRemotePeerInfo())
+        let response = dialResponse.get()
 
-      ## When
-      var attempts = 10
-      while (disc1.protocol.nodesDiscovered < 1 or disc2.protocol.nodesDiscovered < 1) and
-          attempts > 0:
-        await sleepAsync(1.seconds)
-        attempts -= 1
+        ## Then
+        check:
+          response.get().peerInfos.len == 1
+          response.get().peerInfos[0].enr == disc2.protocol.localNode.record.raw
 
-      # node2 can be connected, so will be returned by peer exchange
-      require (
-        await node1.peerManager.connectPeer(node2.switch.peerInfo.toRemotePeerInfo())
-      )
-
-      # Mount peer exchange
-      await node1.mountPeerExchange()
-      await node3.mountPeerExchange()
-
-      let dialResponse =
-        await node3.dialForPeerExchange(node1.switch.peerInfo.toRemotePeerInfo())
-      let response = dialResponse.get()
-
-      ## Then
-      check:
-        response.get().peerInfos.len == 1
-        response.get().peerInfos[0].enr == disc2.protocol.localNode.record.raw
-
-      await allFutures(
-        [node1.stop(), node2.stop(), node3.stop(), disc1.stop(), disc2.stop()]
-      )
+        await allFutures(
+          [node1.stop(), node2.stop(), node3.stop(), disc1.stop(), disc2.stop()]
+        )
 
     asyncTest "Request returns some discovered peers":
       let

@@ -13,7 +13,7 @@ import
   eth/keys,
   eth/p2p/discoveryv5/enr
 import
-  waku/[
+  logos_delivery/waku/[
     waku_node,
     waku_core/topics,
     waku_core,

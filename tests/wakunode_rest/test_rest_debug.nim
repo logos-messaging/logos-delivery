@@ -9,7 +9,7 @@ import
   libp2p/multiaddress,
   libp2p/crypto/crypto
 import
-  waku/[
+  logos_delivery/waku/[
     waku_node,
     node/waku_node as waku_node2,
       # TODO: Remove after moving `git_version` to the app code.

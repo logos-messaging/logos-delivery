@@ -9,7 +9,7 @@ import
   libp2p/crypto/crypto
 import
   ../../tools/[rln_keystore_generator/rln_keystore_generator, confutils/cli_args],
-  waku/[
+  logos_delivery/waku/[
     common/logging,
     factory/waku,
     node/health_monitor,
@@ -55,7 +55,7 @@ when isMainModule:
       error "Waku initialization failed", error = error
       quit(QuitFailure)
 
-    (waitFor startWaku(addr waku)).isOkOr:
+    (waitFor waku.start()).isOkOr:
       error "Starting waku failed", error = error
       quit(QuitFailure)
 

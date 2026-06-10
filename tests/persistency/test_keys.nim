@@ -2,7 +2,7 @@
 
 import std/[algorithm, sequtils]
 import testutils/unittests
-import waku/persistency/[types, keys]
+import logos_delivery/waku/persistency/[types, keys]
 
 proc cmpBytes(a, b: Key): int =
   let ab = bytes(a)

@@ -3,11 +3,11 @@
 import std/[options, random], testutils/unittests, chronos
 
 import
-  ../../waku/waku_core,
-  ../../waku/waku_core/message/digest,
-  ../../waku/waku_core/time,
-  ../../waku/waku_store_sync/common,
-  ../../waku/waku_store_sync/codec,
+  ../../logos_delivery/waku/waku_core,
+  ../../logos_delivery/waku/waku_core/message/digest,
+  ../../logos_delivery/waku/waku_core/time,
+  ../../logos_delivery/waku/waku_store_sync/common,
+  ../../logos_delivery/waku/waku_store_sync/codec,
   ./sync_utils
 
 proc randomItemSet(count: int, startTime: Timestamp, rng: var Rand): ItemSet =

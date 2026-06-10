@@ -11,8 +11,15 @@ import
 
 import
   tests/testlib/[wakunode, wakucore],
-  waku/[waku_node, waku_enr, net/auto_port, discovery/waku_discv5, node/waku_metrics],
-  waku/factory/[
+  logos_delivery/waku/[
+    waku_node,
+    net/net_config,
+    waku_enr,
+    net/auto_port,
+    discovery/waku_discv5,
+    node/waku_metrics,
+  ],
+  logos_delivery/waku/factory/[
     node_factory,
     internal_config,
     conf_builder/conf_builder,

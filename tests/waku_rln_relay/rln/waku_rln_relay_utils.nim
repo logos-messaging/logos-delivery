@@ -2,8 +2,8 @@ import std/options
 import std/tempfiles
 
 import
-  waku/waku_rln_relay,
-  waku/waku_rln_relay/[
+  logos_delivery/waku/waku_rln_relay,
+  logos_delivery/waku/waku_rln_relay/[
     group_manager, rln, conversion_utils, constants, protocol_types, protocol_metrics,
     nonce_manager,
   ]

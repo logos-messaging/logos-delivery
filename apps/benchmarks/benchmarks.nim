@@ -2,7 +2,7 @@ import
   std/[strutils, times, sequtils, osproc], math, results, options, testutils/unittests
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_rln_relay/protocol_types,
     waku_rln_relay/rln,
     waku_rln_relay,

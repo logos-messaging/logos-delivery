@@ -8,12 +8,10 @@ import
   libp2p/crypto/crypto
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     node/peer_manager,
-    node/waku_node,
-    node/kernel_api,
-    node/kernel_api/lightpush,
+    waku_node,
     waku_lightpush_legacy,
     waku_lightpush_legacy/common,
     waku_lightpush_legacy/protocol_metrics,

@@ -5,7 +5,7 @@
 import std/[options, os], results, testutils/unittests, chronos, web3
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_rln_relay,
     waku_rln_relay/conversion_utils,
     waku_rln_relay/group_manager/on_chain/group_manager,

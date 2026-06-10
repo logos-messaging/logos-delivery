@@ -13,11 +13,10 @@ import
 from times import getTime, toUnix
 
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     node/peer_manager,
-    node/waku_node,
-    node/kernel_api,
+    waku_node,
     discovery/waku_discv5,
     waku_filter_v2/common,
     waku_relay/protocol,

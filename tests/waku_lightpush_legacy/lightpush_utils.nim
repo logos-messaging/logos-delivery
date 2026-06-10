@@ -6,10 +6,10 @@ logScope:
   topics = "test waku_lightpush_legacy"
 
 import
-  waku/node/peer_manager,
-  waku/waku_lightpush_legacy,
-  waku/waku_lightpush_legacy/[client, common],
-  waku/common/rate_limit/setting,
+  logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/waku_lightpush_legacy,
+  logos_delivery/waku/waku_lightpush_legacy/[client, common],
+  logos_delivery/waku/common/rate_limit/setting,
   ../testlib/[common, wakucore]
 
 proc newTestWakuLegacyLightpushNode*(

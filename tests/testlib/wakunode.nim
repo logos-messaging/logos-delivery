@@ -8,8 +8,9 @@ import
   libp2p/crypto/crypto as libp2p_keys,
   eth/keys as eth_keys
 import
-  waku/[
+  logos_delivery/waku/[
     waku_node,
+    net/net_config,
     waku_core/topics,
     node/waku_switch,
     node/peer_manager,

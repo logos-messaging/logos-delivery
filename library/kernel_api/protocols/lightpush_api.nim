@@ -1,14 +1,14 @@
-import waku/compat/option_valueor
+import logos_delivery/waku/compat/option_valueor
 import options, std/[json, strformat]
 import chronicles, chronos, results, ffi
 import
-  waku/waku_core/message/message,
-  waku/waku_core/codecs,
-  waku/factory/waku,
-  waku/waku_core/message,
-  waku/waku_core/topics/pubsub_topic,
-  waku/waku_lightpush_legacy/client,
-  waku/node/peer_manager/peer_manager,
+  logos_delivery/waku/waku_core/message/message,
+  logos_delivery/waku/waku_core/codecs,
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/waku_core/message,
+  logos_delivery/waku/waku_core/topics/pubsub_topic,
+  logos_delivery/waku/waku_lightpush_legacy/client,
+  logos_delivery/waku/node/peer_manager/peer_manager,
   library/events/json_message_event,
   library/declare_lib
 

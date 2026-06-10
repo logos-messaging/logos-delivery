@@ -1,9 +1,7 @@
 {.used.}
 
 import std/[json, os], stew/byteutils, testutils/unittests, chronos, eth/keys
-import waku/waku_keystore, ./testlib/common
-
-from waku/waku_noise/noise_utils import randomSeqByte
+import logos_delivery/waku/waku_keystore, ./testlib/common
 
 suite "KeyFile test suite":
   test "Create/Save/Load single keyfile":

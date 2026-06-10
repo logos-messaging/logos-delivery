@@ -10,7 +10,7 @@ import
   libp2p/crypto/crypto
 
 import
-  waku/[
+  logos_delivery/waku/[
     rest_api/message_cache,
     waku_core,
     waku_node,

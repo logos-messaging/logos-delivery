@@ -7,7 +7,7 @@ import
   libp2p/builders,
   libp2p/crypto/crypto as libp2p_keys,
   eth/keys as eth_keys
-import waku/waku_core, ./common
+import logos_delivery/waku/waku_core, ./common
 
 export switch
 

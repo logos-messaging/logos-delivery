@@ -64,8 +64,6 @@ import
   ./test_waku_enr,
   ./test_waku_dnsdisc,
   ./test_relay_peer_exchange,
-  ./test_waku_noise,
-  ./test_waku_noise_sessions,
   ./test_waku_netconfig,
   ./test_waku_switch,
   ./test_waku_rendezvous,

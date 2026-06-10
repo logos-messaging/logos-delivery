@@ -31,7 +31,7 @@ import
     nameresolving/dnsresolver,
   ] # define DNS resolution
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_lightpush_legacy/common,
     waku_lightpush_legacy/rpc,
@@ -48,7 +48,7 @@ import
   ./config_chat2
 
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
-import ../../waku/waku_rln_relay
+import ../../logos_delivery/waku/waku_rln_relay
 
 const Help = """
   Commands: /[?|help|connect|nick|exit]

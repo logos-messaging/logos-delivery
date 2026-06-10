@@ -30,7 +30,7 @@ let
   # while others use the repo root. Pass both so the compiler finds either layout.
   pathArgs =
     builtins.concatStringsSep " "
-      (builtins.concatMap (p: [ "--path:${p}" "--path:${p}/src" ])
+      (builtins.concatMap (p: [ "--path:${p}" "--path:${p}/src" "--path:${p}/sds" ])
         (builtins.attrValues otherDeps));
 
   libExt =

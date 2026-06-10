@@ -1,4 +1,4 @@
-import waku/compat/option_valueor
+import logos_delivery/waku/compat/option_valueor
 {.used.}
 
 import
@@ -8,9 +8,9 @@ import
   chronos,
   libp2p/[crypto/crypto, crypto/secp, multiaddress, switch],
   tests/testlib/[wakucore, wakunode],
-  waku/factory/conf_builder/conf_builder
+  logos_delivery/waku/factory/conf_builder/conf_builder
 
-include waku/factory/waku, waku/common/enr/typed_record
+include logos_delivery/waku/factory/waku, logos_delivery/waku/common/enr/typed_record
 
 suite "Wakunode2 - Waku":
   test "compilation version should be reported":
@@ -47,7 +47,7 @@ suite "Wakunode2 - Waku initialization":
     var waku = (waitFor Waku.new(conf)).valueOr:
       raiseAssert error
 
-    (waitFor startWaku(addr waku)).isOkOr:
+    (waitFor waku.start()).isOkOr:
       raiseAssert error
 
     ## Then
@@ -72,7 +72,7 @@ suite "Wakunode2 - Waku initialization":
     var waku = (waitFor Waku.new(conf)).valueOr:
       raiseAssert error
 
-    (waitFor startWaku(addr waku)).isOkOr:
+    (waitFor waku.start()).isOkOr:
       raiseAssert error
 
     ## Then
@@ -129,7 +129,7 @@ suite "Wakunode2 - Waku initialization":
       (waitFor waku.stop()).isOkOr:
         raiseAssert error
 
-    (waitFor startWaku(addr waku)).isOkOr:
+    (waitFor waku.start()).isOkOr:
       raiseAssert error
 
     let portsJson = waku.stateInfo.getNodeInfoItem(NodeInfoId.MyBoundPorts)

@@ -15,7 +15,7 @@ import
   # Waku v2 imports
   libp2p/crypto/crypto,
   libp2p/errors,
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     waku_node,
     node/peer_manager,
@@ -242,7 +242,8 @@ proc stop*(cmb: Chat2MatterBridge) {.async: (raises: [Exception]).} =
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
 when isMainModule:
-  import waku/common/utils/nat, waku/rest_api/message_cache
+  import
+    logos_delivery/waku/common/utils/nat, logos_delivery/waku/rest_api/message_cache
 
   let
     rng = newRng()

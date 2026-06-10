@@ -13,7 +13,7 @@ import
   libp2p/protocols/pubsub/pubsub,
   libp2p/protocols/pubsub/gossipsub
 import
-  waku/[
+  logos_delivery/waku/[
     common/paging,
     waku_core,
     waku_core/message/digest,

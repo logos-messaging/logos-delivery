@@ -1,16 +1,16 @@
-import waku/compat/option_valueor
+import logos_delivery/waku/compat/option_valueor
 import std/[net, sequtils, strutils, json], strformat
 import chronicles, chronos, stew/byteutils, results, ffi
 import
-  waku/waku_core/message/message,
-  waku/factory/[validator_signed, waku],
+  logos_delivery/waku/waku_core/message/message,
+  logos_delivery/waku/factory/[validator_signed, waku],
   tools/confutils/cli_args,
-  waku/waku_core/message,
-  waku/waku_core/topics/pubsub_topic,
-  waku/waku_core/topics,
-  waku/node/kernel_api/relay,
-  waku/waku_relay/protocol,
-  waku/node/peer_manager,
+  logos_delivery/waku/waku_core/message,
+  logos_delivery/waku/waku_core/topics/pubsub_topic,
+  logos_delivery/waku/waku_core/topics,
+  logos_delivery/waku/node/waku_node/relay,
+  logos_delivery/waku/waku_relay/protocol,
+  logos_delivery/waku/node/peer_manager,
   library/events/json_message_event,
   library/declare_lib
 

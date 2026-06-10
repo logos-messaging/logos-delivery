@@ -5,22 +5,24 @@ import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
+import logos_delivery/messaging/messaging_client
 
 import
-  waku,
-  waku/[
+  logos_delivery,
+  logos_delivery/waku/[
     waku_node,
     waku_core,
     events/message_events,
     waku_relay/protocol,
-    node/kernel_api/filter,
-    node/delivery_service/subscription_manager,
+    node/waku_node/filter,
+    node/subscription_manager,
   ]
-import waku/factory/waku_conf
+import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 
 const TestTimeout = chronos.seconds(10)
 const NegativeTestTimeout = chronos.seconds(2)
+const EdgeWaitTimeout = chronos.seconds(60)
 
 type ReceiveEventListenerManager = ref object
   brokerCtx: BrokerContext
@@ -75,9 +77,9 @@ proc createApiNodeConf(
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
-  conf.clusterId = 3'u16
+  conf.clusterId = some(3'u16)
   conf.numShardsInNetwork = numShards
-  conf.reliabilityEnabled = true
+  conf.reliabilityEnabled = some(true)
   conf.rest = false
   result = conf
 
@@ -85,7 +87,8 @@ proc setupSubscriberNode(conf: WakuNodeConf): Future[Waku] {.async.} =
   var node: Waku
   lockNewGlobalBrokerContext:
     node = (await createNode(conf)).expect("Failed to create subscriber node")
-    (await startWaku(addr node)).expect("Failed to start subscriber node")
+    node.mountMessagingClient().expect("Failed to mount messaging")
+    (await node.start()).expect("Failed to start subscriber node")
   return node
 
 proc setupNetwork(
@@ -161,19 +164,38 @@ proc getRelayShard(node: WakuNode, contentTopic: ContentTopic): PubsubTopic =
   return PubsubTopic($shardObj)
 
 proc waitForMesh(node: WakuNode, shard: PubsubTopic) {.async.} =
-  for _ in 0 ..< 50:
+  let deadline = Moment.now() + EdgeWaitTimeout
+  while Moment.now() < deadline:
     if node.wakuRelay.getNumPeersInMesh(shard).valueOr(0) > 0:
       return
     await sleepAsync(100.milliseconds)
   raise newException(ValueError, "GossipSub Mesh failed to stabilize on " & shard)
 
 proc waitForEdgeSubs(w: Waku, shard: PubsubTopic) {.async.} =
-  let sm = w.deliveryService.subscriptionManager
-  for _ in 0 ..< 50:
-    if sm.edgeFilterPeerCount(shard) > 0:
+  let deadline = Moment.now() + EdgeWaitTimeout
+  while Moment.now() < deadline:
+    if w.node.subscriptionManager.edgeFilterPeerCount(shard) > 0:
       return
     await sleepAsync(100.milliseconds)
   raise newException(ValueError, "Edge filter subscription failed on " & shard)
+
+proc edgePeersReached(w: Waku, shard: PubsubTopic, n: int): Future[bool] {.async.} =
+  let deadline = Moment.now() + EdgeWaitTimeout
+  while Moment.now() < deadline:
+    if w.node.subscriptionManager.edgeFilterPeerCount(shard) >= n:
+      return true
+    await sleepAsync(100.milliseconds)
+  return false
+
+proc edgePeersDroppedBelow(
+    w: Waku, shard: PubsubTopic, n: int
+): Future[bool] {.async.} =
+  let deadline = Moment.now() + EdgeWaitTimeout
+  while Moment.now() < deadline:
+    if w.node.subscriptionManager.edgeFilterPeerCount(shard) < n:
+      return true
+    await sleepAsync(100.milliseconds)
+  return false
 
 proc publishToMesh(
     net: TestNetwork, contentTopic: ContentTopic, payload: seq[byte]
@@ -621,7 +643,8 @@ suite "Messaging API, SubscriptionManager":
     var subscriber: Waku
     lockNewGlobalBrokerContext:
       subscriber = (await createNode(conf)).expect("Failed to create edge subscriber")
-      (await startWaku(addr subscriber)).expect("Failed to start edge subscriber")
+      subscriber.mountMessagingClient().expect("Failed to mount messaging")
+      (await subscriber.start()).expect("Failed to start edge subscriber")
 
     # Connect edge subscriber to both filter servers so selectPeers finds both
     await subscriber.node.connectToNodes(@[publisherPeerInfo, meshBuddyPeerInfo])
@@ -632,12 +655,7 @@ suite "Messaging API, SubscriptionManager":
     (await subscriber.subscribe(testTopic)).expect("Failed to subscribe")
 
     # Wait for dialing both filter servers (HealthyThreshold = 2)
-    for _ in 0 ..< 100:
-      if subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2:
-        break
-      await sleepAsync(100.milliseconds)
-
-    check subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2
+    check await edgePeersReached(subscriber, shard, 2)
 
     # Verify message delivery with both servers alive
     await waitForMesh(publisher, shard)
@@ -659,12 +677,8 @@ suite "Messaging API, SubscriptionManager":
     await subscriber.node.disconnectNode(meshBuddyPeerInfo)
 
     # Wait for the dead peer to be pruned
-    for _ in 0 ..< 50:
-      if subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) < 2:
-        break
-      await sleepAsync(100.milliseconds)
-
-    check subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 1
+    check await edgePeersDroppedBelow(subscriber, shard, 2)
+    check subscriber.node.subscriptionManager.edgeFilterPeerCount(shard) >= 1
 
     # Verify messages still arrive through the surviving filter server (publisher)
     eventManager = newReceiveEventListenerManager(subscriber.brokerCtx, 1)
@@ -758,7 +772,8 @@ suite "Messaging API, SubscriptionManager":
     var subscriber: Waku
     lockNewGlobalBrokerContext:
       subscriber = (await createNode(conf)).expect("Failed to create edge subscriber")
-      (await startWaku(addr subscriber)).expect("Failed to start edge subscriber")
+      subscriber.mountMessagingClient().expect("Failed to mount messaging")
+      (await subscriber.start()).expect("Failed to start edge subscriber")
 
     await subscriber.node.connectToNodes(
       @[publisherPeerInfo, meshBuddyPeerInfo, sparePeerInfo]
@@ -770,23 +785,13 @@ suite "Messaging API, SubscriptionManager":
     (await subscriber.subscribe(testTopic)).expect("Failed to subscribe")
 
     # Wait for 2 confirmed peers (HealthyThreshold). The 3rd is available but not dialed.
-    for _ in 0 ..< 100:
-      if subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2:
-        break
-      await sleepAsync(100.milliseconds)
-
-    require subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) ==
-      2
+    check await edgePeersReached(subscriber, shard, 2)
+    require subscriber.node.subscriptionManager.edgeFilterPeerCount(shard) == 2
 
     await subscriber.node.disconnectNode(meshBuddyPeerInfo)
 
     # Wait for the sub loop to detect the loss and dial a replacement
-    for _ in 0 ..< 100:
-      if subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2:
-        break
-      await sleepAsync(100.milliseconds)
-
-    check subscriber.deliveryService.subscriptionManager.edgeFilterPeerCount(shard) >= 2
+    check await edgePeersReached(subscriber, shard, 2)
 
     await waitForMesh(publisher, shard)
 

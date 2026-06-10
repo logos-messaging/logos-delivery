@@ -1,11 +1,11 @@
-import std/[json, strutils, tables]
-import chronos, chronicles, results, confutils, confutils/std/net, ffi
+import std/json
+import chronos, chronicles, results, ffi
 import
-  waku/factory/waku,
-  waku/node/waku_node,
-  waku/api/[api, types],
-  waku/events/[message_events, health_events],
-  tools/confutils/cli_args,
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/api/[api, types],
+  logos_delivery/waku/events/[message_events, health_events],
+  tools/confutils/conf_from_json,
   ../declare_lib,
   ../json_event
 
@@ -15,59 +15,11 @@ proc `%`*(id: RequestId): JsonNode =
 
 registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
   proc(configJson: cstring): Future[Result[string, string]] {.async.} =
-    ## Parse the JSON configuration using fieldPairs approach (WakuNodeConf)
-    var conf = defaultWakuNodeConf().valueOr:
-      return err("Failed creating default conf: " & error)
+    let conf = parseNodeConfFromJson($configJson).valueOr:
+      error "Failed to assemble WakuNodeConf from JSON",
+        error = error, configJson = $configJson
+      return err("failed parseNodeConfFromJson " & error)
 
-    var jsonNode: JsonNode
-    try:
-      jsonNode = parseJson($configJson)
-    except Exception:
-      let exceptionMsg = getCurrentExceptionMsg()
-      error "Failed to parse config JSON",
-        error = exceptionMsg, configJson = $configJson
-      return err(
-        "Failed to parse config JSON: " & exceptionMsg & " configJson string: " &
-          $configJson
-      )
-
-    var jsonFields: Table[string, (string, JsonNode)]
-    for key, value in jsonNode:
-      let lowerKey = key.toLowerAscii()
-
-      if jsonFields.hasKey(lowerKey):
-        error "Duplicate configuration option found when normalized to lowercase",
-          key = key
-        return err(
-          "Duplicate configuration option found when normalized to lowercase: '" & key &
-            "'"
-        )
-
-      jsonFields[lowerKey] = (key, value)
-
-    for confField, confValue in fieldPairs(conf):
-      let lowerField = confField.toLowerAscii()
-      if jsonFields.hasKey(lowerField):
-        let (jsonKey, jsonValue) = jsonFields[lowerField]
-        let formattedString = ($jsonValue).strip(chars = {'\"'})
-        try:
-          confValue = parseCmdArg(typeof(confValue), formattedString)
-        except Exception:
-          return err(
-            "Failed to parse field '" & confField & "' from JSON key '" & jsonKey & "': " &
-              getCurrentExceptionMsg() & ". Value: " & formattedString
-          )
-
-        jsonFields.del(lowerField)
-
-    if jsonFields.len > 0:
-      var unknownKeys = newSeq[string]()
-      for _, (jsonKey, _) in pairs(jsonFields):
-        unknownKeys.add(jsonKey)
-      error "Unrecognized configuration option(s) found", option = unknownKeys
-      return err("Unrecognized configuration option(s) found: " & $unknownKeys)
-
-    # Create the node
     ctx.myLib[] = (await api.createNode(conf)).valueOr:
       let errMsg = $error
       chronicles.error "CreateNodeRequest failed", err = errMsg
@@ -96,7 +48,7 @@ proc logosdelivery_create_node(
 ): pointer {.dynlib, exportc, cdecl.} =
   initializeLibrary()
 
-  if isNil(callback):
+  if callback.isNil():
     echo "error: missing callback in logosdelivery_create_node"
     return nil
 
@@ -172,7 +124,17 @@ proc logosdelivery_start_node(
     chronicles.error "ConnectionStatusChange.listen failed", err = $error
     return err("ConnectionStatusChange.listen failed: " & $error)
 
-  (await startWaku(addr ctx.myLib[])).isOkOr:
+  ctx.myLib[].mountMessagingClient().isOkOr:
+    let errMsg = $error
+    chronicles.error "mountMessagingClient failed", error = errMsg
+    return err("failed to mount messaging: " & errMsg)
+
+  ctx.myLib[].mountReliableChannelManager().isOkOr:
+    let errMsg = $error
+    chronicles.error "mountReliableChannelManager failed", err = errMsg
+    return err("failed to mount reliable channel manager: " & errMsg)
+
+  (await ctx.myLib[].start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
     return err("failed to start: " & errMsg)

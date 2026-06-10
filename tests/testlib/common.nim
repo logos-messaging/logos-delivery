@@ -1,4 +1,4 @@
-import std/[times, random], bearssl/rand, libp2p/crypto/crypto
+import std/[times, random], bearssl/rand, libp2p/crypto/crypto, libp2p/crypto/rng
 
 ## Randomization
 
@@ -30,3 +30,8 @@ proc getRng(): crypto.Rng =
 
 template rng*(): crypto.Rng =
   getRng()
+
+proc randomSeqByte*(rng: crypto.Rng, size: int): seq[byte] =
+  var output = newSeq[byte](size.uint32)
+  hmacDrbgGenerate(rng.bearSslDrbg, output)
+  return output

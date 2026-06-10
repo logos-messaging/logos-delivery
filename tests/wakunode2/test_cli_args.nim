@@ -14,11 +14,11 @@ import
 import tools/confutils/cli_args
 
 import
-  ../../waku/factory/networks_config,
-  ../../waku/factory/waku_conf,
-  ../../waku/common/logging,
-  ../../waku/common/utils/parse_size_units,
-  ../../waku/waku_core/message/default_values
+  ../../logos_delivery/waku/factory/networks_config,
+  ../../logos_delivery/waku/factory/waku_conf,
+  ../../logos_delivery/waku/common/logging,
+  ../../logos_delivery/waku/common/utils/parse_size_units,
+  ../../logos_delivery/waku/waku_core/message/default_values
 
 suite "Waku external config - default values":
   test "Default sharding value":
@@ -57,7 +57,7 @@ suite "Waku external config - default values":
 suite "Waku external config - apply preset":
   test "Preset is TWN":
     ## Setup
-    let expectedConf = NetworkConf.TheWakuNetworkConf()
+    let expectedConf = NetworkPresetConf.TheWakuNetworkConf()
 
     ## Given
     let preConfig = WakuNodeConf(
@@ -94,7 +94,7 @@ suite "Waku external config - apply preset":
 
   test "Subscribes to all valid shards in twn":
     ## Setup
-    let expectedConf = NetworkConf.TheWakuNetworkConf()
+    let expectedConf = NetworkPresetConf.TheWakuNetworkConf()
 
     ## Given
     let shards: seq[uint16] = @[0, 1, 2, 3, 4, 5, 6, 7]
@@ -110,7 +110,7 @@ suite "Waku external config - apply preset":
 
   test "Subscribes to some valid shards in twn":
     ## Setup
-    let expectedConf = NetworkConf.TheWakuNetworkConf()
+    let expectedConf = NetworkPresetConf.TheWakuNetworkConf()
 
     ## Given
     let shards: seq[uint16] = @[0, 4, 7]

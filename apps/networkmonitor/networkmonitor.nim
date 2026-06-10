@@ -17,7 +17,7 @@ import
   metrics/chronos_httpserver,
   presto/[route, server, client]
 import
-  waku/[
+  logos_delivery/waku/[
     waku_core,
     node/peer_manager,
     waku_node,
@@ -550,7 +550,7 @@ when isMainModule:
   info "cli flags", conf = conf
 
   if conf.clusterId == 1:
-    let twnNetworkConf = NetworkConf.TheWakuNetworkConf()
+    let twnNetworkConf = NetworkPresetConf.TheWakuNetworkConf()
 
     conf.bootstrapNodes = twnNetworkConf.discv5BootstrapNodes
     conf.rlnRelayDynamic = twnNetworkConf.rlnRelayDynamic

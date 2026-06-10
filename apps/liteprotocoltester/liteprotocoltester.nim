@@ -5,14 +5,13 @@ import
   chronicles,
   chronos,
   metrics,
-  libbacktrace,
   system/ansi_c,
   libp2p/crypto/crypto,
   confutils
 
 import
   tools/confutils/cli_args,
-  waku/[
+  logos_delivery/waku/[
     common/enr,
     common/logging,
     factory/waku as waku_factory,
@@ -96,7 +95,7 @@ when isMainModule:
 
   wakuNodeConf.shards = @[conf.shard]
   wakuNodeConf.contentTopics = conf.contentTopics
-  wakuNodeConf.clusterId = conf.clusterId
+  wakuNodeConf.clusterId = some(conf.clusterId)
   ## TODO: Depending on the tester needs we might extend here with shards, clusterId, etc...
 
   wakuNodeConf.metricsServer = true
@@ -123,7 +122,7 @@ when isMainModule:
     error "Waku initialization failed", error = error
     quit(QuitFailure)
 
-  (waitFor startWaku(addr waku)).isOkOr:
+  (waitFor waku.start()).isOkOr:
     error "Starting waku failed", error = error
     quit(QuitFailure)
 
@@ -156,7 +155,7 @@ when isMainModule:
   when defined(posix):
     proc handleSigsegv(signal: cint) {.noconv.} =
       # Require --debugger:native
-      fatal "Shutting down after receiving SIGSEGV", stacktrace = getBacktrace()
+      fatal "Shutting down after receiving SIGSEGV"
 
       # Not available in -d:release mode
       writeStackTrace()

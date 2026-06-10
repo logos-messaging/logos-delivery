@@ -6,14 +6,15 @@ import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 
 import
-  waku,
-  waku/[waku_node, waku_core, waku_relay/protocol],
-  waku/node/health_monitor/[topic_health, health_status, protocol_health, health_report],
-  waku/requests/health_requests,
-  waku/requests/node_requests,
-  waku/events/health_events,
-  waku/common/waku_protocol,
-  waku/factory/waku_conf
+  logos_delivery,
+  logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol],
+  logos_delivery/waku/node/health_monitor/
+    [topic_health, health_status, protocol_health, health_report],
+  logos_delivery/waku/requests/health_requests,
+  logos_delivery/waku/requests/node_requests,
+  logos_delivery/waku/events/health_events,
+  logos_delivery/waku/common/waku_protocol,
+  logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
 
 const TestTimeout = chronos.seconds(10)
@@ -97,13 +98,15 @@ suite "LM API health checking":
       conf.listenAddress = parseIpAddress("0.0.0.0")
       conf.tcpPort = Port(0)
       conf.discv5UdpPort = Port(0)
-      conf.clusterId = 3'u16
+      conf.clusterId = some(3'u16)
       conf.numShardsInNetwork = 1
       conf.rest = false
 
       client = (await createNode(conf)).valueOr:
         raiseAssert error
-      (await startWaku(addr client)).isOkOr:
+      client.mountMessagingClient().isOkOr:
+        raiseAssert error
+      (await client.start()).isOkOr:
         raiseAssert error
 
   asyncTeardown:
@@ -274,14 +277,16 @@ suite "LM API health checking":
       edgeConf.listenAddress = parseIpAddress("0.0.0.0")
       edgeConf.tcpPort = Port(0)
       edgeConf.discv5UdpPort = Port(0)
-      edgeConf.clusterId = 3'u16
+      edgeConf.clusterId = some(3'u16)
       edgeConf.maxMessageSize = "150 KiB"
       edgeConf.rest = false
 
       edgeWaku = (await createNode(edgeConf)).valueOr:
         raiseAssert "Failed to create edge node: " & error
 
-      (await startWaku(addr edgeWaku)).isOkOr:
+      edgeWaku.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount edge messaging: " & error
+      (await edgeWaku.start()).isOkOr:
         raiseAssert "Failed to start edge waku: " & error
 
       let relayReq = await RequestProtocolHealth.request(

@@ -3,7 +3,7 @@
 import std/[options, sequtils], testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
-  waku/[
+  logos_delivery/waku/[
     common/databases/db_postgres/dbconn,
     common/paging,
     waku_core,

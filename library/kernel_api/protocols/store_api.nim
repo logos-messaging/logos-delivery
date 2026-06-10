@@ -1,14 +1,14 @@
-import waku/compat/option_valueor
+import logos_delivery/waku/compat/option_valueor
 import std/[json, sugar, strutils, options]
 import chronos, chronicles, results, stew/byteutils, ffi
 import
-  waku/factory/waku,
+  logos_delivery/waku/factory/waku,
   library/utils,
-  waku/waku_core/peers,
-  waku/waku_core/message/digest,
-  waku/waku_store/common,
-  waku/waku_store/client,
-  waku/common/paging,
+  logos_delivery/waku/waku_core/peers,
+  logos_delivery/waku/waku_core/message/digest,
+  logos_delivery/waku/waku_store/common,
+  logos_delivery/waku/waku_store/client,
+  logos_delivery/waku/common/paging,
   library/declare_lib
 
 func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =

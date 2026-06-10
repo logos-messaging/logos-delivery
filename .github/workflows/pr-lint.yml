@@ -26,8 +26,8 @@ jobs:
           - 'apps/chat2bridge/config_chat2bridge.nim'
 
           db_schema:
-          - 'waku/waku_archive/driver/postgres_driver/postgres_driver.nim'
-          - 'waku/waku_archive/driver/sqlite_driver/queries.nim'
+          - 'logos_delivery/waku/waku_archive/driver/postgres_driver/postgres_driver.nim'
+          - 'logos_delivery/waku/waku_archive/driver/sqlite_driver/queries.nim'
     - name: Comment config change
       uses: thollander/actions-comment-pull-request@v2
       if: ${{steps.filter.outputs.config == 'true'}}
