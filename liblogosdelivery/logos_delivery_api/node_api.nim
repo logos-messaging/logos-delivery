@@ -18,7 +18,7 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
     let conf = parseNodeConfFromJson($configJson).valueOr:
       error "Failed to assemble WakuNodeConf from JSON",
         error = error, configJson = $configJson
-      return err(error)
+      return err("failed parseNodeConfFromJson " & error)
 
     ctx.myLib[] = (await api.createNode(conf)).valueOr:
       let errMsg = $error
