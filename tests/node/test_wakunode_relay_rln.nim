@@ -271,10 +271,10 @@ suite "Waku RlnRelay - End to End - Static":
         payload150kibPlus = getByteSequence((150 * 1024) - overhead + 1)
 
       let
-        message1b = new WakuMessage
-        message1kib = new WakuMessage
-        message150kib = new WakuMessage
-        message151kibPlus = new WakuMessage
+        message1b = WakuMessage.new()
+        message1kib = WakuMessage.new()
+        message150kib = WakuMessage.new()
+        message151kibPlus = WakuMessage.new()
       message1b[] = WakuMessage(payload: @payload1b, contentTopic: contentTopic)
       message1kib[] = WakuMessage(payload: @payload1kib, contentTopic: contentTopic)
       message150kib[] = WakuMessage(payload: @payload150kib, contentTopic: contentTopic)
@@ -367,7 +367,7 @@ suite "Waku RlnRelay - End to End - Static":
         overhead: uint64 = 419
         payload150kibPlus = getByteSequence((150 * 1024) - overhead + 1)
 
-      let message151kibPlus = new WakuMessage
+      let message151kibPlus = WakuMessage.new()
       message151kibPlus[] =
         WakuMessage(payload: @payload150kibPlus, contentTopic: contentTopic)
 
