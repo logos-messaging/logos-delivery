@@ -40,9 +40,7 @@ requires "nim >= 2.2.4",
   "secp256k1",
   "bearssl",
   # RPC & APIs
-  # json_rpc pinned to the master commit that relaxes the nim-websock cap to allow
-  # v0.4.0 (PR #277, landed after the v0.6.0 tag) — needed by the libp2p 2.0.0 bump.
-  "https://github.com/status-im/nim-json-rpc.git#f62ed04d7c630ddd834e296b7e7db2e1aa72a315",
+  "https://github.com/status-im/nim-json-rpc.git#v0.6.1",
   "presto",
   "web3",
   # Database
@@ -69,7 +67,7 @@ requires "https://github.com/logos-messaging/nim-sds.git#abdd40cc645f1b024c3ee99
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.1.1"
 
-requires "https://github.com/vacp2p/nim-lsquic"
+requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
 

@@ -454,8 +454,8 @@
       }
     },
     "json_rpc": {
-      "version": "0.6.0",
-      "vcsRevision": "f62ed04d7c630ddd834e296b7e7db2e1aa72a315",
+      "version": "0.6.1",
+      "vcsRevision": "6f1fff8ba685c9192fab153a9d66484ad9066e78",
       "url": "https://github.com/status-im/nim-json-rpc.git",
       "downloadMethod": "git",
       "dependencies": [
@@ -472,12 +472,12 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "4221c98dbc09ba56d68ca0a36b5c2ad90e39a43b"
+        "sha1": "596db0aafcb3c83f5dba6d42993f2276e0d00eb5"
       }
     },
     "lsquic": {
-      "version": "0.4.1",
-      "vcsRevision": "00e4b7dfaa197cd120267aa897b33b0914166b45",
+      "version": "0.5.1",
+      "vcsRevision": "2f01046bf1d513de8b5f8296c3d8bec819ab0cb9",
       "url": "https://github.com/vacp2p/nim-lsquic",
       "downloadMethod": "git",
       "dependencies": [
@@ -491,7 +491,7 @@
         "boringssl"
       ],
       "checksums": {
-        "sha1": "5e36783661eab239bd4d8566ff3195c8d14f1923"
+        "sha1": "959df1a9ac2a574d6fe30a4faf37c37b443e1cfb"
       }
     },
     "secp256k1": {
@@ -658,15 +658,15 @@
       }
     },
     "boringssl": {
-      "version": "0.0.4",
-      "vcsRevision": "1c91a4a2579123597df43bbdea70cc575957bdea",
+      "version": "0.0.8",
+      "vcsRevision": "e77caabae78fbc9aa5b78a0a521181b077c82571",
       "url": "https://github.com/vacp2p/nim-boringssl",
       "downloadMethod": "git",
       "dependencies": [
         "nim"
       ],
       "checksums": {
-        "sha1": "3655faa30099538293cb7d60e726783dff9d979a"
+        "sha1": "2f603bb6d70683393bbb091bf6bd325d9c52be9f"
       }
     },
     "protobuf_serialization": {
