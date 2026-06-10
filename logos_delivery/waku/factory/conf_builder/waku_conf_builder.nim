@@ -489,7 +489,7 @@ proc enforceSecurityConstraints(builder: WakuConfBuilder): Result[void, string] 
     let presetMandatesRln = preset.rlnRelay
     let relayEnabled = builder.relay.get(DefaultRelay)
     let rlnRelayConf = builder.rlnRelayConf
-    let rlnRelayEnabled = rlnRelayConf.enabled.get(false)
+    let rlnRelayEnabled = rlnRelayConf.enabled.get(DefaultRLN)
 
     if relayEnabled and presetMandatesRln:
       if not rlnRelayEnabled:
