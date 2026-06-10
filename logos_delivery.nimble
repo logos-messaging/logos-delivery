@@ -42,7 +42,7 @@ requires "nim >= 2.2.4",
   # RPC & APIs
   "https://github.com/status-im/nim-json-rpc.git#v0.6.1",
   "presto",
-  "https://github.com/fcecin/nim-web3-websock040#96f39ea1b633277c1d93eafd62759db1d498e359",
+  "web3",
   # Database
   "db_connector",
   "sqlite3_abi",

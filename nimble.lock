@@ -472,7 +472,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "596db0aafcb3c83f5dba6d42993f2276e0d00eb5"
+        "sha1": "4221c98dbc09ba56d68ca0a36b5c2ad90e39a43b"
       }
     },
     "lsquic": {
@@ -538,8 +538,8 @@
     },
     "web3": {
       "version": "0.8.0",
-      "vcsRevision": "96f39ea1b633277c1d93eafd62759db1d498e359",
-      "url": "https://github.com/fcecin/nim-web3-websock040",
+      "vcsRevision": "cdfe5601d2812a58e54faf53ee634452d01e5918",
+      "url": "https://github.com/status-im/nim-web3",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
@@ -557,7 +557,7 @@
         "results"
       ],
       "checksums": {
-        "sha1": "b5972104bc9223a34ae3758293225264822af893"
+        "sha1": "26a112af032ef1536f97da2ca7364af618a11b80"
       }
     },
     "dnsdisc": {
