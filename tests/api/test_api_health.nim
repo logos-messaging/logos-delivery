@@ -98,7 +98,7 @@ suite "LM API health checking":
       conf.listenAddress = parseIpAddress("0.0.0.0")
       conf.tcpPort = Port(0)
       conf.discv5UdpPort = Port(0)
-      conf.clusterId = 3'u16
+      conf.clusterId = some(3'u16)
       conf.numShardsInNetwork = 1
       conf.rest = false
 
@@ -277,7 +277,7 @@ suite "LM API health checking":
       edgeConf.listenAddress = parseIpAddress("0.0.0.0")
       edgeConf.tcpPort = Port(0)
       edgeConf.discv5UdpPort = Port(0)
-      edgeConf.clusterId = 3'u16
+      edgeConf.clusterId = some(3'u16)
       edgeConf.maxMessageSize = "150 KiB"
       edgeConf.rest = false
 

@@ -4,7 +4,13 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder discv5"
 
-const DefaultDiscv5UdpPort*: Port = Port(9000)
+const
+  DefaultDiscv5Enabled*: bool = false
+  DefaultDiscv5BitsPerHop: int = 1
+  DefaultDiscv5BucketIpLimit: uint = 2
+  DefaultDiscv5EnrAutoUpdate: bool = true
+  DefaultDiscv5TableIpLimit: uint = 10
+  DefaultDiscv5UdpPort: Port = Port(9000)
 
 ###########################
 ## Discv5 Config Builder ##
@@ -48,17 +54,17 @@ proc withBootstrapNodes*(b: var Discv5ConfBuilder, bootstrapNodes: seq[string]) 
   b.bootstrapNodes = concat(b.bootstrapNodes, bootstrapNodes)
 
 proc build*(b: Discv5ConfBuilder): Result[Option[Discv5Conf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultDiscv5Enabled):
     return ok(none(Discv5Conf))
 
   return ok(
     some(
       Discv5Conf(
         bootstrapNodes: b.bootstrapNodes,
-        bitsPerHop: b.bitsPerHop.get(1),
-        bucketIpLimit: b.bucketIpLimit.get(2),
-        enrAutoUpdate: b.enrAutoUpdate.get(true),
-        tableIpLimit: b.tableIpLimit.get(10),
+        bitsPerHop: b.bitsPerHop.get(DefaultDiscv5BitsPerHop),
+        bucketIpLimit: b.bucketIpLimit.get(DefaultDiscv5BucketIpLimit),
+        enrAutoUpdate: b.enrAutoUpdate.get(DefaultDiscv5EnrAutoUpdate),
+        tableIpLimit: b.tableIpLimit.get(DefaultDiscv5TableIpLimit),
         udpPort: b.udpPort.get(DefaultDiscv5UdpPort),
       )
     )

@@ -13,6 +13,9 @@ import
     factory/networks_config,
     common/logging,
     common/utils/parse_size_units,
+    node/peer_manager,
+    waku_core/message/default_values,
+    waku_core/topics/pubsub_topic,
     waku_enr/capabilities,
     persistency/persistency,
   ],
@@ -35,9 +38,38 @@ import
 logScope:
   topics = "waku conf builder"
 
+# Picks up the same -d:git_version=... build flag that cli_args.nim defines.
+const git_version {.strdefine.} = "(unknown)"
+
 const
-  DefaultMaxConnections* = 150
-  DefaultP2pTcpPort*: Port = Port(60000)
+  DefaultMaxConnections = 150
+  DefaultRelay: bool = false
+    # historical confbuilder default; wakunode2 CLI deviates (true)
+  DefaultLightPush: bool = false
+  DefaultPeerExchange: bool = false
+    # historical confbuilder default; wakunode2 CLI deviates (true)
+  DefaultStoreSyncMount: bool = false
+  DefaultRendezvous: bool = false
+    # historical confbuilder default; wakunode2 CLI deviates (true)
+  DefaultMix*: bool = false
+  DefaultRelayPeerExchange: bool = false
+  DefaultLogLevel: logging.LogLevel = logging.LogLevel.INFO
+  DefaultLogFormat: logging.LogFormat = logging.LogFormat.TEXT
+  DefaultNatStrategy: string = "none"
+  DefaultP2pTcpPort: Port = Port(60000)
+  DefaultP2pListenAddress: IpAddress = static parseIpAddress("0.0.0.0")
+  DefaultPortsShift: uint16 = 0
+  DefaultExtMultiAddrsOnly: bool = false
+  DefaultDnsAddrsNameServers: seq[IpAddress] =
+    @[static parseIpAddress("1.1.1.1"), static parseIpAddress("1.0.0.1")]
+  DefaultPeerPersistence: bool = false
+  DefaultAgentString*: string = "logos-delivery-" & git_version
+  DefaultRelayShardedPeerManagement: bool = false
+  DefaultRelayServiceRatio: string = "50:50"
+  DefaultCircuitRelayClient: bool = false
+  DefaultP2pReliability*: bool = true
+  DefaultNumShardsInCluster: uint16 = 1
+  DefaultShardingConfKind: ShardingConfKind = AutoSharding
 
 type MaxMessageSizeKind* = enum
   mmskNone
@@ -99,7 +131,7 @@ type WakuConfBuilder* = object
   # TODO: move within a relayConf
   rendezvous: Option[bool]
 
-  networkConf: Option[NetworkConf]
+  networkPresetConf: Option[NetworkPresetConf]
 
   staticNodes: seq[string]
 
@@ -153,8 +185,10 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     kademliaDiscoveryConf: KademliaDiscoveryConfBuilder.init(),
   )
 
-proc withNetworkConf*(b: var WakuConfBuilder, networkConf: NetworkConf) =
-  b.networkConf = some(networkConf)
+proc withNetworkPresetConf*(
+    b: var WakuConfBuilder, networkPresetConf: NetworkPresetConf
+) =
+  b.networkPresetConf = some(networkPresetConf)
 
 proc withNodeKey*(b: var WakuConfBuilder, nodeKey: crypto.PrivateKey) =
   b.nodeKey = some(nodeKey)
@@ -309,121 +343,129 @@ proc buildShardingConf(
     bNumShardsInCluster: Option[uint16],
     bSubscribeShards: Option[seq[uint16]],
 ): (ShardingConf, seq[uint16]) =
-  case bShardingConfKind.get(AutoSharding)
+  case bShardingConfKind.get(DefaultShardingConfKind)
   of StaticSharding:
     (ShardingConf(kind: StaticSharding), bSubscribeShards.get(@[]))
   of AutoSharding:
-    let numShardsInCluster = bNumShardsInCluster.get(1)
+    let numShardsInCluster = bNumShardsInCluster.get(DefaultNumShardsInCluster)
     let shardingConf =
       ShardingConf(kind: AutoSharding, numShardsInCluster: numShardsInCluster)
     let upperShard = uint16(numShardsInCluster - 1)
     (shardingConf, bSubscribeShards.get(toSeq(0.uint16 .. upperShard)))
 
-proc applyNetworkConf(builder: var WakuConfBuilder) =
-  # Apply network conf, overrides most values passed individually
-  # If you want to tweak values, don't use networkConf
-  # TODO: networkconf should be one field of the conf builder so that this function becomes unnecessary
-  if builder.networkConf.isNone():
-    return
-  let networkConf = builder.networkConf.get()
+template checkSetPresetValueToField[T](
+    field: var Option[T], presetVal: T, msg: static string
+) =
+  ## Set the field to the preset's value, unless the field is already set
+  ## (explicit wins). Warn iff the field's existing value differs from the
+  ## preset's. No-op if they agree.
 
-  if builder.clusterId.isSome():
-    warn "Cluster id was provided alongside a network conf",
-      used = networkConf.clusterId, discarded = builder.clusterId.get()
-  builder.clusterId = some(networkConf.clusterId)
+  if field.isSome():
+    if field.get() != presetVal:
+      warn msg, used = field.get(), discarded = presetVal
+  else:
+    field = some(presetVal)
+
+proc checkAddPresetValueToField[T](field: var seq[T], presetVals: seq[T]) =
+  ## Append the preset's list values to the field's existing list. Lists
+  ## concat rather than override; both the user's and the preset's entries
+  ## end up in the final list.
+
+  field = field & presetVals
+
+proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
+  ## NetworkPresetConf = network presets.
+  ## Cascade the chosen preset's values onto builder fields the user hasn't set.
+  ## User-set fields stay; preset fills the gaps and warns on conflict (explicit wins).
+  ## List fields concat (preset's nodes appended to user's).
+
+  if builder.networkPresetConf.isNone():
+    return # If there is no preset given, then nothing to do.
+
+  let networkPresetConf = builder.networkPresetConf.get()
+
+  checkSetPresetValueToField(
+    builder.clusterId, networkPresetConf.clusterId,
+    "Cluster id was provided alongside a network conf",
+  )
 
   # Apply relay parameters
-  if builder.relay.get(false) and networkConf.rlnRelay:
-    if builder.rlnRelayConf.enabled.isSome():
-      warn "RLN Relay was provided alongside a network conf",
-        used = networkConf.rlnRelay, discarded = builder.rlnRelayConf.enabled
-    builder.rlnRelayConf.withEnabled(true)
-
-    if builder.rlnRelayConf.ethContractAddress.get("") != "":
-      warn "RLN Relay ETH Contract Address was provided alongside a network conf",
-        used = networkConf.rlnRelayEthContractAddress.string,
-        discarded = builder.rlnRelayConf.ethContractAddress.get().string
-    builder.rlnRelayConf.withEthContractAddress(networkConf.rlnRelayEthContractAddress)
-
-    if builder.rlnRelayConf.chainId.isSome():
-      warn "RLN Relay Chain Id was provided alongside a network conf",
-        used = networkConf.rlnRelayChainId, discarded = builder.rlnRelayConf.chainId
-    builder.rlnRelayConf.withChainId(networkConf.rlnRelayChainId)
-
-    if builder.rlnRelayConf.dynamic.isSome():
-      warn "RLN Relay Dynamic was provided alongside a network conf",
-        used = networkConf.rlnRelayDynamic, discarded = builder.rlnRelayConf.dynamic
-    builder.rlnRelayConf.withDynamic(networkConf.rlnRelayDynamic)
-
-    if builder.rlnRelayConf.epochSizeSec.isSome():
-      warn "RLN Epoch Size in Seconds was provided alongside a network conf",
-        used = networkConf.rlnEpochSizeSec,
-        discarded = builder.rlnRelayConf.epochSizeSec
-    builder.rlnRelayConf.withEpochSizeSec(networkConf.rlnEpochSizeSec)
-
-    if builder.rlnRelayConf.userMessageLimit.isSome():
-      warn "RLN Relay User Message Limit was provided alongside a network conf",
-        used = networkConf.rlnRelayUserMessageLimit,
-        discarded = builder.rlnRelayConf.userMessageLimit
-    if builder.rlnRelayConf.userMessageLimit.get(0) == 0:
-      ## only override with the "preset" value if there was not explicit set value
-      builder.rlnRelayConf.withUserMessageLimit(networkConf.rlnRelayUserMessageLimit)
-
+  if builder.relay.get(DefaultRelay) and networkPresetConf.rlnRelay:
+    checkSetPresetValueToField(
+      builder.rlnRelayConf.enabled,
+      networkPresetConf.rlnRelay, # true
+      "RLN Relay was provided alongside a network conf",
+    )
+    checkSetPresetValueToField(
+      builder.rlnRelayConf.ethContractAddress,
+      networkPresetConf.rlnRelayEthContractAddress,
+      "RLN Relay ETH Contract Address was provided alongside a network conf",
+    )
+    checkSetPresetValueToField(
+      builder.rlnRelayConf.chainId, networkPresetConf.rlnRelayChainId,
+      "RLN Relay Chain Id was provided alongside a network conf",
+    )
+    checkSetPresetValueToField(
+      builder.rlnRelayConf.dynamic, networkPresetConf.rlnRelayDynamic,
+      "RLN Relay Dynamic was provided alongside a network conf",
+    )
+    checkSetPresetValueToField(
+      builder.rlnRelayConf.epochSizeSec, networkPresetConf.rlnEpochSizeSec,
+      "RLN Epoch Size in Seconds was provided alongside a network conf",
+    )
+    checkSetPresetValueToField(
+      builder.rlnRelayConf.userMessageLimit, networkPresetConf.rlnRelayUserMessageLimit,
+      "RLN Relay User Message Limit was provided alongside a network conf",
+    )
   # End Apply relay parameters
 
   case builder.maxMessageSize.kind
   of mmskNone:
-    discard
+    builder.withMaxMessageSize(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
   of mmskStr, mmskInt:
     warn "Max Message Size was provided alongside a network conf",
-      used = networkConf.maxMessageSize, discarded = $builder.maxMessageSize
-  builder.withMaxMessageSize(parseCorrectMsgSize(networkConf.maxMessageSize))
+      used = $builder.maxMessageSize, discarded = networkPresetConf.maxMessageSize
 
-  if builder.shardingConf.isSome():
-    warn "Sharding Conf was provided alongside a network conf",
-      used = networkConf.shardingConf.kind, discarded = builder.shardingConf
-
-  case networkConf.shardingConf.kind
-  of StaticSharding:
-    builder.shardingConf = some(StaticSharding)
+  checkSetPresetValueToField(
+    builder.shardingConf, networkPresetConf.shardingConf.kind,
+    "Sharding Conf was provided alongside a network conf",
+  )
+  case networkPresetConf.shardingConf.kind
   of AutoSharding:
-    builder.shardingConf = some(AutoSharding)
-    if builder.numShardsInCluster.isSome():
-      warn "Num Shards In Cluster overrides network conf preset",
-        used = builder.numShardsInCluster.get(),
-        ignored = networkConf.shardingConf.numShardsInCluster
-    else:
-      builder.numShardsInCluster = some(networkConf.shardingConf.numShardsInCluster)
+    checkSetPresetValueToField(
+      builder.numShardsInCluster, networkPresetConf.shardingConf.numShardsInCluster,
+      "Num Shards In Cluster overrides network conf preset",
+    )
+  of StaticSharding:
+    discard
 
-  if networkConf.discv5Discovery:
-    if builder.discv5Conf.enabled.isNone:
-      builder.discv5Conf.withEnabled(networkConf.discv5Discovery)
+  checkSetPresetValueToField(
+    builder.discv5Conf.enabled, networkPresetConf.discv5Discovery,
+    "Discv5 Discovery was provided alongside a network conf",
+  )
+  checkAddPresetValueToField(
+    builder.discv5Conf.bootstrapNodes, networkPresetConf.discv5BootstrapNodes
+  )
 
-    if builder.discv5Conf.bootstrapNodes.len == 0 and
-        networkConf.discv5BootstrapNodes.len > 0:
-      warn "Discv5 Bootstrap nodes were provided alongside a network conf",
-        used = networkConf.discv5BootstrapNodes,
-        discarded = builder.discv5Conf.bootstrapNodes
-    builder.discv5Conf.withBootstrapNodes(networkConf.discv5BootstrapNodes)
+  checkSetPresetValueToField(
+    builder.kademliaDiscoveryConf.enabled, networkPresetConf.enableKadDiscovery,
+    "Kademlia Discovery was provided alongside a network conf",
+  )
+  checkAddPresetValueToField(
+    builder.kademliaDiscoveryConf.bootstrapNodes, networkPresetConf.kadBootstrapNodes
+  )
 
-  if networkConf.enableKadDiscovery:
-    if not builder.kademliaDiscoveryConf.enabled:
-      builder.kademliaDiscoveryConf.withEnabled(networkConf.enableKadDiscovery)
-
-    if builder.kademliaDiscoveryConf.bootstrapNodes.len == 0 and
-        networkConf.kadBootstrapNodes.len > 0:
-      builder.kademliaDiscoveryConf.withBootstrapNodes(networkConf.kadBootstrapNodes)
-
-  if networkConf.mix:
-    if builder.mix.isNone:
-      builder.mix = some(networkConf.mix)
-
-  if builder.p2pReliability.isNone:
-    builder.withP2pReliability(networkConf.p2pReliability)
+  checkSetPresetValueToField(
+    builder.mix, networkPresetConf.mix, "Mix was provided alongside a network conf"
+  )
+  checkSetPresetValueToField(
+    builder.p2pReliability, networkPresetConf.p2pReliability,
+    "P2P Reliability was provided alongside a network conf",
+  )
 
   # Process entry nodes from network config - classify and distribute
-  if networkConf.entryNodes.len > 0:
-    let processed = processEntryNodes(networkConf.entryNodes)
+  if networkPresetConf.entryNodes.len > 0:
+    let processed = processEntryNodes(networkPresetConf.entryNodes)
     if processed.isOk():
       let (enrTreeUrls, bootstrapEnrs, staticNodesFromEntry) = processed.get()
 
@@ -442,6 +484,47 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
     else:
       warn "Failed to process entry nodes from network conf", error = processed.error()
 
+proc rejectOverride[T](
+    field: Option[T], presetValue: T, msg: string
+): Result[void, string] =
+  ## Errors with `msg` if `field` is set to anything other than the preset's value.
+  if field.isSome() and field.get() != presetValue:
+    return err(msg)
+  ok()
+
+proc enforceSecurityConstraints(builder: WakuConfBuilder): Result[void, string] =
+  ## Errors if the resolved config violates a security constraint.
+
+  if builder.networkPresetConf.isSome():
+    let preset = builder.networkPresetConf.get()
+    let relayEnabled = builder.relay.get(DefaultRelay)
+    let rlnRelayConf = builder.rlnRelayConf
+    let rlnRelayEnabled = rlnRelayConf.enabled.get(DefaultRlnRelayEnabled)
+
+    if relayEnabled and preset.rlnRelay:
+      if not rlnRelayEnabled:
+        return
+          err("network preset mandates RLN relay: cannot relay with rln-relay disabled")
+
+      ?rejectOverride(
+        rlnRelayConf.ethContractAddress, preset.rlnRelayEthContractAddress,
+        "network preset mandates its RLN contract: cannot relay with a different rln-relay-eth-contract-address",
+      )
+      ?rejectOverride(
+        rlnRelayConf.chainId, preset.rlnRelayChainId,
+        "network preset mandates its RLN chain id: cannot relay with a different rln-relay-chain-id",
+      )
+      ?rejectOverride(
+        rlnRelayConf.dynamic, preset.rlnRelayDynamic,
+        "network preset mandates its RLN membership mode: cannot relay with a different rln-relay-dynamic",
+      )
+      ?rejectOverride(
+        rlnRelayConf.epochSizeSec, preset.rlnEpochSizeSec,
+        "network preset mandates its RLN epoch size: cannot relay with a different rln-relay-epoch-sec",
+      )
+
+  ok()
+
 proc build*(
     builder: var WakuConfBuilder, rng: ref HmacDrbgContext = crypto.newRng()
 ): Result[WakuConf, string] =
@@ -450,51 +533,59 @@ proc build*(
   ## of libwaku. It aims to be agnostic so it does not apply a
   ## default when it is opinionated.
 
-  applyNetworkConf(builder)
+  applyNetworkPresetConf(builder)
+
+  # We should not ignore any user-supplied config parameter: the user is
+  # allowed to override any preset parameter with any explicit config
+  # parameter. However, we do gate config building with an error if any
+  # one of these preset overrides is considered a security concern.
+  # This eliminates ambiguous behavior such as warning of an override and
+  # then ignoring it: either fail-fast or accept the override.
+  ?enforceSecurityConstraints(builder)
 
   let relay =
     if builder.relay.isSome():
       builder.relay.get()
     else:
       warn "whether to mount relay is not specified, defaulting to not mounting"
-      false
+      DefaultRelay
 
   let lightPush =
     if builder.lightPush.isSome():
       builder.lightPush.get()
     else:
       warn "whether to mount lightPush is not specified, defaulting to not mounting"
-      false
+      DefaultLightPush
 
   let peerExchange =
     if builder.peerExchange.isSome():
       builder.peerExchange.get()
     else:
       warn "whether to mount peerExchange is not specified, defaulting to not mounting"
-      false
+      DefaultPeerExchange
 
   let storeSync =
     if builder.storeSync.isSome():
       builder.storeSync.get()
     else:
       warn "whether to mount storeSync is not specified, defaulting to not mounting"
-      false
+      DefaultStoreSyncMount
 
   let rendezvous =
     if builder.rendezvous.isSome():
       builder.rendezvous.get()
     else:
       warn "whether to mount rendezvous is not specified, defaulting to not mounting"
-      false
+      DefaultRendezvous
 
   let mix =
     if builder.mix.isSome():
       builder.mix.get()
     else:
       warn "whether to mount mix is not specified, defaulting to not mounting"
-      false
+      DefaultMix
 
-  let relayPeerExchange = builder.relayPeerExchange.get(false)
+  let relayPeerExchange = builder.relayPeerExchange.get(DefaultRelayPeerExchange)
 
   let nodeKey = ?nodeKey(builder, rng)
 
@@ -503,7 +594,7 @@ proc build*(
       # TODO: ClusterId should never be defaulted, instead, presets
       # should be defined and used
       warn("Cluster Id was not specified, defaulting to 0")
-      0.uint16
+      DefaultClusterId
     else:
       builder.clusterId.get().uint16
 
@@ -522,8 +613,9 @@ proc build*(
     of mmskStr:
       ?parseMsgSize(builder.maxMessageSize.str)
     else:
-      warn "Max Message Size not specified, defaulting to 150KiB"
-      parseCorrectMsgSize("150KiB")
+      warn "Max Message Size not specified, defaulting to DefaultMaxWakuMessageSize",
+        default = DefaultMaxWakuMessageSizeStr
+      DefaultMaxWakuMessageSize
 
   let contentTopics = builder.contentTopics.get(@[])
 
@@ -568,21 +660,21 @@ proc build*(
       builder.logLevel.get()
     else:
       warn "Log Level not specified, defaulting to INFO"
-      logging.LogLevel.INFO
+      DefaultLogLevel
 
   let logFormat =
     if builder.logFormat.isSome():
       builder.logFormat.get()
     else:
       warn "Log Format not specified, defaulting to TEXT"
-      logging.LogFormat.TEXT
+      DefaultLogFormat
 
   let natStrategy =
     if builder.natStrategy.isSome():
       builder.natStrategy.get()
     else:
       warn "Nat Strategy is not specified, defaulting to none"
-      "none"
+      DefaultNatStrategy
 
   let p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
 
@@ -591,14 +683,14 @@ proc build*(
       builder.p2pListenAddress.get()
     else:
       warn "P2P listening address not specified, listening on 0.0.0.0"
-      (static parseIpAddress("0.0.0.0"))
+      DefaultP2pListenAddress
 
   let portsShift =
     if builder.portsShift.isSome():
       builder.portsShift.get()
     else:
       warn "Ports Shift is not specified, defaulting to 0"
-      0.uint16
+      DefaultPortsShift
 
   let dns4DomainName =
     if builder.dns4DomainName.isSome():
@@ -621,21 +713,21 @@ proc build*(
       builder.extMultiAddrsOnly.get()
     else:
       warn "Whether to only announce external multiaddresses is not specified, defaulting to false"
-      false
+      DefaultExtMultiAddrsOnly
 
   let dnsAddrsNameServers =
     if builder.dnsAddrsNameServers.len != 0:
       builder.dnsAddrsNameServers
     else:
       warn "DNS name servers IPs not provided, defaulting to Cloudflare's."
-      @[static parseIpAddress("1.1.1.1"), static parseIpAddress("1.0.0.1")]
+      DefaultDnsAddrsNameServers
 
   let peerPersistence =
     if builder.peerPersistence.isSome():
       builder.peerPersistence.get()
     else:
       warn "Peer persistence not specified, defaulting to false"
-      false
+      DefaultPeerPersistence
 
   let maxConnections =
     if builder.maxConnections.isSome():
@@ -649,15 +741,13 @@ proc build*(
     warn "max-connections less than DefaultMaxConnections; we suggest using DefaultMaxConnections or more for better connectivity",
       provided = maxConnections, recommended = DefaultMaxConnections
 
-  # TODO: Do the git version thing here
-  let agentString = builder.agentString.get("logos-delivery")
+  let agentString = builder.agentString.get(DefaultAgentString)
 
-  # TODO: use `DefaultColocationLimit`. the user of this value should
-  # probably be defining a config object
-  let colocationLimit = builder.colocationLimit.get(5)
+  let colocationLimit = builder.colocationLimit.get(DefaultColocationLimit)
 
   # TODO: is there a strategy for experimental features? delete vs promote
-  let relayShardedPeerManagement = builder.relayShardedPeerManagement.get(false)
+  let relayShardedPeerManagement =
+    builder.relayShardedPeerManagement.get(DefaultRelayShardedPeerManagement)
 
   let wakuFlags = CapabilitiesBitfield.init(
     lightpush = lightPush and relay,
@@ -718,12 +808,12 @@ proc build*(
     agentString: agentString,
     colocationLimit: colocationLimit,
     maxRelayPeers: builder.maxRelayPeers,
-    relayServiceRatio: builder.relayServiceRatio.get("50:50"),
+    relayServiceRatio: builder.relayServiceRatio.get(DefaultRelayServiceRatio),
     rateLimit: rateLimit,
-    circuitRelayClient: builder.circuitRelayClient.get(false),
+    circuitRelayClient: builder.circuitRelayClient.get(DefaultCircuitRelayClient),
     staticNodes: builder.staticNodes,
     relayShardedPeerManagement: relayShardedPeerManagement,
-    p2pReliability: builder.p2pReliability.get(false),
+    p2pReliability: builder.p2pReliability.get(DefaultP2pReliability),
     wakuFlags: wakuFlags,
     localStoragePath: builder.localStoragePath.get(DefaultStoragePath),
   )

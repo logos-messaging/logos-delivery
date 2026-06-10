@@ -4,6 +4,12 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder filter service"
 
+const
+  DefaultFilterEnabled: bool = false
+  DefaultFilterMaxPeersToServe: uint32 = 500
+  DefaultFilterSubscriptionTimeout: uint16 = 300
+  DefaultFilterMaxCriteria: uint32 = 1000
+
 ###################################
 ## Filter Service Config Builder ##
 ###################################
@@ -37,15 +43,15 @@ proc withMaxCriteria*(b: var FilterServiceConfBuilder, maxCriteria: uint32) =
   b.maxCriteria = some(maxCriteria)
 
 proc build*(b: FilterServiceConfBuilder): Result[Option[FilterServiceConf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultFilterEnabled):
     return ok(none(FilterServiceConf))
 
   return ok(
     some(
       FilterServiceConf(
-        maxPeersToServe: b.maxPeersToServe.get(500),
-        subscriptionTimeout: b.subscriptionTimeout.get(300),
-        maxCriteria: b.maxCriteria.get(1000),
+        maxPeersToServe: b.maxPeersToServe.get(DefaultFilterMaxPeersToServe),
+        subscriptionTimeout: b.subscriptionTimeout.get(DefaultFilterSubscriptionTimeout),
+        maxCriteria: b.maxCriteria.get(DefaultFilterMaxCriteria),
       )
     )
   )
