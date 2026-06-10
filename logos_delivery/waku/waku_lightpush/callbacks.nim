@@ -25,7 +25,7 @@ proc checkAndGenerateRLNProof*(
   let
     time = getTime().toUnix()
     senderEpochTime = float64(time)
-  let msgWithProof = new WakuMessage
+  let msgWithProof = WakuMessage.new()
   msgWithProof[] = message
   ?(await rlnPeer.get().appendRLNProof(msgWithProof, senderEpochTime))
   return ok(msgWithProof[])

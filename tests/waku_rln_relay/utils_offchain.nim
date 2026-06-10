@@ -53,7 +53,7 @@ proc sendRlnMessage*(
     completionFuture: Future[bool],
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
-  let msgRef = new WakuMessage
+  let msgRef = WakuMessage.new()
   msgRef[] = WakuMessage(payload: payload, contentTopic: contentTopic)
   let appendResult = await client.wakuRlnRelay.appendRLNProof(msgRef, epochTime())
     # Assignment required or crashess

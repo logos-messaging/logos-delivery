@@ -76,7 +76,7 @@ proc sendRlnMessage*(
     completionFuture: Future[bool],
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
-  let msgRef = new WakuMessage
+  let msgRef = WakuMessage.new()
   msgRef[] = WakuMessage(payload: payload, contentTopic: contentTopic)
   doAssert((await client.wakuRlnRelay.appendRLNProof(msgRef, epochTime())).isOk())
   discard await client.publish(some(pubsubTopic), msgRef[])

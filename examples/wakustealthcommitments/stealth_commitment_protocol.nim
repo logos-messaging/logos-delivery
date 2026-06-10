@@ -46,7 +46,7 @@ proc sendThruWaku*(
     timestamp: getNanosecondTime(time),
   )
 
-  let msgRef = new WakuMessage
+  let msgRef = WakuMessage.new()
   msgRef[] = message
   (await self.waku.node.wakuRlnRelay.appendRLNProof(msgRef, float64(time))).isOkOr:
     return err("could not append rate limit proof to the message: " & $error)

@@ -298,7 +298,7 @@ proc installRelayApiHandlers*(
 
     # if RLN is mounted, append the proof to the message
     if not node.wakuRlnRelay.isNil():
-      let msgRef = new WakuMessage
+      let msgRef = WakuMessage.new()
       msgRef[] = message
       (await node.wakuRlnRelay.appendRLNProof(msgRef, float64(getTime().toUnix()))).isOkOr:
         return RestApiResponse.internalServerError(
