@@ -16,7 +16,7 @@ import
 suite "Waku Conf - build with cluster conf":
   test "Cluster Conf is passed and relay is enabled":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
     builder.discv5Conf.withUdpPort(9000)
     builder.withRelayServiceRatio("50:50")
@@ -26,7 +26,7 @@ suite "Waku Conf - build with cluster conf":
 
     ## Given
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withRelay(true)
     builder.rlnRelayConf.withUserMessageLimit(userMessageLimit)
 
@@ -38,29 +38,29 @@ suite "Waku Conf - build with cluster conf":
     ## Then
     let resValidate = conf.validate()
     assert resValidate.isOk(), $resValidate.error
-    check conf.clusterId == networkConf.clusterId
-    check conf.shardingConf.kind == networkConf.shardingConf.kind
+    check conf.clusterId == networkPresetConf.clusterId
+    check conf.shardingConf.kind == networkPresetConf.shardingConf.kind
     check conf.shardingConf.numShardsInCluster ==
-      networkConf.shardingConf.numShardsInCluster
+      networkPresetConf.shardingConf.numShardsInCluster
     check conf.subscribeShards == expectedShards
     check conf.maxMessageSizeBytes ==
-      uint64(parseCorrectMsgSize(networkConf.maxMessageSize))
-    check conf.discv5Conf.get().bootstrapNodes == networkConf.discv5BootstrapNodes
+      uint64(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
+    check conf.discv5Conf.get().bootstrapNodes == networkPresetConf.discv5BootstrapNodes
 
-    if networkConf.rlnRelay:
+    if networkPresetConf.rlnRelay:
       assert conf.rlnRelayConf.isSome(), "RLN Relay conf is disabled"
 
       let rlnRelayConf = conf.rlnRelayConf.get()
       check rlnRelayConf.ethContractAddress.string ==
-        networkConf.rlnRelayEthContractAddress
-      check rlnRelayConf.dynamic == networkConf.rlnRelayDynamic
-      check rlnRelayConf.chainId == networkConf.rlnRelayChainId
-      check rlnRelayConf.epochSizeSec == networkConf.rlnEpochSizeSec
+        networkPresetConf.rlnRelayEthContractAddress
+      check rlnRelayConf.dynamic == networkPresetConf.rlnRelayDynamic
+      check rlnRelayConf.chainId == networkPresetConf.rlnRelayChainId
+      check rlnRelayConf.epochSizeSec == networkPresetConf.rlnEpochSizeSec
       check rlnRelayConf.userMessageLimit == userMessageLimit.uint
 
   test "Cluster Conf is passed, but relay is disabled":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
     builder.withRelayServiceRatio("50:50")
     builder.discv5Conf.withUdpPort(9000)
@@ -69,7 +69,7 @@ suite "Waku Conf - build with cluster conf":
 
     ## Given
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withRelay(false)
 
     ## When
@@ -80,20 +80,20 @@ suite "Waku Conf - build with cluster conf":
     ## Then
     let resValidate = conf.validate()
     assert resValidate.isOk(), $resValidate.error
-    check conf.clusterId == networkConf.clusterId
-    check conf.shardingConf.kind == networkConf.shardingConf.kind
+    check conf.clusterId == networkPresetConf.clusterId
+    check conf.shardingConf.kind == networkPresetConf.shardingConf.kind
     check conf.shardingConf.numShardsInCluster ==
-      networkConf.shardingConf.numShardsInCluster
+      networkPresetConf.shardingConf.numShardsInCluster
     check conf.subscribeShards == expectedShards
     check conf.maxMessageSizeBytes ==
-      uint64(parseCorrectMsgSize(networkConf.maxMessageSize))
-    check conf.discv5Conf.get().bootstrapNodes == networkConf.discv5BootstrapNodes
+      uint64(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
+    check conf.discv5Conf.get().bootstrapNodes == networkPresetConf.discv5BootstrapNodes
 
     assert conf.rlnRelayConf.isNone
 
   test "Cluster Conf is passed, but rln relay is disabled":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
 
     let # Mount all shards in network
@@ -101,7 +101,7 @@ suite "Waku Conf - build with cluster conf":
 
     ## Given
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.rlnRelayConf.withEnabled(false)
 
     ## When
@@ -112,25 +112,25 @@ suite "Waku Conf - build with cluster conf":
     ## Then
     let resValidate = conf.validate()
     assert resValidate.isOk(), $resValidate.error
-    check conf.clusterId == networkConf.clusterId
-    check conf.shardingConf.kind == networkConf.shardingConf.kind
+    check conf.clusterId == networkPresetConf.clusterId
+    check conf.shardingConf.kind == networkPresetConf.shardingConf.kind
     check conf.shardingConf.numShardsInCluster ==
-      networkConf.shardingConf.numShardsInCluster
+      networkPresetConf.shardingConf.numShardsInCluster
     check conf.subscribeShards == expectedShards
     check conf.maxMessageSizeBytes ==
-      uint64(parseCorrectMsgSize(networkConf.maxMessageSize))
-    check conf.discv5Conf.get().bootstrapNodes == networkConf.discv5BootstrapNodes
+      uint64(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
+    check conf.discv5Conf.get().bootstrapNodes == networkPresetConf.discv5BootstrapNodes
     assert conf.rlnRelayConf.isNone
 
   test "Cluster Conf is passed and valid shards are specified":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
     let shards = @[2.uint16, 3.uint16]
 
     ## Given
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withSubscribeShards(shards)
 
     ## When
@@ -141,24 +141,24 @@ suite "Waku Conf - build with cluster conf":
     ## Then
     let resValidate = conf.validate()
     assert resValidate.isOk(), $resValidate.error
-    check conf.clusterId == networkConf.clusterId
-    check conf.shardingConf.kind == networkConf.shardingConf.kind
+    check conf.clusterId == networkPresetConf.clusterId
+    check conf.shardingConf.kind == networkPresetConf.shardingConf.kind
     check conf.shardingConf.numShardsInCluster ==
-      networkConf.shardingConf.numShardsInCluster
+      networkPresetConf.shardingConf.numShardsInCluster
     check conf.subscribeShards == shards
     check conf.maxMessageSizeBytes ==
-      uint64(parseCorrectMsgSize(networkConf.maxMessageSize))
-    check conf.discv5Conf.get().bootstrapNodes == networkConf.discv5BootstrapNodes
+      uint64(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
+    check conf.discv5Conf.get().bootstrapNodes == networkPresetConf.discv5BootstrapNodes
 
   test "Cluster Conf is passed and invalid shards are specified":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
     let shards = @[2.uint16, 10.uint16]
 
     ## Given
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withSubscribeShards(shards)
 
     ## When
@@ -169,11 +169,11 @@ suite "Waku Conf - build with cluster conf":
 
   test "Cluster Conf mandating RLN fails conf build if user disables rln relay":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
 
     ## Given
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withRelay(true)
     builder.rlnRelayConf.withEnabled(false)
 
@@ -181,39 +181,39 @@ suite "Waku Conf - build with cluster conf":
     let resConf = builder.build()
 
     ## Then
-    assert networkConf.rlnRelay, "precondition: preset must mandate RLN"
+    assert networkPresetConf.rlnRelay, "precondition: preset must mandate RLN"
     assert resConf.isErr(), "relay with rln relay disabled was accepted"
 
   test "Cluster Conf mandating RLN fails conf build if user overrides the rln contract":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
     # otherwise-valid RLN, so only the security gate can fail the build
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
 
     ## Given
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withRelay(true)
     builder.rlnRelayConf.withEthContractAddress(
-      networkConf.rlnRelayEthContractAddress & "0"
+      networkPresetConf.rlnRelayEthContractAddress & "0"
     )
 
     ## When
     let resConf = builder.build()
 
     ## Then
-    assert networkConf.rlnRelay, "precondition: preset must mandate RLN"
+    assert networkPresetConf.rlnRelay, "precondition: preset must mandate RLN"
     assert resConf.isErr(), "relay with an overridden rln contract was accepted"
 
   test "Cluster Conf mandating RLN fails conf build if user overrides the rln chain id":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
     # otherwise-valid RLN, so only the security gate can fail the build
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
 
     ## Given
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withRelay(true)
     builder.rlnRelayConf.withChainId(1'u) # chain id 1 differs from the preset's
 
@@ -221,58 +221,58 @@ suite "Waku Conf - build with cluster conf":
     let resConf = builder.build()
 
     ## Then
-    assert networkConf.rlnRelay, "precondition: preset must mandate RLN"
+    assert networkPresetConf.rlnRelay, "precondition: preset must mandate RLN"
     assert resConf.isErr(), "relay with an overridden rln chain id was accepted"
 
   test "Cluster Conf mandating RLN fails conf build if user overrides rln dynamic mode":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
     # otherwise-valid RLN, so only the security gate can fail the build
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
 
     ## Given
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withRelay(true)
-    builder.rlnRelayConf.withDynamic(not networkConf.rlnRelayDynamic)
+    builder.rlnRelayConf.withDynamic(not networkPresetConf.rlnRelayDynamic)
 
     ## When
     let resConf = builder.build()
 
     ## Then
-    assert networkConf.rlnRelay, "precondition: preset must mandate RLN"
+    assert networkPresetConf.rlnRelay, "precondition: preset must mandate RLN"
     assert resConf.isErr(), "relay with an overridden rln dynamic mode was accepted"
 
   test "Cluster Conf mandating RLN fails conf build if user overrides the rln epoch size":
     ## Setup
-    let networkConf = NetworkConf.TheWakuNetworkConf()
+    let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()
     var builder = WakuConfBuilder.init()
     # otherwise-valid RLN, so only the security gate can fail the build
     builder.rlnRelayConf.withEthClientUrls(@["https://my_eth_rpc_url/"])
 
     ## Given
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withRelay(true)
-    builder.rlnRelayConf.withEpochSizeSec(networkConf.rlnEpochSizeSec + 1'u64)
+    builder.rlnRelayConf.withEpochSizeSec(networkPresetConf.rlnEpochSizeSec + 1'u64)
 
     ## When
     let resConf = builder.build()
 
     ## Then
-    assert networkConf.rlnRelay, "precondition: preset must mandate RLN"
+    assert networkPresetConf.rlnRelay, "precondition: preset must mandate RLN"
     assert resConf.isErr(), "relay with an overridden rln epoch size was accepted"
 
   test "num-shards-in-network > 0 overrides preset":
     ## Setup
-    let networkConf = NetworkConf.LogosDevConf()
+    let networkPresetConf = NetworkPresetConf.LogosDevConf()
     var builder = WakuConfBuilder.init()
 
     # Sanity check
-    check networkConf.shardingConf.kind == AutoSharding
-    check networkConf.shardingConf.numShardsInCluster > 1
+    check networkPresetConf.shardingConf.kind == AutoSharding
+    check networkPresetConf.shardingConf.numShardsInCluster > 1
 
     ## Given: preset says >1 shards but user explicitly sets 1
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
     builder.withNumShardsInCluster(1)
     builder.withShardingConf(AutoSharding)
 
@@ -293,18 +293,18 @@ suite "Waku Conf - build with cluster conf":
     ## StaticSharding shouldn't make any sense (that is, no use case).
 
     ## Given: emulate --preset=logos.dev --num-shards-in-network=0
-    let networkConf = NetworkConf.LogosDevConf()
+    let networkPresetConf = NetworkPresetConf.LogosDevConf()
     var builder = WakuConfBuilder.init()
-    builder.withNetworkConf(networkConf)
+    builder.withNetworkPresetConf(networkPresetConf)
 
     ## When
     let conf = builder.build().expect("build should succeed")
 
     ## Then: preset wins and StaticSharding user intent is lost
     conf.validate().expect("conf should validate")
-    check conf.shardingConf.kind == networkConf.shardingConf.kind
+    check conf.shardingConf.kind == networkPresetConf.shardingConf.kind
     check conf.shardingConf.numShardsInCluster ==
-      networkConf.shardingConf.numShardsInCluster
+      networkPresetConf.shardingConf.numShardsInCluster
 
 suite "Waku Conf - node key":
   test "Node key is generated":

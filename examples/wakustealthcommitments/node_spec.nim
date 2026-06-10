@@ -21,7 +21,7 @@ proc setup*(): Waku =
     error "failure while loading the configuration", error = $error
     quit(QuitFailure)
 
-  let twnNetworkConf = NetworkConf.TheWakuNetworkConf()
+  let twnNetworkConf = NetworkPresetConf.TheWakuNetworkConf()
   if len(conf.shards) != 0:
     conf.pubsubTopics = conf.shards.mapIt(twnNetworkConf.pubsubTopics[it.uint16])
   else:

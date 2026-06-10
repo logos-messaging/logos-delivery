@@ -28,11 +28,12 @@ proc withBootstrapNodes*(
 proc build*(
     b: KademliaDiscoveryConfBuilder
 ): Result[Option[KademliaDiscoveryConf], string] =
-  # Kademlia is enabled if explicitly enabled OR if bootstrap nodes are provided
-  let enabled = b.enabled.get(DefaultKadEnabled) or b.bootstrapNodes.len > 0
-  if not enabled:
+  # Explicit disable wins: enabled=false disables regardless of bootstrap nodes.
+  if b.enabled == some(false):
     return ok(none(KademliaDiscoveryConf))
-
+  # Otherwise enabled if config-enabled or any bootstrap nodes are provided.
+  if not b.enabled.get(DefaultKadEnabled) and b.bootstrapNodes.len == 0:
+    return ok(none(KademliaDiscoveryConf))
   var parsedNodes: seq[(PeerId, seq[MultiAddress])]
   for nodeStr in b.bootstrapNodes:
     let (peerId, ma) = parseFullAddress(nodeStr).valueOr:

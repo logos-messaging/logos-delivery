@@ -131,7 +131,7 @@ type WakuConfBuilder* = object
   # TODO: move within a relayConf
   rendezvous: Option[bool]
 
-  networkConf: Option[NetworkConf]
+  networkPresetConf: Option[NetworkPresetConf]
 
   staticNodes: seq[string]
 
@@ -185,8 +185,10 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     kademliaDiscoveryConf: KademliaDiscoveryConfBuilder.init(),
   )
 
-proc withNetworkConf*(b: var WakuConfBuilder, networkConf: NetworkConf) =
-  b.networkConf = some(networkConf)
+proc withNetworkPresetConf*(
+    b: var WakuConfBuilder, networkPresetConf: NetworkPresetConf
+) =
+  b.networkPresetConf = some(networkPresetConf)
 
 proc withNodeKey*(b: var WakuConfBuilder, nodeKey: crypto.PrivateKey) =
   b.nodeKey = some(nodeKey)
@@ -371,98 +373,99 @@ proc checkAddPresetValueToField[T](field: var seq[T], presetVals: seq[T]) =
 
   field = field & presetVals
 
-proc applyNetworkConf(builder: var WakuConfBuilder) =
-  ## NetworkConf = network presets.
+proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
+  ## NetworkPresetConf = network presets.
   ## Cascade the chosen preset's values onto builder fields the user hasn't set.
   ## User-set fields stay; preset fills the gaps and warns on conflict (explicit wins).
   ## List fields concat (preset's nodes appended to user's).
 
-  if builder.networkConf.isNone():
+  if builder.networkPresetConf.isNone():
     return # If there is no preset given, then nothing to do.
 
-  let networkConf = builder.networkConf.get()
+  let networkPresetConf = builder.networkPresetConf.get()
 
   checkSetPresetValueToField(
-    builder.clusterId, networkConf.clusterId,
+    builder.clusterId, networkPresetConf.clusterId,
     "Cluster id was provided alongside a network conf",
   )
 
   # Apply relay parameters
-  if builder.relay.get(DefaultRelay) and networkConf.rlnRelay:
+  if builder.relay.get(DefaultRelay) and networkPresetConf.rlnRelay:
     checkSetPresetValueToField(
       builder.rlnRelayConf.enabled,
-      networkConf.rlnRelay, # true
+      networkPresetConf.rlnRelay, # true
       "RLN Relay was provided alongside a network conf",
     )
     checkSetPresetValueToField(
-      builder.rlnRelayConf.ethContractAddress, networkConf.rlnRelayEthContractAddress,
+      builder.rlnRelayConf.ethContractAddress,
+      networkPresetConf.rlnRelayEthContractAddress,
       "RLN Relay ETH Contract Address was provided alongside a network conf",
     )
     checkSetPresetValueToField(
-      builder.rlnRelayConf.chainId, networkConf.rlnRelayChainId,
+      builder.rlnRelayConf.chainId, networkPresetConf.rlnRelayChainId,
       "RLN Relay Chain Id was provided alongside a network conf",
     )
     checkSetPresetValueToField(
-      builder.rlnRelayConf.dynamic, networkConf.rlnRelayDynamic,
+      builder.rlnRelayConf.dynamic, networkPresetConf.rlnRelayDynamic,
       "RLN Relay Dynamic was provided alongside a network conf",
     )
     checkSetPresetValueToField(
-      builder.rlnRelayConf.epochSizeSec, networkConf.rlnEpochSizeSec,
+      builder.rlnRelayConf.epochSizeSec, networkPresetConf.rlnEpochSizeSec,
       "RLN Epoch Size in Seconds was provided alongside a network conf",
     )
     checkSetPresetValueToField(
-      builder.rlnRelayConf.userMessageLimit, networkConf.rlnRelayUserMessageLimit,
+      builder.rlnRelayConf.userMessageLimit, networkPresetConf.rlnRelayUserMessageLimit,
       "RLN Relay User Message Limit was provided alongside a network conf",
     )
   # End Apply relay parameters
 
   case builder.maxMessageSize.kind
   of mmskNone:
-    builder.withMaxMessageSize(parseCorrectMsgSize(networkConf.maxMessageSize))
+    builder.withMaxMessageSize(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
   of mmskStr, mmskInt:
     warn "Max Message Size was provided alongside a network conf",
-      used = $builder.maxMessageSize, discarded = networkConf.maxMessageSize
+      used = $builder.maxMessageSize, discarded = networkPresetConf.maxMessageSize
 
   checkSetPresetValueToField(
-    builder.shardingConf, networkConf.shardingConf.kind,
+    builder.shardingConf, networkPresetConf.shardingConf.kind,
     "Sharding Conf was provided alongside a network conf",
   )
-  case networkConf.shardingConf.kind
+  case networkPresetConf.shardingConf.kind
   of AutoSharding:
     checkSetPresetValueToField(
-      builder.numShardsInCluster, networkConf.shardingConf.numShardsInCluster,
+      builder.numShardsInCluster, networkPresetConf.shardingConf.numShardsInCluster,
       "Num Shards In Cluster overrides network conf preset",
     )
   of StaticSharding:
     discard
 
   checkSetPresetValueToField(
-    builder.discv5Conf.enabled, networkConf.discv5Discovery,
+    builder.discv5Conf.enabled, networkPresetConf.discv5Discovery,
     "Discv5 Discovery was provided alongside a network conf",
   )
   checkAddPresetValueToField(
-    builder.discv5Conf.bootstrapNodes, networkConf.discv5BootstrapNodes
+    builder.discv5Conf.bootstrapNodes, networkPresetConf.discv5BootstrapNodes
   )
 
   checkSetPresetValueToField(
-    builder.kademliaDiscoveryConf.enabled, networkConf.enableKadDiscovery,
+    builder.kademliaDiscoveryConf.enabled, networkPresetConf.enableKadDiscovery,
     "Kademlia Discovery was provided alongside a network conf",
   )
   checkAddPresetValueToField(
-    builder.kademliaDiscoveryConf.bootstrapNodes, networkConf.kadBootstrapNodes
+    builder.kademliaDiscoveryConf.bootstrapNodes, networkPresetConf.kadBootstrapNodes
   )
 
   checkSetPresetValueToField(
-    builder.mix, networkConf.mix, "Mix was provided alongside a network conf"
+    builder.mix, networkPresetConf.mix, "Mix was provided alongside a network conf"
   )
   checkSetPresetValueToField(
-    builder.p2pReliability, networkConf.p2pReliability,
+    builder.p2pReliability, networkPresetConf.p2pReliability,
     "P2P Reliability was provided alongside a network conf",
   )
 
   # Process entry nodes from network config - classify and distribute
-  if networkConf.entryNodes.len > 0:
-    let processed = processEntryNodes(networkConf.entryNodes)
+  if networkPresetConf.entryNodes.len > 0:
+    let processed = processEntryNodes(networkPresetConf.entryNodes)
     if processed.isOk():
       let (enrTreeUrls, bootstrapEnrs, staticNodesFromEntry) = processed.get()
 
@@ -481,52 +484,44 @@ proc applyNetworkConf(builder: var WakuConfBuilder) =
     else:
       warn "Failed to process entry nodes from network conf", error = processed.error()
 
+proc rejectOverride[T](
+    field: Option[T], presetValue: T, msg: string
+): Result[void, string] =
+  ## Errors with `msg` if `field` is set to anything other than the preset's value.
+  if field.isSome() and field.get() != presetValue:
+    return err(msg)
+  ok()
+
 proc enforceSecurityConstraints(builder: WakuConfBuilder): Result[void, string] =
   ## Errors if the resolved config violates a security constraint.
 
-  if builder.networkConf.isSome():
-    let preset = builder.networkConf.get()
-    let presetMandatesRln = preset.rlnRelay
+  if builder.networkPresetConf.isSome():
+    let preset = builder.networkPresetConf.get()
     let relayEnabled = builder.relay.get(DefaultRelay)
     let rlnRelayConf = builder.rlnRelayConf
-    let rlnRelayEnabled = rlnRelayConf.enabled.get(DefaultRLN)
+    let rlnRelayEnabled = rlnRelayConf.enabled.get(DefaultRlnRelayEnabled)
 
-    if relayEnabled and presetMandatesRln:
+    if relayEnabled and preset.rlnRelay:
       if not rlnRelayEnabled:
         return
           err("network preset mandates RLN relay: cannot relay with rln-relay disabled")
 
-      let contractOverridden =
-        rlnRelayConf.ethContractAddress.isSome() and
-        rlnRelayConf.ethContractAddress.get() != preset.rlnRelayEthContractAddress
-      if contractOverridden:
-        return err(
-          "network preset mandates its RLN contract: cannot relay with a different rln-relay-eth-contract-address"
-        )
-
-      let chainIdOverridden =
-        rlnRelayConf.chainId.isSome() and
-        rlnRelayConf.chainId.get() != preset.rlnRelayChainId
-      if chainIdOverridden:
-        return err(
-          "network preset mandates its RLN chain id: cannot relay with a different rln-relay-chain-id"
-        )
-
-      let dynamicOverridden =
-        rlnRelayConf.dynamic.isSome() and
-        rlnRelayConf.dynamic.get() != preset.rlnRelayDynamic
-      if dynamicOverridden:
-        return err(
-          "network preset mandates its RLN membership mode: cannot relay with a different rln-relay-dynamic"
-        )
-
-      let epochOverridden =
-        rlnRelayConf.epochSizeSec.isSome() and
-        rlnRelayConf.epochSizeSec.get() != preset.rlnEpochSizeSec
-      if epochOverridden:
-        return err(
-          "network preset mandates its RLN epoch size: cannot relay with a different rln-relay-epoch-sec"
-        )
+      ?rejectOverride(
+        rlnRelayConf.ethContractAddress, preset.rlnRelayEthContractAddress,
+        "network preset mandates its RLN contract: cannot relay with a different rln-relay-eth-contract-address",
+      )
+      ?rejectOverride(
+        rlnRelayConf.chainId, preset.rlnRelayChainId,
+        "network preset mandates its RLN chain id: cannot relay with a different rln-relay-chain-id",
+      )
+      ?rejectOverride(
+        rlnRelayConf.dynamic, preset.rlnRelayDynamic,
+        "network preset mandates its RLN membership mode: cannot relay with a different rln-relay-dynamic",
+      )
+      ?rejectOverride(
+        rlnRelayConf.epochSizeSec, preset.rlnEpochSizeSec,
+        "network preset mandates its RLN epoch size: cannot relay with a different rln-relay-epoch-sec",
+      )
 
   ok()
 
@@ -538,7 +533,7 @@ proc build*(
   ## of libwaku. It aims to be agnostic so it does not apply a
   ## default when it is opinionated.
 
-  applyNetworkConf(builder)
+  applyNetworkPresetConf(builder)
 
   # We should not ignore any user-supplied config parameter: the user is
   # allowed to override any preset parameter with any explicit config
