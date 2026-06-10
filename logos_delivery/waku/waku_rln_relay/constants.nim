@@ -14,6 +14,11 @@ const RlnContractRootCacheSize* = 5
 # Using Linea block generation time as reference, which is around 2 seconds
 const RootsRefreshMinInterval* = 2.seconds
 
+# Minimum time between two consecutive merkle proof path freshness checks.
+# Bounds how often the publish path queries chain when generating proofs at a high rate.
+# Using Linea block generation time as reference, which is around 2 seconds
+const PathCheckMinInterval* = 2.seconds
+
 # RLN membership key and index files path
 const RlnCredentialsFilename* = "rlnCredentials.txt"
 
