@@ -234,7 +234,7 @@ proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
   ## On-demand refresh of validRoots from the on-chain root cache.
   ## Concurrent callers coalesce onto a single in-flight refresh, and
   ## refreshes are throttled to at most one per RootsRefreshMinInterval.
-  if not g.rootsRefreshInFlight.isNil and not g.rootsRefreshInFlight.finished():
+  if not g.rootsRefreshInFlight.isNil() and not g.rootsRefreshInFlight.finished():
     await g.rootsRefreshInFlight
     return
 
@@ -265,7 +265,7 @@ proc ensureFreshMerkleProofPath(
   if g.membershipIndex.isNone():
     return err("membership index is not set")
 
-  if g.proofPathRefreshInFlight != nil and not g.proofPathRefreshInFlight.finished():
+  if not g.proofPathRefreshInFlight.isNil() and not g.proofPathRefreshInFlight.finished():
     await g.proofPathRefreshInFlight
     if g.merkleProofCache.len > 0:
       return ok()
