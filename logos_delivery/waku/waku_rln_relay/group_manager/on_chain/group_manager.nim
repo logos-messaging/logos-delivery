@@ -255,6 +255,12 @@ proc ensureFreshMerkleProofPath(
 ): Future[Result[void, string]] {.async.} =
   ## Refreshes the cached Merkle proof path when stale or empty. Concurrent
   ## callers coalesce onto a single in-flight fetch.
+  ## Pulls any new on-chain roots first: publish-only nodes never run
+  ## `validateRoot`, so without this they'd never observe a root change between
+  ## `trackRootChanges` polls. `refreshRoots` is coalesced + throttled, so the
+  ## steady-state cost is one cheap check.
+  await g.refreshRoots()
+
   if not g.merkleProofPathStale and g.merkleProofCache.len > 0:
     return ok()
 
@@ -266,6 +272,7 @@ proc ensureFreshMerkleProofPath(
       if res.isOk():
         g.merkleProofCache = res.get()
         g.merkleProofPathStale = false
+        debug "Merkle proof path refreshed successfully"
       else:
         error "failed to refresh merkle proof path", error = res.error
 
@@ -489,6 +496,7 @@ method generateProof*(
   if g.userMessageLimit.isNone():
     return err("user message limit is not set")
 
+  debug "Generating RLN proof"
   ?(await g.ensureFreshMerkleProofPath())
 
   if (g.merkleProofCache.len mod 32) != 0:
