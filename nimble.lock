@@ -472,7 +472,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "4221c98dbc09ba56d68ca0a36b5c2ad90e39a43b"
+        "sha1": "596db0aafcb3c83f5dba6d42993f2276e0d00eb5"
       }
     },
     "lsquic": {
