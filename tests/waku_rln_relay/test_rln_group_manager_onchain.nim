@@ -360,14 +360,14 @@ suite "Onchain group manager":
     check manager.validRoots.len() > 0
 
     let knownRoot = manager.validRoots[0]
-    let preRefreshTs = manager.lastRootsRefresh
+    let preRefreshTs = manager.lastRootsRefreshMoment
 
     let validated = waitFor manager.validateRoot(knownRoot)
 
     check:
       validated
       # No refresh should have been triggered on a fast-path hit.
-      manager.lastRootsRefresh == preRefreshTs
+      manager.lastRootsRefreshMoment == preRefreshTs
 
   test "validateRoot: triggers on-demand refresh when root is not in window":
     (waitFor manager.init()).isOkOr:
@@ -406,16 +406,16 @@ suite "Onchain group manager":
     var badRoot1: MerkleNode
     badRoot1[0] = 0x42
     discard waitFor manager.validateRoot(badRoot1)
-    let firstRefreshTs = manager.lastRootsRefresh
+    let firstRefreshTs = manager.lastRootsRefreshMoment
 
     # Second miss within RootsRefreshMinInterval must be throttled out;
-    # lastRootsRefresh stays pinned to the previous refresh timestamp.
+    # lastRootsRefreshMoment stays pinned to the previous refresh timestamp.
     var badRoot2: MerkleNode
     badRoot2[0] = 0x43
     discard waitFor manager.validateRoot(badRoot2)
 
     check:
-      manager.lastRootsRefresh == firstRefreshTs
+      manager.lastRootsRefreshMoment == firstRefreshTs
 
   test "generateProof: fast-paths without refresh when path cache is fresh":
     (waitFor manager.init()).isOkOr:

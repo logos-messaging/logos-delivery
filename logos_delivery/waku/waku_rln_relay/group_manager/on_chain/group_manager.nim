@@ -44,7 +44,7 @@ type
     latestProcessedBlock*: BlockNumber
     merkleProofCache*: seq[byte]
     merkleProofPathStale*: bool
-    lastRootsRefresh*: Moment
+    lastRootsRefreshMoment*: Moment
     rootsRefreshInFlight*: Future[void]
     proofPathRefreshInFlight*: Future[void]
 
@@ -226,17 +226,17 @@ proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
   ## Concurrent callers coalesce onto a single in-flight refresh, and
   ## refreshes are throttled to at most one per RootsRefreshMinInterval.
   ## The cached merkle proof path is marked stale whenever validRoots changes.
-  if g.rootsRefreshInFlight != nil and not g.rootsRefreshInFlight.finished():
+  if not g.rootsRefreshInFlight.isNil and not g.rootsRefreshInFlight.finished():
     await g.rootsRefreshInFlight
     return
 
-  if Moment.now() - g.lastRootsRefresh < RootsRefreshMinInterval:
+  if Moment.now() - g.lastRootsRefreshMoment < RootsRefreshMinInterval:
     return
 
   proc doRefresh(): Future[void] {.async.} =
     if await g.updateRecentRoots():
       g.merkleProofPathStale = true
-    g.lastRootsRefresh = Moment.now()
+    g.lastRootsRefreshMoment = Moment.now()
 
   g.rootsRefreshInFlight = doRefresh()
   await g.rootsRefreshInFlight
@@ -279,7 +279,7 @@ proc ensureFreshMerkleProofPath(
 proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
   ?checkInitialized(g)
 
-  const rpcDelay = 10.seconds
+  const rpcDelay = 600.seconds
 
   while true:
     let rootUpdated = await g.updateRecentRoots()
