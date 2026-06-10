@@ -1,6 +1,7 @@
 {.used.}
 
-import std/[net]
+import std/[net, os]
+from std/times import epochTime
 import chronos, testutils/unittests, stew/byteutils
 import brokers/broker_context
 
@@ -14,6 +15,12 @@ import tools/confutils/cli_args
 
 import logos_delivery/channels/reliable_channel_manager
 import logos_delivery/channels/encryption/noop_encryption
+import logos_delivery/waku/persistency/keys
+import logos_delivery/waku/persistency/sds_persistency
+
+## Full nim-sds API: ingress tests act as the remote peer and need
+## `wrapOutgoingMessage` to produce real SDS envelopes for the wire.
+import sds
 
 const TestTimeout = chronos.seconds(15)
 
@@ -76,12 +83,22 @@ suite "Reliable Channel - ingress":
       .expect("listen ChannelMessageReceivedEvent")
 
     ## Build a `WakuMessage` that looks like one that came in off the
-    ## wire from a peer: the spec marker on `meta` plus the right content
-    ## topic. The manager's ingress listener should pick it up,
-    ## decrypt (noop), unwrap SDS (pass-through), reassemble (one
-    ## segment), and finally emit `ChannelMessageReceivedEvent`.
+    ## wire from a peer: the spec marker on `meta`, the right content
+    ## topic, and the payload wrapped in a real SDS envelope by a
+    ## stand-in remote peer. The manager's ingress listener should pick
+    ## it up, decrypt (noop), unwrap SDS (first message, no missing
+    ## dependencies), reassemble (one segment), and finally emit
+    ## `ChannelMessageReceivedEvent`.
+    let remotePeer =
+      ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
+    let sdsWire = (
+      await remotePeer.wrapOutgoingMessage(
+        appPayload, "ingress-test-msg-1", SdsChannelID(channelId)
+      )
+    ).expect("wrapOutgoingMessage")
+
     let inboundMsg = WakuMessage(
-      payload: appPayload,
+      payload: sdsWire,
       contentTopic: contentTopic,
       version: 0,
       meta: LipWireReliableChannelVersion.toBytes(),
@@ -202,7 +219,7 @@ suite "Reliable Channel - send state machine":
       )
       .expect("listen ChannelMessageSentEvent")
 
-    let channelReqId = manager.send(channelId, "hello".toBytes()).expect("send")
+    let channelReqId = (await manager.send(channelId, "hello".toBytes())).expect("send")
 
     let dispatchDeadline = Moment.now() + 1.seconds
     while Moment.now() < dispatchDeadline and sendCalls == 0:
@@ -280,8 +297,10 @@ suite "Reliable Channel - send state machine":
       )
       .expect("listen ChannelMessageErrorEvent")
 
-    let channelReqId1 = manager.send(channelId, "first".toBytes()).expect("send 1")
-    let channelReqId2 = manager.send(channelId, "second".toBytes()).expect("send 2")
+    let channelReqId1 =
+      (await manager.send(channelId, "first".toBytes())).expect("send 1")
+    let channelReqId2 =
+      (await manager.send(channelId, "second".toBytes())).expect("send 2")
 
     let dispatchDeadline = Moment.now() + 1.seconds
     while Moment.now() < dispatchDeadline and msgReqIds.len < 2:
@@ -386,7 +405,8 @@ suite "Reliable Channel - send state machine":
       )
       .expect("listen ChannelMessageSentEvent")
 
-    let channelReqId1 = manager.send(channelId, "first".toBytes()).expect("send 1")
+    let channelReqId1 =
+      (await manager.send(channelId, "first".toBytes())).expect("send 1")
 
     ## Drain the first segment fully before queueing the second, so
     ## the rate-limit FIFO between sibling sends isn't itself under
@@ -396,7 +416,8 @@ suite "Reliable Channel - send state machine":
       await sleepAsync(5.milliseconds)
     check msgReqIds.len == 1
 
-    let channelReqId2 = manager.send(channelId, "second".toBytes()).expect("send 2")
+    let channelReqId2 =
+      (await manager.send(channelId, "second".toBytes())).expect("send 2")
 
     ## Wait until `fakeSend(m2)` has fully returned and yield once
     ## more so `onReadyToSend`'s post-await continuation gets a chance
@@ -422,5 +443,79 @@ suite "Reliable Channel - send state machine":
       check finalisedReqIds.len == 2
       check channelReqId1 in finalisedReqIds
       check channelReqId2 in finalisedReqIds
+
+    (await waku.stop()).expect("stop")
+
+suite "Reliable Channel - SDS persistence":
+  asyncTest "send persists SDS channel state through the persistency job":
+    ## End-to-end durability check for the SDS wiring: with the
+    ## process-wide Persistency singleton initialised (as `Waku.start`
+    ## does in production), a channel `send` must flush the SDS channel
+    ## snapshot (`sds.meta`) and the message-history append (`sds.log`)
+    ## through the shared "sds" job. Writes are fire-and-forget (the
+    ## Future resolves on enqueue, not apply), so reads poll.
+    const
+      channelId = ChannelId("sds-persist-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/persist")
+
+    Persistency.reset()
+    let root = getTempDir() / ("reliable_channel_sds_" & $epochTime().int)
+    removeDir(root)
+    let persistency = Persistency.instance(root).expect("persistency init")
+    defer:
+      Persistency.reset()
+      removeDir(root)
+
+    var waku: Waku
+    var manager: ReliableChannelManager
+    lockNewGlobalBrokerContext:
+      waku = (await createNode(createApiNodeConf())).expect("createNode")
+      waku.mountMessagingClient().expect("mountMessagingClient")
+      waku.mountReliableChannelManager().expect("mountReliableChannelManager")
+      manager = waku.reliableChannelManager
+
+    setNoopEncryption()
+
+    let fakeSend: SendHandler = proc(
+        env: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+      return ok(RequestId("persist-msg-req-1"))
+
+    discard manager
+      .createReliableChannel(
+        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
+      )
+      .expect("createReliableChannel")
+
+    discard (await manager.send(channelId, "persist me".toBytes())).expect("send")
+
+    ## Same handle the channel layer writes through (`openJob` is
+    ## idempotent per job id).
+    let job = persistency.openJob("sds").expect("openJob sds")
+    let chanKey = toKey(SdsChannelID(channelId))
+
+    proc pollMetaExists(): Future[bool] {.async.} =
+      ## `sds.meta` keeps one blob per channel under the exact channel key.
+      let deadline = Moment.now() + 2.seconds
+      while Moment.now() < deadline:
+        let r = await job.exists(CatMeta, chanKey)
+        if r.isOk() and r.get():
+          return true
+        await sleepAsync(5.milliseconds)
+      return false
+
+    proc pollLogRow(): Future[bool] {.async.} =
+      ## `sds.log` keys rows by (channelId, messageId) — scan the channel
+      ## prefix for the history append of the message just sent.
+      let deadline = Moment.now() + 2.seconds
+      while Moment.now() < deadline:
+        let r = await job.scanPrefix(CatLog, chanKey)
+        if r.isOk() and r.get().len > 0:
+          return true
+        await sleepAsync(5.milliseconds)
+      return false
+
+    check await pollMetaExists()
+    check await pollLogRow()
 
     (await waku.stop()).expect("stop")

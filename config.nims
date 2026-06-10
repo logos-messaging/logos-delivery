@@ -1,4 +1,4 @@
-import os
+import os, strutils
 
 if defined(release):
   switch("nimcache", "nimcache/release/$projectName")
@@ -116,6 +116,16 @@ if defined(android):
   switch("passC", "--sysroot=" & sysRoot)
   switch("passL", "--sysroot=" & sysRoot)
   switch("cincludes", sysRoot & "/usr/include/")
+# nim-sds keeps its protocol API module (sds.nim) at the package root,
+# OUTSIDE its nimble srcDir ("sds"), so the generated nimble.paths exposes
+# only the inner modules (message, types/..., sds_utils) and `import sds`
+# does not resolve. Add the installed package root to the search path.
+# Remove once nim-sds moves the API module inside its srcDir.
+if dirExists(thisDir() & "/nimbledeps/pkgs2"):
+  for dir in listDirs(thisDir() & "/nimbledeps/pkgs2"):
+    if extractFilename(dir).startsWith("sds-"):
+      switch("path", dir)
+
 # begin Nimble config (version 2)
 --noNimblePath
 when withDir(thisDir(), system.fileExists("nimble.paths")):
