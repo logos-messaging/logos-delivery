@@ -93,7 +93,9 @@ proc new*(
     localMixNodeInfo,
     peermgr.switch,
     delayStrategy = Opt.some(
-      DelayStrategy(ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng()))
+      DelayStrategy(
+        ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng())
+      )
     ),
   )
 

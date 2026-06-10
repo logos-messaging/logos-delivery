@@ -212,9 +212,7 @@ proc initProtocolHandler(wfc: WakuFilterClient) =
   wfc.handler = handler
   wfc.codec = WakuFilterPushCodec
 
-proc new*(
-    T: type WakuFilterClient, peerManager: PeerManager, rng: crypto.Rng
-): T =
+proc new*(T: type WakuFilterClient, peerManager: PeerManager, rng: crypto.Rng): T =
   let brokerCtx = globalBrokerContext()
   let wfc = WakuFilterClient(
     brokerCtx: brokerCtx, rng: rng, peerManager: peerManager, pushHandlers: @[]

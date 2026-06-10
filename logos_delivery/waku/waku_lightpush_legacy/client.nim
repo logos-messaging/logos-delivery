@@ -22,9 +22,7 @@ type WakuLegacyLightPushClient* = ref object
   rng*: crypto.Rng
 
 proc new*(
-    T: type WakuLegacyLightPushClient,
-    peerManager: PeerManager,
-    rng: crypto.Rng,
+    T: type WakuLegacyLightPushClient, peerManager: PeerManager, rng: crypto.Rng
 ): T =
   WakuLegacyLightPushClient(peerManager: peerManager, rng: rng)
 

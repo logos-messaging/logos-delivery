@@ -955,7 +955,8 @@ procSuite "Peer Manager":
 
     # Create peer manager
     let pm = PeerManager.new(
-      switch = SwitchBuilder.new().withRng(crypto.newRng()).withMplex().withNoise().build(),
+      switch =
+        SwitchBuilder.new().withRng(crypto.newRng()).withMplex().withNoise().build(),
       storage = nil,
     )
 
@@ -1040,7 +1041,9 @@ procSuite "Peer Manager":
 
     # Create 30 peers and add them to the peerstore
     let peers = toSeq(1 .. 30)
-      .mapIt(parsePeerInfo("/ip4/0.0.0.0/tcp/0/p2p/" & $PeerId.random(crypto.newRng()).get()))
+      .mapIt(
+        parsePeerInfo("/ip4/0.0.0.0/tcp/0/p2p/" & $PeerId.random(crypto.newRng()).get())
+      )
       .filterIt(it.isOk())
       .mapIt(it.value)
     for p in peers:

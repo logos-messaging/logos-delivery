@@ -583,7 +583,7 @@
       }
     },
     "libp2p": {
-      "version": "#c43199378f46d0aaf61be1cad1ee1d63e8f665d6",
+      "version": "2.0.0",
       "vcsRevision": "c43199378f46d0aaf61be1cad1ee1d63e8f665d6",
       "url": "https://github.com/vacp2p/nim-libp2p.git",
       "downloadMethod": "git",
@@ -700,7 +700,7 @@
     },
     "libp2p_mix": {
       "version": "0.1.0",
-      "vcsRevision": "7cb7556d9a228573fc5622af7ffb2dd11741e043",
+      "vcsRevision": "380513117d556bf8f70066f5e72a7fd74fe36ba6",
       "url": "https://github.com/logos-co/nim-libp2p-mix",
       "downloadMethod": "git",
       "dependencies": [
@@ -715,7 +715,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "8287dda862a4398966cd66a5b3d7d66834c9a9a6"
+        "sha1": "ccfb0f0160ac15ac970471964c730d57edacad91"
       }
     }
   },

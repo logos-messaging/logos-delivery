@@ -55,7 +55,8 @@ proc new*(
     switch,
     bootstrapNodes = params.bootstrapNodes,
     config = KadDHTConfig.new(
-      validator = svdisc_types.ExtEntryValidator(), selector = svdisc_types.ExtEntrySelector()
+      validator = svdisc_types.ExtEntryValidator(),
+      selector = svdisc_types.ExtEntrySelector(),
     ),
     rng = switch.rng,
     codec = ExtendedServiceDiscoveryCodec,

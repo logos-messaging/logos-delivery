@@ -21,9 +21,7 @@ type WakuLightPushClient* = ref object
   rng*: crypto.Rng
   peerManager*: PeerManager
 
-proc new*(
-    T: type WakuLightPushClient, peerManager: PeerManager, rng: crypto.Rng
-): T =
+proc new*(T: type WakuLightPushClient, peerManager: PeerManager, rng: crypto.Rng): T =
   WakuLightPushClient(peerManager: peerManager, rng: rng)
 
 proc ensureTimestampSet(message: var WakuMessage) =
