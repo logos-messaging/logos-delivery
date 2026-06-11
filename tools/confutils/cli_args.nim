@@ -216,7 +216,8 @@ type WakuNodeConf* = object
       desc:
         "Specify method to use for determining public address. " &
         "Must be one of: any, none, upnp, pmp, extip:<IP>.",
-      defaultValue: DefaultCLINat
+      defaultValue: DefaultCLINat,
+      name: "nat"
     .}: string
 
     extMultiAddrs* {.
