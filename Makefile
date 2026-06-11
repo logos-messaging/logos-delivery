@@ -155,6 +155,13 @@ ifeq ($(DEBUG_DISCV5), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:debugDiscv5
 endif
 
+# nim-sds keeps its API module (sds.nim) outside its nimble srcDir, so
+# `import sds` needs the package root on the path. Deferred expansion so it
+# evaluates after `nimble setup` has populated nimbledeps/ on a first build.
+SDS_PKG_PATH = $(if $(wildcard nimbledeps/pkgs2/sds-*),--path:"$(firstword $(wildcard nimbledeps/pkgs2/sds-*))")
+NIM_PARAMS_STATIC := $(NIM_PARAMS)
+NIM_PARAMS = $(NIM_PARAMS_STATIC) $(SDS_PKG_PATH)
+
 # Export NIM_PARAMS so nimble can access it
 export NIM_PARAMS
 
