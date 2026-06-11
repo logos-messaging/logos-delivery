@@ -566,6 +566,68 @@ suite "Onchain group manager":
       manager.merkleProofCache.len > 0
       manager.proofPathRefreshInFlight != nil
 
+  test "ensureFreshMerkleProofPath: errors when membership index is not set":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    # No registration → no membership index. Guard must error rather than
+    # crashing inside fetchMerkleProofElements (which unwraps the Option).
+    check:
+      manager.membershipIndex.isNone()
+
+    let res = waitFor manager.ensureFreshMerkleProofPath()
+    check:
+      res.isErr()
+      res.error == "membership index is not set"
+
+  test "ensureFreshMerkleProofPath: refetches when throttle window has expired":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Prime cache with a non-empty value and an old throttle timestamp, so
+    # the cache fast-path does NOT trigger and we exercise the refetch branch.
+    manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
+      raiseAssert "failed to prime path: " & error
+    manager.lastMerklePathCheckMoment = Moment.now() - PathCheckMinInterval - 1.seconds
+    manager.proofPathRefreshInFlight = nil
+
+    let preCheckTs = manager.lastMerklePathCheckMoment
+    let res = waitFor manager.ensureFreshMerkleProofPath()
+
+    check:
+      res.isOk()
+      manager.merkleProofCache.len > 0
+      manager.proofPathRefreshInFlight != nil
+      # lastMerklePathCheckMoment was bumped to "now" by the refetch.
+      manager.lastMerklePathCheckMoment > preCheckTs
+
+  test "ensureFreshMerkleProofPath: refresh bumps the member-count metric":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    const credentialCount = 4
+    let credentials = generateCredentials(credentialCount)
+    for i in 0 ..< credentials.len():
+      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
+        assert false, "register failed for credential " & $i & ": " & error
+
+    # Force a refetch by emptying the cache; the doRefresh closure should
+    # invoke updateMemberCount on the success path.
+    manager.merkleProofCache = @[]
+    manager.proofPathRefreshInFlight = nil
+    waku_rln_number_registered_memberships.set(0.0) # baseline
+
+    let res = waitFor manager.ensureFreshMerkleProofPath()
+
+    check:
+      res.isOk()
+      manager.merkleProofCache.len > 0
+      waku_rln_number_registered_memberships.value() == float64(credentialCount)
+
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()
     (waitFor manager.init()).isOkOr:
