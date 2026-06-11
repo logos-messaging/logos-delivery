@@ -550,7 +550,7 @@ when isMainModule:
   info "cli flags", conf = conf
 
   if conf.clusterId == 1:
-    let twnNetworkConf = NetworkConf.TheWakuNetworkConf()
+    let twnNetworkConf = NetworkPresetConf.TheWakuNetworkConf()
 
     conf.bootstrapNodes = twnNetworkConf.discv5BootstrapNodes
     conf.rlnRelayDynamic = twnNetworkConf.rlnRelayDynamic

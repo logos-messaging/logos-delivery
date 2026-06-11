@@ -1,4 +1,6 @@
-import chronicles, chronos, results
+import std/[net, options]
+
+import chronicles, chronos, libp2p/peerid, results
 
 import logos_delivery/waku/factory/waku
 import logos_delivery/messaging/messaging_client

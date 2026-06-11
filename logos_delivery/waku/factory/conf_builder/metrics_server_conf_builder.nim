@@ -4,7 +4,11 @@ import ../waku_conf
 logScope:
   topics = "waku conf builder metrics server"
 
-const DefaultMetricsHttpPort*: Port = Port(8008)
+const
+  DefaultMetricsEnabled: bool = false
+  DefaultMetricsHttpAddress: IpAddress = static parseIpAddress("127.0.0.1")
+  DefaultMetricsHttpPort: Port = Port(8008)
+  DefaultMetricsLogging: bool = false
 
 ###################################
 ## Metrics Server Config Builder ##
@@ -35,15 +39,15 @@ proc withLogging*(b: var MetricsServerConfBuilder, logging: bool) =
   b.logging = some(logging)
 
 proc build*(b: MetricsServerConfBuilder): Result[Option[MetricsServerConf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultMetricsEnabled):
     return ok(none(MetricsServerConf))
 
   return ok(
     some(
       MetricsServerConf(
-        httpAddress: b.httpAddress.get(static parseIpAddress("127.0.0.1")),
+        httpAddress: b.httpAddress.get(DefaultMetricsHttpAddress),
         httpPort: b.httpPort.get(DefaultMetricsHttpPort),
-        logging: b.logging.get(false),
+        logging: b.logging.get(DefaultMetricsLogging),
       )
     )
   )

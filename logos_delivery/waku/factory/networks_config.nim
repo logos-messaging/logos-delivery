@@ -1,6 +1,7 @@
 {.push raises: [].}
 
 import chronicles, results, stint
+import logos_delivery/waku/waku_core/message/default_values
 
 logScope:
   topics = "waku networks conf"
@@ -17,7 +18,8 @@ type
     of StaticSharding:
       discard
 
-type NetworkConf* = object
+type NetworkPresetConf* = object
+  ## A network "preset" (--preset=twn, --preset=logos.dev).
   maxMessageSize*: string # TODO: static convert to a uint64
   clusterId*: uint16
   rlnRelay*: bool
@@ -38,10 +40,10 @@ type NetworkConf* = object
 # cluster-id=1 (aka The Waku Network)
 # Cluster configuration corresponding to The Waku Network. Note that it
 # overrides existing cli configuration
-proc TheWakuNetworkConf*(T: type NetworkConf): NetworkConf =
+proc TheWakuNetworkConf*(T: type NetworkPresetConf): NetworkPresetConf =
   const RelayChainId = 59141'u256
-  return NetworkConf(
-    maxMessageSize: "150KiB",
+  return NetworkPresetConf(
+    maxMessageSize: DefaultMaxWakuMessageSizeStr,
     clusterId: 1,
     rlnRelay: true,
     rlnRelayEthContractAddress: "0xB9cd878C90E49F797B4431fBF4fb333108CB90e6",
@@ -65,10 +67,10 @@ proc TheWakuNetworkConf*(T: type NetworkConf): NetworkConf =
 
 # cluster-id=2 (Logos Dev Network)
 # Cluster configuration for the Logos Dev Network.
-proc LogosDevConf*(T: type NetworkConf): NetworkConf =
+proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
   const ZeroChainId = 0'u256
-  return NetworkConf(
-    maxMessageSize: "150KiB",
+  return NetworkPresetConf(
+    maxMessageSize: DefaultMaxWakuMessageSizeStr,
     clusterId: 2,
     rlnRelay: false,
     rlnRelayEthContractAddress: "",
@@ -94,9 +96,9 @@ proc LogosDevConf*(T: type NetworkConf): NetworkConf =
 
 # cluster-id=2 (Logos Test Network)
 # Cluster configuration for the Logos Test Network.
-proc LogosTestConf*(T: type NetworkConf): NetworkConf =
+proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
   const ZeroChainId = 0'u256
-  return NetworkConf(
+  return NetworkPresetConf(
     maxMessageSize: "150KiB",
     clusterId: 2,
     rlnRelay: false,

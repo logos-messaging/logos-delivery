@@ -57,7 +57,7 @@ suite "Waku external config - default values":
 suite "Waku external config - apply preset":
   test "Preset is TWN":
     ## Setup
-    let expectedConf = NetworkConf.TheWakuNetworkConf()
+    let expectedConf = NetworkPresetConf.TheWakuNetworkConf()
 
     ## Given
     let preConfig = WakuNodeConf(
@@ -94,7 +94,7 @@ suite "Waku external config - apply preset":
 
   test "Subscribes to all valid shards in twn":
     ## Setup
-    let expectedConf = NetworkConf.TheWakuNetworkConf()
+    let expectedConf = NetworkPresetConf.TheWakuNetworkConf()
 
     ## Given
     let shards: seq[uint16] = @[0, 1, 2, 3, 4, 5, 6, 7]
@@ -110,7 +110,7 @@ suite "Waku external config - apply preset":
 
   test "Subscribes to some valid shards in twn":
     ## Setup
-    let expectedConf = NetworkConf.TheWakuNetworkConf()
+    let expectedConf = NetworkPresetConf.TheWakuNetworkConf()
 
     ## Given
     let shards: seq[uint16] = @[0, 4, 7]

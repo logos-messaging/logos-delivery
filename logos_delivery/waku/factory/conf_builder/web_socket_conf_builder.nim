@@ -4,7 +4,10 @@ import logos_delivery/waku/factory/waku_conf
 logScope:
   topics = "waku conf builder websocket"
 
-const DefaultWebSocketPort*: Port = Port(8000)
+const
+  DefaultWebSocketEnabled: bool = false
+  DefaultWebSocketSecureEnabled: bool = false
+  DefaultWebSocketPort: Port = Port(8000)
 
 ##############################
 ## WebSocket Config Builder ##
@@ -40,10 +43,10 @@ proc withCertPath*(b: var WebSocketConfBuilder, certPath: string) =
   b.certPath = some(certPath)
 
 proc build*(b: WebSocketConfBuilder): Result[Option[WebSocketConf], string] =
-  if not b.enabled.get(false):
+  if not b.enabled.get(DefaultWebSocketEnabled):
     return ok(none(WebSocketConf))
 
-  if not b.secureEnabled.get(false):
+  if not b.secureEnabled.get(DefaultWebSocketSecureEnabled):
     return ok(
       some(
         WebSocketConf(
