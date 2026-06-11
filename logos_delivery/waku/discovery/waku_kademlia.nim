@@ -83,15 +83,15 @@ proc remotePeerInfoFrom(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
   )
 
 proc lookupServicePeers*(
-    self: WakuKademlia, serviceId: string
+    self: WakuKademlia, service: string
 ): Future[Result[seq[RemotePeerInfo], string]] {.async: (raises: []).} =
   if self.protocol.isNil():
     return err("cannot lookup service peers: service discovery not mounted")
 
-  let serviceInfo = ServiceInfo(id: serviceId, data: @[])
+  let serviceId = service.hashServiceId()
 
   let lookupCatch = catch:
-    (await self.protocol.lookup(serviceInfo))
+    (await self.protocol.lookup(serviceId))
 
   let lookupResult = lookupCatch.valueOr:
     return err("service peer lookup failed: " & error.msg)
@@ -106,9 +106,17 @@ proc lookupServicePeers*(
       continue
 
     self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+
+    debug "peer added via service discovery",
+      service,
+      peerId = $peerInfo.peerId,
+      addresses = peerInfo.addrs.mapIt($it),
+      protocols = peerInfo.protocols
+
     discovered.add(peerInfo)
 
-  debug "service lookup complete", serviceId, found = discovered.len
+  debug "service lookup complete", service, found = discovered.len
+
   return ok(discovered)
 
 proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]).} =
@@ -130,6 +138,12 @@ proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError])
         continue
 
       self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+
+      debug "peer added via random walk",
+        peerId = $peerInfo.peerId,
+        addresses = peerInfo.addrs.mapIt($it),
+        protocols = peerInfo.protocols
+
       discoveredPeers.add(peerInfo)
 
     if discoveredPeers.len > 0:
@@ -144,12 +158,9 @@ proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]
   while true:
     await sleepAsync(self.serviceLookupInterval)
 
-    if self.servicesToDiscover.len == 0:
-      continue
-
-    for serviceId in self.servicesToDiscover:
-      let discovered = (await self.lookupServicePeers(serviceId)).valueOr:
-        error "service lookup failed", serviceId, error
+    for service in self.servicesToDiscover:
+      let discovered = (await self.lookupServicePeers(service)).valueOr:
+        error "service lookup failed", service, error
         continue
 
       if discovered.len > 0:
@@ -198,9 +209,6 @@ proc new*(
 proc start*(self: WakuKademlia) {.async: (raises: []).} =
   for serviceId in self.servicesToDiscover:
     discard self.protocol.registerInterest(serviceId)
-
-  for serviceInfo in self.servicesToAdvertise:
-    self.protocol.addProvidedService(serviceInfo)
 
   if self.randomLookupLoop.isNil():
     self.randomLookupLoop = self.runRandomLookupLoop()

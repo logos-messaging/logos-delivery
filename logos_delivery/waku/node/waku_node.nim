@@ -344,11 +344,10 @@ proc mountKademlia*(
     return err("WakuKademlia already mounted, skipping")
 
   let wk = WakuKademlia.new(
-    node.switch, node.peerManager,
-    config.bootstrapNodes, config.servicesToAdvertise, config.servicesToDiscover,
-    config.randomLookupInterval, config.serviceLookupInterval,
-    node.rng,
-    config.kadDhtConfig, config.discoConfig, config.clientMode, config.xprPublishing
+    node.switch, node.peerManager, config.bootstrapNodes, config.servicesToAdvertise,
+    config.servicesToDiscover, config.randomLookupInterval,
+    config.serviceLookupInterval, node.rng, config.kadDhtConfig, config.discoConfig,
+    config.clientMode, config.xprPublishing,
   ).valueOr:
     return err("failed to create service discovery: " & error)
 
