@@ -113,7 +113,7 @@ proc new*(
     spamProtectionConfig.userMessageLimit = userMessageLimit.get()
   # rlnResourcesPath left empty to use bundled resources (via "tree_height_/" placeholder)
 
-  let spamProtection = newMixRlnSpamProtection(spamProtectionConfig).valueOr:
+  let spamProtection = MixRlnSpamProtection.new(spamProtectionConfig).valueOr:
     return err("failed to create spam protection: " & error)
 
   var m = WakuMix(
