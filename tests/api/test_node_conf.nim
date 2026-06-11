@@ -155,6 +155,36 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     ## Then - the parser rejects unrecognized config keys
     check confRes.isErr()
 
+  test "JSON config keys accepts cli_args pragma names":
+    ## Given / When
+    let confRes = parseNodeConfFromJson(
+      """{"cluster-id": 7, "reliability": true, "staticnode": ["/ip4/127.0.0.1/tcp/60000"]}"""
+    )
+
+    ## Then
+    require confRes.isOk()
+    let conf = confRes.get()
+    check:
+      conf.clusterId == some(7'u16)
+      conf.reliabilityEnabled == some(true)
+      conf.staticNodes == @["/ip4/127.0.0.1/tcp/60000"]
+
+  test "JSON config accepts field-name form":
+    ## Given / When
+    let confRes = parseNodeConfFromJson("""{"reliabilityEnabled": true}""")
+
+    ## Then
+    require confRes.isOk()
+    check confRes.get().reliabilityEnabled == some(true)
+
+  test "JSON config rejects option set via both field name and cli name":
+    ## Given / When
+    let confRes = parseNodeConfFromJson("""{"clusterId": 5, "cluster-id": 5}""")
+
+    ## Then
+    require confRes.isErr()
+    check "set twice" in confRes.error
+
   test "Invalid JSON syntax returns error":
     ## Given / When
     let confRes = parseNodeConfFromJson("{ not valid json }")

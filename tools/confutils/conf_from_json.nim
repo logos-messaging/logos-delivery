@@ -1,5 +1,5 @@
-import std/[json, strutils, tables]
-import confutils, confutils/std/net, results
+import std/[json, macros, strutils, tables]
+import confutils, confutils/defs, confutils/std/net, results
 import ./cli_args
 
 proc collectJsonFields*(
@@ -55,9 +55,22 @@ proc applyJsonFieldsToConf(
   ## `jsonFields`. seq fields take a JArray (full replace); scalar fields
   ## take any scalar JSON kind. Errors on leftover unknown keys.
   for confField, confValue in fieldPairs(conf):
+    # Match a field by its name or by its CLI name: pragma; case-insensitive.
+    var matchKey = ""
     let lowerField = confField.toLowerAscii()
     if jsonFields.hasKey(lowerField):
-      let (jsonKey, jsonValue) = jsonFields[lowerField]
+      matchKey = lowerField
+    when confValue.hasCustomPragma(defs.name):
+      let lowerCliName = confValue.getCustomPragmaVal(defs.name).toLowerAscii()
+      if lowerCliName != lowerField and jsonFields.hasKey(lowerCliName):
+        if matchKey != "": # field-name form already present: set twice
+          return err(
+            "config option '" & confField & "' was set twice, via '" &
+              jsonFields[matchKey][0] & "' and '" & jsonFields[lowerCliName][0] & "'"
+          )
+        matchKey = lowerCliName
+    if matchKey != "":
+      let (jsonKey, jsonValue) = jsonFields[matchKey]
       when confValue is seq:
         if jsonValue.kind != JArray:
           return err(
@@ -93,7 +106,7 @@ proc applyJsonFieldsToConf(
             parseErrPrefix & " '" & confField & "' from JSON key '" & jsonKey & "': " &
               e.msg & ". Value: " & formattedString
           )
-      jsonFields.del(lowerField)
+      jsonFields.del(matchKey)
   if jsonFields.len > 0:
     return err(unknownKeysError(jsonFields, unknownErrPrefix))
   return ok()
@@ -101,7 +114,8 @@ proc applyJsonFieldsToConf(
 proc assembleFullConf*(
     jsonFields: Table[string, (string, JsonNode)]
 ): Result[WakuNodeConf, string] =
-  ## Build a WakuNodeConf from a flat JSON object whose keys are WakuNodeConf field names.
+  ## Build a WakuNodeConf from a flat JSON object whose keys are WakuNodeConf field
+  ## names or their CLI `name:` pragma equivalents.
   var conf = ?defaultWakuNodeConf()
   var fields = jsonFields
   ?applyJsonFieldsToConf(
@@ -110,7 +124,8 @@ proc assembleFullConf*(
   return ok(conf)
 
 proc parseNodeConfFromJson*(jsonStr: string): Result[WakuNodeConf, string] =
-  ## Parse a flat JSON config whose keys are WakuNodeConf field names.
+  ## Parse a flat JSON config whose keys are WakuNodeConf field names or their CLI
+  ## `name:` pragma equivalents.
   var jsonNode: JsonNode
   try:
     jsonNode = parseJson(jsonStr)
