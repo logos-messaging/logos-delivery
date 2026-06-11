@@ -140,7 +140,7 @@ proc new*(
     ctTotalSlots = spamProtectionConfig.userMessageLimit
     ctEpochDuration = spamProtectionConfig.epochDurationSeconds.int.seconds
 
-    let spamProtection = newMixRlnSpamProtection(spamProtectionConfig).valueOr:
+    let spamProtection = MixRlnSpamProtection.new(spamProtectionConfig).valueOr:
       return err("failed to create spam protection: " & error)
     spamProtectionOpt = Opt.some(SpamProtection(spamProtection))
   else:
