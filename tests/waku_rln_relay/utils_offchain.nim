@@ -53,12 +53,12 @@ proc sendRlnMessage*(
     completionFuture: Future[bool],
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
-  let msgRef = WakuMessage.new()
-  msgRef[] = WakuMessage(payload: payload, contentTopic: contentTopic)
-  let appendResult = await client.wakuRlnRelay.appendRLNProof(msgRef, epochTime())
-    # Assignment required or crashess
-  assertResultOk(appendResult)
-  discard await client.publish(some(pubsubTopic), msgRef[])
+  var message = WakuMessage(payload: payload, contentTopic: contentTopic)
+  message.proof = (
+    await client.wakuRlnRelay.generateRLNProof(message.toRLNSignal(), epochTime())
+  ).valueOr:
+    raiseAssert "generateRLNProof failed: " & error
+  discard await client.publish(some(pubsubTopic), message)
   let isCompleted = await completionFuture.withTimeout(FUTURE_TIMEOUT)
   return isCompleted
 

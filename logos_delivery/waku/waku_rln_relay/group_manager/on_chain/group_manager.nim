@@ -44,9 +44,9 @@ type
     latestProcessedBlock*: BlockNumber
     merkleProofCache*: seq[byte]
     lastMerklePathCheckMoment*: Moment
-    proofPathRefreshInFlight*: Future[void]
+    proofPathRefreshInFlightFut*: Future[void]
     lastRootsRefreshMoment*: Moment
-    rootsRefreshInFlight*: Future[void]
+    rootsRefreshInFlightFut*: Future[void]
 
 # The below code is not working with the latest web3 version due to chainId being null (specifically on linea-sepolia)
 # TODO: find better solution than this custom sendEthCallWithoutParams call
@@ -239,8 +239,8 @@ proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
   if Moment.now() - g.lastRootsRefreshMoment < RootsRefreshMinInterval:
     return
 
-  if not g.rootsRefreshInFlight.isNil() and not g.rootsRefreshInFlight.finished():
-    await g.rootsRefreshInFlight
+  if not g.rootsRefreshInFlightFut.isNil() and not g.rootsRefreshInFlightFut.finished():
+    await g.rootsRefreshInFlightFut
     return
 
   proc doRefresh(): Future[void] {.async.} =
@@ -248,8 +248,8 @@ proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
       discard await g.updateMemberCount()
     g.lastRootsRefreshMoment = Moment.now()
 
-  g.rootsRefreshInFlight = doRefresh()
-  await g.rootsRefreshInFlight
+  g.rootsRefreshInFlightFut = doRefresh()
+  await g.rootsRefreshInFlightFut
 
 method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.async.} =
   if g.indexOfRoot(root) >= 0:
@@ -273,8 +273,9 @@ proc ensureFreshMerkleProofPath*(
       Moment.now() - g.lastMerklePathCheckMoment < PathCheckMinInterval:
     return ok()
 
-  if not g.proofPathRefreshInFlight.isNil() and not g.proofPathRefreshInFlight.finished():
-    await g.proofPathRefreshInFlight
+  if not g.proofPathRefreshInFlightFut.isNil() and
+      not g.proofPathRefreshInFlightFut.finished():
+    await g.proofPathRefreshInFlightFut
     if g.merkleProofCache.len > 0:
       return ok()
     return err("merkle proof path refresh failed")
@@ -290,8 +291,8 @@ proc ensureFreshMerkleProofPath*(
     else:
       error "Failed to refresh merkle proof path", error = pathRes.error
 
-  g.proofPathRefreshInFlight = doRefresh()
-  await g.proofPathRefreshInFlight
+  g.proofPathRefreshInFlightFut = doRefresh()
+  await g.proofPathRefreshInFlightFut
 
   if not fetchOk:
     return err("merkle proof path refresh failed")

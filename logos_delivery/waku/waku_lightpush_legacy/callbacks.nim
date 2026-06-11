@@ -24,10 +24,12 @@ proc checkAndGenerateRLNProof*(
   let
     time = getTime().toUnix()
     senderEpochTime = float64(time)
-  let msgWithProof = WakuMessage.new()
-  msgWithProof[] = message
-  ?(await rlnPeer.get().appendRLNProof(msgWithProof, senderEpochTime))
-  return ok(msgWithProof[])
+  var msgWithProof = message
+  msgWithProof.proof = (
+    await rlnPeer.get().generateRLNProof(msgWithProof.toRLNSignal(), senderEpochTime)
+  ).valueOr:
+    return err($error)
+  return ok(msgWithProof)
 
 proc getNilPushHandler*(): PushMessageHandler =
   return proc(

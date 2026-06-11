@@ -13,7 +13,7 @@ proc createRLNInstanceWrapper*(): RLNResult =
 proc unsafeAppendRLNProof*(
     rlnPeer: WakuRLNRelay, msg: var WakuMessage, epoch: Epoch, messageId: MessageId
 ): RlnRelayResult[void] =
-  ## Test helper derived from `appendRLNProof`.
+  ## Test helper derived from the publish-path proof flow.
   ## - Skips nonce validation to intentionally allow generating "bad" message IDs for tests.
   ## - Forces a real-time on-chain Merkle root refresh via `updateRoots()` and fetches Merkle
   ##   proof elements, updating `merkleProofCache` (bypasses `trackRootsChanges`).

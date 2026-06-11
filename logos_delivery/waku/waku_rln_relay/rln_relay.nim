@@ -291,33 +291,43 @@ proc validateMessageAndUpdateLog*(
 
   return isValidMessage
 
-proc createRlnProof(
-    rlnPeer: WakuRLNRelay, msg: WakuMessage, senderEpochTime: float64
+# proc createRlnProof(
+#     rlnPeer: WakuRLNRelay, msg: WakuMessage, senderEpochTime: float64
+# ): Future[RlnRelayResult[seq[byte]]] {.async.} =
+#   ## returns a new `RateLimitProof` for the supplied `msg`
+#   ## returns an error if it cannot create the proof
+#   ## `senderEpochTime` indicates the number of seconds passed since Unix epoch. The fractional part holds sub-seconds.
+#   ## The `epoch` field of `RateLimitProof` is derived from the provided `senderEpochTime` (using `calcEpoch()`)
+
+#   let input = msg.toRLNSignal()
+#   let epoch = rlnPeer.calcEpoch(senderEpochTime)
+
+#   let nonce = rlnPeer.nonceManager.getNonce().valueOr:
+#     return err("could not get new message id to generate an rln proof: " & $error)
+#   let proof = (await rlnPeer.groupManager.generateProof(input, epoch, nonce)).valueOr:
+#     return err("could not generate rln-v2 proof: " & $error)
+
+#   return ok(proof.encode().buffer)
+
+# proc appendRLNProof*(
+#     rlnPeer: WakuRLNRelay, msg: ref WakuMessage, senderEpochTime: float64
+# ): Future[RlnRelayResult[void]] {.async.} =
+#   ## Generates and attaches an RLN proof to `msg`. Takes a `ref` because
+#   ## chronos forbids capturing `var` parameters across awaits.
+#   let proofBytes = (await rlnPeer.createRlnProof(msg[], senderEpochTime)).valueOr:
+#     return err($error)
+#   msg.proof = proofBytes
+#   return ok()
+
+proc generateRLNProof*(
+    rlnPeer: WakuRLNRelay, input: seq[byte], senderEpochTime: float64
 ): Future[RlnRelayResult[seq[byte]]] {.async.} =
-  ## returns a new `RateLimitProof` for the supplied `msg`
-  ## returns an error if it cannot create the proof
-  ## `senderEpochTime` indicates the number of seconds passed since Unix epoch. The fractional part holds sub-seconds.
-  ## The `epoch` field of `RateLimitProof` is derived from the provided `senderEpochTime` (using `calcEpoch()`)
-
-  let input = msg.toRLNSignal()
   let epoch = rlnPeer.calcEpoch(senderEpochTime)
-
   let nonce = rlnPeer.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
   let proof = (await rlnPeer.groupManager.generateProof(input, epoch, nonce)).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
-
   return ok(proof.encode().buffer)
-
-proc appendRLNProof*(
-    rlnPeer: WakuRLNRelay, msg: ref WakuMessage, senderEpochTime: float64
-): Future[RlnRelayResult[void]] {.async.} =
-  ## Generates and attaches an RLN proof to `msg`. Takes a `ref` because
-  ## chronos forbids capturing `var` parameters across awaits.
-  let proofBytes = (await rlnPeer.createRlnProof(msg[], senderEpochTime)).valueOr:
-    return err($error)
-  msg.proof = proofBytes
-  return ok()
 
 proc clearNullifierLog*(rlnPeer: WakuRlnRelay) =
   # clear the first MaxEpochGap epochs of the nullifer log
@@ -465,8 +475,10 @@ proc mount(
     proc(
         msg: WakuMessage, senderEpochTime: float64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-      let proof = (await createRlnProof(wakuRlnRelay, msg, senderEpochTime)).valueOr:
-        return err("Could not create RLN proof: " & $error)
+      let proof = (
+        await wakuRlnRelay.generateRLNProof(msg.toRLNSignal(), senderEpochTime)
+      ).valueOr:
+        return err("Could not create RLN proof: " & error)
 
       return ok(RequestGenerateRlnProof(proof: proof)),
   ).isOkOr:
