@@ -219,7 +219,7 @@ testcommon: | build-deps build
 ##########
 ## Waku ##
 ##########
-.PHONY: testwaku wakunode2 testwakunode2 example2 chat2 chat2bridge liteprotocoltester
+.PHONY: testwaku wakunode2 testwakunode2 example2 chat2 chat2mix chat2disco chat2bridge liteprotocoltester
 
 testwaku: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -255,6 +255,10 @@ chat2: | build-deps build deps librln
 chat2mix: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) chat2mix
+
+chat2disco: | build-deps build deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(NIMBLE) chat2disco
 
 rln-db-inspector: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
