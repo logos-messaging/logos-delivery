@@ -9,16 +9,19 @@ import
   stew/byteutils,
   libp2p/[peerid, multiaddress, switch],
   libp2p/extended_peer_record,
+  libp2p/crypto/crypto,
+  libp2p/crypto/rng,
   libp2p/crypto/curve25519,
   libp2p/protocols/service_discovery,
-  libp2p/protocols/service_discovery/types as sd_types,
-  libp2p/protocols/mix/mix_protocol
+  libp2p/protocols/service_discovery/types,
+  libp2p/protocols/kademlia/types,
+  libp2p_mix/mix_protocol,
+  libp2p_mix/curve25519
 
 import
-  waku/waku_core,
-  waku/node/peer_manager,
-  waku/events/discovery_events,
-  waku/factory/waku_conf
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/events/discovery_events
 
 logScope:
   topics = "waku service discovery"
@@ -37,7 +40,7 @@ type WakuKademlia* = ref object
   servicesToDiscover: seq[string]
   servicesToAdvertise: seq[ServiceInfo]
 
-proc extractMixPubKey(service: ServiceInfo): Opt[Curve25519Key] =
+proc extractMixPubKey(service: ServiceInfo): Option[Curve25519Key] =
   if service.id != MixProtocolID:
     return none(Curve25519Key)
 
@@ -52,7 +55,7 @@ proc extractMixPubKey(service: ServiceInfo): Opt[Curve25519Key] =
 
   return some(key)
 
-proc remotePeerInfoFrom(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
+proc remotePeerInfoFrom(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
   if record.addresses.len == 0:
     error "missing addresses", peerId = record.peerId
     return none(RemotePeerInfo)
@@ -62,10 +65,11 @@ proc remotePeerInfoFrom(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
     error "no dialable addresses", peerId = record.peerId
     return none(RemotePeerInfo)
 
-  var mixPubKey = none(Curve25519Key)
+  var mixPubKey: Option[Curve25519Key] = none(Curve25519Key)
   for service in record.services:
-    mixPubKey = extractMixPubKey(service).valueOr:
+    let key = extractMixPubKey(service).valueOr:
       continue
+    mixPubKey = some(key)
 
     trace "successfully extracted mix pub key",
       peerId = record.peerId, keyHex = byteutils.toHex(mixPubKey.get())
@@ -155,29 +159,45 @@ proc new*(
     T: type WakuKademlia,
     switch: Switch,
     peerManager: PeerManager,
-    config: KademliaDiscoveryConf,
+    bootstrapNodes: seq[(PeerId, seq[MultiAddress])],
+    servicesToAdvertise: seq[ServiceInfo],
+    servicesToDiscover: seq[string],
+    randomLookupInterval: Duration = DefaultRandomDiscoveryInterval,
+    serviceLookupInterval: Duration = DefaultServiceDiscoveryInterval,
+    rng: Rng,
+    kadDhtConfig: KadDHTConfig = KadDHTConfig.new(),
+    discoConfig: ServiceDiscoveryConfig = ServiceDiscoveryConfig.new(),
+    clientMode: bool = false,
+    xprPublishing: bool = true,
 ): Result[T, string] =
-  if config.bootstrapNodes.len == 0:
+  if bootstrapNodes.len == 0:
     debug "creating service discovery as seed node (no bootstrap nodes)"
 
   let protocol = ServiceDiscovery.new(
-    switch, bootstrapNodes = config.bootstrapNodes, services = config.servicesToDiscover
+    switch,
+    bootstrapNodes = bootstrapNodes,
+    config = kadDhtConfig,
+    rng = rng,
+    client = clientMode,
+    services = servicesToAdvertise,
+    discoConfig = discoConfig,
+    xprPublishing = xprPublishing,
   )
 
   let self = WakuKademlia(
     protocol: protocol,
     peerManager: peerManager,
-    randomLookupInterval: config.randomLookupInterval,
-    serviceLookupInterval: config.serviceLookupInterval,
-    servicesToDiscover: config.servicesToDiscover,
-    servicesToAdvertise: config.servicesToAdvertise,
+    randomLookupInterval: randomLookupInterval,
+    serviceLookupInterval: serviceLookupInterval,
+    servicesToDiscover: servicesToDiscover,
+    servicesToAdvertise: servicesToAdvertise,
   )
 
   return ok(self)
 
 proc start*(self: WakuKademlia) {.async: (raises: []).} =
   for serviceId in self.servicesToDiscover:
-    discard self.protocol.startDiscovering(serviceId)
+    discard self.protocol.registerInterest(serviceId)
 
   for serviceInfo in self.servicesToAdvertise:
     self.protocol.addProvidedService(serviceInfo)

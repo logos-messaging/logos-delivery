@@ -53,6 +53,7 @@ import
     waku_enr,
     waku_peer_exchange,
     waku_rln_relay,
+    factory/conf_builder/kademlia_discovery_conf_builder,
     common/rate_limit/setting,
     common/callbacks,
     common/nimchronos,
@@ -342,7 +343,13 @@ proc mountKademlia*(
   if not node.wakuKademlia.isNil():
     return err("WakuKademlia already mounted, skipping")
 
-  let wk = WakuKademlia.new(node.switch, node.peerManager, config).valueOr:
+  let wk = WakuKademlia.new(
+    node.switch, node.peerManager,
+    config.bootstrapNodes, config.servicesToAdvertise, config.servicesToDiscover,
+    config.randomLookupInterval, config.serviceLookupInterval,
+    node.rng,
+    config.kadDhtConfig, config.discoConfig, config.clientMode, config.xprPublishing
+  ).valueOr:
     return err("failed to create service discovery: " & error)
 
   node.wakuKademlia = wk
@@ -621,8 +628,7 @@ proc start*(node: WakuNode) {.async.} =
   node.started = true
 
   if not node.wakuKademlia.isNil():
-    (await node.wakuKademlia.start()).isOkOr:
-      error "failed to start service discovery", error = error
+    await node.wakuKademlia.start()
 
   if not node.wakuFilterClient.isNil():
     node.wakuFilterClient.registerPushHandler(

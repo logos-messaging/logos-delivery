@@ -9,7 +9,8 @@ import
   libp2p/nameresolving/dnsresolver,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
-  libp2p/protocols/mix/mix_protocol
+  libp2p/extended_peer_record,
+  libp2p_mix/mix_protocol
 
 import
   ./internal_config,
@@ -171,7 +172,7 @@ proc setupProtocols(
 
   # Setup service discovery
   if conf.kademliaDiscoveryConf.isSome():
-    let kadConf = conf.kademliaDiscoveryConf.get()
+    var kadConf = conf.kademliaDiscoveryConf.get()
 
     if conf.mixConf.isSome():
       kadConf.servicesToAdvertise.add(

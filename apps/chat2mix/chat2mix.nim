@@ -28,6 +28,8 @@ import
       # manage the information of a peer, such as peer ID and public / private key
     peerid, # Implement how peers interact
     protobuf/minprotobuf, # message serialisation/deserialisation from and to protobufs
+    protocols/kademlia/types,
+    protocols/service_discovery/types as sd_types,
     nameresolving/dnsresolver,
     protocols/mix/curve25519,
     protocols/mix/mix_protocol,
@@ -35,6 +37,7 @@ import
 import
   logos_delivery/waku/[
     waku_core,
+    waku_core/peers,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_enr,
@@ -43,6 +46,7 @@ import
     waku_node,
     node/waku_metrics,
     node/peer_manager,
+    factory/waku_conf,
     factory/builder,
     common/utils/nat,
     waku_store/common,
@@ -459,15 +463,25 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   if conf.kadBootstrapNodes.len > 0:
     var kadBootstrapPeers: seq[(PeerId, seq[MultiAddress])]
     for nodeStr in conf.kadBootstrapNodes:
-      let (peerId, ma) = parseFullAddress(nodeStr).valueOr:
-        error "Failed to parse kademlia bootstrap node", node = nodeStr, error = error
-        continue
+      let (peerId, ma) = block:
+        let r = parseFullAddress(nodeStr)
+        if r.isErr:
+          error "Failed to parse kademlia bootstrap node", node = nodeStr, error = r.error
+          continue
+        r.get()
       kadBootstrapPeers.add((peerId, @[ma]))
 
     if kadBootstrapPeers.len > 0:
       node.mountKademlia(
         KademliaDiscoveryConf(
-          bootstrapNodes: kadBootstrapPeers, servicesToDiscover: @[MixProtocolID]
+          bootstrapNodes: kadBootstrapPeers,
+          servicesToDiscover: @["mix"],
+          randomLookupInterval: chronos.seconds(60),
+          serviceLookupInterval: chronos.seconds(60),
+          kadDhtConfig: KadDHTConfig.new(),
+          discoConfig: sd_types.ServiceDiscoveryConfig.new(),
+          clientMode: false,
+          xprPublishing: true,
         )
       ).isOkOr:
         error "failed to setup service discovery", error = error

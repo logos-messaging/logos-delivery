@@ -1,4 +1,5 @@
-import libp2p/peerinfo, waku/common/broker/[event_broker, request_broker]
+import libp2p/peerinfo, brokers/[event_broker, request_broker]
+import logos_delivery/waku/waku_core
 
 EventBroker:
   # Event emitted when peers are discovered via random or service lookup

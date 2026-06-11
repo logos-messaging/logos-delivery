@@ -7,6 +7,8 @@ import
   libp2p/crypto/curve25519,
   libp2p/peerid,
   libp2p/extended_peer_record,
+  libp2p/protocols/kademlia/types,
+  libp2p/protocols/service_discovery/types as sd_types,
   secp256k1,
   results
 
@@ -19,7 +21,8 @@ import
   ../common/rate_limit/setting,
   ../waku_enr/capabilities,
   ./networks_config,
-  ../waku_mix
+  ../waku_mix,
+  ./conf_builder/kademlia_discovery_conf_builder
 
 export RlnRelayConf, RlnRelayCreds, RestServerConf, Discv5Conf, MetricsServerConf
 
@@ -53,13 +56,6 @@ type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
-
-type KademliaDiscoveryConf* = object
-  bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
-  servicesToAdvertise*: seq[ServiceInfo]
-  servicesToDiscover*: seq[string]
-  randomLookupInterval*: Duration
-  serviceLookupInterval*: Duration
 
 type StoreServiceConf* {.requiresInit.} = object
   dbMigration*: bool
