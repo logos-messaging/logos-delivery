@@ -154,6 +154,17 @@ proc sendMintCall(
 proc checkTokenAllowance(
     web3: Web3, tokenAddress: Address, owner: Address, spender: Address
 ): Future[UInt256] {.async.} =
+  # DEBUG: verify there is actually deployed bytecode at `tokenAddress`. If
+  # this is empty, the subsequent eth_call returns 0x and web3's decoder
+  # crashes inside the regex-driven error parser.
+  let code = await web3.provider.eth_getCode(tokenAddress, "latest")
+  echo "[DEBUG checkTokenAllowance] tokenAddress=", tokenAddress.toHex(),
+    " owner=", owner.toHex(), " spender=", spender.toHex(),
+    " codeLen=", code.len
+  if code.len == 0:
+    raiseAssert "[DEBUG checkTokenAllowance] No contract code at tokenAddress " &
+      tokenAddress.toHex() & "; deployment did not place an ERC20 there."
+
   let token = web3.contractSender(ERC20Token, tokenAddress)
   let allowance = await token.allowance(owner, spender).call()
   trace "Current allowance", owner = owner, spender = spender, allowance = allowance
@@ -677,7 +688,7 @@ proc setupOnchainGroupManager*(
 
   let rlnInstance = rlnInstanceRes.get()
 
-  let web3 = await newWeb3(ethClientUrl)
+  var web3 = await newWeb3(ethClientUrl)
   let accounts = await web3.provider.eth_accounts()
   web3.defaultAccount = accounts[1]
 
@@ -733,6 +744,22 @@ proc setupOnchainGroupManager*(
     contractAddress = (await executeForgeContractDeployScripts(privateKey, acc, web3)).valueOr:
       assert false, "Failed to deploy RLN contract: " & $error
       return
+
+    # `executeForgeContractDeployScripts` shells out to `forge` via blocking
+    # `execCmdEx` calls (many seconds). While those run the chronos event loop
+    # is frozen and the existing web3 HTTP connection to Anvil rots; the next
+    # eth_call fails with "Not connected". Reconnect before continuing.
+    try:
+      await web3.close()
+    except CatchableError:
+      discard
+    web3 = await newWeb3(ethClientUrl)
+    web3.defaultAccount = accounts[1]
+
+    # DEBUG: dump the addresses we're about to call against so we can correlate
+    # with Anvil state if the allowance eth_call returns garbage.
+    echo "[DEBUG benchmark setup] testTokenAddress=", testTokenAddress.toHex(),
+      " contractAddress=", contractAddress.toHex(), " account=", acc.toHex()
 
     # If the generated account wishes to register a membership, it needs to approve the contract to spend its tokens
     let tokenApprovalResult = await approveTokenAllowanceAndVerify(

@@ -19,10 +19,8 @@ proc benchmark(
 
   var start_time = getTime()
   for i in 0 .. registerCount - 1:
-    try:
-      await manager.register(idCredentials[i], UserMessageLimit(messageLimit + 1))
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    (await manager.register(idCredentials[i], UserMessageLimit(messageLimit + 1))).isOkOr:
+      assert false, "register failed: " & error
 
     info "registration finished",
       iter = i, elapsed_ms = (getTime() - start_time).inMilliseconds
@@ -47,7 +45,7 @@ proc benchmark(
     proofGenTimes.add(getTime() - generate_time)
 
     let verify_time = getTime()
-    let ok = manager.verifyProof(data, proof).valueOr:
+    discard manager.verifyProof(data, proof).valueOr:
       raiseAssert $error
     proofVerTimes.add(getTime() - verify_time)
     info "iteration finished",
