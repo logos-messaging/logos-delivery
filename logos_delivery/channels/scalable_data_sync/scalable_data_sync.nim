@@ -40,9 +40,6 @@ type
       ## Durability backend. `none` runs memory-only: reliability still
       ## works, state does not survive a restart.
 
-  ContentReadyHandler* = proc(content: seq[byte]) {.gcsafe, raises: [].}
-    ## Invoked when SDS releases a parked segment (dependencies met).
-
   RebroadcastHandler* = proc(wire: seq[byte]) {.gcsafe, raises: [].}
     ## Invoked with a full SDS envelope to rebroadcast (SDS-R repair).
 
@@ -51,7 +48,12 @@ type
     channelId: SdsChannelID
     pendingContent: OrderedTable[SdsMessageID, seq[byte]]
       ## Segments parked until their causal dependencies arrive.
-    onContentReady*: ContentReadyHandler
+    released: seq[seq[byte]]
+      ## Parked segments released by the unwrap currently in flight;
+      ## filled via `onMessageReady`, drained by `handleIncoming`.
+    ingressLock: AsyncLock
+      ## Serializes `handleIncoming` so `released` belongs to exactly one
+      ## in-flight unwrap and delivery order stays causal.
     onRebroadcast*: RebroadcastHandler
 
 proc computeMessageId(payload: seq[byte]): SdsMessageID =
@@ -65,12 +67,14 @@ proc installCallbacks(self: SdsHandler) =
   self.rm.onMessageReady = proc(
       messageId: SdsMessageID, channelId: SdsChannelID
   ) {.gcsafe.} =
-    ## Runs under the manager lock — must stay synchronous and non-blocking.
+    ## Fired during unwrap, in causal order, for each message whose
+    ## dependencies became met. Runs under the manager lock — must stay
+    ## synchronous. Parked content moves to `released`; the in-flight
+    ## `handleIncoming` appends it after the direct content, so the app
+    ## sees the dependency before the dependents.
     if messageId in self.pendingContent:
-      let content = self.pendingContent.getOrDefault(messageId)
+      self.released.add(self.pendingContent.getOrDefault(messageId))
       self.pendingContent.del(messageId)
-      if not self.onContentReady.isNil():
-        self.onContentReady(content)
 
   self.rm.onMessageSent = proc(
       messageId: SdsMessageID, channelId: SdsChannelID
@@ -109,6 +113,8 @@ proc new*(
     rm: rm,
     channelId: channelId,
     pendingContent: initOrderedTable[SdsMessageID, seq[byte]](),
+    released: @[],
+    ingressLock: newAsyncLock(),
   )
   handler.installCallbacks()
   return handler
@@ -143,10 +149,12 @@ proc wrapOutgoing*(
 
 proc handleIncoming*(
     self: SdsHandler, wire: seq[byte]
-): Future[Result[Option[seq[byte]], string]] {.async: (raises: []).} =
-  ## Returns `ok(some(content))` when deliverable now, `ok(none)` when
-  ## consumed by SDS (duplicate, foreign channel, sync traffic, or parked
-  ## until dependencies arrive), `err` when not a decodable SDS envelope.
+): Future[Result[seq[seq[byte]], string]] {.async: (raises: []).} =
+  ## Returns every payload deliverable now, in causal order: the message
+  ## itself first (when its dependencies are met), then any parked segments
+  ## it released. Empty when SDS consumed the message (duplicate, foreign
+  ## channel, sync traffic, or parked until dependencies arrive). `err`
+  ## when not a decodable SDS envelope.
   let msg = deserializeMessage(wire).valueOr:
     return err("SDS deserialization failed")
 
@@ -155,35 +163,52 @@ proc handleIncoming*(
   if msg.channelId != self.channelId:
     debug "dropping SDS message for foreign channel",
       channelId = self.channelId, wireChannelId = msg.channelId
-    return ok(none(seq[byte]))
+    return ok(newSeq[seq[byte]]())
 
-  ## The unwrap result does not distinguish first delivery from duplicate,
-  ## so capture delivered-before up front.
-  let ctx = self.rm.channels.getOrDefault(self.channelId)
-  let isDuplicate = not ctx.isNil() and msg.messageId in ctx.messageHistory
+  try:
+    await self.ingressLock.acquire()
+    try:
+      ## Load-before-check: restores persisted state if the bootstrap has
+      ## not finished yet, so the duplicate check below sees the real
+      ## history (a replayed message right after a restart must not be
+      ## re-delivered). Idempotent and cheap once loaded.
+      (await self.rm.ensureChannel(self.channelId)).isOkOr:
+        return err("SDS ensureChannel failed: " & $error)
 
-  let unwrapped = (await self.rm.unwrapReceivedMessage(wire)).valueOr:
-    return err("SDS unwrap failed: " & $error)
+      ## The unwrap result does not distinguish first delivery from
+      ## duplicate, so capture delivered-before up front.
+      let ctx = self.rm.channels.getOrDefault(self.channelId)
+      let isDuplicate = not ctx.isNil() and msg.messageId in ctx.messageHistory
 
-  if isDuplicate:
-    return ok(none(seq[byte]))
+      self.released.setLen(0)
+      let unwrapped = (await self.rm.unwrapReceivedMessage(wire)).valueOr:
+        return err("SDS unwrap failed: " & $error)
 
-  if unwrapped.missingDeps.len > 0:
-    if self.pendingContent.len >= MaxPendingContent:
-      var oldest: SdsMessageID
-      for k in self.pendingContent.keys:
-        oldest = k
-        break
-      self.pendingContent.del(oldest)
-      warn "SDS pending-content stash full, dropping oldest entry",
-        channelId = self.channelId, dropped = oldest
-    self.pendingContent[msg.messageId] = unwrapped.message
-    return ok(none(seq[byte]))
+      if isDuplicate:
+        return ok(newSeq[seq[byte]]())
 
-  if unwrapped.message.len == 0:
-    ## Sync traffic: causal metadata only, no app payload.
-    return ok(none(seq[byte]))
+      if unwrapped.missingDeps.len > 0:
+        if self.pendingContent.len >= MaxPendingContent:
+          var oldest: SdsMessageID
+          for k in self.pendingContent.keys:
+            oldest = k
+            break
+          self.pendingContent.del(oldest)
+          warn "SDS pending-content stash full, dropping oldest entry",
+            channelId = self.channelId, dropped = oldest
+        self.pendingContent[msg.messageId] = unwrapped.message
+        return ok(newSeq[seq[byte]]())
 
-  return ok(some(unwrapped.message))
+      var deliverable = newSeq[seq[byte]]()
+      if unwrapped.message.len > 0:
+        ## Empty content is sync traffic: causal metadata only.
+        deliverable.add(unwrapped.message)
+      deliverable.add(self.released)
+      self.released.setLen(0)
+      return ok(deliverable)
+    finally:
+      self.ingressLock.release()
+  except CatchableError:
+    return err("SDS handleIncoming failed: " & getCurrentExceptionMsg())
 
 {.pop.}

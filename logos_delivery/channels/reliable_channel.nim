@@ -333,8 +333,7 @@ proc send*(
   return ok(channelReqId)
 
 proc deliverToApp(self: ReliableChannel, content: seq[byte]) =
-  ## Tail of the ingress pipeline (reassemble -> emit). Reached directly
-  ## from `onMessageReceived` or via the SDS `onContentReady` callback.
+  ## Tail of the ingress pipeline (reassemble -> emit).
   let reassembled = self.segmentation.handleIncomingSegment(content)
   if reassembled.isSome():
     ## Emit on the captured `brokerCtx` (the manager's), so the
@@ -403,12 +402,13 @@ proc onMessageReceived(
     return
   let plaintextBytes = seq[byte](plaintext)
 
-  ## `ok(none)` = consumed by SDS (duplicate, sync traffic, or parked until
-  ## dependencies arrive); `err` = not a decodable SDS envelope. Both drop.
-  let unwrapped = (await self.sdsHandler.handleIncoming(plaintextBytes)).valueOr:
+  ## SDS returns every payload deliverable now, in causal order — the
+  ## message itself plus any parked segments it released. Empty = consumed
+  ## by SDS; `err` = not a decodable SDS envelope. Both drop here.
+  let deliverable = (await self.sdsHandler.handleIncoming(plaintextBytes)).valueOr:
     return
-  if unwrapped.isSome():
-    self.deliverToApp(unwrapped.get())
+  for content in deliverable:
+    self.deliverToApp(content)
 
 proc new*(
     T: type ReliableChannel,
@@ -444,10 +444,7 @@ proc new*(
     brokerCtx: brokerCtx,
   )
 
-  ## SDS pushes work back into the channel: released segments go to the
-  ## delivery tail, SDS-R rebroadcasts to the dispatch tail.
-  chn.sdsHandler.onContentReady = proc(content: seq[byte]) {.gcsafe, raises: [].} =
-    chn.deliverToApp(content)
+  ## SDS-R repair rebroadcasts go straight to the dispatch tail.
   chn.sdsHandler.onRebroadcast = proc(wire: seq[byte]) {.gcsafe, raises: [].} =
     asyncSpawn chn.dispatchRepair(wire)
   chn.sdsHandler.start()
