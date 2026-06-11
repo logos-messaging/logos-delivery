@@ -221,7 +221,9 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
 
   return true
 
-proc updateMemberCount(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
+proc updateMemberCount*(
+    g: OnchainGroupManager
+): Future[Result[void, string]] {.async.} =
   ## Refreshes the registered-memberships metric from on-chain `nextFreeIndex`.
   ## Called whenever a root change is observed.
   let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
@@ -256,12 +258,17 @@ method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.a
   await g.refreshRoots()
   return g.indexOfRoot(root) >= 0
 
-proc ensureFreshMerkleProofPath(
+proc ensureFreshMerkleProofPath*(
     g: OnchainGroupManager
 ): Future[Result[void, string]] {.async.} =
   ## Keeps `merkleProofCache` fresh independently of the validRoots window
   ## used by the receive path. Refetches the path whenever the throttle
   ## (`PathCheckMinInterval`) expires; trusts the cached path otherwise.
+  ## Guards against a missing membership index because `fetchMerkleProofElements`
+  ## unwraps it.
+  if g.membershipIndex.isNone():
+    return err("membership index is not set")
+
   if g.merkleProofCache.len > 0 and
       Moment.now() - g.lastMerklePathCheckMoment < PathCheckMinInterval:
     return ok()
