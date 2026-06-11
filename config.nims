@@ -123,6 +123,15 @@ if dirExists(thisDir() & "/nimbledeps/pkgs2"):
   for dir in listDirs(thisDir() & "/nimbledeps/pkgs2"):
     if extractFilename(dir).startsWith("sds-"):
       switch("path", dir)
+# Same, derived from the srcDir entry nimble writes into nimble.paths —
+# `<root>/sds/..` normalises to the package root. Covers platforms where
+# the directory listing above does not match (observed on Windows CI).
+if fileExists(thisDir() & "/nimble.paths"):
+  for rawLine in readFile(thisDir() & "/nimble.paths").splitLines():
+    let line = rawLine.strip()
+    if line.startsWith("--path:\"") and
+        (line.endsWith("/sds\"") or line.endsWith("\\sds\"")):
+      switch("path", line[8 ..< line.len - 1] & "/..")
 
 # begin Nimble config (version 2)
 --noNimblePath
