@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, strformat],
+  std/[options, strformat, sets, tables],
   testutils/unittests,
   chronos,
   libp2p/protocols/pubsub/[pubsub, gossipsub],
@@ -20,6 +20,23 @@ import
   ../testlib/[wakucore, testasync, futures, sequtils],
   ./utils,
   ../resources/payloads
+
+proc hasMeshPeer(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
+  for p in relay.mesh.getOrDefault(topic):
+    if p.peerId == peer:
+      return true
+  false
+
+proc waitForMeshPeer(
+    relay: WakuRelay, topic: PubsubTopic, peer: PeerId, timeout = 10.seconds
+): Future[bool] {.async.} =
+  ## Wait until `relay`'s gossipsub mesh for `topic` has GRAFTed `peer`.
+  let deadline = Moment.now() + timeout
+  while Moment.now() < deadline:
+    if relay.hasMeshPeer(topic, peer):
+      return true
+    await sleepAsync(50.milliseconds)
+  false
 
 suite "Waku Relay":
   var messageSeq {.threadvar.}: seq[(PubsubTopic, WakuMessage)]
@@ -676,6 +693,11 @@ suite "Waku Relay":
       check:
         anotherPeerManager.switch.isConnected(otherPeerId)
         otherPeerManager.switch.isConnected(anotherPeerId)
+
+      # Wait for the mesh to re-form before publishing (else it races the 1s FUTURE_TIMEOUT).
+      check:
+        await otherNode.waitForMeshPeer(pubsubTopicC, anotherPeerId)
+        await anotherNode.waitForMeshPeer(pubsubTopicC, otherPeerId)
 
       # When publishing a message in anotherNode for each of the pubsub topics
       handlerFuture = newPushHandlerFuture()

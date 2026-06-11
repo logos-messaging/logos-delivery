@@ -116,7 +116,10 @@ suite "RLN Proofs as a Lightpush Service":
     manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
     # mount rln-relay
-    let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
+    # match prod epoch window to reduce test flake
+    let wakuRlnConfig = getWakuRlnConfig(
+      manager = manager, index = MembershipIndex(1), epochSizeSec = 600
+    )
 
     await allFutures(server.start(), client.start())
     await server.start()
