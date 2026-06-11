@@ -232,13 +232,13 @@ proc updateMemberCount(g: OnchainGroupManager): Future[Result[void, string]] {.a
 
 proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
   ## On-demand refresh of validRoots from the on-chain root cache.
-  ## Concurrent callers coalesce onto a single in-flight refresh, and
-  ## refreshes are throttled to at most one per RootsRefreshMinInterval.
-  if not g.rootsRefreshInFlight.isNil() and not g.rootsRefreshInFlight.finished():
-    await g.rootsRefreshInFlight
+  ## Throttled to at most one refresh per RootsRefreshMinInterval; concurrent
+  ## callers outside the throttle window coalesce onto a single in-flight refresh.
+  if Moment.now() - g.lastRootsRefreshMoment < RootsRefreshMinInterval:
     return
 
-  if Moment.now() - g.lastRootsRefreshMoment < RootsRefreshMinInterval:
+  if not g.rootsRefreshInFlight.isNil() and not g.rootsRefreshInFlight.finished():
+    await g.rootsRefreshInFlight
     return
 
   proc doRefresh(): Future[void] {.async.} =
@@ -262,18 +262,15 @@ proc ensureFreshMerkleProofPath(
   ## Keeps `merkleProofCache` fresh independently of the validRoots window
   ## used by the receive path. Refetches the path whenever the throttle
   ## (`PathCheckMinInterval`) expires; trusts the cached path otherwise.
-  if g.membershipIndex.isNone():
-    return err("membership index is not set")
+  if g.merkleProofCache.len > 0 and
+      Moment.now() - g.lastMerklePathCheckMoment < PathCheckMinInterval:
+    return ok()
 
   if not g.proofPathRefreshInFlight.isNil() and not g.proofPathRefreshInFlight.finished():
     await g.proofPathRefreshInFlight
     if g.merkleProofCache.len > 0:
       return ok()
     return err("merkle proof path refresh failed")
-
-  if g.merkleProofCache.len > 0 and
-      Moment.now() - g.lastMerklePathCheckMoment < PathCheckMinInterval:
-    return ok()
 
   var fetchOk = false
   proc doRefresh(): Future[void] {.async.} =
