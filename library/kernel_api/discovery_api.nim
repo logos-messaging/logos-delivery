@@ -6,7 +6,7 @@ import
   logos_delivery/waku/discovery/waku_discv5,
   logos_delivery/waku/waku_core/peers,
   logos_delivery/waku/waku_node,
-  liblogosdelivery/declare_lib
+  library/declare_lib
 
 proc retrieveBootstrapNodes(
     enrTreeUrl: string, ipDnsServer: string

@@ -11,8 +11,8 @@ import
   logos_delivery/waku/waku_node,
   logos_delivery/waku/waku_core/topics/pubsub_topic,
   logos_delivery/waku/waku_core/topics/content_topic,
-  liblogosdelivery/events/json_message_event,
-  liblogosdelivery/declare_lib
+  library/events/json_message_event,
+  library/declare_lib
 
 const FilterOpTimeout = 5.seconds
 

@@ -178,7 +178,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
-  let srcDir = "./liblogosdelivery"
+  let srcDir = "./library"
   buildMobileAndroid srcDir, "-d:chronicles_log_level=ERROR"
 
 ### Mobile iOS
@@ -317,14 +317,14 @@ proc buildMobileIOS(srcDir = ".", params = "") =
         " -c " & natpmpSrcDir & "/natpmp.c -o " & natpmpObj
 
  # Use iOS-specific stub for getgateway
-  let getgatewayStubSrc = "./liblogosdelivery/ios_natpmp_stubs.c"
+  let getgatewayStubSrc = "./library/ios_natpmp_stubs.c"
   let getgatewayStubObj = vendorObjDir / "natpmp_getgateway_stub.o"
   if fileExists(getgatewayStubSrc) and not fileExists(getgatewayStubObj):
     exec clangBase & " -c " & getgatewayStubSrc & " -o " & getgatewayStubObj
 
   # --- BearSSL stubs (for tools functions not in main library) ---
   echo "Compiling BearSSL stubs for iOS..."
-  let bearSslStubsSrc = "./liblogosdelivery/ios_bearssl_stubs.c"
+  let bearSslStubsSrc = "./library/ios_bearssl_stubs.c"
   let bearSslStubsObj = vendorObjDir / "bearssl_stubs.o"
   if fileExists(bearSslStubsSrc) and not fileExists(bearSslStubsObj):
     exec clangBase & " -c " & bearSslStubsSrc & " -o " & bearSslStubsObj
@@ -367,7 +367,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   echo "iOS library created: " & aFile
 
 task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
-  let srcDir = "./liblogosdelivery"
+  let srcDir = "./library"
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
 
@@ -486,22 +486,22 @@ let chroniclesParams =
 ## Liblogosdelivery build tasks
 
 task liblogosdeliveryDynamicWindows, "Generate bindings":
-  buildLibDynamicWindows("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicWindows("liblogosdelivery", "library")
 
 task liblogosdeliveryDynamicLinux, "Generate bindings":
-  buildLibDynamicLinux("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicLinux("liblogosdelivery", "library")
 
 task liblogosdeliveryDynamicMac, "Generate bindings":
-  buildLibDynamicMac("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicMac("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticWindows, "Generate bindings":
-  buildLibStaticWindows("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticWindows("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticLinux, "Generate bindings":
-  buildLibStaticLinux("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticLinux("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticMac, "Generate bindings":
-  buildLibStaticMac("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticMac("liblogosdelivery", "library")
 
 ### Formatting tasks
 

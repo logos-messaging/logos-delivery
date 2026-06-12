@@ -64,7 +64,7 @@ build/
 ## Library Headers
 
 The main header file is:
-- `liblogosdelivery/liblogosdelivery.h` - C API declarations
+- `library/liblogosdelivery.h` - C API declarations
 
 ## Troubleshooting
 
@@ -119,5 +119,5 @@ your_program: your_program.c
 ## API Documentation
 
 See:
-- [liblogosdelivery.h](liblogosdelivery/liblogosdelivery.h) - API function declarations
-- [MESSAGE_EVENTS.md](liblogosdelivery/MESSAGE_EVENTS.md) - Message event handling guide
+- [liblogosdelivery.h](library/liblogosdelivery.h) - API function declarations
+- [MESSAGE_EVENTS.md](library/MESSAGE_EVENTS.md) - Message event handling guide

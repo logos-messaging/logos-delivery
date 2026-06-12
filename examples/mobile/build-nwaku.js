@@ -6,7 +6,7 @@ const args = process.argv.slice(2);
 const forceFlagIndex = args.indexOf('--force');
 
 const nwakuRootFolder = '../../';
-const libwakuHeaderSrc = 'liblogosdelivery/liblogosdelivery.h';
+const libwakuHeaderSrc = 'library/liblogosdelivery.h';
 
 // Android --------------------------------------------------------------------------------------
 

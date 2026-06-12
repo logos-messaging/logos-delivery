@@ -3,7 +3,7 @@ import chronos, results, ffi
 import libp2p/[protocols/ping, switch, multiaddress, multicodec]
 import
   logos_delivery/waku/[factory/waku, waku_core/peers, node/waku_node],
-  liblogosdelivery/declare_lib
+  library/declare_lib
 
 proc waku_ping_peer(
     ctx: ptr FFIContext[Waku],

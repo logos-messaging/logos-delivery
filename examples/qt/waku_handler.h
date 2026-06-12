@@ -2,7 +2,7 @@
 #include <QDebug>
 #include <QString>
 
-#include "../../liblogosdelivery/liblogosdelivery.h"
+#include "../../library/liblogosdelivery.h"
 
 class WakuHandler : public QObject {
     Q_OBJECT

@@ -8,7 +8,7 @@ import
   logos_delivery/waku/factory/node_factory,
   logos_delivery/waku/factory/app_callbacks,
   logos_delivery/waku/rest_api/endpoint/builder,
-  liblogosdelivery/declare_lib
+  library/declare_lib
 
 proc createWaku(
     configJson: cstring, appCallbacks: AppCallbacks = nil

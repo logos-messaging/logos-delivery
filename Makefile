@@ -444,25 +444,25 @@ logosdelivery_example: | build liblogosdelivery
 	@echo -e $(BUILD_MSG) "build/$@"
 ifeq ($(detected_OS),Darwin)
 	gcc -o build/$@ \
-		liblogosdelivery/examples/logosdelivery_example.c \
-		liblogosdelivery/examples/json_utils.c \
-		-I./liblogosdelivery \
+		library/examples/logosdelivery_example.c \
+		library/examples/json_utils.c \
+		-I./library \
 		-L./build \
 		-llogosdelivery \
 		-Wl,-rpath,./build
 else ifeq ($(detected_OS),Linux)
 	gcc -o build/$@ \
-		liblogosdelivery/examples/logosdelivery_example.c \
-		liblogosdelivery/examples/json_utils.c \
-		-I./liblogosdelivery \
+		library/examples/logosdelivery_example.c \
+		library/examples/json_utils.c \
+		-I./library \
 		-L./build \
 		-llogosdelivery \
 		-Wl,-rpath,'$$ORIGIN'
 else ifeq ($(detected_OS),Windows)
 	gcc -o build/$@.exe \
-		liblogosdelivery/examples/logosdelivery_example.c \
-		liblogosdelivery/examples/json_utils.c \
-		-I./liblogosdelivery \
+		library/examples/logosdelivery_example.c \
+		library/examples/json_utils.c \
+		-I./library \
 		-L./build \
 		-llogosdelivery \
 		-lws2_32

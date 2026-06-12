@@ -4,7 +4,7 @@ import
   logos_delivery/waku/factory/waku,
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/node/peer_manager,
-  liblogosdelivery/declare_lib
+  library/declare_lib
 
 type PeerInfo = object
   protocols: seq[string]
