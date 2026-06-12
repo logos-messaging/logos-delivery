@@ -5,7 +5,6 @@
 ## `handleIncoming` unwraps incoming ones and enforces causal-order delivery.
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
-## SDS spec (IFT LIP-109): https://lip.logos.co/ift-ts/raw/sds.html
 
 {.push raises: [].}
 
@@ -58,9 +57,8 @@ type
     onRebroadcast*: RebroadcastHandler
 
 proc computeMessageId(self: SdsHandler, payload: seq[byte]): SdsMessageID =
-  ## RELIABLE-CHANNEL-API: keccak-256(senderId + timestamp + content), where
-  ## the timestamp is the local Unix time in nanoseconds at wrap time. Unique
-  ## per segment even for identical content -- SDS dedups by message id.
+  ## keccak-256(senderId + wrap-time nanoseconds + content): unique per
+  ## segment, so identical content is not collapsed by the SDS dedup.
   let now = getTime()
   var ctx: keccak256
   ctx.init()
@@ -75,11 +73,8 @@ proc installCallbacks(self: SdsHandler) =
   self.rm.onMessageReady = proc(
       messageId: SdsMessageID, channelId: SdsChannelID
   ) {.gcsafe.} =
-    ## Fired during unwrap, in causal order, for each message whose
-    ## dependencies became met. Runs under the manager lock — must stay
-    ## synchronous. Parked content moves to `released`; the in-flight
-    ## `handleIncoming` appends it after the direct content, so the app
-    ## sees the dependency before the dependents.
+    ## Fires during unwrap, under the manager lock — must stay synchronous.
+    ## Collect only; `handleIncoming` delivers after the direct content.
     if messageId in self.pendingContent:
       self.released.add(self.pendingContent.getOrDefault(messageId))
       self.pendingContent.del(messageId)
@@ -159,11 +154,8 @@ proc wrapOutgoing*(
 proc handleIncoming*(
     self: SdsHandler, wire: seq[byte]
 ): Future[Result[seq[seq[byte]], string]] {.async: (raises: []).} =
-  ## Returns every payload deliverable now, in causal order: the message
-  ## itself first (when its dependencies are met), then any parked segments
-  ## it released. Empty when SDS consumed the message (duplicate, foreign
-  ## channel, sync traffic, or parked until dependencies arrive). `err`
-  ## when not a decodable SDS envelope.
+  ## Returns the payloads deliverable now, in causal order. Empty when SDS
+  ## consumed the message; `err` when the bytes are not an SDS envelope.
   let msg = deserializeMessage(wire).valueOr:
     return err("SDS deserialization failed")
 
@@ -177,10 +169,8 @@ proc handleIncoming*(
   try:
     await self.ingressLock.acquire()
     try:
-      ## Load-before-check: restores persisted state if the bootstrap has
-      ## not finished yet, so the duplicate check below sees the real
-      ## history (a replayed message right after a restart must not be
-      ## re-delivered). Idempotent and cheap once loaded.
+      ## Load persisted state before the duplicate check, so a replay right
+      ## after a restart is not re-delivered. Idempotent, cheap once loaded.
       (await self.rm.ensureChannel(self.channelId)).isOkOr:
         return err("SDS ensureChannel failed: " & $error)
 

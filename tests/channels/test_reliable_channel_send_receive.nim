@@ -1112,9 +1112,8 @@ suite "Reliable Channel - SDS protocol semantics":
     (await waku.stop()).expect("stop")
 
   asyncTest "identical payloads get distinct message ids and both deliver":
-    ## RELIABLE-CHANNEL-API: MessageId MUST be unique per segment, including
-    ## identical content — re-sending "ok" twice must not collapse into one
-    ## delivery via the SDS duplicate check.
+    ## Identical content sent twice must get distinct message ids and
+    ## reach the app twice — not collapse via the SDS duplicate check.
     const
       channelId = ChannelId("sds-unique-id-channel")
       contentTopic = ContentTopic("/reliable-channel/test/unique-id")

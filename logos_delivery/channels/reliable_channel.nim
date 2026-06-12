@@ -349,10 +349,8 @@ proc deliverToApp(self: ReliableChannel, content: seq[byte]) =
     )
 
 proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []).} =
-  ## SDS-R repair rebroadcast. Runs the encrypt -> dispatch tail directly:
-  ## repair traffic has no channel-level request to track, so it must not
-  ## enter the rate-limit queue whose emissions are claimed FIFO by pending
-  ## `channelReqId`s. Pacing is done by SDS itself.
+  ## Repair rebroadcasts skip the rate-limit queue — its emissions are
+  ## claimed FIFO by pending sends. Pacing is done by SDS itself.
   let encRes = await Encrypt.request(wire)
   let encrypted = encRes.valueOr:
     debug "SDS repair rebroadcast dropped: encryption failed",

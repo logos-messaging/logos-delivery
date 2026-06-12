@@ -69,9 +69,8 @@ proc stop*(self: ReliableChannelManager) {.async.} =
   self.channels.clear()
 
 proc sdsPersistence(): Option[Persistence] =
-  ## SDS durability backend from the process-wide Persistency singleton
-  ## (initialised in `Waku.start`). Falls back to memory-only when the
-  ## singleton is unavailable (e.g. unit tests).
+  ## SDS backend from the Persistency singleton; memory-only fallback when
+  ## it is unavailable (e.g. unit tests).
   let p = Persistency.instance().valueOr:
     info "SDS persistence disabled, running memory-only", reason = $error
     return none(Persistence)
