@@ -437,8 +437,15 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
+# Windows: build with nim directly (see wakunode2) — `nimble <task>` re-clones
+# git deps every build and they intermittently hang on the MSYS2 runner. Flags
+# mirror logos_delivery.nimble's dynamic-windows task.
 liblogosdelivery: | build-deps librln
+ifeq ($(detected_OS),Windows)
+	nim c --out:build/liblogosdelivery.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:liblogosdelivery --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/liblogosdelivery.nim
+else
 	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) logos_delivery.nimble
+endif
 
 logosdelivery_example: | build liblogosdelivery
 	@echo -e $(BUILD_MSG) "build/$@"
