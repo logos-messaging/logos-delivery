@@ -154,17 +154,6 @@ proc sendMintCall(
 proc checkTokenAllowance(
     web3: Web3, tokenAddress: Address, owner: Address, spender: Address
 ): Future[UInt256] {.async.} =
-  # DEBUG: verify there is actually deployed bytecode at `tokenAddress`. If
-  # this is empty, the subsequent eth_call returns 0x and web3's decoder
-  # crashes inside the regex-driven error parser.
-  let code = await web3.provider.eth_getCode(tokenAddress, "latest")
-  echo "[DEBUG checkTokenAllowance] tokenAddress=", tokenAddress.toHex(),
-    " owner=", owner.toHex(), " spender=", spender.toHex(),
-    " codeLen=", code.len
-  if code.len == 0:
-    raiseAssert "[DEBUG checkTokenAllowance] No contract code at tokenAddress " &
-      tokenAddress.toHex() & "; deployment did not place an ERC20 there."
-
   let token = web3.contractSender(ERC20Token, tokenAddress)
   let allowance = await token.allowance(owner, spender).call()
   trace "Current allowance", owner = owner, spender = spender, allowance = allowance

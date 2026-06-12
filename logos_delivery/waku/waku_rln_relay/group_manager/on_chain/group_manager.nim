@@ -365,13 +365,16 @@ method register*(
   ).valueOr:
     return err("Failed to register member: " & error)
 
-  # wait for the transaction to be mined
+  # wait for the transaction to be mined and get the receipt
   let tsReceipt = (
     await retryWrapper(
       RetryStrategy.new(),
       "Failed to get the transaction receipt",
       proc(): Future[ReceiptObject] {.async.} =
-        return await ethRpc.getMinedTransactionReceipt(txHash),
+        let r = await ethRpc.provider.eth_getTransactionReceipt(txHash)
+        if r.isNil:
+          raise newException(CatchableError, "transaction not yet mined")
+        return r,
     )
   ).valueOr:
     return err("Failed to get transaction receipt: " & error)
