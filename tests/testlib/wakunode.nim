@@ -86,10 +86,7 @@ proc newTestWakuNode*(
 
   # reuse bindPort for quic so the enr addr is dialable; port 0 would advertise /udp/0
   let quicBindPort =
-    if quicEnabled and quicBindPort == Port(0):
-      bindPort
-    else:
-      quicBindPort
+    if quicEnabled and quicBindPort == Port(0): bindPort else: quicBindPort
 
   var resolvedExtIp = extIp
 

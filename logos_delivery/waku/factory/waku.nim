@@ -272,9 +272,10 @@ proc getPorts(
 
 proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.} =
   let conf = waku.conf
-  let (tcpPort, websocketPort, quicPort) =
-    getPorts(waku.node.switch.peerInfo.listenAddrs).valueOr:
-      return err("Could not retrieve ports: " & error)
+  let (tcpPort, websocketPort, quicPort) = getPorts(
+    waku.node.switch.peerInfo.listenAddrs
+  ).valueOr:
+    return err("Could not retrieve ports: " & error)
 
   if tcpPort.isSome():
     conf.endpointConf.p2pTcpPort = tcpPort.get()
@@ -289,8 +290,7 @@ proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.
   let netConf = (
     await networkConfiguration(
       conf.clusterId, conf.endpointConf, conf.discv5Conf, conf.webSocketConf,
-      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, conf.portsShift,
-      clientId,
+      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, conf.portsShift, clientId,
     )
   ).valueOr:
     return err("Could not update NetConfig: " & error)

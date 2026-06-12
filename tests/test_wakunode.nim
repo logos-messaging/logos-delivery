@@ -124,10 +124,7 @@ suite "WakuNode":
       maxConnections = 20
       nodeKey1 = generateSecp256k1Key()
       node1 = newTestWakuNode(
-        nodeKey1,
-        parseIpAddress("127.0.0.1"),
-        Port(0),
-        maxConnections = maxConnections,
+        nodeKey1, parseIpAddress("127.0.0.1"), Port(0), maxConnections = maxConnections
       )
 
     # Initialize and start node1
@@ -282,8 +279,8 @@ suite "WakuNode":
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     let conns = node1.switch.connManager.getConnections().getOrDefault(
-      node2.switch.peerInfo.peerId
-    )
+        node2.switch.peerInfo.peerId
+      )
     check conns.len >= 1
     let obAddr = conns[0].connection.observedAddr.valueOr:
       raiseAssert "connection has no observed address"
