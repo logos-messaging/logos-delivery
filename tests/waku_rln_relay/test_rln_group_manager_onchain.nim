@@ -530,7 +530,7 @@ suite "Onchain group manager":
     manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
       raiseAssert "failed to fetch initial path: " & error
     manager.lastMerklePathCheckMoment = Moment.now()
-    manager.proofPathRefreshInFlight = nil
+    manager.proofPathRefreshInFlightFut = nil
 
     let primedCache = manager.merkleProofCache
 
@@ -541,7 +541,7 @@ suite "Onchain group manager":
     check:
       proofRes.isOk()
       # Hot path: no refresh future created, cache untouched.
-      manager.proofPathRefreshInFlight == nil
+      manager.proofPathRefreshInFlightFut == nil
       manager.merkleProofCache == primedCache
 
   test "generateProof: refetches path when cache is empty":
@@ -555,7 +555,7 @@ suite "Onchain group manager":
     # No path yet; generateProof must run the freshness check, see the empty
     # cache, and refetch.
     manager.merkleProofCache = @[]
-    manager.proofPathRefreshInFlight = nil
+    manager.proofPathRefreshInFlightFut = nil
 
     let proofRes = waitFor manager.generateProof(
       data = "hello".toBytes(), epoch = default(Epoch), messageId = MessageId(1)
@@ -564,7 +564,7 @@ suite "Onchain group manager":
     check:
       proofRes.isOk()
       manager.merkleProofCache.len > 0
-      manager.proofPathRefreshInFlight != nil
+      manager.proofPathRefreshInFlightFut != nil
 
   test "ensureFreshMerkleProofPath: errors when membership index is not set":
     (waitFor manager.init()).isOkOr:
@@ -593,7 +593,7 @@ suite "Onchain group manager":
     manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
       raiseAssert "failed to prime path: " & error
     manager.lastMerklePathCheckMoment = Moment.now() - PathCheckMinInterval - 1.seconds
-    manager.proofPathRefreshInFlight = nil
+    manager.proofPathRefreshInFlightFut = nil
 
     let preCheckTs = manager.lastMerklePathCheckMoment
     let res = waitFor manager.ensureFreshMerkleProofPath()
@@ -601,7 +601,7 @@ suite "Onchain group manager":
     check:
       res.isOk()
       manager.merkleProofCache.len > 0
-      manager.proofPathRefreshInFlight != nil
+      manager.proofPathRefreshInFlightFut != nil
       # lastMerklePathCheckMoment was bumped to "now" by the refetch.
       manager.lastMerklePathCheckMoment > preCheckTs
 
@@ -618,7 +618,7 @@ suite "Onchain group manager":
     # Force a refetch by emptying the cache; the doRefresh closure should
     # invoke updateMemberCount on the success path.
     manager.merkleProofCache = @[]
-    manager.proofPathRefreshInFlight = nil
+    manager.proofPathRefreshInFlightFut = nil
     waku_rln_number_registered_memberships.set(0.0) # baseline
 
     let res = waitFor manager.ensureFreshMerkleProofPath()
