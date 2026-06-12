@@ -1111,6 +1111,84 @@ suite "Reliable Channel - SDS protocol semantics":
 
     (await waku.stop()).expect("stop")
 
+  asyncTest "identical payloads get distinct message ids and both deliver":
+    ## RELIABLE-CHANNEL-API: MessageId MUST be unique per segment, including
+    ## identical content — re-sending "ok" twice must not collapse into one
+    ## delivery via the SDS duplicate check.
+    const
+      channelId = ChannelId("sds-unique-id-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/unique-id")
+    let appPayload = "ok".toBytes()
+
+    var waku: Waku
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      waku = (await createNode(createApiNodeConf())).expect("createNode")
+      waku.mountMessagingClient().expect("mountMessagingClient")
+      waku.mountReliableChannelManager().expect("mountReliableChannelManager")
+      manager = waku.reliableChannelManager
+
+    setNoopEncryption()
+
+    var capturedWires: seq[seq[byte]]
+    let fakeSend: SendHandler = proc(
+        env: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+      capturedWires.add(env.payload)
+      return ok(RequestId("unique-req-" & $capturedWires.len))
+
+    discard manager
+      .createReliableChannel(
+        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
+      )
+      .expect("createReliableChannel")
+
+    var deliveries: seq[seq[byte]]
+    discard ChannelMessageReceivedEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageReceivedEvent) {.async: (raises: []).} =
+          if evt.channelId == channelId:
+            deliveries.add(evt.payload)
+        ,
+      )
+      .expect("listen ChannelMessageReceivedEvent")
+
+    ## Send side: the same payload twice must produce two distinct ids.
+    discard (await manager.send(channelId, appPayload)).expect("send 1")
+    discard (await manager.send(channelId, appPayload)).expect("send 2")
+    var deadline = Moment.now() + 2.seconds
+    while Moment.now() < deadline and capturedWires.len < 2:
+      await sleepAsync(5.milliseconds)
+    check capturedWires.len == 2
+    let id1 = deserializeMessage(capturedWires[0]).expect("wire 1").messageId
+    let id2 = deserializeMessage(capturedWires[1]).expect("wire 2").messageId
+    check id1 != id2
+
+    ## Receive side: identical content under distinct ids delivers twice.
+    let remotePeer =
+      ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
+    for i in 1 .. 2:
+      let wire = (
+        await remotePeer.wrapOutgoingMessage(
+          appPayload, "unique-m" & $i, SdsChannelID(channelId)
+        )
+      ).expect("wrap " & $i)
+      waku_message_events.MessageReceivedEvent.emit(
+        brokerCtx,
+        waku_message_events.MessageReceivedEvent(
+          messageHash: "unique-hash-" & $i, message: sdsWakuMessage(contentTopic, wire)
+        ),
+      )
+    deadline = Moment.now() + 2.seconds
+    while Moment.now() < deadline and deliveries.len < 2:
+      await sleepAsync(5.milliseconds)
+    check deliveries.len == 2
+
+    (await waku.stop()).expect("stop")
+
   asyncTest "manager rejects operations on unknown channels":
     var waku: Waku
     var manager: ReliableChannelManager

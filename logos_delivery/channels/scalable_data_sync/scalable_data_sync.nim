@@ -11,9 +11,9 @@
 
 import std/[options, tables]
 import results, chronos, chronicles
-import nimcrypto/sha2
+import nimcrypto/keccak
 import stew/byteutils
-from std/times import initDuration
+from std/times import initDuration, getTime, toUnix, nanosecond
 
 import sds
 import message as sds_message
@@ -54,12 +54,20 @@ type
     ingressLock: AsyncLock
       ## Serializes `handleIncoming` so `released` belongs to exactly one
       ## in-flight unwrap and delivery order stays causal.
+    participantId: SdsParticipantID
     onRebroadcast*: RebroadcastHandler
 
-proc computeMessageId(payload: seq[byte]): SdsMessageID =
-  ## Content-derived id: a retransmission of the same segment maps onto the
-  ## same SDS message id and deduplicates instead of forking history.
-  SdsMessageID(byteutils.toHex(sha256.digest(payload).data))
+proc computeMessageId(self: SdsHandler, payload: seq[byte]): SdsMessageID =
+  ## RELIABLE-CHANNEL-API: keccak-256(senderId + timestamp + content), where
+  ## the timestamp is the local Unix time in nanoseconds at wrap time. Unique
+  ## per segment even for identical content -- SDS dedups by message id.
+  let now = getTime()
+  var ctx: keccak256
+  ctx.init()
+  ctx.update(string(self.participantId))
+  ctx.update($(now.toUnix() * 1_000_000_000 + now.nanosecond()))
+  ctx.update(payload)
+  SdsMessageID(byteutils.toHex(ctx.finish().data))
 
 proc installCallbacks(self: SdsHandler) =
   ## Direct field assignment is race-free here: no periodic task or protocol
@@ -115,6 +123,7 @@ proc new*(
     pendingContent: initOrderedTable[SdsMessageID, seq[byte]](),
     released: @[],
     ingressLock: newAsyncLock(),
+    participantId: participantId,
   )
   handler.installCallbacks()
   return handler
@@ -141,7 +150,7 @@ proc wrapOutgoing*(
   ## outgoing buffer awaiting end-to-end acknowledgement.
   let wrapped = (
     await self.rm.wrapOutgoingMessage(
-      payload, computeMessageId(payload), self.channelId
+      payload, self.computeMessageId(payload), self.channelId
     )
   ).valueOr:
     return err("SDS wrap failed: " & $error)
