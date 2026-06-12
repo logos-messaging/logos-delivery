@@ -54,9 +54,10 @@ proc sendRlnMessage*(
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
   var message = WakuMessage(payload: payload, contentTopic: contentTopic)
-  let appendResult = client.wakuRlnRelay.appendRLNProof(message, epochTime())
-    # Assignment required or crashess
-  assertResultOk(appendResult)
+  message.proof = (
+    await client.wakuRlnRelay.generateRLNProof(message.toRLNSignal(), epochTime())
+  ).valueOr:
+    raiseAssert "generateRLNProof failed: " & error
   discard await client.publish(some(pubsubTopic), message)
   let isCompleted = await completionFuture.withTimeout(FUTURE_TIMEOUT)
   return isCompleted
@@ -68,13 +69,13 @@ proc sendRlnMessageWithInvalidProof*(
     completionFuture: Future[bool],
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
+  let extraBytes: seq[byte] = @[byte(1), 2, 3]
+  let rateLimitProofRes = await client.wakuRlnRelay.groupManager.generateProof(
+    concat(payload, extraBytes),
+      # we add extra bytes to invalidate proof verification against original payload
+    client.wakuRlnRelay.getCurrentEpoch(),
+  )
   let
-    extraBytes: seq[byte] = @[byte(1), 2, 3]
-    rateLimitProofRes = client.wakuRlnRelay.groupManager.generateProof(
-      concat(payload, extraBytes),
-        # we add extra bytes to invalidate proof verification against original payload
-      client.wakuRlnRelay.getCurrentEpoch(),
-    )
     rateLimitProof = rateLimitProofRes.get().encode().buffer
     message =
       WakuMessage(payload: @payload, contentTopic: contentTopic, proof: rateLimitProof)

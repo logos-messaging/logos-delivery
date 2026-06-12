@@ -42,7 +42,7 @@ proc benchmark(
   start_time = getTime()
   for i in 1 .. messageLimit:
     var generate_time = getTime()
-    let proof = manager.generateProof(data, epoch, MessageId(i.uint8)).valueOr:
+    let proof = (await manager.generateProof(data, epoch, MessageId(i.uint8))).valueOr:
       raiseAssert $error
     proofGenTimes.add(getTime() - generate_time)
 
