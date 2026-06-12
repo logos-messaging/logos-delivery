@@ -105,7 +105,7 @@ pkgs.stdenv.mkDerivation {
     echo "== Building liblogosdelivery (dynamic) =="
     ${nimCompile {
       outFile = "build/liblogosdelivery.${libExt}";
-      sourceFile = "liblogosdelivery/liblogosdelivery.nim";
+      sourceFile = "library/liblogosdelivery.nim";
       extraArgs = [
         "--app:lib"
         "--opt:size"
@@ -118,7 +118,7 @@ pkgs.stdenv.mkDerivation {
     echo "== Building liblogosdelivery (static) =="
     ${nimCompile {
       outFile = "build/liblogosdelivery.a";
-      sourceFile = "liblogosdelivery/liblogosdelivery.nim";
+      sourceFile = "library/liblogosdelivery.nim";
       extraArgs = [
         "--app:staticlib"
         "--opt:size"
@@ -139,7 +139,8 @@ pkgs.stdenv.mkDerivation {
     mkdir -p $out/lib $out/include
     cp build/liblogosdelivery.${libExt} $out/lib/ 2>/dev/null || true
     cp build/liblogosdelivery.a         $out/lib/ 2>/dev/null || true
-    cp liblogosdelivery/liblogosdelivery.h $out/include/ 2>/dev/null || true
+    cp library/liblogosdelivery.h        $out/include/ 2>/dev/null || true
+    cp library/liblogosdelivery_kernel.h $out/include/ 2>/dev/null || true
     runHook postInstall
   '';
 
