@@ -516,7 +516,7 @@ Note: For specific version requirements, check `logos_delivery.nimble`.
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **logos-delivery** (2076 symbols, 2564 relationships, 12 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **logos-delivery** (13164 symbols, 22277 relationships, 275 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 
@@ -554,5 +554,25 @@ This project is indexed by GitNexus as **logos-delivery** (2076 symbols, 2564 re
 | Rename / extract / split / refactor | `.claude/skills/gitnexus/gitnexus-refactoring/SKILL.md` |
 | Tools, resources, schema reference | `.claude/skills/gitnexus/gitnexus-guide/SKILL.md` |
 | Index, status, clean, wiki CLI commands | `.claude/skills/gitnexus/gitnexus-cli/SKILL.md` |
+| Work in the Kernel_api area (218 symbols) | `.claude/skills/generated/kernel-api/SKILL.md` |
+| Work in the Persistency area (101 symbols) | `.claude/skills/generated/persistency/SKILL.md` |
+| Work in the Api area (82 symbols) | `.claude/skills/generated/api/SKILL.md` |
+| Work in the Waku_rln_relay area (74 symbols) | `.claude/skills/generated/waku-rln-relay/SKILL.md` |
+| Work in the Waku_filter_v2 area (71 symbols) | `.claude/skills/generated/waku-filter-v2/SKILL.md` |
+| Work in the Postgres_driver area (59 symbols) | `.claude/skills/generated/postgres-driver/SKILL.md` |
+| Work in the Health_monitor area (53 symbols) | `.claude/skills/generated/health-monitor/SKILL.md` |
+| Work in the Rln area (53 symbols) | `.claude/skills/generated/rln/SKILL.md` |
+| Work in the Waku_enr area (52 symbols) | `.claude/skills/generated/waku-enr/SKILL.md` |
+| Work in the Mobile area (52 symbols) | `.claude/skills/generated/mobile/SKILL.md` |
+| Work in the Admin area (47 symbols) | `.claude/skills/generated/admin/SKILL.md` |
+| Work in the Waku_store_sync area (47 symbols) | `.claude/skills/generated/waku-store-sync/SKILL.md` |
+| Work in the Node area (46 symbols) | `.claude/skills/generated/node/SKILL.md` |
+| Work in the Waku_store area (42 symbols) | `.claude/skills/generated/waku-store/SKILL.md` |
+| Work in the Waku_keystore area (42 symbols) | `.claude/skills/generated/waku-keystore/SKILL.md` |
+| Work in the Waku_core area (41 symbols) | `.claude/skills/generated/waku-core/SKILL.md` |
+| Work in the Sqlite_driver area (40 symbols) | `.claude/skills/generated/sqlite-driver/SKILL.md` |
+| Work in the Databases area (38 symbols) | `.claude/skills/generated/databases/SKILL.md` |
+| Work in the Conf_builder area (36 symbols) | `.claude/skills/generated/conf-builder/SKILL.md` |
+| Work in the Filter area (36 symbols) | `.claude/skills/generated/filter/SKILL.md` |
 
 <!-- gitnexus:end -->

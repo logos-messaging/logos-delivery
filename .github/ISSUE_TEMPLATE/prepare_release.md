@@ -30,18 +30,18 @@ All items below are to be completed by the owner of the given release.
   - [ ] **QA testing**
     - [ ] Ask QA to run their available tests against the release candidate.
 
-  - [ ] **Waku fleet testing**
-    - [ ] Deploy the release candidate to `waku.test` fleet.
-      - Start the [deployment job](https://ci.infra.status.im/job/nim-waku/) and wait for it to finish (Jenkins access required; ask the infra team if you don't have it).
+  - [ ] **Logos fleet testing**
+    - [ ] Deploy the release candidate to `logos.dev` fleet.
+      - Start the deployment job in [Jenkins](https://ci.infra.status.im/) and wait for it to finish (Jenkins access required; ask the infra team if you don't have it).
       - After completion, disable fleet so that daily CI does not override your release candidate.
-      - Verify at https://fleets.waku.org/ that the fleet is locked to the release candidate image.
-      - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab).
-    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) from the previous month (since the last release was deployed) for possible crashes or errors in `waku.test`.
+      - Verify at https://fleets.logos.co/ that the fleet is locked to the release candidate image.
+      - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/32/repositories/logos-node/artifacts-tab).
+    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) from the previous month (since the last release was deployed) for possible crashes or errors in `logos.dev`.
       - Set time range to "Last 30 days" (or since last release).
-      - Most relevant search query: `(fleet: "waku.test" AND message: "SIGSEGV")`, `(fleet: "waku.test" AND message: "exception")`, `(fleet: "waku.test" AND message: "error")`.
+      - Most relevant search query: `(fleet: "logos.dev" AND message: "SIGSEGV")`, `(fleet: "logos.dev" AND message: "exception")`, `(fleet: "logos.dev" AND message: "error")`.
       - Document any crashes or errors found.
-    - [ ] Ask QA to perform tests against `waku.test`, if any. Then, after that, review Kibana for possible issues or unexpected restart.
-    - [ ] Enable the `waku.test` fleet again to resume auto-deployment of the latest `master` commit.
+    - [ ] Ask QA to perform tests against `logos.dev`, if any. Then, after that, review Kibana for possible issues or unexpected restart.
+    - [ ] Enable the `logos.dev` fleet again to resume auto-deployment of the latest `master` commit.
 
   - [ ] **Status testing**
     - [ ] Get QA approval to deploy a new version in `status.staging`.
@@ -72,8 +72,8 @@ All items below are to be completed by the owner of the given release.
 - [Release process](https://github.com/logos-messaging/logos-delivery/blob/master/docs/contributors/release-process.md)
 - [Release notes](https://github.com/logos-messaging/logos-delivery/blob/master/CHANGELOG.md)
 - [Fleet ownership](https://www.notion.so/Fleet-Ownership-7532aad8896d46599abac3c274189741?pvs=4#d2d2f0fe4b3c429fbd860a1d64f89a64)
-- [Infra-nim-waku](https://github.com/status-im/infra-nim-waku)
-- [Jenkins](https://ci.infra.status.im/job/nim-waku/)
-- [Fleets](https://fleets.waku.org/)
-- [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab)
+- [Infra-logos](https://github.com/status-im/infra-logos)
+- [Jenkins](https://ci.infra.status.im/)
+- [Fleets](https://fleets.logos.co/)
+- [Harbor](https://harbor.status.im/harbor/projects/32/repositories/logos-node/artifacts-tab)
 - [Kibana](https://kibana.infra.status.im/app/)
