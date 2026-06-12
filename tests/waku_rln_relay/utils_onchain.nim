@@ -359,13 +359,14 @@ proc executeForgeContractDeployScripts*(
   if exitCodeDeployWakuRln != 0:
     error "Forge command to deploy WakuRlnV2 contract failed",
       output = outputDeployWakuRln
+    return err("Forge command to deploy WakuRlnV2 contract failed")
 
   # Parse the output to find contract address
   let wakuRlnV2AddressRes =
     getContractAddressFromDeployScriptOutput(outputDeployWakuRln)
   if wakuRlnV2AddressRes.isErr():
     error "Failed to get WakuRlnV2 contract address from deploy script output"
-    ##TODO: raise exception here?
+    return err("Failed to get WakuRlnV2 contract address from deploy script output")
   let wakuRlnV2Address = wakuRlnV2AddressRes.get()
   putEnv("WAKURLNV2_ADDRESS", wakuRlnV2Address)
 
@@ -373,7 +374,6 @@ proc executeForgeContractDeployScripts*(
   let forgeCmdProxy =
     fmt"""cd {submodulePath} && {forgePath} script script/Deploy.s.sol --broadcast -vvvv --rpc-url http://localhost:8540 --tc DeployProxy --private-key {privateKey} && rm -rf broadcast/*/*/run-1*.json && rm -rf cache/*/*/run-1*.json"""
   let (outputDeployProxy, exitCodeDeployProxy) = execForge(forgeCmdProxy)
-  trace "Executed forge command to deploy proxy contract", output = outputDeployProxy
   if exitCodeDeployProxy != 0:
     error "Forge command to deploy Proxy failed", error = outputDeployProxy
     return err("Forge command to deploy Proxy failed")
