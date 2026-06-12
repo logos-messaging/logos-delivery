@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 #include "../cbindings/base64.h"
-#include "../../library/libwaku.h"
+#include "../../liblogosdelivery/liblogosdelivery.h"
 
 // Reference to the NodeJs function to be called when a waku event occurs.
 // static napi_ref ref_event_callback = NULL;
@@ -284,7 +284,7 @@ static napi_value WakuSetEventCallback(napi_env env, napi_callback_info info) {
 
   // Inside 'event_handler', the event will be dispatched to the NodeJs
   // if there is a proper napi_function (ref_event_callback) being set.
-  waku_set_event_callback(event_handler, userData);
+  logosdelivery_set_event_callback(event_handler, userData);
 
   return NULL;
 }

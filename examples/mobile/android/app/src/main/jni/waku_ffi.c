@@ -1,4 +1,4 @@
-#include "libwaku.h"
+#include "liblogosdelivery.h"
 #include <android/log.h>
 #include <jni.h>
 #include <stdbool.h>
@@ -321,5 +321,5 @@ void Java_com_mobile_WakuModule_wakuSetEventCallback(JNIEnv *env, jobject thiz,
   cb_env *c = (cb_env *)malloc(sizeof(cb_env));
   c->wakuPtr = wakuPtr;
   c->env = env;
-  waku_set_event_callback((void *)wakuPtr, wk_callback, (void *)c);
+  logosdelivery_set_event_callback((void *)wakuPtr, wk_callback, (void *)c);
 }

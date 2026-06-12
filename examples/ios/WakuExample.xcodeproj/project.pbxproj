@@ -14,7 +14,7 @@
 
 /* Begin PBXFileReference section */
 		0671AF6DCB0D788B0C1E9C8B /* WakuExampleApp.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakuExampleApp.swift; sourceTree = "<group>"; };
-		31BE20DB2755A11000723420 /* libwaku.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = libwaku.h; sourceTree = "<group>"; };
+		31BE20DB2755A11000723420 /* liblogosdelivery.h */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.c.h; path = liblogosdelivery.h; sourceTree = "<group>"; };
 		5C5AAC91E0166D28BFA986DB /* Info.plist */ = {isa = PBXFileReference; lastKnownFileType = text.plist; path = Info.plist; sourceTree = "<group>"; };
 		638A565C495A63CFF7396FBC /* WakuNode.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = WakuNode.swift; sourceTree = "<group>"; };
 		7D8744E36DADC11F38A1CC99 /* ContentView.swift */ = {isa = PBXFileReference; lastKnownFileType = sourcecode.swift; path = ContentView.swift; sourceTree = "<group>"; };
@@ -36,7 +36,7 @@
 			children = (
 				7D8744E36DADC11F38A1CC99 /* ContentView.swift */,
 				5C5AAC91E0166D28BFA986DB /* Info.plist */,
-				31BE20DB2755A11000723420 /* libwaku.h */,
+				31BE20DB2755A11000723420 /* liblogosdelivery.h */,
 				A8655016B3DF9B0877631CE5 /* WakuExample-Bridging-Header.h */,
 				0671AF6DCB0D788B0C1E9C8B /* WakuExampleApp.swift */,
 				638A565C495A63CFF7396FBC /* WakuNode.swift */,
@@ -132,7 +132,7 @@
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-force_load",
-					"$(PROJECT_DIR)/../../build/ios/iphoneos-arm64/libwaku.a",
+					"$(PROJECT_DIR)/../../build/ios/iphoneos-arm64/liblogosdelivery.a",
 					"-lsqlite3",
 					"-lz",
 				);
@@ -289,7 +289,7 @@
 				OTHER_LDFLAGS = (
 					"-lc++",
 					"-force_load",
-					"$(PROJECT_DIR)/../../build/ios/iphoneos-arm64/libwaku.a",
+					"$(PROJECT_DIR)/../../build/ios/iphoneos-arm64/liblogosdelivery.a",
 					"-lsqlite3",
 					"-lz",
 				);

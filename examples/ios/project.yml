@@ -29,7 +29,7 @@ targets:
         - "$(PROJECT_DIR)/../../build/ios/iphonesimulator-arm64"
       OTHER_LDFLAGS:
         - "-lc++"
-        - "-lwaku"
+        - "-llogosdelivery"
       IPHONEOS_DEPLOYMENT_TARGET: "14.0"
     info:
       path: WakuExample/Info.plist

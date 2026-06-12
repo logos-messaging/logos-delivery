@@ -6,15 +6,15 @@ const args = process.argv.slice(2);
 const forceFlagIndex = args.indexOf('--force');
 
 const nwakuRootFolder = '../../';
-const libwakuHeaderSrc = 'library/libwaku.h';
+const libwakuHeaderSrc = 'liblogosdelivery/liblogosdelivery.h';
 
 // Android --------------------------------------------------------------------------------------
 
 const androidArchitectures = ['arm64-v8a', 'x86', 'x86_64']; // 'armeabi-v7a'
 const androidSrcFolder = 'build/android';
 const androidDstFolder = 'android/app/src/main/jniLibs';
-const androidFilesToCheck = ['libwaku.so', 'librln.so'];
-const androidLibDst = 'android/app/src/main/jni/libwaku.h';
+const androidFilesToCheck = ['liblogosdelivery.so', 'librln.so'];
+const androidLibDst = 'android/app/src/main/jni/liblogosdelivery.h';
 
 const androidDstFiles = [androidLibDst];
 androidArchitectures.forEach(architecture => {
@@ -28,7 +28,7 @@ const filesExist = androidDstFiles.every(file => fs.existsSync(file));
 if (!filesExist || forceFlagIndex !== -1) {
   console.log('Running make to generate all architecture libraries...');
   const makeCommand = 'make';
-  const makeProcess = spawn(makeCommand, ['libwaku-android'], {cwd: '../../'});
+  const makeProcess = spawn(makeCommand, ['liblogosdelivery-android'], {cwd: '../../'});
 
   makeProcess.stdout.on('data', data => process.stdout.write(data));
   makeProcess.stderr.on('data', data => process.stdout.write(data));

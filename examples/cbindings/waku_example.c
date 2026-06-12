@@ -12,7 +12,7 @@
 #include <sys/syscall.h>
 
 #include "base64.h"
-#include "../../library/libwaku.h"
+#include "../../liblogosdelivery/liblogosdelivery.h"
 
 // Shared synchronization variables
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -357,7 +357,7 @@ int main(int argc, char **argv)
   printf("Bind addr: %s:%u\n", cfgNode.host, cfgNode.port);
   printf("Waku Relay enabled: %s\n", cfgNode.relay == 1 ? "YES" : "NO");
 
-  set_event_callback(ctx, on_event_received, userData);
+  logosdelivery_set_event_callback(ctx, on_event_received, userData);
 
   waku_start(ctx, event_handler, userData);
   waitForCallback();
