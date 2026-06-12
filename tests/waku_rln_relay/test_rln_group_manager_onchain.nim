@@ -20,6 +20,7 @@ import
   logos_delivery/waku/[
     waku_rln_relay,
     waku_rln_relay/protocol_types,
+    waku_rln_relay/protocol_metrics,
     waku_rln_relay/constants,
     waku_rln_relay/rln,
     waku_rln_relay/conversion_utils,
@@ -73,36 +74,27 @@ suite "Onchain group manager":
     (waitFor manager.init()).isErrOr:
       raiseAssert "Expected error when keystore file doesn't exist"
 
-  test "trackRootChanges: should guard against uninitialized state":
-    let initializedResult = waitFor manager.trackRootChanges()
-
-    check:
-      initializedResult.isErr()
-      initializedResult.error == "OnchainGroupManager is not initialized"
-
-  test "trackRootChanges: should sync to the state of the group":
-    let credentials = generateCredentials()
+  test "updateMemberCount: reflects on-chain registered member count":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
-    let merkleRootBefore = waitFor manager.fetchMerkleRoot()
+    # No members registered yet; metric should reflect nextFreeIndex == 0.
+    (waitFor manager.updateMemberCount()).isOkOr:
+      raiseAssert "updateMemberCount failed (initial): " & error
+    check waku_rln_number_registered_memberships.value() == 0.0
 
-    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
-      assert false, "error returned when calling register: " & error
+    const credentialCount = 3
+    let credentials = generateCredentials(credentialCount)
+    for i in 0 ..< credentials.len:
+      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
+        assert false, "register failed for credential " & $i & ": " & error
 
-    discard waitFor withTimeout(trackRootChanges(manager), 15.seconds)
+    (waitFor manager.updateMemberCount()).isOkOr:
+      raiseAssert "updateMemberCount failed (after registrations): " & error
+    check waku_rln_number_registered_memberships.value() == float64(credentialCount)
 
-    let merkleRootAfter = waitFor manager.fetchMerkleRoot()
-
-    check:
-      merkleRootBefore != merkleRootAfter
-
-  test "trackRootChanges: should fetch history correctly: fetch single root()":
+  test "updateRoots: appends new on-chain root to validRoots after registration":
     # basic check for the soon to be deprecated root contract function, is replaced by getRecentRoots()
-    # TODO: We can't use `trackRootChanges()` directly in this test because its current implementation
-    #       relies on a busy loop rather than event-based monitoring. but that busy loop fetch root every 5 seconds
-    #       so we can't use it in this test. 
-
     const credentialCount = 6
     let credentials = generateCredentials(credentialCount)
     (waitFor manager.init()).isOkOr:
@@ -111,7 +103,7 @@ suite "Onchain group manager":
     let merkleRootBefore = (waitFor manager.fetchMerkleRoot()).valueOr:
       raiseAssert "Failed to fetch merkle root before: " & error
 
-    for i in 0 ..< credentials.len():
+    for i in 0 ..< credentials.len:
       info "Registering credential", index = i, credential = credentials[i]
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register credential " & $i & ": " & error
@@ -122,14 +114,11 @@ suite "Onchain group manager":
 
     check:
       merkleRootBefore != merkleRootAfter
-      manager.validRoots.len() == credentialCount
+      manager.validRoots.len == credentialCount
 
-  test "trackRootChanges: should fetch history correctly: fetch root cache":
+  test "updateRecentRoots: appends new on-chain roots from contract cache":
     # Verify that the group_manager list of valid roots is updated correctly from the recent roots
     # cache as new credentials are registered.
-    # TODO: We can't use `trackRootChanges()` directly in this test because its current implementation
-    #       relies on a busy loop rather than event-based monitoring. but that busy loop fetch root every 5 seconds
-    #       so we can't use it in this test.
 
     const credentialCount = RlnContractRootCacheSize
     let credentials = generateCredentials(credentialCount)
@@ -142,9 +131,9 @@ suite "Onchain group manager":
     check:
       merkleRootCacheBefore.len == RlnContractRootCacheSize * 32
       merkleRootCacheBefore.allIt(it == 0'u8)
-      manager.validRoots.len() == 0
+      manager.validRoots.len == 0
 
-    for i in 0 ..< credentials.len():
+    for i in 0 ..< credentials.len:
       info "Registering credential", index = i, credential = credentials[i]
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register credential " & $i & ": " & error
@@ -156,10 +145,10 @@ suite "Onchain group manager":
     check:
       merkleRootCacheAfter.len == RlnContractRootCacheSize * 32
       not merkleRootCacheAfter.allIt(it == 0'u8)
-      manager.validRoots.len() == credentialCount
+      manager.validRoots.len == credentialCount
       manager.validRoots.items().toSeq().allIt(it != default(MerkleNode))
 
-  test "trackRootChanges: oldest roots are evicted once the window is exceeded":
+  test "updateRecentRoots: oldest roots are evicted once the window is exceeded":
     const
       initialCount = AcceptableRootWindowSize - RlnContractRootCacheSize
       additionalCount = RlnContractRootCacheSize + 1
@@ -174,12 +163,12 @@ suite "Onchain group manager":
         assert false, "Failed to register credential " & $i & ": " & error
       discard waitFor manager.updateRecentRoots()
 
-    check manager.validRoots.len() >= 3
+    check manager.validRoots.len >= 3
     let firstThreeBefore =
       @[manager.validRoots[0], manager.validRoots[1], manager.validRoots[2]]
 
     # Register the remaining credentials, pushing the deque past AcceptableRootWindowSize.
-    for i in initialCount ..< credentials.len():
+    for i in initialCount ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register credential " & $i & ": " & error
       discard waitFor manager.updateRecentRoots()
@@ -189,7 +178,7 @@ suite "Onchain group manager":
     # AcceptableRootWindowSize + 1 registrations evicts exactly the single oldest root,
     # so only the first of the original three is gone; the other two remain.
     check:
-      manager.validRoots.len() == AcceptableRootWindowSize
+      manager.validRoots.len == AcceptableRootWindowSize
       firstThreeBefore[0] notin rootsAfter
       firstThreeBefore[1] in rootsAfter
       firstThreeBefore[2] in rootsAfter
@@ -208,7 +197,6 @@ suite "Onchain group manager":
       res.error == "OnchainGroupManager is not initialized"
 
   test "register: should register successfully":
-    # TODO :- similar to ```trackRootChanges: should fetch history correctly```
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -299,7 +287,7 @@ suite "Onchain group manager":
     let epoch = default(Epoch)
     info "epoch in bytes", epochHex = epoch.inHex()
 
-    let validProofRes = manager.generateProof(
+    let validProofRes = waitFor manager.generateProof(
       data = messageBytes, epoch = epoch, messageId = MessageId(1)
     )
 
@@ -307,7 +295,7 @@ suite "Onchain group manager":
       validProofRes.isOk()
     let validProof = validProofRes.get()
 
-    let validated = manager.validateRoot(validProof.merkleRoot)
+    let validated = waitFor manager.validateRoot(validProof.merkleRoot)
 
     check:
       validated
@@ -329,13 +317,16 @@ suite "Onchain group manager":
     # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
     for i in 0 ..< 20:
       manager.merkleProofCache[i * 32] = 0
+    # Pin the freshness throttle so ensureFreshMerkleProofPath does NOT refetch
+    # and overwrite the intentionally-corrupted cache we just planted.
+    manager.lastMerklePathCheckMoment = Moment.now()
 
     let messageBytes = "Hello".toBytes()
 
     let epoch = default(Epoch)
     info "epoch in bytes", epochHex = epoch.inHex()
 
-    let validProofRes = manager.generateProof(
+    let validProofRes = waitFor manager.generateProof(
       data = messageBytes, epoch = epoch, messageId = MessageId(1)
     )
 
@@ -343,10 +334,188 @@ suite "Onchain group manager":
       validProofRes.isOk()
     let validProof = validProofRes.get()
 
-    let validated = manager.validateRoot(validProof.merkleRoot)
+    let validated = waitFor manager.validateRoot(validProof.merkleRoot)
 
     check:
       validated == false
+
+  test "validateRoot: fast-paths without refresh when root is in window":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    discard waitFor manager.updateRecentRoots()
+    check manager.validRoots.len > 0
+
+    let knownRoot = manager.validRoots[0]
+    let preRefreshTs = manager.lastRootsRefreshMoment
+
+    let validated = waitFor manager.validateRoot(knownRoot)
+
+    check:
+      validated
+      # No refresh should have been triggered on a fast-path hit.
+      manager.lastRootsRefreshMoment == preRefreshTs
+
+  test "validateRoot: triggers on-demand refresh when root is not in window":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # validRoots is intentionally not pre-populated — the refresh must happen
+    # inside validateRoot to bring the on-chain root into the window.
+    check:
+      manager.validRoots.len == 0
+
+    let onChainRootU256 = (waitFor manager.fetchMerkleRoot()).valueOr:
+      raiseAssert "failed to fetch root: " & error
+    let onChainRoot = UInt256ToField(onChainRootU256)
+
+    let validated = waitFor manager.validateRoot(onChainRoot)
+
+    check:
+      validated
+      manager.validRoots.len > 0
+
+  test "validateRoot: throttles refreshes to RootsRefreshMinInterval":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # First miss: an unknown root forces refreshRoots to run end-to-end.
+    var badRoot1: MerkleNode
+    badRoot1[0] = 0x42
+    discard waitFor manager.validateRoot(badRoot1)
+    let firstRefreshTs = manager.lastRootsRefreshMoment
+
+    # Second miss within RootsRefreshMinInterval must be throttled out;
+    # lastRootsRefreshMoment stays pinned to the previous refresh timestamp.
+    var badRoot2: MerkleNode
+    badRoot2[0] = 0x43
+    discard waitFor manager.validateRoot(badRoot2)
+
+    check:
+      manager.lastRootsRefreshMoment == firstRefreshTs
+
+  test "generateProof: fast-paths without refresh inside throttle window":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Prime cache and pin the throttle so the publish-path freshness check
+    # short-circuits on the cached value.
+    manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
+      raiseAssert "failed to fetch initial path: " & error
+    manager.lastMerklePathCheckMoment = Moment.now()
+    manager.proofPathRefreshInFlightFut = nil
+
+    let primedCache = manager.merkleProofCache
+
+    let proofRes = waitFor manager.generateProof(
+      data = "hello".toBytes(), epoch = default(Epoch), messageId = MessageId(1)
+    )
+
+    check:
+      proofRes.isOk()
+      # Hot path: no refresh future created, cache untouched.
+      manager.proofPathRefreshInFlightFut == nil
+      manager.merkleProofCache == primedCache
+
+  test "generateProof: refetches path when cache is empty":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # No path yet; generateProof must run the freshness check, see the empty
+    # cache, and refetch.
+    manager.merkleProofCache = @[]
+    manager.proofPathRefreshInFlightFut = nil
+
+    let proofRes = waitFor manager.generateProof(
+      data = "hello".toBytes(), epoch = default(Epoch), messageId = MessageId(1)
+    )
+
+    check:
+      proofRes.isOk()
+      manager.merkleProofCache.len > 0
+      manager.proofPathRefreshInFlightFut != nil
+
+  test "ensureFreshMerkleProofPath: errors when membership index is not set":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    # No registration → no membership index. Guard must error rather than
+    # crashing inside fetchMerkleProofElements (which unwraps the Option).
+    check:
+      manager.membershipIndex.isNone()
+
+    let res = waitFor manager.ensureFreshMerkleProofPath()
+    check:
+      res.isErr()
+      res.error == "membership index is not set"
+
+  test "ensureFreshMerkleProofPath: refetches when throttle window has expired":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Prime cache with a non-empty value and an old throttle timestamp, so
+    # the cache fast-path does NOT trigger and we exercise the refetch branch.
+    manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
+      raiseAssert "failed to prime path: " & error
+    manager.lastMerklePathCheckMoment = Moment.now() - PathCheckMinInterval - 1.seconds
+    manager.proofPathRefreshInFlightFut = nil
+
+    let preCheckTs = manager.lastMerklePathCheckMoment
+    let res = waitFor manager.ensureFreshMerkleProofPath()
+
+    check:
+      res.isOk()
+      manager.merkleProofCache.len > 0
+      manager.proofPathRefreshInFlightFut != nil
+      # lastMerklePathCheckMoment was bumped to "now" by the refetch.
+      manager.lastMerklePathCheckMoment > preCheckTs
+
+  test "ensureFreshMerkleProofPath: refresh bumps the member-count metric":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    const credentialCount = 4
+    let credentials = generateCredentials(credentialCount)
+    for i in 0 ..< credentials.len:
+      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
+        assert false, "register failed for credential " & $i & ": " & error
+
+    # Force a refetch by emptying the cache; the doRefresh closure should
+    # invoke updateMemberCount on the success path.
+    manager.merkleProofCache = @[]
+    manager.proofPathRefreshInFlightFut = nil
+    waku_rln_number_registered_memberships.set(0.0) # baseline
+
+    let res = waitFor manager.ensureFreshMerkleProofPath()
+
+    check:
+      res.isOk()
+      manager.merkleProofCache.len > 0
+      waku_rln_number_registered_memberships.value() == float64(credentialCount)
 
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()
@@ -384,8 +553,10 @@ suite "Onchain group manager":
     info "epoch in bytes", epochHex = epoch.inHex()
 
     # generate proof
-    let validProof = manager.generateProof(
-      data = messageBytes, epoch = epoch, messageId = MessageId(0)
+    let validProof = (
+      waitFor manager.generateProof(
+        data = messageBytes, epoch = epoch, messageId = MessageId(0)
+      )
     ).valueOr:
       raiseAssert $error
 
@@ -414,12 +585,15 @@ suite "Onchain group manager":
     # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
     for i in 0 ..< 20:
       manager.merkleProofCache[i * 32] = 0
+    # Pin the freshness throttle so ensureFreshMerkleProofPath does NOT refetch
+    # and overwrite the intentionally-corrupted cache we just planted.
+    manager.lastMerklePathCheckMoment = Moment.now()
 
     let epoch = default(Epoch)
     info "epoch in bytes", epochHex = epoch.inHex()
 
     # generate proof
-    let invalidProofRes = manager.generateProof(
+    let invalidProofRes = waitFor manager.generateProof(
       data = messageBytes, epoch = epoch, messageId = MessageId(0)
     )
 
@@ -442,7 +616,7 @@ suite "Onchain group manager":
 
     type TestBackfillFuts = array[0 .. credentialCount - 1, Future[void]]
     var futures: TestBackfillFuts
-    for i in 0 ..< futures.len():
+    for i in 0 ..< futures.len:
       futures[i] = newFuture[void]()
 
     proc generateCallback(
@@ -461,7 +635,7 @@ suite "Onchain group manager":
 
     manager.onRegister(generateCallback(futures, credentials))
 
-    for i in 0 ..< credentials.len():
+    for i in 0 ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register credential " & $i & ": " & error
       discard waitFor manager.updateRecentRoots()
@@ -469,7 +643,7 @@ suite "Onchain group manager":
     waitFor allFutures(futures)
 
     check:
-      manager.validRoots.len() == credentialCount
+      manager.validRoots.len == credentialCount
 
   test "isReady should return false if ethRpc is none":
     (waitFor manager.init()).isOkOr:

@@ -170,7 +170,11 @@ proc installRelayApiHandlers*(
     if not node.wakuRlnRelay.isNil():
       # append the proof to the message
 
-      node.wakuRlnRelay.appendRLNProof(message, float64(getTime().toUnix())).isOkOr:
+      message.proof = (
+        await node.wakuRlnRelay.generateRLNProof(
+          message.toRLNSignal(), float64(getTime().toUnix())
+        )
+      ).valueOr:
         return RestApiResponse.internalServerError(
           "Failed to publish: error appending RLN proof to message: " & $error
         )
@@ -296,9 +300,13 @@ proc installRelayApiHandlers*(
 
     # if RLN is mounted, append the proof to the message
     if not node.wakuRlnRelay.isNil():
-      node.wakuRlnRelay.appendRLNProof(message, float64(getTime().toUnix())).isOkOr:
+      message.proof = (
+        await node.wakuRlnRelay.generateRLNProof(
+          message.toRLNSignal(), float64(getTime().toUnix())
+        )
+      ).valueOr:
         return RestApiResponse.internalServerError(
-          "Failed to publish: error appending RLN proof to message: " & $error
+          "Failed to publish: error appending RLN proof to message: " & error
         )
 
     (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:

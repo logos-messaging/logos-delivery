@@ -46,8 +46,12 @@ proc sendThruWaku*(
     timestamp: getNanosecondTime(time),
   )
 
-  (self.waku.node.wakuRlnRelay.appendRLNProof(message, float64(time))).isOkOr:
-    return err("could not append rate limit proof to the message: " & $error)
+  message.proof = (
+    await self.waku.node.wakuRlnRelay.generateRLNProof(
+      message.toRLNSignal(), float64(time)
+    )
+  ).valueOr:
+    return err("could not append rate limit proof to the message: " & error)
 
   (await self.waku.node.publish(some(DefaultPubsubTopic), message)).isOkOr:
     return err("failed to publish message: " & $error)

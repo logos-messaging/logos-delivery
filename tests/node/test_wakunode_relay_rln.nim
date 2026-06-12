@@ -277,34 +277,34 @@ suite "Waku RlnRelay - End to End - Static":
         message151kibPlus =
           WakuMessage(payload: @payload150kibPlus, contentTopic: contentTopic)
 
-      doAssert(
-        client.wakuRlnRelay
-          .appendRLNProof(
-            message1b, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 0)
-          )
-          .isOk()
-      )
-      doAssert(
-        client.wakuRlnRelay
-          .appendRLNProof(
-            message1kib, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 1)
-          )
-          .isOk()
-      )
-      doAssert(
-        client.wakuRlnRelay
-          .appendRLNProof(
-            message150kib, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 2)
-          )
-          .isOk()
-      )
-      doAssert(
-        client.wakuRlnRelay
-          .appendRLNProof(
-            message151kibPlus, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3)
-          )
-          .isOk()
-      )
+      message1b.proof = (
+        await client.wakuRlnRelay.generateRLNProof(
+          message1b.toRLNSignal(),
+          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 0),
+        )
+      ).valueOr:
+        raiseAssert "generateRLNProof failed: " & error
+      message1kib.proof = (
+        await client.wakuRlnRelay.generateRLNProof(
+          message1kib.toRLNSignal(),
+          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 1),
+        )
+      ).valueOr:
+        raiseAssert "generateRLNProof failed: " & error
+      message150kib.proof = (
+        await client.wakuRlnRelay.generateRLNProof(
+          message150kib.toRLNSignal(),
+          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 2),
+        )
+      ).valueOr:
+        raiseAssert "generateRLNProof failed: " & error
+      message151kibPlus.proof = (
+        await client.wakuRlnRelay.generateRLNProof(
+          message151kibPlus.toRLNSignal(),
+          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3),
+        )
+      ).valueOr:
+        raiseAssert "generateRLNProof failed: " & error
 
       # When sending the 1B message
       discard await client.publish(some(pubsubTopic), message1b)
@@ -366,13 +366,13 @@ suite "Waku RlnRelay - End to End - Static":
       var message151kibPlus =
         WakuMessage(payload: @payload150kibPlus, contentTopic: contentTopic)
 
-      doAssert(
-        client.wakuRlnRelay
-          .appendRLNProof(
-            message151kibPlus, epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3)
-          )
-          .isOk()
-      )
+      message151kibPlus.proof = (
+        await client.wakuRlnRelay.generateRLNProof(
+          message151kibPlus.toRLNSignal(),
+          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3),
+        )
+      ).valueOr:
+        raiseAssert "generateRLNProof failed: " & error
 
       # When sending the 150KiB plus message
       completionFut = newPushHandlerFuture() # Reset Future

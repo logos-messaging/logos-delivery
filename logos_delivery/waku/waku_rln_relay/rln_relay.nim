@@ -178,7 +178,7 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
 
 proc validateMessage*(
     rlnPeer: WakuRLNRelay, msg: WakuMessage
-): MessageValidationResult =
+): Future[MessageValidationResult] {.async.} =
   ## validate the supplied `msg` based on the waku-rln-relay routing protocol i.e.,
   ## the `msg`'s epoch is within MaxEpochGap of the current epoch
   ## the `msg` has valid rate limit proof
@@ -218,7 +218,7 @@ proc validateMessage*(
     waku_rln_invalid_messages_total.inc(labelValues = ["timestamp_mismatch"])
     return MessageValidationResult.Invalid
 
-  let rootValidationRes = rlnPeer.groupManager.validateRoot(proof.merkleRoot)
+  let rootValidationRes = await rlnPeer.groupManager.validateRoot(proof.merkleRoot)
   if not rootValidationRes:
     warn "invalid message: provided root does not belong to acceptable window of roots",
       provided = proof.merkleRoot.inHex(),
@@ -273,11 +273,11 @@ proc validateMessage*(
 
 proc validateMessageAndUpdateLog*(
     rlnPeer: WakuRLNRelay, msg: WakuMessage
-): MessageValidationResult =
+): Future[MessageValidationResult] {.async.} =
   ## validates the message and updates the log to prevent double messaging
   ## in future messages
 
-  let isValidMessage = rlnPeer.validateMessage(msg)
+  let isValidMessage = await rlnPeer.validateMessage(msg)
 
   let msgProof = RateLimitProof.init(msg.proof).valueOr:
     return MessageValidationResult.Invalid
@@ -292,31 +292,15 @@ proc validateMessageAndUpdateLog*(
 
   return isValidMessage
 
-proc createRlnProof(
-    rlnPeer: WakuRLNRelay, msg: WakuMessage, senderEpochTime: float64
-): RlnRelayResult[seq[byte]] =
-  ## returns a new `RateLimitProof` for the supplied `msg`
-  ## returns an error if it cannot create the proof
-  ## `senderEpochTime` indicates the number of seconds passed since Unix epoch. The fractional part holds sub-seconds.
-  ## The `epoch` field of `RateLimitProof` is derived from the provided `senderEpochTime` (using `calcEpoch()`)
-
-  let input = msg.toRLNSignal()
+proc generateRLNProof*(
+    rlnPeer: WakuRLNRelay, input: seq[byte], senderEpochTime: float64
+): Future[RlnRelayResult[seq[byte]]] {.async.} =
   let epoch = rlnPeer.calcEpoch(senderEpochTime)
-
   let nonce = rlnPeer.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
-  let proof = rlnPeer.groupManager.generateProof(input, epoch, nonce).valueOr:
+  let proof = (await rlnPeer.groupManager.generateProof(input, epoch, nonce)).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
-
   return ok(proof.encode().buffer)
-
-proc appendRLNProof*(
-    rlnPeer: WakuRLNRelay, msg: var WakuMessage, senderEpochTime: float64
-): RlnRelayResult[void] =
-  msg.proof = rlnPeer.createRlnProof(msg, senderEpochTime).valueOr:
-    return err($error)
-
-  return ok()
 
 proc clearNullifierLog*(rlnPeer: WakuRlnRelay) =
   # clear the first MaxEpochGap epochs of the nullifer log
@@ -354,7 +338,7 @@ proc generateRlnValidator*(
       return pubsub.ValidationResult.Reject
 
     # validate the message and update log
-    let validationRes = wakuRlnRelay.validateMessageAndUpdateLog(message)
+    let validationRes = await wakuRlnRelay.validateMessageAndUpdateLog(message)
 
     let
       proof = byteutils.toHex(msgProof.proof)
@@ -456,11 +440,6 @@ proc mount(
     brokerCtx: globalBrokerContext(),
   )
 
-  # track root changes on smart contract merkle tree
-  if groupManager of OnchainGroupManager:
-    let onchainManager = cast[OnchainGroupManager](groupManager)
-    wakuRlnRelay.rootChangesFuture = onchainManager.trackRootChanges()
-
   # Start epoch monitoring in the background
   wakuRlnRelay.epochMonitorFuture = monitorEpochs(wakuRlnRelay)
 
@@ -469,8 +448,10 @@ proc mount(
     proc(
         msg: WakuMessage, senderEpochTime: float64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-      let proof = createRlnProof(wakuRlnRelay, msg, senderEpochTime).valueOr:
-        return err("Could not create RLN proof: " & $error)
+      let proof = (
+        await wakuRlnRelay.generateRLNProof(msg.toRLNSignal(), senderEpochTime)
+      ).valueOr:
+        return err("Could not create RLN proof: " & error)
 
       return ok(RequestGenerateRlnProof(proof: proof)),
   ).isOkOr:

@@ -192,9 +192,12 @@ proc publish(c: Chat, line: string) =
   if not isNil(c.node.wakuRlnRelay):
     # for future version when we support more than one rln protected content topic,
     # we should check the message content topic as well
-    if c.node.wakuRlnRelay.appendRLNProof(message, float64(time)).isErr():
+    let proofRes =
+      waitFor c.node.wakuRlnRelay.generateRLNProof(message.toRLNSignal(), float64(time))
+    if proofRes.isErr():
       info "could not append rate limit proof to the message"
     else:
+      message.proof = proofRes.get()
       info "rate limit proof is appended to the message"
       let proof = RateLimitProof.init(message.proof).valueOr:
         error "could not decode the RLN proof"
