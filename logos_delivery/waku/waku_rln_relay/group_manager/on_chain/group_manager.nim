@@ -338,15 +338,13 @@ method register*(
           return high(int)
         else:
           let calculatedGasPrice = int(fetchedGasPrice) * 2
-          debug "Gas price calculated",
+          trace "Gas price calculated",
             fetchedGasPrice = fetchedGasPrice, gasPrice = calculatedGasPrice
           return calculatedGasPrice,
     )
   ).valueOr:
     return err("Failed to get gas price: " & error)
 
-  let idCommitmentHex = identityCredential.idCommitment.inHex()
-  debug "identityCredential idCommitmentHex", idCommitment = idCommitmentHex
   let idCommitment = identityCredential.idCommitment.toUInt256()
   let idCommitmentsToErase: seq[UInt256] = @[]
   info "registering the member",
@@ -378,10 +376,9 @@ method register*(
     )
   ).valueOr:
     return err("Failed to get transaction receipt: " & error)
-  debug "registration transaction mined", txHash = txHash
   g.registrationTxHash = some(txHash)
   # the receipt topic holds the hash of signature of the raised events
-  debug "ts receipt", receipt = tsReceipt[]
+  trace "registration receipt", receipt = tsReceipt[]
 
   if tsReceipt.status.isNone():
     return err("Transaction failed: status is None")
@@ -411,7 +408,6 @@ method register*(
     ## Extract membership index from transaction log data (big endian)
     membershipIndex = UInt256.fromBytesBE(arguments[64 .. 95])
 
-  trace "parsed membershipIndex", membershipIndex
   g.userMessageLimit = some(userMessageLimit)
   g.membershipIndex = some(membershipIndex.toMembershipIndex())
   g.idCredentials = some(identityCredential)
@@ -647,17 +643,10 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
 
     g.membershipIndex = some(keystoreCred.treeIndex)
     g.userMessageLimit = some(keystoreCred.userMessageLimit)
-    # now we check on the contract if the commitment actually has a membership
-    let idCommitmentBytes = keystoreCred.identityCredential.idCommitment
-    let idCommitmentUInt256 = keystoreCred.identityCredential.idCommitment.toUInt256()
-    let idCommitmentHex = idCommitmentBytes.inHex()
-    info "Keystore idCommitment in bytes", idCommitmentBytes = idCommitmentBytes
-    info "Keystore idCommitment in UInt256 ", idCommitmentUInt256 = idCommitmentUInt256
-    info "Keystore idCommitment in hex ", idCommitmentHex = idCommitmentHex
+
     let idCommitment = keystoreCred.identityCredential.idCommitment
     let membershipExists = (await g.fetchMembershipStatus(idCommitment)).valueOr:
       return err("the commitment does not have a membership: " & error)
-    info "membershipExists", membershipExists = membershipExists
 
     g.idCredentials = some(keystoreCred.identityCredential)
 
