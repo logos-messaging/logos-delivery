@@ -177,7 +177,6 @@ proc installRelayApiHandlers*(
         return RestApiResponse.internalServerError(
           "Failed to publish: error appending RLN proof to message: " & $error
         )
-      message = msgRef[]
 
     (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
       return RestApiResponse.badRequest("Failed to publish: " & error)
@@ -308,7 +307,6 @@ proc installRelayApiHandlers*(
         return RestApiResponse.internalServerError(
           "Failed to publish: error appending RLN proof to message: " & error
         )
-      message = msgRef[]
 
     (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
       return RestApiResponse.badRequest("Failed to publish: " & error)
