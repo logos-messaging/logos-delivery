@@ -150,6 +150,11 @@ type
 
 import ./subscription_manager
 
+proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
+  var randomPeers = peers
+  shuffle(randomPeers)
+  return randomPeers[0 ..< min(len(randomPeers), numRandomPeers)]
+
 proc deduceRelayShard(
     node: WakuNode,
     contentTopic: ContentTopic,
@@ -336,6 +341,8 @@ proc mountMix*(
     return err(error.msg)
   return ok()
 
+import logos_delivery/waku/factory/conf_builder/kademlia_discovery_conf_builder
+
 proc mountKademlia*(
     node: WakuNode, config: KademliaDiscoveryConf
 ): Result[void, string] =
@@ -343,11 +350,10 @@ proc mountKademlia*(
     return err("WakuKademlia already mounted, skipping")
 
   let wk = WakuKademlia.new(
-    node.switch, node.peerManager,
-    config.bootstrapNodes, config.servicesToAdvertise, config.servicesToDiscover,
-    config.randomLookupInterval, config.serviceLookupInterval,
-    node.rng,
-    config.kadDhtConfig, config.discoConfig, config.clientMode, config.xprPublishing
+    node.switch, node.peerManager, config.bootstrapNodes, config.servicesToAdvertise,
+    config.servicesToDiscover, config.randomLookupInterval,
+    config.serviceLookupInterval, node.rng, config.kadDhtConfig, config.discoConfig,
+    config.clientMode, config.xprPublishing,
   ).valueOr:
     return err("failed to create service discovery: " & error)
 
@@ -415,11 +421,6 @@ proc reconnectRelayPeers*(node: WakuNode) {.async.} =
   let backoffPeriod =
     node.wakuRelay.parameters.pruneBackoff + chronos.seconds(BackoffSlackTime)
   await node.peerManager.reconnectPeers(WakuRelayCodec, backoffPeriod)
-
-proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
-  var randomPeers = peers
-  shuffle(randomPeers)
-  return randomPeers[0 ..< min(len(randomPeers), numRandomPeers)]
 
 proc mountRendezvousClient*(node: WakuNode, clusterId: uint16) {.async: (raises: []).} =
   info "mounting rendezvous client"
