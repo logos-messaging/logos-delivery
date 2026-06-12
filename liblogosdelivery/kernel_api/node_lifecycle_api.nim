@@ -8,7 +8,7 @@ import
   logos_delivery/waku/factory/node_factory,
   logos_delivery/waku/factory/app_callbacks,
   logos_delivery/waku/rest_api/endpoint/builder,
-  library/declare_lib
+  ../declare_lib
 
 proc createWaku(
     configJson: cstring, appCallbacks: AppCallbacks = nil
@@ -58,12 +58,12 @@ proc createWaku(
 
   return ok(wakuRes)
 
-registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
+registerReqFFI(CreateNodeWithCallbacksRequest, ctx: ptr FFIContext[Waku]):
   proc(
       configJson: cstring, appCallbacks: AppCallbacks
   ): Future[Result[string, string]] {.async.} =
     ctx.myLib[] = (await createWaku(configJson, cast[AppCallbacks](appCallbacks))).valueOr:
-      error "CreateNodeRequest failed", error = error
+      error "CreateNodeWithCallbacksRequest failed", error = error
       return err($error)
 
     return ok("")

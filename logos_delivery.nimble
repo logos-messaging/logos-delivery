@@ -105,7 +105,7 @@ proc buildBinary(name: string, srcDir = "./", params = "") =
   exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
     srcDir & name & ".nim"
 
-proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
+proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
   if not dirExists "build":
     mkDir "build"
 
@@ -178,7 +178,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
 task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
-  let srcDir = "./library"
+  let srcDir = "./liblogosdelivery"
   buildMobileAndroid srcDir, "-d:chronicles_log_level=ERROR"
 
 ### Mobile iOS
@@ -317,14 +317,14 @@ proc buildMobileIOS(srcDir = ".", params = "") =
         " -c " & natpmpSrcDir & "/natpmp.c -o " & natpmpObj
 
  # Use iOS-specific stub for getgateway
-  let getgatewayStubSrc = "./library/ios_natpmp_stubs.c"
+  let getgatewayStubSrc = "./liblogosdelivery/ios_natpmp_stubs.c"
   let getgatewayStubObj = vendorObjDir / "natpmp_getgateway_stub.o"
   if fileExists(getgatewayStubSrc) and not fileExists(getgatewayStubObj):
     exec clangBase & " -c " & getgatewayStubSrc & " -o " & getgatewayStubObj
 
   # --- BearSSL stubs (for tools functions not in main library) ---
   echo "Compiling BearSSL stubs for iOS..."
-  let bearSslStubsSrc = "./library/ios_bearssl_stubs.c"
+  let bearSslStubsSrc = "./liblogosdelivery/ios_bearssl_stubs.c"
   let bearSslStubsObj = vendorObjDir / "bearssl_stubs.o"
   if fileExists(bearSslStubsSrc) and not fileExists(bearSslStubsObj):
     exec clangBase & " -c " & bearSslStubsSrc & " -o " & bearSslStubsObj
@@ -366,8 +366,8 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   echo "iOS library created: " & aFile
 
-task libWakuIOS, "Build the mobile bindings for iOS":
-  let srcDir = "./library"
+task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
+  let srcDir = "./liblogosdelivery"
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
 
@@ -482,26 +482,6 @@ let chroniclesParams =
   "-d:chronicles_default_output_device=Dynamic " &
   """-d:chronicles_disabled_topics="eth,dnsdisc.client" """ & "--warning:Deprecated:off " &
   "--warning:UnusedImport:on " & "-d:chronicles_log_level=TRACE"
-
-## Libwaku build tasks
-
-task libwakuDynamicWindows, "Generate bindings":
-  buildLibDynamicWindows("libwaku", "library")
-
-task libwakuDynamicLinux, "Generate bindings":
-  buildLibDynamicLinux("libwaku", "library")
-
-task libwakuDynamicMac, "Generate bindings":
-  buildLibDynamicMac("libwaku", "library")
-
-task libwakuStaticWindows, "Generate bindings":
-  buildLibStaticWindows("libwaku", "library")
-
-task libwakuStaticLinux, "Generate bindings":
-  buildLibStaticLinux("libwaku", "library")
-
-task libwakuStaticMac, "Generate bindings":
-  buildLibStaticMac("libwaku", "library")
 
 ## Liblogosdelivery build tasks
 
