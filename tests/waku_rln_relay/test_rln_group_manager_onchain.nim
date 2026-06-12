@@ -85,7 +85,7 @@ suite "Onchain group manager":
 
     const credentialCount = 3
     let credentials = generateCredentials(credentialCount)
-    for i in 0 ..< credentials.len():
+    for i in 0 ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "register failed for credential " & $i & ": " & error
 
@@ -103,7 +103,7 @@ suite "Onchain group manager":
     let merkleRootBefore = (waitFor manager.fetchMerkleRoot()).valueOr:
       raiseAssert "Failed to fetch merkle root before: " & error
 
-    for i in 0 ..< credentials.len():
+    for i in 0 ..< credentials.len:
       info "Registering credential", index = i, credential = credentials[i]
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register credential " & $i & ": " & error
@@ -114,7 +114,7 @@ suite "Onchain group manager":
 
     check:
       merkleRootBefore != merkleRootAfter
-      manager.validRoots.len() == credentialCount
+      manager.validRoots.len == credentialCount
 
   test "updateRecentRoots: appends new on-chain roots from contract cache":
     # Verify that the group_manager list of valid roots is updated correctly from the recent roots
@@ -131,9 +131,9 @@ suite "Onchain group manager":
     check:
       merkleRootCacheBefore.len == RlnContractRootCacheSize * 32
       merkleRootCacheBefore.allIt(it == 0'u8)
-      manager.validRoots.len() == 0
+      manager.validRoots.len == 0
 
-    for i in 0 ..< credentials.len():
+    for i in 0 ..< credentials.len:
       info "Registering credential", index = i, credential = credentials[i]
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register credential " & $i & ": " & error
@@ -145,7 +145,7 @@ suite "Onchain group manager":
     check:
       merkleRootCacheAfter.len == RlnContractRootCacheSize * 32
       not merkleRootCacheAfter.allIt(it == 0'u8)
-      manager.validRoots.len() == credentialCount
+      manager.validRoots.len == credentialCount
       manager.validRoots.items().toSeq().allIt(it != default(MerkleNode))
 
   test "updateRecentRoots: oldest roots are evicted once the window is exceeded":
@@ -163,12 +163,12 @@ suite "Onchain group manager":
         assert false, "Failed to register credential " & $i & ": " & error
       discard waitFor manager.updateRecentRoots()
 
-    check manager.validRoots.len() >= 3
+    check manager.validRoots.len >= 3
     let firstThreeBefore =
       @[manager.validRoots[0], manager.validRoots[1], manager.validRoots[2]]
 
     # Register the remaining credentials, pushing the deque past AcceptableRootWindowSize.
-    for i in initialCount ..< credentials.len():
+    for i in initialCount ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register credential " & $i & ": " & error
       discard waitFor manager.updateRecentRoots()
@@ -178,7 +178,7 @@ suite "Onchain group manager":
     # AcceptableRootWindowSize + 1 registrations evicts exactly the single oldest root,
     # so only the first of the original three is gone; the other two remain.
     check:
-      manager.validRoots.len() == AcceptableRootWindowSize
+      manager.validRoots.len == AcceptableRootWindowSize
       firstThreeBefore[0] notin rootsAfter
       firstThreeBefore[1] in rootsAfter
       firstThreeBefore[2] in rootsAfter
@@ -348,7 +348,7 @@ suite "Onchain group manager":
       assert false, "register failed: " & error
 
     discard waitFor manager.updateRecentRoots()
-    check manager.validRoots.len() > 0
+    check manager.validRoots.len > 0
 
     let knownRoot = manager.validRoots[0]
     let preRefreshTs = manager.lastRootsRefreshMoment
@@ -371,7 +371,7 @@ suite "Onchain group manager":
     # validRoots is intentionally not pre-populated — the refresh must happen
     # inside validateRoot to bring the on-chain root into the window.
     check:
-      manager.validRoots.len() == 0
+      manager.validRoots.len == 0
 
     let onChainRootU256 = (waitFor manager.fetchMerkleRoot()).valueOr:
       raiseAssert "failed to fetch root: " & error
@@ -381,7 +381,7 @@ suite "Onchain group manager":
 
     check:
       validated
-      manager.validRoots.len() > 0
+      manager.validRoots.len > 0
 
   test "validateRoot: throttles refreshes to RootsRefreshMinInterval":
     (waitFor manager.init()).isOkOr:
@@ -500,7 +500,7 @@ suite "Onchain group manager":
 
     const credentialCount = 4
     let credentials = generateCredentials(credentialCount)
-    for i in 0 ..< credentials.len():
+    for i in 0 ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "register failed for credential " & $i & ": " & error
 
@@ -616,7 +616,7 @@ suite "Onchain group manager":
 
     type TestBackfillFuts = array[0 .. credentialCount - 1, Future[void]]
     var futures: TestBackfillFuts
-    for i in 0 ..< futures.len():
+    for i in 0 ..< futures.len:
       futures[i] = newFuture[void]()
 
     proc generateCallback(
@@ -635,7 +635,7 @@ suite "Onchain group manager":
 
     manager.onRegister(generateCallback(futures, credentials))
 
-    for i in 0 ..< credentials.len():
+    for i in 0 ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register credential " & $i & ": " & error
       discard waitFor manager.updateRecentRoots()
@@ -643,7 +643,7 @@ suite "Onchain group manager":
     waitFor allFutures(futures)
 
     check:
-      manager.validRoots.len() == credentialCount
+      manager.validRoots.len == credentialCount
 
   test "isReady should return false if ethRpc is none":
     (waitFor manager.init()).isOkOr:

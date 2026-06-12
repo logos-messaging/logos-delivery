@@ -245,6 +245,7 @@ proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
 
   proc doRefresh(): Future[void] {.async.} =
     if await g.updateRecentRoots():
+      # Best-effort metric refresh - if there's a failure, it will update with the next root change
       discard await g.updateMemberCount()
     g.lastRootsRefreshMoment = Moment.now()
 
@@ -282,14 +283,14 @@ proc ensureFreshMerkleProofPath*(
 
   var fetchOk = false
   proc doRefresh(): Future[void] {.async.} =
-    let pathRes = await g.fetchMerkleProofElements()
-    if pathRes.isOk():
-      g.merkleProofCache = pathRes.get()
-      g.lastMerklePathCheckMoment = Moment.now()
-      fetchOk = true
-      discard await g.updateMemberCount()
-    else:
-      error "Failed to refresh merkle proof path", error = pathRes.error
+    let pathBytes = (await g.fetchMerkleProofElements()).valueOr:
+      error "Failed to refresh merkle proof path", error = error
+      return
+    g.merkleProofCache = pathBytes
+    g.lastMerklePathCheckMoment = Moment.now()
+    fetchOk = true
+    # Best-effort metric refresh - if there's a failure, it will update with the next root change
+    discard await g.updateMemberCount()
 
   g.proofPathRefreshInFlightFut = doRefresh()
   await g.proofPathRefreshInFlightFut
