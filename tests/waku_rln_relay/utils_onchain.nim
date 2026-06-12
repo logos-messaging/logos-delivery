@@ -3,7 +3,7 @@
 {.push raises: [].}
 
 import
-  std/[options, os, osproc, streams, strutils, strformat],
+  std/[net, options, os, osproc, streams, strutils, strformat],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -549,6 +549,7 @@ proc runAnvil*(
       "--chain-id",
       $chainId,
       "--disable-min-priority-fee",
+      "--silent",
     ]
 
     # Add state file argument if provided
@@ -562,8 +563,6 @@ proc runAnvil*(
       # Check if the file is gzip compressed and handle decompression
       if statePath.endsWith(".gz"):
         let decompressedPath = statePath[0 .. ^4] # Remove .gz extension
-        debug "Gzip compressed state file detected",
-          compressedPath = statePath, decompressedPath = decompressedPath
 
         if not fileExists(decompressedPath):
           decompressGzipFile(statePath, decompressedPath).isOkOr:
@@ -599,24 +598,35 @@ proc runAnvil*(
       startProcess(anvilPath, args = args, options = {poUsePath, poStdErrToStdOut})
     let anvilPID = runAnvil.processID
 
-    # We read stdout from Anvil to see when daemon is ready
-    var anvilStartLog: string
-    var cmdline: string
-    while true:
+    # Poll the JSON-RPC port to detect Anvil process readiness.
+    const startupTimeoutMs = 10_000
+    const pollIntervalMs = 100
+    var elapsed = 0
+    var ready = false
+    while elapsed < startupTimeoutMs:
+      if not runAnvil.running:
+        error "Anvil daemon exited before becoming ready", pid = anvilPID
+        return
       try:
-        if runAnvil.outputstream.readLine(cmdline):
-          anvilStartLog.add(cmdline)
-          if cmdline.contains("Listening on 127.0.0.1:" & $port):
-            break
-        else:
-          error "Anvil daemon exited (closed output)",
-            pid = anvilPID, startLog = anvilStartLog
-          return
-      except Exception, CatchableError:
-        warn "Anvil daemon stdout reading error; assuming it started OK",
-          pid = anvilPID, startLog = anvilStartLog, err = getCurrentExceptionMsg()
-        break
-    info "Anvil daemon is running and ready", pid = anvilPID, startLog = anvilStartLog
+        let sock = newSocket()
+        try:
+          sock.connect("127.0.0.1", Port(port), timeout = 500)
+          ready = true
+        finally:
+          close(sock)
+        if ready:
+          break
+      except CatchableError:
+        discard
+      sleep(pollIntervalMs)
+      elapsed += pollIntervalMs
+
+    if not ready:
+      error "Anvil daemon did not become ready within timeout",
+        pid = anvilPID, timeoutMs = startupTimeoutMs
+      return
+
+    info "Anvil daemon is running and ready", pid = anvilPID
     return runAnvil
   except: # TODO: Fix "BareExcept" warning
     error "Anvil daemon run failed", err = getCurrentExceptionMsg()
@@ -747,8 +757,12 @@ proc setupOnchainGroupManager*(
 
     # DEBUG: dump the addresses we're about to call against so we can correlate
     # with Anvil state if the allowance eth_call returns garbage.
-    echo "[DEBUG benchmark setup] testTokenAddress=", testTokenAddress.toHex(),
-      " contractAddress=", contractAddress.toHex(), " account=", acc.toHex()
+    echo "[DEBUG benchmark setup] testTokenAddress=",
+      testTokenAddress.toHex(),
+      " contractAddress=",
+      contractAddress.toHex(),
+      " account=",
+      acc.toHex()
 
     # If the generated account wishes to register a membership, it needs to approve the contract to spend its tokens
     let tokenApprovalResult = await approveTokenAllowanceAndVerify(
