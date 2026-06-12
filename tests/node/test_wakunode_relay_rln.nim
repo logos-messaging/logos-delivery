@@ -270,16 +270,12 @@ suite "Waku RlnRelay - End to End - Static":
         payload150kib = getByteSequence((150 * 1024) - overhead)
         payload150kibPlus = getByteSequence((150 * 1024) - overhead + 1)
 
-      let
-        message1b = WakuMessage.new()
-        message1kib = WakuMessage.new()
-        message150kib = WakuMessage.new()
-        message151kibPlus = WakuMessage.new()
-      message1b[] = WakuMessage(payload: @payload1b, contentTopic: contentTopic)
-      message1kib[] = WakuMessage(payload: @payload1kib, contentTopic: contentTopic)
-      message150kib[] = WakuMessage(payload: @payload150kib, contentTopic: contentTopic)
-      message151kibPlus[] =
-        WakuMessage(payload: @payload150kibPlus, contentTopic: contentTopic)
+      var
+        message1b = WakuMessage(payload: @payload1b, contentTopic: contentTopic)
+        message1kib = WakuMessage(payload: @payload1kib, contentTopic: contentTopic)
+        message150kib = WakuMessage(payload: @payload150kib, contentTopic: contentTopic)
+        message151kibPlus =
+          WakuMessage(payload: @payload150kibPlus, contentTopic: contentTopic)
 
       message1b.proof = (
         await client.wakuRlnRelay.generateRLNProof(
@@ -311,30 +307,30 @@ suite "Waku RlnRelay - End to End - Static":
         raiseAssert "generateRLNProof failed: " & error
 
       # When sending the 1B message
-      discard await client.publish(some(pubsubTopic), message1b[])
+      discard await client.publish(some(pubsubTopic), message1b)
       discard await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
 
       # Then the message is relayed
-      check completionFut.read() == (pubsubTopic, message1b[])
+      check completionFut.read() == (pubsubTopic, message1b)
       # When sending the 1KiB message
       completionFut = newPushHandlerFuture() # Reset Future
-      discard await client.publish(some(pubsubTopic), message1kib[])
+      discard await client.publish(some(pubsubTopic), message1kib)
       discard await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
 
       # Then the message is relayed
-      check completionFut.read() == (pubsubTopic, message1kib[])
+      check completionFut.read() == (pubsubTopic, message1kib)
 
       # When sending the 150KiB message
       completionFut = newPushHandlerFuture() # Reset Future
-      discard await client.publish(some(pubsubTopic), message150kib[])
+      discard await client.publish(some(pubsubTopic), message150kib)
       discard await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
 
       # Then the message is relayed
-      check completionFut.read() == (pubsubTopic, message150kib[])
+      check completionFut.read() == (pubsubTopic, message150kib)
 
       # When sending the 150KiB plus message
       completionFut = newPushHandlerFuture() # Reset Future
-      discard await client.publish(some(pubsubTopic), message151kibPlus[])
+      discard await client.publish(some(pubsubTopic), message151kibPlus)
 
       # Then the message is not relayed
       check not await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
@@ -367,8 +363,7 @@ suite "Waku RlnRelay - End to End - Static":
         overhead: uint64 = 419
         payload150kibPlus = getByteSequence((150 * 1024) - overhead + 1)
 
-      let message151kibPlus = WakuMessage.new()
-      message151kibPlus[] =
+      var message151kibPlus =
         WakuMessage(payload: @payload150kibPlus, contentTopic: contentTopic)
 
       message151kibPlus.proof = (
@@ -381,7 +376,7 @@ suite "Waku RlnRelay - End to End - Static":
 
       # When sending the 150KiB plus message
       completionFut = newPushHandlerFuture() # Reset Future
-      discard await client.publish(some(pubsubTopic), message151kibPlus[])
+      discard await client.publish(some(pubsubTopic), message151kibPlus)
 
       # Then the message is not relayed
       check not await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)

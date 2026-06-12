@@ -167,25 +167,21 @@ proc setupContractDeployment(
   try:
     let (forgeCleanOutput, forgeCleanExitCode) =
       execCmdEx(fmt"""cd {submodulePath} && {forgePath} clean""")
-    trace "Executed forge clean command", output = forgeCleanOutput
     if forgeCleanExitCode != 0:
       return err("forge clean command failed")
 
     let (forgeInstallOutput, forgeInstallExitCode) =
       execCmdEx(fmt"""cd {submodulePath} && {forgePath} install""")
-    trace "Executed forge install command", output = forgeInstallOutput
     if forgeInstallExitCode != 0:
       return err("forge install command failed")
 
     let (pnpmInstallOutput, pnpmInstallExitCode) =
       execCmdEx(fmt"""cd {submodulePath} && pnpm install""")
-    trace "Executed pnpm install command", output = pnpmInstallOutput
     if pnpmInstallExitCode != 0:
       return err("pnpm install command failed" & pnpmInstallOutput)
 
     let (forgeBuildOutput, forgeBuildExitCode) =
       execCmdEx(fmt"""cd {submodulePath} && {forgePath} build""")
-    trace "Executed forge build command", output = forgeBuildOutput
     if forgeBuildExitCode != 0:
       return err("forge build command failed")
 
@@ -221,8 +217,6 @@ proc deployTestToken*(
   let forgeCmdTestToken =
     fmt"""cd {submodulePath} && {forgePath} script test/TestToken.sol --broadcast -vvv --rpc-url http://localhost:8540 --tc TestTokenFactory --private-key {pk} && rm -rf broadcast/*/*/run-1*.json && rm -rf cache/*/*/run-1*.json"""
   let (outputDeployTestToken, exitCodeDeployTestToken) = execForge(forgeCmdTestToken)
-  trace "Executed forge command to deploy TestToken contract",
-    output = outputDeployTestToken
   if exitCodeDeployTestToken != 0:
     error "Forge command to deploy TestToken contract failed",
       error = outputDeployTestToken
@@ -236,7 +230,7 @@ proc deployTestToken*(
     return err(
       "Failed to get TestToken contract address from deploy script output: " & $error
     )
-  info "Address of the TestToken contract", testTokenAddress
+  debug "Address of the TestToken contract", testTokenAddress
 
   let testTokenAddressBytes = hexToByteArray[20](testTokenAddress)
   let testTokenAddressAddress = Address(testTokenAddressBytes)
@@ -332,14 +326,12 @@ proc executeForgeContractDeployScripts*(
     return err("Submodule path does not exist: " & submodulePath)
 
   let forgePath = getForgePath()
-  info "Forge path", forgePath
 
   # Verify forge executable exists
   if not fileExists(forgePath):
     error "Forge executable not found", forgePath = forgePath
     return err("Forge executable not found: " & forgePath)
 
-  trace "contract deployer account details", account = acc, privateKey = privateKey
   let setupContractEnv = setupContractDeployment(forgePath, submodulePath)
   if setupContractEnv.isErr():
     error "Failed to setup contract deployment"
@@ -350,8 +342,6 @@ proc executeForgeContractDeployScripts*(
     fmt"""cd {submodulePath} && {forgePath} script script/Deploy.s.sol --broadcast -vvvv --rpc-url http://localhost:8540 --tc DeployPriceCalculator --private-key {privateKey} && rm -rf broadcast/*/*/run-1*.json && rm -rf cache/*/*/run-1*.json"""
   let (outputDeployPriceCalculator, exitCodeDeployPriceCalculator) =
     execForge(forgeCmdPriceCalculator)
-  trace "Executed forge command to deploy LinearPriceCalculator contract",
-    output = outputDeployPriceCalculator
   if exitCodeDeployPriceCalculator != 0:
     return error("Forge command to deploy LinearPriceCalculator contract failed")
 
@@ -361,14 +351,11 @@ proc executeForgeContractDeployScripts*(
   if priceCalculatorAddressRes.isErr():
     error "Failed to get LinearPriceCalculator contract address from deploy script output"
   let priceCalculatorAddress = priceCalculatorAddressRes.get()
-  info "Address of the LinearPriceCalculator contract", priceCalculatorAddress
   putEnv("PRICE_CALCULATOR_ADDRESS", priceCalculatorAddress)
 
   let forgeCmdWakuRln =
     fmt"""cd {submodulePath} && {forgePath} script script/Deploy.s.sol --broadcast -vvvv --rpc-url http://localhost:8540 --tc DeployWakuRlnV2 --private-key {privateKey} && rm -rf broadcast/*/*/run-1*.json && rm -rf cache/*/*/run-1*.json"""
   let (outputDeployWakuRln, exitCodeDeployWakuRln) = execForge(forgeCmdWakuRln)
-  trace "Executed forge command to deploy WakuRlnV2 contract",
-    output = outputDeployWakuRln
   if exitCodeDeployWakuRln != 0:
     error "Forge command to deploy WakuRlnV2 contract failed",
       output = outputDeployWakuRln
@@ -380,7 +367,6 @@ proc executeForgeContractDeployScripts*(
     error "Failed to get WakuRlnV2 contract address from deploy script output"
     ##TODO: raise exception here?
   let wakuRlnV2Address = wakuRlnV2AddressRes.get()
-  info "Address of the WakuRlnV2 contract", wakuRlnV2Address
   putEnv("WAKURLNV2_ADDRESS", wakuRlnV2Address)
 
   # Deploy Proxy contract
@@ -396,7 +382,7 @@ proc executeForgeContractDeployScripts*(
   let proxyAddressBytes = hexToByteArray[20](proxyAddress.get())
   let proxyAddressAddress = Address(proxyAddressBytes)
 
-  info "Address of the Proxy contract", proxyAddressAddress
+  debug "Address of the Proxy contract", proxyAddressAddress
 
   await web3.close()
   return ok(proxyAddressAddress)
@@ -533,7 +519,7 @@ proc runAnvil*(
   # See anvil documentation https://book.getfoundry.sh/reference/anvil/ for more details
   try:
     let anvilPath = getAnvilPath()
-    info "Anvil path", anvilPath
+    debug "Anvil path", anvilPath
 
     var args = @[
       "--port",
@@ -555,7 +541,7 @@ proc runAnvil*(
     # Add state file argument if provided
     if stateFile.isSome():
       var statePath = stateFile.get()
-      info "State file parameter provided",
+      debug "State file parameter provided",
         statePath = statePath,
         dumpStateOnExit = dumpStateOnExit,
         absolutePath = absolutePath(statePath)
@@ -590,9 +576,9 @@ proc runAnvil*(
           warn "State file does not exist, anvil will start fresh",
             path = statePath, absolutePath = absolutePath(statePath)
     else:
-      info "No state file provided, anvil will start fresh without state persistence"
+      debug "No state file provided, anvil will start fresh without state persistence"
 
-    info "Starting anvil with arguments", args = args.join(" ")
+    debug "Starting anvil with arguments", args = args.join(" ")
 
     let runAnvil =
       startProcess(anvilPath, args = args, options = {poUsePath, poStdErrToStdOut})
@@ -626,7 +612,7 @@ proc runAnvil*(
         pid = anvilPID, timeoutMs = startupTimeoutMs
       return
 
-    info "Anvil daemon is running and ready", pid = anvilPID
+    debug "Anvil daemon is running and ready", pid = anvilPID
     return runAnvil
   except: # TODO: Fix "BareExcept" warning
     error "Anvil daemon run failed", err = getCurrentExceptionMsg()
@@ -634,11 +620,11 @@ proc runAnvil*(
 # Stops Anvil daemon
 proc stopAnvil*(runAnvil: Process) {.used.} =
   if runAnvil.isNil:
-    info "stopAnvil called with nil Process"
+    error "stopAnvil called with nil Process"
     return
 
   let anvilPID = runAnvil.processID
-  info "Stopping Anvil daemon", anvilPID = anvilPID
+  debug "Stopping Anvil daemon", anvilPID = anvilPID
 
   try:
     # Send termination signals
@@ -649,7 +635,7 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
       # Only force kill if process is still running
       let checkResult = execCmdEx(fmt"kill -0 {anvilPID} 2>/dev/null")
       if checkResult.exitCode == 0:
-        info "Anvil process still running after TERM signal, sending KILL",
+        warn "Anvil process still running after TERM signal, sending KILL",
           anvilPID = anvilPID
         discard execCmdEx(fmt"kill -9 {anvilPID}")
     else:
@@ -657,9 +643,9 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
 
     # Close Process object to release resources
     close(runAnvil)
-    info "Anvil daemon stopped", anvilPID = anvilPID
+    debug "Anvil daemon stopped", anvilPID = anvilPID
   except Exception as e:
-    info "Error stopping Anvil daemon", anvilPID = anvilPID, error = e.msg
+    error "Error stopping Anvil daemon", anvilPID = anvilPID, error = e.msg
 
 proc setupOnchainGroupManager*(
     ethClientUrl: string = EthClient,
@@ -697,7 +683,7 @@ proc setupOnchainGroupManager*(
   var contractAddress: Address
 
   if not deployContracts:
-    info "Using contract addresses from constants"
+    debug "Using contract addresses from constants"
 
     testTokenAddress = Address(hexToByteArray[20](TOKEN_ADDRESS))
     contractAddress = Address(hexToByteArray[20](WAKU_RLNV2_PROXY_ADDRESS))
@@ -718,7 +704,7 @@ proc setupOnchainGroupManager*(
     )
     assert tokenApprovalResult.isOk(), tokenApprovalResult.error
   else:
-    info "Performing Token and RLN contracts deployment"
+    debug "Performing Token and RLN contracts deployment"
     (privateKey, acc) = createEthAccount(web3)
 
     # fund the default account
@@ -754,15 +740,6 @@ proc setupOnchainGroupManager*(
       discard
     web3 = await newWeb3(ethClientUrl)
     web3.defaultAccount = accounts[1]
-
-    # DEBUG: dump the addresses we're about to call against so we can correlate
-    # with Anvil state if the allowance eth_call returns garbage.
-    echo "[DEBUG benchmark setup] testTokenAddress=",
-      testTokenAddress.toHex(),
-      " contractAddress=",
-      contractAddress.toHex(),
-      " account=",
-      acc.toHex()
 
     # If the generated account wishes to register a membership, it needs to approve the contract to spend its tokens
     let tokenApprovalResult = await approveTokenAllowanceAndVerify(
