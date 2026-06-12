@@ -307,10 +307,17 @@ procSuite "Peer Manager":
     let
       database = SqliteDatabase.new(":memory:")[]
       storage = WakuPeerStorage.new(database)[]
+      # tcp-only: asserts exact AddressBook contents
       node1 = newTestWakuNode(
-        generateSecp256k1Key(), getPrimaryIPAddr(), Port(44048), peerStorage = storage
+        generateSecp256k1Key(),
+        getPrimaryIPAddr(),
+        Port(44048),
+        peerStorage = storage,
+        quicEnabled = false,
       )
-      node2 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(34023))
+      node2 = newTestWakuNode(
+        generateSecp256k1Key(), getPrimaryIPAddr(), Port(34023), quicEnabled = false
+      )
 
     node1.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
     node2.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
@@ -349,6 +356,7 @@ procSuite "Peer Manager":
       parseIpAddress("127.0.0.1"),
       Port(56037),
       peerStorage = storage,
+      quicEnabled = false,
     )
 
     node3.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
@@ -380,10 +388,17 @@ procSuite "Peer Manager":
     let
       database = SqliteDatabase.new(":memory:")[]
       storage = WakuPeerStorage.new(database)[]
+      # tcp-only: asserts exact AddressBook contents
       node1 = newTestWakuNode(
-        generateSecp256k1Key(), getPrimaryIPAddr(), Port(44048), peerStorage = storage
+        generateSecp256k1Key(),
+        getPrimaryIPAddr(),
+        Port(44048),
+        peerStorage = storage,
+        quicEnabled = false,
       )
-      node2 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(34023))
+      node2 = newTestWakuNode(
+        generateSecp256k1Key(), getPrimaryIPAddr(), Port(34023), quicEnabled = false
+      )
 
     node1.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
     node2.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
@@ -422,6 +437,7 @@ procSuite "Peer Manager":
       parseIpAddress("127.0.0.1"),
       Port(56037),
       peerStorage = storage,
+      quicEnabled = false,
     )
 
     node3.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
@@ -1234,8 +1250,8 @@ procSuite "Peer Manager":
 
   asyncTest "Retrieve peer that mounted peer exchange":
     let
-      node1 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(55048))
-      node2 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(55023))
+      node1 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(0))
+      node2 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(0))
 
     await allFutures(node1.start(), node2.start())
     await allFutures(node1.mountRelay(), node2.mountRelay())

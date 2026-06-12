@@ -9,6 +9,7 @@ type NetConfig* = object
   hostAddress*: MultiAddress
   clusterId*: uint16
   wsHostAddress*: Option[MultiAddress]
+  quicHostAddress*: Option[MultiAddress]
   hostExtAddress*: Option[MultiAddress]
   wsExtAddress*: Option[MultiAddress]
   wssEnabled*: bool
@@ -46,6 +47,18 @@ template wsFlag(wssEnabled: bool): MultiAddress =
   else:
     MultiAddress.init("/ws").tryGet()
 
+template udpPortMa(port: Port): MultiAddress =
+  MultiAddress.init("/udp/" & $port).tryGet()
+
+template quicFlag(): MultiAddress =
+  MultiAddress.init("/quic-v1").tryGet()
+
+template ipQuicEndPoint(address: IpAddress, port: Port): MultiAddress =
+  MultiAddress.init(address, udpProtocol, port) & quicFlag()
+
+template dns4QuicEndPoint(dns4DomainName: string, port: Port): MultiAddress =
+  dns4Ma(dns4DomainName) & udpPortMa(port) & quicFlag()
+
 proc formatListenAddress(inputMultiAdd: MultiAddress): MultiAddress =
   let inputStr = $inputMultiAdd
   # If MultiAddress contains "0.0.0.0", replace it for "127.0.0.1"
@@ -58,8 +71,14 @@ proc isWsAddress*(ma: MultiAddress): bool =
 
   return isWs or isWss
 
+proc isQuicAddress*(ma: MultiAddress): bool =
+  return ma.hasProtocol("quic-v1")
+
 proc containsWsAddress(extMultiAddrs: seq[MultiAddress]): bool =
   return extMultiAddrs.filterIt(it.isWsAddress()).len > 0
+
+proc containsQuicAddress(extMultiAddrs: seq[MultiAddress]): bool =
+  return extMultiAddrs.filterIt(it.isQuicAddress()).len > 0
 
 const DefaultWsBindPort = static(Port(8000))
 # TODO: migrate to builder pattern with nested configs
@@ -74,6 +93,8 @@ proc init*(
     wsBindPort: Option[Port] = some(DefaultWsBindPort),
     wsEnabled: bool = false,
     wssEnabled: bool = false,
+    quicBindPort = none(Port),
+    quicEnabled: bool = false,
     dns4DomainName = none(string),
     discv5UdpPort = none(Port),
     clusterId: uint16 = 0,
@@ -94,6 +115,13 @@ proc init*(
     except CatchableError:
       return err(getCurrentExceptionMsg())
 
+  var quicHostAddress = none(MultiAddress)
+  if quicEnabled:
+    try:
+      quicHostAddress = some(ipQuicEndPoint(bindIp, quicBindPort.get(bindPort)))
+    except CatchableError:
+      return err(getCurrentExceptionMsg())
+
   let enrIp =
     if extIp.isSome():
       extIp
@@ -106,7 +134,7 @@ proc init*(
       some(bindPort)
 
   # Setup external addresses, if available
-  var hostExtAddress, wsExtAddress = none(MultiAddress)
+  var hostExtAddress, wsExtAddress, quicExtAddress = none(MultiAddress)
 
   if dns4DomainName.isSome():
     # Use dns4 for externally announced addresses
@@ -123,6 +151,13 @@ proc init*(
         )
       except CatchableError:
         return err(getCurrentExceptionMsg())
+
+    if quicHostAddress.isSome():
+      try:
+        quicExtAddress =
+          some(dns4QuicEndPoint(dns4DomainName.get(), quicBindPort.get(bindPort)))
+      except CatchableError:
+        return err(getCurrentExceptionMsg())
   else:
     # No public domain name, use ext IP if available
     if extIp.isSome() and extPort.isSome():
@@ -134,6 +169,12 @@ proc init*(
             ip4TcpEndPoint(extIp.get(), wsBindPort.get(DefaultWsBindPort)) &
               wsFlag(wssEnabled)
           )
+        except CatchableError:
+          return err(getCurrentExceptionMsg())
+
+      if quicHostAddress.isSome():
+        try:
+          quicExtAddress = some(ipQuicEndPoint(extIp.get(), quicBindPort.get(bindPort)))
         except CatchableError:
           return err(getCurrentExceptionMsg())
 
@@ -152,6 +193,11 @@ proc init*(
       # Only publish wsHostAddress if a WS address is not set in extMultiAddrs
       announcedAddresses.add(wsHostAddress.get())
 
+    if quicExtAddress.isSome():
+      announcedAddresses.add(quicExtAddress.get())
+    elif quicHostAddress.isSome() and not containsQuicAddress(extMultiAddrs):
+      announcedAddresses.add(formatListenAddress(quicHostAddress.get()))
+
   # External multiaddrs that the operator may have configured
   if extMultiAddrs.len > 0:
     announcedAddresses.add(extMultiAddrs)
@@ -164,7 +210,7 @@ proc init*(
     enrMultiaddrs = deduplicate(
       announcedAddresses.filterIt(
         it.hasProtocol("dns4") or it.hasProtocol("dns6") or it.hasProtocol("ws") or
-          it.hasProtocol("wss")
+          it.hasProtocol("wss") or it.hasProtocol("quic-v1")
       )
     )
 
@@ -173,6 +219,7 @@ proc init*(
       hostAddress: hostAddress,
       clusterId: clusterId,
       wsHostAddress: wsHostAddress,
+      quicHostAddress: quicHostAddress,
       hostExtAddress: hostExtAddress,
       wsExtAddress: wsExtAddress,
       extIp: extIp,

@@ -239,15 +239,6 @@ proc parsePeerInfo*(maddrs: varargs[string]): Result[RemotePeerInfo, string] =
 
   parsePeerInfo(multiAddresses)
 
-func getTransportProtocol(typedR: enr.TypedRecord): Option[IpTransportProtocol] =
-  if typedR.tcp6.isSome() or typedR.tcp.isSome():
-    return some(IpTransportProtocol.tcpProtocol)
-
-  if typedR.udp6.isSome() or typedR.udp.isSome():
-    return some(IpTransportProtocol.udpProtocol)
-
-  return none(IpTransportProtocol)
-
 proc parseUrlPeerAddr*(
     peerAddr: Option[string]
 ): Result[Option[RemotePeerInfo], string] =
@@ -263,8 +254,10 @@ proc parseUrlPeerAddr*(
   return ok(some(parsedPeerInfo))
 
 proc toRemotePeerInfo*(enrRec: enr.Record): Result[RemotePeerInfo, cstring] =
-  ## Converts an ENR to dialable RemotePeerInfo
-  let typedR = enr.TypedRecord.fromRecord(enrRec)
+  ## enr to dialable RemotePeerInfo. tcp from tcp/tcp6 fields, quic from the
+  ## multiaddrs ext (udp field is discv5, not quic). quic sorted first.
+  let typedR = enrRec.toTyped().valueOr:
+    return err("enr: failed to construct typed record")
   if not typedR.secp256k1.isSome():
     return err("enr: no secp256k1 key in record")
 
@@ -273,41 +266,36 @@ proc toRemotePeerInfo*(enrRec: enr.Record): Result[RemotePeerInfo, cstring] =
     peerId =
       ?PeerID.init(crypto.PublicKey(scheme: Secp256k1, skkey: secp.SkPublicKey(pubKey)))
 
-  let transportProto = getTransportProtocol(typedR)
-  if transportProto.isNone():
-    return err("enr: could not determine transport protocol")
-
   var addrs = newSeq[MultiAddress]()
-  case transportProto.get()
-  of tcpProtocol:
-    if typedR.ip.isSome() and typedR.tcp.isSome():
-      let ip = ipv4(typedR.ip.get())
-      addrs.add MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp.get()))
 
-    if typedR.ip6.isSome():
-      let ip = ipv6(typedR.ip6.get())
-      if typedR.tcp6.isSome():
-        addrs.add MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp6.get()))
-      elif typedR.tcp.isSome():
-        addrs.add MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp.get()))
-      else:
-        discard
-  of udpProtocol:
-    if typedR.ip.isSome() and typedR.udp.isSome():
-      let ip = ipv4(typedR.ip.get())
-      addrs.add MultiAddress.init(ip, udpProtocol, Port(typedR.udp.get()))
+  # multiaddrs ext, may include quic
+  let multiaddrsField = typedR.multiaddrs()
+  if multiaddrsField.isSome():
+    addrs.add(multiaddrsField.get())
 
-    if typedR.ip6.isSome():
-      let ip = ipv6(typedR.ip6.get())
-      if typedR.udp6.isSome():
-        addrs.add MultiAddress.init(ip, udpProtocol, Port(typedR.udp6.get()))
-      elif typedR.udp.isSome():
-        addrs.add MultiAddress.init(ip, udpProtocol, Port(typedR.udp.get()))
-      else:
-        discard
+  # tcp/tcp6 fields, skip if already in multiaddrs
+  if typedR.ip.isSome() and typedR.tcp.isSome():
+    let ip = ipv4(typedR.ip.get())
+    let tcpAddr = MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp.get()))
+    if tcpAddr notin addrs:
+      addrs.add(tcpAddr)
+
+  if typedR.ip6.isSome():
+    let ip = ipv6(typedR.ip6.get())
+    if typedR.tcp6.isSome():
+      let tcp6Addr = MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp6.get()))
+      if tcp6Addr notin addrs:
+        addrs.add(tcp6Addr)
+    elif typedR.tcp.isSome():
+      let tcp6Addr = MultiAddress.init(ip, tcpProtocol, Port(typedR.tcp.get()))
+      if tcp6Addr notin addrs:
+        addrs.add(tcp6Addr)
 
   if addrs.len == 0:
-    return err("enr: no addresses in record")
+    return err("enr: no dialable addresses in record")
+
+  # quic first
+  addrs = addrs.filterIt("/quic-v1" in $it) & addrs.filterIt("/quic-v1" notin $it)
 
   let protocolsRes = catch:
     enrRec.getCapabilitiesCodecs()
@@ -331,7 +319,9 @@ converter toRemotePeerInfo*(peerInfo: PeerInfo): RemotePeerInfo =
   ## Useful for testing or internal connections
   RemotePeerInfo(
     peerId: peerInfo.peerId,
-    addrs: peerInfo.listenAddrs,
+    addrs:
+      peerInfo.listenAddrs.filterIt("/quic-v1" in $it) &
+      peerInfo.listenAddrs.filterIt("/quic-v1" notin $it),
     enr: none(enr.Record),
     protocols: peerInfo.protocols,
     shards: @[],

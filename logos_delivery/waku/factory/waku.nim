@@ -249,8 +249,8 @@ proc new*(
 
 proc getPorts(
     listenAddrs: seq[MultiAddress]
-): Result[tuple[tcpPort, websocketPort: Option[Port]], string] =
-  var tcpPort, websocketPort = none(Port)
+): Result[tuple[tcpPort, websocketPort, quicPort: Option[Port]], string] =
+  var tcpPort, websocketPort, quicPort = none(Port)
 
   for a in listenAddrs:
     if a.isWsAddress():
@@ -258,17 +258,23 @@ proc getPorts(
         let wsAddress = initTAddress(a).valueOr:
           return err("getPorts wsAddr error:" & $error)
         websocketPort = some(wsAddress.port)
+    elif a.isQuicAddress():
+      if quicPort.isNone():
+        let quicAddress = initTAddress(a).valueOr:
+          return err("getPorts quicAddr error:" & $error)
+        quicPort = some(quicAddress.port)
     elif tcpPort.isNone():
       let tcpAddress = initTAddress(a).valueOr:
         return err("getPorts tcpAddr error:" & $error)
       tcpPort = some(tcpAddress.port)
 
-  return ok((tcpPort: tcpPort, websocketPort: websocketPort))
+  return ok((tcpPort: tcpPort, websocketPort: websocketPort, quicPort: quicPort))
 
 proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.} =
   let conf = waku.conf
-  let (tcpPort, websocketPort) = getPorts(waku.node.switch.peerInfo.listenAddrs).valueOr:
-    return err("Could not retrieve ports: " & error)
+  let (tcpPort, websocketPort, quicPort) =
+    getPorts(waku.node.switch.peerInfo.listenAddrs).valueOr:
+      return err("Could not retrieve ports: " & error)
 
   if tcpPort.isSome():
     conf.endpointConf.p2pTcpPort = tcpPort.get()
@@ -276,11 +282,15 @@ proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.
   if websocketPort.isSome() and conf.webSocketConf.isSome():
     conf.webSocketConf.get().port = websocketPort.get()
 
+  if quicPort.isSome() and conf.quicConf.isSome():
+    conf.quicConf.get().port = quicPort.get()
+
   # Rebuild NetConfig with bound port values
   let netConf = (
     await networkConfiguration(
       conf.clusterId, conf.endpointConf, conf.discv5Conf, conf.webSocketConf,
-      conf.wakuFlags, conf.dnsAddrsNameServers, conf.portsShift, clientId,
+      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, conf.portsShift,
+      clientId,
     )
   ).valueOr:
     return err("Could not update NetConfig: " & error)
@@ -444,6 +454,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     return err("failed to read bound ports from switch: " & $error)
   waku.node.ports.tcp = bound.tcpPort.get(Port(0)).uint16
   waku.node.ports.webSocket = bound.websocketPort.get(Port(0)).uint16
+  waku.node.ports.quic = bound.quicPort.get(Port(0)).uint16
 
   ## Discv5
   if conf.discv5Conf.isSome():

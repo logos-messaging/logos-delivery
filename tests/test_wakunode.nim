@@ -10,6 +10,8 @@ import
   libp2p/crypto/secp,
   libp2p/multiaddress,
   libp2p/switch,
+  libp2p/muxers/muxer,
+  libp2p/stream/connection,
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/protocols/pubsub/pubsub,
   libp2p/protocols/pubsub/gossipsub,
@@ -124,7 +126,7 @@ suite "WakuNode":
       node1 = newTestWakuNode(
         nodeKey1,
         parseIpAddress("127.0.0.1"),
-        Port(60010),
+        Port(0),
         maxConnections = maxConnections,
       )
 
@@ -137,11 +139,10 @@ suite "WakuNode":
     var otherNodes: seq[WakuNode] = @[]
 
     # Create and start 20 other nodes
-    for i in 0 ..< maxConnections + 1:
+    for _ in 0 ..< maxConnections + 1:
       let
         nodeKey = generateSecp256k1Key()
-        port = 60012 + i * 2 # Ensure unique ports for each node
-        node = newTestWakuNode(nodeKey, parseIpAddress("127.0.0.1"), Port(port))
+        node = newTestWakuNode(nodeKey, parseIpAddress("127.0.0.1"), Port(0))
       await node.start()
       (await node.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
@@ -187,7 +188,9 @@ suite "WakuNode":
       bindPort = Port(61006)
       extIp = some(getPrimaryIPAddr())
       extPort = some(Port(61008))
-      node = newTestWakuNode(nodeKey, bindIp, bindPort, extIp, extPort)
+      # tcp-only: asserts exact single listen addr; quic variant below
+      node =
+        newTestWakuNode(nodeKey, bindIp, bindPort, extIp, extPort, quicEnabled = false)
 
     let
       bindEndpoint = MultiAddress.init(bindIp, tcpProtocol, bindPort)
@@ -216,6 +219,80 @@ suite "WakuNode":
 
     await node.stop()
 
+  asyncTest "Peer info updates with correct announced addresses (QUIC)":
+    # dual-stack node announces both tcp and quic-v1
+    let
+      nodeKey = generateSecp256k1Key()
+      bindIp = parseIpAddress("0.0.0.0")
+      bindPort = Port(61006)
+      extIp = some(getPrimaryIPAddr())
+      extPort = some(Port(61008))
+      node =
+        newTestWakuNode(nodeKey, bindIp, bindPort, extIp, extPort, quicEnabled = true)
+
+    let tcpAnnounced = MultiAddress.init(extIp.get(), tcpProtocol, extPort.get())
+
+    check:
+      node.announcedAddresses.len >= 2
+      node.announcedAddresses.contains(tcpAnnounced)
+      node.announcedAddresses.anyIt("/quic-v1" in $it)
+
+    await node.start()
+
+    check:
+      node.started
+      node.switch.peerInfo.addrs.len >= 2
+      node.switch.peerInfo.addrs.contains(tcpAnnounced)
+      node.switch.peerInfo.addrs.anyIt("/quic-v1" in $it)
+
+    await node.stop()
+
+  test "toRemotePeerInfo sorts quic-v1 addresses first":
+    let
+      nodeKey = generateSecp256k1Key()
+      node =
+        newTestWakuNode(nodeKey, parseIpAddress("0.0.0.0"), Port(0), quicEnabled = true)
+
+    # peerinfo path
+    let fromPeerInfo = node.switch.peerInfo.toRemotePeerInfo()
+    check:
+      fromPeerInfo.addrs.anyIt("/quic-v1" in $it)
+      "/quic-v1" in $fromPeerInfo.addrs[0]
+
+    # enr path
+    let fromEnr = toRemotePeerInfo(node.enr).valueOr:
+      raiseAssert "toRemotePeerInfo(enr) failed: " & $error
+    check:
+      fromEnr.addrs.anyIt("/quic-v1" in $it)
+      "/quic-v1" in $fromEnr.addrs[0]
+
+  asyncTest "Dual-stack nodes connect over QUIC":
+    let
+      nodeKey1 = generateSecp256k1Key()
+      node1 = newTestWakuNode(
+        nodeKey1, parseIpAddress("0.0.0.0"), Port(0), quicEnabled = true
+      )
+      nodeKey2 = generateSecp256k1Key()
+      node2 = newTestWakuNode(
+        nodeKey2, parseIpAddress("0.0.0.0"), Port(0), quicEnabled = true
+      )
+
+    await allFutures(node1.start(), node2.start())
+
+    await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
+
+    let conns = node1.switch.connManager.getConnections().getOrDefault(
+      node2.switch.peerInfo.peerId
+    )
+    check conns.len >= 1
+    let obAddr = conns[0].connection.observedAddr.valueOr:
+      raiseAssert "connection has no observed address"
+    check:
+      "/udp/" in $obAddr
+      "/tcp/" notin $obAddr
+
+    await allFutures(node1.stop(), node2.stop())
+
   asyncTest "Node can use dns4 in announced addresses":
     let
       nodeKey = generateSecp256k1Key()
@@ -231,7 +308,8 @@ suite "WakuNode":
       )
 
     check:
-      node.announcedAddresses.len == 1
+      # dual-stack also adds a dns4 quic addr, don't assert exact count
+      node.announcedAddresses.len >= 1
       node.announcedAddresses.contains(expectedDns4Addr)
 
   asyncTest "Node uses dns4 resolved ip in announced addresses if no extIp is provided":

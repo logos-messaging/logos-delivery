@@ -130,6 +130,36 @@ suite "Waku NetConfig":
       netConfig.announcedAddresses.len == 2 # Bind address + extAddress
       netConfig.announcedAddresses[1] == extMultiAddrs[0]
 
+  asyncTest "Operator QUIC extMultiAddr suppresses the auto QUIC address":
+    let
+      conf = defaultTestWakuConf()
+      bindPort = conf.endpointConf.p2pTcpPort
+      operatorQuic = ipQuicEndPoint(parseIpAddress("1.2.3.4"), Port(9999))
+
+    # no operator quic addr: node auto-announces its bind-port quic addr
+    let autoRes = NetConfig.init(
+      bindIp = conf.endpointConf.p2pListenAddress,
+      bindPort = bindPort,
+      quicEnabled = true,
+      quicBindPort = some(bindPort),
+    )
+    assert autoRes.isOk(), $autoRes.error
+    check autoRes.get().announcedAddresses.filterIt(it.isQuicAddress()).len == 1
+
+    # operator quic addr given: auto bind-port addr suppressed, only theirs remains
+    let opRes = NetConfig.init(
+      bindIp = conf.endpointConf.p2pListenAddress,
+      bindPort = bindPort,
+      quicEnabled = true,
+      quicBindPort = some(bindPort),
+      extMultiAddrs = @[operatorQuic],
+    )
+    assert opRes.isOk(), $opRes.error
+    let opNetConfig = opRes.get()
+    check:
+      opNetConfig.announcedAddresses.filterIt(it.isQuicAddress()) == @[operatorQuic]
+      opNetConfig.enrMultiaddrs.filterIt(it.isQuicAddress()) == @[operatorQuic]
+
   asyncTest "AnnouncedAddresses uses dns4DomainName over extIp when both are provided":
     let
       conf = defaultTestWakuConf()

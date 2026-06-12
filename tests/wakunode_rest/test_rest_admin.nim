@@ -38,9 +38,9 @@ suite "Waku v2 Rest API - Admin":
   var client {.threadvar.}: RestClientRef
 
   asyncSetup:
-    node1 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(60600))
-    node2 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(60602))
-    node3 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(60604))
+    node1 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(0))
+    node2 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(0))
+    node3 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(0))
 
     let clusterId = 1.uint16
     let shards: seq[uint16] = @[0]
