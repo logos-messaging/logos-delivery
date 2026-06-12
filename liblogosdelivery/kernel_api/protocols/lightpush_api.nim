@@ -8,8 +8,8 @@ import
   logos_delivery/waku/waku_core/topics/pubsub_topic,
   logos_delivery/waku/waku_lightpush_legacy/client,
   logos_delivery/waku/node/peer_manager/peer_manager,
-  ../../events/json_message_event,
-  ../../declare_lib
+  liblogosdelivery/events/json_message_event,
+  liblogosdelivery/declare_lib
 
 proc waku_lightpush_publish(
     ctx: ptr FFIContext[Waku],

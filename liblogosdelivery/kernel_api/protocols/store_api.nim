@@ -2,13 +2,13 @@ import std/[json, sugar, strutils, options]
 import chronos, chronicles, results, stew/byteutils, ffi
 import
   logos_delivery/waku/factory/waku,
-  ../../utils,
+  liblogosdelivery/utils,
   logos_delivery/waku/waku_core/peers,
   logos_delivery/waku/waku_core/message/digest,
   logos_delivery/waku/waku_store/common,
   logos_delivery/waku/waku_store/client,
   logos_delivery/waku/common/paging,
-  ../../declare_lib
+  liblogosdelivery/declare_lib
 
 func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
   var contentTopics: seq[string]
