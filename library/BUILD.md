@@ -63,8 +63,12 @@ build/
 
 ## Library Headers
 
-The main header file is:
-- `library/liblogosdelivery.h` - C API declarations
+The C API is tiered across two headers (one library, two stability promises):
+- `library/liblogosdelivery.h` - stable, supported Messaging / Reliable
+  Channels API. This is the front door for consumers.
+- `library/liblogosdelivery_kernel.h` - advanced, low-level kernel API
+  (`waku_*`). "Use at your own risk", may change at any time. Including it is
+  a deliberate opt-in; it pulls in `liblogosdelivery.h` for shared types.
 
 ## Troubleshooting
 

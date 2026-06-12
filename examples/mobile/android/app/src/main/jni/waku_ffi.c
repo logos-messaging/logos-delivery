@@ -1,4 +1,4 @@
-#include "liblogosdelivery.h"
+#include "liblogosdelivery_kernel.h"
 #include <android/log.h>
 #include <jni.h>
 #include <stdbool.h>

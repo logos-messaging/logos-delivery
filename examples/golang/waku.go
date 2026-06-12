@@ -4,7 +4,7 @@ package main
 	#cgo LDFLAGS: -L../../build/ -llogosdelivery
 	#cgo LDFLAGS: -L../../ -Wl,-rpath,../../
 
-	#include "../../library/liblogosdelivery.h"
+	#include "../../library/liblogosdelivery_kernel.h"
 	#include <stdio.h>
 	#include <stdlib.h>
 

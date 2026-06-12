@@ -5,7 +5,7 @@
 #include <stdlib.h>
 
 #include "../cbindings/base64.h"
-#include "../../library/liblogosdelivery.h"
+#include "../../library/liblogosdelivery_kernel.h"
 
 // Reference to the NodeJs function to be called when a waku event occurs.
 // static napi_ref ref_event_callback = NULL;
