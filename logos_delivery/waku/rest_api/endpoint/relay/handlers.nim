@@ -169,9 +169,6 @@ proc installRelayApiHandlers*(
     if not node.wakuRlnRelay.isNil():
       # append the proof to the message
 
-      # let msgRef = WakuMessage.new()
-      # msgRef[] = message
-
       message.proof = (
         await node.wakuRlnRelay.generateRLNProof(
           message.toRLNSignal(), float64(getTime().toUnix())
@@ -180,7 +177,6 @@ proc installRelayApiHandlers*(
         return RestApiResponse.internalServerError(
           "Failed to publish: error appending RLN proof to message: " & $error
         )
-      # message = msgRef[]
 
     (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
       return RestApiResponse.badRequest("Failed to publish: " & error)
