@@ -106,7 +106,7 @@ proc buildBinary(name: string, srcDir = "./", params = "") =
   exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
     srcDir & name & ".nim"
 
-proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
+proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
   if not dirExists "build":
     mkDir "build"
 
@@ -367,7 +367,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   echo "iOS library created: " & aFile
 
-task libWakuIOS, "Build the mobile bindings for iOS":
+task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
   let srcDir = "./library"
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
@@ -484,45 +484,25 @@ let chroniclesParams =
   """-d:chronicles_disabled_topics="eth,dnsdisc.client" """ & "--warning:Deprecated:off " &
   "--warning:UnusedImport:on " & "-d:chronicles_log_level=TRACE"
 
-## Libwaku build tasks
-
-task libwakuDynamicWindows, "Generate bindings":
-  buildLibDynamicWindows("libwaku", "library")
-
-task libwakuDynamicLinux, "Generate bindings":
-  buildLibDynamicLinux("libwaku", "library")
-
-task libwakuDynamicMac, "Generate bindings":
-  buildLibDynamicMac("libwaku", "library")
-
-task libwakuStaticWindows, "Generate bindings":
-  buildLibStaticWindows("libwaku", "library")
-
-task libwakuStaticLinux, "Generate bindings":
-  buildLibStaticLinux("libwaku", "library")
-
-task libwakuStaticMac, "Generate bindings":
-  buildLibStaticMac("libwaku", "library")
-
 ## Liblogosdelivery build tasks
 
 task liblogosdeliveryDynamicWindows, "Generate bindings":
-  buildLibDynamicWindows("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicWindows("liblogosdelivery", "library")
 
 task liblogosdeliveryDynamicLinux, "Generate bindings":
-  buildLibDynamicLinux("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicLinux("liblogosdelivery", "library")
 
 task liblogosdeliveryDynamicMac, "Generate bindings":
-  buildLibDynamicMac("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicMac("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticWindows, "Generate bindings":
-  buildLibStaticWindows("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticWindows("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticLinux, "Generate bindings":
-  buildLibStaticLinux("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticLinux("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticMac, "Generate bindings":
-  buildLibStaticMac("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticMac("liblogosdelivery", "library")
 
 ### Formatting tasks
 

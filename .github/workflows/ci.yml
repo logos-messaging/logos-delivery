@@ -40,7 +40,6 @@ jobs:
           - 'flake.nix'
           - 'flake.lock'
           - 'library/**'
-          - 'liblogosdelivery/**'
           v2:
           - 'logos_delivery/**'
           - 'apps/**'
