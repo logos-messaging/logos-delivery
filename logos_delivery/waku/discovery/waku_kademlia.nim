@@ -228,3 +228,28 @@ proc stop*(self: WakuKademlia) {.async: (raises: []).} =
     self.randomLookupLoop = nil
 
   info "kademlia discovery stopped"
+
+proc addServiceToDiscover*(self: WakuKademlia, service: string) =
+  if service notin self.servicesToDiscover:
+    self.servicesToDiscover.add(service)
+    discard self.protocol.registerInterest(service)
+    debug "added service to discover", service
+
+proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
+  if service in self.servicesToDiscover:
+    self.servicesToDiscover.keepItIf(it != service)
+    self.protocol.unregisterInterest(service)
+    debug "removed service to discover", service
+
+proc addServiceToAdvertise*(self: WakuKademlia, service: ServiceInfo) =
+  if not self.servicesToAdvertise.anyIt(it.id == service.id):
+    self.servicesToAdvertise.add(service)
+  self.protocol.startAdvertising(service)
+  debug "added service to advertise", service = service.id
+
+proc removeServiceToAdvertise*(
+    self: WakuKademlia, serviceId: string
+) {.async: (raises: [CancelledError]).} =
+  self.servicesToAdvertise.keepItIf(it.id != serviceId)
+  await self.protocol.stopAdvertising(serviceId)
+  debug "removed service to advertise", service = serviceId
