@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 import std/json
 import chronos, chronicles, results, strutils, libp2p/multiaddress, ffi
 import

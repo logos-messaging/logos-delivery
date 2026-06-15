@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 import std/[sequtils, sets, tables, options], chronos, chronicles, metrics, results
 import libp2p/[peerid, peerinfo]
 import brokers/broker_context

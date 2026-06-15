@@ -1,3 +1,5 @@
+import libp2p/crypto/crypto
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import std/options, results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
@@ -16,12 +18,10 @@ logScope:
   topics = "waku lightpush client"
 
 type WakuLightPushClient* = ref object
-  rng*: ref rand.HmacDrbgContext
+  rng*: crypto.Rng
   peerManager*: PeerManager
 
-proc new*(
-    T: type WakuLightPushClient, peerManager: PeerManager, rng: ref rand.HmacDrbgContext
-): T =
+proc new*(T: type WakuLightPushClient, peerManager: PeerManager, rng: crypto.Rng): T =
   WakuLightPushClient(peerManager: peerManager, rng: rng)
 
 proc ensureTimestampSet(message: var WakuMessage) =

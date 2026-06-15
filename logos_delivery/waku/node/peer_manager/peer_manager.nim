@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -25,6 +26,7 @@ import
     common/callbacks,
     common/utils/parse_size_units,
     node/health_monitor/online_monitor,
+    node/waku_switch,
   ],
   ./peer_store/peer_storage,
   ./waku_peer_store

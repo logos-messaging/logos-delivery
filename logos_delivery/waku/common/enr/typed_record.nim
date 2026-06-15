@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import std/options, results, eth/keys as eth_keys, libp2p/crypto/crypto as libp2p_crypto

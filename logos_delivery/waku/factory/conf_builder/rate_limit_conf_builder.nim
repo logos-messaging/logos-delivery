@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 import chronicles, std/[net, options], results
 import logos_delivery/waku/common/rate_limit/setting
 

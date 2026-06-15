@@ -1,3 +1,5 @@
+import logos_delivery/waku/compat/option_valueor
+import libp2p/crypto/crypto
 {.push raises: [].}
 
 import bearssl/rand, std/times, chronos
@@ -23,7 +25,7 @@ type
     PartiallyConnected
     Connected
 
-proc new*(T: typedesc[RequestId], rng: ref HmacDrbgContext): T =
+proc new*(T: typedesc[RequestId], rng: crypto.Rng): T =
   ## Generate a new RequestId using the provided RNG.
   RequestId(request_utils.generateRequestId(rng))
 

@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 import std/[options, json, strutils, net]
 import chronos, chronicles, results, confutils, confutils/std/net, ffi
 
@@ -58,12 +59,12 @@ proc createWaku(
 
   return ok(wakuRes)
 
-registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[Waku]):
+registerReqFFI(CreateNodeWithCallbacksRequest, ctx: ptr FFIContext[Waku]):
   proc(
       configJson: cstring, appCallbacks: AppCallbacks
   ): Future[Result[string, string]] {.async.} =
     ctx.myLib[] = (await createWaku(configJson, cast[AppCallbacks](appCallbacks))).valueOr:
-      error "CreateNodeRequest failed", error = error
+      error "CreateNodeWithCallbacksRequest failed", error = error
       return err($error)
 
     return ok("")

@@ -6,17 +6,21 @@ const args = process.argv.slice(2);
 const forceFlagIndex = args.indexOf('--force');
 
 const nwakuRootFolder = '../../';
-const libwakuHeaderSrc = 'library/libwaku.h';
+// Stable messaging header + the advanced kernel header it includes. Both must
+// be copied so the kernel header's `#include "liblogosdelivery.h"` resolves.
+const headers = [
+  {src: 'library/liblogosdelivery.h', dst: 'android/app/src/main/jni/liblogosdelivery.h'},
+  {src: 'library/liblogosdelivery_kernel.h', dst: 'android/app/src/main/jni/liblogosdelivery_kernel.h'},
+];
 
 // Android --------------------------------------------------------------------------------------
 
 const androidArchitectures = ['arm64-v8a', 'x86', 'x86_64']; // 'armeabi-v7a'
 const androidSrcFolder = 'build/android';
 const androidDstFolder = 'android/app/src/main/jniLibs';
-const androidFilesToCheck = ['libwaku.so', 'librln.so'];
-const androidLibDst = 'android/app/src/main/jni/libwaku.h';
+const androidFilesToCheck = ['liblogosdelivery.so', 'librln.so'];
 
-const androidDstFiles = [androidLibDst];
+const androidDstFiles = headers.map(h => h.dst);
 androidArchitectures.forEach(architecture => {
   androidFilesToCheck.forEach(file => {
     androidDstFiles.push(`${androidDstFolder}/${architecture}/${file}`);
@@ -28,7 +32,7 @@ const filesExist = androidDstFiles.every(file => fs.existsSync(file));
 if (!filesExist || forceFlagIndex !== -1) {
   console.log('Running make to generate all architecture libraries...');
   const makeCommand = 'make';
-  const makeProcess = spawn(makeCommand, ['libwaku-android'], {cwd: '../../'});
+  const makeProcess = spawn(makeCommand, ['liblogosdelivery-android'], {cwd: '../../'});
 
   makeProcess.stdout.on('data', data => process.stdout.write(data));
   makeProcess.stderr.on('data', data => process.stdout.write(data));
@@ -47,14 +51,16 @@ if (!filesExist || forceFlagIndex !== -1) {
           );
         });
       });
-      console.log('Copying header...');
-      fs.copyFile(
-        `${nwakuRootFolder}/${libwakuHeaderSrc}`,
-        androidLibDst,
-        err => {
-          if (err) throw err;
-        },
-      );
+      console.log('Copying headers...');
+      headers.forEach(header => {
+        fs.copyFile(
+          `${nwakuRootFolder}/${header.src}`,
+          header.dst,
+          err => {
+            if (err) throw err;
+          },
+        );
+      });
     } else {
       console.error(`make exited with ${code}`);
     }

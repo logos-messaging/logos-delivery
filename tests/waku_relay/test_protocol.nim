@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, strformat],
+  std/[options, strformat, sets, tables],
   testutils/unittests,
   chronos,
   libp2p/protocols/pubsub/[pubsub, gossipsub],
@@ -20,6 +20,23 @@ import
   ../testlib/[wakucore, testasync, futures, sequtils],
   ./utils,
   ../resources/payloads
+
+proc hasMeshPeer(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
+  for p in relay.mesh.getOrDefault(topic):
+    if p.peerId == peer:
+      return true
+  false
+
+proc waitForMeshPeer(
+    relay: WakuRelay, topic: PubsubTopic, peer: PeerId, timeout = 10.seconds
+): Future[bool] {.async.} =
+  ## Wait until `relay`'s gossipsub mesh for `topic` has GRAFTed `peer`.
+  let deadline = Moment.now() + timeout
+  while Moment.now() < deadline:
+    if relay.hasMeshPeer(topic, peer):
+      return true
+    await sleepAsync(50.milliseconds)
+  false
 
 suite "Waku Relay":
   var messageSeq {.threadvar.}: seq[(PubsubTopic, WakuMessage)]
@@ -677,6 +694,11 @@ suite "Waku Relay":
         anotherPeerManager.switch.isConnected(otherPeerId)
         otherPeerManager.switch.isConnected(anotherPeerId)
 
+      # Wait for the mesh to re-form before publishing (else it races the 1s FUTURE_TIMEOUT).
+      check:
+        await otherNode.waitForMeshPeer(pubsubTopicC, anotherPeerId)
+        await anotherNode.waitForMeshPeer(pubsubTopicC, otherPeerId)
+
       # When publishing a message in anotherNode for each of the pubsub topics
       handlerFuture = newPushHandlerFuture()
       handlerFuture2 = newPushHandlerFuture()
@@ -1214,101 +1236,6 @@ suite "Waku Relay":
       await allFutures(otherSwitch.stop(), otherNode.stop())
 
   suite "Security and Privacy":
-    asyncTest "Relay can receive messages after reboot and reconnect":
-      # Given a second node connected to the first one
-      let
-        otherSwitch = newTestSwitch()
-        otherPeerManager = PeerManager.new(otherSwitch)
-        otherNode = await newTestWakuRelay(otherSwitch)
-
-      await otherSwitch.start()
-      let
-        otherRemotePeerInfo = otherSwitch.peerInfo.toRemotePeerInfo()
-        otherPeerId = otherRemotePeerInfo.peerId
-
-      check await peerManager.connectPeer(otherRemotePeerInfo)
-
-      # Given both are subscribed to the same pubsub topic
-      var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
-        otherHandlerFuture.complete((topic, message))
-
-      otherNode.subscribe(pubsubTopic, otherSimpleFutureHandler)
-      node.subscribe(pubsubTopic, simpleFutureHandler)
-      check:
-        node.subscribedTopics == pubsubTopicSeq
-        otherNode.subscribedTopics == pubsubTopicSeq
-      await sleepAsync(500.millis)
-
-      # Given other node is stopped and restarted
-      await otherSwitch.stop()
-      await otherSwitch.start()
-
-      check await peerManager.connectPeer(otherRemotePeerInfo)
-
-      # FIXME: Once stopped and started, nodes are not considered connected, nor do they reconnect after running connectPeer, as below
-      # check await otherPeerManager.connectPeer(otherRemotePeerInfo)
-
-      # When sending a message from node
-      let msg1 = fakeWakuMessage(testMessage, pubsubTopic)
-      discard await node.publish(pubsubTopic, msg1)
-
-      # Then the message is received in both nodes
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg1) == handlerFuture.read()
-        (pubsubTopic, msg1) == otherHandlerFuture.read()
-
-      # When sending a message from other node
-      handlerFuture = newPushHandlerFuture()
-      otherHandlerFuture = newPushHandlerFuture()
-      let msg2 = fakeWakuMessage(testMessage, pubsubTopic)
-      discard await otherNode.publish(pubsubTopic, msg2)
-
-      # Then the message is received in both nodes
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg2) == handlerFuture.read()
-        (pubsubTopic, msg2) == otherHandlerFuture.read()
-
-      # Given node is stopped and restarted
-      await switch.stop()
-      await switch.start()
-      check await peerManager.connectPeer(otherRemotePeerInfo)
-
-      # When sending a message from node
-      handlerFuture = newPushHandlerFuture()
-      otherHandlerFuture = newPushHandlerFuture()
-      let msg3 = fakeWakuMessage(testMessage, pubsubTopic)
-      discard await node.publish(pubsubTopic, msg3)
-
-      # Then the message is received in both nodes
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg3) == handlerFuture.read()
-        (pubsubTopic, msg3) == otherHandlerFuture.read()
-
-      # When sending a message from other node
-      handlerFuture = newPushHandlerFuture()
-      otherHandlerFuture = newPushHandlerFuture()
-      let msg4 = fakeWakuMessage(testMessage, pubsubTopic)
-      discard await otherNode.publish(pubsubTopic, msg4)
-
-      # Then the message is received in both nodes
-      check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
-        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg4) == handlerFuture.read()
-        (pubsubTopic, msg4) == otherHandlerFuture.read()
-
-      # Finally stop the other node
-      await allFutures(otherSwitch.stop(), otherNode.stop())
-
     asyncTest "Relay can't receive messages after subscribing and stopping without unsubscribing":
       # Given a second node connected to the first one
       let

@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import std/[options, sequtils]
@@ -9,9 +10,9 @@ import
   libp2p/[peerid, multiaddress, switch],
   libp2p/extended_peer_record,
   libp2p/crypto/curve25519,
-  libp2p/protocols/[kademlia, kad_disco],
-  libp2p/protocols/kademlia_discovery/types as kad_types,
-  libp2p/protocols/mix/mix_protocol
+  libp2p/protocols/[kademlia, service_discovery],
+  libp2p/protocols/service_discovery/types as svdisc_types,
+  libp2p_mix/mix_protocol
 
 import logos_delivery/waku/waku_core, logos_delivery/waku/node/peer_manager
 
@@ -32,7 +33,7 @@ type
     advertiseMix*: bool = false
 
   WakuKademlia* = ref object
-    protocol*: KademliaDiscovery
+    protocol*: ServiceDiscovery
     peerManager: PeerManager
     discoveryLoop: Future[void]
     running*: bool
@@ -50,13 +51,15 @@ proc new*(
   if params.bootstrapNodes.len == 0:
     info "creating kademlia discovery as seed node (no bootstrap nodes)"
 
-  let kademlia = KademliaDiscovery.new(
+  let kademlia = ServiceDiscovery.new(
     switch,
     bootstrapNodes = params.bootstrapNodes,
     config = KadDHTConfig.new(
-      validator = kad_types.ExtEntryValidator(), selector = kad_types.ExtEntrySelector()
+      validator = svdisc_types.ExtEntryValidator(),
+      selector = svdisc_types.ExtEntrySelector(),
     ),
-    codec = ExtendedKademliaDiscoveryCodec,
+    rng = switch.rng,
+    codec = ExtendedServiceDiscoveryCodec,
   )
 
   try:
@@ -68,11 +71,9 @@ proc new*(
   # initial self-signed peer record published to the DHT
   if params.advertiseMix:
     if params.mixPubKey.isSome():
-      let alreadyAdvertising = kademlia.startAdvertising(
+      kademlia.startAdvertising(
         ServiceInfo(id: MixProtocolID, data: @(params.mixPubKey.get()))
       )
-      if alreadyAdvertising:
-        warn "mix service was already being advertised"
       debug "extended kademlia advertising mix service",
         keyHex = byteutils.toHex(params.mixPubKey.get()),
         bootstrapNodes = params.bootstrapNodes.len
@@ -164,7 +165,9 @@ proc lookupMixPeers*(
   let mixService = ServiceInfo(id: MixProtocolID, data: @[])
   var records: seq[ExtendedPeerRecord]
   try:
-    records = await wk.protocol.lookup(mixService)
+    let advertisements = (await wk.protocol.lookup(mixService)).valueOr:
+      return err("mix peer lookup failed: " & $error)
+    records = advertisements.mapIt(it.data)
   except CatchableError:
     return err("mix peer lookup failed: " & getCurrentExceptionMsg())
 
@@ -202,7 +205,7 @@ proc runDiscoveryLoop(
 
       var records: seq[ExtendedPeerRecord]
       try:
-        records = await wk.protocol.randomRecords()
+        records = await wk.protocol.lookupRandom()
       except CatchableError as e:
         warn "extended kademlia discovery failed", error = e.msg
         await sleepAsync(interval)

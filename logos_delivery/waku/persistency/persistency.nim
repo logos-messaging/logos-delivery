@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 ## Public facade and main driver types for the persistency library.
 ##
 ## ``Persistency`` is the per-root coordinator; one instance owns one

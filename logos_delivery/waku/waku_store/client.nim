@@ -1,3 +1,5 @@
+import libp2p/crypto/crypto
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -20,11 +22,11 @@ const MaxQueryRetries = 5 # Maximum number of store peers to try before giving u
 
 type WakuStoreClient* = ref object
   peerManager: PeerManager
-  rng: ref rand.HmacDrbgContext
+  rng: crypto.Rng
   storeMsgMetricsPerShard*: Table[string, float64]
 
 proc new*(
-    T: type WakuStoreClient, peerManager: PeerManager, rng: ref rand.HmacDrbgContext
+    T: type WakuStoreClient, peerManager: PeerManager, rng: crypto.Rng
 ): T {.gcsafe.} =
   WakuStoreClient(peerManager: peerManager, rng: rng)
 

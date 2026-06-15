@@ -14,7 +14,7 @@ suite "KeyFile test suite":
       removeFile(filepath)
 
     # The secret
-    var secret = randomSeqByte(rng[], 300)
+    var secret = randomSeqByte(rng, 300)
 
     # We create a keyfile encrypting the secret with password
     let keyfile = createKeyFileJson(secret, password)
@@ -40,9 +40,9 @@ suite "KeyFile test suite":
 
   test "Create/Save/Load multiple keyfiles in same file":
     # We set different passwords for different keyfiles that will be stored in same file
-    let password1 = string.fromBytes(randomSeqByte(rng[], 20))
+    let password1 = string.fromBytes(randomSeqByte(rng, 20))
     let password2 = ""
-    let password3 = string.fromBytes(randomSeqByte(rng[], 20))
+    let password3 = string.fromBytes(randomSeqByte(rng, 20))
     var keyfile: KfResult[JsonNode]
 
     let filepath = "./test.keyfile"
@@ -51,40 +51,40 @@ suite "KeyFile test suite":
 
     # We generate 6 different secrets and we encrypt them using 3 different passwords, and we store the obtained keystore
 
-    let secret1 = randomSeqByte(rng[], 300)
+    let secret1 = randomSeqByte(rng, 300)
     keyfile = createKeyFileJson(secret1, password1)
     check:
       keyfile.isOk()
       saveKeyFile(filepath, keyfile.get()).isOk()
 
-    let secret2 = randomSeqByte(rng[], 300)
+    let secret2 = randomSeqByte(rng, 300)
     keyfile = createKeyFileJson(secret2, password2)
     check:
       keyfile.isOk()
       saveKeyFile(filepath, keyfile.get()).isOk()
 
-    let secret3 = randomSeqByte(rng[], 300)
+    let secret3 = randomSeqByte(rng, 300)
     keyfile = createKeyFileJson(secret3, password3)
     check:
       keyfile.isOk()
       saveKeyFile(filepath, keyfile.get()).isOk()
 
     # We encrypt secret4 with password3
-    let secret4 = randomSeqByte(rng[], 300)
+    let secret4 = randomSeqByte(rng, 300)
     keyfile = createKeyFileJson(secret4, password3)
     check:
       keyfile.isOk()
       saveKeyFile(filepath, keyfile.get()).isOk()
 
     # We encrypt secret5 with password1
-    let secret5 = randomSeqByte(rng[], 300)
+    let secret5 = randomSeqByte(rng, 300)
     keyfile = createKeyFileJson(secret5, password1)
     check:
       keyfile.isOk()
       saveKeyFile(filepath, keyfile.get()).isOk()
 
     # We encrypt secret6 with password1
-    let secret6 = randomSeqByte(rng[], 300)
+    let secret6 = randomSeqByte(rng, 300)
     keyfile = createKeyFileJson(secret6, password1)
     check:
       keyfile.isOk()
@@ -341,7 +341,7 @@ suite "KeyFile test suite (adapted from nim-eth keyfile tests)":
 
   test "Scrypt keyfiles":
     let
-      expectedSecret = randomSeqByte(rng[], 300)
+      expectedSecret = randomSeqByte(rng, 300)
       password = "miawmiawcat"
 
       # By default, keyfiles' encryption key is derived from password using PBKDF2.

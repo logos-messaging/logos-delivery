@@ -44,10 +44,10 @@ procSuite "Credentials test suite":
 
     # We generate a random identity credential (inter-value constrains are not enforced, otherwise we need to load e.g. zerokit RLN keygen)
     var
-      idTrapdoor = randomSeqByte(rng[], 32)
-      idNullifier = randomSeqByte(rng[], 32)
-      idSecretHash = randomSeqByte(rng[], 32)
-      idCommitment = randomSeqByte(rng[], 32)
+      idTrapdoor = randomSeqByte(rng, 32)
+      idNullifier = randomSeqByte(rng, 32)
+      idSecretHash = randomSeqByte(rng, 32)
+      idCommitment = randomSeqByte(rng, 32)
 
     var idCredential = IdentityCredential(
       idTrapdoor: idTrapdoor,
@@ -83,10 +83,10 @@ procSuite "Credentials test suite":
 
     # We generate two random identity credentials (inter-value constrains are not enforced, otherwise we need to load e.g. zerokit RLN keygen)
     var
-      idTrapdoor = randomSeqByte(rng[], 32)
-      idNullifier = randomSeqByte(rng[], 32)
-      idSecretHash = randomSeqByte(rng[], 32)
-      idCommitment = randomSeqByte(rng[], 32)
+      idTrapdoor = randomSeqByte(rng, 32)
+      idNullifier = randomSeqByte(rng, 32)
+      idSecretHash = randomSeqByte(rng, 32)
+      idCommitment = randomSeqByte(rng, 32)
       idCredential = IdentityCredential(
         idTrapdoor: idTrapdoor,
         idNullifier: idNullifier,
@@ -139,10 +139,10 @@ procSuite "Credentials test suite":
 
     # We generate random identity credentials (inter-value constrains are not enforced, otherwise we need to load e.g. zerokit RLN keygen)
     let
-      idTrapdoor = randomSeqByte(rng[], 32)
-      idNullifier = randomSeqByte(rng[], 32)
-      idSecretHash = randomSeqByte(rng[], 32)
-      idCommitment = randomSeqByte(rng[], 32)
+      idTrapdoor = randomSeqByte(rng, 32)
+      idNullifier = randomSeqByte(rng, 32)
+      idSecretHash = randomSeqByte(rng, 32)
+      idCommitment = randomSeqByte(rng, 32)
       idCredential = IdentityCredential(
         idTrapdoor: idTrapdoor,
         idNullifier: idNullifier,
@@ -191,10 +191,10 @@ procSuite "Credentials test suite":
 
     # We generate random identity credentials (inter-value constrains are not enforced, otherwise we need to load e.g. zerokit RLN keygen)
     let
-      idTrapdoor = randomSeqByte(rng[], 32)
-      idNullifier = randomSeqByte(rng[], 32)
-      idSecretHash = randomSeqByte(rng[], 32)
-      idCommitment = randomSeqByte(rng[], 32)
+      idTrapdoor = randomSeqByte(rng, 32)
+      idNullifier = randomSeqByte(rng, 32)
+      idSecretHash = randomSeqByte(rng, 32)
+      idCommitment = randomSeqByte(rng, 32)
       idCredential = IdentityCredential(
         idTrapdoor: idTrapdoor,
         idNullifier: idNullifier,
@@ -252,10 +252,10 @@ procSuite "Credentials test suite":
 
     # We generate random identity credentials (inter-value constrains are not enforced, otherwise we need to load e.g. zerokit RLN keygen)
     let
-      idTrapdoor = randomSeqByte(rng[], 32)
-      idNullifier = randomSeqByte(rng[], 32)
-      idSecretHash = randomSeqByte(rng[], 32)
-      idCommitment = randomSeqByte(rng[], 32)
+      idTrapdoor = randomSeqByte(rng, 32)
+      idNullifier = randomSeqByte(rng, 32)
+      idSecretHash = randomSeqByte(rng, 32)
+      idCommitment = randomSeqByte(rng, 32)
       idCredential = IdentityCredential(
         idTrapdoor: idTrapdoor,
         idNullifier: idNullifier,

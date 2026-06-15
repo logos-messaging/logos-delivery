@@ -120,10 +120,10 @@ jobs:
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
         make wakunode2 V=3 -j${{ env.NPROC }}
 
-    - name: Building libwaku.dll
+    - name: Building liblogosdelivery.dll
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        make libwaku STATIC=0 V=1 -j
+        make liblogosdelivery STATIC=0 V=1 -j
 
     - name: Check Executable
       run: |
@@ -133,9 +133,9 @@ jobs:
           echo "Build failed: wakunode2.exe not found"
           exit 1
         fi
-        if [ -f "./build/libwaku.dll" ]; then
-          echo "libwaku.dll build successful"
+        if [ -f "./build/liblogosdelivery.dll" ]; then
+          echo "liblogosdelivery.dll build successful"
         else
-          echo "Build failed: libwaku.dll not found"
+          echo "Build failed: liblogosdelivery.dll not found"
           exit 1
         fi

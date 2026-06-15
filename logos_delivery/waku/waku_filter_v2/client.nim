@@ -1,3 +1,5 @@
+import logos_delivery/waku/compat/option_valueor
+import libp2p/crypto/crypto
 ## Waku Filter client for subscribing and receiving filtered messages
 
 {.push raises: [].}
@@ -23,13 +25,13 @@ logScope:
 
 type WakuFilterClient* = ref object of LPProtocol
   brokerCtx: BrokerContext
-  rng: ref HmacDrbgContext
+  rng: crypto.Rng
   peerManager: PeerManager
   pushHandlers: seq[FilterPushHandler]
 
-func generateRequestId(rng: ref HmacDrbgContext): string =
+func generateRequestId(rng: crypto.Rng): string =
   var bytes: array[10, byte]
-  hmacDrbgGenerate(rng[], bytes)
+  rng.generate(bytes)
   return byteutils.toHex(bytes)
 
 proc sendSubscribeRequest(
@@ -210,9 +212,7 @@ proc initProtocolHandler(wfc: WakuFilterClient) =
   wfc.handler = handler
   wfc.codec = WakuFilterPushCodec
 
-proc new*(
-    T: type WakuFilterClient, peerManager: PeerManager, rng: ref HmacDrbgContext
-): T =
+proc new*(T: type WakuFilterClient, peerManager: PeerManager, rng: crypto.Rng): T =
   let brokerCtx = globalBrokerContext()
   let wfc = WakuFilterClient(
     brokerCtx: brokerCtx, rng: rng, peerManager: peerManager, pushHandlers: @[]

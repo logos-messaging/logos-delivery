@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 ## Reliable Channel type.
 ##
 ## A `ReliableChannel` orchestrates segmentation, SDS (end-to-end
@@ -93,7 +94,7 @@ type
     channelId: ChannelId
     contentTopic: ContentTopic
     senderId: SdsParticipantID
-    rng: ref HmacDrbgContext
+    rng: libp2p_crypto.Rng
     segmentation: SegmentationHandler
     sdsHandler: SdsHandler
     rateLimit: RateLimitManager

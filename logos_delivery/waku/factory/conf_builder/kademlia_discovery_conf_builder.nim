@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 import chronicles, std/options, results
 import libp2p/[peerid, multiaddress, peerinfo]
 import logos_delivery/waku/factory/waku_conf

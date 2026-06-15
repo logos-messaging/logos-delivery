@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[sequtils, strutils, net],
+  std/[sequtils, strutils, net, options],
   stew/byteutils,
   testutils/unittests,
   chronicles,
@@ -294,8 +294,8 @@ suite "WakuNode":
       # custom agent string
       expectedAgentString1 = "node1-agent-string"
 
-      # bump when updating nim-libp2p
-      expectedAgentString2 = "nim-libp2p/0.0.1"
+      # bump when updating nim-libp2p (2.0.0 default AgentVersion is "nim-libp2p")
+      expectedAgentString2 = "nim-libp2p"
     let
       # node with custom agent string
       nodeKey1 = generateSecp256k1Key()

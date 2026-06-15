@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -7,7 +8,8 @@ import
   eth/p2p/discoveryv5/enr,
   libp2p/builders,
   libp2p/peerstore,
-  libp2p/crypto/curve25519
+  libp2p/crypto/curve25519,
+  libp2p_mix/pool
 
 import
   ../../waku_core,

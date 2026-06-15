@@ -27,8 +27,12 @@ import
   ../waku_discv5/utils,
   ./peer_manager/peer_store/utils
 
-const DEFAULT_PROTOCOLS: seq[string] =
-  @["/ipfs/id/1.0.0", "/libp2p/autonat/1.0.0", "/libp2p/circuit/relay/0.2.0/hop"]
+# nim-libp2p 2.0.0 enables the IdentifyPush protocol by default, so every node
+# now also advertises "/ipfs/id/push/1.0.0" (prepended to the identify list).
+const DEFAULT_PROTOCOLS: seq[string] = @[
+  "/ipfs/id/push/1.0.0", "/ipfs/id/1.0.0", "/libp2p/autonat/1.0.0",
+  "/libp2p/circuit/relay/0.2.0/hop",
+]
 
 let
   listenIp = parseIpAddress("0.0.0.0")
@@ -375,7 +379,7 @@ suite "Peer Manager":
           chainedComparison(
             clientPeerStore[AgentBook][serverPeerId], # FIXME: Not assigned
             serverRemotePeerInfo.agent,
-            "nim-libp2p/0.0.1",
+            "nim-libp2p",
           )
           chainedComparison(
             clientPeerStore[ProtoVersionBook][serverPeerId], # FIXME: Not assigned
@@ -441,7 +445,7 @@ suite "Peer Manager":
           chainedComparison(
             clientPeerStore[AgentBook][serverPeerId], # FIXME: Not assigned
             serverRemotePeerInfo.agent,
-            "nim-libp2p/0.0.1",
+            "nim-libp2p",
           )
           chainedComparison(
             clientPeerStore[ProtoVersionBook][serverPeerId], # FIXME: Not assigned
@@ -492,7 +496,7 @@ suite "Peer Manager":
           chainedComparison(
             clientPeerStore[AgentBook][server2PeerId], # FIXME: Not assigned
             server2RemotePeerInfo.agent,
-            "nim-libp2p/0.0.1",
+            "nim-libp2p",
           )
           chainedComparison(
             clientPeerStore[ProtoVersionBook][server2PeerId], # FIXME: Not assigned

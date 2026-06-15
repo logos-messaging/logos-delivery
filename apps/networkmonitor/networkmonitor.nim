@@ -423,7 +423,7 @@ proc initAndStartApp(
   let
     # some hardcoded parameters
     rng = keys.newRng()
-    key = crypto.PrivateKey.random(Secp256k1, rng[])[]
+    key = crypto.PrivateKey.random(Secp256k1, rng)[]
     nodeTcpPort = Port(60000)
     nodeUdpPort = Port(9000)
     flags = CapabilitiesBitfield.init(

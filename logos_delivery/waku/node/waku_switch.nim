@@ -18,10 +18,12 @@ import
 # override nim-libp2p default value (which is also 1)
 const MaxConnectionsPerPeer* = 1
 
+const MaxConnections* = 50
+
 proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
   b.withTransport(
-    proc(upgr: Upgrade, privateKey: crypto.PrivateKey): Transport =
-      WsTransport.new(upgr)
+    proc(config: TransportConfig): Transport =
+      WsTransport.new(config.upgr, rng = config.rng)
   )
 
 proc getSecureKey(path: string): TLSPrivateKey {.raises: [Defect, IOError].} =
@@ -59,7 +61,7 @@ proc newWakuSwitch*(
     wsAddress = none(MultiAddress),
     secureManagers: openarray[SecureProtocol] = [SecureProtocol.Noise],
     transportFlags: set[ServerFlags] = {},
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     inTimeout: Duration = 5.minutes,
     outTimeout: Duration = 5.minutes,
     maxConnections = MaxConnections,
@@ -79,9 +81,6 @@ proc newWakuSwitch*(
   var b = SwitchBuilder
     .new()
     .withRng(rng)
-    .withMaxConnections(maxConnections)
-    .withMaxIn(maxIn)
-    .withMaxOut(maxOut)
     .withMaxConnsPerPeer(maxConnsPerPeer)
     .withYamux()
     .withMplex(inTimeout, outTimeout)
@@ -91,6 +90,15 @@ proc newWakuSwitch*(
     .withSignedPeerRecord(sendSignedPeerRecord)
     .withCircuitRelay(circuitRelay)
     .withAutonat()
+
+  # libp2p 2.0.0 folded withMaxConnections and withMaxInOut into a single
+  # `limits` field: they are mutually exclusive (last one wins), and
+  # ConnectionLimits.maxInOut asserts maxIn/maxOut > 0. So apply explicit in/out
+  # limits only when both are provided (>0); otherwise use the shared total cap.
+  if maxIn > 0 and maxOut > 0:
+    b = b.withMaxInOut(maxIn, maxOut)
+  else:
+    b = b.withMaxConnections(maxConnections)
 
   if peerStoreCapacity.isSome():
     b = b.withPeerStore(peerStoreCapacity.get())
@@ -112,6 +120,6 @@ proc newWakuSwitch*(
     b = b.withAddress(address)
 
   if not rendezvous.isNil():
-    b = b.withRendezVous(rendezvous)
+    b = b.withRendezVous()
 
   b.build()

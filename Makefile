@@ -54,7 +54,7 @@ endif
 .PHONY: all test clean examples deps nimble install-nim install-nimble
 
 # default target
-all: | wakunode2 libwaku liblogosdelivery
+all: | wakunode2 liblogosdelivery
 
 examples: | example2 chat2 chat2bridge
 
@@ -146,6 +146,9 @@ NIM_PARAMS := $(NIM_PARAMS) -d:disable_libbacktrace
 
 # enable experimental exit is dest feature in libp2p mix
 NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest
+
+# enable libp2p's QUIC transport
+NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_quic_support
 
 ifeq ($(POSTGRES), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:postgres -d:nimDebugDlOpen
@@ -413,7 +416,7 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example libwaku liblogosdelivery liblogosdelivery_example
+.PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example
 
 detected_OS ?= Linux
 ifeq ($(OS),Windows_NT)
@@ -437,59 +440,58 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
-# Windows: build with nim directly (see wakunode2). Flags mirror logos_delivery.nimble.
-libwaku: | build-deps librln
-ifeq ($(detected_OS),Windows)
-	nim c --out:build/libwaku.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:libwaku --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/libwaku.nim
-else
-	$(NIMBLE) --verbose libwaku$(BUILD_COMMAND) logos_delivery.nimble
-endif
-
+# Windows: build with nim directly (see wakunode2) — `nimble <task>` re-clones
+# git deps every build and they intermittently hang on the MSYS2 runner. Flags
+# mirror logos_delivery.nimble's dynamic-windows task.
 liblogosdelivery: | build-deps librln
+ifeq ($(detected_OS),Windows)
+	nim c --out:build/liblogosdelivery.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:liblogosdelivery --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/liblogosdelivery.nim
+else
 	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) logos_delivery.nimble
+endif
 
 logosdelivery_example: | build liblogosdelivery
 	@echo -e $(BUILD_MSG) "build/$@"
 ifeq ($(detected_OS),Darwin)
 	gcc -o build/$@ \
-		liblogosdelivery/examples/logosdelivery_example.c \
-		liblogosdelivery/examples/json_utils.c \
-		-I./liblogosdelivery \
+		library/examples/logosdelivery_example.c \
+		library/examples/json_utils.c \
+		-I./library \
 		-L./build \
 		-llogosdelivery \
 		-Wl,-rpath,./build
 else ifeq ($(detected_OS),Linux)
 	gcc -o build/$@ \
-		liblogosdelivery/examples/logosdelivery_example.c \
-		liblogosdelivery/examples/json_utils.c \
-		-I./liblogosdelivery \
+		library/examples/logosdelivery_example.c \
+		library/examples/json_utils.c \
+		-I./library \
 		-L./build \
 		-llogosdelivery \
 		-Wl,-rpath,'$$ORIGIN'
 else ifeq ($(detected_OS),Windows)
 	gcc -o build/$@.exe \
-		liblogosdelivery/examples/logosdelivery_example.c \
-		liblogosdelivery/examples/json_utils.c \
-		-I./liblogosdelivery \
+		library/examples/logosdelivery_example.c \
+		library/examples/json_utils.c \
+		-I./library \
 		-L./build \
 		-llogosdelivery \
 		-lws2_32
 endif
 
-cwaku_example: | build libwaku
+cwaku_example: | build liblogosdelivery
 	echo -e $(BUILD_MSG) "build/$@" && \
 		cc -o "build/$@" \
 		./examples/cbindings/waku_example.c \
 		./examples/cbindings/base64.c \
-		-lwaku -Lbuild/ \
+		-llogosdelivery -Lbuild/ \
 		-pthread -ldl -lm
 
-cppwaku_example: | build libwaku
+cppwaku_example: | build liblogosdelivery
 	echo -e $(BUILD_MSG) "build/$@" && \
 		g++ -o "build/$@" \
 		./examples/cpp/waku.cpp \
 		./examples/cpp/base64.cpp \
-		-lwaku -Lbuild/ \
+		-llogosdelivery -Lbuild/ \
 		-pthread -ldl -lm
 
 nodejswaku: | build deps
@@ -499,12 +501,12 @@ nodejswaku: | build deps
 #####################
 ## Mobile Bindings ##
 #####################
-.PHONY: libwaku-android \
-		libwaku-android-precheck \
-		libwaku-android-arm64 \
-		libwaku-android-amd64 \
-		libwaku-android-x86 \
-		libwaku-android-arm
+.PHONY: liblogosdelivery-android \
+		liblogosdelivery-android-precheck \
+		liblogosdelivery-android-arm64 \
+		liblogosdelivery-android-amd64 \
+		liblogosdelivery-android-x86 \
+		liblogosdelivery-android-arm
 
 ANDROID_TARGET ?= 30
 ifeq ($(detected_OS),Darwin)
@@ -513,56 +515,56 @@ else
 	ANDROID_TOOLCHAIN_DIR := $(ANDROID_NDK_HOME)/toolchains/llvm/prebuilt/linux-x86_64
 endif
 
-libwaku-android-precheck:
+liblogosdelivery-android-precheck:
 ifndef ANDROID_NDK_HOME
 	$(error ANDROID_NDK_HOME is not set)
 endif
 
-build-libwaku-for-android-arch:
+build-liblogosdelivery-for-android-arch:
 ifneq ($(findstring /nix/store,$(LIBRLN_FILE)),)
 	mkdir -p $(CURDIR)/build/android/$(ABIDIR)/
-	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) $(NIMBLE) libWakuAndroid
+	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) $(NIMBLE) libLogosDeliveryAndroid
 else
 	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR)
 endif
 	$(MAKE) rebuild-nat-libs-nimbledeps CC=$(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER)
 
-libwaku-android-arm64: ANDROID_ARCH=aarch64-linux-android
-libwaku-android-arm64: CPU=arm64
-libwaku-android-arm64: ABIDIR=arm64-v8a
-libwaku-android-arm64: | libwaku-android-precheck build deps
-	$(MAKE) build-libwaku-for-android-arch ANDROID_ARCH=$(ANDROID_ARCH) CROSS_TARGET=$(ANDROID_ARCH) CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_COMPILER=$(ANDROID_ARCH)$(ANDROID_TARGET)-clang
+liblogosdelivery-android-arm64: ANDROID_ARCH=aarch64-linux-android
+liblogosdelivery-android-arm64: CPU=arm64
+liblogosdelivery-android-arm64: ABIDIR=arm64-v8a
+liblogosdelivery-android-arm64: | liblogosdelivery-android-precheck build deps
+	$(MAKE) build-liblogosdelivery-for-android-arch ANDROID_ARCH=$(ANDROID_ARCH) CROSS_TARGET=$(ANDROID_ARCH) CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_COMPILER=$(ANDROID_ARCH)$(ANDROID_TARGET)-clang
 
-libwaku-android-amd64: ANDROID_ARCH=x86_64-linux-android
-libwaku-android-amd64: CPU=amd64
-libwaku-android-amd64: ABIDIR=x86_64
-libwaku-android-amd64: | libwaku-android-precheck build deps
-	$(MAKE) build-libwaku-for-android-arch ANDROID_ARCH=$(ANDROID_ARCH) CROSS_TARGET=$(ANDROID_ARCH) CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_COMPILER=$(ANDROID_ARCH)$(ANDROID_TARGET)-clang
+liblogosdelivery-android-amd64: ANDROID_ARCH=x86_64-linux-android
+liblogosdelivery-android-amd64: CPU=amd64
+liblogosdelivery-android-amd64: ABIDIR=x86_64
+liblogosdelivery-android-amd64: | liblogosdelivery-android-precheck build deps
+	$(MAKE) build-liblogosdelivery-for-android-arch ANDROID_ARCH=$(ANDROID_ARCH) CROSS_TARGET=$(ANDROID_ARCH) CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_COMPILER=$(ANDROID_ARCH)$(ANDROID_TARGET)-clang
 
-libwaku-android-x86: ANDROID_ARCH=i686-linux-android
-libwaku-android-x86: CPU=i386
-libwaku-android-x86: ABIDIR=x86
-libwaku-android-x86: | libwaku-android-precheck build deps
-	$(MAKE) build-libwaku-for-android-arch ANDROID_ARCH=$(ANDROID_ARCH) CROSS_TARGET=$(ANDROID_ARCH) CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_COMPILER=$(ANDROID_ARCH)$(ANDROID_TARGET)-clang
+liblogosdelivery-android-x86: ANDROID_ARCH=i686-linux-android
+liblogosdelivery-android-x86: CPU=i386
+liblogosdelivery-android-x86: ABIDIR=x86
+liblogosdelivery-android-x86: | liblogosdelivery-android-precheck build deps
+	$(MAKE) build-liblogosdelivery-for-android-arch ANDROID_ARCH=$(ANDROID_ARCH) CROSS_TARGET=$(ANDROID_ARCH) CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_COMPILER=$(ANDROID_ARCH)$(ANDROID_TARGET)-clang
 
-libwaku-android-arm: ANDROID_ARCH=armv7a-linux-androideabi
-libwaku-android-arm: CPU=arm
-libwaku-android-arm: ABIDIR=armeabi-v7a
-libwaku-android-arm: | libwaku-android-precheck build deps
-	$(MAKE) build-libwaku-for-android-arch ANDROID_ARCH=$(ANDROID_ARCH) CROSS_TARGET=armv7-linux-androideabi CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_COMPILER=$(ANDROID_ARCH)$(ANDROID_TARGET)-clang
+liblogosdelivery-android-arm: ANDROID_ARCH=armv7a-linux-androideabi
+liblogosdelivery-android-arm: CPU=arm
+liblogosdelivery-android-arm: ABIDIR=armeabi-v7a
+liblogosdelivery-android-arm: | liblogosdelivery-android-precheck build deps
+	$(MAKE) build-liblogosdelivery-for-android-arch ANDROID_ARCH=$(ANDROID_ARCH) CROSS_TARGET=armv7-linux-androideabi CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_COMPILER=$(ANDROID_ARCH)$(ANDROID_TARGET)-clang
 
-libwaku-android:
-	$(MAKE) libwaku-android-amd64
-	$(MAKE) libwaku-android-arm64
-	$(MAKE) libwaku-android-x86
+liblogosdelivery-android:
+	$(MAKE) liblogosdelivery-android-amd64
+	$(MAKE) liblogosdelivery-android-arm64
+	$(MAKE) liblogosdelivery-android-x86
 
 #################
 ## iOS Bindings #
 #################
-.PHONY: libwaku-ios-precheck \
-		libwaku-ios-device \
-		libwaku-ios-simulator \
-		libwaku-ios
+.PHONY: liblogosdelivery-ios-precheck \
+		liblogosdelivery-ios-device \
+		liblogosdelivery-ios-simulator \
+		liblogosdelivery-ios
 
 IOS_DEPLOYMENT_TARGET ?= 18.0
 
@@ -570,31 +572,31 @@ define get_ios_sdk_path
 $(shell xcrun --sdk $(1) --show-sdk-path 2>/dev/null)
 endef
 
-libwaku-ios-precheck:
+liblogosdelivery-ios-precheck:
 ifeq ($(detected_OS),Darwin)
 	@command -v xcrun >/dev/null 2>&1 || { echo "Error: Xcode command line tools not installed"; exit 1; }
 else
 	$(error iOS builds are only supported on macOS)
 endif
 
-build-libwaku-for-ios-arch:
-	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) $(NIMBLE) libWakuIOS
+build-liblogosdelivery-for-ios-arch:
+	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) $(NIMBLE) libLogosDeliveryIOS
 
-libwaku-ios-device: IOS_ARCH=arm64
-libwaku-ios-device: IOS_SDK=iphoneos
-libwaku-ios-device: IOS_SDK_PATH=$(call get_ios_sdk_path,iphoneos)
-libwaku-ios-device: | libwaku-ios-precheck build deps
-	$(MAKE) build-libwaku-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
+liblogosdelivery-ios-device: IOS_ARCH=arm64
+liblogosdelivery-ios-device: IOS_SDK=iphoneos
+liblogosdelivery-ios-device: IOS_SDK_PATH=$(call get_ios_sdk_path,iphoneos)
+liblogosdelivery-ios-device: | liblogosdelivery-ios-precheck build deps
+	$(MAKE) build-liblogosdelivery-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
 
-libwaku-ios-simulator: IOS_ARCH=arm64
-libwaku-ios-simulator: IOS_SDK=iphonesimulator
-libwaku-ios-simulator: IOS_SDK_PATH=$(call get_ios_sdk_path,iphonesimulator)
-libwaku-ios-simulator: | libwaku-ios-precheck build deps
-	$(MAKE) build-libwaku-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
+liblogosdelivery-ios-simulator: IOS_ARCH=arm64
+liblogosdelivery-ios-simulator: IOS_SDK=iphonesimulator
+liblogosdelivery-ios-simulator: IOS_SDK_PATH=$(call get_ios_sdk_path,iphonesimulator)
+liblogosdelivery-ios-simulator: | liblogosdelivery-ios-precheck build deps
+	$(MAKE) build-liblogosdelivery-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
 
-libwaku-ios:
-	$(MAKE) libwaku-ios-device
-	$(MAKE) libwaku-ios-simulator
+liblogosdelivery-ios:
+	$(MAKE) liblogosdelivery-ios-device
+	$(MAKE) liblogosdelivery-ios-simulator
 
 ###################
 # Release Targets #

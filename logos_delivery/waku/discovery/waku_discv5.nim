@@ -1,3 +1,6 @@
+import libp2p/crypto/crypto
+import libp2p/crypto/rng
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -82,7 +85,7 @@ proc shardingPredicate*(
 
 proc new*(
     T: type WakuDiscoveryV5,
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     conf: WakuDiscoveryV5Config,
     record: Option[waku_enr.Record],
     peerManager: Option[PeerManager] = none(PeerManager),
@@ -90,7 +93,7 @@ proc new*(
       newAsyncEventQueue[SubscriptionEvent](30),
 ): T =
   let protocol = newProtocol(
-    rng = rng,
+    rng = rng.bearSslDrbgRef,
     config = conf.discv5Config.get(protocol.defaultDiscoveryConfig),
     bindPort = conf.port,
     bindIp = conf.address,
@@ -407,7 +410,7 @@ proc setupDiscoveryV5*(
     nodeTopicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent],
     conf: Discv5Conf,
     dynamicBootstrapNodes: seq[RemotePeerInfo],
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     key: crypto.PrivateKey,
     p2pListenAddress: IpAddress,
     portsShift: uint16,
@@ -463,7 +466,7 @@ proc setupAndStartDiscv5*(
     nodeTopicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent],
     conf: Discv5Conf,
     dynamicBootstrapNodes: seq[RemotePeerInfo],
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     key: crypto.PrivateKey,
     p2pListenAddress: IpAddress,
     portsShift: uint16,

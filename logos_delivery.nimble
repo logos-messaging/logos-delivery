@@ -28,7 +28,7 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#ff8d51857b4b79a68468e7bcc27b2026cca02996",
+  "https://github.com/vacp2p/nim-libp2p.git#v2.0.0",
   "eth",
   "nat_traversal",
   "dnsdisc",
@@ -40,7 +40,7 @@ requires "nim >= 2.2.4",
   "secp256k1",
   "bearssl",
   # RPC & APIs
-  "https://github.com/status-im/nim-json-rpc.git#43bbf499143eb45046c83ac9794c9e3280a2b8e7",
+  "https://github.com/status-im/nim-json-rpc.git#v0.6.1",
   "presto",
   "web3",
   # Database
@@ -67,8 +67,9 @@ requires "https://github.com/logos-messaging/nim-sds.git#abdd40cc645f1b024c3ee99
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.1.1"
 
-requires "https://github.com/vacp2p/nim-lsquic"
+requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
+requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
@@ -105,7 +106,7 @@ proc buildBinary(name: string, srcDir = "./", params = "") =
   exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
     srcDir & name & ".nim"
 
-proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "libwaku.nim", mainPrefix = "libwaku") =
+proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
   if not dirExists "build":
     mkDir "build"
 
@@ -366,7 +367,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
 
   echo "iOS library created: " & aFile
 
-task libWakuIOS, "Build the mobile bindings for iOS":
+task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
   let srcDir = "./library"
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
@@ -483,45 +484,25 @@ let chroniclesParams =
   """-d:chronicles_disabled_topics="eth,dnsdisc.client" """ & "--warning:Deprecated:off " &
   "--warning:UnusedImport:on " & "-d:chronicles_log_level=TRACE"
 
-## Libwaku build tasks
-
-task libwakuDynamicWindows, "Generate bindings":
-  buildLibDynamicWindows("libwaku", "library")
-
-task libwakuDynamicLinux, "Generate bindings":
-  buildLibDynamicLinux("libwaku", "library")
-
-task libwakuDynamicMac, "Generate bindings":
-  buildLibDynamicMac("libwaku", "library")
-
-task libwakuStaticWindows, "Generate bindings":
-  buildLibStaticWindows("libwaku", "library")
-
-task libwakuStaticLinux, "Generate bindings":
-  buildLibStaticLinux("libwaku", "library")
-
-task libwakuStaticMac, "Generate bindings":
-  buildLibStaticMac("libwaku", "library")
-
 ## Liblogosdelivery build tasks
 
 task liblogosdeliveryDynamicWindows, "Generate bindings":
-  buildLibDynamicWindows("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicWindows("liblogosdelivery", "library")
 
 task liblogosdeliveryDynamicLinux, "Generate bindings":
-  buildLibDynamicLinux("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicLinux("liblogosdelivery", "library")
 
 task liblogosdeliveryDynamicMac, "Generate bindings":
-  buildLibDynamicMac("liblogosdelivery", "liblogosdelivery")
+  buildLibDynamicMac("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticWindows, "Generate bindings":
-  buildLibStaticWindows("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticWindows("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticLinux, "Generate bindings":
-  buildLibStaticLinux("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticLinux("liblogosdelivery", "library")
 
 task liblogosdeliveryStaticMac, "Generate bindings":
-  buildLibStaticMac("liblogosdelivery", "liblogosdelivery")
+  buildLibStaticMac("liblogosdelivery", "library")
 
 ### Formatting tasks
 
