@@ -51,8 +51,15 @@ proc benchmark(
     info "iteration finished",
       iter = i, elapsed_ms = (getTime() - start_time).inMilliseconds
 
-  echo "Proof generation times: ", sum(proofGenTimes) div len(proofGenTimes)
-  echo "Proof verification times: ", sum(proofVerTimes) div len(proofVerTimes)
+  proc fmtMs(d: times.Duration): string =
+    formatFloat(d.inNanoseconds.float / 1_000_000.0, ffDecimal, 3) & " ms"
+
+  let avgGen = sum(proofGenTimes) div len(proofGenTimes)
+  let avgVer = sum(proofVerTimes) div len(proofVerTimes)
+  echo "Proof generation   (avg/min/max): ",
+    fmtMs(avgGen), " / ", fmtMs(min(proofGenTimes)), " / ", fmtMs(max(proofGenTimes))
+  echo "Proof verification (avg/min/max): ",
+    fmtMs(avgVer), " / ", fmtMs(min(proofVerTimes)), " / ", fmtMs(max(proofVerTimes))
 
 proc main() =
   # Start a local Ethereum JSON-RPC (Anvil) so that the group-manager setup can connect.
