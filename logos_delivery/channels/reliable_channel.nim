@@ -332,7 +332,7 @@ proc send*(
 
   return ok(channelReqId)
 
-proc deliverToApp(self: ReliableChannel, content: seq[byte]) =
+proc reportReceived(self: ReliableChannel, content: seq[byte]) =
   ## Tail of the ingress pipeline (reassemble -> emit).
   let reassembled = self.segmentation.handleIncomingSegment(content)
   if reassembled.isSome():
@@ -406,7 +406,7 @@ proc onMessageReceived(
   let deliverable = (await self.sdsHandler.handleIncoming(plaintextBytes)).valueOr:
     return
   for content in deliverable:
-    self.deliverToApp(content)
+    self.reportReceived(content)
 
 proc new*(
     T: type ReliableChannel,
