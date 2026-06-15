@@ -95,6 +95,7 @@ proc init*(
     wssEnabled: bool = false,
     quicBindPort = none(Port),
     quicEnabled: bool = false,
+    extQuicPort = none(Port),
     dns4DomainName = none(string),
     discv5UdpPort = none(Port),
     clusterId: uint16 = 0,
@@ -154,8 +155,11 @@ proc init*(
 
     if quicHostAddress.isSome():
       try:
-        quicExtAddress =
-          some(dns4QuicEndPoint(dns4DomainName.get(), quicBindPort.get(bindPort)))
+        quicExtAddress = some(
+          dns4QuicEndPoint(
+            dns4DomainName.get(), extQuicPort.get(quicBindPort.get(bindPort))
+          )
+        )
       except CatchableError:
         return err(getCurrentExceptionMsg())
   else:
@@ -174,7 +178,9 @@ proc init*(
 
       if quicHostAddress.isSome():
         try:
-          quicExtAddress = some(ipQuicEndPoint(extIp.get(), quicBindPort.get(bindPort)))
+          quicExtAddress = some(
+            ipQuicEndPoint(extIp.get(), extQuicPort.get(quicBindPort.get(bindPort)))
+          )
         except CatchableError:
           return err(getCurrentExceptionMsg())
 
