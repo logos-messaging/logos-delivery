@@ -214,7 +214,7 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
   # Append new roots to the tail; trim happens below if we exceed the window.
   for root in toAdd:
     g.validRoots.addLast(root)
-  debug "appended recent roots to list of valid roots", count = toAdd.len, roots = toAdd
+  trace "appended recent roots to list of valid roots", count = toAdd.len, roots = toAdd
 
   while g.validRoots.len > AcceptableRootWindowSize:
     discard g.validRoots.popFirst()
