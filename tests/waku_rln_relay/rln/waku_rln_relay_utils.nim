@@ -13,7 +13,7 @@ proc createRLNInstanceWrapper*(): RLNResult =
 proc unsafeAppendRLNProof*(
     rlnPeer: WakuRLNRelay, msg: var WakuMessage, epoch: Epoch, messageId: MessageId
 ): RlnRelayResult[void] =
-  ## Test helper derived from `appendRLNProof`.
+  ## Test helper derived from the publish-path proof flow.
   ## - Skips nonce validation to intentionally allow generating "bad" message IDs for tests.
   ## - Forces a real-time on-chain Merkle root refresh via `updateRoots()` and fetches Merkle
   ##   proof elements, updating `merkleProofCache` (bypasses `trackRootsChanges`).
@@ -29,7 +29,7 @@ proc unsafeAppendRLNProof*(
       error "Failed to fetch Merkle proof", error = proofResult.error
     manager.merkleProofCache = proofResult.get()
 
-  let proof = manager.generateProof(msg.toRLNSignal(), epoch, messageId).valueOr:
+  let proof = (waitFor manager.generateProof(msg.toRLNSignal(), epoch, messageId)).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
 
   msg.proof = proof.encode().buffer

@@ -121,9 +121,7 @@ method indexOfRoot*(
   ## returns the index of the root in the merkle tree and returns -1 if the root is not found
   return g.validRoots.find(root)
 
-method validateRoot*(
-    g: GroupManager, root: MerkleNode
-): bool {.base, gcsafe, raises: [].} =
+method validateRoot*(g: GroupManager, root: MerkleNode): Future[bool] {.base, async.} =
   ## validates the root against the valid roots queue
   return g.indexOfRoot(root) >= 0
 
@@ -139,7 +137,7 @@ method generateProof*(
     epoch: Epoch,
     messageId: MessageId,
     rlnIdentifier = DefaultRlnIdentifier,
-): GroupManagerResult[RateLimitProof] {.base, gcsafe, raises: [].} =
+): Future[GroupManagerResult[RateLimitProof]] {.base, async.} =
   ## Dummy implementation for generateProof
   return err("generateProof is not implemented")
 

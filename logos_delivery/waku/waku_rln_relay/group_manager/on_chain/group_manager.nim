@@ -43,6 +43,10 @@ type
     registrationHandler*: Option[RegistrationHandler]
     latestProcessedBlock*: BlockNumber
     merkleProofCache*: seq[byte]
+    lastMerklePathCheckMoment*: Moment
+    proofPathRefreshInFlightFut*: Future[void]
+    lastRootsRefreshMoment*: Moment
+    rootsRefreshInFlightFut*: Future[void]
 
 # The below code is not working with the latest web3 version due to chainId being null (specifically on linea-sepolia)
 # TODO: find better solution than this custom sendEthCallWithoutParams call
@@ -192,7 +196,7 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
     newRootsDequeOrder.add(UInt256ToField(u))
 
   if newRootsDequeOrder.len == 0:
-    debug "no non-zero recent roots to add; skipping update"
+    trace "no non-zero recent roots to add; skipping update"
     return false
 
   # Determine overlap with existing tail so we only append truly new roots
@@ -217,32 +221,83 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
 
   return true
 
-proc trackRootChanges*(g: OnchainGroupManager): Future[Result[void, string]] {.async.} =
-  ?checkInitialized(g)
+proc updateMemberCount*(
+    g: OnchainGroupManager
+): Future[Result[void, string]] {.async.} =
+  ## Refreshes the registered-memberships metric from on-chain `nextFreeIndex`.
+  ## Called whenever a root change is observed.
+  let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
+    return err("Failed to fetch next free index: " & error)
+  let memberCount = cast[int64](nextFreeIndex)
+  waku_rln_number_registered_memberships.set(float64(memberCount))
+  return ok()
 
-  const rpcDelay = 10.seconds
+proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
+  ## On-demand refresh of validRoots from the on-chain root cache.
+  ## Throttled to at most one refresh per RootsRefreshMinInterval; concurrent
+  ## callers outside the throttle window coalesce onto a single in-flight refresh.
+  if Moment.now() - g.lastRootsRefreshMoment < RootsRefreshMinInterval:
+    return
 
-  while true:
-    let rootUpdated = await g.updateRecentRoots()
+  if not g.rootsRefreshInFlightFut.isNil() and not g.rootsRefreshInFlightFut.finished():
+    await g.rootsRefreshInFlightFut
+    return
 
-    if rootUpdated:
-      ## The membership set on-chain has changed (some new members have joined or some members have left)
-      if g.membershipIndex.isSome():
-        ## A membership index exists only if the node has registered with RLN.
-        ## Non-registered nodes cannot have Merkle proof elements.
-        let proofResult = await g.fetchMerkleProofElements()
-        if proofResult.isErr():
-          error "Failed to fetch Merkle proof", error = proofResult.error
-        else:
-          g.merkleProofCache = proofResult.get()
+  proc doRefresh(): Future[void] {.async.} =
+    if await g.updateRecentRoots():
+      # Best-effort metric refresh - if there's a failure, it will update with the next root change
+      discard await g.updateMemberCount()
+    g.lastRootsRefreshMoment = Moment.now()
 
-      let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
-        error "Failed to fetch next free index", error = error
-        return err("Failed to fetch next free index: " & error)
+  g.rootsRefreshInFlightFut = doRefresh()
+  await g.rootsRefreshInFlightFut
 
-      let memberCount = cast[int64](nextFreeIndex)
-      waku_rln_number_registered_memberships.set(float64(memberCount))
-    await sleepAsync(rpcDelay)
+method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.async.} =
+  if g.indexOfRoot(root) >= 0:
+    return true
+
+  await g.refreshRoots()
+  return g.indexOfRoot(root) >= 0
+
+proc ensureFreshMerkleProofPath*(
+    g: OnchainGroupManager
+): Future[Result[void, string]] {.async.} =
+  ## Keeps `merkleProofCache` fresh independently of the validRoots window
+  ## used by the receive path. Refetches the path whenever the throttle
+  ## (`PathCheckMinInterval`) expires; trusts the cached path otherwise.
+  ## Guards against a missing membership index because `fetchMerkleProofElements`
+  ## unwraps it.
+  if g.membershipIndex.isNone():
+    return err("membership index is not set")
+
+  if g.merkleProofCache.len > 0 and
+      Moment.now() - g.lastMerklePathCheckMoment < PathCheckMinInterval:
+    return ok()
+
+  if not g.proofPathRefreshInFlightFut.isNil() and
+      not g.proofPathRefreshInFlightFut.finished():
+    await g.proofPathRefreshInFlightFut
+    if g.merkleProofCache.len > 0:
+      return ok()
+    return err("merkle proof path refresh failed")
+
+  var fetchOk = false
+  proc doRefresh(): Future[void] {.async.} =
+    let pathBytes = (await g.fetchMerkleProofElements()).valueOr:
+      error "Failed to refresh merkle proof path", error = error
+      return
+    g.merkleProofCache = pathBytes
+    g.lastMerklePathCheckMoment = Moment.now()
+    fetchOk = true
+    # Best-effort metric refresh - if there's a failure, it will update with the next root change
+    discard await g.updateMemberCount()
+
+  g.proofPathRefreshInFlightFut = doRefresh()
+  await g.proofPathRefreshInFlightFut
+
+  if not fetchOk:
+    return err("merkle proof path refresh failed")
+  return ok()
 
 method register*(
     g: OnchainGroupManager, rateCommitment: RateCommitment
@@ -419,7 +474,7 @@ method generateProof*(
     epoch: Epoch,
     messageId: MessageId,
     rlnIdentifier = DefaultRlnIdentifier,
-): GroupManagerResult[RateLimitProof] {.gcsafe.} =
+): Future[GroupManagerResult[RateLimitProof]] {.async.} =
   ## Generates an RLN proof using the cached Merkle proof and custom witness
   # Ensure identity credentials and membership index are set
   if g.idCredentials.isNone():
@@ -428,6 +483,9 @@ method generateProof*(
     return err("membership index is not set")
   if g.userMessageLimit.isNone():
     return err("user message limit is not set")
+
+  debug "Generating RLN proof"
+  ?(await g.ensureFreshMerkleProofPath())
 
   if (g.merkleProofCache.len mod 32) != 0:
     return err("Invalid merkle proof cache length")
