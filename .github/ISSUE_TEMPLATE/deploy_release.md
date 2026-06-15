@@ -1,7 +1,7 @@
 ---
 name: Deploy Release
 about: Execute tasks for deploying a new version in a fleet
-title: 'Deploy release vX.X.X in waku.sandbox and/or status.prod fleet'
+title: 'Deploy release vX.X.X in logos.test and/or status.prod fleet'
 labels: deploy-release
 assignees: ''
 
@@ -20,8 +20,8 @@ Kindly add a link to the release PR where we have a sign-off from QA. At this ti
 ### Items to complete, in order
 
 <!--
-You can release into either waku.sanbox, status.prod, or both. Both cases require coordination with Infra Team.
-waku.sandbox must be considered a prod fleet as it is used by external parties.
+You can release into either logos.test, status.prod, or both. Both cases require coordination with Infra Team.
+logos.test must be considered a prod fleet as it is used by external parties.
 For both status.prod it is crucial to coordinate such deployment with Status Team.
 The following points should be followed in order.
  -->
@@ -30,9 +30,9 @@ The following points should be followed in order.
   - [ ] Inform DST team about what are the expectations for this release. For example, if we expect higher, same or lower bandwidth consumption. Or a new protocol appears, etc.
   - [ ] Ask DST to add a comment approving this deployment and add a link to the analysis report.
 
-- [ ] Deploy to waku.sandbox
+- [ ] Deploy to logos.test
   - [ ] Coordinate with Infra Team about possible changes in CI behavior
-  - [ ] Update waku.sandbox with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-sandbox/).
+  - [ ] Update logos.test with the corresponding deployment job in [Jenkins](https://ci.infra.status.im/) (ask the Infra Team if you don't have access or can't find the job).
 
 - [ ] Deploy to status.prod
   - [ ] Coordinate with Infra Team about possible changes in CI behavior
@@ -46,10 +46,10 @@ The following points should be followed in order.
 
 - [Release process](https://github.com/logos-messaging/logos-delivery/blob/master/docs/contributors/release-process.md)
 - [Release notes](https://github.com/logos-messaging/logos-delivery/blob/master/CHANGELOG.md)
-- [Infra-role-nim-waku](https://github.com/status-im/infra-role-nim-waku)
-- [Infra-waku](https://github.com/status-im/infra-waku)
+- [Infra-role-logos-node](https://github.com/status-im/infra-role-logos-node)
+- [Infra-logos](https://github.com/status-im/infra-logos)
 - [Infra-Status](https://github.com/status-im/infra-status)
-- [Jenkins](https://ci.infra.status.im/job/nim-waku/)
-- [Fleets](https://fleets.waku.org/)
-- [Harbor](https://harbor.status.im/harbor/projects/9/repositories/nwaku/artifacts-tab)
+- [Jenkins](https://ci.infra.status.im/)
+- [Fleets](https://fleets.logos.co/)
+- [Harbor](https://harbor.status.im/harbor/projects/32/repositories/logos-node/artifacts-tab)
 - [Kibana](https://kibana.infra.status.im/app/)
