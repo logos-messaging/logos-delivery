@@ -93,6 +93,10 @@ extern "C"
                                     FFICallBack callback,
                                     void *userData);
 
+  // NOTE: the low-level kernel API (waku_*) lives in the separate, advanced
+  // header liblogosdelivery_kernel.h. It is intentionally not declared here so
+  // this header only promises the stable Messaging / Reliable Channels surface.
+
 #ifdef __cplusplus
 }
 #endif

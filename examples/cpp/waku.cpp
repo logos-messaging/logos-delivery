@@ -14,7 +14,7 @@
 #include <sys/syscall.h>
 
 #include "base64.h"
-#include "../../library/libwaku.h"
+#include "../../library/liblogosdelivery_kernel.h"
 
 // Shared synchronization variables
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
@@ -312,7 +312,7 @@ int main(int argc, char **argv)
 
     std::cout << "Custom pubsub topic: " << pubsubTopic << std::endl;
 
-    set_event_callback(ctx,
+    logosdelivery_set_event_callback(ctx,
                        cify([&](const char *msg, size_t len)
                             { event_handler(msg, len); }),
                        nullptr);

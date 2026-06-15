@@ -6,7 +6,7 @@ This is a very simple example that shows how to invoke libwaku functions from a 
 2. cd to nwaku root folder
 3. make cwaku_example -j8
 
-This will create libwaku.so and cwaku_example binary within the build folder.
+This will create liblogosdelivery.so and cwaku_example binary within the build folder.
 
 ## Run
 1. Open terminal

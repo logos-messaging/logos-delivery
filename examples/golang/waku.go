@@ -1,10 +1,10 @@
 package main
 
 /*
-	#cgo LDFLAGS: -L../../build/ -lwaku
+	#cgo LDFLAGS: -L../../build/ -llogosdelivery
 	#cgo LDFLAGS: -L../../ -Wl,-rpath,../../
 
-	#include "../../library/libwaku.h"
+	#include "../../library/liblogosdelivery_kernel.h"
 	#include <stdio.h>
 	#include <stdlib.h>
 
@@ -112,7 +112,7 @@ package main
 
 		// This technique is needed because cgo only allows to export Go functions and not methods.
 
-		set_event_callback(wakuCtx, (FFICallBack) globalEventCallback, wakuCtx);
+		logosdelivery_set_event_callback(wakuCtx, (FFICallBack) globalEventCallback, wakuCtx);
 	}
 
 	static void cGoWakuContentTopic(void* wakuCtx,

@@ -6,7 +6,7 @@
 
 CXX = g++
 CXXFLAGS = -g3 -fpermissive -fPIC `pkg-config --cflags Qt5Core Qt5Gui Qt5Qml Qt5Quick`
-LDFLAGS = `pkg-config --libs Qt5Core Qt5Gui Qt5Qml Qt5Quick` -lwaku -L../../build/
+LDFLAGS = `pkg-config --libs Qt5Core Qt5Gui Qt5Qml Qt5Quick` -llogosdelivery -L../../build/
 MOC = moc
 
 TARGET = main-qt

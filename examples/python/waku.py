@@ -9,7 +9,7 @@ elif sys.platform == "win32":
 else:
     _lib_ext = "so"
 
-_lib_path = f"build/libwaku.{_lib_ext}"
+_lib_path = f"build/liblogosdelivery.{_lib_ext}"
 
 libwaku = object
 try:
@@ -19,7 +19,7 @@ except OSError as e:
     print(f"Exception: {e}")
     print(f"""
 The '{_lib_path}' library can be created with the next command from
-the repo's root folder: `make libwaku`.
+the repo's root folder: `make liblogosdelivery`.
 
 And it should build the library in '{_lib_path}'.
 
@@ -111,8 +111,8 @@ print("Waku Relay enabled: {}".format(args.relay))
 # Set the event callback
 callback = callback_type(handle_event) # This line is important so that the callback is not gc'ed
 
-libwaku.set_event_callback.argtypes = [callback_type, ctypes.c_void_p]
-libwaku.set_event_callback(callback, ctypes.c_void_p(0))
+libwaku.logosdelivery_set_event_callback.argtypes = [callback_type, ctypes.c_void_p]
+libwaku.logosdelivery_set_event_callback(callback, ctypes.c_void_p(0))
 
 # Start the node
 libwaku.waku_start.argtypes = [ctypes.c_void_p,

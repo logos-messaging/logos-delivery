@@ -159,7 +159,8 @@ jobs:
             mkdir -p pkg/DEBIAN pkg/usr/local/lib pkg/usr/local/include
             cp build/liblogosdelivery.so pkg/usr/local/lib/
             cp build/liblogosdelivery.a pkg/usr/local/lib/
-            cp liblogosdelivery/liblogosdelivery.h pkg/usr/local/include/
+            cp library/liblogosdelivery.h pkg/usr/local/include/
+            cp library/liblogosdelivery_kernel.h pkg/usr/local/include/
 
             echo "Package: logosdelivery" >> pkg/DEBIAN/control
             echo "Version: ${VERSION}" >> pkg/DEBIAN/control
