@@ -43,7 +43,7 @@ suite "Waku Keepalive":
     (await node2.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
 
-    let pingProto = Ping.new(handler = pingHandler)
+    let pingProto = Ping.new(handler = pingHandler, rng = crypto.newRng())
     await pingProto.start()
     node2.switch.mount(pingProto)
 

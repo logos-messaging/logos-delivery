@@ -1,22 +1,27 @@
-import std/[atomics, options, atomics, macros]
+import logos_delivery/waku/compat/option_valueor
+import std/[atomics, options, macros]
 import chronicles, chronos, chronos/threadsync, ffi
 import
   logos_delivery/waku/waku_core/message/message,
   logos_delivery/waku/waku_core/topics/pubsub_topic,
   logos_delivery/waku/waku_relay,
+  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/node/health_monitor/health_status,
+  ../logos_delivery/waku/factory/app_callbacks,
   ./events/json_message_event,
   ./events/json_topic_health_change_event,
   ./events/json_connection_change_event,
   ./events/json_connection_status_change_event,
-  ../logos_delivery/waku/factory/app_callbacks,
-  logos_delivery/waku/factory/waku,
-  logos_delivery/waku/node/waku_node,
-  logos_delivery/waku/node/health_monitor/health_status,
   ./declare_lib
 
 ################################################################################
 ## Include different APIs, i.e. all procs with {.ffi.} pragma
+
 include
+  ./logos_delivery_api/node_api,
+  ./logos_delivery_api/messaging_api,
+  ./logos_delivery_api/debug_api,
   ./kernel_api/peer_manager_api,
   ./kernel_api/discovery_api,
   ./kernel_api/node_lifecycle_api,
@@ -28,7 +33,7 @@ include
   ./kernel_api/protocols/filter_api
 
 ################################################################################
-### Exported procs
+### Exported procs (former libwaku API)
 
 proc waku_new(
     configJson: cstring, callback: FFICallback, userData: pointer
@@ -76,7 +81,10 @@ proc waku_new(
   )
 
   ffi.sendRequestToFFIThread(
-    ctx, CreateNodeRequest.ffiNewReq(callback, userData, configJson, appCallbacks)
+    ctx,
+    CreateNodeWithCallbacksRequest.ffiNewReq(
+      callback, userData, configJson, appCallbacks
+    ),
   ).isOkOr:
     let msg = "error in sendRequestToFFIThread: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)

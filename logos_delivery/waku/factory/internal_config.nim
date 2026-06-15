@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 import
   chronicles,
   chronos,

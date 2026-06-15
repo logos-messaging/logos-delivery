@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 import chronicles, chronos, results
 import std/options
 import brokers/broker_context

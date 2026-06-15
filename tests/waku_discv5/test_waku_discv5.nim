@@ -1,3 +1,4 @@
+import libp2p/crypto/rng
 {.used.}
 
 import
@@ -37,8 +38,8 @@ suite "Waku Discovery v5":
 
   let
     rng = eth_keys.newRng()
-    pk1 = eth_keys.PrivateKey.random(rng[])
-    pk2 = eth_keys.PrivateKey.random(rng[])
+    pk1 = eth_keys.PrivateKey.random(eth_keys.newRng()[])
+    pk2 = eth_keys.PrivateKey.random(eth_keys.newRng()[])
 
   suite "shardingPredicate":
     var
@@ -422,7 +423,7 @@ suite "Waku Discovery v5":
       let myRng = libp2p_keys.newRng()
       var confBuilder = defaultTestWakuConfBuilder()
 
-      confBuilder.withNodeKey(libp2p_keys.PrivateKey.random(Secp256k1, myRng[])[])
+      confBuilder.withNodeKey(libp2p_keys.PrivateKey.random(Secp256k1, myRng)[])
       confBuilder.discv5Conf.withEnabled(true)
       confBuilder.discv5Conf.withUdpPort(9000.Port)
       let conf = confBuilder.build().valueOr:
@@ -433,7 +434,7 @@ suite "Waku Discovery v5":
       (waitFor waku0.start()).isOkOr:
         raiseAssert error
 
-      confBuilder.withNodeKey(crypto.PrivateKey.random(Secp256k1, myRng[])[])
+      confBuilder.withNodeKey(crypto.PrivateKey.random(Secp256k1, myRng)[])
       confBuilder.discv5Conf.withBootstrapNodes(@[waku0.node.enr.toURI()])
       confBuilder.discv5Conf.withEnabled(true)
       confBuilder.discv5Conf.withUdpPort(9001.Port)
@@ -453,7 +454,7 @@ suite "Waku Discovery v5":
       confBuilder.discv5Conf.withBootstrapNodes(@[waku1.node.enr.toURI()])
       confBuilder.withP2pTcpPort(60003.Port)
       confBuilder.discv5Conf.withUdpPort(9003.Port)
-      confBuilder.withNodeKey(crypto.PrivateKey.random(Secp256k1, myRng[])[])
+      confBuilder.withNodeKey(crypto.PrivateKey.random(Secp256k1, myRng)[])
 
       let conf2 = confBuilder.build().valueOr:
         raiseAssert error

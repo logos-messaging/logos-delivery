@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 ## Waku autosharding utils
 ##
 ## See 51/WAKU2-RELAY-SHARDING RFC: https://rfc.vac.dev/spec/51/#automatic-sharding

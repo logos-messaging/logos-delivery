@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 import
   std/[options, sequtils],
   chronicles,
@@ -55,7 +56,7 @@ proc setupPeerStorage(): Result[Option[WakuPeerStorage], string] =
 proc initNode(
     conf: WakuConf,
     netConfig: NetConfig,
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     record: enr.Record,
     peerStore: Option[WakuPeerStorage],
     relay: Relay,
@@ -459,7 +460,7 @@ proc startNode*(
   return ok()
 
 proc setupNode*(
-    wakuConf: WakuConf, rng: ref HmacDrbgContext = crypto.newRng(), relay: Relay
+    wakuConf: WakuConf, rng: crypto.Rng = crypto.newRng(), relay: Relay
 ): Future[Result[WakuNode, string]] {.async.} =
   let netConfig = (
     await networkConfiguration(

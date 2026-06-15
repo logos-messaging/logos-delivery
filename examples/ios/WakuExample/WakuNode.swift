@@ -350,7 +350,7 @@ actor WakuActor {
         ctx = createResult.ctx
 
         // Set event callback
-        waku_set_event_callback(ctx, WakuActor.eventCallback, nil)
+        logosdelivery_set_event_callback(ctx, WakuActor.eventCallback, nil)
 
         // Start node
         let startResult = await callWakuSync { userData in

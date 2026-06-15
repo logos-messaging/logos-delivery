@@ -15,6 +15,7 @@ import
   ../waku_enr,
   ../discovery/waku_discv5,
   ../waku_node,
+  ../node/waku_switch,
   ../net/net_config,
   ../node/peer_manager,
   ../common/rate_limit/setting,
@@ -22,7 +23,7 @@ import
 
 type
   WakuNodeBuilder* = object # General
-    nodeRng: Option[ref crypto.HmacDrbgContext]
+    nodeRng: Option[crypto.Rng]
     nodeKey: Option[crypto.PrivateKey]
     netConfig: Option[NetConfig]
     record: Option[enr.Record]
@@ -58,7 +59,7 @@ proc init*(T: type WakuNodeBuilder): WakuNodeBuilder =
 
 ## General
 
-proc withRng*(builder: var WakuNodeBuilder, rng: ref crypto.HmacDrbgContext) =
+proc withRng*(builder: var WakuNodeBuilder, rng: crypto.Rng) =
   builder.nodeRng = some(rng)
 
 proc withNodeKey*(builder: var WakuNodeBuilder, nodeKey: crypto.PrivateKey) =
@@ -158,7 +159,7 @@ proc withSwitchConfiguration*(
 ## Build
 
 proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
-  var rng: ref crypto.HmacDrbgContext
+  var rng: crypto.Rng
   if builder.nodeRng.isNone():
     rng = crypto.newRng()
   else:
@@ -191,7 +192,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
       wsAddress = builder.netConfig.get().wsHostAddress,
       transportFlags = {ServerFlags.ReuseAddr, ServerFlags.TcpNoDelay},
       rng = rng,
-      maxConnections = builder.switchMaxConnections.get(builders.MaxConnections),
+      maxConnections = builder.switchMaxConnections.get(MaxConnections),
       wssEnabled = builder.netConfig.get().wssEnabled,
       secureKeyPath = builder.switchSslSecureKey.get(""),
       secureCertPath = builder.switchSslSecureCert.get(""),
@@ -211,7 +212,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     maxServicePeers = some(builder.maxServicePeers),
     colocationLimit = builder.colocationLimit,
     shardedPeerManagement = builder.shardAware,
-    maxConnections = builder.switchMaxConnections.get(builders.MaxConnections),
+    maxConnections = builder.switchMaxConnections.get(MaxConnections),
   )
 
   var node: WakuNode

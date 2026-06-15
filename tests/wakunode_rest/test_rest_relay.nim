@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[sequtils, strformat, tempfiles, osproc],
+  std/[sequtils, strformat, tempfiles, osproc, options],
   stew/byteutils,
   testutils/unittests,
   presto,

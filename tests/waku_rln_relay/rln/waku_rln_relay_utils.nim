@@ -1,3 +1,4 @@
+import std/options
 import std/tempfiles
 
 import

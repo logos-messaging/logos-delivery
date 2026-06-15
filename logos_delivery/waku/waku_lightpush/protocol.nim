@@ -1,3 +1,5 @@
+import libp2p/crypto/crypto
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -22,7 +24,7 @@ logScope:
   topics = "waku lightpush"
 
 type WakuLightPush* = ref object of LPProtocol
-  rng*: ref rand.HmacDrbgContext
+  rng*: crypto.Rng
   peerManager*: PeerManager
   pushHandler*: PushMessageHandler
   requestRateLimiter*: RequestRateLimiter
@@ -156,7 +158,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
 proc new*(
     T: type WakuLightPush,
     peerManager: PeerManager,
-    rng: ref rand.HmacDrbgContext,
+    rng: crypto.Rng,
     pushHandler: PushMessageHandler,
     autoSharding: Option[Sharding],
     rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),

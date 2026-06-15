@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 ## A set of utilities to integrate EIP-1459 DNS-based discovery

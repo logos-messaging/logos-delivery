@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[strutils, sequtils, tempfiles],
+  std/[strutils, sequtils, tempfiles, options],
   stew/byteutils,
   chronos,
   chronicles,

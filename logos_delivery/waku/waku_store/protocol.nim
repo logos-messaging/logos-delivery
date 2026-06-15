@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 ## Waku Store protocol for historical messaging support.
 ## See spec for more details:
 ## https://github.com/vacp2p/specs/blob/master/specs/waku/v2/waku-store.md
@@ -30,7 +31,7 @@ type StoreQueryRequestHandler* =
 
 type WakuStore* = ref object of LPProtocol
   peerManager: PeerManager
-  rng: ref rand.HmacDrbgContext
+  rng: crypto.Rng
   requestHandler*: StoreQueryRequestHandler
   requestRateLimiter*: RequestRateLimiter
 
@@ -156,7 +157,7 @@ proc initProtocolHandler(self: WakuStore) =
 proc new*(
     T: type WakuStore,
     peerManager: PeerManager,
-    rng: ref rand.HmacDrbgContext,
+    rng: crypto.Rng,
     requestHandler: StoreQueryRequestHandler,
     rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
 ): T =

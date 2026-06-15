@@ -2,7 +2,7 @@
 #include <QDebug>
 #include <QString>
 
-#include "../../library/libwaku.h"
+#include "../../library/liblogosdelivery_kernel.h"
 
 class WakuHandler : public QObject {
     Q_OBJECT
@@ -27,7 +27,7 @@ public:
     void initialize(const QString& jsonConfig, WakuCallBack event_handler, void* userData) {
         ctx = waku_new(jsonConfig.toUtf8().constData(), WakuCallBack(event_handler), userData);
 
-        set_event_callback(ctx, on_event_received, userData);
+        logosdelivery_set_event_callback(ctx, on_event_received, userData);
         qDebug() << "Waku context initialized, ready to start.";
     }
 

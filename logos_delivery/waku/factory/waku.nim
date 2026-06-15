@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -62,7 +63,7 @@ const git_version* {.strdefine.} = "n/a"
 type Waku* = ref object
   stateInfo*: WakuStateInfo
   conf*: WakuConf
-  rng*: ref HmacDrbgContext
+  rng*: crypto.Rng
 
   key: crypto.PrivateKey
 
@@ -86,7 +87,7 @@ type Waku* = ref object
   brokerCtx*: BrokerContext
 
 proc setupSwitchServices(
-    waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: ref HmacDrbgContext
+    waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: crypto.Rng
 ) =
   proc onReservation(addresses: seq[MultiAddress]) {.gcsafe, raises: [].} =
     info "circuit relay handler new reserve event",
@@ -113,6 +114,17 @@ proc setupSwitchServices(
     waku.node.switch.services = @[Service(holePunchService)]
   else:
     waku.node.switch.services = @[Service(autonatService)]
+
+  # libp2p 2.0.0 split Service.setup out of Service.start: the switch runs setup
+  # only at build time (SwitchBuilder.setupServices), while switch.start calls
+  # just start. These services are created and attached post-build, so setup must
+  # be invoked explicitly here -- otherwise AutonatService.addressMapper stays nil
+  # and the peerInfo.update() inside start dereferences it (SIGSEGV).
+  for service in waku.node.switch.services:
+    try:
+      service.setup(waku.node.switch)
+    except ServiceSetupError as e:
+      error "failed to set up libp2p switch service", error = e.msg
 
 ## Initialisation
 

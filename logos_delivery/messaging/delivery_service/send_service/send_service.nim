@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 ## This module reinforces the publish operation with regular store-v3 requests.
 ##
 

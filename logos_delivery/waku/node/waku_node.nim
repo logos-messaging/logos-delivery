@@ -1,3 +1,4 @@
+import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
@@ -23,8 +24,8 @@ import
   libp2p/transports/wstransport,
   libp2p/utility,
   libp2p/utils/offsettedseq,
-  libp2p/protocols/mix,
-  libp2p/protocols/mix/mix_protocol,
+  libp2p_mix,
+  libp2p_mix/mix_protocol,
   brokers/broker_context,
   brokers/request_broker
 
@@ -120,7 +121,7 @@ type
     wakuAutoSharding*: Option[Sharding]
     enr*: enr.Record
     libp2pPing*: Ping
-    rng*: ref rand.HmacDrbgContext
+    rng*: crypto.Rng
     brokerCtx*: BrokerContext
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
@@ -215,7 +216,7 @@ proc new*(
     peerManager: PeerManager,
     rateLimitSettings: ProtocolRateLimitSettings = DefaultProtocolRateLimit,
     # TODO: make this argument required after tests are updated
-    rng: ref HmacDrbgContext = crypto.newRng(),
+    rng: crypto.Rng = crypto.newRng(),
 ): T {.raises: [Defect, LPError, IOError, TLSStreamProtocolError].} =
   ## Creates a Waku Node instance.
 
