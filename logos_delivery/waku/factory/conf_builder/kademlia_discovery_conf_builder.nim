@@ -10,8 +10,6 @@ import logos_delivery/waku/waku_core/peers
 logScope:
   topics = "waku conf builder kademlia discovery"
 
-# KademliaDiscoveryConf is defined here (minimal deps) to avoid import cycles
-# with waku_conf <-> node code. waku_conf re-exports it via the builder import.
 type KademliaDiscoveryConf* = object
   bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
   servicesToAdvertise*: seq[ServiceInfo]

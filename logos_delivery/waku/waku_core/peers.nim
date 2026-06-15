@@ -386,24 +386,3 @@ proc getShards*(peer: RemotePeerInfo): seq[uint16] =
     return shards.get().shardIds
 
   return @[]
-
-proc parseFullAddress*(address: string): Result[(PeerId, MultiAddress), string] =
-  ## Parses a bootstrap-style multiaddr that must include a /p2p/<peer-id> suffix
-  ## into (PeerId, MultiAddress). The returned MA is the original (libp2p layers
-  ## typically strip the p2p suffix for transport use when needed).
-  ## Used by Kademlia discovery config builder and chat2mix.
-  let ma = MultiAddress.init(address).valueOr:
-    return err("invalid multiaddress '" & address & "': " & $error)
-
-  let p2pIdx = address.find("/p2p/")
-  if p2pIdx < 0:
-    return err("kademlia bootstrap node must include /p2p/<peerID>: " & address)
-
-  let idPart = address[(p2pIdx + 5) .. ^1].split('/')[0]
-  if idPart.len == 0:
-    return err("empty peer id in /p2p/ part: " & address)
-
-  let peerId = PeerId.init(idPart).valueOr:
-    return err("invalid peer id in bootstrap '" & idPart & "': " & $error)
-
-  ok((peerId, ma))
