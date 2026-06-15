@@ -14,11 +14,10 @@ import
     waku_store/common,
     waku_filter_v2/client,
     events/message_events,
+    events/health_events,
     waku_node,
     node/subscription_manager,
   ]
-
-const StoreCheckPeriod = chronos.minutes(5) ## How often to perform store queries
 
 const MaxMessageLife = chronos.minutes(7) ## Max time we will keep track of rx messages
 
@@ -39,10 +38,17 @@ type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
   node: WakuNode
   seenMsgListener: MessageSeenEventListener
+  connStatusListener: EventConnectionStatusChangeListener
 
   recentReceivedMsgs: seq[RecvMessage]
 
-  msgCheckerHandler: Future[void] ## allows to stop the msgChecker async task
+  online: bool
+    ## Whether we currently have connectivity (ConnectionStatus != Disconnected).
+    ## Status events carry only the new state, so this remembers the previous one
+    ## to act on edges, not every event: `PartiallyConnected`/`Connected` flicker
+    ## while still online, and the bool collapses that — backfill once when we come
+    ## online, stamp the gap start when we go offline.
+  backfillHandler: Future[void] ## in-flight store backfill task
   msgPrunerHandler: Future[void] ## removes too old messages
 
   startTimeToCheck: Timestamp
@@ -100,6 +106,10 @@ proc processIncomingMessage(
 proc checkStore*(self: RecvService) {.async.} =
   ## Checks the store for messages that were not received directly and
   ## delivers them via MessageReceivedEvent.
+  if self.node.wakuStoreClient.isNil():
+    trace "recv service has no store client mounted, skipping store check"
+    return
+
   self.endTimeToCheck = getNowInNanosecondTime()
 
   ## query store and deliver new recovered messages per subscribed topic
@@ -115,7 +125,7 @@ proc checkStore*(self: RecvService) {.async.} =
         )
       )
     ).valueOr:
-      error "msgChecker failed to get remote msgHashes",
+      error "checkStore failed to get remote msgHashes",
         pubsubTopic = pubsubTopic, cTopics = toSeq(contentTopics), error = $error
       continue
 
@@ -142,11 +152,22 @@ proc checkStore*(self: RecvService) {.async.} =
   ## update next check times
   self.startTimeToCheck = self.endTimeToCheck
 
-proc msgChecker(self: RecvService) {.async.} =
-  ## Continuously checks if a message has been received
-  while true:
-    await sleepAsync(StoreCheckPeriod)
-    await self.checkStore()
+proc onConnectionStatusChange(self: RecvService, status: ConnectionStatus) =
+  ## Backfill the store over the window we were offline (`Disconnected`).
+  let nowOnline = status != ConnectionStatus.Disconnected
+  if nowOnline == self.online:
+    return
+  self.online = nowOnline
+
+  if not nowOnline:
+    self.startTimeToCheck = getNowInNanosecondTime()
+    return
+
+  # At most one backfill in flight; skip if the previous is still running.
+  # Triggers are paced by health-monitor status changes, so overlap is unlikely.
+  if self.backfillHandler.isNil() or self.backfillHandler.finished():
+    info "recv service backfilling missed messages after coming back online"
+    self.backfillHandler = self.checkStore()
 
 proc new*(T: typedesc[RecvService], node: WakuNode): T =
   ## The storeClient will help to acquire any possible missed messages
@@ -168,7 +189,6 @@ proc loopPruneOldMessages(self: RecvService) {.async.} =
     await sleepAsync(PruneOldMsgsPeriod)
 
 proc startRecvService*(self: RecvService) =
-  self.msgCheckerHandler = self.msgChecker()
   self.msgPrunerHandler = self.loopPruneOldMessages()
 
   self.seenMsgListener = MessageSeenEvent.listen(
@@ -179,11 +199,22 @@ proc startRecvService*(self: RecvService) =
     error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)
 
+  self.connStatusListener = EventConnectionStatusChange.listen(
+    self.brokerCtx,
+    proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
+      self.onConnectionStatusChange(event.connectionStatus),
+  ).valueOr:
+    error "Failed to set EventConnectionStatusChange listener", error = error
+    quit(QuitFailure)
+
 proc stopRecvService*(self: RecvService) {.async.} =
   await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
-  if not self.msgCheckerHandler.isNil():
-    await self.msgCheckerHandler.cancelAndWait()
-    self.msgCheckerHandler = nil
+  await EventConnectionStatusChange.dropListener(
+    self.brokerCtx, self.connStatusListener
+  )
+  if not self.backfillHandler.isNil():
+    await self.backfillHandler.cancelAndWait()
+    self.backfillHandler = nil
   if not self.msgPrunerHandler.isNil():
     await self.msgPrunerHandler.cancelAndWait()
     self.msgPrunerHandler = nil
