@@ -29,12 +29,10 @@ import
 
 const CHAIN_ID* = 1234'u256
 
-# Path to the file which Anvil loads at startup to initialize the chain with pre-deployed contracts, an account funded with tokens and approved for spending
+# Cached Anvil state with pre-deployed contracts and a pre-funded/approved account.
 const DEFAULT_ANVIL_STATE_PATH* =
   "tests/waku_rln_relay/anvil_state/state-deployed-contracts-mint-and-approved.json.gz"
-# The contract address of the TestStableToken used for the RLN Membership registration fee
 const TOKEN_ADDRESS* = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
-# The contract address used ti interact with the WakuRLNV2 contract via the proxy
 const WAKU_RLNV2_PROXY_ADDRESS* = "0x5fc8d32690cc91d4c39d9d3abcbd16989f875707"
 
 proc generateCredentials*(): IdentityCredential =
@@ -108,12 +106,9 @@ proc sendMintCall(
     assert balanceBeforeMint == balanceBeforeExpectedTokens,
       fmt"Balance is {balanceBeforeMint} before minting but expected {balanceBeforeExpectedTokens}"
 
-  # Create mint transaction
-  # Method ID for mint(address,uint256) is 0x40c10f19 which is part of the openzeppelin ERC20 standard
-  # The method ID for a deployed test token can be viewed here https://sepolia.lineascan.build/address/0x185A0015aC462a0aECb81beCc0497b649a64B9ea#writeContract
+  # OpenZeppelin ERC20 mint(address,uint256) selector.
   let mintSelector = "0x40c10f19"
   let addressHex = recipientAddress.toHex()
-  # Pad the address and amount to 32 bytes each
   let paddedAddress = addressHex.align(64, '0')
 
   let amountHex = amountTokens.toHex()
@@ -126,11 +121,10 @@ proc sendMintCall(
   let mintCallData = mintSelector & paddedAddress & paddedAmount
   let gasPrice = int(await web3.provider.eth_gasPrice())
 
-  # Create the transaction
   var tx: TransactionArgs
   tx.`from` = Opt.some(accountFrom)
   tx.to = Opt.some(tokenAddress)
-  tx.value = Opt.some(0.u256) # No ETH is sent for token operations
+  tx.value = Opt.some(0.u256)
   tx.gasPrice = Opt.some(Quantity(gasPrice))
   tx.data = Opt.some(byteutils.hexToSeqByte(mintCallData))
 
@@ -140,7 +134,6 @@ proc sendMintCall(
   let balanceOfSelector = "0x70a08231"
   let balanceCallData = balanceOfSelector & paddedAddress
 
-  # Wait a bit for transaction to be mined
   await sleepAsync(500.milliseconds)
 
   if doBalanceAssert:
@@ -150,7 +143,6 @@ proc sendMintCall(
     assert balanceAfterMint == balanceAfterExpectedTokens,
       fmt"Balance is {balanceAfterMint} after transfer but expected {balanceAfterExpectedTokens}"
 
-# Check how many tokens a spender (the RLN contract) is allowed to spend on behalf of the owner (account which wishes to register a membership)
 proc checkTokenAllowance(
     web3: Web3, tokenAddress: Address, owner: Address, spender: Address
 ): Future[UInt256] {.async.} =
@@ -163,7 +155,6 @@ proc setupContractDeployment(
     forgePath: string, submodulePath: string
 ): Result[void, string] =
   trace "Contract deployer paths", forgePath = forgePath, submodulePath = submodulePath
-  # Build the Foundry project
   try:
     let (forgeCleanOutput, forgeCleanExitCode) =
       execCmdEx(fmt"""cd {submodulePath} && {forgePath} clean""")
@@ -185,7 +176,7 @@ proc setupContractDeployment(
     if forgeBuildExitCode != 0:
       return err("forge build command failed")
 
-    # Set the environment variable API keys to anything for local testnet deployment
+    # Forge requires these env vars to be set; values are unused on local testnet.
     putEnv("API_KEY_CARDONA", "123")
     putEnv("API_KEY_LINEASCAN", "123")
     putEnv("API_KEY_ETHERSCAN", "123")
@@ -196,13 +187,11 @@ proc setupContractDeployment(
 proc deployTestToken*(
     pk: keys.PrivateKey, acc: Address, web3: Web3
 ): Future[Result[Address, string]] {.async.} =
-  ## Executes a Foundry forge script that deploys the a token contract (ERC-20) used for testing. This is a prerequisite to enable the contract deployment and this token contract address needs to be minted and approved for the accounts that need to register memberships with the contract
-  ## submodulePath: path to the submodule containing contract deploy scripts
+  ## Deploys the ERC-20 test token used to pay the RLN membership registration fee.
 
-  # All RLN related tests should be run from the root directory of the project
+  # Path is relative; RLN tests must be run from the project root.
   let submodulePath = absolutePath("./vendor/waku-rlnv2-contract")
 
-  # Verify submodule path exists
   if not dirExists(submodulePath):
     error "Submodule path does not exist", submodulePath = submodulePath
     return err("Submodule path does not exist: " & submodulePath)
@@ -213,7 +202,6 @@ proc deployTestToken*(
     error "Failed to setup contract deployment", error = $error
     return err("Failed to setup contract deployment: " & $error)
 
-  # Deploy TestToken contract
   let forgeCmdTestToken =
     fmt"""cd {submodulePath} && {forgePath} script test/TestToken.sol --broadcast -vvv --rpc-url http://localhost:8540 --tc TestTokenFactory --private-key {pk} && rm -rf broadcast/*/*/run-1*.json && rm -rf cache/*/*/run-1*.json"""
   let (outputDeployTestToken, exitCodeDeployTestToken) = execForge(forgeCmdTestToken)
@@ -223,7 +211,6 @@ proc deployTestToken*(
     return
       err("Forge command to deploy TestToken contract failed: " & outputDeployTestToken)
 
-  # Parse the command output to find contract address
   let testTokenAddress = getContractAddressFromDeployScriptOutput(outputDeployTestToken).valueOr:
     error "Failed to get TestToken contract address from deploy script output",
       error = $error
@@ -238,7 +225,6 @@ proc deployTestToken*(
 
   return ok(testTokenAddressAddress)
 
-# Sends an ERC20 token approval call to allow a spender to spend a certain amount of tokens on behalf of the owner
 proc approveTokenAllowanceAndVerify*(
     web3: Web3,
     accountFrom: Address,
@@ -257,14 +243,14 @@ proc approveTokenAllowanceAndVerify*(
       return
         err(fmt"Allowance is {allowanceBefore} before approval but expected {expected}")
 
-  # Temporarily set the private key
+  # Swap in the holder's key so the approve tx is signed as the token owner;
+  # restored in `finally`.
   let oldPrivateKey = web3.privateKey
   web3.privateKey = Opt.some(privateKey)
   web3.lastKnownNonce = Opt.none(Quantity)
 
   try:
-    # ERC20 approve function signature: approve(address spender, uint256 amount)
-    # Method ID for approve(address,uint256) is 0x095ea7b3
+    # ERC20 approve(address,uint256) selector.
     const APPROVE_SELECTOR = "0x095ea7b3"
     let addressHex = spender.toHex().align(64, '0')
     let amountHex = amountWei.toHex().align(64, '0')
@@ -290,7 +276,6 @@ proc approveTokenAllowanceAndVerify*(
     if receipt.status.get() != 1.Quantity:
       return err("Approval transaction failed status quantity not 1")
 
-    # Single verification check after mining (no extra sleep needed)
     let allowanceAfter =
       await checkTokenAllowance(web3, tokenAddress, accountFrom, spender)
     let expectedAfter =
@@ -308,26 +293,22 @@ proc approveTokenAllowanceAndVerify*(
   except CatchableError as e:
     return err(fmt"Failed to send approve transaction: {e.msg}")
   finally:
-    # Restore the old private key
     web3.privateKey = oldPrivateKey
 
 proc executeForgeContractDeployScripts*(
     privateKey: keys.PrivateKey, acc: Address, web3: Web3
 ): Future[Result[Address, string]] {.async, gcsafe.} =
-  ## Executes a set of foundry forge scripts required to deploy the RLN contract and returns the deployed proxy contract address
-  ## submodulePath: path to the submodule containing contract deploy scripts
+  ## Deploys the RLN contracts via forge scripts; returns the proxy address.
 
-  # All RLN related tests should be run from the root directory of the project
+  # Path is relative; RLN tests must be run from the project root.
   let submodulePath = "./vendor/waku-rlnv2-contract"
 
-  # Verify submodule path exists
   if not dirExists(submodulePath):
     error "Submodule path does not exist", submodulePath = submodulePath
     return err("Submodule path does not exist: " & submodulePath)
 
   let forgePath = getForgePath()
 
-  # Verify forge executable exists
   if not fileExists(forgePath):
     error "Forge executable not found", forgePath = forgePath
     return err("Forge executable not found: " & forgePath)
@@ -337,7 +318,6 @@ proc executeForgeContractDeployScripts*(
     error "Failed to setup contract deployment"
     return err("Failed to setup contract deployment")
 
-  # Deploy LinearPriceCalculator contract
   let forgeCmdPriceCalculator =
     fmt"""cd {submodulePath} && {forgePath} script script/Deploy.s.sol --broadcast -vvvv --rpc-url http://localhost:8540 --tc DeployPriceCalculator --private-key {privateKey} && rm -rf broadcast/*/*/run-1*.json && rm -rf cache/*/*/run-1*.json"""
   let (outputDeployPriceCalculator, exitCodeDeployPriceCalculator) =
@@ -345,7 +325,6 @@ proc executeForgeContractDeployScripts*(
   if exitCodeDeployPriceCalculator != 0:
     return error("Forge command to deploy LinearPriceCalculator contract failed")
 
-  # Parse the output to find contract address
   let priceCalculatorAddressRes =
     getContractAddressFromDeployScriptOutput(outputDeployPriceCalculator)
   if priceCalculatorAddressRes.isErr():
@@ -361,7 +340,6 @@ proc executeForgeContractDeployScripts*(
       output = outputDeployWakuRln
     return err("Forge command to deploy WakuRlnV2 contract failed")
 
-  # Parse the output to find contract address
   let wakuRlnV2AddressRes =
     getContractAddressFromDeployScriptOutput(outputDeployWakuRln)
   if wakuRlnV2AddressRes.isErr():
@@ -370,7 +348,6 @@ proc executeForgeContractDeployScripts*(
   let wakuRlnV2Address = wakuRlnV2AddressRes.get()
   putEnv("WAKURLNV2_ADDRESS", wakuRlnV2Address)
 
-  # Deploy Proxy contract
   let forgeCmdProxy =
     fmt"""cd {submodulePath} && {forgePath} script script/Deploy.s.sol --broadcast -vvvv --rpc-url http://localhost:8540 --tc DeployProxy --private-key {privateKey} && rm -rf broadcast/*/*/run-1*.json && rm -rf cache/*/*/run-1*.json"""
   let (outputDeployProxy, exitCodeDeployProxy) = execForge(forgeCmdProxy)
@@ -413,7 +390,6 @@ proc sendEthTransfer*(
   # TODO: handle the error if sending fails
   let txHash = await web3.send(tx)
 
-  # Wait a bit for transaction to be mined
   await sleepAsync(200.milliseconds)
 
   if doBalanceAssert:
@@ -441,7 +417,6 @@ proc createEthAccount*(
   tx.to = Opt.some(acc)
   tx.gasPrice = Opt.some(Quantity(gasPrice))
 
-  # Send ethAmount to acc
   discard await web3.send(tx)
   let balance = await web3.provider.eth_getBalance(acc, "latest")
   assert balance == ethToWei(ethAmount),
@@ -501,22 +476,14 @@ proc compressGzipFile*(sourcePath: string, targetPath: string): Result[void, str
 
   ok()
 
-# Runs Anvil daemon
 proc runAnvil*(
     port: int = 8540,
     chainId: string = "1234",
     stateFile: Option[string] = none(string),
     dumpStateOnExit: bool = false,
 ): Process =
-  # Passed options are
-  # --port                            Port to listen on.
-  # --gas-limit                       Sets the block gas limit in WEI.
-  # --balance                         The default account balance, specified in ether.
-  # --chain-id                        Chain ID of the network.
-  # --load-state                      Initialize the chain from a previously saved state snapshot (read-only)
-  # --dump-state                      Dump the state on exit to the given file (write-only)
-  # Values used are representative of Linea Sepolia testnet
-  # See anvil documentation https://book.getfoundry.sh/reference/anvil/ for more details
+  # Gas/fee values mirror Linea Sepolia testnet.
+  # See https://book.getfoundry.sh/reference/anvil/ for option details.
   try:
     let anvilPath = getAnvilPath()
     debug "Anvil path", anvilPath
@@ -538,7 +505,6 @@ proc runAnvil*(
       "--silent",
     ]
 
-    # Add state file argument if provided
     if stateFile.isSome():
       var statePath = stateFile.get()
       debug "State file parameter provided",
@@ -546,9 +512,8 @@ proc runAnvil*(
         dumpStateOnExit = dumpStateOnExit,
         absolutePath = absolutePath(statePath)
 
-      # Check if the file is gzip compressed and handle decompression
       if statePath.endsWith(".gz"):
-        let decompressedPath = statePath[0 .. ^4] # Remove .gz extension
+        let decompressedPath = statePath[0 .. ^4]
 
         if not fileExists(decompressedPath):
           decompressGzipFile(statePath, decompressedPath).isOkOr:
@@ -558,16 +523,15 @@ proc runAnvil*(
         statePath = decompressedPath
 
       if dumpStateOnExit:
-        # Ensure the directory exists
         let stateDir = parentDir(statePath)
         if not dirExists(stateDir):
           createDir(stateDir)
-        # Fresh deployment: start clean and dump state on exit
+        # Fresh deployment: start clean and dump state on exit.
         args.add("--dump-state")
         args.add(statePath)
         debug "Anvil configured to dump state on exit", path = statePath
       else:
-        # Using cache: only load state, don't overwrite it (preserves clean cached state)
+        # Load-only so we don't clobber the committed cached state file.
         if fileExists(statePath):
           args.add("--load-state")
           args.add(statePath)
@@ -617,7 +581,6 @@ proc runAnvil*(
   except: # TODO: Fix "BareExcept" warning
     error "Anvil daemon run failed", err = getCurrentExceptionMsg()
 
-# Stops Anvil daemon
 proc stopAnvil*(runAnvil: Process) {.used.} =
   if runAnvil.isNil:
     error "stopAnvil called with nil Process"
@@ -627,12 +590,10 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
   debug "Stopping Anvil daemon", anvilPID = anvilPID
 
   try:
-    # Send termination signals
     when not defined(windows):
       discard execCmdEx(fmt"kill -TERM {anvilPID}")
-      # Wait for graceful shutdown to allow state dumping
+      # Give Anvil time to dump state on graceful shutdown before escalating to KILL.
       sleep(200)
-      # Only force kill if process is still running
       let checkResult = execCmdEx(fmt"kill -0 {anvilPID} 2>/dev/null")
       if checkResult.exitCode == 0:
         warn "Anvil process still running after TERM signal, sending KILL",
@@ -641,7 +602,6 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
     else:
       discard execCmdEx(fmt"taskkill /F /PID {anvilPID}")
 
-    # Close Process object to release resources
     close(runAnvil)
     debug "Anvil daemon stopped", anvilPID = anvilPID
   except Exception as e:
@@ -690,15 +650,12 @@ proc setupOnchainGroupManager*(
 
     (privateKey, acc) = createEthAccount(web3)
 
-    # Fund the test account
     discard await sendEthTransfer(web3, web3.defaultAccount, acc, ethToWei(1000.u256))
 
-    # Mint tokens to the test account
     await sendMintCall(
       web3, web3.defaultAccount, testTokenAddress, acc, ethToWei(1000.u256)
     )
 
-    # Approve the contract to spend tokens
     let tokenApprovalResult = await approveTokenAllowanceAndVerify(
       web3, acc, privateKey, testTokenAddress, contractAddress, ethToWei(2000.u256)
     )
@@ -707,7 +664,6 @@ proc setupOnchainGroupManager*(
     debug "Performing Token and RLN contracts deployment"
     (privateKey, acc) = createEthAccount(web3)
 
-    # fund the default account
     discard await sendEthTransfer(
       web3, web3.defaultAccount, acc, ethToWei(1000.u256), some(0.u256)
     )
@@ -716,7 +672,6 @@ proc setupOnchainGroupManager*(
       assert false, "Failed to deploy test token contract: " & $error
       return
 
-    # mint the token from the generated account
     await sendMintCall(
       web3,
       web3.defaultAccount,
@@ -741,7 +696,6 @@ proc setupOnchainGroupManager*(
     web3 = await newWeb3(ethClientUrl)
     web3.defaultAccount = accounts[1]
 
-    # If the generated account wishes to register a membership, it needs to approve the contract to spend its tokens
     let tokenApprovalResult = await approveTokenAllowanceAndVerify(
       web3,
       acc,
