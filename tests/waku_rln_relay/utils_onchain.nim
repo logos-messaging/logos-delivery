@@ -700,7 +700,7 @@ proc setupOnchainGroupManager*(
 
     # Approve the contract to spend tokens
     let tokenApprovalResult = await approveTokenAllowanceAndVerify(
-      web3, acc, privateKey, testTokenAddress, contractAddress, ethToWei(200.u256)
+      web3, acc, privateKey, testTokenAddress, contractAddress, ethToWei(2000.u256)
     )
     assert tokenApprovalResult.isOk(), tokenApprovalResult.error
   else:
@@ -748,7 +748,7 @@ proc setupOnchainGroupManager*(
       privateKey,
       testTokenAddress,
       contractAddress,
-      ethToWei(200.u256),
+      ethToWei(2000.u256),
       some(0.u256),
     )
 

@@ -406,6 +406,49 @@ suite "Onchain group manager":
     check:
       manager.lastRootsRefreshMoment == firstRefreshTs
 
+  test "validateRoot: concurrent misses coalesce onto a single refresh future":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Clean gates: the throttle window must not short-circuit the first call,
+    # and the in-flight slot must start empty so we can observe whether
+    # subsequent callers install a second future.
+    manager.lastRootsRefreshMoment = default(Moment)
+    manager.rootsRefreshInFlightFut = nil
+
+    var badRoot: MerkleNode
+    badRoot[0] = 0x77
+
+    # The first validateRoot call runs synchronously down to the suspended
+    # RPC inside doRefresh, installing rootsRefreshInFlightFut along the way.
+    # Calls 2 and 3 enter while that future is still pending, so they must
+    # observe the same reference and await it rather than start a second
+    # doRefresh.
+    let f1 = manager.validateRoot(badRoot)
+    let inFlight = manager.rootsRefreshInFlightFut
+    let f2 = manager.validateRoot(badRoot)
+    let afterSecond = manager.rootsRefreshInFlightFut
+    let f3 = manager.validateRoot(badRoot)
+    let afterThird = manager.rootsRefreshInFlightFut
+
+    check:
+      inFlight != nil
+      not inFlight.finished()
+      # No new doRefresh future was created by the coalescing callers.
+      afterSecond == inFlight
+      afterThird == inFlight
+
+    waitFor allFutures(f1, f2, f3)
+
+    check:
+      # The same in-flight future served all three callers and was never
+      # replaced by a competing refresh.
+      manager.rootsRefreshInFlightFut == inFlight
+
   test "generateProof: fast-paths without refresh inside throttle window":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
@@ -627,6 +670,49 @@ suite "Onchain group manager":
       res.isOk()
       manager.merkleProofCache.len > 0
       waku_rln_number_registered_memberships.value() == float64(credentialCount)
+
+  test "ensureFreshMerkleProofPath: concurrent calls coalesce onto a single refresh future":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Empty cache + epoch-zero check timestamp guarantees the first caller
+    # will fall through to fetchMerkleProofElements; the followers should
+    # observe the resulting in-flight future and await it rather than start
+    # their own refresh.
+    manager.merkleProofCache = @[]
+    manager.lastMerklePathCheckMoment = default(Moment)
+    manager.proofPathRefreshInFlightFut = nil
+
+    let f1 = manager.ensureFreshMerkleProofPath()
+    let inFlight = manager.proofPathRefreshInFlightFut
+    let f2 = manager.ensureFreshMerkleProofPath()
+    let afterSecond = manager.proofPathRefreshInFlightFut
+    let f3 = manager.ensureFreshMerkleProofPath()
+    let afterThird = manager.proofPathRefreshInFlightFut
+
+    check:
+      inFlight != nil
+      not inFlight.finished()
+      afterSecond == inFlight
+      afterThird == inFlight
+
+    waitFor allFutures(f1, f2, f3)
+    let r1 = f1.read()
+    let r2 = f2.read()
+    let r3 = f3.read()
+
+    check:
+      r1.isOk()
+      r2.isOk()
+      r3.isOk()
+      # Same future served all callers; field was not replaced by a second
+      # refresh while the first was still in flight.
+      manager.proofPathRefreshInFlightFut == inFlight
+      manager.merkleProofCache.len > 0
 
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()
