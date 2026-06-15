@@ -155,20 +155,6 @@ ifeq ($(DEBUG_DISCV5), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:debugDiscv5
 endif
 
-# nim-sds keeps its API module (sds.nim) outside its nimble srcDir, so
-# `import sds` needs the package root on the path. The path must be absolute
-# (nim resolves relative --path against the project file, not the cwd) and in
-# D:/ form on Windows (msys does not convert /d/ inside --path:). Deferred
-# expansion so it evaluates after `nimble setup` has populated nimbledeps/.
-ifeq ($(detected_OS),Windows)
-ABS_REPO_ROOT := $(shell pwd -W)
-else
-ABS_REPO_ROOT := $(CURDIR)
-endif
-SDS_PKG_PATH = $(if $(wildcard nimbledeps/pkgs2/sds-*),--path:"$(ABS_REPO_ROOT)/$(firstword $(wildcard nimbledeps/pkgs2/sds-*))")
-NIM_PARAMS_STATIC := $(NIM_PARAMS)
-NIM_PARAMS = $(NIM_PARAMS_STATIC) $(SDS_PKG_PATH)
-
 # Export NIM_PARAMS so nimble can access it
 export NIM_PARAMS
 
