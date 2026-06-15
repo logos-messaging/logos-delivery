@@ -55,6 +55,10 @@ type
       ## in-flight unwrap and delivery order stays causal.
     participantId: SdsParticipantID
     onRebroadcast*: RebroadcastHandler
+      ## Set by the owning `ReliableChannel` after construction — the closure
+      ## captures the channel to run its dispatch tail, so it cannot be
+      ## passed to `new`. The other callbacks need no channel and are wired
+      ## internally in `installCallbacks`.
 
 proc computeMessageId(self: SdsHandler, payload: seq[byte]): SdsMessageID =
   ## keccak-256(senderId + wrap-time nanoseconds + content): unique per
@@ -75,7 +79,10 @@ proc installCallbacks(self: SdsHandler) =
   ) {.gcsafe.} =
     ## Fires during unwrap, under the manager lock — must stay synchronous.
     ## Collect only; `handleIncoming` delivers after the direct content.
-    if messageId in self.pendingContent:
+    ## The manager owns a single channel, so `channelId` is always ours; the
+    ## check documents that invariant and guards against future misuse.
+    if channelId == self.channelId and messageId in self.pendingContent:
+      debug "SDS releasing buffered message, dependencies met", channelId, messageId
       self.released.add(self.pendingContent.getOrDefault(messageId))
       self.pendingContent.del(messageId)
 
@@ -123,15 +130,11 @@ proc new*(
   handler.installCallbacks()
   return handler
 
-proc bootstrap(self: SdsHandler) {.async: (raises: []).} =
-  let res = await self.rm.ensureChannel(self.channelId)
-  if res.isErr():
-    warn "SDS channel bootstrap failed; state will be restored lazily",
-      channelId = self.channelId, error = $res.error
-
 proc start*(self: SdsHandler) =
-  ## Restores persisted channel state and starts the SDS background loops.
-  asyncSpawn self.bootstrap()
+  ## Starts the SDS background loops. Persisted channel state is restored
+  ## lazily on first use: `wrapOutgoing` and `handleIncoming` both ensure
+  ## the channel, and `handleIncoming` loads before its duplicate check so a
+  ## replay right after a restart is still caught.
   self.rm.startPeriodicTasks()
 
 proc stop*(self: SdsHandler) {.async: (raises: []).} =
