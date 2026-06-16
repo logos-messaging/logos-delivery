@@ -79,6 +79,8 @@ proc installCallbacks(self: SdsHandler) =
   self.reliabilityManager.onMessageReady = proc(
       messageId: SdsMessageID, channelId: SdsChannelID
   ) {.gcsafe.} =
+    ## An SDS "message" is one channel segment here — each segment is wrapped
+    ## into its own SDS message — so this is effectively `onSegmentReady`.
     ## Fires during unwrap, under the manager lock — must stay synchronous.
     ## Collect only; `handleIncoming` delivers after the direct content.
     ## The manager owns a single channel, so `channelId` is always ours; the
