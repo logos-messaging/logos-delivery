@@ -1,7 +1,7 @@
 import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/sequtils
+import std/[sequtils, sets]
 import
   chronos,
   chronicles,
@@ -37,8 +37,8 @@ type WakuKademlia* = ref object
   serviceLookupLoop: Future[void]
   randomLookupInterval: Duration
   serviceLookupInterval: Duration
-  servicesToDiscover: seq[string]
-  servicesToAdvertise: seq[ServiceInfo]
+  servicesToDiscover: HashSet[string]
+  servicesToAdvertise: HashSet[ServiceInfo]
 
 proc extractMixPubKey(service: ServiceInfo): Option[Curve25519Key] =
   if service.id != MixProtocolID:
@@ -200,8 +200,8 @@ proc new*(
     peerManager: peerManager,
     randomLookupInterval: randomLookupInterval,
     serviceLookupInterval: serviceLookupInterval,
-    servicesToDiscover: servicesToDiscover,
-    servicesToAdvertise: servicesToAdvertise,
+    servicesToDiscover: servicesToDiscover.toHashSet(),
+    servicesToAdvertise: servicesToAdvertise.toHashSet(),
   )
 
   return ok(self)
@@ -230,26 +230,23 @@ proc stop*(self: WakuKademlia) {.async: (raises: []).} =
   info "kademlia discovery stopped"
 
 proc addServiceToDiscover*(self: WakuKademlia, service: string) =
-  if service notin self.servicesToDiscover:
-    self.servicesToDiscover.add(service)
+  if not self.servicesToDiscover.containsOrIncl(service):
     discard self.protocol.registerInterest(service)
     debug "added service to discover", service
 
+proc addServiceToAdvertise*(self: WakuKademlia, service: ServiceInfo) =
+  if not self.servicesToAdvertise.containsOrIncl(service):
+    self.protocol.startAdvertising(service)
+    debug "added service to advertise", service = service.id
+
 proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
-  if service in self.servicesToDiscover:
-    self.servicesToDiscover.keepItIf(it != service)
+  if not self.servicesToDiscover.missingOrExcl(service):
     self.protocol.unregisterInterest(service)
     debug "removed service to discover", service
 
-proc addServiceToAdvertise*(self: WakuKademlia, service: ServiceInfo) =
-  if not self.servicesToAdvertise.anyIt(it.id == service.id):
-    self.servicesToAdvertise.add(service)
-  self.protocol.startAdvertising(service)
-  debug "added service to advertise", service = service.id
-
 proc removeServiceToAdvertise*(
-    self: WakuKademlia, serviceId: string
+    self: WakuKademlia, service: ServiceInfo
 ) {.async: (raises: [CancelledError]).} =
-  self.servicesToAdvertise.keepItIf(it.id != serviceId)
-  await self.protocol.stopAdvertising(serviceId)
-  debug "removed service to advertise", service = serviceId
+  if not self.servicesToAdvertise.missingOrExcl(service):
+    await self.protocol.stopAdvertising(service.id)
+    debug "removed service to advertise", service = service.id
