@@ -27,8 +27,10 @@ const
   DefaultAcknowledgementTimeoutMs* = 5_000
   DefaultMaxRetransmissions* = 5
   DefaultCausalHistorySize* = 2
-  MaxPendingContent = 1024
+  MaxPendingContent = 32
     ## Bound on segments parked while their causal dependencies are missing.
+    ## Kept small on purpose: at ~100KiB max per segment, 32 caps the stash
+    ## at ~3MiB per channel. Raise only if a real backlog need shows up.
 
 type
   SdsConfig* = object
