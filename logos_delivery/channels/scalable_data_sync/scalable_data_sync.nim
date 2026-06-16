@@ -103,7 +103,9 @@ proc installCallbacks(self: SdsHandler) =
     debug "SDS message has missing dependencies",
       channelId, messageId, missing = missingDeps.len
 
-  self.reliabilityManager.onRepairReady = proc(message: seq[byte], channelId: SdsChannelID) {.gcsafe.} =
+  self.reliabilityManager.onRepairReady = proc(
+      message: seq[byte], channelId: SdsChannelID
+  ) {.gcsafe.} =
     if not self.onRebroadcast.isNil():
       self.onRebroadcast(message)
 
