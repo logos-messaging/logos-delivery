@@ -96,7 +96,7 @@ proc networkConfiguration*(
   let tcpBindPort = Port(uint16(conf.p2pTcpPort) + portsShift)
 
   let (quicEnabled, quicBindPort) =
-    if quicConf.isSome:
+    if quicConf.isSome():
       let qConf = quicConf.get()
       (true, some(Port(qConf.port.uint16 + portsShift)))
     else:

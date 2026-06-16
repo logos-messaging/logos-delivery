@@ -121,7 +121,7 @@ proc init*(
     try:
       quicHostAddress = some(ipQuicEndPoint(bindIp, quicBindPort.get(bindPort)))
     except CatchableError:
-      return err(getCurrentExceptionMsg())
+      return err("failed to initialize quic address: " & getCurrentExceptionMsg())
 
   let enrIp =
     if extIp.isSome():
@@ -161,7 +161,7 @@ proc init*(
           )
         )
       except CatchableError:
-        return err(getCurrentExceptionMsg())
+        return err("failed to set dns quic endpoint: " & getCurrentExceptionMsg())
   else:
     # No public domain name, use ext IP if available
     if extIp.isSome() and extPort.isSome():
@@ -182,7 +182,7 @@ proc init*(
             ipQuicEndPoint(extIp.get(), extQuicPort.get(quicBindPort.get(bindPort)))
           )
         except CatchableError:
-          return err(getCurrentExceptionMsg())
+          return err("failed to set ip quic endpoint: " & getCurrentExceptionMsg())
 
   var announcedAddresses = newSeq[MultiAddress]()
 
