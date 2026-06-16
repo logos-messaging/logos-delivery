@@ -466,7 +466,8 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
       let (peerId, ma) = block:
         let r = parseFullAddress(nodeStr)
         if r.isErr:
-          error "Failed to parse kademlia bootstrap node", node = nodeStr, error = r.error
+          error "Failed to parse kademlia bootstrap node",
+            node = nodeStr, error = r.error
           continue
         r.get()
       kadBootstrapPeers.add((peerId, @[ma]))

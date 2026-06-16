@@ -75,7 +75,7 @@ type KademliaDiscoveryConfBuilder* = object
   kadHideConnectionStatus*: Option[bool]
   kadDisableBootstrapping*: Option[bool]
   kadProviderRejection*: Option[bool]
-  kadMaxProvidersPerKey*: Option[int]  # use some(-1) or none for Opt.none (unlimited)
+  kadMaxProvidersPerKey*: Option[int] # use some(-1) or none for Opt.none (unlimited)
 
 proc init*(T: type KademliaDiscoveryConfBuilder): KademliaDiscoveryConfBuilder =
   KademliaDiscoveryConfBuilder()
@@ -117,67 +117,105 @@ proc withXprPublishing*(b: var KademliaDiscoveryConfBuilder, publish: bool) =
 # Disco config with*
 proc withKadKRegister*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadKRegister = some(v)
+
 proc withKadKLookup*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadKLookup = some(v)
+
 proc withKadFLookup*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadFLookup = some(v)
+
 proc withKadFReturn*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadFReturn = some(v)
+
 proc withKadAdvertExpiry*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
   b.kadAdvertExpiry = some(v)
+
 proc withKadAdvertCacheCap*(b: var KademliaDiscoveryConfBuilder, v: uint64) =
   b.kadAdvertCacheCap = some(v)
+
 proc withKadOccupancyExp*(b: var KademliaDiscoveryConfBuilder, v: float64) =
   b.kadOccupancyExp = some(v)
+
 proc withKadSafetyParam*(b: var KademliaDiscoveryConfBuilder, v: float64) =
   b.kadSafetyParam = some(v)
+
 proc withKadIpSimCoefficient*(b: var KademliaDiscoveryConfBuilder, v: float64) =
   b.kadIpSimCoefficient = some(v)
+
 proc withKadRegistrationWindow*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
   b.kadRegistrationWindow = some(v)
+
 proc withKadBucketsCount*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadBucketsCount = some(v)
 
 # KadDHT config with*
 proc withKadTimeout*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
   b.kadTimeout = some(v)
+
 proc withKadBucketRefreshTime*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
   b.kadBucketRefreshTime = some(v)
+
 proc withKadRetries*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadRetries = some(v)
+
 proc withKadReplication*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadReplication = some(v)
+
 proc withKadAlpha*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadAlpha = some(v)
+
 proc withKadQuorum*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadQuorum = some(v)
+
 proc withKadProviderRecordCapacity*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadProviderRecordCapacity = some(v)
+
 proc withKadProvidedKeyCapacity*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadProvidedKeyCapacity = some(v)
-proc withKadRepublishProvidedKeysInterval*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
+
+proc withKadRepublishProvidedKeysInterval*(
+    b: var KademliaDiscoveryConfBuilder, v: Duration
+) =
   b.kadRepublishProvidedKeysInterval = some(v)
-proc withKadCleanupProvidersInterval*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
+
+proc withKadCleanupProvidersInterval*(
+    b: var KademliaDiscoveryConfBuilder, v: Duration
+) =
   b.kadCleanupProvidersInterval = some(v)
-proc withKadProviderExpirationInterval*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
+
+proc withKadProviderExpirationInterval*(
+    b: var KademliaDiscoveryConfBuilder, v: Duration
+) =
   b.kadProviderExpirationInterval = some(v)
-proc withKadRecordExpirationInterval*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
+
+proc withKadRecordExpirationInterval*(
+    b: var KademliaDiscoveryConfBuilder, v: Duration
+) =
   b.kadRecordExpirationInterval = some(v)
-proc withKadCleanupDataEntriesInterval*(b: var KademliaDiscoveryConfBuilder, v: Duration) =
+
+proc withKadCleanupDataEntriesInterval*(
+    b: var KademliaDiscoveryConfBuilder, v: Duration
+) =
   b.kadCleanupDataEntriesInterval = some(v)
+
 proc withKadHideConnectionStatus*(b: var KademliaDiscoveryConfBuilder, v: bool) =
   b.kadHideConnectionStatus = some(v)
+
 proc withKadDisableBootstrapping*(b: var KademliaDiscoveryConfBuilder, v: bool) =
   b.kadDisableBootstrapping = some(v)
+
 proc withKadProviderRejection*(b: var KademliaDiscoveryConfBuilder, v: bool) =
   b.kadProviderRejection = some(v)
+
 proc withKadMaxProvidersPerKey*(b: var KademliaDiscoveryConfBuilder, v: int) =
   b.kadMaxProvidersPerKey = some(v)
 
 proc withKadDhtConfig*(b: var KademliaDiscoveryConfBuilder, c: KadDHTConfig) =
   b.kadDhtConfig = some(c)
 
-proc withDiscoConfig*(b: var KademliaDiscoveryConfBuilder, c: sd_types.ServiceDiscoveryConfig) =
+proc withDiscoConfig*(
+    b: var KademliaDiscoveryConfBuilder, c: sd_types.ServiceDiscoveryConfig
+) =
   b.discoConfig = some(c)
 
 proc build*(
@@ -211,23 +249,19 @@ proc build*(
         replication = b.kadReplication.get(DefaultReplication),
         alpha = b.kadAlpha.get(DefaultAlpha),
         quorum = b.kadQuorum.get(DefaultQuorum),
-        providerRecordCapacity = b.kadProviderRecordCapacity.get(DefaultProviderRecordCapacity),
+        providerRecordCapacity =
+          b.kadProviderRecordCapacity.get(DefaultProviderRecordCapacity),
         providedKeyCapacity = b.kadProvidedKeyCapacity.get(DefaultProvidedKeyCapacity),
-        republishProvidedKeysInterval = b.kadRepublishProvidedKeysInterval.get(
-          DefaultRepublishInterval
-        ),
-        cleanupProvidersInterval = b.kadCleanupProvidersInterval.get(
-          DefaultCleanupProvidersInterval
-        ),
-        providerExpirationInterval = b.kadProviderExpirationInterval.get(
-          DefaultProviderExpirationInterval
-        ),
-        recordExpirationInterval = b.kadRecordExpirationInterval.get(
-          DefaultRecordExpirationInterval
-        ),
-        cleanupDataEntriesInterval = b.kadCleanupDataEntriesInterval.get(
-          DefaultCleanupDataEntriesInterval
-        ),
+        republishProvidedKeysInterval =
+          b.kadRepublishProvidedKeysInterval.get(DefaultRepublishInterval),
+        cleanupProvidersInterval =
+          b.kadCleanupProvidersInterval.get(DefaultCleanupProvidersInterval),
+        providerExpirationInterval =
+          b.kadProviderExpirationInterval.get(DefaultProviderExpirationInterval),
+        recordExpirationInterval =
+          b.kadRecordExpirationInterval.get(DefaultRecordExpirationInterval),
+        cleanupDataEntriesInterval =
+          b.kadCleanupDataEntriesInterval.get(DefaultCleanupDataEntriesInterval),
         hideConnectionStatus = b.kadHideConnectionStatus.get(true),
         disableBootstrapping = b.kadDisableBootstrapping.get(false),
         providerRejection = b.kadProviderRejection.get(false),

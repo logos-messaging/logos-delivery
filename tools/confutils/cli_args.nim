@@ -704,7 +704,8 @@ hence would have reachability issues.""",
     .}: uint32
 
     kadServiceLookupIntervalSec* {.
-      desc: "Interval seconds between service-specific kademlia lookups (0 uses default).",
+      desc:
+        "Interval seconds between service-specific kademlia lookups (0 uses default).",
       defaultValue: 0,
       name: "kad-service-lookup-interval"
     .}: uint32
@@ -716,19 +717,13 @@ hence would have reachability issues.""",
       name: "kad-k-register"
     .}: Option[int]
     kadKLookup* {.
-      desc: "Kademlia kLookup.",
-      defaultValue: none(int),
-      name: "kad-k-lookup"
+      desc: "Kademlia kLookup.", defaultValue: none(int), name: "kad-k-lookup"
     .}: Option[int]
     kadFLookup* {.
-      desc: "Kademlia fLookup.",
-      defaultValue: none(int),
-      name: "kad-f-lookup"
+      desc: "Kademlia fLookup.", defaultValue: none(int), name: "kad-f-lookup"
     .}: Option[int]
     kadFReturn* {.
-      desc: "Kademlia fReturn.",
-      defaultValue: none(int),
-      name: "kad-f-return"
+      desc: "Kademlia fReturn.", defaultValue: none(int), name: "kad-f-return"
     .}: Option[int]
     kadAdvertExpirySec* {.
       desc: "Advert expiry seconds.",
@@ -761,9 +756,7 @@ hence would have reachability issues.""",
       name: "kad-registration-window"
     .}: Option[uint32]
     kadBucketsCount* {.
-      desc: "Buckets count (M).",
-      defaultValue: none(int),
-      name: "kad-buckets-count"
+      desc: "Buckets count (M).", defaultValue: none(int), name: "kad-buckets-count"
     .}: Option[int]
 
     # KadDHTConfig tunables (core kademlia)
@@ -778,9 +771,7 @@ hence would have reachability issues.""",
       name: "kad-bucket-refresh-time"
     .}: Option[uint32]
     kadRetries* {.
-      desc: "Kademlia retries.",
-      defaultValue: none(int),
-      name: "kad-retries"
+      desc: "Kademlia retries.", defaultValue: none(int), name: "kad-retries"
     .}: Option[int]
     kadReplication* {.
       desc: "Kademlia replication (k).",
@@ -788,15 +779,10 @@ hence would have reachability issues.""",
       name: "kad-replication"
     .}: Option[int]
     kadAlpha* {.
-      desc: "Kademlia alpha (concurrency).",
-      defaultValue: none(int),
-      name: "kad-alpha"
+      desc: "Kademlia alpha (concurrency).", defaultValue: none(int), name: "kad-alpha"
     .}: Option[int]
-    kadQuorum* {.
-      desc: "Kademlia quorum.",
-      defaultValue: none(int),
-      name: "kad-quorum"
-    .}: Option[int]
+    kadQuorum* {.desc: "Kademlia quorum.", defaultValue: none(int), name: "kad-quorum".}:
+      Option[int]
     kadProviderRecordCapacity* {.
       desc: "Provider record capacity.",
       defaultValue: none(int),
