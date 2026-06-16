@@ -164,7 +164,7 @@ proc handleIncoming*(
   ## Returns the payloads deliverable now, in causal order. Empty when SDS
   ## consumed the message; `err` when the bytes are not an SDS envelope.
   let msg = deserializeMessage(wire).valueOr:
-    return err("SDS deserialization failed")
+    return err("SDS deserialization failed: " & $error)
 
   ## Pre-filter: `unwrapReceivedMessage` auto-creates the channel it sees on
   ## the wire, so foreign traffic must not reach it.
