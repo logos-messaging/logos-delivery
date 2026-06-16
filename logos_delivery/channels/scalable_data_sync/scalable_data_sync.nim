@@ -9,10 +9,10 @@
 {.push raises: [].}
 
 import std/[options, tables]
+from std/times import initDuration, getTime, toUnix, nanosecond
 import results, chronos, chronicles
 import nimcrypto/keccak
 import stew/byteutils
-from std/times import initDuration, getTime, toUnix, nanosecond
 
 import sds
 import message as sds_message
