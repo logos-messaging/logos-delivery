@@ -43,7 +43,7 @@ type
     ## Invoked with a full SDS envelope to rebroadcast (SDS-R repair).
 
   SdsHandler* = ref object
-    rm: ReliabilityManager
+    reliabilityManager: ReliabilityManager
     channelId: SdsChannelID
     pendingContent: OrderedTable[SdsMessageID, seq[byte]]
       ## Segments parked until their causal dependencies arrive.
@@ -74,7 +74,7 @@ proc computeMessageId(self: SdsHandler, payload: seq[byte]): SdsMessageID =
 proc installCallbacks(self: SdsHandler) =
   ## Direct field assignment is race-free here: no periodic task or protocol
   ## op has started yet.
-  self.rm.onMessageReady = proc(
+  self.reliabilityManager.onMessageReady = proc(
       messageId: SdsMessageID, channelId: SdsChannelID
   ) {.gcsafe.} =
     ## Fires during unwrap, under the manager lock — must stay synchronous.
@@ -86,12 +86,12 @@ proc installCallbacks(self: SdsHandler) =
       self.released.add(self.pendingContent.getOrDefault(messageId))
       self.pendingContent.del(messageId)
 
-  self.rm.onMessageSent = proc(
+  self.reliabilityManager.onMessageSent = proc(
       messageId: SdsMessageID, channelId: SdsChannelID
   ) {.gcsafe.} =
     debug "SDS message acknowledged", channelId, messageId
 
-  self.rm.onMissingDependencies = proc(
+  self.reliabilityManager.onMissingDependencies = proc(
       messageId: SdsMessageID, missingDeps: seq[HistoryEntry], channelId: SdsChannelID
   ) {.gcsafe.} =
     ## Recovery via SDS sync / SDS-R for now; targeted store fetch by
@@ -99,7 +99,7 @@ proc installCallbacks(self: SdsHandler) =
     debug "SDS message has missing dependencies",
       channelId, messageId, missing = missingDeps.len
 
-  self.rm.onRepairReady = proc(message: seq[byte], channelId: SdsChannelID) {.gcsafe.} =
+  self.reliabilityManager.onRepairReady = proc(message: seq[byte], channelId: SdsChannelID) {.gcsafe.} =
     if not self.onRebroadcast.isNil():
       self.onRebroadcast(message)
 
@@ -120,7 +120,7 @@ proc new*(
     participantId, reliabilityConfig, config.persistence.get(noOpPersistence())
   )
   let handler = T(
-    rm: rm,
+    reliabilityManager: rm,
     channelId: channelId,
     pendingContent: initOrderedTable[SdsMessageID, seq[byte]](),
     released: @[],
@@ -135,11 +135,11 @@ proc start*(self: SdsHandler) =
   ## lazily on first use: `wrapOutgoing` and `handleIncoming` both ensure
   ## the channel, and `handleIncoming` loads before its duplicate check so a
   ## replay right after a restart is still caught.
-  self.rm.startPeriodicTasks()
+  self.reliabilityManager.startPeriodicTasks()
 
 proc stop*(self: SdsHandler) {.async: (raises: []).} =
   ## Cancels the background loops. Persisted state is left intact.
-  await self.rm.cleanup()
+  await self.reliabilityManager.cleanup()
 
 proc wrapOutgoing*(
     self: SdsHandler, payload: seq[byte]
@@ -147,7 +147,7 @@ proc wrapOutgoing*(
   ## Wraps a segment with reliability metadata and registers it in the SDS
   ## outgoing buffer awaiting end-to-end acknowledgement.
   let wrapped = (
-    await self.rm.wrapOutgoingMessage(
+    await self.reliabilityManager.wrapOutgoingMessage(
       payload, self.computeMessageId(payload), self.channelId
     )
   ).valueOr:
@@ -174,16 +174,16 @@ proc handleIncoming*(
     try:
       ## Load persisted state before the duplicate check, so a replay right
       ## after a restart is not re-delivered. Idempotent, cheap once loaded.
-      (await self.rm.ensureChannel(self.channelId)).isOkOr:
+      (await self.reliabilityManager.ensureChannel(self.channelId)).isOkOr:
         return err("SDS ensureChannel failed: " & $error)
 
       ## The unwrap result does not distinguish first delivery from
       ## duplicate, so capture delivered-before up front.
-      let ctx = self.rm.channels.getOrDefault(self.channelId)
+      let ctx = self.reliabilityManager.channels.getOrDefault(self.channelId)
       let isDuplicate = not ctx.isNil() and msg.messageId in ctx.messageHistory
 
       self.released.setLen(0)
-      let unwrapped = (await self.rm.unwrapReceivedMessage(wire)).valueOr:
+      let unwrapped = (await self.reliabilityManager.unwrapReceivedMessage(wire)).valueOr:
         return err("SDS unwrap failed: " & $error)
 
       if isDuplicate:
