@@ -6,20 +6,10 @@ import libp2p/[peerid, multiaddress, peerinfo, extended_peer_record]
 import libp2p/protocols/kademlia/types
 import libp2p/protocols/service_discovery/types as sd_types
 import logos_delivery/waku/waku_core/peers
+import logos_delivery/waku/discovery/waku_kademlia
 
 logScope:
   topics = "waku conf builder kademlia discovery"
-
-type KademliaDiscoveryConf* = object
-  bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
-  servicesToAdvertise*: seq[ServiceInfo]
-  servicesToDiscover*: seq[string]
-  randomLookupInterval*: Duration
-  serviceLookupInterval*: Duration
-  kadDhtConfig*: KadDHTConfig
-  discoConfig*: sd_types.ServiceDiscoveryConfig
-  clientMode*: bool
-  xprPublishing*: bool
 
 const
   DefaultKadEnabled*: bool = false
