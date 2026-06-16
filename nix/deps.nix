@@ -277,9 +277,10 @@
   };
 
   sds = pkgs.fetchgit {
+    # Keep in sync with the nim-sds pin in nimble.lock.
     url = "https://github.com/logos-messaging/nim-sds.git";
-    rev = "abdd40cc645f1b024c3ee99cced7e287c4e4c441";
-    sha256 = "01k49sljxnzjy82jljcffwqkaqvhpj1aiz605gv429sbzgyfr8mm";
+    rev = "b12f5ee07c5b764303b51fb948b32a4ade1de3b5";
+    sha256 = "1z8f0v1ww7y6zssdacjxfs6s4862dwckw25df3yn1v0qnz40rpc8";
     fetchSubmodules = true;
   };
 

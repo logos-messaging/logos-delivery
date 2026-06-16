@@ -623,8 +623,8 @@
       }
     },
     "sds": {
-      "version": "#abdd40cc645f1b024c3ee99cced7e287c4e4c441",
-      "vcsRevision": "abdd40cc645f1b024c3ee99cced7e287c4e4c441",
+      "version": "#b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
+      "vcsRevision": "b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
       "url": "https://github.com/logos-messaging/nim-sds.git",
       "downloadMethod": "git",
       "dependencies": [
@@ -636,10 +636,10 @@
         "stint",
         "metrics",
         "results",
-        "taskpools"
+        "ffi"
       ],
       "checksums": {
-        "sha1": "61c4ae13c6896bfa70e662520e8660a78c7f438c"
+        "sha1": "175f65038b9877cdf974b07c5f83081f810d5fbe"
       }
     },
     "ffi": {

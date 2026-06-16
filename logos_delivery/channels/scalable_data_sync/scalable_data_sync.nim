@@ -1,62 +1,216 @@
 ## Scalable Data Sync (SDS) component for the Reliable Channel API.
 ##
-## Provides end-to-end delivery guarantees via causal history tracking,
-## acknowledgements, and retransmission of unacknowledged segments.
-##
-## Skeleton: `wrapOutgoing` and `handleIncoming` are pass-throughs so
-## the send/receive circuit can exercise the surrounding pipeline.
-## Real SDS wrapping will plug in via `nim-sds` later.
+## `SdsHandler` adapts one nim-sds `ReliabilityManager` to a single channel:
+## `wrapOutgoing` adds reliability metadata to outgoing segments,
+## `handleIncoming` unwraps incoming ones and enforces causal-order delivery.
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import results
+{.push raises: [].}
+
+import std/[options, tables]
+import results, chronos, chronicles
+import nimcrypto/keccak
+import stew/byteutils
+from std/times import initDuration, getTime, toUnix, nanosecond
+
+import sds
 import message as sds_message
+import types/persistence as sds_persistence_types
 
-import ./sds_persistence
+export sds_message, sds_persistence_types
 
-export sds_message, sds_persistence
+logScope:
+  topics = "sds-handler"
 
 const
   DefaultAcknowledgementTimeoutMs* = 5_000
   DefaultMaxRetransmissions* = 5
   DefaultCausalHistorySize* = 2
+  MaxPendingContent = 1024
+    ## Bound on segments parked while their causal dependencies are missing.
 
 type
   SdsConfig* = object
     acknowledgementTimeoutMs*: int
     maxRetransmissions*: int
     causalHistorySize*: int
-    persistence*: SdsPersistence
+    persistence*: Option[Persistence]
+      ## Durability backend. `none` runs memory-only: reliability still
+      ## works, state does not survive a restart.
+
+  RebroadcastHandler* = proc(wire: seq[byte]) {.gcsafe, raises: [].}
+    ## Invoked with a full SDS envelope to rebroadcast (SDS-R repair).
 
   SdsHandler* = ref object
-    config*: SdsConfig
-    participantId*: SdsParticipantID
+    rm: ReliabilityManager
+    channelId: SdsChannelID
+    pendingContent: OrderedTable[SdsMessageID, seq[byte]]
+      ## Segments parked until their causal dependencies arrive.
+    released: seq[seq[byte]]
+      ## Parked segments released by the unwrap currently in flight;
+      ## filled via `onMessageReady`, drained by `handleIncoming`.
+    ingressLock: AsyncLock
+      ## Serializes `handleIncoming` so `released` belongs to exactly one
+      ## in-flight unwrap and delivery order stays causal.
+    participantId: SdsParticipantID
+    onRebroadcast*: RebroadcastHandler
+      ## Set by the owning `ReliableChannel` after construction — the closure
+      ## captures the channel to run its dispatch tail, so it cannot be
+      ## passed to `new`. The other callbacks need no channel and are wired
+      ## internally in `installCallbacks`.
+
+proc computeMessageId(self: SdsHandler, payload: seq[byte]): SdsMessageID =
+  ## keccak-256(senderId + wrap-time nanoseconds + content): unique per
+  ## segment, so identical content is not collapsed by the SDS dedup.
+  let now = getTime()
+  var ctx: keccak256
+  ctx.init()
+  ctx.update(string(self.participantId))
+  ctx.update($(now.toUnix() * 1_000_000_000 + now.nanosecond()))
+  ctx.update(payload)
+  SdsMessageID(byteutils.toHex(ctx.finish().data))
+
+proc installCallbacks(self: SdsHandler) =
+  ## Direct field assignment is race-free here: no periodic task or protocol
+  ## op has started yet.
+  self.rm.onMessageReady = proc(
+      messageId: SdsMessageID, channelId: SdsChannelID
+  ) {.gcsafe.} =
+    ## Fires during unwrap, under the manager lock — must stay synchronous.
+    ## Collect only; `handleIncoming` delivers after the direct content.
+    ## The manager owns a single channel, so `channelId` is always ours; the
+    ## check documents that invariant and guards against future misuse.
+    if channelId == self.channelId and messageId in self.pendingContent:
+      debug "SDS releasing buffered message, dependencies met", channelId, messageId
+      self.released.add(self.pendingContent.getOrDefault(messageId))
+      self.pendingContent.del(messageId)
+
+  self.rm.onMessageSent = proc(
+      messageId: SdsMessageID, channelId: SdsChannelID
+  ) {.gcsafe.} =
+    debug "SDS message acknowledged", channelId, messageId
+
+  self.rm.onMissingDependencies = proc(
+      messageId: SdsMessageID, missingDeps: seq[HistoryEntry], channelId: SdsChannelID
+  ) {.gcsafe.} =
+    ## Recovery via SDS sync / SDS-R for now; targeted store fetch by
+    ## retrieval hint is a planned follow-up.
+    debug "SDS message has missing dependencies",
+      channelId, messageId, missing = missingDeps.len
+
+  self.rm.onRepairReady = proc(message: seq[byte], channelId: SdsChannelID) {.gcsafe.} =
+    if not self.onRebroadcast.isNil():
+      self.onRebroadcast(message)
 
 proc new*(
     T: type SdsHandler,
     config: SdsConfig,
-    participantId: SdsParticipantID = SdsParticipantID(""),
+    channelId: SdsChannelID,
+    participantId: SdsParticipantID,
 ): T =
-  return T(config: config, participantId: participantId)
+  ## One `ReliabilityManager` per channel. `participantId` feeds SDS-R
+  ## response groups; an empty id disables repair participation.
+  let reliabilityConfig = ReliabilityConfig.init(
+    maxCausalHistory = config.causalHistorySize,
+    resendInterval = initDuration(milliseconds = config.acknowledgementTimeoutMs),
+    maxResendAttempts = config.maxRetransmissions,
+  )
+  let rm = ReliabilityManager.new(
+    participantId, reliabilityConfig, config.persistence.get(noOpPersistence())
+  )
+  let handler = T(
+    rm: rm,
+    channelId: channelId,
+    pendingContent: initOrderedTable[SdsMessageID, seq[byte]](),
+    released: @[],
+    ingressLock: newAsyncLock(),
+    participantId: participantId,
+  )
+  handler.installCallbacks()
+  return handler
+
+proc start*(self: SdsHandler) =
+  ## Starts the SDS background loops. Persisted channel state is restored
+  ## lazily on first use: `wrapOutgoing` and `handleIncoming` both ensure
+  ## the channel, and `handleIncoming` loads before its duplicate check so a
+  ## replay right after a restart is still caught.
+  self.rm.startPeriodicTasks()
+
+proc stop*(self: SdsHandler) {.async: (raises: []).} =
+  ## Cancels the background loops. Persisted state is left intact.
+  await self.rm.cleanup()
 
 proc wrapOutgoing*(
-    self: SdsHandler,
-    channelId: SdsChannelID,
-    senderId: SdsParticipantID,
-    payload: seq[byte],
-): Result[seq[byte], string] =
-  ## Stage 2 of the outgoing pipeline (segmentation -> sds -> rate_limit_manager -> encryption).
-  ## Skeleton: pass the encoded segment through unchanged. Real causal
-  ## history / lamport / bloom-filter population will replace this.
-  return ok(payload)
+    self: SdsHandler, payload: seq[byte]
+): Future[Result[seq[byte], string]] {.async: (raises: []).} =
+  ## Wraps a segment with reliability metadata and registers it in the SDS
+  ## outgoing buffer awaiting end-to-end acknowledgement.
+  let wrapped = (
+    await self.rm.wrapOutgoingMessage(
+      payload, self.computeMessageId(payload), self.channelId
+    )
+  ).valueOr:
+    return err("SDS wrap failed: " & $error)
+  return ok(wrapped)
 
 proc handleIncoming*(
-    self: SdsHandler, msg: seq[byte]
-): Result[tuple[content: seq[byte], channelId: SdsChannelID], string] =
-  ## Skeleton: pass the bytes through; channel id is left empty until
-  ## the real wire format provides it.
-  return ok((content: msg, channelId: SdsChannelID("")))
+    self: SdsHandler, wire: seq[byte]
+): Future[Result[seq[seq[byte]], string]] {.async: (raises: []).} =
+  ## Returns the payloads deliverable now, in causal order. Empty when SDS
+  ## consumed the message; `err` when the bytes are not an SDS envelope.
+  let msg = deserializeMessage(wire).valueOr:
+    return err("SDS deserialization failed")
 
-proc tickRetransmissions*(self: SdsHandler) =
-  ## Drives retransmissions of unacknowledged messages.
-  discard
+  ## Pre-filter: `unwrapReceivedMessage` auto-creates the channel it sees on
+  ## the wire, so foreign traffic must not reach it.
+  if msg.channelId != self.channelId:
+    debug "dropping SDS message for foreign channel",
+      channelId = self.channelId, wireChannelId = msg.channelId
+    return ok(newSeq[seq[byte]]())
+
+  try:
+    await self.ingressLock.acquire()
+    try:
+      ## Load persisted state before the duplicate check, so a replay right
+      ## after a restart is not re-delivered. Idempotent, cheap once loaded.
+      (await self.rm.ensureChannel(self.channelId)).isOkOr:
+        return err("SDS ensureChannel failed: " & $error)
+
+      ## The unwrap result does not distinguish first delivery from
+      ## duplicate, so capture delivered-before up front.
+      let ctx = self.rm.channels.getOrDefault(self.channelId)
+      let isDuplicate = not ctx.isNil() and msg.messageId in ctx.messageHistory
+
+      self.released.setLen(0)
+      let unwrapped = (await self.rm.unwrapReceivedMessage(wire)).valueOr:
+        return err("SDS unwrap failed: " & $error)
+
+      if isDuplicate:
+        return ok(newSeq[seq[byte]]())
+
+      if unwrapped.missingDeps.len > 0:
+        if self.pendingContent.len >= MaxPendingContent:
+          var oldest: SdsMessageID
+          for k in self.pendingContent.keys:
+            oldest = k
+            break
+          self.pendingContent.del(oldest)
+          warn "SDS pending-content stash full, dropping oldest entry",
+            channelId = self.channelId, dropped = oldest
+        self.pendingContent[msg.messageId] = unwrapped.message
+        return ok(newSeq[seq[byte]]())
+
+      var deliverable = newSeq[seq[byte]]()
+      if unwrapped.message.len > 0:
+        ## Empty content is sync traffic: causal metadata only.
+        deliverable.add(unwrapped.message)
+      deliverable.add(self.released)
+      self.released.setLen(0)
+      return ok(deliverable)
+    finally:
+      self.ingressLock.release()
+  except CatchableError:
+    return err("SDS handleIncoming failed: " & getCurrentExceptionMsg())
+
+{.pop.}

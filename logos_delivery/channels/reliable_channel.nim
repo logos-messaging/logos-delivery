@@ -125,6 +125,10 @@ func getContentTopic*(self: ReliableChannel): ContentTopic {.inline.} =
 func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
   self.senderId
 
+proc stop*(self: ReliableChannel) {.async: (raises: []).} =
+  ## Stops the SDS background loops. Persisted SDS state survives.
+  await self.sdsHandler.stop()
+
 proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
   ## Tries to finalize the channel-level request identified by `channelReqId` if
   ## certain conditions are met, i.e., no segments are still awaiting dispatch or in flight,
@@ -290,7 +294,7 @@ proc onReadyToSend(
 
 proc send*(
     self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
-): Result[RequestId, string] =
+): Future[Result[RequestId, string]] {.async: (raises: []).} =
   ## Single application-level send. The first three stages of the
   ## outgoing pipeline are chained explicitly so the flow is visible
   ## at a glance:
@@ -316,9 +320,7 @@ proc send*(
   for segmentBytes in self.segmentation.performSegmentation(payload):
     ## Segments arrive already encoded; the segmentation module owns
     ## the wire format so SDS only ever sees opaque bytes.
-    let sdsBytes = self.sdsHandler.wrapOutgoing(
-      self.channelId, self.senderId, segmentBytes
-    ).valueOr:
+    let sdsBytes = (await self.sdsHandler.wrapOutgoing(segmentBytes)).valueOr:
       return err("SDS wrap failed: " & error)
     enqueued.add(sdsBytes)
     segmentCount.inc()
@@ -330,6 +332,48 @@ proc send*(
     self.rateLimit.enqueueToSend(sdsBytes)
 
   return ok(channelReqId)
+
+proc reportReceived(self: ReliableChannel, content: seq[byte]) =
+  ## Tail of the ingress pipeline (reassemble -> emit).
+  let reassembled = self.segmentation.handleIncomingSegment(content)
+  if reassembled.isSome():
+    ## Emit on the captured `brokerCtx` (the manager's), so the
+    ## application listener that the manager has set up on that same
+    ## context picks the event up.
+    ChannelMessageReceivedEvent.emit(
+      self.brokerCtx,
+      ChannelMessageReceivedEvent(
+        channelId: self.channelId,
+        senderId: self.senderId,
+        payload: reassembled.get().payload,
+      ),
+    )
+
+proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []).} =
+  ## Repair rebroadcasts skip the rate-limit queue — its emissions are
+  ## claimed FIFO by pending sends. Pacing is done by SDS itself.
+  let encRes = await Encrypt.request(wire)
+  let encrypted = encRes.valueOr:
+    debug "SDS repair rebroadcast dropped: encryption failed",
+      channelId = self.channelId, error = error
+    return
+
+  ## Ephemeral: the original message is already store-persisted.
+  let envelope = MessageEnvelope(
+    contentTopic: self.contentTopic,
+    payload: seq[byte](encrypted),
+    ephemeral: true,
+    meta: LipWireReliableChannelVersion.toBytes(),
+  )
+
+  let sendRes =
+    try:
+      await self.sendHandler(envelope)
+    except CatchableError as e:
+      Result[RequestId, string].err("messaging send raised: " & e.msg)
+  if sendRes.isErr():
+    debug "SDS repair rebroadcast dropped: dispatch failed",
+      channelId = self.channelId, error = sendRes.error
 
 proc onMessageReceived(
     self: ReliableChannel, messageHash: string, payload: seq[byte]
@@ -357,23 +401,13 @@ proc onMessageReceived(
     return
   let plaintextBytes = seq[byte](plaintext)
 
-  let unwrapped = self.sdsHandler.handleIncoming(plaintextBytes)
-  if unwrapped.isErr():
+  ## SDS returns every payload deliverable now, in causal order — the
+  ## message itself plus any parked segments it released. Empty = consumed
+  ## by SDS; `err` = not a decodable SDS envelope. Both drop here.
+  let deliverable = (await self.sdsHandler.handleIncoming(plaintextBytes)).valueOr:
     return
-
-  let reassembled = self.segmentation.handleIncomingSegment(unwrapped.get().content)
-  if reassembled.isSome():
-    ## Emit on the captured `brokerCtx` (the manager's), so the
-    ## application listener that the manager has set up on that same
-    ## context picks the event up.
-    ChannelMessageReceivedEvent.emit(
-      self.brokerCtx,
-      ChannelMessageReceivedEvent(
-        channelId: self.channelId,
-        senderId: self.senderId,
-        payload: reassembled.get().payload,
-      ),
-    )
+  for content in deliverable:
+    self.reportReceived(content)
 
 proc new*(
     T: type ReliableChannel,
@@ -403,11 +437,16 @@ proc new*(
     senderId: senderId,
     rng: libp2p_crypto.newRng(),
     segmentation: SegmentationHandler.new(segConfig),
-    sdsHandler: SdsHandler.new(sdsConfig, senderId),
+    sdsHandler: SdsHandler.new(sdsConfig, channelId, senderId),
     rateLimit: RateLimitManager.new(rateConfig, channelId, brokerCtx),
     channelReqs: initOrderedTable[RequestId, ChannelReqState](),
     brokerCtx: brokerCtx,
   )
+
+  ## SDS-R repair rebroadcasts go straight to the dispatch tail.
+  chn.sdsHandler.onRebroadcast = proc(wire: seq[byte]) {.gcsafe, raises: [].} =
+    asyncSpawn chn.dispatchRepair(wire)
+  chn.sdsHandler.start()
 
   ## Each channel owns its own egress + ingress + send-completion
   ## listeners on `chn.brokerCtx`, filtered to traffic addressed to
