@@ -165,8 +165,6 @@ proc unwrapLocked(
 ): Future[Result[seq[seq[byte]], string]] {.async: (raises: []).} =
   ## Ingress work that must run under `ingressLock`: loads persisted state,
   ## filters duplicates, unwraps, and returns the payloads deliverable now.
-  ## Split out of `handleIncoming` so the lock is released — and a release
-  ## failure reported — on a single path after this returns.
 
   ## Load persisted state before the duplicate check, so a replay right
   ## after a restart is not re-delivered. Idempotent, cheap once loaded.
