@@ -16,6 +16,7 @@ import
   ../waku_rln_relay/rln_relay,
   ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
+  ../discovery/waku_kademlia,
   ../node/waku_metrics,
   ../common/logging,
   ../common/rate_limit/setting,

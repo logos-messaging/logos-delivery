@@ -53,7 +53,6 @@ import
     waku_enr,
     waku_peer_exchange,
     waku_rln_relay,
-    factory/conf_builder/kademlia_discovery_conf_builder,
     common/rate_limit/setting,
     common/callbacks,
     common/nimchronos,

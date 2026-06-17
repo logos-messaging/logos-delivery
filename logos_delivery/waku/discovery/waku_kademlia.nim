@@ -1,7 +1,7 @@
 import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/[sequtils, sets]
+import std/[options, sequtils, sets]
 import
   chronos,
   chronicles,
@@ -39,6 +39,17 @@ type WakuKademlia* = ref object
   serviceLookupInterval: Duration
   servicesToDiscover: HashSet[string]
   servicesToAdvertise: HashSet[ServiceInfo]
+
+type KademliaDiscoveryConf* = object
+  bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
+  servicesToAdvertise*: seq[ServiceInfo]
+  servicesToDiscover*: seq[string]
+  randomLookupInterval*: Duration
+  serviceLookupInterval*: Duration
+  kadDhtConfig*: KadDHTConfig
+  discoConfig*: ServiceDiscoveryConfig
+  clientMode*: bool
+  xprPublishing*: bool
 
 proc extractMixPubKey(service: ServiceInfo): Option[Curve25519Key] =
   if service.id != MixProtocolID:
