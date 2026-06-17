@@ -68,7 +68,8 @@ import
   ./test_waku_switch,
   ./test_waku_rendezvous,
   ./test_waku_metadata,
-  ./waku_discv5/test_waku_discv5
+  ./waku_discv5/test_waku_discv5,
+  ./waku_kademlia/test_waku_kademlia
 
 # Waku Keystore test suite
 import ./test_waku_keystore_keyfile, ./test_waku_keystore

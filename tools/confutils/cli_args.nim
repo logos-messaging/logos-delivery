@@ -685,159 +685,17 @@ hence would have reachability issues.""",
       name: "kad-bootstrap-node"
     .}: seq[string]
 
-    kadDiscoverServices* {.
-      desc:
-        "Service ID to periodically discover via kademlia (e.g. 'mix'). Argument may be repeated.",
-      name: "kad-discover-service"
-    .}: seq[string]
-
-    kadAdvertiseServices* {.
-      desc:
-        "Service to advertise in format 'serviceId:hexEncodedData' (e.g. mix:0123abcd). Argument may be repeated.",
-      name: "kad-advertise-service"
-    .}: seq[string]
-
     kadRandomLookupIntervalSec* {.
-      desc: "Interval seconds between random kademlia lookups (0 uses default).",
-      defaultValue: 0,
+      desc: "Interval seconds between random kademlia lookups.",
+      defaultValue: 60,
       name: "kad-random-lookup-interval"
     .}: uint32
 
     kadServiceLookupIntervalSec* {.
-      desc:
-        "Interval seconds between service-specific kademlia lookups (0 uses default).",
-      defaultValue: 0,
+      desc: "Interval seconds between service-specific kademlia lookups.",
+      defaultValue: 60,
       name: "kad-service-lookup-interval"
     .}: uint32
-
-    # ServiceDiscoveryConfig (disco) tunables
-    kadKRegister* {.
-      desc: "Kademlia kRegister (providers per service registration).",
-      defaultValue: none(int),
-      name: "kad-k-register"
-    .}: Option[int]
-    kadKLookup* {.
-      desc: "Kademlia kLookup.", defaultValue: none(int), name: "kad-k-lookup"
-    .}: Option[int]
-    kadFLookup* {.
-      desc: "Kademlia fLookup.", defaultValue: none(int), name: "kad-f-lookup"
-    .}: Option[int]
-    kadFReturn* {.
-      desc: "Kademlia fReturn.", defaultValue: none(int), name: "kad-f-return"
-    .}: Option[int]
-    kadAdvertExpirySec* {.
-      desc: "Advert expiry seconds.",
-      defaultValue: none(uint32),
-      name: "kad-advert-expiry"
-    .}: Option[uint32]
-    kadAdvertCacheCap* {.
-      desc: "Advert cache capacity.",
-      defaultValue: none(uint64),
-      name: "kad-advert-cache-cap"
-    .}: Option[uint64]
-    kadOccupancyExp* {.
-      desc: "Occupancy exponent (float).",
-      defaultValue: none(float),
-      name: "kad-occupancy-exp"
-    .}: Option[float]
-    kadSafetyParam* {.
-      desc: "Safety param G (float).",
-      defaultValue: none(float),
-      name: "kad-safety-param"
-    .}: Option[float]
-    kadIpSimCoefficient* {.
-      desc: "IP similarity coefficient (float).",
-      defaultValue: none(float),
-      name: "kad-ip-sim-coefficient"
-    .}: Option[float]
-    kadRegistrationWindowSec* {.
-      desc: "Registration window seconds.",
-      defaultValue: none(uint32),
-      name: "kad-registration-window"
-    .}: Option[uint32]
-    kadBucketsCount* {.
-      desc: "Buckets count (M).", defaultValue: none(int), name: "kad-buckets-count"
-    .}: Option[int]
-
-    # KadDHTConfig tunables (core kademlia)
-    kadTimeoutSec* {.
-      desc: "Kademlia RPC timeout seconds.",
-      defaultValue: none(uint32),
-      name: "kad-timeout"
-    .}: Option[uint32]
-    kadBucketRefreshTimeSec* {.
-      desc: "Bucket refresh time seconds.",
-      defaultValue: none(uint32),
-      name: "kad-bucket-refresh-time"
-    .}: Option[uint32]
-    kadRetries* {.
-      desc: "Kademlia retries.", defaultValue: none(int), name: "kad-retries"
-    .}: Option[int]
-    kadReplication* {.
-      desc: "Kademlia replication (k).",
-      defaultValue: none(int),
-      name: "kad-replication"
-    .}: Option[int]
-    kadAlpha* {.
-      desc: "Kademlia alpha (concurrency).", defaultValue: none(int), name: "kad-alpha"
-    .}: Option[int]
-    kadQuorum* {.desc: "Kademlia quorum.", defaultValue: none(int), name: "kad-quorum".}:
-      Option[int]
-    kadProviderRecordCapacity* {.
-      desc: "Provider record capacity.",
-      defaultValue: none(int),
-      name: "kad-provider-record-capacity"
-    .}: Option[int]
-    kadProvidedKeyCapacity* {.
-      desc: "Provided key capacity.",
-      defaultValue: none(int),
-      name: "kad-provided-key-capacity"
-    .}: Option[int]
-    kadRepublishProvidedKeysIntervalSec* {.
-      desc: "Republish provided keys interval seconds.",
-      defaultValue: none(uint32),
-      name: "kad-republish-provided-keys-interval"
-    .}: Option[uint32]
-    kadCleanupProvidersIntervalSec* {.
-      desc: "Cleanup providers interval seconds.",
-      defaultValue: none(uint32),
-      name: "kad-cleanup-providers-interval"
-    .}: Option[uint32]
-    kadProviderExpirationIntervalSec* {.
-      desc: "Provider expiration interval seconds.",
-      defaultValue: none(uint32),
-      name: "kad-provider-expiration-interval"
-    .}: Option[uint32]
-    kadRecordExpirationIntervalSec* {.
-      desc: "Record expiration interval seconds.",
-      defaultValue: none(uint32),
-      name: "kad-record-expiration-interval"
-    .}: Option[uint32]
-    kadCleanupDataEntriesIntervalSec* {.
-      desc: "Cleanup data entries interval seconds.",
-      defaultValue: none(uint32),
-      name: "kad-cleanup-data-entries-interval"
-    .}: Option[uint32]
-    kadHideConnectionStatus* {.
-      desc: "Hide connection status in kademlia.",
-      defaultValue: none(bool),
-      name: "kad-hide-connection-status"
-    .}: Option[bool]
-    kadDisableBootstrapping* {.
-      desc: "Disable kademlia bootstrapping.",
-      defaultValue: none(bool),
-      name: "kad-disable-bootstrapping"
-    .}: Option[bool]
-    kadProviderRejection* {.
-      desc: "Enable provider rejection (with max-providers-per-key).",
-      defaultValue: none(bool),
-      name: "kad-provider-rejection"
-    .}: Option[bool]
-    kadMaxProvidersPerKey* {.
-      desc: "Max providers per key ( >0 to enforce; omit or <=0 for unlimited).",
-      defaultValue: none(int),
-      name: "kad-max-providers-per-key"
-    .}: Option[int]
 
     ## websocket config
     websocketSupport* {.
@@ -1336,17 +1194,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.enableKadDiscovery.isSome():
     b.kademliaDiscoveryConf.withEnabled(n.enableKadDiscovery.get())
   b.kademliaDiscoveryConf.withBootstrapNodes(n.kadBootstrapNodes)
-  b.kademliaDiscoveryConf.withServicesToDiscover(n.kadDiscoverServices)
-
-  if n.kadAdvertiseServices.len > 0:
-    var adv: seq[(string, seq[byte])]
-    for s in n.kadAdvertiseServices:
-      let parts = s.split(':', 1)
-      if parts.len == 2:
-        let data = utils.fromHex(parts[1])
-        adv.add((parts[0], data))
-    if adv.len > 0:
-      b.kademliaDiscoveryConf.withServicesToAdvertise(adv)
 
   if n.kadRandomLookupIntervalSec > 0:
     b.kademliaDiscoveryConf.withRandomLookupInterval(
@@ -1356,84 +1203,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.kademliaDiscoveryConf.withServiceLookupInterval(
       chronos.seconds(n.kadServiceLookupIntervalSec.int64)
     )
-
-  # Disco tunables
-  if n.kadKRegister.isSome():
-    b.kademliaDiscoveryConf.withKadKRegister(n.kadKRegister.get())
-  if n.kadKLookup.isSome():
-    b.kademliaDiscoveryConf.withKadKLookup(n.kadKLookup.get())
-  if n.kadFLookup.isSome():
-    b.kademliaDiscoveryConf.withKadFLookup(n.kadFLookup.get())
-  if n.kadFReturn.isSome():
-    b.kademliaDiscoveryConf.withKadFReturn(n.kadFReturn.get())
-  if n.kadAdvertExpirySec.isSome():
-    b.kademliaDiscoveryConf.withKadAdvertExpiry(
-      chronos.seconds(n.kadAdvertExpirySec.get().int64)
-    )
-  if n.kadAdvertCacheCap.isSome():
-    b.kademliaDiscoveryConf.withKadAdvertCacheCap(n.kadAdvertCacheCap.get())
-  if n.kadOccupancyExp.isSome():
-    b.kademliaDiscoveryConf.withKadOccupancyExp(n.kadOccupancyExp.get())
-  if n.kadSafetyParam.isSome():
-    b.kademliaDiscoveryConf.withKadSafetyParam(n.kadSafetyParam.get())
-  if n.kadIpSimCoefficient.isSome():
-    b.kademliaDiscoveryConf.withKadIpSimCoefficient(n.kadIpSimCoefficient.get())
-  if n.kadRegistrationWindowSec.isSome():
-    b.kademliaDiscoveryConf.withKadRegistrationWindow(
-      chronos.seconds(n.kadRegistrationWindowSec.get().int64)
-    )
-  if n.kadBucketsCount.isSome():
-    b.kademliaDiscoveryConf.withKadBucketsCount(n.kadBucketsCount.get())
-
-  # KadDHT tunables
-  if n.kadTimeoutSec.isSome():
-    b.kademliaDiscoveryConf.withKadTimeout(chronos.seconds(n.kadTimeoutSec.get().int64))
-  if n.kadBucketRefreshTimeSec.isSome():
-    b.kademliaDiscoveryConf.withKadBucketRefreshTime(
-      chronos.seconds(n.kadBucketRefreshTimeSec.get().int64)
-    )
-  if n.kadRetries.isSome():
-    b.kademliaDiscoveryConf.withKadRetries(n.kadRetries.get())
-  if n.kadReplication.isSome():
-    b.kademliaDiscoveryConf.withKadReplication(n.kadReplication.get())
-  if n.kadAlpha.isSome():
-    b.kademliaDiscoveryConf.withKadAlpha(n.kadAlpha.get())
-  if n.kadQuorum.isSome():
-    b.kademliaDiscoveryConf.withKadQuorum(n.kadQuorum.get())
-  if n.kadProviderRecordCapacity.isSome():
-    b.kademliaDiscoveryConf.withKadProviderRecordCapacity(
-      n.kadProviderRecordCapacity.get()
-    )
-  if n.kadProvidedKeyCapacity.isSome():
-    b.kademliaDiscoveryConf.withKadProvidedKeyCapacity(n.kadProvidedKeyCapacity.get())
-  if n.kadRepublishProvidedKeysIntervalSec.isSome():
-    b.kademliaDiscoveryConf.withKadRepublishProvidedKeysInterval(
-      chronos.seconds(n.kadRepublishProvidedKeysIntervalSec.get().int64)
-    )
-  if n.kadCleanupProvidersIntervalSec.isSome():
-    b.kademliaDiscoveryConf.withKadCleanupProvidersInterval(
-      chronos.seconds(n.kadCleanupProvidersIntervalSec.get().int64)
-    )
-  if n.kadProviderExpirationIntervalSec.isSome():
-    b.kademliaDiscoveryConf.withKadProviderExpirationInterval(
-      chronos.seconds(n.kadProviderExpirationIntervalSec.get().int64)
-    )
-  if n.kadRecordExpirationIntervalSec.isSome():
-    b.kademliaDiscoveryConf.withKadRecordExpirationInterval(
-      chronos.seconds(n.kadRecordExpirationIntervalSec.get().int64)
-    )
-  if n.kadCleanupDataEntriesIntervalSec.isSome():
-    b.kademliaDiscoveryConf.withKadCleanupDataEntriesInterval(
-      chronos.seconds(n.kadCleanupDataEntriesIntervalSec.get().int64)
-    )
-  if n.kadHideConnectionStatus.isSome():
-    b.kademliaDiscoveryConf.withKadHideConnectionStatus(n.kadHideConnectionStatus.get())
-  if n.kadDisableBootstrapping.isSome():
-    b.kademliaDiscoveryConf.withKadDisableBootstrapping(n.kadDisableBootstrapping.get())
-  if n.kadProviderRejection.isSome():
-    b.kademliaDiscoveryConf.withKadProviderRejection(n.kadProviderRejection.get())
-  if n.kadMaxProvidersPerKey.isSome():
-    b.kademliaDiscoveryConf.withKadMaxProvidersPerKey(n.kadMaxProvidersPerKey.get())
 
   # Mode-driven configuration overrides
   case n.mode

@@ -7,7 +7,7 @@ import
   chronicles,
   results,
   stew/byteutils,
-  libp2p/[peerid, multiaddress, switch],
+  libp2p/[peerid, multiaddress, switch, extended_peer_record],
   libp2p/extended_peer_record,
   libp2p/crypto/crypto,
   libp2p/crypto/rng,
@@ -42,8 +42,8 @@ type WakuKademlia* = ref object
 
 type KademliaDiscoveryConf* = object
   bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
-  servicesToAdvertise*: seq[ServiceInfo]
-  servicesToDiscover*: seq[string]
+  servicesToAdvertise*: HashSet[ServiceInfo]
+  servicesToDiscover*: HashSet[string]
   randomLookupInterval*: Duration
   serviceLookupInterval*: Duration
   kadDhtConfig*: KadDHTConfig
@@ -51,12 +51,12 @@ type KademliaDiscoveryConf* = object
   clientMode*: bool
   xprPublishing*: bool
 
-proc extractMixPubKey(service: ServiceInfo): Option[Curve25519Key] =
+proc extractMixPubKey*(service: ServiceInfo): Option[Curve25519Key] =
   if service.id != MixProtocolID:
     return none(Curve25519Key)
 
   if service.data.len != Curve25519KeySize:
-    error "invalid mix pub key length",
+    trace "invalid mix pub key length",
       expected = Curve25519KeySize,
       actual = service.data.len,
       dataHex = byteutils.toHex(service.data)
@@ -66,15 +66,17 @@ proc extractMixPubKey(service: ServiceInfo): Option[Curve25519Key] =
 
   return some(key)
 
-proc remotePeerInfoFrom(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
+proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
   if record.addresses.len == 0:
-    error "missing addresses", peerId = record.peerId
+    trace "missing addresses", peerId = record.peerId
     return none(RemotePeerInfo)
 
   let addrs = record.addresses.mapIt(it.address)
   if addrs.len == 0:
-    error "no dialable addresses", peerId = record.peerId
+    trace "no dialable addresses", peerId = record.peerId
     return none(RemotePeerInfo)
+
+  let protocols = record.services.mapIt(it.id)
 
   var mixPubKey: Option[Curve25519Key] = none(Curve25519Key)
   for service in record.services:
@@ -89,9 +91,33 @@ proc remotePeerInfoFrom(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
 
   return some(
     RemotePeerInfo.init(
-      record.peerId, addrs = addrs, origin = PeerOrigin.Kademlia, mixPubKey = mixPubKey
+      record.peerId,
+      addrs = addrs,
+      protocols = protocols,
+      origin = PeerOrigin.Kademlia,
+      mixPubKey = mixPubKey,
     )
   )
+
+proc processRecords(
+    self: WakuKademlia, records: seq[ExtendedPeerRecord], source: string
+): seq[RemotePeerInfo] =
+  var discovered: seq[RemotePeerInfo]
+  for record in records:
+    let peerInfo = remotePeerInfoFrom(record).valueOr:
+      continue
+
+    self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+
+    debug "peer added via service discovery",
+      source,
+      peerId = $peerInfo.peerId,
+      addresses = peerInfo.addrs.mapIt($it),
+      protocols = peerInfo.protocols
+
+    discovered.add(peerInfo)
+
+  return discovered
 
 proc lookupServicePeers*(
     self: WakuKademlia, service: string
@@ -110,21 +136,9 @@ proc lookupServicePeers*(
   let advertisements = lookupResult.valueOr:
     return err("service peer lookup failed: " & lookupResult.error)
 
-  var discovered: seq[RemotePeerInfo]
-  for ad in advertisements:
-    let record = ad.data
-    let peerInfo = remotePeerInfoFrom(record).valueOr:
-      continue
+  let records = advertisements.mapIt(it.data)
 
-    self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
-
-    debug "peer added via service discovery",
-      service,
-      peerId = $peerInfo.peerId,
-      addresses = peerInfo.addrs.mapIt($it),
-      protocols = peerInfo.protocols
-
-    discovered.add(peerInfo)
+  let discovered = self.processRecords(records, "service lookup")
 
   debug "service lookup complete", service, found = discovered.len
 
@@ -143,24 +157,12 @@ proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError])
       error "random lookup failed", error
       continue
 
-    var discoveredPeers: seq[RemotePeerInfo]
-    for record in records:
-      let peerInfo = remotePeerInfoFrom(record).valueOr:
-        continue
+    let discovered = self.processRecords(records, "random walk")
 
-      self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+    if discovered.len > 0:
+      PeersDiscoveredEvent.emit(peers = discovered)
 
-      debug "peer added via random walk",
-        peerId = $peerInfo.peerId,
-        addresses = peerInfo.addrs.mapIt($it),
-        protocols = peerInfo.protocols
-
-      discoveredPeers.add(peerInfo)
-
-    if discoveredPeers.len > 0:
-      PeersDiscoveredEvent.emit(peers = discoveredPeers)
-
-    debug "random lookup complete", found = discoveredPeers.len
+    debug "random lookup complete", found = discovered.len
 
 proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]).} =
   debug "periodic service lookup started",
@@ -169,21 +171,36 @@ proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]
   while true:
     await sleepAsync(self.serviceLookupInterval)
 
-    for service in self.servicesToDiscover:
-      let discovered = (await self.lookupServicePeers(service)).valueOr:
-        error "service lookup failed", service, error
+    let futs = self.servicesToDiscover.mapIt(self.lookupServicePeers(it))
+
+    let finishedFuts = await allFinished(futs)
+
+    var discovered: seq[RemotePeerInfo]
+    for fut in finishedFuts:
+      let catchRes = catch:
+        fut.read()
+
+      let res = catchRes.valueOr:
+        error "service lookup failed", error
         continue
 
-      if discovered.len > 0:
-        PeersDiscoveredEvent.emit(peers = discovered)
+      let peerInfos = res.valueOr:
+        error "service lookup failed", error
+        continue
+
+      for peerInfo in peerInfos:
+        discovered.add(peerInfo)
+
+    if discovered.len > 0:
+      PeersDiscoveredEvent.emit(peers = discovered)
 
 proc new*(
     T: type WakuKademlia,
     switch: Switch,
     peerManager: PeerManager,
     bootstrapNodes: seq[(PeerId, seq[MultiAddress])],
-    servicesToAdvertise: seq[ServiceInfo],
-    servicesToDiscover: seq[string],
+    servicesToAdvertise: HashSet[ServiceInfo],
+    servicesToDiscover: HashSet[string],
     randomLookupInterval: Duration = DefaultRandomDiscoveryInterval,
     serviceLookupInterval: Duration = DefaultServiceDiscoveryInterval,
     rng: Rng,
@@ -201,7 +218,7 @@ proc new*(
     config = kadDhtConfig,
     rng = rng,
     client = clientMode,
-    services = servicesToAdvertise,
+    services = servicesToAdvertise.toSeq(),
     discoConfig = discoConfig,
     xprPublishing = xprPublishing,
   )
@@ -211,8 +228,8 @@ proc new*(
     peerManager: peerManager,
     randomLookupInterval: randomLookupInterval,
     serviceLookupInterval: serviceLookupInterval,
-    servicesToDiscover: servicesToDiscover.toHashSet(),
-    servicesToAdvertise: servicesToAdvertise.toHashSet(),
+    servicesToDiscover: servicesToDiscover,
+    servicesToAdvertise: servicesToAdvertise,
   )
 
   return ok(self)

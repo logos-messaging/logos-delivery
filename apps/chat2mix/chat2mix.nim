@@ -464,19 +464,17 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     var kadBootstrapPeers: seq[(PeerId, seq[MultiAddress])]
     for nodeStr in conf.kadBootstrapNodes:
       let (peerId, ma) = block:
-        let r = parseFullAddress(nodeStr)
-        if r.isErr:
-          error "Failed to parse kademlia bootstrap node",
-            node = nodeStr, error = r.error
+        parseFullAddress(nodeStr).isOkOr:
+          error "Failed to parse kademlia bootstrap node", node = nodeStr, error
           continue
-        r.get()
+
       kadBootstrapPeers.add((peerId, @[ma]))
 
     if kadBootstrapPeers.len > 0:
       node.mountKademlia(
         KademliaDiscoveryConf(
           bootstrapNodes: kadBootstrapPeers,
-          servicesToDiscover: @["mix"],
+          servicesToDiscover: @[MixProtocolID],
           randomLookupInterval: chronos.seconds(60),
           serviceLookupInterval: chronos.seconds(60),
           kadDhtConfig: KadDHTConfig.new(),

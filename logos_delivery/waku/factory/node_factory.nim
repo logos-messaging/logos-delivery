@@ -175,12 +175,10 @@ proc setupProtocols(
     var kadConf = conf.kademliaDiscoveryConf.get()
 
     if conf.mixConf.isSome():
-      kadConf.servicesToAdvertise.add(
+      let mixService =
         ServiceInfo(id: MixProtocolID, data: @(conf.mixConf.get().mixPubKey))
-      )
-
-    if conf.mixConf.isSome() and MixProtocolID notin kadConf.servicesToDiscover:
-      kadConf.servicesToDiscover.add(MixProtocolID)
+      kadConf.servicesToAdvertise.incl(mixService)
+      kadConf.servicesToDiscover.incl(mixService.id)
 
     node.mountKademlia(kadConf).isOkOr:
       return err("failed to setup service discovery: " & error)
@@ -190,10 +188,11 @@ proc setupProtocols(
       node.brokerCtx,
       proc(serviceId: string): Future[Result[ServicePeersRequest, string]] {.async.} =
         let peers = (await node.wakuKademlia.lookupServicePeers(serviceId)).valueOr:
-          return err(error)
+          return err("failed call to lookupServicePeers: " & error)
         return ok(ServicePeersRequest(serviceId: serviceId, peers: peers)),
     ).isOkOr:
       error "Can't set provider for ServicePeersRequest", error = error
+      return err("Can't set provider for ServicePeersRequest: " & error)
 
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()
