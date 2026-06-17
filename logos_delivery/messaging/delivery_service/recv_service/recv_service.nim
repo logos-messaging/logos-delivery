@@ -107,7 +107,7 @@ proc checkStore*(self: RecvService) {.async.} =
   ## Checks the store for messages that were not received directly and
   ## delivers them via MessageReceivedEvent.
   if self.node.wakuStoreClient.isNil():
-    trace "recv service has no store client mounted, skipping store check"
+    error "recv service has no store client mounted, skipping store check"
     return
 
   self.endTimeToCheck = getNowInNanosecondTime()
