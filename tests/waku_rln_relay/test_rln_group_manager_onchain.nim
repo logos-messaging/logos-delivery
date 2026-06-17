@@ -41,6 +41,7 @@ suite "Onchain group manager":
     stopAnvil(anvilProc)
 
   test "should initialize successfully":
+    echo ">>> should initialize successfully"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -51,23 +52,27 @@ suite "Onchain group manager":
       manager.rlnRelayMaxMessageLimit == 600
 
   test "should error on initialization when chainId does not match":
+    echo ">>> should error on initialization when chainId does not match"
     manager.chainId = utils_onchain.CHAIN_ID + 1
 
     (waitFor manager.init()).isErrOr:
       raiseAssert "Expected error when chainId does not match"
 
   test "should initialize when chainId is set to 0":
+    echo ">>> should initialize when chainId is set to 0"
     manager.chainId = 0x0'u256
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
   test "should error if contract does not exist":
+    echo ">>> should error if contract does not exist"
     manager.ethContractAddress = "0x0000000000000000000000000000000000000000"
 
     (waitFor manager.init()).isErrOr:
       raiseAssert "Expected error when contract address doesn't exist"
 
   test "should error when keystore path and password are provided but file doesn't exist":
+    echo ">>> should error when keystore path and password are provided but file doesn't exist"
     manager.keystorePath = some("/inexistent/file")
     manager.keystorePassword = some("password")
 
@@ -75,6 +80,7 @@ suite "Onchain group manager":
       raiseAssert "Expected error when keystore file doesn't exist"
 
   test "updateMemberCount: reflects on-chain registered member count":
+    echo ">>> updateMemberCount: reflects on-chain registered member count"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -94,6 +100,7 @@ suite "Onchain group manager":
     check waku_rln_number_registered_memberships.value() == float64(credentialCount)
 
   test "updateRoots: appends new on-chain root to validRoots after registration":
+    echo ">>> updateRoots: appends new on-chain root to validRoots after registration"
     # basic check for the soon to be deprecated root contract function, is replaced by getRecentRoots()
     const credentialCount = 6
     let credentials = generateCredentials(credentialCount)
@@ -117,6 +124,7 @@ suite "Onchain group manager":
       manager.validRoots.len == credentialCount
 
   test "updateRecentRoots: appends new on-chain roots from contract cache":
+    echo ">>> updateRecentRoots: appends new on-chain roots from contract cache"
     # Verify that the group_manager list of valid roots is updated correctly from the recent roots
     # cache as new credentials are registered.
 
@@ -149,6 +157,7 @@ suite "Onchain group manager":
       manager.validRoots.items().toSeq().allIt(it != default(MerkleNode))
 
   test "updateRecentRoots: oldest roots are evicted once the window is exceeded":
+    echo ">>> updateRecentRoots: oldest roots are evicted once the window is exceeded"
     const
       initialCount = AcceptableRootWindowSize - RlnContractRootCacheSize
       additionalCount = RlnContractRootCacheSize + 1
@@ -184,6 +193,7 @@ suite "Onchain group manager":
       firstThreeBefore[2] in rootsAfter
 
   test "register: should guard against uninitialized state":
+    echo ">>> register: should guard against uninitialized state"
     let dummyCommitment = default(IDCommitment)
 
     let res = waitFor manager.register(
@@ -197,6 +207,7 @@ suite "Onchain group manager":
       res.error == "OnchainGroupManager is not initialized"
 
   test "register: should register successfully":
+    echo ">>> register: should register successfully"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -213,6 +224,7 @@ suite "Onchain group manager":
       manager.latestIndex == 1
 
   test "register: callback is called":
+    echo ">>> register: callback is called"
     let idCredentials = generateCredentials()
     let idCommitment = idCredentials.idCommitment
 
@@ -243,6 +255,7 @@ suite "Onchain group manager":
     waitFor fut
 
   test "withdraw: should guard against uninitialized state":
+    echo ">>> withdraw: should guard against uninitialized state"
     let idSecretHash = generateCredentials().idSecretHash
 
     let res = waitFor manager.withdraw(idSecretHash)
@@ -252,6 +265,7 @@ suite "Onchain group manager":
       res.error == "OnchainGroupManager is not initialized"
 
   test "validateRoot: should validate good root":
+    echo ">>> validateRoot: should validate good root"
     let idCredentials = generateCredentials()
     let idCommitment = idCredentials.idCommitment
 
@@ -301,6 +315,7 @@ suite "Onchain group manager":
       validated
 
   test "validateRoot: should reject bad root":
+    echo ">>> validateRoot: should reject bad root"
     let idCredentials = generateCredentials()
     let idCommitment = idCredentials.idCommitment
 
@@ -340,6 +355,7 @@ suite "Onchain group manager":
       validated == false
 
   test "validateRoot: fast-paths without refresh when root is in window":
+    echo ">>> validateRoot: fast-paths without refresh when root is in window"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -361,6 +377,7 @@ suite "Onchain group manager":
       manager.lastRootsRefreshMoment == preRefreshTs
 
   test "validateRoot: triggers on-demand refresh when root is not in window":
+    echo ">>> validateRoot: triggers on-demand refresh when root is not in window"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -384,6 +401,7 @@ suite "Onchain group manager":
       manager.validRoots.len > 0
 
   test "validateRoot: throttles refreshes to RootsRefreshMinInterval":
+    echo ">>> validateRoot: throttles refreshes to RootsRefreshMinInterval"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -407,6 +425,7 @@ suite "Onchain group manager":
       manager.lastRootsRefreshMoment == firstRefreshTs
 
   test "validateRoot: concurrent misses coalesce onto a single refresh future":
+    echo ">>> validateRoot: concurrent misses coalesce onto a single refresh future"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -450,6 +469,7 @@ suite "Onchain group manager":
       manager.rootsRefreshInFlightFut == inFlight
 
   test "generateProof: fast-paths without refresh inside throttle window":
+    echo ">>> generateProof: fast-paths without refresh inside throttle window"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -477,6 +497,7 @@ suite "Onchain group manager":
       manager.merkleProofCache == primedCache
 
   test "generateProof: refetches path when cache is empty":
+    echo ">>> generateProof: refetches path when cache is empty"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -499,6 +520,7 @@ suite "Onchain group manager":
       manager.proofPathRefreshInFlightFut != nil
 
   test "ensureFreshMerkleProofPath: errors when membership index is not set":
+    echo ">>> ensureFreshMerkleProofPath: errors when membership index is not set"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -513,6 +535,7 @@ suite "Onchain group manager":
       res.error == "membership index is not set"
 
   test "ensureFreshMerkleProofPath: refetches when throttle window has expired":
+    echo ">>> ensureFreshMerkleProofPath: refetches when throttle window has expired"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -538,6 +561,7 @@ suite "Onchain group manager":
       manager.lastMerklePathCheckMoment > preCheckTs
 
   test "ensureFreshMerkleProofPath: refresh bumps the member-count metric":
+    echo ">>> ensureFreshMerkleProofPath: refresh bumps the member-count metric"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -561,6 +585,7 @@ suite "Onchain group manager":
       waku_rln_number_registered_memberships.value() == float64(credentialCount)
 
   test "generateProof: fast-paths without refresh when path cache is fresh":
+    echo ">>> generateProof: fast-paths without refresh when path cache is fresh"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -588,6 +613,7 @@ suite "Onchain group manager":
       manager.merkleProofCache == primedCache
 
   test "generateProof: refetches path when cache is empty":
+    echo ">>> generateProof: refetches path when cache is empty"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -610,6 +636,7 @@ suite "Onchain group manager":
       manager.proofPathRefreshInFlightFut != nil
 
   test "ensureFreshMerkleProofPath: errors when membership index is not set":
+    echo ">>> ensureFreshMerkleProofPath: errors when membership index is not set"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -624,6 +651,7 @@ suite "Onchain group manager":
       res.error == "membership index is not set"
 
   test "ensureFreshMerkleProofPath: refetches when throttle window has expired":
+    echo ">>> ensureFreshMerkleProofPath: refetches when throttle window has expired"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -649,6 +677,7 @@ suite "Onchain group manager":
       manager.lastMerklePathCheckMoment > preCheckTs
 
   test "ensureFreshMerkleProofPath: refresh bumps the member-count metric":
+    echo ">>> ensureFreshMerkleProofPath: refresh bumps the member-count metric"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -672,6 +701,7 @@ suite "Onchain group manager":
       waku_rln_number_registered_memberships.value() == float64(credentialCount)
 
   test "ensureFreshMerkleProofPath: concurrent calls coalesce onto a single refresh future":
+    echo ">>> ensureFreshMerkleProofPath: concurrent calls coalesce onto a single refresh future"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -715,6 +745,7 @@ suite "Onchain group manager":
       manager.merkleProofCache.len > 0
 
   test "verifyProof: should verify valid proof":
+    echo ">>> verifyProof: should verify valid proof"
     let credentials = generateCredentials()
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
@@ -764,6 +795,7 @@ suite "Onchain group manager":
       verified
 
   test "verifyProof: should reject invalid proof":
+    echo ">>> verifyProof: should reject invalid proof"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -806,6 +838,7 @@ suite "Onchain group manager":
       verified == false
 
   test "root queue should be updated correctly":
+    echo ">>> root queue should be updated correctly"
     const credentialCount = 9
     let credentials = generateCredentials(credentialCount)
     (waitFor manager.init()).isOkOr:
@@ -843,6 +876,7 @@ suite "Onchain group manager":
       manager.validRoots.len == credentialCount
 
   test "isReady should return false if ethRpc is none":
+    echo ">>> isReady should return false if ethRpc is none"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -858,6 +892,7 @@ suite "Onchain group manager":
       isReady == false
 
   test "isReady should return true if ethRpc is ready":
+    echo ">>> isReady should return true if ethRpc is ready"
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -871,6 +906,7 @@ suite "Onchain group manager":
       isReady == true
 
   test "proof roundtrip: generateRlnProofWithWitness -> verifyRlnProof":
+    echo ">>> proof roundtrip: generateRlnProofWithWitness -> verifyRlnProof"
     ## Smoke test: proof gen -> wire serialize -> deserialize -> ffi_verify_with_roots.
     let credentials = generateCredentials()
 
