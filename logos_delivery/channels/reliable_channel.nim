@@ -403,8 +403,18 @@ proc onMessageReceived(
 
   ## SDS returns every payload deliverable now, in causal order — the
   ## message itself plus any parked segments it released. Empty = consumed
-  ## by SDS; `err` = not a decodable SDS envelope. Both drop here.
+  ## by SDS (parked or duplicate). `err` is a real ingress failure here: the
+  ## marker/contentTopic filter already ran, so surface it as an error event
+  ## rather than dropping it silently.
   let deliverable = (await self.sdsHandler.handleIncoming(plaintextBytes)).valueOr:
+    MessageErrorEvent.emit(
+      self.brokerCtx,
+      MessageErrorEvent(
+        requestId: RequestId(""),
+        messageHash: messageHash,
+        error: "SDS handleIncoming failed: " & error,
+      ),
+    )
     return
   for content in deliverable:
     self.reportReceived(content)
