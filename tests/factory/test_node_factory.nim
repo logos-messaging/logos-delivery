@@ -137,12 +137,18 @@ asynctest "Start a node based on default test configuration":
 
 suite "Auto-port retry":
   asynctest "metrics binds on free TCP port, fails on taken":
-    let takenPort = Port(55100)
-    let freePort = Port(55101)
-    let taken = createStreamServer(initTAddress("127.0.0.1", takenPort))
+    let taken = createStreamServer(initTAddress("127.0.0.1", Port(0)))
     defer:
       taken.stop()
       await taken.closeWait()
+    let takenPort = taken.localAddress().port
+
+    let freePort = block:
+      let probe = createStreamServer(initTAddress("127.0.0.1", Port(0)))
+      let p = probe.localAddress().port
+      probe.stop()
+      await probe.closeWait()
+      p
 
     proc buildMetricsConf(port: Port): MetricsServerConf =
       var b = MetricsServerConfBuilder.init()
@@ -159,24 +165,29 @@ suite "Auto-port retry":
       await okRes.get().server.close()
 
   asynctest "discv5 binds on free UDP port, fails on taken":
-    let takenPort = Port(55200)
-    let freePort = Port(55201)
-
     proc dummyCb(
         transp: DatagramTransport, raddr: TransportAddress
     ): Future[void] {.async: (raises: []).} =
       discard
-
-    let takenUdp =
-      newDatagramTransport(dummyCb, local = initTAddress("0.0.0.0", takenPort))
-    defer:
-      await takenUdp.closeWait()
 
     let nodeKey = generateSecp256k1Key()
     let node = newTestWakuNode(nodeKey, parseIpAddress("0.0.0.0"), Port(0))
     await node.start()
     defer:
       await node.stop()
+
+    let takenUdp =
+      newDatagramTransport(dummyCb, local = initTAddress("0.0.0.0", Port(0)))
+    defer:
+      await takenUdp.closeWait()
+    let takenPort = takenUdp.localAddress().port
+
+    let freePort = block:
+      let probe =
+        newDatagramTransport(dummyCb, local = initTAddress("0.0.0.0", Port(0)))
+      let p = probe.localAddress().port
+      await probe.closeWait()
+      p
 
     proc buildDiscv5Conf(port: Port): Discv5Conf =
       var b = Discv5ConfBuilder.init()

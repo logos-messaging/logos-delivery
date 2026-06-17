@@ -30,6 +30,7 @@ import
   ./dns_discovery_conf_builder,
   ./discv5_conf_builder,
   ./web_socket_conf_builder,
+  ./quic_conf_builder,
   ./metrics_server_conf_builder,
   ./rate_limit_conf_builder,
   ./rln_relay_conf_builder,
@@ -119,6 +120,7 @@ type WakuConfBuilder* = object
   storeServiceConf*: StoreServiceConfBuilder
   mixConf*: MixConfBuilder
   webSocketConf*: WebSocketConfBuilder
+  quicConf*: QuicConfBuilder
   rateLimitConf*: RateLimitConfBuilder
   kademliaDiscoveryConf*: KademliaDiscoveryConfBuilder
   # End conf builders
@@ -182,6 +184,7 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     rlnRelayConf: RlnRelayConfBuilder.init(),
     storeServiceConf: StoreServiceConfBuilder.init(),
     webSocketConf: WebSocketConfBuilder.init(),
+    quicConf: QuicConfBuilder.init(),
     rateLimitConf: RateLimitConfBuilder.init(),
     kademliaDiscoveryConf: KademliaDiscoveryConfBuilder.init(),
   )
@@ -648,6 +651,9 @@ proc build*(
   let webSocketConf = builder.webSocketConf.build().valueOr:
     return err("WebSocket Conf building failed: " & $error)
 
+  let quicConf = builder.quicConf.build().valueOr:
+    return err("QUIC Conf building failed: " & $error)
+
   let rateLimit = builder.rateLimitConf.build().valueOr:
     return err("Rate limits Conf building failed: " & $error)
 
@@ -802,6 +808,7 @@ proc build*(
     ),
     portsShift: portsShift,
     webSocketConf: webSocketConf,
+    quicConf: quicConf,
     dnsAddrsNameServers: dnsAddrsNameServers,
     peerPersistence: peerPersistence,
     peerStoreCapacity: builder.peerStoreCapacity,
