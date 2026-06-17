@@ -160,48 +160,15 @@ proc wrapOutgoing*(
     return err("SDS wrap failed: " & $error)
   return ok(wrapped)
 
-proc unwrapLocked(
-    self: SdsHandler, msg: SdsMessage, wire: seq[byte]
-): Future[Result[seq[seq[byte]], string]] {.async: (raises: []).} =
-  ## Ingress work that must run under `ingressLock`: loads persisted state,
-  ## filters duplicates, unwraps, and returns the payloads deliverable now.
-
-  ## Load persisted state before the duplicate check, so a replay right
-  ## after a restart is not re-delivered. Idempotent, cheap once loaded.
-  (await self.reliabilityManager.ensureChannel(self.channelId)).isOkOr:
-    return err("SDS ensureChannel failed: " & $error)
-
-  ## The unwrap result does not distinguish first delivery from
-  ## duplicate, so capture delivered-before up front.
-  let ctx = self.reliabilityManager.channels.getOrDefault(self.channelId)
-  let isDuplicate = not ctx.isNil() and msg.messageId in ctx.messageHistory
-
-  self.released.setLen(0)
-  let unwrapped = (await self.reliabilityManager.unwrapReceivedMessage(wire)).valueOr:
-    return err("SDS unwrap failed: " & $error)
-
-  if isDuplicate:
-    return ok(newSeq[seq[byte]]())
-
-  if unwrapped.missingDeps.len > 0:
-    if self.pendingContent.len >= MaxPendingContent:
-      var oldest: SdsMessageID
-      for k in self.pendingContent.keys:
-        oldest = k
-        break
-      self.pendingContent.del(oldest)
-      warn "SDS pending-content stash full, dropping oldest entry",
-        channelId = self.channelId, dropped = oldest
-    self.pendingContent[msg.messageId] = unwrapped.message
-    return ok(newSeq[seq[byte]]())
-
-  var deliverable = newSeq[seq[byte]]()
-  if unwrapped.message.len > 0:
-    ## Empty content is sync traffic: causal metadata only.
-    deliverable.add(unwrapped.message)
-  deliverable.add(self.released)
-  self.released.setLen(0)
-  return ok(deliverable)
+proc releaseIngressLock(self: SdsHandler): Result[void, string] =
+  ## Releasing a lock we hold should not fail; if it does, the locking
+  ## invariant is broken. Return it so the caller can surface a real err
+  ## instead of dropping it — which a `defer` release could not do.
+  try:
+    self.ingressLock.release()
+    ok()
+  except AsyncLockError as e:
+    err("SDS ingress lock release failed: " & e.msg)
 
 proc handleIncoming*(
     self: SdsHandler, wire: seq[byte]
@@ -218,22 +185,60 @@ proc handleIncoming*(
       channelId = self.channelId, wireChannelId = msg.channelId
     return ok(newSeq[seq[byte]]())
 
-  ## Only the lock acquisition can raise (CancelledError); the unwrap work is
-  ## `raises: []`, so the try stays scoped to exactly the acquire.
+  ## Only the lock acquisition can raise (CancelledError); the unwrap work
+  ## below is `raises: []`, so the try stays scoped to exactly the acquire.
   try:
     await self.ingressLock.acquire()
   except CancelledError:
     return err("SDS handleIncoming cancelled before acquiring ingress lock")
 
-  let res = await self.unwrapLocked(msg, wire)
+  ## Funnel every unwrap outcome into `res` so the lock is released once on
+  ## the tail path, where `releaseIngressLock` can surface its own error.
+  var res: Result[seq[seq[byte]], string]
+  block ingress:
+    ## Load persisted state before the duplicate check, so a replay right
+    ## after a restart is not re-delivered. Idempotent, cheap once loaded.
+    (await self.reliabilityManager.ensureChannel(self.channelId)).isOkOr:
+      res = err("SDS ensureChannel failed: " & $error)
+      break ingress
 
-  ## Release on the single exit path. A failure here means the locking
-  ## invariant is broken, so surface it as an error instead of dropping it.
-  try:
-    self.ingressLock.release()
-  except AsyncLockError as e:
-    return err("SDS ingress lock release failed: " & e.msg)
+    ## The unwrap result does not distinguish first delivery from
+    ## duplicate, so capture delivered-before up front.
+    let ctx = self.reliabilityManager.channels.getOrDefault(self.channelId)
+    let isDuplicate = not ctx.isNil() and msg.messageId in ctx.messageHistory
 
+    self.released.setLen(0)
+    let unwrapped = (await self.reliabilityManager.unwrapReceivedMessage(wire)).valueOr:
+      res = err("SDS unwrap failed: " & $error)
+      break ingress
+
+    if isDuplicate:
+      res = ok(newSeq[seq[byte]]())
+      break ingress
+
+    if unwrapped.missingDeps.len > 0:
+      if self.pendingContent.len >= MaxPendingContent:
+        var oldest: SdsMessageID
+        for k in self.pendingContent.keys:
+          oldest = k
+          break
+        self.pendingContent.del(oldest)
+        warn "SDS pending-content stash full, dropping oldest entry",
+          channelId = self.channelId, dropped = oldest
+      self.pendingContent[msg.messageId] = unwrapped.message
+      res = ok(newSeq[seq[byte]]())
+      break ingress
+
+    var deliverable = newSeq[seq[byte]]()
+    if unwrapped.message.len > 0:
+      ## Empty content is sync traffic: causal metadata only.
+      deliverable.add(unwrapped.message)
+    deliverable.add(self.released)
+    self.released.setLen(0)
+    res = ok(deliverable)
+
+  self.releaseIngressLock().isOkOr:
+    return err(error)
   return res
 
 {.pop.}
