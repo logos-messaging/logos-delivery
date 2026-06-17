@@ -87,18 +87,24 @@ proc networkConfiguration*(
     conf: EndpointConf,
     discv5Conf: Option[Discv5Conf],
     webSocketConf: Option[WebSocketConf],
+    quicConf: Option[QuicConf],
     wakuFlags: CapabilitiesBitfield,
     dnsAddrsNameServers: seq[IpAddress],
     portsShift: uint16,
     clientId: string,
 ): Future[NetConfigResult] {.async.} =
-  ## `udpPort` is only supplied to satisfy underlying APIs but is not
-  ## actually a supported transport for libp2p traffic.
-  var (extIp, extTcpPort, _) = setupNat(
-    conf.natStrategy.string,
-    clientId,
-    Port(uint16(conf.p2pTcpPort) + portsShift),
-    Port(uint16(conf.p2pTcpPort) + portsShift),
+  let tcpBindPort = Port(uint16(conf.p2pTcpPort) + portsShift)
+
+  let (quicEnabled, quicBindPort) =
+    if quicConf.isSome():
+      let qConf = quicConf.get()
+      (true, some(Port(qConf.port.uint16 + portsShift)))
+    else:
+      (false, none(Port))
+
+  # NAT-map the QUIC UDP port (placeholder when QUIC off)
+  var (extIp, extTcpPort, extUdpPort) = setupNat(
+    conf.natStrategy.string, clientId, tcpBindPort, quicBindPort.get(tcpBindPort)
   ).valueOr:
     return err("failed to setup NAT: " & $error)
 
@@ -115,9 +121,15 @@ proc networkConfiguration*(
     ## manual config, the external port is the same as the bind port.
     extPort =
       if (extIp.isSome() or conf.dns4DomainName.isSome()) and extTcpPort.isNone():
-        some(Port(uint16(conf.p2pTcpPort) + portsShift))
+        some(tcpBindPort)
       else:
         extTcpPort
+
+    extQuicPort =
+      if (extIp.isSome() or conf.dns4DomainName.isSome()) and extUdpPort.isNone():
+        quicBindPort
+      else:
+        extUdpPort
 
   # Resolve and use DNS domain IP
   if conf.dns4DomainName.isSome() and extIp.isNone():
@@ -143,7 +155,7 @@ proc networkConfiguration*(
   let netConfigRes = NetConfig.init(
     clusterId = clusterId,
     bindIp = conf.p2pListenAddress,
-    bindPort = Port(uint16(conf.p2pTcpPort) + portsShift),
+    bindPort = tcpBindPort,
     extIp = extIp,
     extPort = extPort,
     extMultiAddrs = conf.extMultiAddrs,
@@ -151,6 +163,9 @@ proc networkConfiguration*(
     wsBindPort = wsBindPort,
     wsEnabled = wsEnabled,
     wssEnabled = wssEnabled,
+    quicBindPort = quicBindPort,
+    quicEnabled = quicEnabled,
+    extQuicPort = extQuicPort,
     dns4DomainName = conf.dns4DomainName,
     discv5UdpPort = discv5UdpPort,
     wakuFlags = some(wakuFlags),

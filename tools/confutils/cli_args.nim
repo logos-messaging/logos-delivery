@@ -714,6 +714,17 @@ hence would have reachability issues.""",
       name: "websocket-secure-cert-path"
     .}: string
 
+    ## quic config
+    quicSupport* {.
+      desc: "Enable QUIC transport:  true|false",
+      defaultValue: false,
+      name: "quic-support"
+    .}: bool
+
+    quicPort* {.
+      desc: "QUIC (UDP) listening port.", defaultValue: 60000, name: "quic-port"
+    .}: Port
+
     ## Rate limitation config, if not set, rate limit checks will not be performed
     rateLimits* {.
       desc:
@@ -1159,6 +1170,9 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.webSocketConf.withSecureEnabled(n.websocketSecureSupport)
   b.webSocketConf.withKeyPath(n.websocketSecureKeyPath)
   b.webSocketConf.withCertPath(n.websocketSecureCertPath)
+
+  b.quicConf.withEnabled(n.quicSupport)
+  b.quicConf.withQuicPort(n.quicPort)
 
   if n.rateLimits.len > 0:
     b.rateLimitConf.withRateLimits(n.rateLimits)

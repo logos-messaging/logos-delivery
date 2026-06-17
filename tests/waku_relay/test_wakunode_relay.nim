@@ -400,7 +400,10 @@ suite "WakuNode - Relay":
   asyncTest "Messages relaying fails with non-overlapping transports (TCP or Websockets)":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), bindPort = Port(0))
+      # tcp/ws isolation: node1 tcp, node2 ws, no shared transport. quic off or they'd share it.
+      node1 = newTestWakuNode(
+        nodeKey1, parseIpAddress("0.0.0.0"), bindPort = Port(0), quicEnabled = false
+      )
       nodeKey2 = generateSecp256k1Key()
       node2 = newTestWakuNode(
         nodeKey2,
@@ -408,6 +411,7 @@ suite "WakuNode - Relay":
         bindPort = Port(0),
         wsBindPort = Port(0),
         wsEnabled = true,
+        quicEnabled = false,
       )
       shard = DefaultRelayShard
       contentTopic = ContentTopic("/waku/2/default-content/proto")

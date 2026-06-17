@@ -2,7 +2,7 @@ import logos_delivery/waku/compat/option_valueor
 {.used.}
 
 import
-  std/json,
+  std/[json, net, sequtils, strutils],
   testutils/unittests,
   chronicles,
   chronos,
@@ -142,3 +142,31 @@ suite "Wakunode2 - Waku initialization":
       parsed["rest"].getInt() != 0
       parsed["discv5Udp"].getInt() != 0
       parsed["metrics"].getInt() != 0
+
+  test "QUIC port=0 auto-binds and advertises the real port":
+    var builder = defaultTestWakuConfBuilder()
+    builder.withP2pListenAddress(parseIpAddress("127.0.0.1"))
+    builder.withP2pTcpPort(Port(0))
+    builder.quicConf.withEnabled(true)
+    builder.quicConf.withQuicPort(Port(0))
+
+    let conf = builder.build().valueOr:
+      raiseAssert error
+    check conf.quicConf.get().port == Port(0)
+
+    var waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+    defer:
+      (waitFor waku.stop()).isOkOr:
+        raiseAssert error
+
+    (waitFor waku.start()).isOkOr:
+      raiseAssert error
+
+    let parsed = parseJson(waku.stateInfo.getNodeInfoItem(NodeInfoId.MyBoundPorts))
+    check parsed["quic"].getInt() != 0
+
+    let quicAddrs = waku.node.announcedAddresses.filterIt("/quic-v1" in $it)
+    check:
+      quicAddrs.len >= 1
+      quicAddrs.allIt("/udp/0/quic-v1" notin $it)

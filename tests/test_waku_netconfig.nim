@@ -130,6 +130,60 @@ suite "Waku NetConfig":
       netConfig.announcedAddresses.len == 2 # Bind address + extAddress
       netConfig.announcedAddresses[1] == extMultiAddrs[0]
 
+  asyncTest "Operator QUIC extMultiAddr suppresses the auto QUIC address":
+    let
+      conf = defaultTestWakuConf()
+      bindPort = conf.endpointConf.p2pTcpPort
+      operatorQuic = ipQuicEndPoint(parseIpAddress("1.2.3.4"), Port(9999))
+
+    # no operator quic addr: node auto-announces its bind-port quic addr
+    let autoRes = NetConfig.init(
+      bindIp = conf.endpointConf.p2pListenAddress,
+      bindPort = bindPort,
+      quicEnabled = true,
+      quicBindPort = some(bindPort),
+    )
+    assert autoRes.isOk(), $autoRes.error
+    check autoRes.get().announcedAddresses.filterIt(it.isQuicAddress()).len == 1
+
+    # operator quic addr given: auto bind-port addr suppressed, only theirs remains
+    let opRes = NetConfig.init(
+      bindIp = conf.endpointConf.p2pListenAddress,
+      bindPort = bindPort,
+      quicEnabled = true,
+      quicBindPort = some(bindPort),
+      extMultiAddrs = @[operatorQuic],
+    )
+    assert opRes.isOk(), $opRes.error
+    let opNetConfig = opRes.get()
+    check:
+      opNetConfig.announcedAddresses.filterIt(it.isQuicAddress()) == @[operatorQuic]
+      opNetConfig.enrMultiaddrs.filterIt(it.isQuicAddress()) == @[operatorQuic]
+
+  asyncTest "Announced QUIC address uses the NAT-mapped external port, not the bind port":
+    let
+      conf = defaultTestWakuConf()
+      extIp = parseIpAddress("1.2.3.4")
+      quicBindPort = Port(60000)
+      natQuicPort = Port(9999) # external UDP port a NAT (UPnP/PMP) mapped for us
+
+    let netConfigRes = NetConfig.init(
+      bindIp = conf.endpointConf.p2pListenAddress,
+      bindPort = conf.endpointConf.p2pTcpPort,
+      extIp = some(extIp),
+      extPort = some(Port(1234)),
+      quicEnabled = true,
+      quicBindPort = some(quicBindPort),
+      extQuicPort = some(natQuicPort),
+    )
+    assert netConfigRes.isOk(), $netConfigRes.error
+
+    let quicAddrs = netConfigRes.get().announcedAddresses.filterIt(it.isQuicAddress())
+    check:
+      quicAddrs.len == 1
+      ("/udp/" & $(natQuicPort.uint16) & "/quic-v1") in $quicAddrs[0]
+      ("/udp/" & $(quicBindPort.uint16) & "/quic-v1") notin $quicAddrs[0]
+
   asyncTest "AnnouncedAddresses uses dns4DomainName over extIp when both are provided":
     let
       conf = defaultTestWakuConf()
@@ -441,6 +495,8 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
+      quicEnabled = true,
+      quicBindPort = some(Port(60000)),
       extMultiAddrs = extMultiAddrs,
       extMultiAddrsOnly = true,
     )
@@ -452,3 +508,4 @@ suite "Waku NetConfig":
     check:
       netConfig.announcedAddresses.len == 1 # ExtAddress
       netConfig.announcedAddresses[0] == extMultiAddrs[0]
+      netConfig.announcedAddresses.filterIt(it.isQuicAddress()).len == 0

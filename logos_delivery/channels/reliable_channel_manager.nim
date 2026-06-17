@@ -5,9 +5,10 @@
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/tables
+import std/[options, tables]
 import results
 import chronos
+import chronicles
 import stew/byteutils
 
 import brokers/broker_context
@@ -15,11 +16,16 @@ import brokers/broker_context
 import logos_delivery/waku/events/message_events as waku_message_events
 import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/waku_core/topics
+import logos_delivery/waku/persistency/sds_persistency
 
 import ./reliable_channel
 import ./encryption/noop_encryption
 
 export reliable_channel
+
+const SdsJobId = "sds"
+  ## One persistency job shared by every channel's SDS state; rows are
+  ## keyed by channelId.
 
 type ReliableChannelManager* = ref object
   channels: Table[ChannelId, ReliableChannel]
@@ -57,8 +63,22 @@ proc start*(self: ReliableChannelManager): Result[void, string] =
   ok()
 
 proc stop*(self: ReliableChannelManager) {.async.} =
-  ## Placeholder mirror of `start`.
-  discard
+  ## Stops every channel's SDS background loops. Persisted state survives.
+  for chn in self.channels.values:
+    await chn.stop()
+  self.channels.clear()
+
+proc sdsPersistence(): Option[Persistence] =
+  ## SDS backend from the Persistency singleton; memory-only fallback when
+  ## it is unavailable (e.g. unit tests).
+  let p = Persistency.instance().valueOr:
+    info "SDS persistence disabled, running memory-only", reason = $error
+    return none(Persistence)
+  let job = p.openJob(SdsJobId).valueOr:
+    warn "SDS persistence disabled, could not open persistency job",
+      jobId = SdsJobId, reason = $error
+    return none(Persistence)
+  return some(newSdsPersistence(job))
 
 proc createReliableChannel*(
     self: ReliableChannelManager,
@@ -90,7 +110,7 @@ proc createReliableChannel*(
     acknowledgementTimeoutMs: DefaultAcknowledgementTimeoutMs,
     maxRetransmissions: DefaultMaxRetransmissions,
     causalHistorySize: DefaultCausalHistorySize,
-    persistence: nil,
+    persistence: sdsPersistence(),
   )
   let rateConfig = RateLimitConfig(
     epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
@@ -114,11 +134,14 @@ proc createReliableChannel*(
 
 proc closeChannel*(
     self: ReliableChannelManager, channelId: ChannelId
-): Result[void, string] =
-  ## Flush state, persist outstanding SDS buffers, release resources.
-  if not self.channels.hasKey(channelId):
+): Future[Result[void, string]] {.async: (raises: []).} =
+  ## Stops the channel's SDS loops and releases the channel. Persisted SDS
+  ## state survives, so re-creating the channel restores it.
+  let chn = self.channels.getOrDefault(channelId)
+  if chn.isNil():
     return err("unknown channel: " & channelId)
   self.channels.del(channelId)
+  await chn.stop()
   return ok()
 
 proc send*(
@@ -126,14 +149,14 @@ proc send*(
     channelId: ChannelId,
     appPayload: seq[byte],
     ephemeral: bool = false,
-): Result[RequestId, string] =
+): Future[Result[RequestId, string]] {.async: (raises: []).} =
   ## Spec-level entry point. Looks the channel up by id and delegates
   ## to `ReliableChannel.send`, which exposes the visible pipeline
   ## segmentation -> sds -> rate_limit_manager -> encryption.
   let chn = self.channels.getOrDefault(channelId)
   if chn.isNil():
     return err("unknown channel: " & channelId)
-  return chn.send(appPayload, ephemeral)
+  return await chn.send(appPayload, ephemeral)
 
 ## Inbound messages are not handed to the manager by direct call. Each
 ## `ReliableChannel` installs its own `MessageReceivedEvent` listener
