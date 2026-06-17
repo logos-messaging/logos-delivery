@@ -160,16 +160,6 @@ proc wrapOutgoing*(
     return err("SDS wrap failed: " & $error)
   return ok(wrapped)
 
-proc releaseIngressLock(self: SdsHandler): Result[void, string] =
-  ## Releasing a lock we hold should not fail; if it does, the locking
-  ## invariant is broken. Return it so the caller can surface a real err
-  ## instead of dropping it — which a `defer` release could not do.
-  try:
-    self.ingressLock.release()
-    ok()
-  except AsyncLockError as e:
-    err("SDS ingress lock release failed: " & e.msg)
-
 proc handleIncoming*(
     self: SdsHandler, wire: seq[byte]
 ): Future[Result[seq[seq[byte]], string]] {.async: (raises: []).} =
@@ -237,8 +227,11 @@ proc handleIncoming*(
     self.released.setLen(0)
     res = ok(deliverable)
 
-  self.releaseIngressLock().isOkOr:
-    return err(error)
+  try:
+    self.ingressLock.release()
+  except AsyncLockError as e:
+    return err("SDS ingress lock release failed: " & e.msg)
+
   return res
 
 {.pop.}
