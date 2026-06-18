@@ -371,7 +371,7 @@ method register*(
       "Failed to get the transaction receipt",
       proc(): Future[ReceiptObject] {.async.} =
         let r = await ethRpc.provider.eth_getTransactionReceipt(txHash)
-        if r.isNil:
+        if r.isNil():
           raise newException(CatchableError, "transaction not yet mined")
         return r,
     )

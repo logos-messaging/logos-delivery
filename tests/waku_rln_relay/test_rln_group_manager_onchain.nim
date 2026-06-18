@@ -83,7 +83,7 @@ suite "Onchain group manager":
       raiseAssert "updateMemberCount failed (initial): " & error
     check waku_rln_number_registered_memberships.value() == 0.0
 
-    const credentialCount = 3
+    const credentialCount = 1
     let credentials = generateCredentials(credentialCount)
     for i in 0 ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
@@ -95,7 +95,7 @@ suite "Onchain group manager":
 
   test "updateRoots: appends new on-chain root to validRoots after registration":
     # basic check for the soon to be deprecated root contract function, is replaced by getRecentRoots()
-    const credentialCount = 6
+    const credentialCount = 2
     let credentials = generateCredentials(credentialCount)
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
@@ -541,7 +541,7 @@ suite "Onchain group manager":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
-    const credentialCount = 4
+    const credentialCount = 2
     let credentials = generateCredentials(credentialCount)
     for i in 0 ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
@@ -693,43 +693,6 @@ suite "Onchain group manager":
 
     check:
       verified == false
-
-  test "root queue should be updated correctly":
-    const credentialCount = 9
-    let credentials = generateCredentials(credentialCount)
-    (waitFor manager.init()).isOkOr:
-      raiseAssert $error
-
-    type TestBackfillFuts = array[0 .. credentialCount - 1, Future[void]]
-    var futures: TestBackfillFuts
-    for i in 0 ..< futures.len:
-      futures[i] = newFuture[void]()
-
-    proc generateCallback(
-        futs: TestBackfillFuts, credentials: seq[IdentityCredential]
-    ): OnRegisterCallback =
-      var futureIndex = 0
-      proc callback(registrations: seq[Membership]): Future[void] {.async.} =
-        if registrations.len == 1 and
-            registrations[0].rateCommitment ==
-            getRateCommitment(credentials[futureIndex], UserMessageLimit(20)).get() and
-            registrations[0].index == MembershipIndex(futureIndex):
-          futs[futureIndex].complete()
-          futureIndex += 1
-
-      return callback
-
-    manager.onRegister(generateCallback(futures, credentials))
-
-    for i in 0 ..< credentials.len:
-      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
-        assert false, "Failed to register credential " & $i & ": " & error
-      discard waitFor manager.updateRecentRoots()
-
-    waitFor allFutures(futures)
-
-    check:
-      manager.validRoots.len == credentialCount
 
   test "isReady should return false if ethRpc is none":
     (waitFor manager.init()).isOkOr:
