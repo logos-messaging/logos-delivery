@@ -6,7 +6,7 @@ import
   testutils/unittests,
   libp2p/crypto/crypto as libp2p_keys,
   libp2p/crypto/curve25519,
-  libp2p/[peerid, multiaddress, switch],
+  libp2p/[peerid, multiaddress, switch, extended_peer_record],
   libp2p/extended_peer_record,
   libp2p/protocols/service_discovery/types as sd_types,
   libp2p_mix/mix_protocol
@@ -19,6 +19,23 @@ import ../testlib/[wakucore, testasync, assertions, futures, testutils]
 import ./utils as kad_utils
 
 suite "Waku Kademlia service discovery":
+  asyncTest "seed node starts with no bootstrap nodes":
+    let
+      switch = newTestSwitch()
+      wk = kad_utils.newTestKademlia(
+        switch, servicesToAdvertise = @[ServiceInfo(id: "/seed/svc/1.0.0", data: @[])]
+      )
+    await switch.start()
+    await wk.start()
+
+    await sleepAsync(FUTURE_TIMEOUT)
+
+    check:
+      not wk.protocol.isNil()
+
+    await wk.stop()
+    await switch.stop()
+
   suite "extractMixPubKey":
     proc validKeyBytes(): seq[byte] =
       var b = newSeq[byte](Curve25519KeySize)
@@ -181,112 +198,6 @@ suite "Waku Kademlia service discovery":
       check:
         res.isOk()
         res.value.len == 0
-
-      await wk.stop()
-      await switch.stop()
-
-  suite "service discovery between nodes":
-    proc bootstrapOf(switch: Switch): (PeerId, seq[MultiAddress]) =
-      (switch.peerInfo.peerId, switch.peerInfo.addrs)
-
-    proc startPair(
-        advertiserPort, discovererPort: uint16, service: string
-    ): tuple[
-      advSwitch: Switch, advKad: WakuKademlia, discSwitch: Switch, discKad: WakuKademlia
-    ] =
-      let advSwitch = newTestSwitch(
-        address =
-          some(MultiAddress.init("/ip4/127.0.0.1/tcp/" & $advertiserPort).tryGet())
-      )
-      let advKad = kad_utils.newTestKademlia(
-        advSwitch,
-        servicesToAdvertise = @[ServiceInfo(id: service, data: @[])],
-        randomLookupInterval = chronos.seconds(60),
-        serviceLookupInterval = chronos.seconds(60),
-      )
-      let discSwitch = newTestSwitch(
-        address =
-          some(MultiAddress.init("/ip4/127.0.0.1/tcp/" & $discovererPort).tryGet())
-      )
-      let discKad = kad_utils.newTestKademlia(
-        discSwitch,
-        bootstrapNodes = @[advSwitch.bootstrapOf()],
-        servicesToDiscover = @[service],
-        randomLookupInterval = chronos.seconds(60),
-        serviceLookupInterval = chronos.seconds(60),
-      )
-      (advSwitch, advKad, discSwitch, discKad)
-
-    proc stopAll(
-        advSwitch: Switch,
-        advKad: WakuKademlia,
-        discSwitch: Switch,
-        discKad: WakuKademlia,
-    ) {.async.} =
-      await allFutures(advKad.stop(), discKad.stop())
-      await allFutures(advSwitch.stop(), discSwitch.stop())
-
-    xasyncTest "two-node service advertise/discover":
-      ## Skipped: the underlying ServiceDiscovery DHT lookup does not converge
-      ## reliably with a two-node setup using a bare test switch. Needs
-      ## investigation of routing-table population and advert propagation before
-      ## this can be re-enabled. The unit suites (extractMixPubKey,
-      ## remotePeerInfoFrom, lookupServicePeers) cover the waku_kademlia logic.
-
-      let service = "/test/svc/1.0.0"
-      let (advSwitch, advKad, discSwitch, discKad) = startPair(61600, 61601, service)
-
-      await allFutures(advSwitch.start(), discSwitch.start())
-      await allFutures(advKad.start(), discKad.start())
-
-      await discSwitch.connect(
-        advSwitch.peerInfo.peerId, advSwitch.peerInfo.listenAddrs
-      )
-      await sleepAsync(FUTURE_TIMEOUT_LONG * 3)
-
-      let res = await discKad.lookupServicePeers(service)
-      check:
-        res.isOk()
-        res.value.len >= 1
-        res.value.anyIt(it.peerId == advSwitch.peerInfo.peerId)
-
-      await stopAll(advSwitch, advKad, discSwitch, discKad)
-
-    xasyncTest "service lookup adds peer to PeerManager with Kademlia origin":
-      ## Skipped alongside the two-node test; same DHT convergence blocker.
-
-      let service = "/test/svc/1.0.0"
-      let (advSwitch, advKad, discSwitch, discKad) = startPair(61610, 61611, service)
-
-      await allFutures(advSwitch.start(), discSwitch.start())
-      await allFutures(advKad.start(), discKad.start())
-
-      await discSwitch.connect(
-        advSwitch.peerInfo.peerId, advSwitch.peerInfo.listenAddrs
-      )
-      await sleepAsync(FUTURE_TIMEOUT_LONG * 3)
-
-      discard await discKad.lookupServicePeers(service)
-
-      let storedPeer = discSwitch.peerStore.getPeer(advSwitch.peerInfo.peerId)
-      check:
-        storedPeer.origin == PeerOrigin.Kademlia
-
-      await stopAll(advSwitch, advKad, discSwitch, discKad)
-
-    asyncTest "seed node starts with no bootstrap nodes":
-      let
-        switch = newTestSwitch()
-        wk = kad_utils.newTestKademlia(
-          switch, servicesToAdvertise = @[ServiceInfo(id: "/seed/svc/1.0.0", data: @[])]
-        )
-      await switch.start()
-      await wk.start()
-
-      await sleepAsync(FUTURE_TIMEOUT)
-
-      check:
-        not wk.protocol.isNil()
 
       await wk.stop()
       await switch.stop()
