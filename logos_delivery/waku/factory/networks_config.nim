@@ -123,6 +123,39 @@ proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
     ],
   )
 
+# cluster-id=16 (Status Production Network)
+# Cluster configuration for the `status.prod` network that Status runs on.
+# RLN is disabled. Starting from the logos-delivery integration, status.prod
+# defaults to auto-sharding with a single shard (numShardsInCluster = 1).
+# Bootstrap is done through the status.prod DNS discovery enrtree plus the
+# fleet boot nodes.
+# Source: https://fleets.waku.org/ and each host's `/config.toml`.
+proc StatusProdConf*(T: type NetworkPresetConf): NetworkPresetConf =
+  const ZeroChainId = 0'u256
+  return NetworkPresetConf(
+    maxMessageSize: "1024KiB",
+    clusterId: 16,
+    rlnRelay: false,
+    rlnRelayEthContractAddress: "",
+    rlnRelayDynamic: false,
+    rlnRelayChainId: ZeroChainId,
+    rlnEpochSizeSec: 0,
+    rlnRelayUserMessageLimit: 0,
+    shardingConf: ShardingConf(kind: AutoSharding, numShardsInCluster: 1),
+    enableKadDiscovery: false,
+    kadBootstrapNodes: @[],
+    mix: false,
+    p2pReliability: false,
+    discv5Discovery: true,
+    discv5BootstrapNodes: @[],
+    entryNodes: @[
+      "enrtree://AMOJVZX4V6EXP7NTJPMAYJYST2QP6AJXYW76IU6VGJS7UVSNDYZG4@boot.prod.status.nodes.status.im",
+      "/dns4/boot-01.do-ams3.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmAR24Mbb6VuzoyUiGx42UenDkshENVDj4qnmmbabLvo31",
+      "/dns4/boot-01.gc-us-central1-a.status.prod.status.im/tcp/30303/p2p/16Uiu2HAm8mUZ18tBWPXDQsaF7PbCKYA35z7WB2xNZH2EVq1qS8LJ",
+      "/dns4/boot-01.ac-cn-hongkong-c.status.prod.status.im/tcp/30303/p2p/16Uiu2HAmGwcE8v7gmJNEWFtZtojYpPMTHy2jBLL6xRk33qgDxFWX",
+    ],
+  )
+
 proc validateShards*(
     shardingConf: ShardingConf, shards: seq[uint16]
 ): Result[void, string] =
