@@ -19,10 +19,8 @@ proc benchmark(
 
   var start_time = getTime()
   for i in 0 .. registerCount - 1:
-    try:
-      await manager.register(idCredentials[i], UserMessageLimit(messageLimit + 1))
-    except Exception, CatchableError:
-      assert false, "exception raised: " & getCurrentExceptionMsg()
+    (await manager.register(idCredentials[i], UserMessageLimit(messageLimit + 1))).isOkOr:
+      assert false, "register failed: " & error
 
     info "registration finished",
       iter = i, elapsed_ms = (getTime() - start_time).inMilliseconds
@@ -47,14 +45,21 @@ proc benchmark(
     proofGenTimes.add(getTime() - generate_time)
 
     let verify_time = getTime()
-    let ok = manager.verifyProof(data, proof).valueOr:
+    discard manager.verifyProof(data, proof).valueOr:
       raiseAssert $error
     proofVerTimes.add(getTime() - verify_time)
     info "iteration finished",
       iter = i, elapsed_ms = (getTime() - start_time).inMilliseconds
 
-  echo "Proof generation times: ", sum(proofGenTimes) div len(proofGenTimes)
-  echo "Proof verification times: ", sum(proofVerTimes) div len(proofVerTimes)
+  proc fmtMs(d: times.Duration): string =
+    formatFloat(d.inNanoseconds.float / 1_000_000.0, ffDecimal, 3) & " ms"
+
+  let avgGen = sum(proofGenTimes) div len(proofGenTimes)
+  let avgVer = sum(proofVerTimes) div len(proofVerTimes)
+  echo "Proof generation   (avg/min/max): ",
+    fmtMs(avgGen), " / ", fmtMs(min(proofGenTimes)), " / ", fmtMs(max(proofGenTimes))
+  echo "Proof verification (avg/min/max): ",
+    fmtMs(avgVer), " / ", fmtMs(min(proofVerTimes)), " / ", fmtMs(max(proofVerTimes))
 
 proc main() =
   # Start a local Ethereum JSON-RPC (Anvil) so that the group-manager setup can connect.

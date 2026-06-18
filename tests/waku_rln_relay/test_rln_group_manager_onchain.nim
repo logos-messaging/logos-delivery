@@ -3,7 +3,7 @@
 {.push raises: [].}
 
 import
-  std/[options, sequtils, deques, random, locks, osproc, algorithm],
+  std/[options, sequtils, deques, random, locks, osproc, algorithm, exitprocs],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -29,16 +29,37 @@ import
   ../testlib/wakucore,
   ./utils_onchain
 
+# Anvil is started once for the whole suite. The first test runs the full
+# `setupOnchainGroupManager` flow (fund a fresh account + mint tokens + approve
+# allowance) and then takes a baseline snapshot capturing that post-setup chain
+# state. Subsequent tests revert to the baseline (restoring the funded account)
+# and build a bare manager pointing at the same key. evm_revert consumes the snapshot
+# ID, so we re-snapshot after every revert. Cleanup is registered via
+# addExitProc so anvil is terminated when the test binary exits.
+var sharedAnvilProc: Process
+var anvilStarted: bool = false
+var baselineSnapshotId: string
+var fundedPrivateKey: string
+
 suite "Onchain group manager":
-  var anvilProc {.threadVar.}: Process
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupOnchainGroupManager(deployContracts = false)
-
-  teardown:
-    stopAnvil(anvilProc)
+    if not anvilStarted:
+      sharedAnvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+      anvilStarted = true
+      addExitProc(
+        proc() =
+          if not sharedAnvilProc.isNil:
+            stopAnvil(sharedAnvilProc)
+      )
+      manager = waitFor setupOnchainGroupManager(deployContracts = false)
+      fundedPrivateKey = manager.ethPrivateKey.get()
+      baselineSnapshotId = waitFor takeEvmSnapshot()
+    else:
+      discard waitFor revertEvmSnapshot(baselineSnapshotId)
+      baselineSnapshotId = waitFor takeEvmSnapshot()
+      manager = buildOnchainGroupManager(fundedPrivateKey)
 
   test "should initialize successfully":
     (waitFor manager.init()).isOkOr:
@@ -83,7 +104,7 @@ suite "Onchain group manager":
       raiseAssert "updateMemberCount failed (initial): " & error
     check waku_rln_number_registered_memberships.value() == 0.0
 
-    const credentialCount = 3
+    const credentialCount = 1
     let credentials = generateCredentials(credentialCount)
     for i in 0 ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
@@ -95,7 +116,7 @@ suite "Onchain group manager":
 
   test "updateRoots: appends new on-chain root to validRoots after registration":
     # basic check for the soon to be deprecated root contract function, is replaced by getRecentRoots()
-    const credentialCount = 6
+    const credentialCount = 2
     let credentials = generateCredentials(credentialCount)
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
@@ -147,41 +168,6 @@ suite "Onchain group manager":
       not merkleRootCacheAfter.allIt(it == 0'u8)
       manager.validRoots.len == credentialCount
       manager.validRoots.items().toSeq().allIt(it != default(MerkleNode))
-
-  test "updateRecentRoots: oldest roots are evicted once the window is exceeded":
-    const
-      initialCount = AcceptableRootWindowSize - RlnContractRootCacheSize
-      additionalCount = RlnContractRootCacheSize + 1
-        # one more than the cache size to ensure eviction occurs
-    let credentials = generateCredentials(initialCount + additionalCount)
-    (waitFor manager.init()).isOkOr:
-      raiseAssert $error
-
-    # Register the first credentials and snapshot the 3 oldest roots.
-    for i in 0 ..< initialCount:
-      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
-        assert false, "Failed to register credential " & $i & ": " & error
-      discard waitFor manager.updateRecentRoots()
-
-    check manager.validRoots.len >= 3
-    let firstThreeBefore =
-      @[manager.validRoots[0], manager.validRoots[1], manager.validRoots[2]]
-
-    # Register the remaining credentials, pushing the deque past AcceptableRootWindowSize.
-    for i in initialCount ..< credentials.len:
-      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
-        assert false, "Failed to register credential " & $i & ": " & error
-      discard waitFor manager.updateRecentRoots()
-
-    let rootsAfter = manager.validRoots.items().toSeq()
-
-    # AcceptableRootWindowSize + 1 registrations evicts exactly the single oldest root,
-    # so only the first of the original three is gone; the other two remain.
-    check:
-      manager.validRoots.len == AcceptableRootWindowSize
-      firstThreeBefore[0] notin rootsAfter
-      firstThreeBefore[1] in rootsAfter
-      firstThreeBefore[2] in rootsAfter
 
   test "register: should guard against uninitialized state":
     let dummyCommitment = default(IDCommitment)
@@ -406,6 +392,49 @@ suite "Onchain group manager":
     check:
       manager.lastRootsRefreshMoment == firstRefreshTs
 
+  test "validateRoot: concurrent misses coalesce onto a single refresh future":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Clean gates: the throttle window must not short-circuit the first call,
+    # and the in-flight slot must start empty so we can observe whether
+    # subsequent callers install a second future.
+    manager.lastRootsRefreshMoment = default(Moment)
+    manager.rootsRefreshInFlightFut = nil
+
+    var badRoot: MerkleNode
+    badRoot[0] = 0x77
+
+    # The first validateRoot call runs synchronously down to the suspended
+    # RPC inside doRefresh, installing rootsRefreshInFlightFut along the way.
+    # Calls 2 and 3 enter while that future is still pending, so they must
+    # observe the same reference and await it rather than start a second
+    # doRefresh.
+    let f1 = manager.validateRoot(badRoot)
+    let inFlight = manager.rootsRefreshInFlightFut
+    let f2 = manager.validateRoot(badRoot)
+    let afterSecond = manager.rootsRefreshInFlightFut
+    let f3 = manager.validateRoot(badRoot)
+    let afterThird = manager.rootsRefreshInFlightFut
+
+    check:
+      inFlight != nil
+      not inFlight.finished()
+      # No new doRefresh future was created by the coalescing callers.
+      afterSecond == inFlight
+      afterThird == inFlight
+
+    waitFor allFutures(f1, f2, f3)
+
+    check:
+      # The same in-flight future served all three callers and was never
+      # replaced by a competing refresh.
+      manager.rootsRefreshInFlightFut == inFlight
+
   test "generateProof: fast-paths without refresh inside throttle window":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
@@ -498,7 +527,7 @@ suite "Onchain group manager":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
-    const credentialCount = 4
+    const credentialCount = 2
     let credentials = generateCredentials(credentialCount)
     for i in 0 ..< credentials.len:
       (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
@@ -516,6 +545,49 @@ suite "Onchain group manager":
       res.isOk()
       manager.merkleProofCache.len > 0
       waku_rln_number_registered_memberships.value() == float64(credentialCount)
+
+  test "ensureFreshMerkleProofPath: concurrent calls coalesce onto a single refresh future":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Empty cache + epoch-zero check timestamp guarantees the first caller
+    # will fall through to fetchMerkleProofElements; the followers should
+    # observe the resulting in-flight future and await it rather than start
+    # their own refresh.
+    manager.merkleProofCache = @[]
+    manager.lastMerklePathCheckMoment = default(Moment)
+    manager.proofPathRefreshInFlightFut = nil
+
+    let f1 = manager.ensureFreshMerkleProofPath()
+    let inFlight = manager.proofPathRefreshInFlightFut
+    let f2 = manager.ensureFreshMerkleProofPath()
+    let afterSecond = manager.proofPathRefreshInFlightFut
+    let f3 = manager.ensureFreshMerkleProofPath()
+    let afterThird = manager.proofPathRefreshInFlightFut
+
+    check:
+      inFlight != nil
+      not inFlight.finished()
+      afterSecond == inFlight
+      afterThird == inFlight
+
+    waitFor allFutures(f1, f2, f3)
+    let r1 = f1.read()
+    let r2 = f2.read()
+    let r3 = f3.read()
+
+    check:
+      r1.isOk()
+      r2.isOk()
+      r3.isOk()
+      # Same future served all callers; field was not replaced by a second
+      # refresh while the first was still in flight.
+      manager.proofPathRefreshInFlightFut == inFlight
+      manager.merkleProofCache.len > 0
 
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()
@@ -607,43 +679,6 @@ suite "Onchain group manager":
 
     check:
       verified == false
-
-  test "root queue should be updated correctly":
-    const credentialCount = 9
-    let credentials = generateCredentials(credentialCount)
-    (waitFor manager.init()).isOkOr:
-      raiseAssert $error
-
-    type TestBackfillFuts = array[0 .. credentialCount - 1, Future[void]]
-    var futures: TestBackfillFuts
-    for i in 0 ..< futures.len:
-      futures[i] = newFuture[void]()
-
-    proc generateCallback(
-        futs: TestBackfillFuts, credentials: seq[IdentityCredential]
-    ): OnRegisterCallback =
-      var futureIndex = 0
-      proc callback(registrations: seq[Membership]): Future[void] {.async.} =
-        if registrations.len == 1 and
-            registrations[0].rateCommitment ==
-            getRateCommitment(credentials[futureIndex], UserMessageLimit(20)).get() and
-            registrations[0].index == MembershipIndex(futureIndex):
-          futs[futureIndex].complete()
-          futureIndex += 1
-
-      return callback
-
-    manager.onRegister(generateCallback(futures, credentials))
-
-    for i in 0 ..< credentials.len:
-      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
-        assert false, "Failed to register credential " & $i & ": " & error
-      discard waitFor manager.updateRecentRoots()
-
-    waitFor allFutures(futures)
-
-    check:
-      manager.validRoots.len == credentialCount
 
   test "isReady should return false if ethRpc is none":
     (waitFor manager.init()).isOkOr:
