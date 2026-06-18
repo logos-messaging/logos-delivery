@@ -33,6 +33,7 @@ type WakuStore* = ref object of LPProtocol
   rng: crypto.Rng
   requestHandler*: StoreQueryRequestHandler
   requestRateLimiter*: RequestRateLimiter
+  inboundRequestPeerId*: Option[PeerId]
 
 ## Protocol
 
@@ -58,6 +59,10 @@ proc handleQueryRequest(
     peerId = requestor, requestId = requestId, request = req
   logos_delivery_store_queries.inc()
 
+  self.inboundRequestPeerId = some(requestor)
+  defer:
+    self.inboundRequestPeerId = none(PeerId)
+
   let queryResult = await self.requestHandler(req)
 
   res = queryResult.valueOr:
@@ -70,8 +75,9 @@ proc handleQueryRequest(
     return (res.encode().buffer, "not_parsed_requestId")
 
   res.requestId = requestId
-  res.statusCode = 200
-  res.statusDesc = "OK"
+  if res.statusCode == 0:
+    res.statusCode = 200
+    res.statusDesc = "OK"
 
   info "sending store query response",
     peerId = requestor, requestId = requestId, messages = res.messages.len
