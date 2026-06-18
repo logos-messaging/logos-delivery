@@ -241,6 +241,25 @@ suite "WakuNodeConf - preset integration":
     check:
       wakuConf.clusterId == 2
 
+  test "StatusProd preset applies StatusProdConf":
+    ## Given
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.preset = "status.prod"
+
+    ## When
+    let wakuConfRes = conf.toWakuConf()
+
+    ## Then
+    require wakuConfRes.isOk()
+    let wakuConf = wakuConfRes.get()
+    require wakuConf.validate().isOk()
+    check:
+      wakuConf.clusterId == 16
+      wakuConf.shardingConf.kind == AutoSharding
+      wakuConf.shardingConf.numShardsInCluster == 1
+      wakuConf.rlnRelayConf.isNone()
+
   test "Invalid preset returns error":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
