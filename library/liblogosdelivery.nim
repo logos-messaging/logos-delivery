@@ -20,6 +20,7 @@ import
 ## Include different APIs, i.e. all procs with {.ffi.} pragma
 
 include
+  ./store_eligibility/eligibility_api,
   ./logos_delivery_api/node_api,
   ./logos_delivery_api/messaging_api,
   ./logos_delivery_api/debug_api,

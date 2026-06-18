@@ -127,6 +127,63 @@ extern "C"
   // header liblogosdelivery_kernel.h. It is intentionally not declared here so
   // this header only promises the stable Messaging / Reliable Channels surface.
 
+  /*
+   * Inbound (provider-side) eligibility verifier.
+   *
+   * Called by liblogosdelivery for every inbound Store request.
+   * Runs on the liblogosdelivery async handler thread;
+   * implementation must not re-enter the library.
+   */
+  typedef int (*EligibilityVerifierCb)(
+      const char *proof_hex,
+      const char *canonical_hex,
+      const char *requester_peer_id,
+      char       *out_desc,
+      size_t      out_desc_len,
+      void       *user_data);
+
+  /*
+   * Outbound (user-side) eligibility provider.
+   *
+   * Called by liblogosdelivery before sending an outgoing Store query
+   * when a provider callback is registered.
+   */
+  typedef int (*EligibilityProviderCb)(
+      const char *canonical_hex,
+      const char *provider_peer_id,
+      char       *out_proof_hex,
+      size_t      out_buf_len,
+      void       *user_data);
+
+  /* Register or replace the inbound eligibility verifier.
+   * Pass NULL to clear a previous registration. */
+  int logosdelivery_set_eligibility_verifier(
+      void                 *ctx,
+      EligibilityVerifierCb cb,
+      void                 *user_data);
+
+  /* Register or replace the outbound eligibility provider.
+   * Pass NULL to clear a previous registration. */
+  int logosdelivery_set_eligibility_provider(
+      void                  *ctx,
+      EligibilityProviderCb cb,
+      void                  *user_data);
+
+  /*
+   * Issue a Store query to the given provider.
+   *
+   * queryJson    – JSON object (see store_api / integration docs for field names)
+   * providerAddr – multiaddr string of the target Store provider peer
+   *
+   * Returns StoreQueryResponse JSON via callback when RET_OK.
+   */
+  int logosdelivery_store_query(
+      void        *ctx,
+      FFICallBack callback,
+      void        *userData,
+      const char  *queryJson,
+      const char  *providerAddr);
+
 #ifdef __cplusplus
 }
 #endif

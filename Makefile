@@ -478,6 +478,25 @@ else ifeq ($(detected_OS),Windows)
 		-lws2_32
 endif
 
+logosdelivery_eligibility_smoke: | build liblogosdelivery
+	@echo -e $(BUILD_MSG) "build/$@"
+ifeq ($(detected_OS),Darwin)
+	gcc -o build/logosdelivery_eligibility_smoke \
+		library/tests/test_eligibility_hooks.c \
+		-I./library \
+		-L./build \
+		-llogosdelivery \
+		-Wl,-rpath,./build
+else ifeq ($(detected_OS),Linux)
+	gcc -o build/logosdelivery_eligibility_smoke \
+		library/tests/test_eligibility_hooks.c \
+		-I./library \
+		-L./build \
+		-llogosdelivery \
+		-Wl,-rpath,'$$ORIGIN'
+endif
+	./build/logosdelivery_eligibility_smoke
+
 cwaku_example: | build liblogosdelivery
 	echo -e $(BUILD_MSG) "build/$@" && \
 		cc -o "build/$@" \
