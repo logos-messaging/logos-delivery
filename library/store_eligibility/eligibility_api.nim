@@ -126,8 +126,6 @@ proc logosdelivery_store_query(
   var storeQueryRequest = storeQueryRequestFromJson(jsonContentRes.get()).valueOr:
     return err("StoreRequest invalid query: " & error)
 
-  storeQueryRequest.eligibilityProof = none(seq[byte])
-
   let (providerCb, providerUserData) = snapshotProviderCb(ctx)
 
   let peer = peers.parsePeerInfo(($providerAddr).split(",")).valueOr:

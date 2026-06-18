@@ -40,6 +40,7 @@ import
   ./waku_store/test_rpc_codec,
   ./waku_store/test_store_eligibility_canonical,
   ./waku_store/test_store_eligibility_hooks,
+  ./waku_store/test_store_query_json_canonical,
   ./waku_store/test_waku_store,
   ./waku_store/test_wakunode_store
 
