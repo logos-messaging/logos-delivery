@@ -1,5 +1,5 @@
 import std/[json, options, strutils, sugar]
-import results
+import results, stew/byteutils
 import
   logos_delivery/waku/waku_core/message/digest,
   logos_delivery/waku/waku_store/common,
@@ -49,10 +49,9 @@ func storeQueryRequestFromJson*(
   var eligibilityProof = none(seq[byte])
   if jsonContent.contains("eligibilityProofHex"):
     let proofHex = jsonContent["eligibilityProofHex"].getStr()
-    eligibilityProof = try:
-      some(proofHex.hexToSeqByte())
-    except ValueError:
-      return err("Failed converting eligibilityProofHex to bytes")
+    let proofBytes = proofHex.hexToSeqByte().valueOr:
+      return err("Failed converting eligibilityProofHex to bytes: " & error)
+    eligibilityProof = some(proofBytes)
 
   let startTime = ?jsonContent.getProtoInt64("timeStart")
   let endTime = ?jsonContent.getProtoInt64("timeEnd")
