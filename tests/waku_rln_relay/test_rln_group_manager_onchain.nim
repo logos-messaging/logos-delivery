@@ -29,14 +29,17 @@ import
   ../testlib/wakucore,
   ./utils_onchain
 
-# Anvil is started once for the whole suite. Between tests, the chain is rolled
-# back via evm_revert to a baseline snapshot taken right after anvil startup
-# (so the cached state-file contracts are restored). evm_revert consumes the
-# snapshot ID, so we re-snapshot after every revert. Cleanup is registered via
+# Anvil is started once for the whole suite. The first test runs the full
+# `setupOnchainGroupManager` flow (fund a fresh account + mint tokens + approve
+# allowance) and then takes a baseline snapshot capturing that post-setup chain
+# state. Subsequent tests revert to the baseline (restoring the funded account)
+# and build a bare manager pointing at the same key. evm_revert consumes the snapshot
+# ID, so we re-snapshot after every revert. Cleanup is registered via
 # addExitProc so anvil is terminated when the test binary exits.
 var sharedAnvilProc: Process
 var anvilStarted: bool = false
 var baselineSnapshotId: string
+var fundedPrivateKey: string
 
 suite "Onchain group manager":
   var manager {.threadVar.}: OnchainGroupManager
@@ -50,11 +53,13 @@ suite "Onchain group manager":
           if not sharedAnvilProc.isNil:
             stopAnvil(sharedAnvilProc)
       )
+      manager = waitFor setupOnchainGroupManager(deployContracts = false)
+      fundedPrivateKey = manager.ethPrivateKey.get()
       baselineSnapshotId = waitFor takeEvmSnapshot()
     else:
       discard waitFor revertEvmSnapshot(baselineSnapshotId)
       baselineSnapshotId = waitFor takeEvmSnapshot()
-    manager = waitFor setupOnchainGroupManager(deployContracts = false)
+      manager = buildOnchainGroupManager(fundedPrivateKey)
 
   test "should initialize successfully":
     (waitFor manager.init()).isOkOr:

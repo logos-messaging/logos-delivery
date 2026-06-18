@@ -142,7 +142,7 @@ proc sendMintCall(
   let balanceOfSelector = "0x70a08231"
   let balanceCallData = balanceOfSelector & paddedAddress
 
-  await sleepAsync(500.milliseconds)
+  await sleepAsync(200.milliseconds)
 
   if doBalanceAssert:
     let balanceAfterMint = await getTokenBalance(web3, tokenAddress, recipientAddress)
@@ -757,5 +757,27 @@ proc setupOnchainGroupManager*(
   )
 
   return manager
+
+proc buildOnchainGroupManager*(
+    privateKey: string, ethClientUrl: string = EthClient
+): OnchainGroupManager =
+  ## Constructs an OnchainGroupManager pointing at the cached RLN proxy contract
+  ## using the supplied private key. No on-chain work happens here — the caller
+  ## is expected to have an Anvil snapshot where this key already owns a funded,
+  ## token-approved account (e.g. via a prior `setupOnchainGroupManager` followed
+  ## by `takeEvmSnapshot`). Each call returns a fresh RLN instance.
+  let rlnInstanceRes = createRlnInstance()
+  check:
+    rlnInstanceRes.isOk()
+  return OnchainGroupManager(
+    ethClientUrls: @[ethClientUrl],
+    ethContractAddress: WAKU_RLNV2_PROXY_ADDRESS,
+    chainId: CHAIN_ID,
+    ethPrivateKey: some(privateKey),
+    rlnInstance: rlnInstanceRes.get(),
+    onFatalErrorAction: proc(errStr: string) =
+      raiseAssert errStr
+    ,
+  )
 
 {.pop.}
