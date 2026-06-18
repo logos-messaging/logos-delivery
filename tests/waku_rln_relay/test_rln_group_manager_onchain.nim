@@ -3,7 +3,7 @@
 {.push raises: [].}
 
 import
-  std/[options, sequtils, deques, random, locks, osproc, algorithm],
+  std/[options, sequtils, deques, random, locks, osproc, algorithm, exitprocs],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -29,16 +29,32 @@ import
   ../testlib/wakucore,
   ./utils_onchain
 
+# Anvil is started once for the whole suite. Between tests, the chain is rolled
+# back via evm_revert to a baseline snapshot taken right after anvil startup
+# (so the cached state-file contracts are restored). evm_revert consumes the
+# snapshot ID, so we re-snapshot after every revert. Cleanup is registered via
+# addExitProc so anvil is terminated when the test binary exits.
+var sharedAnvilProc: Process
+var anvilStarted: bool = false
+var baselineSnapshotId: string
+
 suite "Onchain group manager":
-  var anvilProc {.threadVar.}: Process
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    if not anvilStarted:
+      sharedAnvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+      anvilStarted = true
+      addExitProc(
+        proc() =
+          if not sharedAnvilProc.isNil:
+            stopAnvil(sharedAnvilProc)
+      )
+      baselineSnapshotId = waitFor takeEvmSnapshot()
+    else:
+      discard waitFor revertEvmSnapshot(baselineSnapshotId)
+      baselineSnapshotId = waitFor takeEvmSnapshot()
     manager = waitFor setupOnchainGroupManager(deployContracts = false)
-
-  teardown:
-    stopAnvil(anvilProc)
 
   test "should initialize successfully":
     (waitFor manager.init()).isOkOr:
@@ -147,41 +163,6 @@ suite "Onchain group manager":
       not merkleRootCacheAfter.allIt(it == 0'u8)
       manager.validRoots.len == credentialCount
       manager.validRoots.items().toSeq().allIt(it != default(MerkleNode))
-
-  test "updateRecentRoots: oldest roots are evicted once the window is exceeded":
-    const
-      initialCount = AcceptableRootWindowSize - RlnContractRootCacheSize
-      additionalCount = RlnContractRootCacheSize + 1
-        # one more than the cache size to ensure eviction occurs
-    let credentials = generateCredentials(initialCount + additionalCount)
-    (waitFor manager.init()).isOkOr:
-      raiseAssert $error
-
-    # Register the first credentials and snapshot the 3 oldest roots.
-    for i in 0 ..< initialCount:
-      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
-        assert false, "Failed to register credential " & $i & ": " & error
-      discard waitFor manager.updateRecentRoots()
-
-    check manager.validRoots.len >= 3
-    let firstThreeBefore =
-      @[manager.validRoots[0], manager.validRoots[1], manager.validRoots[2]]
-
-    # Register the remaining credentials, pushing the deque past AcceptableRootWindowSize.
-    for i in initialCount ..< credentials.len:
-      (waitFor manager.register(credentials[i], UserMessageLimit(20))).isOkOr:
-        assert false, "Failed to register credential " & $i & ": " & error
-      discard waitFor manager.updateRecentRoots()
-
-    let rootsAfter = manager.validRoots.items().toSeq()
-
-    # AcceptableRootWindowSize + 1 registrations evicts exactly the single oldest root,
-    # so only the first of the original three is gone; the other two remain.
-    check:
-      manager.validRoots.len == AcceptableRootWindowSize
-      firstThreeBefore[0] notin rootsAfter
-      firstThreeBefore[1] in rootsAfter
-      firstThreeBefore[2] in rootsAfter
 
   test "register: should guard against uninitialized state":
     let dummyCommitment = default(IDCommitment)

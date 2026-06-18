@@ -82,6 +82,13 @@ contract(ERC20Token):
   proc allowance(owner: Address, spender: Address): UInt256 {.view.}
   proc balanceOf(account: Address): UInt256 {.view.}
 
+# Custom Anvil/EVM JSON-RPC method bindings.
+# evm_revert consumes its snapshot ID; callers must re-snapshot after each revert
+# if they want to keep a baseline.
+createRpcSigsFromNim(RpcClient):
+  proc evm_snapshot(): JsonString
+  proc evm_revert(snapshotId: JsonString): JsonString
+
 proc getTokenBalance(
     web3: Web3, tokenAddress: Address, account: Address
 ): Future[UInt256] {.async.} =
@@ -581,6 +588,35 @@ proc runAnvil*(
     return runAnvil
   except: # TODO: Fix "BareExcept" warning
     error "Anvil daemon run failed", err = getCurrentExceptionMsg()
+
+proc takeEvmSnapshot*(ethClientUrl: string = EthClient): Future[string] {.async.} =
+  ## Captures Anvil chain state and returns the snapshot ID as a JSON-encoded
+  ## hex string (e.g. "\"0x1\""). The ID is consumed by revertEvmSnapshot, so
+  ## re-snapshot after revert if you need to roll back to the same baseline again.
+  let web3 = await newWeb3(ethClientUrl)
+  try:
+    let raw = await web3.provider.evm_snapshot()
+    return string(raw)
+  finally:
+    try:
+      await web3.close()
+    except CatchableError:
+      discard
+
+proc revertEvmSnapshot*(
+    snapshotId: string, ethClientUrl: string = EthClient
+): Future[bool] {.async.} =
+  ## Rolls the chain back to the given snapshot. The snapshot ID is consumed by
+  ## this call; take a new snapshot if you intend to revert to this state again.
+  let web3 = await newWeb3(ethClientUrl)
+  try:
+    let raw = await web3.provider.evm_revert(JsonString(snapshotId))
+    return string(raw) == "true"
+  finally:
+    try:
+      await web3.close()
+    except CatchableError:
+      discard
 
 proc stopAnvil*(runAnvil: Process) {.used.} =
   if runAnvil.isNil:
