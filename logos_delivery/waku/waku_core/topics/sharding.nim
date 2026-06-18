@@ -14,9 +14,23 @@ type Sharding* = object
   clusterId*: uint16
   # TODO: generations could be stored in a table here
   shardCountGenZero*: uint32
+  # Optional override for the actual shard ids used by autosharding. When non
+  # empty, it must hold exactly `shardCountGenZero` values: autosharding still
+  # hashes the content topic to an index in `[0..shardCountGenZero-1]`, but the
+  # shard id placed in the pubsub topic is `shardOverride[index]` instead of the
+  # index itself. This allows forcing a specific set of shard values (e.g. to
+  # interoperate with Status) while keeping the autosharding distribution.
+  shardOverride*: seq[uint16]
 
-proc new*(T: type Sharding, clusterId: uint16, shardCount: uint32): T =
-  return Sharding(clusterId: clusterId, shardCountGenZero: shardCount)
+proc new*(
+    T: type Sharding,
+    clusterId: uint16,
+    shardCount: uint32,
+    shardOverride: seq[uint16] = @[],
+): T =
+  return Sharding(
+    clusterId: clusterId, shardCountGenZero: shardCount, shardOverride: shardOverride
+  )
 
 proc getGenZeroShard*(s: Sharding, topic: NsContentTopic, count: int): RelayShard =
   let bytes = toBytes(topic.application) & toBytes(topic.version)
@@ -26,9 +40,17 @@ proc getGenZeroShard*(s: Sharding, topic: NsContentTopic, count: int): RelayShar
   # We only use the last 64 bits of the hash as having more shards is unlikely.
   let hashValue = uint64.fromBytesBE(hash.data[24 .. 31])
 
-  let shard = hashValue mod uint64(count)
+  let index = int(hashValue mod uint64(count))
 
-  RelayShard(clusterId: s.clusterId, shardId: uint16(shard))
+  # The hashed value is an index into the shard space. By default the shard id
+  # equals that index, but a configured override remaps it to a forced value.
+  let shardId =
+    if s.shardOverride.len == count:
+      s.shardOverride[index]
+    else:
+      uint16(index)
+
+  RelayShard(clusterId: s.clusterId, shardId: shardId)
 
 proc getShard*(s: Sharding, topic: NsContentTopic): Result[RelayShard, string] =
   ## Compute the (pubsub topic) shard to use for this content topic.

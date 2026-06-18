@@ -106,6 +106,7 @@ type WakuConfBuilder* = object
   clusterId: Option[uint16]
   shardingConf: Option[ShardingConfKind]
   numShardsInCluster: Option[uint16]
+  shardOverride: Option[seq[uint16]]
   subscribeShards: Option[seq[uint16]]
   protectedShards: Option[seq[ProtectedShard]]
   contentTopics: Option[seq[string]]
@@ -205,6 +206,9 @@ proc withShardingConf*(b: var WakuConfBuilder, shardingConf: ShardingConfKind) =
 
 proc withNumShardsInCluster*(b: var WakuConfBuilder, numShardsInCluster: uint16) =
   b.numShardsInCluster = some(numShardsInCluster)
+
+proc withShardOverride*(b: var WakuConfBuilder, shardOverride: seq[uint16]) =
+  b.shardOverride = some(shardOverride)
 
 proc withSubscribeShards*(b: var WakuConfBuilder, shards: seq[uint16]) =
   b.subscribeShards = some(shards)
@@ -345,6 +349,7 @@ proc nodeKey(
 proc buildShardingConf(
     bShardingConfKind: Option[ShardingConfKind],
     bNumShardsInCluster: Option[uint16],
+    bShardOverride: Option[seq[uint16]],
     bSubscribeShards: Option[seq[uint16]],
 ): (ShardingConf, seq[uint16]) =
   case bShardingConfKind.get(DefaultShardingConfKind)
@@ -352,10 +357,15 @@ proc buildShardingConf(
     (ShardingConf(kind: StaticSharding), bSubscribeShards.get(@[]))
   of AutoSharding:
     let numShardsInCluster = bNumShardsInCluster.get(DefaultNumShardsInCluster)
-    let shardingConf =
-      ShardingConf(kind: AutoSharding, numShardsInCluster: numShardsInCluster)
-    let upperShard = uint16(numShardsInCluster - 1)
-    (shardingConf, bSubscribeShards.get(toSeq(0.uint16 .. upperShard)))
+    let shardingConf = ShardingConf(
+      kind: AutoSharding,
+      numShardsInCluster: numShardsInCluster,
+      shardOverride: bShardOverride.get(@[]),
+    )
+    # Subscribe to every actual shard by default. With a shard override the
+    # actual shards are the override values, otherwise the indices
+    # `[0..numShardsInCluster-1]`.
+    (shardingConf, bSubscribeShards.get(shardingConf.shards()))
 
 template checkSetPresetValueToField[T](
     field: var Option[T], presetVal: T, msg: static string
@@ -603,7 +613,8 @@ proc build*(
       builder.clusterId.get().uint16
 
   let (shardingConf, subscribeShards) = buildShardingConf(
-    builder.shardingConf, builder.numShardsInCluster, builder.subscribeShards
+    builder.shardingConf, builder.numShardsInCluster, builder.shardOverride,
+    builder.subscribeShards,
   )
   let protectedShards = builder.protectedShards.get(@[])
 
