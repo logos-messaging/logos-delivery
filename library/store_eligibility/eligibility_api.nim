@@ -133,7 +133,7 @@ proc logosdelivery_store_query(
   let peer = peers.parsePeerInfo(($providerAddr).split(",")).valueOr:
     return err("StoreRequest failed to parse peer addr: " & $error)
 
-  if not providerCb.isNil:
+  if storeQueryRequest.eligibilityProof.isNone and not providerCb.isNil:
     let canonicalHex = storeEligibilityCanonicalHex(storeQueryRequest)
     var outProof = newString(EligibilityOutProofHexMinLen)
     outProof.setLen(EligibilityOutProofHexMinLen)

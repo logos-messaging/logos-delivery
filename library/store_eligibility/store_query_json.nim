@@ -46,6 +46,14 @@ func storeQueryRequestFromJson*(
     else:
       none(uint64)
 
+  var eligibilityProof = none(seq[byte])
+  if jsonContent.contains("eligibilityProofHex"):
+    let proofHex = jsonContent["eligibilityProofHex"].getStr()
+    eligibilityProof = try:
+      some(proofHex.hexToSeqByte())
+    except ValueError:
+      return err("Failed converting eligibilityProofHex to bytes")
+
   let startTime = ?jsonContent.getProtoInt64("timeStart")
   let endTime = ?jsonContent.getProtoInt64("timeEnd")
 
@@ -61,5 +69,6 @@ func storeQueryRequestFromJson*(
       paginationCursor: paginationCursor,
       paginationForward: paginationForward,
       paginationLimit: paginationLimit,
+      eligibilityProof: eligibilityProof,
     )
   )
