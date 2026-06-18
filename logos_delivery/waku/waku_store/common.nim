@@ -18,6 +18,16 @@ type WakuStoreResult*[T] = Result[T, string]
 ## API types
 
 type
+  EligibilityStatusCode* {.pure, size: sizeof(uint32).} = enum
+    OK = 0
+    PARAMS_REJECTED = 1
+    PROOF_INVALID = 2
+    STREAM_NOT_ACTIVE = 3
+
+  EligibilityStatus* = object
+    code*: EligibilityStatusCode
+    desc*: string
+
   StoreQueryRequest* = object
     requestId*: string
     includeData*: bool
@@ -33,6 +43,8 @@ type
     paginationForward*: PagingDirection
     paginationLimit*: Option[uint64]
 
+    eligibilityProof*: Option[seq[byte]]
+
   WakuMessageKeyValue* = object
     messageHash*: WakuMessageHash
     message*: Option[WakuMessage]
@@ -47,6 +59,8 @@ type
     messages*: seq[WakuMessageKeyValue]
 
     paginationCursor*: Option[WakuMessageHash]
+
+    eligibilityStatus*: Option[EligibilityStatus]
 
   # Types to be used by clients that use the hash in hex
   WakuMessageKeyValueHex* = object

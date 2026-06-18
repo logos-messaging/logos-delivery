@@ -5,6 +5,28 @@ import ../common/[protobuf, paging], ../waku_core, ./common
 
 const DefaultMaxRpcSize* = -1
 
+proc encode*(status: EligibilityStatus): ProtoBuffer =
+  var pb = initProtoBuffer()
+  pb.write3(1, uint32(status.code))
+  pb.write3(2, status.desc)
+  pb.finish3()
+  return pb
+
+proc decode*(
+    T: type EligibilityStatus, buffer: seq[byte]
+): ProtobufResult[EligibilityStatus] =
+  let pb = initProtoBuffer(buffer)
+  var status = EligibilityStatus()
+  var code: uint32
+  if not ?pb.getField(1, code):
+    return err(ProtobufError.missingRequiredField("code"))
+  status.code = EligibilityStatusCode(code)
+  var desc: string
+  if not ?pb.getField(2, desc):
+    return err(ProtobufError.missingRequiredField("desc"))
+  status.desc = desc
+  ok(status)
+
 ### Request ###
 
 proc encode*(req: StoreQueryRequest): ProtoBuffer =
@@ -39,6 +61,8 @@ proc encode*(req: StoreQueryRequest): ProtoBuffer =
   pb.write3(51, req.paginationCursor)
   pb.write3(52, uint32(req.paginationForward))
   pb.write3(53, req.paginationLimit)
+
+  pb.write3(30, req.eligibilityProof)
 
   pb.finish3()
 
@@ -113,6 +137,12 @@ proc decode*(
   else:
     req.paginationLimit = some(limit)
 
+  var proofBytes: seq[byte]
+  if not ?pb.getField(30, proofBytes):
+    req.eligibilityProof = none(seq[byte])
+  else:
+    req.eligibilityProof = some(proofBytes)
+
   return ok(req)
 
 ### Response ###
@@ -142,6 +172,9 @@ proc encode*(res: StoreQueryResponse): ProtoBuffer =
     pb.write3(20, msg.encode())
 
   pb.write3(51, res.paginationCursor)
+
+  if res.eligibilityStatus.isSome():
+    pb.write3(30, res.eligibilityStatus.get().encode())
 
   pb.finish3()
 
@@ -209,5 +242,12 @@ proc decode*(
     var hash: WakuMessageHash
     discard copyFrom[byte](hash, cursor)
     res.paginationCursor = some(hash)
+
+  var statusBuf: seq[byte]
+  if not ?pb.getField(30, statusBuf):
+    res.eligibilityStatus = none(EligibilityStatus)
+  else:
+    let status = ?EligibilityStatus.decode(statusBuf)
+    res.eligibilityStatus = some(status)
 
   return ok(res)

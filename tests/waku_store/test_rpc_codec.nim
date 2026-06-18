@@ -93,3 +93,39 @@ procSuite "Waku Store - RPC codec":
     check:
       # check the correctness of init and encode for an empty HistoryResponseRPC
       decodedEmptyRes.value == emptyRes
+
+  test "StoreQueryRequest protobuf codec - eligibility proof":
+    ## Given
+    let proof = @[byte(0x01), 0x02, 0x03]
+    let query = StoreQueryRequest(
+      requestId: "proof-req", includeData: false, eligibilityProof: some(proof)
+    )
+
+    ## When
+    let pb = query.encode()
+    let decodedQuery = StoreQueryRequest.decode(pb.buffer)
+
+    ## Then
+    check:
+      decodedQuery.isOk()
+      decodedQuery.value == query
+
+  test "StoreQueryResponse protobuf codec - eligibility status":
+    ## Given
+    let res = StoreQueryResponse(
+      requestId: "2",
+      statusCode: uint32(StatusCode.BAD_REQUEST),
+      statusDesc: "bad",
+      messages: @[],
+      eligibilityStatus:
+        some(EligibilityStatus(code: PROOF_INVALID, desc: "proof invalid")),
+    )
+
+    ## When
+    let pb = res.encode()
+    let decodedRes = StoreQueryResponse.decode(pb.buffer)
+
+    ## Then
+    check:
+      decodedRes.isOk()
+      decodedRes.value == res
