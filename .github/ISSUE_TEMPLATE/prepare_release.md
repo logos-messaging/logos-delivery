@@ -13,7 +13,7 @@ Add appropriate release number to title
 
 ### Items to complete, in order
 
-- [ ] Initial validation
+#### Initial validation
   - [ ] Confirm waku.test has been running with new commits on each merge into master (see Grafana boards.)
   - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) since the last release for crashes or errors in waku.test that we didn't detect in CI.
     - Most relevant search queries: `(fleet: "waku.test" AND message: "SIGSEGV")`, `(fleet: "waku.test" AND message: "exception")`, `(fleet: "waku.test" AND message: "error")`.
