@@ -20,11 +20,13 @@ Add appropriate release number to title
     - Detect unexpected reboots.
     - Document any crashes or errors found and fix them before proceeding.
 
+### Create the release candidate
+
 - [ ] Create release branch with major and minor only ( e.g. release/v0.X ).
 - [ ] In release branch, update the `version` field in `logos_delivery.nimble` to match the release version (e.g. `version = "0.X.0"`).
 - [ ] Assign release candidate tag to the release branch HEAD (e.g. `v0.X.0-rc.0`, `v0.X.0-rc.1`, ... `v0.X.0-rc.N`).
 
-- [ ] Validate the release candidate
+#### Validate the release candidate
 
   - [ ] 1. Essential test
     - [ ] Ensure all unit tests are green
@@ -54,8 +56,16 @@ Add appropriate release number to title
 
   - [ ] 5. Submit a PR against release/v0.X with CHANGELOG.md updates (pre-requisite: all previous.)
 
-- [ ] Deployment and release
+#### Complete the release
+  - [ ] Assign a final release tag (`v0.X.0`) to the same commit that contains the latest release-candidate tag (e.g. `git tag -as v0.X.0 -m "final release."`).
+  - [ ] Update [logos-delivery-compose](https://github.com/logos-messaging/logos-delivery-compose) and [logos-delivery-simulator](https://github.com/logos-messaging/logos-delivery-simulator) according to the new release.
+  - [ ] Create GitHub release (https://github.com/logos-messaging/logos-delivery/releases).
+  - [ ] Merge release branch into master
+    - [ ] Create a temporary branch from the release branch. This is needed in case we need to rebase that branch without impacting the release branch. Notice that the release branch should live forever.
+    - [ ] Submit a PR from temporary branch to master. Make sure you use the option "Merge pull request (Create a merge commit)" to perform the merge. Ping repo admin if this option is not available.
+  - [ ] Adjust the status-go and status-app `docker-compose.waku.yml` files (the ones bumped above) so they use the final tag instead of the release candidate one.
 
+#### Deployment
   - [ ] Deploy to waku.sandbox
     - [ ] Confirm the release candidate ran properly in waku.test with the current infra config.
       - [ ] If it did NOT (e.g. CLI params changed): submit PRs to the infra repos adjusting the deprecated or changed arguments (review CHANGELOG.md for that release), add links to them, and wait until they are merged. Infra changes are deployed by the infra team, so this requires coordination with them.
@@ -73,13 +83,6 @@ Add appropriate release number to title
       - [ ] Update status.prod with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-status-prod/).
       - [ ] Confirm the fleet runs properly after the deployment.
 
-  - [ ] Assign a final release tag (`v0.X.0`) to the same commit that contains the latest release-candidate tag (e.g. `git tag -as v0.X.0 -m "final release."`).
-  - [ ] Update [logos-delivery-compose](https://github.com/logos-messaging/logos-delivery-compose) and [logos-delivery-simulator](https://github.com/logos-messaging/logos-delivery-simulator) according to the new release.
-  - [ ] Create GitHub release (https://github.com/logos-messaging/logos-delivery/releases).
-  - [ ] Merge release branch into master
-    - [ ] Create a temporary branch from the release branch. This is needed in case we need to rebase that branch without impacting the release branch. Notice that the release branch should live forever.
-    - [ ] Submit a PR from temporary branch to master. Make sure you use the option "Merge pull request (Create a merge commit)" to perform the merge. Ping repo admin if this option is not available.
-  - [ ] Adjust status-go, status-app Makefiles to make sure they use the final tag instead of release candidate one.
 
 ### Links
 
