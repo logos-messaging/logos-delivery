@@ -27,7 +27,7 @@ Add appropriate release number to title
 - [ ] Validate the release candidate
 
   - [ ] 1. Essential test
-    - [ ] Ensure all unit tests are green and attach a screenshot as evidence.
+    - [ ] Ensure all unit tests are green
     - [ ] Ask QA to run the interop tests and attach a screenshot as evidence.
 
   - [ ] 2. Fleet validation (pre-requisite: 1. Can be done in parallel with 3.)
