@@ -447,3 +447,60 @@ suite "Waku API - Send":
     eventManager.validate({SendEventOutcome.Error}, requestId)
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
+
+  asyncTest "Store validation times out without event":
+    ## The message propagates successfully, but the only reachable store peer never
+    ## receives/archives it (it is outside the relay propagation path), so store
+    ## validation never confirms. After MaxTimeInCache the task must be dropped with a
+    ## warn log and NO app event: Propagated fires, but neither Sent nor Error - the
+    ## missing Sent event is the signal that delivery could not be validated.
+    var isolatedStoreNode: WakuNode
+    lockNewGlobalBrokerContext:
+      isolatedStoreNode =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      isolatedStoreNode.mountMetadata(3, @[0'u16]).isOkOr:
+        raiseAssert "Failed to mount metadata: " & error
+      (await isolatedStoreNode.mountRelay()).isOkOr:
+        raiseAssert "Failed to mount relay"
+      let archiveDriver = newSqliteArchiveDriver()
+      isolatedStoreNode.mountArchive(archiveDriver).isOkOr:
+        raiseAssert "Failed to mount archive: " & error
+      await isolatedStoreNode.mountStore()
+      await isolatedStoreNode.mountLibp2pPing()
+      await isolatedStoreNode.start()
+    # Deliberately NOT subscribed to the topic and NOT wired into the relay mesh, so
+    # it can answer store queries but never holds the published message.
+    let isolatedStoreNodePeerInfo = isolatedStoreNode.peerInfo.toRemotePeerInfo()
+
+    var node: Waku
+    lockNewGlobalBrokerContext:
+      node = (await createNode(createApiNodeConf())).valueOr:
+        raiseAssert error
+      node.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount messaging: " & error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+      # Propagate via relayNode1; store queries can only reach the isolated store node.
+      await node.node.connectToNodes(@[relayNode1PeerInfo, isolatedStoreNodePeerInfo])
+
+    let eventManager = newSendEventListenerManager(node.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    let envelope = MessageEnvelope.init(
+      ContentTopic("/waku/2/default-content/proto"), "test payload"
+    )
+
+    let requestId = (await node.send(envelope)).valueOr:
+      raiseAssert error
+
+    # Must outlive MaxTimeInCache (1 min) so the store-validation timeout drop fires.
+    const eventTimeout = 65.seconds
+    discard await eventManager.waitForEvents(eventTimeout)
+
+    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+
+    await isolatedStoreNode.stop()
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
