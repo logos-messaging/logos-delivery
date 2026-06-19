@@ -71,6 +71,8 @@ method sendImpl*(
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.SuccessfullyPropagated
     task.deliveryTime = Moment.now()
+    if task.firstPropagatedTime.isNone():
+      task.firstPropagatedTime = some(Moment.now())
     # TODO: with a simple retry processor it might be more accurate to say `Sent`
   else:
     # Controversial state, publish says ok but no peer. It should not happen.
