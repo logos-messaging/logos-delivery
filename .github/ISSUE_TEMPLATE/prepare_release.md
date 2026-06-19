@@ -28,7 +28,7 @@ Add appropriate release number to title
 
   - [ ] 1. Essential test
     - [ ] Ensure all unit tests are green
-    - [ ] Ask QA to run the interop tests and attach a screenshot as evidence.
+    - [ ] Get interop tests results from QA
 
   - [ ] 2. Fleet validation (pre-requisite: 1. Can be done in parallel with 3.)
     - [ ] Deploy the release candidate to the waku.test fleet.
