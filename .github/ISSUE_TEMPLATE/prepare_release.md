@@ -8,63 +8,78 @@ assignees: ''
 ---
 
 <!--
-Add appropriate release number to title!
-
-For detailed info on the release process refer to https://github.com/logos-messaging/logos-delivery/blob/master/docs/contributors/release-process.md
+Add appropriate release number to title
  -->
 
-### Items to complete
+### Items to complete, in order
 
-All items below are to be completed by the owner of the given release.
+- [ ] Initial validation
+  - [ ] Confirm waku.test has been running with new commits on each merge into master (see Grafana boards.)
+  - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) since the last release for crashes or errors in waku.test that we didn't detect in CI.
+    - Most relevant search queries: `(fleet: "waku.test" AND message: "SIGSEGV")`, `(fleet: "waku.test" AND message: "exception")`, `(fleet: "waku.test" AND message: "error")`.
+    - Detect unexpected reboots.
+    - Document any crashes or errors found and fix them before proceeding.
 
-- [ ] Create release branch with major and minor only ( e.g. release/v0.X ) if it doesn't exist.
-- [ ] Update the `version` field in `logos_delivery.nimble` to match the release version (e.g. `version = "0.X.0"`) **and merge it before assigning any tag** - the `release-assets` workflow gates artifact build/upload.
+- [ ] Create release branch with major and minor only ( e.g. release/v0.X ).
+- [ ] In release branch, update the `version` field in `logos_delivery.nimble` to match the release version (e.g. `version = "0.X.0"`).
 - [ ] Assign release candidate tag to the release branch HEAD (e.g. `v0.X.0-rc.0`, `v0.X.0-rc.1`, ... `v0.X.0-rc.N`).
-- [ ] Generate and edit release notes in CHANGELOG.md.
 
-- [ ] **Validation of release candidate**
+- [ ] Validate the release candidate
 
-  - [ ] **Automated testing**
-    - [ ] Ensure all the unit tests (specifically logos-messaging-js tests) are green against the release candidate.
+  - [ ] 1. Essential test
+    - [ ] Ensure all unit tests are green and attach a screenshot as evidence.
+    - [ ] Ask QA to run the interop tests and attach a screenshot as evidence.
 
-  - [ ] **`waku.test` fleet validation** (primary validation environment for the release candidate)
-    - [ ] Deploy the release candidate to the `waku.test` fleet.
+  - [ ] 2. Fleet validation (pre-requisite: 1. Can be done in parallel with 3.)
+    - [ ] Deploy the release candidate to the waku.test fleet.
       - Start the deployment job in [Jenkins](https://ci.infra.status.im/) and wait for it to finish (Jenkins access required; ask the infra team if you don't have it).
+      - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/32/repositories/logos-node/artifacts-tab).
       - After completion, disable the fleet so that daily CI does not override your release candidate.
       - Verify at https://fleets.logos.co/ that the fleet is locked to the release candidate image.
-      - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/32/repositories/logos-node/artifacts-tab).
-    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) since the last release for crashes or errors in `waku.test`.
-      - Most relevant search queries: `(fleet: "waku.test" AND message: "SIGSEGV")`, `(fleet: "waku.test" AND message: "exception")`, `(fleet: "waku.test" AND message: "error")`.
-      - Document any crashes or errors found and fix them before proceeding.
-    - [ ] Ensure QA tests run continuously against `waku.test` and are green.
-    - [ ] Re-enable the `waku.test` fleet to resume auto-deployment of the latest `master` commit.
-    <!-- In the future, automate `waku.test` crash detection so `master` stays continuously green and we can cut a release every week. -->
+    
+    - [ ] Ask QA to run tests against waku.test and attach a screenshot as evidence.
+    - [ ] Re-enable the waku.test fleet to resume auto-deployment of the latest master commit.
+    <!-- In the future, automate `waku.test` crash detection so `master` stays continuously green and we can cut a release easier. -->
 
-  - [ ] **Bindings testing**
-    - [ ] Bump logos-delivery dependency in [logos-delivery-go-bindings](https://github.com/logos-messaging/logos-delivery-go-bindings) and make sure all tests work.
-
-  - [ ] **DST sign-off** (done in advance, before deploying the release)
+  - [ ] 3. DST sign-off (pre-requisite: 1)
     - [ ] Inform the DST team about the expectations for this release. For example, if we expect higher, same or lower bandwidth consumption, or a new protocol appears, etc.
-    - [ ] Ask DST to add a comment approving this release and add a link to the analysis report.
+    - [ ] Ask DST to add a comment approving this release and add a summary analysis report.
 
-  - [ ] **Status testing**
-    - [ ] Submit a PR on [status-go](https://github.com/status-im/status-go) bumping logos-delivery to this release.
-    - [ ] Submit a PR on [status-app](https://github.com/status-im/status-mobile) bumping logos-delivery to this release.
+  - [ ] 4. Status testing (pre-requisite: 1, 2, 3)
+    - [ ] Bump logos-delivery dependency in [logos-delivery-go-bindings](https://github.com/logos-messaging/logos-delivery-go-bindings) and make sure all tests work.
+    - [ ] Submit a PR on [status-go](https://github.com/status-im/status-go) bumping logos-delivery to this release candidate.
+    - [ ] Submit a PR on [status-app](https://github.com/status-im/status-mobile) bumping logos-delivery to this release candidate.
     - [ ] Both PRs must be merged before the release is considered created.
+    - [ ] Deploy the release candidate in status.staging. That may alert about needed infra changes.
 
-- [ ] **Deployment and release** (merge of the former deployment process; involve Alberto)
+  - [ ] 5. Submit a PR against release/v0.X with CHANGELOG.md updates (pre-requisite: all previous.)
 
-  - [ ] Deploy to `status.prod`
-    - [ ] Coordinate with the Infra Team about possible changes in CI behavior.
-    - [ ] Ask the Status admin to add a comment approving that this deployment happen now.
-    - [ ] Update `status.prod` with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-status-prod/).
-  - [ ] Update infra config
-    - [ ] Submit PRs into infra repos to adjust deprecated or changed arguments (review CHANGELOG.md for that release). Confirm the fleet can run after that. This requires coordination with the infra team.
+- [ ] Deployment and release
 
-  - [ ] Assign a final release tag (`v0.X.0`) to the same commit that contains the validated release-candidate tag (e.g. `git tag -as v0.X.0 -m "final release."`).
+  - [ ] Deploy to waku.sandbox
+    - [ ] Confirm the release candidate ran properly in waku.test with the current infra config.
+      - [ ] If it did NOT (e.g. CLI params changed): submit PRs to the infra repos adjusting the deprecated or changed arguments (review CHANGELOG.md for that release), add links to them, and wait until they are merged. Infra changes are deployed by the infra team, so this requires coordination with them.
+      - [ ] If it ran fine with the current config, no infra PR is needed.
+    - [ ] Deploy:
+      - [ ] Coordinate with the Infra Team about the deployment timing.
+      - [ ] Update waku.sandbox with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-sandbox/).
+      - [ ] Confirm the fleet runs properly after the deployment.
+  - [ ] Deploy to status.prod
+    - [ ] Confirm the release candidate ran properly in status.staging with the current infra config.
+      - [ ] If it did NOT (e.g. CLI params changed): submit PRs to the infra repos adjusting the deprecated or changed arguments (review CHANGELOG.md for that release), add links to them, and wait until they are merged. Infra changes are deployed by the infra team, so this requires coordination with them.
+      - [ ] If it ran fine with the current config, no infra PR is needed.
+    - [ ] Deploy:
+      - [ ] Ask the Status admin to add a comment approving that this deployment happen now.
+      - [ ] Update status.prod with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-status-prod/).
+      - [ ] Confirm the fleet runs properly after the deployment.
+
+  - [ ] Assign a final release tag (`v0.X.0`) to the same commit that contains the latest release-candidate tag (e.g. `git tag -as v0.X.0 -m "final release."`).
   - [ ] Update [logos-delivery-compose](https://github.com/logos-messaging/logos-delivery-compose) and [logos-delivery-simulator](https://github.com/logos-messaging/logos-delivery-simulator) according to the new release.
   - [ ] Create GitHub release (https://github.com/logos-messaging/logos-delivery/releases).
-  - [ ] Submit a PR to merge the release branch back to `master`. Make sure you use the option "Merge pull request (Create a merge commit)" to perform the merge. Ping repo admin if this option is not available.
+  - [ ] Merge release branch into master
+    - [ ] Create a temporary branch from the release branch. This is needed in case we need to rebase that branch without impacting the release branch. Notice that the release branch should live forever.
+    - [ ] Submit a PR from temporary branch to master. Make sure you use the option "Merge pull request (Create a merge commit)" to perform the merge. Ping repo admin if this option is not available.
+  - [ ] Adjust status-go, status-app Makefiles to make sure they use the final tag instead of release candidate one.
 
 ### Links
 
