@@ -1,6 +1,6 @@
 ---
 name: Prepare Release
-about: Execute tasks for the creation and publishing of a new full release
+about: Execute tasks for the creation, validation, deployment and publishing of a new full release
 title: 'Prepare release 0.0.0'
 labels: full-release
 assignees: ''
@@ -27,45 +27,44 @@ All items below are to be completed by the owner of the given release.
   - [ ] **Automated testing**
     - [ ] Ensure all the unit tests (specifically logos-messaging-js tests) are green against the release candidate.
 
-  - [ ] **QA testing**
-    - [ ] Ask QA to run their available tests against the release candidate.
-
-  - [ ] **Logos fleet testing**
-    - [ ] Deploy the release candidate to `logos.dev` fleet.
+  - [ ] **`waku.test` fleet validation** (primary validation environment for the release candidate)
+    - [ ] Deploy the release candidate to the `waku.test` fleet.
       - Start the deployment job in [Jenkins](https://ci.infra.status.im/) and wait for it to finish (Jenkins access required; ask the infra team if you don't have it).
-      - After completion, disable fleet so that daily CI does not override your release candidate.
+      - After completion, disable the fleet so that daily CI does not override your release candidate.
       - Verify at https://fleets.logos.co/ that the fleet is locked to the release candidate image.
       - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/32/repositories/logos-node/artifacts-tab).
-    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) from the previous month (since the last release was deployed) for possible crashes or errors in `logos.dev`.
-      - Set time range to "Last 30 days" (or since last release).
-      - Most relevant search query: `(fleet: "logos.dev" AND message: "SIGSEGV")`, `(fleet: "logos.dev" AND message: "exception")`, `(fleet: "logos.dev" AND message: "error")`.
-      - Document any crashes or errors found.
-    - [ ] Ask QA to perform tests against `logos.dev`, if any. Then, after that, review Kibana for possible issues or unexpected restart.
-    - [ ] Enable the `logos.dev` fleet again to resume auto-deployment of the latest `master` commit.
+    - [ ] Search [Kibana logs](https://kibana.infra.status.im/app/discover) since the last release for crashes or errors in `waku.test`.
+      - Most relevant search queries: `(fleet: "waku.test" AND message: "SIGSEGV")`, `(fleet: "waku.test" AND message: "exception")`, `(fleet: "waku.test" AND message: "error")`.
+      - Document any crashes or errors found and fix them before proceeding.
+    - [ ] Ensure QA tests run continuously against `waku.test` and are green.
+    - [ ] Re-enable the `waku.test` fleet to resume auto-deployment of the latest `master` commit.
+    <!-- In the future, automate `waku.test` crash detection so `master` stays continuously green and we can cut a release every week. -->
+
+  - [ ] **Bindings testing**
+    - [ ] Bump logos-delivery dependency in [logos-delivery-go-bindings](https://github.com/logos-messaging/logos-delivery-go-bindings) and make sure all tests work.
+
+  - [ ] **DST sign-off** (done in advance, before deploying the release)
+    - [ ] Inform the DST team about the expectations for this release. For example, if we expect higher, same or lower bandwidth consumption, or a new protocol appears, etc.
+    - [ ] Ask DST to add a comment approving this release and add a link to the analysis report.
 
   - [ ] **Status testing**
-    - [ ] Get QA approval to deploy a new version in `status.staging`.
-    - [ ] Deploy release candidate to `status.staging`.
-    - [ ] Perform [sanity check](https://www.notion.so/How-to-test-Nwaku-on-Status-12c6e4b9bf06420ca868bd199129b425) and log results as comments in this issue.
-      - [ ] Connect 2 instances to `status.staging` fleet, one in relay mode, the other one in light client mode.
-        - 1:1 Chats with each other.
-        - Send and receive messages in a community.
-        - Close one instance, send messages with second instance, reopen first instance and confirm messages sent while offline are retrieved from store.
-      - [ ] Perform checks based on _end user impact_
-      - [ ] Inform other (Waku and Status) CCs to point their instances to `status.staging` for a few days. Ping Status colleagues on their Discord server or in the [Status community](https://status.app/c/G3kAAMSQtb05kog3aGbr3kiaxN4tF5xy4BAGEkkLwILk2z3GcoYlm5hSJXGn7J3laft-tnTwDWmYJ18dP_3bgX96dqr_8E3qKAvxDf3NrrCMUBp4R9EYkQez9XSM4486mXoC3mIln2zc-TNdvjdfL9eHVZ-mGgs=#zQ3shZeEJqTC1xhGUjxuS4rtHSrhJ8vUYp64v6qWkLpvdy9L9) (this is not a blocking point.)
-      - [ ] Ask QA to perform sanity checks (as described above) and checks based on _end user impact_; specify the version being tested
-      - [ ] Ask QA or infra to run the automated Status e2e tests against `status.staging`
-      - [ ] Get other CCs' sign-off: they should comment on this PR, e.g., "Used the app for a week, no problem." If problems are reported, resolve them and create a new RC.
+    - [ ] Submit a PR on [status-go](https://github.com/status-im/status-go) bumping logos-delivery to this release.
+    - [ ] Submit a PR on [status-app](https://github.com/status-im/status-mobile) bumping logos-delivery to this release.
+    - [ ] Both PRs must be merged before the release is considered created.
 
-- [ ] **Proceed with release**
+- [ ] **Deployment and release** (merge of the former deployment process; involve Alberto)
+
+  - [ ] Deploy to `status.prod`
+    - [ ] Coordinate with the Infra Team about possible changes in CI behavior.
+    - [ ] Ask the Status admin to add a comment approving that this deployment happen now.
+    - [ ] Update `status.prod` with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-status-prod/).
+  - [ ] Update infra config
+    - [ ] Submit PRs into infra repos to adjust deprecated or changed arguments (review CHANGELOG.md for that release). Confirm the fleet can run after that. This requires coordination with the infra team.
 
   - [ ] Assign a final release tag (`v0.X.0`) to the same commit that contains the validated release-candidate tag (e.g. `git tag -as v0.X.0 -m "final release."`).
   - [ ] Update [logos-delivery-compose](https://github.com/logos-messaging/logos-delivery-compose) and [logos-delivery-simulator](https://github.com/logos-messaging/logos-delivery-simulator) according to the new release.
-  - [ ] Bump logos-delivery dependency in [logos-delivery-rust-bindings](https://github.com/logos-messaging/logos-delivery-rust-bindings) and make sure all examples and tests work.
-  - [ ] Bump logos-delivery dependency in [logos-delivery-go-bindings](https://github.com/logos-messaging/logos-delivery-go-bindings) and make sure all tests work.
   - [ ] Create GitHub release (https://github.com/logos-messaging/logos-delivery/releases).
   - [ ] Submit a PR to merge the release branch back to `master`. Make sure you use the option "Merge pull request (Create a merge commit)" to perform the merge. Ping repo admin if this option is not available.
-  - [ ] Create a deployment issue with the recently created release.
 
 ### Links
 
@@ -73,6 +72,7 @@ All items below are to be completed by the owner of the given release.
 - [Release notes](https://github.com/logos-messaging/logos-delivery/blob/master/CHANGELOG.md)
 - [Fleet ownership](https://www.notion.so/Fleet-Ownership-7532aad8896d46599abac3c274189741?pvs=4#d2d2f0fe4b3c429fbd860a1d64f89a64)
 - [Infra-logos](https://github.com/status-im/infra-logos)
+- [Infra-Status](https://github.com/status-im/infra-status)
 - [Jenkins](https://ci.infra.status.im/)
 - [Fleets](https://fleets.logos.co/)
 - [Harbor](https://harbor.status.im/harbor/projects/32/repositories/logos-node/artifacts-tab)
