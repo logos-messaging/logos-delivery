@@ -47,8 +47,8 @@ Add appropriate release number to title
 
   - [ ] 4. Status testing (pre-requisite: 1, 2, 3)
     - [ ] Bump logos-delivery dependency in [logos-delivery-go-bindings](https://github.com/logos-messaging/logos-delivery-go-bindings) and make sure all tests work.
-    - [ ] Submit a PR on [status-go](https://github.com/status-im/status-go) bumping logos-delivery to this release candidate.
-    - [ ] Submit a PR on [status-app](https://github.com/status-im/status-mobile) bumping logos-delivery to this release candidate.
+    - [ ] Submit a PR on [status-go](https://github.com/status-im/status-go/blob/1f9061064587e1167e32d965d5a6f2b745324d5e/tests-functional/docker-compose.waku.yml#L3) bumping logos-delivery to this release candidate.
+    - [ ] Submit a PR on [status-app](https://github.com/status-im/status-app/blob/3639e28374ca3c2158ac2dac6af35dbce439b10a/docker-compose.waku.yml#L3) bumping logos-delivery to this release candidate.
     - [ ] Both PRs must be merged before the release is considered created.
     - [ ] Deploy the release candidate in status.staging. That may alert about needed infra changes.
 
