@@ -360,6 +360,43 @@ suite "Waku API - Send":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
+  asyncTest "Edge sender delivers via lightpush (no relay)":
+    ## Reproduces issue #3847: an Edge node (no relay mounted) that is only
+    ## connected to a lightpush-capable peer must deliver through lightpush.
+    var node: Waku
+    lockNewGlobalBrokerContext:
+      node = (await createNode(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
+        raiseAssert error
+      node.mountMessagingClient().isOkOr:
+        raiseAssert "Failed to mount messaging: " & error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+      # Edge node has no relay; its only path to the network is the
+      # lightpush peer it is connected to.
+      await node.node.connectToNodes(@[lightpushNodePeerInfo])
+
+    check node.node.wakuRelay.isNil()
+
+    let eventManager = newSendEventListenerManager(node.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    let envelope = MessageEnvelope.init(
+      ContentTopic("/waku/2/default-content/proto"), "test payload"
+    )
+
+    let requestId = (await node.send(envelope)).valueOr:
+      raiseAssert error
+
+    const eventTimeout = 10.seconds
+    discard await eventManager.waitForEvents(eventTimeout)
+
+    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
   asyncTest "Send fully validates fallback to lightpush":
     var node: Waku
     lockNewGlobalBrokerContext:
