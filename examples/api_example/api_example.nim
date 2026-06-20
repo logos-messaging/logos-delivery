@@ -7,7 +7,7 @@ type CliArgs = object
     defaultValue: "", desc: "ETH RPC Endpoint, if passed, RLN is enabled"
   .}: string
 
-proc periodicSender(w: Waku): Future[void] {.async.} =
+proc periodicSender(logos: LogosDelivery): Future[void] {.async.} =
   let sentListener = MessageSentEvent.listen(
     proc(event: MessageSentEvent) {.async: (raises: []).} =
       echo "Message sent with request ID: ",
@@ -45,7 +45,7 @@ proc periodicSender(w: Waku): Future[void] {.async.} =
       payload = "Hello Waku! Message number: " & $counter,
     )
 
-    let sendRequestId = (await w.send(envelope)).valueOr:
+    let sendRequestId = (await logos.messagingClient.send(envelope)).valueOr:
       echo "Failed to send message: ", error
       quit(QuitFailure)
 
@@ -75,16 +75,12 @@ when isMainModule:
     conf.preset = "twn"
     conf.ethClientUrls = @[EthRpcUrl(args.ethRpcEndpoint)]
 
-  # Create the node using the library API's createNode function
-  let node = (waitFor createNode(conf)).valueOr:
+  # Create the full Logos Messaging stack (Waku + messaging + channels)
+  let node = (waitFor LogosDelivery.new(conf)).valueOr:
     echo "Failed to create node: ", error
     quit(QuitFailure)
 
-  echo("Waku node created successfully!")
-
-  node.mountMessagingClient().isOkOr:
-    echo "Failed to mount messaging: ", error
-    quit(QuitFailure)
+  echo("Logos Messaging node created successfully!")
 
   # Start the node
   (waitFor node.start()).isOkOr:

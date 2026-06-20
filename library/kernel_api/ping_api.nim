@@ -6,7 +6,7 @@ import
   library/declare_lib
 
 proc waku_ping_peer(
-    ctx: ptr FFIContext[Waku],
+    ctx: ptr FFIContext[LogosDelivery],
     callback: FFICallBack,
     userData: pointer,
     peerAddr: cstring,
@@ -18,12 +18,13 @@ proc waku_ping_peer(
   let timeout = chronos.milliseconds(timeoutMs)
   proc ping(): Future[Result[Duration, string]] {.async, gcsafe.} =
     try:
-      let conn =
-        await ctx.myLib[].node.switch.dial(peerInfo.peerId, peerInfo.addrs, PingCodec)
+      let conn = await ctx.myLib[].waku.node.switch.dial(
+        peerInfo.peerId, peerInfo.addrs, PingCodec
+      )
       defer:
         await conn.close()
 
-      let pingRTT = await ctx.myLib[].node.libp2pPing.ping(conn)
+      let pingRTT = await ctx.myLib[].waku.node.libp2pPing.ping(conn)
       if pingRTT == 0.nanos:
         return err("could not ping peer: rtt-0")
       return ok(pingRTT)

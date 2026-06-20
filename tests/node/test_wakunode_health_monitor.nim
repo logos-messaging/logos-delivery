@@ -228,8 +228,9 @@ suite "Health Monitor - events":
       nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
       await nodeA.start()
 
-    let ds =
-      MessagingClient.new(false, nodeA).expect("Failed to create MessagingClient")
+    let ds = MessagingClient
+      .new(MessagingClientConf(useP2PReliability: false), nodeA)
+      .expect("Failed to create MessagingClient")
     ds.start().expect("Failed to start MessagingClient")
 
     let monitorA = NodeHealthMonitor.new(nodeA)
@@ -332,8 +333,9 @@ suite "Health Monitor - events":
       nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
       await nodeA.start()
 
-    let ds =
-      MessagingClient.new(false, nodeA).expect("Failed to create MessagingClient")
+    let ds = MessagingClient
+      .new(MessagingClientConf(useP2PReliability: false), nodeA)
+      .expect("Failed to create MessagingClient")
     ds.start().expect("Failed to start MessagingClient")
     let subMgr = nodeA.subscriptionManager
 

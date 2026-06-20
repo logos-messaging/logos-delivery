@@ -5,6 +5,7 @@ import
   logos_delivery/waku/waku_core/message/message,
   logos_delivery/waku/waku_core/topics/pubsub_topic,
   logos_delivery/waku/waku_relay,
+  logos_delivery,
   logos_delivery/waku/factory/waku,
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/node/health_monitor/health_status,
@@ -46,7 +47,7 @@ proc waku_new(
     return nil
 
   ## Create the Waku thread that will keep waiting for req from the main thread.
-  var ctx = ffi.createFFIContext[Waku]().valueOr:
+  var ctx = ffi.createFFIContext[LogosDelivery]().valueOr:
     let msg = "Error in createFFIContext: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
     return nil
@@ -93,7 +94,7 @@ proc waku_new(
   return ctx
 
 proc waku_destroy(
-    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ): cint {.dynlib, exportc, cdecl.} =
   initializeLibrary()
   checkParams(ctx, callback, userData)

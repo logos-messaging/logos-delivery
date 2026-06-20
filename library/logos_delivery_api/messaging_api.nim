@@ -9,7 +9,7 @@ import
   ../declare_lib
 
 proc logosdelivery_subscribe(
-    ctx: ptr FFIContext[Waku],
+    ctx: ptr FFIContext[LogosDelivery],
     callback: FFICallBack,
     userData: pointer,
     contentTopicStr: cstring,
@@ -20,14 +20,14 @@ proc logosdelivery_subscribe(
   # ContentTopic is just a string type alias
   let contentTopic = ContentTopic($contentTopicStr)
 
-  (await api.subscribe(ctx.myLib[], contentTopic)).isOkOr:
+  (await api.subscribe(ctx.myLib[].waku, contentTopic)).isOkOr:
     let errMsg = $error
     return err("Subscribe failed: " & errMsg)
 
   return ok("")
 
 proc logosdelivery_unsubscribe(
-    ctx: ptr FFIContext[Waku],
+    ctx: ptr FFIContext[LogosDelivery],
     callback: FFICallBack,
     userData: pointer,
     contentTopicStr: cstring,
@@ -38,14 +38,14 @@ proc logosdelivery_unsubscribe(
   # ContentTopic is just a string type alias
   let contentTopic = ContentTopic($contentTopicStr)
 
-  api.unsubscribe(ctx.myLib[], contentTopic).isOkOr:
+  api.unsubscribe(ctx.myLib[].waku, contentTopic).isOkOr:
     let errMsg = $error
     return err("Unsubscribe failed: " & errMsg)
 
   return ok("")
 
 proc logosdelivery_send(
-    ctx: ptr FFIContext[Waku],
+    ctx: ptr FFIContext[LogosDelivery],
     callback: FFICallBack,
     userData: pointer,
     messageJson: cstring,
@@ -83,8 +83,8 @@ proc logosdelivery_send(
     contentTopic = contentTopic, payload = payload, ephemeral = ephemeral
   )
 
-  # Send the message
-  let requestId = (await api.send(ctx.myLib[], envelope)).valueOr:
+  # Send the message via the messaging layer's own API.
+  let requestId = (await ctx.myLib[].messagingClient.send(envelope)).valueOr:
     let errMsg = $error
     return err("Send failed: " & errMsg)
 

@@ -6,16 +6,25 @@ import
   logos_delivery/messaging/delivery_service/[recv_service, send_service],
   logos_delivery/messaging/delivery_service/send_service/delivery_task
 
-type MessagingClient* = ref object
-  node: WakuNode
-  sendService*: SendService
-  recvService*: RecvService
-  started: bool
+type
+  MessagingClientConf* = object
+    ## Per-layer config object for the messaging API.
+    ## Kept intentionally minimal for now; the full config surface lands in a
+    ## follow-up PR. Today it only carries the p2p reliability toggle.
+    useP2PReliability*: bool
+
+  MessagingClient* = ref object
+    node: WakuNode
+    sendService*: SendService
+    recvService*: RecvService
+    started: bool
 
 proc new*(
-    T: type MessagingClient, useP2PReliability: bool, node: WakuNode
+    T: type MessagingClient, conf: MessagingClientConf, node: WakuNode
 ): Result[T, string] =
-  let sendService = ?SendService.new(useP2PReliability, node)
+  ## The messaging layer chains onto Waku: it drives the underlying
+  ## `WakuNode` (Waku's core) for transport while exposing its own send/recv API.
+  let sendService = ?SendService.new(conf.useP2PReliability, node)
   let recvService = RecvService.new(node)
   ok(T(node: node, sendService: sendService, recvService: recvService))
 

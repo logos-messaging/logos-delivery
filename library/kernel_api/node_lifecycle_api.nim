@@ -13,7 +13,7 @@ import
 
 proc createWaku(
     configJson: cstring, appCallbacks: AppCallbacks = nil
-): Future[Result[Waku, string]] {.async.} =
+): Future[Result[LogosDelivery, string]] {.async.} =
   var conf = defaultWakuNodeConf().valueOr:
     return err("Failed creating node: " & error)
 
@@ -53,13 +53,15 @@ proc createWaku(
 
   wakuConf.restServerConf = none(RestServerConf) ## don't want REST in libwaku
 
-  let wakuRes = (await Waku.new(wakuConf, appCallbacks)).valueOr:
-    error "waku initialization failed", error = error
-    return err("Failed setting up Waku: " & $error)
+  let logosRes = (
+    await LogosDelivery.new(LogosDeliveryConf.init(wakuConf), appCallbacks)
+  ).valueOr:
+    error "LogosDelivery initialization failed", error = error
+    return err("Failed setting up LogosDelivery: " & $error)
 
-  return ok(wakuRes)
+  return ok(logosRes)
 
-registerReqFFI(CreateNodeWithCallbacksRequest, ctx: ptr FFIContext[Waku]):
+registerReqFFI(CreateNodeWithCallbacksRequest, ctx: ptr FFIContext[LogosDelivery]):
   proc(
       configJson: cstring, appCallbacks: AppCallbacks
   ): Future[Result[string, string]] {.async.} =
@@ -70,7 +72,7 @@ registerReqFFI(CreateNodeWithCallbacksRequest, ctx: ptr FFIContext[Waku]):
     return ok("")
 
 proc waku_start(
-    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   (await ctx.myLib[].start()).isOkOr:
     error "START_NODE failed", error = error
@@ -78,7 +80,7 @@ proc waku_start(
   return ok("")
 
 proc waku_stop(
-    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   (await ctx.myLib[].stop()).isOkOr:
     error "STOP_NODE failed", error = error
