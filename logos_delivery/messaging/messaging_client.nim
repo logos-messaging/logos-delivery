@@ -72,9 +72,9 @@ BrokerImplement MessagingClient of MessagingClientInterface:
 
     return ok(requestId)
 
-proc newMessagingClient*(
+proc new*(T: typedesc[MessagingClient], 
     ctx: BrokerContext, useP2PReliability: bool, node: WakuNode
-): Result[MessagingClient, string] =
+): Result[T, string] =
   let sendService = SendService.new(useP2PReliability, node).valueOr:
     error "Failed to initialize SendService", error = error
     return err("Failed to initialize SendService: " & error)
