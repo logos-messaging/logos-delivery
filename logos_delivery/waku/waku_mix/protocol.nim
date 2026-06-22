@@ -27,7 +27,7 @@ import
 logScope:
   topics = "waku mix"
 
-const minMixPoolSize = 4
+const minMixPoolSize* = 4
 
 type
   PublishMessage* = proc(message: WakuMessage): Future[Result[void, string]] {.

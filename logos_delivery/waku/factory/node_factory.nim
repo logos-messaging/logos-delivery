@@ -183,17 +183,6 @@ proc setupProtocols(
     node.mountKademlia(kadConf).isOkOr:
       return err("failed to setup service discovery: " & error)
 
-    # Register ServicePeersRequest provider
-    ServicePeersRequest.setProvider(
-      node.brokerCtx,
-      proc(serviceId: string): Future[Result[ServicePeersRequest, string]] {.async.} =
-        let peers = (await node.wakuKademlia.lookupServicePeers(serviceId)).valueOr:
-          return err("failed call to lookupServicePeers: " & error)
-        return ok(ServicePeersRequest(serviceId: serviceId, peers: peers)),
-    ).isOkOr:
-      error "Can't set provider for ServicePeersRequest", error = error
-      return err("Can't set provider for ServicePeersRequest: " & error)
-
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()
 
