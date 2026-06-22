@@ -8,11 +8,7 @@ import
   stew/byteutils,
   libp2p/protocols/pubsub/pubsub
 
-import
-  ../rln_relay,
-  ../protocol_types,
-  ../protocol_metrics,
-  ../conversion_utils
+import ../rln_relay, ../protocol_types, ../protocol_metrics, ../conversion_utils
 
 import logos_delivery/waku/[waku_relay, waku_core]
 

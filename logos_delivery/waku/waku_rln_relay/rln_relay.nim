@@ -26,12 +26,8 @@ import
   ./nonce_manager
 
 import
-  logos_delivery/waku/[
-    common/error_handling,
-    waku_core,
-    requests/rln_requests,
-    waku_keystore,
-  ]
+  logos_delivery/waku/
+    [common/error_handling, waku_core, requests/rln_requests, waku_keystore]
 
 logScope:
   topics = "waku rln_relay"
