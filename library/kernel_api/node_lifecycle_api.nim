@@ -47,15 +47,9 @@ proc createWaku(
     appCallbacks.relayHandler = nil
     appCallbacks.topicHealthChangeHandler = nil
 
-  # TODO: Convert `confJson` directly to `WakuConf`
-  var wakuConf = conf.toWakuConf().valueOr:
-    return err("Configuration error: " & $error)
+  conf.rest = false ## libwaku never runs the REST server
 
-  wakuConf.restServerConf = none(RestServerConf) ## don't want REST in libwaku
-
-  let logosRes = (
-    await LogosDelivery.new(LogosDeliveryConf.init(wakuConf), appCallbacks)
-  ).valueOr:
+  let logosRes = (await LogosDelivery.new(conf, appCallbacks)).valueOr:
     error "LogosDelivery initialization failed", error = error
     return err("Failed setting up LogosDelivery: " & $error)
 

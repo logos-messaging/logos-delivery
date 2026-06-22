@@ -52,17 +52,23 @@ proc init*(T: type LogosDeliveryConf, wakuConf: WakuConf): LogosDeliveryConf =
   )
 
 proc new*(
-    T: type LogosDelivery, conf: LogosDeliveryConf, appCallbacks: AppCallbacks = nil
+    T: type LogosDelivery, conf: WakuNodeConf, appCallbacks: AppCallbacks = nil
 ): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Creates the full stack bottom-up so each layer can chain onto the one below.
-  let waku = (await Waku.new(conf.waku, appCallbacks)).valueOr:
+  ## Single entry point, from the CLI configuration type. Derives the aggregated
+  ## per-layer config, then creates the full stack bottom-up so each layer can
+  ## chain onto the one below.
+  let wakuConf = conf.toWakuConf().valueOr:
+    return err("failed to handle the configuration: " & error)
+  let layerConf = LogosDeliveryConf.init(wakuConf)
+
+  let waku = (await Waku.new(layerConf.waku, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  let messagingClient = MessagingClient.new(conf.messaging, waku.node).valueOr:
+  let messagingClient = MessagingClient.new(layerConf.messaging, waku.node).valueOr:
     return err("failed to create MessagingClient: " & error)
 
   let reliableChannelManager = ReliableChannelManager.new(
-    conf.reliableChannel, messagingClient, waku.brokerCtx
+    layerConf.reliableChannel, messagingClient, waku.brokerCtx
   ).valueOr:
     return err("failed to create ReliableChannelManager: " & error)
 
@@ -73,14 +79,6 @@ proc new*(
       reliableChannelManager: reliableChannelManager,
     )
   )
-
-proc new*(
-    T: type LogosDelivery, conf: WakuNodeConf, appCallbacks: AppCallbacks = nil
-): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Convenience entry point from the CLI configuration type.
-  let wakuConf = conf.toWakuConf().valueOr:
-    return err("failed to handle the configuration: " & error)
-  return await LogosDelivery.new(LogosDeliveryConf.init(wakuConf), appCallbacks)
 
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each layer bottom-up: transport first, then messaging, then channels.
