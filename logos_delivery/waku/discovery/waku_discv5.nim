@@ -12,7 +12,8 @@ import
   libp2p/multiaddress,
   eth/keys as eth_keys,
   eth/p2p/discoveryv5/node,
-  eth/p2p/discoveryv5/protocol
+  eth/p2p/discoveryv5/protocol,
+  eth/p2p/discoveryv5/routing_table
 import
   logos_delivery/waku/
     [net/auto_port, node/peer_manager/peer_manager, waku_core, waku_enr]
@@ -290,6 +291,19 @@ proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
     for peer in discoveredPeers:
       # Peers added are filtered by the peer manager
       peerManager.addPeer(peer, PeerOrigin.Discv5)
+
+    # Refresh ENR liveness from discv5's revalidated routing table so stale
+    # ENRs age out of peer-exchange. This only extends freshness; it never
+    # deletes peer-store state, so a live peer absent from a full k-bucket is
+    # not wrongly purged (it just stops being advertised until rediscovered).
+    var liveIds = initHashSet[PeerId]()
+    for peer in discoveredPeers:
+      liveIds.incl(peer.peerId)
+    for node in wd.protocol.routingTable.randomNodes(int.high):
+      let info = node.record.toRemotePeerInfo().valueOr:
+        continue
+      liveIds.incl(info.peerId)
+    peerManager.refreshEnrLiveness(liveIds)
 
     # Discovery `queryRandom` can have a synchronous fast path for example
     # when no peers are in the routing table. Don't run it in continuous loop.

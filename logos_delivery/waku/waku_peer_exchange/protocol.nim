@@ -102,12 +102,18 @@ proc getEnrsFromStore(
   let k = min(MaxPeersCacheSize, numPeers.int)
   let enrStoreLen = wpx.peerManager.switch.peerStore[ENRBook].len
   var enrs = newSeqOfCap[enr.Record](min(k, enrStoreLen))
+  let now = Moment.now()
   wpx.peerManager.switch.peerStore.forEnrPeers(
-    peerId, peerConnectedness, peerOrigin, peerEnrRecord
+    peerId, peerConnectedness, peerOrigin, peerEnrRecord, peerEnrSeen
   ):
     if peerConnectedness == CannotConnect:
       debug "Could not retrieve ENR because cannot connect to peer",
         remotePeerId = peerId
+      continue
+    # A connected peer is alive by definition; otherwise require a recent
+    # liveness refresh so we stop advertising ENRs discv5 has already evicted.
+    if peerConnectedness != Connected and (now - peerEnrSeen) > EnrFreshnessTTL:
+      debug "Could not retrieve ENR because it is stale", remotePeerId = peerId
       continue
     poolFilter(wpx.cluster, peerOrigin, peerEnrRecord).isOkOr:
       debug "Could not get ENR because no peer matched pool", error = error

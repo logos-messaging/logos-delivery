@@ -796,6 +796,9 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
   of PeerEventKind.Joined:
     direction = if event.initiator: Outbound else: Inbound
     connectedness = Connected
+    # A live connection is the strongest liveness signal; keep the ENR fresh so
+    # the freshness window after a later disconnect starts from now.
+    peerStore.touchEnrSeen(peerId)
 
     ## Check max allowed in-relay peers
     let inRelayPeers = pm.connectedPeers(WakuRelayCodec)[0]
@@ -1012,6 +1015,16 @@ proc manageRelayPeers*(pm: PeerManager) {.async.} =
     let stop = min(i + MaxParallelDials, uniquePeers.len)
     trace "Connecting to Peers", peerIds = $uniquePeers[i ..< stop]
     await pm.connectToNodes(uniquePeers[i ..< stop])
+
+proc refreshEnrLiveness*(pm: PeerManager, liveIds: HashSet[PeerId]) =
+  ## Extend the ENR freshness window for peers discv5 still considers reachable.
+  ## Refresh-only on purpose: routing-table membership never deletes peer-store
+  ## state, so a live peer evicted from a full k-bucket simply ages out of
+  ## peer-exchange rather than being wrongly purged.
+  let peerStore = pm.switch.peerStore
+  for peerId in liveIds:
+    if peerStore[ENRBook].contains(peerId):
+      peerStore.touchEnrSeen(peerId)
 
 proc prunePeerStore*(pm: PeerManager) =
   let peerStore = pm.switch.peerStore

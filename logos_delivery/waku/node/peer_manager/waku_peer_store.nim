@@ -42,8 +42,18 @@ type
   # Keeps track of the ENR (Ethereum Node Record) of a peer
   ENRBook* = ref object of PeerBook[enr.Record]
 
+  # Keeps track of when a peer's ENR was last seen alive (discv5 revalidation
+  # or active connection). Drives staleness gating of peer-exchange responses.
+  EnrLastSeenBook* = ref object of PeerBook[Moment]
+
   # Keeps track of peer shards
   ShardBook* = ref object of PeerBook[seq[uint16]]
+
+const EnrFreshnessTTL* = chronos.minutes(5)
+  ## A Discv5-origin ENR is served by peer-exchange only if seen-live within
+  ## this window, unless the peer is currently Connected. discv5 revalidates
+  ## its routing table within seconds and the discv5 search loop runs every
+  ## few seconds, so this is comfortably above the refresh cadence.
 
 proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
   let addresses =
@@ -81,6 +91,11 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
 proc delete*(peerStore: PeerStore, peerId: PeerId) =
   # Delete all the information of a given peer.
   peerStore.del(peerId)
+
+proc touchEnrSeen*(peerStore: PeerStore, peerId: PeerId) =
+  ## Mark a peer's ENR as seen-live now. Called from liveness signals (discv5
+  ## revalidation, active connection) so stale ENRs eventually age out of PX.
+  peerStore[EnrLastSeenBook][peerId] = Moment.now()
 
 proc peers*(peerStore: PeerStore): seq[RemotePeerInfo] =
   let allKeys = concat(
@@ -147,6 +162,8 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
     peerStore[NumberFailedConnBook].book.hasKeyOrPut(peer.peerId, peer.numberFailedConn)
   if peer.enr.isSome():
     peerStore[ENRBook][peer.peerId] = peer.enr.get()
+    # A freshly (re)discovered ENR starts its freshness window now.
+    peerStore.touchEnrSeen(peer.peerId)
 
 proc setShardInfo*(peerStore: PeerStore, peerId: PeerID, shards: seq[uint16]) =
   peerStore[ShardBook][peerId] = shards
@@ -232,14 +249,16 @@ proc getPeersByCapability*(
 
 template forEnrPeers*(
     peerStore: PeerStore,
-    peerId, peerConnectedness, peerOrigin, peerEnrRecord, body: untyped,
+    peerId, peerConnectedness, peerOrigin, peerEnrRecord, peerEnrSeen, body: untyped,
 ) =
   let enrBook = peerStore[ENRBook]
   let connBook = peerStore[ConnectionBook]
   let sourceBook = peerStore[SourceBook]
+  let seenBook = peerStore[EnrLastSeenBook]
   for pid, enrRecord in tables.pairs(enrBook.book):
     let peerId {.inject.} = pid
     let peerConnectedness {.inject.} = connBook.book.getOrDefault(pid, NotConnected)
     let peerOrigin {.inject.} = sourceBook.book.getOrDefault(pid, UnknownOrigin)
     let peerEnrRecord {.inject.} = enrRecord
+    let peerEnrSeen {.inject.} = seenBook.book.getOrDefault(pid, Moment.low)
     body
