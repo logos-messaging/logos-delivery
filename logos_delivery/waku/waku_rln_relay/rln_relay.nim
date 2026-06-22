@@ -12,7 +12,6 @@ import
   web3/eth_api_types,
   eth/keys,
   libp2p/protocols/pubsub/rpc/messages,
-  libp2p/protocols/pubsub/pubsub,
   results,
   stew/[byteutils, arrayops],
   brokers/broker_context
@@ -29,7 +28,6 @@ import
 import
   logos_delivery/waku/[
     common/error_handling,
-    waku_relay, # for WakuRelayHandler
     waku_core,
     requests/rln_requests,
     waku_keystore,
@@ -320,65 +318,6 @@ proc clearNullifierLog*(rlnPeer: WakuRlnRelay) =
     trace "clearing epochs from the nullifier log",
       currentEpoch = currentEpoch, cleanedEpoch = fromEpoch(epochRemove)
     rlnPeer.nullifierLog.del(epochRemove)
-
-proc generateRlnValidator*(
-    wakuRlnRelay: WakuRLNRelay, spamHandler = none(SpamHandler)
-): WakuValidatorHandler =
-  ## this procedure is a thin wrapper for the pubsub addValidator method
-  ## it sets a validator for waku messages, acting in the registered pubsub topic
-  ## the message validation logic is according to https://rfc.vac.dev/spec/17/
-  proc validator(
-      topic: string, message: WakuMessage
-  ): Future[pubsub.ValidationResult] {.async.} =
-    trace "rln-relay topic validator is called"
-    wakuRlnRelay.clearNullifierLog()
-
-    let msgProof = RateLimitProof.init(message.proof).valueOr:
-      trace "generateRlnValidator reject", error = error
-      return pubsub.ValidationResult.Reject
-
-    # validate the message and update log
-    let validationRes = await wakuRlnRelay.validateMessageAndUpdateLog(message)
-
-    let
-      proof = byteutils.toHex(msgProof.proof)
-      epoch = fromEpoch(msgProof.epoch)
-      root = inHex(msgProof.merkleRoot)
-      shareX = inHex(msgProof.shareX)
-      shareY = inHex(msgProof.shareY)
-      nullifier = inHex(msgProof.nullifier)
-      payload = string.fromBytes(message.payload)
-    case validationRes
-    of Valid:
-      trace "message validity is verified, relaying",
-        proof = proof,
-        root = root,
-        shareX = shareX,
-        shareY = shareY,
-        nullifier = nullifier
-      waku_rln_valid_messages_total.inc(labelValues = [topic])
-      return pubsub.ValidationResult.Accept
-    of Invalid:
-      trace "message validity could not be verified, discarding",
-        proof = proof,
-        root = root,
-        shareX = shareX,
-        shareY = shareY,
-        nullifier = nullifier
-      return pubsub.ValidationResult.Reject
-    of Spam:
-      trace "A spam message is found! yay! discarding:",
-        proof = proof,
-        root = root,
-        shareX = shareX,
-        shareY = shareY,
-        nullifier = nullifier
-      if spamHandler.isSome():
-        let handler = spamHandler.get()
-        handler(message)
-      return pubsub.ValidationResult.Reject
-
-  return validator
 
 proc monitorEpochs(wakuRlnRelay: WakuRLNRelay) {.async.} =
   while true:
