@@ -44,8 +44,7 @@ proc mountMessagingClient*(w: Waku): Result[void, string] =
   if not w.messagingClient.isNil():
     return ok()
 
-  w.messagingClient =
-    MessagingClient.createUnderContext(w.brokerCtx, w.conf.p2pReliability, w.node)
+  w.messagingClient = ?newMessagingClient(w.brokerCtx, w.conf.p2pReliability, w.node)
   return ok()
 
 # TODO workaround for legacy use. It will be removed as soon all usage goes through LogosDelivery.

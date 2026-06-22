@@ -1,6 +1,6 @@
 import results, chronos
 import chronicles
-import brokers/broker_implement
+import brokers/broker_implement, brokers/broker_context
 import logos_delivery/api/messaging_client_interface
 import
   logos_delivery/waku/api/types,
@@ -30,12 +30,12 @@ proc stop*(self: MessagingClient) {.async.} =
   self.started = false
 
 BrokerImplement MessagingClient of MessagingClientInterface:
-  proc new*(T: typedesc[MessagingClient], useP2PReliability: bool, node: WakuNode): T =
-    let sendService = SendService.new(useP2PReliability, node).valueOr:
-      error "Failed to initialize SendService", error = error
-      quit(QuitFailure)
-
-    let recvService = RecvService.new(node)
+  proc new*(
+      T: typedesc[MessagingClient],
+      node: WakuNode,
+      sendService: SendService,
+      recvService: RecvService,
+  ): T =
     T(node: node, sendService: sendService, recvService: recvService, started: false)
 
   method subscribe(
@@ -71,3 +71,12 @@ BrokerImplement MessagingClient of MessagingClientInterface:
     asyncSpawn self.sendService.send(deliveryTask)
 
     return ok(requestId)
+
+proc new*(T: typedesc[MessagingClient], 
+    ctx: BrokerContext, useP2PReliability: bool, node: WakuNode
+): Result[T, string] =
+  let sendService = SendService.new(useP2PReliability, node).valueOr:
+    error "Failed to initialize SendService", error = error
+    return err("Failed to initialize SendService: " & error)
+  let recvService = RecvService.new(node)
+  ok(MessagingClient.createUnderContext(ctx, node, sendService, recvService))

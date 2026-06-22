@@ -12,6 +12,7 @@
 import results, chronos
 import std/options # some()/Option for WakuNodeConf.mode
 import std/json # newJArray/newJObject/%*/pretty in getAvailableConfigs
+import std/strutils
 
 import brokers/broker_context, brokers/broker_interface, brokers/broker_implement
 import logos_delivery/api/logos_delivery_interface as logosdelivery_iface
@@ -48,10 +49,8 @@ proc createNode(conf: WakuNodeConf): Future[Result[Waku, string]] {.async.} =
   return ok(wakuRes)
 
 proc initMessagingClient(self: LogosDelivery): Result[MessagingClient, string] =
-  return ok(
-    MessagingClient.createUnderContext(
-      globalBrokerContext(), self.waku.conf.p2pReliability, self.waku.node
-    )
+  newMessagingClient(
+    globalBrokerContext(), self.waku.conf.p2pReliability, self.waku.node
   )
 
 proc initReliableChannelManager(
@@ -147,32 +146,36 @@ BrokerImplement LogosDelivery of LogosDeliveryInterface:
       return err("initialize failed: " & e.msg)
 
   method stop(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+    var errs: seq[string]
+
     if not self.reliableChannelManager.isNil():
       try:
         await self.reliableChannelManager.stop()
         self.reliableChannelManager.close()
-        self.reliableChannelManager = nil
       except CatchableError as e:
-        return err("ReliableChannelManager stop failed: " & e.msg)
+        errs.add("ReliableChannelManager stop failed: " & e.msg)
+      self.reliableChannelManager = nil
 
     if not self.messagingClient.isNil():
       try:
         await self.messagingClient.stop()
         self.messagingClient.close()
-        self.messagingClient = nil
       except CatchableError as e:
-        return err("MessagingClient stop failed: " & e.msg)
+        errs.add("MessagingClient stop failed: " & e.msg)
+      self.messagingClient = nil
 
     if not self.waku.isNil():
       try:
-        (await self.waku.stop()).isOkOr:
-          return err("Node stop failed: " & $error)
         # `Waku` is a plain ref object (not a BrokerImplement) — `stop()` is its
         # only teardown; there is no `close()`.
-        self.waku = nil
+        (await self.waku.stop()).isOkOr:
+          errs.add("Node stop failed: " & $error)
       except CatchableError as e:
-        return err("Node stop failed: " & e.msg)
+        errs.add("Node stop failed: " & e.msg)
+      self.waku = nil
 
+    if errs.len > 0:
+      return err(errs.join("; "))
     return ok()
 
   method shutdown(self: LogosDelivery): Future[Result[void, string]] {.async.} =
@@ -181,6 +184,8 @@ BrokerImplement LogosDelivery of LogosDeliveryInterface:
   method getNodeInfo(
       self: LogosDelivery, id: NodeInfoId
   ): Future[Result[string, string]] {.async.} =
+    if self.waku.isNil():
+      return err("not initialized; call startAsNode or startAsClient first")
     return ok(self.waku.stateInfo.getNodeInfoItem(id))
 
   method getAvailableConfigs(
