@@ -5,6 +5,7 @@ import logos_delivery/waku/compat/option_valueor
 import std/[sequtils, tables, options, typetraits]
 import chronos, chronicles, libp2p/utility
 import brokers/broker_context
+import logos_delivery/api/messaging_client_interface
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
   logos_delivery/waku/[
@@ -170,7 +171,7 @@ proc checkStoredMessages(self: SendService) {.async.} =
 
   await self.checkMsgsInStore(tasksToValidate)
 
-proc reportTaskResult(self: SendService, task: DeliveryTask) =
+proc reportTaskResult(self: SendService, task: DeliveryTask) {.async.} =
   case task.state
   of DeliveryState.SuccessfullyPropagated:
     # TODO: in case of unable to strore check messages shall we report success instead?
@@ -214,8 +215,9 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
       "Unable to send within retry time window",
     )
 
-proc evaluateAndCleanUp(self: SendService) =
-  self.taskCache.forEach(self.reportTaskResult(it))
+proc evaluateAndCleanUp(self: SendService) {.async.} =
+  for task in self.taskCache:
+    await self.reportTaskResult(task)
   self.taskCache.keepItIf(
     it.state != DeliveryState.SuccessfullyValidated and
       it.state != DeliveryState.FailedToDeliver
@@ -241,7 +243,7 @@ proc serviceLoop(self: SendService) {.async.} =
   while true:
     await self.trySendMessages()
     await self.checkStoredMessages()
-    self.evaluateAndCleanUp()
+    await self.evaluateAndCleanUp()
     ## TODO: add circuit breaker to avoid infinite looping in case of persistent failures
     ## Use OnlineStateChange observers to pause/resume the loop
     await sleepAsync(ServiceLoopInterval)
@@ -264,6 +266,6 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
       contentTopic = task.msg.contentTopic, error = error
 
   await self.sendProcessor.process(task)
-  reportTaskResult(self, task)
+  await reportTaskResult(self, task)
   if task.state != DeliveryState.FailedToDeliver:
     self.addTask(task)

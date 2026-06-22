@@ -503,7 +503,7 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
 
       w.topicsHealth[topic] = currentHealth
 
-      EventShardTopicHealthChange.emit(w.brokerCtx, topic, currentHealth)
+      ShardTopicHealthChangeEvent.emit(w.brokerCtx, topic, currentHealth)
 
       if not w.onTopicHealthChange.isNil():
         futs.add(w.onTopicHealthChange(topic, currentHealth))

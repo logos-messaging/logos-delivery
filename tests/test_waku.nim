@@ -14,7 +14,7 @@ suite "Waku API - Create node":
     ## Given
     var nodeConf = defaultWakuNodeConf().valueOr:
       raiseAssert "defaultWakuNodeConf failed: " & error
-    nodeConf.mode = Core
+    nodeConf.mode = some(WakuMode.Core)
     nodeConf.clusterId = some(3'u16)
     nodeConf.rest = false
 
@@ -34,7 +34,7 @@ suite "Waku API - Create node":
     ## Given
     var nodeConf = defaultWakuNodeConf().valueOr:
       raiseAssert "defaultWakuNodeConf failed: " & error
-    nodeConf.mode = Core
+    nodeConf.mode = some(WakuMode.Core)
     nodeConf.clusterId = some(99'u16)
     nodeConf.rest = false
     nodeConf.numShardsInNetwork = 16
@@ -66,7 +66,7 @@ suite "Waku API - Create node":
     ## Given
     var nodeConf = defaultWakuNodeConf().valueOr:
       raiseAssert "defaultWakuNodeConf failed: " & error
-    nodeConf.mode = Core
+    nodeConf.mode = some(WakuMode.Core)
     nodeConf.clusterId = some(42'u16)
     nodeConf.rest = false
     nodeConf.entryNodes = @[

@@ -81,9 +81,10 @@ const TheWakuNetworkPreset* = ProtocolsConfig(
   ),
 )
 
-type WakuMode* {.pure.} = enum
-  Edge
-  Core
+# WakuMode was elevated to logos_delivery/api/types; re-exported here so
+# existing call sites are unaffected.
+from logos_delivery/api/types import WakuMode
+export WakuMode
 
 type NodeConfig* {.
   requiresInit, deprecated: "Use WakuNodeConf from tools/confutils/cli_args instead"

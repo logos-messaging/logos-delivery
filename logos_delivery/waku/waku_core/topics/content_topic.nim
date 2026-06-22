@@ -12,7 +12,10 @@ export parsing
 
 ## Content topic
 
-type ContentTopic* = string
+# ContentTopic was elevated to logos_delivery/api/types; re-exported here so
+# existing call sites are unaffected.
+from logos_delivery/api/types import ContentTopic
+export ContentTopic
 
 const DefaultContentTopic* = ContentTopic("/waku/2/default-content/proto")
 

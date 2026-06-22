@@ -21,8 +21,8 @@ import bearssl/rand
 import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
 
-import logos_delivery/waku/api/types
-import logos_delivery/messaging/delivery_service/send_service
+import logos_delivery/api/messaging_client_interface as mci
+import logos_delivery/api/types
 import logos_delivery/waku/waku_core/topics
 
 import ./events
@@ -31,9 +31,7 @@ import ./scalable_data_sync/scalable_data_sync
 import ./rate_limit_manager/rate_limit_manager
 import ./encryption/encryption
 
-export
-  types, send_service, events, segmentation, scalable_data_sync, rate_limit_manager,
-  encryption
+export types, events, segmentation, scalable_data_sync, rate_limit_manager, encryption
 
 const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
   ## Wire-format spec marker for the Reliable Channel layer, as defined
@@ -44,14 +42,6 @@ const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
   ## on breaking on-the-wire changes; implementations pin one version.
 
 type
-  SendHandler* = proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
-    async: (raises: [CatchableError]), gcsafe
-  .}
-    ## Egress dispatch boundary. Typically wraps `MessagingClient.send`;
-    ## tests inject a fake that records calls and returns canned
-    ## `RequestId`s so the send state machine can be exercised end-to-end
-    ## without a network.
-
   MessagePersistence {.pure.} = enum
     Persistent
     Ephemeral
@@ -90,7 +80,7 @@ type
     ## Spec-defined public type. Fields are private so callers cannot
     ## mutate internals and break invariants. Getters are added below
     ## for the few values consumers may need.
-    sendHandler: SendHandler
+    messagingClient: MessagingClientInterface
     channelId: ChannelId
     contentTopic: ContentTopic
     senderId: SdsParticipantID
@@ -129,13 +119,15 @@ proc stop*(self: ReliableChannel) {.async: (raises: []).} =
   ## Stops the SDS background loops. Persisted SDS state survives.
   await self.sdsHandler.stop()
 
-proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
+proc tryFinalizeChannelReq(
+    self: ReliableChannel, channelReqId: RequestId
+) {.async: (raises: []).} =
   ## Tries to finalize the channel-level request identified by `channelReqId` if
   ## certain conditions are met, i.e., no segments are still awaiting dispatch or in flight,
   ## and the total number of confirmed + failed segments equals the total expected segments.
   ## Therefore, the channel-level request is removed from `self.channelReqs`
   ## and the appropriate final event is emitted.
-  ## 
+  ##
   let state = self.channelReqs.getOrDefault(channelReqId)
   if state.totalExpectedSegments == 0:
     ## Either already finalized (and removed) or never inserted.
@@ -150,16 +142,13 @@ proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
   if state.failedCount > 0:
     ChannelMessageErrorEvent.emit(
       self.brokerCtx,
-      ChannelMessageErrorEvent(
-        channelId: self.channelId,
-        requestId: channelReqId,
-        error: "one or more segments failed",
-      ),
+      channelId = self.channelId,
+      requestId = channelReqId,
+      error = "one or more segments failed",
     )
   else:
     ChannelMessageSentEvent.emit(
-      self.brokerCtx,
-      ChannelMessageSentEvent(channelId: self.channelId, requestId: channelReqId),
+      self.brokerCtx, channelId = self.channelId, requestId = channelReqId
     )
 
 type ClaimedSegment = object
@@ -184,7 +173,7 @@ type MessagingOutcome {.pure.} = enum
 
 proc onMessageFinal(
     self: ReliableChannel, messagingReqId: RequestId, outcome: MessagingOutcome
-) =
+) {.async.} =
   for channelReqId, state in self.channelReqs.mpairs:
     let idx = state.inflightMessagingIds.find(messagingReqId)
     if idx < 0:
@@ -195,17 +184,19 @@ proc onMessageFinal(
       state.confirmedCount.inc()
     of MessagingOutcome.Failed:
       state.failedCount.inc()
-    self.tryFinalizeChannelReq(channelReqId)
+    await self.tryFinalizeChannelReq(channelReqId)
     return
 
-proc markSegmentFailed(self: ReliableChannel, channelReqId: RequestId) =
+proc markSegmentFailed(
+    self: ReliableChannel, channelReqId: RequestId
+) {.async: (raises: []).} =
   try:
     self.channelReqs[channelReqId].failedCount.inc()
   except KeyError as e:
     error "unreachable: channelReqId not found in markSegmentFailed",
       channelReqId = $channelReqId, error = e.msg
     return
-  self.tryFinalizeChannelReq(channelReqId)
+  await self.tryFinalizeChannelReq(channelReqId)
 
 proc markSegmentInflight(
     self: ReliableChannel, channelReqId: RequestId, messagingReqId: RequestId
@@ -248,14 +239,15 @@ proc onReadyToSend(
     ## clear and encrypt only the application payload.
     let encRes = await Encrypt.request(m)
     let encrypted = encRes.valueOr:
-      MessageErrorEvent.emit(
+      ### TODO: Emitting of events from another layer is not completly ok to do so.
+      mci.MessageErrorEvent.emit(
         self.brokerCtx,
-        MessageErrorEvent(
-          requestId: channelReqId, messageHash: "", error: "encryption failed: " & error
-        ),
+        requestId = channelReqId,
+        messageHash = "",
+        error = "encryption failed: " & error,
       )
       ## Encryption failed *before* we could hand the segment to the
-      self.markSegmentFailed(channelReqId)
+      await self.markSegmentFailed(channelReqId)
       continue
     let wireBytes = seq[byte](encrypted)
 
@@ -269,25 +261,24 @@ proc onReadyToSend(
       meta: LipWireReliableChannelVersion.toBytes(),
     )
 
-    ## `sendHandler` is not annotated `(raises: [])`, but this listener is.
+    ## `messagingClient.send` is not annotated `(raises: [])`, but this listener is.
     ## Convert any raise to a Result error so the state machine handles
     ## both failure modes (Result.err and exception) through one path.
     let sendRes =
       try:
-        await self.sendHandler(envelope)
+        await self.messagingClient.send(envelope)
       except CatchableError as e:
         Result[RequestId, string].err("messaging send raised: " & e.msg)
 
     let messagingReqId = sendRes.valueOr:
-      MessageErrorEvent.emit(
+      ### TODO: Emitting of events from another layer is not completly ok to do so.
+      mci.MessageErrorEvent.emit(
         self.brokerCtx,
-        MessageErrorEvent(
-          requestId: channelReqId,
-          messageHash: "",
-          error: "messaging send failed: " & error,
-        ),
+        requestId = channelReqId,
+        messageHash = "",
+        error = "messaging send failed: " & error,
       )
-      self.markSegmentFailed(channelReqId)
+      await self.markSegmentFailed(channelReqId)
       continue
 
     self.markSegmentInflight(channelReqId, messagingReqId)
@@ -368,7 +359,7 @@ proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []
 
   let sendRes =
     try:
-      await self.sendHandler(envelope)
+      await self.messagingClient.send(envelope)
     except CatchableError as e:
       Result[RequestId, string].err("messaging send raised: " & e.msg)
   if sendRes.isErr():
@@ -390,13 +381,12 @@ proc onMessageReceived(
   ## the `Decrypt` request broker.
   let decRes = await Decrypt.request(payload)
   let plaintext = decRes.valueOr:
-    MessageErrorEvent.emit(
+    ### TODO: Emitting of events from another layer is not completly ok to do so.
+    mci.MessageErrorEvent.emit(
       self.brokerCtx,
-      MessageErrorEvent(
-        requestId: RequestId(""),
-        messageHash: messageHash,
-        error: "decryption failed: " & error,
-      ),
+      requestId = RequestId(""),
+      messageHash = messageHash,
+      error = "decryption failed: " & error,
     )
     return
   let plaintextBytes = seq[byte](plaintext)
@@ -407,13 +397,11 @@ proc onMessageReceived(
   ## marker/contentTopic filter already ran, so surface it as an error event
   ## rather than dropping it silently.
   let deliverable = (await self.sdsHandler.handleIncoming(plaintextBytes)).valueOr:
-    MessageErrorEvent.emit(
+    mci.MessageErrorEvent.emit(
       self.brokerCtx,
-      MessageErrorEvent(
-        requestId: RequestId(""),
-        messageHash: messageHash,
-        error: "SDS handleIncoming failed: " & error,
-      ),
+      requestId = RequestId(""),
+      messageHash = messageHash,
+      error = "SDS handleIncoming failed: " & error,
     )
     return
   for content in deliverable:
@@ -421,7 +409,7 @@ proc onMessageReceived(
 
 proc new*(
     T: type ReliableChannel,
-    sendHandler: SendHandler,
+    messagingClient: MessagingClientInterface,
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
@@ -437,11 +425,11 @@ proc new*(
   ## `Decrypt` request brokers, so the channel keeps no per-instance
   ## encryption state either.
   ##
-  ## `sendHandler` is the egress dispatch. The owning `ReliableChannelManager`
-  ## typically constructs it as a closure over `MessagingClient.send`. Tests
-  ## pass a fake to drive the send state machine without touching the network.
+  ## `messagingClient` is the egress dispatch — the channel calls
+  ## `messagingClient.send` to transmit. Tests pass a fake `MessagingClientInterface`
+  ## to drive the send state machine without touching the network.
   let chn = T(
-    sendHandler: sendHandler,
+    messagingClient: messagingClient,
     channelId: channelId,
     contentTopic: contentTopic,
     senderId: senderId,
@@ -495,9 +483,9 @@ proc new*(
       chn.onMessageFinal(evt.requestId, MessagingOutcome.Sent),
   )
 
-  discard MessageErrorEvent.listen(
+  discard mci.MessageErrorEvent.listen(
     chn.brokerCtx,
-    proc(evt: MessageErrorEvent): Future[void] {.async: (raises: []).} =
+    proc(evt: mci.MessageErrorEvent): Future[void] {.async: (raises: []).} =
       chn.onMessageFinal(evt.requestId, MessagingOutcome.Failed),
   )
 

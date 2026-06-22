@@ -1,6 +1,10 @@
 #!fmt: off
 
 import os
+import std/strutils
+  # strip() is used in buildLibDynamicMac/buildLibStaticMac (above the original
+  # `import std/strutils` lower in this file); needed at the top when this nimble
+  # is evaluated as the package script while compiling ./logos_delivery.nim.
 mode = ScriptMode.Verbose
 
 ### Package
@@ -65,7 +69,7 @@ requires "https://github.com/logos-messaging/nim-ffi#v0.1.3"
 
 requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb948b32a4ade1de3b5"
 
-requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.1.1"
+requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.1.4"
 
 requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
@@ -503,6 +507,33 @@ task liblogosdeliveryStaticLinux, "Generate bindings":
 
 task liblogosdeliveryStaticMac, "Generate bindings":
   buildLibStaticMac("liblogosdelivery", "library")
+
+## New single-root Logos Delivery library (BrokerFfiApi).
+## Builds ./logos_delivery.nim (registerBrokerLibrary name "logosdelivery") as a
+## shared library with the full set of FFI wrappers (C + C++ headers always, plus
+## Python, Rust and Go). Set the SRCGEN env var to also dump the broker-generated
+## sources (-d:brokerDebug). Independent of the original liblogosdelivery targets.
+task onelogosdelivery,
+    "Build the new single-root liblogosdelivery as a BrokerFfiApi library with all FFI wrappers (C/C++/Python/Rust/Go)":
+  let outdir = "build/onelogosdelivery"
+  if not dirExists(outdir):
+    mkDir(outdir)
+
+  # SRCGEN env var present -> persist the generated *.gen.nim under build/broker_debug/.
+  let srcGenFlag =
+    if existsEnv("SRCGEN"): " -d:brokerDebug" else: ""
+
+  let libExt =
+    when defined(windows): ".dll"
+    elif defined(macosx): ".dylib"
+    else: ".so"
+
+  # Full --out path keeps the shared lib in outdir (a bare basename lands in cwd).
+  exec "nim c" &
+    " --threads:on --app:lib --opt:speed --mm:refc" &
+    " -d:metrics -d:discv5_protocol_id=d5waku" &
+    " --nimMainPrefix:logosdelivery" & " --out:" & outdir & "/liblogosdelivery" & libExt &
+    srcGenFlag & " " & getMyCPU() & getNimParams() & " ./logos_delivery.nim"
 
 ### Formatting tasks
 

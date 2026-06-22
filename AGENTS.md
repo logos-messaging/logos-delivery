@@ -513,10 +513,14 @@ Language: Nim 2.x | License: MIT or Apache 2.0
 
 Note: For specific version requirements, check `logos_delivery.nimble`.
 
+## Working with nim-brokers
+
+@nim_brokers_instructions.md
+
 <!-- gitnexus:start -->
 # GitNexus — Code Intelligence
 
-This project is indexed by GitNexus as **logos-delivery** (2076 symbols, 2564 relationships, 12 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
+This project is indexed by GitNexus as **logos-delivery** (13906 symbols, 23819 relationships, 294 execution flows). Use the GitNexus MCP tools to understand code, assess impact, and navigate safely.
 
 > If any GitNexus tool warns the index is stale, run `npx gitnexus analyze` in terminal first.
 

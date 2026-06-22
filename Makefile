@@ -416,7 +416,7 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example
+.PHONY: cbindings cwaku_example libwaku liblogosdelivery liblogosdelivery_example onelogosdelivery
 
 detected_OS ?= Linux
 ifeq ($(OS),Windows_NT)
@@ -449,6 +449,11 @@ ifeq ($(detected_OS),Windows)
 else
 	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) logos_delivery.nimble
 endif
+
+# New single-root Logos Delivery library (BrokerFfiApi + all wrappers), built from
+# ./logos_delivery.nim. Single cross-platform task (no $(BUILD_COMMAND) suffix).
+onelogosdelivery: | build-deps librln
+	$(NIMBLE) --verbose onelogosdelivery logos_delivery.nimble
 
 logosdelivery_example: | build liblogosdelivery
 	@echo -e $(BUILD_MSG) "build/$@"

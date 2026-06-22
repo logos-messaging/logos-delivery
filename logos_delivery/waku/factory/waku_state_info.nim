@@ -8,18 +8,13 @@ import std/[tables, sequtils, strutils]
 import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
 import logos_delivery/waku/[waku_node, net/bound_ports]
 
-type
-  NodeInfoId* {.pure.} = enum
-    Version
-    Metrics
-    MyMultiaddresses
-    MyENR
-    MyPeerId
-    MyBoundPorts
-    MyMixPubKey
+# NodeInfoId was elevated to logos_delivery/api/types; re-exported here so
+# existing call sites are unaffected.
+from logos_delivery/api/types import NodeInfoId
+export NodeInfoId
 
-  WakuStateInfo* {.requiresInit.} = object
-    node: WakuNode
+type WakuStateInfo* {.requiresInit.} = object
+  node: WakuNode
 
 proc getAllPossibleInfoItemIds*(self: WakuStateInfo): seq[NodeInfoId] =
   ## Returns all possible options that can be queried to learn about the node's information.

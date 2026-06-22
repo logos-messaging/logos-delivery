@@ -73,7 +73,7 @@ proc createApiNodeConf(
 ): WakuNodeConf =
   var conf = defaultWakuNodeConf().valueOr:
     raiseAssert error
-  conf.mode = mode
+  conf.mode = some(mode)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

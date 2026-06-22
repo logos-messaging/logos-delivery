@@ -6,6 +6,7 @@ import logos_delivery/waku/compat/option_valueor
 import std/[tables, sequtils, options, sets]
 import chronos, chronicles, libp2p/utility
 import brokers/broker_context
+import logos_delivery/api/messaging_client_interface
 import
   logos_delivery/waku/[
     waku_core,
@@ -38,7 +39,7 @@ type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
   node: WakuNode
   seenMsgListener: MessageSeenEventListener
-  connStatusListener: EventConnectionStatusChangeListener
+  connStatusListener: ConnectionStatusChangeEventListener
 
   recentReceivedMsgs: seq[RecvMessage]
 
@@ -78,7 +79,7 @@ proc getMissingMsgsFromStore(
 
 proc processIncomingMessage(
     self: RecvService, pubsubTopic: string, message: WakuMessage
-): bool =
+): Future[bool] {.async.} =
   ## Return false if the incoming message is from a non-subscribed topic,
   ## or if the message is a duplicate (recently-seen). Otherwise, save it as
   ## recently-seen, emit a MessageReceivedEvent, and return true.
@@ -143,7 +144,7 @@ proc checkStore*(self: RecvService) {.async.} =
       let missingMsgsRet = await self.getMissingMsgsFromStore(missedHashes)
       if missingMsgsRet.isOk():
         for msgTuple in missingMsgsRet.get():
-          if self.processIncomingMessage(msgTuple.pubsubTopic, msgTuple.msg):
+          if await self.processIncomingMessage(msgTuple.pubsubTopic, msgTuple.msg):
             info "recv service store-recovered message",
               msg_hash = shortLog(msgTuple.hash), pubsubTopic = msgTuple.pubsubTopic
       else:
@@ -199,17 +200,17 @@ proc startRecvService*(self: RecvService) =
     error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)
 
-  self.connStatusListener = EventConnectionStatusChange.listen(
+  self.connStatusListener = ConnectionStatusChangeEvent.listen(
     self.brokerCtx,
-    proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
+    proc(event: ConnectionStatusChangeEvent) {.async: (raises: []).} =
       self.onConnectionStatusChange(event.connectionStatus),
   ).valueOr:
-    error "Failed to set EventConnectionStatusChange listener", error = error
+    error "Failed to set ConnectionStatusChangeEvent listener", error = error
     quit(QuitFailure)
 
 proc stopRecvService*(self: RecvService) {.async.} =
   await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
-  await EventConnectionStatusChange.dropListener(
+  await ConnectionStatusChangeEvent.dropListener(
     self.brokerCtx, self.connStatusListener
   )
   if not self.backfillHandler.isNil():

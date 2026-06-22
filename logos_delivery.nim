@@ -8,3 +8,10 @@ export api
 
 import logos_delivery/waku/factory/waku
 export waku
+
+import logos_delivery/api/logos_delivery_interface
+export logos_delivery_interface
+
+import logos_delivery/logos_delivery
+
+import brokers/api_library # registerBrokerLibrary

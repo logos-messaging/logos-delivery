@@ -67,11 +67,11 @@ when isMainModule:
   if args.ethRpcEndpoint == "":
     # Create a basic configuration for the Waku node
     # No RLN as we don't have an ETH RPC Endpoint
-    conf.mode = Core
+    conf.mode = some(WakuMode.Core)
     conf.preset = "logos.dev"
   else:
     # Connect to TWN, use ETH RPC Endpoint for RLN
-    conf.mode = Core
+    conf.mode = some(WakuMode.Core)
     conf.preset = "twn"
     conf.ethClientUrls = @[EthRpcUrl(args.ethRpcEndpoint)]
 

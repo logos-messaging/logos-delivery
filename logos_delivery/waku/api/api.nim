@@ -5,6 +5,12 @@ import chronicles, chronos, libp2p/peerid, results
 
 import logos_delivery/waku/factory/waku
 import logos_delivery/messaging/messaging_client
+import logos_delivery/channels/reliable_channel_manager
+import
+  logos_delivery/api/messaging_client_interface
+    # brings the interface `send` method into scope: the impl's `method send` in the
+    # BrokerImplement block is not exported, so the call below dispatches through the
+    # MessagingClientInterface method instead.
 import logos_delivery/waku/[requests/health_requests, waku_core, waku_node]
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/waku/node/subscription_manager
@@ -27,6 +33,38 @@ proc createNode*(conf: WakuNodeConf): Future[Result[Waku, string]] {.async.} =
     return err("Failed setting up Waku: " & $error)
 
   return ok(wakuRes)
+
+# TODO workaround for legacy use. It will be removed as soon all usage goes through LogosDelivery.
+proc mountMessagingClient*(w: Waku): Result[void, string] =
+  ## Construct and attach a `MessagingClient` to the node, wiring its brokers
+  ## under the node's own `brokerCtx` so emitted events (MessageSent/Error/
+  ## Propagated) reach listeners registered on that same context.
+  if w.isNil() or w.node.isNil():
+    return err("Waku node is not initialized")
+  if not w.messagingClient.isNil():
+    return ok()
+
+  w.messagingClient =
+    MessagingClient.createUnderContext(w.brokerCtx, w.conf.p2pReliability, w.node)
+  return ok()
+
+# TODO workaround for legacy use. It will be removed as soon all usage goes through LogosDelivery.
+proc mountReliableChannelManager*(w: Waku): Result[void, string] =
+  ## Construct and attach a `ReliableChannelManager` to the node, wiring its
+  ## brokers under the node's own `brokerCtx` (matching `mountMessagingClient`)
+  ## so channel events reach listeners on that same context. Requires the
+  ## messaging client to be mounted first.
+  if w.isNil() or w.node.isNil():
+    return err("Waku node is not initialized")
+  if w.messagingClient.isNil():
+    return err("messaging client must be mounted before reliable channel manager")
+  if not w.reliableChannelManager.isNil():
+    return ok()
+
+  w.reliableChannelManager = ReliableChannelManager.createUnderContext(
+    w.brokerCtx, MessagingClientInterface(w.messagingClient)
+  )
+  return ok()
 
 proc checkApiAvailability(w: Waku): Result[void, string] =
   if w.isNil():

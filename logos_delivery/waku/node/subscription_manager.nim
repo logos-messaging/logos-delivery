@@ -314,7 +314,7 @@ proc updateShardHealth(
   let newHealth = toTopicHealth(state.peers.len)
   if newHealth != state.currentHealth:
     state.currentHealth = newHealth
-    EventShardTopicHealthChange.emit(self.node.brokerCtx, shard, newHealth)
+    ShardTopicHealthChangeEvent.emit(self.node.brokerCtx, shard, newHealth)
 
 proc removePeer(self: SubscriptionManager, shard: PubsubTopic, peerId: PeerId) =
   ## Remove a peer from edgeFilterSubStates for the given shard,

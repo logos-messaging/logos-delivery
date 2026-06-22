@@ -1,6 +1,7 @@
 import std/json
 import chronos, chronicles, results, ffi
 import
+  logos_delivery/api/messaging_client_interface,
   logos_delivery/waku/factory/waku,
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/api/[api, types],
@@ -115,9 +116,9 @@ proc logosdelivery_start_node(
     chronicles.error "MessageReceivedEvent.listen failed", err = $error
     return err("MessageReceivedEvent.listen failed: " & $error)
 
-  let ConnectionStatusChangeListener = EventConnectionStatusChange.listen(
+  let ConnectionStatusChangeListener = ConnectionStatusChangeEvent.listen(
     ctx.myLib[].brokerCtx,
-    proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
+    proc(event: ConnectionStatusChangeEvent) {.async: (raises: []).} =
       callEventCallback(ctx, "onConnectionStatusChange"):
         $newJsonEvent("connection_status_change", event),
   ).valueOr:
@@ -150,7 +151,7 @@ proc logosdelivery_stop_node(
   await MessageSentEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   await MessagePropagatedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
   await MessageReceivedEvent.dropAllListeners(ctx.myLib[].brokerCtx)
-  await EventConnectionStatusChange.dropAllListeners(ctx.myLib[].brokerCtx)
+  await ConnectionStatusChangeEvent.dropAllListeners(ctx.myLib[].brokerCtx)
 
   (await ctx.myLib[].stop()).isOkOr:
     let errMsg = $error

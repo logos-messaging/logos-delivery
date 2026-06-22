@@ -16,7 +16,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    conf.mode = Core
+    conf.mode = some(WakuMode.Core)
     conf.clusterId = some(1'u16)
 
     ## When
@@ -37,7 +37,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    conf.mode = Edge
+    conf.mode = some(WakuMode.Edge)
     conf.clusterId = some(1'u16)
 
     ## When
@@ -54,11 +54,11 @@ suite "WakuNodeConf - mode-driven toWakuConf":
       wakuConf.storeServiceConf.isSome() == false
       wakuConf.peerExchangeService == true
 
-  test "noMode uses explicit CLI flags as-is":
+  test "WakuMode.none uses explicit CLI flags as-is":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    conf.mode = cli_args.WakuMode.noMode
+    conf.mode = none[WakuMode]()
     conf.relay = true
     conf.lightpush = false
     conf.clusterId = some(5'u16)
@@ -79,7 +79,7 @@ suite "WakuNodeConf - mode-driven toWakuConf":
     ## Given - user sets relay=false but mode=Core should override
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    conf.mode = Core
+    conf.mode = some(WakuMode.Core)
     conf.relay = false # will be overridden by Core mode
 
     ## When
@@ -101,7 +101,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     require confRes.isOk()
     let conf = confRes.get()
     check:
-      conf.mode == cli_args.WakuMode.noMode
+      conf.mode == none[WakuMode]()
       conf.clusterId.isNone()
       conf.logLevel == logging.LogLevel.INFO
 
@@ -113,7 +113,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     require confRes.isOk()
     let conf = confRes.get()
     check:
-      conf.mode == Core
+      conf.mode == some(WakuMode.Core)
       conf.clusterId == some(42'u16)
 
   test "JSON with Edge mode":
@@ -124,7 +124,7 @@ suite "WakuNodeConf - JSON parsing with fieldPairs":
     require confRes.isOk()
     let conf = confRes.get()
     check:
-      conf.mode == Edge
+      conf.mode == some(WakuMode.Edge)
 
   test "JSON with logLevel":
     ## Given / When

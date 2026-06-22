@@ -67,25 +67,25 @@ proc waitForConnectionStatus(
   ## Completes when the node reports `expected`.
   var future = newFuture[void]("waitForConnectionStatus")
 
-  let handler: EventConnectionStatusChangeListenerProc = proc(
-      e: EventConnectionStatusChange
+  let handler: health_events.ConnectionStatusChangeEventListenerProc = proc(
+      e: health_events.ConnectionStatusChangeEvent
   ) {.async: (raises: []), gcsafe.} =
     if not future.finished and e.connectionStatus == expected:
       future.complete()
 
-  let handle = EventConnectionStatusChange.listen(brokerCtx, handler).valueOr:
+  let handle = health_events.ConnectionStatusChangeEvent.listen(brokerCtx, handler).valueOr:
     raiseAssert error
 
   try:
     if not await future.withTimeout(TestTimeout):
       raiseAssert "Timeout waiting for status: " & $expected
   finally:
-    await EventConnectionStatusChange.dropListener(brokerCtx, handle)
+    await health_events.ConnectionStatusChangeEvent.dropListener(brokerCtx, handle)
 
 proc createApiNodeConf(numShards: uint16 = 1): WakuNodeConf =
   var conf = defaultWakuNodeConf().valueOr:
     raiseAssert error
-  conf.mode = cli_args.WakuMode.Core
+  conf.mode = some(cli_args.WakuMode.Core)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

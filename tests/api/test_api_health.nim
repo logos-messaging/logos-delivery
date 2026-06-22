@@ -31,36 +31,36 @@ proc waitForConnectionStatus(
 ) {.async.} =
   var future = newFuture[void]("waitForConnectionStatus")
 
-  let handler: EventConnectionStatusChangeListenerProc = proc(
-      e: EventConnectionStatusChange
+  let handler: health_events.ConnectionStatusChangeEventListenerProc = proc(
+      e: health_events.ConnectionStatusChangeEvent
   ) {.async: (raises: []), gcsafe.} =
     if not future.finished:
       if e.connectionStatus == expected:
         future.complete()
 
-  let handle = EventConnectionStatusChange.listen(brokerCtx, handler).valueOr:
+  let handle = health_events.ConnectionStatusChangeEvent.listen(brokerCtx, handler).valueOr:
     raiseAssert error
 
   try:
     if not await future.withTimeout(TestTimeout):
       raiseAssert "Timeout waiting for status: " & $expected
   finally:
-    await EventConnectionStatusChange.dropListener(brokerCtx, handle)
+    await health_events.ConnectionStatusChangeEvent.dropListener(brokerCtx, handle)
 
 proc waitForShardHealthy(
     brokerCtx: BrokerContext
-): Future[EventShardTopicHealthChange] {.async.} =
-  var future = newFuture[EventShardTopicHealthChange]("waitForShardHealthy")
+): Future[ShardTopicHealthChangeEvent] {.async.} =
+  var future = newFuture[ShardTopicHealthChangeEvent]("waitForShardHealthy")
 
-  let handler: EventShardTopicHealthChangeListenerProc = proc(
-      e: EventShardTopicHealthChange
+  let handler: ShardTopicHealthChangeEventListenerProc = proc(
+      e: ShardTopicHealthChangeEvent
   ) {.async: (raises: []), gcsafe.} =
     if not future.finished:
       if e.health == TopicHealth.MINIMALLY_HEALTHY or
           e.health == TopicHealth.SUFFICIENTLY_HEALTHY:
         future.complete(e)
 
-  let handle = EventShardTopicHealthChange.listen(brokerCtx, handler).valueOr:
+  let handle = ShardTopicHealthChangeEvent.listen(brokerCtx, handler).valueOr:
     raiseAssert error
 
   try:
@@ -69,7 +69,7 @@ proc waitForShardHealthy(
     else:
       raiseAssert "Timeout waiting for shard health event"
   finally:
-    await EventShardTopicHealthChange.dropListener(brokerCtx, handle)
+    await ShardTopicHealthChangeEvent.dropListener(brokerCtx, handle)
 
 suite "LM API health checking":
   var
@@ -94,7 +94,7 @@ suite "LM API health checking":
     lockNewGlobalBrokerContext:
       var conf = defaultWakuNodeConf().valueOr:
         raiseAssert error
-      conf.mode = Core
+      conf.mode = some(WakuMode.Core)
       conf.listenAddress = parseIpAddress("0.0.0.0")
       conf.tcpPort = Port(0)
       conf.discv5UdpPort = Port(0)
@@ -193,7 +193,7 @@ suite "LM API health checking":
 
     check isConnected == true
 
-  asyncTest "EventConnectionStatusChange, detect connect and disconnect":
+  asyncTest "ConnectionStatusChangeEvent, detect connect and disconnect":
     let connectFuture =
       waitForConnectionStatus(client.brokerCtx, ConnectionStatus.PartiallyConnected)
 
@@ -205,7 +205,7 @@ suite "LM API health checking":
     await client.node.disconnectNode(servicePeerInfo)
     await disconnectFuture
 
-  asyncTest "EventShardTopicHealthChange, detect health improvement":
+  asyncTest "ShardTopicHealthChangeEvent, detect health improvement":
     client.node.wakuRelay.subscribe(DefaultShard, dummyHandler)
 
     let healthEventFuture = waitForShardHealthy(client.brokerCtx)
@@ -273,7 +273,7 @@ suite "LM API health checking":
     lockNewGlobalBrokerContext:
       var edgeConf = defaultWakuNodeConf().valueOr:
         raiseAssert error
-      edgeConf.mode = Edge
+      edgeConf.mode = some(WakuMode.Edge)
       edgeConf.listenAddress = parseIpAddress("0.0.0.0")
       edgeConf.tcpPort = Port(0)
       edgeConf.discv5UdpPort = Port(0)

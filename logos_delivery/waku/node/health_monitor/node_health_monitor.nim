@@ -51,7 +51,7 @@ type NodeHealthMonitor* = ref object
     ## if it doesn't make sense for the protocol in question, this is set to zero.
   relayObserver: PubSubObserver
   peerEventListener: WakuPeerEventListener
-  shardHealthListener: EventShardTopicHealthChangeListener
+  shardHealthListener: ShardTopicHealthChangeEventListener
   eventLoopLagExceeded: bool
     ## set to true when the chronos event loop lag exceeds the severe threshold,
     ## causing the node health to be reported as EVENT_LOOP_LAGGING until lag recovers.
@@ -513,7 +513,7 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
 
         hm.connectionStatus = newConnectionStatus
 
-        EventConnectionStatusChange.emit(hm.node.brokerCtx, newConnectionStatus)
+        ConnectionStatusChangeEvent.emit(hm.node.brokerCtx, newConnectionStatus)
 
         if not isNil(hm.onConnectionStatusChange):
           await hm.onConnectionStatusChange(newConnectionStatus)
@@ -690,10 +690,10 @@ proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
   ).valueOr:
     return err("Failed to subscribe to peer events: " & error)
 
-  hm.shardHealthListener = EventShardTopicHealthChange.listen(
+  hm.shardHealthListener = ShardTopicHealthChangeEvent.listen(
     hm.node.brokerCtx,
     proc(
-        evt: EventShardTopicHealthChange
+        evt: ShardTopicHealthChangeEvent
     ): Future[void] {.async: (raises: []), gcsafe.} =
       hm.healthUpdateEvent.fire(),
   ).valueOr:
@@ -728,7 +728,7 @@ proc stopHealthMonitor*(hm: NodeHealthMonitor) {.async.} =
     await hm.eventLoopMonitorFut.cancelAndWait()
 
   await WakuPeerEvent.dropListener(hm.node.brokerCtx, hm.peerEventListener)
-  await EventShardTopicHealthChange.dropListener(
+  await ShardTopicHealthChangeEvent.dropListener(
     hm.node.brokerCtx, hm.shardHealthListener
   )
 

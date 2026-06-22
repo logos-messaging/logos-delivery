@@ -20,6 +20,8 @@ import
   secp256k1,
   json
 
+from logos_delivery/api/types import WakuMode
+
 import
   logos_delivery/waku/factory/[waku_conf, conf_builder/conf_builder, networks_config],
   logos_delivery/waku/common/[logging],
@@ -37,7 +39,7 @@ import ./envvar as confEnvvarDefs, ./envvar_net as confEnvvarNet
 
 export
   confTomlDefs, confTomlNet, confEnvvarDefs, confEnvvarNet, ProtectedShard,
-  DefaultMaxWakuMessageSizeStr, DefaultAgentString
+  DefaultMaxWakuMessageSizeStr, DefaultAgentString, WakuMode
 
 logScope:
   topics = "waku cli args"
@@ -59,11 +61,6 @@ type EthRpcUrl* = distinct string
 type StartUpCommand* = enum
   noCommand # default, runs waku
   generateRlnKeystore # generates a new RLN keystore
-
-type WakuMode* {.pure.} = enum
-  noMode # default - use explicit CLI flags as-is
-  Core # full service node
-  Edge # client-only node
 
 type WakuNodeConf* = object
   configFile* {.
@@ -168,10 +165,10 @@ type WakuNodeConf* = object
     ## General node config
     mode* {.
       desc:
-        "Node operation mode. 'Core' enables relay+service protocols. 'Edge' enables client-only protocols. Default: explicit CLI flags used.",
-      defaultValue: WakuMode.noMode,
+        "Node operation mode. 'Core' enables relay+service protocols. 'Edge' enables client-only protocols. Default (unset): explicit CLI flags used.",
+      defaultValue: none(WakuMode),
       name: "mode"
-    .}: WakuMode
+    .}: Option[WakuMode]
 
     preset* {.
       desc:
@@ -958,6 +955,25 @@ proc load*(T: type WakuNodeConf, version = ""): ConfResult[T] =
   except CatchableError:
     err(getCurrentExceptionMsg())
 
+proc loadWakuNodeConfFromFile*(configFile: string): ConfResult[WakuNodeConf] =
+  ## Load a WakuNodeConf from a specific TOML config file path (no CLI args).
+  ## Deliberately a CONCRETE proc (no `T: type` typedesc param): that keeps it
+  ## non-generic, so confutils' `load` macro expands HERE in cli_args' full scope
+  ## (its own `WakuMode` with `noMode`, `logging`, …) instead of at the caller's
+  ## scope — where a different `WakuMode` (api/types) would break `noMode`.
+  try:
+    let conf = WakuNodeConf.load(
+      version = "",
+      cmdLine = @[],
+      secondarySources = proc(
+          conf: WakuNodeConf, sources: auto
+      ) {.gcsafe, raises: [ConfigurationError].} =
+        sources.addConfigFile(Toml, InputFile(configFile)),
+    )
+    ok(conf)
+  except CatchableError:
+    err(getCurrentExceptionMsg())
+
 proc defaultWakuNodeConf*(): ConfResult[WakuNodeConf] =
   try:
     let conf = WakuNodeConf.load(version = "", cmdLine = @[])
@@ -1204,25 +1220,25 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
       chronos.seconds(n.kadServiceLookupIntervalSec.int64)
     )
 
-  # Mode-driven configuration overrides
-  case n.mode
-  of WakuMode.Core:
-    b.withRelay(true)
-    b.filterServiceConf.withEnabled(true)
-    b.withLightPush(true)
-    b.discv5Conf.withEnabled(true)
-    b.withPeerExchange(true)
-    b.withRendezvous(true)
-    b.rateLimitConf.withRateLimitsIfNotAssigned(
-      @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
-    )
-  of WakuMode.Edge:
-    b.withPeerExchange(true)
-    b.withRelay(false)
-    b.filterServiceConf.withEnabled(false)
-    b.withLightPush(false)
-    b.storeServiceConf.withEnabled(false)
-  of WakuMode.noMode:
-    discard # use explicit CLI flags as-is
+  # Mode-driven configuration overrides. `none` (formerly `noMode`) means:
+  # use explicit CLI flags as-is.
+  if n.mode.isSome():
+    case n.mode.get()
+    of WakuMode.Core:
+      b.withRelay(true)
+      b.filterServiceConf.withEnabled(true)
+      b.withLightPush(true)
+      b.discv5Conf.withEnabled(true)
+      b.withPeerExchange(true)
+      b.withRendezvous(true)
+      b.rateLimitConf.withRateLimitsIfNotAssigned(
+        @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
+      )
+    of WakuMode.Edge:
+      b.withPeerExchange(true)
+      b.withRelay(false)
+      b.filterServiceConf.withEnabled(false)
+      b.withLightPush(false)
+      b.storeServiceConf.withEnabled(false)
 
   return b.build()

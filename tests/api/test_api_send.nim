@@ -1,6 +1,6 @@
 {.used.}
 
-import std/strutils
+import std/[strutils, options]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
@@ -122,7 +122,7 @@ proc validate(
 proc createApiNodeConf(mode: cli_args.WakuMode = cli_args.WakuMode.Core): WakuNodeConf =
   var conf = defaultWakuNodeConf().valueOr:
     raiseAssert error
-  conf.mode = mode
+  conf.mode = some(mode)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

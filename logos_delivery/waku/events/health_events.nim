@@ -8,7 +8,7 @@ export protocol_health, topic_health
 
 # Notify health changes to node connectivity
 EventBroker:
-  type EventConnectionStatusChange* = object
+  type ConnectionStatusChangeEvent* = object
     connectionStatus*: ConnectionStatus
 
 # Notify health changes to a subscribed topic
@@ -16,12 +16,12 @@ EventBroker:
 #       from/to content topic is provided in the new API (so we know which
 #       content topics are of interest to the application)
 EventBroker:
-  type EventContentTopicHealthChange* = object
+  type ContentTopicHealthChangeEvent* = object
     contentTopic*: ContentTopic
     health*: TopicHealth
 
 # Notify health changes to a shard (pubsub topic)
 EventBroker:
-  type EventShardTopicHealthChange* = object
+  type ShardTopicHealthChangeEvent* = object
     topic*: PubsubTopic
     health*: TopicHealth

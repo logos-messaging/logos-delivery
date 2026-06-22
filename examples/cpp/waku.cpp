@@ -1,7 +1,6 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <argp.h>
 #include <signal.h>
 #include <unistd.h>
 #include <fcntl.h>
@@ -61,50 +60,69 @@ struct ConfigNode
 };
 
 // Arguments parsing
-static char doc[] = "\nC example that shows how to use the waku library.";
-static char args_doc[] = "";
-
-static struct argp_option options[] = {
-    {"host", 'h', "HOST", 0, "IP to listen for for LibP2P traffic. (default: \"0.0.0.0\")"},
-    {"port", 'p', "PORT", 0, "TCP listening port. (default: \"60000\")"},
-    {"key", 'k', "KEY", 0, "P2P node private key as 64 char hex string."},
-    {"relay", 'r', "RELAY", 0, "Enable relay protocol: 1 or 0. (default: 1)"},
-    {"peers", 'a', "PEERS", 0, "Comma-separated list of peer-multiaddress to connect\
- to. (default: \"\") e.g. \"/ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN\""},
-    {0}};
-
-static error_t parse_opt(int key, char *arg, struct argp_state *state)
+//
+// Platform-independent hand-rolled parser. Avoids glibc-only <argp.h>, which is
+// not available on macOS/BSD/Windows. Supports both "--opt value" and
+// "--opt=value" forms, plus the original short flags ("-h value" etc.).
+static void print_usage(const char *prog)
 {
+    printf("\nC example that shows how to use the waku library.\n\n");
+    printf("Usage: %s [options]\n\n", prog);
+    printf("  -h, --host  HOST   IP to listen for LibP2P traffic. (default: \"0.0.0.0\")\n");
+    printf("  -p, --port  PORT   TCP listening port. (default: 60000)\n");
+    printf("  -k, --key   KEY    P2P node private key as 64 char hex string.\n");
+    printf("  -r, --relay RELAY  Enable relay protocol: 1 or 0. (default: 1)\n");
+    printf("  -a, --peers PEERS  Comma-separated list of peer-multiaddresses to\n");
+    printf("                     connect to. (default: \"\")\n");
+    printf("      --help         Show this help and exit.\n");
+}
 
-    struct ConfigNode *cfgNode = (ConfigNode *)state->input;
-    switch (key)
+// Matches argv[i] against a long ("--name") or short ("-c") option. On match,
+// returns the option's value: an inline "--name=value", or the following argv
+// entry (consuming it by advancing *i). Returns nullptr if no match.
+static const char *match_opt(
+    char **argv, int argc, int *i, const char *longName, char shortName)
+{
+    const char *a = argv[*i];
+
+    size_t longLen = strlen(longName);
+    if (strncmp(a, "--", 2) == 0 && strncmp(a + 2, longName, longLen) == 0)
     {
-    case 'h':
-        snprintf(cfgNode->host, 128, "%s", arg);
-        break;
-    case 'p':
-        cfgNode->port = atoi(arg);
-        break;
-    case 'k':
-        snprintf(cfgNode->key, 128, "%s", arg);
-        break;
-    case 'r':
-        cfgNode->relay = atoi(arg);
-        break;
-    case 'a':
-        snprintf(cfgNode->peers, 2048, "%s", arg);
-        break;
-    case ARGP_KEY_ARG:
-        if (state->arg_num >= 1) /* Too many arguments. */
-            argp_usage(state);
-        break;
-    case ARGP_KEY_END:
-        break;
-    default:
-        return ARGP_ERR_UNKNOWN;
+        if (a[2 + longLen] == '=')
+            return a + 2 + longLen + 1; // --name=value
+        if (a[2 + longLen] == '\0' && *i + 1 < argc)
+            return argv[++(*i)]; // --name value
     }
 
-    return 0;
+    if (a[0] == '-' && a[1] == shortName && a[2] == '\0' && *i + 1 < argc)
+        return argv[++(*i)]; // -c value
+
+    return nullptr;
+}
+
+// Returns true on success, false on unknown/invalid arguments.
+static bool parse_args(int argc, char **argv, struct ConfigNode *cfgNode)
+{
+    for (int i = 1; i < argc; ++i)
+    {
+        const char *val;
+        if (strcmp(argv[i], "--help") == 0)
+            return false;
+        else if ((val = match_opt(argv, argc, &i, "host", 'h')))
+            snprintf(cfgNode->host, 128, "%s", val);
+        else if ((val = match_opt(argv, argc, &i, "port", 'p')))
+            cfgNode->port = atoi(val);
+        else if ((val = match_opt(argv, argc, &i, "key", 'k')))
+            snprintf(cfgNode->key, 128, "%s", val);
+        else if ((val = match_opt(argv, argc, &i, "relay", 'r')))
+            cfgNode->relay = atoi(val);
+        else if ((val = match_opt(argv, argc, &i, "peers", 'a')))
+            snprintf(cfgNode->peers, 2048, "%s", val);
+        else
+            return false; // unknown argument
+    }
+
+    return true;
 }
 
 void event_handler(const char *msg, size_t len)
@@ -128,8 +146,6 @@ auto cify(F &&f)
         return fn(msg, len);
     };
 }
-
-static struct argp argp = {options, parse_opt, args_doc, doc, 0, 0, 0};
 
 // Beginning of UI program logic
 
@@ -254,8 +270,9 @@ int main(int argc, char **argv)
     cfgNode.port = 60000;
     cfgNode.relay = 1;
 
-    if (argp_parse(&argp, argc, argv, 0, 0, &cfgNode) == ARGP_ERR_UNKNOWN)
+    if (!parse_args(argc, argv, &cfgNode))
     {
+        print_usage(argv[0]);
         show_help_and_exit();
     }
 

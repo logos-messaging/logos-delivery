@@ -228,8 +228,7 @@ suite "Health Monitor - events":
       nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
       await nodeA.start()
 
-    let ds =
-      MessagingClient.new(false, nodeA).expect("Failed to create MessagingClient")
+    let ds = MessagingClient.new(false, nodeA)
     ds.start().expect("Failed to start MessagingClient")
 
     let monitorA = NodeHealthMonitor.new(nodeA)
@@ -332,8 +331,7 @@ suite "Health Monitor - events":
       nodeA.mountMetadata(1, @[0'u16]).expect("Node A failed to mount metadata")
       await nodeA.start()
 
-    let ds =
-      MessagingClient.new(false, nodeA).expect("Failed to create MessagingClient")
+    let ds = MessagingClient.new(false, nodeA)
     ds.start().expect("Failed to start MessagingClient")
     let subMgr = nodeA.subscriptionManager
 
@@ -392,13 +390,13 @@ suite "Health Monitor - events":
 
     check lastStatus == ConnectionStatus.PartiallyConnected
 
-    var shardHealthFut = newFuture[EventShardTopicHealthChange]("waitForShardHealth")
+    var shardHealthFut = newFuture[ShardTopicHealthChangeEvent]("waitForShardHealth")
 
-    let shardHealthLis = EventShardTopicHealthChange
+    let shardHealthLis = ShardTopicHealthChangeEvent
       .listen(
         nodeA.brokerCtx,
         proc(
-            evt: EventShardTopicHealthChange
+            evt: ShardTopicHealthChangeEvent
         ): Future[void] {.async: (raises: []), gcsafe.} =
           if not shardHealthFut.finished and (
             evt.health == TopicHealth.MINIMALLY_HEALTHY or
@@ -413,7 +411,7 @@ suite "Health Monitor - events":
     subMgr.subscribe(contentTopic).expect("Failed to subscribe")
 
     let shardHealthOk = await shardHealthFut.withTimeout(TestConnectivityTimeLimit)
-    await EventShardTopicHealthChange.dropListener(nodeA.brokerCtx, shardHealthLis)
+    await ShardTopicHealthChangeEvent.dropListener(nodeA.brokerCtx, shardHealthLis)
 
     check shardHealthOk == true
     check nodeA.subscriptionManager.edgeFilterSubStates.len > 0

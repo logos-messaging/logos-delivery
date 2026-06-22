@@ -2,10 +2,12 @@ import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sequtils, strformat],
+  std/[options, sequtils, strformat, net, strutils],
   results,
   chronicles,
   chronos,
+  secp256k1,
+  libp2p/protocols/ping,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/protocols/connectivity/relay/client,
   libp2p/wire,
@@ -20,6 +22,7 @@ import
   metrics,
   metrics/chronos_httpserver,
   brokers/broker_context,
+  brokers/broker_implement,
   logos_delivery/waku/[
     waku_core,
     waku_node,
@@ -48,7 +51,11 @@ import
     factory/internal_config,
     factory/app_callbacks,
     persistency/persistency,
+    waku_lightpush_legacy/client,
+    waku_store/client as waku_store_client,
+    factory/validator_signed,
   ],
+  logos_delivery/api/kernel_interface,
   logos_delivery/channels/reliable_channel_manager,
   logos_delivery/messaging/messaging_client,
   ./waku_conf,
@@ -60,7 +67,7 @@ logScope:
 # Git version in git describe format (defined at compile time)
 const git_version* {.strdefine.} = "n/a"
 
-type Waku* = ref object
+type Waku* = ref object of KernelInterface
   stateInfo*: WakuStateInfo
   conf*: WakuConf
   rng*: crypto.Rng
@@ -74,8 +81,8 @@ type Waku* = ref object
 
   node*: WakuNode
 
+  # TODO: remove this indirection. Now kept for legacy.
   healthMonitor*: NodeHealthMonitor
-
   messagingClient*: MessagingClient
 
   reliableChannelManager*: ReliableChannelManager
@@ -83,8 +90,7 @@ type Waku* = ref object
   restServer*: WakuRestServerRef
   metricsServer*: MetricsHttpServerRef
   appCallbacks*: AppCallbacks
-
-  brokerCtx*: BrokerContext
+    ## `brokerCtx` is inherited from the `KernelInterface` broker base.
 
 proc setupSwitchServices(
     waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: crypto.Rng
@@ -187,65 +193,6 @@ proc setupAppCallbacks(
     healthMonitor.onConnectionStatusChange = appCallbacks.connectionStatusChangeHandler
 
   return ok()
-
-proc new*(
-    T: type Waku, wakuConf: WakuConf, appCallbacks: AppCallbacks = nil
-): Future[Result[Waku, string]] {.async.} =
-  let rng = crypto.newRng()
-  let brokerCtx = globalBrokerContext()
-
-  logging.setupLog(wakuConf.logLevel, wakuConf.logFormat)
-
-  ?wakuConf.validate()
-  wakuConf.logConf()
-
-  let relay = newCircuitRelay(wakuConf.circuitRelayClient)
-
-  let node = (await setupNode(wakuConf, rng, relay)).valueOr:
-    error "Failed setting up node", error = $error
-    return err("Failed setting up node: " & $error)
-
-  let healthMonitor = NodeHealthMonitor.new(node, wakuConf.dnsAddrsNameServers)
-
-  let restServer: WakuRestServerRef =
-    if wakuConf.restServerConf.isSome():
-      let restServer = startRestServerEssentials(
-        healthMonitor, wakuConf.restServerConf.get(), wakuConf.portsShift
-      ).valueOr:
-        error "Starting essential REST server failed", error = $error
-        return err("Failed to start essential REST server in Waku.new: " & $error)
-
-      restServer
-    else:
-      nil
-
-  if not restServer.isNil():
-    let boundRestPort = restServer.httpServer.address.port
-    node.ports.rest = boundRestPort.uint16
-    wakuConf.restServerConf.get().port = boundRestPort
-
-  # Set the extMultiAddrsOnly flag so the node knows not to replace explicit addresses
-  node.extMultiAddrsOnly = wakuConf.endpointConf.extMultiAddrsOnly
-
-  node.setupAppCallbacks(wakuConf, appCallbacks, healthMonitor).isOkOr:
-    error "Failed setting up app callbacks", error = error
-    return err("Failed setting up app callbacks: " & $error)
-
-  var waku = Waku(
-    stateInfo: WakuStateInfo.init(node),
-    conf: wakuConf,
-    rng: rng,
-    key: wakuConf.nodeKey,
-    node: node,
-    healthMonitor: healthMonitor,
-    appCallbacks: appCallbacks,
-    restServer: restServer,
-    brokerCtx: brokerCtx,
-  )
-
-  waku.setupSwitchServices(wakuConf, relay, rng)
-
-  ok(waku)
 
 proc getPorts(
     listenAddrs: seq[MultiAddress]
@@ -384,35 +331,7 @@ proc startDnsDiscoveryRetryLoop(waku: Waku): Future[void] {.async.} =
       error "failed to connect to dynamic bootstrap nodes: " & getCurrentExceptionMsg()
     return
 
-proc mountMessagingClient*(waku: Waku): Result[void, string] =
-  if not waku.messagingClient.isNil():
-    return err("messaging client already mounted")
-  if waku.node.started:
-    return err("cannot mount messaging client on a started node")
-  waku.messagingClient = MessagingClient.new(waku.conf.p2pReliability, waku.node).valueOr:
-    return err("could not create messaging client: " & $error)
-  return ok()
-
-proc mountReliableChannelManager*(waku: Waku): Result[void, string] =
-  if not waku.reliableChannelManager.isNil():
-    return err("reliable channel manager already mounted")
-  if waku.messagingClient.isNil():
-    return err("reliable channel manager requires a mounted messaging client")
-  if waku.node.started:
-    return err("cannot mount reliable channel manager on a started node")
-
-  let messagingClient = waku.messagingClient
-  let defaultSendHandler: SendHandler = proc(
-      envelope: MessageEnvelope
-  ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-    return await messagingClient.send(envelope)
-
-  waku.reliableChannelManager = ReliableChannelManager.new(
-    messagingClient, defaultSendHandler, waku.brokerCtx
-  ).valueOr:
-    return err("could not create reliable channel manager: " & $error)
-  return ok()
-
+# Notice this interface to be used only from LogosDelivery, hence not in the interface level.
 proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if waku.node.started:
     warn "start: waku node already started"
@@ -575,6 +494,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   return ok()
 
+# Notice this interface to be used only from LogosDelivery, hence not in the interface level.
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if not waku.node.started:
     warn "stop: attempting to stop node that isn't running"
@@ -616,12 +536,499 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   return ok()
 
-proc isModeCoreAvailable*(waku: Waku): bool =
-  return not waku.node.wakuRelay.isNil()
-
-proc isModeEdgeAvailable*(waku: Waku): bool =
-  return
-    waku.node.wakuRelay.isNil() and not waku.node.wakuStoreClient.isNil() and
-    not waku.node.wakuFilterClient.isNil() and not waku.node.wakuLightPushClient.isNil()
-
 {.pop.}
+  # end of `{.push raises: [].}` — kernel impl methods may propagate
+  # CatchableError (the BrokerImplement provider wrappers catch them).
+
+const FilterOpTimeout = 5.seconds
+
+BrokerImplement Waku of KernelInterface:
+  ## `new` is the BARE constructor (no ctx, no providers). Legacy callers keep
+  ## using `Waku.new(...)` unchanged — it is re-emitted verbatim by the macro
+  ## and returns a `globalBrokerContext`-bound node exactly as before, with the
+  ## kernel request-broker providers left unwired. `Waku.create(...)` /
+  ## `Waku.createUnderContext(...)` are additionally generated (async `Result`
+  ## shape) to wire the kernel under a fresh per-instance ctx when needed.
+  proc new*(
+      T: type Waku, wakuConf: WakuConf, appCallbacks: AppCallbacks = nil
+  ): Future[Result[Waku, string]] {.async.} =
+    let rng = crypto.newRng()
+    let brokerCtx = globalBrokerContext()
+
+    logging.setupLog(wakuConf.logLevel, wakuConf.logFormat)
+
+    ?wakuConf.validate()
+    wakuConf.logConf()
+
+    let relay = newCircuitRelay(wakuConf.circuitRelayClient)
+
+    let node = (await setupNode(wakuConf, rng, relay)).valueOr:
+      error "Failed setting up node", error = $error
+      return err("Failed setting up node: " & $error)
+
+    let healthMonitor = NodeHealthMonitor.new(node, wakuConf.dnsAddrsNameServers)
+
+    let restServer: WakuRestServerRef =
+      if wakuConf.restServerConf.isSome():
+        let restServer = startRestServerEssentials(
+          healthMonitor, wakuConf.restServerConf.get(), wakuConf.portsShift
+        ).valueOr:
+          error "Starting essential REST server failed", error = $error
+          return err("Failed to start essential REST server in Waku.new: " & $error)
+
+        restServer
+      else:
+        nil
+
+    if not restServer.isNil():
+      let boundRestPort = restServer.httpServer.address.port
+      node.ports.rest = boundRestPort.uint16
+      wakuConf.restServerConf.get().port = boundRestPort
+
+    # Set the extMultiAddrsOnly flag so the node knows not to replace explicit addresses
+    node.extMultiAddrsOnly = wakuConf.endpointConf.extMultiAddrsOnly
+
+    node.setupAppCallbacks(wakuConf, appCallbacks, healthMonitor).isOkOr:
+      error "Failed setting up app callbacks", error = error
+      return err("Failed setting up app callbacks: " & $error)
+
+    var waku = Waku(
+      stateInfo: WakuStateInfo.init(node),
+      conf: wakuConf,
+      rng: rng,
+      key: wakuConf.nodeKey,
+      node: node,
+      healthMonitor: healthMonitor,
+      appCallbacks: appCallbacks,
+      restServer: restServer,
+      brokerCtx: brokerCtx,
+    )
+
+    waku.setupSwitchServices(wakuConf, relay, rng)
+
+    ok(waku)
+
+  # --- topic construction ---
+  method buildContentTopic(
+      self: Waku, appName: string, appVersion: uint32, name: string, encoding: string
+  ): Future[Result[ContentTopic, string]] {.async.} =
+    try:
+      return ok(ContentTopic(fmt"/{appName}/{appVersion}/{name}/{encoding}"))
+    except CatchableError as e:
+      return err(e.msg)
+
+  method buildPubsubTopic(
+      self: Waku, topicName: string
+  ): Future[Result[PubsubTopic, string]] {.async.} =
+    try:
+      return ok(PubsubTopic(fmt"/waku/2/{topicName}"))
+    except CatchableError as e:
+      return err(e.msg)
+
+  method defaultPubsubTopic(self: Waku): Future[Result[PubsubTopic, string]] {.async.} =
+    return ok(DefaultPubsubTopic)
+
+  # --- relay ---
+  method relayPublish(
+      self: Waku, pubsubTopic: PubsubTopic, message: WakuMessage, timeoutMs: uint32
+  ): Future[Result[int, string]] {.async.} =
+    try:
+      if self.node.wakuRelay.isNil():
+        return err("relayPublish: WakuRelay not mounted")
+
+      let numPeers = (await self.node.wakuRelay.publish(pubsubTopic, message)).valueOr:
+        return err($error)
+
+      return ok(numPeers)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method relaySubscribe(
+      self: Waku, pubsubTopic: PubsubTopic
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.node.wakuRelay.isNil():
+        return err("relaySubscribe: WakuRelay not mounted")
+
+      let handler = proc(topic: PubsubTopic, msg: WakuMessage) {.async.} =
+        ## Bridge inbound relay traffic to the `ReceivedMessage` kernel event
+        ## (replaces libwaku's set_event_callback message path).
+        ReceivedMessage.emit(
+          self.brokerCtx, ReceivedMessage(pubsubTopic: topic, message: msg)
+        )
+
+      self.node.subscribe(
+        (kind: SubscriptionKind.PubsubSub, topic: pubsubTopic),
+        WakuRelayHandler(handler),
+      ).isOkOr:
+        return err($error)
+
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method relayUnsubscribe(
+      self: Waku, pubsubTopic: PubsubTopic
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.node.wakuRelay.isNil():
+        return err("relayUnsubscribe: WakuRelay not mounted")
+
+      self.node.unsubscribe((kind: SubscriptionKind.PubsubSub, topic: pubsubTopic)).isOkOr:
+        return err($error)
+
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method relayAddProtectedShard(
+      self: Waku, clusterId: uint16, shardId: uint16, publicKey: string
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.node.wakuRelay.isNil():
+        return err("relayAddProtectedShard: WakuRelay not mounted")
+
+      let pubKey = SkPublicKey.fromHex(publicKey).valueOr:
+        return err("relayAddProtectedShard: invalid public key: " & $error)
+
+      let protectedShard = ProtectedShard(shard: shardId, key: pubKey)
+      self.node.wakuRelay.addSignedShardsValidator(@[protectedShard], clusterId)
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method relayConnectedPeers(
+      self: Waku, pubsubTopic: PubsubTopic
+  ): Future[Result[seq[string], string]] {.async.} =
+    try:
+      if self.node.wakuRelay.isNil():
+        return err("relayConnectedPeers: WakuRelay not mounted")
+
+      let connPeers = self.node.wakuRelay.getConnectedPeers(pubsubTopic).valueOr:
+        return err($error)
+
+      return ok(connPeers.mapIt($it))
+    except CatchableError as e:
+      return err(e.msg)
+
+  method relayPeersInMesh(
+      self: Waku, pubsubTopic: PubsubTopic
+  ): Future[Result[seq[string], string]] {.async.} =
+    try:
+      if self.node.wakuRelay.isNil():
+        return err("relayPeersInMesh: WakuRelay not mounted")
+
+      let meshPeers = self.node.wakuRelay.getPeersInMesh(pubsubTopic).valueOr:
+        return err($error)
+
+      return ok(meshPeers.mapIt($it))
+    except CatchableError as e:
+      return err(e.msg)
+
+  # --- filter ---
+  method filterSubscribe(
+      self: Waku,
+      pubsubTopic: Option[PubsubTopic],
+      contentTopics: seq[ContentTopic],
+      peer: string,
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.node.wakuFilterClient.isNil():
+        return err("wakuFilterClient is not mounted")
+
+      let subFut = self.node.filterSubscribe(pubsubTopic, contentTopics, peer)
+      if not await subFut.withTimeout(FilterOpTimeout):
+        return err("filter subscription timed out")
+      subFut.read().isOkOr:
+        return err($error)
+
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method filterUnsubscribe(
+      self: Waku,
+      pubsubTopic: Option[PubsubTopic],
+      contentTopics: seq[ContentTopic],
+      peer: string,
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.node.wakuFilterClient.isNil():
+        return err("wakuFilterClient is not mounted")
+
+      let unsubFut = self.node.filterUnsubscribe(pubsubTopic, contentTopics, peer)
+      if not await unsubFut.withTimeout(FilterOpTimeout):
+        return err("filter un-subscription timed out")
+      unsubFut.read().isOkOr:
+        return err($error)
+
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method filterUnsubscribeAll(
+      self: Waku, peer: string
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.node.wakuFilterClient.isNil():
+        return err("wakuFilterClient is not mounted")
+
+      let unsubFut = self.node.filterUnsubscribeAll(peer)
+      if not await unsubFut.withTimeout(FilterOpTimeout):
+        return err("filter un-subscription all timed out")
+      unsubFut.read().isOkOr:
+        return err($error)
+
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  # --- lightpush ---
+  method lightpushPublish(
+      self: Waku, pubsubTopic: PubsubTopic, message: WakuMessage, peer: string
+  ): Future[Result[string, string]] {.async.} =
+    try:
+      if self.node.wakuLegacyLightpushClient.isNil():
+        return err("wakuLegacyLightpushClient is not mounted")
+
+      let remotePeer = parsePeerInfo(peer).valueOr:
+        return err("lightpushPublish failed to parse peer addr: " & $error)
+
+      let msgHashHex = (
+        await self.node.wakuLegacyLightpushClient.publish(
+          pubsubTopic, message, remotePeer
+        )
+      ).valueOr:
+        return err($error)
+
+      return ok(msgHashHex)
+    except CatchableError as e:
+      return err(e.msg)
+
+  # --- store ---
+  method storeQuery(
+      self: Waku, request: StoreQueryRequest, peer: string, timeoutMs: int
+  ): Future[Result[StoreQueryResponse, string]] {.async.} =
+    try:
+      if self.node.wakuStoreClient.isNil():
+        return err("wakuStoreClient is not mounted")
+
+      let remotePeer = parsePeerInfo(peer).valueOr:
+        return err("storeQuery failed to parse peer addr: " & $error)
+
+      let queryFut = self.node.wakuStoreClient.query(request, remotePeer)
+      if not await queryFut.withTimeout(timeoutMs.milliseconds):
+        return err("storeQuery timed out")
+
+      let queryResponse = queryFut.read().valueOr:
+        return err("storeQuery failed: " & $error)
+
+      return ok(queryResponse)
+    except CatchableError as e:
+      return err(e.msg)
+
+  # --- peer management ---
+  method connect(
+      self: Waku, peers: seq[string], timeoutMs: uint32
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      await self.node.connectToNodes(peers.mapIt(strip(it)), source = "static")
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method disconnectPeerById(
+      self: Waku, peerId: string
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      let pId = PeerId.init(peerId).valueOr:
+        return err($error)
+      await self.node.peerManager.disconnectNode(pId)
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method disconnectAllPeers(self: Waku): Future[Result[bool, string]] {.async.} =
+    try:
+      await self.node.peerManager.disconnectAllPeers()
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method dialPeer(
+      self: Waku, peerAddr: string, protocol: string, timeoutMs: int
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      let remotePeerInfo = parsePeerInfo(peerAddr).valueOr:
+        return err($error)
+      let conn = await self.node.peerManager.dialPeer(remotePeerInfo, protocol)
+      if conn.isNone():
+        return err("failed dialing peer")
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method dialPeerById(
+      self: Waku, peerId: string, protocol: string, timeoutMs: int
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      let pId = PeerId.init(peerId).valueOr:
+        return err($error)
+      let conn = await self.node.peerManager.dialPeer(pId, protocol)
+      if conn.isNone():
+        return err("failed dialing peer")
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method peerIdsFromPeerstore(
+      self: Waku
+  ): Future[Result[seq[string], string]] {.async.} =
+    try:
+      return ok(self.node.peerManager.switch.peerStore.peers().mapIt($it.peerId))
+    except CatchableError as e:
+      return err(e.msg)
+
+  method connectedPeersInfo(self: Waku): Future[Result[seq[string], string]] {.async.} =
+    try:
+      return ok(
+        self.node.peerManager.switch.peerStore
+          .peers()
+          .filterIt(it.connectedness == Connected)
+          .mapIt($it.peerId)
+      )
+    except CatchableError as e:
+      return err(e.msg)
+
+  method connectedPeers(self: Waku): Future[Result[seq[string], string]] {.async.} =
+    try:
+      let (inPeerIds, outPeerIds) = self.node.peerManager.connectedPeers()
+      return ok(concat(inPeerIds, outPeerIds).mapIt($it))
+    except CatchableError as e:
+      return err(e.msg)
+
+  method peerIdsByProtocol(
+      self: Waku, protocol: string
+  ): Future[Result[seq[string], string]] {.async.} =
+    try:
+      return ok(
+        self.node.peerManager.switch.peerStore
+          .peers(protocol)
+          .filterIt(it.connectedness == Connected)
+          .mapIt($it.peerId)
+      )
+    except CatchableError as e:
+      return err(e.msg)
+
+  # --- discovery ---
+  method dnsDiscovery(
+      self: Waku, enrTreeUrl: string, nameServer: string, timeoutMs: int
+  ): Future[Result[seq[string], string]] {.async.} =
+    try:
+      let dnsNameServers = @[parseIpAddress(nameServer)]
+      let discoveredPeers = (
+        await retrieveDynamicBootstrapNodes(enrTreeUrl, dnsNameServers)
+      ).valueOr:
+        return err("failed discovering peers from DNS: " & $error)
+
+      var multiAddresses = newSeq[string]()
+      for discPeer in discoveredPeers:
+        for address in discPeer.addrs:
+          multiAddresses.add($address & "/p2p/" & $discPeer)
+
+      return ok(multiAddresses)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method discv5UpdateBootnodes(
+      self: Waku, bootnodes: seq[string]
+  ): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.wakuDiscv5.isNil():
+        return err("discv5 not started")
+      let jsonArray = "[" & bootnodes.mapIt("\"" & it & "\"").join(",") & "]"
+      self.wakuDiscv5.updateBootstrapRecords(jsonArray).isOkOr:
+        return err("error in discv5UpdateBootnodes: " & $error)
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method startDiscv5(self: Waku): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.wakuDiscv5.isNil():
+        return err("discv5 not started")
+      (await self.wakuDiscv5.start()).isOkOr:
+        return err("error starting discv5: " & $error)
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method stopDiscv5(self: Waku): Future[Result[bool, string]] {.async.} =
+    try:
+      if self.wakuDiscv5.isNil():
+        return err("discv5 not started")
+      await self.wakuDiscv5.stop()
+      return ok(true)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method peerExchangeRequest(
+      self: Waku, numPeers: uint64
+  ): Future[Result[int, string]] {.async.} =
+    try:
+      let numPeersRecv = (await self.node.fetchPeerExchangePeers(numPeers)).valueOr:
+        return err("failed peer exchange: " & $error)
+      return ok(numPeersRecv)
+    except CatchableError as e:
+      return err(e.msg)
+
+  # --- debug / info ---
+  method version(self: Waku): Future[Result[string, string]] {.async.} =
+    return ok(WakuNodeVersionString)
+
+  method listenAddresses(self: Waku): Future[Result[seq[string], string]] {.async.} =
+    try:
+      return ok(self.node.info().listenAddresses)
+    except CatchableError as e:
+      return err(e.msg)
+
+  method myEnr(self: Waku): Future[Result[string, string]] {.async.} =
+    try:
+      return ok(self.node.enr.toURI())
+    except CatchableError as e:
+      return err(e.msg)
+
+  method myPeerId(self: Waku): Future[Result[string, string]] {.async.} =
+    try:
+      return ok($self.node.peerId())
+    except CatchableError as e:
+      return err(e.msg)
+
+  method metrics(self: Waku): Future[Result[string, string]] {.async.} =
+    {.gcsafe.}:
+      try:
+        return ok(defaultRegistry.toText())
+      except CatchableError as e:
+        return err(e.msg)
+
+  method isOnline(self: Waku): Future[Result[bool, string]] {.async.} =
+    return ok(self.healthMonitor.onlineMonitor.amIOnline())
+
+  method pingPeer(
+      self: Waku, peerAddr: string, timeoutMs: int
+  ): Future[Result[int64, string]] {.async.} =
+    try:
+      let peerInfo = parsePeerInfo(peerAddr).valueOr:
+        return err("pingPeer failed to parse peer addr: " & $error)
+
+      let conn = await self.node.switch.dial(peerInfo.peerId, peerInfo.addrs, PingCodec)
+      defer:
+        await conn.close()
+      let pingRTT = await self.node.libp2pPing.ping(conn)
+
+      if pingRTT == 0.nanos:
+        return err("could not ping peer: rtt-0")
+
+      return ok(pingRTT.nanos)
+    except CatchableError as e:
+      return err(e.msg)
