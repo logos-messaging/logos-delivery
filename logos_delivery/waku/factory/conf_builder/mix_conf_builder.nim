@@ -17,6 +17,7 @@ type MixConfBuilder* = object
   mixNodes: seq[MixNodePubInfo]
   userMessageLimit: Option[int]
   disableSpamProtection: bool
+  disableCoverTraffic: bool
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -36,6 +37,9 @@ proc withUserMessageLimit*(b: var MixConfBuilder, limit: int) =
 proc withDisableSpamProtection*(b: var MixConfBuilder, disable: bool) =
   b.disableSpamProtection = disable
 
+proc withDisableCoverTraffic*(b: var MixConfBuilder, disable: bool) =
+  b.disableCoverTraffic = disable
+
 proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):
     return ok(none[MixConf]())
@@ -51,6 +55,7 @@ proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
             mixNodes: b.mixNodes,
             userMessageLimit: b.userMessageLimit,
             disableSpamProtection: b.disableSpamProtection,
+            disableCoverTraffic: b.disableCoverTraffic,
           )
         )
       )
@@ -65,6 +70,7 @@ proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
             mixNodes: b.mixNodes,
             userMessageLimit: b.userMessageLimit,
             disableSpamProtection: b.disableSpamProtection,
+            disableCoverTraffic: b.disableCoverTraffic,
           )
         )
       )

@@ -111,6 +111,7 @@ proc new*(
     publishMessage: PublishMessage,
     userMessageLimit: Option[int] = none(int),
     disableSpamProtection: bool = false,
+    disableCoverTraffic: bool = false,
 ): WakuMixResult[T] =
   let mixPubKey = public(mixPrivKey)
   trace "mixPubKey", mixPubKey = mixPubKey
@@ -146,11 +147,16 @@ proc new*(
   else:
     info "mix spam protection disabled"
 
-  let ct = ConstantRateCoverTraffic.new(
-    totalSlots = ctTotalSlots,
-    epochDuration = ctEpochDuration,
-    useInternalEpochTimer = disableSpamProtection,
-  )
+  var coverTrafficOpt = default(Opt[CoverTraffic])
+  if not disableCoverTraffic:
+    let ct = ConstantRateCoverTraffic.new(
+      totalSlots = ctTotalSlots,
+      epochDuration = ctEpochDuration,
+      useInternalEpochTimer = disableSpamProtection,
+    )
+    coverTrafficOpt = Opt.some(CoverTraffic(ct))
+  else:
+    info "mix cover traffic disabled"
 
   var mixRlnSpam: MixRlnSpamProtection
   if spamProtectionOpt.isSome():
@@ -172,7 +178,7 @@ proc new*(
         ExponentialDelayStrategy.new(meanDelay = 100, rng = crypto.newRng())
       )
     ),
-    coverTraffic = Opt.some(CoverTraffic(ct)),
+    coverTraffic = coverTrafficOpt,
   )
 
   processBootNodes(bootnodes, peermgr, m)

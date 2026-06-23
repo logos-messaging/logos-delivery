@@ -170,7 +170,7 @@ proc setupProtocols(
     (
       await node.mountMix(
         conf.clusterId, mixConf.mixKey, mixConf.mixnodes, mixConf.userMessageLimit,
-        mixConf.disableSpamProtection,
+        mixConf.disableSpamProtection, mixConf.disableCoverTraffic,
       )
     ).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
