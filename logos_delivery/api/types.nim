@@ -9,8 +9,6 @@ import logos_delivery/waku/waku_core/[topics/content_topic, message/message, tim
 
 export content_topic, message
 
-export content_topic, message
-
 type
   MessageEnvelope* = object
     contentTopic*: ContentTopic
