@@ -76,6 +76,8 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
       noOfPeers = noOfPublishedPeers
     task.state = DeliveryState.SuccessfullyPropagated
     task.deliveryTime = Moment.now()
+    if task.firstPropagatedTime.isNone():
+      task.firstPropagatedTime = some(Moment.now())
   else:
     # It shall not happen, but still covering it
     task.state = self.fallbackStateToSet

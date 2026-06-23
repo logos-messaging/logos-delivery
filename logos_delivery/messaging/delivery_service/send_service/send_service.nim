@@ -59,6 +59,7 @@ type SendService* = ref object of RootObj
 
   node: WakuNode
   checkStoreForMessages: bool
+  lastStoreCheckTime: Moment ## throttles store validation queries to ArchiveTime cadence
 
 proc setupSendProcessorChain(
     peerManager: PeerManager,
@@ -117,6 +118,7 @@ proc new*(
     sendProcessor: sendProcessorChain,
     node: w,
     checkStoreForMessages: checkStoreForMessages,
+    lastStoreCheckTime: Moment.now(),
   )
 
   return ok(sendService)
@@ -163,11 +165,20 @@ proc checkStoredMessages(self: SendService) {.async.} =
   if not self.checkStoreForMessages:
     return
 
+  # Throttle store queries so they run at most every ArchiveTime (3s), regardless
+  # of the 1s service loop cadence.
+  if Moment.now() - self.lastStoreCheckTime < ArchiveTime:
+    return
+
   let tasksToValidate = self.taskCache.filterIt(
-    it.state == DeliveryState.SuccessfullyPropagated and it.deliveryAge() > ArchiveTime and
-      not it.isEphemeral()
+    it.state == DeliveryState.SuccessfullyPropagated and
+      it.propagationAge() > ArchiveTime and not it.isEphemeral()
   )
 
+  if tasksToValidate.len() == 0:
+    return
+
+  self.lastStoreCheckTime = Moment.now()
   await self.checkMsgsInStore(tasksToValidate)
 
 proc reportTaskResult(self: SendService, task: DeliveryTask) =
@@ -200,7 +211,10 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     # rest of the states are intermediate and does not translate to event
     discard
 
-  if task.messageAge() > MaxTimeInCache:
+  # Only tasks that never propagated are reported as hard send failures here.
+  # Propagated-but-not-store-validated tasks are handled (warn + drop, no event)
+  # in evaluateAndCleanUp.
+  if task.firstPropagatedTime.isNone() and task.messageAge() > MaxTimeInCache:
     error "Failed to send message",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
@@ -226,6 +240,25 @@ proc evaluateAndCleanUp(self: SendService) =
     not (
       it.state == DeliveryState.SuccessfullyPropagated and
       (it.isEphemeral() or not self.checkStoreForMessages)
+    )
+  )
+
+  # Store validation timed out: the message was propagated but never confirmed in a
+  # store node within MaxTimeInCache (measured from first propagation). Warn and drop
+  # without emitting an app event.
+  for task in self.taskCache:
+    if task.firstPropagatedTime.isSome() and
+        task.state != DeliveryState.SuccessfullyValidated and
+        task.propagationAge() > MaxTimeInCache:
+      warn "Message propagated but not validated by a store node within time window; stop trying.",
+        requestId = task.requestId,
+        msgHash = task.msgHash.to0xHex(),
+        propagationAge = task.propagationAge()
+
+  self.taskCache.keepItIf(
+    not (
+      it.firstPropagatedTime.isSome() and it.state != DeliveryState.SuccessfullyValidated and
+      it.propagationAge() > MaxTimeInCache
     )
   )
 
