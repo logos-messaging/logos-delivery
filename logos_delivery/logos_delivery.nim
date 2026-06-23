@@ -11,8 +11,6 @@
 
 import results, chronos, chronicles
 
-import logos_delivery/waku/api
-export api
 import logos_delivery/waku/waku
 export waku
 import logos_delivery/messaging/messaging_client
@@ -22,6 +20,8 @@ export reliable_channel_manager
 
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
+import tools/confutils/cli_args
+import logos_delivery/waku/node/health_monitor/online_monitor
 
 logScope:
   topics = "logosdelivery"

@@ -50,6 +50,9 @@ import
     factory/app_callbacks,
     persistency/persistency,
     factory/validator_signed,
+    waku_lightpush/client,
+    waku_lightpush_legacy/client,
+    waku_store/client,
   ],
   ./factory/waku_conf,
   ./factory/waku_state_info
