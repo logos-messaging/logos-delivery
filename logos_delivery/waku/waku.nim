@@ -50,9 +50,6 @@ import
     factory/app_callbacks,
     persistency/persistency,
     factory/validator_signed,
-    waku_lightpush/client,
-    waku_lightpush_legacy/client,
-    waku_store/client,
   ],
   ./factory/waku_conf,
   ./factory/waku_state_info
@@ -618,15 +615,8 @@ proc relaySubscribe*(
     if self.node.wakuRelay.isNil():
       return err("relaySubscribe: WakuRelay not mounted")
 
-    let handler = proc(topic: PubsubTopic, msg: WakuMessage) {.async.} =
-      ## Bridge inbound relay traffic to the `ReceivedMessage` kernel event
-      ## (replaces libwaku's set_event_callback message path).
-      ReceivedMessage.emit(
-        self.brokerCtx, ReceivedMessage(pubsubTopic: topic, message: msg)
-      )
-
     self.node.subscribe(
-      (kind: SubscriptionKind.PubsubSub, topic: pubsubTopic), WakuRelayHandler(handler)
+      (kind: SubscriptionKind.PubsubSub, topic: pubsubTopic), WakuRelayHandler(nil)
     ).isOkOr:
       return err($error)
 
@@ -975,9 +965,6 @@ proc metrics*(self: Waku): Future[Result[string, string]] {.async.} =
       return ok(defaultRegistry.toText())
     except CatchableError as e:
       return err(e.msg)
-
-proc isOnline*(self: Waku): Future[Result[bool, string]] {.async.} =
-  return ok(self.healthMonitor.onlineMonitor.amIOnline())
 
 proc pingPeer*(
     self: Waku, peerAddr: string, timeoutMs: int

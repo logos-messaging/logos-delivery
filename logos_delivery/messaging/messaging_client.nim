@@ -43,25 +43,25 @@ proc stop*(self: MessagingClient) {.async.} =
   await self.recvService.stopRecvService()
   self.started = false
 
-proc checkApiAvailability(self: MessagingClient): Result[void, string] =
-  if self.isNil():
+proc checkApiAvailability(mc: MessagingClient): Result[void, string] =
+  if mc.isNil():
     return err("MessagingClient is not initialized")
 
   return ok()
 
 proc subscribe*(
-    self: MessagingClient, contentTopic: ContentTopic
+    mc: MessagingClient, contentTopic: ContentTopic
 ): Future[Result[void, string]] {.async.} =
-  ?checkApiAvailability(self)
+  ?checkApiAvailability(mc)
 
-  return self.node.subscriptionManager.subscribe(contentTopic)
+  return mc.node.subscriptionManager.subscribe(contentTopic)
 
 proc unsubscribe*(
-    self: MessagingClient, contentTopic: ContentTopic
+    mc: MessagingClient, contentTopic: ContentTopic
 ): Result[void, string] =
-  ?checkApiAvailability(self)
+  ?checkApiAvailability(mc)
 
-  return self.node.subscriptionManager.unsubscribe(contentTopic)
+  return mc.node.subscriptionManager.unsubscribe(contentTopic)
 
 proc send*(
     self: MessagingClient, envelope: MessageEnvelope

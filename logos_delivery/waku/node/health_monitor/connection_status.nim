@@ -1,5 +1,5 @@
 import chronos, results, std/strutils
-from logos_delivery/api/types import ConnectionStatus
+import logos_delivery/api/types
 
 export ConnectionStatus
 
