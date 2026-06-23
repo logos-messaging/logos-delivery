@@ -59,6 +59,7 @@ type MixConf* = ref object
   mixnodes*: seq[MixNodePubInfo]
   userMessageLimit*: Option[int]
   disableSpamProtection*: bool
+  disableCoverTraffic*: bool
   useOnchainLEZ*: bool
   gifterService*: bool
   gifterWalletAccount*: string

@@ -179,6 +179,7 @@ proc setupProtocols(
       await node.mountMix(
         conf.clusterId, mixConf.mixKey, mixConf.mixnodes, mixConf.userMessageLimit,
         mixConf.disableSpamProtection,
+        disableCoverTraffic = mixConf.disableCoverTraffic,
         useOnchainLEZ = mixConf.useOnchainLEZ,
       )
     ).isOkOr:

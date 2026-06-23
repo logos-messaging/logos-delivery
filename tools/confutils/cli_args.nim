@@ -654,6 +654,12 @@ with the drawback of consuming some more bandwidth.""",
       name: "mix-disable-spam-protection"
     .}: bool
 
+    mixDisableCoverTraffic* {.
+      desc: "Disable constant-rate cover traffic emission for mix protocol.",
+      defaultValue: false,
+      name: "mix-disable-cover-traffic"
+    .}: bool
+
     mixOnchainLEZ* {.
       desc: "Use on-chain LEZ (LSSA sequencer) for mix RLN spam protection instead of off-chain keystores.",
       defaultValue: false,
@@ -1151,6 +1157,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.mixUserMessageLimit.isSome():
     b.mixConf.withUserMessageLimit(n.mixUserMessageLimit.get())
   b.mixConf.withDisableSpamProtection(n.mixDisableSpamProtection)
+  b.mixConf.withDisableCoverTraffic(n.mixDisableCoverTraffic)
 
   b.filterServiceConf.withEnabled(n.filter)
   b.filterServiceConf.withSubscriptionTimeout(n.filterSubscriptionTimeout)

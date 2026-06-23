@@ -14,6 +14,7 @@ type MixConfBuilder* = object
   mixNodes: seq[MixNodePubInfo]
   userMessageLimit: Option[int]
   disableSpamProtection: bool
+  disableCoverTraffic: bool
   useOnchainLEZ: bool
   gifterService: bool
   gifterWalletAccount: string
@@ -38,6 +39,9 @@ proc withUserMessageLimit*(b: var MixConfBuilder, limit: int) =
 
 proc withDisableSpamProtection*(b: var MixConfBuilder, disable: bool) =
   b.disableSpamProtection = disable
+
+proc withDisableCoverTraffic*(b: var MixConfBuilder, disable: bool) =
+  b.disableCoverTraffic = disable
 
 proc withUseOnchainLEZ*(b: var MixConfBuilder, use: bool) =
   b.useOnchainLEZ = use
@@ -72,6 +76,7 @@ proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
             mixNodes: b.mixNodes,
             userMessageLimit: b.userMessageLimit,
             disableSpamProtection: b.disableSpamProtection,
+            disableCoverTraffic: b.disableCoverTraffic,
             useOnchainLEZ: b.useOnchainLEZ,
             gifterService: b.gifterService,
             gifterWalletAccount: b.gifterWalletAccount,
@@ -92,6 +97,7 @@ proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
             mixNodes: b.mixNodes,
             userMessageLimit: b.userMessageLimit,
             disableSpamProtection: b.disableSpamProtection,
+            disableCoverTraffic: b.disableCoverTraffic,
             useOnchainLEZ: b.useOnchainLEZ,
             gifterService: b.gifterService,
             gifterWalletAccount: b.gifterWalletAccount,
