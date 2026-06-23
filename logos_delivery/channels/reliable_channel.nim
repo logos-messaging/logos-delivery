@@ -21,7 +21,7 @@ import bearssl/rand
 import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
 
-import logos_delivery/waku/api/types
+import logos_delivery/api/types
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/waku/waku_core/topics
 
@@ -135,7 +135,7 @@ proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
   ## and the total number of confirmed + failed segments equals the total expected segments.
   ## Therefore, the channel-level request is removed from `self.channelReqs`
   ## and the appropriate final event is emitted.
-  ## 
+  ##
   let state = self.channelReqs.getOrDefault(channelReqId)
   if state.totalExpectedSegments == 0:
     ## Either already finalized (and removed) or never inserted.

@@ -1,7 +1,7 @@
 ## Core identifier types for the Reliable Channel API.
 
 import std/hashes
-import logos_delivery/waku/api/types as api_types
+import logos_delivery/api/types as api_types
 
 import ./scalable_data_sync/scalable_data_sync
 

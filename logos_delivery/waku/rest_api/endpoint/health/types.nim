@@ -4,7 +4,8 @@ import logos_delivery/waku/compat/option_valueor
 import results
 import chronicles, json_serialization, json_serialization/std/options
 import ../serdes
-import logos_delivery/waku/[waku_node, api/types, node/health_monitor]
+import logos_delivery/api/types
+import logos_delivery/waku/[waku_node, node/health_monitor]
 
 #### Serialization and deserialization
 
