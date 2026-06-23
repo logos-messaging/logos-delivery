@@ -65,6 +65,7 @@ type MixConf* = ref object
   mixnodes*: seq[MixNodePubInfo]
   userMessageLimit*: Opt[int]
   disableSpamProtection*: bool
+  disableCoverTraffic*: bool
 
 type StoreServiceConf* = object
   dbMigration*: bool

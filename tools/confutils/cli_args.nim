@@ -679,6 +679,12 @@ hence would have reachability issues.""",
       name: "mix-disable-spam-protection"
     .}: bool
 
+    mixDisableCoverTraffic* {.
+      desc: "Disable constant-rate cover traffic emission for mix protocol.",
+      defaultValue: false,
+      name: "mix-disable-cover-traffic"
+    .}: bool
+
     # Kademlia Discovery config
     # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
     enableKadDiscovery* {.
@@ -1166,6 +1172,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.mixUserMessageLimit.isSome():
     b.mixConf.withUserMessageLimit(n.mixUserMessageLimit.get())
   b.mixConf.withDisableSpamProtection(n.mixDisableSpamProtection)
+  b.mixConf.withDisableCoverTraffic(n.mixDisableCoverTraffic)
 
   b.filterServiceConf.withEnabled(n.filter)
   b.filterServiceConf.withSubscriptionTimeout(n.filterSubscriptionTimeout)
