@@ -17,7 +17,7 @@ import
 
 import
   ../../../waku_keystore,
-  ../../rln,
+  ../../bindings,
   ../../rln/rln_interface,
   ../../conversion_utils,
   ../group_manager_base,

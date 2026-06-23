@@ -24,7 +24,7 @@ import
     waku_rln_relay,
     waku_rln_relay/protocol_types,
     waku_rln_relay/constants,
-    waku_rln_relay/rln,
+    waku_rln_relay/bindings,
   ],
   ../testlib/common
 

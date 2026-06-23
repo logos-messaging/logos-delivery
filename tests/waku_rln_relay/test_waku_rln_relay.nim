@@ -15,7 +15,7 @@ import
   logos_delivery/waku/[
     waku_core,
     waku_rln_relay,
-    waku_rln_relay/rln,
+    waku_rln_relay/bindings,
     waku_rln_relay/protocol_metrics,
     waku_keystore,
   ],

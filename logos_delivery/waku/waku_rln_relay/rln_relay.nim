@@ -18,7 +18,7 @@ import
 
 import
   ./group_manager,
-  ./rln,
+  ./bindings,
   ./conversion_utils,
   ./constants,
   ./protocol_types,

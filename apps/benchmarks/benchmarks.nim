@@ -4,7 +4,7 @@ import
 import
   logos_delivery/waku/[
     waku_rln_relay/protocol_types,
-    waku_rln_relay/rln,
+    waku_rln_relay/bindings,
     waku_rln_relay,
     waku_rln_relay/conversion_utils,
     waku_rln_relay/group_manager/on_chain/group_manager,

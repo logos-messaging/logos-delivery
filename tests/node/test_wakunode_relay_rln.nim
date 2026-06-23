@@ -18,7 +18,7 @@ import
     waku_node,
     common/error_handling,
     waku_rln_relay,
-    waku_rln_relay/rln,
+    waku_rln_relay/bindings,
     waku_rln_relay/protocol_types,
     waku_keystore/keystore,
   ],
