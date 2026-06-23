@@ -15,7 +15,7 @@ import
     waku_lightpush_legacy,
     waku_lightpush_legacy/common,
     waku_lightpush_legacy/protocol_metrics,
-    waku_rln_relay,
+    waku_rln,
   ],
   ../testlib/[wakucore, wakunode, testasync, futures, testutils],
   ../resources/payloads,

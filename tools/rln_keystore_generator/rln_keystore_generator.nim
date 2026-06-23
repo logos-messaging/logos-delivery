@@ -8,9 +8,9 @@ import chronicles, results, std/[tempfiles, sequtils]
 import
   logos_delivery/waku/[
     waku_keystore,
-    waku_rln_relay/bindings,
-    waku_rln_relay/conversion_utils,
-    waku_rln_relay/group_manager/on_chain,
+    waku_rln/bindings,
+    waku_rln/conversion_utils,
+    waku_rln/group_manager/on_chain,
   ]
 
 logScope:

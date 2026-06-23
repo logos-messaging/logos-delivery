@@ -25,7 +25,7 @@ import
     discovery/waku_discv5,
     discovery/waku_dnsdisc,
     waku_relay,
-    waku_rln_relay,
+    waku_rln,
     factory/builder,
     factory/networks_config,
   ],

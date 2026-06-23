@@ -30,7 +30,7 @@ import
   ../../waku_lightpush as lightpush_protocol,
   ../peer_manager,
   ../../common/rate_limit/setting,
-  ../../waku_rln_relay
+  ../../waku_rln
 
 logScope:
   topics = "waku node lightpush api"

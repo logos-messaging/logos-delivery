@@ -15,7 +15,7 @@ import
     waku_store/client,
     waku_store/common,
     waku_relay/protocol,
-    waku_rln_relay/rln_relay,
+    waku_rln/rln,
     waku_lightpush/client,
     waku_lightpush/callbacks,
     events/message_events,

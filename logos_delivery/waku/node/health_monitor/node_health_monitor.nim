@@ -11,7 +11,7 @@ import
   logos_delivery/api/types,
   logos_delivery/waku/[
     waku_relay,
-    waku_rln_relay,
+    waku_rln,
     events/health_events,
     events/peer_events,
     node/waku_node,

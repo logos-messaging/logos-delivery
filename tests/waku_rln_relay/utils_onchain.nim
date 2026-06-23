@@ -21,10 +21,10 @@ import
 
 import
   logos_delivery/waku/[
-    waku_rln_relay,
-    waku_rln_relay/protocol_types,
-    waku_rln_relay/constants,
-    waku_rln_relay/bindings,
+    waku_rln,
+    waku_rln/protocol_types,
+    waku_rln/constants,
+    waku_rln/bindings,
   ],
   ../testlib/common
 

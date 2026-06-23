@@ -33,9 +33,9 @@ import
   logos_delivery/waku/
     [common/error_handling, waku_core, requests/rln_requests, waku_keystore]
 
-# Re-export the new submodules so existing `import waku_rln_relay`
-# (and `import waku_rln_relay/rln_relay`) callers continue to see the
-# moved symbols (WakuRLNRelay, WakuRlnConfig, generateRLNProof, etc.).
+# Re-export the submodules so existing `import waku_rln`
+# (and `import waku_rln/rln`) callers see the moved symbols
+# (WakuRLNRelay, WakuRlnConfig, generateRLNProof, etc.).
 export types, config, proof, nullifier_log
 
 logScope:

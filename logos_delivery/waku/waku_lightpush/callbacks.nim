@@ -7,8 +7,8 @@ import
   ../waku_core,
   ../waku_relay,
   ./common,
-  ../waku_rln_relay,
-  ../waku_rln_relay/protocol_types
+  ../waku_rln,
+  ../waku_rln/protocol_types
 
 import std/times, libp2p/peerid, stew/byteutils
 

@@ -3,13 +3,13 @@ import
 
 import
   logos_delivery/waku/[
-    waku_rln_relay/protocol_types,
-    waku_rln_relay/bindings,
-    waku_rln_relay,
-    waku_rln_relay/conversion_utils,
-    waku_rln_relay/group_manager/on_chain/group_manager,
+    waku_rln/protocol_types,
+    waku_rln/bindings,
+    waku_rln,
+    waku_rln/conversion_utils,
+    waku_rln/group_manager/on_chain/group_manager,
   ],
-  tests/waku_rln_relay/utils_onchain
+  tests/waku_rln/utils_onchain
 
 proc benchmark(
     manager: OnChainGroupManager, registerCount: int, messageLimit: int
