@@ -669,6 +669,24 @@ hence would have reachability issues.""",
       name: "mixnode"
     .}: seq[MixNodePubInfo]
 
+    mixUserMessageLimit* {.
+      desc:
+        "Maximum messages per RLN epoch for mix cover traffic. If not set, uses plugin default.",
+      name: "mix-user-message-limit"
+    .}: Option[int]
+
+    mixDisableSpamProtection* {.
+      desc: "Disable RLN spam protection for mix protocol (for testing only).",
+      defaultValue: false,
+      name: "mix-disable-spam-protection"
+    .}: bool
+
+    mixDisableCoverTraffic* {.
+      desc: "Disable constant-rate cover traffic emission for mix protocol.",
+      defaultValue: false,
+      name: "mix-disable-cover-traffic"
+    .}: bool
+
     # Kademlia Discovery config
     # Option-typed; desc states the default since the CLI can't auto-show it for none().
     enableKadDiscovery* {.
@@ -1137,6 +1155,10 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.mixConf.withMixNodes(n.mixnodes)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
+  if n.mixUserMessageLimit.isSome():
+    b.mixConf.withUserMessageLimit(n.mixUserMessageLimit.get())
+  b.mixConf.withDisableSpamProtection(n.mixDisableSpamProtection)
+  b.mixConf.withDisableCoverTraffic(n.mixDisableCoverTraffic)
 
   b.filterServiceConf.withEnabled(n.filter)
   b.filterServiceConf.withSubscriptionTimeout(n.filterSubscriptionTimeout)
