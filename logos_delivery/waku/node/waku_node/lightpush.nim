@@ -50,7 +50,7 @@ proc mountLegacyLightPush*(
   let rlnPeer =
     if node.wakuRlnRelay.isNil():
       info "mounting legacy lightpush without rln-relay"
-      none(WakuRLNRelay)
+      none(WakuRln)
     else:
       info "mounting legacy lightpush with rln-relay"
       some(node.wakuRlnRelay)
@@ -161,7 +161,7 @@ proc mountLightPush*(
   let rlnPeer =
     if node.wakuRlnRelay.isNil():
       info "mounting lightpush without rln-relay"
-      none(WakuRLNRelay)
+      none(WakuRln)
     else:
       info "mounting lightpush with rln-relay"
       some(node.wakuRlnRelay)

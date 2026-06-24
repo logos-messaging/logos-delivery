@@ -7,14 +7,14 @@ import ./types, ./protocol_types, ./conversion_utils, ./group_manager, ./nonce_m
 
 import logos_delivery/waku/waku_core
 
-proc calcEpoch*(rlnPeer: WakuRLNRelay, t: float64): Epoch =
+proc calcEpoch*(rlnPeer: WakuRln, t: float64): Epoch =
   ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
   ## and returns its corresponding rln `Epoch` value
 
   let e = uint64(t / rlnPeer.rlnEpochSizeSec.float64)
   return toEpoch(e)
 
-proc nextEpoch*(rlnPeer: WakuRLNRelay, time: float64): float64 =
+proc nextEpoch*(rlnPeer: WakuRln, time: float64): float64 =
   let
     currentEpoch = uint64(time / rlnPeer.rlnEpochSizeSec.float64)
     nextEpochTime = float64(currentEpoch + 1) * rlnPeer.rlnEpochSizeSec.float64
@@ -26,7 +26,7 @@ proc nextEpoch*(rlnPeer: WakuRLNRelay, time: float64): float64 =
   else:
     return epochTime()
 
-proc getCurrentEpoch*(rlnPeer: WakuRLNRelay): Epoch =
+proc getCurrentEpoch*(rlnPeer: WakuRln): Epoch =
   return rlnPeer.calcEpoch(epochTime())
 
 proc absDiff*(e1, e2: Epoch): uint64 =
@@ -55,8 +55,8 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
   return output
 
 proc generateRLNProof*(
-    rlnPeer: WakuRLNRelay, input: seq[byte], senderEpochTime: float64
-): Future[RlnRelayResult[seq[byte]]] {.async.} =
+    rlnPeer: WakuRln, input: seq[byte], senderEpochTime: float64
+): Future[RlnResult[seq[byte]]] {.async.} =
   let epoch = rlnPeer.calcEpoch(senderEpochTime)
   let nonce = rlnPeer.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)

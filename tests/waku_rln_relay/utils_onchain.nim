@@ -20,12 +20,8 @@ import
   results
 
 import
-  logos_delivery/waku/[
-    waku_rln,
-    waku_rln/protocol_types,
-    waku_rln/constants,
-    waku_rln/bindings,
-  ],
+  logos_delivery/waku/
+    [waku_rln, waku_rln/protocol_types, waku_rln/constants, waku_rln/bindings],
   ../testlib/common
 
 const CHAIN_ID* = 1234'u256
@@ -42,7 +38,7 @@ proc generateCredentials*(): IdentityCredential =
 
 proc getRateCommitment*(
     idCredential: IdentityCredential, userMessageLimit: UserMessageLimit
-): RlnRelayResult[RawRateCommitment] =
+): RlnResult[RawRateCommitment] =
   return RateCommitment(
     idCommitment: idCredential.idCommitment, userMessageLimit: userMessageLimit
   ).toLeaf()

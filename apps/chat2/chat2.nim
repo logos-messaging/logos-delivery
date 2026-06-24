@@ -521,7 +521,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         topic = DefaultPubsubTopic, error = error
 
     if conf.rlnRelay:
-      info "WakuRLNRelay is enabled"
+      info "WakuRln is enabled"
 
       proc spamHandler(wakuMessage: WakuMessage) {.gcsafe, closure.} =
         info "spam handler is called"
@@ -538,7 +538,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         chainId: UInt256.fromBytesBE(conf.rlnRelayChainId.toBytesBE()),
         ethClientUrls: conf.ethClientUrls.mapIt(string(it)),
         creds: some(
-          RlnRelayCreds(
+          RlnCreds(
             path: conf.rlnRelayCredPath, password: conf.rlnRelayCredPassword
           )
         ),
@@ -554,8 +554,8 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
       echo "your rln identity commitment key is: ",
         identityCredential.idCommitment.inHex()
     else:
-      info "WakuRLNRelay is disabled"
-      echo "WakuRLNRelay is disabled, please enable it by passing in the --rln-relay flag"
+      info "WakuRln is disabled"
+      echo "WakuRln is disabled, please enable it by passing in the --rln-relay flag"
   if conf.metricsLogging:
     startMetricsLog()
 

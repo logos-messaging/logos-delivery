@@ -614,7 +614,7 @@ when isMainModule:
       ethContractAddress: conf.rlnRelayEthContractAddress,
       ethClientUrls: conf.ethClientUrls.mapIt(string(it)),
       epochSizeSec: conf.rlnEpochSizeSec,
-      creds: none(RlnRelayCreds),
+      creds: none(RlnCreds),
       onFatalErrorAction: onFatalErrorAction,
     )
 

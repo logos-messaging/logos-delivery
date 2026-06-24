@@ -65,7 +65,7 @@ proc setupSendProcessorChain(
     peerManager: PeerManager,
     lightpushClient: WakuLightPushClient,
     relay: WakuRelay,
-    rlnRelay: WakuRLNRelay,
+    rlnRelay: WakuRln,
     brokerCtx: BrokerContext,
 ): Result[BaseSendProcessor, string] =
   let isRelayAvail = not relay.isNil()
@@ -77,9 +77,9 @@ proc setupSendProcessorChain(
   var processors = newSeq[BaseSendProcessor]()
 
   if isRelayAvail:
-    let rln: Option[WakuRLNRelay] =
+    let rln: Option[WakuRln] =
       if rlnRelay.isNil():
-        none[WakuRLNRelay]()
+        none[WakuRln]()
       else:
         some(rlnRelay)
     let publishProc = getRelayPushHandler(relay, rln)

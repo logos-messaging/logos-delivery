@@ -4,11 +4,11 @@ import std/options, stint
 
 import logos_delivery/waku/common/error_handling
 
-type RlnRelayCreds* {.requiresInit.} = object
+type RlnCreds* {.requiresInit.} = object
   path*: string
   password*: string
 
-type RlnRelayConf* = object of RootObj
+type RlnConf* = object of RootObj
   # TODO: severals parameters are only needed when it's dynamic
   # change the config to either nest or use enum/type variant so it's obvious
   # and then it can be set to `requiresInit`
@@ -17,10 +17,10 @@ type RlnRelayConf* = object of RootObj
   ethContractAddress*: string
   ethClientUrls*: seq[string]
   chainId*: UInt256
-  creds*: Option[RlnRelayCreds]
+  creds*: Option[RlnCreds]
   epochSizeSec*: uint64
   userMessageLimit*: uint64
   ethPrivateKey*: Option[string]
 
-type WakuRlnConfig* = object of RlnRelayConf
+type WakuRlnConfig* = object of RlnConf
   onFatalErrorAction*: OnFatalErrorHandler

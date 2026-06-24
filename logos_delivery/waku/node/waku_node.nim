@@ -110,7 +110,7 @@ type
     wakuStoreTransfer*: SyncTransfer
     wakuFilter*: waku_filter_v2.WakuFilter
     wakuFilterClient*: filter_client.WakuFilterClient
-    wakuRlnRelay*: WakuRLNRelay
+    wakuRlnRelay*: WakuRln
     wakuLegacyLightPush*: WakuLegacyLightPush
     wakuLegacyLightpushClient*: WakuLegacyLightPushClient
     wakuLightPush*: WakuLightPush

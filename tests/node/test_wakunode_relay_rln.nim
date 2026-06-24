@@ -85,8 +85,8 @@ proc getWakuRlnConfigOnChain*(
     ethClientAddress: ethClientAddress.get(EthClient),
     epochSizeSec: 1,
     onFatalErrorAction: fatalErrorHandler.get(fatalErrorVoidHandler),
-    # If these are used, initialisation fails with "failed to mount WakuRlnRelay: could not initialize the group manager: the commitment does not have a membership"
-    creds: some(RlnRelayCreds(path: keystorePath, password: password)),
+    # If these are used, initialisation fails with "failed to mount WakuRln: could not initialize the group manager: the commitment does not have a membership"
+    creds: some(RlnCreds(path: keystorePath, password: password)),
   )
 
 proc setupRelayWithOnChainRln*(
@@ -143,7 +143,7 @@ suite "Waku RlnRelay - End to End - Static":
         server.wakuRelay == nil
         server.wakuRlnRelay == nil
         catchRes.error()[].msg ==
-          "WakuRelay protocol is not mounted, cannot mount WakuRlnRelay"
+          "WakuRelay protocol is not mounted, cannot mount WakuRln"
 
     asyncTest "Pubsub topics subscribed before mounting RlnRelay are added to it":
       # Given the node enables Relay and Rln while subscribing to a pubsub topic
@@ -236,7 +236,7 @@ suite "Waku RlnRelay - End to End - Static":
         await node.mountRlnRelay(wakuRlnConfig)
       except CatchableError as e:
         check e.msg ==
-          "failed to mount WakuRlnRelay: rln-relay-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
+          "failed to mount WakuRln: rln-relay-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
 
   suite "Analysis of Bandwith Limitations":
     asyncTest "Valid Payload Sizes":

@@ -9,7 +9,7 @@ import
     waku_rln/conversion_utils,
     waku_rln/group_manager/on_chain/group_manager,
   ],
-  tests/waku_rln/utils_onchain
+  tests/waku_rln_relay/utils_onchain
 
 proc benchmark(
     manager: OnChainGroupManager, registerCount: int, messageLimit: int

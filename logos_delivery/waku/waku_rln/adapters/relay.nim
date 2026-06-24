@@ -16,7 +16,7 @@ logScope:
   topics = "waku rln_relay adapter"
 
 proc generateRlnValidator*(
-    wakuRlnRelay: WakuRLNRelay, spamHandler = none(SpamHandler)
+    wakuRlnRelay: WakuRln, spamHandler = none(SpamHandler)
 ): WakuValidatorHandler =
   ## Bridges RLN's protocol-agnostic message validation into a relay
   ## (gossipsub) validator. The core decision is made by

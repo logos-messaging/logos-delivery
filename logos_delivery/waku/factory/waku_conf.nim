@@ -25,7 +25,7 @@ import
   ../waku_mix,
   ./conf_builder/kademlia_discovery_conf_builder
 
-export RlnRelayConf, RlnRelayCreds, RestServerConf, Discv5Conf, MetricsServerConf
+export RlnConf, RlnCreds, RestServerConf, Discv5Conf, MetricsServerConf
 
 logScope:
   topics = "waku conf"
@@ -113,7 +113,7 @@ type WakuConf* {.requiresInit.} = ref object
   dnsDiscoveryConf*: Option[DnsDiscoveryConf]
   filterServiceConf*: Option[FilterServiceConf]
   storeServiceConf*: Option[StoreServiceConf]
-  rlnRelayConf*: Option[RlnRelayConf]
+  rlnRelayConf*: Option[RlnConf]
   restServerConf*: Option[RestServerConf]
   metricsServerConf*: Option[MetricsServerConf]
   webSocketConf*: Option[WebSocketConf]
