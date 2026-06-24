@@ -28,7 +28,7 @@ type
     ## channel API. Placeholder for now (segmentation / SDS / rate-limit defaults
     ## will move here in a follow-up PR); kept so each layer owns its own config.
 
-  ReliableChannelManager* = ref object of IReliableChannelManager
+  ReliableChannelManager* = ref object
     channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
     messagingClient: MessagingClient ## The channel layer chains onto messaging.
     sendHandler*: SendHandler
