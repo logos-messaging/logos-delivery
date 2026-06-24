@@ -110,6 +110,17 @@ jobs:
         # job, which already forces -j1.
         run: make V=1 -j1 all
 
+      # Publish the freshly built shared library so the interop-tests workflow
+      # can run the wrapper suite against it without rebuilding. Only the Linux
+      # build is uploaded since the interop runners are ubuntu-latest.
+      - name: Upload liblogosdelivery.so
+        if: matrix.os == 'ubuntu-22.04'
+        uses: actions/upload-artifact@v4
+        with:
+          name: liblogosdelivery
+          path: build/liblogosdelivery.so
+          retention-days: 1
+
   build-windows:
     needs: changes
     if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
@@ -184,12 +195,22 @@ jobs:
     uses: ./.github/workflows/container-image.yml
     secrets: inherit
 
+  # Docker-based interop smoke tests. Gated only on the docker image so they
+  # still run on docker-only PRs (no liblogosdelivery build required).
   nwaku-nwaku-interop-tests:
     needs: build-docker-image
     uses: logos-messaging/logos-delivery-interop-tests/.github/workflows/nim_waku_PR.yml@SMOKE_TEST_STABLE
     with:
       node_nwaku: ${{ needs.build-docker-image.outputs.image }}
 
+    secrets: inherit
+
+  # Send API E2E tests run the wrapper suite against the liblogosdelivery.so
+  # built by the `build` job (downloaded as the `liblogosdelivery` artifact).
+  # Gated on `build`, so it is skipped on docker-only PRs where no lib is built.
+  send-api-e2e-tests:
+    needs: build
+    uses: logos-messaging/logos-delivery-interop-tests/.github/workflows/send_api_e2e_PR.yml@SMOKE_TEST_STABLE
     secrets: inherit
 
   lint:
