@@ -3,6 +3,11 @@
 # Executables shall be put in an ignored build/ directory
 /build
 
+# Test binaries (built by `nim c tests/...nim` for local debug compile)
+/tests/all_tests_common
+/tests/all_tests_waku
+/tests/all_tests_wakunode2
+
 # Generated Files
 *.generated.nim
 
@@ -41,6 +46,7 @@ node_modules/
 
 # RLN / keystore
 rlnKeystore.json
+rln_keystore*.json
 *.tar.gz
 
 # sqlite db
@@ -91,3 +97,6 @@ nimbledeps
 # Python bytecode from tests/simulator
 __pycache__/
 *.pyc
+
+# sim driver script (local dev tool, not part of build/CI)
+simulations/mixnet/roundtrip_check.sh

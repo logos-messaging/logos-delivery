@@ -111,6 +111,8 @@ if not defined(macosx) and not defined(android):
       nimStackTraceOverride
     switch("import", "libbacktrace")
 
+switch("import", "logos_delivery/waku/compat/option_valueor")
+
 --define:
   nimOldCaseObjects
   # https://github.com/status-im/nim-confutils/issues/9

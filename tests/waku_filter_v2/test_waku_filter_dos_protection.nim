@@ -24,7 +24,7 @@ type AFilterClient = ref object of RootObj
 
 proc init(T: type[AFilterClient]): T =
   var r = T(
-    clientSwitch: newStandardSwitch(),
+    clientSwitch: newTestSwitch(),
     msgSeq: @[],
     pushHandlerFuture: newPushHandlerFuture(),
   )
@@ -93,7 +93,7 @@ suite "Waku Filter - DOS protection":
     pubsubTopic = DefaultPubsubTopic
     contentTopic = DefaultContentTopic
     contentTopicSeq = @[contentTopic]
-    serverSwitch = newStandardSwitch()
+    serverSwitch = newTestSwitch()
     wakuFilter = await newTestWakuFilter(
       serverSwitch, rateLimitSetting = some((3, 1000.milliseconds))
     )

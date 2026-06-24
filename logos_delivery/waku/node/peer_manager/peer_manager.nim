@@ -28,6 +28,7 @@ import
     node/health_monitor/online_monitor,
     node/waku_switch,
   ],
+  ../waku_switch,
   ./peer_store/peer_storage,
   ./waku_peer_store
 
