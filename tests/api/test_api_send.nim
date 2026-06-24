@@ -355,22 +355,20 @@ suite "Waku API - Send":
   asyncTest "Edge sender delivers via lightpush (no relay)":
     ## Reproduces issue #3847: an Edge node (no relay mounted) that is only
     ## connected to a lightpush-capable peer must deliver through lightpush.
-    var node: Waku
+    var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await createNode(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
+      node = (await LogosDelivery.new(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
         raiseAssert error
-      node.mountMessagingClient().isOkOr:
-        raiseAssert "Failed to mount messaging: " & error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
       # Edge node has no relay; its only path to the network is the
       # lightpush peer it is connected to.
-      await node.node.connectToNodes(@[lightpushNodePeerInfo])
+      await node.waku.node.connectToNodes(@[lightpushNodePeerInfo])
 
-    check node.node.wakuRelay.isNil()
+    check node.waku.node.wakuRelay.isNil()
 
-    let eventManager = newSendEventListenerManager(node.brokerCtx)
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
       await eventManager.teardown()
 
@@ -378,7 +376,7 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.send(envelope)).valueOr:
+    let requestId = (await node.messagingClient.send(envelope)).valueOr:
       raiseAssert error
 
     const eventTimeout = 10.seconds
@@ -497,19 +495,19 @@ suite "Waku API - Send":
     # it can answer store queries but never holds the published message.
     let isolatedStoreNodePeerInfo = isolatedStoreNode.peerInfo.toRemotePeerInfo()
 
-    var node: Waku
+    var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await createNode(createApiNodeConf())).valueOr:
+      node = (await LogosDelivery.new(createApiNodeConf())).valueOr:
         raiseAssert error
-      node.mountMessagingClient().isOkOr:
-        raiseAssert "Failed to mount messaging: " & error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
 
       # Propagate via relayNode1; store queries can only reach the isolated store node.
-      await node.node.connectToNodes(@[relayNode1PeerInfo, isolatedStoreNodePeerInfo])
+      await node.waku.node.connectToNodes(
+        @[relayNode1PeerInfo, isolatedStoreNodePeerInfo]
+      )
 
-    let eventManager = newSendEventListenerManager(node.brokerCtx)
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
     defer:
       await eventManager.teardown()
 
@@ -517,7 +515,7 @@ suite "Waku API - Send":
       ContentTopic("/waku/2/default-content/proto"), "test payload"
     )
 
-    let requestId = (await node.send(envelope)).valueOr:
+    let requestId = (await node.messagingClient.send(envelope)).valueOr:
       raiseAssert error
 
     # Must outlive MaxTimeInCache (1 min) so the store-validation timeout drop fires.
