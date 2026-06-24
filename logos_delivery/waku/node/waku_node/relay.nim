@@ -193,15 +193,16 @@ proc mountRlnRelay*(
 ) {.async.} =
   info "mounting rln relay"
 
-  if node.wakuRelay.isNil():
-    raise newException(
-      CatchableError, "WakuRelay protocol is not mounted, cannot mount Rln"
-    )
-
   let rln = (await Rln.new(rlnConf, registrationHandler)).valueOr:
     raise newException(CatchableError, "failed to mount Rln: " & error)
   if (rlnConf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit):
     error "rln-relay-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
+
+  node.rln = rln
+
+  if node.wakuRelay.isNil():
+    info "WakuRelay not mounted; RLN mounted without relay validator"
+    return
 
   ## Bridges RLN's protocol-agnostic message validation into a relay
   ## (gossipsub) validator. The core decision is made by
@@ -262,5 +263,3 @@ proc mountRlnRelay*(
   # register rln validator as default validator
   info "Registering RLN validator"
   node.wakuRelay.addValidator(validator, "RLN validation failed")
-
-  node.rln = rln
