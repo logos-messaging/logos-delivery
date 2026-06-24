@@ -13,9 +13,8 @@ import brokers/broker_context
 from std/times import epochTime
 
 import
-  logos_delivery/waku/[
-    waku_relay, node/waku_node, node/peer_manager, waku_core, waku_node, waku_rln
-  ],
+  logos_delivery/waku/
+    [waku_relay, node/waku_node, node/peer_manager, waku_core, waku_node, waku_rln],
   ../waku_store/store_utils,
   ../waku_archive/archive_utils,
   ../testlib/[wakucore, futures]

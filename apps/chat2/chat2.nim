@@ -538,9 +538,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         chainId: UInt256.fromBytesBE(conf.rlnRelayChainId.toBytesBE()),
         ethClientUrls: conf.ethClientUrls.mapIt(string(it)),
         creds: some(
-          RlnCreds(
-            path: conf.rlnRelayCredPath, password: conf.rlnRelayCredPassword
-          )
+          RlnCreds(path: conf.rlnRelayCredPath, password: conf.rlnRelayCredPassword)
         ),
         userMessageLimit: conf.rlnRelayUserMessageLimit,
         epochSizeSec: conf.rlnEpochSizeSec,

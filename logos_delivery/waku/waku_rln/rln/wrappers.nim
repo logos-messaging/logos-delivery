@@ -206,9 +206,7 @@ proc extractMetadata*(proof: RateLimitProof): RlnResult[ProofMetadata] =
     )
   )
 
-proc buildPathElementsVec(
-    pathElements: seq[byte], depth: int
-): RlnResult[Vec_CFr] =
+proc buildPathElementsVec(pathElements: seq[byte], depth: int): RlnResult[Vec_CFr] =
   ## Caller MUST ffi_vec_cfr_free the returned Vec_CFr.
   var vec = ffi_vec_cfr_new(csize_t(depth))
   for i in 0 ..< depth:
@@ -224,9 +222,7 @@ proc buildPathElementsVec(
     ffi_cfr_free(element)
   ok(vec)
 
-proc buildWitnessInput(
-    witness: RLNWitnessInput
-): RlnResult[ptr FFI_RLNWitnessInput] =
+proc buildWitnessInput(witness: RLNWitnessInput): RlnResult[ptr FFI_RLNWitnessInput] =
   ## ffi_rln_witness_input_new copies all inputs, so the intermediate CFrs/vecs
   ## are freed here. Caller MUST ffi_rln_witness_input_free the returned handle.
   let depth = witness.identity_path_index.len
