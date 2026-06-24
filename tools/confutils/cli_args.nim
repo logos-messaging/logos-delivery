@@ -360,6 +360,12 @@ hence would have reachability issues.""",
       name: "shard"
     .}: seq[uint16]
 
+    shardOverride* {.
+      desc:
+        "Override the actual shard values used by auto-sharding. Provide exactly NUM_SHARDS_IN_NETWORK values; auto-sharding selects an index into this array and uses the value at that index as the shard. Argument may be repeated. Defaults to [0..NUM_SHARDS_IN_NETWORK-1] when unset",
+      name: "shard-override"
+    .}: seq[uint16]
+
     contentTopics* {.
       desc: "Default content topic to subscribe to. Argument may be repeated.",
       name: "content-topic"
@@ -1100,6 +1106,11 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.withShardingConf(AutoSharding)
   elif networkPresetConf.isNone():
     b.withShardingConf(StaticSharding)
+
+  # It is not possible to pass an empty sequence on the CLI
+  # If this is empty, it means the user did not specify a shard override
+  if n.shardOverride.len != 0:
+    b.withShardOverride(n.shardOverride)
 
   # It is not possible to pass an empty sequence on the CLI
   # If this is empty, it means the user did not specify any shards

@@ -16,6 +16,10 @@ export json_serialization, json_options
 
 type AutoShardingConfig* = object
   numShardsInCluster*: uint16
+  # Optional list of forced shard values. When set it must hold exactly
+  # `numShardsInCluster` values; auto-sharding selects an index and uses the
+  # value at that index as the shard. Empty means shards are `[0..n-1]`.
+  shardOverride*: seq[uint16]
 
 type RlnConfig* = object
   contractAddress*: string
@@ -213,6 +217,8 @@ proc toWakuConf*(
   b.withShardingConf(ShardingConfKind.AutoSharding)
   let autoShardingConfig = protocolsConfig.autoShardingConfig
   b.withNumShardsInCluster(autoShardingConfig.numShardsInCluster)
+  if autoShardingConfig.shardOverride.len > 0:
+    b.withShardOverride(autoShardingConfig.shardOverride)
 
   # Process entry nodes - supports enrtree:, enr:, and multiaddress formats
   if protocolsConfig.entryNodes.len > 0:
@@ -279,24 +285,32 @@ proc toWakuConf*(
 proc writeValue*(w: var JsonWriter, val: AutoShardingConfig) {.raises: [IOError].} =
   w.beginRecord()
   w.writeField("numShardsInCluster", val.numShardsInCluster)
+  w.writeField("shardOverride", val.shardOverride)
   w.endRecord()
 
 proc readValue*(
     r: var JsonReader, val: var AutoShardingConfig
 ) {.raises: [SerializationError, IOError].} =
-  var numShardsInCluster: Option[uint16]
+  var
+    numShardsInCluster: Option[uint16]
+    shardOverride: Option[seq[uint16]]
 
   for fieldName in readObjectFields(r):
     case fieldName
     of "numShardsInCluster":
       numShardsInCluster = some(r.readValue(uint16))
+    of "shardOverride":
+      shardOverride = some(r.readValue(seq[uint16]))
     else:
       r.raiseUnexpectedField(fieldName, "AutoShardingConfig")
 
   if numShardsInCluster.isNone():
     r.raiseUnexpectedValue("Missing required field 'numShardsInCluster'")
 
-  val = AutoShardingConfig(numShardsInCluster: numShardsInCluster.get())
+  val = AutoShardingConfig(
+    numShardsInCluster: numShardsInCluster.get(),
+    shardOverride: shardOverride.get(@[]),
+  )
 
 # ---------- RlnConfig ----------
 

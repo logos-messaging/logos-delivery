@@ -65,6 +65,50 @@ suite "Autosharding":
         shard9 == RelayShard(clusterId: ClusterId, shardId: 7)
         shard10 == RelayShard(clusterId: ClusterId, shardId: 3)
 
+    test "Generate Gen0 Shard with shardOverride":
+      # Given a sharding with a forced shard mapping (index -> value)
+      let shardOverride = @[10'u16, 11, 12, 13, 14, 15, 16, 17]
+      let sharding = Sharding(
+        clusterId: ClusterId,
+        shardCountGenZero: GenerationZeroShardsCount,
+        shardOverride: shardOverride,
+      )
+
+      let
+        nsContentTopic1 = NsContentTopic.parse(contentTopicShort).value()
+          # hashes to index 3
+        nsContentTopic3 = NsContentTopic.parse(contentTopicShort2).value()
+          # hashes to index 6
+        nsContentTopic9 = NsContentTopic.parse(contentTopicFull4).value()
+          # hashes to index 7
+
+      # When we generate gen0 shards from them
+      let
+        shard1 = sharding.getGenZeroShard(nsContentTopic1, GenerationZeroShardsCount)
+        shard3 = sharding.getGenZeroShard(nsContentTopic3, GenerationZeroShardsCount)
+        shard9 = sharding.getGenZeroShard(nsContentTopic9, GenerationZeroShardsCount)
+
+      # Then the computed index is remapped through the override array
+      check:
+        shard1 == RelayShard(clusterId: ClusterId, shardId: 13) # index 3 -> 13
+        shard3 == RelayShard(clusterId: ClusterId, shardId: 16) # index 6 -> 16
+        shard9 == RelayShard(clusterId: ClusterId, shardId: 17) # index 7 -> 17
+
+    test "shardOverride is ignored when length differs from shard count":
+      # Given a shardOverride whose length does not match the shard count
+      let sharding = Sharding(
+        clusterId: ClusterId,
+        shardCountGenZero: GenerationZeroShardsCount,
+        shardOverride: @[10'u16, 11, 12], # wrong length, must be ignored
+      )
+
+      let nsContentTopic1 = NsContentTopic.parse(contentTopicShort).value()
+      let shard1 = sharding.getGenZeroShard(nsContentTopic1, GenerationZeroShardsCount)
+
+      # Then it falls back to using the index as the shard id
+      check:
+        shard1 == RelayShard(clusterId: ClusterId, shardId: 3)
+
   suite "getShard from NsContentTopic":
     test "Generate Gen0 Shard with topic.generation==none":
       let sharding =

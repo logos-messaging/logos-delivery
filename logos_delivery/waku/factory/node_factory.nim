@@ -246,7 +246,10 @@ proc setupProtocols(
     node.setupStoreResume()
 
   if conf.shardingConf.kind == AutoSharding:
-    node.mountAutoSharding(conf.clusterId, conf.shardingConf.numShardsInCluster).isOkOr:
+    node.mountAutoSharding(
+      conf.clusterId, conf.shardingConf.numShardsInCluster,
+      conf.shardingConf.shardOverride,
+    ).isOkOr:
       return err("failed to mount waku auto sharding: " & error)
   else:
     warn("Auto sharding is disabled")

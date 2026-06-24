@@ -15,6 +15,12 @@ type
     case kind*: ShardingConfKind
     of AutoSharding:
       numShardsInCluster*: uint16
+      # Optional list of forced shard values used by autosharding. When set it
+      # must hold exactly `numShardsInCluster` values: autosharding selects an
+      # index in `[0..numShardsInCluster-1]` and the actual shard used is the
+      # value at that index. Empty means shards are the indices themselves
+      # (`[0..numShardsInCluster-1]`).
+      shardOverride*: seq[uint16]
     of StaticSharding:
       discard
 
@@ -123,6 +129,21 @@ proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
     ],
   )
 
+proc shards*(shardingConf: ShardingConf): seq[uint16] =
+  ## The actual set of shard ids autosharding can produce, and which a node
+  ## subscribes to by default. When a shard override is configured these are the
+  ## override values, otherwise the indices `[0..numShardsInCluster-1]`.
+  case shardingConf.kind
+  of StaticSharding:
+    return @[]
+  of AutoSharding:
+    if shardingConf.shardOverride.len > 0:
+      return shardingConf.shardOverride
+    var allShards = newSeq[uint16](shardingConf.numShardsInCluster.int)
+    for i in 0 ..< shardingConf.numShardsInCluster.int:
+      allShards[i] = uint16(i)
+    return allShards
+
 proc validateShards*(
     shardingConf: ShardingConf, shards: seq[uint16]
 ): Result[void, string] =
@@ -131,11 +152,23 @@ proc validateShards*(
     return ok()
   of AutoSharding:
     let numShardsInCluster = shardingConf.numShardsInCluster
+    # A shard override, when provided, must hold exactly one value per shard.
+    if shardingConf.shardOverride.len > 0 and
+        shardingConf.shardOverride.len != numShardsInCluster.int:
+      let msg =
+        "shardOverride must hold exactly numShardsInCluster (" & $numShardsInCluster &
+        ") values, got: " & $shardingConf.shardOverride.len
+      error "validateShards failed", error = msg
+      return err(msg)
+
+    # Valid shards are the actual shard values (override values when configured,
+    # otherwise the indices `[0..numShardsInCluster-1]`).
+    let validShards = shardingConf.shards()
     for shard in shards:
-      if shard >= numShardsInCluster:
+      if shard notin validShards:
         let msg =
-          "validateShards invalid shard: " & $shard & " when numShardsInCluster: " &
-          $numShardsInCluster
+          "validateShards invalid shard: " & $shard & " when valid shards are: " &
+          $validShards
         error "validateShards failed", error = msg
         return err(msg)
 
