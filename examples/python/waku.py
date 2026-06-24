@@ -53,7 +53,7 @@ parser.add_argument('--peer', dest='peer', default="",
 
 args = parser.parse_args()
 
-# The next 'json_config' is the item passed to the 'waku_new'.
+# The next 'json_config' is the item passed to the 'logosdelivery_create_node'.
 json_config = "{ \
                 \"host\": \"%s\",   \
                 \"port\": %d,       \
@@ -68,16 +68,16 @@ json_config = "{ \
 callback_type = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.c_char_p, ctypes.c_size_t)
 
 # Node creation
-libwaku.waku_new.restype = ctypes.c_void_p
-libwaku.waku_new.argtypes = [ctypes.c_char_p,
+libwaku.logosdelivery_create_node.restype = ctypes.c_void_p
+libwaku.logosdelivery_create_node.argtypes = [ctypes.c_char_p,
                              callback_type,
                              ctypes.c_void_p]
 
-ctx = libwaku.waku_new(bytes(json_config, 'utf-8'),
+ctx = libwaku.logosdelivery_create_node(bytes(json_config, 'utf-8'),
                        callback_type(
                            #onErrCb
                            lambda ret, msg, len:
-                             print("Error calling waku_new: %s",
+                             print("Error calling logosdelivery_create_node: %s",
                                    msg.decode('utf-8'))
                            ),
                            ctypes.c_void_p(0))
@@ -115,12 +115,12 @@ libwaku.logosdelivery_set_event_callback.argtypes = [callback_type, ctypes.c_voi
 libwaku.logosdelivery_set_event_callback(callback, ctypes.c_void_p(0))
 
 # Start the node
-libwaku.waku_start.argtypes = [ctypes.c_void_p,
+libwaku.logosdelivery_start_node.argtypes = [ctypes.c_void_p,
                                callback_type,
                                ctypes.c_void_p]
-libwaku.waku_start(ctx,
+libwaku.logosdelivery_start_node(ctx,
                    callback_type(lambda ret, msg, len:
-                                  print("Error in waku_start: %s" %
+                                  print("Error in logosdelivery_start_node: %s" %
                                         msg.decode('utf-8'))),
                    ctypes.c_void_p(0))
 

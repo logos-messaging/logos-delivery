@@ -348,7 +348,7 @@ int main(int argc, char **argv)
            cfgNode.storeRetentionPolicy,
            cfgNode.storeMaxNumDbConnections);
 
-  ctx = waku_new(jsonConfig, event_handler, userData);
+  ctx = logosdelivery_create_node(jsonConfig, event_handler, userData);
   waitForCallback();
 
   WAKU_CALL(waku_default_pubsub_topic(ctx, print_default_pubsub_topic, userData));
@@ -359,7 +359,7 @@ int main(int argc, char **argv)
 
   logosdelivery_set_event_callback(ctx, on_event_received, userData);
 
-  waku_start(ctx, event_handler, userData);
+  logosdelivery_start_node(ctx, event_handler, userData);
   waitForCallback();
 
   WAKU_CALL(waku_listen_addresses(ctx, event_handler, userData));

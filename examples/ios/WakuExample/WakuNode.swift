@@ -240,11 +240,11 @@ actor WakuActor {
             print("[WakuActor] Unsubscribed from filter")
 
             // Stop
-            _ = await self.callWakuSync { waku_stop(ctxToStop, WakuActor.syncCallback, $0) }
+            _ = await self.callWakuSync { logosdelivery_stop_node(ctxToStop, WakuActor.syncCallback, $0) }
             print("[WakuActor] Node stopped")
 
             // Destroy
-            _ = await self.callWakuSync { waku_destroy(ctxToStop, WakuActor.syncCallback, $0) }
+            _ = await self.callWakuSync { logosdelivery_destroy(ctxToStop, WakuActor.syncCallback, $0) }
             print("[WakuActor] Node destroyed")
         }
     }
@@ -319,13 +319,13 @@ actor WakuActor {
         }
         """
 
-        // Create node - waku_new is special, it returns the context directly
+        // Create node - logosdelivery_create_node is special, it returns the context directly
         let createResult = await withCheckedContinuation { (continuation: CheckedContinuation<(ctx: UnsafeMutableRawPointer?, success: Bool, result: String?), Never>) in
             let callbackCtx = CallbackContext()
             let userDataPtr = Unmanaged.passRetained(callbackCtx).toOpaque()
 
-            // Set up a simple callback for waku_new
-            let newCtx = waku_new(config, { ret, msg, len, userData in
+            // Set up a simple callback for logosdelivery_create_node
+            let newCtx = logosdelivery_create_node(config, { ret, msg, len, userData in
                 guard let userData = userData else { return }
                 let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
                 context.success = (ret == RET_OK)
@@ -354,7 +354,7 @@ actor WakuActor {
 
         // Start node
         let startResult = await callWakuSync { userData in
-            waku_start(self.ctx, WakuActor.syncCallback, userData)
+            logosdelivery_start_node(self.ctx, WakuActor.syncCallback, userData)
         }
 
         guard startResult.success else {

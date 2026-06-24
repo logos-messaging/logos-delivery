@@ -5,6 +5,7 @@ import
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/api/[api, types],
   logos_delivery/waku/events/[message_events, health_events],
+  logos_delivery/waku/factory/app_callbacks,
   tools/confutils/conf_from_json,
   ../declare_lib,
   ../json_event
@@ -14,13 +15,25 @@ proc `%`*(id: RequestId): JsonNode =
   %($id)
 
 registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[LogosDelivery]):
-  proc(configJson: cstring): Future[Result[string, string]] {.async.} =
-    let conf = parseNodeConfFromJson($configJson).valueOr:
+  proc(
+      configJson: cstring, appCallbacks: AppCallbacks
+  ): Future[Result[string, string]] {.async.} =
+    # liblogosdelivery JSON semantics: case-insensitive keys, reject unknown ones.
+    var conf = parseNodeConfFromJson($configJson).valueOr:
       error "Failed to assemble WakuNodeConf from JSON",
         error = error, configJson = $configJson
       return err("failed parseNodeConfFromJson " & error)
 
-    ctx.myLib[] = (await LogosDelivery.new(conf)).valueOr:
+    # The REST server is a CLI-only surface; the FFI library never runs it.
+    conf.rest = false
+
+    # Don't forward relay callbacks if relay is disabled.
+    let callbacks = cast[AppCallbacks](appCallbacks)
+    if not conf.relay and not callbacks.isNil():
+      callbacks.relayHandler = nil
+      callbacks.topicHealthChangeHandler = nil
+
+    ctx.myLib[] = (await LogosDelivery.new(conf, callbacks)).valueOr:
       let errMsg = $error
       chronicles.error "CreateNodeRequest failed", err = errMsg
       return err(errMsg)
@@ -59,8 +72,10 @@ proc logosdelivery_create_node(
 
   ctx.userData = userData
 
+  let appCallbacks = buildAppCallbacks(ctx)
+
   ffi.sendRequestToFFIThread(
-    ctx, CreateNodeRequest.ffiNewReq(callback, userData, configJson)
+    ctx, CreateNodeRequest.ffiNewReq(callback, userData, configJson, appCallbacks)
   ).isOkOr:
     let msg = "error in sendRequestToFFIThread: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)

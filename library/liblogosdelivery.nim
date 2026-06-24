@@ -8,7 +8,10 @@ import
   logos_delivery,
   logos_delivery/waku/factory/waku,
   logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/node/peer_manager/peer_manager,
   logos_delivery/waku/node/health_monitor/health_status,
+  logos_delivery/waku/node/health_monitor/topic_health,
+  logos_delivery/waku/node/health_monitor/connection_status,
   ../logos_delivery/waku/factory/app_callbacks,
   ./events/json_message_event,
   ./events/json_topic_health_change_event,
@@ -17,43 +20,12 @@ import
   ./declare_lib
 
 ################################################################################
-## Include different APIs, i.e. all procs with {.ffi.} pragma
+## Shared FFI event wiring
 
-include
-  ./logos_delivery_api/node_api,
-  ./logos_delivery_api/messaging_api,
-  ./logos_delivery_api/debug_api,
-  ./kernel_api/peer_manager_api,
-  ./kernel_api/discovery_api,
-  ./kernel_api/node_lifecycle_api,
-  ./kernel_api/debug_node_api,
-  ./kernel_api/ping_api,
-  ./kernel_api/protocols/relay_api,
-  ./kernel_api/protocols/store_api,
-  ./kernel_api/protocols/lightpush_api,
-  ./kernel_api/protocols/filter_api
-
-################################################################################
-### Exported procs (former libwaku API)
-
-proc waku_new(
-    configJson: cstring, callback: FFICallback, userData: pointer
-): pointer {.dynlib, exportc, cdecl.} =
-  initializeLibrary()
-
-  ## Creates a new instance of the WakuNode.
-  if isNil(callback):
-    echo "error: missing callback in waku_new"
-    return nil
-
-  ## Create the Waku thread that will keep waiting for req from the main thread.
-  var ctx = ffi.createFFIContext[LogosDelivery]().valueOr:
-    let msg = "Error in createFFIContext: " & $error
-    callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
-    return nil
-
-  ctx.userData = userData
-
+proc buildAppCallbacks(ctx: ptr FFIContext[LogosDelivery]): AppCallbacks =
+  ## Builds the libp2p-level callbacks that bridge node events onto the FFI
+  ## event callback. Shared by the single create_node entry point so both the
+  ## stable (messaging) and kernel (waku_*) header surfaces get the same wiring.
   proc onReceivedMessage(ctx: ptr FFIContext): WakuRelayHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
       callEventCallback(ctx, "onReceivedMessage"):
@@ -74,40 +46,25 @@ proc waku_new(
       callEventCallback(ctx, "onConnectionStatusChange"):
         $JsonConnectionStatusChangeEvent.new(status)
 
-  let appCallbacks = AppCallbacks(
+  return AppCallbacks(
     relayHandler: onReceivedMessage(ctx),
     topicHealthChangeHandler: onTopicHealthChange(ctx),
     connectionChangeHandler: onConnectionChange(ctx),
     connectionStatusChangeHandler: onConnectionStatusChange(ctx),
   )
 
-  ffi.sendRequestToFFIThread(
-    ctx,
-    CreateNodeWithCallbacksRequest.ffiNewReq(
-      callback, userData, configJson, appCallbacks
-    ),
-  ).isOkOr:
-    let msg = "error in sendRequestToFFIThread: " & $error
-    callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
-    return nil
+################################################################################
+## Include different APIs, i.e. all procs with {.ffi.} pragma
 
-  return ctx
-
-proc waku_destroy(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-): cint {.dynlib, exportc, cdecl.} =
-  initializeLibrary()
-  checkParams(ctx, callback, userData)
-
-  ffi.destroyFFIContext(ctx).isOkOr:
-    let msg = "libwaku error: " & $error
-    callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
-    return RET_ERR
-
-  ## always need to invoke the callback although we don't retrieve value to the caller
-  callback(RET_OK, nil, 0, userData)
-
-  return RET_OK
-
-# ### End of exported procs
-# ################################################################################
+include
+  ./logos_delivery_api/node_api,
+  ./logos_delivery_api/messaging_api,
+  ./logos_delivery_api/debug_api,
+  ./kernel_api/peer_manager_api,
+  ./kernel_api/discovery_api,
+  ./kernel_api/debug_node_api,
+  ./kernel_api/ping_api,
+  ./kernel_api/protocols/relay_api,
+  ./kernel_api/protocols/store_api,
+  ./kernel_api/protocols/lightpush_api,
+  ./kernel_api/protocols/filter_api
