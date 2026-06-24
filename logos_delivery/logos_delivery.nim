@@ -103,7 +103,7 @@ proc new*(
     return err("failed to create MessagingClient: " & error)
 
   let reliableChannelManager = ReliableChannelManager.new(
-    layerConf.reliableChannel, messagingClient, waku.brokerCtx
+    layerConf.reliableChannel, waku.brokerCtx
   ).valueOr:
     return err("failed to create ReliableChannelManager: " & error)
 

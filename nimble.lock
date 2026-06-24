@@ -328,8 +328,8 @@
       }
     },
     "brokers": {
-      "version": "#v3.1.1",
-      "vcsRevision": "a7316a35f1b62e3497ae8ee0fc1aace74df0beb2",
+      "version": "#v3.1.4",
+      "vcsRevision": "8ae9e963b0b4478c93e6f888be6a46654da787de",
       "url": "https://github.com/NagyZoltanPeter/nim-brokers.git",
       "downloadMethod": "git",
       "dependencies": [
@@ -341,7 +341,7 @@
         "cbor_serialization"
       ],
       "checksums": {
-        "sha1": "4447d7c1f9da14ae439afb23aee45116ce2ecb40"
+        "sha1": "2949398033c1b3a2586f0afd7e92f46b9a0a412e"
       }
     },
     "stint": {

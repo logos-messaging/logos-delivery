@@ -2,6 +2,8 @@
 ## lifecycle. The public operations (subscribe / unsubscribe / send) live in
 ## `messaging/api.nim`.
 import results, chronos
+import chronicles
+import brokers/[request_broker, broker_context]
 import
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
@@ -10,6 +12,11 @@ import
 # Surfaces the messaging API interface (and its Message* events) to consumers.
 export messaging_client_api
 
+RequestBroker:
+  proc MessagingSend(
+    envelope: MessageEnvelope
+  ): Future[Result[RequestId, string]] {.async.}
+
 type
   MessagingClientConf* = object
     ## Per-layer config object for the messaging API.
@@ -17,7 +24,8 @@ type
     ## follow-up PR. Today it only carries the p2p reliability toggle.
     useP2PReliability*: bool
 
-  MessagingClient* = ref object ## Implements `MessagingApi`.
+  MessagingClient* = ref object of IMessagingClient
+    brokerCtx: BrokerContext
     waku*: Waku ## The Waku kernel this layer drives; read by `messaging/api/*`.
     sendService*: SendService
     recvService*: RecvService
@@ -30,19 +38,34 @@ proc new*(
   ## for transport while exposing its own send/recv API.
   let sendService = ?SendService.new(conf.useP2PReliability, waku)
   let recvService = RecvService.new(waku)
-  return ok(T(waku: waku, sendService: sendService, recvService: recvService))
+  return ok(
+    T(
+      waku: waku,
+      sendService: sendService,
+      recvService: recvService,
+      brokerCtx: waku.brokerCtx,
+    )
+  )
 
 proc start*(self: MessagingClient): Result[void, string] =
   if self.started:
     return ok()
   self.recvService.startRecvService()
   self.sendService.startSendService()
+
+  ?MessagingSend.setProvider(
+    self.brokerCtx,
+    proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+      return await self.send(envelope),
+  )
+
   self.started = true
   ok()
 
 proc stop*(self: MessagingClient) {.async.} =
   if not self.started:
     return
+  MessagingSend.clearProvider(self.brokerCtx)
   await self.sendService.stopSendService()
   await self.recvService.stopRecvService()
   self.started = false
