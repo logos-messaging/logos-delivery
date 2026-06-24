@@ -233,3 +233,19 @@ mkdir -p ./ssl_dir/
 openssl req -x509 -newkey rsa:4096 -keyout ./ssl_dir/key.pem -out ./ssl_dir/cert.pem -sha256 -nodes
 wakunode2 --websocket-secure-support=true --websocket-secure-key-path="./ssl_dir/key.pem" --websocket-secure-cert-path="./ssl_dir/cert.pem"
 ```
+
+## Enabling QUIC
+
+QUIC is a UDP-based transport that peers can use to connect to your node.
+
+The default port for QUIC is 60000.
+
+```shell
+wakunode2 --quic-support=true
+```
+
+To listen on a different UDP port, use `--quic-port`:
+
+```shell
+wakunode2 --quic-support=true --quic-port=<port>
+```

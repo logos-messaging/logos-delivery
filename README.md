@@ -11,7 +11,7 @@ private communications.
 - Examples.
 - Various tests of above.
 
-For more details see the [source code](waku/README.md)
+For more details see the [source code](logos_delivery/waku/README.md)
 
 ## How to Build & Run ( Linux, MacOS & WSL )
 
@@ -48,11 +48,14 @@ make wakunode2 NIMFLAGS="-d:chronicles_colors:none -d:disableMarchNative"
 # Run with DNS bootstrapping
 ./build/wakunode2 --dns-discovery --dns-discovery-url=DNS_BOOTSTRAP_NODE_URL
 
+# Run with the QUIC transport enabled
+./build/wakunode2 --quic-support=true
+
 # See available command line options
 ./build/wakunode2 --help
 ```
 To join the network, you need to know the address of at least one bootstrap node.
-Please refer to the [Waku README](https://github.com/logos-messaging/logos-delivery/blob/master/waku/README.md) for more information.
+Please refer to the [Waku README](https://github.com/logos-messaging/logos-delivery/blob/master/logos_delivery/waku/README.md) for more information.
 
 For more on how to run `wakunode2`, refer to:
 - [Run using binaries](https://docs.waku.org/run-node/build-source)
