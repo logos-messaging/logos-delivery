@@ -13,7 +13,7 @@ import
 
 proc createWaku(
     configJson: cstring, appCallbacks: AppCallbacks = nil
-): Future[Result[Waku, string]] {.async.} =
+): Future[Result[LogosDelivery, string]] {.async.} =
   var conf = defaultWakuNodeConf().valueOr:
     return err("Failed creating node: " & error)
 
@@ -47,19 +47,15 @@ proc createWaku(
     appCallbacks.relayHandler = nil
     appCallbacks.topicHealthChangeHandler = nil
 
-  # TODO: Convert `confJson` directly to `WakuConf`
-  var wakuConf = conf.toWakuConf().valueOr:
-    return err("Configuration error: " & $error)
+  conf.rest = false ## libwaku never runs the REST server
 
-  wakuConf.restServerConf = none(RestServerConf) ## don't want REST in libwaku
+  let logosRes = (await LogosDelivery.new(conf, appCallbacks)).valueOr:
+    error "LogosDelivery initialization failed", error = error
+    return err("Failed setting up LogosDelivery: " & $error)
 
-  let wakuRes = (await Waku.new(wakuConf, appCallbacks)).valueOr:
-    error "waku initialization failed", error = error
-    return err("Failed setting up Waku: " & $error)
+  return ok(logosRes)
 
-  return ok(wakuRes)
-
-registerReqFFI(CreateNodeWithCallbacksRequest, ctx: ptr FFIContext[Waku]):
+registerReqFFI(CreateNodeWithCallbacksRequest, ctx: ptr FFIContext[LogosDelivery]):
   proc(
       configJson: cstring, appCallbacks: AppCallbacks
   ): Future[Result[string, string]] {.async.} =
@@ -70,7 +66,7 @@ registerReqFFI(CreateNodeWithCallbacksRequest, ctx: ptr FFIContext[Waku]):
     return ok("")
 
 proc waku_start(
-    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   (await ctx.myLib[].start()).isOkOr:
     error "START_NODE failed", error = error
@@ -78,7 +74,7 @@ proc waku_start(
   return ok("")
 
 proc waku_stop(
-    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   (await ctx.myLib[].stop()).isOkOr:
     error "STOP_NODE failed", error = error

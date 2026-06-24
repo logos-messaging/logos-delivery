@@ -1,10 +1,15 @@
-## Main module for using nwaku as a Nimble library
+## Package entry point for using Logos Messaging as a Nimble library.
 ##
-## This module re-exports the public API for creating and managing Waku nodes
-## when using nwaku as a library dependency.
+## This root module is a thin aggregator, following the standard Nimble layout:
+## the implementation lives under `./logos_delivery/`, and importing the package
+## name re-exports `LogosDelivery` together with every per-layer public API.
+##
+## See `logos_delivery/logos_delivery.nim` for `LogosDelivery`, the pure
+## concentrator that owns one instance of each API layer
+##
+##   Waku  <-  MessagingClient  <-  ReliableChannelManager
+##
+## and drives their shared `new` / `start` / `stop` lifecycle.
 
-import logos_delivery/waku/api
-export api
-
-import logos_delivery/waku/factory/waku
-export waku
+import ./logos_delivery/logos_delivery as logos_delivery_impl
+export logos_delivery_impl

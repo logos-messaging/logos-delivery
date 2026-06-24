@@ -1,6 +1,6 @@
 import ffi
 import std/locks
-import logos_delivery/waku/factory/waku
+import logos_delivery
 
 declareLibrary("logosdelivery")
 
@@ -8,7 +8,7 @@ var eventCallbackLock: Lock
 initLock(eventCallbackLock)
 
 template requireInitializedNode*(
-    ctx: ptr FFIContext[Waku], opName: string, onError: untyped
+    ctx: ptr FFIContext[LogosDelivery], opName: string, onError: untyped
 ) =
   if isNil(ctx):
     let errMsg {.inject.} = opName & " failed: invalid context"
@@ -18,7 +18,7 @@ template requireInitializedNode*(
     onError
 
 proc logosdelivery_set_event_callback(
-    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.dynlib, exportc, cdecl.} =
   if isNil(ctx):
     echo "error: invalid context in logosdelivery_set_event_callback"

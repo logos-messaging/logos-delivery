@@ -15,6 +15,7 @@ import brokers/broker_context
 
 import logos_delivery/waku/events/message_events as waku_message_events
 import logos_delivery/messaging/messaging_client
+import logos_delivery/waku/api/types
 import logos_delivery/waku/waku_core/topics
 import logos_delivery/waku/persistency/sds_persistency
 
@@ -27,30 +28,43 @@ const SdsJobId = "sds"
   ## One persistency job shared by every channel's SDS state; rows are
   ## keyed by channelId.
 
-type ReliableChannelManager* = ref object
-  channels: Table[ChannelId, ReliableChannel]
-  messagingClient: MessagingClient ## Borrowed from the owning `Waku`.
-  sendHandler: SendHandler
-    ## Default egress dispatch for channels created through this manager.
-    ## Constructed at mount time as a closure over `MessagingClient.send`
-    ## so the channel layer itself stays callable-only.
-  brokerCtx: BrokerContext
+type
+  ReliableChannelManagerConf* = object
+    ## Per-layer config object for the reliable
+    ## channel API. Placeholder for now (segmentation / SDS / rate-limit defaults
+    ## will move here in a follow-up PR); kept so each layer owns its own config.
+
+  ReliableChannelManager* = ref object
+    channels: Table[ChannelId, ReliableChannel]
+    messagingClient: MessagingClient ## The channel layer chains onto messaging.
+    sendHandler: SendHandler
+      ## Default egress dispatch for channels created through this manager.
+      ## Built in `new` as a closure over `MessagingClient.send` so the channel
+      ## layer itself stays callable-only.
+    brokerCtx: BrokerContext
 
 proc new*(
     T: type ReliableChannelManager,
+    conf: ReliableChannelManagerConf,
     messagingClient: MessagingClient,
-    sendHandler: SendHandler,
     brokerCtx: BrokerContext = globalBrokerContext(),
 ): Result[T, string] =
+  ## The reliable channel layer chains onto the messaging layer: its default
+  ## egress is `MessagingClient.send`, wrapped here so callers never wire the
+  ## handler themselves.
   if messagingClient.isNil():
     return err("messaging client is required")
-  if sendHandler.isNil():
-    return err("sendHandler is required")
+
+  let defaultSendHandler: SendHandler = proc(
+      envelope: MessageEnvelope
+  ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+    return await messagingClient.send(envelope)
+
   return ok(
     T(
       channels: initTable[ChannelId, ReliableChannel](),
       messagingClient: messagingClient,
-      sendHandler: sendHandler,
+      sendHandler: defaultSendHandler,
       brokerCtx: brokerCtx,
     )
   )

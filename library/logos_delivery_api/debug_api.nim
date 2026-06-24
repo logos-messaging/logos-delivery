@@ -3,17 +3,17 @@ import logos_delivery/waku/factory/waku_state_info
 import tools/confutils/[cli_args, config_option_meta]
 
 proc logosdelivery_get_available_node_info_ids(
-    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   ## Returns the list of all available node info item ids that
   ## can be queried with `get_node_info_item`.
   requireInitializedNode(ctx, "GetNodeInfoIds"):
     return err(errMsg)
 
-  return ok($ctx.myLib[].stateInfo.getAllPossibleInfoItemIds())
+  return ok($ctx.myLib[].waku.stateInfo.getAllPossibleInfoItemIds())
 
 proc logosdelivery_get_node_info(
-    ctx: ptr FFIContext[Waku],
+    ctx: ptr FFIContext[LogosDelivery],
     callback: FFICallBack,
     userData: pointer,
     nodeInfoId: cstring,
@@ -28,10 +28,10 @@ proc logosdelivery_get_node_info(
     except ValueError:
       return err("Invalid node info id: " & $nodeInfoId)
 
-  return ok(ctx.myLib[].stateInfo.getNodeInfoItem(infoItemIdEnum))
+  return ok(ctx.myLib[].waku.stateInfo.getNodeInfoItem(infoItemIdEnum))
 
 proc logosdelivery_get_available_configs(
-    ctx: ptr FFIContext[Waku], callback: FFICallBack, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   ## Returns information about the accepted config items.
   requireInitializedNode(ctx, "GetAvailableConfigs"):

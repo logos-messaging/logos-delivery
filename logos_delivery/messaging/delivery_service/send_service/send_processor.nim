@@ -32,5 +32,10 @@ method process*(
     currentProcessor = currentProcessor.fallbackProcessor
     keepTrying = task.state == DeliveryState.FallbackRetry
 
-  if task.state == DeliveryState.FallbackRetry:
+  # A task still in `FallbackRetry` exhausted the chain without delivering, and
+  # one still in `Entry` was never attempted because no processor had a usable
+  # peer yet (e.g. a lightpush peer that finishes registering right after the
+  # first send). Both must be queued for the next round so the service loop
+  # retries them; otherwise the task would sit untouched until it ages out.
+  if task.state == DeliveryState.FallbackRetry or task.state == DeliveryState.Entry:
     task.state = DeliveryState.NextRoundRetry

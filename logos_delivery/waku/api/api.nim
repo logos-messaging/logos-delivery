@@ -4,9 +4,7 @@ import std/[net, options]
 import chronicles, chronos, libp2p/peerid, results
 
 import logos_delivery/waku/factory/waku
-import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/[requests/health_requests, waku_core, waku_node]
-import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/waku/node/subscription_manager
 import libp2p/peerid
 import tools/confutils/cli_args
@@ -48,9 +46,3 @@ proc unsubscribe*(w: Waku, contentTopic: ContentTopic): Result[void, string] =
   ?checkApiAvailability(w)
 
   return w.node.subscriptionManager.unsubscribe(contentTopic)
-
-proc send*(
-    w: Waku, envelope: MessageEnvelope
-): Future[Result[RequestId, string]] {.async.} =
-  ?checkApiAvailability(w)
-  return await w.messagingClient.send(envelope)

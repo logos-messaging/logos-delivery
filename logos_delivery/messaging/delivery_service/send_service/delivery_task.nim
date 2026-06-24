@@ -24,6 +24,9 @@ type DeliveryTask* = ref object
   tryCount*: int
   state*: DeliveryState
   deliveryTime*: Moment
+  firstPropagatedTime*: Option[Moment]
+    ## Set once on the first successful propagation; never reset on re-publish.
+    ## Anchors the store-validation time cap (see propagationAge).
   propagateEventEmitted*: bool
   errorDesc*: string
 
@@ -71,6 +74,14 @@ proc messageAge*(self: DeliveryTask): timer.Duration =
 proc deliveryAge*(self: DeliveryTask): timer.Duration =
   if self.state == DeliveryState.SuccessfullyPropagated:
     timer.Moment.now() - self.deliveryTime
+  else:
+    ZeroDuration
+
+proc propagationAge*(self: DeliveryTask): timer.Duration =
+  ## Time elapsed since the message was first successfully propagated.
+  ## Stable across re-publishes; ZeroDuration until first propagation.
+  if self.firstPropagatedTime.isSome():
+    timer.Moment.now() - self.firstPropagatedTime.get()
   else:
     ZeroDuration
 

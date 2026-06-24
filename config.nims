@@ -63,6 +63,27 @@ else:
     switch("passC", "-mno-avx512f")
     switch("passL", "-mno-avx512f")
 
+when defined(macosx):
+  # TEMPORARY (added 2026-06-19) — remove once nim-chronos is fixed/bumped upstream.
+  #
+  # macOS / Apple Clang 16+ promotes -Wincompatible-function-pointer-types to a
+  # DEFAULT error (not gated behind -Werror). It fires on a dependency↔dependency
+  # call in nim-chronos — none of our code is involved:
+  #   chronos/streams/tlsstream.nim:718  ctx.setdest(itemAppend, ...)
+  # chronos declares the PEM callback `itemAppend(ctx, pbytes: pointer, nbytes)`
+  # while bearssl's `br_pem_decoder_setdest` expects `pbytes: const void*`. The
+  # callback only READS the buffer (copyMem from pbytes), so the missing `const`
+  # is benign — we demote the diagnostic back to a warning instead of failing.
+  #
+  # Why it appeared now (not a change on our side): the `const` was introduced in
+  # nim-bearssl v0.2.9, published 2026-06-19 11:22 UTC. CI does not honor the
+  # locked bearssl (nimble.lock pins 0.2.8) and fresh-resolves to latest, so any
+  # run after 11:22 UTC picks up 0.2.9 and hits this. Earlier-running PRs that
+  # resolved 0.2.8 are green only by timing; re-running them now reproduces it.
+  #
+  # Proper fix: chronos should declare `itemAppend`'s `pbytes` as `const pointer`.
+  switch("passC", "-Wno-error=incompatible-function-pointer-types")
+
 --threads:
   on
 --opt:
