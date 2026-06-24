@@ -4,6 +4,7 @@ import std/strutils
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
+import logos_delivery/api/[types, logos_delivery_api, kernel_api, messaging_client_api]
 import ../waku_archive/archive_utils
 import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
 import logos_delivery/waku/factory/waku_conf

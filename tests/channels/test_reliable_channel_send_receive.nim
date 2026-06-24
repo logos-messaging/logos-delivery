@@ -7,10 +7,11 @@ import brokers/broker_context
 
 import ../testlib/[common, wakucore, wakunode, testasync]
 
+import logos_delivery/api/[types, logos_delivery_api, kernel_api, messaging_client_api]
+
 import logos_delivery
 import logos_delivery/waku/[waku_node, waku_core]
 import logos_delivery/waku/factory/waku_conf
-import logos_delivery/waku/events/message_events as waku_message_events
 import tools/confutils/cli_args
 
 import logos_delivery/channels/reliable_channel_manager
@@ -99,9 +100,8 @@ suite "Reliable Channel - ingress":
       meta: LipWireReliableChannelVersion.toBytes(),
     )
 
-    waku_message_events.MessageReceivedEvent.emit(
-      brokerCtx,
-      waku_message_events.MessageReceivedEvent(messageHash: "", message: inboundMsg),
+    MessageReceivedEvent.emit(
+      brokerCtx, MessageReceivedEvent(messageHash: "", message: inboundMsg)
     )
 
     let arrived = await received.withTimeout(TestTimeout)
@@ -151,9 +151,8 @@ suite "Reliable Channel - ingress":
       meta: @[], ## no Reliable Channel spec marker
     )
 
-    waku_message_events.MessageReceivedEvent.emit(
-      brokerCtx,
-      waku_message_events.MessageReceivedEvent(messageHash: "", message: inboundMsg),
+    MessageReceivedEvent.emit(
+      brokerCtx, MessageReceivedEvent(messageHash: "", message: inboundMsg)
     )
 
     ## Give the event broker a chance to fan out.
@@ -217,9 +216,8 @@ suite "Reliable Channel - send state machine":
       await sleepAsync(5.milliseconds)
     check sendCalls == 1
 
-    waku_message_events.MessageSentEvent.emit(
-      brokerCtx,
-      waku_message_events.MessageSentEvent(requestId: fakeMsgReqId, messageHash: ""),
+    MessageSentEvent.emit(
+      brokerCtx, MessageSentEvent(requestId: fakeMsgReqId, messageHash: "")
     )
 
     let finalised = await sentFut.withTimeout(1.seconds)
@@ -296,9 +294,8 @@ suite "Reliable Channel - send state machine":
       await sleepAsync(5.milliseconds)
     check msgReqIds.len == 2
 
-    waku_message_events.MessageSentEvent.emit(
-      brokerCtx,
-      waku_message_events.MessageSentEvent(requestId: msgReqIds[0], messageHash: ""),
+    MessageSentEvent.emit(
+      brokerCtx, MessageSentEvent(requestId: msgReqIds[0], messageHash: "")
     )
     let sentArrived = await sentFut.withTimeout(1.seconds)
     check sentArrived
@@ -308,11 +305,9 @@ suite "Reliable Channel - send state machine":
     ## segment is still `InFlight`.
     check not erroredFut.finished()
 
-    waku_message_events.MessageErrorEvent.emit(
+    MessageErrorEvent.emit(
       brokerCtx,
-      waku_message_events.MessageErrorEvent(
-        requestId: msgReqIds[1], messageHash: "", error: "synthetic"
-      ),
+      MessageErrorEvent(requestId: msgReqIds[1], messageHash: "", error: "synthetic"),
     )
     let erroredArrived = await erroredFut.withTimeout(1.seconds)
     check erroredArrived
@@ -364,9 +359,8 @@ suite "Reliable Channel - send state machine":
       let id = RequestId("race-msg-req-" & $(msgReqIds.len + 1))
       msgReqIds.add(id)
       if msgReqIds.len == 2:
-        waku_message_events.MessageSentEvent.emit(
-          brokerCtx,
-          waku_message_events.MessageSentEvent(requestId: msgReqIds[0], messageHash: ""),
+        MessageSentEvent.emit(
+          brokerCtx, MessageSentEvent(requestId: msgReqIds[0], messageHash: "")
         )
         await sleepAsync(50.milliseconds)
       sendsReturned.inc()
@@ -419,9 +413,8 @@ suite "Reliable Channel - send state machine":
     ## Finalise the second segment from the outside. If the race
     ## corrupted state, `channelReqId2`'s entry would never reach
     ## `inflightMessagingIds` and this event would silently miss.
-    waku_message_events.MessageSentEvent.emit(
-      brokerCtx,
-      waku_message_events.MessageSentEvent(requestId: msgReqIds[1], messageHash: ""),
+    MessageSentEvent.emit(
+      brokerCtx, MessageSentEvent(requestId: msgReqIds[1], messageHash: "")
     )
 
     let arrived = await bothFinalised.withTimeout(2.seconds)
@@ -556,9 +549,9 @@ suite "Reliable Channel - SDS lifecycle":
     ).expect("wrap m2")
 
     ## m2 first: missing dependency m1 -> parked, nothing delivered.
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "hash-m2", message: sdsWakuMessage(contentTopic, wire2)
       ),
     )
@@ -566,9 +559,9 @@ suite "Reliable Channel - SDS lifecycle":
     check deliveries.len == 0
 
     ## m1 arrives: m1 delivered, then the parked m2 released after it.
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "hash-m1", message: sdsWakuMessage(contentTopic, wire1)
       ),
     )
@@ -622,15 +615,15 @@ suite "Reliable Channel - SDS lifecycle":
     ).expect("wrap")
 
     ## Same envelope twice (different hashes) — the second must be suppressed.
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "dup-hash-1", message: sdsWakuMessage(contentTopic, wire)
       ),
     )
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "dup-hash-2", message: sdsWakuMessage(contentTopic, wire)
       ),
     )
@@ -678,9 +671,9 @@ suite "Reliable Channel - SDS lifecycle":
       )
     ).expect("wrap")
 
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "foreign-hash", message: sdsWakuMessage(contentTopic, wire)
       ),
     )
@@ -738,9 +731,9 @@ suite "Reliable Channel - SDS lifecycle":
       )
     ).expect("wrap")
 
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "restore-hash-1", message: sdsWakuMessage(contentTopic, wire)
       ),
     )
@@ -768,9 +761,9 @@ suite "Reliable Channel - SDS lifecycle":
       .expect("re-createReliableChannel")
 
     ## Replay the same envelope. Only a restored history suppresses it.
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "restore-hash-2", message: sdsWakuMessage(contentTopic, wire)
       ),
     )
@@ -820,9 +813,9 @@ suite "Reliable Channel - SDS protocol semantics":
     ).expect("wrap m1")
     let m1 = deserializeMessage(wire1).expect("deserialize m1")
 
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "semantics-hash-1", message: sdsWakuMessage(contentTopic, wire1)
       ),
     )
@@ -916,9 +909,9 @@ suite "Reliable Channel - SDS protocol semantics":
       )
     ).expect("wrap ack carrier")
 
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "ack-hash-1", message: sdsWakuMessage(contentTopic, ackCarrier)
       ),
     )
@@ -982,9 +975,9 @@ suite "Reliable Channel - SDS protocol semantics":
 
     ## Deepest first: m3, then m2 — both must be parked.
     for i in [2, 1]:
-      waku_message_events.MessageReceivedEvent.emit(
+      MessageReceivedEvent.emit(
         brokerCtx,
-        waku_message_events.MessageReceivedEvent(
+        MessageReceivedEvent(
           messageHash: "chain-hash-" & $(i + 1),
           message: sdsWakuMessage(contentTopic, wires[i]),
         ),
@@ -993,9 +986,9 @@ suite "Reliable Channel - SDS protocol semantics":
     check deliveries.len == 0
 
     ## The root arrives: everything drains in causal order.
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "chain-hash-1", message: sdsWakuMessage(contentTopic, wires[0])
       ),
     )
@@ -1054,9 +1047,9 @@ suite "Reliable Channel - SDS protocol semantics":
     )
     let syncWire = serializeMessage(syncMsg).expect("serialize sync")
 
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "sync-hash-1", message: sdsWakuMessage(contentTopic, syncWire)
       ),
     )
@@ -1070,9 +1063,9 @@ suite "Reliable Channel - SDS protocol semantics":
         appPayload, "sync-m1", SdsChannelID(channelId)
       )
     ).expect("wrap")
-    waku_message_events.MessageReceivedEvent.emit(
+    MessageReceivedEvent.emit(
       brokerCtx,
-      waku_message_events.MessageReceivedEvent(
+      MessageReceivedEvent(
         messageHash: "sync-hash-2", message: sdsWakuMessage(contentTopic, wire)
       ),
     )
@@ -1145,9 +1138,9 @@ suite "Reliable Channel - SDS protocol semantics":
           appPayload, "unique-m" & $i, SdsChannelID(channelId)
         )
       ).expect("wrap " & $i)
-      waku_message_events.MessageReceivedEvent.emit(
+      MessageReceivedEvent.emit(
         brokerCtx,
-        waku_message_events.MessageReceivedEvent(
+        MessageReceivedEvent(
           messageHash: "unique-hash-" & $i, message: sdsWakuMessage(contentTopic, wire)
         ),
       )

@@ -5,6 +5,7 @@ import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
+import logos_delivery/api/[types, logos_delivery_api, kernel_api, messaging_client_api]
 import logos_delivery/messaging/messaging_client
 
 import
@@ -12,7 +13,6 @@ import
   logos_delivery/waku/[
     waku_node,
     waku_core,
-    events/message_events,
     waku_relay/protocol,
     node/waku_node/filter,
     node/subscription_manager,
