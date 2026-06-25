@@ -21,7 +21,7 @@ import
 import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/node/peer_manager,
-  logos_delivery/waku/events/discovery_events
+  logos_delivery/waku/api/events/discovery_events
 
 logScope:
   topics = "waku service discovery"

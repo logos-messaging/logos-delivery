@@ -11,12 +11,42 @@
 
 import results, chronos, chronicles
 
+# Each layer has a core module (type + new/start/stop) and an api/ folder whose
+# modules each implement a differentiated set of operations, plus an events
+# surface. The concentrator re-exports them so library consumers get the full
+# surface from `import logos_delivery`. (The per-layer `events` modules share a
+# stem, so they are imported under aliases.)
+
+# Waku layer
 import logos_delivery/waku/waku
 export waku
+import
+  logos_delivery/waku/api/[
+    topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health,
+    ping,
+  ]
+export
+  topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health, ping
+import logos_delivery/waku/api/events/[message_events, health_events]
+export message_events, health_events
+
+# Messaging layer
 import logos_delivery/messaging/messaging_client
 export messaging_client
+import logos_delivery/messaging/api/[subscription, send]
+export subscription, send
+import logos_delivery/messaging/api/events as messaging_api_events
+export messaging_api_events
+
+# Reliable Channel layer
 import logos_delivery/channels/reliable_channel_manager
 export reliable_channel_manager
+import logos_delivery/channels/api/channel_lifecycle
+export channel_lifecycle
+import logos_delivery/channels/api/send as channel_send
+export channel_send
+import logos_delivery/channels/api/events as channels_api_events
+export channels_api_events
 
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks

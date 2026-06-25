@@ -1,10 +1,10 @@
+## Messaging layer core: the `MessagingClient` type plus its construction and
+## lifecycle. The public operations (subscribe / unsubscribe / send) live in
+## `messaging/api.nim`.
 import results, chronos
-import chronicles
 import
-  logos_delivery/api/types,
-  logos_delivery/waku/node/[waku_node, subscription_manager],
-  logos_delivery/messaging/delivery_service/[recv_service, send_service],
-  logos_delivery/messaging/delivery_service/send_service/delivery_task
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/messaging/delivery_service/[recv_service, send_service]
 
 type
   MessagingClientConf* = object
@@ -14,7 +14,7 @@ type
     useP2PReliability*: bool
 
   MessagingClient* = ref object
-    node: WakuNode
+    node*: WakuNode ## Waku core driven by this layer; read by `messaging/api.nim`.
     sendService*: SendService
     recvService*: RecvService
     started: bool
@@ -43,46 +43,9 @@ proc stop*(self: MessagingClient) {.async.} =
   await self.recvService.stopRecvService()
   self.started = false
 
-proc checkApiAvailability(self: MessagingClient): Result[void, string] =
+proc checkApiAvailability*(self: MessagingClient): Result[void, string] =
+  ## Shared guard for the api operation module.
   if self.isNil():
     return err("MessagingClient is not initialized")
 
   return ok()
-
-proc subscribe*(
-    self: MessagingClient, contentTopic: ContentTopic
-): Future[Result[void, string]] {.async.} =
-  ?checkApiAvailability(self)
-
-  return self.node.subscriptionManager.subscribe(contentTopic)
-
-proc unsubscribe*(
-    self: MessagingClient, contentTopic: ContentTopic
-): Result[void, string] =
-  ?checkApiAvailability(self)
-
-  return self.node.subscriptionManager.unsubscribe(contentTopic)
-
-proc send*(
-    self: MessagingClient, envelope: MessageEnvelope
-): Future[Result[RequestId, string]] {.async.} =
-  ## High-level messaging API send. Auto-subscribes to the content topic
-  ## (so the local node sees its own gossipsub broadcast), builds a
-  ## `DeliveryTask`, and hands it to the send service. Returns the request
-  ## id the caller can correlate with `MessageSentEvent` / `MessageErrorEvent`.
-  let isSubbed =
-    self.node.subscriptionManager.isSubscribed(envelope.contentTopic).valueOr(false)
-  if not isSubbed:
-    info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
-    self.node.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:
-      warn "Failed to auto-subscribe", error = error
-      return err("Failed to auto-subscribe before sending: " & error)
-
-  let requestId = RequestId.new(self.node.rng)
-
-  let deliveryTask = DeliveryTask.new(requestId, envelope, self.node.brokerCtx).valueOr:
-    return err("MessagingClient.send: Failed to create delivery task: " & error)
-
-  asyncSpawn self.sendService.send(deliveryTask)
-
-  return ok(requestId)

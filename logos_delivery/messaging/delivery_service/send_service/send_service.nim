@@ -18,8 +18,8 @@ import
     waku_rln_relay/rln_relay,
     waku_lightpush/client,
     waku_lightpush/callbacks,
-    events/message_events,
   ]
+import logos_delivery/messaging/api/events
 
 logScope:
   topics = "send service"

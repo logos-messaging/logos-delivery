@@ -12,7 +12,6 @@ import
   logos_delivery/waku/[
     waku_node,
     waku_core,
-    events/message_events,
     waku_relay/protocol,
     node/waku_node/filter,
     node/subscription_manager,

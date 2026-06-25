@@ -25,7 +25,7 @@ import logos_delivery/api/types
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/waku/waku_core/topics
 
-import ./events
+import logos_delivery/channels/api/events
 import ./segmentation/segmentation
 import ./scalable_data_sync/scalable_data_sync
 import ./rate_limit_manager/rate_limit_manager

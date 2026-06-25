@@ -1,7 +1,8 @@
+## Messaging layer API — event surface (messaging-level message events).
 import brokers/event_broker
 import logos_delivery/api/types
-import logos_delivery/waku/[waku_core/message, waku_core/topics]
-export types
+import logos_delivery/waku/waku_core/message
+export event_broker, types
 
 EventBroker:
   # Event emitted when a message is sent to the network
@@ -26,10 +27,4 @@ EventBroker:
   # Event emitted when a message is received via Waku
   type MessageReceivedEvent* = object
     messageHash*: string
-    message*: WakuMessage
-
-EventBroker:
-  # Internal event emitted when a message arrives from the network via any protocol
-  type MessageSeenEvent* = object
-    topic*: PubsubTopic
     message*: WakuMessage

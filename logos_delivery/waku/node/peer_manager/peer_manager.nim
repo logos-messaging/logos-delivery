@@ -20,7 +20,7 @@ import
     waku_relay/protocol,
     waku_enr/sharding,
     waku_enr/capabilities,
-    events/peer_events,
+    api/events/peer_events,
     common/nimchronos,
     common/enr,
     common/callbacks,

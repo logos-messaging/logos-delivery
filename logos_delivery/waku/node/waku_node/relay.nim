@@ -32,7 +32,7 @@ import
     node/waku_node,
     node/subscription_manager,
     node/peer_manager,
-    events/message_events,
+    api/events/message_events,
   ]
 
 export waku_relay.WakuRelayHandler

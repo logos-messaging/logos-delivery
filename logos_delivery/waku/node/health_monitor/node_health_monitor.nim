@@ -12,8 +12,8 @@ import
   logos_delivery/waku/[
     waku_relay,
     waku_rln_relay,
-    events/health_events,
-    events/peer_events,
+    api/events/health_events,
+    api/events/peer_events,
     node/waku_node,
     node/node_telemetry,
     node/peer_manager,

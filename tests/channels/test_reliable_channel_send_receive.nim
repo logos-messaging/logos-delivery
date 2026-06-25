@@ -10,7 +10,7 @@ import ../testlib/[common, wakucore, wakunode, testasync]
 import logos_delivery
 import logos_delivery/waku/[waku_node, waku_core]
 import logos_delivery/waku/factory/waku_conf
-import logos_delivery/waku/events/message_events as waku_message_events
+import logos_delivery/messaging/api/events as waku_message_events
 import tools/confutils/cli_args
 
 import logos_delivery/channels/reliable_channel_manager
