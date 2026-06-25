@@ -387,6 +387,46 @@ suite "Waku API - Send":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
+  asyncTest "S16 - isolated sender recovers when lightpush peer appears later":
+    ## Edge sender starts with no peer; a lightpush peer appears mid-send and a
+    ## later retry must deliver the queued message.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+      # No connectToNodes: the sender has no reachable peer at T0.
+
+    check node.waku.node.wakuRelay.isNil()
+
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    let envelope = MessageEnvelope.init(
+      ContentTopic("/waku/2/default-content/proto"), "test payload"
+    )
+
+    # send() with no peer must still succeed; the message is queued and retried.
+    let requestId = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert error
+
+    # Nothing should propagate while isolated (retry interval is 1s).
+    await sleepAsync(5.seconds)
+    check eventManager.propagatedCount == 0
+
+    # The lightpush peer appears; a later retry must now deliver.
+    await node.waku.node.connectToNodes(@[lightpushNodePeerInfo])
+
+    const eventTimeout = 10.seconds
+    discard await eventManager.waitForEvents(eventTimeout)
+
+    eventManager.validate({SendEventOutcome.Propagated}, requestId)
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
   asyncTest "Send fully validates fallback to lightpush":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
