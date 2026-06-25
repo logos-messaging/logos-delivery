@@ -13,15 +13,16 @@ import results, chronos
 import brokers/event_broker
 import types as api_types
 
+# `EventConnectionStatusChange` lives in the decomposed health-events module.
+# Re-export it here so the orchestrator surfaces it without duplicating the type.
+import logos_delivery/waku/api/events/health_events as health_events
+
 export api_types, event_broker
+export health_events
 
 type
   ## Entry point. Holds one instance of each API layer.
   ILogosDelivery* = ref object of RootObj
-
-EventBroker:
-  type EventConnectionStatusChange* = object
-    connectionStatus*: ConnectionStatus
 
 method start*(self: ILogosDelivery): Future[Result[void, string]] {.async, base.} =
   return err("ILogosDelivery.start not implemented")
