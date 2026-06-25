@@ -56,6 +56,12 @@ and websocket address
 /ip4/0.0.0.0/tcp/8000/ws/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H
 ```
 
+If your node is running with QUIC enabled, the log also includes a QUIC address
+
+```
+/ip4/0.0.0.0/udp/60000/quic-v1/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H
+```
+
 You can also query a running node for its listening addresses
 using the REST API.
 
