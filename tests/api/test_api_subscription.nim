@@ -225,7 +225,7 @@ suite "Messaging API, SubscriptionManager":
       await net.teardown()
 
     let testTopic = ContentTopic("/waku/2/test-content/proto")
-    (await net.subscriber.waku.subscribe(testTopic)).expect(
+    (await net.subscriber.messagingClient.subscribe(testTopic)).expect(
       "subscriberNode failed to subscribe"
     )
 
@@ -248,7 +248,9 @@ suite "Messaging API, SubscriptionManager":
 
     let subbedTopic = ContentTopic("/waku/2/subbed-topic/proto")
     let ignoredTopic = ContentTopic("/waku/2/ignored-topic/proto")
-    (await net.subscriber.waku.subscribe(subbedTopic)).expect("failed to subscribe")
+    (await net.subscriber.messagingClient.subscribe(subbedTopic)).expect(
+      "failed to subscribe"
+    )
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     defer:
@@ -268,8 +270,12 @@ suite "Messaging API, SubscriptionManager":
 
     let testTopic = ContentTopic("/waku/2/unsub-test/proto")
 
-    (await net.subscriber.waku.subscribe(testTopic)).expect("failed to subscribe")
-    net.subscriber.waku.unsubscribe(testTopic).expect("failed to unsubscribe")
+    (await net.subscriber.messagingClient.subscribe(testTopic)).expect(
+      "failed to subscribe"
+    )
+    net.subscriber.messagingClient.unsubscribe(testTopic).expect(
+      "failed to unsubscribe"
+    )
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     defer:
@@ -289,14 +295,14 @@ suite "Messaging API, SubscriptionManager":
 
     let topicA = ContentTopic("/waku/2/topic-a/proto")
     let topicB = ContentTopic("/waku/2/topic-b/proto")
-    (await net.subscriber.waku.subscribe(topicA)).expect("failed to sub A")
-    (await net.subscriber.waku.subscribe(topicB)).expect("failed to sub B")
+    (await net.subscriber.messagingClient.subscribe(topicA)).expect("failed to sub A")
+    (await net.subscriber.messagingClient.subscribe(topicB)).expect("failed to sub B")
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     defer:
       await eventManager.teardown()
 
-    net.subscriber.waku.unsubscribe(topicA).expect("failed to unsub A")
+    net.subscriber.messagingClient.unsubscribe(topicA).expect("failed to unsub A")
 
     discard (await net.publishToMesh(topicA, "Dropped Message".toBytes())).expect(
       "Publish A failed"
@@ -315,9 +321,13 @@ suite "Messaging API, SubscriptionManager":
 
     let glitchTopic = ContentTopic("/waku/2/glitch/proto")
 
-    (await net.subscriber.waku.subscribe(glitchTopic)).expect("failed to sub")
-    (await net.subscriber.waku.subscribe(glitchTopic)).expect("failed to double sub")
-    net.subscriber.waku.unsubscribe(glitchTopic).expect("failed to unsub")
+    (await net.subscriber.messagingClient.subscribe(glitchTopic)).expect(
+      "failed to sub"
+    )
+    (await net.subscriber.messagingClient.subscribe(glitchTopic)).expect(
+      "failed to double sub"
+    )
+    net.subscriber.messagingClient.unsubscribe(glitchTopic).expect("failed to unsub")
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     defer:
@@ -338,7 +348,9 @@ suite "Messaging API, SubscriptionManager":
     let testTopic = ContentTopic("/waku/2/resub-test/proto")
 
     # Subscribe
-    (await net.subscriber.waku.subscribe(testTopic)).expect("Initial sub failed")
+    (await net.subscriber.messagingClient.subscribe(testTopic)).expect(
+      "Initial sub failed"
+    )
 
     var eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     discard
@@ -348,7 +360,7 @@ suite "Messaging API, SubscriptionManager":
     await eventManager.teardown()
 
     # Unsubscribe and verify teardown
-    net.subscriber.waku.unsubscribe(testTopic).expect("Unsub failed")
+    net.subscriber.messagingClient.unsubscribe(testTopic).expect("Unsub failed")
     eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
 
     discard
@@ -358,7 +370,7 @@ suite "Messaging API, SubscriptionManager":
     await eventManager.teardown()
 
     # Resubscribe
-    (await net.subscriber.waku.subscribe(testTopic)).expect("Resub failed")
+    (await net.subscriber.messagingClient.subscribe(testTopic)).expect("Resub failed")
     eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
 
     discard
@@ -382,8 +394,8 @@ suite "Messaging API, SubscriptionManager":
       topicB = ContentTopic("/appB" & $i & "/2/shard-test-b/proto")
       inc i
 
-    (await net.subscriber.waku.subscribe(topicA)).expect("failed to sub A")
-    (await net.subscriber.waku.subscribe(topicB)).expect("failed to sub B")
+    (await net.subscriber.messagingClient.subscribe(topicA)).expect("failed to sub A")
+    (await net.subscriber.messagingClient.subscribe(topicB)).expect("failed to sub B")
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 2)
     defer:
@@ -440,7 +452,7 @@ suite "Messaging API, SubscriptionManager":
 
     # subscribe to all content topics we generated
     for t in allTopics:
-      (await net.subscriber.waku.subscribe(t)).expect("sub failed")
+      (await net.subscriber.messagingClient.subscribe(t)).expect("sub failed")
       activeSubs.add(t)
 
     await verifyNetworkState(activeSubs)
@@ -448,7 +460,7 @@ suite "Messaging API, SubscriptionManager":
     # unsubscribe from some content topics
     for i in 0 ..< 50:
       let t = allTopics[i]
-      net.subscriber.waku.unsubscribe(t).expect("unsub failed")
+      net.subscriber.messagingClient.unsubscribe(t).expect("unsub failed")
 
       let idx = activeSubs.find(t)
       if idx >= 0:
@@ -459,7 +471,7 @@ suite "Messaging API, SubscriptionManager":
     # re-subscribe to some content topics
     for i in 0 ..< 25:
       let t = allTopics[i]
-      (await net.subscriber.waku.subscribe(t)).expect("resub failed")
+      (await net.subscriber.messagingClient.subscribe(t)).expect("resub failed")
       activeSubs.add(t)
 
     await verifyNetworkState(activeSubs)
@@ -470,7 +482,9 @@ suite "Messaging API, SubscriptionManager":
       await net.teardown()
 
     let testTopic = ContentTopic("/waku/2/test-content/proto")
-    (await net.subscriber.waku.subscribe(testTopic)).expect("failed to subscribe")
+    (await net.subscriber.messagingClient.subscribe(testTopic)).expect(
+      "failed to subscribe"
+    )
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     defer:
@@ -491,7 +505,9 @@ suite "Messaging API, SubscriptionManager":
 
     let subbedTopic = ContentTopic("/waku/2/subbed-topic/proto")
     let ignoredTopic = ContentTopic("/waku/2/ignored-topic/proto")
-    (await net.subscriber.waku.subscribe(subbedTopic)).expect("failed to subscribe")
+    (await net.subscriber.messagingClient.subscribe(subbedTopic)).expect(
+      "failed to subscribe"
+    )
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     defer:
@@ -511,8 +527,12 @@ suite "Messaging API, SubscriptionManager":
 
     let testTopic = ContentTopic("/waku/2/unsub-test/proto")
 
-    (await net.subscriber.waku.subscribe(testTopic)).expect("failed to subscribe")
-    net.subscriber.waku.unsubscribe(testTopic).expect("failed to unsubscribe")
+    (await net.subscriber.messagingClient.subscribe(testTopic)).expect(
+      "failed to subscribe"
+    )
+    net.subscriber.messagingClient.unsubscribe(testTopic).expect(
+      "failed to unsubscribe"
+    )
 
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     defer:
@@ -532,8 +552,8 @@ suite "Messaging API, SubscriptionManager":
 
     let topicA = ContentTopic("/waku/2/topic-a/proto")
     let topicB = ContentTopic("/waku/2/topic-b/proto")
-    (await net.subscriber.waku.subscribe(topicA)).expect("failed to sub A")
-    (await net.subscriber.waku.subscribe(topicB)).expect("failed to sub B")
+    (await net.subscriber.messagingClient.subscribe(topicA)).expect("failed to sub A")
+    (await net.subscriber.messagingClient.subscribe(topicB)).expect("failed to sub B")
 
     let shard = net.subscriber.waku.node.getRelayShard(topicA)
     await waitForEdgeSubs(net.subscriber, shard)
@@ -542,7 +562,7 @@ suite "Messaging API, SubscriptionManager":
     defer:
       await eventManager.teardown()
 
-    net.subscriber.waku.unsubscribe(topicA).expect("failed to unsub A")
+    net.subscriber.messagingClient.unsubscribe(topicA).expect("failed to unsub A")
 
     discard (await net.publishToMesh(topicA, "Dropped Message".toBytes())).expect(
       "Publish A failed"
@@ -561,7 +581,9 @@ suite "Messaging API, SubscriptionManager":
 
     let testTopic = ContentTopic("/waku/2/resub-test/proto")
 
-    (await net.subscriber.waku.subscribe(testTopic)).expect("Initial sub failed")
+    (await net.subscriber.messagingClient.subscribe(testTopic)).expect(
+      "Initial sub failed"
+    )
 
     var eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     discard (await net.publishToMeshAfterEdgeReady(testTopic, "Msg 1".toBytes())).expect(
@@ -571,7 +593,7 @@ suite "Messaging API, SubscriptionManager":
     require await eventManager.waitForEvents(TestTimeout)
     await eventManager.teardown()
 
-    net.subscriber.waku.unsubscribe(testTopic).expect("Unsub failed")
+    net.subscriber.messagingClient.unsubscribe(testTopic).expect("Unsub failed")
     eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
 
     discard
@@ -580,7 +602,7 @@ suite "Messaging API, SubscriptionManager":
     check not await eventManager.waitForEvents(NegativeTestTimeout)
     await eventManager.teardown()
 
-    (await net.subscriber.waku.subscribe(testTopic)).expect("Resub failed")
+    (await net.subscriber.messagingClient.subscribe(testTopic)).expect("Resub failed")
     eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
 
     discard (await net.publishToMeshAfterEdgeReady(testTopic, "Msg 2".toBytes())).expect(
@@ -653,7 +675,9 @@ suite "Messaging API, SubscriptionManager":
     let testTopic = ContentTopic("/waku/2/failover-test/proto")
     let shard = subscriber.waku.node.getRelayShard(testTopic)
 
-    (await subscriber.waku.subscribe(testTopic)).expect("Failed to subscribe")
+    (await subscriber.messagingClient.subscribe(testTopic)).expect(
+      "Failed to subscribe"
+    )
 
     # Wait for dialing both filter servers (HealthyThreshold = 2)
     check await edgePeersReached(subscriber, shard, 2)
@@ -783,7 +807,9 @@ suite "Messaging API, SubscriptionManager":
     let testTopic = ContentTopic("/waku/2/replacement-test/proto")
     let shard = subscriber.waku.node.getRelayShard(testTopic)
 
-    (await subscriber.waku.subscribe(testTopic)).expect("Failed to subscribe")
+    (await subscriber.messagingClient.subscribe(testTopic)).expect(
+      "Failed to subscribe"
+    )
 
     # Wait for 2 confirmed peers (HealthyThreshold). The 3rd is available but not dialed.
     check await edgePeersReached(subscriber, shard, 2)

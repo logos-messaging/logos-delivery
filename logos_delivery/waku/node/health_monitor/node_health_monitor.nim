@@ -8,10 +8,10 @@ import
   libp2p/protocols/rendezvous,
   libp2p/protocols/pubsub,
   libp2p/protocols/pubsub/rpc/messages,
+  logos_delivery/api/types,
   logos_delivery/waku/[
     waku_relay,
     waku_rln_relay,
-    api/types,
     events/health_events,
     events/peer_events,
     node/waku_node,

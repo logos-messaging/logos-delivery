@@ -2,7 +2,7 @@
 
 import system, std/json
 import ./json_base_event
-import ../../logos_delivery/waku/api/types
+import ../../logos_delivery/api/types
 
 type JsonConnectionStatusChangeEvent* = ref object of JsonEvent
   status*: ConnectionStatus

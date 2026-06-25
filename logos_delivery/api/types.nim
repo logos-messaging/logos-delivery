@@ -6,7 +6,8 @@ import bearssl/rand, std/times, chronos
 import stew/byteutils
 import logos_delivery/waku/utils/requests as request_utils
 import logos_delivery/waku/waku_core/[topics/content_topic, message/message, time]
-import logos_delivery/waku/requests/requests
+
+export content_topic, message
 
 type
   MessageEnvelope* = object

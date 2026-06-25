@@ -10,7 +10,7 @@ import
   tests/testlib/[wakucore, wakunode],
   logos_delivery/waku/factory/conf_builder/conf_builder
 
-include logos_delivery/waku/factory/waku, logos_delivery/waku/common/enr/typed_record
+include logos_delivery/waku/waku, logos_delivery/waku/common/enr/typed_record
 
 suite "Wakunode2 - Waku":
   test "compilation version should be reported":

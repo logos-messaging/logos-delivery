@@ -187,7 +187,7 @@ proc setupNetwork(testTopic: ContentTopic): Future[TestNetwork] {.async.} =
     raiseAssert "Message was not archived in time"
 
   # subscribe to the content topic; with no peers yet the subscriber stays offline
-  (await subscriber.waku.subscribe(testTopic)).expect("Failed to subscribe")
+  (await subscriber.messagingClient.subscribe(testTopic)).expect("Failed to subscribe")
 
   return TestNetwork(
     storeNode: storeNode,

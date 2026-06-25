@@ -3,7 +3,8 @@ import std/[net, sequtils, strutils, json], strformat
 import chronicles, chronos, stew/byteutils, results, ffi
 import
   logos_delivery/waku/waku_core/message/message,
-  logos_delivery/waku/factory/[validator_signed, waku],
+  logos_delivery/waku/factory/validator_signed,
+  logos_delivery/waku/waku,
   tools/confutils/cli_args,
   logos_delivery/waku/waku_core/message,
   logos_delivery/waku/waku_core/topics/pubsub_topic,

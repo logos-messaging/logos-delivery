@@ -11,7 +11,7 @@ import
   ../../tools/[rln_keystore_generator/rln_keystore_generator, confutils/cli_args],
   logos_delivery/waku/[
     common/logging,
-    factory/waku,
+    waku,
     node/health_monitor,
     rest_api/endpoint/builder as rest_server_builder,
     waku_core/message/default_values,

@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import tools/confutils/cli_args
-import logos_delivery/waku/[common/logging, factory/[waku, networks_config]]
+import logos_delivery/waku/[common/logging, waku, factory/networks_config]
 import
   std/[options, strutils, os, sequtils],
   chronicles,

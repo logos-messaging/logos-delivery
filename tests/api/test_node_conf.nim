@@ -5,7 +5,7 @@ import json_serialization, confutils, confutils/std/net
 import
   tools/confutils/cli_args,
   tools/confutils/conf_from_json,
-  logos_delivery/waku/api/api_conf,
+  logos_delivery/api/api_conf,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/factory/networks_config,
   logos_delivery/waku/factory/conf_builder/conf_builder,
@@ -350,7 +350,7 @@ suite "WakuNodeConf JSON -> WakuConf integration":
 
 {.push warning[Deprecated]: off.}
 
-import logos_delivery/waku/api/api_conf
+import logos_delivery/api/api_conf
 
 suite "NodeConfig (deprecated) - toWakuConf":
   test "Minimal configuration":

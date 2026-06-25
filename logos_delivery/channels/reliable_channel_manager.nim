@@ -15,7 +15,7 @@ import brokers/broker_context
 
 import logos_delivery/waku/events/message_events as waku_message_events
 import logos_delivery/messaging/messaging_client
-import logos_delivery/waku/api/types
+import logos_delivery/api/types
 import logos_delivery/waku/waku_core/topics
 import logos_delivery/waku/persistency/sds_persistency
 
