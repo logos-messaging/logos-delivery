@@ -1,5 +1,6 @@
 import std/json
 import chronos, chronicles, results, ffi
+import logos_delivery/waku/common/base64
 import
   logos_delivery,
   logos_delivery/waku/node/waku_node,
@@ -124,6 +125,40 @@ proc logosdelivery_start_node(
     chronicles.error "ConnectionStatusChange.listen failed", err = $error
     return err("ConnectionStatusChange.listen failed: " & $error)
 
+  let channelReceivedListener = ChannelMessageReceivedEvent.listen(
+    ctx.myLib[].waku.brokerCtx,
+    proc(event: ChannelMessageReceivedEvent) {.async: (raises: []).} =
+      callEventCallback(ctx, "onChannelMessageReceived"):
+        $(
+          %*{
+            "eventType": "channel_message_received",
+            "channelId": string(event.channelId),
+            "senderId": $event.senderId,
+            "payload": string(base64.encode(event.payload)),
+          }
+        ),
+  ).valueOr:
+    chronicles.error "ChannelMessageReceivedEvent.listen failed", err = $error
+    return err("ChannelMessageReceivedEvent.listen failed: " & $error)
+
+  let channelSentListener = ChannelMessageSentEvent.listen(
+    ctx.myLib[].waku.brokerCtx,
+    proc(event: ChannelMessageSentEvent) {.async: (raises: []).} =
+      callEventCallback(ctx, "onChannelMessageSent"):
+        $newJsonEvent("channel_message_sent", event),
+  ).valueOr:
+    chronicles.error "ChannelMessageSentEvent.listen failed", err = $error
+    return err("ChannelMessageSentEvent.listen failed: " & $error)
+
+  let channelErrorListener = ChannelMessageErrorEvent.listen(
+    ctx.myLib[].waku.brokerCtx,
+    proc(event: ChannelMessageErrorEvent) {.async: (raises: []).} =
+      callEventCallback(ctx, "onChannelMessageError"):
+        $newJsonEvent("channel_message_error", event),
+  ).valueOr:
+    chronicles.error "ChannelMessageErrorEvent.listen failed", err = $error
+    return err("ChannelMessageErrorEvent.listen failed: " & $error)
+
   (await ctx.myLib[].start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
@@ -141,6 +176,9 @@ proc logosdelivery_stop_node(
   await MessagePropagatedEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
   await MessageReceivedEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
   await EventConnectionStatusChange.dropAllListeners(ctx.myLib[].waku.brokerCtx)
+  await ChannelMessageReceivedEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
+  await ChannelMessageSentEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
+  await ChannelMessageErrorEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
 
   (await ctx.myLib[].stop()).isOkOr:
     let errMsg = $error
