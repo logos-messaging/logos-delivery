@@ -11,6 +11,9 @@
 
 import results, chronos, chronicles
 
+import logos_delivery/api/logos_delivery_api
+export logos_delivery_api
+
 # Each layer has a core module (type + new/start/stop) and an api/ folder whose
 # modules each implement a differentiated set of operations, plus an events
 # surface. The concentrator re-exports them so library consumers get the full
