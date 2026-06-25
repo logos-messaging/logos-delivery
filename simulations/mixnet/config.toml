@@ -27,5 +27,6 @@ nat = "extip:127.0.0.1"
 ext-multiaddr = ["/ip4/127.0.0.1/tcp/60001"]
 ext-multiaddr-only = true
 ip-colocation-limit=0
-mix-user-message-limit=4
+mix-user-message-limit=100
 mix-disable-spam-protection=false
+mix-disable-cover-traffic=true
