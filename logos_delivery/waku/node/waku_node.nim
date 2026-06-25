@@ -60,9 +60,9 @@ import
     requests/node_requests,
     requests/health_requests,
     api/events/health_events,
-    api/events/message_events,
     api/events/peer_events,
   ],
+  logos_delivery/api/kernel_api, # MessageSeenEvent
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./peer_manager,

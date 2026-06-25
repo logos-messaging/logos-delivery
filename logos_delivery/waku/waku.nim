@@ -58,6 +58,10 @@ import
   ./factory/waku_conf,
   ./factory/waku_state_info
 
+# Surfaces the Kernel API interface (and its `MessageSeenEvent`) to consumers
+# of the Waku layer.
+export kernel_api
+
 logScope:
   topics = "wakunode waku"
 

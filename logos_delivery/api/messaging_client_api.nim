@@ -2,16 +2,36 @@ import chronos, results
 import brokers/event_broker
 
 import logos_delivery/api/types as api_types
-
-# The messaging-layer event surface lives in the decomposed
-# `messaging/api/events` module. Re-export it here so the events stay reachable
-# at the interface level without duplicating the EventBroker types.
-import logos_delivery/messaging/api/events as messaging_events
+import logos_delivery/waku/waku_core/message
 
 export event_broker, api_types
-export messaging_events
 
 type IMessagingClient* = ref object of RootObj
+
+EventBroker:
+  # Event emitted when a message is sent to the network
+  type MessageSentEvent* = object
+    requestId*: RequestId
+    messageHash*: string
+
+EventBroker:
+  # Event emitted when a message send operation fails
+  type MessageErrorEvent* = object
+    requestId*: RequestId
+    messageHash*: string
+    error*: string
+
+EventBroker:
+  # Confirmation that a message has been correctly delivered to some neighbouring nodes.
+  type MessagePropagatedEvent* = object
+    requestId*: RequestId
+    messageHash*: string
+
+EventBroker:
+  # Event emitted when a message is received via Waku
+  type MessageReceivedEvent* = object
+    messageHash*: string
+    message*: WakuMessage
 
 method subscribe*(
     self: IMessagingClient, contentTopic: ContentTopic

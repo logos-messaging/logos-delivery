@@ -16,13 +16,13 @@ import
     waku_filter_v2/client as filter_client,
     waku_filter_v2/protocol as filter_protocol,
     api/events/health_events,
-    api/events/message_events,
     api/events/peer_events,
     requests/health_requests,
     node/peer_manager,
     node/health_monitor/topic_health,
     node/health_monitor/connection_status,
   ]
+import logos_delivery/api/kernel_api # MessageSeenEvent
 
 {.push raises: [].}
 

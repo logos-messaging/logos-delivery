@@ -19,7 +19,7 @@ import
     waku_lightpush/client,
     waku_lightpush/callbacks,
   ]
-import logos_delivery/messaging/api/events
+import logos_delivery/api/messaging_client_api
 
 logScope:
   topics = "send service"

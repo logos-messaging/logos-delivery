@@ -26,14 +26,13 @@ import logos_delivery/api/reliable_channel_manager_api
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/waku/waku_core/topics
 
-import logos_delivery/channels/api/events
 import ./segmentation/segmentation
 import ./scalable_data_sync/scalable_data_sync
 import ./rate_limit_manager/rate_limit_manager
 import ./encryption/encryption
 
 export
-  types, reliable_channel_manager_api, send_service, events, segmentation,
+  types, reliable_channel_manager_api, send_service, segmentation,
   scalable_data_sync, rate_limit_manager, encryption
 
 const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"

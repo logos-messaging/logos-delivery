@@ -4,18 +4,19 @@ import brokers/event_broker
 
 import logos_delivery/api/types as api_types
 import logos_delivery/waku/waku_core/topics/pubsub_topic
+import logos_delivery/waku/waku_core/message
 import logos_delivery/waku/waku_store/common as store_types
-
-# The Kernel-layer event surface lives in the decomposed `waku/api/events`
-# modules (see PR api-shape phase2). Re-export it here so the events remain
-# reachable at the interface level without duplicating the EventBroker types.
-import logos_delivery/waku/api/events/message_events as kernel_events
 
 export event_broker
 export api_types, pubsub_topic, store_types
-export kernel_events
 
 type IKernel* = ref object of RootObj
+
+EventBroker:
+  # Internal event emitted when a message arrives from the network via any protocol
+  type MessageSeenEvent* = object
+    topic*: PubsubTopic
+    message*: WakuMessage
 
 # --- topic construction ---
 method buildContentTopic*(

@@ -7,6 +7,9 @@ import
   logos_delivery/waku/node/waku_node,
   logos_delivery/messaging/delivery_service/[recv_service, send_service]
 
+# Surfaces the messaging API interface (and its Message* events) to consumers.
+export messaging_client_api
+
 type
   MessagingClientConf* = object
     ## Per-layer config object for the messaging API.

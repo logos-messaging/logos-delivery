@@ -30,16 +30,17 @@ import
   ]
 export
   topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health, ping
-import logos_delivery/waku/api/events/[message_events, health_events]
-export message_events, health_events
+# `MessageSeenEvent` is surfaced via `export waku` (Kernel interface); the
+# remaining waku health events live here.
+import logos_delivery/waku/api/events/health_events
+export health_events
 
 # Messaging layer
 import logos_delivery/messaging/messaging_client
 export messaging_client
 import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
-import logos_delivery/messaging/api/events as messaging_api_events
-export messaging_api_events
+# Message* events are surfaced via `export messaging_client` (messaging interface).
 
 # Reliable Channel layer
 import logos_delivery/channels/reliable_channel_manager
@@ -48,8 +49,7 @@ import logos_delivery/channels/api/channel_lifecycle
 export channel_lifecycle
 import logos_delivery/channels/api/send as channel_send
 export channel_send
-import logos_delivery/channels/api/events as channels_api_events
-export channels_api_events
+# ChannelMessage* events are surfaced via `export reliable_channel_manager`.
 
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
