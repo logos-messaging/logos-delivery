@@ -1,53 +1,32 @@
-import std/json
-import
-  chronicles,
-  chronos,
-  results,
-  eth/p2p/discoveryv5/enr,
-  strutils,
-  libp2p/peerid,
-  metrics,
-  ffi
-import
-  logos_delivery/waku/waku,
-  logos_delivery/waku/node/waku_node,
-  logos_delivery/waku/node/health_monitor,
-  library/declare_lib
+## The waku api getters are synchronous and can't fail, so the bodies just wrap
+## the value; the `{.ffi.}` macro wraps it into the `Future` it must expose.
 
-proc getMultiaddresses(node: WakuNode): seq[string] =
-  return node.info().listenAddresses
+proc version*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.version())
 
-proc getMetrics(): string =
-  {.gcsafe.}:
-    return defaultRegistry.toText() ## defaultRegistry is {.global.} in metrics module
+proc listen_addresses*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.listenAddresses().join(","))
 
-proc waku_version(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  return ok(WakuNodeVersionString)
+proc get_my_enr*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.myEnr())
 
-proc waku_listen_addresses(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  ## returns a comma-separated string of the listen addresses
-  return ok(ctx.myLib[].waku.node.getMultiaddresses().join(","))
+proc get_my_peerid*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.myPeerId())
 
-proc waku_get_my_enr(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  return ok(ctx.myLib[].waku.node.enr.toURI())
+proc get_metrics*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.metrics())
 
-proc waku_get_my_peerid(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  return ok($ctx.myLib[].waku.node.peerId())
-
-proc waku_get_metrics(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  return ok(getMetrics())
-
-proc waku_is_online(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  return ok($ctx.myLib[].waku.healthMonitor.onlineMonitor.amIOnline())
+proc is_online*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok($self.waku.isOnline())

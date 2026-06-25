@@ -1,17 +1,12 @@
-import logos_delivery/waku/compat/option_valueor
-import std/[json, sugar, strutils, options]
-import chronos, chronicles, results, stew/byteutils, ffi
-import
-  logos_delivery/waku/waku,
-  library/utils,
-  logos_delivery/waku/waku_core/peers,
-  logos_delivery/waku/waku_core/message/digest,
-  logos_delivery/waku/waku_store/common,
-  logos_delivery/waku/waku_store/client,
-  logos_delivery/waku/common/paging,
-  library/declare_lib
+## The query/response are complex types, so this keeps the JSON bridge: the
+## request carries the query as a JSON string, the response is returned as JSON.
+import std/[json, sugar, options]
+import logos_delivery/waku/waku_core/message/digest
+import logos_delivery/waku/waku_store/common
+import logos_delivery/waku/common/paging
+import library/utils
 
-func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
+func storeQueryFromJson(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
   var contentTopics: seq[string]
   if jsonContent.contains("contentTopics"):
     contentTopics = collect(newSeq):
@@ -67,29 +62,19 @@ func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
     )
   )
 
-proc waku_store_query(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    jsonQuery: cstring,
-    peerAddr: cstring,
-    timeoutMs: cint,
-) {.ffi.} =
-  let jsonContentRes = catch:
-    parseJson($jsonQuery)
+proc store_query*(
+    self: LogosDelivery, queryJson: string, peer: string, timeoutMs: int
+): Future[Result[string, string]] {.ffi.} =
+  let jsonContent =
+    try:
+      parseJson(queryJson)
+    except CatchableError as e:
+      return err("StoreRequest failed parsing store request: " & e.msg)
 
-  if jsonContentRes.isErr():
-    return err("StoreRequest failed parsing store request: " & jsonContentRes.error.msg)
+  let storeQueryRequest = storeQueryFromJson(jsonContent).valueOr:
+    return err(error)
 
-  let storeQueryRequest = ?fromJsonNode(jsonContentRes.get())
+  let queryResponse = (await self.waku.storeQuery(storeQueryRequest, peer, timeoutMs)).valueOr:
+    return err("StoreRequest failed store query: " & error)
 
-  let peer = peers.parsePeerInfo(($peerAddr).split(",")).valueOr:
-    return err("StoreRequest failed to parse peer addr: " & $error)
-
-  let queryResponse = (
-    await ctx.myLib[].waku.node.wakuStoreClient.query(storeQueryRequest, peer)
-  ).valueOr:
-    return err("StoreRequest failed store query: " & $error)
-
-  let res = $(%*(queryResponse.toHex()))
-  return ok(res) ## returning the response in json format
+  return ok($(%*(queryResponse.toHex()))) ## response in json format
