@@ -439,6 +439,17 @@ task chat2mix, "Build example Waku chat mix usage":
     "-d:chronicles_sinks=textlines[file] -d:chronicles_log_level=TRACE "
   #  -d:ssl - cause unlisted exception error in libp2p/utility...
 
+task chat2disco, "Build chat2disco (kademlia service discovery test chat)":
+  # This is a testing/discovery tool, so we want debug logs on stdout by default
+  # (the config sets the default to DEBUG, and runtime filtering is enabled).
+  # Unlike the pure chat examples, we do not redirect to a file sink.
+
+  let name = "chat2disco"
+  buildBinary name,
+    "apps/chat2disco/",
+    "-d:chronicles_log_level=TRACE "
+  #  -d:ssl - cause unlisted exception error in libp2p/utility...
+
 task chat2bridge, "Build chat2bridge":
   let name = "chat2bridge"
   buildBinary name, "apps/chat2bridge/"
