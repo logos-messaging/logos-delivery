@@ -1,59 +1,31 @@
-import std/strutils
-import chronos, chronicles, results, ffi
-import logos_delivery, library/declare_lib
-
-proc waku_discv5_update_bootnodes(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    bootnodes: cstring,
-) {.ffi.} =
-  ## Updates the bootnode list used for discovering new peers via DiscoveryV5
-  ## bootnodes - JSON array containing the bootnode ENRs i.e. `["enr:...", "enr:..."]`
-  (await ctx.myLib[].waku.discv5UpdateBootnodes($bootnodes)).isOkOr:
-    error "UPDATE_DISCV5_BOOTSTRAP_NODES failed", error = error
+proc discv5_update_bootnodes*(
+    self: LogosDelivery, bootnodes: string
+): Future[Result[string, string]] {.ffi.} =
+  ## `bootnodes` is a JSON array of ENRs, e.g. `["enr:...", "enr:..."]`.
+  (await self.waku.discv5UpdateBootnodes(bootnodes)).isOkOr:
     return err(error)
-  return ok("discovery request processed correctly")
+  return ok("")
 
-proc waku_dns_discovery(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    enrTreeUrl: cstring,
-    nameDnsServer: cstring,
-    timeoutMs: cint,
-) {.ffi.} =
-  let nodes = (
-    await ctx.myLib[].waku.dnsDiscovery($enrTreeUrl, $nameDnsServer, int(timeoutMs))
-  ).valueOr:
-    error "GET_BOOTSTRAP_NODES failed", error = error
+proc dns_discovery*(
+    self: LogosDelivery, enrTreeUrl: string, nameDnsServer: string, timeoutMs: int
+): Future[Result[string, string]] {.ffi.} =
+  let nodes = (await self.waku.dnsDiscovery(enrTreeUrl, nameDnsServer, timeoutMs)).valueOr:
     return err(error)
-  ## returns a comma-separated string of bootstrap nodes' multiaddresses
   return ok(nodes.join(","))
 
-proc waku_start_discv5(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  (await ctx.myLib[].waku.startDiscv5()).isOkOr:
-    error "START_DISCV5 failed", error = error
+proc start_discv5*(self: LogosDelivery): Future[Result[string, string]] {.ffi.} =
+  (await self.waku.startDiscv5()).isOkOr:
     return err(error)
-  return ok("discv5 started correctly")
+  return ok("")
 
-proc waku_stop_discv5(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  (await ctx.myLib[].waku.stopDiscv5()).isOkOr:
-    error "STOP_DISCV5 failed", error = error
+proc stop_discv5*(self: LogosDelivery): Future[Result[string, string]] {.ffi.} =
+  (await self.waku.stopDiscv5()).isOkOr:
     return err(error)
-  return ok("discv5 stopped correctly")
+  return ok("")
 
-proc waku_peer_exchange_request(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    numPeers: uint64,
-) {.ffi.} =
-  let numValidPeers = (await ctx.myLib[].waku.peerExchangeRequest(numPeers)).valueOr:
-    error "waku_peer_exchange_request failed", error = error
+proc peer_exchange_request*(
+    self: LogosDelivery, numPeers: uint64
+): Future[Result[string, string]] {.ffi.} =
+  let n = (await self.waku.peerExchangeRequest(numPeers)).valueOr:
     return err(error)
-  return ok($numValidPeers)
+  return ok($n)

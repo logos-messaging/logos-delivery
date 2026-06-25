@@ -1,57 +1,39 @@
-import std/[strutils, sequtils]
-import chronicles, chronos, results, ffi
-import
-  logos_delivery,
-  logos_delivery/waku/waku_core/message/message,
-  logos_delivery/waku/waku_core/subscription/push_handler,
-  logos_delivery/waku/waku_core/topics/pubsub_topic,
-  logos_delivery/waku/waku_core/topics/content_topic,
-  library/events/json_message_event,
-  library/declare_lib
+import std/sequtils
+import logos_delivery/waku/waku_core/subscription/push_handler
 
-proc waku_filter_subscribe(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    pubSubTopic: cstring,
-    contentTopics: cstring,
-) {.ffi.} =
-  proc onReceivedMessage(ctx: ptr FFIContext[LogosDelivery]): FilterPushHandler =
-    return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
-      callEventCallback(ctx, "onReceivedMessage"):
-        $JsonMessageEvent.new(pubsubTopic, msg)
-
+proc filter_subscribe*(
+    self: LogosDelivery, pubsubTopic: string, contentTopics: seq[string]
+): Future[Result[string, string]] {.ffi.} =
+  # `filterSubscribe` re-registers the filter push handler, so it must keep
+  # feeding MessageSeenEvent — the single source the ctor's listener delivers
+  # to the foreign side (see liblogosdelivery.nim).
+  let brokerCtx = self.waku.brokerCtx
+  let pushHandler = proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
+    MessageSeenEvent.emit(brokerCtx, pubsubTopic, msg)
   (
-    await ctx.myLib[].waku.filterSubscribe(
-      PubsubTopic($pubSubTopic),
-      ($contentTopics).split(",").mapIt(ContentTopic(it)),
-      FilterPushHandler(onReceivedMessage(ctx)),
+    await self.waku.filterSubscribe(
+      PubsubTopic(pubsubTopic),
+      contentTopics.mapIt(ContentTopic(it)),
+      FilterPushHandler(pushHandler),
     )
   ).isOkOr:
-    error "fail filter subscribe", error = error
     return err(error)
   return ok("")
 
-proc waku_filter_unsubscribe(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    pubSubTopic: cstring,
-    contentTopics: cstring,
-) {.ffi.} =
+proc filter_unsubscribe*(
+    self: LogosDelivery, pubsubTopic: string, contentTopics: seq[string]
+): Future[Result[string, string]] {.ffi.} =
   (
-    await ctx.myLib[].waku.filterUnsubscribe(
-      PubsubTopic($pubSubTopic), ($contentTopics).split(",").mapIt(ContentTopic(it))
+    await self.waku.filterUnsubscribe(
+      PubsubTopic(pubsubTopic), contentTopics.mapIt(ContentTopic(it))
     )
   ).isOkOr:
-    error "fail filter unsubscribe", error = error
     return err(error)
   return ok("")
 
-proc waku_filter_unsubscribe_all(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  (await ctx.myLib[].waku.filterUnsubscribeAll()).isOkOr:
-    error "fail filter unsubscribe all", error = error
+proc filter_unsubscribe_all*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  (await self.waku.filterUnsubscribeAll()).isOkOr:
     return err(error)
   return ok("")

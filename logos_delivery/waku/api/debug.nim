@@ -1,36 +1,24 @@
-## Waku layer API — debug / info operations.
+## Waku layer API — debug / info getters (all synchronous).
 {.push raises: [].}
 
-import results, chronos, chronicles, metrics
+import metrics
 import eth/p2p/discoveryv5/enr
 
 import logos_delivery/waku/waku
-import logos_delivery/waku/[waku_core, node/waku_node]
+import logos_delivery/waku/node/waku_node
 
-proc version*(self: Waku): Future[Result[string, string]] {.async.} =
-  return ok(WakuNodeVersionString)
+proc version*(self: Waku): string =
+  return WakuNodeVersionString
 
-proc listenAddresses*(self: Waku): Future[Result[seq[string], string]] {.async.} =
-  try:
-    return ok(self.node.info().listenAddresses)
-  except CatchableError as e:
-    return err(e.msg)
+proc listenAddresses*(self: Waku): seq[string] =
+  return self.node.info().listenAddresses
 
-proc myEnr*(self: Waku): Future[Result[string, string]] {.async.} =
-  try:
-    return ok(self.node.enr.toURI())
-  except CatchableError as e:
-    return err(e.msg)
+proc myEnr*(self: Waku): string =
+  return self.node.enr.toURI()
 
-proc myPeerId*(self: Waku): Future[Result[string, string]] {.async.} =
-  try:
-    return ok($self.node.peerId())
-  except CatchableError as e:
-    return err(e.msg)
+proc myPeerId*(self: Waku): string =
+  return $self.node.peerId()
 
-proc metrics*(self: Waku): Future[Result[string, string]] {.async.} =
+proc metrics*(self: Waku): string =
   {.gcsafe.}:
-    try:
-      return ok(defaultRegistry.toText())
-    except CatchableError as e:
-      return err(e.msg)
+    return defaultRegistry.toText()

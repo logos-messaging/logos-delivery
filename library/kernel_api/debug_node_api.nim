@@ -1,46 +1,32 @@
-import std/strutils
-import chronos, results, ffi
-import logos_delivery, library/declare_lib
+## The waku api getters are synchronous and can't fail, so the bodies just wrap
+## the value; the `{.ffi.}` macro wraps it into the `Future` it must expose.
 
-proc waku_version(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  let v = (await ctx.myLib[].waku.version()).valueOr:
-    return err(error)
-  return ok(v)
+proc version*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.version())
 
-proc waku_listen_addresses(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  ## returns a comma-separated string of the listen addresses
-  let addrs = (await ctx.myLib[].waku.listenAddresses()).valueOr:
-    return err(error)
-  return ok(addrs.join(","))
+proc listen_addresses*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.listenAddresses().join(","))
 
-proc waku_get_my_enr(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  let enrUri = (await ctx.myLib[].waku.myEnr()).valueOr:
-    return err(error)
-  return ok(enrUri)
+proc get_my_enr*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.myEnr())
 
-proc waku_get_my_peerid(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  let peerId = (await ctx.myLib[].waku.myPeerId()).valueOr:
-    return err(error)
-  return ok(peerId)
+proc get_my_peerid*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.myPeerId())
 
-proc waku_get_metrics(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  let m = (await ctx.myLib[].waku.metrics()).valueOr:
-    return err(error)
-  return ok(m)
+proc get_metrics*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok(self.waku.metrics())
 
-proc waku_is_online(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
-  let online = (await ctx.myLib[].waku.isOnline()).valueOr:
-    return err(error)
-  return ok($online)
+proc is_online*(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  return ok($self.waku.isOnline())
