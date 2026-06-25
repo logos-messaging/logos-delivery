@@ -58,7 +58,7 @@ method subscribe*(
 
 method unsubscribe*(
     self: MessagingClient, contentTopic: ContentTopic
-): Result[void, string] {.raises[].} =
+): Result[void, string] {.raises: [].} =
   ?checkApiAvailability(self)
 
   return self.node.subscriptionManager.unsubscribe(contentTopic)
