@@ -49,16 +49,16 @@ proc checkApiAvailability(self: MessagingClient): Result[void, string] =
     return err("MessagingClient is not initialized")
   return ok()
 
-proc subscribe*(
+method subscribe*(
     self: MessagingClient, contentTopic: ContentTopic
-): Future[Result[void, string]] {.async.} =
+): Future[Result[void, string]] {.async: (raises: []).} =
   ?checkApiAvailability(self)
 
   return self.node.subscriptionManager.subscribe(contentTopic)
 
-proc unsubscribe*(
+method unsubscribe*(
     self: MessagingClient, contentTopic: ContentTopic
-): Result[void, string] =
+): Result[void, string] {.raises[].} =
   ?checkApiAvailability(self)
 
   return self.node.subscriptionManager.unsubscribe(contentTopic)
