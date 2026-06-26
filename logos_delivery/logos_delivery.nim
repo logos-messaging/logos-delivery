@@ -11,9 +11,6 @@
 
 import results, chronos, chronicles
 
-import logos_delivery/api/logos_delivery_api
-export logos_delivery_api
-
 # Each layer has a core module (type + new/start/stop) and an api/ folder whose
 # modules each implement a differentiated set of operations, plus an events
 # surface. The concentrator re-exports them so library consumers get the full
@@ -75,7 +72,7 @@ type
     messaging*: MessagingClientConf
     reliableChannel*: ReliableChannelManagerConf
 
-  LogosDelivery* = ref object of ILogosDelivery
+  LogosDelivery* = ref object
     ## Entry point. Holds one instance of each API layer.
     waku*: Waku
     messagingClient*: MessagingClient
@@ -120,7 +117,7 @@ proc new*(
     )
   )
 
-method start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each layer bottom-up: transport first, then messaging, then channels.
   if self.waku.isNil():
     return err("Waku node is not initialized")
@@ -140,7 +137,7 @@ method start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
   return ok()
 
-method stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
   await self.reliableChannelManager.stop()
   await self.messagingClient.stop()
@@ -150,7 +147,7 @@ method stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
   return ok()
 
-method isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
+proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():
     return err("Waku node is not initialized")
   return ok(self.waku.healthMonitor.onlineMonitor.amIOnline())
