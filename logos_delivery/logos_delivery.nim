@@ -52,6 +52,12 @@ import logos_delivery/channels/api/send as channel_send
 export channel_send
 # ChannelMessage* events are surfaced via `export reliable_channel_manager`.
 
+# Compile-time check that each layer's concrete type satisfies its API concept.
+static:
+  doAssert Waku is KernelApi
+  doAssert MessagingClient is MessagingApi
+  doAssert ReliableChannelManager is ReliableChannelApi
+
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
 import tools/confutils/cli_args

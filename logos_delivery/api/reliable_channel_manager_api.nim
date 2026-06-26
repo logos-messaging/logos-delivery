@@ -15,8 +15,6 @@ export event_broker, api_types
 export channel_types, messaging_client_api
 
 type
-  IReliableChannelManager* = ref object of RootObj
-
   SendHandler* = proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
     async: (raises: [CatchableError]), gcsafe
   .}
@@ -47,24 +45,9 @@ EventBroker:
     requestId*: RequestId
     error*: string
 
-method createReliableChannel*(
-    self: IReliableChannelManager,
-    channelId: ChannelId,
-    contentTopic: ContentTopic,
-    senderId: SdsParticipantID,
-    sendHandler: SendHandler = nil,
-): Result[ChannelId, string] {.base.} =
-  return err("Interface IReliableChannelManager.createReliableChannel not implemented")
-
-method closeChannel*(
-    self: IReliableChannelManager, channelId: ChannelId
-): Future[Result[void, string]] {.async: (raises: []), base.} =
-  return err("Interface IReliableChannelManager.closeChannel not implemented")
-
-method send*(
-    self: IReliableChannelManager,
-    channelId: ChannelId,
-    appPayload: seq[byte],
-    ephemeral: bool = false,
-): Future[Result[RequestId, string]] {.async: (raises: []), base.} =
-  return err("Interface IReliableChannelManager.send not implemented")
+# Structural API contract for the reliable-channel surface (ops in `channels/api/*`).
+type ReliableChannelApi* = concept c
+  createReliableChannel(c, ChannelId, ContentTopic, SdsParticipantID) is
+    Result[ChannelId, string]
+  closeChannel(c, ChannelId) is Future[Result[void, string]]
+  send(c, ChannelId, seq[byte]) is Future[Result[RequestId, string]]

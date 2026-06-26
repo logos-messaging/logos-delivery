@@ -1,16 +1,14 @@
-import std/options
 import chronos, results
 import brokers/event_broker
 
 import logos_delivery/api/types as api_types
 import logos_delivery/waku/waku_core/topics/pubsub_topic
 import logos_delivery/waku/waku_core/message
+import logos_delivery/waku/waku_core/subscription/push_handler
 import logos_delivery/waku/waku_store/common as store_types
 
 export event_broker
 export api_types, pubsub_topic, store_types
-
-type IKernel* = ref object of RootObj
 
 EventBroker:
   # Internal event emitted when a message arrives from the network via any protocol
@@ -18,186 +16,61 @@ EventBroker:
     topic*: PubsubTopic
     message*: WakuMessage
 
-# --- topic construction ---
-method buildContentTopic*(
-    self: IKernel, appName: string, appVersion: uint32, name: string, encoding: string
-): Future[Result[ContentTopic, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.buildContentTopic not implemented")
+# Structural API contract for the Kernel surface, implemented by `Waku`
+# (ops in `waku/api/*`).
+type KernelApi* = concept w
+  # --- topic construction ---
+  buildContentTopic(w, string, uint32, string, string) is
+    Future[Result[ContentTopic, string]]
+  buildPubsubTopic(w, string) is Future[Result[PubsubTopic, string]]
+  defaultPubsubTopic(w) is Future[Result[PubsubTopic, string]]
 
-method buildPubsubTopic*(
-    self: IKernel, topicName: string
-): Future[Result[PubsubTopic, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.buildPubsubTopic not implemented")
+  # --- relay ---
+  relayPublish(w, PubsubTopic, WakuMessage, uint32) is Future[Result[string, string]]
+  relaySubscribe(w, PubsubTopic) is Future[Result[bool, string]]
+  relayUnsubscribe(w, PubsubTopic) is Future[Result[bool, string]]
+  relayAddProtectedShard(w, uint16, uint16, string) is Future[Result[bool, string]]
+  relayConnectedPeers(w, PubsubTopic) is Future[Result[seq[string], string]]
+  relayPeersInMesh(w, PubsubTopic) is Future[Result[seq[string], string]]
+  relayNumPeersInMesh(w, PubsubTopic) is Future[Result[int, string]]
+  relayNumConnectedPeers(w, PubsubTopic) is Future[Result[int, string]]
 
-method defaultPubsubTopic*(
-    self: IKernel
-): Future[Result[PubsubTopic, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.defaultPubsubTopic not implemented")
+  # --- filter ---
+  filterSubscribe(w, PubsubTopic, seq[ContentTopic], FilterPushHandler) is
+    Future[Result[bool, string]]
+  filterUnsubscribe(w, PubsubTopic, seq[ContentTopic]) is Future[Result[bool, string]]
+  filterUnsubscribeAll(w) is Future[Result[bool, string]]
 
-# --- relay ---
-method relayPublish*(
-    self: IKernel, pubsubTopic: PubsubTopic, message: WakuMessage, timeoutMs: uint32
-): Future[Result[int, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.relayPublish not implemented")
+  # --- lightpush ---
+  lightpushPublish(w, PubsubTopic, WakuMessage) is Future[Result[string, string]]
 
-method relaySubscribe*(
-    self: IKernel, pubsubTopic: PubsubTopic
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.relaySubscribe not implemented")
+  # --- store ---
+  storeQuery(w, StoreQueryRequest, string, int) is
+    Future[Result[StoreQueryResponse, string]]
 
-method relayUnsubscribe*(
-    self: IKernel, pubsubTopic: PubsubTopic
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.relayUnsubscribe not implemented")
+  # --- peer management ---
+  connect(w, seq[string], uint32) is Future[Result[bool, string]]
+  disconnectPeerById(w, string) is Future[Result[bool, string]]
+  disconnectAllPeers(w) is Future[Result[bool, string]]
+  dialPeer(w, string, string, int) is Future[Result[bool, string]]
+  dialPeerById(w, string, string, int) is Future[Result[bool, string]]
+  peerIdsFromPeerstore(w) is Future[Result[seq[string], string]]
+  connectedPeersInfo(w) is Future[Result[seq[PeerConnInfo], string]]
+  connectedPeers(w) is Future[Result[seq[string], string]]
+  peerIdsByProtocol(w, string) is Future[Result[seq[string], string]]
 
-method relayAddProtectedShard*(
-    self: IKernel, clusterId: uint16, shardId: uint16, publicKey: string
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.relayAddProtectedShard not implemented")
+  # --- discovery ---
+  dnsDiscovery(w, string, string, int) is Future[Result[seq[string], string]]
+  discv5UpdateBootnodes(w, string) is Future[Result[bool, string]]
+  startDiscv5(w) is Future[Result[bool, string]]
+  stopDiscv5(w) is Future[Result[bool, string]]
+  peerExchangeRequest(w, uint64) is Future[Result[int, string]]
 
-method relayConnectedPeers*(
-    self: IKernel, pubsubTopic: PubsubTopic
-): Future[Result[seq[string], string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.relayConnectedPeers not implemented")
-
-method relayPeersInMesh*(
-    self: IKernel, pubsubTopic: PubsubTopic
-): Future[Result[seq[string], string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.relayPeersInMesh not implemented")
-
-# --- filter ---
-method filterSubscribe*(
-    self: IKernel,
-    pubsubTopic: Option[PubsubTopic],
-    contentTopics: seq[ContentTopic],
-    peer: string,
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.filterSubscribe not implemented")
-
-method filterUnsubscribe*(
-    self: IKernel,
-    pubsubTopic: Option[PubsubTopic],
-    contentTopics: seq[ContentTopic],
-    peer: string,
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.filterUnsubscribe not implemented")
-
-method filterUnsubscribeAll*(
-    self: IKernel, peer: string
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.filterUnsubscribeAll not implemented")
-
-# --- lightpush ---
-method lightpushPublish*(
-    self: IKernel, pubsubTopic: PubsubTopic, message: WakuMessage, peer: string
-): Future[Result[string, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.lightpushPublish not implemented")
-
-# --- store ---
-method storeQuery*(
-    self: IKernel, request: StoreQueryRequest, peer: string, timeoutMs: int
-): Future[Result[StoreQueryResponse, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.storeQuery not implemented")
-
-# --- peer management ---
-method connect*(
-    self: IKernel, peers: seq[string], timeoutMs: uint32
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.connect not implemented")
-
-method disconnectPeerById*(
-    self: IKernel, peerId: string
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.disconnectPeerById not implemented")
-
-method disconnectAllPeers*(
-    self: IKernel
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.disconnectAllPeers not implemented")
-
-method dialPeer*(
-    self: IKernel, peerAddr: string, protocol: string, timeoutMs: int
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.dialPeer not implemented")
-
-method dialPeerById*(
-    self: IKernel, peerId: string, protocol: string, timeoutMs: int
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.dialPeerById not implemented")
-
-method peerIdsFromPeerstore*(
-    self: IKernel
-): Future[Result[seq[string], string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.peerIdsFromPeerstore not implemented")
-
-method connectedPeersInfo*(
-    self: IKernel
-): Future[Result[seq[string], string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.connectedPeersInfo not implemented")
-
-method connectedPeers*(
-    self: IKernel
-): Future[Result[seq[string], string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.connectedPeers not implemented")
-
-method peerIdsByProtocol*(
-    self: IKernel, protocol: string
-): Future[Result[seq[string], string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.peerIdsByProtocol not implemented")
-
-# --- discovery ---
-method dnsDiscovery*(
-    self: IKernel, enrTreeUrl: string, nameServer: string, timeoutMs: int
-): Future[Result[seq[string], string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.dnsDiscovery not implemented")
-
-method discv5UpdateBootnodes*(
-    self: IKernel, bootnodes: seq[string]
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.discv5UpdateBootnodes not implemented")
-
-method startDiscv5*(
-    self: IKernel
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.startDiscv5 not implemented")
-
-method stopDiscv5*(
-    self: IKernel
-): Future[Result[bool, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.stopDiscv5 not implemented")
-
-method peerExchangeRequest*(
-    self: IKernel, numPeers: uint64
-): Future[Result[int, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.peerExchangeRequest not implemented")
-
-# --- debug / info ---
-method version*(
-    self: IKernel
-): Future[Result[string, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.version not implemented")
-
-method listenAddresses*(
-    self: IKernel
-): Future[Result[seq[string], string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.listenAddresses not implemented")
-
-method myEnr*(
-    self: IKernel
-): Future[Result[string, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.myEnr not implemented")
-
-method myPeerId*(
-    self: IKernel
-): Future[Result[string, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.myPeerId not implemented")
-
-method metrics*(
-    self: IKernel
-): Future[Result[string, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.metrics not implemented")
-
-method pingPeer*(
-    self: IKernel, peerAddr: string, timeoutMs: int
-): Future[Result[int64, string]] {.async: (raises: []), base.} =
-  return err("Interface IKernel.pingPeer not implemented")
+  # --- debug / info ---
+  version(w) is Future[Result[string, string]]
+  listenAddresses(w) is Future[Result[seq[string], string]]
+  myEnr(w) is Future[Result[string, string]]
+  myPeerId(w) is Future[Result[string, string]]
+  metrics(w) is Future[Result[string, string]]
+  isOnline(w) is Future[Result[bool, string]]
+  pingPeer(w, string, int) is Future[Result[int64, string]]

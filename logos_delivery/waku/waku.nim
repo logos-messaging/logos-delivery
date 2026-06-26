@@ -68,7 +68,7 @@ logScope:
 # Git version in git describe format (defined at compile time)
 const git_version* {.strdefine.} = "n/a"
 
-type Waku* = ref object of IKernel
+type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   stateInfo*: WakuStateInfo
   conf*: WakuConf
   rng*: crypto.Rng

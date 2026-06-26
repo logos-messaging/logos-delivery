@@ -6,8 +6,6 @@ import logos_delivery/waku/waku_core/message
 
 export event_broker, api_types
 
-type IMessagingClient* = ref object of RootObj
-
 EventBroker:
   # Event emitted when a message is sent to the network
   type MessageSentEvent* = object
@@ -33,17 +31,8 @@ EventBroker:
     messageHash*: string
     message*: WakuMessage
 
-method subscribe*(
-    self: IMessagingClient, contentTopic: ContentTopic
-): Future[Result[void, string]] {.async: (raises: []), base.} =
-  return err("Interface IMessagingClient.subscribe not implemented")
-
-method unsubscribe*(
-    self: IMessagingClient, contentTopic: ContentTopic
-): Result[void, string] {.base, raises: [].} =
-  return err("Interface IMessagingClient.unsubscribe not implemented")
-
-method send*(
-    self: IMessagingClient, envelope: MessageEnvelope
-): Future[Result[RequestId, string]] {.async: (raises: []), base.} =
-  return err("Interface IMessagingClient.send not implemented")
+# Structural API contract for a messaging client (ops in `messaging/api/*`).
+type MessagingApi* = concept c
+  subscribe(c, ContentTopic) is Future[Result[void, string]]
+  unsubscribe(c, ContentTopic) is Result[void, string]
+  send(c, MessageEnvelope) is Future[Result[RequestId, string]]
