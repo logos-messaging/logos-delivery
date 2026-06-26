@@ -4,7 +4,7 @@
 import results, chronos
 import
   logos_delivery/api/messaging_client_api,
-  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/waku,
   logos_delivery/messaging/delivery_service/[recv_service, send_service]
 
 # Surfaces the messaging API interface (and its Message* events) to consumers.
@@ -18,19 +18,19 @@ type
     useP2PReliability*: bool
 
   MessagingClient* = ref object of IMessagingClient
-    node*: WakuNode ## Waku core driven by this layer; read by `messaging/api.nim`.
+    waku*: Waku ## The Waku kernel this layer drives; read by `messaging/api/*`.
     sendService*: SendService
     recvService*: RecvService
     started: bool
 
 proc new*(
-    T: type MessagingClient, conf: MessagingClientConf, node: WakuNode
+    T: type MessagingClient, conf: MessagingClientConf, waku: Waku
 ): Result[T, string] =
-  ## The messaging layer chains onto Waku: it drives the underlying
-  ## `WakuNode` (Waku's core) for transport while exposing its own send/recv API.
-  let sendService = ?SendService.new(conf.useP2PReliability, node)
-  let recvService = RecvService.new(node)
-  ok(T(node: node, sendService: sendService, recvService: recvService))
+  ## The messaging layer chains onto Waku: it drives the underlying Waku kernel
+  ## for transport while exposing its own send/recv API.
+  let sendService = ?SendService.new(conf.useP2PReliability, waku.node)
+  let recvService = RecvService.new(waku.node)
+  ok(T(waku: waku, sendService: sendService, recvService: recvService))
 
 proc start*(self: MessagingClient): Result[void, string] =
   if self.started:

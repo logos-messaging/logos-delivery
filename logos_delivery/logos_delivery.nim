@@ -97,7 +97,7 @@ proc new*(
   let waku = (await Waku.new(layerConf.waku, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  let messagingClient = MessagingClient.new(layerConf.messaging, waku.node).valueOr:
+  let messagingClient = MessagingClient.new(layerConf.messaging, waku).valueOr:
     return err("failed to create MessagingClient: " & error)
 
   let reliableChannelManager = ReliableChannelManager.new(
