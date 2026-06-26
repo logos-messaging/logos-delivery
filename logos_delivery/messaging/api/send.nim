@@ -17,9 +17,9 @@ proc send*(
   ## id the caller can correlate with `MessageSentEvent` / `MessageErrorEvent`.
   ?self.checkApiAvailability()
 
-  let isSubbed = self.waku.node.subscriptionManager.isSubscribed(
-    envelope.contentTopic
-  ).valueOr(false)
+  let isSubbed = self.waku.node.subscriptionManager
+    .isSubscribed(envelope.contentTopic)
+    .valueOr(false)
   if not isSubbed:
     info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
     self.waku.node.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:
@@ -28,9 +28,7 @@ proc send*(
 
   let requestId = RequestId.new(self.waku.node.rng)
 
-  let deliveryTask = DeliveryTask.new(
-    requestId, envelope, self.waku.node.brokerCtx
-  ).valueOr:
+  let deliveryTask = DeliveryTask.new(requestId, envelope, self.waku.node.brokerCtx).valueOr:
     return err("MessagingClient.send: Failed to create delivery task: " & error)
 
   asyncSpawn self.sendService.send(deliveryTask)
