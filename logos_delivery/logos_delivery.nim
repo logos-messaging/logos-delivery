@@ -72,8 +72,7 @@ type
     messaging*: MessagingClientConf
     reliableChannel*: ReliableChannelManagerConf
 
-  LogosDelivery* = ref object
-    ## Entry point. Holds one instance of each API layer.
+  LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
     waku*: Waku
     messagingClient*: MessagingClient
     reliableChannelManager*: ReliableChannelManager

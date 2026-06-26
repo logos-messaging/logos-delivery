@@ -14,14 +14,13 @@ import logos_delivery/api/messaging_client_api
 export event_broker, api_types
 export channel_types, messaging_client_api
 
-type
-  SendHandler* = proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
-    async: (raises: [CatchableError]), gcsafe
-  .}
-    ## Egress dispatch boundary. Typically wraps `MessagingClient.send`;
-    ## tests inject a fake that records calls and returns canned
-    ## `RequestId`s so the send state machine can be exercised end-to-end
-    ## without a network.
+type SendHandler* = proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
+  async: (raises: [CatchableError]), gcsafe
+.}
+  ## Egress dispatch boundary. Typically wraps `MessagingClient.send`;
+  ## tests inject a fake that records calls and returns canned
+  ## `RequestId`s so the send state machine can be exercised end-to-end
+  ## without a network.
 
 EventBroker:
   type ChannelMessageReceivedEvent* = object
