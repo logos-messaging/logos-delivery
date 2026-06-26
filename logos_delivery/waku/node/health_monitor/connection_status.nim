@@ -1,4 +1,5 @@
-import chronos, results, std/strutils, ../../api/types
+import chronos, results, std/strutils
+from logos_delivery/api/types import ConnectionStatus
 
 export ConnectionStatus
 

@@ -9,7 +9,7 @@ import tools/confutils/cli_args
 import logos_delivery/waku/factory/networks_config
 import logos_delivery/waku/factory/conf_builder/conf_builder
 
-suite "Waku API - Create node":
+suite "LogosDelivery API - Create node":
   asyncTest "Create node with minimal configuration":
     ## Given
     var nodeConf = defaultWakuNodeConf().valueOr:
@@ -21,14 +21,14 @@ suite "Waku API - Create node":
     # This is the actual minimal config but as the node auto-start, it is not suitable for tests
 
     ## When
-    let node = (await createNode(nodeConf)).valueOr:
-      raiseAssert "createNode (minimal config) failed: " & error
+    let ld = (await LogosDelivery.new(nodeConf)).valueOr:
+      raiseAssert "LogosDelivery.new (minimal config) failed: " & error
 
     ## Then
     check:
-      not node.isNil()
-      node.conf.clusterId == 3
-      node.conf.relay == true
+      not ld.isNil()
+      ld.waku.conf.clusterId == 3
+      ld.waku.conf.relay == true
 
   asyncTest "Create node with full configuration":
     ## Given
@@ -47,20 +47,20 @@ suite "Waku API - Create node":
     ]
 
     ## When
-    let node = (await createNode(nodeConf)).valueOr:
-      raiseAssert "createNode (full config) failed: " & error
+    let ld = (await LogosDelivery.new(nodeConf)).valueOr:
+      raiseAssert "LogosDelivery.new (full config) failed: " & error
 
     ## Then
     check:
-      not node.isNil()
-      node.conf.clusterId == 99
-      node.conf.shardingConf.numShardsInCluster == 16
-      node.conf.maxMessageSizeBytes == 1024'u64 * 1024'u64
-      node.conf.staticNodes.len == 1
-      node.conf.relay == true
-      node.conf.lightPush == true
-      node.conf.peerExchangeService == true
-      node.conf.rendezvous == true
+      not ld.isNil()
+      ld.waku.conf.clusterId == 99
+      ld.waku.conf.shardingConf.numShardsInCluster == 16
+      ld.waku.conf.maxMessageSizeBytes == 1024'u64 * 1024'u64
+      ld.waku.conf.staticNodes.len == 1
+      ld.waku.conf.relay == true
+      ld.waku.conf.lightPush == true
+      ld.waku.conf.peerExchangeService == true
+      ld.waku.conf.rendezvous == true
 
   asyncTest "Create node with mixed entry nodes (enrtree, multiaddr)":
     ## Given
@@ -75,18 +75,18 @@ suite "Waku API - Create node":
     ]
 
     ## When
-    let node = (await createNode(nodeConf)).valueOr:
-      raiseAssert "createNode (mixed entry nodes) failed: " & error
+    let ld = (await LogosDelivery.new(nodeConf)).valueOr:
+      raiseAssert "LogosDelivery.new (mixed entry nodes) failed: " & error
 
     ## Then
     check:
-      not node.isNil()
-      node.conf.clusterId == 42
+      not ld.isNil()
+      ld.waku.conf.clusterId == 42
       # ENRTree should go to DNS discovery
-      node.conf.dnsDiscoveryConf.isSome()
-      node.conf.dnsDiscoveryConf.get().enrTreeUrl ==
+      ld.waku.conf.dnsDiscoveryConf.isSome()
+      ld.waku.conf.dnsDiscoveryConf.get().enrTreeUrl ==
         "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
       # Multiaddr should go to static nodes
-      node.conf.staticNodes.len == 1
-      node.conf.staticNodes[0] ==
+      ld.waku.conf.staticNodes.len == 1
+      ld.waku.conf.staticNodes[0] ==
         "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"

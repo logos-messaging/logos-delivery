@@ -1,9 +1,7 @@
 import std/[json, strutils]
 import chronos, results, ffi
 import libp2p/[protocols/ping, switch, multiaddress, multicodec]
-import
-  logos_delivery/waku/[factory/waku, waku_core/peers, node/waku_node],
-  library/declare_lib
+import logos_delivery/waku/[waku, waku_core/peers, node/waku_node], library/declare_lib
 
 proc waku_ping_peer(
     ctx: ptr FFIContext[LogosDelivery],

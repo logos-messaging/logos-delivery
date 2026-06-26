@@ -3,7 +3,8 @@ import chronos, chronicles, results, ffi
 import
   logos_delivery,
   logos_delivery/waku/node/waku_node,
-  logos_delivery/waku/api/[api, types],
+  logos_delivery/waku/events/message_events,
+  logos_delivery/api/types,
   logos_delivery/waku/events/[message_events, health_events],
   tools/confutils/conf_from_json,
   ../declare_lib,

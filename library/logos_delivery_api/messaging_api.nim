@@ -3,9 +3,9 @@ import chronos, results, ffi
 import stew/byteutils
 import
   logos_delivery/waku/common/base64,
-  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/waku,
   logos_delivery/waku/waku_core/topics/content_topic,
-  logos_delivery/waku/api/[api, types],
+  logos_delivery/api/types,
   ../declare_lib
 
 proc logosdelivery_subscribe(
@@ -20,7 +20,7 @@ proc logosdelivery_subscribe(
   # ContentTopic is just a string type alias
   let contentTopic = ContentTopic($contentTopicStr)
 
-  (await api.subscribe(ctx.myLib[].waku, contentTopic)).isOkOr:
+  (await ctx.myLib[].messagingClient.subscribe(contentTopic)).isOkOr:
     let errMsg = $error
     return err("Subscribe failed: " & errMsg)
 
@@ -38,7 +38,7 @@ proc logosdelivery_unsubscribe(
   # ContentTopic is just a string type alias
   let contentTopic = ContentTopic($contentTopicStr)
 
-  api.unsubscribe(ctx.myLib[].waku, contentTopic).isOkOr:
+  ctx.myLib[].messagingClient.unsubscribe(contentTopic).isOkOr:
     let errMsg = $error
     return err("Unsubscribe failed: " & errMsg)
 

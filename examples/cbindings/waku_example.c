@@ -1,7 +1,7 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
-#include <argp.h>
+#include <getopt.h>
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdint.h>
@@ -64,51 +64,35 @@ void *ctx;
 // For the case of C language we don't need to store a particular userData
 void *userData = NULL;
 
-// Arguments parsing
-static char doc[] = "\nC example that shows how to use the waku library.";
-static char args_doc[] = "";
-
-static struct argp_option options[] = {
-    {"host", 'h', "HOST", 0, "IP to listen for for LibP2P traffic. (default: \"0.0.0.0\")"},
-    {"port", 'p', "PORT", 0, "TCP listening port. (default: \"60000\")"},
-    {"key", 'k', "KEY", 0, "P2P node private key as 64 char hex string."},
-    {"relay", 'r', "RELAY", 0, "Enable relay protocol: 1 or 0. (default: 1)"},
-    {"peers", 'a', "PEERS", 0, "Comma-separated list of peer-multiaddress to connect\
- to. (default: \"\") e.g. \"/ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN\""},
-    {0}};
-
-static error_t parse_opt(int key, char *arg, struct argp_state *state)
+// Arguments parsing. Uses POSIX getopt so the example builds on glibc and on
+// macOS/BSD alike (argp is a GNU libc extension not available everywhere).
+static void parse_args(int argc, char **argv, struct ConfigNode *cfgNode)
 {
-
-  struct ConfigNode *cfgNode = state->input;
-  switch (key)
+  int opt;
+  while ((opt = getopt(argc, argv, "h:p:k:r:a:")) != -1)
   {
-  case 'h':
-    snprintf(cfgNode->host, 128, "%s", arg);
-    break;
-  case 'p':
-    cfgNode->port = atoi(arg);
-    break;
-  case 'k':
-    snprintf(cfgNode->key, 128, "%s", arg);
-    break;
-  case 'r':
-    cfgNode->relay = atoi(arg);
-    break;
-  case 'a':
-    snprintf(cfgNode->peers, 2048, "%s", arg);
-    break;
-  case ARGP_KEY_ARG:
-    if (state->arg_num >= 1) /* Too many arguments. */
-      argp_usage(state);
-    break;
-  case ARGP_KEY_END:
-    break;
-  default:
-    return ARGP_ERR_UNKNOWN;
+    switch (opt)
+    {
+    case 'h':
+      snprintf(cfgNode->host, 128, "%s", optarg);
+      break;
+    case 'p':
+      cfgNode->port = atoi(optarg);
+      break;
+    case 'k':
+      snprintf(cfgNode->key, 128, "%s", optarg);
+      break;
+    case 'r':
+      cfgNode->relay = atoi(optarg);
+      break;
+    case 'a':
+      snprintf(cfgNode->peers, 2048, "%s", optarg);
+      break;
+    default:
+      printf("Wrong parameters\n");
+      exit(1);
+    }
   }
-
-  return 0;
 }
 
 void signal_cond()
@@ -118,8 +102,6 @@ void signal_cond()
   pthread_cond_signal(&cond);
   pthread_mutex_unlock(&mutex);
 }
-
-static struct argp argp = {options, parse_opt, args_doc, doc, 0, 0, 0};
 
 void event_handler(int callerRet, const char *msg, size_t len, void *userData)
 {
@@ -315,10 +297,7 @@ int main(int argc, char **argv)
   cfgNode.storeDbMigration = 0;
   cfgNode.storeMaxNumDbConnections = 30;
 
-  if (argp_parse(&argp, argc, argv, 0, 0, &cfgNode) == ARGP_ERR_UNKNOWN)
-  {
-    show_help_and_exit();
-  }
+  parse_args(argc, argv, &cfgNode);
 
   char jsonConfig[5000];
   snprintf(jsonConfig, 5000, "{ \

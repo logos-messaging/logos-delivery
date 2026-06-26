@@ -2,7 +2,7 @@ import logos_delivery/waku/compat/option_valueor
 import std/[json, sugar, strutils, options]
 import chronos, chronicles, results, stew/byteutils, ffi
 import
-  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/waku,
   library/utils,
   logos_delivery/waku/waku_core/peers,
   logos_delivery/waku/waku_core/message/digest,

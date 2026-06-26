@@ -58,7 +58,7 @@ suite "Reliable Channel - ingress":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     ## Noop encryption providers so the Encrypt/Decrypt brokers have
@@ -124,7 +124,7 @@ suite "Reliable Channel - ingress":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -181,7 +181,7 @@ suite "Reliable Channel - send state machine":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -246,7 +246,7 @@ suite "Reliable Channel - send state machine":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -347,7 +347,7 @@ suite "Reliable Channel - send state machine":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -452,7 +452,7 @@ suite "Reliable Channel - SDS persistence":
     var waku: LogosDelivery
     var manager: ReliableChannelManager
     lockNewGlobalBrokerContext:
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -522,7 +522,7 @@ suite "Reliable Channel - SDS lifecycle":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -593,7 +593,7 @@ suite "Reliable Channel - SDS lifecycle":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -650,7 +650,7 @@ suite "Reliable Channel - SDS lifecycle":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -710,7 +710,7 @@ suite "Reliable Channel - SDS lifecycle":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -792,7 +792,7 @@ suite "Reliable Channel - SDS protocol semantics":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -860,7 +860,7 @@ suite "Reliable Channel - SDS protocol semantics":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -948,7 +948,7 @@ suite "Reliable Channel - SDS protocol semantics":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -1023,7 +1023,7 @@ suite "Reliable Channel - SDS protocol semantics":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -1096,7 +1096,7 @@ suite "Reliable Channel - SDS protocol semantics":
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     setNoopEncryption()
@@ -1162,7 +1162,7 @@ suite "Reliable Channel - SDS protocol semantics":
     var waku: LogosDelivery
     var manager: ReliableChannelManager
     lockNewGlobalBrokerContext:
-      waku = (await LogosDelivery.new(createApiNodeConf())).expect("createNode")
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
     check (await manager.send(ChannelId("no-such-channel"), "x".toBytes())).isErr()

@@ -4,7 +4,7 @@ import chronicles, chronos, results, ffi
 import
   logos_delivery/waku/waku_filter_v2/client,
   logos_delivery/waku/waku_core/message/message,
-  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/waku,
   logos_delivery/waku/waku_relay,
   logos_delivery/waku/waku_filter_v2/common,
   logos_delivery/waku/waku_core/subscription/push_handler,

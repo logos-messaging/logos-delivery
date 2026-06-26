@@ -1,7 +1,7 @@
 import results, chronos
 import chronicles
 import
-  logos_delivery/waku/api/types,
+  logos_delivery/api/types,
   logos_delivery/waku/node/[waku_node, subscription_manager],
   logos_delivery/messaging/delivery_service/[recv_service, send_service],
   logos_delivery/messaging/delivery_service/send_service/delivery_task
@@ -42,6 +42,26 @@ proc stop*(self: MessagingClient) {.async.} =
   await self.sendService.stopSendService()
   await self.recvService.stopRecvService()
   self.started = false
+
+proc checkApiAvailability(self: MessagingClient): Result[void, string] =
+  if self.isNil():
+    return err("MessagingClient is not initialized")
+
+  return ok()
+
+proc subscribe*(
+    self: MessagingClient, contentTopic: ContentTopic
+): Future[Result[void, string]] {.async.} =
+  ?checkApiAvailability(self)
+
+  return self.node.subscriptionManager.subscribe(contentTopic)
+
+proc unsubscribe*(
+    self: MessagingClient, contentTopic: ContentTopic
+): Result[void, string] =
+  ?checkApiAvailability(self)
+
+  return self.node.subscriptionManager.unsubscribe(contentTopic)
 
 proc send*(
     self: MessagingClient, envelope: MessageEnvelope

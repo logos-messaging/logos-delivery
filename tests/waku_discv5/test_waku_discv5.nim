@@ -21,7 +21,7 @@ import
     discovery/waku_discv5,
     waku_enr/capabilities,
     factory/conf_builder/conf_builder,
-    factory/waku,
+    waku,
     waku_node,
     node/peer_manager,
   ],

@@ -5,7 +5,7 @@ import chronos, chronicles, results, confutils, confutils/std/net, ffi
 import
   logos_delivery/waku/node/peer_manager/peer_manager,
   tools/confutils/cli_args,
-  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/waku,
   logos_delivery/waku/factory/node_factory,
   logos_delivery/waku/factory/app_callbacks,
   logos_delivery/waku/rest_api/endpoint/builder,

@@ -6,7 +6,7 @@ import
   logos_delivery/waku/waku_core/topics/pubsub_topic,
   logos_delivery/waku/waku_relay,
   logos_delivery,
-  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/waku,
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/node/health_monitor/health_status,
   ../logos_delivery/waku/factory/app_callbacks,

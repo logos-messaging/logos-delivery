@@ -2,7 +2,7 @@ import logos_delivery/waku/compat/option_valueor
 import std/json
 import chronos, chronicles, results, strutils, libp2p/multiaddress, ffi
 import
-  logos_delivery/waku/factory/waku,
+  logos_delivery/waku/waku,
   logos_delivery/waku/discovery/waku_dnsdisc,
   logos_delivery/waku/discovery/waku_discv5,
   logos_delivery/waku/waku_core/peers,

@@ -11,9 +11,7 @@
 
 import results, chronos, chronicles
 
-import logos_delivery/waku/api
-export api
-import logos_delivery/waku/factory/waku
+import logos_delivery/waku/waku
 export waku
 import logos_delivery/messaging/messaging_client
 export messaging_client
@@ -22,7 +20,8 @@ export reliable_channel_manager
 
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
-import logos_delivery/waku/api/[api_conf, types]
+import tools/confutils/cli_args
+import logos_delivery/waku/node/health_monitor/online_monitor
 
 logScope:
   topics = "logosdelivery"
@@ -82,6 +81,13 @@ proc new*(
 
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each layer bottom-up: transport first, then messaging, then channels.
+  if self.waku.isNil():
+    return err("Waku node is not initialized")
+  if self.messagingClient.isNil():
+    return err("MessagingClient is not initialized")
+  if self.reliableChannelManager.isNil():
+    return err("ReliableChannelManager is not initialized")
+
   (await self.waku.start()).isOkOr:
     return err("failed to start Waku: " & error)
 
@@ -102,3 +108,8 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
     return err("failed to stop Waku: " & error)
 
   return ok()
+
+proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
+  if self.waku.isNil():
+    return err("Waku node is not initialized")
+  return ok(self.waku.healthMonitor.onlineMonitor.amIOnline())
