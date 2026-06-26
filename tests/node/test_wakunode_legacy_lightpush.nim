@@ -132,7 +132,7 @@ suite "RLN Proofs as a Lightpush Service":
     check (await server.mountLegacyLightPush()).isOk()
     client.mountLegacyLightPushClient()
 
-    let manager1 = cast[OnchainGroupManager](server.wakuRlnRelay.groupManager)
+    let manager1 = cast[OnchainGroupManager](server.rln.groupManager)
     let idCredentials1 = generateCredentials()
 
     (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:

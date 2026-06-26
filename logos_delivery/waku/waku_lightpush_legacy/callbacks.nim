@@ -11,7 +11,7 @@ import
 import std/times, libp2p/peerid, stew/byteutils
 
 proc checkAndGenerateRLNProof*(
-    rlnPeer: Option[WakuRln], message: WakuMessage
+    rlnPeer: Option[Rln], message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
   # check if the message already has RLN proof
   if message.proof.len > 0:
@@ -38,7 +38,7 @@ proc getNilPushHandler*(): PushMessageHandler =
     return err("no waku relay found")
 
 proc getRelayPushHandler*(
-    wakuRelay: WakuRelay, rlnPeer: Option[WakuRln] = none[WakuRln]()
+    wakuRelay: WakuRelay, rlnPeer: Option[Rln] = none[Rln]()
 ): PushMessageHandler =
   return proc(
       pubsubTopic: string, message: WakuMessage

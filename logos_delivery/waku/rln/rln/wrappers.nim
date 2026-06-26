@@ -283,7 +283,7 @@ proc buildWitnessInput(witness: RLNWitnessInput): RlnResult[ptr FFI_RLNWitnessIn
   return ok(witnessRes.ok)
 
 proc generateRlnProofWithWitness*(
-    rlnInstance: ptr RLN,
+    rlnInstance: ptr RlnRaw,
     witness: RLNWitnessInput,
     epoch: Epoch,
     rlnIdentifier: RlnIdentifier,
@@ -341,7 +341,7 @@ proc buildRlnProof(
   return ok(proofRes.ok)
 
 proc verifyRlnProof*(
-    rlnInstance: ptr RLN,
+    rlnInstance: ptr RlnRaw,
     proof: RateLimitProof,
     signal: openArray[byte],
     validRoots: seq[MerkleNode],

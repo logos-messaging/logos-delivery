@@ -12,7 +12,7 @@ proc createRLNInstanceWrapper*(): RlnInstanceResult =
   return createRlnInstance()
 
 proc unsafeAppendRLNProof*(
-    rlnPeer: WakuRln, msg: var WakuMessage, epoch: Epoch, messageId: MessageId
+    rlnPeer: Rln, msg: var WakuMessage, epoch: Epoch, messageId: MessageId
 ): RlnResult[void] =
   ## Test helper derived from the publish-path proof flow.
   ## - Skips nonce validation to intentionally allow generating "bad" message IDs for tests.

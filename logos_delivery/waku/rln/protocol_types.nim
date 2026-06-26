@@ -8,8 +8,8 @@ export waku_keystore, waku_core
 type RlnResult*[T] = Result[T, string]
 
 ## RLN is a Nim wrapper for the data types used in zerokit RLN
-type RLN* {.incompleteStruct.} = object
-type RlnInstanceResult* = RlnResult[ptr RLN]
+type RlnRaw* {.incompleteStruct.} = object
+type RlnInstanceResult* = RlnResult[ptr RlnRaw]
 
 type
   MerkleNode* = array[32, byte]

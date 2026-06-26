@@ -51,7 +51,7 @@ type
     err*: Vec_uint8
 
   CResultRLNPtrVecU8* = object
-    ok*: ptr RLN
+    ok*: ptr RlnRaw
     err*: Vec_uint8
 
   CResultCFrPtrVecU8* = object
@@ -99,7 +99,7 @@ proc ffi_rln_new_with_params*(
   zkey_data: ptr Vec_uint8, graph_data: ptr Vec_uint8
 ): CResultRLNPtrVecU8 {.importc: "ffi_rln_new_with_params", cdecl.}
 
-proc ffi_rln_free*(rln: ptr RLN) {.importc: "ffi_rln_free", cdecl.}
+proc ffi_rln_free*(rln: ptr RlnRaw) {.importc: "ffi_rln_free", cdecl.}
 
 # --- Keygen ---------------------------------------------------------------
 
@@ -143,15 +143,15 @@ proc ffi_rln_partial_witness_input_free*(
 # pass `addr handle` where `handle` is `ptr T`.
 
 proc ffi_generate_rln_proof*(
-  rln: ptr ptr RLN, witness: ptr ptr FFI_RLNWitnessInput
+  rln: ptr ptr RlnRaw, witness: ptr ptr FFI_RLNWitnessInput
 ): CResultProofPtrVecU8 {.importc: "ffi_generate_rln_proof", cdecl.}
 
 proc ffi_generate_partial_zk_proof*(
-  rln: ptr ptr RLN, partial_witness: ptr ptr FFI_RLNPartialWitnessInput
+  rln: ptr ptr RlnRaw, partial_witness: ptr ptr FFI_RLNPartialWitnessInput
 ): CResultPartialProofPtrVecU8 {.importc: "ffi_generate_partial_zk_proof", cdecl.}
 
 proc ffi_finish_rln_proof*(
-  rln: ptr ptr RLN,
+  rln: ptr ptr RlnRaw,
   partial_proof: ptr ptr FFI_RLNPartialProof,
   witness: ptr ptr FFI_RLNWitnessInput,
 ): CResultProofPtrVecU8 {.importc: "ffi_finish_rln_proof", cdecl.}
@@ -159,7 +159,7 @@ proc ffi_finish_rln_proof*(
 # --- Verification ---------------------------------------------------------
 
 proc ffi_verify_with_roots*(
-  rln: ptr ptr RLN, proof: ptr ptr FFI_RLNProof, roots: ptr Vec_CFr, x: ptr CFr
+  rln: ptr ptr RlnRaw, proof: ptr ptr FFI_RLNProof, roots: ptr Vec_CFr, x: ptr CFr
 ): CBoolResult {.importc: "ffi_verify_with_roots", cdecl.}
 
 # --- Proof serialization --------------------------------------------------

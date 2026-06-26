@@ -16,7 +16,7 @@ logScope:
   topics = "waku rln adapter"
 
 proc generateRlnValidator*(
-    wakuRlnRelay: WakuRln, spamHandler = none(SpamHandler)
+    rln: Rln, spamHandler = none(SpamHandler)
 ): WakuValidatorHandler =
   ## Bridges RLN's protocol-agnostic message validation into a relay
   ## (gossipsub) validator. The core decision is made by
@@ -28,14 +28,14 @@ proc generateRlnValidator*(
       topic: string, message: WakuMessage
   ): Future[pubsub.ValidationResult] {.async.} =
     trace "rln-relay topic validator is called"
-    wakuRlnRelay.clearNullifierLog()
+    rln.clearNullifierLog()
 
     let msgProof = RateLimitProof.init(message.proof).valueOr:
       trace "generateRlnValidator reject", error = error
       return pubsub.ValidationResult.Reject
 
     # validate the message and update log
-    let validationRes = await wakuRlnRelay.validateMessageAndUpdateLog(message)
+    let validationRes = await rln.validateMessageAndUpdateLog(message)
 
     let
       proof = byteutils.toHex(msgProof.proof)

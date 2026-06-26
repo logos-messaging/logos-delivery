@@ -110,7 +110,7 @@ type
     wakuStoreTransfer*: SyncTransfer
     wakuFilter*: waku_filter_v2.WakuFilter
     wakuFilterClient*: filter_client.WakuFilterClient
-    wakuRlnRelay*: WakuRln
+    rln*: Rln
     wakuLegacyLightPush*: WakuLegacyLightPush
     wakuLegacyLightpushClient*: WakuLegacyLightPushClient
     wakuLightPush*: WakuLightPush
@@ -662,9 +662,9 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.peerManager.stop()
 
-  if not node.wakuRlnRelay.isNil():
+  if not node.rln.isNil():
     try:
-      await node.wakuRlnRelay.stop() ## this can raise an exception
+      await node.rln.stop() ## this can raise an exception
     except Exception:
       error "exception stopping the node", error = getCurrentExceptionMsg()
 
@@ -684,7 +684,7 @@ proc stop*(node: WakuNode) {.async.} =
   node.started = false
 
 proc isReady*(node: WakuNode): Future[bool] {.async: (raises: [Exception]).} =
-  if node.wakuRlnRelay == nil:
+  if node.rln == nil:
     return true
-  return await node.wakuRlnRelay.isReady()
+  return await node.rln.isReady()
   ## TODO: add other protocol `isReady` checks

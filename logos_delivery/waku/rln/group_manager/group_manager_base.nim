@@ -23,7 +23,7 @@ type GroupManager* = ref object of RootObj
   membershipIndex*: Option[MembershipIndex]
   registerCb*: Option[OnRegisterCallback]
   withdrawCb*: Option[OnWithdrawCallback]
-  rlnInstance*: ptr RLN
+  rlnInstance*: ptr RlnRaw
   initialized*: bool
   latestIndex*: MembershipIndex
   validRoots*: Deque[MerkleNode]

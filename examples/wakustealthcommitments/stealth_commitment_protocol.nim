@@ -47,7 +47,7 @@ proc sendThruWaku*(
   )
 
   message.proof = (
-    await self.waku.node.wakuRlnRelay.generateRLNProof(
+    await self.waku.node.rln.generateRLNProof(
       message.toRLNSignal(), float64(time)
     )
   ).valueOr:

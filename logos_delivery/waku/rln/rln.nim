@@ -35,13 +35,13 @@ import
 
 # Re-export the submodules so existing `import rln`
 # (and `import rln/rln`) callers see the moved symbols
-# (WakuRln, WakuRlnConfig, generateRLNProof, etc.).
+# (Rln, WakuRlnConfig, generateRLNProof, etc.).
 export types, config, proof, nullifier_log
 
 logScope:
   topics = "waku rln"
 
-proc stop*(rlnPeer: WakuRln) {.async: (raises: [Exception]).} =
+proc stop*(rlnPeer: Rln) {.async: (raises: [Exception]).} =
   ## stops the rln-relay protocol
   ## Throws an error if it cannot stop the rln-relay protocol
 
@@ -51,7 +51,7 @@ proc stop*(rlnPeer: WakuRln) {.async: (raises: [Exception]).} =
   await rlnPeer.groupManager.stop()
 
 proc validateMessage*(
-    rlnPeer: WakuRln, msg: WakuMessage
+    rlnPeer: Rln, msg: WakuMessage
 ): Future[MessageValidationResult] {.async.} =
   ## validate the supplied `msg` based on the waku-rln-relay routing protocol i.e.,
   ## the `msg`'s epoch is within MaxEpochGap of the current epoch
@@ -146,7 +146,7 @@ proc validateMessage*(
   return MessageValidationResult.Valid
 
 proc validateMessageAndUpdateLog*(
-    rlnPeer: WakuRln, msg: WakuMessage
+    rlnPeer: Rln, msg: WakuMessage
 ): Future[MessageValidationResult] {.async.} =
   ## validates the message and updates the log to prevent double messaging
   ## in future messages
@@ -166,28 +166,28 @@ proc validateMessageAndUpdateLog*(
 
   return isValidMessage
 
-proc monitorEpochs(wakuRlnRelay: WakuRln) {.async.} =
+proc monitorEpochs(rln: Rln) {.async.} =
   while true:
     try:
-      if wakuRlnRelay.groupManager.userMessageLimit.isSome():
+      if rln.groupManager.userMessageLimit.isSome():
         waku_rln_remaining_proofs_per_epoch.set(
-          wakuRlnRelay.groupManager.userMessageLimit.get().float64
+          rln.groupManager.userMessageLimit.get().float64
         )
       else:
         error "userMessageLimit is not set in monitorEpochs"
     except CatchableError:
       error "Error in epoch monitoring", error = getCurrentExceptionMsg()
 
-    let nextEpochTime = wakuRlnRelay.nextEpoch(epochTime())
+    let nextEpochTime = rln.nextEpoch(epochTime())
     let sleepDuration = int((nextEpochTime - epochTime()) * 1000)
     await sleepAsync(sleepDuration)
 
 proc mount(
     conf: WakuRlnConfig, registrationHandler = none(RegistrationHandler)
-): Future[RlnResult[WakuRln]] {.async.} =
+): Future[RlnResult[Rln]] {.async.} =
   var
     groupManager: GroupManager
-    wakuRlnRelay: WakuRln
+    rln: Rln
   # create an RLN instance
   let rlnInstance = createRLNInstance().valueOr:
     return err("could not create RLN instance: " & $error)
@@ -216,7 +216,7 @@ proc mount(
   (await groupManager.init()).isOkOr:
     return err("could not initialize the group manager: " & $error)
 
-  wakuRlnRelay = WakuRln(
+  rln = Rln(
     groupManager: groupManager,
     nonceManager: NonceManager.init(conf.userMessageLimit, conf.epochSizeSec.float),
     rlnEpochSizeSec: conf.epochSizeSec,
@@ -227,15 +227,15 @@ proc mount(
   )
 
   # Start epoch monitoring in the background
-  wakuRlnRelay.epochMonitorFuture = monitorEpochs(wakuRlnRelay)
+  rln.epochMonitorFuture = monitorEpochs(rln)
 
   RequestGenerateRlnProof.setProvider(
-    wakuRlnRelay.brokerCtx,
+    rln.brokerCtx,
     proc(
         msg: WakuMessage, senderEpochTime: float64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
       let proof = (
-        await wakuRlnRelay.generateRLNProof(msg.toRLNSignal(), senderEpochTime)
+        await rln.generateRLNProof(msg.toRLNSignal(), senderEpochTime)
       ).valueOr:
         return err("Could not create RLN proof: " & error)
 
@@ -243,9 +243,9 @@ proc mount(
   ).isOkOr:
     return err("Proof generator provider cannot be set: " & $error)
 
-  return ok(wakuRlnRelay)
+  return ok(rln)
 
-proc isReady*(rlnPeer: WakuRln): Future[bool] {.async.} =
+proc isReady*(rlnPeer: Rln): Future[bool] {.async.} =
   ## returns true if the rln-relay protocol is ready to relay messages
   ## returns false otherwise
 
@@ -260,10 +260,10 @@ proc isReady*(rlnPeer: WakuRln): Future[bool] {.async.} =
     return false
 
 proc new*(
-    T: type WakuRln,
+    T: type Rln,
     conf: WakuRlnConfig,
     registrationHandler = none(RegistrationHandler),
-): Future[RlnResult[WakuRln]] {.async.} =
+): Future[RlnResult[Rln]] {.async.} =
   ## Mounts the rln-relay protocol on the node.
   ## The rln-relay protocol can be mounted in two modes: on-chain and off-chain.
   ## Returns an error if the rln-relay protocol could not be mounted.

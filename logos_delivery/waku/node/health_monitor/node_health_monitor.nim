@@ -89,12 +89,12 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getRlnRelayHealth(hm: NodeHealthMonitor): Future[ProtocolHealth] {.async.} =
   var p = ProtocolHealth.init(WakuProtocol.RlnRelayProtocol)
-  if isNil(hm.node.wakuRlnRelay):
+  if isNil(hm.node.rln):
     return p.notMounted()
 
   const FutIsReadyTimout = 5.seconds
 
-  let isReadyStateFut = hm.node.wakuRlnRelay.isReady()
+  let isReadyStateFut = hm.node.rln.isReady()
   if not await isReadyStateFut.withTimeout(FutIsReadyTimout):
     return p.notReady("Ready state check timed out")
 
