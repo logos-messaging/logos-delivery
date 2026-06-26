@@ -18,7 +18,7 @@ import
     waku_lightpush/callbacks,
   ],
   logos_delivery/waku/waku,
-  logos_delivery/waku/api/[store, subscriptions]
+  logos_delivery/waku/api/[store, subscriptions, publish]
 import logos_delivery/api/messaging_client_api
 
 logScope:
@@ -68,8 +68,8 @@ proc setupSendProcessorChain(
     rlnRelay: Rln,
     brokerCtx: BrokerContext,
 ): Result[BaseSendProcessor, string] =
-  let isRelayAvail = not relay.isNil()
-  let isLightPushAvail = not lightpushClient.isNil()
+  let isRelayAvail = waku.hasRelay()
+  let isLightPushAvail = waku.hasLightpush()
 
   if not isRelayAvail and not isLightPushAvail:
     return err("No valid send processor found for the delivery task")
@@ -86,7 +86,7 @@ proc setupSendProcessorChain(
 
     processors.add(RelaySendProcessor.new(isLightPushAvail, publishProc, brokerCtx))
   if isLightPushAvail:
-    processors.add(LightpushSendProcessor.new(peerManager, lightpushClient, brokerCtx))
+    processors.add(LightpushSendProcessor.new(waku, brokerCtx))
 
   var currentProcessor: BaseSendProcessor = processors[0]
   for i in 1 ..< processors.len:
@@ -99,11 +99,7 @@ proc setupSendProcessorChain(
 proc new*(
     T: typedesc[SendService], preferP2PReliability: bool, waku: Waku
 ): Result[T, string] =
-  # The send-processor chain needs raw publish handles (relay, lightpush client,
-  # RLN, peer manager) that the kernel API does not expose yet, so it is built
-  # from `waku.node`. Everything else goes through the Waku api surface.
-  let node = waku.node
-  if node.wakuRelay.isNil() and node.wakuLightpushClient.isNil():
+  if not waku.hasRelay() and not waku.hasLightpush():
     return err(
       "Could not create SendService. wakuRelay or wakuLightpushClient should be set"
     )
