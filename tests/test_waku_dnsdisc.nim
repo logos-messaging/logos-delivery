@@ -17,25 +17,22 @@ import
   logos_delivery/waku/discovery/waku_dnsdisc,
   ./testlib/common,
   ./testlib/wakucore,
-  ./testlib/wakunode
+  ./testlib/wakunode,
+  ./waku_enr/utils
 
 suite "Waku DNS Discovery":
   asyncTest "Waku DNS Discovery end-to-end":
     ## Tests integrated DNS discovery, from building
     ## the tree to connecting to discovered nodes
 
-    # Create nodes and ENR. These will be added to the discoverable list
     let
-      bindIp = parseIpAddress("0.0.0.0")
+      bindIp = parseIpAddress("127.0.0.1")
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, bindIp, Port(63500))
-      enr1 = node1.enr
+      node1 = newTestWakuNode(nodeKey1, bindIp, Port(0))
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, bindIp, Port(63502))
-      enr2 = node2.enr
+      node2 = newTestWakuNode(nodeKey2, bindIp, Port(0))
       nodeKey3 = generateSecp256k1Key()
-      node3 = newTestWakuNode(nodeKey3, bindIp, Port(63503))
-      enr3 = node3.enr
+      node3 = newTestWakuNode(nodeKey3, bindIp, Port(0))
 
     (await node1.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
@@ -44,6 +41,11 @@ suite "Waku DNS Discovery":
     (await node3.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
     await allFutures([node1.start(), node2.start(), node3.start()])
+
+    let
+      enr1 = newTestEnrRecord(nodeKey1, $bindIp, uint16(node1.boundTcpPort()), 0)
+      enr2 = newTestEnrRecord(nodeKey2, $bindIp, uint16(node2.boundTcpPort()), 0)
+      enr3 = newTestEnrRecord(nodeKey3, $bindIp, uint16(node3.boundTcpPort()), 0)
 
     # Build and sign tree
     var tree = buildTree(
@@ -76,7 +78,7 @@ suite "Waku DNS Discovery":
 
     let
       nodeKey4 = generateSecp256k1Key()
-      node4 = newTestWakuNode(nodeKey4, bindIp, Port(63504))
+      node4 = newTestWakuNode(nodeKey4, bindIp, Port(0))
 
     (await node4.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"

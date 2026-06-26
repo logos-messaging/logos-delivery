@@ -27,9 +27,9 @@ suite "WakuNode":
   asyncTest "Protocol matcher works as expected":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(61000))
+      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(61002))
+      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
       shard = DefaultRelayShard
       contentTopic = ContentTopic("/waku/2/default-content/proto")
       payload = "hello world".toBytes()
@@ -95,15 +95,10 @@ suite "WakuNode":
     let
       nodeKey1 = generateSecp256k1Key()
       node1 = newTestWakuNode(
-        nodeKey1, parseIpAddress("0.0.0.0"), Port(61020), nameResolver = resolver
+        nodeKey1, parseIpAddress("0.0.0.0"), Port(0), nameResolver = resolver
       )
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(61022))
-
-    # Construct DNS multiaddr for node2
-    let
-      node2PeerId = $(node2.switch.peerInfo.peerId)
-      node2Dns4Addr = "/dns4/localhost/tcp/61022/p2p/" & node2PeerId
+      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
 
     (await node1.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
@@ -111,6 +106,12 @@ suite "WakuNode":
       assert false, "Failed to mount relay"
 
     await allFutures([node1.start(), node2.start()])
+
+    # Construct DNS multiaddr for node2
+    let
+      node2PeerId = $(node2.switch.peerInfo.peerId)
+      node2Dns4Addr =
+        "/dns4/localhost/tcp/" & $node2.boundTcpPort() & "/p2p/" & node2PeerId
 
     await node1.connectToNodes(@[node2Dns4Addr])
 
@@ -172,7 +173,7 @@ suite "WakuNode":
       discard newTestWakuNode(
         nodeKey1,
         parseIpAddress("0.0.0.0"),
-        bindPort = Port(61004),
+        bindPort = Port(0),
         wsBindPort = Port(8000),
         wssEnabled = true,
         secureKey = "../../waku/node/key_dummy.txt",
@@ -221,7 +222,7 @@ suite "WakuNode":
     let
       nodeKey = generateSecp256k1Key()
       bindIp = parseIpAddress("0.0.0.0")
-      bindPort = Port(61006)
+      bindPort = Port(0)
       extIp = some(getPrimaryIPAddr())
       extPort = some(Port(61008))
       node =
@@ -377,13 +378,13 @@ suite "WakuNode":
       node1 = newTestWakuNode(
         nodeKey1,
         parseIpAddress("0.0.0.0"),
-        Port(61014),
+        Port(0),
         agentString = some(expectedAgentString1),
       )
 
       # node with default agent string from libp2p
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(61016))
+      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
 
     await node1.start()
     (await node1.mountRelay()).isOkOr:
@@ -420,13 +421,13 @@ suite "WakuNode":
       node1 = newTestWakuNode(
         nodeKey1,
         parseIpAddress("0.0.0.0"),
-        Port(61018),
+        Port(0),
         extMultiAddrs = @[expectedMultiaddress1],
       )
 
       # node with default multiaddress
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(61020))
+      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
 
     await node1.start()
     (await node1.mountRelay()).isOkOr:

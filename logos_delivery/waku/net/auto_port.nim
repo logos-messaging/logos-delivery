@@ -9,7 +9,7 @@ const
   AutoPortMax = 59000'u16
   AutoPortAttemptTimeout = chronos.seconds(30)
 
-proc getAutoPort*(): uint16 =
+proc getAutoPort(): uint16 =
   var rng = initRand()
   uint16(rng.rand(AutoPortMin.int .. AutoPortMax.int))
 

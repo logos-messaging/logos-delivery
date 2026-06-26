@@ -69,10 +69,10 @@ suite "Waku Filter - End to End":
     clientKey = generateSecp256k1Key()
 
     server = newTestWakuNode(
-      serverKey, parseIpAddress("0.0.0.0"), Port(23450), maxConnections = 300
+      serverKey, parseIpAddress("0.0.0.0"), Port(0), maxConnections = 300
     )
-    client = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(23451))
-    clientClone = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(23451))
+    client = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(0))
+    clientClone = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(0))
       # Used for testing client restarts
 
     await allFutures(server.start(), client.start())
@@ -192,7 +192,7 @@ suite "Waku Filter - End to End":
     ## This line above causes the test to fail. I think ConnManager
     ## is not prepare for restarts and maybe we don't need that restart feature.
 
-    client = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(23451))
+    client = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(0))
     await client.start() # Mimic restart by starting the clone
 
     # pushHandlerFuture = newFuture[(string, WakuMessage)]()
@@ -587,9 +587,8 @@ suite "Waku Filter - End to End":
     var peers = newSeq[WakuNode](MaxFilterPeers)
 
     for index in 0 ..< MaxFilterPeers:
-      peers[index] = newTestWakuNode(
-        generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(23551 + index)
-      )
+      peers[index] =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
 
       await peers[index].start()
       await peers[index].mountFilterClient()
@@ -740,15 +739,12 @@ suite "Waku Filter - End to End":
         peerManager = server.peerManager
 
       let
-        client1 = newTestWakuNode(
-          generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(23552)
-        )
-        client2 = newTestWakuNode(
-          generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(23553)
-        )
-        client3 = newTestWakuNode(
-          generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(23554)
-        )
+        client1 =
+          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        client2 =
+          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        client3 =
+          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
         filterSubscribeRequest = createRequest(
           filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
           pubsubTopic = some(DefaultPubsubTopic),

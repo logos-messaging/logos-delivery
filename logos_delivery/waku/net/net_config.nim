@@ -74,6 +74,9 @@ proc isWsAddress*(ma: MultiAddress): bool =
 proc isQuicAddress*(ma: MultiAddress): bool =
   return ma.hasProtocol("quic-v1")
 
+proc isP2pTcpAddress*(ma: MultiAddress): bool =
+  return ma.hasProtocol("tcp") and not ma.isWsAddress()
+
 proc containsWsAddress(extMultiAddrs: seq[MultiAddress]): bool =
   return extMultiAddrs.filterIt(it.isWsAddress()).len > 0
 

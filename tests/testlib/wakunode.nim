@@ -3,6 +3,7 @@ import
   results,
   chronos,
   libp2p/switch,
+  libp2p/wire,
   libp2p/builders,
   libp2p/nameresolving/nameresolver,
   libp2p/crypto/crypto as libp2p_keys,
@@ -170,3 +171,9 @@ proc newTestWakuNode*(
   )
 
   return builder.build().get()
+
+proc boundTcpPort*(node: WakuNode): Port =
+  for a in node.switch.peerInfo.listenAddrs:
+    if a.isP2pTcpAddress():
+      return initTAddress(a).get().port
+  raiseAssert "no tcp listen address in " & $node.switch.peerInfo.listenAddrs

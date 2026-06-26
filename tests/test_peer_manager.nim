@@ -2,11 +2,13 @@
 
 import
   std/[sequtils, times, sugar, net, options],
+  results,
   testutils/unittests,
   chronos,
   json_rpc/rpcserver,
   json_rpc/rpcclient,
   eth/keys,
+  eth/p2p/discoveryv5/enr,
   eth/common/eth_types,
   libp2p/[builders, switch, multiaddress],
   libp2p/protobuf/minprotobuf,
@@ -33,6 +35,13 @@ import
   ./testlib/testutils,
   ./testlib/wakucore,
   ./testlib/wakunode
+
+proc syncToBoundPort(node: WakuNode, key: keys.PrivateKey) =
+  let addrs = node.switch.peerInfo.listenAddrs
+  node.switch.peerInfo.addrs = addrs
+  node.announcedAddresses = addrs
+  node.enr.update(key, tcpPort = Opt.some(node.boundTcpPort())).isOkOr:
+    raiseAssert "failed to sync node ENR to bound tcp port: " & $error
 
 procSuite "Peer Manager":
   asyncTest "connectPeer() works":
@@ -311,13 +320,13 @@ procSuite "Peer Manager":
       node1 = newTestWakuNode(
         generateSecp256k1Key(),
         getPrimaryIPAddr(),
-        Port(44048),
+        Port(0),
         peerStorage = storage,
         quicEnabled = false,
       )
-      node2 = newTestWakuNode(
-        generateSecp256k1Key(), getPrimaryIPAddr(), Port(34023), quicEnabled = false
-      )
+      node2Key = generateSecp256k1Key()
+      node2 =
+        newTestWakuNode(node2Key, getPrimaryIPAddr(), Port(0), quicEnabled = false)
 
     node1.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
     node2.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
@@ -329,6 +338,8 @@ procSuite "Peer Manager":
       assert false, "Failed to mount relay"
     (await node2.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
+
+    node2.syncToBoundPort(keys.PrivateKey(node2Key.skkey))
 
     let peerInfo2 = node2.switch.peerInfo
     var remotePeerInfo2 = peerInfo2.toRemotePeerInfo()
@@ -354,7 +365,7 @@ procSuite "Peer Manager":
     let node3 = newTestWakuNode(
       generateSecp256k1Key(),
       parseIpAddress("127.0.0.1"),
-      Port(56037),
+      Port(0),
       peerStorage = storage,
       quicEnabled = false,
     )
@@ -392,13 +403,13 @@ procSuite "Peer Manager":
       node1 = newTestWakuNode(
         generateSecp256k1Key(),
         getPrimaryIPAddr(),
-        Port(44048),
+        Port(0),
         peerStorage = storage,
         quicEnabled = false,
       )
-      node2 = newTestWakuNode(
-        generateSecp256k1Key(), getPrimaryIPAddr(), Port(34023), quicEnabled = false
-      )
+      node2Key = generateSecp256k1Key()
+      node2 =
+        newTestWakuNode(node2Key, getPrimaryIPAddr(), Port(0), quicEnabled = false)
 
     node1.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
     node2.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
@@ -410,6 +421,8 @@ procSuite "Peer Manager":
       assert false, "Failed to mount relay"
     (await node2.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
+
+    node2.syncToBoundPort(keys.PrivateKey(node2Key.skkey))
 
     let peerInfo2 = node2.switch.peerInfo
     var remotePeerInfo2 = peerInfo2.toRemotePeerInfo()
@@ -435,7 +448,7 @@ procSuite "Peer Manager":
     let node3 = newTestWakuNode(
       generateSecp256k1Key(),
       parseIpAddress("127.0.0.1"),
-      Port(56037),
+      Port(0),
       peerStorage = storage,
       quicEnabled = false,
     )
