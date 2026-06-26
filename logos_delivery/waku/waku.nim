@@ -26,7 +26,7 @@ import
     waku_core,
     waku_node,
     waku_archive,
-    waku_rln,
+    rln,
     waku_store,
     waku_filter_v2,
     waku_relay/protocol,

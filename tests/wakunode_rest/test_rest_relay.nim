@@ -21,7 +21,7 @@ import
     rest_api/endpoint/relay/handlers as relay_rest_interface,
     rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
-    waku_rln,
+    rln,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,

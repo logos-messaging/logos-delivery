@@ -3,11 +3,11 @@ import
 
 import
   logos_delivery/waku/[
-    waku_rln/protocol_types,
-    waku_rln/bindings,
-    waku_rln,
-    waku_rln/conversion_utils,
-    waku_rln/group_manager/on_chain/group_manager,
+    rln/protocol_types,
+    rln/bindings,
+    rln,
+    rln/conversion_utils,
+    rln/group_manager/on_chain/group_manager,
   ],
   tests/waku_rln_relay/utils_onchain
 

@@ -3,7 +3,7 @@ import logos_delivery/waku/compat/option_valueor
 
 import results
 
-import ../waku_core, ../waku_relay, ./common, ../waku_rln, ../waku_rln/protocol_types
+import ../waku_core, ../waku_relay, ./common, ../rln, ../rln/protocol_types
 
 import std/times, libp2p/peerid, stew/byteutils
 

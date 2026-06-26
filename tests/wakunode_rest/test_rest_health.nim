@@ -19,7 +19,7 @@ import
     rest_api/endpoint/responses,
     rest_api/endpoint/health/handlers as health_rest_interface,
     rest_api/endpoint/health/client as health_rest_client,
-    waku_rln,
+    rln,
     node/health_monitor,
   ],
   ../testlib/common,

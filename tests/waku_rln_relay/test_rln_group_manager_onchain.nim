@@ -18,13 +18,13 @@ import
 
 import
   logos_delivery/waku/[
-    waku_rln,
-    waku_rln/protocol_types,
-    waku_rln/protocol_metrics,
-    waku_rln/constants,
-    waku_rln/bindings,
-    waku_rln/conversion_utils,
-    waku_rln/group_manager/on_chain/group_manager,
+    rln,
+    rln/protocol_types,
+    rln/protocol_metrics,
+    rln/constants,
+    rln/bindings,
+    rln/conversion_utils,
+    rln/group_manager/on_chain/group_manager,
   ],
   ../testlib/wakucore,
   ./utils_onchain

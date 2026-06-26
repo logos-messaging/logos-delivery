@@ -13,7 +13,7 @@ import brokers/broker_context
 
 import
   logos_delivery/waku/
-    [waku_core, waku_rln, waku_rln/bindings, waku_rln/protocol_metrics, waku_keystore],
+    [waku_core, rln, rln/bindings, rln/protocol_metrics, waku_keystore],
   ./rln/waku_rln_relay_utils,
   ./utils_onchain,
   ../testlib/[wakucore, futures, wakunode, testutils]

@@ -13,7 +13,7 @@ import
 import
   ../../../waku_node,
   ../../../waku_relay/protocol,
-  ../../../waku_rln,
+  ../../../rln,
   ../../../node/waku_node,
   ../../message_cache,
   ../../handlers,

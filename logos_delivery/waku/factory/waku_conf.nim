@@ -13,7 +13,7 @@ import
   results
 
 import
-  ../waku_rln/rln,
+  ../rln/rln,
   ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
   ../discovery/waku_kademlia,

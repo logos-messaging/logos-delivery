@@ -21,7 +21,7 @@ import
 
 import
   logos_delivery/waku/
-    [waku_rln, waku_rln/protocol_types, waku_rln/constants, waku_rln/bindings],
+    [rln, rln/protocol_types, rln/constants, rln/bindings],
   ../testlib/common
 
 const CHAIN_ID* = 1234'u256

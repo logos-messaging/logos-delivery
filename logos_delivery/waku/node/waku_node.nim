@@ -52,7 +52,7 @@ import
     waku_lightpush as lightpush_protocol,
     waku_enr,
     waku_peer_exchange,
-    waku_rln,
+    rln,
     common/rate_limit/setting,
     common/callbacks,
     common/nimchronos,

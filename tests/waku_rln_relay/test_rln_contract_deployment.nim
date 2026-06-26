@@ -6,7 +6,7 @@ import std/[options, os], results, testutils/unittests, chronos, web3
 
 import
   logos_delivery/waku/
-    [waku_rln, waku_rln/conversion_utils, waku_rln/group_manager/on_chain/group_manager],
+    [rln, rln/conversion_utils, rln/group_manager/on_chain/group_manager],
   ./utils_onchain
 
 suite "Token and RLN Contract Deployment":

@@ -48,7 +48,7 @@ import
   ./config_chat2
 
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
-import ../../logos_delivery/waku/waku_rln
+import ../../logos_delivery/waku/rln
 
 const Help = """
   Commands: /[?|help|connect|nick|exit]

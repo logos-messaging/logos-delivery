@@ -56,7 +56,7 @@ import
   ./config_chat2mix
 
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
-import ../../logos_delivery/waku/waku_rln
+import ../../logos_delivery/waku/rln
 
 logScope:
   topics = "chat2 mix"

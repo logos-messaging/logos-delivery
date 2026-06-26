@@ -23,7 +23,7 @@ import
   ../net/net_config,
   ../waku_core,
   ../waku_core/codecs,
-  ../waku_rln,
+  ../rln,
   ../discovery/waku_dnsdisc,
   ../waku_archive/retention_policy as policy,
   ../waku_archive/retention_policy/builder as policy_builder,
