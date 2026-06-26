@@ -7,15 +7,9 @@ import std/[tables, sequtils, options, sets]
 import chronos, chronicles, libp2p/utility
 import brokers/broker_context
 import
-  logos_delivery/waku/[
-    waku_core,
-    waku_core/topics,
-    waku_store/client,
-    waku_store/common,
-    waku_filter_v2/client,
-    waku_node,
-    node/subscription_manager,
-  ]
+  logos_delivery/waku/[waku_core, waku_core/topics, waku_store/common],
+  logos_delivery/waku/waku,
+  logos_delivery/waku/api/[store, subscriptions]
 import
   logos_delivery/api/kernel_api, # MessageSeenEvent
   logos_delivery/api/messaging_client_api, # MessageReceivedEvent
@@ -38,7 +32,7 @@ type RecvMessage = object
 
 type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
-  node: WakuNode
+  waku: Waku
   seenMsgListener: MessageSeenEventListener
   connStatusListener: EventConnectionStatusChangeListener
 
@@ -60,7 +54,7 @@ proc getMissingMsgsFromStore(
     self: RecvService, msgHashes: seq[WakuMessageHash]
 ): Future[Result[seq[TupleHashAndMsg], string]] {.async.} =
   let storeResp: StoreQueryResponse = (
-    await self.node.wakuStoreClient.queryToAny(
+    await self.waku.storeQueryToAny(
       StoreQueryRequest(includeData: true, messageHashes: msgHashes)
     )
   ).valueOr:
@@ -85,9 +79,7 @@ proc processIncomingMessage(
   ## or if the message is a duplicate (recently-seen). Otherwise, save it as
   ## recently-seen, emit a MessageReceivedEvent, and return true.
 
-  if not self.node.subscriptionManager.isContentSubscribed(
-    pubsubTopic, message.contentTopic
-  ):
+  if not self.waku.isContentSubscribed(pubsubTopic, message.contentTopic):
     trace "skipping message as I am not subscribed",
       shard = pubsubTopic, contentTopic = message.contentTopic
     return false
@@ -108,16 +100,16 @@ proc processIncomingMessage(
 proc checkStore*(self: RecvService) {.async.} =
   ## Checks the store for messages that were not received directly and
   ## delivers them via MessageReceivedEvent.
-  if self.node.wakuStoreClient.isNil():
+  if not self.waku.isStoreMounted():
     error "recv service has no store client mounted, skipping store check"
     return
 
   self.endTimeToCheck = getNowInNanosecondTime()
 
   ## query store and deliver new recovered messages per subscribed topic
-  for pubsubTopic, contentTopics in self.node.subscriptionManager.subscribedContentTopics:
+  for (pubsubTopic, contentTopics) in self.waku.subscribedContentTopics():
     let storeResp: StoreQueryResponse = (
-      await self.node.wakuStoreClient.queryToAny(
+      await self.waku.storeQueryToAny(
         StoreQueryRequest(
           includeData: false,
           pubsubTopic: some(pubsubTopic),
@@ -171,14 +163,14 @@ proc onConnectionStatusChange(self: RecvService, status: ConnectionStatus) =
     info "recv service backfilling missed messages after coming back online"
     self.backfillHandler = self.checkStore()
 
-proc new*(T: typedesc[RecvService], node: WakuNode): T =
+proc new*(T: typedesc[RecvService], waku: Waku): T =
   ## The storeClient will help to acquire any possible missed messages
 
   let now = getNowInNanosecondTime()
   var recvService = RecvService(
-    node: node,
+    waku: waku,
     startTimeToCheck: now,
-    brokerCtx: node.brokerCtx,
+    brokerCtx: waku.brokerCtx,
     recentReceivedMsgs: @[],
   )
 

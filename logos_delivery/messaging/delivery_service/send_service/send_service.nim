@@ -10,15 +10,15 @@ import
   logos_delivery/waku/[
     waku_core,
     node/waku_node,
-    node/subscription_manager,
     node/peer_manager,
-    waku_store/client,
     waku_store/common,
     waku_relay/protocol,
     rln/rln,
     waku_lightpush/client,
     waku_lightpush/callbacks,
-  ]
+  ],
+  logos_delivery/waku/waku,
+  logos_delivery/waku/api/[store, subscriptions]
 import logos_delivery/api/messaging_client_api
 
 logScope:
@@ -57,7 +57,7 @@ type SendService* = ref object of RootObj
   serviceLoopHandle: Future[void] ## handle that allows to stop the async task
   sendProcessor: BaseSendProcessor
 
-  node: WakuNode
+  waku: Waku
   checkStoreForMessages: bool
   lastStoreCheckTime: Moment ## throttles store validation queries to ArchiveTime cadence
 
@@ -97,14 +97,18 @@ proc setupSendProcessorChain(
   return ok(processors[0])
 
 proc new*(
-    T: typedesc[SendService], preferP2PReliability: bool, w: WakuNode
+    T: typedesc[SendService], preferP2PReliability: bool, waku: Waku
 ): Result[T, string] =
-  if w.wakuRelay.isNil() and w.wakuLightpushClient.isNil():
+  # The send-processor chain needs raw publish handles (relay, lightpush client,
+  # RLN, peer manager) that the kernel API does not expose yet, so it is built
+  # from `waku.node`. Everything else goes through the Waku api surface.
+  let node = waku.node
+  if node.wakuRelay.isNil() and node.wakuLightpushClient.isNil():
     return err(
       "Could not create SendService. wakuRelay or wakuLightpushClient should be set"
     )
 
-  let checkStoreForMessages = preferP2PReliability and not w.wakuStoreClient.isNil()
+  let checkStoreForMessages = preferP2PReliability and waku.isStoreMounted()
 
   let sendProcessorChain = setupSendProcessorChain(
     w.peerManager, w.wakuLightPushClient, w.wakuRelay, w.rln, w.brokerCtx
@@ -112,11 +116,11 @@ proc new*(
     return err("failed to setup SendProcessorChain: " & $error)
 
   let sendService = SendService(
-    brokerCtx: w.brokerCtx,
+    brokerCtx: waku.brokerCtx,
     taskCache: newSeq[DeliveryTask](),
     serviceLoopHandle: nil,
     sendProcessor: sendProcessorChain,
-    node: w,
+    waku: waku,
     checkStoreForMessages: checkStoreForMessages,
     lastStoreCheckTime: Moment.now(),
   )
@@ -127,7 +131,7 @@ proc addTask(self: SendService, task: DeliveryTask) =
   self.taskCache.addUnique(task)
 
 proc isStorePeerAvailable*(sendService: SendService): bool =
-  return sendService.node.peerManager.selectPeer(WakuStoreCodec).isSome()
+  return sendService.waku.hasStorePeer()
 
 proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.async.} =
   if tasksToValidate.len() == 0:
@@ -142,7 +146,7 @@ proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.a
   # TODO: confirm hash format for store query!!!
 
   let storeResp: StoreQueryResponse = (
-    await self.node.wakuStoreClient.queryToAny(
+    await self.waku.storeQueryToAny(
       StoreQueryRequest(includeData: false, messageHashes: hashesToValidate)
     )
   ).valueOr:
@@ -292,7 +296,7 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
   info "SendService.send: processing delivery task",
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
 
-  self.node.subscriptionManager.subscribe(task.msg.contentTopic).isOkOr:
+  self.waku.subscribe(task.msg.contentTopic).isOkOr:
     error "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 

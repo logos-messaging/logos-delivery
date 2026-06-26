@@ -5,6 +5,7 @@
 ## kernel-level entry point so they never reach into `waku.node` internals.
 {.push raises: [].}
 
+import std/sets
 import results
 
 import logos_delivery/waku/waku
@@ -21,3 +22,16 @@ proc unsubscribe*(self: Waku, contentTopic: ContentTopic): Result[void, string] 
 proc isSubscribed*(self: Waku, contentTopic: ContentTopic): Result[bool, string] =
   ## True if the node already subscribes to `contentTopic`.
   return self.node.subscriptionManager.isSubscribed(contentTopic)
+
+proc isContentSubscribed*(
+    self: Waku, shard: PubsubTopic, contentTopic: ContentTopic
+): bool =
+  ## True if `contentTopic` is subscribed on the given `shard` (pubsub topic).
+  return self.node.subscriptionManager.isContentSubscribed(shard, contentTopic)
+
+proc subscribedContentTopics*(self: Waku): seq[(PubsubTopic, HashSet[ContentTopic])] =
+  ## Snapshot of every shard with its non-empty content-topic set.
+  var res: seq[(PubsubTopic, HashSet[ContentTopic])]
+  for shard, contentTopics in self.node.subscriptionManager.subscribedContentTopics:
+    res.add((shard, contentTopics))
+  return res

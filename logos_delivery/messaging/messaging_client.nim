@@ -28,9 +28,9 @@ proc new*(
 ): Result[T, string] =
   ## The messaging layer chains onto Waku: it drives the underlying Waku kernel
   ## for transport while exposing its own send/recv API.
-  let sendService = ?SendService.new(conf.useP2PReliability, waku.node)
-  let recvService = RecvService.new(waku.node)
-  ok(T(waku: waku, sendService: sendService, recvService: recvService))
+  let sendService = ?SendService.new(conf.useP2PReliability, waku)
+  let recvService = RecvService.new(waku)
+  return ok(T(waku: waku, sendService: sendService, recvService: recvService))
 
 proc start*(self: MessagingClient): Result[void, string] =
   if self.started:
