@@ -136,9 +136,7 @@ procSuite "WakuNode - RLN relay":
       WakuMessage(payload: @payload, contentTopic: contentTopic, timestamp: now())
     doAssert(
       node1.rln
-        .unsafeAppendRLNProof(
-          message, node1.rln.getCurrentEpoch(), MessageId(0)
-        )
+        .unsafeAppendRLNProof(message, node1.rln.getCurrentEpoch(), MessageId(0))
         .isOk()
     )
 
@@ -674,18 +672,14 @@ procSuite "WakuNode - RLN relay":
     # Given all messages have an rln proof and are published by the node 1
     let publishSleepDuration: Duration = 5000.millis
     let epoch_1 = node1.rln.calcEpoch(epochTime().float64)
-    let epoch_2 = node1.rln.calcEpoch(
-      epochTime().float64 + node1.rln.rlnEpochSizeSec.float64 * 1
-    )
-    let epoch_3 = node1.rln.calcEpoch(
-      epochTime().float64 + node1.rln.rlnEpochSizeSec.float64 * 2
-    )
-    let epoch_4 = node1.rln.calcEpoch(
-      epochTime().float64 + node1.rln.rlnEpochSizeSec.float64 * 3
-    )
-    let epoch_5 = node1.rln.calcEpoch(
-      epochTime().float64 + node1.rln.rlnEpochSizeSec.float64 * 4
-    )
+    let epoch_2 =
+      node1.rln.calcEpoch(epochTime().float64 + node1.rln.rlnEpochSizeSec.float64 * 1)
+    let epoch_3 =
+      node1.rln.calcEpoch(epochTime().float64 + node1.rln.rlnEpochSizeSec.float64 * 2)
+    let epoch_4 =
+      node1.rln.calcEpoch(epochTime().float64 + node1.rln.rlnEpochSizeSec.float64 * 3)
+    let epoch_5 =
+      node1.rln.calcEpoch(epochTime().float64 + node1.rln.rlnEpochSizeSec.float64 * 4)
 
     # Epoch 1
     node1.rln.unsafeAppendRLNProof(wm1, epoch_1, MessageId(0)).isOkOr:

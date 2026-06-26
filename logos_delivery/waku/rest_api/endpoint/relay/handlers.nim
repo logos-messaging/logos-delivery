@@ -186,8 +186,7 @@ proc installRelayApiHandlers*(
     logMessageInfo(node.wakuRelay, "rest", pubsubTopic, "none", message, onRecv = true)
 
     # if we reach here its either a non-RLN message or a RLN message with a valid proof
-    info "Publishing message",
-      pubSubTopic = pubSubTopic, rln = not node.rln.isNil()
+    info "Publishing message", pubSubTopic = pubSubTopic, rln = not node.rln.isNil()
     if not (waitFor node.publish(some(pubSubTopic), message).withTimeout(futTimeout)):
       error "Failed to publish message to topic", pubSubTopic = pubSubTopic
       return RestApiResponse.internalServerError("Failed to publish: timedout")

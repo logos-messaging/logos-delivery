@@ -8,8 +8,7 @@ import
   libp2p/crypto/crypto
 
 import
-  logos_delivery/waku/
-    [waku_core, node/peer_manager, waku_node, waku_lightpush, rln],
+  logos_delivery/waku/[waku_core, node/peer_manager, waku_node, waku_lightpush, rln],
   ../testlib/[wakucore, wakunode, testasync, futures],
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]

@@ -142,8 +142,7 @@ suite "Waku RlnRelay - End to End - Static":
       check:
         server.wakuRelay == nil
         server.rln == nil
-        catchRes.error()[].msg ==
-          "WakuRelay protocol is not mounted, cannot mount Rln"
+        catchRes.error()[].msg == "WakuRelay protocol is not mounted, cannot mount Rln"
 
     asyncTest "Pubsub topics subscribed before mounting RlnRelay are added to it":
       # Given the node enables Relay and Rln while subscribing to a pubsub topic
@@ -279,22 +278,19 @@ suite "Waku RlnRelay - End to End - Static":
 
       message1b.proof = (
         await client.rln.generateRLNProof(
-          message1b.toRLNSignal(),
-          epoch + float64(client.rln.rlnEpochSizeSec * 0),
+          message1b.toRLNSignal(), epoch + float64(client.rln.rlnEpochSizeSec * 0)
         )
       ).valueOr:
         raiseAssert "generateRLNProof failed: " & error
       message1kib.proof = (
         await client.rln.generateRLNProof(
-          message1kib.toRLNSignal(),
-          epoch + float64(client.rln.rlnEpochSizeSec * 1),
+          message1kib.toRLNSignal(), epoch + float64(client.rln.rlnEpochSizeSec * 1)
         )
       ).valueOr:
         raiseAssert "generateRLNProof failed: " & error
       message150kib.proof = (
         await client.rln.generateRLNProof(
-          message150kib.toRLNSignal(),
-          epoch + float64(client.rln.rlnEpochSizeSec * 2),
+          message150kib.toRLNSignal(), epoch + float64(client.rln.rlnEpochSizeSec * 2)
         )
       ).valueOr:
         raiseAssert "generateRLNProof failed: " & error

@@ -20,8 +20,7 @@ import
   results
 
 import
-  logos_delivery/waku/
-    [rln, rln/protocol_types, rln/constants, rln/bindings],
+  logos_delivery/waku/[rln, rln/protocol_types, rln/constants, rln/bindings],
   ../testlib/common
 
 const CHAIN_ID* = 1234'u256

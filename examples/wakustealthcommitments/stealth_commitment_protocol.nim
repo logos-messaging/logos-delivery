@@ -47,9 +47,7 @@ proc sendThruWaku*(
   )
 
   message.proof = (
-    await self.waku.node.rln.generateRLNProof(
-      message.toRLNSignal(), float64(time)
-    )
+    await self.waku.node.rln.generateRLNProof(message.toRLNSignal(), float64(time))
   ).valueOr:
     return err("could not append rate limit proof to the message: " & error)
 

@@ -216,9 +216,7 @@ suite "Waku rln relay":
     discard rln.updateLog(epoch, proofMetadata2)
 
     #  proof3 has the same nullifier as proof1 but different secret shares, it should be detected as duplicate
-    let isDuplicate3 = rln.hasDuplicate(
-      epoch, proof3.extractMetadata().tryGet()
-    ).valueOr:
+    let isDuplicate3 = rln.hasDuplicate(epoch, proof3.extractMetadata().tryGet()).valueOr:
       raiseAssert $error
     # it is a duplicate
     assert isDuplicate3, "duplicate should be found"

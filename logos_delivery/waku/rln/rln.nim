@@ -234,9 +234,7 @@ proc mount(
     proc(
         msg: WakuMessage, senderEpochTime: float64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-      let proof = (
-        await rln.generateRLNProof(msg.toRLNSignal(), senderEpochTime)
-      ).valueOr:
+      let proof = (await rln.generateRLNProof(msg.toRLNSignal(), senderEpochTime)).valueOr:
         return err("Could not create RLN proof: " & error)
 
       return ok(RequestGenerateRlnProof(proof: proof)),
@@ -260,9 +258,7 @@ proc isReady*(rlnPeer: Rln): Future[bool] {.async.} =
     return false
 
 proc new*(
-    T: type Rln,
-    conf: WakuRlnConfig,
-    registrationHandler = none(RegistrationHandler),
+    T: type Rln, conf: WakuRlnConfig, registrationHandler = none(RegistrationHandler)
 ): Future[RlnResult[Rln]] {.async.} =
   ## Mounts the rln-relay protocol on the node.
   ## The rln-relay protocol can be mounted in two modes: on-chain and off-chain.
