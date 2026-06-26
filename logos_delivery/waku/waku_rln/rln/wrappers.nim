@@ -7,7 +7,7 @@ import ../../waku_core, ../../waku_keystore
 {.push raises: [], gcsafe.}
 
 logScope:
-  topics = "waku rln_relay ffi"
+  topics = "waku rln ffi"
 
 # Forward decl; body defined below.
 proc generateExternalNullifier*(

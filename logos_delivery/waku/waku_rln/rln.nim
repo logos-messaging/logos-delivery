@@ -39,7 +39,7 @@ import
 export types, config, proof, nullifier_log
 
 logScope:
-  topics = "waku rln_relay"
+  topics = "waku rln"
 
 proc stop*(rlnPeer: WakuRln) {.async: (raises: [Exception]).} =
   ## stops the rln-relay protocol

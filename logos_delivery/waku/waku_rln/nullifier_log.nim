@@ -6,7 +6,7 @@ import chronicles, results
 import ./types, ./protocol_types, ./conversion_utils, ./proof
 
 logScope:
-  topics = "waku rln_relay nullifier_log"
+  topics = "waku rln nullifier_log"
 
 proc hasDuplicate*(
     rlnPeer: WakuRln, epoch: Epoch, proofMetadata: ProofMetadata

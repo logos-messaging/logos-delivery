@@ -27,7 +27,7 @@ import
 export group_manager_base
 
 logScope:
-  topics = "waku rln_relay onchain_group_manager"
+  topics = "waku rln onchain_group_manager"
 
 type
   WakuRlnContractWithSender = Sender[WakuRlnContract]

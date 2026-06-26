@@ -13,7 +13,7 @@ import ../rln, ../protocol_types, ../protocol_metrics, ../conversion_utils
 import logos_delivery/waku/[waku_relay, waku_core]
 
 logScope:
-  topics = "waku rln_relay adapter"
+  topics = "waku rln adapter"
 
 proc generateRlnValidator*(
     wakuRlnRelay: WakuRln, spamHandler = none(SpamHandler)

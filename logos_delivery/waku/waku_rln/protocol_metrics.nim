@@ -5,7 +5,7 @@ import chronicles, metrics, metrics/chronos_httpserver, ../utils/collector
 export metrics
 
 logScope:
-  topics = "waku rln_relay"
+  topics = "waku rln"
 
 func generateBucketsForHistogram*(length: int): seq[float64] =
   ## Generate a custom set of 5 buckets for a given length
