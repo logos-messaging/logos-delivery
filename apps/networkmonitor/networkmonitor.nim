@@ -619,7 +619,7 @@ when isMainModule:
     )
 
     try:
-      waitFor node.mountRlnRelay(rlnConf)
+      waitFor node.setRlnValidator(rlnConf)
     except CatchableError:
       error "failed to setup RLN", error = getCurrentExceptionMsg()
       quit(QuitFailure)

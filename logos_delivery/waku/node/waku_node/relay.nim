@@ -185,7 +185,7 @@ proc mountRelay*(
 
   ## Waku RLN Relay
 
-proc mountRlnRelay*(
+proc setRlnValidator*(
     node: WakuNode,
     rlnConf: WakuRlnConfig,
     spamHandler = none(SpamHandler),
@@ -230,6 +230,7 @@ proc mountRlnRelay*(
       shareY = inHex(msgProof.shareY)
       nullifier = inHex(msgProof.nullifier)
       payload = string.fromBytes(message.payload)
+
     case validationRes
     of Valid:
       trace "message validity is verified, relaying",

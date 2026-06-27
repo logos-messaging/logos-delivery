@@ -544,7 +544,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         epochSizeSec: conf.rlnEpochSizeSec,
       )
 
-      waitFor node.mountRlnRelay(rlnConf, spamHandler = some(spamHandler))
+      waitFor node.setRlnValidator(rlnConf, spamHandler = some(spamHandler))
 
       let membershipIndex = node.rln.groupManager.membershipIndex.get()
       let identityCredential = node.rln.groupManager.idCredentials.get()
