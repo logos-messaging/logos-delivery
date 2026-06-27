@@ -12,7 +12,7 @@ from std/times import epochTime
 
 import
   ../../../logos_delivery/waku/
-    [node/waku_node, node/peer_manager, waku_core, waku_node, waku_rln_relay],
+    [node/waku_node, node/peer_manager, waku_core, waku_node, rln],
   ../waku_store/store_utils,
   ../waku_archive/archive_utils,
   ../testlib/[wakucore, futures, assertions]
@@ -55,7 +55,7 @@ proc sendRlnMessage*(
 ): Future[bool] {.async.} =
   var message = WakuMessage(payload: payload, contentTopic: contentTopic)
   message.proof = (
-    await client.wakuRlnRelay.generateRLNProof(message.toRLNSignal(), epochTime())
+    await client.rln.generateRLNProof(message.toRLNSignal(), epochTime())
   ).valueOr:
     raiseAssert "generateRLNProof failed: " & error
   discard await client.publish(some(pubsubTopic), message)
@@ -70,10 +70,10 @@ proc sendRlnMessageWithInvalidProof*(
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
   let extraBytes: seq[byte] = @[byte(1), 2, 3]
-  let rateLimitProofRes = await client.wakuRlnRelay.groupManager.generateProof(
+  let rateLimitProofRes = await client.rln.groupManager.generateProof(
     concat(payload, extraBytes),
       # we add extra bytes to invalidate proof verification against original payload
-    client.wakuRlnRelay.getCurrentEpoch(),
+    client.rln.getCurrentEpoch(),
   )
   let
     rateLimitProof = rateLimitProofRes.get().encode().buffer

@@ -7,14 +7,14 @@ import ../../waku_core, ../../waku_keystore
 {.push raises: [], gcsafe.}
 
 logScope:
-  topics = "waku rln_relay ffi"
+  topics = "waku rln ffi"
 
 # Forward decl; body defined below.
 proc generateExternalNullifier*(
   epoch: Epoch, rlnIdentifier: RlnIdentifier
-): RlnRelayResult[ExternalNullifier]
+): RlnResult[ExternalNullifier]
 
-proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
+proc toRootVec(validRoots: seq[MerkleNode]): RlnResult[Vec_CFr] =
   ## Caller MUST ffi_vec_cfr_free the returned Vec_CFr.
   var roots = ffi_vec_cfr_new(csize_t(validRoots.len))
   for root in validRoots:
@@ -27,7 +27,7 @@ proc toRootVec(validRoots: seq[MerkleNode]): RlnRelayResult[Vec_CFr] =
 
 proc proofPtrToRateLimitProof(
     proofPtr: ptr FFI_RLNProof, epoch: Epoch, rlnIdentifier: RlnIdentifier
-): RlnRelayResult[RateLimitProof] =
+): RlnResult[RateLimitProof] =
   var proofHandle = proofPtr
   let proofBytesRes = ffi_rln_proof_to_bytes_le(addr proofHandle)
   if hasError(proofBytesRes.err):
@@ -93,7 +93,7 @@ proc proofPtrToRateLimitProof(
 
   ok(output)
 
-proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
+proc parseCredentialVec(vec: var Vec_CFr): RlnResult[IdentityCredential] =
   ## Vec_CFr order: idTrapdoor, idNullifier, idSecretHash, idCommitment.
   if int(ffi_vec_cfr_len(addr vec)) != 4:
     return err("Unexpected credential element count")
@@ -120,13 +120,13 @@ proc parseCredentialVec(vec: var Vec_CFr): RlnRelayResult[IdentityCredential] =
     )
   )
 
-proc membershipKeyGen*(): RlnRelayResult[IdentityCredential] =
+proc membershipKeyGen*(): RlnResult[IdentityCredential] =
   var vec = ffi_extended_key_gen()
   defer:
     ffi_vec_cfr_free(vec)
   parseCredentialVec(vec)
 
-proc createRLNInstanceLocal(): RLNResult =
+proc createRLNInstanceLocal(): RlnInstanceResult =
   ## Creates a stateless RLN instance (no local Merkle tree).
   let res = ffi_rln_new()
   if res.ok.isNil():
@@ -135,18 +135,18 @@ proc createRLNInstanceLocal(): RLNResult =
     return err(msg)
   ok(res.ok)
 
-proc createRLNInstance*(): RLNResult =
+proc createRLNInstance*(): RlnInstanceResult =
   ## Wraps createRLNInstanceLocal with metrics timing.
-  var res: RLNResult
+  var res: RlnInstanceResult
   waku_rln_instance_creation_duration_seconds.nanosecondTime:
     res = createRLNInstanceLocal()
   return res
 
-proc poseidon*(left, right: seq[byte]): RlnRelayResult[array[32, byte]] =
+proc poseidon*(left, right: seq[byte]): RlnResult[array[32, byte]] =
   ## Poseidon hash of exactly 2 inputs; zerokit v2 FFI only exposes the pair variant.
   poseidonPairLe(left, right)
 
-proc toLeaf*(rateCommitment: RateCommitment): RlnRelayResult[seq[byte]] =
+proc toLeaf*(rateCommitment: RateCommitment): RlnResult[seq[byte]] =
   let idCommitment = rateCommitment.idCommitment
   var userMessageLimit: array[32, byte]
   try:
@@ -164,7 +164,7 @@ proc toLeaf*(rateCommitment: RateCommitment): RlnRelayResult[seq[byte]] =
     retLeaf[i] = leaf[i]
   return ok(retLeaf)
 
-proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnRelayResult[seq[seq[byte]]] =
+proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnResult[seq[seq[byte]]] =
   var leaves = newSeq[seq[byte]]()
   for rateCommitment in rateCommitments:
     let leaf = toLeaf(rateCommitment).valueOr:
@@ -174,7 +174,7 @@ proc toLeaves*(rateCommitments: seq[RateCommitment]): RlnRelayResult[seq[seq[byt
 
 proc generateExternalNullifier*(
     epoch: Epoch, rlnIdentifier: RlnIdentifier
-): RlnRelayResult[ExternalNullifier] =
+): RlnResult[ExternalNullifier] =
   ## externalNullifier = Poseidon(H(epoch), H(rlnIdentifier)); H = ffi_hash_to_field_le.
   let epochFr = hashToFieldLe(@epoch).valueOr:
     return err("Failed to hash epoch to field: " & error)
@@ -194,7 +194,7 @@ proc generateExternalNullifier*(
       "Failed to serialize external nullifier: " & e
   )
 
-proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
+proc extractMetadata*(proof: RateLimitProof): RlnResult[ProofMetadata] =
   let externalNullifier = generateExternalNullifier(proof.epoch, proof.rlnIdentifier).valueOr:
     return err("Failed to compute external nullifier: " & error)
   return ok(
@@ -206,9 +206,7 @@ proc extractMetadata*(proof: RateLimitProof): RlnRelayResult[ProofMetadata] =
     )
   )
 
-proc buildPathElementsVec(
-    pathElements: seq[byte], depth: int
-): RlnRelayResult[Vec_CFr] =
+proc buildPathElementsVec(pathElements: seq[byte], depth: int): RlnResult[Vec_CFr] =
   ## Caller MUST ffi_vec_cfr_free the returned Vec_CFr.
   var vec = ffi_vec_cfr_new(csize_t(depth))
   for i in 0 ..< depth:
@@ -224,9 +222,7 @@ proc buildPathElementsVec(
     ffi_cfr_free(element)
   ok(vec)
 
-proc buildWitnessInput(
-    witness: RLNWitnessInput
-): RlnRelayResult[ptr FFI_RLNWitnessInput] =
+proc buildWitnessInput(witness: RLNWitnessInput): RlnResult[ptr FFI_RLNWitnessInput] =
   ## ffi_rln_witness_input_new copies all inputs, so the intermediate CFrs/vecs
   ## are freed here. Caller MUST ffi_rln_witness_input_free the returned handle.
   let depth = witness.identity_path_index.len
@@ -287,11 +283,11 @@ proc buildWitnessInput(
   return ok(witnessRes.ok)
 
 proc generateRlnProofWithWitness*(
-    rlnInstance: ptr RLN,
+    rlnInstance: ptr RlnRaw,
     witness: RLNWitnessInput,
     epoch: Epoch,
     rlnIdentifier: RlnIdentifier,
-): RlnRelayResult[RateLimitProof] =
+): RlnResult[RateLimitProof] =
   let witnessHandle = buildWitnessInput(witness).valueOr:
     return
       err("failed call to buildWitnessInput in generateRlnProofWithWitness: " & error)
@@ -310,7 +306,7 @@ proc generateRlnProofWithWitness*(
 
 proc buildRlnProof(
     proof: RateLimitProof, externalNullifier: ExternalNullifier
-): RlnRelayResult[ptr FFI_RLNProof] =
+): RlnResult[ptr FFI_RLNProof] =
   ## ffi_rln_proof_new copies all inputs, so the intermediate CFrs are freed
   ## here. Caller MUST ffi_rln_proof_free the returned handle.
   var groth16Vec = toVecUint8(proof.proof)
@@ -345,11 +341,11 @@ proc buildRlnProof(
   return ok(proofRes.ok)
 
 proc verifyRlnProof*(
-    rlnInstance: ptr RLN,
+    rlnInstance: ptr RlnRaw,
     proof: RateLimitProof,
     signal: openArray[byte],
     validRoots: seq[MerkleNode],
-): RlnRelayResult[bool] =
+): RlnResult[bool] =
   if validRoots.len == 0:
     return err("verifyRlnProof requires at least one valid root (stateless mode)")
 

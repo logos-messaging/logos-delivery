@@ -17,9 +17,9 @@ import
     waku_core,
     waku_node,
     common/error_handling,
-    waku_rln_relay,
-    waku_rln_relay/rln,
-    waku_rln_relay/protocol_types,
+    rln,
+    rln/bindings,
+    rln/protocol_types,
     waku_keystore/keystore,
   ],
   ../waku_store/store_utils,
@@ -85,8 +85,8 @@ proc getWakuRlnConfigOnChain*(
     ethClientAddress: ethClientAddress.get(EthClient),
     epochSizeSec: 1,
     onFatalErrorAction: fatalErrorHandler.get(fatalErrorVoidHandler),
-    # If these are used, initialisation fails with "failed to mount WakuRlnRelay: could not initialize the group manager: the commitment does not have a membership"
-    creds: some(RlnRelayCreds(path: keystorePath, password: password)),
+    # If these are used, initialisation fails with "failed to mount Rln: could not initialize the group manager: the commitment does not have a membership"
+    creds: some(RlnCreds(path: keystorePath, password: password)),
   )
 
 proc setupRelayWithOnChainRln*(
@@ -132,7 +132,7 @@ suite "Waku RlnRelay - End to End - Static":
       # Given Relay and RLN are not mounted
       check:
         server.wakuRelay == nil
-        server.wakuRlnRelay == nil
+        server.rln == nil
 
       # When RlnRelay is mounted
       let catchRes = catch:
@@ -141,9 +141,8 @@ suite "Waku RlnRelay - End to End - Static":
       # Then Relay and RLN are not mounted,and the process fails
       check:
         server.wakuRelay == nil
-        server.wakuRlnRelay == nil
-        catchRes.error()[].msg ==
-          "WakuRelay protocol is not mounted, cannot mount WakuRlnRelay"
+        server.rln == nil
+        catchRes.error()[].msg == "WakuRelay protocol is not mounted, cannot mount Rln"
 
     asyncTest "Pubsub topics subscribed before mounting RlnRelay are added to it":
       # Given the node enables Relay and Rln while subscribing to a pubsub topic
@@ -151,9 +150,9 @@ suite "Waku RlnRelay - End to End - Static":
       await client.setupRelayWithStaticRln(2.uint, @[pubsubTopic])
       check:
         server.wakuRelay != nil
-        server.wakuRlnRelay != nil
+        server.rln != nil
         client.wakuRelay != nil
-        client.wakuRlnRelay != nil
+        client.rln != nil
 
       # And the nodes are connected
       await client.connectToNodes(@[serverRemotePeerInfo])
@@ -236,7 +235,7 @@ suite "Waku RlnRelay - End to End - Static":
         await node.mountRlnRelay(wakuRlnConfig)
       except CatchableError as e:
         check e.msg ==
-          "failed to mount WakuRlnRelay: rln-relay-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
+          "failed to mount Rln: rln-relay-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
 
   suite "Analysis of Bandwith Limitations":
     asyncTest "Valid Payload Sizes":
@@ -278,30 +277,27 @@ suite "Waku RlnRelay - End to End - Static":
           WakuMessage(payload: @payload150kibPlus, contentTopic: contentTopic)
 
       message1b.proof = (
-        await client.wakuRlnRelay.generateRLNProof(
-          message1b.toRLNSignal(),
-          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 0),
+        await client.rln.generateRLNProof(
+          message1b.toRLNSignal(), epoch + float64(client.rln.rlnEpochSizeSec * 0)
         )
       ).valueOr:
         raiseAssert "generateRLNProof failed: " & error
       message1kib.proof = (
-        await client.wakuRlnRelay.generateRLNProof(
-          message1kib.toRLNSignal(),
-          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 1),
+        await client.rln.generateRLNProof(
+          message1kib.toRLNSignal(), epoch + float64(client.rln.rlnEpochSizeSec * 1)
         )
       ).valueOr:
         raiseAssert "generateRLNProof failed: " & error
       message150kib.proof = (
-        await client.wakuRlnRelay.generateRLNProof(
-          message150kib.toRLNSignal(),
-          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 2),
+        await client.rln.generateRLNProof(
+          message150kib.toRLNSignal(), epoch + float64(client.rln.rlnEpochSizeSec * 2)
         )
       ).valueOr:
         raiseAssert "generateRLNProof failed: " & error
       message151kibPlus.proof = (
-        await client.wakuRlnRelay.generateRLNProof(
+        await client.rln.generateRLNProof(
           message151kibPlus.toRLNSignal(),
-          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3),
+          epoch + float64(client.rln.rlnEpochSizeSec * 3),
         )
       ).valueOr:
         raiseAssert "generateRLNProof failed: " & error
@@ -367,9 +363,9 @@ suite "Waku RlnRelay - End to End - Static":
         WakuMessage(payload: @payload150kibPlus, contentTopic: contentTopic)
 
       message151kibPlus.proof = (
-        await client.wakuRlnRelay.generateRLNProof(
+        await client.rln.generateRLNProof(
           message151kibPlus.toRLNSignal(),
-          epoch + float64(client.wakuRlnRelay.rlnEpochSizeSec * 3),
+          epoch + float64(client.rln.rlnEpochSizeSec * 3),
         )
       ).valueOr:
         raiseAssert "generateRLNProof failed: " & error
@@ -576,14 +572,14 @@ suite "Waku RlnRelay - End to End - OnChain":
       await client.setupRelayWithOnChainRln(@[pubsubTopic], wakuRlnConfig2)
 
       try:
-        (await server.wakuRlnRelay.groupManager.startGroupSync()).isOkOr:
+        (await server.rln.groupManager.startGroupSync()).isOkOr:
           raiseAssert $error
-        (await client.wakuRlnRelay.groupManager.startGroupSync()).isOkOr:
+        (await client.rln.groupManager.startGroupSync()).isOkOr:
           raiseAssert $error
 
         # Test Hack: Monkeypatch the idCredentials into the groupManager
-        server.wakuRlnRelay.groupManager.idCredentials = some(idCredential1)
-        client.wakuRlnRelay.groupManager.idCredentials = some(idCredential2)
+        server.rln.groupManager.idCredentials = some(idCredential1)
+        client.rln.groupManager.idCredentials = some(idCredential2)
       except Exception, CatchableError:
         assert false, "exception raised: " & getCurrentExceptionMsg()
 
@@ -657,14 +653,14 @@ suite "Waku RlnRelay - End to End - OnChain":
       await client.setupRelayWithOnChainRln(@[pubsubTopic], wakuRlnConfig2)
 
       try:
-        (await server.wakuRlnRelay.groupManager.startGroupSync()).isOkOr:
+        (await server.rln.groupManager.startGroupSync()).isOkOr:
           raiseAssert $error
-        (await client.wakuRlnRelay.groupManager.startGroupSync()).isOkOr:
+        (await client.rln.groupManager.startGroupSync()).isOkOr:
           raiseAssert $error
 
         # Test Hack: Monkeypatch the idCredentials into the groupManager
-        echo server.wakuRlnRelay.groupManager.idCredentials
-        echo client.wakuRlnRelay.groupManager.idCredentials
+        echo server.rln.groupManager.idCredentials
+        echo client.rln.groupManager.idCredentials
       except Exception, CatchableError:
         assert false, "exception raised: " & getCurrentExceptionMsg()
 

@@ -1,8 +1,8 @@
 import testutils/unittests, results
 
 import
-  logos_delivery/waku/waku_rln_relay/rln,
-  logos_delivery/waku/waku_rln_relay/rln/wrappers,
+  logos_delivery/waku/rln/bindings,
+  logos_delivery/waku/rln/rln/wrappers,
   ./waku_rln_relay_utils
 
 suite "membershipKeyGen":

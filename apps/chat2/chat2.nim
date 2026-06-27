@@ -48,7 +48,7 @@ import
   ./config_chat2
 
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
-import ../../logos_delivery/waku/waku_rln_relay
+import ../../logos_delivery/waku/rln
 
 const Help = """
   Commands: /[?|help|connect|nick|exit]
@@ -189,11 +189,11 @@ proc publish(c: Chat, line: string) =
     timestamp: getNanosecondTime(time),
   )
 
-  if not isNil(c.node.wakuRlnRelay):
+  if not isNil(c.node.rln):
     # for future version when we support more than one rln protected content topic,
     # we should check the message content topic as well
     let proofRes =
-      waitFor c.node.wakuRlnRelay.generateRLNProof(message.toRLNSignal(), float64(time))
+      waitFor c.node.rln.generateRLNProof(message.toRLNSignal(), float64(time))
     if proofRes.isErr():
       info "could not append rate limit proof to the message"
     else:
@@ -204,13 +204,13 @@ proc publish(c: Chat, line: string) =
         return
       # TODO move it to log after dogfooding
       let msgEpoch = fromEpoch(proof.epoch)
-      if fromEpoch(c.node.wakuRlnRelay.lastEpoch) == msgEpoch:
+      if fromEpoch(c.node.rln.lastEpoch) == msgEpoch:
         echo "--rln epoch: ",
           msgEpoch, " ⚠️ message rate violation! you are spamming the network!"
       else:
         echo "--rln epoch: ", msgEpoch
       # update the last epoch
-      c.node.wakuRlnRelay.lastEpoch = proof.epoch
+      c.node.rln.lastEpoch = proof.epoch
 
     try:
       if not c.node.wakuLegacyLightPush.isNil():
@@ -521,7 +521,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         topic = DefaultPubsubTopic, error = error
 
     if conf.rlnRelay:
-      info "WakuRLNRelay is enabled"
+      info "Rln is enabled"
 
       proc spamHandler(wakuMessage: WakuMessage) {.gcsafe, closure.} =
         info "spam handler is called"
@@ -538,9 +538,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         chainId: UInt256.fromBytesBE(conf.rlnRelayChainId.toBytesBE()),
         ethClientUrls: conf.ethClientUrls.mapIt(string(it)),
         creds: some(
-          RlnRelayCreds(
-            path: conf.rlnRelayCredPath, password: conf.rlnRelayCredPassword
-          )
+          RlnCreds(path: conf.rlnRelayCredPath, password: conf.rlnRelayCredPassword)
         ),
         userMessageLimit: conf.rlnRelayUserMessageLimit,
         epochSizeSec: conf.rlnEpochSizeSec,
@@ -548,14 +546,14 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
 
       waitFor node.mountRlnRelay(rlnConf, spamHandler = some(spamHandler))
 
-      let membershipIndex = node.wakuRlnRelay.groupManager.membershipIndex.get()
-      let identityCredential = node.wakuRlnRelay.groupManager.idCredentials.get()
+      let membershipIndex = node.rln.groupManager.membershipIndex.get()
+      let identityCredential = node.rln.groupManager.idCredentials.get()
       echo "your membership index is: ", membershipIndex
       echo "your rln identity commitment key is: ",
         identityCredential.idCommitment.inHex()
     else:
-      info "WakuRLNRelay is disabled"
-      echo "WakuRLNRelay is disabled, please enable it by passing in the --rln-relay flag"
+      info "Rln is disabled"
+      echo "Rln is disabled, please enable it by passing in the --rln-relay flag"
   if conf.metricsLogging:
     startMetricsLog()
 
