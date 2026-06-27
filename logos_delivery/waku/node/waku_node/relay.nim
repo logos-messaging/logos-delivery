@@ -191,17 +191,17 @@ proc setRlnValidator*(
     spamHandler = none(SpamHandler),
     registrationHandler = none(RegistrationHandler),
 ) {.async.} =
-  info "mounting rln relay"
+  info "setting rln validator"
 
   let rln = (await Rln.new(rlnConf, registrationHandler)).valueOr:
-    raise newException(CatchableError, "failed to mount Rln: " & error)
+    raise newException(CatchableError, "failed to set rln validator: " & error)
   if (rlnConf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit):
-    error "rln-relay-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
+    error "rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
 
   node.rln = rln
 
   if node.wakuRelay.isNil():
-    info "WakuRelay not mounted; RLN mounted without relay validator"
+    info "WakuRelay not mounted; RLN validator not set"
     return
 
   ## Bridges RLN's protocol-agnostic message validation into a relay
@@ -224,12 +224,10 @@ proc setRlnValidator*(
 
     let
       proof = byteutils.toHex(msgProof.proof)
-      epoch = fromEpoch(msgProof.epoch)
       root = inHex(msgProof.merkleRoot)
       shareX = inHex(msgProof.shareX)
       shareY = inHex(msgProof.shareY)
       nullifier = inHex(msgProof.nullifier)
-      payload = string.fromBytes(message.payload)
 
     case validationRes
     of Valid:
