@@ -35,11 +35,6 @@ proc newTestWakuRelay*(switch = newTestSwitch()): Future[WakuRelay] {.async.} =
 
   return proto
 
-proc setupRln*(node: WakuNode, identifier: uint) {.async.} =
-  await node.setRlnValidator(
-    WakuRlnConfig(dynamic: false, credIndex: some(identifier), epochSizeSec: 1)
-  )
-
 proc subscribeToContentTopicWithHandler*(
     node: WakuNode, contentTopic: string
 ): Future[bool] =
