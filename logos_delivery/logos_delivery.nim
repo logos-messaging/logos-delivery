@@ -52,12 +52,8 @@ export channel_send
 import logos_delivery/events/reliable_channel_manager_events
 export reliable_channel_manager_events
 
-# Compile-time check that each layer's concrete type satisfies its API concept.
-static:
-  doAssert Waku is KernelApi
-  doAssert MessagingClient is MessagingApi
-  doAssert ReliableChannelManager is ReliableChannelApi
-
+import logos_delivery/api/logos_delivery_api
+export logos_delivery_api
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
 import tools/confutils/cli_args
@@ -153,3 +149,10 @@ proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():
     return err("Waku node is not initialized")
   return await self.waku.isOnline()
+
+# Compile-time check that each concrete type satisfies its API concept.
+static:
+  doAssert Waku is KernelApi
+  doAssert MessagingClient is MessagingApi
+  doAssert ReliableChannelManager is ReliableChannelApi
+  doAssert LogosDelivery is LogosDeliveryApi
