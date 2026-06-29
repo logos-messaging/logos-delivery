@@ -2,7 +2,7 @@
 
 import
   results,
-  logos_delivery/waku/[common/logging, waku_node, waku_rln_relay],
+  logos_delivery/waku/[common/logging, waku_node, rln],
   ./erc_5564_interface as StealthCommitmentFFI,
   ./node_spec,
   ./wire_spec
@@ -47,9 +47,7 @@ proc sendThruWaku*(
   )
 
   message.proof = (
-    await self.waku.node.wakuRlnRelay.generateRLNProof(
-      message.toRLNSignal(), float64(time)
-    )
+    await self.waku.node.rln.generateRLNProof(message.toRLNSignal(), float64(time))
   ).valueOr:
     return err("could not append rate limit proof to the message: " & error)
 

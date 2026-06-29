@@ -8,8 +8,7 @@ import
   libp2p/crypto/crypto
 
 import
-  logos_delivery/waku/
-    [waku_core, node/peer_manager, waku_node, waku_lightpush, waku_rln_relay],
+  logos_delivery/waku/[waku_core, node/peer_manager, waku_node, waku_lightpush, rln],
   ../testlib/[wakucore, wakunode, testasync, futures],
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
@@ -126,11 +125,11 @@ suite "RLN Proofs as a Lightpush Service":
 
     (await server.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    await server.mountRlnRelay(wakuRlnConfig)
+    await server.setRlnValidator(wakuRlnConfig)
     check (await server.mountLightPush()).isOk()
     client.mountLightPushClient()
 
-    let manager1 = cast[OnchainGroupManager](server.wakuRlnRelay.groupManager)
+    let manager1 = cast[OnchainGroupManager](server.rln.groupManager)
     let idCredentials1 = generateCredentials()
 
     (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:

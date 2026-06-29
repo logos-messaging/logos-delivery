@@ -23,7 +23,7 @@ const PathCheckMinInterval* = 30.seconds
 const RlnCredentialsFilename* = "rlnCredentials.txt"
 
 # inputs of the membership contract constructor
-# TODO may be able to make these constants private and put them inside the waku_rln_relay_utils
+# TODO may be able to make these constants private and put them inside the waku_rln_utils
 const
   # in wei
   MembershipFee* = 0.u256

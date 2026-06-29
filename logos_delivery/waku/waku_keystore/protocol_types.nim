@@ -77,7 +77,7 @@ proc toIdentityCredentials*(
 
 proc serialize*(idComms: seq[IDCommitment]): seq[byte] =
   ## serializes a seq of IDCommitments to a byte seq
-  ## the serialization is based on https://github.com/status-im/nwaku/blob/37bd29fbc37ce5cf636734e7dd410b1ed27b88c8/waku/v2/protocol/waku_rln_relay/rln.nim#L142
+  ## the serialization is based on https://github.com/status-im/nwaku/blob/37bd29fbc37ce5cf636734e7dd410b1ed27b88c8/waku/v2/protocol/waku_rln/rln.nim#L142
   ## the order of serialization is |id_commitment_len<8>|id_commitment<var>|
   var idCommsBytes = newSeq[byte]()
 

@@ -19,7 +19,7 @@ import
     rest_api/endpoint/responses,
     rest_api/endpoint/health/handlers as health_rest_interface,
     rest_api/endpoint/health/client as health_rest_client,
-    waku_rln_relay,
+    rln,
     node/health_monitor,
   ],
   ../testlib/common,
@@ -67,7 +67,7 @@ suite "Waku v2 REST API - health":
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
 
     # kick in rln (currently the only check for health)
-    await node.mountRlnRelay(
+    await node.setRlnValidator(
       getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
     )
 

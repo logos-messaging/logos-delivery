@@ -5,11 +5,8 @@
 import std/[options, os], results, testutils/unittests, chronos, web3
 
 import
-  logos_delivery/waku/[
-    waku_rln_relay,
-    waku_rln_relay/conversion_utils,
-    waku_rln_relay/group_manager/on_chain/group_manager,
-  ],
+  logos_delivery/waku/
+    [rln, rln/conversion_utils, rln/group_manager/on_chain/group_manager],
   ./utils_onchain
 
 suite "Token and RLN Contract Deployment":
