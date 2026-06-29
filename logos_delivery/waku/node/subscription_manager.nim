@@ -22,7 +22,7 @@ import
     node/health_monitor/topic_health,
     node/health_monitor/connection_status,
   ]
-import logos_delivery/api/kernel_api # MessageSeenEvent
+import logos_delivery/events/kernel_events # MessageSeenEvent
 
 {.push raises: [].}
 

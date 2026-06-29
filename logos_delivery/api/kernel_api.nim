@@ -1,5 +1,4 @@
 import chronos, results
-import brokers/event_broker
 
 import logos_delivery/api/types as api_types
 import logos_delivery/waku/waku_core/topics/pubsub_topic
@@ -7,14 +6,7 @@ import logos_delivery/waku/waku_core/message
 import logos_delivery/waku/waku_core/subscription/push_handler
 import logos_delivery/waku/waku_store/common as store_types
 
-export event_broker
 export api_types, pubsub_topic, store_types
-
-EventBroker:
-  # Internal event emitted when a message arrives from the network via any protocol
-  type MessageSeenEvent* = object
-    topic*: PubsubTopic
-    message*: WakuMessage
 
 # Structural API contract for the Kernel surface, implemented by `Waku`
 # (ops in `waku/api/*`).

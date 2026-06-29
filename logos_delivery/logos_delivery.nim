@@ -28,8 +28,9 @@ import
 export
   topics, relay, subscriptions, filter, lightpush, store, peer_manager, discovery,
   debug, health, ping
-# `MessageSeenEvent` is surfaced via `export waku` (Kernel interface); the
-# remaining waku health events live here.
+# Kernel event surface (`MessageSeenEvent`) plus the remaining waku health events.
+import logos_delivery/events/kernel_events
+export kernel_events
 import logos_delivery/waku/api/events/health_events
 export health_events
 
@@ -38,7 +39,8 @@ import logos_delivery/messaging/messaging_client
 export messaging_client
 import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
-# Message* events are surfaced via `export messaging_client` (messaging interface).
+import logos_delivery/events/messaging_client_events
+export messaging_client_events
 
 # Reliable Channel layer
 import logos_delivery/channels/reliable_channel_manager
@@ -47,7 +49,8 @@ import logos_delivery/channels/api/channel_lifecycle
 export channel_lifecycle
 import logos_delivery/channels/api/send as channel_send
 export channel_send
-# ChannelMessage* events are surfaced via `export reliable_channel_manager`.
+import logos_delivery/events/reliable_channel_manager_events
+export reliable_channel_manager_events
 
 # Compile-time check that each layer's concrete type satisfies its API concept.
 static:

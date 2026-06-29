@@ -58,8 +58,8 @@ import
   ./factory/waku_conf,
   ./factory/waku_state_info
 
-# Surfaces the Kernel API interface (and its `MessageSeenEvent`) to consumers
-# of the Waku layer.
+# Surfaces the Kernel API interface to consumers of the Waku layer.
+# `MessageSeenEvent` now lives in `events/kernel_events` (surfaced by the concentrator).
 export kernel_api
 
 logScope:

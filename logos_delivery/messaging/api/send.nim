@@ -2,6 +2,7 @@
 import results, chronos, chronicles
 
 import logos_delivery/api/types
+import logos_delivery/events/messaging_client_events
 import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/waku
 import logos_delivery/waku/api/subscriptions
