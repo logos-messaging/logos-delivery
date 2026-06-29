@@ -152,4 +152,4 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():
     return err("Waku node is not initialized")
-  return ok(self.waku.healthMonitor.onlineMonitor.amIOnline())
+  return await self.waku.isOnline()
