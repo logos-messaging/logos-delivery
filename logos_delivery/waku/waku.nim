@@ -521,9 +521,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if conf.metricsServerConf.isSome():
     try:
       let (server, port) = (
-        await waku_metrics.startMetricsServerAndLogging(
-          conf.metricsServerConf.get()
-        )
+        await waku_metrics.startMetricsServerAndLogging(conf.metricsServerConf.get())
       ).valueOr:
         return err("Starting monitoring and external interfaces failed: " & error)
       waku.metricsServer = server
