@@ -121,7 +121,6 @@ type WakuConf* {.requiresInit.} = ref object
   mixConf*: Option[MixConf]
   kademliaDiscoveryConf*: Option[KademliaDiscoveryConf]
 
-  portsShift*: uint16
   dnsAddrsNameServers*: seq[IpAddress]
   endpointConf*: EndpointConf
   wakuFlags*: CapabilitiesBitfield

@@ -462,7 +462,7 @@ proc setupNode*(
     await networkConfiguration(
       wakuConf.clusterId, wakuConf.endpointConf, wakuConf.discv5Conf,
       wakuConf.webSocketConf, wakuConf.quicConf, wakuConf.wakuFlags,
-      wakuConf.dnsAddrsNameServers, wakuConf.portsShift, clientId,
+      wakuConf.dnsAddrsNameServers, clientId,
     )
   ).valueOr:
     error "failed to create internal config", error = error

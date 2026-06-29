@@ -90,15 +90,14 @@ proc networkConfiguration*(
     quicConf: Option[QuicConf],
     wakuFlags: CapabilitiesBitfield,
     dnsAddrsNameServers: seq[IpAddress],
-    portsShift: uint16,
     clientId: string,
 ): Future[NetConfigResult] {.async.} =
-  let tcpBindPort = Port(uint16(conf.p2pTcpPort) + portsShift)
+  let tcpBindPort = conf.p2pTcpPort
 
   let (quicEnabled, quicBindPort) =
     if quicConf.isSome():
       let qConf = quicConf.get()
-      (true, some(Port(qConf.port.uint16 + portsShift)))
+      (true, some(qConf.port))
     else:
       (false, none(Port))
 
@@ -111,7 +110,7 @@ proc networkConfiguration*(
   let
     discv5UdpPort =
       if discv5Conf.isSome():
-        some(Port(uint16(discv5Conf.get().udpPort) + portsShift))
+        some(discv5Conf.get().udpPort)
       else:
         none(Port)
 
@@ -145,7 +144,7 @@ proc networkConfiguration*(
   let (wsEnabled, wsBindPort, wssEnabled) =
     if webSocketConf.isSome:
       let wsConf = webSocketConf.get()
-      (true, some(Port(wsConf.port.uint16 + portsShift)), wsConf.secureConf.isSome)
+      (true, some(wsConf.port), wsConf.secureConf.isSome)
     else:
       (false, none(Port), false)
 
