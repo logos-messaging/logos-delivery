@@ -11,7 +11,6 @@ import
   json,
   web3/eth_api_types,
   eth/keys,
-  libp2p/protocols/pubsub/rpc/messages,
   results,
   stew/[byteutils, arrayops],
   brokers/broker_context
