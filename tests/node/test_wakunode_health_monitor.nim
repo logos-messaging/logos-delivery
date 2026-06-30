@@ -19,8 +19,8 @@ import
     node/waku_node/store,
     node/waku_node/lightpush,
     node/waku_node/filter,
-    events/health_events,
-    events/peer_events,
+    api/events/health_events,
+    api/events/peer_events,
     waku_archive,
   ]
 

@@ -13,20 +13,14 @@ import stew/byteutils
 
 import brokers/broker_context
 
-import logos_delivery/waku/events/message_events as waku_message_events
 import logos_delivery/messaging/messaging_client
+import logos_delivery/messaging/api/send
 import logos_delivery/api/types
-import logos_delivery/waku/waku_core/topics
-import logos_delivery/waku/persistency/sds_persistency
+import logos_delivery/api/reliable_channel_manager_api
 
 import ./reliable_channel
-import ./encryption/noop_encryption
 
 export reliable_channel
-
-const SdsJobId = "sds"
-  ## One persistency job shared by every channel's SDS state; rows are
-  ## keyed by channelId.
 
 type
   ReliableChannelManagerConf* = object
@@ -34,14 +28,14 @@ type
     ## channel API. Placeholder for now (segmentation / SDS / rate-limit defaults
     ## will move here in a follow-up PR); kept so each layer owns its own config.
 
-  ReliableChannelManager* = ref object
-    channels: Table[ChannelId, ReliableChannel]
+  ReliableChannelManager* = ref object of IReliableChannelManager
+    channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
     messagingClient: MessagingClient ## The channel layer chains onto messaging.
-    sendHandler: SendHandler
+    sendHandler*: SendHandler
       ## Default egress dispatch for channels created through this manager.
       ## Built in `new` as a closure over `MessagingClient.send` so the channel
       ## layer itself stays callable-only.
-    brokerCtx: BrokerContext
+    brokerCtx*: BrokerContext
 
 proc new*(
     T: type ReliableChannelManager,
@@ -81,96 +75,6 @@ proc stop*(self: ReliableChannelManager) {.async.} =
   for chn in self.channels.values:
     await chn.stop()
   self.channels.clear()
-
-proc sdsPersistence(): Option[Persistence] =
-  ## SDS backend from the Persistency singleton; memory-only fallback when
-  ## it is unavailable (e.g. unit tests).
-  let p = Persistency.instance().valueOr:
-    info "SDS persistence disabled, running memory-only", reason = $error
-    return none(Persistence)
-  let job = p.openJob(SdsJobId).valueOr:
-    warn "SDS persistence disabled, could not open persistency job",
-      jobId = SdsJobId, reason = $error
-    return none(Persistence)
-  return some(newSdsPersistence(job))
-
-proc createReliableChannel*(
-    self: ReliableChannelManager,
-    channelId: ChannelId,
-    contentTopic: ContentTopic,
-    senderId: SdsParticipantID,
-    sendHandler: SendHandler = nil,
-): Result[ChannelId, string] =
-  ## Spec entry point. The `sendHandler` and `rng` the channel needs are
-  ## sourced from the owning `ReliableChannelManager` rather than passed
-  ## per call. Encryption is wired up through the `Encrypt`/`Decrypt`
-  ## request brokers — the application installs its own providers
-  ## (or `setNoopEncryption()`) before traffic flows.
-  ##
-  ## Segmentation, SDS and rate-limit configs will eventually be read
-  ## from the node's `NodeConfig`. Defaults for now.
-  ##
-  ## `sendHandler` defaults to the manager's default (constructed at mount
-  ## from `MessagingClient.send`); tests pass a fake to bypass the network.
-  if self.channels.hasKey(channelId):
-    return err("channel already exists: " & channelId)
-
-  let segConfig = SegmentationConfig(
-    segmentSizeBytes: DefaultSegmentSizeBytes,
-    enableReedSolomon: false,
-    persistence: nil,
-  )
-  let sdsConfig = SdsConfig(
-    acknowledgementTimeoutMs: DefaultAcknowledgementTimeoutMs,
-    maxRetransmissions: DefaultMaxRetransmissions,
-    causalHistorySize: DefaultCausalHistorySize,
-    persistence: sdsPersistence(),
-  )
-  let rateConfig = RateLimitConfig(
-    epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
-  )
-
-  let effectiveSendHandler = if sendHandler.isNil(): self.sendHandler else: sendHandler
-
-  let chn = ReliableChannel.new(
-    sendHandler = effectiveSendHandler,
-    channelId = channelId,
-    contentTopic = contentTopic,
-    senderId = senderId,
-    segConfig = segConfig,
-    sdsConfig = sdsConfig,
-    rateConfig = rateConfig,
-    brokerCtx = self.brokerCtx,
-  )
-
-  self.channels[channelId] = chn
-  return ok(channelId)
-
-proc closeChannel*(
-    self: ReliableChannelManager, channelId: ChannelId
-): Future[Result[void, string]] {.async: (raises: []).} =
-  ## Stops the channel's SDS loops and releases the channel. Persisted SDS
-  ## state survives, so re-creating the channel restores it.
-  let chn = self.channels.getOrDefault(channelId)
-  if chn.isNil():
-    return err("unknown channel: " & channelId)
-  self.channels.del(channelId)
-  await chn.stop()
-  return ok()
-
-proc send*(
-    self: ReliableChannelManager,
-    channelId: ChannelId,
-    appPayload: seq[byte],
-    ephemeral: bool = false,
-): Future[Result[RequestId, string]] {.async: (raises: []).} =
-  ## Spec-level entry point. Looks the channel up by id and delegates
-  ## to `ReliableChannel.send`, which exposes the visible pipeline
-  ## segmentation -> sds -> rate_limit_manager -> encryption.
-  let chn = self.channels.getOrDefault(channelId)
-  if chn.isNil():
-    return err("unknown channel: " & channelId)
-  return await chn.send(appPayload, ephemeral)
 
 ## Inbound messages are not handed to the manager by direct call. Each
 ## `ReliableChannel` installs its own `MessageReceivedEvent` listener

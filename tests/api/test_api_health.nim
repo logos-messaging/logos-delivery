@@ -12,7 +12,7 @@ import
     [topic_health, health_status, protocol_health, health_report],
   logos_delivery/waku/requests/health_requests,
   logos_delivery/waku/requests/node_requests,
-  logos_delivery/waku/events/health_events,
+  logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/common/waku_protocol,
   logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args

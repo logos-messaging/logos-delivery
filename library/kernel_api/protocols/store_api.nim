@@ -1,13 +1,10 @@
-import logos_delivery/waku/compat/option_valueor
-import std/[json, sugar, strutils, options]
-import chronos, chronicles, results, stew/byteutils, ffi
+import std/[json, sugar, options]
+import chronos, chronicles, results, ffi
 import
-  logos_delivery/waku/waku,
+  logos_delivery,
   library/utils,
-  logos_delivery/waku/waku_core/peers,
   logos_delivery/waku/waku_core/message/digest,
   logos_delivery/waku/waku_store/common,
-  logos_delivery/waku/waku_store/client,
   logos_delivery/waku/common/paging,
   library/declare_lib
 
@@ -83,13 +80,10 @@ proc waku_store_query(
 
   let storeQueryRequest = ?fromJsonNode(jsonContentRes.get())
 
-  let peer = peers.parsePeerInfo(($peerAddr).split(",")).valueOr:
-    return err("StoreRequest failed to parse peer addr: " & $error)
-
   let queryResponse = (
-    await ctx.myLib[].waku.node.wakuStoreClient.query(storeQueryRequest, peer)
+    await ctx.myLib[].waku.storeQuery(storeQueryRequest, $peerAddr, int(timeoutMs))
   ).valueOr:
-    return err("StoreRequest failed store query: " & $error)
+    return err("StoreRequest failed store query: " & error)
 
   let res = $(%*(queryResponse.toHex()))
   return ok(res) ## returning the response in json format

@@ -39,7 +39,7 @@ import
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
   ../common/rate_limit/setting,
-  ../events/discovery_events
+  ../api/events/discovery_events
 
 ## Peer persistence
 

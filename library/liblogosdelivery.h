@@ -71,6 +71,36 @@ extern "C"
                  void *userData,
                  const char *messageJson);
 
+  // --- Reliable Channels API (stable surface) ---
+
+  // Create a reliable channel. Returns the channel id.
+  int logosdelivery_channel_create(void *ctx,
+                           FFICallBack callback,
+                           void *userData,
+                           const char *channelId,
+                           const char *contentTopic,
+                           const char *senderId);
+
+  // Send a message on a reliable channel.
+  // messageJson: { "payload": "base64-encoded-payload", "ephemeral": false }
+  // Returns a request ID that can be used to track delivery.
+  int logosdelivery_channel_send(void *ctx,
+                         FFICallBack callback,
+                         void *userData,
+                         const char *channelId,
+                         const char *messageJson);
+
+  // Close a reliable channel: stops its SDS loops; persisted state survives, so
+  // re-creating the channel restores it.
+  int logosdelivery_channel_close(void *ctx,
+                          FFICallBack callback,
+                          void *userData,
+                          const char *channelId);
+
+  // Channel lifecycle events are delivered through the event callback set via
+  // logosdelivery_set_event_callback: "onChannelMessageReceived" (payload
+  // base64-encoded), "onChannelMessageSent", "onChannelMessageError".
+
   // Sets a callback that will be invoked whenever an event occurs.
   // It is crucial that the passed callback is fast, non-blocking and potentially thread-safe.
   void logosdelivery_set_event_callback(void *ctx,

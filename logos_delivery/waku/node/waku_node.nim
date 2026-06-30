@@ -59,10 +59,10 @@ import
     waku_mix,
     requests/node_requests,
     requests/health_requests,
-    events/health_events,
-    events/message_events,
-    events/peer_events,
+    api/events/health_events,
+    api/events/peer_events,
   ],
+  logos_delivery/api/kernel_api, # MessageSeenEvent
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./peer_manager,
@@ -136,6 +136,7 @@ type
     wakuMix*: WakuMix
     wakuKademlia*: WakuKademlia
     ports*: BoundPorts
+    relayReconnectFut*: Future[void]
 
   SubscriptionManager* = ref object of RootObj
     node*: WakuNode
@@ -620,8 +621,9 @@ proc start*(node: WakuNode) {.async.} =
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
 
-  # After switch.start, run custom Logos Delivery relay start logic
-  await node.reconnectRelayPeers()
+  # Reconnect to known relay peers in the background; it waits a prune backoff
+  # and must not block startup.
+  node.relayReconnectFut = node.reconnectRelayPeers()
 
   node.started = true
 
@@ -649,6 +651,10 @@ proc start*(node: WakuNode) {.async.} =
 
 proc stop*(node: WakuNode) {.async.} =
   ## By stopping the switch we are stopping all the underlying mounted protocols
+
+  # Cancel the background relay reconnection (may still be in its backoff wait).
+  if not node.relayReconnectFut.isNil():
+    await node.relayReconnectFut.cancelAndWait()
 
   await node.subscriptionManager.stop()
 

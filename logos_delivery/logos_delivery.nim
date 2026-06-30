@@ -11,12 +11,45 @@
 
 import results, chronos, chronicles
 
+import logos_delivery/api/logos_delivery_api
+export logos_delivery_api
+
+# Each layer has a core module (type + new/start/stop) and an api/ folder whose
+# modules each implement a differentiated set of operations, plus an events
+# surface. The concentrator re-exports them so library consumers get the full
+# surface from `import logos_delivery`. (The per-layer `events` modules share a
+# stem, so they are imported under aliases.)
+
+# Waku layer
 import logos_delivery/waku/waku
 export waku
+import
+  logos_delivery/waku/api/[
+    topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health,
+    ping,
+  ]
+export
+  topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health, ping
+# `MessageSeenEvent` is surfaced via `export waku` (Kernel interface); the
+# remaining waku health events live here.
+import logos_delivery/waku/api/events/health_events
+export health_events
+
+# Messaging layer
 import logos_delivery/messaging/messaging_client
 export messaging_client
+import logos_delivery/messaging/api/[subscription, send]
+export subscription, send
+# Message* events are surfaced via `export messaging_client` (messaging interface).
+
+# Reliable Channel layer
 import logos_delivery/channels/reliable_channel_manager
 export reliable_channel_manager
+import logos_delivery/channels/api/channel_lifecycle
+export channel_lifecycle
+import logos_delivery/channels/api/send as channel_send
+export channel_send
+# ChannelMessage* events are surfaced via `export reliable_channel_manager`.
 
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
@@ -35,7 +68,8 @@ type
     messaging*: MessagingClientConf
     reliableChannel*: ReliableChannelManagerConf
 
-  LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
+  LogosDelivery* = ref object of ILogosDelivery
+    ## Entry point. Holds one instance of each API layer.
     waku*: Waku
     messagingClient*: MessagingClient
     reliableChannelManager*: ReliableChannelManager
@@ -79,7 +113,7 @@ proc new*(
     )
   )
 
-proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+method start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each layer bottom-up: transport first, then messaging, then channels.
   if self.waku.isNil():
     return err("Waku node is not initialized")
@@ -99,7 +133,7 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
   return ok()
 
-proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+method stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
   await self.reliableChannelManager.stop()
   await self.messagingClient.stop()
@@ -109,7 +143,7 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
   return ok()
 
-proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
+method isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():
     return err("Waku node is not initialized")
   return ok(self.waku.healthMonitor.onlineMonitor.amIOnline())
