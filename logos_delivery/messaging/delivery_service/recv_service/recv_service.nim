@@ -11,9 +11,9 @@ import
   logos_delivery/waku/waku,
   logos_delivery/waku/api/[store, subscriptions]
 import
-  logos_delivery/api/events/kernel_events, # MessageSeenEvent
-  logos_delivery/api/events/messaging_client_events, # MessageReceivedEvent
-  logos_delivery/waku/api/events/health_events # EventConnectionStatusChange
+  logos_delivery/api/events/kernel_events,
+    # MessageSeenEvent + EventConnectionStatusChange
+  logos_delivery/api/events/messaging_client_events # MessageReceivedEvent
 
 const MaxMessageLife = chronos.minutes(7) ## Max time we will keep track of rx messages
 

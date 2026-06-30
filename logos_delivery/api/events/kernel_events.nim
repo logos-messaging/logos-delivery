@@ -1,5 +1,6 @@
 import brokers/event_broker
 
+import logos_delivery/api/types
 import logos_delivery/waku/waku_core/topics/pubsub_topic
 import logos_delivery/waku/waku_core/message
 
@@ -10,3 +11,8 @@ EventBroker:
   type MessageSeenEvent* = object
     topic*: PubsubTopic
     message*: WakuMessage
+
+# Emitted by the health monitor when overall node connectivity changes.
+EventBroker:
+  type EventConnectionStatusChange* = object
+    connectionStatus*: ConnectionStatus

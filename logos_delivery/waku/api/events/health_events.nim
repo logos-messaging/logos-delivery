@@ -6,11 +6,6 @@ import logos_delivery/waku/waku_core/topics
 
 export event_broker, protocol_health, topic_health
 
-# Emitted by the health monitor when overall node connectivity changes.
-EventBroker:
-  type EventConnectionStatusChange* = object
-    connectionStatus*: ConnectionStatus
-
 # Notify health changes to a subscribed topic
 # TODO: emit content topic health change events when subscribe/unsubscribe
 #       from/to content topic is provided in the new API (so we know which
