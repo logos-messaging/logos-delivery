@@ -2,10 +2,8 @@ import logos_delivery/waku/compat/option_valueor
 import chronicles, chronos, results
 import std/options
 import brokers/broker_context
-import
-  logos_delivery/waku/node/peer_manager,
-  logos_delivery/waku/waku_core,
-  logos_delivery/waku/waku_lightpush/[common, client, rpc]
+import logos_delivery/waku/waku_core, logos_delivery/waku/waku
+import logos_delivery/waku/api/publish
 
 import ./[delivery_task, send_processor]
 
@@ -13,27 +11,17 @@ logScope:
   topics = "send service lightpush processor"
 
 type LightpushSendProcessor* = ref object of BaseSendProcessor
-  peerManager: PeerManager
-  lightpushClient: WakuLightPushClient
+  waku: Waku
 
 proc new*(
-    T: typedesc[LightpushSendProcessor],
-    peerManager: PeerManager,
-    lightpushClient: WakuLightPushClient,
-    brokerCtx: BrokerContext,
+    T: typedesc[LightpushSendProcessor], waku: Waku, brokerCtx: BrokerContext
 ): T =
-  return
-    T(peerManager: peerManager, lightpushClient: lightpushClient, brokerCtx: brokerCtx)
-
-proc isLightpushPeerAvailable(
-    self: LightpushSendProcessor, pubsubTopic: PubsubTopic
-): bool =
-  return self.peerManager.selectPeer(WakuLightPushCodec, some(pubsubTopic)).isSome()
+  return T(waku: waku, brokerCtx: brokerCtx)
 
 method isValidProcessor*(
     self: LightpushSendProcessor, task: DeliveryTask
 ): bool {.gcsafe.} =
-  return self.isLightpushPeerAvailable(task.pubsubTopic)
+  return self.waku.lightpushPeerAvailable(task.pubsubTopic)
 
 method sendImpl*(
     self: LightpushSendProcessor, task: DeliveryTask
@@ -44,14 +32,8 @@ method sendImpl*(
     msgHash = task.msgHash.to0xHex(),
     tryCount = task.tryCount
 
-  let peer = self.peerManager.selectPeer(WakuLightPushCodec, some(task.pubsubTopic)).valueOr:
-    debug "No peer available for Lightpush, request pushed back for next round",
-      requestId = task.requestId
-    task.state = DeliveryState.NextRoundRetry
-    return
-
   let numLightpushServers = (
-    await self.lightpushClient.publish(some(task.pubsubTopic), task.msg, peer)
+    await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
     error "LightpushSendProcessor.sendImpl failed", error = error.desc.get($error.code)
     case error.code

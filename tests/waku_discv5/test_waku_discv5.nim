@@ -500,7 +500,6 @@ suite "Waku Discovery v5":
         waku.rng,
         waku.conf.nodeKey,
         waku.conf.endpointConf.p2pListenAddress,
-        waku.conf.portsShift,
       ).valueOr:
         raiseAssert "failed setup discv5 in test: " & $error
 
@@ -532,7 +531,6 @@ suite "Waku Discovery v5":
         waku.rng,
         waku.conf.nodeKey,
         waku.conf.endpointConf.p2pListenAddress,
-        waku.conf.portsShift,
       ).valueOr:
         raiseAssert "failed setup discv5 in test: " & $error
 

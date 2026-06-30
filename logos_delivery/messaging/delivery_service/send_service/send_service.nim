@@ -7,18 +7,9 @@ import chronos, chronicles, libp2p/utility
 import brokers/broker_context
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
-  logos_delivery/waku/[
-    waku_core,
-    node/waku_node,
-    node/subscription_manager,
-    node/peer_manager,
-    waku_store/client,
-    waku_store/common,
-    waku_relay/protocol,
-    rln/rln,
-    waku_lightpush/client,
-    waku_lightpush/callbacks,
-  ]
+  logos_delivery/waku/[waku_core, waku_store/common],
+  logos_delivery/waku/waku,
+  logos_delivery/waku/api/[store, subscriptions, publish]
 import logos_delivery/api/messaging_client_api
 
 logScope:
@@ -57,19 +48,15 @@ type SendService* = ref object of RootObj
   serviceLoopHandle: Future[void] ## handle that allows to stop the async task
   sendProcessor: BaseSendProcessor
 
-  node: WakuNode
+  waku: Waku
   checkStoreForMessages: bool
   lastStoreCheckTime: Moment ## throttles store validation queries to ArchiveTime cadence
 
 proc setupSendProcessorChain(
-    peerManager: PeerManager,
-    lightpushClient: WakuLightPushClient,
-    relay: WakuRelay,
-    rlnRelay: Rln,
-    brokerCtx: BrokerContext,
+    waku: Waku, brokerCtx: BrokerContext
 ): Result[BaseSendProcessor, string] =
-  let isRelayAvail = not relay.isNil()
-  let isLightPushAvail = not lightpushClient.isNil()
+  let isRelayAvail = waku.hasRelay()
+  let isLightPushAvail = waku.hasLightpush()
 
   if not isRelayAvail and not isLightPushAvail:
     return err("No valid send processor found for the delivery task")
@@ -77,16 +64,10 @@ proc setupSendProcessorChain(
   var processors = newSeq[BaseSendProcessor]()
 
   if isRelayAvail:
-    let rln: Option[Rln] =
-      if rlnRelay.isNil():
-        none[Rln]()
-      else:
-        some(rlnRelay)
-    let publishProc = getRelayPushHandler(relay, rln)
-
+    let publishProc = waku.relayPushHandler()
     processors.add(RelaySendProcessor.new(isLightPushAvail, publishProc, brokerCtx))
   if isLightPushAvail:
-    processors.add(LightpushSendProcessor.new(peerManager, lightpushClient, brokerCtx))
+    processors.add(LightpushSendProcessor.new(waku, brokerCtx))
 
   var currentProcessor: BaseSendProcessor = processors[0]
   for i in 1 ..< processors.len:
@@ -97,26 +78,24 @@ proc setupSendProcessorChain(
   return ok(processors[0])
 
 proc new*(
-    T: typedesc[SendService], preferP2PReliability: bool, w: WakuNode
+    T: typedesc[SendService], preferP2PReliability: bool, waku: Waku
 ): Result[T, string] =
-  if w.wakuRelay.isNil() and w.wakuLightpushClient.isNil():
+  if not waku.hasRelay() and not waku.hasLightpush():
     return err(
       "Could not create SendService. wakuRelay or wakuLightpushClient should be set"
     )
 
-  let checkStoreForMessages = preferP2PReliability and not w.wakuStoreClient.isNil()
+  let checkStoreForMessages = preferP2PReliability and waku.isStoreMounted()
 
-  let sendProcessorChain = setupSendProcessorChain(
-    w.peerManager, w.wakuLightPushClient, w.wakuRelay, w.rln, w.brokerCtx
-  ).valueOr:
+  let sendProcessorChain = setupSendProcessorChain(waku, waku.brokerCtx).valueOr:
     return err("failed to setup SendProcessorChain: " & $error)
 
   let sendService = SendService(
-    brokerCtx: w.brokerCtx,
+    brokerCtx: waku.brokerCtx,
     taskCache: newSeq[DeliveryTask](),
     serviceLoopHandle: nil,
     sendProcessor: sendProcessorChain,
-    node: w,
+    waku: waku,
     checkStoreForMessages: checkStoreForMessages,
     lastStoreCheckTime: Moment.now(),
   )
@@ -127,7 +106,7 @@ proc addTask(self: SendService, task: DeliveryTask) =
   self.taskCache.addUnique(task)
 
 proc isStorePeerAvailable*(sendService: SendService): bool =
-  return sendService.node.peerManager.selectPeer(WakuStoreCodec).isSome()
+  return sendService.waku.hasStorePeer()
 
 proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.async.} =
   if tasksToValidate.len() == 0:
@@ -142,7 +121,7 @@ proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.a
   # TODO: confirm hash format for store query!!!
 
   let storeResp: StoreQueryResponse = (
-    await self.node.wakuStoreClient.queryToAny(
+    await self.waku.storeQueryToAny(
       StoreQueryRequest(includeData: false, messageHashes: hashesToValidate)
     )
   ).valueOr:
@@ -292,7 +271,7 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
   info "SendService.send: processing delivery task",
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
 
-  self.node.subscriptionManager.subscribe(task.msg.contentTopic).isOkOr:
+  self.waku.subscribe(task.msg.contentTopic).isOkOr:
     error "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 
