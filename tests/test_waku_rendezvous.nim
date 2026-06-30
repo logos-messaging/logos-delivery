@@ -22,24 +22,9 @@ procSuite "Waku Rendezvous":
   asyncTest "Simple remote test":
     let
       clusterId = 10.uint16
-      node1 = newTestWakuNode(
-        generateSecp256k1Key(),
-        parseIpAddress("0.0.0.0"),
-        Port(0),
-        clusterId = clusterId,
-      )
-      node2 = newTestWakuNode(
-        generateSecp256k1Key(),
-        parseIpAddress("0.0.0.0"),
-        Port(0),
-        clusterId = clusterId,
-      )
-      node3 = newTestWakuNode(
-        generateSecp256k1Key(),
-        parseIpAddress("0.0.0.0"),
-        Port(0),
-        clusterId = clusterId,
-      )
+      node1 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+      node2 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+      node3 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
 
     await allFutures(
       [
@@ -90,11 +75,7 @@ procSuite "Waku Rendezvous":
       configuredShards = @[RelayShard(clusterId: clusterId, shardId: 0)]
 
     let node = newTestWakuNode(
-      generateSecp256k1Key(),
-      parseIpAddress("0.0.0.0"),
-      Port(0),
-      clusterId = clusterId,
-      subscribeShards = @[0'u16],
+      generateSecp256k1Key(), clusterId = clusterId, subscribeShards = @[0'u16]
     )
 
     ## When: Node mounts rendezvous with configured shards (before relay)
@@ -122,9 +103,7 @@ procSuite "Waku Rendezvous":
         RelayShard(clusterId: clusterId, shardId: 1),
       ]
 
-    let lightClient = newTestWakuNode(
-      generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0), clusterId = clusterId
-    )
+    let lightClient = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
 
     ## When: Node mounts rendezvous with configured shards (no relay mounted)
     await lightClient.mountRendezvous(clusterId, configuredShards)

@@ -51,8 +51,8 @@ proc defaultTestWakuConf*(): WakuConf =
 
 proc newTestWakuNode*(
     nodeKey: crypto.PrivateKey,
-    bindIp: IpAddress,
-    bindPort: Port,
+    bindIp: IpAddress = parseIpAddress("0.0.0.0"),
+    bindPort: Port = Port(0),
     extIp = none(IpAddress),
     extPort = none(Port),
     extMultiAddrs = newSeq[MultiAddress](),
@@ -170,3 +170,10 @@ proc newTestWakuNode*(
   )
 
   return builder.build().get()
+
+proc boundTcpPort*(node: WakuNode): Port =
+  let ports = getPorts(node.switch.peerInfo.listenAddrs).valueOr:
+    raiseAssert "getPorts failed: " & error
+  if ports.tcpPort.isNone():
+    raiseAssert "no tcp listen address in " & $node.switch.peerInfo.listenAddrs
+  ports.tcpPort.get()

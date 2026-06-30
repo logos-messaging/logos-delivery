@@ -79,8 +79,7 @@ suite "LM API health checking":
 
   asyncSetup:
     lockNewGlobalBrokerContext:
-      serviceNode =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      serviceNode = newTestWakuNode(generateSecp256k1Key())
       (await serviceNode.mountRelay()).isOkOr:
         raiseAssert error
       serviceNode.mountMetadata(3, @[0'u16]).isOkOr:

@@ -95,8 +95,7 @@ proc setupNetwork(
   var net = TestNetwork()
 
   lockNewGlobalBrokerContext:
-    net.publisher =
-      newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+    net.publisher = newTestWakuNode(generateSecp256k1Key())
     net.publisher.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
       "Failed to mount metadata"
     )
@@ -122,8 +121,7 @@ proc setupNetwork(
 
   if mode == cli_args.WakuMode.Edge:
     lockNewGlobalBrokerContext:
-      net.meshBuddy =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      net.meshBuddy = newTestWakuNode(generateSecp256k1Key())
       net.meshBuddy.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on meshBuddy"
       )
@@ -623,8 +621,7 @@ suite "Messaging API, SubscriptionManager":
 
     var publisher: WakuNode
     lockNewGlobalBrokerContext:
-      publisher =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      publisher = newTestWakuNode(generateSecp256k1Key())
       publisher.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on publisher"
       )
@@ -642,8 +639,7 @@ suite "Messaging API, SubscriptionManager":
 
     var meshBuddy: WakuNode
     lockNewGlobalBrokerContext:
-      meshBuddy =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      meshBuddy = newTestWakuNode(generateSecp256k1Key())
       meshBuddy.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on meshBuddy"
       )
@@ -734,8 +730,7 @@ suite "Messaging API, SubscriptionManager":
 
     var publisher: WakuNode
     lockNewGlobalBrokerContext:
-      publisher =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      publisher = newTestWakuNode(generateSecp256k1Key())
       publisher.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on publisher"
       )
@@ -753,8 +748,7 @@ suite "Messaging API, SubscriptionManager":
 
     var meshBuddy: WakuNode
     lockNewGlobalBrokerContext:
-      meshBuddy =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      meshBuddy = newTestWakuNode(generateSecp256k1Key())
       meshBuddy.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on meshBuddy"
       )
@@ -772,8 +766,7 @@ suite "Messaging API, SubscriptionManager":
 
     var sparePeer: WakuNode
     lockNewGlobalBrokerContext:
-      sparePeer =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      sparePeer = newTestWakuNode(generateSecp256k1Key())
       sparePeer.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on sparePeer"
       )

@@ -63,9 +63,9 @@ suite "Peer Manager":
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
 
-    server = newTestWakuNode(serverKey, listenIp, Port(3000))
+    server = newTestWakuNode(serverKey, listenIp, Port(0))
     serverPeerStore = server.peerManager.switch.peerStore
-    client = newTestWakuNode(clientKey, listenIp, Port(3001))
+    client = newTestWakuNode(clientKey, listenIp, Port(0))
     clientPeerStore = client.peerManager.switch.peerStore
 
     await allFutures(server.start(), client.start())

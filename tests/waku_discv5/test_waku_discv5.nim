@@ -19,6 +19,7 @@ import
     waku_core/codecs,
     waku_enr,
     discovery/waku_discv5,
+    net/auto_port,
     waku_enr/capabilities,
     factory/conf_builder/conf_builder,
     waku,
@@ -179,51 +180,57 @@ suite "Waku Discovery v5":
   suite "findRandomPeers":
     proc buildNode(
         tcpPort: uint16,
-        udpPort: uint16,
         bindIp: string = "0.0.0.0",
         extIp: string = "127.0.0.1",
         indices: seq[uint64] = @[],
         recordFlags: Option[CapabilitiesBitfield] = none(CapabilitiesBitfield),
         bootstrapRecords: seq[waku_enr.Record] = @[],
-    ): (WakuDiscoveryV5, Record) {.raises: [ValueError, LPError].} =
-      let
-        privKey = generateSecp256k1Key()
-        record = newTestEnrRecord(
-          privKey = privKey,
-          extIp = extIp,
-          tcpPort = tcpPort,
-          udpPort = udpPort,
-          indices = indices,
-          flags = recordFlags,
-        )
-        node = discv5_utils.newTestDiscv5(
-          privKey = privKey,
-          bindIp = bindIp,
-          tcpPort = tcpPort,
-          udpPort = udpPort,
-          record = record,
-          bootstrapRecords = bootstrapRecords,
-        )
+    ): Future[Result[(WakuDiscoveryV5, waku_enr.Record), string]] {.async.} =
+      let privKey = generateSecp256k1Key()
+      proc attempt(
+          p: Port
+      ): Future[Result[(WakuDiscoveryV5, waku_enr.Record), string]] {.
+          async: (raises: [])
+      .} =
+        let (node, record) =
+          try:
+            let record = newTestEnrRecord(
+              privKey = privKey,
+              extIp = extIp,
+              tcpPort = tcpPort,
+              udpPort = uint16(p),
+              indices = indices,
+              flags = recordFlags,
+            )
+            (
+              discv5_utils.newTestDiscv5(
+                privKey = privKey,
+                bindIp = bindIp,
+                tcpPort = tcpPort,
+                udpPort = uint16(p),
+                record = record,
+                bootstrapRecords = bootstrapRecords,
+              ),
+              record,
+            )
+          except CatchableError as e:
+            return err("could not build discv5 node: " & e.msg)
+        (await node.start()).isOkOr:
+          return err(error)
+        ok((node, record))
 
-      (node, record)
+      return await tryWithAutoPort[(WakuDiscoveryV5, waku_enr.Record)](Port(0), attempt)
 
     asyncTest "find random peers without predicate":
       # Given 3 nodes
-      let
-        (node1, record1) = buildNode(tcpPort = 61500u16, udpPort = 9000u16)
-        (node2, record2) = buildNode(tcpPort = 61502u16, udpPort = 9002u16)
-        (node3, record3) = buildNode(
-          tcpPort = 61504u16, udpPort = 9004u16, bootstrapRecords = @[record1, record2]
-        )
-
-      let res1 = await node1.start()
-      assertResultOk res1
-
-      let res2 = await node2.start()
-      assertResultOk res2
-
-      let res3 = await node3.start()
-      assertResultOk res3
+      let (node1, record1) = (await buildNode(tcpPort = 61500u16)).valueOr:
+        raiseAssert "node1: " & error
+      let (node2, record2) = (await buildNode(tcpPort = 61502u16)).valueOr:
+        raiseAssert "node2: " & error
+      let (node3, record3) = (
+        await buildNode(tcpPort = 61504u16, bootstrapRecords = @[record1, record2])
+      ).valueOr:
+        raiseAssert "node3: " & error
 
       await sleepAsync(FUTURE_TIMEOUT)
 
@@ -254,45 +261,39 @@ suite "Waku Discovery v5":
         return capabilities.get().supportsCapability(Capabilities.Store)
 
       # Given 4 nodes
-      let
-        (node3, record3) = buildNode(
+      let (node3, record3) = (
+        await buildNode(
           tcpPort = 61504u16,
-          udpPort = 9004u16,
           recordFlags =
             some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Filter)),
         )
-        (node4, record4) = buildNode(
+      ).valueOr:
+        raiseAssert "node3: " & error
+      let (node4, record4) = (
+        await buildNode(
           tcpPort = 61506u16,
-          udpPort = 9006u16,
           recordFlags =
             some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
         )
-        (node2, record2) = buildNode(
+      ).valueOr:
+        raiseAssert "node4: " & error
+      let (node2, record2) = (
+        await buildNode(
           tcpPort = 61502u16,
-          udpPort = 9002u16,
           recordFlags =
             some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
           bootstrapRecords = @[record3, record4],
         )
-        (node1, record1) = buildNode(
+      ).valueOr:
+        raiseAssert "node2: " & error
+      let (node1, record1) = (
+        await buildNode(
           tcpPort = 61500u16,
-          udpPort = 9000u16,
           recordFlags = some(CapabilitiesBitfield.init(Capabilities.Relay)),
           bootstrapRecords = @[record2],
         )
-
-      # Start nodes' discoveryV5 protocols
-      let res1 = await node1.start()
-      assertResultOk res1
-
-      let res2 = await node2.start()
-      assertResultOk res2
-
-      let res3 = await node3.start()
-      assertResultOk res3
-
-      let res4 = await node4.start()
-      assertResultOk res4
+      ).valueOr:
+        raiseAssert "node1: " & error
 
       await sleepAsync(FUTURE_TIMEOUT)
 
@@ -312,46 +313,40 @@ suite "Waku Discovery v5":
 
       ## Setup
       # Records
-      let
-        (node3, record3) = buildNode(
+      let (node3, record3) = (
+        await buildNode(
           tcpPort = 61504u16,
-          udpPort = 9004u16,
           recordFlags =
             some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Filter)),
         )
-        (node4, record4) = buildNode(
+      ).valueOr:
+        raiseAssert "node3: " & error
+      let (node4, record4) = (
+        await buildNode(
           tcpPort = 61506u16,
-          udpPort = 9006u16,
           recordFlags =
             some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
         )
-        (node2, record2) = buildNode(
+      ).valueOr:
+        raiseAssert "node4: " & error
+      let (node2, record2) = (
+        await buildNode(
           tcpPort = 61502u16,
-          udpPort = 9002u16,
           recordFlags =
             some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
           bootstrapRecords = @[record3, record4],
         )
-      let (node1, record1) = buildNode(
-        tcpPort = 61500u16,
-        udpPort = 9000u16,
-        recordFlags = some(CapabilitiesBitfield.init(Capabilities.Relay)),
-        indices = @[0u64, 0u64, 1u64, 0u64, 0u64],
-        bootstrapRecords = @[record2],
-      )
-
-      # Start nodes' discoveryV5 protocols
-      let res1 = await node1.start()
-      assertResultOk res1
-
-      let res2 = await node2.start()
-      assertResultOk res2
-
-      let res3 = await node3.start()
-      assertResultOk res3
-
-      let res4 = await node4.start()
-      assertResultOk res4
+      ).valueOr:
+        raiseAssert "node2: " & error
+      let (node1, record1) = (
+        await buildNode(
+          tcpPort = 61500u16,
+          recordFlags = some(CapabilitiesBitfield.init(Capabilities.Relay)),
+          indices = @[0u64, 0u64, 1u64, 0u64, 0u64],
+          bootstrapRecords = @[record2],
+        )
+      ).valueOr:
+        raiseAssert "node1: " & error
 
       ## leave some time for discv5 to act
       await sleepAsync(chronos.seconds(10))
@@ -425,7 +420,7 @@ suite "Waku Discovery v5":
 
       confBuilder.withNodeKey(libp2p_keys.PrivateKey.random(Secp256k1, myRng)[])
       confBuilder.discv5Conf.withEnabled(true)
-      confBuilder.discv5Conf.withUdpPort(9000.Port)
+      confBuilder.discv5Conf.withUdpPort(Port(0))
       let conf = confBuilder.build().valueOr:
         raiseAssert error
 
@@ -437,8 +432,8 @@ suite "Waku Discovery v5":
       confBuilder.withNodeKey(crypto.PrivateKey.random(Secp256k1, myRng)[])
       confBuilder.discv5Conf.withBootstrapNodes(@[waku0.node.enr.toURI()])
       confBuilder.discv5Conf.withEnabled(true)
-      confBuilder.discv5Conf.withUdpPort(9001.Port)
-      confBuilder.withP2pTcpPort(60001.Port)
+      confBuilder.discv5Conf.withUdpPort(Port(0))
+      confBuilder.withP2pTcpPort(Port(0))
 
       let conf1 = confBuilder.build().valueOr:
         raiseAssert error
@@ -452,8 +447,8 @@ suite "Waku Discovery v5":
       await waku1.node.mountRendezvous(conf.clusterId)
 
       confBuilder.discv5Conf.withBootstrapNodes(@[waku1.node.enr.toURI()])
-      confBuilder.withP2pTcpPort(60003.Port)
-      confBuilder.discv5Conf.withUdpPort(9003.Port)
+      confBuilder.withP2pTcpPort(Port(0))
+      confBuilder.discv5Conf.withUdpPort(Port(0))
       confBuilder.withNodeKey(crypto.PrivateKey.random(Secp256k1, myRng)[])
 
       let conf2 = confBuilder.build().valueOr:

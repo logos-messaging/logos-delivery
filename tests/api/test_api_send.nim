@@ -152,8 +152,7 @@ suite "Waku API - Send":
 
   asyncSetup:
     lockNewGlobalBrokerContext:
-      relayNode1 =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      relayNode1 = newTestWakuNode(generateSecp256k1Key())
       relayNode1.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await relayNode1.mountRelay()).isOkOr:
@@ -162,8 +161,7 @@ suite "Waku API - Send":
       await relayNode1.start()
 
     lockNewGlobalBrokerContext:
-      relayNode2 =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      relayNode2 = newTestWakuNode(generateSecp256k1Key())
       relayNode2.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await relayNode2.mountRelay()).isOkOr:
@@ -172,8 +170,7 @@ suite "Waku API - Send":
       await relayNode2.start()
 
     lockNewGlobalBrokerContext:
-      lightpushNode =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      lightpushNode = newTestWakuNode(generateSecp256k1Key())
       lightpushNode.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await lightpushNode.mountRelay()).isOkOr:
@@ -184,8 +181,7 @@ suite "Waku API - Send":
       await lightpushNode.start()
 
     lockNewGlobalBrokerContext:
-      storeNode =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      storeNode = newTestWakuNode(generateSecp256k1Key())
       storeNode.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await storeNode.mountRelay()).isOkOr:
@@ -461,8 +457,7 @@ suite "Waku API - Send":
   asyncTest "Send fails with event":
     var fakeLightpushNode: WakuNode
     lockNewGlobalBrokerContext:
-      fakeLightpushNode =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      fakeLightpushNode = newTestWakuNode(generateSecp256k1Key())
       fakeLightpushNode.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await fakeLightpushNode.mountRelay()).isOkOr:
@@ -519,8 +514,7 @@ suite "Waku API - Send":
     ## missing Sent event is the signal that delivery could not be validated.
     var isolatedStoreNode: WakuNode
     lockNewGlobalBrokerContext:
-      isolatedStoreNode =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      isolatedStoreNode = newTestWakuNode(generateSecp256k1Key())
       isolatedStoreNode.mountMetadata(3, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await isolatedStoreNode.mountRelay()).isOkOr:
