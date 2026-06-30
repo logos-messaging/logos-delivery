@@ -7,16 +7,7 @@ import chronos, chronicles, libp2p/utility
 import brokers/broker_context
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
-  logos_delivery/waku/[
-    waku_core,
-    node/waku_node,
-    node/peer_manager,
-    waku_store/common,
-    waku_relay/protocol,
-    rln/rln,
-    waku_lightpush/client,
-    waku_lightpush/callbacks,
-  ],
+  logos_delivery/waku/[waku_core, waku_store/common],
   logos_delivery/waku/waku,
   logos_delivery/waku/api/[store, subscriptions, publish]
 import logos_delivery/api/messaging_client_api
@@ -62,11 +53,7 @@ type SendService* = ref object of RootObj
   lastStoreCheckTime: Moment ## throttles store validation queries to ArchiveTime cadence
 
 proc setupSendProcessorChain(
-    peerManager: PeerManager,
-    lightpushClient: WakuLightPushClient,
-    relay: WakuRelay,
-    rlnRelay: Rln,
-    brokerCtx: BrokerContext,
+    waku: Waku, brokerCtx: BrokerContext
 ): Result[BaseSendProcessor, string] =
   let isRelayAvail = waku.hasRelay()
   let isLightPushAvail = waku.hasLightpush()
@@ -77,13 +64,7 @@ proc setupSendProcessorChain(
   var processors = newSeq[BaseSendProcessor]()
 
   if isRelayAvail:
-    let rln: Option[Rln] =
-      if rlnRelay.isNil():
-        none[Rln]()
-      else:
-        some(rlnRelay)
-    let publishProc = getRelayPushHandler(relay, rln)
-
+    let publishProc = waku.relayPushHandler()
     processors.add(RelaySendProcessor.new(isLightPushAvail, publishProc, brokerCtx))
   if isLightPushAvail:
     processors.add(LightpushSendProcessor.new(waku, brokerCtx))
@@ -106,9 +87,7 @@ proc new*(
 
   let checkStoreForMessages = preferP2PReliability and waku.isStoreMounted()
 
-  let sendProcessorChain = setupSendProcessorChain(
-    w.peerManager, w.wakuLightPushClient, w.wakuRelay, w.rln, w.brokerCtx
-  ).valueOr:
+  let sendProcessorChain = setupSendProcessorChain(waku, waku.brokerCtx).valueOr:
     return err("failed to setup SendProcessorChain: " & $error)
 
   let sendService = SendService(
