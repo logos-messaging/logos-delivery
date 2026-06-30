@@ -563,8 +563,10 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     if not waku.healthMonitor.isNil():
       await waku.healthMonitor.stopHealthMonitor()
 
-    ## Clear RequestConnectionStatus provider
+    ## Clear all providers registered in start() so a later start() can re-set them.
     RequestConnectionStatus.clearProvider(waku.brokerCtx)
+    RequestProtocolHealth.clearProvider(waku.brokerCtx)
+    RequestHealthReport.clearProvider(waku.brokerCtx)
 
     if not waku.restServer.isNil():
       await waku.restServer.stop()
