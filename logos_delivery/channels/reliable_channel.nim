@@ -32,8 +32,8 @@ import ./rate_limit_manager/rate_limit_manager
 import ./encryption/encryption
 
 export
-  types, reliable_channel_manager_api, send_service, segmentation,
-  scalable_data_sync, rate_limit_manager, encryption
+  types, reliable_channel_manager_api, send_service, segmentation, scalable_data_sync,
+  rate_limit_manager, encryption
 
 const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
   ## Wire-format spec marker for the Reliable Channel layer, as defined

@@ -122,7 +122,9 @@ proc waku_relay_publish(
     return err("Problem building the WakuMessage: " & $error)
 
   let msgHash = (
-    await ctx.myLib[].waku.relayPublish(PubsubTopic($pubSubTopic), msg, uint32(timeoutMs))
+    await ctx.myLib[].waku.relayPublish(
+      PubsubTopic($pubSubTopic), msg, uint32(timeoutMs)
+    )
   ).valueOr:
     error "PUBLISH failed", error = error
     return err(error)
