@@ -97,14 +97,10 @@ suite "Waku Peer Exchange":
 
     asyncTest "Request returns some discovered peers":
       let
-        node1 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node2 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node3 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node4 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node1 = newTestWakuNode(generateSecp256k1Key())
+        node2 = newTestWakuNode(generateSecp256k1Key())
+        node3 = newTestWakuNode(generateSecp256k1Key())
+        node4 = newTestWakuNode(generateSecp256k1Key())
 
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start(), node3.start(), node4.start()])
@@ -154,10 +150,8 @@ suite "Waku Peer Exchange":
 
     asyncTest "Request fails gracefully":
       let
-        node1 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node2 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node1 = newTestWakuNode(generateSecp256k1Key())
+        node2 = newTestWakuNode(generateSecp256k1Key())
 
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start()])
@@ -231,12 +225,9 @@ suite "Waku Peer Exchange":
     asyncTest "Request 0 peers, with 1 peer in PeerExchange":
       # Given two valid nodes with PeerExchange
       let
-        node1 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node2 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node3 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node1 = newTestWakuNode(generateSecp256k1Key())
+        node2 = newTestWakuNode(generateSecp256k1Key())
+        node3 = newTestWakuNode(generateSecp256k1Key())
 
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start(), node3.start()])
@@ -263,10 +254,8 @@ suite "Waku Peer Exchange":
     asyncTest "Request with invalid peer info":
       # Given two valid nodes with PeerExchange
       let
-        node1 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node2 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node1 = newTestWakuNode(generateSecp256k1Key())
+        node2 = newTestWakuNode(generateSecp256k1Key())
 
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start()])
@@ -284,9 +273,7 @@ suite "Waku Peer Exchange":
 
     asyncTest "Connections are closed after response is sent":
       # Create 3 nodes
-      let nodes = toSeq(0 ..< 3).mapIt(
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        )
+      let nodes = toSeq(0 ..< 3).mapIt(newTestWakuNode(generateSecp256k1Key()))
 
       await allFutures(nodes.mapIt(it.start()))
       await allFutures(nodes.mapIt(it.mountPeerExchange()))
@@ -311,12 +298,9 @@ suite "Waku Peer Exchange":
   suite "Protocol Handler":
     asyncTest "Works as expected":
       let
-        node1 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node2 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node3 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node1 = newTestWakuNode(generateSecp256k1Key())
+        node2 = newTestWakuNode(generateSecp256k1Key())
+        node3 = newTestWakuNode(generateSecp256k1Key())
 
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start(), node3.start()])
@@ -353,12 +337,9 @@ suite "Waku Peer Exchange":
 
     asyncTest "RateLimit as expected":
       let
-        node1 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node2 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-        node3 =
-          newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+        node1 = newTestWakuNode(generateSecp256k1Key())
+        node2 = newTestWakuNode(generateSecp256k1Key())
+        node3 = newTestWakuNode(generateSecp256k1Key())
 
       # Start and mount peer exchange
       await allFutures([node1.start(), node2.start(), node3.start()])

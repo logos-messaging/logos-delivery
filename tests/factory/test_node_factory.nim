@@ -171,7 +171,7 @@ suite "Auto-port retry":
       discard
 
     let nodeKey = generateSecp256k1Key()
-    let node = newTestWakuNode(nodeKey, parseIpAddress("0.0.0.0"), Port(0))
+    let node = newTestWakuNode(nodeKey)
     await node.start()
     defer:
       await node.stop()

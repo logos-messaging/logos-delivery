@@ -8,7 +8,6 @@ import
   chronos,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/protocols/connectivity/relay/client,
-  libp2p/wire,
   libp2p/crypto/crypto,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/ping,
@@ -250,29 +249,6 @@ proc new*(
   waku.setupSwitchServices(wakuConf, relay, rng)
 
   ok(waku)
-
-proc getPorts(
-    listenAddrs: seq[MultiAddress]
-): Result[tuple[tcpPort, websocketPort, quicPort: Option[Port]], string] =
-  var tcpPort, websocketPort, quicPort = none(Port)
-
-  for a in listenAddrs:
-    if a.isWsAddress():
-      if websocketPort.isNone():
-        let wsAddress = initTAddress(a).valueOr:
-          return err("getPorts wsAddr error:" & $error)
-        websocketPort = some(wsAddress.port)
-    elif a.isQuicAddress():
-      if quicPort.isNone():
-        let quicAddress = initTAddress(a).valueOr:
-          return err("getPorts quicAddr error:" & $error)
-        quicPort = some(quicAddress.port)
-    elif tcpPort.isNone():
-      let tcpAddress = initTAddress(a).valueOr:
-        return err("getPorts tcpAddr error:" & $error)
-      tcpPort = some(tcpAddress.port)
-
-  return ok((tcpPort: tcpPort, websocketPort: websocketPort, quicPort: quicPort))
 
 proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.} =
   let conf = waku.conf

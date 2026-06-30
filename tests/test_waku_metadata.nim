@@ -29,18 +29,8 @@ procSuite "Waku Metadata Protocol":
   asyncTest "request() returns the supported metadata of the peer":
     let clusterId = 10.uint16
     let
-      node1 = newTestWakuNode(
-        generateSecp256k1Key(),
-        parseIpAddress("0.0.0.0"),
-        Port(0),
-        clusterId = clusterId,
-      )
-      node2 = newTestWakuNode(
-        generateSecp256k1Key(),
-        parseIpAddress("0.0.0.0"),
-        Port(0),
-        clusterId = clusterId,
-      )
+      node1 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
+      node2 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
 
     # Mount metadata protocol on both nodes before starting
     discard node1.mountMetadata(clusterId, @[])
@@ -89,15 +79,9 @@ procSuite "Waku Metadata Protocol":
       configuredShards = @[uint16(0), uint16(1)]
 
     let node1 = newTestWakuNode(
-      generateSecp256k1Key(),
-      parseIpAddress("0.0.0.0"),
-      Port(0),
-      clusterId = clusterId,
-      subscribeShards = configuredShards,
+      generateSecp256k1Key(), clusterId = clusterId, subscribeShards = configuredShards
     )
-    let node2 = newTestWakuNode(
-      generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0), clusterId = clusterId
-    )
+    let node2 = newTestWakuNode(generateSecp256k1Key(), clusterId = clusterId)
 
     # Mount metadata with configured shards on node1
     discard node1.mountMetadata(clusterId, configuredShards)

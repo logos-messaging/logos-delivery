@@ -1,7 +1,9 @@
 {.push raises: [].}
 
 import
-  std/[options, sequtils, strutils, net], results, libp2p/[multiaddress, multicodec]
+  std/[options, sequtils, strutils, net],
+  results,
+  libp2p/[multiaddress, multicodec, wire]
 import ../../waku/waku_core/peers
 import ../waku_enr
 
@@ -76,6 +78,29 @@ proc isQuicAddress*(ma: MultiAddress): bool =
 
 proc isP2pTcpAddress*(ma: MultiAddress): bool =
   return ma.hasProtocol("tcp") and not ma.isWsAddress()
+
+proc getPorts*(
+    listenAddrs: seq[MultiAddress]
+): Result[tuple[tcpPort, websocketPort, quicPort: Option[Port]], string] =
+  var tcpPort, websocketPort, quicPort = none(Port)
+
+  for a in listenAddrs:
+    if a.isWsAddress():
+      if websocketPort.isNone():
+        let wsAddress = initTAddress(a).valueOr:
+          return err("getPorts wsAddr error:" & $error)
+        websocketPort = some(wsAddress.port)
+    elif a.isQuicAddress():
+      if quicPort.isNone():
+        let quicAddress = initTAddress(a).valueOr:
+          return err("getPorts quicAddr error:" & $error)
+        quicPort = some(quicAddress.port)
+    elif tcpPort.isNone():
+      let tcpAddress = initTAddress(a).valueOr:
+        return err("getPorts tcpAddr error:" & $error)
+      tcpPort = some(tcpAddress.port)
+
+  return ok((tcpPort: tcpPort, websocketPort: websocketPort, quicPort: quicPort))
 
 proc containsWsAddress(extMultiAddrs: seq[MultiAddress]): bool =
   return extMultiAddrs.filterIt(it.isWsAddress()).len > 0

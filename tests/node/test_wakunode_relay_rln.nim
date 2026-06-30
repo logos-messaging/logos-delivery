@@ -116,8 +116,8 @@ suite "Waku RlnRelay - End to End - Static":
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
 
-    server = newTestWakuNode(serverKey, parseIpAddress("0.0.0.0"), Port(0))
-    client = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(0))
+    server = newTestWakuNode(serverKey)
+    client = newTestWakuNode(clientKey)
 
     await allFutures(server.start(), client.start())
 
@@ -198,7 +198,7 @@ suite "Waku RlnRelay - End to End - Static":
     asyncTest "rln-relay-max-message-limit testing":
       let
         nodekey = generateSecp256k1Key()
-        node = newTestWakuNode(nodekey, parseIpAddress("0.0.0.0"), Port(0))
+        node = newTestWakuNode(nodekey)
 
       await node.mountRelay(@[DefaultRelayShard])
 
@@ -384,8 +384,8 @@ suite "Waku RlnRelay - End to End - OnChain":
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
 
-    server = newTestWakuNode(serverKey, parseIpAddress("0.0.0.0"), Port(0))
-    client = newTestWakuNode(clientKey, parseIpAddress("0.0.0.0"), Port(0))
+    server = newTestWakuNode(serverKey)
+    client = newTestWakuNode(clientKey)
 
     await allFutures(server.start(), client.start())
 

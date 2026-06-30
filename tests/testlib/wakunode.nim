@@ -3,7 +3,6 @@ import
   results,
   chronos,
   libp2p/switch,
-  libp2p/wire,
   libp2p/builders,
   libp2p/nameresolving/nameresolver,
   libp2p/crypto/crypto as libp2p_keys,
@@ -52,8 +51,8 @@ proc defaultTestWakuConf*(): WakuConf =
 
 proc newTestWakuNode*(
     nodeKey: crypto.PrivateKey,
-    bindIp: IpAddress,
-    bindPort: Port,
+    bindIp: IpAddress = parseIpAddress("0.0.0.0"),
+    bindPort: Port = Port(0),
     extIp = none(IpAddress),
     extPort = none(Port),
     extMultiAddrs = newSeq[MultiAddress](),
@@ -173,7 +172,8 @@ proc newTestWakuNode*(
   return builder.build().get()
 
 proc boundTcpPort*(node: WakuNode): Port =
-  for a in node.switch.peerInfo.listenAddrs:
-    if a.isP2pTcpAddress():
-      return initTAddress(a).get().port
-  raiseAssert "no tcp listen address in " & $node.switch.peerInfo.listenAddrs
+  let ports = getPorts(node.switch.peerInfo.listenAddrs).valueOr:
+    raiseAssert "getPorts failed: " & error
+  if ports.tcpPort.isNone():
+    raiseAssert "no tcp listen address in " & $node.switch.peerInfo.listenAddrs
+  ports.tcpPort.get()

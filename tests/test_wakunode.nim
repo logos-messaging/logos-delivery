@@ -27,9 +27,9 @@ suite "WakuNode":
   asyncTest "Protocol matcher works as expected":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
       shard = DefaultRelayShard
       contentTopic = ContentTopic("/waku/2/default-content/proto")
       payload = "hello world".toBytes()
@@ -94,11 +94,9 @@ suite "WakuNode":
 
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(
-        nodeKey1, parseIpAddress("0.0.0.0"), Port(0), nameResolver = resolver
-      )
+      node1 = newTestWakuNode(nodeKey1, nameResolver = resolver)
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
 
     (await node1.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
@@ -172,8 +170,6 @@ suite "WakuNode":
       # gibberish
       discard newTestWakuNode(
         nodeKey1,
-        parseIpAddress("0.0.0.0"),
-        bindPort = Port(0),
         wsBindPort = Port(8000),
         wssEnabled = true,
         secureKey = "../../waku/node/key_dummy.txt",
@@ -248,8 +244,7 @@ suite "WakuNode":
   test "toRemotePeerInfo sorts quic-v1 addresses first":
     let
       nodeKey = generateSecp256k1Key()
-      node =
-        newTestWakuNode(nodeKey, parseIpAddress("0.0.0.0"), Port(0), quicEnabled = true)
+      node = newTestWakuNode(nodeKey, quicEnabled = true)
 
     # peerinfo path
     let fromPeerInfo = node.switch.peerInfo.toRemotePeerInfo()
@@ -267,13 +262,9 @@ suite "WakuNode":
   asyncTest "Dual-stack nodes connect over QUIC":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(
-        nodeKey1, parseIpAddress("0.0.0.0"), Port(0), quicEnabled = true
-      )
+      node1 = newTestWakuNode(nodeKey1, quicEnabled = true)
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(
-        nodeKey2, parseIpAddress("0.0.0.0"), Port(0), quicEnabled = true
-      )
+      node2 = newTestWakuNode(nodeKey2, quicEnabled = true)
 
     await allFutures(node1.start(), node2.start())
 
@@ -375,16 +366,11 @@ suite "WakuNode":
     let
       # node with custom agent string
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(
-        nodeKey1,
-        parseIpAddress("0.0.0.0"),
-        Port(0),
-        agentString = some(expectedAgentString1),
-      )
+      node1 = newTestWakuNode(nodeKey1, agentString = some(expectedAgentString1))
 
       # node with default agent string from libp2p
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
 
     await node1.start()
     (await node1.mountRelay()).isOkOr:
@@ -418,16 +404,11 @@ suite "WakuNode":
     let
       # node with custom multiaddress
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(
-        nodeKey1,
-        parseIpAddress("0.0.0.0"),
-        Port(0),
-        extMultiAddrs = @[expectedMultiaddress1],
-      )
+      node1 = newTestWakuNode(nodeKey1, extMultiAddrs = @[expectedMultiaddress1])
 
       # node with default multiaddress
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
 
     await node1.start()
     (await node1.mountRelay()).isOkOr:

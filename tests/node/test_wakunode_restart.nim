@@ -11,10 +11,8 @@ suite "WakuNode - restart (#3979)":
   asyncTest "start -> stop -> start re-opens the listener promptly":
     ## A restart must not block on the relay-reconnect backoff.
     let
-      node1 =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      node2 =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(generateSecp256k1Key())
+      node2 = newTestWakuNode(generateSecp256k1Key())
 
     (await node1.mountRelay()).isOkOr:
       raiseAssert "mountRelay node1: " & error
