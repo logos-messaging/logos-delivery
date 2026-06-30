@@ -18,7 +18,7 @@ import
     node/waku_node,
     node/peer_manager,
     waku_relay/protocol,
-    waku_rln_relay/rln_relay,
+    rln,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/client,
@@ -41,10 +41,10 @@ proc relayPushHandler*(self: Waku): PushMessageHandler =
   ## Builds the relay publish handler (appending an RLN proof when RLN is
   ## mounted) used by the send pipeline. Caller ensures relay is mounted.
   let rln =
-    if self.node.wakuRlnRelay.isNil():
-      none[WakuRLNRelay]()
+    if self.node.rln.isNil():
+      none[Rln]()
     else:
-      some(self.node.wakuRlnRelay)
+      some(self.node.rln)
   return getRelayPushHandler(self.node.wakuRelay, rln)
 
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
