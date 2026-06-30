@@ -9,11 +9,12 @@ import
   libp2p/protocols/pubsub,
   libp2p/protocols/pubsub/rpc/messages,
   logos_delivery/api/types,
+  logos_delivery/api/logos_delivery_api, # EventConnectionStatusChange
   logos_delivery/waku/[
     waku_relay,
+    api/events/health_events,
+    api/events/peer_events,
     rln,
-    events/health_events,
-    events/peer_events,
     node/waku_node,
     node/node_telemetry,
     node/peer_manager,

@@ -14,8 +14,7 @@ import
   logos_delivery/waku/[
     waku_node,
     waku_core,
-    events/message_events,
-    events/health_events,
+    api/events/health_events,
     waku_relay/protocol,
     waku_archive,
     waku_archive/common as archive_common,

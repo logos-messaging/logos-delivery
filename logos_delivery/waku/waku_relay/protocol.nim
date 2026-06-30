@@ -24,9 +24,9 @@ import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/node/health_monitor/topic_health,
   logos_delivery/waku/requests/health_requests,
-  logos_delivery/waku/events/health_events,
+  logos_delivery/waku/api/events/health_events,
   ./message_id,
-  logos_delivery/waku/events/peer_events
+  logos_delivery/waku/api/events/peer_events
 
 from logos_delivery/waku/waku_core/codecs import WakuRelayCodec
 export WakuRelayCodec

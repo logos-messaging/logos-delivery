@@ -1,53 +1,46 @@
-import std/json
-import
-  chronicles,
-  chronos,
-  results,
-  eth/p2p/discoveryv5/enr,
-  strutils,
-  libp2p/peerid,
-  metrics,
-  ffi
-import
-  logos_delivery/waku/waku,
-  logos_delivery/waku/node/waku_node,
-  logos_delivery/waku/node/health_monitor,
-  library/declare_lib
-
-proc getMultiaddresses(node: WakuNode): seq[string] =
-  return node.info().listenAddresses
-
-proc getMetrics(): string =
-  {.gcsafe.}:
-    return defaultRegistry.toText() ## defaultRegistry is {.global.} in metrics module
+import std/strutils
+import chronos, results, ffi
+import logos_delivery, library/declare_lib
 
 proc waku_version(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
-  return ok(WakuNodeVersionString)
+  let v = (await ctx.myLib[].waku.version()).valueOr:
+    return err(error)
+  return ok(v)
 
 proc waku_listen_addresses(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
   ## returns a comma-separated string of the listen addresses
-  return ok(ctx.myLib[].waku.node.getMultiaddresses().join(","))
+  let addrs = (await ctx.myLib[].waku.listenAddresses()).valueOr:
+    return err(error)
+  return ok(addrs.join(","))
 
 proc waku_get_my_enr(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
-  return ok(ctx.myLib[].waku.node.enr.toURI())
+  let enrUri = (await ctx.myLib[].waku.myEnr()).valueOr:
+    return err(error)
+  return ok(enrUri)
 
 proc waku_get_my_peerid(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
-  return ok($ctx.myLib[].waku.node.peerId())
+  let peerId = (await ctx.myLib[].waku.myPeerId()).valueOr:
+    return err(error)
+  return ok(peerId)
 
 proc waku_get_metrics(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
-  return ok(getMetrics())
+  let m = (await ctx.myLib[].waku.metrics()).valueOr:
+    return err(error)
+  return ok(m)
 
 proc waku_is_online(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.ffi.} =
-  return ok($ctx.myLib[].waku.healthMonitor.onlineMonitor.amIOnline())
+  let online = (await ctx.myLib[].waku.isOnline()).valueOr:
+    return err(error)
+  return ok($online)
