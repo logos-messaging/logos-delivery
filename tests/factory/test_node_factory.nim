@@ -156,10 +156,10 @@ suite "Auto-port retry":
       b.withHttpPort(port)
       b.build().value.get()
 
-    let failRes = await startMetricsServerAndLogging(buildMetricsConf(takenPort), 0'u16)
+    let failRes = await startMetricsServerAndLogging(buildMetricsConf(takenPort))
     check failRes.isErr()
 
-    let okRes = await startMetricsServerAndLogging(buildMetricsConf(freePort), 0'u16)
+    let okRes = await startMetricsServerAndLogging(buildMetricsConf(freePort))
     check okRes.isOk()
     if okRes.isOk():
       await okRes.get().server.close()
@@ -204,7 +204,6 @@ suite "Auto-port retry":
       node.rng,
       nodeKey,
       parseIpAddress("0.0.0.0"),
-      0'u16,
     )
     check failRes.isErr()
 
@@ -217,7 +216,6 @@ suite "Auto-port retry":
       node.rng,
       nodeKey,
       parseIpAddress("0.0.0.0"),
-      0'u16,
     )
     check okRes.isOk()
     if okRes.isOk():

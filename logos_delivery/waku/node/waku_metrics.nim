@@ -86,13 +86,9 @@ proc startMetricsServer(
   return ok(started)
 
 proc startMetricsServerAndLogging*(
-    conf: MetricsServerConf, portsShift: uint16
+    conf: MetricsServerConf
 ): Future[Result[StartedMetricsServer, string]] {.async.} =
-  let started = (
-    await (
-      startMetricsServer(conf.httpAddress, Port(conf.httpPort.uint16 + portsShift))
-    )
-  ).valueOr:
+  let started = (await (startMetricsServer(conf.httpAddress, conf.httpPort))).valueOr:
     return err("Starting metrics server failed. Continuing in current state:" & $error)
 
   if conf.logging:

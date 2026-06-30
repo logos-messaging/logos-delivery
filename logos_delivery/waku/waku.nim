@@ -214,7 +214,7 @@ proc new*(
   let restServer: WakuRestServerRef =
     if wakuConf.restServerConf.isSome():
       let restServer = startRestServerEssentials(
-        healthMonitor, wakuConf.restServerConf.get(), wakuConf.portsShift
+        healthMonitor, wakuConf.restServerConf.get()
       ).valueOr:
         error "Starting essential REST server failed", error = $error
         return err("Failed to start essential REST server in Waku.new: " & $error)
@@ -290,11 +290,11 @@ proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.
   if quicPort.isSome() and conf.quicConf.isSome():
     conf.quicConf.get().port = quicPort.get()
 
-  # Rebuild NetConfig with bound port values
+  # Rebuild NetConfig from the bound ports already read back into `conf`.
   let netConf = (
     await networkConfiguration(
       conf.clusterId, conf.endpointConf, conf.discv5Conf, conf.webSocketConf,
-      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, conf.portsShift, clientId,
+      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, clientId,
     )
   ).valueOr:
     return err("Could not update NetConfig: " & error)
@@ -443,7 +443,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
         waku.rng,
         conf.nodeKey,
         conf.endpointConf.p2pListenAddress,
-        conf.portsShift,
       )
     ).valueOr:
       return err("failed to start waku discovery v5: " & error)
@@ -525,9 +524,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if conf.metricsServerConf.isSome():
     try:
       let (server, port) = (
-        await waku_metrics.startMetricsServerAndLogging(
-          conf.metricsServerConf.get(), conf.portsShift
-        )
+        await waku_metrics.startMetricsServerAndLogging(conf.metricsServerConf.get())
       ).valueOr:
         return err("Starting monitoring and external interfaces failed: " & error)
       waku.metricsServer = server
