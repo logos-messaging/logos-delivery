@@ -44,7 +44,7 @@ procSuite "WakuNode - RLN relay":
     # set up three nodes
     lockNewGlobalBrokerContext:
       let nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
       (await node1.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
 
@@ -68,7 +68,7 @@ procSuite "WakuNode - RLN relay":
     lockNewGlobalBrokerContext:
       # Relay node
       let nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
 
       (await node2.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
@@ -86,7 +86,7 @@ procSuite "WakuNode - RLN relay":
     lockNewGlobalBrokerContext:
       # Subscriber
       let nodeKey3 = generateSecp256k1Key()
-      node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      node3 = newTestWakuNode(nodeKey3)
 
       (await node3.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
@@ -160,7 +160,7 @@ procSuite "WakuNode - RLN relay":
     var node1, node2, node3: WakuNode
     lockNewGlobalBrokerContext:
       let nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
       (await node1.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
       let wakuRlnConfig1 =
@@ -177,7 +177,7 @@ procSuite "WakuNode - RLN relay":
       info "Updated root for node", node = 1, rootUpdated = rootUpdated1
     lockNewGlobalBrokerContext:
       let nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
       (await node2.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
       let wakuRlnConfig2 =
@@ -194,7 +194,7 @@ procSuite "WakuNode - RLN relay":
       info "Updated root for node", node = 2, rootUpdated = rootUpdated2
     lockNewGlobalBrokerContext:
       let nodeKey3 = generateSecp256k1Key()
-      node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      node3 = newTestWakuNode(nodeKey3)
       (await node3.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
       let wakuRlnConfig3 =
@@ -307,7 +307,7 @@ procSuite "WakuNode - RLN relay":
     lockNewGlobalBrokerContext:
       # publisher node
       let nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
       (await node1.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
 
@@ -329,7 +329,7 @@ procSuite "WakuNode - RLN relay":
     lockNewGlobalBrokerContext:
       # Relay node
       let nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
       (await node2.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
       # mount rlnrelay in off-chain mode
@@ -345,7 +345,7 @@ procSuite "WakuNode - RLN relay":
     lockNewGlobalBrokerContext:
       # Subscriber
       let nodeKey3 = generateSecp256k1Key()
-      node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      node3 = newTestWakuNode(nodeKey3)
       (await node3.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
 
@@ -418,7 +418,7 @@ procSuite "WakuNode - RLN relay":
     lockNewGlobalBrokerContext:
       # publisher node
       let nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
       (await node1.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
 
@@ -441,7 +441,7 @@ procSuite "WakuNode - RLN relay":
     lockNewGlobalBrokerContext:
       # Relay node
       let nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
       (await node2.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
 
@@ -459,7 +459,7 @@ procSuite "WakuNode - RLN relay":
     lockNewGlobalBrokerContext:
       # Subscriber
       let nodeKey3 = generateSecp256k1Key()
-      node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      node3 = newTestWakuNode(nodeKey3)
       (await node3.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
 
@@ -590,7 +590,7 @@ procSuite "WakuNode - RLN relay":
       epochSizeSec: uint64 = 5 # This means rlnMaxEpochGap = 4
     lockNewGlobalBrokerContext:
       let nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
       (await node1.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
       let wakuRlnConfig1 =
@@ -609,7 +609,7 @@ procSuite "WakuNode - RLN relay":
       info "Updated root for node1", rootUpdated1
     lockNewGlobalBrokerContext:
       let nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
       (await node2.mountRelay()).isOkOr:
         assert false, "Failed to mount relay"
       let wakuRlnConfig2 =

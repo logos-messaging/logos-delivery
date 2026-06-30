@@ -2257,12 +2257,9 @@ suite "Waku Filter - End to End":
       contentTopic = DefaultContentTopic
       contentTopicSeq = @[contentTopic]
 
-      client =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(23450))
-      server =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(23451))
-      client2nd =
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(23452))
+      client = newTestWakuNode(generateSecp256k1Key())
+      server = newTestWakuNode(generateSecp256k1Key())
+      client2nd = newTestWakuNode(generateSecp256k1Key())
 
       await allFutures(server.start(), client.start(), client2nd.start())
 

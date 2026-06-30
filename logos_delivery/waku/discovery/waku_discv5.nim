@@ -413,7 +413,6 @@ proc setupDiscoveryV5*(
     rng: crypto.Rng,
     key: crypto.PrivateKey,
     p2pListenAddress: IpAddress,
-    portsShift: uint16,
 ): Result[WakuDiscoveryV5, string] =
   ## Public only for testing. Callers should use `setupAndStartDiscv5`, which
   ## additionally handles `udpPort == 0` via auto-port retry.
@@ -443,7 +442,7 @@ proc setupDiscoveryV5*(
   let discv5Config =
     DiscoveryConfig.init(conf.tableIpLimit, conf.bucketIpLimit, conf.bitsPerHop)
 
-  let discv5UdpPort = Port(uint16(conf.udpPort) + portsShift)
+  let discv5UdpPort = conf.udpPort
 
   let discv5Conf = WakuDiscoveryV5Config(
     discv5Config: some(discv5Config),
@@ -469,7 +468,6 @@ proc setupAndStartDiscv5*(
     rng: crypto.Rng,
     key: crypto.PrivateKey,
     p2pListenAddress: IpAddress,
-    portsShift: uint16,
 ): Future[Result[WakuDiscoveryV5, string]] {.async: (raises: []).} =
   ## Construct and start a `WakuDiscoveryV5` instance, handling auto-port
   ## retry when the caller asks for `udpPort == 0`.
@@ -480,7 +478,7 @@ proc setupAndStartDiscv5*(
     c.udpPort = port
     let wd = setupDiscoveryV5(
       myENR, nodePeerManager, nodeTopicSubscriptionQueue, c, dynamicBootstrapNodes, rng,
-      key, p2pListenAddress, portsShift,
+      key, p2pListenAddress,
     ).valueOr:
       return err(error)
     let startRes = await wd.start()

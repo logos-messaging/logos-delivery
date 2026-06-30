@@ -170,3 +170,42 @@ suite "Wakunode2 - Waku initialization":
     check:
       quicAddrs.len >= 1
       quicAddrs.allIt("/udp/0/quic-v1" notin $it)
+
+  test "portsShift is applied exactly once":
+    # The announced port must equal the bound port, not bound + portsShift.
+    const shift = 5'u16
+
+    # Reserve a free port, then set base = port - shift so base + shift binds onto it.
+    let boundTarget = block:
+      let sock = newSocket()
+      defer:
+        sock.close()
+      sock.bindAddr(Port(0), "127.0.0.1")
+      sock.getLocalAddr()[1]
+    doAssert boundTarget.uint16 > shift, "ephemeral port unexpectedly low"
+
+    var builder = defaultTestWakuConfBuilder()
+    builder.withP2pListenAddress(parseIpAddress("127.0.0.1"))
+    builder.withP2pTcpPort(Port(boundTarget.uint16 - shift))
+    builder.withPortsShift(shift)
+
+    let conf = builder.build().valueOr:
+      raiseAssert error
+
+    var waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+    defer:
+      (waitFor waku.stop()).isOkOr:
+        raiseAssert error
+
+    (waitFor waku.start()).isOkOr:
+      raiseAssert error
+
+    let typedEnr = waku.node.enr.toTyped().valueOr:
+      raiseAssert $error
+    let announcedTcp = typedEnr.tcp()
+
+    check:
+      announcedTcp.isSome()
+      waku.node.ports.tcp == boundTarget.uint16
+      announcedTcp.get() == waku.node.ports.tcp
