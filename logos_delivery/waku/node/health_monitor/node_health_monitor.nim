@@ -12,9 +12,9 @@ import
   logos_delivery/api/logos_delivery_api, # EventConnectionStatusChange
   logos_delivery/waku/[
     waku_relay,
-    waku_rln_relay,
     api/events/health_events,
     api/events/peer_events,
+    rln,
     node/waku_node,
     node/node_telemetry,
     node/peer_manager,
@@ -90,12 +90,12 @@ proc getRelayHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
 proc getRlnRelayHealth(hm: NodeHealthMonitor): Future[ProtocolHealth] {.async.} =
   var p = ProtocolHealth.init(WakuProtocol.RlnRelayProtocol)
-  if isNil(hm.node.wakuRlnRelay):
+  if isNil(hm.node.rln):
     return p.notMounted()
 
   const FutIsReadyTimout = 5.seconds
 
-  let isReadyStateFut = hm.node.wakuRlnRelay.isReady()
+  let isReadyStateFut = hm.node.rln.isReady()
   if not await isReadyStateFut.withTimeout(FutIsReadyTimout):
     return p.notReady("Ready state check timed out")
 

@@ -13,7 +13,7 @@ import
 import
   ../../../waku_node,
   ../../../waku_relay/protocol,
-  ../../../waku_rln_relay,
+  ../../../rln,
   ../../../node/waku_node,
   ../../message_cache,
   ../../handlers,
@@ -167,11 +167,11 @@ proc installRelayApiHandlers*(
       return RestApiResponse.badRequest($error)
 
     # if RLN is mounted, append the proof to the message
-    if not node.wakuRlnRelay.isNil():
+    if not node.rln.isNil():
       # append the proof to the message
 
       message.proof = (
-        await node.wakuRlnRelay.generateRLNProof(
+        await node.rln.generateRLNProof(
           message.toRLNSignal(), float64(getTime().toUnix())
         )
       ).valueOr:
@@ -186,8 +186,7 @@ proc installRelayApiHandlers*(
     logMessageInfo(node.wakuRelay, "rest", pubsubTopic, "none", message, onRecv = true)
 
     # if we reach here its either a non-RLN message or a RLN message with a valid proof
-    info "Publishing message",
-      pubSubTopic = pubSubTopic, rln = not node.wakuRlnRelay.isNil()
+    info "Publishing message", pubSubTopic = pubSubTopic, rln = not node.rln.isNil()
     if not (waitFor node.publish(some(pubSubTopic), message).withTimeout(futTimeout)):
       error "Failed to publish message to topic", pubSubTopic = pubSubTopic
       return RestApiResponse.internalServerError("Failed to publish: timedout")
@@ -299,9 +298,9 @@ proc installRelayApiHandlers*(
         return RestApiResponse.badRequest("Failed to publish. " & msg)
 
     # if RLN is mounted, append the proof to the message
-    if not node.wakuRlnRelay.isNil():
+    if not node.rln.isNil():
       message.proof = (
-        await node.wakuRlnRelay.generateRLNProof(
+        await node.rln.generateRLNProof(
           message.toRLNSignal(), float64(getTime().toUnix())
         )
       ).valueOr:
@@ -317,7 +316,7 @@ proc installRelayApiHandlers*(
 
     # if we reach here its either a non-RLN message or a RLN message with a valid proof
     info "Publishing message",
-      contentTopic = message.contentTopic, rln = not node.wakuRlnRelay.isNil()
+      contentTopic = message.contentTopic, rln = not node.rln.isNil()
 
     var publishFut = node.publish(some($pubsubTopic), message)
     if not await publishFut.withTimeout(futTimeout):

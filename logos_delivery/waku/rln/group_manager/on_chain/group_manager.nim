@@ -17,7 +17,7 @@ import
 
 import
   ../../../waku_keystore,
-  ../../rln,
+  ../../bindings,
   ../../rln/rln_interface,
   ../../conversion_utils,
   ../group_manager_base,
@@ -27,7 +27,7 @@ import
 export group_manager_base
 
 logScope:
-  topics = "waku rln_relay onchain_group_manager"
+  topics = "waku rln onchain_group_manager"
 
 type
   WakuRlnContractWithSender = Sender[WakuRlnContract]

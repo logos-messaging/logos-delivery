@@ -18,7 +18,7 @@ import
   ../group_manager_base
 
 logScope:
-  topics = "waku rln_relay onchain rpc_wrapper"
+  topics = "waku rln onchain rpc_wrapper"
 
 # using the when predicate does not work within the contract macro, hence need to dupe
 contract(WakuRlnContract):

@@ -5,13 +5,13 @@ import
   ../waku_relay,
   ./common,
   ./protocol_metrics,
-  ../waku_rln_relay,
-  ../waku_rln_relay/protocol_types
+  ../rln,
+  ../rln/protocol_types
 
 import std/times, libp2p/peerid, stew/byteutils
 
 proc checkAndGenerateRLNProof*(
-    rlnPeer: Option[WakuRLNRelay], message: WakuMessage
+    rlnPeer: Option[Rln], message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
   # check if the message already has RLN proof
   if message.proof.len > 0:
@@ -38,7 +38,7 @@ proc getNilPushHandler*(): PushMessageHandler =
     return err("no waku relay found")
 
 proc getRelayPushHandler*(
-    wakuRelay: WakuRelay, rlnPeer: Option[WakuRLNRelay] = none[WakuRLNRelay]()
+    wakuRelay: WakuRelay, rlnPeer: Option[Rln] = none[Rln]()
 ): PushMessageHandler =
   return proc(
       pubsubTopic: string, message: WakuMessage

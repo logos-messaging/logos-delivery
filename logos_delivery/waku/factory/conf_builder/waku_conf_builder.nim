@@ -116,7 +116,7 @@ type WakuConfBuilder* = object
   filterServiceConf*: FilterServiceConfBuilder
   metricsServerConf*: MetricsServerConfBuilder
   restServerConf*: RestServerConfBuilder
-  rlnRelayConf*: RlnRelayConfBuilder
+  rlnRelayConf*: RlnConfBuilder
   storeServiceConf*: StoreServiceConfBuilder
   mixConf*: MixConfBuilder
   webSocketConf*: WebSocketConfBuilder
@@ -181,7 +181,7 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     filterServiceConf: FilterServiceConfBuilder.init(),
     metricsServerConf: MetricsServerConfBuilder.init(),
     restServerConf: RestServerConfBuilder.init(),
-    rlnRelayConf: RlnRelayConfBuilder.init(),
+    rlnRelayConf: RlnConfBuilder.init(),
     storeServiceConf: StoreServiceConfBuilder.init(),
     webSocketConf: WebSocketConfBuilder.init(),
     quicConf: QuicConfBuilder.init(),

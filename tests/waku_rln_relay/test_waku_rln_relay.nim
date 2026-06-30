@@ -12,13 +12,8 @@ import
 import brokers/broker_context
 
 import
-  logos_delivery/waku/[
-    waku_core,
-    waku_rln_relay,
-    waku_rln_relay/rln,
-    waku_rln_relay/protocol_metrics,
-    waku_keystore,
-  ],
+  logos_delivery/waku/
+    [waku_core, rln, rln/bindings, rln/protocol_metrics, waku_keystore],
   ./rln/waku_rln_relay_utils,
   ./utils_onchain,
   ../testlib/[wakucore, futures, wakunode, testutils]
@@ -159,8 +154,8 @@ suite "Waku rln relay":
 
   test "updateLog and hasDuplicate tests":
     let
-      wakuRlnRelay = WakuRLNRelay()
-      epoch = wakuRlnRelay.getCurrentEpoch()
+      rln = Rln()
+      epoch = rln.getCurrentEpoch()
 
     #  create some dummy nullifiers and secret shares
     var nullifier1: Nullifier
@@ -205,25 +200,23 @@ suite "Waku rln relay":
     # check whether hasDuplicate correctly finds records with the same nullifiers but different secret shares
     # no duplicate for proof1 should be found, since the log is empty
     let proofMetadata1 = proof1.extractMetadata().tryGet()
-    let isDuplicate1 = wakuRlnRelay.hasDuplicate(epoch, proofMetadata1).valueOr:
+    let isDuplicate1 = rln.hasDuplicate(epoch, proofMetadata1).valueOr:
       raiseAssert $error
     assert isDuplicate1 == false, "no duplicate should be found"
     #  add it to the log
-    discard wakuRlnRelay.updateLog(epoch, proofMetadata1)
+    discard rln.updateLog(epoch, proofMetadata1)
 
     # no duplicate for proof2 should be found, its nullifier differs from proof1
     let proofMetadata2 = proof2.extractMetadata().tryGet()
-    let isDuplicate2 = wakuRlnRelay.hasDuplicate(epoch, proofMetadata2).valueOr:
+    let isDuplicate2 = rln.hasDuplicate(epoch, proofMetadata2).valueOr:
       raiseAssert $error
     # no duplicate is found
     assert isDuplicate2 == false, "no duplicate should be found"
     #  add it to the log
-    discard wakuRlnRelay.updateLog(epoch, proofMetadata2)
+    discard rln.updateLog(epoch, proofMetadata2)
 
     #  proof3 has the same nullifier as proof1 but different secret shares, it should be detected as duplicate
-    let isDuplicate3 = wakuRlnRelay.hasDuplicate(
-      epoch, proof3.extractMetadata().tryGet()
-    ).valueOr:
+    let isDuplicate3 = rln.hasDuplicate(epoch, proof3.extractMetadata().tryGet()).valueOr:
       raiseAssert $error
     # it is a duplicate
     assert isDuplicate3, "duplicate should be found"
@@ -232,18 +225,18 @@ suite "Waku rln relay":
     let index = MembershipIndex(5)
 
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = index)
-    var wakuRlnRelay: WakuRlnRelay
+    var rln: Rln
     lockNewGlobalBrokerContext:
-      wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
+      rln = (await Rln.new(wakuRlnConfig)).valueOr:
         raiseAssert $error
 
-    let manager = cast[OnchainGroupManager](wakuRlnRelay.groupManager)
+    let manager = cast[OnchainGroupManager](rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "error returned when calling register: " & error
 
-    let epoch1 = wakuRlnRelay.getCurrentEpoch()
+    let epoch1 = rln.getCurrentEpoch()
 
     # Create messages from the same peer and append RLN proof to them (except wm4)
     var
@@ -252,7 +245,7 @@ suite "Waku rln relay":
       wm2 = WakuMessage(payload: "Spam message".toBytes(), timestamp: now())
 
     await sleepAsync(1.seconds)
-    let epoch2 = wakuRlnRelay.getCurrentEpoch()
+    let epoch2 = rln.getCurrentEpoch()
 
     var
       # wm3 points to the next epoch due to the sleep
@@ -260,22 +253,22 @@ suite "Waku rln relay":
       wm4 = WakuMessage(payload: "Invalid message".toBytes(), timestamp: now())
 
     # Append RLN proofs
-    wakuRlnRelay.unsafeAppendRLNProof(wm1, epoch1, MessageId(1)).isOkOr:
+    rln.unsafeAppendRLNProof(wm1, epoch1, MessageId(1)).isOkOr:
       raiseAssert $error
-    wakuRlnRelay.unsafeAppendRLNProof(wm2, epoch1, MessageId(1)).isOkOr:
+    rln.unsafeAppendRLNProof(wm2, epoch1, MessageId(1)).isOkOr:
       raiseAssert $error
-    wakuRlnRelay.unsafeAppendRLNProof(wm3, epoch2, MessageId(3)).isOkOr:
+    rln.unsafeAppendRLNProof(wm3, epoch2, MessageId(3)).isOkOr:
       raiseAssert $error
 
     # Validate messages
     let
-      msgValidate1 = await wakuRlnRelay.validateMessageAndUpdateLog(wm1)
+      msgValidate1 = await rln.validateMessageAndUpdateLog(wm1)
       # wm2 is within the same epoch as wm1 → should be spam
-      msgValidate2 = await wakuRlnRelay.validateMessageAndUpdateLog(wm2)
+      msgValidate2 = await rln.validateMessageAndUpdateLog(wm2)
       # wm3 is in the next epoch → should be valid
-      msgValidate3 = await wakuRlnRelay.validateMessageAndUpdateLog(wm3)
+      msgValidate3 = await rln.validateMessageAndUpdateLog(wm3)
       # wm4 has no RLN proof → should be invalid
-      msgValidate4 = await wakuRlnRelay.validateMessageAndUpdateLog(wm4)
+      msgValidate4 = await rln.validateMessageAndUpdateLog(wm4)
 
     check:
       msgValidate1 == MessageValidationResult.Valid
@@ -288,21 +281,21 @@ suite "Waku rln relay":
 
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = index)
 
-    var wakuRlnRelay: WakuRlnRelay
+    var rln: Rln
     lockNewGlobalBrokerContext:
-      wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
+      rln = (await Rln.new(wakuRlnConfig)).valueOr:
         raiseAssert $error
 
-    let manager = cast[OnchainGroupManager](wakuRlnRelay.groupManager)
+    let manager = cast[OnchainGroupManager](rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "error returned when calling register: " & error
 
     # usually it's 20 seconds but we set it to 1 for testing purposes which make the test faster
-    wakuRlnRelay.rlnMaxTimestampGap = 1
+    rln.rlnMaxTimestampGap = 1
 
-    var epoch = wakuRlnRelay.getCurrentEpoch()
+    var epoch = rln.getCurrentEpoch()
 
     var
       wm1 = WakuMessage(
@@ -316,19 +309,19 @@ suite "Waku rln relay":
         timestamp: now(),
       )
 
-    wakuRlnRelay.unsafeAppendRLNProof(wm1, epoch, MessageId(1)).isOkOr:
+    rln.unsafeAppendRLNProof(wm1, epoch, MessageId(1)).isOkOr:
       raiseAssert $error
 
-    wakuRlnRelay.unsafeAppendRLNProof(wm2, epoch, MessageId(2)).isOkOr:
+    rln.unsafeAppendRLNProof(wm2, epoch, MessageId(2)).isOkOr:
       raiseAssert $error
 
     # validate the first message because it's timestamp is the same as the generated timestamp
-    let msgValidate1 = await wakuRlnRelay.validateMessageAndUpdateLog(wm1)
+    let msgValidate1 = await rln.validateMessageAndUpdateLog(wm1)
 
     # wait for 2 seconds to make the timestamp different from generated timestamp
     await sleepAsync(2.seconds)
 
-    let msgValidate2 = await wakuRlnRelay.validateMessageAndUpdateLog(wm2)
+    let msgValidate2 = await rln.validateMessageAndUpdateLog(wm2)
 
     check:
       msgValidate1 == MessageValidationResult.Valid
@@ -337,9 +330,9 @@ suite "Waku rln relay":
   asyncTest "multiple senders with same external nullifier":
     let index1 = MembershipIndex(5)
     let rlnConf1 = getWakuRlnConfig(manager = manager, index = index1)
-    var wakuRlnRelay1: WakuRlnRelay
+    var wakuRlnRelay1: Rln
     lockNewGlobalBrokerContext:
-      wakuRlnRelay1 = (await WakuRlnRelay.new(rlnConf1)).valueOr:
+      wakuRlnRelay1 = (await Rln.new(rlnConf1)).valueOr:
         raiseAssert "failed to create waku rln relay: " & $error
 
     let manager1 = cast[OnchainGroupManager](wakuRlnRelay1.groupManager)
@@ -350,9 +343,9 @@ suite "Waku rln relay":
 
     let index2 = MembershipIndex(6)
     let rlnConf2 = getWakuRlnConfig(manager = manager, index = index2)
-    var wakuRlnRelay2: WakuRlnRelay
+    var wakuRlnRelay2: Rln
     lockNewGlobalBrokerContext:
-      wakuRlnRelay2 = (await WakuRlnRelay.new(rlnConf2)).valueOr:
+      wakuRlnRelay2 = (await Rln.new(rlnConf2)).valueOr:
         raiseAssert "failed to create waku rln relay: " & $error
 
     let manager2 = cast[OnchainGroupManager](wakuRlnRelay2.groupManager)
@@ -481,31 +474,31 @@ suite "Waku rln relay":
       let wakuRlnConfig = getWakuRlnConfig(
         manager = manager, index = index, epochSizeSec = rlnEpochSizeSec.uint64
       )
-      var wakuRlnRelay: WakuRlnRelay
+      var rln: Rln
       lockNewGlobalBrokerContext:
-        wakuRlnRelay = (await WakuRlnRelay.new(wakuRlnConfig)).valueOr:
+        rln = (await Rln.new(wakuRlnConfig)).valueOr:
           raiseAssert $error
 
-      let rlnMaxEpochGap = wakuRlnRelay.rlnMaxEpochGap
+      let rlnMaxEpochGap = rln.rlnMaxEpochGap
       let testProofMetadata = default(ProofMetadata)
       let testProofMetadataTable =
         {testProofMetadata.nullifier: testProofMetadata}.toTable()
 
       for i in 0 .. rlnMaxEpochGap:
         # we add epochs to the nullifierLog
-        let testEpoch = wakuRlnRelay.calcEpoch(epochTime() + float(rlnEpochSizeSec * i))
-        wakuRlnRelay.nullifierLog[testEpoch] = testProofMetadataTable
+        let testEpoch = rln.calcEpoch(epochTime() + float(rlnEpochSizeSec * i))
+        rln.nullifierLog[testEpoch] = testProofMetadataTable
         check:
-          wakuRlnRelay.nullifierLog.len().uint == i + 1
+          rln.nullifierLog.len().uint == i + 1
 
       check:
-        wakuRlnRelay.nullifierLog.len().uint == rlnMaxEpochGap + 1
+        rln.nullifierLog.len().uint == rlnMaxEpochGap + 1
 
       # clearing it now will remove 1 epoch
-      wakuRlnRelay.clearNullifierLog()
+      rln.clearNullifierLog()
 
       check:
-        wakuRlnRelay.nullifierLog.len().uint == rlnMaxEpochGap
+        rln.nullifierLog.len().uint == rlnMaxEpochGap
 
     var testEpochSizes: seq[uint] = @[1, 5, 10, 30, 60, 600]
     for i in testEpochSizes:
