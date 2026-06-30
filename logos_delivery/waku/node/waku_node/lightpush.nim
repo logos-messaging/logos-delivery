@@ -30,7 +30,7 @@ import
   ../../waku_lightpush as lightpush_protocol,
   ../peer_manager,
   ../../common/rate_limit/setting,
-  ../../waku_rln_relay
+  ../../rln
 
 logScope:
   topics = "waku node lightpush api"
@@ -48,12 +48,12 @@ proc mountLegacyLightPush*(
 
   info "mounting legacy lightpush with relay"
   let rlnPeer =
-    if node.wakuRlnRelay.isNil():
+    if node.rln.isNil():
       info "mounting legacy lightpush without rln-relay"
-      none(WakuRLNRelay)
+      none(Rln)
     else:
       info "mounting legacy lightpush with rln-relay"
-      some(node.wakuRlnRelay)
+      some(node.rln)
   let pushHandler =
     legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay, rlnPeer)
 
@@ -159,12 +159,12 @@ proc mountLightPush*(
 
   info "mounting lightpush with relay"
   let rlnPeer =
-    if node.wakuRlnRelay.isNil():
+    if node.rln.isNil():
       info "mounting lightpush without rln-relay"
-      none(WakuRLNRelay)
+      none(Rln)
     else:
       info "mounting lightpush with rln-relay"
-      some(node.wakuRlnRelay)
+      some(node.rln)
   let pushHandler = lightpush_protocol.getRelayPushHandler(node.wakuRelay, rlnPeer)
 
   node.wakuLightPush = WakuLightPush.new(

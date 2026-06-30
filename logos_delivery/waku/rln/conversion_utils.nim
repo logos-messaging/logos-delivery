@@ -12,7 +12,7 @@ import ../waku_keystore
 export web3, chronicles, stint, constants, endians2
 
 logScope:
-  topics = "waku rln_relay conversion_utils"
+  topics = "waku rln conversion_utils"
 
 proc inHex*(
     value:

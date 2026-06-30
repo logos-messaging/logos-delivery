@@ -52,7 +52,7 @@ import
     waku_lightpush as lightpush_protocol,
     waku_enr,
     waku_peer_exchange,
-    waku_rln_relay,
+    rln,
     common/rate_limit/setting,
     common/callbacks,
     common/nimchronos,
@@ -110,7 +110,7 @@ type
     wakuStoreTransfer*: SyncTransfer
     wakuFilter*: waku_filter_v2.WakuFilter
     wakuFilterClient*: filter_client.WakuFilterClient
-    wakuRlnRelay*: WakuRLNRelay
+    rln*: Rln
     wakuLegacyLightPush*: WakuLegacyLightPush
     wakuLegacyLightpushClient*: WakuLegacyLightPushClient
     wakuLightPush*: WakuLightPush
@@ -136,6 +136,7 @@ type
     wakuMix*: WakuMix
     wakuKademlia*: WakuKademlia
     ports*: BoundPorts
+    relayReconnectFut*: Future[void]
 
   SubscriptionManager* = ref object of RootObj
     node*: WakuNode
@@ -620,8 +621,9 @@ proc start*(node: WakuNode) {.async.} =
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
 
-  # After switch.start, run custom Logos Delivery relay start logic
-  await node.reconnectRelayPeers()
+  # Reconnect to known relay peers in the background; it waits a prune backoff
+  # and must not block startup.
+  node.relayReconnectFut = node.reconnectRelayPeers()
 
   node.started = true
 
@@ -650,6 +652,10 @@ proc start*(node: WakuNode) {.async.} =
 proc stop*(node: WakuNode) {.async.} =
   ## By stopping the switch we are stopping all the underlying mounted protocols
 
+  # Cancel the background relay reconnection (may still be in its backoff wait).
+  if not node.relayReconnectFut.isNil():
+    await node.relayReconnectFut.cancelAndWait()
+
   await node.subscriptionManager.stop()
 
   node.stopProvidersAndListeners()
@@ -662,9 +668,9 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.peerManager.stop()
 
-  if not node.wakuRlnRelay.isNil():
+  if not node.rln.isNil():
     try:
-      await node.wakuRlnRelay.stop() ## this can raise an exception
+      await node.rln.stop() ## this can raise an exception
     except Exception:
       error "exception stopping the node", error = getCurrentExceptionMsg()
 
@@ -684,7 +690,7 @@ proc stop*(node: WakuNode) {.async.} =
   node.started = false
 
 proc isReady*(node: WakuNode): Future[bool] {.async: (raises: [Exception]).} =
-  if node.wakuRlnRelay == nil:
+  if node.rln == nil:
     return true
-  return await node.wakuRlnRelay.isReady()
+  return await node.rln.isReady()
   ## TODO: add other protocol `isReady` checks

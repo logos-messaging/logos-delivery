@@ -25,7 +25,7 @@ import
     discovery/waku_discv5,
     discovery/waku_dnsdisc,
     waku_relay,
-    waku_rln_relay,
+    rln,
     factory/builder,
     factory/networks_config,
   ],
@@ -614,12 +614,12 @@ when isMainModule:
       ethContractAddress: conf.rlnRelayEthContractAddress,
       ethClientUrls: conf.ethClientUrls.mapIt(string(it)),
       epochSizeSec: conf.rlnEpochSizeSec,
-      creds: none(RlnRelayCreds),
+      creds: none(RlnCreds),
       onFatalErrorAction: onFatalErrorAction,
     )
 
     try:
-      waitFor node.mountRlnRelay(rlnConf)
+      waitFor node.setRlnValidator(rlnConf)
     except CatchableError:
       error "failed to setup RLN", error = getCurrentExceptionMsg()
       quit(QuitFailure)

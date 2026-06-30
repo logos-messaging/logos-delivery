@@ -4,7 +4,7 @@ import logos_delivery/waku/compat/option_valueor
 import chronicles, chronos, metrics, metrics/chronos_httpserver
 import
   logos_delivery/waku/
-    [net/auto_port, waku_rln_relay/protocol_metrics as rln_metrics, utils/collector],
+    [net/auto_port, rln/protocol_metrics as rln_metrics, utils/collector],
   ./peer_manager,
   ./node_telemetry,
   ./waku_node
@@ -86,13 +86,9 @@ proc startMetricsServer(
   return ok(started)
 
 proc startMetricsServerAndLogging*(
-    conf: MetricsServerConf, portsShift: uint16
+    conf: MetricsServerConf
 ): Future[Result[StartedMetricsServer, string]] {.async.} =
-  let started = (
-    await (
-      startMetricsServer(conf.httpAddress, Port(conf.httpPort.uint16 + portsShift))
-    )
-  ).valueOr:
+  let started = (await (startMetricsServer(conf.httpAddress, conf.httpPort))).valueOr:
     return err("Starting metrics server failed. Continuing in current state:" & $error)
 
   if conf.logging:

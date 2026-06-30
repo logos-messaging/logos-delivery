@@ -51,7 +51,7 @@ type
     err*: Vec_uint8
 
   CResultRLNPtrVecU8* = object
-    ok*: ptr RLN
+    ok*: ptr RlnRaw
     err*: Vec_uint8
 
   CResultCFrPtrVecU8* = object
@@ -99,7 +99,7 @@ proc ffi_rln_new_with_params*(
   zkey_data: ptr Vec_uint8, graph_data: ptr Vec_uint8
 ): CResultRLNPtrVecU8 {.importc: "ffi_rln_new_with_params", cdecl.}
 
-proc ffi_rln_free*(rln: ptr RLN) {.importc: "ffi_rln_free", cdecl.}
+proc ffi_rln_free*(rln: ptr RlnRaw) {.importc: "ffi_rln_free", cdecl.}
 
 # --- Keygen ---------------------------------------------------------------
 
@@ -143,15 +143,15 @@ proc ffi_rln_partial_witness_input_free*(
 # pass `addr handle` where `handle` is `ptr T`.
 
 proc ffi_generate_rln_proof*(
-  rln: ptr ptr RLN, witness: ptr ptr FFI_RLNWitnessInput
+  rln: ptr ptr RlnRaw, witness: ptr ptr FFI_RLNWitnessInput
 ): CResultProofPtrVecU8 {.importc: "ffi_generate_rln_proof", cdecl.}
 
 proc ffi_generate_partial_zk_proof*(
-  rln: ptr ptr RLN, partial_witness: ptr ptr FFI_RLNPartialWitnessInput
+  rln: ptr ptr RlnRaw, partial_witness: ptr ptr FFI_RLNPartialWitnessInput
 ): CResultPartialProofPtrVecU8 {.importc: "ffi_generate_partial_zk_proof", cdecl.}
 
 proc ffi_finish_rln_proof*(
-  rln: ptr ptr RLN,
+  rln: ptr ptr RlnRaw,
   partial_proof: ptr ptr FFI_RLNPartialProof,
   witness: ptr ptr FFI_RLNWitnessInput,
 ): CResultProofPtrVecU8 {.importc: "ffi_finish_rln_proof", cdecl.}
@@ -159,7 +159,7 @@ proc ffi_finish_rln_proof*(
 # --- Verification ---------------------------------------------------------
 
 proc ffi_verify_with_roots*(
-  rln: ptr ptr RLN, proof: ptr ptr FFI_RLNProof, roots: ptr Vec_CFr, x: ptr CFr
+  rln: ptr ptr RlnRaw, proof: ptr ptr FFI_RLNProof, roots: ptr Vec_CFr, x: ptr CFr
 ): CBoolResult {.importc: "ffi_verify_with_roots", cdecl.}
 
 # --- Proof serialization --------------------------------------------------
@@ -318,14 +318,14 @@ proc vecToSeq*(data: Vec_uint8): seq[byte] =
   if result.len > 0:
     copyMem(addr result[0], data.dataPtr, result.len)
 
-proc seqToFixed32*(data: openArray[byte]): RlnRelayResult[array[32, byte]] =
+proc seqToFixed32*(data: openArray[byte]): RlnResult[array[32, byte]] =
   if data.len != FieldElementSize:
     return err("Expected 32 bytes, got " & $data.len)
   var output: array[32, byte]
   copyMem(addr output[0], unsafeAddr data[0], FieldElementSize)
   ok(output)
 
-proc cfrToBytesLe*(cfr: ptr CFr): RlnRelayResult[array[32, byte]] =
+proc cfrToBytesLe*(cfr: ptr CFr): RlnResult[array[32, byte]] =
   let bytes = ffi_cfr_to_bytes_le(cfr)
   defer:
     ffi_vec_u8_free(bytes)
@@ -333,7 +333,7 @@ proc cfrToBytesLe*(cfr: ptr CFr): RlnRelayResult[array[32, byte]] =
     return err("Invalid field byte length: " & $bytes.len)
   seqToFixed32(vecToSeq(bytes))
 
-proc bytesToCfrLe*(data: openArray[byte]): RlnRelayResult[ptr CFr] =
+proc bytesToCfrLe*(data: openArray[byte]): RlnResult[ptr CFr] =
   ## Allocate a ptr CFr from raw bytes. Caller MUST ffi_cfr_free(x).
   var vec = toVecUint8(data)
   let res = ffi_bytes_le_to_cfr(addr vec)
@@ -343,7 +343,7 @@ proc bytesToCfrLe*(data: openArray[byte]): RlnRelayResult[ptr CFr] =
 
 proc cfrResultToBytes*(
     res: CResultCFrPtrVecU8, prefix: string
-): RlnRelayResult[array[32, byte]] =
+): RlnResult[array[32, byte]] =
   ## Consume a CResultCFrPtrVecU8: read bytes if ok, free the CFr, or
   ## propagate the error (also freeing the error string).
   if res.ok.isNil:
@@ -352,7 +352,7 @@ proc cfrResultToBytes*(
     ffi_cfr_free(res.ok)
   cfrToBytesLe(res.ok)
 
-proc hashToFieldLe*(data: openArray[byte]): RlnRelayResult[ptr CFr] =
+proc hashToFieldLe*(data: openArray[byte]): RlnResult[ptr CFr] =
   ## Caller MUST ffi_cfr_free the returned ptr.
   var vec = toVecUint8(data)
   let cfr = ffi_hash_to_field_le(addr vec)
@@ -360,7 +360,7 @@ proc hashToFieldLe*(data: openArray[byte]): RlnRelayResult[ptr CFr] =
     return err("Failed to hash to field")
   ok(cfr)
 
-proc poseidonPairLe*(a, b: openArray[byte]): RlnRelayResult[array[32, byte]] =
+proc poseidonPairLe*(a, b: openArray[byte]): RlnResult[array[32, byte]] =
   ## Poseidon hash of exactly two 32-byte field elements (little-endian).
   ## zerokit v2 FFI only exposes pair-input Poseidon; unary is not supported.
   let aPtr = bytesToCfrLe(a).valueOr:

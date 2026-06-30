@@ -41,7 +41,7 @@ type RestServerConf* = object
   relayCacheCapacity*: uint32
 
 proc startRestServerEssentials*(
-    nodeHealthMonitor: NodeHealthMonitor, conf: RestServerConf, portsShift: uint16
+    nodeHealthMonitor: NodeHealthMonitor, conf: RestServerConf
 ): Result[WakuRestServerRef, string] =
   if restServerNotInstalledTab.isNil:
     restServerNotInstalledTab = newTable[string, string]()
@@ -87,7 +87,7 @@ proc startRestServerEssentials*(
       none(string)
 
   let address = conf.listenAddress
-  let port = Port(conf.port.uint16 + portsShift)
+  let port = conf.port
   let server = ?newRestHttpServer(
     address,
     port,

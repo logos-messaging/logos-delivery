@@ -23,7 +23,7 @@ import
   ../net/net_config,
   ../waku_core,
   ../waku_core/codecs,
-  ../waku_rln_relay,
+  ../rln,
   ../discovery/waku_dnsdisc,
   ../waku_archive/retention_policy as policy,
   ../waku_archive/retention_policy/builder as policy_builder,
@@ -337,7 +337,7 @@ proc setupProtocols(
     )
 
     try:
-      await node.mountRlnRelay(rlnConf)
+      await node.setRlnValidator(rlnConf)
     except CatchableError:
       return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
 
@@ -462,7 +462,7 @@ proc setupNode*(
     await networkConfiguration(
       wakuConf.clusterId, wakuConf.endpointConf, wakuConf.discv5Conf,
       wakuConf.webSocketConf, wakuConf.quicConf, wakuConf.wakuFlags,
-      wakuConf.dnsAddrsNameServers, wakuConf.portsShift, clientId,
+      wakuConf.dnsAddrsNameServers, clientId,
     )
   ).valueOr:
     error "failed to create internal config", error = error
