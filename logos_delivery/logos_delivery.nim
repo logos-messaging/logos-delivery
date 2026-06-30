@@ -25,11 +25,12 @@ import logos_delivery/waku/waku
 export waku
 import
   logos_delivery/waku/api/[
-    topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health,
-    ping,
+    topics, relay, subscriptions, filter, lightpush, store, peer_manager, discovery,
+    debug, health, ping,
   ]
 export
-  topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health, ping
+  topics, relay, subscriptions, filter, lightpush, store, peer_manager, discovery,
+  debug, health, ping
 # `MessageSeenEvent` is surfaced via `export waku` (Kernel interface); the
 # remaining waku health events live here.
 import logos_delivery/waku/api/events/health_events
@@ -97,7 +98,7 @@ proc new*(
   let waku = (await Waku.new(layerConf.waku, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  let messagingClient = MessagingClient.new(layerConf.messaging, waku.node).valueOr:
+  let messagingClient = MessagingClient.new(layerConf.messaging, waku).valueOr:
     return err("failed to create MessagingClient: " & error)
 
   let reliableChannelManager = ReliableChannelManager.new(
