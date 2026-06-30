@@ -68,9 +68,22 @@ proc sendEthCallWithoutParams*(
   tx.data = Opt.some(byteutils.hexToSeqByte(dataSignature))
   tx.chainId = Opt.some(chainId)
 
-  let resultBytes = await ethRpc.provider.eth_call(tx, "latest")
+  # A revert / rate-limit / dropped connection raises here; return err so RLN
+  # setup fails gracefully instead of crashing the node.
+  let resultBytes =
+    try:
+      await ethRpc.provider.eth_call(tx, "latest")
+    except CatchableError as e:
+      return err("eth_call failed for " & functionSignature & ": " & e.msg)
+
   if resultBytes.len == 0:
     return err("No result returned for function call: " & functionSignature)
+  # UInt256.fromBytesBE panics (Defect) on < 32 bytes; reject short responses.
+  if resultBytes.len != 32:
+    return err(
+      "Unexpected result length (" & $resultBytes.len & " bytes) for function call: " &
+        functionSignature
+    )
   return ok(UInt256.fromBytesBE(resultBytes))
 
 proc sendEthCallWithParams*(
@@ -94,5 +107,10 @@ proc sendEthCallWithParams*(
   tx.data = Opt.some(callData)
   tx.chainId = Opt.some(chainId)
 
-  let resultBytes = await ethRpc.provider.eth_call(tx, "latest")
+  let resultBytes =
+    try:
+      await ethRpc.provider.eth_call(tx, "latest")
+    except CatchableError as e:
+      return err("eth_call failed for " & functionSignature & ": " & e.msg)
+
   return ok(resultBytes)
