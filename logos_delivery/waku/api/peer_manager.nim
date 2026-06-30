@@ -8,10 +8,7 @@ import libp2p/[peerid, peerstore]
 import logos_delivery/waku/waku
 import logos_delivery/waku/[waku_core, node/waku_node, node/peer_manager]
 
-type PeerConnInfo* = object ## structured connected-peer info for the api boundary
-  peerId*: string
-  protocols*: seq[string]
-  addresses*: seq[string]
+# `PeerConnInfo` is defined in `api/types` (surfaced here via `import waku`).
 
 proc connect*(
     self: Waku, peers: seq[string], timeoutMs: uint32
