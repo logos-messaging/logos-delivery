@@ -34,7 +34,7 @@ import
     node/subscription_manager,
     node/peer_manager,
   ]
-import logos_delivery/events/kernel_events # MessageSeenEvent
+import logos_delivery/api/events/kernel_events # MessageSeenEvent
 
 export waku_relay.WakuRelayHandler
 

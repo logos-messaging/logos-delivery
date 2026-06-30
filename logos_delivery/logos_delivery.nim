@@ -29,7 +29,7 @@ export
   topics, relay, subscriptions, filter, lightpush, store, peer_manager, discovery,
   debug, health, ping
 # Kernel event surface (`MessageSeenEvent`) plus the remaining waku health events.
-import logos_delivery/events/kernel_events
+import logos_delivery/api/events/kernel_events
 export kernel_events
 import logos_delivery/waku/api/events/health_events
 export health_events
@@ -39,7 +39,7 @@ import logos_delivery/messaging/messaging_client
 export messaging_client
 import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
-import logos_delivery/events/messaging_client_events
+import logos_delivery/api/events/messaging_client_events
 export messaging_client_events
 
 # Reliable Channel layer
@@ -49,7 +49,7 @@ import logos_delivery/channels/api/channel_lifecycle
 export channel_lifecycle
 import logos_delivery/channels/api/send as channel_send
 export channel_send
-import logos_delivery/events/reliable_channel_manager_events
+import logos_delivery/api/events/reliable_channel_manager_events
 export reliable_channel_manager_events
 
 import logos_delivery/api/logos_delivery_api
