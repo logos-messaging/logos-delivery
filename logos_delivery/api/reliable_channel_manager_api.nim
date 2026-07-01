@@ -8,10 +8,9 @@ import logos_delivery/channels/types as channel_types
 # capability the generic `ReliableChannel[M]`/`ReliableChannelManager[M]` need.
 export api_types, messaging_client_api, channel_types
 
-# Structural API contract for the reliable-channel surface. This is the
-# node-bound consumer view (the messaging node is already bound), so it is
-# satisfied by `LogosDelivery` — the concentrator that owns the node — rather
-# than by the manager, whose `createReliableChannel` takes the node explicitly.
+# Structural API contract for the reliable-channel surface (ops in
+# `channels/api/*`). `createReliableChannel` is node-free because the manager
+# owns the messaging node, so `ReliableChannelManager` satisfies this directly.
 type ReliableChannelApi* = concept c
   createReliableChannel(
     c, channelId = ChannelId, contentTopic = ContentTopic, senderId = SdsParticipantID
