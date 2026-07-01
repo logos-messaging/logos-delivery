@@ -183,7 +183,7 @@ proc monitorEpochs(rln: Rln) {.async.} =
 
 proc mount(
     conf: WakuRlnConfig, registrationHandler = none(RegistrationHandler)
-): Future[RlnResult[Rln]] {.async.} =
+): Future[Result[Rln, string]] {.async.} =
   var
     groupManager: GroupManager
     rln: Rln
@@ -258,7 +258,7 @@ proc isReady*(rlnPeer: Rln): Future[bool] {.async.} =
 
 proc new*(
     T: type Rln, conf: WakuRlnConfig, registrationHandler = none(RegistrationHandler)
-): Future[RlnResult[Rln]] {.async.} =
+): Future[Result[Rln, string]] {.async.} =
   ## Mounts the rln-relay protocol on the node.
   ## The rln-relay protocol can be mounted in two modes: on-chain and off-chain.
   ## Returns an error if the rln-relay protocol could not be mounted.

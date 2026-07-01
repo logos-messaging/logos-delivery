@@ -5,11 +5,8 @@ import ../waku_core, ../waku_keystore, ../common/protobuf
 
 export waku_keystore, waku_core
 
-type RlnResult*[T] = Result[T, string]
-
 ## RLN is a Nim wrapper for the data types used in zerokit RLN
 type RlnRaw* {.incompleteStruct.} = object
-type RlnInstanceResult* = RlnResult[ptr RlnRaw]
 
 type
   MerkleNode* = array[32, byte]
@@ -72,14 +69,10 @@ type ProofMetadata* = object
   shareY*: MerkleNode
   externalNullifier*: Nullifier
 
-type
-  MessageValidationResult* {.pure.} = enum
-    Valid
-    Invalid
-    Spam
-
-  MerkleNodeResult* = RlnResult[MerkleNode]
-  RateLimitProofResult* = RlnResult[RateLimitProof]
+type MessageValidationResult* {.pure.} = enum
+  Valid
+  Invalid
+  Spam
 
 # Protobufs enc and init
 proc init*(T: type RateLimitProof, buffer: seq[byte]): ProtoResult[T] =

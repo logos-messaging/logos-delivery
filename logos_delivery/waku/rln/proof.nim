@@ -56,7 +56,7 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
 
 proc generateRLNProof*(
     rln: Rln, input: seq[byte], senderEpochTime: float64
-): Future[RlnResult[seq[byte]]] {.async.} =
+): Future[Result[seq[byte], string]] {.async.} =
   let epoch = rln.calcEpoch(senderEpochTime)
   let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)

@@ -37,7 +37,7 @@ proc generateCredentials*(): IdentityCredential =
 
 proc getRateCommitment*(
     idCredential: IdentityCredential, userMessageLimit: UserMessageLimit
-): RlnResult[RawRateCommitment] =
+): Result[RawRateCommitment, string] =
   return RateCommitment(
     idCommitment: idCredential.idCommitment, userMessageLimit: userMessageLimit
   ).toLeaf()
