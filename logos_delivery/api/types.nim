@@ -26,6 +26,11 @@ type
     PartiallyConnected
     Connected
 
+  PeerConnInfo* = object ## structured connected-peer info for the api boundary
+    peerId*: string
+    protocols*: seq[string]
+    addresses*: seq[string]
+
 proc new*(T: typedesc[RequestId], rng: crypto.Rng): T =
   ## Generate a new RequestId using the provided RNG.
   RequestId(request_utils.generateRequestId(rng))

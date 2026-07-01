@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/options,
+  std/[options, net],
+  results,
   testutils/unittests,
   chronos,
   libp2p/switch,
@@ -14,6 +15,7 @@ import
   logos_delivery/waku/[
     waku_node,
     discovery/waku_discv5,
+    net/auto_port,
     waku_peer_exchange,
     waku_peer_exchange/rpc,
     waku_peer_exchange/protocol,
@@ -22,6 +24,33 @@ import
     waku_core,
   ],
   ../testlib/[futures, wakucore, assertions]
+
+proc startDiscv5WithAutoPort*(
+    node: WakuNode,
+    key: keys.PrivateKey,
+    bindIp: IpAddress,
+    bootstrapRecords: seq[enr.Record] = @[],
+): Future[Result[WakuDiscoveryV5, string]] {.async.} =
+  proc attempt(
+      p: Port
+  ): Future[Result[WakuDiscoveryV5, string]] {.async: (raises: []).} =
+    var record = node.enr
+    record.update(key, udpPort = Opt.some(p)).isOkOr:
+      return err("could not set discv5 udp port in enr: " & $error)
+    let conf = WakuDiscoveryV5Config(
+      discv5Config: none(DiscoveryConfig),
+      address: bindIp,
+      port: p,
+      privateKey: key,
+      bootstrapRecords: bootstrapRecords,
+      autoupdateRecord: true,
+    )
+    let wd = WakuDiscoveryV5.new(node.rng, conf, some(record), some(node.peerManager))
+    (await wd.start()).isOkOr:
+      return err(error)
+    return ok(wd)
+
+  return await tryWithAutoPort[WakuDiscoveryV5](Port(0), attempt)
 
 proc dialForPeerExchange*(
     client: WakuNode,

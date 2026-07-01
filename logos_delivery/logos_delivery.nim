@@ -11,9 +11,6 @@
 
 import results, chronos, chronicles
 
-import logos_delivery/api/logos_delivery_api
-export logos_delivery_api
-
 # Each layer has a core module (type + new/start/stop) and an api/ folder whose
 # modules each implement a differentiated set of operations, plus an events
 # surface. The concentrator re-exports them so library consumers get the full
@@ -25,13 +22,15 @@ import logos_delivery/waku/waku
 export waku
 import
   logos_delivery/waku/api/[
-    topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health,
-    ping,
+    topics, relay, subscriptions, filter, lightpush, store, peer_manager, discovery,
+    debug, health, ping,
   ]
 export
-  topics, relay, filter, lightpush, store, peer_manager, discovery, debug, health, ping
-# `MessageSeenEvent` is surfaced via `export waku` (Kernel interface); the
-# remaining waku health events live here.
+  topics, relay, subscriptions, filter, lightpush, store, peer_manager, discovery,
+  debug, health, ping
+# Kernel event surface (`MessageSeenEvent`) plus the remaining waku health events.
+import logos_delivery/api/events/kernel_events
+export kernel_events
 import logos_delivery/waku/api/events/health_events
 export health_events
 
@@ -40,7 +39,8 @@ import logos_delivery/messaging/messaging_client
 export messaging_client
 import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
-# Message* events are surfaced via `export messaging_client` (messaging interface).
+import logos_delivery/api/events/messaging_client_events
+export messaging_client_events
 
 # Reliable Channel layer
 import logos_delivery/channels/reliable_channel_manager
@@ -49,8 +49,11 @@ import logos_delivery/channels/api/channel_lifecycle
 export channel_lifecycle
 import logos_delivery/channels/api/send as channel_send
 export channel_send
-# ChannelMessage* events are surfaced via `export reliable_channel_manager`.
+import logos_delivery/api/events/reliable_channel_manager_events
+export reliable_channel_manager_events
 
+import logos_delivery/api/logos_delivery_api
+export logos_delivery_api
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
 import tools/confutils/cli_args
@@ -68,8 +71,7 @@ type
     messaging*: MessagingClientConf
     reliableChannel*: ReliableChannelManagerConf
 
-  LogosDelivery* = ref object of ILogosDelivery
-    ## Entry point. Holds one instance of each API layer.
+  LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
     waku*: Waku
     messagingClient*: MessagingClient
     reliableChannelManager*: ReliableChannelManager
@@ -97,7 +99,7 @@ proc new*(
   let waku = (await Waku.new(layerConf.waku, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  let messagingClient = MessagingClient.new(layerConf.messaging, waku.node).valueOr:
+  let messagingClient = MessagingClient.new(layerConf.messaging, waku).valueOr:
     return err("failed to create MessagingClient: " & error)
 
   let reliableChannelManager = ReliableChannelManager.new(
@@ -113,7 +115,7 @@ proc new*(
     )
   )
 
-method start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each layer bottom-up: transport first, then messaging, then channels.
   if self.waku.isNil():
     return err("Waku node is not initialized")
@@ -133,7 +135,7 @@ method start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
   return ok()
 
-method stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
   await self.reliableChannelManager.stop()
   await self.messagingClient.stop()
@@ -143,7 +145,14 @@ method stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
   return ok()
 
-method isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
+proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():
     return err("Waku node is not initialized")
-  return ok(self.waku.healthMonitor.onlineMonitor.amIOnline())
+  return await self.waku.isOnline()
+
+# Compile-time check that each concrete type satisfies its API concept.
+static:
+  doAssert Waku is KernelApi
+  doAssert MessagingClient is MessagingApi
+  doAssert ReliableChannelManager is ReliableChannelApi
+  doAssert LogosDelivery is LogosDeliveryApi

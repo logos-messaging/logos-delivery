@@ -2,8 +2,10 @@
 import results, chronos, chronicles
 
 import logos_delivery/api/types
+import logos_delivery/api/events/messaging_client_events
 import logos_delivery/messaging/messaging_client
-import logos_delivery/waku/node/[waku_node, subscription_manager]
+import logos_delivery/waku/waku
+import logos_delivery/waku/api/subscriptions
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/messaging/delivery_service/send_service/delivery_task
 
@@ -16,17 +18,16 @@ proc send*(
   ## id the caller can correlate with `MessageSentEvent` / `MessageErrorEvent`.
   ?self.checkApiAvailability()
 
-  let isSubbed =
-    self.node.subscriptionManager.isSubscribed(envelope.contentTopic).valueOr(false)
+  let isSubbed = self.waku.isSubscribed(envelope.contentTopic).valueOr(false)
   if not isSubbed:
     info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
-    self.node.subscriptionManager.subscribe(envelope.contentTopic).isOkOr:
+    self.waku.subscribe(envelope.contentTopic).isOkOr:
       warn "Failed to auto-subscribe", error = error
       return err("Failed to auto-subscribe before sending: " & error)
 
-  let requestId = RequestId.new(self.node.rng)
+  let requestId = RequestId.new(self.waku.rng)
 
-  let deliveryTask = DeliveryTask.new(requestId, envelope, self.node.brokerCtx).valueOr:
+  let deliveryTask = DeliveryTask.new(requestId, envelope, self.waku.brokerCtx).valueOr:
     return err("MessagingClient.send: Failed to create delivery task: " & error)
 
   asyncSpawn self.sendService.send(deliveryTask)

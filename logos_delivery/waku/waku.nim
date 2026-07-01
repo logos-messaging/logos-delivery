@@ -8,7 +8,6 @@ import
   chronos,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/protocols/connectivity/relay/client,
-  libp2p/wire,
   libp2p/crypto/crypto,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/ping,
@@ -58,8 +57,8 @@ import
   ./factory/waku_conf,
   ./factory/waku_state_info
 
-# Surfaces the Kernel API interface (and its `MessageSeenEvent`) to consumers
-# of the Waku layer.
+# Surfaces the Kernel API interface to consumers of the Waku layer.
+# `MessageSeenEvent` now lives in `events/kernel_events` (surfaced by the concentrator).
 export kernel_api
 
 logScope:
@@ -68,7 +67,7 @@ logScope:
 # Git version in git describe format (defined at compile time)
 const git_version* {.strdefine.} = "n/a"
 
-type Waku* = ref object of IKernel
+type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   stateInfo*: WakuStateInfo
   conf*: WakuConf
   rng*: crypto.Rng
@@ -250,29 +249,6 @@ proc new*(
   waku.setupSwitchServices(wakuConf, relay, rng)
 
   ok(waku)
-
-proc getPorts(
-    listenAddrs: seq[MultiAddress]
-): Result[tuple[tcpPort, websocketPort, quicPort: Option[Port]], string] =
-  var tcpPort, websocketPort, quicPort = none(Port)
-
-  for a in listenAddrs:
-    if a.isWsAddress():
-      if websocketPort.isNone():
-        let wsAddress = initTAddress(a).valueOr:
-          return err("getPorts wsAddr error:" & $error)
-        websocketPort = some(wsAddress.port)
-    elif a.isQuicAddress():
-      if quicPort.isNone():
-        let quicAddress = initTAddress(a).valueOr:
-          return err("getPorts quicAddr error:" & $error)
-        quicPort = some(quicAddress.port)
-    elif tcpPort.isNone():
-      let tcpAddress = initTAddress(a).valueOr:
-        return err("getPorts tcpAddr error:" & $error)
-      tcpPort = some(tcpAddress.port)
-
-  return ok((tcpPort: tcpPort, websocketPort: websocketPort, quicPort: quicPort))
 
 proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.} =
   let conf = waku.conf

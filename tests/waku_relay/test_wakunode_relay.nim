@@ -24,7 +24,7 @@ suite "WakuNode - Relay":
   asyncTest "Relay protocol is started correctly":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
 
     # Relay protocol starts if mounted after node start
 
@@ -39,7 +39,7 @@ suite "WakuNode - Relay":
 
     let
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
 
     (await node2.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
@@ -59,11 +59,11 @@ suite "WakuNode - Relay":
   asyncTest "Messages are correctly relayed":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
       nodeKey3 = generateSecp256k1Key()
-      node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      node3 = newTestWakuNode(nodeKey3)
       shard = DefaultRelayShard
       contentTopic = ContentTopic("/waku/2/default-content/proto")
       payload = "hello world".toBytes()
@@ -134,13 +134,13 @@ suite "WakuNode - Relay":
     let
       # publisher node
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, parseIpAddress("0.0.0.0"), Port(0))
+      node1 = newTestWakuNode(nodeKey1)
       # Relay node
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), Port(0))
+      node2 = newTestWakuNode(nodeKey2)
       # Subscriber
       nodeKey3 = generateSecp256k1Key()
-      node3 = newTestWakuNode(nodeKey3, parseIpAddress("0.0.0.0"), Port(0))
+      node3 = newTestWakuNode(nodeKey3)
 
       shard = DefaultRelayShard
       contentTopic1 = ContentTopic("/waku/2/default-content/proto")
@@ -238,9 +238,7 @@ suite "WakuNode - Relay":
   # TODO: Add a function to validate the WakuMessage integrity
   xasyncTest "Stats of peer sending wrong WakuMessages are updated":
     # Create 2 nodes
-    let nodes = toSeq(0 .. 1).mapIt(
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      )
+    let nodes = toSeq(0 .. 1).mapIt(newTestWakuNode(generateSecp256k1Key()))
 
     # Start all the nodes and mount relay with
     await allFutures(nodes.mapIt(it.start()))
@@ -278,21 +276,9 @@ suite "WakuNode - Relay":
   asyncTest "Messages are relayed between two websocket nodes":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(
-        nodeKey1,
-        parseIpAddress("0.0.0.0"),
-        bindPort = Port(0),
-        wsBindPort = Port(0),
-        wsEnabled = true,
-      )
+      node1 = newTestWakuNode(nodeKey1, wsBindPort = Port(0), wsEnabled = true)
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(
-        nodeKey2,
-        parseIpAddress("0.0.0.0"),
-        bindPort = Port(0),
-        wsBindPort = Port(0),
-        wsEnabled = true,
-      )
+      node2 = newTestWakuNode(nodeKey2, wsBindPort = Port(0), wsEnabled = true)
       shard = DefaultRelayShard
       contentTopic = ContentTopic("/waku/2/default-content/proto")
       payload = "hello world".toBytes()
@@ -342,13 +328,7 @@ suite "WakuNode - Relay":
   asyncTest "Messages are relayed between nodes with multiple transports (TCP and Websockets)":
     let
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(
-        nodeKey1,
-        parseIpAddress("0.0.0.0"),
-        bindPort = Port(0),
-        wsBindPort = Port(0),
-        wsEnabled = true,
-      )
+      node1 = newTestWakuNode(nodeKey1, wsBindPort = Port(0), wsEnabled = true)
       nodeKey2 = generateSecp256k1Key()
       node2 = newTestWakuNode(nodeKey2, parseIpAddress("0.0.0.0"), bindPort = Port(0))
       shard = DefaultRelayShard
@@ -406,12 +386,7 @@ suite "WakuNode - Relay":
       )
       nodeKey2 = generateSecp256k1Key()
       node2 = newTestWakuNode(
-        nodeKey2,
-        parseIpAddress("0.0.0.0"),
-        bindPort = Port(0),
-        wsBindPort = Port(0),
-        wsEnabled = true,
-        quicEnabled = false,
+        nodeKey2, wsBindPort = Port(0), wsEnabled = true, quicEnabled = false
       )
       shard = DefaultRelayShard
       contentTopic = ContentTopic("/waku/2/default-content/proto")
@@ -469,8 +444,6 @@ suite "WakuNode - Relay":
       nodeKey1 = generateSecp256k1Key()
       node1 = newTestWakuNode(
         nodeKey1,
-        parseIpAddress("0.0.0.0"),
-        bindPort = Port(0),
         wsBindPort = Port(0),
         wssEnabled = true,
         secureKey = KEY_PATH,
@@ -529,21 +502,13 @@ suite "WakuNode - Relay":
       nodeKey1 = generateSecp256k1Key()
       node1 = newTestWakuNode(
         nodeKey1,
-        parseIpAddress("0.0.0.0"),
-        bindPort = Port(0),
         wsBindPort = Port(0),
         wssEnabled = true,
         secureKey = KEY_PATH,
         secureCert = CERT_PATH,
       )
       nodeKey2 = generateSecp256k1Key()
-      node2 = newTestWakuNode(
-        nodeKey2,
-        parseIpAddress("0.0.0.0"),
-        bindPort = Port(0),
-        wsBindPort = Port(0),
-        wsEnabled = true,
-      )
+      node2 = newTestWakuNode(nodeKey2, wsBindPort = Port(0), wsEnabled = true)
 
     let
       shard = DefaultRelayShard
@@ -594,9 +559,7 @@ suite "WakuNode - Relay":
 
   asyncTest "Bad peers with low reputation are disconnected":
     # Create 5 nodes
-    let nodes = toSeq(0 ..< 5).mapIt(
-        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
-      )
+    let nodes = toSeq(0 ..< 5).mapIt(newTestWakuNode(generateSecp256k1Key()))
     await allFutures(nodes.mapIt(it.start()))
     await allFutures(nodes.mapIt(it.mountRelay()))
 
@@ -657,7 +620,7 @@ suite "WakuNode - Relay":
     ## Setup
     let
       nodeKey = generateSecp256k1Key()
-      node = newTestWakuNode(nodeKey, parseIpAddress("0.0.0.0"), Port(0))
+      node = newTestWakuNode(nodeKey)
 
     await node.start()
     (await node.mountRelay()).isOkOr:

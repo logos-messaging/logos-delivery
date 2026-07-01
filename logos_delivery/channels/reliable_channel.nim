@@ -23,6 +23,8 @@ import libp2p/crypto/crypto as libp2p_crypto
 
 import logos_delivery/api/types
 import logos_delivery/api/reliable_channel_manager_api
+import logos_delivery/api/events/messaging_client_events
+import logos_delivery/api/events/reliable_channel_manager_events
 import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/waku/waku_core/topics
 

@@ -113,8 +113,7 @@ proc setupNetwork(testTopic: ContentTopic): Future[TestNetwork] {.async.} =
   # store node: archive + store + relay, subscribed to the shard
   var storeNode: WakuNode
   lockNewGlobalBrokerContext:
-    storeNode =
-      newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+    storeNode = newTestWakuNode(generateSecp256k1Key())
     storeNode.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
       "Failed to mount metadata on storeNode"
     )
@@ -132,8 +131,7 @@ proc setupNetwork(testTopic: ContentTopic): Future[TestNetwork] {.async.} =
   # publisher: relay, connected to the store so its messages get archived
   var publisher: WakuNode
   lockNewGlobalBrokerContext:
-    publisher =
-      newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+    publisher = newTestWakuNode(generateSecp256k1Key())
     publisher.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
       "Failed to mount metadata on publisher"
     )
