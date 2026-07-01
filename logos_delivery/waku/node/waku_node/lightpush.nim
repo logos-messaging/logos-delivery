@@ -82,20 +82,18 @@ proc legacyLightpushPublish*(
     error "failed to publish message as legacy lightpush not available"
     return err("Waku lightpush not available")
 
-  # RLN proof is computed over payload || contentTopic || timestamp, so the
-  # timestamp must be set before proof generation — otherwise the downstream
-  # ensureTimestampSet in the client publish would mutate it and invalidate
-  # the proof.
-  var msgWithTimestamp = message
-  ensureTimestampSet(msgWithTimestamp)
+  # toRLNSignal includes the timestamp in the proof input, so the timestamp
+  # must be fixed before proof generation. The downstream ensureTimestampSet
+  # in the client publish becomes an idempotent no-op safety net.
+  let message = ensureTimestampSet(message)
 
-  let rlnPeer =
+  let rln =
     if node.rln.isNil():
       none(Rln)
     else:
       some(node.rln)
-  let msgWithProof = (await checkAndGenerateRLNProof(rlnPeer, msgWithTimestamp)).valueOr:
-    return err(error)
+  let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+    return err("failed call checkAndGenerateRLNProof from lightpush: " & error)
 
   let internalPublish = proc(
       node: WakuNode,
@@ -282,19 +280,17 @@ proc lightpushPublish*(
       error "lightpush publish error", error = msg
       return lighpushErrorResult(LightPushErrorCode.INTERNAL_SERVER_ERROR, msg)
 
-  # RLN proof is computed over payload || contentTopic || timestamp, so the
-  # timestamp must be set before proof generation — otherwise the downstream
-  # ensureTimestampSet in the client publish would mutate it and invalidate
-  # the proof.
-  var msgWithTimestamp = message
-  ensureTimestampSet(msgWithTimestamp)
+  # toRLNSignal includes the timestamp in the proof input, so the timestamp
+  # must be fixed before proof generation. The downstream ensureTimestampSet
+  # in the client publish becomes an idempotent no-op safety net.
+  let message = ensureTimestampSet(message)
 
-  let rlnPeer =
+  let rln =
     if node.rln.isNil():
       none(Rln)
     else:
       some(node.rln)
-  let msgWithProof = (await checkAndGenerateRLNProof(rlnPeer, msgWithTimestamp)).valueOr:
+  let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
     return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
 
   return

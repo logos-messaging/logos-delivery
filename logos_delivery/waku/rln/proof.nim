@@ -7,17 +7,17 @@ import ./types, ./protocol_types, ./conversion_utils, ./group_manager, ./nonce_m
 
 import logos_delivery/waku/waku_core
 
-proc calcEpoch*(rlnPeer: Rln, t: float64): Epoch =
+proc calcEpoch*(rln: Rln, t: float64): Epoch =
   ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
   ## and returns its corresponding rln `Epoch` value
 
-  let e = uint64(t / rlnPeer.rlnEpochSizeSec.float64)
+  let e = uint64(t / rln.rlnEpochSizeSec.float64)
   return toEpoch(e)
 
-proc nextEpoch*(rlnPeer: Rln, time: float64): float64 =
+proc nextEpoch*(rln: Rln, time: float64): float64 =
   let
-    currentEpoch = uint64(time / rlnPeer.rlnEpochSizeSec.float64)
-    nextEpochTime = float64(currentEpoch + 1) * rlnPeer.rlnEpochSizeSec.float64
+    currentEpoch = uint64(time / rln.rlnEpochSizeSec.float64)
+    nextEpochTime = float64(currentEpoch + 1) * rln.rlnEpochSizeSec.float64
     currentTime = epochTime()
 
   # Ensure we always return a future time
@@ -26,8 +26,8 @@ proc nextEpoch*(rlnPeer: Rln, time: float64): float64 =
   else:
     return epochTime()
 
-proc getCurrentEpoch*(rlnPeer: Rln): Epoch =
-  return rlnPeer.calcEpoch(epochTime())
+proc getCurrentEpoch*(rln: Rln): Epoch =
+  return rln.calcEpoch(epochTime())
 
 proc absDiff*(e1, e2: Epoch): uint64 =
   ## returns the absolute difference between the two rln `Epoch`s `e1` and `e2`
@@ -55,22 +55,22 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
   return output
 
 proc generateRLNProof*(
-    rlnPeer: Rln, input: seq[byte], senderEpochTime: float64
+    rln: Rln, input: seq[byte], senderEpochTime: float64
 ): Future[RlnResult[seq[byte]]] {.async.} =
-  let epoch = rlnPeer.calcEpoch(senderEpochTime)
-  let nonce = rlnPeer.nonceManager.getNonce().valueOr:
+  let epoch = rln.calcEpoch(senderEpochTime)
+  let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
-  let proof = (await rlnPeer.groupManager.generateProof(input, epoch, nonce)).valueOr:
+  let proof = (await rln.groupManager.generateProof(input, epoch, nonce)).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
   return ok(proof.encode().buffer)
 
 proc checkAndGenerateRLNProof*(
-    rlnPeer: Option[Rln], message: WakuMessage
+    rln: Option[Rln], message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
   if message.proof.len > 0:
     return ok(message)
 
-  if rlnPeer.isNone():
+  if rln.isNone():
     notice "Publishing message without RLN proof"
     return ok(message)
 
@@ -79,7 +79,7 @@ proc checkAndGenerateRLNProof*(
     senderEpochTime = float64(time)
   var msgWithProof = message
   msgWithProof.proof = (
-    await rlnPeer.get().generateRLNProof(msgWithProof.toRLNSignal(), senderEpochTime)
+    await rln.get().generateRLNProof(msgWithProof.toRLNSignal(), senderEpochTime)
   ).valueOr:
-    return err($error)
+    return err("error in checkAndGenerateRLNProof: " & $error)
   return ok(msgWithProof)

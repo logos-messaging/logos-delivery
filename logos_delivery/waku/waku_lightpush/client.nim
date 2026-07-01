@@ -78,8 +78,7 @@ proc publish*(
     wakuMessage: WakuMessage,
     dest: Connection | PeerId | RemotePeerInfo,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
-  var message = wakuMessage
-  ensureTimestampSet(message)
+  let message = ensureTimestampSet(wakuMessage)
 
   let msgHash = computeMessageHash(pubSubTopic.get(""), message).to0xHex()
 
