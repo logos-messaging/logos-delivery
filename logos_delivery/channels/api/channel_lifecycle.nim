@@ -32,16 +32,7 @@ proc createReliableChannel*(
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
-    sendHandler: SendHandler = nil,
 ): Result[ChannelId, string] =
-  ## Spec entry point. The `sendHandler` and `rng` the channel needs are
-  ## sourced from the owning `ReliableChannelManager` rather than passed
-  ## per call. Encryption is wired up through the `Encrypt`/`Decrypt`
-  ## request brokers — the application installs its own providers
-  ## (or `setNoopEncryption()`) before traffic flows.
-  ##
-  ## `sendHandler` defaults to the manager's default (constructed at mount
-  ## from `MessagingClient.send`); tests pass a fake to bypass the network.
   if self.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
 
@@ -60,10 +51,7 @@ proc createReliableChannel*(
     epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
   )
 
-  let effectiveSendHandler = if sendHandler.isNil(): self.sendHandler else: sendHandler
-
   let chn = ReliableChannel.new(
-    sendHandler = effectiveSendHandler,
     channelId = channelId,
     contentTopic = contentTopic,
     senderId = senderId,

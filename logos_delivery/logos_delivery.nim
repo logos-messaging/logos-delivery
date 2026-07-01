@@ -35,7 +35,7 @@ import logos_delivery/waku/api/events/health_events
 export health_events
 
 # Messaging layer
-import logos_delivery/messaging/messaging_client
+import logos_delivery/messaging/[messaging_client, messaging_client_lifecycle]
 export messaging_client
 import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
