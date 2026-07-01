@@ -1,7 +1,8 @@
 import std/[json, options, strutils, tables, sugar, locks]
 import chronos, results, stew/byteutils, ffi
 import
-  logos_delivery/waku/factory/waku,
+  logos_delivery,
+  logos_delivery/waku/waku,
   logos_delivery/waku/waku_core/peers,
   logos_delivery/waku/waku_store/[
     common, protocol, client, eligibility_canonical, eligibility_hooks
@@ -39,14 +40,14 @@ proc getOrCreateStateUnlocked(key: pointer): StoreEligibilityState =
     result = StoreEligibilityState.new()
     storeEligibilityByCtx[key] = result
 
-proc dropState*(ctx: ptr FFIContext[Waku]) =
+proc dropState*(ctx: ptr FFIContext[LogosDelivery]) =
   eligibilityHookLock.acquire()
   defer:
     eligibilityHookLock.release()
   storeEligibilityByCtx.del cast[pointer](ctx)
 
-proc applyVerifierWrapper*(ctx: ptr FFIContext[Waku], state: StoreEligibilityState) =
-  let store = ctx.myLib[].node.wakuStore
+proc applyVerifierWrapper*(ctx: ptr FFIContext[LogosDelivery], state: StoreEligibilityState) =
+  let store = ctx.myLib[].waku.node.wakuStore
   if store.isNil:
     return
   if not state.handlerWrapped:
@@ -56,15 +57,15 @@ proc applyVerifierWrapper*(ctx: ptr FFIContext[Waku], state: StoreEligibilitySta
     state.verifierCb, state.verifierUserData, state.innerHandler, store
   )
 
-proc clearVerifierWrapper*(ctx: ptr FFIContext[Waku], state: StoreEligibilityState) =
-  let store = ctx.myLib[].node.wakuStore
+proc clearVerifierWrapper*(ctx: ptr FFIContext[LogosDelivery], state: StoreEligibilityState) =
+  let store = ctx.myLib[].waku.node.wakuStore
   if store.isNil or not state.handlerWrapped:
     return
   store.requestHandler = state.innerHandler
   state.handlerWrapped = false
 
 proc logosdelivery_set_eligibility_verifier(
-    ctx: ptr FFIContext[Waku], cb: EligibilityVerifierCb, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], cb: EligibilityVerifierCb, userData: pointer
 ): cint {.dynlib, exportc, cdecl.} =
   initializeLibrary()
   if isNil(ctx):
@@ -82,7 +83,7 @@ proc logosdelivery_set_eligibility_verifier(
   RET_OK
 
 proc logosdelivery_set_eligibility_provider(
-    ctx: ptr FFIContext[Waku], cb: EligibilityProviderCb, userData: pointer
+    ctx: ptr FFIContext[LogosDelivery], cb: EligibilityProviderCb, userData: pointer
 ): cint {.dynlib, exportc, cdecl.} =
   initializeLibrary()
   if isNil(ctx):
@@ -95,7 +96,7 @@ proc logosdelivery_set_eligibility_provider(
   state.providerUserData = userData
   RET_OK
 
-proc snapshotProviderCb(ctx: ptr FFIContext[Waku]): (EligibilityProviderCb, pointer) {.
+proc snapshotProviderCb(ctx: ptr FFIContext[LogosDelivery]): (EligibilityProviderCb, pointer) {.
     gcsafe
 .} =
   eligibilityHookLock.acquire()
@@ -108,7 +109,7 @@ proc snapshotProviderCb(ctx: ptr FFIContext[Waku]): (EligibilityProviderCb, poin
     return (state.providerCb, state.providerUserData)
 
 proc logosdelivery_store_query(
-    ctx: ptr FFIContext[Waku],
+    ctx: ptr FFIContext[LogosDelivery],
     callback: FFICallBack,
     userData: pointer,
     queryJson: cstring,
@@ -156,7 +157,7 @@ proc logosdelivery_store_query(
     storeQueryRequest.eligibilityProof = some(proofBytes)
 
   let queryResponse = (
-    await ctx.myLib[].node.wakuStoreClient.query(storeQueryRequest, peer)
+    await ctx.myLib[].waku.node.wakuStoreClient.query(storeQueryRequest, peer)
   ).valueOr:
     return err("StoreRequest failed store query: " & $error)
 
