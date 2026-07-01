@@ -47,15 +47,7 @@ proc mountLegacyLightPush*(
     return err(MountWithoutRelayError)
 
   info "mounting legacy lightpush with relay"
-  let rlnPeer =
-    if node.rln.isNil():
-      info "mounting legacy lightpush without rln-relay"
-      none(Rln)
-    else:
-      info "mounting legacy lightpush with rln-relay"
-      some(node.rln)
-  let pushHandler =
-    legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay, rlnPeer)
+  let pushHandler = legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay)
 
   node.wakuLegacyLightPush =
     WakuLegacyLightPush.new(node.peerManager, node.rng, pushHandler, some(rateLimit))
@@ -90,6 +82,19 @@ proc legacyLightpushPublish*(
     error "failed to publish message as legacy lightpush not available"
     return err("Waku lightpush not available")
 
+  # toRLNSignal includes the timestamp in the proof input, so the timestamp
+  # must be fixed before proof generation. The downstream ensureTimestampSet
+  # in the client publish becomes an idempotent no-op safety net.
+  let message = ensureTimestampSet(message)
+
+  let rln =
+    if node.rln.isNil():
+      none(Rln)
+    else:
+      some(node.rln)
+  let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+    return err("failed call checkAndGenerateRLNProof from lightpush: " & error)
+
   let internalPublish = proc(
       node: WakuNode,
       pubsubTopic: PubsubTopic,
@@ -115,7 +120,7 @@ proc legacyLightpushPublish*(
         await node.wakuLegacyLightPush.handleSelfLightPushRequest(pubsubTopic, message)
   try:
     if pubsubTopic.isSome():
-      return await internalPublish(node, pubsubTopic.get(), message, peer)
+      return await internalPublish(node, pubsubTopic.get(), msgWithProof, peer)
 
     if node.wakuAutoSharding.isNone():
       return err("Pubsub topic must be specified when static sharding is enabled")
@@ -123,7 +128,7 @@ proc legacyLightpushPublish*(
       ?node.wakuAutoSharding.get().getShardsFromContentTopics(message.contentTopic)
 
     for pubsub, _ in topicMap.pairs: # There's only one pair anyway
-      return await internalPublish(node, $pubsub, message, peer)
+      return await internalPublish(node, $pubsub, msgWithProof, peer)
   except CatchableError:
     return err(getCurrentExceptionMsg())
 
@@ -158,14 +163,7 @@ proc mountLightPush*(
     return err(MountWithoutRelayError)
 
   info "mounting lightpush with relay"
-  let rlnPeer =
-    if node.rln.isNil():
-      info "mounting lightpush without rln-relay"
-      none(Rln)
-    else:
-      info "mounting lightpush with rln-relay"
-      some(node.rln)
-  let pushHandler = lightpush_protocol.getRelayPushHandler(node.wakuRelay, rlnPeer)
+  let pushHandler = lightpush_protocol.getRelayPushHandler(node.wakuRelay)
 
   node.wakuLightPush = WakuLightPush.new(
     node.peerManager, node.rng, pushHandler, node.wakuAutoSharding, some(rateLimit)
@@ -282,4 +280,18 @@ proc lightpushPublish*(
       error "lightpush publish error", error = msg
       return lighpushErrorResult(LightPushErrorCode.INTERNAL_SERVER_ERROR, msg)
 
-  return await lightpushPublishHandler(node, pubsubForPublish, message, toPeer, mixify)
+  # toRLNSignal includes the timestamp in the proof input, so the timestamp
+  # must be fixed before proof generation. The downstream ensureTimestampSet
+  # in the client publish becomes an idempotent no-op safety net.
+  let message = ensureTimestampSet(message)
+
+  let rln =
+    if node.rln.isNil():
+      none(Rln)
+    else:
+      some(node.rln)
+  let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+    return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
+
+  return
+    await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
