@@ -38,14 +38,10 @@ proc hasLightpush*(self: Waku): bool =
   return not self.node.wakuLightpushClient.isNil()
 
 proc relayPushHandler*(self: Waku): PushMessageHandler =
-  ## Builds the relay publish handler (appending an RLN proof when RLN is
-  ## mounted) used by the send pipeline. Caller ensures relay is mounted.
-  let rln =
-    if self.node.rln.isNil():
-      none[Rln]()
-    else:
-      some(self.node.rln)
-  return getRelayPushHandler(self.node.wakuRelay, rln)
+  ## Builds the relay publish handler used by the send pipeline. Caller
+  ## ensures relay is mounted. RLN proof generation is handled client-side
+  ## in (legacy)lightpushPublish; this handler only validates and republishes.
+  return getRelayPushHandler(self.node.wakuRelay)
 
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
