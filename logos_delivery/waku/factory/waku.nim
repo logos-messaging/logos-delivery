@@ -111,21 +111,8 @@ proc setupSwitchServices(
       MaxNumRelayServers, RelayClient(circuitRelay), onReservation, rng
     )
     let holePunchService = HPService.new(autonatService, autoRelayService)
-    # libp2p v2.0.0: switch.start() no longer auto-calls service.setup() (part
-    # of the Service lifecycle refactor in libp2p#2462). Without setup,
-    # HPService's wrapped Autonat/AutoRelay leave their addressMapper field
-    # nil, which makes peerInfo.expandAddrs SIGSEGV during start().
-    try:
-      holePunchService.setup(waku.node.switch)
-    except ServiceSetupError as e:
-      error "HPService setup failed", description = e.msg
     waku.node.switch.services = @[Service(holePunchService)]
   else:
-    # Same reason as above: AutonatService.setup() initializes addressMapper.
-    try:
-      autonatService.setup(waku.node.switch)
-    except ServiceSetupError as e:
-      error "AutonatService setup failed", description = e.msg
     waku.node.switch.services = @[Service(autonatService)]
 
   # libp2p 2.0.0 split Service.setup out of Service.start: the switch runs setup

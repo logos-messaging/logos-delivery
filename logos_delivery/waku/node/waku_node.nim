@@ -355,7 +355,8 @@ proc mountMix*(
           return err("Autosharding error: " & error)
 
     # Publish via relay
-    discard await node.wakuRelay.publish(pubsubTopic, message)
+    (await node.wakuRelay.publish(pubsubTopic, message)).isOkOr:
+      return err("publish failed in relay: " & $error)
     return ok()
 
   node.wakuMix = WakuMix.new(
@@ -397,24 +398,20 @@ proc mountKademlia*(
   return ok()
 
 proc runServicePeerTopUp(
-    node: WakuNode,
-    serviceId: string,
-    target: int,
-    currentCount: proc(): int {.gcsafe, raises: [].},
-    interval: Duration,
+    node: WakuNode, serviceId: string, target: int, interval: Duration
 ) {.async.} =
-  ## Adaptive service-peer discovery: while the number of usable providers for
-  ## `serviceId` is below `target`, pull more through the broker. The registered
+  ## Adaptive service-peer discovery: while the mix node pool is below `target`,
+  ## pull more providers for `serviceId` through the broker. The registered
   ## ServicePeersRequest provider (kademlia) performs the lookup and fills the
-  ## pool. Generic — the caller supplies the service id, target and count getter.
+  ## pool.
   debug "service peer top-up loop started", serviceId, target, interval = $interval
   while true:
     await sleepAsync(interval)
-    if currentCount() >= target:
+    if node.getMixNodePoolSize() >= target:
       continue
-    let res = await ServicePeersRequest.request(node.brokerCtx, serviceId)
-    if res.isErr:
-      debug "service peer top-up request failed", serviceId, error = res.error
+    (await ServicePeersRequest.request(node.brokerCtx, serviceId)).isOkOr:
+      debug "service peer top-up request failed", serviceId, error = error
+      continue
 
 ## Waku Sync
 
@@ -706,19 +703,11 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuKademlia.isNil():
     await node.wakuKademlia.start()
 
-    # Keep the mix pool filled: the generic service-peer top-up wired with
-    # mix's service id, target pool size and current pool-size getter.
+    # Keep the mix pool filled: top up mix service peers via the broker while
+    # the pool is below the minimum size.
     if not node.wakuMix.isNil():
-      node.mixTopUpLoop = node.runServicePeerTopUp(
-        MixProtocolID,
-        minMixPoolSize,
-        proc(): int {.gcsafe, raises: [].} =
-          if node.wakuMix.isNil():
-            0
-          else:
-            node.getMixNodePoolSize(),
-        chronos.seconds(5),
-      )
+      node.mixTopUpLoop =
+        node.runServicePeerTopUp(MixProtocolID, minMixPoolSize, chronos.seconds(5))
 
   if not node.wakuFilterClient.isNil():
     node.wakuFilterClient.registerPushHandler(

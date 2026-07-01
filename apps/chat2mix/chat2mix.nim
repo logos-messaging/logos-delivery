@@ -71,19 +71,19 @@ proc maintainSpamProtectionSubscription(
   node: WakuNode, contentTopics: seq[ContentTopic]
 ) {.async.}
 
-proc setupMixSpamProtectionViaFilter(node: WakuNode) {.async.} =
+proc setupMixSpamProtectionViaFilter(node: WakuNode): Future[void] =
+  ## Registers the spam-protection push handler and returns the long-lived
+  ## subscription-maintenance future so the caller can cancel it on shutdown.
   # Register message handler for spam protection coordination
   let spamTopics = node.wakuMix.getSpamProtectionContentTopics()
 
-  proc handleSpamMessage(
-      pubsubTopic: PubsubTopic, message: WakuMessage
-  ): Future[void] {.async, gcsafe.} =
+  proc handleSpamMessage(pubsubTopic: PubsubTopic, message: WakuMessage) {.async.} =
     await node.wakuMix.handleMessage(pubsubTopic, message)
 
   node.wakuFilterClient.registerPushHandler(handleSpamMessage)
 
   # Wait for filter peer and maintain subscription
-  asyncSpawn maintainSpamProtectionSubscription(node, spamTopics)
+  maintainSpamProtectionSubscription(node, spamTopics)
 
 proc maintainSpamProtectionSubscription(
     node: WakuNode, contentTopics: seq[ContentTopic]
@@ -176,6 +176,7 @@ type Chat = ref object
   prompt: bool # chat prompt is showing
   contentTopic: string # default content topic for chat messages
   conf: Chat2Conf # configuration for chat2
+  mixSpamProtectionFut: Future[void] # mix spam-protection filter maintenance loop
 
 type
   PrivateKey* = crypto.PrivateKey
@@ -315,7 +316,6 @@ proc publish(c: Chat, line: string) {.async.} =
       )
       if res.isErr():
         error "failed to publish lightpush message", error = res.error
-        echo "Error: " & res.error.desc.get("unknown error")
     else:
       error "failed to publish message as lightpush client is not initialized"
       echo "Error: lightpush client is not initialized"
@@ -370,6 +370,9 @@ proc writeAndPrint(c: Chat) {.async.} =
       echo "You are now known as " & c.nick
     elif line.startsWith("/exit"):
       echo "quitting..."
+
+      if not c.mixSpamProtectionFut.isNil():
+        await c.mixSpamProtectionFut.cancelAndWait()
 
       try:
         await c.node.stop()
@@ -588,8 +591,9 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   #await node.mountRendezvousClient(conf.clusterId)
 
   # Subscribe to spam protection coordination topics via filter since chat2mix doesn't use relay
+  var mixSpamProtectionFut: Future[void] = nil
   if not node.wakuFilterClient.isNil():
-    asyncSpawn setupMixSpamProtectionViaFilter(node)
+    mixSpamProtectionFut = setupMixSpamProtectionViaFilter(node)
 
   await node.start()
 
@@ -612,6 +616,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     prompt: false,
     contentTopic: conf.contentTopic,
     conf: conf,
+    mixSpamProtectionFut: mixSpamProtectionFut,
   )
 
   var dnsDiscoveryUrl = none(string)

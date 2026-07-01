@@ -177,7 +177,7 @@ proc setupSpamProtectionCallbacks(mix: WakuMix) =
 
 proc handleMessage*(
     mix: WakuMix, pubsubTopic: PubsubTopic, message: WakuMessage
-) {.async, gcsafe.} =
+) {.async.} =
   ## Handle incoming messages for spam protection coordination.
   ## This should be called from the relay handler for coordination content topics.
   if mix.mixRlnSpamProtection.isNil():
@@ -187,26 +187,23 @@ proc handleMessage*(
 
   if contentTopic == mix.mixRlnSpamProtection.getMembershipContentTopic():
     # Handle membership update
-    let res = await mix.mixRlnSpamProtection.handleMembershipUpdate(message.payload)
-    if res.isErr:
-      warn "Failed to handle membership update", error = res.error
-    else:
-      trace "Handled membership update"
+    (await mix.mixRlnSpamProtection.handleMembershipUpdate(message.payload)).isOkOr:
+      warn "Failed to handle membership update", error = error
+      return
+    trace "Handled membership update"
 
-      # Persist tree after membership changes (temporary solution)
-      # TODO: Replace with proper persistence strategy (e.g., periodic snapshots)
-      let saveRes = mix.mixRlnSpamProtection.saveTree()
-      if saveRes.isErr:
-        debug "Failed to save tree after membership update", error = saveRes.error
-      else:
-        trace "Saved tree after membership update"
+    # Persist tree after membership changes (temporary solution)
+    # TODO: Replace with proper persistence strategy (e.g., periodic snapshots)
+    mix.mixRlnSpamProtection.saveTree().isOkOr:
+      debug "Failed to save tree after membership update", error = error
+      return
+    trace "Saved tree after membership update"
   elif contentTopic == mix.mixRlnSpamProtection.getProofMetadataContentTopic():
     # Handle proof metadata for network-wide spam detection
-    let res = mix.mixRlnSpamProtection.handleProofMetadata(message.payload)
-    if res.isErr:
-      warn "Failed to handle proof metadata", error = res.error
-    else:
-      trace "Handled proof metadata"
+    mix.mixRlnSpamProtection.handleProofMetadata(message.payload).isOkOr:
+      warn "Failed to handle proof metadata", error = error
+      return
+    trace "Handled proof metadata"
 
 proc getSpamProtectionContentTopics*(mix: WakuMix): seq[string] =
   ## Get the content topics used by spam protection for coordination.
@@ -221,10 +218,7 @@ proc saveSpamProtectionTree*(mix: WakuMix): Result[void, string] =
   if mix.mixRlnSpamProtection.isNil():
     return err("Spam protection not initialized")
 
-  mix.mixRlnSpamProtection.saveTree().mapErr(
-    proc(e: string): string =
-      e
-  )
+  mix.mixRlnSpamProtection.saveTree()
 
 proc loadSpamProtectionTree*(mix: WakuMix): Result[void, string] =
   ## Load the spam protection membership tree from disk.
@@ -235,10 +229,7 @@ proc loadSpamProtectionTree*(mix: WakuMix): Result[void, string] =
   if mix.mixRlnSpamProtection.isNil():
     return err("Spam protection not initialized")
 
-  mix.mixRlnSpamProtection.loadTree().mapErr(
-    proc(e: string): string =
-      e
-  )
+  mix.mixRlnSpamProtection.loadTree()
 
 method start*(mix: WakuMix) {.async.} =
   ## Local-only mix protocol initialization. Does NOT touch the network.
@@ -247,36 +238,35 @@ method start*(mix: WakuMix) {.async.} =
   ## peers are connected without blocking on relay startup.
   info "starting waku mix protocol"
 
-  if not mix.mixRlnSpamProtection.isNil():
-    # Initialize spam protection (MixProtocol.init() does NOT call init() on the plugin)
-    let initRes = await mix.mixRlnSpamProtection.init()
-    if initRes.isErr:
-      error "Failed to initialize spam protection", error = initRes.error
-      return
+  if mix.mixRlnSpamProtection.isNil():
+    return
 
-    # Load existing tree to sync with other members.
-    # Should be done after init() (which loads credentials) but before
-    # registerSelf() (which adds us to the tree).
-    let loadRes = mix.mixRlnSpamProtection.loadTree()
-    if loadRes.isErr:
-      debug "No existing tree found or failed to load, starting fresh",
-        error = loadRes.error
-    else:
-      debug "Loaded existing spam protection membership tree from disk"
+  # Initialize spam protection (MixProtocol.init() does NOT call init() on the plugin)
+  (await mix.mixRlnSpamProtection.init()).isOkOr:
+    error "Failed to initialize spam protection", error = error
+    return
 
-    # Restore our credentials to the tree (after tree load, whether it succeeded or not).
-    # Ensures our member is in the tree if we have an index from keystore.
-    let restoreRes = mix.mixRlnSpamProtection.restoreCredentialsToTree()
-    if restoreRes.isErr:
-      error "Failed to restore credentials to tree", error = restoreRes.error
+  # Load existing tree to sync with other members.
+  # Should be done after init() (which loads credentials) but before
+  # registerSelf() (which adds us to the tree).
+  let loadRes = mix.mixRlnSpamProtection.loadTree()
+  if loadRes.isErr:
+    debug "No existing tree found or failed to load, starting fresh",
+      error = loadRes.error
+  else:
+    debug "Loaded existing spam protection membership tree from disk"
 
-    # Set up publish callback. Must be before the network-side registration so
-    # the plugin's groupManager.register can broadcast the membership update.
-    mix.setupSpamProtectionCallbacks()
+  # Restore our credentials to the tree (after tree load, whether it succeeded or not).
+  # Ensures our member is in the tree if we have an index from keystore.
+  mix.mixRlnSpamProtection.restoreCredentialsToTree().isOkOr:
+    error "Failed to restore credentials to tree", error = error
 
-    let startRes = await mix.mixRlnSpamProtection.start()
-    if startRes.isErr:
-      error "Failed to start spam protection", error = startRes.error
+  # Set up publish callback. Must be before the network-side registration so
+  # the plugin's groupManager.register can broadcast the membership update.
+  mix.setupSpamProtectionCallbacks()
+
+  (await mix.mixRlnSpamProtection.start()).isOkOr:
+    error "Failed to start spam protection", error = error
 
   info "waku mix protocol started"
 
