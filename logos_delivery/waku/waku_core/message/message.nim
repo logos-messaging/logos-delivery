@@ -28,7 +28,7 @@ type WakuMessage* = object # Data payload transmitted.
   # attribute will be used in the rln-relay protocol.
   proof*: seq[byte]
 
-func ensureTimestampSet*(message: WakuMessage): WakuMessage =
+proc ensureTimestampSet*(message: WakuMessage): WakuMessage =
   result = message
   if result.timestamp == 0:
     result.timestamp = getNowInNanosecondTime()
