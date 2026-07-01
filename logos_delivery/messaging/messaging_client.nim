@@ -17,7 +17,7 @@ type
     ## follow-up PR. Today it only carries the p2p reliability toggle.
     useP2PReliability*: bool
 
-  MessagingClient* = ref object of IMessagingClient
+  MessagingClient* = ref object ## Implements `MessagingApi`.
     waku*: Waku ## The Waku kernel this layer drives; read by `messaging/api/*`.
     sendService*: SendService
     recvService*: RecvService

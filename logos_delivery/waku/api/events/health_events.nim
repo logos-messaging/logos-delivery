@@ -4,10 +4,7 @@ import logos_delivery/api/types
 import logos_delivery/waku/node/health_monitor/[protocol_health, topic_health]
 import logos_delivery/waku/waku_core/topics
 
-export protocol_health, topic_health
-
-# Note: `EventConnectionStatusChange` lives in `logos_delivery/api/logos_delivery_api`
-# (the top-level orchestrator interface owns the node-connectivity event).
+export event_broker, protocol_health, topic_health
 
 # Notify health changes to a subscribed topic
 # TODO: emit content topic health change events when subscribe/unsubscribe

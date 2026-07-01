@@ -10,7 +10,7 @@ import
   logos_delivery/waku/[waku_core, waku_store/common],
   logos_delivery/waku/waku,
   logos_delivery/waku/api/[store, subscriptions, publish]
-import logos_delivery/api/messaging_client_api
+import logos_delivery/api/events/messaging_client_events
 
 logScope:
   topics = "send service"

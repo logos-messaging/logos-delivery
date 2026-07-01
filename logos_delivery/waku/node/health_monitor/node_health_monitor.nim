@@ -9,7 +9,7 @@ import
   libp2p/protocols/pubsub,
   libp2p/protocols/pubsub/rpc/messages,
   logos_delivery/api/types,
-  logos_delivery/api/logos_delivery_api, # EventConnectionStatusChange
+  logos_delivery/api/events/kernel_events, # EventConnectionStatusChange
   logos_delivery/waku/[
     waku_relay,
     api/events/health_events,
