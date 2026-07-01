@@ -38,6 +38,27 @@ proc createApiNodeConf(): WakuNodeConf =
   conf.rest = false
   return conf
 
+type MessagingClientTest = ref object
+  ## Test double for the messaging node used by the send-side tests. `send` is
+  ## a proc-typed field, so it satisfies the (dot-form) `MessagingSender`
+  ## concept directly; the manager owns it as `manager.messaging`, and each
+  ## test scripts the egress with `manager.messaging.send = ...`.
+  send: proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
+    async: (raises: [CatchableError]), gcsafe
+  .}
+
+static:
+  doAssert MessagingClientTest is MessagingSender
+
+proc newTestManager(
+    brokerCtx: BrokerContext
+): ReliableChannelManager[MessagingClientTest] =
+  ## Manager over the send double. `manager.messaging` is the double, so tests
+  ## script the egress with `manager.messaging.send = ...`.
+  ReliableChannelManager
+    .new(ReliableChannelManagerConf(), MessagingClientTest(), brokerCtx)
+    .expect("ReliableChannelManager.new")
+
 suite "Reliable Channel - ingress":
   asyncTest "manager dispatches marked WakuMessage to the right channel":
     ## Unit test for the receive side of the API: instead of standing
@@ -54,7 +75,7 @@ suite "Reliable Channel - ingress":
     let appPayload = "hello reliable channel".toBytes()
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
@@ -120,7 +141,7 @@ suite "Reliable Channel - ingress":
     let appPayload = "foreign payload".toBytes()
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
@@ -165,8 +186,8 @@ suite "Reliable Channel - ingress":
 suite "Reliable Channel - send state machine":
   asyncTest "MessageSentEvent finalises the channelReqId as Sent":
     ## Drives the real send pipeline (`send` -> segmentation -> SDS ->
-    ## rate_limit -> encrypt -> dispatch) via a fake `SendHandler` that
-    ## returns a canned `RequestId` instead of hitting the network.
+    ## rate_limit -> encrypt -> dispatch) via the `MessagingClientTest` double
+    ## that returns a canned `RequestId` instead of hitting the network.
     ## Emitting the delivery-layer `MessageSentEvent` must drive the
     ## channel-level state machine through `Confirmed` and produce a
     ## `ChannelMessageSentEvent` (channel-level terminal event) for the
@@ -177,26 +198,24 @@ suite "Reliable Channel - send state machine":
       fakeMsgReqId = RequestId("fake-msg-req-1")
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClientTest]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
-      manager = waku.reliableChannelManager
+      manager = newTestManager(brokerCtx)
 
     setNoopEncryption()
 
     var sendCalls = 0
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+    manager.messaging.send = proc(
+        envelope: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]).} =
       sendCalls.inc
       return ok(fakeMsgReqId)
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     let sentFut = newFuture[RequestId]("channel-sent")
@@ -227,13 +246,14 @@ suite "Reliable Channel - send state machine":
     if finalised:
       check sentFut.read() == channelReqId
 
+    await manager.stop()
     (await waku.stop()).expect("stop")
 
   asyncTest "two independent channelReqIds are finalised independently":
     ## Two `send()` calls -> two independent `channelReqId`s, each with
     ## one segment under the current segmentation skeleton
     ## (`performSegmentation` always emits exactly one segment). The
-    ## fake `SendHandler` returns distinct `messagingReqId`s; finalising
+    ## send double returns distinct `messagingReqId`s; finalising
     ## the first emits `ChannelMessageSentEvent` for its `channelReqId`,
     ## finalising the second as a failure emits `ChannelMessageErrorEvent`
     ## for the other.
@@ -242,27 +262,25 @@ suite "Reliable Channel - send state machine":
       contentTopic = ContentTopic("/reliable-channel/test/sm-multi")
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClientTest]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
-      manager = waku.reliableChannelManager
+      manager = newTestManager(brokerCtx)
 
     setNoopEncryption()
 
     var msgReqIds: seq[RequestId]
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+    manager.messaging.send = proc(
+        envelope: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]).} =
       let id = RequestId("fake-msg-req-" & $(msgReqIds.len + 1))
       msgReqIds.add(id)
       return ok(id)
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     let sentFut = newFuture[RequestId]("channel-sent")
@@ -319,6 +337,7 @@ suite "Reliable Channel - send state machine":
     if erroredArrived:
       check erroredFut.read() == channelReqId2
 
+    await manager.stop()
     (await waku.stop()).expect("stop")
 
   asyncTest "TODO: channelReqId not pruned until ALL its segments are final":
@@ -328,11 +347,11 @@ suite "Reliable Channel - send state machine":
     ## `channelReqId` cannot be produced through the real pipeline.
     ## Implement once segmentation does real chunking: send a payload
     ## larger than `DefaultSegmentSizeBytes`, capture the N
-    ## `messagingReqId`s from a fake `SendHandler`, finalise some, and
+    ## `messagingReqId`s from the send double, finalise some, and
     ## assert prune only fires once every sibling is final.
     skip()
 
-  asyncTest "sibling MessageSentEvent during sendHandler await does not corrupt state":
+  asyncTest "sibling MessageSentEvent during send await does not corrupt state":
     ## Regression test for the prune-during-await race
     ## (PR #3914 review comment r3324891059). Locks in that a sibling
     ## `MessageSentEvent` firing while `onReadyToSend` is paused at an
@@ -343,20 +362,20 @@ suite "Reliable Channel - send state machine":
       contentTopic = ContentTopic("/reliable-channel/test/sm-race")
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClientTest]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
-      manager = waku.reliableChannelManager
+      manager = newTestManager(brokerCtx)
 
     setNoopEncryption()
 
     var msgReqIds: seq[RequestId]
     var sendsReturned = 0
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+    manager.messaging.send = proc(
+        envelope: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]).} =
       ## Call 2 fires the first segment's terminal event and then
       ## yields, so the listener task runs while the second segment
       ## is still mid-`await` in `onReadyToSend` — the exact race
@@ -364,18 +383,15 @@ suite "Reliable Channel - send state machine":
       let id = RequestId("race-msg-req-" & $(msgReqIds.len + 1))
       msgReqIds.add(id)
       if msgReqIds.len == 2:
-        waku_message_events.MessageSentEvent.emit(
-          brokerCtx,
-          waku_message_events.MessageSentEvent(requestId: msgReqIds[0], messageHash: ""),
+        MessageSentEvent.emit(
+          brokerCtx, MessageSentEvent(requestId: msgReqIds[0], messageHash: "")
         )
         await sleepAsync(50.milliseconds)
       sendsReturned.inc()
       return ok(id)
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     var finalisedReqIds: seq[RequestId]
@@ -431,6 +447,7 @@ suite "Reliable Channel - send state machine":
       check channelReqId1 in finalisedReqIds
       check channelReqId2 in finalisedReqIds
 
+    await manager.stop()
     (await waku.stop()).expect("stop")
 
 suite "Reliable Channel - SDS persistence":
@@ -450,22 +467,20 @@ suite "Reliable Channel - SDS persistence":
       removeDir(root)
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClientTest]
     lockNewGlobalBrokerContext:
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
-      manager = waku.reliableChannelManager
+      manager = newTestManager(globalBrokerContext())
 
     setNoopEncryption()
 
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+    manager.messaging.send = proc(
+        envelope: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]).} =
       return ok(RequestId("persist-msg-req-1"))
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     discard (await manager.send(channelId, "persist me".toBytes())).expect("send")
@@ -496,6 +511,7 @@ suite "Reliable Channel - SDS persistence":
     check await pollMetaExists()
     check await pollLogRow()
 
+    await manager.stop()
     (await waku.stop()).expect("stop")
 
 ## A marked WakuMessage carrying an SDS envelope, as it arrives off the wire.
@@ -518,7 +534,7 @@ suite "Reliable Channel - SDS lifecycle":
     let payload2 = "second message".toBytes()
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
@@ -589,7 +605,7 @@ suite "Reliable Channel - SDS lifecycle":
     let appPayload = "deliver once".toBytes()
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
@@ -646,7 +662,7 @@ suite "Reliable Channel - SDS lifecycle":
       contentTopic = ContentTopic("/reliable-channel/test/foreign")
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
@@ -706,7 +722,7 @@ suite "Reliable Channel - SDS lifecycle":
       removeDir(root)
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
@@ -788,27 +804,25 @@ suite "Reliable Channel - SDS protocol semantics":
       contentTopic = ContentTopic("/reliable-channel/test/semantics")
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClientTest]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
-      manager = waku.reliableChannelManager
+      manager = newTestManager(brokerCtx)
 
     setNoopEncryption()
 
     var capturedWires: seq[seq[byte]]
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
+    manager.messaging.send = proc(
+        envelope: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]).} =
       ## Noop encryption is identity, so the envelope payload IS the SDS wire.
-      capturedWires.add(env.payload)
+      capturedWires.add(envelope.payload)
       return ok(RequestId("semantics-req-" & $capturedWires.len))
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     let remotePeer =
@@ -838,6 +852,7 @@ suite "Reliable Channel - SDS protocol semantics":
     check SdsMessageID("semantics-m1") in reply.causalHistory.getMessageIds()
     check reply.lamportTimestamp > m1.lamportTimestamp
 
+    await manager.stop()
     (await waku.stop()).expect("stop")
 
   asyncTest "an unacknowledged send is acked by a later remote message":
@@ -856,26 +871,25 @@ suite "Reliable Channel - SDS protocol semantics":
       removeDir(root)
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClientTest]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
-      manager = waku.reliableChannelManager
+      manager = newTestManager(brokerCtx)
 
     setNoopEncryption()
 
     var capturedWires: seq[seq[byte]]
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      capturedWires.add(env.payload)
+    manager.messaging.send = proc(
+        envelope: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]).} =
+      ## Noop encryption is identity, so the envelope payload IS the SDS wire.
+      capturedWires.add(envelope.payload)
       return ok(RequestId("ack-req-" & $capturedWires.len))
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     discard (await manager.send(channelId, "needs ack".toBytes())).expect("send")
@@ -932,6 +946,7 @@ suite "Reliable Channel - SDS protocol semantics":
         await sleepAsync(5.milliseconds)
     check bufLen == 0
 
+    await manager.stop()
     (await waku.stop()).expect("stop")
 
   asyncTest "three-deep dependency chain is released in causal order":
@@ -944,7 +959,7 @@ suite "Reliable Channel - SDS protocol semantics":
       @["chain first".toBytes(), "chain second".toBytes(), "chain third".toBytes()]
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
@@ -1019,7 +1034,7 @@ suite "Reliable Channel - SDS protocol semantics":
     let appPayload = "real message".toBytes()
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
@@ -1092,26 +1107,25 @@ suite "Reliable Channel - SDS protocol semantics":
     let appPayload = "ok".toBytes()
 
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClientTest]
     var brokerCtx: BrokerContext
     lockNewGlobalBrokerContext:
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
-      manager = waku.reliableChannelManager
+      manager = newTestManager(brokerCtx)
 
     setNoopEncryption()
 
     var capturedWires: seq[seq[byte]]
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      capturedWires.add(env.payload)
+    manager.messaging.send = proc(
+        envelope: MessageEnvelope
+    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]).} =
+      ## Noop encryption is identity, so the envelope payload IS the SDS wire.
+      capturedWires.add(envelope.payload)
       return ok(RequestId("unique-req-" & $capturedWires.len))
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     var deliveries: seq[seq[byte]]
@@ -1156,11 +1170,12 @@ suite "Reliable Channel - SDS protocol semantics":
       await sleepAsync(5.milliseconds)
     check deliveries.len == 2
 
+    await manager.stop()
     (await waku.stop()).expect("stop")
 
   asyncTest "manager rejects operations on unknown channels":
     var waku: LogosDelivery
-    var manager: ReliableChannelManager
+    var manager: ReliableChannelManager[MessagingClient]
     lockNewGlobalBrokerContext:
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager

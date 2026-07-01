@@ -74,7 +74,7 @@ type
   LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
     waku*: Waku
     messagingClient*: MessagingClient
-    reliableChannelManager*: ReliableChannelManager
+    reliableChannelManager*: ReliableChannelManager[MessagingClient]
 
 proc init*(T: type LogosDeliveryConf, wakuConf: WakuConf): LogosDeliveryConf =
   ## Builds the aggregated config from a `WakuConf`. The messaging / reliable
@@ -154,5 +154,5 @@ proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
 static:
   doAssert Waku is KernelApi
   doAssert MessagingClient is MessagingApi
-  doAssert ReliableChannelManager is ReliableChannelApi
+  doAssert ReliableChannelManager[MessagingClient] is ReliableChannelApi
   doAssert LogosDelivery is LogosDeliveryApi

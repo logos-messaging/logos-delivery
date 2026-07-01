@@ -13,8 +13,6 @@ import stew/byteutils
 
 import brokers/broker_context
 
-import logos_delivery/messaging/messaging_client
-import logos_delivery/messaging/api/send
 import logos_delivery/api/types
 import logos_delivery/api/reliable_channel_manager_api
 
@@ -28,37 +26,25 @@ type
     ## channel API. Placeholder for now (segmentation / SDS / rate-limit defaults
     ## will move here in a follow-up PR); kept so each layer owns its own config.
 
-  ReliableChannelManager* = ref object ## Implements `ReliableChannelApi`.
-    channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
-    messagingClient: MessagingClient ## The channel layer chains onto messaging.
-    sendHandler*: SendHandler
-      ## Default egress dispatch for channels created through this manager.
-      ## Built in `new` as a closure over `MessagingClient.send` so the channel
-      ## layer itself stays callable-only.
+  ReliableChannelManager*[M: MessagingSender] = ref object
+    ## Owns the set of channels and the messaging node they dispatch through.
+    ## Generic over the egress `M`; hands the node to every channel it creates.
+    ## Holding the node here keeps `createReliableChannel` node-free — the
+    ## node-bound consumer surface the `ReliableChannelApi` concept describes.
+    channels*: Table[ChannelId, ReliableChannel[M]] ## read by `channels/api.nim`
+    messaging*: M ## egress node, passed on to each `ReliableChannel`
     brokerCtx*: BrokerContext
 
-proc new*(
+proc new*[M: MessagingSender](
     T: type ReliableChannelManager,
     conf: ReliableChannelManagerConf,
-    messagingClient: MessagingClient,
+    messaging: M,
     brokerCtx: BrokerContext = globalBrokerContext(),
-): Result[T, string] =
-  ## The reliable channel layer chains onto the messaging layer: its default
-  ## egress is `MessagingClient.send`, wrapped here so callers never wire the
-  ## handler themselves.
-  if messagingClient.isNil():
-    return err("messaging client is required")
-
-  let defaultSendHandler: SendHandler = proc(
-      envelope: MessageEnvelope
-  ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-    return await messagingClient.send(envelope)
-
+): Result[ReliableChannelManager[M], string] =
   return ok(
-    T(
-      channels: initTable[ChannelId, ReliableChannel](),
-      messagingClient: messagingClient,
-      sendHandler: defaultSendHandler,
+    ReliableChannelManager[M](
+      channels: initTable[ChannelId, ReliableChannel[M]](),
+      messaging: messaging,
       brokerCtx: brokerCtx,
     )
   )

@@ -8,7 +8,7 @@ import logos_delivery/channels/reliable_channel_manager
 import logos_delivery/channels/reliable_channel
 import logos_delivery/waku/persistency/sds_persistency
 
-# ReliableChannel, SendHandler, config and wire-version markers.
+# ReliableChannel, config and wire-version markers.
 export reliable_channel
 
 const SdsJobId = "sds"
@@ -32,16 +32,9 @@ proc createReliableChannel*(
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
-    sendHandler: SendHandler = nil,
 ): Result[ChannelId, string] =
-  ## Spec entry point. The `sendHandler` and `rng` the channel needs are
-  ## sourced from the owning `ReliableChannelManager` rather than passed
-  ## per call. Encryption is wired up through the `Encrypt`/`Decrypt`
-  ## request brokers — the application installs its own providers
-  ## (or `setNoopEncryption()`) before traffic flows.
-  ##
-  ## `sendHandler` defaults to the manager's default (constructed at mount
-  ## from `MessagingClient.send`); tests pass a fake to bypass the network.
+  ## Spec entry point. The messaging node the channel dispatches through is the
+  ## one the manager owns (`self.messaging`), so callers address channels by id.
   if self.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
 
@@ -60,10 +53,8 @@ proc createReliableChannel*(
     epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
   )
 
-  let effectiveSendHandler = if sendHandler.isNil(): self.sendHandler else: sendHandler
-
   let chn = ReliableChannel.new(
-    sendHandler = effectiveSendHandler,
+    messaging = self.messaging,
     channelId = channelId,
     contentTopic = contentTopic,
     senderId = senderId,

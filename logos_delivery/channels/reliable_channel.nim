@@ -21,11 +21,11 @@ import bearssl/rand
 import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
 
+import brokers/broker_context
 import logos_delivery/api/types
 import logos_delivery/api/reliable_channel_manager_api
 import logos_delivery/api/events/messaging_client_events
 import logos_delivery/api/events/reliable_channel_manager_events
-import logos_delivery/messaging/delivery_service/send_service
 import logos_delivery/waku/waku_core/topics
 
 import ./segmentation/segmentation
@@ -34,7 +34,7 @@ import ./rate_limit_manager/rate_limit_manager
 import ./encryption/encryption
 
 export
-  types, reliable_channel_manager_api, send_service, segmentation, scalable_data_sync,
+  types, reliable_channel_manager_api, segmentation, scalable_data_sync,
   rate_limit_manager, encryption
 
 const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
@@ -80,11 +80,15 @@ type
     ## and that scan is correct precisely because the outer iteration
     ## order matches the order `send` pushed entries.
 
-  ReliableChannel* = ref object
+  ReliableChannel*[M: MessagingSender] = ref object
     ## Spec-defined public type. Fields are private so callers cannot
     ## mutate internals and break invariants. Getters are added below
     ## for the few values consumers may need.
-    sendHandler: SendHandler
+    ##
+    ## Generic over `M`, the messaging egress: the channel calls `M.send`
+    ## directly (compile-time dispatch). Production
+    ## instantiates `M = MessagingClient`; tests instantiate a one-proc double.
+    messaging: M
     channelId: ChannelId
     contentTopic: ContentTopic
     senderId: SdsParticipantID
@@ -195,7 +199,7 @@ proc onMessageFinal(
 proc markSegmentFailed(self: ReliableChannel, channelReqId: RequestId) =
   try:
     self.channelReqs[channelReqId].failedCount.inc()
-  except KeyError as e:
+  except system.KeyError as e:
     error "unreachable: channelReqId not found in markSegmentFailed",
       channelReqId = $channelReqId, error = e.msg
     return
@@ -206,7 +210,7 @@ proc markSegmentInflight(
 ) =
   try:
     self.channelReqs[channelReqId].inflightMessagingIds.add(messagingReqId)
-  except KeyError as e:
+  except system.KeyError as e:
     error "unreachable: channelReqId not found in markSegmentInflight",
       channelReqId = $channelReqId, error = e.msg
 
@@ -263,12 +267,12 @@ proc onReadyToSend(
       meta: LipWireReliableChannelVersion.toBytes(),
     )
 
-    ## `sendHandler` is not annotated `(raises: [])`, but this listener is.
-    ## Convert any raise to a Result error so the state machine handles
-    ## both failure modes (Result.err and exception) through one path.
+    ## `M.send` (e.g. `MessagingClient.send`) is not annotated `(raises: [])`,
+    ## but this listener is. Convert any raise to a Result error so the state
+    ## machine handles both failure modes through one path.
     let sendRes =
       try:
-        await self.sendHandler(envelope)
+        await self.messaging.send(envelope)
       except CatchableError as e:
         Result[RequestId, string].err("messaging send raised: " & e.msg)
 
@@ -360,14 +364,16 @@ proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []
     meta: LipWireReliableChannelVersion.toBytes(),
   )
 
+  ## `M.send` may raise; this proc is `(raises: [])`, so funnel any raise into
+  ## a Result the same way the main dispatch path does.
   let sendRes =
     try:
-      await self.sendHandler(envelope)
+      await self.messaging.send(envelope)
     except CatchableError as e:
       Result[RequestId, string].err("messaging send raised: " & e.msg)
-  if sendRes.isErr():
+  sendRes.isOkOr:
     debug "SDS repair rebroadcast dropped: dispatch failed",
-      channelId = self.channelId, error = sendRes.error
+      channelId = self.channelId, error = error
 
 proc onMessageReceived(
     self: ReliableChannel, messageHash: string, payload: seq[byte]
@@ -413,9 +419,9 @@ proc onMessageReceived(
   for content in deliverable:
     self.reportReceived(content)
 
-proc new*(
+proc new*[M: MessagingSender](
     T: type ReliableChannel,
-    sendHandler: SendHandler,
+    messaging: M,
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
@@ -423,19 +429,15 @@ proc new*(
     sdsConfig: SdsConfig,
     rateConfig: RateLimitConfig,
     brokerCtx: BrokerContext = globalBrokerContext(),
-): T =
+): ReliableChannel[M] =
   ## Pipeline handlers (segmentation/SDS/rate-limit) are constructed
   ## inside the channel rather than handed in by the caller — they are
   ## implementation details of the channel, not knobs the API consumer
   ## should be wiring up. Encryption is delegated to the `Encrypt`/
   ## `Decrypt` request brokers, so the channel keeps no per-instance
   ## encryption state either.
-  ##
-  ## `sendHandler` is the egress dispatch. The owning `ReliableChannelManager`
-  ## typically constructs it as a closure over `MessagingClient.send`. Tests
-  ## pass a fake to drive the send state machine without touching the network.
-  let chn = T(
-    sendHandler: sendHandler,
+  let chn = ReliableChannel[M](
+    messaging: messaging,
     channelId: channelId,
     contentTopic: contentTopic,
     senderId: senderId,

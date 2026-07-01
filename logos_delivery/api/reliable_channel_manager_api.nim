@@ -1,19 +1,17 @@
 import chronos, results
 
 import logos_delivery/api/types as api_types
+import logos_delivery/api/messaging_client_api
 import logos_delivery/channels/types as channel_types
 
-export api_types, channel_types
+# `messaging_client_api` is re-exported for `MessagingSender`, the egress
+# capability the generic `ReliableChannel[M]`/`ReliableChannelManager[M]` need.
+export api_types, messaging_client_api, channel_types
 
-type SendHandler* = proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
-  async: (raises: [CatchableError]), gcsafe
-.}
-  ## Egress dispatch boundary. Typically wraps `MessagingClient.send`;
-  ## tests inject a fake that records calls and returns canned
-  ## `RequestId`s so the send state machine can be exercised end-to-end
-  ## without a network.
-
-# Structural API contract for the reliable-channel surface (ops in `channels/api/*`).
+# Structural API contract for the reliable-channel surface. This is the
+# node-bound consumer view (the messaging node is already bound), so it is
+# satisfied by `LogosDelivery` — the concentrator that owns the node — rather
+# than by the manager, whose `createReliableChannel` takes the node explicitly.
 type ReliableChannelApi* = concept c
   createReliableChannel(
     c, channelId = ChannelId, contentTopic = ContentTopic, senderId = SdsParticipantID
