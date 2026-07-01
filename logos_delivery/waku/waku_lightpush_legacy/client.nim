@@ -74,8 +74,7 @@ proc publish*(
   ## On success, returns the msg_hash of the published message
 
   var message = wakuMessage
-  if message.timestamp == 0:
-    message.timestamp = getNowInNanosecondTime()
+  ensureTimestampSet(message)
 
   let msg_hash_hex_str = computeMessageHash(pubsubTopic, message).to0xHex()
   let pushRequest = PushRequest(pubSubTopic: pubSubTopic, message: message)

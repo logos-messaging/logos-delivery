@@ -24,10 +24,6 @@ type WakuLightPushClient* = ref object
 proc new*(T: type WakuLightPushClient, peerManager: PeerManager, rng: crypto.Rng): T =
   WakuLightPushClient(peerManager: peerManager, rng: rng)
 
-proc ensureTimestampSet(message: var WakuMessage) =
-  if message.timestamp == 0:
-    message.timestamp = getNowInNanosecondTime()
-
 ## Short log string for peer identifiers (overloads for convenience)
 func shortPeerId(peer: PeerId): string =
   shortLog(peer)

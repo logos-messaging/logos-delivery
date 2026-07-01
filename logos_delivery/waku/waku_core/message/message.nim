@@ -27,3 +27,7 @@ type WakuMessage* = object # Data payload transmitted.
   # The proof attribute indicates that the message is not spam. This
   # attribute will be used in the rln-relay protocol.
   proof*: seq[byte]
+
+proc ensureTimestampSet*(message: var WakuMessage) =
+  if message.timestamp == 0:
+    message.timestamp = getNowInNanosecondTime()
