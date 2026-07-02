@@ -39,6 +39,8 @@ import logos_delivery/messaging/[messaging_client, messaging_client_lifecycle]
 export messaging_client
 import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
+import logos_delivery/messaging/rest_api/handlers as messaging_rest_api
+export messaging_rest_api
 import logos_delivery/api/events/messaging_client_events
 export messaging_client_events
 import logos_delivery/api/conf/messaging_conf
@@ -165,6 +167,10 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   if not self.messagingClient.isNil():
     self.messagingClient.start().isOkOr:
       return err("failed to start MessagingClient: " & error)
+    # Mount the messaging REST endpoints onto the kernel's REST router (no-op if
+    # REST is disabled). Done here rather than in MessagingClient.start so the
+    # core messaging module need not depend on the REST layer above it.
+    self.messagingClient.mountRestApi()
 
   if not self.reliableChannelManager.isNil():
     self.reliableChannelManager.start().isOkOr:
