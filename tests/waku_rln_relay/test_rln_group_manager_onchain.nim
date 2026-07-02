@@ -303,9 +303,6 @@ suite "Onchain group manager":
     # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
     for i in 0 ..< 20:
       manager.merkleProofCache[i * 32] = 0
-    # Pin the freshness throttle so ensureFreshMerkleProofPath does NOT refetch
-    # and overwrite the intentionally-corrupted cache we just planted.
-    manager.lastMerklePathCheckMoment = Moment.now()
 
     let messageBytes = "Hello".toBytes()
 
@@ -435,7 +432,7 @@ suite "Onchain group manager":
       # replaced by a competing refresh.
       manager.rootsRefreshInFlightFut == inFlight
 
-  test "generateProof: fast-paths without refresh inside throttle window":
+  test "generateProof: fast-paths without refresh when cache is populated":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -443,11 +440,10 @@ suite "Onchain group manager":
     (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
       assert false, "register failed: " & error
 
-    # Prime cache and pin the throttle so the publish-path freshness check
-    # short-circuits on the cached value.
+    # Prime cache. With forceMerkleProofRefresh=false (the default), a non-empty
+    # cache short-circuits ensureFreshMerkleProofPath.
     manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
       raiseAssert "failed to fetch initial path: " & error
-    manager.lastMerklePathCheckMoment = Moment.now()
     manager.proofPathRefreshInFlightFut = nil
 
     let primedCache = manager.merkleProofCache
@@ -498,7 +494,7 @@ suite "Onchain group manager":
       res.isErr()
       res.error == "membership index is not set"
 
-  test "ensureFreshMerkleProofPath: refetches when throttle window has expired":
+  test "ensureFreshMerkleProofPath: refetches when caller forces a refresh":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -506,22 +502,18 @@ suite "Onchain group manager":
     (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
       assert false, "register failed: " & error
 
-    # Prime cache with a non-empty value and an old throttle timestamp, so
-    # the cache fast-path does NOT trigger and we exercise the refetch branch.
+    # Prime cache with a non-empty value. force=true must bypass the
+    # "cache is populated" fast-path and exercise the refetch branch.
     manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
       raiseAssert "failed to prime path: " & error
-    manager.lastMerklePathCheckMoment = Moment.now() - PathCheckMinInterval - 1.seconds
     manager.proofPathRefreshInFlightFut = nil
 
-    let preCheckTs = manager.lastMerklePathCheckMoment
-    let res = waitFor manager.ensureFreshMerkleProofPath()
+    let res = waitFor manager.ensureFreshMerkleProofPath(force = true)
 
     check:
       res.isOk()
       manager.merkleProofCache.len > 0
       manager.proofPathRefreshInFlightFut != nil
-      # lastMerklePathCheckMoment was bumped to "now" by the refetch.
-      manager.lastMerklePathCheckMoment > preCheckTs
 
   test "ensureFreshMerkleProofPath: refresh bumps the member-count metric":
     (waitFor manager.init()).isOkOr:
@@ -554,12 +546,10 @@ suite "Onchain group manager":
     (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
       assert false, "register failed: " & error
 
-    # Empty cache + epoch-zero check timestamp guarantees the first caller
-    # will fall through to fetchMerkleProofElements; the followers should
-    # observe the resulting in-flight future and await it rather than start
-    # their own refresh.
+    # Empty cache guarantees the first caller will fall through to
+    # fetchMerkleProofElements; the followers should observe the resulting
+    # in-flight future and await it rather than start their own refresh.
     manager.merkleProofCache = @[]
-    manager.lastMerklePathCheckMoment = default(Moment)
     manager.proofPathRefreshInFlightFut = nil
 
     let f1 = manager.ensureFreshMerkleProofPath()
@@ -657,9 +647,6 @@ suite "Onchain group manager":
     # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
     for i in 0 ..< 20:
       manager.merkleProofCache[i * 32] = 0
-    # Pin the freshness throttle so ensureFreshMerkleProofPath does NOT refetch
-    # and overwrite the intentionally-corrupted cache we just planted.
-    manager.lastMerklePathCheckMoment = Moment.now()
 
     let epoch = default(Epoch)
     info "epoch in bytes", epochHex = epoch.inHex()

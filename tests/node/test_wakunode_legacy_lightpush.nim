@@ -180,6 +180,37 @@ suite "RLN Proofs as a Lightpush Service":
       assert publishResponse.isErr(), "We expect an error response"
       check publishResponse.error == protocol_metrics.notPublishedAnyPeer
 
+    asyncTest "force refresh regenerates proof and refetches merkle path":
+      # Exercises the primitive that legacyLightpushPublish leans on after a
+      # "RLN validation failed" rejection: an already attached proof must NOT
+      # short-circuit checkAndGenerateRLNProof when forceMerkleProofRefresh=true,
+      # and the cache must be refetched from chain instead of trusted.
+      let firstMsg = (await checkAndGenerateRLNProof(some(server.rln), message)).get()
+      check firstMsg.proof.len > 0
+
+      # Corrupt the cache to model a stale/invalid witness — the same state a
+      # server-side "RLN validation failed" rejection would leave us in.
+      let manager = cast[OnchainGroupManager](server.rln.groupManager)
+      let goodCache = manager.merkleProofCache
+      manager.merkleProofCache = newSeq[byte](goodCache.len)
+      check manager.merkleProofCache != goodCache
+
+      # Force-regenerate. The existing proof must be discarded, the cache
+      # refetched from chain, and a fresh proof produced.
+      let secondMsg = (
+        await checkAndGenerateRLNProof(
+          some(server.rln), firstMsg, forceMerkleProofRefresh = true
+        )
+      ).get()
+
+      check:
+        secondMsg.proof.len > 0
+        # Regenerated, not passed through — nonce manager consumes a new id
+        # per call, so the two proofs cannot be byte-equal.
+        secondMsg.proof != firstMsg.proof
+        # Cache was refetched from chain, overwriting the corruption.
+        manager.merkleProofCache == goodCache
+
 suite "Waku Legacy Lightpush message delivery":
   asyncTest "Legacy lightpush message flow succeed":
     ## Setup
