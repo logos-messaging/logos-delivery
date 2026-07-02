@@ -159,8 +159,8 @@
 
   brokers = pkgs.fetchgit {
     url = "https://github.com/NagyZoltanPeter/nim-brokers.git";
-    rev = "a7316a35f1b62e3497ae8ee0fc1aace74df0beb2";
-    sha256 = "1990270n88jm0i48g07zr4vq2nn79g7gymf28f3g5ak42g33l7rm";
+    rev = "8ae9e963b0b4478c93e6f888be6a46654da787de";
+    sha256 = "0r3vrc6h9jiwhd3p4sy3j8gx3k5174s77qcp2wrswclvfvbskw5y";
     fetchSubmodules = true;
   };
 
@@ -277,7 +277,6 @@
   };
 
   sds = pkgs.fetchgit {
-    # Keep in sync with the nim-sds pin in nimble.lock.
     url = "https://github.com/logos-messaging/nim-sds.git";
     rev = "b12f5ee07c5b764303b51fb948b32a4ade1de3b5";
     sha256 = "1z8f0v1ww7y6zssdacjxfs6s4862dwckw25df3yn1v0qnz40rpc8";

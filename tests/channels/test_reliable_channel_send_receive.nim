@@ -11,6 +11,7 @@ import logos_delivery
 import logos_delivery/waku/[waku_node, waku_core]
 import logos_delivery/waku/factory/waku_conf
 import logos_delivery/api/events/messaging_client_events as waku_message_events
+import logos_delivery/api/messaging_client_api
 import tools/confutils/cli_args
 
 import logos_delivery/channels/reliable_channel_manager
@@ -187,16 +188,16 @@ suite "Reliable Channel - send state machine":
     setNoopEncryption()
 
     var sendCalls = 0
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      sendCalls.inc
-      return ok(fakeMsgReqId)
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        sendCalls.inc
+        return ok(fakeMsgReqId),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     let sentFut = newFuture[RequestId]("channel-sent")
@@ -252,17 +253,17 @@ suite "Reliable Channel - send state machine":
     setNoopEncryption()
 
     var msgReqIds: seq[RequestId]
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      let id = RequestId("fake-msg-req-" & $(msgReqIds.len + 1))
-      msgReqIds.add(id)
-      return ok(id)
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        let id = RequestId("fake-msg-req-" & $(msgReqIds.len + 1))
+        msgReqIds.add(id)
+        return ok(id),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     let sentFut = newFuture[RequestId]("channel-sent")
@@ -354,28 +355,27 @@ suite "Reliable Channel - send state machine":
 
     var msgReqIds: seq[RequestId]
     var sendsReturned = 0
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      ## Call 2 fires the first segment's terminal event and then
-      ## yields, so the listener task runs while the second segment
-      ## is still mid-`await` in `onReadyToSend` — the exact race
-      ## window the regression test targets.
-      let id = RequestId("race-msg-req-" & $(msgReqIds.len + 1))
-      msgReqIds.add(id)
-      if msgReqIds.len == 2:
-        waku_message_events.MessageSentEvent.emit(
-          brokerCtx,
-          waku_message_events.MessageSentEvent(requestId: msgReqIds[0], messageHash: ""),
-        )
-        await sleepAsync(50.milliseconds)
-      sendsReturned.inc()
-      return ok(id)
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        ## Call 2 fires the first segment's terminal event and then
+        ## yields, so the listener task runs while the second segment
+        ## is still mid-`await` in `onReadyToSend` — the exact race
+        ## window the regression test targets.
+        let id = RequestId("race-msg-req-" & $(msgReqIds.len + 1))
+        msgReqIds.add(id)
+        if msgReqIds.len == 2:
+          MessageSentEvent.emit(
+            brokerCtx, MessageSentEvent(requestId: msgReqIds[0], messageHash: "")
+          )
+          await sleepAsync(50.milliseconds)
+        sendsReturned.inc()
+        return ok(id),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     var finalisedReqIds: seq[RequestId]
@@ -457,15 +457,15 @@ suite "Reliable Channel - SDS persistence":
 
     setNoopEncryption()
 
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      return ok(RequestId("persist-msg-req-1"))
+    MessagingSend.replaceProvider(
+      globalBrokerContext(),
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        return ok(RequestId("persist-msg-req-1")),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     discard (await manager.send(channelId, "persist me".toBytes())).expect("send")
@@ -798,17 +798,17 @@ suite "Reliable Channel - SDS protocol semantics":
     setNoopEncryption()
 
     var capturedWires: seq[seq[byte]]
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      ## Noop encryption is identity, so the envelope payload IS the SDS wire.
-      capturedWires.add(env.payload)
-      return ok(RequestId("semantics-req-" & $capturedWires.len))
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        ## Noop encryption is identity, so the envelope payload IS the SDS wire.
+        capturedWires.add(envelope.payload)
+        return ok(RequestId("semantics-req-" & $capturedWires.len)),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     let remotePeer =
@@ -866,16 +866,17 @@ suite "Reliable Channel - SDS protocol semantics":
     setNoopEncryption()
 
     var capturedWires: seq[seq[byte]]
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      capturedWires.add(env.payload)
-      return ok(RequestId("ack-req-" & $capturedWires.len))
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        ## Noop encryption is identity, so the envelope payload IS the SDS wire.
+        capturedWires.add(envelope.payload)
+        return ok(RequestId("ack-req-" & $capturedWires.len)),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     discard (await manager.send(channelId, "needs ack".toBytes())).expect("send")
@@ -1102,16 +1103,17 @@ suite "Reliable Channel - SDS protocol semantics":
     setNoopEncryption()
 
     var capturedWires: seq[seq[byte]]
-    let fakeSend: SendHandler = proc(
-        env: MessageEnvelope
-    ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-      capturedWires.add(env.payload)
-      return ok(RequestId("unique-req-" & $capturedWires.len))
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        ## Noop encryption is identity, so the envelope payload IS the SDS wire.
+        capturedWires.add(envelope.payload)
+        return ok(RequestId("unique-req-" & $capturedWires.len)),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
 
     discard manager
-      .createReliableChannel(
-        channelId, contentTopic, SdsParticipantID("local"), sendHandler = fakeSend
-      )
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
     var deliveries: seq[seq[byte]]

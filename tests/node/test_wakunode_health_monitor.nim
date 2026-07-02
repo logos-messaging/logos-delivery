@@ -29,6 +29,7 @@ import logos_delivery/waku/node/subscription_manager
 import logos_delivery/waku/waku
 import logos_delivery/waku/factory/waku_state_info
 import logos_delivery/messaging/messaging_client
+import logos_delivery/messaging/messaging_client_lifecycle
 
 const MockDLow = 4 # Mocked GossipSub DLow value
 

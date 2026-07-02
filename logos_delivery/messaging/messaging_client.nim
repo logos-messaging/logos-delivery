@@ -2,6 +2,7 @@
 ## lifecycle. The public operations (subscribe / unsubscribe / send) live in
 ## `messaging/api.nim`.
 import results, chronos
+import chronicles
 import
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
@@ -17,11 +18,12 @@ type
     ## follow-up PR. Today it only carries the p2p reliability toggle.
     useP2PReliability*: bool
 
-  MessagingClient* = ref object ## Implements `MessagingApi`.
+  MessagingClient* = ref object
+    brokerCtx*: BrokerContext
     waku*: Waku ## The Waku kernel this layer drives; read by `messaging/api/*`.
     sendService*: SendService
     recvService*: RecvService
-    started: bool
+    started*: bool
 
 proc new*(
     T: type MessagingClient, conf: MessagingClientConf, waku: Waku
@@ -30,22 +32,14 @@ proc new*(
   ## for transport while exposing its own send/recv API.
   let sendService = ?SendService.new(conf.useP2PReliability, waku)
   let recvService = RecvService.new(waku)
-  return ok(T(waku: waku, sendService: sendService, recvService: recvService))
-
-proc start*(self: MessagingClient): Result[void, string] =
-  if self.started:
-    return ok()
-  self.recvService.startRecvService()
-  self.sendService.startSendService()
-  self.started = true
-  ok()
-
-proc stop*(self: MessagingClient) {.async.} =
-  if not self.started:
-    return
-  await self.sendService.stopSendService()
-  await self.recvService.stopRecvService()
-  self.started = false
+  return ok(
+    T(
+      waku: waku,
+      sendService: sendService,
+      recvService: recvService,
+      brokerCtx: waku.brokerCtx,
+    )
+  )
 
 proc checkApiAvailability*(self: MessagingClient): Result[void, string] =
   ## Shared guard for the api operation module.

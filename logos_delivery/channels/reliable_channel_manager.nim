@@ -30,38 +30,14 @@ type
 
   ReliableChannelManager* = ref object ## Implements `ReliableChannelApi`.
     channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
-    messagingClient: MessagingClient ## The channel layer chains onto messaging.
-    sendHandler*: SendHandler
-      ## Default egress dispatch for channels created through this manager.
-      ## Built in `new` as a closure over `MessagingClient.send` so the channel
-      ## layer itself stays callable-only.
     brokerCtx*: BrokerContext
 
 proc new*(
     T: type ReliableChannelManager,
     conf: ReliableChannelManagerConf,
-    messagingClient: MessagingClient,
     brokerCtx: BrokerContext = globalBrokerContext(),
 ): Result[T, string] =
-  ## The reliable channel layer chains onto the messaging layer: its default
-  ## egress is `MessagingClient.send`, wrapped here so callers never wire the
-  ## handler themselves.
-  if messagingClient.isNil():
-    return err("messaging client is required")
-
-  let defaultSendHandler: SendHandler = proc(
-      envelope: MessageEnvelope
-  ): Future[Result[RequestId, string]] {.async: (raises: [CatchableError]), gcsafe.} =
-    return await messagingClient.send(envelope)
-
-  return ok(
-    T(
-      channels: initTable[ChannelId, ReliableChannel](),
-      messagingClient: messagingClient,
-      sendHandler: defaultSendHandler,
-      brokerCtx: brokerCtx,
-    )
-  )
+  return ok(T(channels: initTable[ChannelId, ReliableChannel](), brokerCtx: brokerCtx))
 
 proc start*(self: ReliableChannelManager): Result[void, string] =
   ## Placeholder: per-channel listeners are installed in `ReliableChannel.new`,

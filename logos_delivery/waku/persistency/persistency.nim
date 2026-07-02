@@ -272,7 +272,7 @@ proc hasJob*(p: Persistency, jobId: string): bool {.inline.} =
 proc persist*(t: Job, ops: seq[TxOp]): Future[void] {.async.} =
   ## Emit a batched persist event. The handler treats >1 ops as a single
   ## BEGIN IMMEDIATE/COMMIT transaction (see backend_sqlite.applyOps).
-  await PersistEvent.emit(t.context, PersistEvent(ops: ops))
+  PersistEvent.emit(t.context, PersistEvent(ops: ops))
 
 proc persist*(t: Job, op: TxOp): Future[void] {.async.} =
   await persist(t, @[op])
