@@ -2,7 +2,7 @@ import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[hashes, options, tables, net],
+  std/[hashes, options, strutils, tables, net],
   chronos,
   chronicles,
   metrics,
@@ -92,7 +92,7 @@ proc legacyLightpushPublish*(
       none(Rln)
     else:
       some(node.rln)
-  let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+  var msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
     return err("failed call checkAndGenerateRLNProof from lightpush: " & error)
 
   let internalPublish = proc(
@@ -119,16 +119,52 @@ proc legacyLightpushPublish*(
       return
         await node.wakuLegacyLightPush.handleSelfLightPushRequest(pubsubTopic, message)
   try:
+    # Resolve the effective pubsub topic first (explicit param, else derive
+    # from autosharding), then run the send. We need a single resolved topic
+    # so the retry path below can reuse it without repeating this branch.
+    var pubsubForPublish: PubsubTopic
     if pubsubTopic.isSome():
-      return await internalPublish(node, pubsubTopic.get(), msgWithProof, peer)
+      pubsubForPublish = pubsubTopic.get()
+    else:
+      if node.wakuAutoSharding.isNone():
+        return err("Pubsub topic must be specified when static sharding is enabled")
+      let topicMap =
+        ?node.wakuAutoSharding.get().getShardsFromContentTopics(message.contentTopic)
+      var resolved = false
+      for pubsub, _ in topicMap.pairs: # There's only one pair anyway
+        pubsubForPublish = $pubsub
+        resolved = true
+        break
+      if not resolved:
+        # Preserve pre-existing behavior: an empty topicMap fell off the end
+        # of the loop and returned the default-initialized Result.
+        return
 
-    if node.wakuAutoSharding.isNone():
-      return err("Pubsub topic must be specified when static sharding is enabled")
-    let topicMap =
-      ?node.wakuAutoSharding.get().getShardsFromContentTopics(message.contentTopic)
+    let firstResult = await internalPublish(node, pubsubForPublish, msgWithProof, peer)
 
-    for pubsub, _ in topicMap.pairs: # There's only one pair anyway
-      return await internalPublish(node, $pubsub, msgWithProof, peer)
+    # Legacy protocol has no status code taxonomy: the server collapses every
+    # failure into isSuccess=false + a free-text info string. The only stable
+    # substring we can safely branch on is "RLN validation failed" — the
+    # errorMessage registered for the RLN validator in waku_node/relay.nim.
+    # Match it and treat it as the legacy equivalent of a v3 420/504: force
+    # refresh the cached merkle path, regenerate the RLN proof, and retry the
+    # send exactly once. All other failure modes (decode error, rate limit,
+    # no peers) are surfaced to the caller unchanged because a fresh proof
+    # would not change their outcome.
+    if firstResult.isOk() or rln.isNone() or
+        not firstResult.error.contains("RLN validation failed"):
+      return firstResult
+
+    info "legacy lightpush send rejected as RLN-invalid; " &
+      "refreshing merkle proof and retrying once"
+    msgWithProof = (
+      await checkAndGenerateRLNProof(rln, msgWithProof, forceMerkleProofRefresh = true)
+    ).valueOr:
+      return err(
+        "failed call checkAndGenerateRLNProof from lightpush retry: " & error
+      )
+
+    return await internalPublish(node, pubsubForPublish, msgWithProof, peer)
   except CatchableError:
     return err(getCurrentExceptionMsg())
 
@@ -290,7 +326,26 @@ proc lightpushPublish*(
       none(Rln)
     else:
       some(node.rln)
-  let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+  var msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+    return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
+
+  let firstResult =
+    await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
+
+  # If message is rejected with error code 420 (INVALID_MESSAGE) or 504 
+  # (OUT_OF_RLN_PROOF) then cached merkle path is likely stale relative
+  # to the current on-chain group. Force-refresh it, regenerate the proof,
+  # and retry the send exactly once.
+  if firstResult.isOk() or rln.isNone() or
+      firstResult.error.code notin
+      [LightPushErrorCode.INVALID_MESSAGE, LightPushErrorCode.OUT_OF_RLN_PROOF]:
+    return firstResult
+
+  info "lightpush send rejected; refreshing merkle proof and retrying once",
+    statusCode = $firstResult.error.code
+  msgWithProof = (
+    await checkAndGenerateRLNProof(rln, msgWithProof, forceMerkleProofRefresh = true)
+  ).valueOr:
     return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
 
   return

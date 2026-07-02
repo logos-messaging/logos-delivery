@@ -137,6 +137,7 @@ method generateProof*(
     epoch: Epoch,
     messageId: MessageId,
     rlnIdentifier = DefaultRlnIdentifier,
+    forceMerkleProofRefresh: bool = false,
 ): Future[GroupManagerResult[RateLimitProof]] {.base, async.} =
   ## Dummy implementation for generateProof
   return err("generateProof is not implemented")

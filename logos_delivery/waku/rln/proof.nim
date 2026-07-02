@@ -55,19 +55,29 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
   return output
 
 proc generateRLNProof*(
-    rln: Rln, input: seq[byte], senderEpochTime: float64
+    rln: Rln,
+    input: seq[byte],
+    senderEpochTime: float64,
+    forceMerkleProofRefresh: bool = false,
 ): Future[RlnResult[seq[byte]]] {.async.} =
   let epoch = rln.calcEpoch(senderEpochTime)
   let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
-  let proof = (await rln.groupManager.generateProof(input, epoch, nonce)).valueOr:
+  let proof = (
+    await rln.groupManager.generateProof(
+      input, epoch, nonce, forceMerkleProofRefresh = forceMerkleProofRefresh
+    )
+  ).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
   return ok(proof.encode().buffer)
 
 proc checkAndGenerateRLNProof*(
-    rln: Option[Rln], message: WakuMessage
+    rln: Option[Rln], message: WakuMessage, forceMerkleProofRefresh: bool = false
 ): Future[Result[WakuMessage, string]] {.async.} =
-  if message.proof.len > 0:
+  # When forcing a refresh (e.g. retry after a lightpush 420/504 rejection) we
+  # deliberately regenerate the proof even if one is already attached, since
+  # the existing proof is presumed to have been rejected.
+  if message.proof.len > 0 and not forceMerkleProofRefresh:
     return ok(message)
 
   if rln.isNone():
@@ -79,7 +89,11 @@ proc checkAndGenerateRLNProof*(
     senderEpochTime = float64(time)
   var msgWithProof = message
   msgWithProof.proof = (
-    await rln.get().generateRLNProof(msgWithProof.toRLNSignal(), senderEpochTime)
+    await rln.get().generateRLNProof(
+      msgWithProof.toRLNSignal(),
+      senderEpochTime,
+      forceMerkleProofRefresh = forceMerkleProofRefresh,
+    )
   ).valueOr:
     return err("error in checkAndGenerateRLNProof: " & $error)
   return ok(msgWithProof)
