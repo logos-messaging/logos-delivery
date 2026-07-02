@@ -160,9 +160,7 @@ proc legacyLightpushPublish*(
     msgWithProof = (
       await checkAndGenerateRLNProof(rln, msgWithProof, forceMerkleProofRefresh = true)
     ).valueOr:
-      return err(
-        "failed call checkAndGenerateRLNProof from lightpush retry: " & error
-      )
+      return err("failed call checkAndGenerateRLNProof from lightpush retry: " & error)
 
     return await internalPublish(node, pubsubForPublish, msgWithProof, peer)
   except CatchableError:

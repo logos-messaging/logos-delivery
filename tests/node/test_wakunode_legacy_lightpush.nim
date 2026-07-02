@@ -185,8 +185,7 @@ suite "RLN Proofs as a Lightpush Service":
       # "RLN validation failed" rejection: an already attached proof must NOT
       # short-circuit checkAndGenerateRLNProof when forceMerkleProofRefresh=true,
       # and the cache must be refetched from chain instead of trusted.
-      let firstMsg =
-        (await checkAndGenerateRLNProof(some(server.rln), message)).get()
+      let firstMsg = (await checkAndGenerateRLNProof(some(server.rln), message)).get()
       check firstMsg.proof.len > 0
 
       # Corrupt the cache to model a stale/invalid witness — the same state a
