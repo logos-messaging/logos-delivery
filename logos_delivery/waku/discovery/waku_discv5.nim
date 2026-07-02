@@ -12,7 +12,8 @@ import
   libp2p/multiaddress,
   eth/keys as eth_keys,
   eth/p2p/discoveryv5/node,
-  eth/p2p/discoveryv5/protocol
+  eth/p2p/discoveryv5/protocol,
+  eth/p2p/discoveryv5/routing_table
 import
   logos_delivery/waku/
     [net/auto_port, node/peer_manager/peer_manager, waku_core, waku_enr]
@@ -254,6 +255,40 @@ proc findRandomPeers*(
 
   return discoveredRecords
 
+proc reconcilePeerStoreWithRoutingTable(
+    wd: WakuDiscoveryV5, pm: PeerManager, justDiscovered: seq[RemotePeerInfo]
+) =
+  ## discv5 revalidates its routing table and evicts unreachable nodes, but those
+  ## evictions were never propagated to the peer store. As a result peer-exchange
+  ## kept advertising stale ENRs of dead Discv5-origin peers (see #3933), and
+  ## clients (e.g. light clients) repeatedly tried to dial unreachable peers.
+  ##
+  ## Here we drop Discv5-origin, non-connected peers that discv5 no longer knows
+  ## about. Peers discovered this round are preserved (they were just learned and
+  ## may not be in a routing-table bucket yet).
+  let peerStore = pm.switch.peerStore
+
+  var liveIds = initHashSet[PeerId]()
+  for peer in justDiscovered:
+    liveIds.incl(peer.peerId)
+  for node in wd.protocol.routingTable.randomNodes(int.high):
+    let info = node.record.toRemotePeerInfo().valueOr:
+      continue
+    liveIds.incl(info.peerId)
+
+  var stalePeers: seq[PeerId]
+  for peer in peerStore.peers():
+    if peer.origin == PeerOrigin.Discv5 and peer.connectedness != Connectedness.Connected and
+        peer.peerId notin liveIds:
+      stalePeers.add(peer.peerId)
+
+  for peerId in stalePeers:
+    peerStore.delete(peerId)
+
+  if stalePeers.len > 0:
+    debug "discv5: pruned stale peers no longer in routing table from peer store",
+      count = stalePeers.len
+
 proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
   ## Continuously add newly discovered nodes
 
@@ -290,6 +325,11 @@ proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
     for peer in discoveredPeers:
       # Peers added are filtered by the peer manager
       peerManager.addPeer(peer, PeerOrigin.Discv5)
+
+    # Reconcile the peer store with discv5's revalidated routing table so that
+    # peer-exchange stops advertising ENRs of nodes discv5 has already evicted
+    # (#3933).
+    wd.reconcilePeerStoreWithRoutingTable(peerManager, discoveredPeers)
 
     # Discovery `queryRandom` can have a synchronous fast path for example
     # when no peers are in the routing table. Don't run it in continuous loop.
