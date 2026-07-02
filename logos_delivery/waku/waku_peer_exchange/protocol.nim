@@ -6,6 +6,7 @@ import
   chronos,
   metrics,
   libp2p/protocols/protocol,
+  libp2p/stream/connection,
   libp2p/crypto/crypto,
   eth/p2p/discoveryv5/enr
 import
@@ -38,18 +39,20 @@ type WakuPeerExchange* = ref object of LPProtocol
 
 proc respond(
     wpx: WakuPeerExchange, enrs: seq[enr.Record], conn: Connection
-): Future[WakuPeerExchangeResult[void]] {.async, gcsafe.} =
+): Future[WakuPeerExchangeResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
   let rpc = PeerExchangeRpc.makeResponse(enrs.mapIt(PeerExchangePeerInfo(enr: it.raw)))
 
   try:
     await conn.writeLP(rpc.encode().buffer)
-  except CatchableError as exc:
-    error "exception when trying to send a respond", error = getCurrentExceptionMsg()
-    waku_px_errors.inc(labelValues = [exc.msg])
+  except LPStreamError as exc:
+    # Remote closed the stream before we responded - expected during peer churn.
+    debug "peer exchange response not delivered: stream closed",
+      peerId = conn.peerId, error = exc.msg
+    waku_px_errors.inc(labelValues = [streamClosedFailure])
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.DIAL_FAILURE,
-        status_desc: some("exception dialing peer: " & exc.msg),
+        status_desc: some("stream closed before response: " & exc.msg),
       )
     )
 
@@ -60,18 +63,20 @@ proc respondError(
     status_code: PeerExchangeResponseStatusCode,
     status_desc: Option[string],
     conn: Connection,
-): Future[WakuPeerExchangeResult[void]] {.async, gcsafe.} =
+): Future[WakuPeerExchangeResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
   let rpc = PeerExchangeRpc.makeErrorResponse(status_code, status_desc)
 
   try:
     await conn.writeLP(rpc.encode().buffer)
-  except CatchableError as exc:
-    error "exception when trying to send a respond", error = getCurrentExceptionMsg()
-    waku_px_errors.inc(labelValues = [exc.msg])
+  except LPStreamError as exc:
+    # Remote closed the stream before we responded - expected during peer churn.
+    debug "peer exchange error response not delivered: stream closed",
+      peerId = conn.peerId, error = exc.msg
+    waku_px_errors.inc(labelValues = [streamClosedFailure])
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
-        status_desc: some("exception dialing peer: " & exc.msg),
+        status_desc: some("stream closed before response: " & exc.msg),
       )
     )
 
@@ -128,20 +133,12 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
     wpx.requestRateLimiter.checkUsageLimit(WakuPeerExchangeCodec, conn):
       try:
         buffer = await conn.readLp(DefaultMaxRpcSize.int)
-      except CatchableError as exc:
-        error "exception when handling px request", error = getCurrentExceptionMsg()
-        waku_px_errors.inc(labelValues = [exc.msg])
-
-        (
-          try:
-            await wpx.respondError(
-              PeerExchangeResponseStatusCode.BAD_REQUEST, some(exc.msg), conn
-            )
-          except CatchableError:
-            error "could not send error response", error = getCurrentExceptionMsg()
-            return
-        ).isOkOr:
-          error "Failed to respond with BAD_REQUEST:", error = $error
+      except LPStreamError as exc:
+        # Remote disconnected before sending a full request - expected churn;
+        # no point responding on a dead stream.
+        debug "peer exchange request not received: stream closed",
+          peerId = conn.peerId, error = exc.msg
+        waku_px_errors.inc(labelValues = [streamClosedFailure])
         return
 
       let decBuf = PeerExchangeRpc.decode(buffer).valueOr:
@@ -149,42 +146,30 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
         error "Failed to decode PeerExchange request", error = $error
 
         (
-          try:
-            await wpx.respondError(
-              PeerExchangeResponseStatusCode.BAD_REQUEST, some($error), conn
-            )
-          except CatchableError:
-            error "could not send error response decode",
-              error = getCurrentExceptionMsg()
-            return
+          await wpx.respondError(
+            PeerExchangeResponseStatusCode.BAD_REQUEST, some($error), conn
+          )
         ).isOkOr:
-          error "Failed to respond with BAD_REQUEST:", error = $error
+          error "Failed to respond with BAD_REQUEST", error = $error
         return
 
       let enrs = wpx.getEnrsFromStore(decBuf.request.numPeers)
 
       info "peer exchange request received"
       trace "px enrs to respond", enrs = $enrs
-      try:
-        (await wpx.respond(enrs, conn)).isErrOr:
-          waku_px_peers_sent.inc(enrs.len().int64())
-      except CatchableError:
-        error "could not send response", error = getCurrentExceptionMsg()
+      (await wpx.respond(enrs, conn)).isErrOr:
+        waku_px_peers_sent.inc(enrs.len().int64())
     do:
       defer:
         # close, no data is expected
         await conn.closeWithEof()
 
-      try:
-        (
-          await wpx.respondError(
-            PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, none(string), conn
-          )
-        ).isOkOr:
-          error "Failed to respond with TOO_MANY_REQUESTS:", error = $error
-      except CatchableError:
-        error "could not send error response", error = getCurrentExceptionMsg()
-        return
+      (
+        await wpx.respondError(
+          PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, none(string), conn
+        )
+      ).isOkOr:
+        error "Failed to respond with TOO_MANY_REQUESTS", error = $error
 
   wpx.handler = handler
   wpx.codec = WakuPeerExchangeCodec

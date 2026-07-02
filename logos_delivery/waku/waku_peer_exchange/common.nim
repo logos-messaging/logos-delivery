@@ -17,5 +17,6 @@ const
   decodeRpcFailure* = "decode_rpc_failure"
   retrievePeersDiscv5Error* = "retrieve_peers_discv5_failure"
   pxFailure* = "px_failure"
+  streamClosedFailure* = "stream_closed_failure"
 
 type WakuPeerExchangeResult*[T] = Result[T, PeerExchangeResponseStatus]
