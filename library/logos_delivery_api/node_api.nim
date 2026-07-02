@@ -6,6 +6,7 @@ import
   logos_delivery/waku/node/waku_node,
   logos_delivery/api/types,
   logos_delivery/waku/api/events/health_events,
+  logos_delivery/waku/api/events/peer_events,
   tools/confutils/conf_from_json,
   ../declare_lib,
   ../json_event
@@ -125,6 +126,36 @@ proc logosdelivery_start_node(
     chronicles.error "ConnectionStatusChange.listen failed", err = $error
     return err("ConnectionStatusChange.listen failed: " & $error)
 
+  let shardTopicHealthListener = EventShardTopicHealthChange.listen(
+    ctx.myLib[].waku.brokerCtx,
+    proc(event: EventShardTopicHealthChange) {.async: (raises: []).} =
+      callEventCallback(ctx, "onTopicHealthChange"):
+        $(
+          %*{
+            "eventType": "relay_topic_health_change",
+            "pubsubTopic": $event.topic,
+            "topicHealth": $event.health,
+          }
+        ),
+  ).valueOr:
+    chronicles.error "EventShardTopicHealthChange.listen failed", err = $error
+    return err("EventShardTopicHealthChange.listen failed: " & $error)
+
+  let peerEventListener = WakuPeerEvent.listen(
+    ctx.myLib[].waku.brokerCtx,
+    proc(event: WakuPeerEvent) {.async: (raises: []).} =
+      callEventCallback(ctx, "onConnectionChange"):
+        $(
+          %*{
+            "eventType": "connection_change",
+            "peerId": $event.peerId,
+            "peerEvent": $event.kind,
+          }
+        ),
+  ).valueOr:
+    chronicles.error "WakuPeerEvent.listen failed", err = $error
+    return err("WakuPeerEvent.listen failed: " & $error)
+
   let channelReceivedListener = ChannelMessageReceivedEvent.listen(
     ctx.myLib[].waku.brokerCtx,
     proc(event: ChannelMessageReceivedEvent) {.async: (raises: []).} =
@@ -176,6 +207,8 @@ proc logosdelivery_stop_node(
   await MessagePropagatedEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
   await MessageReceivedEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
   await EventConnectionStatusChange.dropAllListeners(ctx.myLib[].waku.brokerCtx)
+  await EventShardTopicHealthChange.dropAllListeners(ctx.myLib[].waku.brokerCtx)
+  await WakuPeerEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
   await ChannelMessageReceivedEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
   await ChannelMessageSentEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
   await ChannelMessageErrorEvent.dropAllListeners(ctx.myLib[].waku.brokerCtx)
