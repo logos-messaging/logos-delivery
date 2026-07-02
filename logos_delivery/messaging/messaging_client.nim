@@ -5,7 +5,6 @@ import results, chronos
 import chronicles
 import
   logos_delivery/api/messaging_client_api,
-  logos_delivery/api/requests/messaging_client_requests,
   logos_delivery/waku/waku,
   logos_delivery/messaging/delivery_service/[recv_service, send_service]
 
