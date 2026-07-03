@@ -39,3 +39,17 @@ proc messagingPostMessagesV1*(
 ): RestResponse[MessagingSendResponse] {.
   rest, endpoint: "/messaging/v1/messages", meth: HttpMethod.MethodPost
 .}
+
+proc messagingGetSendEventsV1*(): RestResponse[seq[SendStatus]] {.
+  rest, endpoint: "/messaging/v1/events/send", meth: HttpMethod.MethodGet
+.}
+
+proc messagingGetSendEventsByIdV1*(
+  requestId: string
+): RestResponse[SendStatus] {.
+  rest, endpoint: "/messaging/v1/events/send/{requestId}", meth: HttpMethod.MethodGet
+.}
+
+proc messagingGetReceivedMessagesV1*(): RestResponse[seq[ReceivedMessageRecord]] {.
+  rest, endpoint: "/messaging/v1/events/received", meth: HttpMethod.MethodGet
+.}
