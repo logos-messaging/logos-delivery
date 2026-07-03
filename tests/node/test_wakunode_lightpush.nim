@@ -203,11 +203,120 @@ suite "RLN Proofs as a Lightpush Service":
 
       check:
         secondMsg.proof.len > 0
-        # Regenerated, not passed through — nonce manager consumes a new id
-        # per call, so the two proofs cannot be byte-equal.
+        # Regenerated, not passed through — Groth16 proofs carry random
+        # blinding, so a fresh call produces different bytes even though the
+        # rejected attempt's message id is intentionally reused on retry.
         secondMsg.proof != firstMsg.proof
         # Cache was refetched from chain, overwriting the corruption.
         manager.merkleProofCache == goodCache
+
+    # The tests below drive `server.lightpushPublish(...)` directly against the
+    # server node. Because `server.wakuLightPush` is mounted (and no lightpush
+    # client is), lightpushPublish takes the self-request path — it still runs
+    # the full client-side flow (proof gen, retry-on-420/504, one-retry cap),
+    # but the request lands in the local pushHandler instead of going over the
+    # wire. Swapping in a stub pushHandler lets each test control exactly what
+    # attempt N sees.
+
+    asyncTest "retry fires on 420 (INVALID_MESSAGE) and second attempt succeeds":
+      var callCount = 0
+      let stub: PushMessageHandler = proc(
+          pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        inc callCount
+        if callCount == 1:
+          return lighpushErrorResult(
+            LightPushErrorCode.INVALID_MESSAGE, "simulated stale merkle path"
+          )
+        return lightpushSuccessResult(1)
+      server.wakuLightPush.pushHandler = stub
+
+      let response = await server.lightpushPublish(some(pubsubTopic), message)
+
+      check:
+        callCount == 2
+        response.isOk()
+        response.get() == 1
+
+    asyncTest "retry fires on 504 (OUT_OF_RLN_PROOF) and second attempt succeeds":
+      var callCount = 0
+      let stub: PushMessageHandler = proc(
+          pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        inc callCount
+        if callCount == 1:
+          return lighpushErrorResult(
+            LightPushErrorCode.OUT_OF_RLN_PROOF, "simulated out-of-proof"
+          )
+        return lightpushSuccessResult(1)
+      server.wakuLightPush.pushHandler = stub
+
+      let response = await server.lightpushPublish(some(pubsubTopic), message)
+
+      check:
+        callCount == 2
+        response.isOk()
+        response.get() == 1
+
+    asyncTest "no retry on error codes outside 420/504":
+      var callCount = 0
+      let stub: PushMessageHandler = proc(
+          pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        inc callCount
+        return lighpushErrorResult(
+          LightPushErrorCode.INTERNAL_SERVER_ERROR, "unrelated failure"
+        )
+      server.wakuLightPush.pushHandler = stub
+
+      let response = await server.lightpushPublish(some(pubsubTopic), message)
+
+      check:
+        callCount == 1
+        response.isErr()
+        response.error.code == LightPushErrorCode.INTERNAL_SERVER_ERROR
+
+    asyncTest "retry cap: two consecutive 420s surface the second error":
+      var callCount = 0
+      let stub: PushMessageHandler = proc(
+          pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        inc callCount
+        return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "still stale")
+      server.wakuLightPush.pushHandler = stub
+
+      let response = await server.lightpushPublish(some(pubsubTopic), message)
+
+      check:
+        callCount == 2
+        response.isErr()
+        response.error.code == LightPushErrorCode.INVALID_MESSAGE
+
+    asyncTest "no retry when node.rln is nil":
+      # Detach RLN so the retry branch short-circuits on rln.isNone() even
+      # for a 420. Restore before teardown so server.stop() sees the same
+      # object graph it was constructed with.
+      let savedRln = server.rln
+      server.rln = nil
+
+      var callCount = 0
+      let stub: PushMessageHandler = proc(
+          pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        inc callCount
+        return lighpushErrorResult(
+          LightPushErrorCode.INVALID_MESSAGE, "simulated stale merkle path"
+        )
+      server.wakuLightPush.pushHandler = stub
+
+      let response = await server.lightpushPublish(some(pubsubTopic), message)
+
+      server.rln = savedRln
+
+      check:
+        callCount == 1
+        response.isErr()
+        response.error.code == LightPushErrorCode.INVALID_MESSAGE
 
 suite "Waku Lightpush message delivery":
   asyncTest "lightpush message flow succeed":

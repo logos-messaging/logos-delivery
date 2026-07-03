@@ -61,6 +61,13 @@ proc generateRLNProof*(
     forceMerkleProofRefresh: bool = false,
 ): Future[RlnResult[seq[byte]]] {.async.} =
   let epoch = rln.calcEpoch(senderEpochTime)
+  # A forced refresh is a retry after the prior attempt was rejected before
+  # it reached the network. That attempt already consumed a message id, so
+  # give it back before drawing a new one — otherwise one delivered message
+  # eats two ids of the per-epoch userMessageLimit, moving the sender
+  # closer to the on-chain slashing threshold for no reason.
+  if forceMerkleProofRefresh:
+    rln.nonceManager.rollbackNonce()
   let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
   let proof = (

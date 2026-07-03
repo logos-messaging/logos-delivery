@@ -261,4 +261,4 @@ proc setRlnValidator*(
 
   # register rln validator as default validator
   info "Registering RLN validator"
-  node.wakuRelay.addValidator(validator, "RLN validation failed")
+  node.wakuRelay.addValidator(validator, RlnValidatorErrorMsg)

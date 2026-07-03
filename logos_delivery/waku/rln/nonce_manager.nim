@@ -57,3 +57,13 @@ proc getNonce*(n: NonceManager): NonceManagerResult[Nonce] =
     )
 
   return ok(retNonce)
+
+proc rollbackNonce*(n: NonceManager) =
+  # Undo the last `getNonce` so the message id can be reissued. Used when a
+  # proof was generated but never left the node (e.g. a lightpush retry
+  # after a 420/504 rejection): the rejected attempt never reached the
+  # network, so letting the retry reuse the same id keeps one delivered
+  # message consuming one id out of the per-epoch userMessageLimit instead
+  # of two.
+  if n.nextNonce > 0:
+    n.nextNonce = n.nextNonce - 1

@@ -41,3 +41,37 @@ suite "Nonce manager":
     check:
       nonce == 0.uint
       nonce2 == 0.uint
+
+  test "rollbackNonce lets the next getNonce reissue the same id":
+    let nm = NonceManager.init(nonceLimit = 100.uint)
+    let first = nm.getNonce().valueOr:
+      raiseAssert $error
+    nm.rollbackNonce()
+    let reissued = nm.getNonce().valueOr:
+      raiseAssert $error
+
+    check:
+      first == 0.uint
+      reissued == first
+      nm.nextNonce == 1.uint
+
+  test "rollbackNonce frees the message id so nonceLimit is not exceeded":
+    let nm = NonceManager.init(nonceLimit = 1.uint)
+    discard nm.getNonce().valueOr:
+      raiseAssert $error
+    # Without rollback a second call would fail (nonceLimit = 1, i.e. one
+    # message id per epoch). Rollback returns the id and the retry succeeds
+    # using the same id — the on-chain slashing threshold is not crossed.
+    nm.rollbackNonce()
+    let retry = nm.getNonce()
+
+    check:
+      retry.isOk()
+      retry.get() == 0.uint
+
+  test "rollbackNonce is a no-op when no nonce has been issued":
+    let nm = NonceManager.init(nonceLimit = 100.uint)
+    nm.rollbackNonce()
+
+    check:
+      nm.nextNonce == 0.uint

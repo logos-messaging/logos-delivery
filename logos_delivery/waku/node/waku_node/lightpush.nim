@@ -142,17 +142,11 @@ proc legacyLightpushPublish*(
 
     let firstResult = await internalPublish(node, pubsubForPublish, msgWithProof, peer)
 
-    # Legacy protocol has no status code taxonomy: the server collapses every
-    # failure into isSuccess=false + a free-text info string. The only stable
-    # substring we can safely branch on is "RLN validation failed" — the
-    # errorMessage registered for the RLN validator in waku_node/relay.nim.
-    # Match it and treat it as the legacy equivalent of a v3 420/504: force
-    # refresh the cached merkle path, regenerate the RLN proof, and retry the
-    # send exactly once. All other failure modes (decode error, rate limit,
-    # no peers) are surfaced to the caller unchanged because a fresh proof
-    # would not change their outcome.
+    # A publish error mentioning RLN can indicate a stale merkle proof path;
+    # refresh it and retry the publish once. Legacy lightpush has no status
+    # codes, so we string-match the RLN error for backward compatibility.
     if firstResult.isOk() or rln.isNone() or
-        not firstResult.error.contains("RLN validation failed"):
+        not firstResult.error.contains(RlnValidatorErrorMsg):
       return firstResult
 
     info "legacy lightpush send rejected as RLN-invalid; " &
@@ -330,10 +324,9 @@ proc lightpushPublish*(
   let firstResult =
     await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
 
-  # If message is rejected with error code 420 (INVALID_MESSAGE) or 504 
-  # (OUT_OF_RLN_PROOF) then cached merkle path is likely stale relative
-  # to the current on-chain group. Force-refresh it, regenerate the proof,
-  # and retry the send exactly once.
+  # A publish error with status 420 (INVALID_MESSAGE) or 504 (OUT_OF_RLN_PROOF)
+  # can indicate a stale merkle proof path; refresh it and retry the publish
+  # once.
   if firstResult.isOk() or rln.isNone() or
       firstResult.error.code notin
       [LightPushErrorCode.INVALID_MESSAGE, LightPushErrorCode.OUT_OF_RLN_PROOF]:

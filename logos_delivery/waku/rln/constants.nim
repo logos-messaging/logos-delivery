@@ -17,6 +17,9 @@ const RootsRefreshMinInterval* = 2.seconds
 # RLN membership key and index files path
 const RlnCredentialsFilename* = "rlnCredentials.txt"
 
+# RLN Validator message rejection Error string, is used to trigger proof refresh and publish retry in the lightpush client
+const RlnValidatorErrorMsg* = "RLN validation failed"
+
 # inputs of the membership contract constructor
 # TODO may be able to make these constants private and put them inside the waku_rln_utils
 const
