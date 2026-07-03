@@ -11,6 +11,7 @@ import brokers/broker_context
 import logos_delivery
 import
   logos_delivery/messaging/rest_api/client as messaging_rest_client,
+  logos_delivery/waku/rest_api/endpoint/client,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
 import ../testlib/[wakucore, testasync]
@@ -99,8 +100,7 @@ suite "Messaging REST API":
       brokerCtx, MessageSentEvent(requestId: reqA, messageHash: "0xaa")
     )
     MessageErrorEvent.emit(
-      brokerCtx,
-      MessageErrorEvent(requestId: reqB, messageHash: "0xbb", error: "boom"),
+      brokerCtx, MessageErrorEvent(requestId: reqB, messageHash: "0xbb", error: "boom")
     )
     await sleepAsync(settleDelay)
 
@@ -113,8 +113,9 @@ suite "Messaging REST API":
       byIdResp.data.events.anyIt(it.kind == SendEventKind.Sent)
       byIdResp.data.events.anyIt(it.kind == SendEventKind.Propagated)
 
-    # Unknown / already-polled id → 404.
-    let missingResp = await client.messagingGetSendEventsByIdV1($reqA)
+    # Unknown / already-polled id → 404 (raw string client so the text error
+    # body decodes; the typed client would raise on a non-2xx body).
+    let missingResp = await client.messagingGetSendEventsByIdRawV1($reqA)
     check missingResp.status == 404
 
     # GET all now returns only reqB (with its error), then clears.

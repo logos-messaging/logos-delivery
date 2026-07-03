@@ -50,6 +50,14 @@ proc messagingGetSendEventsByIdV1*(
   rest, endpoint: "/messaging/v1/events/send/{requestId}", meth: HttpMethod.MethodGet
 .}
 
+# Raw variant: the typed client above cannot decode a non-2xx text error body,
+# so status-code assertions (e.g. 404) use this string form.
+proc messagingGetSendEventsByIdRawV1*(
+  requestId: string
+): RestResponse[string] {.
+  rest, endpoint: "/messaging/v1/events/send/{requestId}", meth: HttpMethod.MethodGet
+.}
+
 proc messagingGetReceivedMessagesV1*(): RestResponse[seq[ReceivedMessageRecord]] {.
   rest, endpoint: "/messaging/v1/events/received", meth: HttpMethod.MethodGet
 .}
