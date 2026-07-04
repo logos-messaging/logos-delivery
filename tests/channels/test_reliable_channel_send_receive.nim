@@ -13,6 +13,7 @@ import logos_delivery/waku/factory/waku_conf
 import logos_delivery/api/events/messaging_client_events as waku_message_events
 import logos_delivery/api/messaging_client_api
 import tools/confutils/cli_args
+import logos_delivery/api/messaging_conf
 
 import logos_delivery/channels/reliable_channel_manager
 import logos_delivery/channels/encryption/noop_encryption
@@ -27,9 +28,8 @@ import snapshot_codec
 const TestTimeout = chronos.seconds(15)
 
 proc createApiNodeConf(): WakuNodeConf =
-  var conf = defaultWakuNodeConf().valueOr:
-    raiseAssert error
-  conf.mode = cli_args.WakuMode.Core
+  var conf = MessagingClientConf().toKernelConf(messaging_conf.WakuMode.Core).valueOr:
+      raiseAssert error
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
@@ -166,7 +166,7 @@ suite "Reliable Channel - ingress":
 suite "Reliable Channel - send state machine":
   asyncTest "MessageSentEvent finalises the channelReqId as Sent":
     ## Drives the real send pipeline (`send` -> segmentation -> SDS ->
-    ## rate_limit -> encrypt -> dispatch) via a fake `SendHandler` that
+    ## rate_limit -> encrypt -> dispatch) via a fake `MessagingSend` provider that
     ## returns a canned `RequestId` instead of hitting the network.
     ## Emitting the delivery-layer `MessageSentEvent` must drive the
     ## channel-level state machine through `Confirmed` and produce a
@@ -234,7 +234,7 @@ suite "Reliable Channel - send state machine":
     ## Two `send()` calls -> two independent `channelReqId`s, each with
     ## one segment under the current segmentation skeleton
     ## (`performSegmentation` always emits exactly one segment). The
-    ## fake `SendHandler` returns distinct `messagingReqId`s; finalising
+    ## fake `MessagingSend` provider returns distinct `messagingReqId`s; finalising
     ## the first emits `ChannelMessageSentEvent` for its `channelReqId`,
     ## finalising the second as a failure emits `ChannelMessageErrorEvent`
     ## for the other.
@@ -329,7 +329,7 @@ suite "Reliable Channel - send state machine":
     ## `channelReqId` cannot be produced through the real pipeline.
     ## Implement once segmentation does real chunking: send a payload
     ## larger than `DefaultSegmentSizeBytes`, capture the N
-    ## `messagingReqId`s from a fake `SendHandler`, finalise some, and
+    ## `messagingReqId`s from a fake `MessagingSend` provider, finalise some, and
     ## assert prune only fires once every sibling is final.
     skip()
 

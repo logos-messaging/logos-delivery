@@ -1,6 +1,9 @@
-import std/[json, macros, strutils, tables]
+import std/[json, macros, options, strutils, tables]
 import confutils, confutils/defs, confutils/std/net, results
-import ./cli_args
+
+# The shared JSON walker is `raises: []` so the messaging FFI parser (also
+# `raises: []`) can build on it.
+{.push raises: [].}
 
 proc collectJsonFields*(
     jsonNode: JsonNode
@@ -12,7 +15,7 @@ proc collectJsonFields*(
   for key, value in jsonNode:
     let lowerKey = key.toLowerAscii()
     if jsonFields.hasKey(lowerKey):
-      let firstKey = jsonFields[lowerKey][0]
+      let firstKey = jsonFields.getOrDefault(lowerKey)[0]
       return err(
         "Duplicate configuration option (case-insensitive): '" & firstKey & "' and '" &
           key & "'"
@@ -27,7 +30,7 @@ proc unknownKeysError(
   var keys = newSeq[string]()
   for _, (jsonKey, _) in pairs(jsonFields):
     keys.add(jsonKey)
-  return prefix & ": " & $keys
+  return prefix & ": " & keys.join(", ")
 
 proc jsonScalarToString(node: JsonNode): Result[string, string] =
   ## Convert a scalar JSON value to its string form.
@@ -40,20 +43,55 @@ proc jsonScalarToString(node: JsonNode): Result[string, string] =
     return ok($node.getFloat())
   of JBool:
     return ok($node.getBool())
-  of JNull:
-    return ok("")
   else:
     return err("expected scalar JSON value, got " & $node.kind)
 
-proc applyJsonFieldsToConf(
-    conf: var WakuNodeConf,
+proc parseScalarInto[U](
+    jsonValue: JsonNode, confField, jsonKey, prefix: string
+): Result[U, string] =
+  ## Parse a scalar JSON value into `U` via confutils `parseCmdArg`, same as the CLI.
+  let s = jsonScalarToString(jsonValue).valueOr:
+    return
+      err(prefix & " '" & confField & "' from JSON key '" & jsonKey & "': " & error)
+  try:
+    ok(parseCmdArg(U, s))
+  except CatchableError as e:
+    err(
+      prefix & " '" & confField & "' from JSON key '" & jsonKey & "': " & e.msg &
+        ". Value: " & s
+    )
+
+proc parseSeqInto[U](
+    jsonValue: JsonNode, confField, jsonKey, prefix: string
+): Result[seq[U], string] =
+  ## Parse a JSON array into `seq[U]`, each element via `parseCmdArg`.
+  if jsonValue.kind != JArray:
+    return err(
+      prefix & " '" & confField & "' from JSON key '" & jsonKey &
+        "' must be a JSON array"
+    )
+  var res: seq[U]
+  for item in jsonValue:
+    let s = jsonScalarToString(item).valueOr:
+      return
+        err(prefix & " '" & confField & "' from JSON key '" & jsonKey & "': " & error)
+    try:
+      res.add(parseCmdArg(U, s))
+    except CatchableError as e:
+      return err(
+        prefix & " '" & confField & "' from JSON key '" & jsonKey & "': " & e.msg &
+          ". Value: " & s
+      )
+  ok(res)
+
+proc applyJsonFieldsToConf*[T](
+    conf: var T,
     jsonFields: var Table[string, (string, JsonNode)],
     parseErrPrefix: string,
     unknownErrPrefix: string,
 ): Result[void, string] =
-  ## Walk `conf`'s fields and write each one matched (case-insensitive) by
-  ## `jsonFields`. seq fields take a JArray (full replace); scalar fields
-  ## take any scalar JSON kind. Errors on leftover unknown keys.
+  ## Write each conf field matched (case-insensitive) by name or CLI `name:` pragma.
+  ## JSON `null` leaves the field unset; unknown or non-`parseCmdArg` keys error.
   for confField, confValue in fieldPairs(conf):
     # Match a field by its name or by its CLI name: pragma; case-insensitive.
     var matchKey = ""
@@ -66,71 +104,52 @@ proc applyJsonFieldsToConf(
         if matchKey != "": # field-name form already present: set twice
           return err(
             "config option '" & confField & "' was set twice, via '" &
-              jsonFields[matchKey][0] & "' and '" & jsonFields[lowerCliName][0] & "'"
+              jsonFields.getOrDefault(matchKey)[0] & "' and '" &
+              jsonFields.getOrDefault(lowerCliName)[0] & "'"
           )
         matchKey = lowerCliName
     if matchKey != "":
-      let (jsonKey, jsonValue) = jsonFields[matchKey]
-      when confValue is seq:
-        if jsonValue.kind != JArray:
-          return err(
-            parseErrPrefix & " '" & confField & "' from JSON key '" & jsonKey &
-              "' must be a JSON array"
-          )
-        var newSeq: typeof(confValue) = @[]
-        for item in jsonValue:
-          let formattedItem = jsonScalarToString(item).valueOr:
-            return err(
-              parseErrPrefix & " '" & confField & "' from JSON key '" & jsonKey & "': " &
-                error
-            )
-          try:
-            type ElemType = typeof(confValue[0])
-            newSeq.add(parseCmdArg(ElemType, formattedItem))
-          except CatchableError as e:
-            return err(
-              parseErrPrefix & " '" & confField & "' from JSON key '" & jsonKey & "': " &
-                e.msg & ". Value: " & formattedItem
-            )
-        confValue = newSeq
+      let (jsonKey, jsonValue) = jsonFields.getOrDefault(matchKey)
+      if jsonValue.kind == JNull:
+        # JSON null leaves the field unset; it keeps its default.
+        jsonFields.del(matchKey)
       else:
-        let formattedString = jsonScalarToString(jsonValue).valueOr:
-          return err(
-            parseErrPrefix & " '" & confField & "' from JSON key '" & jsonKey & "': " &
-              error
-          )
-        try:
-          confValue = parseCmdArg(typeof(confValue), formattedString)
-        except CatchableError as e:
-          return err(
-            parseErrPrefix & " '" & confField & "' from JSON key '" & jsonKey & "': " &
-              e.msg & ". Value: " & formattedString
-          )
-      jsonFields.del(matchKey)
+        when confValue is Option:
+          type Inner = typeof(confValue.get())
+          when Inner is seq:
+            type Elem = typeof(confValue.get()[0])
+            when compiles(parseCmdArg(Elem, "")):
+              confValue =
+                some(?parseSeqInto[Elem](jsonValue, confField, jsonKey, parseErrPrefix))
+              jsonFields.del(matchKey)
+            else:
+              return err("config option '" & jsonKey & "' cannot be set via JSON")
+          else:
+            when compiles(parseCmdArg(Inner, "")):
+              confValue = some(
+                ?parseScalarInto[Inner](jsonValue, confField, jsonKey, parseErrPrefix)
+              )
+              jsonFields.del(matchKey)
+            else:
+              return err("config option '" & jsonKey & "' cannot be set via JSON")
+        elif confValue is seq:
+          type Elem = typeof(confValue[0])
+          when compiles(parseCmdArg(Elem, "")):
+            confValue =
+              ?parseSeqInto[Elem](jsonValue, confField, jsonKey, parseErrPrefix)
+            jsonFields.del(matchKey)
+          else:
+            return err("config option '" & jsonKey & "' cannot be set via JSON")
+        else:
+          when compiles(parseCmdArg(typeof(confValue), "")):
+            confValue = ?parseScalarInto[typeof(confValue)](
+              jsonValue, confField, jsonKey, parseErrPrefix
+            )
+            jsonFields.del(matchKey)
+          else:
+            return err("config option '" & jsonKey & "' cannot be set via JSON")
   if jsonFields.len > 0:
     return err(unknownKeysError(jsonFields, unknownErrPrefix))
-  return ok()
+  ok()
 
-proc assembleFullConf*(
-    jsonFields: Table[string, (string, JsonNode)]
-): Result[WakuNodeConf, string] =
-  ## Build a WakuNodeConf from a flat JSON object whose keys are WakuNodeConf field
-  ## names or their CLI `name:` pragma equivalents.
-  var conf = ?defaultWakuNodeConf()
-  var fields = jsonFields
-  ?applyJsonFieldsToConf(
-    conf, fields, "Failed to parse field", "Unrecognized configuration option(s) found"
-  )
-  return ok(conf)
-
-proc parseNodeConfFromJson*(jsonStr: string): Result[WakuNodeConf, string] =
-  ## Parse a flat JSON config whose keys are WakuNodeConf field names or their CLI
-  ## `name:` pragma equivalents.
-  var jsonNode: JsonNode
-  try:
-    jsonNode = parseJson(jsonStr)
-  except CatchableError as e:
-    return err("Failed to parse config JSON: " & e.msg)
-
-  let jsonFields = ?collectJsonFields(jsonNode)
-  return assembleFullConf(jsonFields)
+{.pop.}

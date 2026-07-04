@@ -33,15 +33,22 @@ void *logosdelivery_create_node(
 {
   "mode": "Core",
   "preset": "logos.dev",
-  "listenAddress": "0.0.0.0",
-  "tcpPort": 60000,
-  "discv5UdpPort": 9000
+  "messagingOverrides": {
+    "listen-address": "0.0.0.0",
+    "tcp-port": 60000,
+    "discv5-udp-port": 9000
+  }
 }
 ```
 
-Configuration uses flat field names matching `WakuNodeConf` in `tools/confutils/cli_args.nim`.
-Use `"preset"` to select a network preset (e.g., `"twn"`, `"logos.dev"`, `"status.prod"`) which
-auto-configures entry nodes, cluster ID, sharding, and other network-specific settings.
+The configuration object has four optional top-level keys: `mode` (`"Core"` or
+`"Edge"`, defaults to `"Core"`), `preset`, `messagingOverrides` (per-field node
+config overrides), and `channelsOverrides` (reliable-channel overrides).
+Override keys accept the config field name or its CLI switch name (e.g.
+`"clusterId"` or `"cluster-id"`); unknown keys are rejected.
+Use `"preset"` to select a network preset (e.g., `"twn"`, `"logos.dev"`,
+`"status.prod"`) which auto-configures entry nodes, cluster ID, sharding, and
+other network-specific settings.
 
 Available presets:
 

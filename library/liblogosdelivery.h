@@ -22,9 +22,14 @@ extern "C"
 
   // Creates a new instance of the node from the given configuration JSON.
   // Returns a pointer to the Context needed by the rest of the API functions.
-  // Configuration should be in JSON format using WakuNodeConf field names.
-  // Field names match Nim identifiers from WakuNodeConf (camelCase).
-  // Example: {"mode": "Core", "clusterId": 42, "relay": true}
+  // The configuration is a JSON object with these optional keys:
+  //   "mode": "Core" | "Edge"        (messaging role; defaults to "Core")
+  //   "preset": "<network preset>"   (e.g. "twn")
+  //   "messagingOverrides": { ... }  (per-field messaging config overrides)
+  //   "channelsOverrides": { ... }   (per-field reliable-channel overrides)
+  // Override keys accept the config field name or its CLI switch name (e.g.
+  // "clusterId" or "cluster-id"). Unknown keys are rejected.
+  // Example: {"mode":"Core","messagingOverrides":{"cluster-id":42,"log-level":"INFO"}}
   void *logosdelivery_create_node(
       const char *configJson,
       FFICallBack callback,

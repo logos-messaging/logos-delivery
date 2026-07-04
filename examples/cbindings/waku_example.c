@@ -50,12 +50,6 @@ struct ConfigNode
   int relay;
   char peers[2048];
   int store;
-  char storeNode[2048];
-  char storeRetentionPolicy[64];
-  char storeDbUrl[256];
-  int storeVacuum;
-  int storeDbMigration;
-  int storeMaxNumDbConnections;
 };
 
 // libwaku Context
@@ -290,42 +284,24 @@ int main(int argc, char **argv)
   cfgNode.relay = 1;
 
   cfgNode.store = 0;
-  snprintf(cfgNode.storeNode, 2048, "");
-  snprintf(cfgNode.storeRetentionPolicy, 64, "time:6000000");
-  snprintf(cfgNode.storeDbUrl, 256, "postgres://postgres:test123@localhost:5432/postgres");
-  cfgNode.storeVacuum = 0;
-  cfgNode.storeDbMigration = 0;
-  cfgNode.storeMaxNumDbConnections = 30;
 
   parse_args(argc, argv, &cfgNode);
 
   char jsonConfig[5000];
   snprintf(jsonConfig, 5000, "{ \
-                                    \"clusterId\": 16, \
-                                    \"shards\": [ 1, 32, 64, 128, 256 ], \
-                                    \"numShardsInNetwork\": 257, \
-                                    \"listenAddress\": \"%s\",    \
-                                    \"tcpPort\": %d,        \
-                                    \"relay\": %s,       \
-                                    \"store\": %s,       \
-                                    \"storeMessageDbUrl\": \"%s\",  \
-                                    \"storeMessageRetentionPolicy\": \"%s\",  \
-                                    \"storeMaxNumDbConnections\": %d , \
-                                    \"logLevel\": \"DEBUG\", \
-                                    \"discv5Discovery\": true, \
-                                    \"discv5BootstrapNodes\": \
-                                        [\"enr:-QEKuED9AJm2HGgrRpVaJY2nj68ao_QiPeUT43sK-aRM7sMJ6R4G11OSDOwnvVacgN1sTw-K7soC5dzHDFZgZkHU0u-XAYJpZIJ2NIJpcISnYxMvim11bHRpYWRkcnO4WgAqNiVib290LTAxLmRvLWFtczMuc3RhdHVzLnByb2Quc3RhdHVzLmltBnZfACw2JWJvb3QtMDEuZG8tYW1zMy5zdGF0dXMucHJvZC5zdGF0dXMuaW0GAbveA4Jyc40AEAUAAQAgAEAAgAEAiXNlY3AyNTZrMaEC3rRtFQSgc24uWewzXaxTY8hDAHB8sgnxr9k8Rjb5GeSDdGNwgnZfg3VkcIIjKIV3YWt1Mg0\", \"enr:-QEcuED7ww5vo2rKc1pyBp7fubBUH-8STHEZHo7InjVjLblEVyDGkjdTI9VdqmYQOn95vuQH-Htku17WSTzEufx-Wg4mAYJpZIJ2NIJpcIQihw1Xim11bHRpYWRkcnO4bAAzNi5ib290LTAxLmdjLXVzLWNlbnRyYWwxLWEuc3RhdHVzLnByb2Quc3RhdHVzLmltBnZfADU2LmJvb3QtMDEuZ2MtdXMtY2VudHJhbDEtYS5zdGF0dXMucHJvZC5zdGF0dXMuaW0GAbveA4Jyc40AEAUAAQAgAEAAgAEAiXNlY3AyNTZrMaECxjqgDQ0WyRSOilYU32DA5k_XNlDis3m1VdXkK9xM6kODdGNwgnZfg3VkcIIjKIV3YWt1Mg0\", \"enr:-QEcuEAoShWGyN66wwusE3Ri8hXBaIkoHZHybUB8cCPv5v3ypEf9OCg4cfslJxZFANl90s-jmMOugLUyBx4EfOBNJ6_VAYJpZIJ2NIJpcIQI2hdMim11bHRpYWRkcnO4bAAzNi5ib290LTAxLmFjLWNuLWhvbmdrb25nLWMuc3RhdHVzLnByb2Quc3RhdHVzLmltBnZfADU2LmJvb3QtMDEuYWMtY24taG9uZ2tvbmctYy5zdGF0dXMucHJvZC5zdGF0dXMuaW0GAbveA4Jyc40AEAUAAQAgAEAAgAEAiXNlY3AyNTZrMaEDP7CbRk-YKJwOFFM4Z9ney0GPc7WPJaCwGkpNRyla7mCDdGNwgnZfg3VkcIIjKIV3YWt1Mg0\"], \
-                                    \"discv5UdpPort\": 9999, \
-                                    \"dnsDiscoveryUrl\": \"enrtree://AMOJVZX4V6EXP7NTJPMAYJYST2QP6AJXYW76IU6VGJS7UVSNDYZG4@boot.prod.status.nodes.status.im\", \
-                                    \"dnsDiscoveryNameServers\": [\"8.8.8.8\", \"1.0.0.1\"] \
+                                    \"mode\": \"Core\", \
+                                    \"preset\": \"status.prod\", \
+                                    \"messagingOverrides\": { \
+                                        \"listen-address\": \"%s\",    \
+                                        \"tcp-port\": %d,        \
+                                        \"store\": %s,       \
+                                        \"log-level\": \"DEBUG\", \
+                                        \"discv5-udp-port\": 9999 \
+                                    } \
                                 }",
            cfgNode.host,
            cfgNode.port,
-           cfgNode.relay ? "true" : "false",
-           cfgNode.store ? "true" : "false",
-           cfgNode.storeDbUrl,
-           cfgNode.storeRetentionPolicy,
-           cfgNode.storeMaxNumDbConnections);
+           cfgNode.store ? "true" : "false");
 
   ctx = logosdelivery_create_node(jsonConfig, event_handler, userData);
   waitForCallback();

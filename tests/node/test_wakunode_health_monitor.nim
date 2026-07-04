@@ -238,7 +238,7 @@ suite "Health Monitor - events":
       node: nodeA, conf: defaultTestWakuConf(), stateInfo: WakuStateInfo.init(nodeA)
     )
     let ds = MessagingClient
-      .new(MessagingClientConf(useP2PReliability: false), waku)
+      .new(MessagingClientConf(reliabilityEnabled: some(false)), waku)
       .expect("Failed to create MessagingClient")
     ds.start().expect("Failed to start MessagingClient")
 
@@ -349,7 +349,7 @@ suite "Health Monitor - events":
       node: nodeA, conf: defaultTestWakuConf(), stateInfo: WakuStateInfo.init(nodeA)
     )
     let ds = MessagingClient
-      .new(MessagingClientConf(useP2PReliability: false), waku)
+      .new(MessagingClientConf(reliabilityEnabled: some(false)), waku)
       .expect("Failed to create MessagingClient")
     ds.start().expect("Failed to start MessagingClient")
     let subMgr = nodeA.subscriptionManager

@@ -9,6 +9,7 @@
 
 {.push raises: [].}
 
+import std/options
 import results, chronos, chronicles
 
 # Each layer has a core module (type + new/start/stop) and an api/ folder whose
@@ -41,6 +42,8 @@ import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
 import logos_delivery/api/events/messaging_client_events
 export messaging_client_events
+import logos_delivery/api/messaging_conf
+export messaging_conf
 
 # Reliable Channel layer
 import logos_delivery/channels/reliable_channel_manager
@@ -63,10 +66,7 @@ logScope:
   topics = "logosdelivery"
 
 type
-  LogosDeliveryConf* = object
-    ## Aggregates the per-layer config objects. For now
-    ## the sub-configs are derived from `WakuConf`; richer per-layer configuration
-    ## (and how it is sourced) lands in a follow-up PR.
+  LogosDeliveryConf* = object ## Aggregates the per-layer config objects.
     waku*: WakuConf
     messaging*: MessagingClientConf
     reliableChannel*: ReliableChannelManagerConf
@@ -82,20 +82,14 @@ proc init*(T: type LogosDeliveryConf, wakuConf: WakuConf): LogosDeliveryConf =
   ## dedicated config will be threaded through later.
   LogosDeliveryConf(
     waku: wakuConf,
-    messaging: MessagingClientConf(useP2PReliability: wakuConf.p2pReliability),
+    messaging: MessagingClientConf(reliabilityEnabled: some(wakuConf.p2pReliability)),
     reliableChannel: ReliableChannelManagerConf(),
   )
 
-proc new*(
-    T: type LogosDelivery, conf: WakuNodeConf, appCallbacks: AppCallbacks = nil
+proc buildStack(
+    layerConf: LogosDeliveryConf, appCallbacks: AppCallbacks
 ): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Single entry point, from the CLI configuration type. Derives the aggregated
-  ## per-layer config, then creates the full stack bottom-up so each layer can
-  ## chain onto the one below.
-  let wakuConf = conf.toWakuConf().valueOr:
-    return err("failed to handle the configuration: " & error)
-  let layerConf = LogosDeliveryConf.init(wakuConf)
-
+  ## Builds the stack bottom-up. Shared by `new` and `newMessaging`.
   let waku = (await Waku.new(layerConf.waku, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
@@ -108,12 +102,41 @@ proc new*(
     return err("failed to create ReliableChannelManager: " & error)
 
   return ok(
-    T(
+    LogosDelivery(
       waku: waku,
       messagingClient: messagingClient,
       reliableChannelManager: reliableChannelManager,
     )
   )
+
+proc new*(
+    T: type LogosDelivery, conf: WakuNodeConf, appCallbacks: AppCallbacks = nil
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Builds the full stack from a kernel `WakuNodeConf`.
+  let wakuConf = conf.toWakuConf().valueOr:
+    return err("failed to handle the configuration: " & error)
+  return await buildStack(LogosDeliveryConf.init(wakuConf), appCallbacks)
+
+proc newMessaging*(
+    T: type LogosDelivery,
+    mode: WakuMode = WakuMode.Core,
+    preset: string = "",
+    messaging: MessagingClientConf = MessagingClientConf(),
+    channels: ReliableChannelManagerConf = ReliableChannelManagerConf(),
+    appCallbacks: AppCallbacks = nil,
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Messaging entry point (app dev). Builds the full stack from preset, mode and overrides.
+  let presetConf = resolvePreset(preset).valueOr:
+    return err("failed to resolve preset: " & error)
+  let merged = merge(presetConf, messaging)
+  var kernelConf = toKernelConf(merged, mode).valueOr:
+    return err("failed to synthesize kernel configuration: " & error)
+  kernelConf.preset = preset
+  let wakuConf = kernelConf.toWakuConf().valueOr:
+    return err("failed to handle the configuration: " & error)
+  let layerConf =
+    LogosDeliveryConf(waku: wakuConf, messaging: merged, reliableChannel: channels)
+  return await buildStack(layerConf, appCallbacks)
 
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each layer bottom-up: transport first, then messaging, then channels.
@@ -137,11 +160,13 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
 proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
-  await self.reliableChannelManager.stop()
-  await self.messagingClient.stop()
-
-  (await self.waku.stop()).isOkOr:
-    return err("failed to stop Waku: " & error)
+  if not self.reliableChannelManager.isNil():
+    await self.reliableChannelManager.stop()
+  if not self.messagingClient.isNil():
+    await self.messagingClient.stop()
+  if not self.waku.isNil():
+    (await self.waku.stop()).isOkOr:
+      return err("failed to stop Waku: " & error)
 
   return ok()
 
