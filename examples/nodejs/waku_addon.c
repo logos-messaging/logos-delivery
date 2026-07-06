@@ -200,7 +200,7 @@ static napi_value WakuNew(napi_env env, napi_callback_info info) {
   str_size = str_size + 1;
   napi_get_value_string_utf8(env, args[0], jsonConfig, str_size, &str_size_read);
 
-  ctx = waku_new(jsonConfig, event_handler, userData);
+  ctx = logosdelivery_create_node(jsonConfig, event_handler, userData);
 
   free(jsonConfig);
 
@@ -290,7 +290,7 @@ static napi_value WakuSetEventCallback(napi_env env, napi_callback_info info) {
 }
 
 static napi_value WakuStart(napi_env env, napi_callback_info info) {
-  waku_start(ctx, event_handler, userData);
+  logosdelivery_start_node(ctx, event_handler, userData);
   return NULL;
 }
 

@@ -6,7 +6,7 @@ use std::{slice, thread, time};
 pub type FFICallBack = unsafe extern "C" fn(c_int, *const c_char, usize, *const c_void);
 
 extern "C" {
-    pub fn waku_new(
+    pub fn logosdelivery_create_node(
         config_json: *const u8,
         cb: FFICallBack,
         user_data: *const c_void,
@@ -14,7 +14,7 @@ extern "C" {
 
     pub fn waku_version(ctx: *const c_void, cb: FFICallBack, user_data: *const c_void) -> c_int;
 
-    pub fn waku_start(ctx: *const c_void, cb: FFICallBack, user_data: *const c_void) -> c_int;
+    pub fn logosdelivery_start_node(ctx: *const c_void, cb: FFICallBack, user_data: *const c_void) -> c_int;
 
     pub fn waku_default_pubsub_topic(
         ctx: *mut c_void,
@@ -60,11 +60,11 @@ fn main() {
     unsafe {
         // Create the waku node
         let closure = |ret: i32, data: &str| {
-            println!("Ret {ret}. waku_new closure called {data}");
+            println!("Ret {ret}. logosdelivery_create_node closure called {data}");
         };
         let cb = get_trampoline(&closure);
         let config_json_str = CString::new(config_json).unwrap();
-        let ctx = waku_new(
+        let ctx = logosdelivery_create_node(
             config_json_str.as_ptr() as *const u8,
             cb,
             &closure as *const _ as *const c_void,
@@ -99,10 +99,10 @@ fn main() {
 
         // Start the Waku node
         let closure = |ret: i32, data: &str| {
-            println!("Ret {ret}. waku_start closure called {data}");
+            println!("Ret {ret}. logosdelivery_start_node closure called {data}");
         };
         let cb = get_trampoline(&closure);
-        let _ret = waku_start(ctx, cb, &closure as *const _ as *const c_void);
+        let _ret = logosdelivery_start_node(ctx, cb, &closure as *const _ as *const c_void);
     }
 
     loop {

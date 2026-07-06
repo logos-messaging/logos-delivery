@@ -71,20 +71,20 @@ package main
 
 	static void* cGoWakuNew(const char* configJson, void* resp) {
 		// We pass NULL because we are not interested in retrieving data from this callback
-		void* ret = waku_new(configJson, (FFICallBack) callback, resp);
+		void* ret = logosdelivery_create_node(configJson, (FFICallBack) callback, resp);
 		return ret;
 	}
 
 	static void cGoWakuStart(void* wakuCtx, void* resp) {
-		WAKU_CALL(waku_start(wakuCtx, (FFICallBack) callback, resp));
+		WAKU_CALL(logosdelivery_start_node(wakuCtx, (FFICallBack) callback, resp));
 	}
 
 	static void cGoWakuStop(void* wakuCtx, void* resp) {
-		WAKU_CALL(waku_stop(wakuCtx, (FFICallBack) callback, resp));
+		WAKU_CALL(logosdelivery_stop_node(wakuCtx, (FFICallBack) callback, resp));
 	}
 
 	static void cGoWakuDestroy(void* wakuCtx, void* resp) {
-		WAKU_CALL(waku_destroy(wakuCtx, (FFICallBack) callback, resp));
+		WAKU_CALL(logosdelivery_destroy(wakuCtx, (FFICallBack) callback, resp));
 	}
 
 	static void cGoWakuStartDiscV5(void* wakuCtx, void* resp) {

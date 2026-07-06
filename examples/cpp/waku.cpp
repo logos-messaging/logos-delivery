@@ -257,9 +257,9 @@ int main(int argc, char **argv)
              cfgNode.port);
 
     void *ctx =
-        waku_new(jsonConfig,
+        logosdelivery_create_node(jsonConfig,
                  cify([](const char *msg, size_t len)
-                      { std::cout << "waku_new feedback: " << msg << std::endl; }),
+                      { std::cout << "logosdelivery_create_node feedback: " << msg << std::endl; }),
                  nullptr);
     waitForCallback();
 
@@ -296,7 +296,7 @@ int main(int argc, char **argv)
                             { event_handler(msg, len); }),
                        nullptr);
 
-    WAKU_CALL(waku_start(ctx,
+    WAKU_CALL(logosdelivery_start_node(ctx,
                          cify([&](const char *msg, size_t len)
                               { event_handler(msg, len); }),
                          nullptr));

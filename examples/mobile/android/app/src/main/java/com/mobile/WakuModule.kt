@@ -123,7 +123,7 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
     val configStr = stringifyReadableMap(config)
     val response = wakuNew(configStr)
     if (response.error) {
-      promise.reject("waku_new", response.errorMessage)
+      promise.reject("logosdelivery_create_node", response.errorMessage)
     } else {
       // With this we just indicate to waku_ffi that we have registered a
       // closure, for this wakuPtr. Later once a message is received the
@@ -140,7 +140,7 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
     val wakuPtr = BigInteger(ctx).toLong()
     val response = wakuStart(wakuPtr)
     if (response.error) {
-      promise.reject("waku_start", response.message)
+      promise.reject("logosdelivery_start_node", response.message)
     } else {
       promise.resolve(null)
     }
@@ -162,7 +162,7 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
     val wakuPtr = BigInteger(ctx).toLong()
     val response = wakuStop(wakuPtr)
     if (response.error) {
-      promise.reject("waku_stop", response.message)
+      promise.reject("logosdelivery_stop_node", response.message)
     } else {
       promise.resolve(null)
     }
@@ -173,7 +173,7 @@ class WakuModule(reactContext: ReactApplicationContext) : ReactContextBaseJavaMo
     val wakuPtr = BigInteger(ctx).toLong()
     val response = wakuDestroy(wakuPtr)
     if (response.error) {
-      promise.reject("waku_destroy", response.message)
+      promise.reject("logosdelivery_destroy", response.message)
     } else {
       promise.resolve(null)
     }
