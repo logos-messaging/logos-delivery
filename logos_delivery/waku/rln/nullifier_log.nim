@@ -10,7 +10,7 @@ logScope:
 
 proc hasDuplicate*(
     rlnPeer: Rln, epoch: Epoch, proofMetadata: ProofMetadata
-): RlnResult[bool] =
+): Result[bool, string] =
   ## returns true if there is another message in the  `nullifierLog` of the `rlnPeer` with the same
   ## epoch and nullifier as `proofMetadata`'s epoch and nullifier
   ## otherwise, returns false
@@ -32,7 +32,7 @@ proc hasDuplicate*(
 
 proc updateLog*(
     rlnPeer: Rln, epoch: Epoch, proofMetadata: ProofMetadata
-): RlnResult[void] =
+): Result[void, string] =
   ## saves supplied proofMetadata `proofMetadata`
   ## in the `nullifierLog` of the `rlnPeer`
   ## Returns an error if it cannot update the log
