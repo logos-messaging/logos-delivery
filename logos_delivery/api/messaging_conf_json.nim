@@ -10,8 +10,8 @@ import logos_delivery/channels/reliable_channel_manager
 type MessagingConfJson* = object
   mode*: WakuMode
   preset*: string
-  messaging*: MessagingClientConf
-  channels*: ReliableChannelManagerConf
+  messagingOverrides*: MessagingClientConf
+  channelsOverrides*: ReliableChannelManagerConf
 
 const
   # Lowercased, since `collectJsonFields` keys the object case-insensitively.
@@ -70,12 +70,14 @@ proc parseMessagingConf*(jsonStr: string): Result[MessagingConfJson, string] =
 
   if top.hasKey(KeyMessagingOverrides):
     let (_, v) = top.getOrDefault(KeyMessagingOverrides)
-    conf.messaging = ?parseOverrides[MessagingClientConf](v, "messagingOverrides")
+    conf.messagingOverrides =
+      ?parseOverrides[MessagingClientConf](v, "messagingOverrides")
     top.del(KeyMessagingOverrides)
 
   if top.hasKey(KeyChannelsOverrides):
     let (_, v) = top.getOrDefault(KeyChannelsOverrides)
-    conf.channels = ?parseOverrides[ReliableChannelManagerConf](v, "channelsOverrides")
+    conf.channelsOverrides =
+      ?parseOverrides[ReliableChannelManagerConf](v, "channelsOverrides")
     top.del(KeyChannelsOverrides)
 
   if top.len > 0:

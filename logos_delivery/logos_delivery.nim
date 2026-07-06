@@ -121,21 +121,22 @@ proc new*(
     T: type LogosDelivery,
     mode: WakuMode = WakuMode.Core,
     preset: string = "",
-    messaging: MessagingClientConf = MessagingClientConf(),
-    channels: ReliableChannelManagerConf = ReliableChannelManagerConf(),
+    messagingOverrides: MessagingClientConf = MessagingClientConf(),
+    channelsOverrides: ReliableChannelManagerConf = ReliableChannelManagerConf(),
     appCallbacks: AppCallbacks = nil,
 ): Future[Result[LogosDelivery, string]] {.async.} =
   ## Messaging entry point (app dev). Builds the full stack from preset, mode and overrides.
   let presetConf = resolvePreset(preset).valueOr:
     return err("failed to resolve preset: " & error)
-  let merged = merge(presetConf, messaging)
+  let merged = merge(presetConf, messagingOverrides)
   var kernelConf = toKernelConf(merged, mode).valueOr:
     return err("failed to synthesize kernel configuration: " & error)
   kernelConf.preset = preset
   let wakuConf = kernelConf.toWakuConf().valueOr:
     return err("failed to handle the configuration: " & error)
-  let layerConf =
-    LogosDeliveryConf(waku: wakuConf, messaging: merged, reliableChannel: channels)
+  let layerConf = LogosDeliveryConf(
+    waku: wakuConf, messaging: merged, reliableChannel: channelsOverrides
+  )
   return await buildStack(layerConf, appCallbacks)
 
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =

@@ -116,7 +116,7 @@ suite "MessagingConfJson - JSON parsing":
     check:
       mc.mode == WakuMode.Core
       mc.preset == ""
-      mc.messaging.clusterId.isNone()
+      mc.messagingOverrides.clusterId.isNone()
 
   test "mode + preset are parsed":
     let mc = parseMessagingConf("""{"mode": "Edge", "preset": "logostest"}""").valueOr:
@@ -132,8 +132,8 @@ suite "MessagingConfJson - JSON parsing":
       raiseAssert error
     check:
       mc.mode == WakuMode.Core
-      mc.messaging.clusterId == some(7'u16)
-      mc.messaging.reliabilityEnabled == some(true)
+      mc.messagingOverrides.clusterId == some(7'u16)
+      mc.messagingOverrides.reliabilityEnabled == some(true)
 
   test "channelsOverrides parsed into the partial":
     let mc = parseMessagingConf(
@@ -141,8 +141,8 @@ suite "MessagingConfJson - JSON parsing":
     ).valueOr:
       raiseAssert error
     check:
-      mc.channels.rateLimitEnabled == some(true)
-      mc.channels.sdsMaxRetransmissions == some(9)
+      mc.channelsOverrides.rateLimitEnabled == some(true)
+      mc.channelsOverrides.sdsMaxRetransmissions == some(9)
 
   test "invalid mode is rejected (Core or Edge only)":
     check parseMessagingConf("""{"mode": "bogus"}""").isErr()
@@ -161,9 +161,9 @@ suite "MessagingConfJson - JSON parsing":
     ).valueOr:
       raiseAssert error
     check:
-      mc.messaging.clusterId == some(7'u16)
-      mc.messaging.reliabilityEnabled == some(true)
-      mc.messaging.p2pTcpPort == some(Port(1234))
+      mc.messagingOverrides.clusterId == some(7'u16)
+      mc.messagingOverrides.reliabilityEnabled == some(true)
+      mc.messagingOverrides.p2pTcpPort == some(Port(1234))
 
   test "unknown keys inside an overrides body are rejected":
     check parseMessagingConf("""{"messagingOverrides": {"bogusKey": 1}}""").isErr()
@@ -181,10 +181,10 @@ suite "MessagingConfJson - JSON parsing":
     ).valueOr:
       raiseAssert error
     check:
-      mc.messaging.logLevel == some(logging.LogLevel.DEBUG)
-      mc.messaging.logFormat == some(logging.LogFormat.JSON)
-      mc.messaging.nodeKey.isSome()
-    let conf = mc.messaging.toKernelConf(WakuMode.Core).valueOr:
+      mc.messagingOverrides.logLevel == some(logging.LogLevel.DEBUG)
+      mc.messagingOverrides.logFormat == some(logging.LogFormat.JSON)
+      mc.messagingOverrides.nodeKey.isSome()
+    let conf = mc.messagingOverrides.toKernelConf(WakuMode.Core).valueOr:
       raiseAssert error
     check:
       conf.logLevel == logging.LogLevel.DEBUG
@@ -197,8 +197,8 @@ suite "MessagingConfJson - JSON parsing":
     ).valueOr:
       raiseAssert error
     check:
-      mc.messaging.store.isNone()
-      mc.messaging.clusterId == some(7'u16)
+      mc.messagingOverrides.store.isNone()
+      mc.messagingOverrides.clusterId == some(7'u16)
 
   test "an invalid Ethereum RPC URL is rejected at parse time":
     check parseMessagingConf(
@@ -209,14 +209,14 @@ suite "MessagingConfJson - JSON parsing":
       """{"messagingOverrides": {"rln-relay-eth-client-address": ["http://localhost:8540/"]}}"""
     ).valueOr:
       raiseAssert error
-    check mc.messaging.ethRpcEndpoints.isSome()
+    check mc.messagingOverrides.ethRpcEndpoints.isSome()
 
   test "store backend fields parse and map to the kernel":
     let mc = parseMessagingConf(
       """{"messagingOverrides": {"store": true, "store-message-db-url": "sqlite://test.db", "store-message-retention-policy": "time:3600", "store-max-num-db-connections": 7}}"""
     ).valueOr:
       raiseAssert error
-    let conf = mc.messaging.toKernelConf(WakuMode.Core).valueOr:
+    let conf = mc.messagingOverrides.toKernelConf(WakuMode.Core).valueOr:
       raiseAssert error
     check:
       conf.store == true
