@@ -61,13 +61,6 @@ proc generateRLNProof*(
     forceMerkleProofRefresh: bool = false,
 ): Future[RlnResult[seq[byte]]] {.async.} =
   let epoch = rln.calcEpoch(senderEpochTime)
-  # A forced refresh is a retry after the prior attempt was rejected before
-  # it reached the network. That attempt already consumed a message id, so
-  # give it back before drawing a new one — otherwise one delivered message
-  # eats two ids of the per-epoch userMessageLimit, moving the sender
-  # closer to the on-chain slashing threshold for no reason.
-  if forceMerkleProofRefresh:
-    rln.nonceManager.rollbackNonce()
   let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
   let proof = (
@@ -79,28 +72,46 @@ proc generateRLNProof*(
   return ok(proof.encode().buffer)
 
 proc checkAndGenerateRLNProof*(
-    rln: Option[Rln], message: WakuMessage, forceMerkleProofRefresh: bool = false
-): Future[Result[WakuMessage, string]] {.async.} =
-  # When forcing a refresh (e.g. retry after a lightpush 420/504 rejection) we
-  # deliberately regenerate the proof even if one is already attached, since
-  # the existing proof is presumed to have been rejected.
+    rln: Option[Rln],
+    message: WakuMessage,
+    forceMerkleProofRefresh: bool = false,
+    reuseMessageId: Option[Nonce] = none(Nonce),
+): Future[Result[tuple[msg: WakuMessage, messageId: Option[Nonce]], string]] {.async.} =
+  ## Returns the message with an attached RLN proof and the message id drawn
+  ## from the nonce manager (`messageId = none` when no id was consumed —
+  ## message already had a valid proof, or RLN is not configured).
+  ## Pass `messageId` back as `reuseMessageId` on a retry so the CAS rollback
+  ## can reclaim it when no concurrent draw has advanced the counter.
   if message.proof.len > 0 and not forceMerkleProofRefresh:
-    return ok(message)
+    return ok((msg: message, messageId: none(Nonce)))
 
   if rln.isNone():
     notice "Publishing message without RLN proof"
-    return ok(message)
+    return ok((msg: message, messageId: none(Nonce)))
+
+  let r = rln.get()
+  if reuseMessageId.isSome():
+    if not r.nonceManager.rollbackNonce(reuseMessageId.get()):
+      # A concurrent draw advanced the counter past the rejected attempt's id;
+      # the retry will consume a fresh message id instead of reusing the old one.
+      debug "rln retry: concurrent draw prevented nonce reuse; consuming a fresh message id",
+        attempted = reuseMessageId.get(), nextNonce = r.nonceManager.nextNonce
 
   let
     time = getTime().toUnix()
     senderEpochTime = float64(time)
+    epoch = r.calcEpoch(senderEpochTime)
+  let nonce = r.nonceManager.getNonce().valueOr:
+    return err("could not get new message id to generate an rln proof: " & $error)
   var msgWithProof = message
-  msgWithProof.proof = (
-    await rln.get().generateRLNProof(
+  let proof = (
+    await r.groupManager.generateProof(
       msgWithProof.toRLNSignal(),
-      senderEpochTime,
+      epoch,
+      nonce,
       forceMerkleProofRefresh = forceMerkleProofRefresh,
     )
   ).valueOr:
     return err("error in checkAndGenerateRLNProof: " & $error)
-  return ok(msgWithProof)
+  msgWithProof.proof = proof.encode().buffer
+  return ok((msg: msgWithProof, messageId: some(nonce)))

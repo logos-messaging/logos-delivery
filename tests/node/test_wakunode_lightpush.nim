@@ -162,7 +162,7 @@ suite "RLN Proofs as a Lightpush Service":
       # Attach the RLN proof. In production the client mounts RLN and generates the
       # proof in lightpushPublish; here we generate it using the server's RLN instance
       # since both ends share group state via the in-memory manager.
-      let msgWithProof =
+      let (msgWithProof, _) =
         (await checkAndGenerateRLNProof(some(server.rln), message)).get()
 
       # When the client publishes a message
@@ -183,7 +183,8 @@ suite "RLN Proofs as a Lightpush Service":
       # attached proof must NOT short-circuit checkAndGenerateRLNProof when
       # forceMerkleProofRefresh=true, and the cache must be refetched from
       # chain instead of trusted.
-      let firstMsg = (await checkAndGenerateRLNProof(some(server.rln), message)).get()
+      let (firstMsg, drawnNonce) =
+        (await checkAndGenerateRLNProof(some(server.rln), message)).get()
       check firstMsg.proof.len > 0
 
       # Corrupt the cache to model a stale/invalid witness — the same state a
@@ -194,10 +195,14 @@ suite "RLN Proofs as a Lightpush Service":
       check manager.merkleProofCache != goodCache
 
       # Force-regenerate. The existing proof must be discarded, the cache
-      # refetched from chain, and a fresh proof produced.
-      let secondMsg = (
+      # refetched from chain, and a fresh proof produced. Pass drawnNonce so
+      # the CAS rollback reclaims it — mirroring the production retry path.
+      let (secondMsg, _) = (
         await checkAndGenerateRLNProof(
-          some(server.rln), firstMsg, forceMerkleProofRefresh = true
+          some(server.rln),
+          firstMsg,
+          forceMerkleProofRefresh = true,
+          reuseMessageId = drawnNonce,
         )
       ).get()
 

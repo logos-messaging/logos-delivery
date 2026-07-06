@@ -92,7 +92,7 @@ proc legacyLightpushPublish*(
       none(Rln)
     else:
       some(node.rln)
-  var msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+  let (msgWithProof, drawnMessageId) = (await checkAndGenerateRLNProof(rln, message)).valueOr:
     return err("failed call checkAndGenerateRLNProof from lightpush: " & error)
 
   let internalPublish = proc(
@@ -151,12 +151,17 @@ proc legacyLightpushPublish*(
 
     info "legacy lightpush send rejected as RLN-invalid; " &
       "refreshing merkle proof and retrying once"
-    msgWithProof = (
-      await checkAndGenerateRLNProof(rln, msgWithProof, forceMerkleProofRefresh = true)
+    let (retryMsg, _) = (
+      await checkAndGenerateRLNProof(
+        rln,
+        msgWithProof,
+        forceMerkleProofRefresh = true,
+        reuseMessageId = drawnMessageId,
+      )
     ).valueOr:
       return err("failed call checkAndGenerateRLNProof from lightpush retry: " & error)
 
-    return await internalPublish(node, pubsubForPublish, msgWithProof, peer)
+    return await internalPublish(node, pubsubForPublish, retryMsg, peer)
   except CatchableError:
     return err(getCurrentExceptionMsg())
 
@@ -318,7 +323,7 @@ proc lightpushPublish*(
       none(Rln)
     else:
       some(node.rln)
-  var msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+  let (msgWithProof, drawnMessageId) = (await checkAndGenerateRLNProof(rln, message)).valueOr:
     return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
 
   let firstResult =
@@ -334,10 +339,11 @@ proc lightpushPublish*(
 
   info "lightpush send rejected; refreshing merkle proof and retrying once",
     statusCode = $firstResult.error.code
-  msgWithProof = (
-    await checkAndGenerateRLNProof(rln, msgWithProof, forceMerkleProofRefresh = true)
+  let (retryMsg, _) = (
+    await checkAndGenerateRLNProof(
+      rln, msgWithProof, forceMerkleProofRefresh = true, reuseMessageId = drawnMessageId
+    )
   ).valueOr:
     return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
 
-  return
-    await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
+  return await lightpushPublishHandler(node, pubsubForPublish, retryMsg, toPeer, mixify)
