@@ -40,8 +40,17 @@ void *logosdelivery_create_node(
 ```
 
 Configuration uses flat field names matching `WakuNodeConf` in `tools/confutils/cli_args.nim`.
-Use `"preset"` to select a network preset (e.g., `"twn"`, `"logos.dev"`) which auto-configures
-entry nodes, cluster ID, sharding, and other network-specific settings.
+Use `"preset"` to select a network preset (e.g., `"twn"`, `"logos.dev"`, `"status.prod"`) which
+auto-configures entry nodes, cluster ID, sharding, and other network-specific settings.
+
+Available presets:
+
+| Preset | Cluster ID | RLN | Sharding | Network |
+| --- | --- | --- | --- | --- |
+| `twn` | 1 | on | auto (8 shards) | The Waku Network |
+| `logos.dev` | 2 | off | auto (8 shards) | Logos Dev Network |
+| `logos.test` | 2 | off | auto (8 shards) | Logos Test Network |
+| `status.prod` | 16 | off | auto (1 shard) | Status Production Network |
 
 #### `logosdelivery_start_node`
 Starts the node.

@@ -5,14 +5,6 @@ import logos_delivery/channels/types as channel_types
 
 export api_types, channel_types
 
-type SendHandler* = proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.
-  async: (raises: [CatchableError]), gcsafe
-.}
-  ## Egress dispatch boundary. Typically wraps `MessagingClient.send`;
-  ## tests inject a fake that records calls and returns canned
-  ## `RequestId`s so the send state machine can be exercised end-to-end
-  ## without a network.
-
 # Structural API contract for the reliable-channel surface (ops in `channels/api/*`).
 type ReliableChannelApi* = concept c
   createReliableChannel(

@@ -162,13 +162,13 @@ proc registerProviders(backend: KvBackend, ctx: BrokerContext): Result[void, str
 
   return ok()
 
-proc clearProviders(ctx: BrokerContext) =
+proc clearProviders(ctx: BrokerContext) {.async.} =
   KvGet.clearProvider(ctx)
   KvExists.clearProvider(ctx)
   KvScan.clearProvider(ctx)
   KvCount.clearProvider(ctx)
   KvDelete.clearProvider(ctx)
-  PersistEvent.dropAllListeners(ctx)
+  await PersistEvent.dropAllListeners(ctx)
 
 # ── thread proc ─────────────────────────────────────────────────────────
 
@@ -217,7 +217,7 @@ proc storageThreadMain(arg: ptr StorageThreadArg) {.thread.} =
   except CatchableError as e:
     error "storage thread loop crashed", err = e.msg
 
-  clearProviders(arg.ctx)
+  waitFor clearProviders(arg.ctx)
   backend.close()
 
 # ── lifecycle ───────────────────────────────────────────────────────────

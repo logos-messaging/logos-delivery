@@ -156,7 +156,7 @@ suite "Persistency lifecycle":
     let ev = PersistEvent(
       ops: @[TxOp(category: "msg", key: k, kind: txPut, payload: payloadBytes("hello"))]
     )
-    await PersistEvent.emit(t.context, ev)
+    PersistEvent.emit(t.context, ev)
     let ckOk2 = await t.pollExists("msg", k)
     check ckOk2
 
@@ -178,7 +178,7 @@ suite "Persistency lifecycle":
     check a.context != b.context
 
     let k = key("shared", 1'i64)
-    await PersistEvent.emit(
+    PersistEvent.emit(
       a.context,
       PersistEvent(
         ops: @[
@@ -188,7 +188,7 @@ suite "Persistency lifecycle":
         ]
       ),
     )
-    await PersistEvent.emit(
+    PersistEvent.emit(
       b.context,
       PersistEvent(
         ops: @[
@@ -255,7 +255,7 @@ suite "Persistency lifecycle":
       ops.add(
         TxOp(category: "msg", key: key("c", i), kind: txPut, payload: payloadBytes($i))
       )
-    await PersistEvent.emit(t.context, PersistEvent(ops: ops))
+    PersistEvent.emit(t.context, PersistEvent(ops: ops))
     # Wait for the last insert to land.
     let ckOk5 = await t.pollExists("msg", key("c", 5'i64))
     check ckOk5
@@ -285,7 +285,7 @@ suite "Persistency lifecycle":
     let r1 = aw7.get()
     check r1.existed == false
 
-    await PersistEvent.emit(
+    PersistEvent.emit(
       t.context,
       PersistEvent(
         ops: @[TxOp(category: "msg", key: k, kind: txPut, payload: payloadBytes("v"))]
