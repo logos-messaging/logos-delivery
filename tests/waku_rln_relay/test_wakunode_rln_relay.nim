@@ -11,7 +11,8 @@ import
   brokers/broker_context
 
 import
-  logos_delivery/waku/[waku_core, waku_node, rln],
+  logos_delivery/waku/[waku_core, waku_node, rln, rln/protocol_types],
+  logos_delivery/waku/requests/rln_requests,
   ../testlib/[wakucore, futures, wakunode, testutils],
   ./utils_onchain,
   ./rln/waku_rln_relay_utils
@@ -751,3 +752,55 @@ procSuite "WakuNode - RLN relay":
 
     # Cleanup
     waitFor allFutures(node1.stop(), node2.stop())
+
+  asyncTest "broker proof provider retries with force-refresh when initial proof has stale root":
+    ## Exercises the reactive mechanism added to RequestGenerateRlnProof.setProvider
+    ## in rln.nim: when the cached Merkle proof path produces a proof with a root
+    ## that validateRoot rejects, the provider must force-refresh the path and
+    ## return a proof whose root is in the valid-roots window.
+    lockNewGlobalBrokerContext:
+      let nodeKey = generateSecp256k1Key()
+      let node = newTestWakuNode(nodeKey)
+      (await node.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+
+      let wakuRlnConfig = getWakuRlnConfig(
+        manager = manager,
+        index = MembershipIndex(1),
+        epochSizeSec = 600,
+        userMessageLimit = 20,
+      )
+      await node.setRlnValidator(wakuRlnConfig)
+      await node.start()
+
+      let rlnManager = cast[OnchainGroupManager](node.rln.groupManager)
+      let idCredentials = generateCredentials()
+      (waitFor rlnManager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+        assert false, "Failed to register: " & error
+
+      let rootUpdated = waitFor rlnManager.updateRoots()
+      info "Updated root", rootUpdated
+
+      let proofRes = waitFor rlnManager.fetchMerkleProofElements()
+      assert proofRes.isOk(), "failed to fetch merkle proof: " & proofRes.error
+      let goodCache = proofRes.get()
+      rlnManager.merkleProofCache = goodCache
+
+      # Corrupt the cache so the first generateRLNProof inside the provider
+      # produces a proof with a Merkle root that is not in the valid-roots window.
+      # The provider must detect this via validateRoot, force-refresh, and retry.
+      rlnManager.merkleProofCache = newSeq[byte](goodCache.len)
+
+      let msg = fakeWakuMessage()
+      let proofResult =
+        await RequestGenerateRlnProof.request(node.rln.brokerCtx, msg, epochTime())
+
+      check proofResult.isOk()
+      # The force-refresh inside the provider restored the correct path
+      check rlnManager.merkleProofCache == goodCache
+      # The returned proof carries a Merkle root that is in the valid-roots window
+      let rlnProof = RateLimitProof.init(proofResult.get().proof).get()
+      let rootValid = await node.rln.groupManager.validateRoot(rlnProof.merkleRoot)
+      check rootValid
+
+      await node.stop()

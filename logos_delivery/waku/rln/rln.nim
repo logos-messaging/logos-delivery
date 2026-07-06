@@ -233,10 +233,23 @@ proc mount(
     proc(
         msg: WakuMessage, senderEpochTime: float64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-      let proof = (await rln.generateRLNProof(msg.toRLNSignal(), senderEpochTime)).valueOr:
+      let proofBytes = (await rln.generateRLNProof(msg.toRLNSignal(), senderEpochTime)).valueOr:
         return err("Could not create RLN proof: " & error)
 
-      return ok(RequestGenerateRlnProof(proof: proof)),
+      let rlnProof = RateLimitProof.init(proofBytes).valueOr:
+        return err("Could not decode RLN proof for root check: " & $error)
+      if await rln.groupManager.validateRoot(rlnProof.merkleRoot):
+        return ok(RequestGenerateRlnProof(proof: proofBytes))
+
+      # Cached merkle proof path root has slid out of the valid window; force-refresh and regenerate
+      info "RLN broker provider: stale merkle root detected; force-refreshing merkle path"
+      let retryProof = (
+        await rln.generateRLNProof(
+          msg.toRLNSignal(), senderEpochTime, forceMerkleProofRefresh = true
+        )
+      ).valueOr:
+        return err("Could not create RLN proof on retry: " & error)
+      return ok(RequestGenerateRlnProof(proof: retryProof)),
   ).isOkOr:
     return err("Proof generator provider cannot be set: " & $error)
 

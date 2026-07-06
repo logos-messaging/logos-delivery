@@ -179,8 +179,27 @@ proc installRelayApiHandlers*(
           "Failed to publish: error appending RLN proof to message: " & $error
         )
 
-    (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
-      return RestApiResponse.badRequest("Failed to publish: " & error)
+    let firstValidateResult = await node.wakuRelay.validateMessage(pubsubTopic, message)
+    if firstValidateResult.isErr():
+      if node.rln.isNil() or not firstValidateResult.error.contains(
+        RlnValidatorErrorMsg
+      ):
+        return
+          RestApiResponse.badRequest("Failed to publish: " & firstValidateResult.error)
+      # Stale RLN merkle root; force-refresh the cached path and retry validation once
+      info "relay publish rejected as RLN-invalid; refreshing merkle proof and retrying once"
+      message.proof = (
+        await node.rln.generateRLNProof(
+          message.toRLNSignal(),
+          float64(getTime().toUnix()),
+          forceMerkleProofRefresh = true,
+        )
+      ).valueOr:
+        return RestApiResponse.internalServerError(
+          "Failed to publish: error appending RLN proof on retry: " & $error
+        )
+      (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
+        return RestApiResponse.badRequest("Failed to publish: " & error)
 
     # Log for message tracking purposes
     logMessageInfo(node.wakuRelay, "rest", pubsubTopic, "none", message, onRecv = true)
@@ -308,8 +327,27 @@ proc installRelayApiHandlers*(
           "Failed to publish: error appending RLN proof to message: " & error
         )
 
-    (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
-      return RestApiResponse.badRequest("Failed to publish: " & error)
+    let firstValidateResult = await node.wakuRelay.validateMessage(pubsubTopic, message)
+    if firstValidateResult.isErr():
+      if node.rln.isNil() or not firstValidateResult.error.contains(
+        RlnValidatorErrorMsg
+      ):
+        return
+          RestApiResponse.badRequest("Failed to publish: " & firstValidateResult.error)
+      # Stale RLN merkle root; force-refresh the cached path and retry validation once
+      info "relay publish rejected as RLN-invalid; refreshing merkle proof and retrying once"
+      message.proof = (
+        await node.rln.generateRLNProof(
+          message.toRLNSignal(),
+          float64(getTime().toUnix()),
+          forceMerkleProofRefresh = true,
+        )
+      ).valueOr:
+        return RestApiResponse.internalServerError(
+          "Failed to publish: error appending RLN proof on retry: " & error
+        )
+      (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
+        return RestApiResponse.badRequest("Failed to publish: " & error)
 
     # Log for message tracking purposes
     logMessageInfo(node.wakuRelay, "rest", pubsubTopic, "none", message, onRecv = true)

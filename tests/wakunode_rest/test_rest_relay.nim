@@ -793,3 +793,161 @@ suite "Waku v2 Rest API - Relay":
     await restServer.stop()
     await restServer.closeWait()
     await node.stop()
+
+  asyncTest "Stale RLN proof triggers force-refresh and retry - POST /relay/v1/messages/{topic}":
+    ## When the cached Merkle proof path is stale the handler generates a proof
+    ## whose root the local RLN validator rejects. The handler must detect the
+    ## RlnValidatorErrorMsg, force-refresh the cached path, regenerate the proof
+    ## with the correct root, and succeed — returning 200 OK.
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    let wakuRlnConfig = getWakuRlnConfig(
+      manager = manager,
+      index = MembershipIndex(1),
+      epochSizeSec = 600,
+      userMessageLimit = 20,
+    )
+    await node.setRlnValidator(wakuRlnConfig)
+    await node.start()
+
+    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let idCredentials = generateCredentials()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register: " & getCurrentExceptionMsg()
+
+    let rootUpdated = waitFor manager.updateRoots()
+    info "Updated root", rootUpdated
+
+    let proofRes = waitFor manager.fetchMerkleProofElements()
+    assert proofRes.isOk(), "failed to fetch merkle proof: " & proofRes.error
+    let goodCache = proofRes.get()
+    manager.merkleProofCache = goodCache
+
+    # Corrupt the cache with zeros so the first generateRLNProof call produces a
+    # proof with a Merkle root that is not in the valid-roots window.
+    # validateMessage will return RlnValidatorErrorMsg, triggering the retry.
+    manager.merkleProofCache = newSeq[byte](goodCache.len)
+
+    var restPort = Port(0)
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, restPort).tryGet()
+    restPort = restServer.httpServer.address.port
+    let cache = MessageCache.init()
+    installRelayApiHandlers(restServer.router, node, cache)
+    restServer.start()
+    let client = newRestHttpClient(initTAddress(restAddress, restPort))
+
+    let simpleHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to pubsub topic"
+
+    let response = await client.relayPostMessagesV1(
+      DefaultPubsubTopic,
+      RelayWakuMessage(
+        payload: base64.encode("TEST-PAYLOAD"),
+        contentTopic: some(DefaultContentTopic),
+        timestamp: some(now()),
+      ),
+    )
+
+    # Handler force-refreshed the path and retried successfully
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_TEXT
+      response.data == "OK"
+      manager.merkleProofCache == goodCache # force-refresh restored the correct path
+
+    await restServer.stop()
+    await restServer.closeWait()
+    await node.stop()
+
+  asyncTest "Stale RLN proof triggers force-refresh and retry - POST /relay/v1/auto/messages/{topic}":
+    ## Same reactive retry as the static-sharding handler, exercised via the
+    ## auto-sharding endpoint. A relay-only mesh node is connected so that
+    ## node.publish() has a gossipsub peer and can return success.
+
+    # Relay-only mesh node — no RLN needed, just provides a gossipsub peer.
+    let meshNode = testWakuNode()
+    (await meshNode.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay on mesh node"
+    require meshNode.mountAutoSharding(1, 8).isOk
+    await meshNode.start()
+    let meshHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      discard
+    meshNode.subscribe((kind: ContentSub, topic: DefaultContentTopic), meshHandler).isOkOr:
+      assert false, "Failed to subscribe mesh node"
+
+    var node: WakuNode
+    lockNewGlobalBrokerContext:
+      node = testWakuNode()
+      (await node.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      require node.mountAutoSharding(1, 8).isOk
+
+      let wakuRlnConfig = getWakuRlnConfig(
+        manager = manager,
+        index = MembershipIndex(1),
+        epochSizeSec = 600,
+        userMessageLimit = 20,
+      )
+      await node.setRlnValidator(wakuRlnConfig)
+      await node.start()
+      await node.connectToNodes(@[meshNode.peerInfo.toRemotePeerInfo()])
+
+    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let idCredentials = generateCredentials()
+    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+      assert false, "Failed to register: " & getCurrentExceptionMsg()
+
+    let rootUpdated = waitFor manager.updateRoots()
+    info "Updated root", rootUpdated
+
+    let proofRes = waitFor manager.fetchMerkleProofElements()
+    assert proofRes.isOk(), "failed to fetch merkle proof: " & proofRes.error
+    let goodCache = proofRes.get()
+    manager.merkleProofCache = goodCache
+
+    # Corrupt the cache to produce a proof with a bad Merkle root
+    manager.merkleProofCache = newSeq[byte](goodCache.len)
+
+    var restPort = Port(0)
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, restPort).tryGet()
+    restPort = restServer.httpServer.address.port
+    let cache = MessageCache.init()
+    installRelayApiHandlers(restServer.router, node, cache)
+    restServer.start()
+    let client = newRestHttpClient(initTAddress(restAddress, restPort))
+
+    let simpleHandler = proc(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      await sleepAsync(0.milliseconds)
+
+    node.subscribe((kind: ContentSub, topic: DefaultContentTopic), simpleHandler).isOkOr:
+      assert false, "Failed to subscribe to content topic"
+
+    let response = await client.relayPostAutoMessagesV1(
+      RelayWakuMessage(
+        payload: base64.encode("TEST-PAYLOAD"),
+        contentTopic: some(DefaultContentTopic),
+        timestamp: some(now()),
+      )
+    )
+
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_TEXT
+      response.data == "OK"
+      manager.merkleProofCache == goodCache
+
+    await restServer.stop()
+    await restServer.closeWait()
+    await allFutures(node.stop(), meshNode.stop())
