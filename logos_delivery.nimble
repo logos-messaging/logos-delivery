@@ -65,7 +65,7 @@ requires "https://github.com/logos-messaging/nim-ffi#v0.1.3"
 
 requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb948b32a4ade1de3b5"
 
-requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.1.1"
+requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.1.4"
 
 requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
