@@ -227,12 +227,12 @@ suite "MessagingConfJson - JSON parsing":
   test "a not-JSON-settable field is rejected":
     check parseMessagingConf("""{"channelsOverrides": {"sdsPersistence": 1}}""").isErr()
 
-suite "LogosDelivery.newMessaging - construction (the app-dev entry)":
+suite "LogosDelivery.new - construction (the app-dev entry)":
   asyncTest "builds the full messaging stack from mode + overrides":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (
-        await LogosDelivery.newMessaging(
+        await LogosDelivery.new(
           WakuMode.Core,
           "",
           MessagingClientConf(
@@ -254,7 +254,7 @@ suite "LogosDelivery.newMessaging - construction (the app-dev entry)":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (
-        await LogosDelivery.newMessaging(
+        await LogosDelivery.new(
           WakuMode.Core,
           "logostest",
           MessagingClientConf(listenIpv4: some(parseIpAddress("0.0.0.0"))),

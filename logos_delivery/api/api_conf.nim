@@ -11,8 +11,10 @@ import
   logos_delivery/waku/factory/conf_builder/conf_builder,
   logos_delivery/waku/factory/networks_config,
   tools/confutils/entry_nodes
+from logos_delivery/api/messaging_conf import WakuMode
 
 export json_serialization, json_options
+export WakuMode
 
 type AutoShardingConfig* = object
   numShardsInCluster*: uint16
@@ -80,10 +82,6 @@ const TheWakuNetworkPreset* = ProtocolsConfig(
     ),
   ),
 )
-
-type WakuMode* {.pure.} = enum
-  Edge
-  Core
 
 type NodeConfig* {.
   requiresInit, deprecated: "Use WakuNodeConf from tools/confutils/cli_args instead"

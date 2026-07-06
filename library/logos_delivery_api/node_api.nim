@@ -23,7 +23,7 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[LogosDelivery]):
       return err(error)
 
     ctx.myLib[] = (
-      await LogosDelivery.newMessaging(mc.mode, mc.preset, mc.messaging, mc.channels)
+      await LogosDelivery.new(mc.mode, mc.preset, mc.messaging, mc.channels)
     ).valueOr:
       let errMsg = $error
       chronicles.error "CreateNodeRequest failed", err = errMsg

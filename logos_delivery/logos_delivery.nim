@@ -89,7 +89,7 @@ proc init*(T: type LogosDeliveryConf, wakuConf: WakuConf): LogosDeliveryConf =
 proc buildStack(
     layerConf: LogosDeliveryConf, appCallbacks: AppCallbacks
 ): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Builds the stack bottom-up. Shared by `new` and `newMessaging`.
+  ## Builds the stack bottom-up. Shared by both `new` overloads.
   let waku = (await Waku.new(layerConf.waku, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
@@ -117,7 +117,7 @@ proc new*(
     return err("failed to handle the configuration: " & error)
   return await buildStack(LogosDeliveryConf.init(wakuConf), appCallbacks)
 
-proc newMessaging*(
+proc new*(
     T: type LogosDelivery,
     mode: WakuMode = WakuMode.Core,
     preset: string = "",
