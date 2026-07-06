@@ -294,10 +294,10 @@ type WakuPubsubTopic = string
 type WakuContentTopic = string
 
 type MessagingOverrides struct {
-	Host        string `json:"listen-address,omitempty"`
-	Port        int    `json:"tcp-port,omitempty"`
-	NodeKey     string `json:"nodekey,omitempty"`
-	LogLevel    string `json:"log-level"`
+	ListenAddress string `json:"listen-address,omitempty"`
+	Port          int    `json:"tcp-port,omitempty"`
+	NodeKey       string `json:"nodekey,omitempty"`
+	LogLevel      string `json:"log-level,omitempty"`
 }
 
 type WakuConfig struct {
@@ -569,10 +569,10 @@ func main() {
 	config := WakuConfig{
 		Mode: "Core",
 		MessagingOverrides: MessagingOverrides{
-			Host:        "0.0.0.0",
-			Port:        30304,
-			NodeKey:     "11d0dcea28e86f81937a3bd1163473c7fbc0a0db54fd72914849bc47bdf78710",
-			LogLevel:    "DEBUG",
+			ListenAddress: "0.0.0.0",
+			Port:          30304,
+			NodeKey:       "11d0dcea28e86f81937a3bd1163473c7fbc0a0db54fd72914849bc47bdf78710",
+			LogLevel:      "DEBUG",
 		},
 	}
 

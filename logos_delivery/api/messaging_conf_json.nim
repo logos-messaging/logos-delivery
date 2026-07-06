@@ -21,13 +21,13 @@ const
   KeyChannelsOverrides = "channelsoverrides"
 
 proc parseMode(s: string): Result[WakuMode, string] =
-  case s.toLowerAscii()
+  case s.strip().toLowerAscii()
   of "core":
-    ok(WakuMode.Core)
+    return ok(WakuMode.Core)
   of "edge":
-    ok(WakuMode.Edge)
+    return ok(WakuMode.Edge)
   else:
-    err("invalid mode: '" & s & "' (expected 'Core' or 'Edge')")
+    return err("invalid mode: '" & s & "' (expected 'Core' or 'Edge')")
 
 proc parseOverrides[T](node: JsonNode, label: string): Result[T, string] =
   if node.kind != JObject:
@@ -40,7 +40,7 @@ proc parseOverrides[T](node: JsonNode, label: string): Result[T, string] =
     "Failed to parse " & label & " field",
     "Unrecognized " & label & " option(s) found",
   )
-  ok(conf)
+  return ok(conf)
 
 proc parseMessagingConf*(jsonStr: string): Result[MessagingConfJson, string] =
   var node: JsonNode
@@ -65,7 +65,7 @@ proc parseMessagingConf*(jsonStr: string): Result[MessagingConfJson, string] =
     let (_, v) = top.getOrDefault(KeyPreset)
     if v.kind != JString:
       return err("preset must be a string")
-    conf.preset = v.getStr()
+    conf.preset = v.getStr().strip()
     top.del(KeyPreset)
 
   if top.hasKey(KeyMessagingOverrides):
@@ -84,6 +84,6 @@ proc parseMessagingConf*(jsonStr: string): Result[MessagingConfJson, string] =
       keys.add(k)
     return err("Unrecognized configuration option(s) found: " & keys.join(", "))
 
-  ok(conf)
+  return ok(conf)
 
 {.pop.}

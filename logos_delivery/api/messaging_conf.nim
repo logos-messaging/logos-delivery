@@ -77,7 +77,7 @@ proc toKernelConf*(m: MessagingClientConf, mode: WakuMode): ConfResult[KernelCon
   conf.websocketSupport = m.websocketSupport.get(false)
   conf.quicSupport = m.quicSupport.get(true)
 
-  ok(conf)
+  return ok(conf)
 
 proc merge*(base, overrides: MessagingClientConf): MessagingClientConf =
   var m = base
@@ -85,7 +85,7 @@ proc merge*(base, overrides: MessagingClientConf): MessagingClientConf =
     when oField is Option:
       if oField.isSome():
         mField = oField
-  m
+  return m
 
 proc resolvePreset*(preset: string): ConfResult[MessagingClientConf] =
   ## Preset to messaging-only fields. Kernel-mirrored fields stay unset; the
@@ -94,4 +94,4 @@ proc resolvePreset*(preset: string): ConfResult[MessagingClientConf] =
   if npcOpt.isNone():
     return ok(MessagingClientConf())
   let npc = npcOpt.get()
-  ok(MessagingClientConf(reliabilityEnabled: some(npc.p2pReliability)))
+  return ok(MessagingClientConf(reliabilityEnabled: some(npc.p2pReliability)))
