@@ -329,12 +329,19 @@ proc lightpushPublish*(
   let firstResult =
     await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
 
-  # A publish error with status 420 (INVALID_MESSAGE) or 504 (OUT_OF_RLN_PROOF)
-  # can indicate a stale merkle proof path; refresh it and retry the publish
-  # once.
-  if firstResult.isOk() or rln.isNone() or
-      firstResult.error.code notin
-      [LightPushErrorCode.INVALID_MESSAGE, LightPushErrorCode.OUT_OF_RLN_PROOF]:
+  # A publish error can indicate a stale Merkle proof path; refresh it and
+  # retry the publish once.  Gate only on unambiguously RLN-related failures:
+  # 504 (OUT_OF_RLN_PROOF) is always RLN-specific; 420 (INVALID_MESSAGE) is
+  # also returned for non-RLN rejections (e.g. oversized messages), so require
+  # the error description to contain RlnValidatorErrorMsg — matching the legacy
+  # lightpush path — to avoid unbounded on-chain RPCs on non-RLN errors.
+  let isRlnRelatedFailure =
+    firstResult.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF or
+    (
+      firstResult.error.code == LightPushErrorCode.INVALID_MESSAGE and
+      firstResult.error.desc.get("").contains(RlnValidatorErrorMsg)
+    )
+  if firstResult.isOk() or rln.isNone() or not isRlnRelatedFailure:
     return firstResult
 
   info "lightpush send rejected; refreshing merkle proof and retrying once",
