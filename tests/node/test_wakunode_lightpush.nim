@@ -231,7 +231,7 @@ suite "RLN Proofs as a Lightpush Service":
         inc callCount
         if callCount == 1:
           return lighpushErrorResult(
-            LightPushErrorCode.INVALID_MESSAGE, "simulated stale merkle path"
+            LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg
           )
         return lightpushSuccessResult(1)
       server.wakuLightPush.pushHandler = stub
@@ -287,7 +287,7 @@ suite "RLN Proofs as a Lightpush Service":
           pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
-        return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "still stale")
+        return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg)
       server.wakuLightPush.pushHandler = stub
 
       let response = await server.lightpushPublish(some(pubsubTopic), message)

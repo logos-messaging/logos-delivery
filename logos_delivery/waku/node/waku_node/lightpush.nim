@@ -335,13 +335,14 @@ proc lightpushPublish*(
   # also returned for non-RLN rejections (e.g. oversized messages), so require
   # the error description to contain RlnValidatorErrorMsg — matching the legacy
   # lightpush path — to avoid unbounded on-chain RPCs on non-RLN errors.
+  if firstResult.isOk() or rln.isNone():
+    return firstResult
   let isRlnRelatedFailure =
-    firstResult.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF or
-    (
+    firstResult.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF or (
       firstResult.error.code == LightPushErrorCode.INVALID_MESSAGE and
       firstResult.error.desc.get("").contains(RlnValidatorErrorMsg)
     )
-  if firstResult.isOk() or rln.isNone() or not isRlnRelatedFailure:
+  if not isRlnRelatedFailure:
     return firstResult
 
   info "lightpush send rejected; refreshing merkle proof and retrying once",
