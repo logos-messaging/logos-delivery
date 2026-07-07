@@ -472,16 +472,6 @@ hence would have reachability issues.""",
       name: "lightpushnode"
     .}: string
 
-    ## Reliability config
-    # Option-typed; desc states the default since the CLI can't auto-show it for none().
-    reliabilityEnabled* {.
-      desc:
-        """Adds an extra effort in the delivery/reception of messages by leveraging store-v3 requests, with the drawback of consuming some more bandwidth. Default is """ &
-        $DefaultP2pReliability & ".",
-      defaultValue: none(bool),
-      name: "reliability"
-    .}: Option[bool]
-
     ## REST HTTP config
     rest* {.
       desc: "Enable Waku REST HTTP server: true|false",
@@ -1131,8 +1121,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.filterServiceConf.withMaxCriteria(n.filterMaxCriteria)
 
   b.withLightPush(n.lightpush)
-  if n.reliabilityEnabled.isSome():
-    b.withP2pReliability(n.reliabilityEnabled.get())
 
   b.restServerConf.withEnabled(n.rest)
   b.restServerConf.withListenAddress(n.restAddress)

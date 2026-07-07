@@ -170,7 +170,6 @@ type WakuConfBuilder* = object
   relayShardedPeerManagement: Option[bool]
   relayServiceRatio: Option[string]
   circuitRelayClient: Option[bool]
-  p2pReliability: Option[bool]
 
   localStoragePath: Option[string]
 
@@ -309,9 +308,6 @@ proc withRelayShardedPeerManagement*(
     b: var WakuConfBuilder, relayShardedPeerManagement: bool
 ) =
   b.relayShardedPeerManagement = some(relayShardedPeerManagement)
-
-proc withP2pReliability*(b: var WakuConfBuilder, p2pReliability: bool) =
-  b.p2pReliability = some(p2pReliability)
 
 proc withLocalStoragePath*(b: var WakuConfBuilder, localStoragePath: string) =
   b.localStoragePath = some(localStoragePath)
@@ -461,10 +457,6 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
 
   checkSetPresetValueToField(
     builder.mix, networkPresetConf.mix, "Mix was provided alongside a network conf"
-  )
-  checkSetPresetValueToField(
-    builder.p2pReliability, networkPresetConf.p2pReliability,
-    "P2P Reliability was provided alongside a network conf",
   )
 
   # Process entry nodes from network config - classify and distribute
@@ -841,7 +833,6 @@ proc build*(
     circuitRelayClient: builder.circuitRelayClient.get(DefaultCircuitRelayClient),
     staticNodes: builder.staticNodes,
     relayShardedPeerManagement: relayShardedPeerManagement,
-    p2pReliability: builder.p2pReliability.get(DefaultP2pReliability),
     wakuFlags: wakuFlags,
     localStoragePath: builder.localStoragePath.get(DefaultStoragePath),
   )

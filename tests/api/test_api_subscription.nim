@@ -78,7 +78,6 @@ proc createApiNodeConf(
   conf.discv5UdpPort = Port(0)
   conf.clusterId = some(3'u16)
   conf.numShardsInNetwork = numShards
-  conf.reliabilityEnabled = some(true)
   conf.rest = false
   result = conf
 

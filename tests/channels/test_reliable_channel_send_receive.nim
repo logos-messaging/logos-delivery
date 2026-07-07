@@ -35,7 +35,6 @@ proc createApiNodeConf(): WakuNodeConf =
   conf.discv5UdpPort = Port(0)
   conf.clusterId = some(3'u16)
   conf.numShardsInNetwork = 1
-  conf.reliabilityEnabled = some(true)
   conf.rest = false
   return conf
 

@@ -61,43 +61,31 @@ import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
 import tools/confutils/cli_args
 import logos_delivery/waku/node/health_monitor/online_monitor
+import logos_delivery/api/logos_delivery_conf
+export logos_delivery_conf
 
 logScope:
   topics = "logosdelivery"
 
-type
-  LogosDeliveryConf* = object ## Aggregates the per-layer config objects.
-    waku*: WakuConf
-    messaging*: MessagingClientConf
-    reliableChannel*: ReliableChannelManagerConf
+type LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
+  waku*: Waku
+  messagingClient*: MessagingClient
+  reliableChannelManager*: ReliableChannelManager
 
-  LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
-    waku*: Waku
-    messagingClient*: MessagingClient
-    reliableChannelManager*: ReliableChannelManager
-
-proc init*(T: type LogosDeliveryConf, wakuConf: WakuConf): LogosDeliveryConf =
-  ## Builds the aggregated config from a `WakuConf`. The messaging / reliable
-  ## channel layers carry trivial config today; this is the seam where their
-  ## dedicated config will be threaded through later.
-  LogosDeliveryConf(
-    waku: wakuConf,
-    messaging: MessagingClientConf(reliabilityEnabled: some(wakuConf.p2pReliability)),
-    reliableChannel: ReliableChannelManagerConf(),
-  )
-
-proc buildStack(
-    layerConf: LogosDeliveryConf, appCallbacks: AppCallbacks
+proc new*(
+    T: type LogosDelivery, conf: LogosDeliveryConf, appCallbacks: AppCallbacks = nil
 ): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Builds the stack bottom-up. Shared by both `new` overloads.
-  let waku = (await Waku.new(layerConf.waku, appCallbacks)).valueOr:
+  ## Builds the stack bottom-up from a resolved per-layer config.
+  let wakuConf = conf.kernelConf.toWakuConf().valueOr:
+    return err("failed to handle the configuration: " & error)
+  let waku = (await Waku.new(wakuConf, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  let messagingClient = MessagingClient.new(layerConf.messaging, waku).valueOr:
+  let messagingClient = MessagingClient.new(conf.messaging, waku).valueOr:
     return err("failed to create MessagingClient: " & error)
 
   let reliableChannelManager = ReliableChannelManager.new(
-    layerConf.reliableChannel, waku.brokerCtx
+    conf.reliableChannel, waku.brokerCtx
   ).valueOr:
     return err("failed to create ReliableChannelManager: " & error)
 
@@ -113,9 +101,14 @@ proc new*(
     T: type LogosDelivery, conf: WakuNodeConf, appCallbacks: AppCallbacks = nil
 ): Future[Result[LogosDelivery, string]] {.async.} =
   ## Builds the full stack from a kernel `WakuNodeConf`.
-  let wakuConf = conf.toWakuConf().valueOr:
-    return err("failed to handle the configuration: " & error)
-  return await buildStack(LogosDeliveryConf.init(wakuConf), appCallbacks)
+  return await LogosDelivery.new(
+    LogosDeliveryConf(
+      kernelConf: conf,
+      messaging: MessagingClientConf(),
+      reliableChannel: ReliableChannelManagerConf(),
+    ),
+    appCallbacks,
+  )
 
 proc new*(
     T: type LogosDelivery,
@@ -126,18 +119,9 @@ proc new*(
     appCallbacks: AppCallbacks = nil,
 ): Future[Result[LogosDelivery, string]] {.async.} =
   ## Messaging entry point (app dev). Builds the full stack from preset, mode and overrides.
-  let presetConf = resolvePreset(preset).valueOr:
-    return err("failed to resolve preset: " & error)
-  let merged = merge(presetConf, messagingOverrides)
-  var kernelConf = toKernelConf(merged, mode).valueOr:
-    return err("failed to synthesize kernel configuration: " & error)
-  kernelConf.preset = preset
-  let wakuConf = kernelConf.toWakuConf().valueOr:
-    return err("failed to handle the configuration: " & error)
-  let layerConf = LogosDeliveryConf(
-    waku: wakuConf, messaging: merged, reliableChannel: channelsOverrides
-  )
-  return await buildStack(layerConf, appCallbacks)
+  let conf = LogosDeliveryConf.init(mode, preset, messagingOverrides, channelsOverrides).valueOr:
+    return err("failed to synthesize configuration: " & error)
+  return await LogosDelivery.new(conf, appCallbacks)
 
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Starts each layer bottom-up: transport first, then messaging, then channels.

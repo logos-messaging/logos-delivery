@@ -4,14 +4,7 @@ import std/[json, options, strutils, tables]
 import results
 
 import tools/confutils/conf_from_json
-import logos_delivery/api/messaging_conf
-import logos_delivery/channels/reliable_channel_manager
-
-type MessagingConfJson* = object
-  mode*: WakuMode
-  preset*: string
-  messagingOverrides*: MessagingClientConf
-  channelsOverrides*: ReliableChannelManagerConf
+import logos_delivery/api/logos_delivery_conf
 
 const
   # Lowercased, since `collectJsonFields` keys the object case-insensitively.
@@ -42,7 +35,7 @@ proc parseOverrides[T](node: JsonNode, label: string): Result[T, string] =
   )
   return ok(conf)
 
-proc parseMessagingConf*(jsonStr: string): Result[MessagingConfJson, string] =
+proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
   var node: JsonNode
   try:
     node = parseJson(jsonStr)
@@ -52,31 +45,33 @@ proc parseMessagingConf*(jsonStr: string): Result[MessagingConfJson, string] =
     return err("configuration JSON must be an object")
 
   var top = ?collectJsonFields(node)
-  var conf = MessagingConfJson(mode: WakuMode.Core, preset: "")
+  var mode = WakuMode.Core
+  var preset = ""
+  var messagingOverrides = MessagingClientConf()
+  var channelsOverrides = ReliableChannelManagerConf()
 
   if top.hasKey(KeyMode):
     let (_, v) = top.getOrDefault(KeyMode)
     if v.kind != JString:
       return err("mode must be a string")
-    conf.mode = ?parseMode(v.getStr())
+    mode = ?parseMode(v.getStr())
     top.del(KeyMode)
 
   if top.hasKey(KeyPreset):
     let (_, v) = top.getOrDefault(KeyPreset)
     if v.kind != JString:
       return err("preset must be a string")
-    conf.preset = v.getStr().strip()
+    preset = v.getStr().strip()
     top.del(KeyPreset)
 
   if top.hasKey(KeyMessagingOverrides):
     let (_, v) = top.getOrDefault(KeyMessagingOverrides)
-    conf.messagingOverrides =
-      ?parseOverrides[MessagingClientConf](v, "messagingOverrides")
+    messagingOverrides = ?parseOverrides[MessagingClientConf](v, "messagingOverrides")
     top.del(KeyMessagingOverrides)
 
   if top.hasKey(KeyChannelsOverrides):
     let (_, v) = top.getOrDefault(KeyChannelsOverrides)
-    conf.channelsOverrides =
+    channelsOverrides =
       ?parseOverrides[ReliableChannelManagerConf](v, "channelsOverrides")
     top.del(KeyChannelsOverrides)
 
@@ -86,6 +81,6 @@ proc parseMessagingConf*(jsonStr: string): Result[MessagingConfJson, string] =
       keys.add(k)
     return err("Unrecognized configuration option(s) found: " & keys.join(", "))
 
-  return ok(conf)
+  return LogosDeliveryConf.init(mode, preset, messagingOverrides, channelsOverrides)
 
 {.pop.}

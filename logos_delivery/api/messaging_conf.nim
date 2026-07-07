@@ -61,8 +61,6 @@ proc toKernelConf*(m: MessagingClientConf, mode: WakuMode): ConfResult[KernelCon
     conf.rlnRelayChainId = m.rlnChainId.get()
   if m.rlnEpochSizeSec.isSome():
     conf.rlnEpochSizeSec = some(m.rlnEpochSizeSec.get().uint64)
-  if m.reliabilityEnabled.isSome():
-    conf.reliabilityEnabled = m.reliabilityEnabled
   if m.logLevel.isSome():
     conf.logLevel = m.logLevel.get()
   if m.logFormat.isSome():

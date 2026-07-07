@@ -7,7 +7,7 @@ import
   logos_delivery/api/types,
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
-  logos_delivery/api/messaging_conf_json,
+  logos_delivery/api/logos_delivery_conf_json,
   ../declare_lib,
   ../json_event
 
@@ -17,16 +17,12 @@ proc `%`*(id: RequestId): JsonNode =
 
 registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[LogosDelivery]):
   proc(configJson: cstring): Future[Result[string, string]] {.async.} =
-    let mc = parseMessagingConf($configJson).valueOr:
-      error "Failed to parse messaging configuration JSON",
+    let conf = parseLogosDeliveryConf($configJson).valueOr:
+      error "Failed to parse Logos Delivery configuration JSON",
         error = error, configJson = $configJson
       return err(error)
 
-    ctx.myLib[] = (
-      await LogosDelivery.new(
-        mc.mode, mc.preset, mc.messagingOverrides, mc.channelsOverrides
-      )
-    ).valueOr:
+    ctx.myLib[] = (await LogosDelivery.new(conf)).valueOr:
       let errMsg = $error
       chronicles.error "CreateNodeRequest failed", err = errMsg
       return err(errMsg)
