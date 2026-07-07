@@ -26,26 +26,11 @@ extern "C"
 {
 #endif
 
-  // Creates a new instance of the waku node.
-  // Sets up the waku node from the given configuration.
-  // Returns a pointer to the Context needed by the rest of the API functions.
-  void *waku_new(
-      const char *configJson,
-      FFICallBack callback,
-      void *userData);
-
-  int waku_start(void *ctx,
-                 FFICallBack callback,
-                 void *userData);
-
-  int waku_stop(void *ctx,
-                FFICallBack callback,
-                void *userData);
-
-  // Destroys an instance of a waku node created with waku_new
-  int waku_destroy(void *ctx,
-                   FFICallBack callback,
-                   void *userData);
+  // NOTE: node lifecycle (create / start / stop / destroy) is unified and lives
+  // only in the stable header. Use logosdelivery_create_node,
+  // logosdelivery_start_node, logosdelivery_stop_node and logosdelivery_destroy
+  // (declared in liblogosdelivery.h, included above) regardless of whether you
+  // drive the node through the messaging surface or this kernel API.
 
   int waku_version(void *ctx,
                    FFICallBack callback,

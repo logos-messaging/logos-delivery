@@ -184,7 +184,7 @@ jobject Java_com_mobile_WakuModule_wakuNew(JNIEnv *env, jobject thiz,
                                            jstring configJson) {
   const char *config = (*env)->GetStringUTFChars(env, configJson, 0);
   cb_result *result = NULL;
-  void *wakuPtr = waku_new(config, on_response, (void *)&result);
+  void *wakuPtr = logosdelivery_create_node(config, on_response, (void *)&result);
   jobject response = to_jni_ptr(env, result, wakuPtr);
   (*env)->ReleaseStringUTFChars(env, configJson, config);
   free_cb_result(result);
@@ -194,7 +194,7 @@ jobject Java_com_mobile_WakuModule_wakuNew(JNIEnv *env, jobject thiz,
 jobject Java_com_mobile_WakuModule_wakuStart(JNIEnv *env, jobject thiz,
                                              jlong wakuPtr) {
   cb_result *result = NULL;
-  waku_start((void *)wakuPtr, on_response, &result);
+  logosdelivery_start_node((void *)wakuPtr, on_response, &result);
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   return response;
@@ -212,7 +212,7 @@ jobject Java_com_mobile_WakuModule_wakuVersion(JNIEnv *env, jobject thiz,
 jobject Java_com_mobile_WakuModule_wakuStop(JNIEnv *env, jobject thiz,
                                             jlong wakuPtr) {
   cb_result *result = NULL;
-  waku_stop((void *)wakuPtr, on_response, &result);
+  logosdelivery_stop_node((void *)wakuPtr, on_response, &result);
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   return response;
@@ -221,7 +221,7 @@ jobject Java_com_mobile_WakuModule_wakuStop(JNIEnv *env, jobject thiz,
 jobject Java_com_mobile_WakuModule_wakuDestroy(JNIEnv *env, jobject thiz,
                                                jlong wakuPtr) {
   cb_result *result = NULL;
-  waku_destroy((void *)wakuPtr, on_response, &result);
+  logosdelivery_destroy((void *)wakuPtr, on_response, &result);
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   return response;

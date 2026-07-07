@@ -1,5 +1,6 @@
 import std/options
 import std/tempfiles
+import results
 
 import
   logos_delivery/waku/rln,
@@ -8,12 +9,12 @@ import
     protocol_metrics, nonce_manager,
   ]
 
-proc createRLNInstanceWrapper*(): RlnInstanceResult =
+proc createRLNInstanceWrapper*(): Result[ptr RlnRaw, string] =
   return createRlnInstance()
 
 proc unsafeAppendRLNProof*(
     rlnPeer: Rln, msg: var WakuMessage, epoch: Epoch, messageId: MessageId
-): RlnResult[void] =
+): Result[void, string] =
   ## Test helper derived from the publish-path proof flow.
   ## - Skips nonce validation to intentionally allow generating "bad" message IDs for tests.
   ## - Forces a real-time on-chain Merkle root refresh via `updateRoots()` and fetches Merkle

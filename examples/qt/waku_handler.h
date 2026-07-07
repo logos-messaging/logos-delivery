@@ -25,7 +25,7 @@ public:
     WakuHandler() : QObject(), ctx(nullptr) {}
 
     void initialize(const QString& jsonConfig, WakuCallBack event_handler, void* userData) {
-        ctx = waku_new(jsonConfig.toUtf8().constData(), WakuCallBack(event_handler), userData);
+        ctx = logosdelivery_create_node(jsonConfig.toUtf8().constData(), WakuCallBack(event_handler), userData);
 
         logosdelivery_set_event_callback(ctx, on_event_received, userData);
         qDebug() << "Waku context initialized, ready to start.";
@@ -33,7 +33,7 @@ public:
 
     Q_INVOKABLE void start() {
         if (ctx) {
-            waku_start(ctx, event_handler, nullptr);
+            logosdelivery_start_node(ctx, event_handler, nullptr);
             qDebug() << "Waku start called with event_handler and userData.";
         } else {
             qDebug() << "Context is not initialized in start.";
@@ -42,7 +42,7 @@ public:
 
     Q_INVOKABLE void stop() {
         if (ctx) {
-            waku_stop(ctx, event_handler, nullptr);
+            logosdelivery_stop_node(ctx, event_handler, nullptr);
             qDebug() << "Waku stop called with event_handler and userData.";
         } else {
             qDebug() << "Context is not initialized in stop.";
