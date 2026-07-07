@@ -287,7 +287,8 @@ suite "RLN Proofs as a Lightpush Service":
           pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
-        return lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg)
+        return
+          lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg)
       server.wakuLightPush.pushHandler = stub
 
       let response = await server.lightpushPublish(some(pubsubTopic), message)
