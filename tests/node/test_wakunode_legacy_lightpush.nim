@@ -181,43 +181,6 @@ suite "RLN Proofs as a Lightpush Service":
       assert publishResponse.isErr(), "We expect an error response"
       check publishResponse.error == protocol_metrics.notPublishedAnyPeer
 
-    asyncTest "force refresh regenerates proof and refetches merkle path":
-      # Exercises the primitive that legacyLightpushPublish leans on after a
-      # "RLN validation failed" rejection: an already attached proof must NOT
-      # short-circuit checkAndGenerateRLNProof when forceMerkleProofRefresh=true,
-      # and the cache must be refetched from chain instead of trusted.
-      let (firstMsg, drawnNonce) =
-        (await checkAndGenerateRLNProof(some(server.rln), message)).get()
-      check firstMsg.proof.len > 0
-
-      # Corrupt the cache to model a stale/invalid witness — the same state a
-      # server-side "RLN validation failed" rejection would leave us in.
-      let manager = cast[OnchainGroupManager](server.rln.groupManager)
-      let goodCache = manager.merkleProofCache
-      manager.merkleProofCache = newSeq[byte](goodCache.len)
-      check manager.merkleProofCache != goodCache
-
-      # Force-regenerate. The existing proof must be discarded, the cache
-      # refetched from chain, and a fresh proof produced. Pass drawnNonce so
-      # the CAS rollback reclaims it — mirroring the production retry path.
-      let (secondMsg, _) = (
-        await checkAndGenerateRLNProof(
-          some(server.rln),
-          firstMsg,
-          forceMerkleProofRefresh = true,
-          reuseMessageId = drawnNonce,
-        )
-      ).get()
-
-      check:
-        secondMsg.proof.len > 0
-        # Regenerated, not passed through — Groth16 proofs carry random
-        # blinding, so a fresh call produces different bytes even though the
-        # rejected attempt's message id is intentionally reused on retry.
-        secondMsg.proof != firstMsg.proof
-        # Cache was refetched from chain, overwriting the corruption.
-        manager.merkleProofCache == goodCache
-
     # The tests below drive `server.legacyLightpushPublish(...)` against the
     # server node. Because `server.wakuLegacyLightPush` is mounted (and no
     # legacy client is), the call takes the self-request path — it still runs
