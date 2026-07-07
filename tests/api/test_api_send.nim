@@ -121,9 +121,9 @@ proc validate(
     check requestId == expectedRequestId
 
 proc createApiNodeConf(
-    mode: messaging_conf.WakuMode = messaging_conf.WakuMode.Core
+    mode: messaging_conf.LogosDeliveryMode = messaging_conf.LogosDeliveryMode.Core
 ): WakuNodeConf =
-  var conf = MessagingClientConf().toKernelConf(mode).valueOr:
+  var conf = MessagingClientConf().toWakuNodeConf(mode).valueOr:
       raiseAssert error
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
@@ -354,7 +354,11 @@ suite "Waku API - Send":
     ## connected to a lightpush-capable peer must deliver through lightpush.
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf(messaging_conf.WakuMode.Edge))).valueOr:
+      node = (
+        await LogosDelivery.new(
+          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -389,7 +393,11 @@ suite "Waku API - Send":
     ## later retry must deliver the queued message.
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf(messaging_conf.WakuMode.Edge))).valueOr:
+      node = (
+        await LogosDelivery.new(
+          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -480,7 +488,11 @@ suite "Waku API - Send":
 
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf(messaging_conf.WakuMode.Edge))).valueOr:
+      node = (
+        await LogosDelivery.new(
+          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error

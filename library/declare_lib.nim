@@ -17,6 +17,26 @@ template requireInitializedNode*(
     let errMsg {.inject.} = opName & " failed: node is not initialized"
     onError
 
+template requireMessaging*(
+    ctx: ptr FFIContext[LogosDelivery], opName: string, onError: untyped
+) =
+  ## Use after `requireInitializedNode`. Fails if the node has no messaging client
+  ## (a kernel-only / fleet node).
+  if isNil(ctx.myLib[].messagingClient):
+    let errMsg {.inject.} =
+      opName & " failed: node has no messaging client (kernel-only/fleet node)"
+    onError
+
+template requireChannels*(
+    ctx: ptr FFIContext[LogosDelivery], opName: string, onError: untyped
+) =
+  ## Use after `requireInitializedNode`. Fails if the node has no reliable channel
+  ## manager (a kernel-only / fleet node).
+  if isNil(ctx.myLib[].reliableChannelManager):
+    let errMsg {.inject.} =
+      opName & " failed: node has no reliable channel manager (kernel-only/fleet node)"
+    onError
+
 proc logosdelivery_set_event_callback(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ) {.dynlib, exportc, cdecl.} =

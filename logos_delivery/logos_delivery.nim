@@ -75,19 +75,24 @@ type LogosDelivery* = ref object ## Entry point. Holds one instance of each API 
 proc new*(
     T: type LogosDelivery, conf: LogosDeliveryConf, appCallbacks: AppCallbacks = nil
 ): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Builds the stack bottom-up from a resolved per-layer config.
-  let wakuConf = conf.kernelConf.toWakuConf().valueOr:
-    return err("failed to handle the configuration: " & error)
+  ## Builds the stack bottom-up from a resolved per-layer config; each layer is
+  ## mounted iff its config is present.
+  let wakuConf = WakuNodeConf(conf.kernelConf).toWakuConf().valueOr:
+      return err("failed to handle the configuration: " & error)
   let waku = (await Waku.new(wakuConf, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  let messagingClient = MessagingClient.new(conf.messagingConf, waku).valueOr:
-    return err("failed to create MessagingClient: " & error)
+  var messagingClient: MessagingClient
+  if conf.messagingConf.isSome():
+    messagingClient = MessagingClient.new(conf.messagingConf.get(), waku).valueOr:
+      return err("failed to create MessagingClient: " & error)
 
-  let reliableChannelManager = ReliableChannelManager.new(
-    conf.channelsConf, waku.brokerCtx
-  ).valueOr:
-    return err("failed to create ReliableChannelManager: " & error)
+  var reliableChannelManager: ReliableChannelManager
+  if conf.channelsConf.isSome():
+    reliableChannelManager = ReliableChannelManager.new(
+      conf.channelsConf.get(), waku.brokerCtx
+    ).valueOr:
+      return err("failed to create ReliableChannelManager: " & error)
 
   return ok(
     LogosDelivery(
@@ -103,16 +108,41 @@ proc new*(
   ## Builds the full stack from a kernel `WakuNodeConf`.
   return await LogosDelivery.new(
     LogosDeliveryConf(
-      kernelConf: conf,
-      messagingConf: MessagingClientConf(),
-      channelsConf: ReliableChannelManagerConf(),
+      kernelConf: KernelConf(conf),
+      messagingConf: some(MessagingClientConf()),
+      channelsConf: some(ReliableChannelManagerConf()),
+    ),
+    appCallbacks,
+  )
+
+proc new*(
+    T: type LogosDelivery, kernelConf: KernelConf, appCallbacks: AppCallbacks = nil
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Fleet mode: mounts the kernel only from a raw `KernelConf`; no messaging client,
+  ## no channel manager.
+  return await LogosDelivery.new(LogosDeliveryConf.init(kernelConf), appCallbacks)
+
+proc new*(
+    T: type LogosDelivery,
+    kernelConf: KernelConf,
+    messagingOverrides: MessagingClientConf,
+    channelsOverrides: ReliableChannelManagerConf,
+    appCallbacks: AppCallbacks = nil,
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Full stack: kernel + messaging + channels. Messaging is never skipped; a
+  ## kernel-only node uses `new(kernelConf)` instead.
+  return await LogosDelivery.new(
+    LogosDeliveryConf(
+      kernelConf: kernelConf,
+      messagingConf: some(messagingOverrides),
+      channelsConf: some(channelsOverrides),
     ),
     appCallbacks,
   )
 
 proc new*(
     T: type LogosDelivery,
-    mode: WakuMode = WakuMode.Core,
+    mode: LogosDeliveryMode = LogosDeliveryMode.Core,
     preset: string = "",
     messagingOverrides: MessagingClientConf = MessagingClientConf(),
     channelsOverrides: ReliableChannelManagerConf = ReliableChannelManagerConf(),
@@ -124,22 +154,20 @@ proc new*(
   return await LogosDelivery.new(conf, appCallbacks)
 
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
-  ## Starts each layer bottom-up: transport first, then messaging, then channels.
+  ## Starts each present layer bottom-up: transport, then messaging, then channels.
   if self.waku.isNil():
     return err("Waku node is not initialized")
-  if self.messagingClient.isNil():
-    return err("MessagingClient is not initialized")
-  if self.reliableChannelManager.isNil():
-    return err("ReliableChannelManager is not initialized")
 
   (await self.waku.start()).isOkOr:
     return err("failed to start Waku: " & error)
 
-  self.messagingClient.start().isOkOr:
-    return err("failed to start MessagingClient: " & error)
+  if not self.messagingClient.isNil():
+    self.messagingClient.start().isOkOr:
+      return err("failed to start MessagingClient: " & error)
 
-  self.reliableChannelManager.start().isOkOr:
-    return err("failed to start ReliableChannelManager: " & error)
+  if not self.reliableChannelManager.isNil():
+    self.reliableChannelManager.start().isOkOr:
+      return err("failed to start ReliableChannelManager: " & error)
 
   return ok()
 

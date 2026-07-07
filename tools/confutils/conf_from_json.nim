@@ -23,7 +23,7 @@ proc collectJsonFields*(
     jsonFields[lowerKey] = (key, value)
   return ok(jsonFields)
 
-proc unknownKeysError(
+proc unknownKeysError*(
     jsonFields: Table[string, (string, JsonNode)], prefix: string
 ): string =
   ## Format leftover JSON keys as an error message.

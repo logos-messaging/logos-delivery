@@ -12,8 +12,8 @@ import logos_delivery/waku/factory/conf_builder/conf_builder
 suite "LogosDelivery API - Create node":
   asyncTest "Create node with minimal configuration":
     ## Given
-    var nodeConf = MessagingClientConf().toKernelConf(Core).valueOr:
-        raiseAssert "toKernelConf failed: " & error
+    var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
+        raiseAssert "toWakuNodeConf failed: " & error
     nodeConf.clusterId = some(3'u16)
     nodeConf.rest = false
 
@@ -31,8 +31,8 @@ suite "LogosDelivery API - Create node":
 
   asyncTest "Create node with full configuration":
     ## Given
-    var nodeConf = MessagingClientConf().toKernelConf(Core).valueOr:
-        raiseAssert "toKernelConf failed: " & error
+    var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
+        raiseAssert "toWakuNodeConf failed: " & error
     nodeConf.clusterId = some(99'u16)
     nodeConf.rest = false
     nodeConf.numShardsInNetwork = 16
@@ -62,8 +62,8 @@ suite "LogosDelivery API - Create node":
 
   asyncTest "Create node with mixed entry nodes (enrtree, multiaddr)":
     ## Given
-    var nodeConf = MessagingClientConf().toKernelConf(Core).valueOr:
-        raiseAssert "toKernelConf failed: " & error
+    var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
+        raiseAssert "toWakuNodeConf failed: " & error
     nodeConf.clusterId = some(42'u16)
     nodeConf.rest = false
     nodeConf.entryNodes = @[
