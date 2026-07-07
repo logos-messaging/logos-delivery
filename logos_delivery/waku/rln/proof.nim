@@ -59,7 +59,7 @@ proc generateRLNProof*(
     input: seq[byte],
     senderEpochTime: float64,
     forceMerkleProofRefresh: bool = false,
-): Future[RlnResult[seq[byte]]] {.async.} =
+): Future[Result[seq[byte], string]] {.async.} =
   let epoch = rln.calcEpoch(senderEpochTime)
   let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
