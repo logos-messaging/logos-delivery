@@ -44,7 +44,7 @@ proc parseOverrides[T](defaults: T, node: JsonNode, label: string): Result[T, st
   return ok(conf)
 
 proc parseFlatConf(
-    mode: LogosDeliveryMode, top: var Table[string, (string, JsonNode)]
+    mode: LogosDeliveryMode, topJsonNode: var Table[string, (string, JsonNode)]
 ): ConfResult[LogosDeliveryConf] =
   ## [Legacy flat JSON config] Flat shape: a blob of `WakuNodeConf` fields. `mode`
   ## expands to protocol flags over raw kernel defaults, `reliabilityEnabled` routes
@@ -53,9 +53,9 @@ proc parseFlatConf(
   var messaging = MessagingClientConf()
   var reliabilityFields: Table[string, (string, JsonNode)]
   for key in [KeyReliabilityEnabled, KeyReliability]:
-    if top.hasKey(key):
-      reliabilityFields[key] = top.getOrDefault(key)
-      top.del(key)
+    if topJsonNode.hasKey(key):
+      reliabilityFields[key] = topJsonNode.getOrDefault(key)
+      topJsonNode.del(key)
   if reliabilityFields.len > 0:
     ?applyJsonFieldsToConf(
       messaging, reliabilityFields, "Failed to parse reliability field",
@@ -69,7 +69,7 @@ proc parseFlatConf(
   var kernel = ?defaultWakuNodeConf()
   ?applyMode(kernel, mode)
   ?applyJsonFieldsToConf(
-    kernel, top, "Failed to parse config field",
+    kernel, topJsonNode, "Failed to parse config field",
     "Unrecognized configuration option(s) found",
   )
 
