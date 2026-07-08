@@ -7,7 +7,8 @@ import
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
   logos_delivery/waku/factory/conf_builder/waku_conf_builder,
-  logos_delivery/messaging/delivery_service/[recv_service, send_service]
+  logos_delivery/messaging/delivery_service/[recv_service, send_service],
+  logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 
 export messaging_client_api, messaging_conf
 
@@ -24,7 +25,8 @@ proc new*(
   ## The messaging layer chains onto Waku: it drives the underlying Waku kernel
   ## for transport while exposing its own send/recv API.
   let reliability = conf.reliabilityEnabled.get(DefaultP2pReliability)
-  let sendService = ?SendService.new(reliability, waku)
+  let sendService =
+    ?SendService.new(reliability, waku, RateLimitManager.new(conf.rateLimit))
   let recvService = RecvService.new(waku)
   return ok(
     T(

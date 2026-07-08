@@ -88,5 +88,8 @@ import ./tools/test_all
 # Persistency library tests
 import ./persistency/test_all
 
+# Messaging API tests
+import ./messaging/test_all
+
 # Reliable Channel API tests
 import ./channels/test_all
