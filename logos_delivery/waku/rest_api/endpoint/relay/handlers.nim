@@ -51,6 +51,56 @@ proc validatePubSubTopics(topics: seq[PubsubTopic]): Result[void, RestApiRespons
 
   return ok()
 
+type
+  RlnPublishErrorKind = enum
+    ProofGenFailed ## Local proof generation failed — server-side (500).
+    ValidationRejected ## Validator rejected the message — client-side (400).
+
+  RlnPublishError = object
+    kind: RlnPublishErrorKind
+    desc: string
+
+proc attachRlnProofValidateWithRetry(
+    rln: Rln, wakuRelay: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage
+): Future[Result[WakuMessage, RlnPublishError]] {.async.} =
+  ## Attaches an RLN proof to `message`, validates it via `wakuRelay`, and if
+  ## the validator rejects it as RLN-invalid (error contains RlnValidatorErrorMsg)
+  ## force-refreshes the merkle proof path and retries once. Returns the message
+  ## with its final proof on success. Callers invoke only when RLN is mounted.
+  var msg = message
+  msg.proof = (
+    await rln.generateRLNProof(msg.toRLNSignal(), float64(getTime().toUnix()))
+  ).valueOr:
+    return err(
+      RlnPublishError(
+        kind: ProofGenFailed, desc: "error appending RLN proof to message: " & $error
+      )
+    )
+
+  let firstValidateResult = await wakuRelay.validateMessage(pubsubTopic, msg)
+  if firstValidateResult.isOk():
+    return ok(msg)
+  if not firstValidateResult.error.contains(RlnValidatorErrorMsg):
+    return
+      err(RlnPublishError(kind: ValidationRejected, desc: firstValidateResult.error))
+
+  info "relay publish rejected as RLN-invalid; refreshing merkle proof and retrying once"
+  msg.proof = (
+    await rln.generateRLNProof(
+      msg.toRLNSignal(), float64(getTime().toUnix()), forceMerkleProofRefresh = true
+    )
+  ).valueOr:
+    return err(
+      RlnPublishError(
+        kind: ProofGenFailed, desc: "error appending RLN proof on retry: " & $error
+      )
+    )
+
+  (await wakuRelay.validateMessage(pubsubTopic, msg)).isOkOr:
+    return err(RlnPublishError(kind: ValidationRejected, desc: error))
+
+  return ok(msg)
+
 proc installRelayApiHandlers*(
     router: var RestRouter, node: WakuNode, cache: MessageCache
 ) =
@@ -166,38 +216,18 @@ proc installRelayApiHandlers*(
     var message: WakuMessage = reqWakuMessage.toWakuMessage(version = 0).valueOr:
       return RestApiResponse.badRequest($error)
 
-    # if RLN is mounted, append the proof to the message
     if not node.rln.isNil():
-      # append the proof to the message
-
-      message.proof = (
-        await node.rln.generateRLNProof(
-          message.toRLNSignal(), float64(getTime().toUnix())
+      message = (
+        await attachRlnProofValidateWithRetry(
+          node.rln, node.wakuRelay, pubsubTopic, message
         )
       ).valueOr:
-        return RestApiResponse.internalServerError(
-          "Failed to publish: error appending RLN proof to message: " & $error
-        )
-
-    let firstValidateResult = await node.wakuRelay.validateMessage(pubsubTopic, message)
-    if firstValidateResult.isErr():
-      if node.rln.isNil() or not firstValidateResult.error.contains(
-        RlnValidatorErrorMsg
-      ):
-        return
-          RestApiResponse.badRequest("Failed to publish: " & firstValidateResult.error)
-      # Stale RLN merkle root; force-refresh the cached path and retry validation once
-      info "relay publish rejected as RLN-invalid; refreshing merkle proof and retrying once"
-      message.proof = (
-        await node.rln.generateRLNProof(
-          message.toRLNSignal(),
-          float64(getTime().toUnix()),
-          forceMerkleProofRefresh = true,
-        )
-      ).valueOr:
-        return RestApiResponse.internalServerError(
-          "Failed to publish: error appending RLN proof on retry: " & $error
-        )
+        case error.kind
+        of ProofGenFailed:
+          return RestApiResponse.internalServerError("Failed to publish: " & error.desc)
+        of ValidationRejected:
+          return RestApiResponse.badRequest("Failed to publish: " & error.desc)
+    else:
       (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
         return RestApiResponse.badRequest("Failed to publish: " & error)
 
@@ -316,36 +346,18 @@ proc installRelayApiHandlers*(
         error "publish error", err = msg
         return RestApiResponse.badRequest("Failed to publish. " & msg)
 
-    # if RLN is mounted, append the proof to the message
     if not node.rln.isNil():
-      message.proof = (
-        await node.rln.generateRLNProof(
-          message.toRLNSignal(), float64(getTime().toUnix())
+      message = (
+        await attachRlnProofValidateWithRetry(
+          node.rln, node.wakuRelay, pubsubTopic, message
         )
       ).valueOr:
-        return RestApiResponse.internalServerError(
-          "Failed to publish: error appending RLN proof to message: " & error
-        )
-
-    let firstValidateResult = await node.wakuRelay.validateMessage(pubsubTopic, message)
-    if firstValidateResult.isErr():
-      if node.rln.isNil() or not firstValidateResult.error.contains(
-        RlnValidatorErrorMsg
-      ):
-        return
-          RestApiResponse.badRequest("Failed to publish: " & firstValidateResult.error)
-      # Stale RLN merkle root; force-refresh the cached path and retry validation once
-      info "relay publish rejected as RLN-invalid; refreshing merkle proof and retrying once"
-      message.proof = (
-        await node.rln.generateRLNProof(
-          message.toRLNSignal(),
-          float64(getTime().toUnix()),
-          forceMerkleProofRefresh = true,
-        )
-      ).valueOr:
-        return RestApiResponse.internalServerError(
-          "Failed to publish: error appending RLN proof on retry: " & error
-        )
+        case error.kind
+        of ProofGenFailed:
+          return RestApiResponse.internalServerError("Failed to publish: " & error.desc)
+        of ValidationRejected:
+          return RestApiResponse.badRequest("Failed to publish: " & error.desc)
+    else:
       (await node.wakuRelay.validateMessage(pubsubTopic, message)).isOkOr:
         return RestApiResponse.badRequest("Failed to publish: " & error)
 
