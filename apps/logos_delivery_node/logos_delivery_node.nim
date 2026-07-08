@@ -8,7 +8,7 @@ import
   system/ansi_c,
   libp2p/crypto/crypto
 import
-  ./conf,
+  ../../tools/confutils/cli_args,
   logos_delivery/logos_delivery,
   logos_delivery/waku/common/logging
 
@@ -30,15 +30,15 @@ when isMainModule:
 
   const versionString = "version / git commit hash: " & git_version
 
-  var nodeConf = LogosDeliveryNodeConf.load(version = versionString).valueOr:
+  var wakuNodeConf = WakuNodeConf.load(version = versionString).valueOr:
     error "failure while loading the configuration", error = error
     quit(QuitFailure)
 
   ## Also called within LogosDelivery.new. The call to startRestServerEssentials
   ## needs the following line
-  logging.setupLog(nodeConf.waku.logLevel, nodeConf.waku.logFormat)
+  logging.setupLog(wakuNodeConf.logLevel, wakuNodeConf.logFormat)
 
-  case nodeConf.waku.cmd
+  case wakuNodeConf.cmd
   of generateRlnKeystore:
     error "generateRlnKeystore not supported by logos_delivery_node; use wakunode2"
     quit(QuitFailure)
@@ -46,7 +46,7 @@ when isMainModule:
     # `LogosDelivery` derives the per-layer config from `WakuNodeConf` itself
     # (it runs `toWakuConf` internally), then builds the full stack bottom-up:
     #   Waku <- MessagingClient <- ReliableChannelManager
-    var node = (waitFor LogosDelivery.new(nodeConf.waku)).valueOr:
+    var node = (waitFor LogosDelivery.new(wakuNodeConf)).valueOr:
       error "LogosDelivery initialization failed", error = error
       quit(QuitFailure)
 
