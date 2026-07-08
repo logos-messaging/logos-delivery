@@ -13,6 +13,10 @@ const
   KeyKernelConf = "kernelconf"
   KeyMessagingOverrides = "messagingoverrides"
   KeyChannelsOverrides = "channelsoverrides"
+  # [Legacy flat JSON config] Keys that left the kernel and so must be lifted out of
+  # a flat blob before the WakuNodeConf walker sees them (it would reject them).
+  KeyReliabilityEnabled = "reliabilityenabled"
+  KeyReliability = "reliability"
 
 proc parseMode(s: string): Result[LogosDeliveryMode, string] =
   case s.strip().toLowerAscii()
@@ -38,6 +42,50 @@ proc parseOverrides[T](defaults: T, node: JsonNode, label: string): Result[T, st
     "Unrecognized " & label & " option(s) found",
   )
   return ok(conf)
+
+proc parseFlatConf(
+    mode: LogosDeliveryMode, top: var Table[string, (string, JsonNode)]
+): ConfResult[LogosDeliveryConf] =
+  ## [Legacy flat JSON config] Flat shape: a blob of `WakuNodeConf` fields. `mode`
+  ## expands to protocol flags over raw kernel defaults, `reliabilityEnabled` routes
+  ## to the messaging conf (it left the kernel), and the rest parses as a
+  ## `WakuNodeConf`. Full stack. Delete this proc and its call site to drop support.
+  var messaging = MessagingClientConf()
+  var reliabilityFields: Table[string, (string, JsonNode)]
+  for key in [KeyReliabilityEnabled, KeyReliability]:
+    if top.hasKey(key):
+      reliabilityFields[key] = top.getOrDefault(key)
+      top.del(key)
+  if reliabilityFields.len > 0:
+    ?applyJsonFieldsToConf(
+      messaging, reliabilityFields, "Failed to parse reliability field",
+      "Unrecognized reliability option(s) found",
+    )
+
+  # [Legacy flat JSON config] The blob is a raw WakuNodeConf, exactly as the
+  # pre-refactor flat create_node parsed it: start from the kernel defaults and apply
+  # the mode's protocol flags (the kernel no longer owns `mode`, so we expand it here,
+  # like the old kernel builder did), then let explicit fields override.
+  var kernel = ?defaultWakuNodeConf()
+  ?applyMode(kernel, mode)
+  ?applyJsonFieldsToConf(
+    kernel, top, "Failed to parse config field",
+    "Unrecognized configuration option(s) found",
+  )
+
+  # [Legacy flat JSON config] Reliability is resolved from the preset by the messaging
+  # layer (the kernel no longer carries it), so a flat blob's `preset` must lift it
+  # here to stay faithful to master. An explicit reliability in the blob still wins.
+  if kernel.preset.len > 0:
+    messaging = merge(?resolvePreset(kernel.preset), messaging)
+
+  return ok(
+    LogosDeliveryConf(
+      kernelConf: KernelConf(kernel),
+      messagingConf: some(messaging),
+      channelsConf: some(ReliableChannelManagerConf()),
+    )
+  )
 
 proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
   var node: JsonNode
@@ -69,6 +117,21 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
       return
         err(unknownKeysError(top, "fleet mode takes only 'kernelConf'; unexpected"))
     return ok(LogosDeliveryConf.init(KernelConf(kernel)))
+
+  # [Legacy flat JSON config] A wrapper key marks our structured shape. Otherwise any
+  # leftover top-level key besides `preset` (mode is already consumed) is a bare
+  # kernel field -> flat blob. Delete this block to drop flat-shape support.
+  let hasWrapper =
+    top.hasKey(KeyMessagingOverrides) or top.hasKey(KeyChannelsOverrides) or
+    top.hasKey(KeyKernelConf)
+  if not hasWrapper:
+    var bareField = false
+    for k in top.keys:
+      if k != KeyPreset:
+        bareField = true
+        break
+    if bareField:
+      return parseFlatConf(mode, top)
 
   var preset = ""
   var messagingOverrides = MessagingClientConf()

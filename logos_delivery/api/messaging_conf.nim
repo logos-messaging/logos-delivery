@@ -13,12 +13,8 @@ type LogosDeliveryMode* {.pure.} = enum
   Core # full service node
   Fleet # kernel-only node from a raw kernel config
 
-proc toWakuNodeConf*(
-    self: MessagingClientConf, mode: LogosDeliveryMode
-): ConfResult[WakuNodeConf] =
-  ## Mode sets the protocol flags; set fields map to their kernel counterpart.
-  var conf = ?defaultWakuNodeConf()
-
+proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
+  ## Sets the protocol flags implied by the mode.
   case mode
   of LogosDeliveryMode.Core:
     conf.relay = true
@@ -36,6 +32,14 @@ proc toWakuNodeConf*(
   of LogosDeliveryMode.Fleet:
     return
       err("fleet mode takes a raw kernel config; use LogosDelivery.new(kernelConf)")
+  return ok()
+
+proc toWakuNodeConf*(
+    self: MessagingClientConf, mode: LogosDeliveryMode
+): ConfResult[WakuNodeConf] =
+  ## Mode sets the protocol flags; set fields map to their kernel counterpart.
+  var conf = ?defaultWakuNodeConf()
+  ?applyMode(conf, mode)
 
   if self.store.isSome():
     conf.store = self.store.get()

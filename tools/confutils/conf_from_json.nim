@@ -53,6 +53,13 @@ proc parseScalarInto[U](
   let s = jsonScalarToString(jsonValue).valueOr:
     return
       err(prefix & " '" & confField & "' from JSON key '" & jsonKey & "': " & error)
+  when U is Port:
+    # `Port(0)` means "auto-allocate an ephemeral port" and is a valid value (see
+    # PR #3828). confutils' `parseCmdArg(Port)` enforces the CLI range 1-65535 and
+    # rejects "0", but the JSON config API must accept it, so handle 0 explicitly and
+    # delegate every other value to confutils.
+    if s == "0":
+      return ok(Port(0))
   try:
     ok(parseCmdArg(U, s))
   except CatchableError as e:

@@ -172,8 +172,10 @@ suite "parseLogosDeliveryConf - JSON parsing":
   test "invalid JSON is rejected":
     check parseLogosDeliveryConf("{ not json }").isErr()
 
-  test "unknown top-level keys are rejected":
-    check parseLogosDeliveryConf("""{"logLevel": "INFO", "mode": "Core"}""").isErr()
+  test "a truly unknown top-level key is rejected (flat walker rejects the field)":
+    # NB: a *known* WakuNodeConf field at top level (e.g. logLevel) is now accepted
+    # as a flat blob; only a field that is not a WakuNodeConf field is rejected.
+    check parseLogosDeliveryConf("""{"totallyBogusField": "x", "mode": "Core"}""").isErr()
 
   test "override keys accept CLI switch names":
     let lc = parseLogosDeliveryConf(
@@ -270,6 +272,8 @@ suite "parseLogosDeliveryConf - JSON parsing":
       .isErr()
 
   test "kernelConf is rejected outside fleet mode":
+    # kernelConf is a fleet-only wrapper. Under Core/Edge it is neither consumed by the
+    # structured path nor a flat kernel field, so it must surface as an unknown key.
     check parseLogosDeliveryConf("""{"mode": "core", "kernelConf": {}}""").isErr()
 
 suite "LogosDelivery.new - construction (the app-dev entry)":
@@ -336,3 +340,83 @@ suite "LogosDelivery.new - raw kernel construction":
     # start()/stop() must skip the nil messaging + channel layers, not deref them
     (await node.start()).expect("start")
     (await node.stop()).expect("stop")
+
+# [Legacy flat JSON config] These suites cover the legacy flat shape; delete them
+# together with parseFlatConf when flat-shape support is dropped.
+suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)":
+  test "a flat blob of kernel fields is detected and parsed as a full stack":
+    let lc = parseLogosDeliveryConf(
+      """{"relay": true, "clusterId": 7, "store": true, "filter": false}"""
+    ).valueOr:
+      raiseAssert error
+    check:
+      WakuNodeConf(lc.kernelConf).relay == true
+      WakuNodeConf(lc.kernelConf).clusterId == some(7'u16)
+      lc.messagingConf.isSome() # full stack
+      lc.channelsConf.isSome()
+
+  test "flat blob carrying mode: mode expands to flags, explicit flags override":
+    let lc = parseLogosDeliveryConf(
+      """{"mode": "Edge", "relay": true, "clusterId": 7}"""
+    ).valueOr:
+      raiseAssert error
+    check:
+      WakuNodeConf(lc.kernelConf).relay == true
+        # explicit flat field overrides the Edge default
+      WakuNodeConf(lc.kernelConf).filter == false # Edge default, not set explicitly
+      WakuNodeConf(lc.kernelConf).clusterId == some(7'u16)
+
+  test "flat blob's reliabilityEnabled routes to the messaging conf, not the kernel":
+    let lc = parseLogosDeliveryConf("""{"relay": true, "reliabilityEnabled": true}""").valueOr:
+      raiseAssert error
+    check:
+      lc.messagingConf.get().reliabilityEnabled == some(true)
+
+  test "an unknown key in a flat blob is rejected":
+    check parseLogosDeliveryConf("""{"relay": true, "bogusKey": 1}""").isErr()
+
+  test "a flat blob's preset lifts reliability into the messaging record":
+    # twn defines a p2pReliability; the flat path must resolve it into the messaging
+    # conf (the kernel no longer carries reliability), matching master.
+    let lc = parseLogosDeliveryConf("""{"preset": "twn", "relay": true}""").valueOr:
+      raiseAssert error
+    let fromPreset = resolvePreset("twn").valueOr:
+      raiseAssert error
+    check lc.messagingConf.get().reliabilityEnabled == fromPreset.reliabilityEnabled
+
+  test "port 0 (auto-allocate) is accepted in a flat blob":
+    let lc = parseLogosDeliveryConf(
+      """{"relay": true, "tcpPort": 0, "discv5UdpPort": 0}"""
+    ).valueOr:
+      raiseAssert error
+    check:
+      WakuNodeConf(lc.kernelConf).tcpPort == Port(0)
+      WakuNodeConf(lc.kernelConf).discv5UdpPort == Port(0)
+
+  test "port 0 is accepted in structured messagingOverrides":
+    let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"tcp-port": 0}}""").valueOr:
+      raiseAssert error
+    check lc.messagingConf.get().p2pTcpPort == some(Port(0))
+
+  test "mode/preset with no bare field stays structured; a bare field flips it to flat":
+    # No bare kernel field -> structured: mode owns relay, no per-flag override.
+    let structured = parseLogosDeliveryConf(
+      """{"mode": "Edge", "preset": "logostest"}"""
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(structured.kernelConf).relay == false # Edge, structured
+    # Adding a bare kernel field (relay) flips to flat, where the explicit flag wins;
+    # relay == true is only reachable via the flat path, so it proves the routing.
+    let flat = parseLogosDeliveryConf(
+      """{"mode": "Edge", "preset": "logostest", "relay": true}"""
+    ).valueOr:
+      raiseAssert error
+    check:
+      WakuNodeConf(flat.kernelConf).relay == true
+      WakuNodeConf(flat.kernelConf).preset == "logostest"
+
+  test "a wrapper key alongside a bare kernel field is rejected, not split":
+    # A wrapper key (messagingOverrides) marks the structured shape, so the blob does
+    # not flip to flat; the leftover bare field (relay) then has no structured home and
+    # is rejected. Guards against the discriminator silently splitting a mixed object.
+    check parseLogosDeliveryConf("""{"messagingOverrides": {}, "relay": true}""").isErr()
