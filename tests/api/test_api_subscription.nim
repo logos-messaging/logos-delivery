@@ -18,7 +18,7 @@ import
   ]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
-import logos_delivery/api/messaging_conf
+import logos_delivery/api/conf/messaging_conf
 
 const TestTimeout = chronos.seconds(10)
 const NegativeTestTimeout = chronos.seconds(2)

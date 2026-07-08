@@ -8,7 +8,7 @@ import ../waku_archive/archive_utils
 import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
-import logos_delivery/api/messaging_conf
+import logos_delivery/api/conf/messaging_conf
 
 type SendEventOutcome {.pure.} = enum
   Sent

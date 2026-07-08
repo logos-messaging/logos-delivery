@@ -4,7 +4,7 @@ import std/[json, options, strutils, tables]
 import results
 
 import tools/confutils/conf_from_json
-import logos_delivery/api/logos_delivery_conf
+import logos_delivery/api/conf/logos_delivery_conf
 
 const
   # Lowercased, since `collectJsonFields` keys the object case-insensitively.

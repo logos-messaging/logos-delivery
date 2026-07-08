@@ -2,7 +2,7 @@ import std/options
 import std/net
 import results
 
-import logos_delivery/api/kernel_conf
+import logos_delivery/api/conf/kernel_conf
 import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/factory/networks_config
 

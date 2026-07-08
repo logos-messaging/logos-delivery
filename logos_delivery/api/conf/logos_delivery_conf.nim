@@ -3,7 +3,7 @@
 import std/options
 import results
 
-import logos_delivery/api/messaging_conf
+import logos_delivery/api/conf/messaging_conf
 import logos_delivery/channels/reliable_channel_manager
 
 export options, messaging_conf, reliable_channel_manager

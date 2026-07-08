@@ -7,7 +7,7 @@ import
   logos_delivery/api/types,
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
-  logos_delivery/api/logos_delivery_conf_json,
+  logos_delivery/api/conf/logos_delivery_conf_json,
   ../declare_lib,
   ../json_event
 

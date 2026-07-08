@@ -42,7 +42,7 @@ import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
 import logos_delivery/api/events/messaging_client_events
 export messaging_client_events
-import logos_delivery/api/messaging_conf
+import logos_delivery/api/conf/messaging_conf
 export messaging_conf
 
 # Reliable Channel layer
@@ -61,7 +61,7 @@ import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
 import tools/confutils/cli_args
 import logos_delivery/waku/node/health_monitor/online_monitor
-import logos_delivery/api/logos_delivery_conf
+import logos_delivery/api/conf/logos_delivery_conf
 export logos_delivery_conf
 
 logScope:

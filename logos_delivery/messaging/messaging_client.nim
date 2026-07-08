@@ -6,7 +6,7 @@ import results, chronos
 import confutils/defs
 import libp2p/crypto/crypto
 import logos_delivery/waku/common/logging
-import logos_delivery/api/kernel_conf
+import logos_delivery/api/conf/kernel_conf
 import chronicles
 import
   logos_delivery/api/messaging_client_api,
