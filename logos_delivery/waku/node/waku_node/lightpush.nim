@@ -151,17 +151,27 @@ proc legacyLightpushPublish*(
 
     info "legacy lightpush send rejected as RLN-invalid; " &
       "refreshing merkle proof and retrying once"
-    let (retryMsg, _) = (
-      await checkAndGenerateRLNProof(
-        rln,
-        msgWithProof,
-        forceMerkleProofRefresh = true,
-        reuseMessageId = drawnMessageId,
-      )
-    ).valueOr:
-      return err("failed call checkAndGenerateRLNProof from lightpush retry: " & error)
 
-    return await internalPublish(node, pubsubForPublish, retryMsg, peer)
+    proc runRetry(): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.
+        async, gcsafe
+    .} =
+      let (retryMsg, _) = (
+        await checkAndGenerateRLNProof(
+          rln,
+          msgWithProof,
+          forceMerkleProofRefresh = true,
+          reuseMessageId = drawnMessageId,
+        )
+      ).valueOr:
+        return
+          err("failed call checkAndGenerateRLNProof from lightpush retry: " & error)
+      return await internalPublish(node, pubsubForPublish, retryMsg, peer)
+
+    let retryFut = runRetry()
+    if not (await retryFut.withTimeout(RlnRefreshRetryTimeout)):
+      warn "legacy lightpush RLN-refresh retry timed out; returning original error"
+      return firstResult
+    return retryFut.read()
   except CatchableError:
     return err(getCurrentExceptionMsg())
 
@@ -347,11 +357,23 @@ proc lightpushPublish*(
 
   info "lightpush send rejected; refreshing merkle proof and retrying once",
     statusCode = $firstResult.error.code
-  let (retryMsg, _) = (
-    await checkAndGenerateRLNProof(
-      rln, msgWithProof, forceMerkleProofRefresh = true, reuseMessageId = drawnMessageId
-    )
-  ).valueOr:
-    return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
 
-  return await lightpushPublishHandler(node, pubsubForPublish, retryMsg, toPeer, mixify)
+  proc runRetry(): Future[lightpush_protocol.WakuLightPushResult] {.async, gcsafe.} =
+    let (retryMsg, _) = (
+      await checkAndGenerateRLNProof(
+        rln,
+        msgWithProof,
+        forceMerkleProofRefresh = true,
+        reuseMessageId = drawnMessageId,
+      )
+    ).valueOr:
+      return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
+    return
+      await lightpushPublishHandler(node, pubsubForPublish, retryMsg, toPeer, mixify)
+
+  let retryFut = runRetry()
+  if not (await retryFut.withTimeout(RlnRefreshRetryTimeout)):
+    warn "lightpush RLN-refresh retry timed out; returning original error",
+      statusCode = $firstResult.error.code
+    return firstResult
+  return retryFut.read()
