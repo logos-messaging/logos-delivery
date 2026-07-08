@@ -71,6 +71,27 @@ proc generateRLNProof*(
     return err("could not generate rln-v2 proof: " & $error)
   return ok(proof.encode().buffer)
 
+proc generateRLNProofWithRootRefresh*(
+    rln: Rln, input: seq[byte], senderEpochTime: float64
+): Future[Result[seq[byte], string]] {.async.} =
+  ## Generates an RLN proof and self-validates its merkle root against the
+  ## acceptable-root window. If the cached path has slid out of that window
+  ## (typical after a long inactivity or on-chain group churn), force-refreshes
+  ## the merkle path and regenerates the proof once. Returns the proof bytes
+  ## the caller can attach to the message.
+  let proofBytes = (await rln.generateRLNProof(input, senderEpochTime)).valueOr:
+    return err(error)
+
+  let rlnProof = RateLimitProof.init(proofBytes).valueOr:
+    return err("could not decode proof for root check: " & $error)
+
+  if await rln.groupManager.validateRoot(rlnProof.merkleRoot):
+    return ok(proofBytes)
+
+  info "RLN: stale merkle root detected; force-refreshing merkle path"
+  return
+    await rln.generateRLNProof(input, senderEpochTime, forceMerkleProofRefresh = true)
+
 proc checkAndGenerateRLNProof*(
     rln: Option[Rln],
     message: WakuMessage,
