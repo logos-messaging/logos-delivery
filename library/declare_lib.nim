@@ -1,5 +1,6 @@
 import ffi
 import std/locks
+import results
 import logos_delivery
 
 declareLibrary("logosdelivery")
@@ -22,9 +23,8 @@ template requireMessaging*(
 ) =
   ## Use after `requireInitializedNode`. Fails if the node has no messaging client
   ## (a kernel-only / fleet node).
-  if isNil(ctx.myLib[].messagingClient):
-    let errMsg {.inject.} =
-      opName & " failed: node has no messaging client (kernel-only/fleet node)"
+  ctx.myLib[].ensureMessaging().isOkOr:
+    let errMsg {.inject.} = opName & " failed: " & error
     onError
 
 template requireChannels*(
@@ -32,9 +32,8 @@ template requireChannels*(
 ) =
   ## Use after `requireInitializedNode`. Fails if the node has no reliable channel
   ## manager (a kernel-only / fleet node).
-  if isNil(ctx.myLib[].reliableChannelManager):
-    let errMsg {.inject.} =
-      opName & " failed: node has no reliable channel manager (kernel-only/fleet node)"
+  ctx.myLib[].ensureChannels().isOkOr:
+    let errMsg {.inject.} = opName & " failed: " & error
     onError
 
 proc logosdelivery_set_event_callback(

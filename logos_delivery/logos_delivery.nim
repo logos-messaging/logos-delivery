@@ -82,17 +82,19 @@ proc new*(
   let waku = (await Waku.new(wakuConf, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  var messagingClient: MessagingClient
-  if conf.messagingConf.isSome():
-    messagingClient = MessagingClient.new(conf.messagingConf.get(), waku).valueOr:
-      return err("failed to create MessagingClient: " & error)
+  let messagingClient =
+    if conf.messagingConf.isSome():
+      MessagingClient.new(conf.messagingConf.get(), waku).valueOr:
+        return err("failed to create MessagingClient: " & error)
+    else:
+      nil
 
-  var reliableChannelManager: ReliableChannelManager
-  if conf.channelsConf.isSome():
-    reliableChannelManager = ReliableChannelManager.new(
-      conf.channelsConf.get(), waku.brokerCtx
-    ).valueOr:
-      return err("failed to create ReliableChannelManager: " & error)
+  let reliableChannelManager =
+    if conf.channelsConf.isSome():
+      ReliableChannelManager.new(conf.channelsConf.get(), waku.brokerCtx).valueOr:
+        return err("failed to create ReliableChannelManager: " & error)
+    else:
+      nil
 
   return ok(
     LogosDelivery(
@@ -187,6 +189,18 @@ proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():
     return err("Waku node is not initialized")
   return await self.waku.isOnline()
+
+proc ensureMessaging*(self: LogosDelivery): Result[void, string] =
+  ## Fails if the node has no messaging client (a kernel-only / fleet node).
+  if self.isNil() or self.messagingClient.isNil():
+    return err("node has no messaging client (kernel-only/fleet node)")
+  ok()
+
+proc ensureChannels*(self: LogosDelivery): Result[void, string] =
+  ## Fails if the node has no reliable channel manager (a kernel-only / fleet node).
+  if self.isNil() or self.reliableChannelManager.isNil():
+    return err("node has no reliable channel manager (kernel-only/fleet node)")
+  ok()
 
 # Compile-time check that each concrete type satisfies its API concept.
 static:
