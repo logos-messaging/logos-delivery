@@ -12,7 +12,7 @@ type WakuMode* {.pure.} = enum
   Edge # client-only node
   Core # full service node
 
-proc toKernelConf*(m: MessagingClientConf, mode: WakuMode): ConfResult[KernelConf] =
+proc toKernelConf*(self: MessagingClientConf, mode: WakuMode): ConfResult[KernelConf] =
   ## Mode sets the protocol flags; set fields map to their kernel counterpart.
   var conf = ?defaultWakuNodeConf()
 
@@ -31,49 +31,49 @@ proc toKernelConf*(m: MessagingClientConf, mode: WakuMode): ConfResult[KernelCon
     conf.lightpush = false
     conf.store = false
 
-  if m.store.isSome():
-    conf.store = m.store.get()
-  if m.storeMessageDbUrl.isSome():
-    conf.storeMessageDbUrl = m.storeMessageDbUrl.get()
-  if m.storeMessageRetentionPolicy.isSome():
-    conf.storeMessageRetentionPolicy = m.storeMessageRetentionPolicy.get()
-  if m.storeMaxNumDbConnections.isSome():
-    conf.storeMaxNumDbConnections = m.storeMaxNumDbConnections.get()
-  if m.storenode.isSome():
-    conf.storenode = m.storenode.get()
+  if self.store.isSome():
+    conf.store = self.store.get()
+  if self.storeMessageDbUrl.isSome():
+    conf.storeMessageDbUrl = self.storeMessageDbUrl.get()
+  if self.storeMessageRetentionPolicy.isSome():
+    conf.storeMessageRetentionPolicy = self.storeMessageRetentionPolicy.get()
+  if self.storeMaxNumDbConnections.isSome():
+    conf.storeMaxNumDbConnections = self.storeMaxNumDbConnections.get()
+  if self.storenode.isSome():
+    conf.storenode = self.storenode.get()
 
-  if m.clusterId.isSome():
-    conf.clusterId = m.clusterId
-  if m.numShardsInCluster.isSome():
-    conf.numShardsInNetwork = m.numShardsInCluster.get()
-  if m.listenIpv4.isSome():
-    conf.listenAddress = m.listenIpv4.get()
-  if m.maxMessageSize.isSome():
-    conf.maxMessageSize = m.maxMessageSize.get()
-  if m.entryNodes.isSome():
-    conf.entryNodes = m.entryNodes.get()
-  if m.ethRpcEndpoints.isSome():
-    conf.ethClientUrls = m.ethRpcEndpoints.get()
-  if m.rlnContractAddress.isSome():
-    conf.rlnRelayEthContractAddress = m.rlnContractAddress.get()
+  if self.clusterId.isSome():
+    conf.clusterId = self.clusterId
+  if self.numShardsInCluster.isSome():
+    conf.numShardsInNetwork = self.numShardsInCluster.get()
+  if self.listenIpv4.isSome():
+    conf.listenAddress = self.listenIpv4.get()
+  if self.maxMessageSize.isSome():
+    conf.maxMessageSize = self.maxMessageSize.get()
+  if self.entryNodes.isSome():
+    conf.entryNodes = self.entryNodes.get()
+  if self.ethRpcEndpoints.isSome():
+    conf.ethClientUrls = self.ethRpcEndpoints.get()
+  if self.rlnContractAddress.isSome():
+    conf.rlnRelayEthContractAddress = self.rlnContractAddress.get()
     conf.rlnRelay = some(true)
-  if m.rlnChainId.isSome():
-    conf.rlnRelayChainId = m.rlnChainId.get()
-  if m.rlnEpochSizeSec.isSome():
-    conf.rlnEpochSizeSec = some(m.rlnEpochSizeSec.get().uint64)
-  if m.logLevel.isSome():
-    conf.logLevel = m.logLevel.get()
-  if m.logFormat.isSome():
-    conf.logFormat = m.logFormat.get()
-  if m.nodeKey.isSome():
-    conf.nodekey = m.nodeKey
+  if self.rlnChainId.isSome():
+    conf.rlnRelayChainId = self.rlnChainId.get()
+  if self.rlnEpochSizeSec.isSome():
+    conf.rlnEpochSizeSec = some(self.rlnEpochSizeSec.get().uint64)
+  if self.logLevel.isSome():
+    conf.logLevel = self.logLevel.get()
+  if self.logFormat.isSome():
+    conf.logFormat = self.logFormat.get()
+  if self.nodeKey.isSome():
+    conf.nodekey = self.nodeKey
 
-  conf.tcpPort = m.p2pTcpPort.get(Port(0))
-  conf.discv5UdpPort = m.discv5UdpPort.get(Port(0))
-  conf.websocketPort = m.websocketPort.get(Port(0))
-  conf.quicPort = m.quicPort.get(Port(0))
-  conf.websocketSupport = m.websocketSupport.get(false)
-  conf.quicSupport = m.quicSupport.get(true)
+  conf.tcpPort = self.p2pTcpPort.get(Port(0))
+  conf.discv5UdpPort = self.discv5UdpPort.get(Port(0))
+  conf.websocketPort = self.websocketPort.get(Port(0))
+  conf.quicPort = self.quicPort.get(Port(0))
+  conf.websocketSupport = self.websocketSupport.get(false)
+  conf.quicSupport = self.quicSupport.get(true)
 
   return ok(conf)
 

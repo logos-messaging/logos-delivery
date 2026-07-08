@@ -9,83 +9,83 @@ import logos_delivery/waku/common/logging
 
 suite "MessagingClientConf - mode expansion (toKernelConf)":
   test "Core mode enables relay + service protocols":
-    let conf = MessagingClientConf().toKernelConf(WakuMode.Core).valueOr:
+    let kc = MessagingClientConf().toKernelConf(WakuMode.Core).valueOr:
         raiseAssert error
     check:
-      conf.relay == true
-      conf.filter == true
-      conf.lightpush == true
-      conf.discv5Discovery == some(true)
-      conf.peerExchange == true
-      conf.rendezvous == true
+      kc.relay == true
+      kc.filter == true
+      kc.lightpush == true
+      kc.discv5Discovery == some(true)
+      kc.peerExchange == true
+      kc.rendezvous == true
 
   test "Edge mode is client-only (no relay/filter/lightpush/store)":
-    let conf = MessagingClientConf().toKernelConf(WakuMode.Edge).valueOr:
+    let kc = MessagingClientConf().toKernelConf(WakuMode.Edge).valueOr:
         raiseAssert error
     check:
-      conf.relay == false
-      conf.filter == false
-      conf.lightpush == false
-      conf.store == false
-      conf.peerExchange == true
-      conf.discv5Discovery == some(true) # discovery stays on; mode does not force it off
+      kc.relay == false
+      kc.filter == false
+      kc.lightpush == false
+      kc.store == false
+      kc.peerExchange == true
+      kc.discv5Discovery == some(true) # discovery stays on; mode does not force it off
 
 suite "MessagingClientConf - field mapping + transport policy":
   test "set fields are written to their kernel counterparts":
-    let m = MessagingClientConf(
+    let mc = MessagingClientConf(
       clusterId: some(3'u16),
       numShardsInCluster: some(4'u16),
       maxMessageSize: some("150KiB"),
     )
-    let conf = m.toKernelConf(WakuMode.Core).valueOr:
+    let kc = mc.toKernelConf(WakuMode.Core).valueOr:
       raiseAssert error
     check:
-      conf.clusterId == some(3'u16)
-      conf.numShardsInNetwork == 4
-      conf.maxMessageSize == "150KiB"
+      kc.clusterId == some(3'u16)
+      kc.numShardsInNetwork == 4
+      kc.maxMessageSize == "150KiB"
 
   test "messaging transport defaults: ephemeral ports, websocket off, quic on":
-    let conf = MessagingClientConf().toKernelConf(WakuMode.Core).valueOr:
+    let kc = MessagingClientConf().toKernelConf(WakuMode.Core).valueOr:
         raiseAssert error
     check:
-      conf.tcpPort == Port(0)
-      conf.discv5UdpPort == Port(0)
-      conf.websocketSupport == false
-      conf.quicSupport == true
+      kc.tcpPort == Port(0)
+      kc.discv5UdpPort == Port(0)
+      kc.websocketSupport == false
+      kc.quicSupport == true
 
   test "explicit transport overrides win":
-    let m = MessagingClientConf(
+    let mc = MessagingClientConf(
       p2pTcpPort: some(Port(1234)),
       websocketSupport: some(true),
       quicSupport: some(false),
     )
-    let conf = m.toKernelConf(WakuMode.Core).valueOr:
+    let kc = mc.toKernelConf(WakuMode.Core).valueOr:
       raiseAssert error
     check:
-      conf.tcpPort == Port(1234)
-      conf.websocketSupport == true
-      conf.quicSupport == false
+      kc.tcpPort == Port(1234)
+      kc.websocketSupport == true
+      kc.quicSupport == false
 
 suite "MessagingClientConf - preset resolution":
   test "resolvePreset lifts only messaging-exclusive fields, not kernel-mirrored ones":
-    let m = resolvePreset("twn").valueOr:
+    let mc = resolvePreset("twn").valueOr:
       raiseAssert error
     check:
-      m.reliabilityEnabled.isSome()
-      m.clusterId.isNone()
-      m.maxMessageSize.isNone()
+      mc.reliabilityEnabled.isSome()
+      mc.clusterId.isNone()
+      mc.maxMessageSize.isNone()
 
   test "resolvePreset does not lift entryNodes":
-    let m = resolvePreset("logostest").valueOr:
+    let mc = resolvePreset("logostest").valueOr:
       raiseAssert error
-    check m.entryNodes.isNone()
+    check mc.entryNodes.isNone()
 
   test "empty preset resolves to an empty config":
-    let m = resolvePreset("").valueOr:
+    let mc = resolvePreset("").valueOr:
       raiseAssert error
     check:
-      m.clusterId.isNone()
-      m.maxMessageSize.isNone()
+      mc.clusterId.isNone()
+      mc.maxMessageSize.isNone()
 
   test "a messaging override of a kernel-mirrored field wins over the preset":
     let presetConf = resolvePreset("logos.dev").valueOr:
@@ -104,44 +104,44 @@ suite "MessagingClientConf - merge (override wins)":
   test "a set override field wins; unset keeps the base":
     let base = MessagingClientConf(clusterId: some(1'u16), maxMessageSize: some("1MB"))
     let overrides = MessagingClientConf(clusterId: some(2'u16))
-    let m = merge(base, overrides)
+    let mc = merge(base, overrides)
     check:
-      m.clusterId == some(2'u16) # override wins
-      m.maxMessageSize == some("1MB") # base preserved
+      mc.clusterId == some(2'u16) # override wins
+      mc.maxMessageSize == some("1MB") # base preserved
 
 suite "parseLogosDeliveryConf - JSON parsing":
   test "empty object -> Core (default), empty preset, empty overrides":
-    let conf = parseLogosDeliveryConf("{}").valueOr:
+    let lc = parseLogosDeliveryConf("{}").valueOr:
       raiseAssert error
     check:
-      conf.kernelConf.relay == true # Core enables relay
-      conf.kernelConf.preset == ""
-      conf.messaging.clusterId.isNone()
+      lc.kernelConf.relay == true # Core enables relay
+      lc.kernelConf.preset == ""
+      lc.messagingConf.clusterId.isNone()
 
   test "mode + preset are parsed":
-    let conf = parseLogosDeliveryConf("""{"mode": "Edge", "preset": "logostest"}""").valueOr:
+    let lc = parseLogosDeliveryConf("""{"mode": "Edge", "preset": "logostest"}""").valueOr:
       raiseAssert error
     check:
-      conf.kernelConf.preset == "logostest"
-      conf.kernelConf.relay == false # Edge disables relay
+      lc.kernelConf.preset == "logostest"
+      lc.kernelConf.relay == false # Edge disables relay
 
   test "messagingOverrides parsed into the partial":
-    let conf = parseLogosDeliveryConf(
+    let lc = parseLogosDeliveryConf(
       """{"mode": "Core", "messagingOverrides": {"clusterId": 7, "reliabilityEnabled": true}}"""
     ).valueOr:
       raiseAssert error
     check:
-      conf.messaging.clusterId == some(7'u16)
-      conf.messaging.reliabilityEnabled == some(true)
+      lc.messagingConf.clusterId == some(7'u16)
+      lc.messagingConf.reliabilityEnabled == some(true)
 
   test "channelsOverrides parsed into the partial":
-    let conf = parseLogosDeliveryConf(
+    let lc = parseLogosDeliveryConf(
       """{"channelsOverrides": {"rateLimitEnabled": true, "sdsMaxRetransmissions": 9}}"""
     ).valueOr:
       raiseAssert error
     check:
-      conf.reliableChannel.rateLimitEnabled == some(true)
-      conf.reliableChannel.sdsMaxRetransmissions == some(9)
+      lc.channelsConf.rateLimitEnabled == some(true)
+      lc.channelsConf.sdsMaxRetransmissions == some(9)
 
   test "invalid mode is rejected (Core or Edge only)":
     check parseLogosDeliveryConf("""{"mode": "bogus"}""").isErr()
@@ -155,14 +155,14 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check parseLogosDeliveryConf("""{"logLevel": "INFO", "mode": "Core"}""").isErr()
 
   test "override keys accept CLI switch names":
-    let conf = parseLogosDeliveryConf(
+    let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"cluster-id": 7, "reliability": true, "tcp-port": 1234}}"""
     ).valueOr:
       raiseAssert error
     check:
-      conf.messaging.clusterId == some(7'u16)
-      conf.messaging.reliabilityEnabled == some(true)
-      conf.messaging.p2pTcpPort == some(Port(1234))
+      lc.messagingConf.clusterId == some(7'u16)
+      lc.messagingConf.reliabilityEnabled == some(true)
+      lc.messagingConf.p2pTcpPort == some(Port(1234))
 
   test "unknown keys inside an overrides body are rejected":
     check parseLogosDeliveryConf("""{"messagingOverrides": {"bogusKey": 1}}""").isErr()
@@ -175,45 +175,45 @@ suite "parseLogosDeliveryConf - JSON parsing":
       .isErr()
 
   test "logLevel and nodeKey parse via switch names and map to the kernel":
-    let conf = parseLogosDeliveryConf(
+    let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"log-level": "DEBUG", "log-format": "JSON", "nodekey": "0d714a1fada214dead6dc9c7274581ec20ff292451866e7d6d677dc818e8ccd2"}}"""
     ).valueOr:
       raiseAssert error
     check:
-      conf.kernelConf.logLevel == logging.LogLevel.DEBUG
-      conf.kernelConf.logFormat == logging.LogFormat.JSON
-      conf.kernelConf.nodekey.isSome()
+      lc.kernelConf.logLevel == logging.LogLevel.DEBUG
+      lc.kernelConf.logFormat == logging.LogFormat.JSON
+      lc.kernelConf.nodekey.isSome()
 
   test "a null value leaves the field unset":
-    let conf = parseLogosDeliveryConf(
+    let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"store": null, "clusterId": 7}}"""
     ).valueOr:
       raiseAssert error
     check:
-      conf.messaging.store.isNone()
-      conf.messaging.clusterId == some(7'u16)
+      lc.messagingConf.store.isNone()
+      lc.messagingConf.clusterId == some(7'u16)
 
   test "an invalid Ethereum RPC URL is rejected at parse time":
     check parseLogosDeliveryConf(
       """{"messagingOverrides": {"rln-relay-eth-client-address": ["ws://node:8546"]}}"""
     )
       .isErr()
-    let conf = parseLogosDeliveryConf(
+    let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"rln-relay-eth-client-address": ["http://localhost:8540/"]}}"""
     ).valueOr:
       raiseAssert error
-    check conf.kernelConf.ethClientUrls.len == 1
+    check lc.kernelConf.ethClientUrls.len == 1
 
   test "store backend fields parse and map to the kernel":
-    let conf = parseLogosDeliveryConf(
+    let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"store": true, "store-message-db-url": "sqlite://test.db", "store-message-retention-policy": "time:3600", "store-max-num-db-connections": 7}}"""
     ).valueOr:
       raiseAssert error
     check:
-      conf.kernelConf.store == true
-      conf.kernelConf.storeMessageDbUrl == "sqlite://test.db"
-      conf.kernelConf.storeMessageRetentionPolicy == "time:3600"
-      conf.kernelConf.storeMaxNumDbConnections == 7
+      lc.kernelConf.store == true
+      lc.kernelConf.storeMessageDbUrl == "sqlite://test.db"
+      lc.kernelConf.storeMessageRetentionPolicy == "time:3600"
+      lc.kernelConf.storeMaxNumDbConnections == 7
 
   test "a not-JSON-settable field is rejected":
     check parseLogosDeliveryConf("""{"channelsOverrides": {"sdsPersistence": 1}}""")
@@ -258,8 +258,8 @@ suite "LogosDelivery.new - construction (the app-dev entry)":
 
 suite "MessagingClientConf - store override":
   test "store opt-in overrides the mode default; protocol flags follow the mode":
-    let conf = MessagingClientConf(store: some(true)).toKernelConf(WakuMode.Edge).valueOr:
+    let kc = MessagingClientConf(store: some(true)).toKernelConf(WakuMode.Edge).valueOr:
       raiseAssert error
     check:
-      conf.store == true # Edge defaults store off; the explicit opt-in wins
-      conf.relay == false # protocols are owned by the mode, not overridable
+      kc.store == true # Edge defaults store off; the explicit opt-in wins
+      kc.relay == false # protocols are owned by the mode, not overridable

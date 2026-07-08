@@ -81,11 +81,11 @@ proc new*(
   let waku = (await Waku.new(wakuConf, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  let messagingClient = MessagingClient.new(conf.messaging, waku).valueOr:
+  let messagingClient = MessagingClient.new(conf.messagingConf, waku).valueOr:
     return err("failed to create MessagingClient: " & error)
 
   let reliableChannelManager = ReliableChannelManager.new(
-    conf.reliableChannel, waku.brokerCtx
+    conf.channelsConf, waku.brokerCtx
   ).valueOr:
     return err("failed to create ReliableChannelManager: " & error)
 
@@ -104,8 +104,8 @@ proc new*(
   return await LogosDelivery.new(
     LogosDeliveryConf(
       kernelConf: conf,
-      messaging: MessagingClientConf(),
-      reliableChannel: ReliableChannelManagerConf(),
+      messagingConf: MessagingClientConf(),
+      channelsConf: ReliableChannelManagerConf(),
     ),
     appCallbacks,
   )

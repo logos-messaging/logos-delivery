@@ -9,8 +9,8 @@ export messaging_conf, reliable_channel_manager
 
 type LogosDeliveryConf* = object ## Aggregates the per-layer config objects.
   kernelConf*: KernelConf
-  messaging*: MessagingClientConf
-  reliableChannel*: ReliableChannelManagerConf
+  messagingConf*: MessagingClientConf
+  channelsConf*: ReliableChannelManagerConf
 
 proc init*(
     T: type LogosDeliveryConf,
@@ -24,7 +24,7 @@ proc init*(
   kernelConf.preset = preset
   return ok(
     LogosDeliveryConf(
-      kernelConf: kernelConf, messaging: merged, reliableChannel: channelsOverrides
+      kernelConf: kernelConf, messagingConf: merged, channelsConf: channelsOverrides
     )
   )
 

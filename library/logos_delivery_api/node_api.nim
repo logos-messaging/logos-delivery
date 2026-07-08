@@ -20,7 +20,7 @@ registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[LogosDelivery]):
     let conf = parseLogosDeliveryConf($configJson).valueOr:
       error "Failed to parse Logos Delivery configuration JSON",
         error = error, configJson = $configJson
-      return err(error)
+      return err("failed parseLogosDeliveryConf " & error)
 
     ctx.myLib[] = (await LogosDelivery.new(conf)).valueOr:
       let errMsg = $error
