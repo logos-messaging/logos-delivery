@@ -14,7 +14,7 @@ proc send*(
 ): Future[Result[RequestId, string]] {.async: (raises: []).} =
   ## Spec-level entry point. Looks the channel up by id and delegates
   ## to `ReliableChannel.send`, which exposes the visible pipeline
-  ## segmentation -> sds -> rate_limit_manager -> encryption.
+  ## segmentation -> sds -> encryption -> dispatch.
   let chn = self.channels.getOrDefault(channelId)
   if chn.isNil():
     return err("unknown channel: " & channelId)

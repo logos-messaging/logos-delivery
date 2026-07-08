@@ -51,15 +51,6 @@ proc createReliableChannel*(
     causalHistorySize: cc.sdsCausalHistorySize.get(DefaultCausalHistorySize),
     persistence: sdsPersistence(),
   )
-  let rateConfig = RateLimitConfig(
-    # Setting a rate-limit parameter implies enabling; an explicit
-    # rateLimitEnabled still wins.
-    enabled: cc.rateLimitEnabled.get(
-      cc.rateLimitEpochPeriodSec.isSome() or cc.rateLimitMessagesPerEpoch.isSome()
-    ),
-    epochPeriodSec: cc.rateLimitEpochPeriodSec.get(DefaultEpochPeriodSec),
-    messagesPerEpoch: cc.rateLimitMessagesPerEpoch.get(DefaultMessagesPerEpoch),
-  )
 
   let chn = ReliableChannel.new(
     channelId = channelId,
@@ -67,7 +58,6 @@ proc createReliableChannel*(
     senderId = senderId,
     segConfig = segConfig,
     sdsConfig = sdsConfig,
-    rateConfig = rateConfig,
     brokerCtx = self.brokerCtx,
   )
 

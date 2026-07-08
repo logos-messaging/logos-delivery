@@ -336,9 +336,9 @@ suite "Reliable Channel - send state machine":
   asyncTest "sibling MessageSentEvent during sendHandler await does not corrupt state":
     ## Regression test for the prune-during-await race
     ## (PR #3914 review comment r3324891059). Locks in that a sibling
-    ## `MessageSentEvent` firing while `onReadyToSend` is paused at an
-    ## `await` does not lose the second `channelReqId`'s terminal
-    ## event.
+    ## `MessageSentEvent` firing while `send` is paused at a
+    ## `MessagingSend.request` await does not lose the second
+    ## `channelReqId`'s terminal event.
     const
       channelId = ChannelId("sm-race-channel")
       contentTopic = ContentTopic("/reliable-channel/test/sm-race")
@@ -360,8 +360,8 @@ suite "Reliable Channel - send state machine":
       proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
         ## Call 2 fires the first segment's terminal event and then
         ## yields, so the listener task runs while the second segment
-        ## is still mid-`await` in `onReadyToSend` — the exact race
-        ## window the regression test targets.
+        ## is still mid-`await` inside `send` — the exact race window
+        ## the regression test targets.
         let id = RequestId("race-msg-req-" & $(msgReqIds.len + 1))
         msgReqIds.add(id)
         if msgReqIds.len == 2:
@@ -396,8 +396,7 @@ suite "Reliable Channel - send state machine":
       (await manager.send(channelId, "first".toBytes())).expect("send 1")
 
     ## Drain the first segment fully before queueing the second, so
-    ## the rate-limit FIFO between sibling sends isn't itself under
-    ## test here.
+    ## inter-send ordering isn't itself under test here.
     let firstDispatched = Moment.now() + 1.seconds
     while Moment.now() < firstDispatched and msgReqIds.len < 1:
       await sleepAsync(5.milliseconds)
@@ -407,8 +406,8 @@ suite "Reliable Channel - send state machine":
       (await manager.send(channelId, "second".toBytes())).expect("send 2")
 
     ## Wait until `fakeSend(m2)` has fully returned and yield once
-    ## more so `onReadyToSend`'s post-await continuation gets a chance
-    ## to register `id2` in `inflightMessagingIds` before we emit its
+    ## more so `send`'s post-await continuation gets a chance to
+    ## register `id2` in `inflightMessagingIds` before we emit its
     ## terminal event.
     let dispatchDeadline = Moment.now() + 1.seconds
     while Moment.now() < dispatchDeadline and sendsReturned < 2:

@@ -1,10 +1,10 @@
 ## Reliable Channel type.
 ##
 ## A `ReliableChannel` orchestrates segmentation, SDS (end-to-end
-## reliability), optional encryption, and rate-limited dispatch on top
-## of the Messaging API for a single channel.
+## reliability), optional encryption, and dispatch on top of the
+## Messaging API for a single channel.
 ##
-## Outgoing pipeline: Segment -> SDS -> Rate Limit -> Encrypt -> Dispatch
+## Outgoing pipeline: Segment -> SDS -> Encrypt -> Dispatch
 ## Incoming pipeline: Decrypt -> SDS -> Reassemble -> Emit event
 ##
 ## Channels are owned by a `ReliableChannelManager`. Lifecycle and send
@@ -29,12 +29,9 @@ import logos_delivery/waku/waku_core/topics
 
 import ./segmentation/segmentation
 import ./scalable_data_sync/scalable_data_sync
-import ./rate_limit_manager/rate_limit_manager
 import ./encryption/encryption
 
-export
-  types, reliable_channel_manager_api, segmentation, scalable_data_sync,
-  rate_limit_manager, encryption
+export types, reliable_channel_manager_api, segmentation, scalable_data_sync, encryption
 
 const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
   ## Wire-format spec marker for the Reliable Channel layer, as defined
@@ -51,33 +48,22 @@ type
 
   ChannelReqState = object
     ## Per channel-level request, tracks how many of its segments are
-    ## still queued, in flight, or have terminated. The channel-level
-    ## final event fires when `confirmedCount + failedCount` reaches
-    ## `totalExpectedSegments` AND no segments are still awaiting dispatch
-    ## or in flight.
+    ## still in flight or have terminated. The channel-level final event
+    ## fires when `confirmedCount + failedCount` reaches
+    ## `totalExpectedSegments` AND no segments are still in flight.
     persistenceReqType: MessagePersistence
     totalExpectedSegments: int
       ## Total segments produced by `segmentation.performSegmentation`
       ## for this `channelReqId`. Set once in `send`, never mutated.
-    awaitingDispatch: int
-      ## Segments enqueued in `rate_limit_manager` but not yet claimed
-      ## by `onReadyToSend`. Decremented when `onReadyToSend` picks a
-      ## message and assigns it to this `channelReqId`.
     inflightMessagingIds: seq[RequestId]
       ## Messaging-layer ids minted by the send handler that have not
       ## yet produced a final event. Removed on `MessageSentEvent` / `MessageErrorEvent`.
     confirmedCount: int
     failedCount: int
 
-  ChannelReqs = OrderedTable[RequestId, ChannelReqState]
+  ChannelReqs = Table[RequestId, ChannelReqState]
     ## Key: channelReqId (the parent id returned by channel `send`). Value:
     ## per-request state, see `ChannelReqState`.
-    ##
-    ## `OrderedTable` preserves insertion order, which matches the FIFO
-    ## order `rate_limit_manager` re-emits messages in: `onReadyToSend`
-    ## routes each segment to the first entry with `awaitingDispatch > 0`,
-    ## and that scan is correct precisely because the outer iteration
-    ## order matches the order `send` pushed entries.
 
   ReliableChannel* = ref object
     ## Spec-defined public type. Fields are private so callers cannot
@@ -89,7 +75,6 @@ type
     rng: libp2p_crypto.Rng
     segmentation: SegmentationHandler
     sdsHandler: SdsHandler
-    rateLimit: RateLimitManager
 
     channelReqs: ChannelReqs
     brokerCtx: BrokerContext
@@ -102,7 +87,6 @@ func init(
   return ChannelReqState(
     persistenceReqType: persistenceReqType,
     totalExpectedSegments: totalExpectedSegments,
-    awaitingDispatch: totalExpectedSegments,
     inflightMessagingIds: @[],
     confirmedCount: 0,
     failedCount: 0,
@@ -123,8 +107,8 @@ proc stop*(self: ReliableChannel) {.async: (raises: []).} =
 
 proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
   ## Tries to finalize the channel-level request identified by `channelReqId` if
-  ## certain conditions are met, i.e., no segments are still awaiting dispatch or in flight,
-  ## and the total number of confirmed + failed segments equals the total expected segments.
+  ## certain conditions are met, i.e., no segments are still in flight and the
+  ## total number of confirmed + failed segments equals the total expected segments.
   ## Therefore, the channel-level request is removed from `self.channelReqs`
   ## and the appropriate final event is emitted.
   ##
@@ -132,7 +116,7 @@ proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
   if state.totalExpectedSegments == 0:
     ## Either already finalized (and removed) or never inserted.
     return
-  if state.awaitingDispatch != 0 or state.inflightMessagingIds.len != 0:
+  if state.inflightMessagingIds.len != 0:
     return
   if state.confirmedCount + state.failedCount < state.totalExpectedSegments:
     return
@@ -153,22 +137,6 @@ proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
       self.brokerCtx,
       ChannelMessageSentEvent(channelId: self.channelId, requestId: channelReqId),
     )
-
-type ClaimedSegment = object
-  channelReqId: RequestId
-  isEphemeral: bool
-
-proc claimAwaitingChannelReq(self: ReliableChannel): Opt[ClaimedSegment] =
-  for channelReqId, state in self.channelReqs.mpairs:
-    if state.awaitingDispatch > 0:
-      state.awaitingDispatch.dec()
-      return Opt.some(
-        ClaimedSegment(
-          channelReqId: channelReqId,
-          isEphemeral: state.persistenceReqType == MessagePersistence.Ephemeral,
-        )
-      )
-  return Opt.none(ClaimedSegment)
 
 type MessagingOutcome {.pure.} = enum
   Sent
@@ -208,62 +176,61 @@ proc markSegmentInflight(
     error "unreachable: channelReqId not found in markSegmentInflight",
       channelReqId = $channelReqId, error = e.msg
 
-proc onReadyToSend(
-    self: ReliableChannel, readyToSendEvent: ReadyToSendEvent
-) {.async: (raises: []).} =
-  ## Tail of the outgoing pipeline. Invoked from the `ReadyToSendEvent`
-  ## listener once `rate_limit_manager` releases a batch of opaque
-  ## blobs (already-encoded SDS messages):
+proc send*(
+    self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
+): Future[Result[RequestId, string]] {.async: (raises: []).} =
+  ## Single application-level send:
   ##
-  ##   ... -> rate_limit_manager -> [encryption] -> dispatch
+  ##   segmentation -> sds -> encryption -> dispatch
   ##
-  ## For each `m`, the next channelReqId still queued in rate-limit
-  ## claims the slot (FIFO across sibling sends). The channelReqId is
-  ## captured up front and used as a stable key for every later state
-  ## update — no positional index is ever held across an `await`, so
-  ## sibling events mutating other entries (or even this one's
-  ## `inflightMessagingIds`) cannot corrupt this fiber's view.
-  for m in readyToSendEvent.msgs:
-    let claimed = self.claimAwaitingChannelReq().valueOr:
-      ## rate_limit_manager emitted more messages than we have pending —
-      ## should not happen given `send` increments `awaitingDispatch`
-      ## once per enqueued SDS payload. Drop silently rather than
-      ## corrupt state.
-      break
-    let channelReqId = claimed.channelReqId
-    let isEphemeral = claimed.isEphemeral
+  ## The returned `RequestId` is the channel-level parent of one-or-more
+  ## messaging-layer `RequestId`s; the mapping is held in
+  ## `self.channelReqs` until every segment is final.
+  if payload.len == 0:
+    return err("empty payload")
 
+  let channelReqId = RequestId.new(self.rng)
+  let persistenceReqType =
+    if ephemeral: MessagePersistence.Ephemeral else: MessagePersistence.Persistent
+
+  var sdsSegments: seq[seq[byte]]
+  for segmentBytes in self.segmentation.performSegmentation(payload):
+    ## Segments arrive already encoded; the segmentation module owns
+    ## the wire format so SDS only ever sees opaque bytes.
+    let sdsBytes = (await self.sdsHandler.wrapOutgoing(segmentBytes)).valueOr:
+      return err("SDS wrap failed: " & error)
+    sdsSegments.add(sdsBytes)
+
+  self.channelReqs[channelReqId] =
+    ChannelReqState.init(persistenceReqType, sdsSegments.len)
+
+  for sdsBytes in sdsSegments:
     ## TODO: revisit which fields of the SDS message must be encrypted.
     ## Encrypting the whole encoded blob forces every receiver to attempt
     ## decryption before it can route, which breaks selective dispatch.
     ## Leave routing metadata (channelId, causal-history references) in
     ## clear and encrypt only the application payload.
-    let encRes = await Encrypt.request(m)
-    let encrypted = encRes.valueOr:
+    let encrypted = (await Encrypt.request(sdsBytes)).valueOr:
       MessageErrorEvent.emit(
         self.brokerCtx,
         MessageErrorEvent(
           requestId: channelReqId, messageHash: "", error: "encryption failed: " & error
         ),
       )
-      ## Encryption failed *before* we could hand the segment to the
       self.markSegmentFailed(channelReqId)
       continue
-    let wireBytes = seq[byte](encrypted)
 
     ## The `meta` field carries the Reliable Channel wire-format spec
     ## marker so the ingress side of any peer can route this WakuMessage
     ## to its Reliable Channel layer.
     let envelope = MessageEnvelope(
       contentTopic: self.contentTopic,
-      payload: wireBytes,
-      ephemeral: isEphemeral,
+      payload: seq[byte](encrypted),
+      ephemeral: ephemeral,
       meta: LipWireReliableChannelVersion.toBytes(),
     )
 
-    let sendRes = await MessagingSend.request(self.brokerCtx, envelope)
-
-    let messagingReqId = sendRes.valueOr:
+    let messagingReqId = (await MessagingSend.request(self.brokerCtx, envelope)).valueOr:
       MessageErrorEvent.emit(
         self.brokerCtx,
         MessageErrorEvent(
@@ -276,45 +243,6 @@ proc onReadyToSend(
       continue
 
     self.markSegmentInflight(channelReqId, messagingReqId)
-
-proc send*(
-    self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
-): Future[Result[RequestId, string]] {.async: (raises: []).} =
-  ## Single application-level send. The first three stages of the
-  ## outgoing pipeline are chained explicitly so the flow is visible
-  ## at a glance:
-  ##
-  ##   segmentation -> sds -> rate_limit_manager
-  ##
-  ## `rate_limit_manager.enqueueToSend` emits a `ReadyToSendEvent` with
-  ## the SDS messages cleared for transmission; the channel's listener
-  ## then runs the final stage (encryption -> dispatch).
-  ##
-  ## The returned `RequestId` is the channel-level parent of one-or-more
-  ## messaging-layer `RequestId`s; the mapping is held in
-  ## `self.channelReqs` until every segment is final.
-  if payload.len == 0:
-    return err("empty payload")
-
-  let channelReqId = RequestId.new(self.rng)
-  let persistenceReqType =
-    if ephemeral: MessagePersistence.Ephemeral else: MessagePersistence.Persistent
-
-  var segmentCount = 0
-  var enqueued: seq[seq[byte]]
-  for segmentBytes in self.segmentation.performSegmentation(payload):
-    ## Segments arrive already encoded; the segmentation module owns
-    ## the wire format so SDS only ever sees opaque bytes.
-    let sdsBytes = (await self.sdsHandler.wrapOutgoing(segmentBytes)).valueOr:
-      return err("SDS wrap failed: " & error)
-    enqueued.add(sdsBytes)
-    segmentCount.inc()
-
-  self.channelReqs[channelReqId] =
-    ChannelReqState.init(persistenceReqType, segmentCount)
-
-  for sdsBytes in enqueued:
-    self.rateLimit.enqueueToSend(sdsBytes)
 
   return ok(channelReqId)
 
@@ -335,8 +263,7 @@ proc reportReceived(self: ReliableChannel, content: seq[byte]) =
     )
 
 proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []).} =
-  ## Repair rebroadcasts skip the rate-limit queue — its emissions are
-  ## claimed FIFO by pending sends. Pacing is done by SDS itself.
+  ## SDS-driven repair rebroadcast. Pacing is done by SDS itself.
   let encRes = await Encrypt.request(wire)
   let encrypted = encRes.valueOr:
     debug "SDS repair rebroadcast dropped: encryption failed",
@@ -406,15 +333,13 @@ proc new*(
     senderId: SdsParticipantID,
     segConfig: SegmentationConfig,
     sdsConfig: SdsConfig,
-    rateConfig: RateLimitConfig,
     brokerCtx: BrokerContext = globalBrokerContext(),
 ): T =
-  ## Pipeline handlers (segmentation/SDS/rate-limit) are constructed
-  ## inside the channel rather than handed in by the caller — they are
-  ## implementation details of the channel, not knobs the API consumer
-  ## should be wiring up. Encryption is delegated to the `Encrypt`/
-  ## `Decrypt` request brokers, so the channel keeps no per-instance
-  ## encryption state either.
+  ## Pipeline handlers (segmentation/SDS) are constructed inside the
+  ## channel rather than handed in by the caller — they are implementation
+  ## details of the channel, not knobs the API consumer should be wiring
+  ## up. Encryption is delegated to the `Encrypt`/`Decrypt` request
+  ## brokers, so the channel keeps no per-instance encryption state either.
   let chn = T(
     channelId: channelId,
     contentTopic: contentTopic,
@@ -422,8 +347,7 @@ proc new*(
     rng: libp2p_crypto.newRng(),
     segmentation: SegmentationHandler.new(segConfig),
     sdsHandler: SdsHandler.new(sdsConfig, channelId, senderId),
-    rateLimit: RateLimitManager.new(rateConfig, channelId, brokerCtx),
-    channelReqs: initOrderedTable[RequestId, ChannelReqState](),
+    channelReqs: initTable[RequestId, ChannelReqState](),
     brokerCtx: brokerCtx,
   )
 
@@ -432,20 +356,11 @@ proc new*(
     asyncSpawn chn.dispatchRepair(wire)
   chn.sdsHandler.start()
 
-  ## Each channel owns its own egress + ingress + send-completion
-  ## listeners on `chn.brokerCtx`, filtered to traffic addressed to
-  ## this channel. Keeping the listeners (and the handler procs they
-  ## call) inside the channel lets `onReadyToSend` /
-  ## `onMessageReceived` / `onMessageFinal` stay private — the
-  ## manager doesn't need to know about them.
-  discard ReadyToSendEvent.listen(
-    chn.brokerCtx,
-    proc(evt: ReadyToSendEvent): Future[void] {.async: (raises: []).} =
-      if evt.channelId == chn.channelId:
-        await chn.onReadyToSend(evt)
-    ,
-  )
-
+  ## Each channel owns its own ingress + send-completion listeners on
+  ## `chn.brokerCtx`, filtered to traffic addressed to this channel.
+  ## Keeping the listeners (and the handler procs they call) inside the
+  ## channel lets `onMessageReceived` / `onMessageFinal` stay private —
+  ## the manager doesn't need to know about them.
   discard MessageReceivedEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageReceivedEvent): Future[void] {.async: (raises: []).} =
