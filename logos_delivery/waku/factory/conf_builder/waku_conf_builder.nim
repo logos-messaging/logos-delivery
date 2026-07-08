@@ -797,7 +797,7 @@ proc build*(
     subscribeShards: subscribeShards,
     protectedShards: protectedShards,
     relay: relay,
-    lightPush: lightPush,
+    lightPush: lightPush and relay, # can't mount lightpush without relay
     peerExchangeService: peerExchange,
     rendezvous: rendezvous,
     peerExchangeDiscovery: true,
