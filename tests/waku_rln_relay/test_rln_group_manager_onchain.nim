@@ -440,8 +440,9 @@ suite "Onchain group manager":
     (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
       assert false, "register failed: " & error
 
-    # Prime cache. With forceMerkleProofRefresh=false (the default), a non-empty
-    # cache short-circuits ensureFreshMerkleProofPath.
+    # Prime cache. A non-empty cache short-circuits ensureFreshMerkleProofPath;
+    # the retry path invalidates the cache via invalidateMerkleProofCache before
+    # calling proof-gen again.
     manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
       raiseAssert "failed to fetch initial path: " & error
     manager.proofPathRefreshInFlightFut = nil
@@ -494,7 +495,7 @@ suite "Onchain group manager":
       res.isErr()
       res.error == "membership index is not set"
 
-  test "ensureFreshMerkleProofPath: refetches when caller forces a refresh":
+  test "invalidateMerkleProofCache + ensureFreshMerkleProofPath refetches":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
@@ -502,13 +503,16 @@ suite "Onchain group manager":
     (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
       assert false, "register failed: " & error
 
-    # Prime cache with a non-empty value. force=true must bypass the
-    # "cache is populated" fast-path and exercise the refetch branch.
+    # Prime cache with a non-empty value, then take the retry path:
+    # invalidate empties the cache so ensureFreshMerkleProofPath refetches.
     manager.merkleProofCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
       raiseAssert "failed to prime path: " & error
     manager.proofPathRefreshInFlightFut = nil
 
-    let res = waitFor manager.ensureFreshMerkleProofPath(force = true)
+    manager.invalidateMerkleProofCache()
+    check manager.merkleProofCache.len == 0
+
+    let res = waitFor manager.ensureFreshMerkleProofPath()
 
     check:
       res.isOk()

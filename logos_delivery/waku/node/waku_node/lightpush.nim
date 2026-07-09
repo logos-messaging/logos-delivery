@@ -70,10 +70,7 @@ proc mountLegacyLightPushClient*(node: WakuNode) =
       WakuLegacyLightPushClient.new(node.peerManager, node.rng)
 
 proc internalLegacyLightpushPublish(
-    node: WakuNode,
-    pubsubTopic: PubsubTopic,
-    message: WakuMessage,
-    peer: RemotePeerInfo,
+    node: WakuNode, pubsubTopic: PubsubTopic, message: WakuMessage, peer: RemotePeerInfo
 ): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.async, gcsafe.} =
   ## Dispatches to the legacy lightpush client if mounted, otherwise to the
   ## self-hosted server. Callers guarantee at least one is mounted.
@@ -105,7 +102,7 @@ proc resolveLegacyPubsubTopic(
   let parsedTopic = NsContentTopic.parse(contentTopic).valueOr:
     return err("Invalid content-topic: " & $error)
   let shard = node.wakuAutoSharding.get().getShard(parsedTopic).valueOr:
-    return err("Autosharding error: " & error)
+      return err("Autosharding error: " & error)
   return ok($shard)
 
 proc runRlnRefreshRetry(
@@ -122,16 +119,14 @@ proc runRlnRefreshRetry(
   ## hanging RPC/libp2p round-trip cannot stall the caller indefinitely.
   info "legacy lightpush send rejected as RLN-invalid; " &
     "refreshing merkle proof and retrying once"
+  rln.get().groupManager.invalidateMerkleProofCache()
 
   proc runRetry(): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.
       async, gcsafe
   .} =
     let (retryMsg, _) = (
       await checkAndGenerateRLNProof(
-        rln,
-        msgWithProof,
-        forceMerkleProofRefresh = true,
-        reuseMessageId = drawnMessageId,
+        rln, msgWithProof, regenerate = true, reuseMessageId = drawnMessageId
       )
     ).valueOr:
       return err("failed call checkAndGenerateRLNProof from lightpush retry: " & error)
@@ -176,9 +171,8 @@ proc legacyLightpushPublish*(
     ).valueOr:
       return err(error)
 
-    let firstResult = await internalLegacyLightpushPublish(
-      node, pubsubForPublish, msgWithProof, peer
-    )
+    let firstResult =
+      await internalLegacyLightpushPublish(node, pubsubForPublish, msgWithProof, peer)
 
     # A publish error mentioning RLN can indicate a stale merkle proof path;
     # refresh it and retry the publish once. Legacy lightpush has no status
@@ -375,14 +369,12 @@ proc lightpushPublish*(
 
   info "lightpush send rejected; refreshing merkle proof and retrying once",
     statusCode = $firstResult.error.code
+  rln.get().groupManager.invalidateMerkleProofCache()
 
   proc runRetry(): Future[lightpush_protocol.WakuLightPushResult] {.async, gcsafe.} =
     let (retryMsg, _) = (
       await checkAndGenerateRLNProof(
-        rln,
-        msgWithProof,
-        forceMerkleProofRefresh = true,
-        reuseMessageId = drawnMessageId,
+        rln, msgWithProof, regenerate = true, reuseMessageId = drawnMessageId
       )
     ).valueOr:
       return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)

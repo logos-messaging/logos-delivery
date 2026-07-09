@@ -85,10 +85,9 @@ proc attachRlnProofValidateWithRetry(
       err(RlnPublishError(kind: ValidationRejected, desc: firstValidateResult.error))
 
   info "relay publish rejected as RLN-invalid; refreshing merkle proof and retrying once"
+  rln.groupManager.invalidateMerkleProofCache()
   msg.proof = (
-    await rln.generateRLNProof(
-      msg.toRLNSignal(), float64(getTime().toUnix()), forceMerkleProofRefresh = true
-    )
+    await rln.generateRLNProof(msg.toRLNSignal(), float64(getTime().toUnix()))
   ).valueOr:
     return err(
       RlnPublishError(

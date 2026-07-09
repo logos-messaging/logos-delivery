@@ -55,19 +55,12 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
   return output
 
 proc generateRLNProof*(
-    rln: Rln,
-    input: seq[byte],
-    senderEpochTime: float64,
-    forceMerkleProofRefresh: bool = false,
+    rln: Rln, input: seq[byte], senderEpochTime: float64
 ): Future[Result[seq[byte], string]] {.async.} =
   let epoch = rln.calcEpoch(senderEpochTime)
   let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
-  let proof = (
-    await rln.groupManager.generateProof(
-      input, epoch, nonce, forceMerkleProofRefresh = forceMerkleProofRefresh
-    )
-  ).valueOr:
+  let proof = (await rln.groupManager.generateProof(input, epoch, nonce)).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
   return ok(proof.encode().buffer)
 
@@ -76,8 +69,9 @@ proc generateRLNProofWithRootRefresh*(
 ): Future[Result[seq[byte], string]] {.async.} =
   ## Generates an RLN proof and self-validates its merkle root against the
   ## acceptable-root window. If the cached path has slid out of that window
-  ## (typical after a long inactivity or on-chain group churn), force-refreshes
-  ## the merkle path and regenerates the proof once. Returns the proof bytes
+  ## (typical after a long inactivity or on-chain group churn), invalidates
+  ## the local cache and regenerates the proof once — the next proof-gen
+  ## sees an empty cache and refetches from chain. Returns the proof bytes
   ## the caller can attach to the message.
   let proofBytes = (await rln.generateRLNProof(input, senderEpochTime)).valueOr:
     return err(error)
@@ -88,14 +82,14 @@ proc generateRLNProofWithRootRefresh*(
   if await rln.groupManager.validateRoot(rlnProof.merkleRoot):
     return ok(proofBytes)
 
-  info "RLN: stale merkle root detected; force-refreshing merkle path"
-  return
-    await rln.generateRLNProof(input, senderEpochTime, forceMerkleProofRefresh = true)
+  info "RLN: stale merkle root detected; refreshing merkle path and regenerating proof"
+  rln.groupManager.invalidateMerkleProofCache()
+  return await rln.generateRLNProof(input, senderEpochTime)
 
 proc checkAndGenerateRLNProof*(
     rln: Option[Rln],
     message: WakuMessage,
-    forceMerkleProofRefresh: bool = false,
+    regenerate: bool = false,
     reuseMessageId: Option[Nonce] = none(Nonce),
 ): Future[Result[tuple[msg: WakuMessage, messageId: Option[Nonce]], string]] {.async.} =
   ## Returns the message with an attached RLN proof and the message id drawn
@@ -103,7 +97,11 @@ proc checkAndGenerateRLNProof*(
   ## message already had a valid proof, or RLN is not configured).
   ## Pass `messageId` back as `reuseMessageId` on a retry so the CAS rollback
   ## can reclaim it when no concurrent draw has advanced the counter.
-  if message.proof.len > 0 and not forceMerkleProofRefresh:
+  ## Set `regenerate = true` to bypass the "already has proof" short-circuit
+  ## and always generate a fresh proof — used by the retry path after a stale
+  ## proof was rejected; the caller should first `invalidateMerkleProofCache`
+  ## so the fresh proof is generated against a refetched merkle path.
+  if message.proof.len > 0 and not regenerate:
     return ok((msg: message, messageId: none(Nonce)))
 
   if rln.isNone():
@@ -126,12 +124,7 @@ proc checkAndGenerateRLNProof*(
     return err("could not get new message id to generate an rln proof: " & $error)
   var msgWithProof = message
   let proof = (
-    await r.groupManager.generateProof(
-      msgWithProof.toRLNSignal(),
-      epoch,
-      nonce,
-      forceMerkleProofRefresh = forceMerkleProofRefresh,
-    )
+    await r.groupManager.generateProof(msgWithProof.toRLNSignal(), epoch, nonce)
   ).valueOr:
     return err("error in checkAndGenerateRLNProof: " & $error)
   msgWithProof.proof = proof.encode().buffer

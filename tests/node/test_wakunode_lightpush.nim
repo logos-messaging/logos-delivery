@@ -177,12 +177,12 @@ suite "RLN Proofs as a Lightpush Service":
       assert publishResponse.isErr(), "We expect an error response"
       check publishResponse.error.code == LightPushErrorCode.NO_PEERS_TO_RELAY
 
-    asyncTest "force refresh regenerates proof and refetches merkle path":
-      # Exercises the primitive that lightpushPublish leans on after a 420
-      # (INVALID_MESSAGE) or 504 (OUT_OF_RLN_PROOF) rejection: an already
-      # attached proof must NOT short-circuit checkAndGenerateRLNProof when
-      # forceMerkleProofRefresh=true, and the cache must be refetched from
-      # chain instead of trusted.
+    asyncTest "invalidate + regenerate refetches merkle path and rebuilds proof":
+      # Exercises the primitive pair that lightpushPublish leans on after a
+      # 420 (INVALID_MESSAGE) or 504 (OUT_OF_RLN_PROOF) rejection: calling
+      # invalidateMerkleProofCache empties the cached path so the next
+      # proof-gen refetches from chain, and `regenerate = true` on
+      # checkAndGenerateRLNProof bypasses the "already has proof" short-circuit.
       let (firstMsg, drawnNonce) =
         (await checkAndGenerateRLNProof(some(server.rln), message)).get()
       check firstMsg.proof.len > 0
@@ -194,15 +194,13 @@ suite "RLN Proofs as a Lightpush Service":
       manager.merkleProofCache = newSeq[byte](goodCache.len)
       check manager.merkleProofCache != goodCache
 
-      # Force-regenerate. The existing proof must be discarded, the cache
-      # refetched from chain, and a fresh proof produced. Pass drawnNonce so
-      # the CAS rollback reclaims it — mirroring the production retry path.
+      # Retry path: invalidate the cache so the next proof-gen refetches from
+      # chain, then regenerate the proof. Pass drawnNonce so the CAS rollback
+      # reclaims it — mirroring the production retry path.
+      manager.invalidateMerkleProofCache()
       let (secondMsg, _) = (
         await checkAndGenerateRLNProof(
-          some(server.rln),
-          firstMsg,
-          forceMerkleProofRefresh = true,
-          reuseMessageId = drawnNonce,
+          some(server.rln), firstMsg, regenerate = true, reuseMessageId = drawnNonce
         )
       ).get()
 

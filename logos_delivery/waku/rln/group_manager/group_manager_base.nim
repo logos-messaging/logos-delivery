@@ -137,10 +137,16 @@ method generateProof*(
     epoch: Epoch,
     messageId: MessageId,
     rlnIdentifier = DefaultRlnIdentifier,
-    forceMerkleProofRefresh: bool = false,
 ): Future[GroupManagerResult[RateLimitProof]] {.base, async.} =
   ## Dummy implementation for generateProof
   return err("generateProof is not implemented")
+
+method invalidateMerkleProofCache*(g: GroupManager) {.base, gcsafe, raises: [].} =
+  ## Drops the cached merkle proof path. Callers invoke this when a publish is
+  ## rejected on a stale membership cache (e.g. a lightpush 420 INVALID_MESSAGE
+  ## or 504 OUT_OF_RLN_PROOF reply); the next proof-gen then sees an empty
+  ## cache and refetches from chain. Base implementation is a no-op.
+  discard
 
 method isReady*(g: GroupManager): Future[bool] {.base, async.} =
   return true
