@@ -20,6 +20,8 @@
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 int callback_executed = 0;
+// Return code (RET_OK / RET_ERR) reported by the most recent FFI callback.
+volatile int last_callback_ret = RET_OK;
 
 void waitForCallback()
 {
@@ -108,6 +110,7 @@ auto cify(F &&f)
     static F fn = std::forward<F>(f);
     return [](int callerRet, const char *msg, size_t len, void *userData)
     {
+        last_callback_ret = callerRet;
         signal_cond();
         return fn(msg, len);
     };
@@ -240,8 +243,8 @@ int main(int argc, char **argv)
 
     char jsonConfig[2048];
     snprintf(jsonConfig, 2048, "{ \
-                                    \"host\": \"%s\",   \
-                                    \"port\": %d,       \
+                                    \"listenAddress\": \"%s\",   \
+                                    \"tcpPort\": %d,       \
                                     \"relay\": true,      \
                                     \"clusterId\": 16, \
                                     \"shards\": [ 1, 32, 64, 128, 256 ], \
@@ -251,7 +254,7 @@ int main(int argc, char **argv)
                                         [\"enr:-QESuEB4Dchgjn7gfAvwB00CxTA-nGiyk-aALI-H4dYSZD3rUk7bZHmP8d2U6xDiQ2vZffpo45Jp7zKNdnwDUx6g4o6XAYJpZIJ2NIJpcIRA4VDAim11bHRpYWRkcnO4XAArNiZub2RlLTAxLmRvLWFtczMud2FrdS5zYW5kYm94LnN0YXR1cy5pbQZ2XwAtNiZub2RlLTAxLmRvLWFtczMud2FrdS5zYW5kYm94LnN0YXR1cy5pbQYfQN4DgnJzkwABCAAAAAEAAgADAAQABQAGAAeJc2VjcDI1NmsxoQOvD3S3jUNICsrOILlmhENiWAMmMVlAl6-Q8wRB7hidY4N0Y3CCdl-DdWRwgiMohXdha3UyDw\", \"enr:-QEkuEBIkb8q8_mrorHndoXH9t5N6ZfD-jehQCrYeoJDPHqT0l0wyaONa2-piRQsi3oVKAzDShDVeoQhy0uwN1xbZfPZAYJpZIJ2NIJpcIQiQlleim11bHRpYWRkcnO4bgA0Ni9ub2RlLTAxLmdjLXVzLWNlbnRyYWwxLWEud2FrdS5zYW5kYm94LnN0YXR1cy5pbQZ2XwA2Ni9ub2RlLTAxLmdjLXVzLWNlbnRyYWwxLWEud2FrdS5zYW5kYm94LnN0YXR1cy5pbQYfQN4DgnJzkwABCAAAAAEAAgADAAQABQAGAAeJc2VjcDI1NmsxoQKnGt-GSgqPSf3IAPM7bFgTlpczpMZZLF3geeoNNsxzSoN0Y3CCdl-DdWRwgiMohXdha3UyDw\"], \
                                     \"discv5UdpPort\": 9999, \
                                     \"dnsDiscoveryUrl\": \"enrtree://AMOJVZX4V6EXP7NTJPMAYJYST2QP6AJXYW76IU6VGJS7UVSNDYZG4@boot.prod.status.nodes.status.im\", \
-                                    \"dnsDiscoveryNameServers\": [\"8.8.8.8\", \"1.0.0.1\"] \
+                                    \"dnsAddrsNameServers\": [\"8.8.8.8\", \"1.0.0.1\"] \
                                 }",
              cfgNode.host,
              cfgNode.port);
@@ -262,6 +265,23 @@ int main(int argc, char **argv)
                       { std::cout << "logosdelivery_create_node feedback: " << msg << std::endl; }),
                  nullptr);
     waitForCallback();
+
+    // Node creation is asynchronous: logosdelivery_create_node returns a non-null
+    // ctx as soon as the request is enqueued, but the config may still fail to
+    // parse on the worker thread. Using ctx after a failed creation dereferences
+    // a nil node inside the library and crashes (SIGSEGV). Bail out cleanly.
+    if (ctx == nullptr || last_callback_ret != RET_OK)
+    {
+        std::cerr << "Failed to create the node. Aborting." << std::endl;
+        if (ctx != nullptr)
+        {
+            logosdelivery_destroy(ctx,
+                                  cify([](const char *msg, size_t len) {}),
+                                  nullptr);
+            waitForCallback();
+        }
+        return 1;
+    }
 
     // example on how to retrieve a value from the `libwaku` callback.
     std::string defaultPubsubTopic;
@@ -306,6 +326,14 @@ int main(int argc, char **argv)
                                         { event_handler(msg, len); }),
                                    nullptr,
                                    defaultPubsubTopic.c_str()));
+
+    std::string myPeerId;
+    WAKU_CALL(waku_get_my_peerid(ctx,
+                                 cify([&myPeerId](const char *msg, size_t len)
+                                      { myPeerId = msg; }),
+                                 nullptr));
+
+    std::cout << "My peer id: " << myPeerId << std::endl;
 
     show_main_menu();
     while (1)
