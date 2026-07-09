@@ -492,6 +492,9 @@ method generateProof*(
   debug "Generating RLN proof"
   ?(await g.ensureFreshMerkleProofPath())
 
+  if g.merkleProofCache.len == 0:
+    return err("merkle proof cache is empty")
+
   if (g.merkleProofCache.len mod 32) != 0:
     return err("Invalid merkle proof cache length")
 
