@@ -215,10 +215,6 @@ suite "parseLogosDeliveryConf - JSON parsing":
       lc.kernelConf.storeMessageRetentionPolicy == "time:3600"
       lc.kernelConf.storeMaxNumDbConnections == 7
 
-  test "a not-JSON-settable field is rejected":
-    check parseLogosDeliveryConf("""{"channelsOverrides": {"sdsPersistence": 1}}""")
-      .isErr()
-
 suite "LogosDelivery.new - construction (the app-dev entry)":
   asyncTest "builds the full messaging stack from mode + overrides":
     var node: LogosDelivery

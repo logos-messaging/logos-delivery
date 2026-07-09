@@ -15,8 +15,6 @@ import brokers/broker_context
 
 import logos_delivery/api/types
 import logos_delivery/api/reliable_channel_manager_api
-import logos_delivery/channels/segmentation/segmentation_persistence
-import types/persistence
 
 import ./reliable_channel
 
@@ -36,9 +34,6 @@ type
     rateLimitEnabled*: Option[bool] ## Enable rate limiting.
     rateLimitEpochPeriodSec*: Option[int] ## Rate-limit epoch length in seconds.
     rateLimitMessagesPerEpoch*: Option[int] ## Messages allowed per rate-limit epoch.
-    segmentationPersistence*: Option[SegmentationPersistence]
-      ## Persists partial reassembly state across restarts.
-    sdsPersistence*: Option[Persistence] ## Persists SDS local history.
 
   ReliableChannelManager* = ref object ## Implements `ReliableChannelApi`.
     channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`

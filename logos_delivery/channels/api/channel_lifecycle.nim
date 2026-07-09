@@ -42,18 +42,14 @@ proc createReliableChannel*(
   let segConfig = SegmentationConfig(
     segmentSizeBytes: cc.segmentationSegmentSizeBytes.get(DefaultSegmentSizeBytes),
     enableReedSolomon: cc.segmentationEnableReedSolomon.get(false),
-    persistence: cc.segmentationPersistence.get(nil),
+    persistence: nil,
   )
   let sdsConfig = SdsConfig(
     acknowledgementTimeoutMs:
       cc.sdsAcknowledgementTimeoutMs.get(DefaultAcknowledgementTimeoutMs),
     maxRetransmissions: cc.sdsMaxRetransmissions.get(DefaultMaxRetransmissions),
     causalHistorySize: cc.sdsCausalHistorySize.get(DefaultCausalHistorySize),
-    persistence:
-      if cc.sdsPersistence.isSome():
-        cc.sdsPersistence
-      else:
-        sdsPersistence(),
+    persistence: sdsPersistence(),
   )
   let rateConfig = RateLimitConfig(
     # Setting a rate-limit parameter implies enabling; an explicit
