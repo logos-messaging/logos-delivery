@@ -223,7 +223,10 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
     pm.switch.peerStore[ConnectionBook][peerId] = NotConnected
       # Reset connectedness state
     pm.switch.peerStore[DisconnectBook][peerId] = remotePeerInfo.disconnectTime
-    pm.switch.peerStore[SourceBook][peerId] = remotePeerInfo.origin
+    # Mark as Cache so it is distinguishable from live-discovered peers. If the
+    # same peer is later rediscovered, addPeer overrides this with the live
+    # origin, and reconnect backoff no longer applies to it.
+    pm.switch.peerStore[SourceBook][peerId] = Cache
 
     if remotePeerInfo.enr.isSome():
       pm.switch.peerStore[ENRBook][peerId] = remotePeerInfo.enr.get()
@@ -695,21 +698,28 @@ proc reconnectPeers*(
 
   info "Reconnecting peers", proto = proto
 
-  # Proto is not persisted, we need to iterate over all peers.
-  for peerInfo in pm.switch.peerStore.peers(protocolMatcher(proto)):
-    # Check that the peer can be connected
-    if peerInfo.connectedness == CannotConnect:
-      error "Not reconnecting to unreachable or non-existing peer",
-        peerId = peerInfo.peerId
-      continue
+  # Only reconnect peers that come from persistent storage (Cache). Freshly
+  # discovered peers must not be delayed by the reconnect backoff: they are
+  # connected right away by the relay connectivity loop. Rediscovered peers get
+  # their origin overridden by addPeer, so they naturally drop out of this set.
+  let peersToReconnect = pm.switch.peerStore.peers(protocolMatcher(proto)).filterIt(
+      it.origin == Cache and it.connectedness != CannotConnect
+    )
 
-    if backoffTime > ZeroDuration:
-      info "Backing off before reconnect",
-        peerId = peerInfo.peerId, backoffTime = backoffTime
-      # We disconnected recently and still need to wait for a backoff period before connecting
-      await sleepAsync(backoffTime)
+  if peersToReconnect.len == 0:
+    return
 
-    await pm.connectToNodes(@[peerInfo])
+  # We disconnected recently and still need to wait a backoff period before
+  # reconnecting. The wait is shared across all peers rather than applied once
+  # per peer, so reconnection can't stall behind a slow/unreachable peer and
+  # keep the node from taking on freshly discovered ones.
+  if backoffTime > ZeroDuration:
+    info "Backing off before reconnect", backoffTime = backoffTime
+    await sleepAsync(backoffTime)
+
+  # Dial all reconnectable peers in parallel; a single slow dial must not delay
+  # the rest.
+  await allFutures(peersToReconnect.mapIt(pm.connectToNodes(@[it])))
 
 proc getNumStreams*(pm: PeerManager, protocol: string): (int, int) =
   var

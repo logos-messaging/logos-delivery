@@ -40,6 +40,7 @@ type
     PeerExchange
     Dns
     Kademlia
+    Cache # Loaded from persistent peer storage (not a live discovery source)
 
   PeerDirection* = enum
     UnknownDirection
