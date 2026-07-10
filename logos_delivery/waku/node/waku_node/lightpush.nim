@@ -30,8 +30,7 @@ import
   ../../waku_lightpush as lightpush_protocol,
   ../peer_manager,
   ../../common/rate_limit/setting,
-  ../../rln,
-  ../../rln/nonce_manager
+  ../../rln
 
 logScope:
   topics = "waku node lightpush api"
@@ -109,7 +108,6 @@ proc runRlnRefreshRetry(
     node: WakuNode,
     rln: Option[Rln],
     msgWithProof: WakuMessage,
-    drawnMessageId: Option[Nonce],
     pubsubForPublish: PubsubTopic,
     peer: RemotePeerInfo,
     fallback: legacy_lightpush_protocol.WakuLightPushResult[string],
@@ -124,10 +122,8 @@ proc runRlnRefreshRetry(
   proc runRetry(): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.
       async, gcsafe
   .} =
-    let (retryMsg, _) = (
-      await checkAndGenerateRLNProof(
-        rln, msgWithProof, regenerate = true, reuseMessageId = drawnMessageId
-      )
+    let retryMsg = (
+      await checkAndGenerateRLNProof(rln, msgWithProof, regenerate = true)
     ).valueOr:
       return err("failed call checkAndGenerateRLNProof from lightpush retry: " & error)
     return await internalLegacyLightpushPublish(node, pubsubForPublish, retryMsg, peer)
@@ -162,7 +158,7 @@ proc legacyLightpushPublish*(
       none(Rln)
     else:
       some(node.rln)
-  let (msgWithProof, drawnMessageId) = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+  let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
     return err("failed call checkAndGenerateRLNProof from lightpush: " & error)
 
   try:
@@ -182,7 +178,7 @@ proc legacyLightpushPublish*(
       return firstResult
 
     return await runRlnRefreshRetry(
-      node, rln, msgWithProof, drawnMessageId, pubsubForPublish, peer, firstResult
+      node, rln, msgWithProof, pubsubForPublish, peer, firstResult
     )
   except CatchableError:
     return err(getCurrentExceptionMsg())
@@ -345,7 +341,7 @@ proc lightpushPublish*(
       none(Rln)
     else:
       some(node.rln)
-  let (msgWithProof, drawnMessageId) = (await checkAndGenerateRLNProof(rln, message)).valueOr:
+  let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
     return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
 
   let firstResult =
@@ -372,10 +368,8 @@ proc lightpushPublish*(
   rln.get().groupManager.invalidateMerkleProofCache()
 
   proc runRetry(): Future[lightpush_protocol.WakuLightPushResult] {.async, gcsafe.} =
-    let (retryMsg, _) = (
-      await checkAndGenerateRLNProof(
-        rln, msgWithProof, regenerate = true, reuseMessageId = drawnMessageId
-      )
+    let retryMsg = (
+      await checkAndGenerateRLNProof(rln, msgWithProof, regenerate = true)
     ).valueOr:
       return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
     return

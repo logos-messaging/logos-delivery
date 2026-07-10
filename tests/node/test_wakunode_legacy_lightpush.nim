@@ -121,7 +121,10 @@ suite "RLN Proofs as a Lightpush Service":
     # mount rln-relay
     # match prod epoch window to reduce test flake
     wakuRlnConfig = getWakuRlnConfig(
-      manager = manager, index = MembershipIndex(1), epochSizeSec = 600
+      manager = manager,
+      userMessageLimit = 20,
+      index = MembershipIndex(1),
+      epochSizeSec = 600,
     )
 
     await allFutures(server.start(), client.start())
@@ -166,7 +169,7 @@ suite "RLN Proofs as a Lightpush Service":
       # Attach the RLN proof. In production the client mounts RLN and generates the
       # proof in legacyLightpushPublish; here we generate it using the server's RLN
       # instance since both ends share group state via the in-memory manager.
-      let (msgWithProof, _) =
+      let msgWithProof =
         (await checkAndGenerateRLNProof(some(server.rln), message)).get()
 
       # When the client publishes a message

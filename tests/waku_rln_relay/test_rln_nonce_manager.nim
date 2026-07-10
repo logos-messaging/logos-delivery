@@ -41,34 +41,3 @@ suite "Nonce manager":
     check:
       nonce == 0.uint
       nonce2 == 0.uint
-
-  test "rollbackNonce reclaims the last-drawn id when counter has not advanced":
-    let nm = NonceManager.init(nonceLimit = 100.uint)
-    let first = nm.getNonce().valueOr:
-      raiseAssert $error
-    check nm.rollbackNonce(first)
-    let reissued = nm.getNonce().valueOr:
-      raiseAssert $error
-
-    check:
-      first == 0.uint
-      reissued == first
-      nm.nextNonce == 1.uint
-
-  test "rollbackNonce is a no-op when another draw has advanced the counter":
-    let nm = NonceManager.init(nonceLimit = 100.uint)
-    let first = nm.getNonce().valueOr:
-      raiseAssert $error
-    # A second draw slips in — simulates concurrent publish between attempt 1
-    # and the retry. The counter now points past first+1.
-    discard nm.getNonce().valueOr:
-      raiseAssert $error
-    check not nm.rollbackNonce(first)
-    check nm.nextNonce == 2.uint
-
-  test "rollbackNonce is a no-op when no nonce has been issued":
-    let nm = NonceManager.init(nonceLimit = 100.uint)
-    check not nm.rollbackNonce(Nonce(0))
-
-    check:
-      nm.nextNonce == 0.uint

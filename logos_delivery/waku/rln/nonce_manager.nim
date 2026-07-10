@@ -57,13 +57,3 @@ proc getNonce*(n: NonceManager): NonceManagerResult[Nonce] =
     )
 
   return ok(retNonce)
-
-proc rollbackNonce*(n: NonceManager, nonce: Nonce): bool =
-  # CAS: only give back `nonce` when it is still the last id issued.
-  # If another draw advanced the counter between this attempt and the retry,
-  # leave the counter alone — the retry will draw a fresh id rather than
-  # risk a nullifier collision with the intervening message.
-  if n.nextNonce == nonce + 1:
-    n.nextNonce = nonce
-    return true
-  false

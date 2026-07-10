@@ -117,7 +117,10 @@ suite "RLN Proofs as a Lightpush Service":
     # mount rln-relay
     # match prod epoch window to reduce test flake
     wakuRlnConfig = getWakuRlnConfig(
-      manager = manager, index = MembershipIndex(1), epochSizeSec = 600
+      manager = manager,
+      userMessageLimit = 20,
+      index = MembershipIndex(1),
+      epochSizeSec = 600,
     )
 
     await allFutures(server.start(), client.start())
@@ -162,7 +165,7 @@ suite "RLN Proofs as a Lightpush Service":
       # Attach the RLN proof. In production the client mounts RLN and generates the
       # proof in lightpushPublish; here we generate it using the server's RLN instance
       # since both ends share group state via the in-memory manager.
-      let (msgWithProof, _) =
+      let msgWithProof =
         (await checkAndGenerateRLNProof(some(server.rln), message)).get()
 
       # When the client publishes a message
@@ -183,8 +186,7 @@ suite "RLN Proofs as a Lightpush Service":
       # invalidateMerkleProofCache empties the cached path so the next
       # proof-gen refetches from chain, and `regenerate = true` on
       # checkAndGenerateRLNProof bypasses the "already has proof" short-circuit.
-      let (firstMsg, drawnNonce) =
-        (await checkAndGenerateRLNProof(some(server.rln), message)).get()
+      let firstMsg = (await checkAndGenerateRLNProof(some(server.rln), message)).get()
       check firstMsg.proof.len > 0
 
       # Corrupt the cache to model a stale/invalid witness — the same state a
@@ -195,20 +197,16 @@ suite "RLN Proofs as a Lightpush Service":
       check manager.merkleProofCache != goodCache
 
       # Retry path: invalidate the cache so the next proof-gen refetches from
-      # chain, then regenerate the proof. Pass drawnNonce so the CAS rollback
-      # reclaims it — mirroring the production retry path.
+      # chain, then regenerate the proof.
       manager.invalidateMerkleProofCache()
-      let (secondMsg, _) = (
-        await checkAndGenerateRLNProof(
-          some(server.rln), firstMsg, regenerate = true, reuseMessageId = drawnNonce
-        )
+      let secondMsg = (
+        await checkAndGenerateRLNProof(some(server.rln), firstMsg, regenerate = true)
       ).get()
 
       check:
         secondMsg.proof.len > 0
         # Regenerated, not passed through — Groth16 proofs carry random
-        # blinding, so a fresh call produces different bytes even though the
-        # rejected attempt's message id is intentionally reused on retry.
+        # blinding, so a fresh call produces different bytes.
         secondMsg.proof != firstMsg.proof
         # Cache was refetched from chain, overwriting the corruption.
         manager.merkleProofCache == goodCache

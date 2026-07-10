@@ -74,7 +74,7 @@ proc generateRLNProofWithRootRefresh*(
   ## sees an empty cache and refetches from chain. Returns the proof bytes
   ## the caller can attach to the message.
   let proofBytes = (await rln.generateRLNProof(input, senderEpochTime)).valueOr:
-    return err(error)
+    return err("failed to generate RLN proof: " & $error)
 
   let rlnProof = RateLimitProof.init(proofBytes).valueOr:
     return err("could not decode proof for root check: " & $error)
@@ -87,35 +87,21 @@ proc generateRLNProofWithRootRefresh*(
   return await rln.generateRLNProof(input, senderEpochTime)
 
 proc checkAndGenerateRLNProof*(
-    rln: Option[Rln],
-    message: WakuMessage,
-    regenerate: bool = false,
-    reuseMessageId: Option[Nonce] = none(Nonce),
-): Future[Result[tuple[msg: WakuMessage, messageId: Option[Nonce]], string]] {.async.} =
-  ## Returns the message with an attached RLN proof and the message id drawn
-  ## from the nonce manager (`messageId = none` when no id was consumed —
-  ## message already had a valid proof, or RLN is not configured).
-  ## Pass `messageId` back as `reuseMessageId` on a retry so the CAS rollback
-  ## can reclaim it when no concurrent draw has advanced the counter.
+    rln: Option[Rln], message: WakuMessage, regenerate: bool = false
+): Future[Result[WakuMessage, string]] {.async.} =
+  ## Returns the message with an attached RLN proof.
   ## Set `regenerate = true` to bypass the "already has proof" short-circuit
   ## and always generate a fresh proof — used by the retry path after a stale
   ## proof was rejected; the caller should first `invalidateMerkleProofCache`
   ## so the fresh proof is generated against a refetched merkle path.
   if message.proof.len > 0 and not regenerate:
-    return ok((msg: message, messageId: none(Nonce)))
+    return ok(message)
 
   if rln.isNone():
     notice "Publishing message without RLN proof"
-    return ok((msg: message, messageId: none(Nonce)))
+    return ok(message)
 
   let r = rln.get()
-  if reuseMessageId.isSome():
-    if not r.nonceManager.rollbackNonce(reuseMessageId.get()):
-      # A concurrent draw advanced the counter past the rejected attempt's id;
-      # the retry will consume a fresh message id instead of reusing the old one.
-      debug "rln retry: concurrent draw prevented nonce reuse; consuming a fresh message id",
-        attempted = reuseMessageId.get(), nextNonce = r.nonceManager.nextNonce
-
   let
     time = getTime().toUnix()
     senderEpochTime = float64(time)
@@ -128,4 +114,4 @@ proc checkAndGenerateRLNProof*(
   ).valueOr:
     return err("error in checkAndGenerateRLNProof: " & $error)
   msgWithProof.proof = proof.encode().buffer
-  return ok((msg: msgWithProof, messageId: some(nonce)))
+  return ok(msgWithProof)
