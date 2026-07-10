@@ -17,6 +17,9 @@ proc logosdelivery_subscribe(
   requireInitializedNode(ctx, "Subscribe"):
     return err(errMsg)
 
+  requireMessaging(ctx, "Subscribe"):
+    return err(errMsg)
+
   # ContentTopic is just a string type alias
   let contentTopic = ContentTopic($contentTopicStr)
 
@@ -35,6 +38,9 @@ proc logosdelivery_unsubscribe(
   requireInitializedNode(ctx, "Unsubscribe"):
     return err(errMsg)
 
+  requireMessaging(ctx, "Unsubscribe"):
+    return err(errMsg)
+
   # ContentTopic is just a string type alias
   let contentTopic = ContentTopic($contentTopicStr)
 
@@ -51,6 +57,9 @@ proc logosdelivery_send(
     messageJson: cstring,
 ) {.ffi.} =
   requireInitializedNode(ctx, "Send"):
+    return err(errMsg)
+
+  requireMessaging(ctx, "Send"):
     return err(errMsg)
 
   ## Parse the message JSON and send the message

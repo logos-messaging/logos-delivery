@@ -60,11 +60,6 @@ type StartUpCommand* = enum
   noCommand # default, runs waku
   generateRlnKeystore # generates a new RLN keystore
 
-type WakuMode* {.pure.} = enum
-  noMode # default - use explicit CLI flags as-is
-  Core # full service node
-  Edge # client-only node
-
 type WakuNodeConf* = object
   configFile* {.
     desc: "Loads configuration from a TOML file (cmd-line parameters take precedence)",
@@ -166,13 +161,6 @@ type WakuNodeConf* = object
     .}: seq[ProtectedShard]
 
     ## General node config
-    mode* {.
-      desc:
-        "Node operation mode. 'Core' enables relay+service protocols. 'Edge' enables client-only protocols. Default: explicit CLI flags used.",
-      defaultValue: WakuMode.noMode,
-      name: "mode"
-    .}: WakuMode
-
     preset* {.
       desc:
         "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 2). 'logos.test' is the Logos Test Network (cluster 2). 'status.prod' is the Status Production Network (cluster 16, RLN off, auto-sharding with 1 shard). Overrides other values.",
@@ -442,7 +430,7 @@ hence would have reachability issues.""",
 
     ## Filter config
     filter* {.
-      desc: "Enable filter protocol: true|false", defaultValue: false, name: "filter"
+      desc: "Enable filter protocol: true|false", defaultValue: true, name: "filter"
     .}: bool
 
     filternode* {.
@@ -474,7 +462,7 @@ hence would have reachability issues.""",
     ## Lightpush config
     lightpush* {.
       desc: "Enable lightpush protocol: true|false",
-      defaultValue: false,
+      defaultValue: true,
       name: "lightpush"
     .}: bool
 
@@ -483,16 +471,6 @@ hence would have reachability issues.""",
       defaultValue: "",
       name: "lightpushnode"
     .}: string
-
-    ## Reliability config
-    # Option-typed; desc states the default since the CLI can't auto-show it for none().
-    reliabilityEnabled* {.
-      desc:
-        """Adds an extra effort in the delivery/reception of messages by leveraging store-v3 requests, with the drawback of consuming some more bandwidth. Default is """ &
-        $DefaultP2pReliability & ".",
-      defaultValue: none(bool),
-      name: "reliability"
-    .}: Option[bool]
 
     ## REST HTTP config
     rest* {.
@@ -577,12 +555,9 @@ hence would have reachability issues.""",
     .}: string
 
     ## Discovery v5 config
-    # Option-typed; desc states the default since the CLI can't auto-show it for none().
     discv5Discovery* {.
-      desc:
-        "Enable discovering nodes via Node Discovery v5. Default is " &
-        $DefaultDiscv5Enabled & ".",
-      defaultValue: none(bool),
+      desc: "Enable discovering nodes via Node Discovery v5. Default is true.",
+      defaultValue: some(true),
       name: "discv5-discovery"
     .}: Option[bool]
 
@@ -977,7 +952,7 @@ proc toKeystoreGeneratorConf*(n: WakuNodeConf): RlnKeystoreGeneratorConf =
     credPassword: n.rlnRelayCredPassword,
   )
 
-proc toNetworkPresetConf(
+proc toNetworkPresetConf*(
     preset: string, clusterId: Option[uint16]
 ): ConfResult[Option[NetworkPresetConf]] =
   var lcPreset = toLowerAscii(preset)
@@ -1146,8 +1121,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.filterServiceConf.withMaxCriteria(n.filterMaxCriteria)
 
   b.withLightPush(n.lightpush)
-  if n.reliabilityEnabled.isSome():
-    b.withP2pReliability(n.reliabilityEnabled.get())
 
   b.restServerConf.withEnabled(n.rest)
   b.restServerConf.withListenAddress(n.restAddress)
@@ -1190,6 +1163,12 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   if n.rateLimits.len > 0:
     b.rateLimitConf.withRateLimits(n.rateLimits)
+  else:
+    # The default protocol posture serves filter/lightpush, so default service
+    # rate limits must apply unless the operator sets their own.
+    b.rateLimitConf.withRateLimitsIfNotAssigned(
+      @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
+    )
 
   b.withLocalStoragePath(n.localStoragePath)
 
@@ -1205,26 +1184,5 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.kademliaDiscoveryConf.withServiceLookupInterval(
       chronos.seconds(n.kadServiceLookupIntervalSec.int64)
     )
-
-  # Mode-driven configuration overrides
-  case n.mode
-  of WakuMode.Core:
-    b.withRelay(true)
-    b.filterServiceConf.withEnabled(true)
-    b.withLightPush(true)
-    b.discv5Conf.withEnabled(true)
-    b.withPeerExchange(true)
-    b.withRendezvous(true)
-    b.rateLimitConf.withRateLimitsIfNotAssigned(
-      @["filter:100/1s", "lightpush:5/1s", "px:5/1s"]
-    )
-  of WakuMode.Edge:
-    b.withPeerExchange(true)
-    b.withRelay(false)
-    b.filterServiceConf.withEnabled(false)
-    b.withLightPush(false)
-    b.storeServiceConf.withEnabled(false)
-  of WakuMode.noMode:
-    discard # use explicit CLI flags as-is
 
   return b.build()

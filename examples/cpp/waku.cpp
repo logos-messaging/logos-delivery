@@ -240,18 +240,14 @@ int main(int argc, char **argv)
 
     char jsonConfig[2048];
     snprintf(jsonConfig, 2048, "{ \
-                                    \"host\": \"%s\",   \
-                                    \"port\": %d,       \
-                                    \"relay\": true,      \
-                                    \"clusterId\": 16, \
-                                    \"shards\": [ 1, 32, 64, 128, 256 ], \
-                                    \"logLevel\": \"FATAL\", \
-                                    \"discv5Discovery\": true, \
-                                    \"discv5BootstrapNodes\": \
-                                        [\"enr:-QESuEB4Dchgjn7gfAvwB00CxTA-nGiyk-aALI-H4dYSZD3rUk7bZHmP8d2U6xDiQ2vZffpo45Jp7zKNdnwDUx6g4o6XAYJpZIJ2NIJpcIRA4VDAim11bHRpYWRkcnO4XAArNiZub2RlLTAxLmRvLWFtczMud2FrdS5zYW5kYm94LnN0YXR1cy5pbQZ2XwAtNiZub2RlLTAxLmRvLWFtczMud2FrdS5zYW5kYm94LnN0YXR1cy5pbQYfQN4DgnJzkwABCAAAAAEAAgADAAQABQAGAAeJc2VjcDI1NmsxoQOvD3S3jUNICsrOILlmhENiWAMmMVlAl6-Q8wRB7hidY4N0Y3CCdl-DdWRwgiMohXdha3UyDw\", \"enr:-QEkuEBIkb8q8_mrorHndoXH9t5N6ZfD-jehQCrYeoJDPHqT0l0wyaONa2-piRQsi3oVKAzDShDVeoQhy0uwN1xbZfPZAYJpZIJ2NIJpcIQiQlleim11bHRpYWRkcnO4bgA0Ni9ub2RlLTAxLmdjLXVzLWNlbnRyYWwxLWEud2FrdS5zYW5kYm94LnN0YXR1cy5pbQZ2XwA2Ni9ub2RlLTAxLmdjLXVzLWNlbnRyYWwxLWEud2FrdS5zYW5kYm94LnN0YXR1cy5pbQYfQN4DgnJzkwABCAAAAAEAAgADAAQABQAGAAeJc2VjcDI1NmsxoQKnGt-GSgqPSf3IAPM7bFgTlpczpMZZLF3geeoNNsxzSoN0Y3CCdl-DdWRwgiMohXdha3UyDw\"], \
-                                    \"discv5UdpPort\": 9999, \
-                                    \"dnsDiscoveryUrl\": \"enrtree://AMOJVZX4V6EXP7NTJPMAYJYST2QP6AJXYW76IU6VGJS7UVSNDYZG4@boot.prod.status.nodes.status.im\", \
-                                    \"dnsDiscoveryNameServers\": [\"8.8.8.8\", \"1.0.0.1\"] \
+                                    \"mode\": \"Core\", \
+                                    \"preset\": \"status.prod\", \
+                                    \"messagingOverrides\": { \
+                                        \"listen-address\": \"%s\", \
+                                        \"tcp-port\": %d, \
+                                        \"log-level\": \"FATAL\", \
+                                        \"discv5-udp-port\": 9999 \
+                                    } \
                                 }",
              cfgNode.host,
              cfgNode.port);

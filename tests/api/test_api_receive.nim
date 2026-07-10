@@ -21,6 +21,7 @@ import
   ]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
+import logos_delivery/api/conf/messaging_conf
 
 const TestTimeout = chronos.seconds(60)
 
@@ -82,15 +83,14 @@ proc waitForConnectionStatus(
     await EventConnectionStatusChange.dropListener(brokerCtx, handle)
 
 proc createApiNodeConf(numShards: uint16 = 1): WakuNodeConf =
-  var conf = defaultWakuNodeConf().valueOr:
-    raiseAssert error
-  conf.mode = cli_args.WakuMode.Core
+  var conf = MessagingClientConf()
+    .toWakuNodeConf(messaging_conf.LogosDeliveryMode.Core).valueOr:
+      raiseAssert error
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
   conf.clusterId = some(3'u16)
   conf.numShardsInNetwork = numShards
-  conf.reliabilityEnabled = some(true)
   conf.rest = false
   result = conf
 

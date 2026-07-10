@@ -293,12 +293,16 @@ type WakuMessageHash = string
 type WakuPubsubTopic = string
 type WakuContentTopic = string
 
+type MessagingOverrides struct {
+	ListenAddress string `json:"listen-address,omitempty"`
+	Port          int    `json:"tcp-port,omitempty"`
+	NodeKey       string `json:"nodekey,omitempty"`
+	LogLevel      string `json:"log-level,omitempty"`
+}
+
 type WakuConfig struct {
-	Host        string `json:"host,omitempty"`
-	Port        int    `json:"port,omitempty"`
-	NodeKey     string `json:"key,omitempty"`
-	EnableRelay bool   `json:"relay"`
-	LogLevel    string `json:"logLevel"`
+	Mode               string             `json:"mode"`
+	MessagingOverrides MessagingOverrides `json:"messagingOverrides"`
 }
 
 type WakuNode struct {
@@ -563,11 +567,13 @@ func (self *WakuNode) WakuGetMyENR() (string, error) {
 
 func main() {
 	config := WakuConfig{
-		Host:        "0.0.0.0",
-		Port:        30304,
-		NodeKey:     "11d0dcea28e86f81937a3bd1163473c7fbc0a0db54fd72914849bc47bdf78710",
-		EnableRelay: true,
-		LogLevel:    "DEBUG",
+		Mode: "Core",
+		MessagingOverrides: MessagingOverrides{
+			ListenAddress: "0.0.0.0",
+			Port:          30304,
+			NodeKey:       "11d0dcea28e86f81937a3bd1163473c7fbc0a0db54fd72914849bc47bdf78710",
+			LogLevel:      "DEBUG",
+		},
 	}
 
 	node, err := WakuNew(config)

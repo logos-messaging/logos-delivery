@@ -155,8 +155,6 @@ type WakuConf* {.requiresInit.} = ref object
   # TODO: use proper type
   relayServiceRatio*: string
 
-  p2pReliability*: bool
-
   localStoragePath*: string
 
 proc logConf*(conf: WakuConf) =

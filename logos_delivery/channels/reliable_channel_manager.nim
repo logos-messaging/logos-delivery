@@ -13,8 +13,6 @@ import stew/byteutils
 
 import brokers/broker_context
 
-import logos_delivery/messaging/messaging_client
-import logos_delivery/messaging/api/send
 import logos_delivery/api/types
 import logos_delivery/api/reliable_channel_manager_api
 
@@ -24,12 +22,22 @@ export reliable_channel
 
 type
   ReliableChannelManagerConf* = object
-    ## Per-layer config object for the reliable
-    ## channel API. Placeholder for now (segmentation / SDS / rate-limit defaults
-    ## will move here in a follow-up PR); kept so each layer owns its own config.
+    ## All-`Option` partial; unset fields fall back to `createReliableChannel` defaults.
+    segmentationEnableReedSolomon*: Option[bool]
+      ## Add Reed-Solomon parity segments for recovery of lost segments.
+    segmentationSegmentSizeBytes*: Option[int] ## Maximum segment size in bytes.
+    sdsAcknowledgementTimeoutMs*: Option[int]
+      ## Time to wait before retransmitting an unacknowledged message.
+    sdsMaxRetransmissions*: Option[int]
+      ## Maximum retransmission attempts before delivery fails.
+    sdsCausalHistorySize*: Option[int] ## Number of message ids kept in causal history.
+    rateLimitEnabled*: Option[bool] ## Enable rate limiting.
+    rateLimitEpochPeriodSec*: Option[int] ## Rate-limit epoch length in seconds.
+    rateLimitMessagesPerEpoch*: Option[int] ## Messages allowed per rate-limit epoch.
 
   ReliableChannelManager* = ref object ## Implements `ReliableChannelApi`.
     channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
+    conf*: ReliableChannelManagerConf
     brokerCtx*: BrokerContext
 
 proc new*(
@@ -37,7 +45,13 @@ proc new*(
     conf: ReliableChannelManagerConf,
     brokerCtx: BrokerContext = globalBrokerContext(),
 ): Result[T, string] =
-  return ok(T(channels: initTable[ChannelId, ReliableChannel](), brokerCtx: brokerCtx))
+  return ok(
+    T(
+      channels: initTable[ChannelId, ReliableChannel](),
+      conf: conf,
+      brokerCtx: brokerCtx,
+    )
+  )
 
 proc start*(self: ReliableChannelManager): Result[void, string] =
   ## Placeholder: per-channel listeners are installed in `ReliableChannel.new`,

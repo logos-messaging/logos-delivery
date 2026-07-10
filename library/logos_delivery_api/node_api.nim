@@ -7,7 +7,7 @@ import
   logos_delivery/api/types,
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
-  tools/confutils/conf_from_json,
+  logos_delivery/api/conf/logos_delivery_conf_json,
   ../declare_lib,
   ../json_event
 
@@ -17,10 +17,10 @@ proc `%`*(id: RequestId): JsonNode =
 
 registerReqFFI(CreateNodeRequest, ctx: ptr FFIContext[LogosDelivery]):
   proc(configJson: cstring): Future[Result[string, string]] {.async.} =
-    let conf = parseNodeConfFromJson($configJson).valueOr:
-      error "Failed to assemble WakuNodeConf from JSON",
+    let conf = parseLogosDeliveryConf($configJson).valueOr:
+      error "Failed to parse Logos Delivery configuration JSON",
         error = error, configJson = $configJson
-      return err("failed parseNodeConfFromJson " & error)
+      return err("failed parseLogosDeliveryConf " & error)
 
     ctx.myLib[] = (await LogosDelivery.new(conf)).valueOr:
       let errMsg = $error
