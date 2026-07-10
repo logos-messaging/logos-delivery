@@ -1,12 +1,13 @@
 ## Rate Limit Manager for the Messaging API.
 ##
 ## Tracks messages sent per RLN epoch and rejects admission when the
-## limit is approached, ensuring RLN compliance on enforcing relays.
+## budget is exhausted, ensuring RLN compliance on enforcing relays.
 ##
-## For the skeleton this is a pass-through: every call is admitted.
-## Real per-epoch budgeting will use `queue`, `currentEpochStart`,
-## `sentInCurrentEpoch`, and `resetEpoch` to park messages and admit
-## them as the epoch rolls over.
+## Budgeting is a lazily rolled fixed window: the first admission after
+## `epochPeriodSec` has elapsed resets the counter. Parking and retrying
+## of over-budget messages is owned by the send service scheduler; this
+## module only answers whether one more transmission fits the current
+## epoch's budget.
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
@@ -24,7 +25,6 @@ type
 
   RateLimitManager* = ref object
     config*: RateLimitConfig
-    queue*: seq[seq[byte]]
     currentEpochStart*: Time
     sentInCurrentEpoch*: int
 
@@ -37,22 +37,28 @@ const
   ) ## Used when no rate-limit config is supplied; `enabled` defaults false.
 
 proc new*(T: type RateLimitManager, config: RateLimitConfig): T =
-  return
-    T(config: config, queue: @[], currentEpochStart: getTime(), sentInCurrentEpoch: 0)
-
-proc admit*(
-    self: RateLimitManager, msg: seq[byte]
-): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
-  ## Skeleton behaviour: admits immediately. Real per-epoch budgeting
-  ## will consult `config`, `sentInCurrentEpoch`, and the elapsed
-  ## `epochPeriodSec` window before admitting or parking `msg`.
-  return ok()
-
-proc dequeueReady*(self: RateLimitManager): seq[seq[byte]] =
-  ## Returns the set of queued messages that may be dispatched now
-  ## without exceeding the configured rate limit.
-  discard
+  return T(config: config, currentEpochStart: getTime(), sentInCurrentEpoch: 0)
 
 proc resetEpoch*(self: RateLimitManager) =
   self.currentEpochStart = getTime()
   self.sentInCurrentEpoch = 0
+
+proc admit*(
+    self: RateLimitManager, msg: seq[byte]
+): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
+  ## Charges one message against the current epoch's budget, rolling the
+  ## window first when `epochPeriodSec` has elapsed. A disabled or
+  ## non-positive configuration admits everything.
+  if not self.config.enabled or self.config.epochPeriodSec <= 0 or
+      self.config.messagesPerEpoch <= 0:
+    return ok()
+
+  if getTime() - self.currentEpochStart >=
+      initDuration(seconds = self.config.epochPeriodSec):
+    self.resetEpoch()
+
+  if self.sentInCurrentEpoch >= self.config.messagesPerEpoch:
+    return err(RateLimitError.OverBudget)
+
+  inc self.sentInCurrentEpoch
+  return ok()

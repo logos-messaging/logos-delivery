@@ -13,14 +13,44 @@ suite "RateLimitManager - admission":
       let res = await rl.admit("payload".toBytes())
       check res.isOk()
 
-  asyncTest "admit is a pass-through in the skeleton even when enabled":
-    ## Documents the current skeleton behaviour: per-epoch enforcement is
-    ## not wired yet, so every call is admitted regardless of the
-    ## configured budget. This test flips to red as soon as real
-    ## enforcement lands, at which point it should be replaced with
-    ## budget-boundary assertions.
+  asyncTest "admits up to the budget then rejects with OverBudget":
+    let rl = RateLimitManager.new(
+      RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 3)
+    )
+    for i in 0 ..< 3:
+      check (await rl.admit(("msg" & $i).toBytes())).isOk()
+    let res = await rl.admit("over".toBytes())
+    check:
+      res.isErr()
+      res.error == RateLimitError.OverBudget
+
+  asyncTest "budget frees when the epoch rolls over":
+    let rl = RateLimitManager.new(
+      RateLimitConfig(enabled: true, epochPeriodSec: 1, messagesPerEpoch: 1)
+    )
+    check (await rl.admit("first".toBytes())).isOk()
+    check (await rl.admit("second".toBytes())).isErr()
+    await sleepAsync(1100.milliseconds)
+    check (await rl.admit("third".toBytes())).isOk()
+    check (await rl.admit("fourth".toBytes())).isErr()
+
+  asyncTest "resetEpoch forces a fresh budget":
     let rl = RateLimitManager.new(
       RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1)
     )
     check (await rl.admit("first".toBytes())).isOk()
-    check (await rl.admit("second".toBytes())).isOk()
+    check (await rl.admit("second".toBytes())).isErr()
+    rl.resetEpoch()
+    check (await rl.admit("third".toBytes())).isOk()
+
+  asyncTest "non-positive budget or period is treated as disabled":
+    let zeroBudget = RateLimitManager.new(
+      RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 0)
+    )
+    check (await zeroBudget.admit("a".toBytes())).isOk()
+
+    let zeroPeriod = RateLimitManager.new(
+      RateLimitConfig(enabled: true, epochPeriodSec: 0, messagesPerEpoch: 1)
+    )
+    check (await zeroPeriod.admit("a".toBytes())).isOk()
+    check (await zeroPeriod.admit("b".toBytes())).isOk()
