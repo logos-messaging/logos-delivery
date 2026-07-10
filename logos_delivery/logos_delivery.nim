@@ -9,6 +9,7 @@
 
 {.push raises: [].}
 
+import std/options
 import results, chronos, chronicles
 
 # Each layer has a core module (type + new/start/stop) and an api/ folder whose
@@ -41,6 +42,8 @@ import logos_delivery/messaging/api/[subscription, send]
 export subscription, send
 import logos_delivery/api/events/messaging_client_events
 export messaging_client_events
+import logos_delivery/api/conf/messaging_conf
+export messaging_conf
 
 # Reliable Channel layer
 import logos_delivery/channels/reliable_channel_manager
@@ -58,90 +61,127 @@ import logos_delivery/waku/factory/waku_conf
 import logos_delivery/waku/factory/app_callbacks
 import tools/confutils/cli_args
 import logos_delivery/waku/node/health_monitor/online_monitor
+import logos_delivery/api/conf/logos_delivery_conf
+export logos_delivery_conf
 
 logScope:
   topics = "logosdelivery"
 
-type
-  LogosDeliveryConf* = object
-    ## Aggregates the per-layer config objects. For now
-    ## the sub-configs are derived from `WakuConf`; richer per-layer configuration
-    ## (and how it is sourced) lands in a follow-up PR.
-    waku*: WakuConf
-    messaging*: MessagingClientConf
-    reliableChannel*: ReliableChannelManagerConf
-
-  LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
-    waku*: Waku
-    messagingClient*: MessagingClient
-    reliableChannelManager*: ReliableChannelManager
-
-proc init*(T: type LogosDeliveryConf, wakuConf: WakuConf): LogosDeliveryConf =
-  ## Builds the aggregated config from a `WakuConf`. The messaging / reliable
-  ## channel layers carry trivial config today; this is the seam where their
-  ## dedicated config will be threaded through later.
-  LogosDeliveryConf(
-    waku: wakuConf,
-    messaging: MessagingClientConf(useP2PReliability: wakuConf.p2pReliability),
-    reliableChannel: ReliableChannelManagerConf(),
-  )
+type LogosDelivery* = ref object ## Entry point. Holds one instance of each API layer.
+  waku*: Waku
+  messagingClient*: MessagingClient
+  reliableChannelManager*: ReliableChannelManager
 
 proc new*(
-    T: type LogosDelivery, conf: WakuNodeConf, appCallbacks: AppCallbacks = nil
+    T: type LogosDelivery, conf: LogosDeliveryConf, appCallbacks: AppCallbacks = nil
 ): Future[Result[LogosDelivery, string]] {.async.} =
-  ## Single entry point, from the CLI configuration type. Derives the aggregated
-  ## per-layer config, then creates the full stack bottom-up so each layer can
-  ## chain onto the one below.
-  let wakuConf = conf.toWakuConf().valueOr:
-    return err("failed to handle the configuration: " & error)
-  let layerConf = LogosDeliveryConf.init(wakuConf)
-
-  let waku = (await Waku.new(layerConf.waku, appCallbacks)).valueOr:
+  ## Builds the stack bottom-up from a resolved per-layer config; each layer is
+  ## mounted iff its config is present.
+  let wakuConf = WakuNodeConf(conf.kernelConf).toWakuConf().valueOr:
+      return err("failed to handle the configuration: " & error)
+  let waku = (await Waku.new(wakuConf, appCallbacks)).valueOr:
     return err("failed to create Waku: " & error)
 
-  let messagingClient = MessagingClient.new(layerConf.messaging, waku).valueOr:
-    return err("failed to create MessagingClient: " & error)
+  let messagingClient =
+    if conf.messagingConf.isSome():
+      MessagingClient.new(conf.messagingConf.get(), waku).valueOr:
+        return err("failed to create MessagingClient: " & error)
+    else:
+      nil
 
-  let reliableChannelManager = ReliableChannelManager.new(
-    layerConf.reliableChannel, waku.brokerCtx
-  ).valueOr:
-    return err("failed to create ReliableChannelManager: " & error)
+  let reliableChannelManager =
+    if conf.channelsConf.isSome():
+      ReliableChannelManager.new(conf.channelsConf.get(), waku.brokerCtx).valueOr:
+        return err("failed to create ReliableChannelManager: " & error)
+    else:
+      nil
 
   return ok(
-    T(
+    LogosDelivery(
       waku: waku,
       messagingClient: messagingClient,
       reliableChannelManager: reliableChannelManager,
     )
   )
 
+proc new*(
+    T: type LogosDelivery, conf: WakuNodeConf, appCallbacks: AppCallbacks = nil
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Builds the full stack from a kernel `WakuNodeConf`.
+  return await LogosDelivery.new(
+    LogosDeliveryConf(
+      kernelConf: KernelConf(conf),
+      messagingConf: some(MessagingClientConf()),
+      channelsConf: some(ReliableChannelManagerConf()),
+    ),
+    appCallbacks,
+  )
+
+proc new*(
+    T: type LogosDelivery, kernelConf: KernelConf, appCallbacks: AppCallbacks = nil
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Fleet mode: mounts the kernel only from a raw `KernelConf`; no messaging client,
+  ## no channel manager.
+  return await LogosDelivery.new(LogosDeliveryConf.init(kernelConf), appCallbacks)
+
+proc new*(
+    T: type LogosDelivery,
+    kernelConf: KernelConf,
+    messagingOverrides: MessagingClientConf,
+    channelsOverrides: ReliableChannelManagerConf,
+    appCallbacks: AppCallbacks = nil,
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Full stack: kernel + messaging + channels. Messaging is never skipped; a
+  ## kernel-only node uses `new(kernelConf)` instead.
+  return await LogosDelivery.new(
+    LogosDeliveryConf(
+      kernelConf: kernelConf,
+      messagingConf: some(messagingOverrides),
+      channelsConf: some(channelsOverrides),
+    ),
+    appCallbacks,
+  )
+
+proc new*(
+    T: type LogosDelivery,
+    mode: LogosDeliveryMode = LogosDeliveryMode.Core,
+    preset: string = "",
+    messagingOverrides: MessagingClientConf = MessagingClientConf(),
+    channelsOverrides: ReliableChannelManagerConf = ReliableChannelManagerConf(),
+    appCallbacks: AppCallbacks = nil,
+): Future[Result[LogosDelivery, string]] {.async.} =
+  ## Messaging entry point (app dev). Builds the full stack from preset, mode and overrides.
+  let conf = LogosDeliveryConf.init(mode, preset, messagingOverrides, channelsOverrides).valueOr:
+    return err("failed to synthesize configuration: " & error)
+  return await LogosDelivery.new(conf, appCallbacks)
+
 proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
-  ## Starts each layer bottom-up: transport first, then messaging, then channels.
+  ## Starts each present layer bottom-up: transport, then messaging, then channels.
   if self.waku.isNil():
     return err("Waku node is not initialized")
-  if self.messagingClient.isNil():
-    return err("MessagingClient is not initialized")
-  if self.reliableChannelManager.isNil():
-    return err("ReliableChannelManager is not initialized")
 
   (await self.waku.start()).isOkOr:
     return err("failed to start Waku: " & error)
 
-  self.messagingClient.start().isOkOr:
-    return err("failed to start MessagingClient: " & error)
+  if not self.messagingClient.isNil():
+    self.messagingClient.start().isOkOr:
+      return err("failed to start MessagingClient: " & error)
 
-  self.reliableChannelManager.start().isOkOr:
-    return err("failed to start ReliableChannelManager: " & error)
+  if not self.reliableChannelManager.isNil():
+    self.reliableChannelManager.start().isOkOr:
+      return err("failed to start ReliableChannelManager: " & error)
 
   return ok()
 
 proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   ## Stops in reverse order so higher layers drain before their dependencies.
-  await self.reliableChannelManager.stop()
-  await self.messagingClient.stop()
-
-  (await self.waku.stop()).isOkOr:
-    return err("failed to stop Waku: " & error)
+  if not self.reliableChannelManager.isNil():
+    await self.reliableChannelManager.stop()
+  if not self.messagingClient.isNil():
+    await self.messagingClient.stop()
+  if not self.waku.isNil():
+    (await self.waku.stop()).isOkOr:
+      return err("failed to stop Waku: " & error)
 
   return ok()
 
@@ -149,6 +189,18 @@ proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():
     return err("Waku node is not initialized")
   return await self.waku.isOnline()
+
+proc ensureMessaging*(self: LogosDelivery): Result[void, string] =
+  ## Fails if the node has no messaging client (a kernel-only / fleet node).
+  if self.isNil() or self.messagingClient.isNil():
+    return err("node has no messaging client (kernel-only/fleet node)")
+  ok()
+
+proc ensureChannels*(self: LogosDelivery): Result[void, string] =
+  ## Fails if the node has no reliable channel manager (a kernel-only / fleet node).
+  if self.isNil() or self.reliableChannelManager.isNil():
+    return err("node has no reliable channel manager (kernel-only/fleet node)")
+  ok()
 
 # Compile-time check that each concrete type satisfies its API concept.
 static:

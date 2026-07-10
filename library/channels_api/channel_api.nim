@@ -18,6 +18,9 @@ proc logosdelivery_channel_create(
   requireInitializedNode(ctx, "ChannelCreate"):
     return err(errMsg)
 
+  requireChannels(ctx, "ChannelCreate"):
+    return err(errMsg)
+
   let id = ctx.myLib[].reliableChannelManager.createReliableChannel(
     ChannelId($channelIdStr),
     ContentTopic($contentTopicStr),
@@ -36,6 +39,9 @@ proc logosdelivery_channel_send(
 ) {.ffi.} =
   ## `messageJson` carries `{ "payload": <base64>, "ephemeral": <bool> }`.
   requireInitializedNode(ctx, "ChannelSend"):
+    return err(errMsg)
+
+  requireChannels(ctx, "ChannelSend"):
     return err(errMsg)
 
   var jsonNode: JsonNode
@@ -68,6 +74,9 @@ proc logosdelivery_channel_close(
     channelIdStr: cstring,
 ) {.ffi.} =
   requireInitializedNode(ctx, "ChannelClose"):
+    return err(errMsg)
+
+  requireChannels(ctx, "ChannelClose"):
     return err(errMsg)
 
   (await ctx.myLib[].reliableChannelManager.closeChannel(ChannelId($channelIdStr))).isOkOr:

@@ -129,12 +129,14 @@ void simple_callback(int ret, const char *msg, size_t len, void *userData) {
 int main() {
     printf("=== Logos Messaging API (LMAPI) Example ===\n\n");
 
-    // Configuration JSON using WakuNodeConf field names (flat structure).
-    // Field names match Nim identifiers from WakuNodeConf in tools/confutils/cli_args.nim.
+    // Layered messaging config: {mode, preset, messagingOverrides, channelsOverrides}.
+    // Override keys are MessagingClientConf field or CLI switch names.
     const char *config = "{"
-        "\"logLevel\": \"INFO\","
         "\"mode\": \"Core\","
-        "\"preset\": \"logos.dev\""
+        "\"preset\": \"logos.dev\","
+        "\"messagingOverrides\": {"
+            "\"log-level\": \"INFO\""
+        "}"
     "}";
 
     printf("1. Creating node...\n");

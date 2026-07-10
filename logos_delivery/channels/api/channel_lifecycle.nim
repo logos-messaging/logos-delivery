@@ -8,7 +8,7 @@ import logos_delivery/channels/reliable_channel_manager
 import logos_delivery/channels/reliable_channel
 import logos_delivery/waku/persistency/sds_persistency
 
-# ReliableChannel, SendHandler, config and wire-version markers.
+# ReliableChannel, config and wire-version markers.
 export reliable_channel
 
 const SdsJobId = "sds"
@@ -33,22 +33,32 @@ proc createReliableChannel*(
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
 ): Result[ChannelId, string] =
+  ## Encryption and egress providers must be installed (or `setNoopEncryption()`)
+  ## before traffic flows on the channel.
   if self.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
 
+  let cc = self.conf
   let segConfig = SegmentationConfig(
-    segmentSizeBytes: DefaultSegmentSizeBytes,
-    enableReedSolomon: false,
+    segmentSizeBytes: cc.segmentationSegmentSizeBytes.get(DefaultSegmentSizeBytes),
+    enableReedSolomon: cc.segmentationEnableReedSolomon.get(false),
     persistence: nil,
   )
   let sdsConfig = SdsConfig(
-    acknowledgementTimeoutMs: DefaultAcknowledgementTimeoutMs,
-    maxRetransmissions: DefaultMaxRetransmissions,
-    causalHistorySize: DefaultCausalHistorySize,
+    acknowledgementTimeoutMs:
+      cc.sdsAcknowledgementTimeoutMs.get(DefaultAcknowledgementTimeoutMs),
+    maxRetransmissions: cc.sdsMaxRetransmissions.get(DefaultMaxRetransmissions),
+    causalHistorySize: cc.sdsCausalHistorySize.get(DefaultCausalHistorySize),
     persistence: sdsPersistence(),
   )
   let rateConfig = RateLimitConfig(
-    epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
+    # Setting a rate-limit parameter implies enabling; an explicit
+    # rateLimitEnabled still wins.
+    enabled: cc.rateLimitEnabled.get(
+      cc.rateLimitEpochPeriodSec.isSome() or cc.rateLimitMessagesPerEpoch.isSome()
+    ),
+    epochPeriodSec: cc.rateLimitEpochPeriodSec.get(DefaultEpochPeriodSec),
+    messagesPerEpoch: cc.rateLimitMessagesPerEpoch.get(DefaultMessagesPerEpoch),
   )
 
   let chn = ReliableChannel.new(

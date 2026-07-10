@@ -1,5 +1,6 @@
 import ffi
 import std/locks
+import results
 import logos_delivery
 
 declareLibrary("logosdelivery")
@@ -15,6 +16,24 @@ template requireInitializedNode*(
     onError
   elif isNil(ctx.myLib) or isNil(ctx.myLib[]):
     let errMsg {.inject.} = opName & " failed: node is not initialized"
+    onError
+
+template requireMessaging*(
+    ctx: ptr FFIContext[LogosDelivery], opName: string, onError: untyped
+) =
+  ## Use after `requireInitializedNode`. Fails if the node has no messaging client
+  ## (a kernel-only / fleet node).
+  ctx.myLib[].ensureMessaging().isOkOr:
+    let errMsg {.inject.} = opName & " failed: " & error
+    onError
+
+template requireChannels*(
+    ctx: ptr FFIContext[LogosDelivery], opName: string, onError: untyped
+) =
+  ## Use after `requireInitializedNode`. Fails if the node has no reliable channel
+  ## manager (a kernel-only / fleet node).
+  ctx.myLib[].ensureChannels().isOkOr:
+    let errMsg {.inject.} = opName & " failed: " & error
     onError
 
 proc logosdelivery_set_event_callback(

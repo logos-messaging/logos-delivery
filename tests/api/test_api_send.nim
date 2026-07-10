@@ -8,6 +8,7 @@ import ../waku_archive/archive_utils
 import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
 import logos_delivery/waku/factory/waku_conf
 import tools/confutils/cli_args
+import logos_delivery/api/conf/messaging_conf
 
 type SendEventOutcome {.pure.} = enum
   Sent
@@ -119,16 +120,16 @@ proc validate(
   for requestId in manager.errorRequestIds:
     check requestId == expectedRequestId
 
-proc createApiNodeConf(mode: cli_args.WakuMode = cli_args.WakuMode.Core): WakuNodeConf =
-  var conf = defaultWakuNodeConf().valueOr:
-    raiseAssert error
-  conf.mode = mode
+proc createApiNodeConf(
+    mode: messaging_conf.LogosDeliveryMode = messaging_conf.LogosDeliveryMode.Core
+): WakuNodeConf =
+  var conf = MessagingClientConf().toWakuNodeConf(mode).valueOr:
+      raiseAssert error
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
   conf.clusterId = some(3'u16)
   conf.numShardsInNetwork = 1
-  conf.reliabilityEnabled = some(true)
   conf.rest = false
   result = conf
 
@@ -353,7 +354,11 @@ suite "Waku API - Send":
     ## connected to a lightpush-capable peer must deliver through lightpush.
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
+      node = (
+        await LogosDelivery.new(
+          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -388,7 +393,11 @@ suite "Waku API - Send":
     ## later retry must deliver the queued message.
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
+      node = (
+        await LogosDelivery.new(
+          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -479,7 +488,11 @@ suite "Waku API - Send":
 
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf(cli_args.WakuMode.Edge))).valueOr:
+      node = (
+        await LogosDelivery.new(
+          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+        )
+      ).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error

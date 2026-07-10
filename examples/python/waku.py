@@ -55,15 +55,16 @@ args = parser.parse_args()
 
 # The next 'json_config' is the item passed to the 'logosdelivery_create_node'.
 json_config = "{ \
-                \"host\": \"%s\",   \
-                \"port\": %d,       \
-                \"key\": \"%s\",    \
-                \"relay\": %s      ,\
-                \"logLevel\": \"DEBUG\" \
+                \"mode\": \"Core\", \
+                \"messagingOverrides\": { \
+                    \"listen-address\": \"%s\", \
+                    \"tcp-port\": %d,           \
+                    \"nodekey\": \"%s\",        \
+                    \"log-level\": \"DEBUG\"    \
+                } \
             }" % (args.host,
                   int(args.port),
-                  args.key,
-                  "true" if args.relay else "false")
+                  args.key)
 
 callback_type = ctypes.CFUNCTYPE(None, ctypes.c_int, ctypes.c_char_p, ctypes.c_size_t)
 
