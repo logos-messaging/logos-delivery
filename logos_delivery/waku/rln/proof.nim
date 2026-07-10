@@ -86,32 +86,32 @@ proc generateRLNProofWithRootRefresh*(
   rln.groupManager.invalidateMerkleProofCache()
   return await rln.generateRLNProof(input, senderEpochTime)
 
-proc checkAndGenerateRLNProof*(
-    rln: Option[Rln], message: WakuMessage, regenerate: bool = false
+proc attachRLNProof*(
+    r: Rln, message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
-  ## Returns the message with an attached RLN proof.
-  ## Set `regenerate = true` to bypass the "already has proof" short-circuit
-  ## and always generate a fresh proof — used by the retry path after a stale
-  ## proof was rejected; the caller should first `invalidateMerkleProofCache`
-  ## so the fresh proof is generated against a refetched merkle path.
-  if message.proof.len > 0 and not regenerate:
+  ## Returns the message with a freshly generated RLN proof attached,
+  ## replacing any existing proof. Always draws a new message id from the
+  ## nonce manager. Retry paths that suspect a stale merkle path should call
+  ## `invalidateMerkleProofCache` first so the proof is generated against a
+  ## refetched path.
+  var msgWithProof = message
+  msgWithProof.proof = (
+    await r.generateRLNProof(message.toRLNSignal(), float64(getTime().toUnix()))
+  ).valueOr:
+    return err("error in attachRLNProof: " & error)
+  return ok(msgWithProof)
+
+proc checkAndGenerateRLNProof*(
+    rln: Option[Rln], message: WakuMessage
+): Future[Result[WakuMessage, string]] {.async.} =
+  ## Returns the message with an attached RLN proof. Passes the message
+  ## through unchanged when it already carries a proof or when RLN is not
+  ## configured.
+  if message.proof.len > 0:
     return ok(message)
 
   if rln.isNone():
     notice "Publishing message without RLN proof"
     return ok(message)
 
-  let r = rln.get()
-  let
-    time = getTime().toUnix()
-    senderEpochTime = float64(time)
-    epoch = r.calcEpoch(senderEpochTime)
-  let nonce = r.nonceManager.getNonce().valueOr:
-    return err("could not get new message id to generate an rln proof: " & $error)
-  var msgWithProof = message
-  let proof = (
-    await r.groupManager.generateProof(msgWithProof.toRLNSignal(), epoch, nonce)
-  ).valueOr:
-    return err("error in checkAndGenerateRLNProof: " & $error)
-  msgWithProof.proof = proof.encode().buffer
-  return ok(msgWithProof)
+  return await attachRLNProof(rln.get(), message)

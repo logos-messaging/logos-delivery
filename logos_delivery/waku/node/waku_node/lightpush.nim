@@ -93,7 +93,9 @@ proc resolveLegacyPubsubTopic(
     node: WakuNode, pubsubTopic: Option[PubsubTopic], contentTopic: ContentTopic
 ): Result[PubsubTopic, string] =
   ## Returns the explicit pubsub topic if provided, otherwise derives it from
-  ## `contentTopic` via autosharding.
+  ## `contentTopic` via autosharding. Unlike v3 lightpush, the legacy wire
+  ## format carries a mandatory pubsub topic and the server never derives it,
+  ## so the client must resolve the topic before building the request.
   if pubsubTopic.isSome():
     return ok(pubsubTopic.get())
   if node.wakuAutoSharding.isNone():
@@ -122,10 +124,8 @@ proc runRlnRefreshRetry(
   proc runRetry(): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.
       async, gcsafe
   .} =
-    let retryMsg = (
-      await checkAndGenerateRLNProof(rln, msgWithProof, regenerate = true)
-    ).valueOr:
-      return err("failed call checkAndGenerateRLNProof from lightpush retry: " & error)
+    let retryMsg = (await attachRLNProof(rln.get(), msgWithProof)).valueOr:
+      return err("failed call attachRLNProof from lightpush retry: " & error)
     return await internalLegacyLightpushPublish(node, pubsubForPublish, retryMsg, peer)
 
   let retryFut = runRetry()
@@ -368,9 +368,7 @@ proc lightpushPublish*(
   rln.get().groupManager.invalidateMerkleProofCache()
 
   proc runRetry(): Future[lightpush_protocol.WakuLightPushResult] {.async, gcsafe.} =
-    let retryMsg = (
-      await checkAndGenerateRLNProof(rln, msgWithProof, regenerate = true)
-    ).valueOr:
+    let retryMsg = (await attachRLNProof(rln.get(), msgWithProof)).valueOr:
       return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
     return
       await lightpushPublishHandler(node, pubsubForPublish, retryMsg, toPeer, mixify)

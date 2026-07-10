@@ -184,8 +184,8 @@ suite "RLN Proofs as a Lightpush Service":
       # Exercises the primitive pair that lightpushPublish leans on after a
       # 420 (INVALID_MESSAGE) or 504 (OUT_OF_RLN_PROOF) rejection: calling
       # invalidateMerkleProofCache empties the cached path so the next
-      # proof-gen refetches from chain, and `regenerate = true` on
-      # checkAndGenerateRLNProof bypasses the "already has proof" short-circuit.
+      # proof-gen refetches from chain, and attachRLNProof rebuilds the proof
+      # even though the message already carries one.
       let firstMsg = (await checkAndGenerateRLNProof(some(server.rln), message)).get()
       check firstMsg.proof.len > 0
 
@@ -199,9 +199,7 @@ suite "RLN Proofs as a Lightpush Service":
       # Retry path: invalidate the cache so the next proof-gen refetches from
       # chain, then regenerate the proof.
       manager.invalidateMerkleProofCache()
-      let secondMsg = (
-        await checkAndGenerateRLNProof(some(server.rln), firstMsg, regenerate = true)
-      ).get()
+      let secondMsg = (await attachRLNProof(server.rln, firstMsg)).get()
 
       check:
         secondMsg.proof.len > 0
