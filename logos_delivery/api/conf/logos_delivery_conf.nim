@@ -4,9 +4,9 @@ import std/options
 import results
 
 import logos_delivery/api/conf/messaging_conf
-import logos_delivery/channels/reliable_channel_manager
+import logos_delivery/api/conf/channels_conf
 
-export options, messaging_conf, reliable_channel_manager
+export options, messaging_conf, channels_conf
 
 type LogosDeliveryConf* = object
   ## Aggregates the per-layer config objects. A layer is mounted iff its config

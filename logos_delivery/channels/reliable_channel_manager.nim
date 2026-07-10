@@ -5,7 +5,7 @@
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/[options, tables]
+import std/tables
 import results
 import chronos
 import chronicles
@@ -15,30 +15,16 @@ import brokers/broker_context
 
 import logos_delivery/api/types
 import logos_delivery/api/reliable_channel_manager_api
+import logos_delivery/api/conf/channels_conf
 
 import ./reliable_channel
 
-export reliable_channel
+export reliable_channel, channels_conf
 
-type
-  ReliableChannelManagerConf* = object
-    ## All-`Option` partial; unset fields fall back to `createReliableChannel` defaults.
-    segmentationEnableReedSolomon*: Option[bool]
-      ## Add Reed-Solomon parity segments for recovery of lost segments.
-    segmentationSegmentSizeBytes*: Option[int] ## Maximum segment size in bytes.
-    sdsAcknowledgementTimeoutMs*: Option[int]
-      ## Time to wait before retransmitting an unacknowledged message.
-    sdsMaxRetransmissions*: Option[int]
-      ## Maximum retransmission attempts before delivery fails.
-    sdsCausalHistorySize*: Option[int] ## Number of message ids kept in causal history.
-    rateLimitEnabled*: Option[bool] ## Enable rate limiting.
-    rateLimitEpochPeriodSec*: Option[int] ## Rate-limit epoch length in seconds.
-    rateLimitMessagesPerEpoch*: Option[int] ## Messages allowed per rate-limit epoch.
-
-  ReliableChannelManager* = ref object ## Implements `ReliableChannelApi`.
-    channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
-    conf*: ReliableChannelManagerConf
-    brokerCtx*: BrokerContext
+type ReliableChannelManager* = ref object ## Implements `ReliableChannelApi`.
+  channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
+  conf*: ReliableChannelManagerConf
+  brokerCtx*: BrokerContext
 
 proc new*(
     T: type ReliableChannelManager,
