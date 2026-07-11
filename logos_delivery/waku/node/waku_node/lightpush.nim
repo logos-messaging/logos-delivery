@@ -114,25 +114,23 @@ proc runRlnRefreshRetry(
     peer: RemotePeerInfo,
     fallback: legacy_lightpush_protocol.WakuLightPushResult[string],
 ): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.async, gcsafe.} =
-  ## Force-refreshes the RLN merkle proof path and retries the publish once,
-  ## bounded by RlnRefreshRetryTimeout. Returns `fallback` on timeout so a
-  ## hanging RPC/libp2p round-trip cannot stall the caller indefinitely.
+  ## Force-refreshes the RLN merkle proof path and retries the publish once.
+  ## Only the refresh (on-chain refetch + proof regeneration) is bounded by
+  ## RlnRefreshRetryTimeout — a hanging RPC cannot stall the caller
+  ## indefinitely and `fallback` (the original rejection) is returned instead.
+  ## The retried publish itself runs unbounded, matching the first attempt.
   info "legacy lightpush send rejected as RLN-invalid; " &
     "refreshing merkle proof and retrying once"
   rln.get().groupManager.invalidateMerkleProofCache()
 
-  proc runRetry(): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.
-      async, gcsafe
-  .} =
-    let retryMsg = (await attachRLNProof(rln.get(), msgWithProof)).valueOr:
-      return err("failed call attachRLNProof from lightpush retry: " & error)
-    return await internalLegacyLightpushPublish(node, pubsubForPublish, retryMsg, peer)
-
-  let retryFut = runRetry()
-  if not (await retryFut.withTimeout(RlnRefreshRetryTimeout)):
-    warn "legacy lightpush RLN-refresh retry timed out; returning original error"
+  let refreshFut = attachRLNProof(rln.get(), msgWithProof)
+  if not (await refreshFut.withTimeout(RlnRefreshRetryTimeout)):
+    warn "legacy lightpush RLN proof refresh timed out; returning original error"
     return fallback
-  return retryFut.read()
+  let retryMsg = refreshFut.read().valueOr:
+    return err("failed call attachRLNProof from lightpush retry: " & error)
+
+  return await internalLegacyLightpushPublish(node, pubsubForPublish, retryMsg, peer)
 
 proc legacyLightpushPublish*(
     node: WakuNode,
@@ -367,15 +365,16 @@ proc lightpushPublish*(
     statusCode = $firstResult.error.code
   rln.get().groupManager.invalidateMerkleProofCache()
 
-  proc runRetry(): Future[lightpush_protocol.WakuLightPushResult] {.async, gcsafe.} =
-    let retryMsg = (await attachRLNProof(rln.get(), msgWithProof)).valueOr:
-      return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
-    return
-      await lightpushPublishHandler(node, pubsubForPublish, retryMsg, toPeer, mixify)
-
-  let retryFut = runRetry()
-  if not (await retryFut.withTimeout(RlnRefreshRetryTimeout)):
-    warn "lightpush RLN-refresh retry timed out; returning original error",
+  # Only the refresh (on-chain refetch + proof regeneration) is bounded — a
+  # hanging RPC cannot stall the caller indefinitely and the original
+  # rejection is returned instead. The retried publish itself runs unbounded,
+  # matching the first attempt.
+  let refreshFut = attachRLNProof(rln.get(), msgWithProof)
+  if not (await refreshFut.withTimeout(RlnRefreshRetryTimeout)):
+    warn "lightpush RLN proof refresh timed out; returning original error",
       statusCode = $firstResult.error.code
     return firstResult
-  return retryFut.read()
+  let retryMsg = refreshFut.read().valueOr:
+    return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
+
+  return await lightpushPublishHandler(node, pubsubForPublish, retryMsg, toPeer, mixify)

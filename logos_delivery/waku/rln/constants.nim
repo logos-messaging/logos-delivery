@@ -20,10 +20,11 @@ const RlnCredentialsFilename* = "rlnCredentials.txt"
 # RLN Validator message rejection Error string, is used to trigger proof refresh and publish retry in the lightpush client
 const RlnValidatorErrorMsg* = "RLN validation failed"
 
-# Upper bound on the reactive refresh + retry after a stale-RLN rejection.
-# The retry synchronously fetches a fresh merkle path from the RLN contract
-# (eth_call round-trip) and republishes; without a bound a hanging RPC endpoint
-# could stall the caller indefinitely. Matches the REST `futTimeout`.
+# Upper bound on the reactive merkle proof refresh after a stale-RLN
+# rejection: fetching a fresh merkle path from the RLN contract (eth_call
+# round-trip) plus proof regeneration. Without a bound a hanging RPC endpoint
+# could stall the caller indefinitely. The retried publish is not covered —
+# it runs unbounded, matching the first attempt.
 const RlnRefreshRetryTimeout* = 5.seconds
 
 # inputs of the membership contract constructor
