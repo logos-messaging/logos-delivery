@@ -633,10 +633,17 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
   try:
     when not defined(windows):
       discard execCmdEx(fmt"kill -TERM {anvilPID}")
-      # Give Anvil time to dump state on graceful shutdown before escalating to KILL.
-      sleep(200)
-      let checkResult = execCmdEx(fmt"kill -0 {anvilPID} 2>/dev/null")
-      if checkResult.exitCode == 0:
+      # Give Anvil time to dump state on graceful shutdown before escalating to
+      # KILL; killing too early truncates the dump and corrupts the state file.
+      # Poll via osproc `running` (which reaps the child) rather than `kill -0`,
+      # since the latter also succeeds for an exited-but-unreaped zombie.
+      const gracefulExitTimeoutMs = 10_000
+      const pollIntervalMs = 100
+      var elapsed = 0
+      while runAnvil.running and elapsed < gracefulExitTimeoutMs:
+        sleep(pollIntervalMs)
+        elapsed += pollIntervalMs
+      if runAnvil.running:
         warn "Anvil process still running after TERM signal, sending KILL",
           anvilPID = anvilPID
         discard execCmdEx(fmt"kill -9 {anvilPID}")
