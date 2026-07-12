@@ -20,7 +20,13 @@ import
   results
 
 import
-  logos_delivery/waku/[rln, rln/protocol_types, rln/constants, rln/bindings],
+  logos_delivery/waku/[
+    rln,
+    rln/protocol_types,
+    rln/constants,
+    rln/bindings,
+    rln/group_manager/on_chain/retry_wrapper,
+  ],
   ../testlib/common
 
 const CHAIN_ID* = 1234'u256
@@ -39,6 +45,10 @@ const WAKU_RLNV2_PROXY_ADDRESS* = "0x5fc8d32690cc91d4c39d9d3abcbd16989f875707"
 # deterministic across state regenerations.
 const FUNDED_TEST_PRIVATE_KEY* =
   "1111111111111111111111111111111111111111111111111111111111111111"
+
+# Anvil mines instantly, so the multi-second production retry delay only adds
+# dead time when polling for transaction receipts.
+const FastRetryStrategy = RetryStrategy(retryDelay: 100.millis, retryCount: 15)
 
 proc generateCredentials*(): IdentityCredential =
   let credRes = membershipKeyGen()
@@ -672,6 +682,7 @@ proc buildOnchainGroupManager*(
     chainId: CHAIN_ID,
     ethPrivateKey: Opt.some(privateKey),
     rlnInstance: rlnInstanceRes.get(),
+    retryStrategy: FastRetryStrategy,
     onFatalErrorAction: proc(errStr: string) =
       raiseAssert errStr
     ,
@@ -764,6 +775,7 @@ proc setupOnchainGroupManager*(
     chainId: CHAIN_ID,
     ethPrivateKey: Opt.some($privateKey),
     rlnInstance: rlnInstance,
+    retryStrategy: FastRetryStrategy,
     onFatalErrorAction: proc(errStr: string) =
       raiseAssert errStr
     ,

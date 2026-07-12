@@ -48,6 +48,9 @@ type
     proofPathRefreshInFlightFut*: Future[seq[byte]]
     lastRootsRefreshMoment*: Moment
     rootsRefreshInFlightFut*: Future[void]
+    # Pacing for retried on-chain transaction calls; a zero value is replaced
+    # with the RetryStrategy defaults during init.
+    retryStrategy*: RetryStrategy
 
 # The below code is not working with the latest web3 version due to chainId being null (specifically on linea-sepolia)
 # TODO: find better solution than this custom sendEthCallWithoutParams call
@@ -358,7 +361,7 @@ method register*(
 
   let gasPrice = (
     await retryWrapper(
-      RetryStrategy.new(),
+      g.retryStrategy,
       "Failed to get gas price",
       proc(): Future[int] {.async.} =
         let fetchedGasPrice = uint64(await ethRpc.provider.eth_gasPrice())
@@ -383,7 +386,7 @@ method register*(
     idCommitmentsToErase = idCommitmentsToErase
   let txHash = (
     await retryWrapper(
-      RetryStrategy.new(),
+      g.retryStrategy,
       "Failed to register the member",
       proc(): Future[TxHash] {.async.} =
         return await wakuRlnContract
@@ -396,7 +399,7 @@ method register*(
   # wait for the transaction to be mined and get the receipt
   let tsReceipt = (
     await retryWrapper(
-      RetryStrategy.new(),
+      g.retryStrategy,
       "Failed to get the transaction receipt",
       proc(): Future[ReceiptObject] {.async.} =
         let r = await ethRpc.provider.eth_getTransactionReceipt(txHash)
@@ -610,6 +613,9 @@ proc establishConnection(
   return ok(ethRpc)
 
 method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.} =
+  if g.retryStrategy.retryCount == 0:
+    g.retryStrategy = RetryStrategy.new()
+
   # check if the Ethereum client is reachable
   let ethRpc: Web3 = (await establishConnection(g)).valueOr:
     return err("failed to connect to Ethereum clients: " & $error)
