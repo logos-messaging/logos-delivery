@@ -583,6 +583,41 @@ suite "Onchain group manager":
       manager.proofPathRefreshInFlightFut == inFlight
       manager.merkleProofCache.len > 0
 
+  test "ensureFreshMerkleProofPath: cancelling one caller does not cancel the shared refetch":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    manager.merkleProofCache = @[]
+    manager.proofPathRefreshInFlightFut = nil
+
+    let f1 = manager.ensureFreshMerkleProofPath()
+    let inFlight = manager.proofPathRefreshInFlightFut
+    let f2 = manager.ensureFreshMerkleProofPath()
+
+    check:
+      inFlight != nil
+      not inFlight.finished()
+
+    # Cancel the initiating caller — models a publish retry whose refresh
+    # timeout fired while the refetch was still in flight.
+    waitFor f1.cancelAndWait()
+
+    check:
+      f1.cancelled()
+      # The shared refetch survives the caller's cancellation.
+      not inFlight.cancelled()
+
+    # The coalesced caller still completes and the cache gets populated.
+    let r2 = waitFor f2
+    check:
+      r2.isOk()
+      manager.merkleProofCache.len > 0
+      manager.proofPathRefreshInFlightFut == inFlight
+
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()
     (waitFor manager.init()).isOkOr:

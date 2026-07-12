@@ -268,6 +268,10 @@ proc ensureFreshMerkleProofPath*(
   ## `invalidateMerkleProofCache`, so the next call here sees an empty cache
   ## and refetches from chain. Guards against a missing membership index
   ## because `fetchMerkleProofElements` unwraps it.
+  ## The in-flight refetch is awaited via `join` so that cancelling one
+  ## caller (e.g. a timed-out publish retry) never cancels the shared
+  ## refetch: concurrent callers coalesced onto it keep waiting, and the
+  ## refetch runs to completion so the cache is populated for the next call.
   if g.membershipIndex.isNone():
     return err("membership index is not set")
 
@@ -276,7 +280,7 @@ proc ensureFreshMerkleProofPath*(
 
   if not g.proofPathRefreshInFlightFut.isNil() and
       not g.proofPathRefreshInFlightFut.finished():
-    await g.proofPathRefreshInFlightFut
+    await g.proofPathRefreshInFlightFut.join()
     if g.merkleProofCache.len > 0:
       return ok()
     return err("merkle proof path refresh failed")
@@ -292,7 +296,7 @@ proc ensureFreshMerkleProofPath*(
     discard await g.updateMemberCount()
 
   g.proofPathRefreshInFlightFut = doRefresh()
-  await g.proofPathRefreshInFlightFut
+  await g.proofPathRefreshInFlightFut.join()
 
   if not fetchOk:
     return err("merkle proof path refresh failed")
