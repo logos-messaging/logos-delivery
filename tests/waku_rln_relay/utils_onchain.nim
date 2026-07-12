@@ -31,6 +31,15 @@ const DEFAULT_ANVIL_STATE_PATH* =
 const TOKEN_ADDRESS* = "0x5FbDB2315678afecb367f032d93F642f64180aa3"
 const WAKU_RLNV2_PROXY_ADDRESS* = "0x5fc8d32690cc91d4c39d9d3abcbd16989f875707"
 
+# Private key of the account baked into DEFAULT_ANVIL_STATE_PATH. The state
+# regeneration flow (test_rln_contract_deployment.nim) funds this exact account
+# with ETH, mints test tokens to it and approves the RLN contract allowance, so
+# tests that load the cached state can use it directly without any per-run
+# on-chain setup. Using a fixed key also makes the deployed contract addresses
+# deterministic across state regenerations.
+const FUNDED_TEST_PRIVATE_KEY* =
+  "1111111111111111111111111111111111111111111111111111111111111111"
+
 proc generateCredentials*(): IdentityCredential =
   let credRes = membershipKeyGen()
   return credRes.get()
@@ -639,128 +648,14 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
   except Exception as e:
     error "Error stopping Anvil daemon", anvilPID = anvilPID, error = e.msg
 
-proc setupOnchainGroupManager*(
-    ethClientUrl: string = EthClient,
-    amountEth: UInt256 = 10.u256,
-    deployContracts: bool = true,
-): Future[OnchainGroupManager] {.async.} =
-  ## Setup an onchain group manager for testing
-  ## If deployContracts is false, it will assume that the Anvil testnet already has the required contracts deployed, this significantly speeds up test runs.
-  ## To run Anvil with a cached state file containing pre-deployed contracts, see runAnvil documentation.
-  ## 
-  ## To generate/update the cached state file:
-  ## 1. Call runAnvil with stateFile and dumpStateOnExit=true
-  ## 2. Run setupOnchainGroupManager with deployContracts=true to deploy contracts
-  ## 3. The state will be saved to the specified file when anvil exits
-  ## 4. Commit this file to git
-  ## 
-  ## To use cached state:
-  ## 1. Call runAnvil with stateFile and dumpStateOnExit=false
-  ## 2. Anvil loads state in read-only mode (won't overwrite the cached file)
-  ## 3. Call setupOnchainGroupManager with deployContracts=false
-  ## 4. Tests run fast using pre-deployed contracts
-  let rlnInstanceRes = createRlnInstance()
-  check:
-    rlnInstanceRes.isOk()
-
-  let rlnInstance = rlnInstanceRes.get()
-
-  var web3 = await newWeb3(ethClientUrl)
-  let accounts = await web3.provider.eth_accounts()
-  web3.defaultAccount = accounts[1]
-
-  var privateKey: keys.PrivateKey
-  var acc: Address
-  var testTokenAddress: Address
-  var contractAddress: Address
-
-  if not deployContracts:
-    debug "Using contract addresses from constants"
-
-    testTokenAddress = Address(hexToByteArray[20](TOKEN_ADDRESS))
-    contractAddress = Address(hexToByteArray[20](WAKU_RLNV2_PROXY_ADDRESS))
-
-    (privateKey, acc) = createEthAccount(web3)
-
-    discard await sendEthTransfer(web3, web3.defaultAccount, acc, ethToWei(1000.u256))
-
-    await sendMintCall(
-      web3, web3.defaultAccount, testTokenAddress, acc, ethToWei(1000.u256)
-    )
-
-    let tokenApprovalResult = await approveTokenAllowanceAndVerify(
-      web3, acc, privateKey, testTokenAddress, contractAddress, ethToWei(2000.u256)
-    )
-    assert tokenApprovalResult.isOk(), tokenApprovalResult.error
-  else:
-    debug "Performing Token and RLN contracts deployment"
-    (privateKey, acc) = createEthAccount(web3)
-
-    discard await sendEthTransfer(
-      web3, web3.defaultAccount, acc, ethToWei(1000.u256), Opt.some(0.u256)
-    )
-
-    testTokenAddress = (await deployTestToken(privateKey, acc, web3)).valueOr:
-      assert false, "Failed to deploy test token contract: " & $error
-      return
-
-    await sendMintCall(
-      web3,
-      web3.defaultAccount,
-      testTokenAddress,
-      acc,
-      ethToWei(1000.u256),
-      Opt.some(0.u256),
-    )
-
-    contractAddress = (await executeForgeContractDeployScripts(privateKey, acc, web3)).valueOr:
-      assert false, "Failed to deploy RLN contract: " & $error
-      return
-
-    # `executeForgeContractDeployScripts` shells out to `forge` via blocking
-    # `execCmdEx` calls (many seconds). While those run the chronos event loop
-    # is frozen and the existing web3 HTTP connection to Anvil rots; the next
-    # eth_call fails with "Not connected". Reconnect before continuing.
-    try:
-      await web3.close()
-    except CatchableError:
-      discard
-    web3 = await newWeb3(ethClientUrl)
-    web3.defaultAccount = accounts[1]
-
-    let tokenApprovalResult = await approveTokenAllowanceAndVerify(
-      web3,
-      acc,
-      privateKey,
-      testTokenAddress,
-      contractAddress,
-      ethToWei(2000.u256),
-      Opt.some(0.u256),
-    )
-
-    assert tokenApprovalResult.isOk(), tokenApprovalResult.error
-
-  let manager = OnchainGroupManager(
-    ethClientUrls: @[ethClientUrl],
-    ethContractAddress: $contractAddress,
-    chainId: CHAIN_ID,
-    ethPrivateKey: Opt.some($privateKey),
-    rlnInstance: rlnInstance,
-    onFatalErrorAction: proc(errStr: string) =
-      raiseAssert errStr
-    ,
-  )
-
-  return manager
-
 proc buildOnchainGroupManager*(
-    privateKey: string, ethClientUrl: string = EthClient
+    privateKey: string = FUNDED_TEST_PRIVATE_KEY, ethClientUrl: string = EthClient
 ): OnchainGroupManager =
   ## Constructs an OnchainGroupManager pointing at the cached RLN proxy contract
   ## using the supplied private key. No on-chain work happens here — the caller
-  ## is expected to have an Anvil snapshot where this key already owns a funded,
-  ## token-approved account (e.g. via a prior `setupOnchainGroupManager` followed
-  ## by `takeEvmSnapshot`). Each call returns a fresh RLN instance.
+  ## is expected to run Anvil from a state where this key already owns a funded,
+  ## token-approved account (the cached DEFAULT_ANVIL_STATE_PATH state provides
+  ## this for FUNDED_TEST_PRIVATE_KEY). Each call returns a fresh RLN instance.
   let rlnInstanceRes = createRlnInstance()
   check:
     rlnInstanceRes.isOk()
@@ -774,5 +669,99 @@ proc buildOnchainGroupManager*(
       raiseAssert errStr
     ,
   )
+
+proc setupOnchainGroupManager*(
+    ethClientUrl: string = EthClient,
+    amountEth: UInt256 = 10.u256,
+    deployContracts: bool = true,
+): Future[OnchainGroupManager] {.async.} =
+  ## Setup an onchain group manager for testing
+  ## If deployContracts is false, it assumes the Anvil testnet was started from
+  ## the cached state file (DEFAULT_ANVIL_STATE_PATH), which already contains the
+  ## deployed contracts and the funded, token-approved FUNDED_TEST_PRIVATE_KEY
+  ## account — no on-chain setup happens at all.
+  ##
+  ## To generate/update the cached state file:
+  ## 1. Call runAnvil with stateFile and dumpStateOnExit=true
+  ## 2. Run setupOnchainGroupManager with deployContracts=true to deploy contracts
+  ##    (this funds/mints/approves FUNDED_TEST_PRIVATE_KEY, baking it into state)
+  ## 3. The state will be saved to the specified file when anvil exits
+  ## 4. Commit this file to git
+  ##
+  ## To use cached state:
+  ## 1. Call runAnvil with stateFile and dumpStateOnExit=false
+  ## 2. Anvil loads state in read-only mode (won't overwrite the cached file)
+  ## 3. Call setupOnchainGroupManager with deployContracts=false
+  ## 4. Tests run fast using pre-deployed contracts
+  if not deployContracts:
+    return buildOnchainGroupManager(FUNDED_TEST_PRIVATE_KEY, ethClientUrl)
+
+  let rlnInstanceRes = createRlnInstance()
+  check:
+    rlnInstanceRes.isOk()
+
+  let rlnInstance = rlnInstanceRes.get()
+
+  var web3 = await newWeb3(ethClientUrl)
+  let accounts = await web3.provider.eth_accounts()
+  web3.defaultAccount = accounts[1]
+
+  debug "Performing Token and RLN contracts deployment"
+  let privateKey = keys.PrivateKey.fromHex(FUNDED_TEST_PRIVATE_KEY).valueOr:
+    assert false, "invalid FUNDED_TEST_PRIVATE_KEY: " & $error
+    return
+  let acc = Address(toCanonicalAddress(privateKey.toPublicKey()))
+
+  discard await sendEthTransfer(
+    web3, web3.defaultAccount, acc, ethToWei(1000.u256), Opt.some(0.u256)
+  )
+
+  let testTokenAddress = (await deployTestToken(privateKey, acc, web3)).valueOr:
+    assert false, "Failed to deploy test token contract: " & $error
+    return
+
+  await sendMintCall(
+    web3, web3.defaultAccount, testTokenAddress, acc, ethToWei(1000.u256), Opt.some(0.u256)
+  )
+
+  let contractAddress = (await executeForgeContractDeployScripts(privateKey, acc, web3)).valueOr:
+    assert false, "Failed to deploy RLN contract: " & $error
+    return
+
+  # `executeForgeContractDeployScripts` shells out to `forge` via blocking
+  # `execCmdEx` calls (many seconds). While those run the chronos event loop
+  # is frozen and the existing web3 HTTP connection to Anvil rots; the next
+  # eth_call fails with "Not connected". Reconnect before continuing.
+  try:
+    await web3.close()
+  except CatchableError:
+    discard
+  web3 = await newWeb3(ethClientUrl)
+  web3.defaultAccount = accounts[1]
+
+  let tokenApprovalResult = await approveTokenAllowanceAndVerify(
+    web3,
+    acc,
+    privateKey,
+    testTokenAddress,
+    contractAddress,
+    ethToWei(2000.u256),
+    Opt.some(0.u256),
+  )
+
+  assert tokenApprovalResult.isOk(), tokenApprovalResult.error
+
+  let manager = OnchainGroupManager(
+    ethClientUrls: @[ethClientUrl],
+    ethContractAddress: $contractAddress,
+    chainId: CHAIN_ID,
+    ethPrivateKey: Opt.some($privateKey),
+    rlnInstance: rlnInstance,
+    onFatalErrorAction: proc(errStr: string) =
+      raiseAssert errStr
+    ,
+  )
+
+  return manager
 
 {.pop.}
