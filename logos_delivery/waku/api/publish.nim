@@ -16,6 +16,7 @@ import
   logos_delivery/waku/[
     waku_core,
     node/waku_node,
+    node/waku_node/lightpush,
     node/peer_manager,
     waku_relay/protocol,
     rln,
@@ -50,11 +51,13 @@ proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
 proc lightpushPublishToAny*(
     self: Waku, shard: PubsubTopic, message: WakuMessage
 ): Future[WakuLightPushResult] {.async.} =
-  ## Selects a lightpush service peer for `shard` and publishes `message`.
-  ## Returns SERVICE_NOT_AVAILABLE when no peer is available.
+  ## Selects a lightpush service peer for `shard` and publishes `message`
+  ## through the node's lightpush flow, which attaches an RLN proof per
+  ## attempt when RLN is mounted. Returns SERVICE_NOT_AVAILABLE when no peer
+  ## is available.
   let peer = self.node.peerManager.selectPeer(WakuLightPushCodec, some(shard)).valueOr:
     return lightpushResultServiceUnavailable("no lightpush peer available for shard")
   try:
-    return await self.node.wakuLightpushClient.publish(some(shard), message, peer)
+    return await self.node.lightpushPublish(some(shard), message, some(peer))
   except CatchableError as e:
     return lightpushResultInternalError(e.msg)

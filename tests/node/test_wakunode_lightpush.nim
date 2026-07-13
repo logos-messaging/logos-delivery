@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, tempfiles, osproc],
+  std/[options, tempfiles, osproc, strutils],
   testutils/unittests,
   chronos,
   std/strformat,
@@ -212,12 +212,62 @@ suite "RLN Proofs as a Lightpush Service":
     # The tests below drive `server.lightpushPublish(...)` directly against the
     # server node. Because `server.wakuLightPush` is mounted (and no lightpush
     # client is), lightpushPublish takes the self-request path — it still runs
-    # the full client-side flow (proof gen, retry-on-420/504, one-retry cap),
-    # but the request lands in the local pushHandler instead of going over the
+    # the full client-side flow (proof gen, RLN-rejection classification), but
+    # the request lands in the local pushHandler instead of going over the
     # wire. Swapping in a stub pushHandler lets each test control exactly what
-    # attempt N sees.
+    # each attempt sees.
 
-    asyncTest "retry fires on 420 (INVALID_MESSAGE) and second attempt succeeds":
+    asyncTest "RLN-related 420 surfaces as 504 and schedules a merkle proof refresh":
+      var callCount = 0
+      let stub: PushMessageHandler = proc(
+          pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        inc callCount
+        return
+          lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg)
+      server.wakuLightPush.pushHandler = stub
+
+      let manager = cast[OnchainGroupManager](server.rln.groupManager)
+      let goodCache = manager.merkleProofCache
+      check goodCache.len > 0
+
+      let response = await server.lightpushPublish(some(pubsubTopic), message)
+
+      check:
+        # The rejection is surfaced immediately — no internal republish — and
+        # normalized to 504 so callers can key their retry on it.
+        callCount == 1
+        response.isErr()
+        response.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF
+        response.error.desc.get("").contains(RlnProofRefreshScheduledMsg)
+
+      # The refresh runs detached from the publish call: the cache was
+      # dropped and a refetch is in flight. Once it settles the path is
+      # fresh again.
+      let inFlight = manager.proofPathRefreshInFlightFut
+      if not inFlight.isNil():
+        await inFlight.join()
+      check manager.merkleProofCache == goodCache
+
+    asyncTest "504 (OUT_OF_RLN_PROOF) from the service passes through without republish":
+      var callCount = 0
+      let stub: PushMessageHandler = proc(
+          pubsubTopic: PubsubTopic, message: WakuMessage
+      ): Future[WakuLightPushResult] {.async.} =
+        inc callCount
+        return lighpushErrorResult(
+          LightPushErrorCode.OUT_OF_RLN_PROOF, "simulated out-of-proof"
+        )
+      server.wakuLightPush.pushHandler = stub
+
+      let response = await server.lightpushPublish(some(pubsubTopic), message)
+
+      check:
+        callCount == 1
+        response.isErr()
+        response.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF
+
+    asyncTest "caller retry after 504 lands on the refreshed merkle path":
       var callCount = 0
       let stub: PushMessageHandler = proc(
           pubsubTopic: PubsubTopic, message: WakuMessage
@@ -230,34 +280,39 @@ suite "RLN Proofs as a Lightpush Service":
         return lightpushSuccessResult(1)
       server.wakuLightPush.pushHandler = stub
 
-      let response = await server.lightpushPublish(some(pubsubTopic), message)
+      let firstResponse = await server.lightpushPublish(some(pubsubTopic), message)
+
+      check:
+        firstResponse.isErr()
+        firstResponse.error.code == LightPushErrorCode.OUT_OF_RLN_PROOF
+
+      # Model the caller-level retry (send service next round, REST handler):
+      # a second publish regenerates the proof against the refreshed cache.
+      let secondResponse = await server.lightpushPublish(some(pubsubTopic), message)
 
       check:
         callCount == 2
-        response.isOk()
-        response.get() == 1
+        secondResponse.isOk()
+        secondResponse.get() == 1
 
-    asyncTest "retry fires on 504 (OUT_OF_RLN_PROOF) and second attempt succeeds":
+    asyncTest "420 without the RLN error text passes through unchanged":
       var callCount = 0
       let stub: PushMessageHandler = proc(
           pubsubTopic: PubsubTopic, message: WakuMessage
       ): Future[WakuLightPushResult] {.async.} =
         inc callCount
-        if callCount == 1:
-          return lighpushErrorResult(
-            LightPushErrorCode.OUT_OF_RLN_PROOF, "simulated out-of-proof"
-          )
-        return lightpushSuccessResult(1)
+        return
+          lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "unrelated rejection")
       server.wakuLightPush.pushHandler = stub
 
       let response = await server.lightpushPublish(some(pubsubTopic), message)
 
       check:
-        callCount == 2
-        response.isOk()
-        response.get() == 1
+        callCount == 1
+        response.isErr()
+        response.error.code == LightPushErrorCode.INVALID_MESSAGE
 
-    asyncTest "no retry on error codes outside 420/504":
+    asyncTest "error codes outside 420/504 pass through unchanged":
       var callCount = 0
       let stub: PushMessageHandler = proc(
           pubsubTopic: PubsubTopic, message: WakuMessage
@@ -275,26 +330,9 @@ suite "RLN Proofs as a Lightpush Service":
         response.isErr()
         response.error.code == LightPushErrorCode.INTERNAL_SERVER_ERROR
 
-    asyncTest "retry cap: two consecutive 420s surface the second error":
-      var callCount = 0
-      let stub: PushMessageHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
-      ): Future[WakuLightPushResult] {.async.} =
-        inc callCount
-        return
-          lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg)
-      server.wakuLightPush.pushHandler = stub
-
-      let response = await server.lightpushPublish(some(pubsubTopic), message)
-
-      check:
-        callCount == 2
-        response.isErr()
-        response.error.code == LightPushErrorCode.INVALID_MESSAGE
-
-    asyncTest "no retry when node.rln is nil":
-      # Detach RLN so the retry branch short-circuits on rln.isNone() even
-      # for a 420. Restore before teardown so server.stop() sees the same
+    asyncTest "rejection passes through unchanged when node.rln is nil":
+      # Detach RLN so the RLN-rejection branch short-circuits on rln.isNone()
+      # even for a 420. Restore before teardown so server.stop() sees the same
       # object graph it was constructed with.
       let savedRln = server.rln
       server.rln = nil

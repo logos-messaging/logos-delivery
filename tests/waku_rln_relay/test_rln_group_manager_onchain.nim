@@ -618,6 +618,30 @@ suite "Onchain group manager":
       manager.merkleProofCache.len > 0
       manager.proofPathRefreshInFlightFut == inFlight
 
+  test "scheduleMerkleProofRefresh: drops the cache and refetches in the background":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    # Prime the cache, then corrupt it to model the stale path a publish
+    # rejection points at.
+    let goodCache = (waitFor manager.fetchMerkleProofElements()).valueOr:
+      raiseAssert "failed to prime path: " & error
+    manager.merkleProofCache = newSeq[byte](goodCache.len)
+    manager.proofPathRefreshInFlightFut = nil
+
+    manager.scheduleMerkleProofRefresh()
+
+    # The call returns without waiting; the refetch is already in flight.
+    let inFlight = manager.proofPathRefreshInFlightFut
+    check inFlight != nil
+
+    waitFor inFlight.join()
+    check manager.merkleProofCache == goodCache
+
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()
     (waitFor manager.init()).isOkOr:

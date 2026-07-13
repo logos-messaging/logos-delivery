@@ -309,6 +309,19 @@ method invalidateMerkleProofCache*(g: OnchainGroupManager) {.gcsafe, raises: [].
   ## 420 INVALID_MESSAGE or 504 OUT_OF_RLN_PROOF reply).
   g.merkleProofCache = @[]
 
+method scheduleMerkleProofRefresh*(g: OnchainGroupManager) {.gcsafe, raises: [].} =
+  ## Drops the cached merkle proof path and starts a detached refetch so the
+  ## cache is warm again by the time a caller retries the publish. A refetch
+  ## failure is logged and left for the next `ensureFreshMerkleProofPath` call
+  ## to repair.
+  g.merkleProofCache = @[]
+
+  proc refresh() {.async.} =
+    (await g.ensureFreshMerkleProofPath()).isOkOr:
+      warn "merkle proof refresh failed", error = error
+
+  asyncSpawn refresh()
+
 method register*(
     g: OnchainGroupManager, rateCommitment: RateCommitment
 ): Future[Result[void, string]] {.async.} =

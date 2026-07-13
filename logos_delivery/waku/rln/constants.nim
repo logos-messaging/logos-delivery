@@ -20,12 +20,19 @@ const RlnCredentialsFilename* = "rlnCredentials.txt"
 # RLN Validator message rejection Error string, is used to trigger proof refresh and publish retry in the lightpush client
 const RlnValidatorErrorMsg* = "RLN validation failed"
 
-# Upper bound on the reactive merkle proof refresh after a stale-RLN
+# Returned as the OUT_OF_RLN_PROOF error description when a stale merkle proof
+# is suspected and a background refresh has been scheduled. Signals to callers
+# that retrying the publish is worthwhile: the retry regenerates the proof
+# against the refreshed cache.
+const RlnProofRefreshScheduledMsg* =
+  "stale RLN proof suspected; refresh scheduled, retry the publish"
+
+# Upper bound on a reactive merkle proof refresh after a stale-RLN
 # rejection: fetching a fresh merkle path from the RLN contract (eth_call
 # round-trip) plus proof regeneration. Without a bound a hanging RPC endpoint
-# could stall the caller indefinitely. The retried publish is not covered —
-# it runs unbounded, matching the first attempt.
-const RlnRefreshRetryTimeout* = 5.seconds
+# could stall the caller indefinitely. Only the refresh is covered — a
+# subsequent publish retry runs unbounded, matching the first attempt.
+const RlnMerkleProofRefreshTimeout* = 5.seconds
 
 # inputs of the membership contract constructor
 # TODO may be able to make these constants private and put them inside the waku_rln_utils

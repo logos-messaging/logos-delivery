@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[sequtils, strformat, tempfiles, osproc, options],
+  std/[sequtils, strformat, strutils, tempfiles, osproc, options],
   stew/byteutils,
   testutils/unittests,
   presto,
@@ -794,11 +794,12 @@ suite "Waku v2 Rest API - Relay":
     await restServer.closeWait()
     await node.stop()
 
-  asyncTest "Stale RLN proof triggers force-refresh and retry - POST /relay/v1/messages/{topic}":
+  asyncTest "Stale RLN proof returns 503 and schedules a refresh - POST /relay/v1/messages/{topic}":
     ## When the cached Merkle proof path is stale the handler generates a proof
     ## whose root the local RLN validator rejects. The handler must detect the
-    ## RlnValidatorErrorMsg, force-refresh the cached path, regenerate the proof
-    ## with the correct root, and succeed — returning 200 OK.
+    ## RlnValidatorErrorMsg, schedule a background merkle proof refresh, and
+    ## fail early with 503 + RlnProofRefreshScheduledMsg. A client retry then
+    ## succeeds against the refreshed path.
     let node = testWakuNode()
     (await node.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
@@ -826,7 +827,7 @@ suite "Waku v2 Rest API - Relay":
 
     # Corrupt the cache with zeros so the first generateRLNProof call produces a
     # proof with a Merkle root that is not in the valid-roots window.
-    # validateMessage will return RlnValidatorErrorMsg, triggering the retry.
+    # validateMessage will return RlnValidatorErrorMsg.
     manager.merkleProofCache = newSeq[byte](goodCache.len)
 
     var restPort = Port(0)
@@ -855,21 +856,40 @@ suite "Waku v2 Rest API - Relay":
       ),
     )
 
-    # Handler force-refreshed the path and retried successfully
+    # The handler fails early with the retry signal; the refresh runs detached.
     check:
-      response.status == 200
+      response.status == 503
       $response.contentType == $MIMETYPE_TEXT
-      response.data == "OK"
-      manager.merkleProofCache == goodCache # force-refresh restored the correct path
+      response.data.contains(RlnProofRefreshScheduledMsg)
+
+    let inFlight = manager.proofPathRefreshInFlightFut
+    if not inFlight.isNil():
+      await inFlight.join()
+    check manager.merkleProofCache == goodCache # refresh restored the correct path
+
+    # A client retry now succeeds against the refreshed path.
+    let retryResponse = await client.relayPostMessagesV1(
+      DefaultPubsubTopic,
+      RelayWakuMessage(
+        payload: base64.encode("TEST-PAYLOAD"),
+        contentTopic: some(DefaultContentTopic),
+        timestamp: some(now()),
+      ),
+    )
+
+    check:
+      retryResponse.status == 200
+      retryResponse.data == "OK"
 
     await restServer.stop()
     await restServer.closeWait()
     await node.stop()
 
-  asyncTest "Stale RLN proof triggers force-refresh and retry - POST /relay/v1/auto/messages/{topic}":
-    ## Same reactive retry as the static-sharding handler, exercised via the
-    ## auto-sharding endpoint. A relay-only mesh node is connected so that
-    ## node.publish() has a gossipsub peer and can return success.
+  asyncTest "Stale RLN proof returns 503 and schedules a refresh - POST /relay/v1/auto/messages/{topic}":
+    ## Same fail-fast behavior as the static-sharding handler, exercised via
+    ## the auto-sharding endpoint. A relay-only mesh node is connected so that
+    ## node.publish() has a gossipsub peer and the client retry can return
+    ## success.
 
     # Relay-only mesh node — no RLN needed, just provides a gossipsub peer.
     let meshNode = testWakuNode()
@@ -942,11 +962,29 @@ suite "Waku v2 Rest API - Relay":
       )
     )
 
+    # The handler fails early with the retry signal; the refresh runs detached.
     check:
-      response.status == 200
+      response.status == 503
       $response.contentType == $MIMETYPE_TEXT
-      response.data == "OK"
-      manager.merkleProofCache == goodCache
+      response.data.contains(RlnProofRefreshScheduledMsg)
+
+    let inFlight = manager.proofPathRefreshInFlightFut
+    if not inFlight.isNil():
+      await inFlight.join()
+    check manager.merkleProofCache == goodCache
+
+    # A client retry now succeeds against the refreshed path.
+    let retryResponse = await client.relayPostAutoMessagesV1(
+      RelayWakuMessage(
+        payload: base64.encode("TEST-PAYLOAD"),
+        contentTopic: some(DefaultContentTopic),
+        timestamp: some(now()),
+      )
+    )
+
+    check:
+      retryResponse.status == 200
+      retryResponse.data == "OK"
 
     await restServer.stop()
     await restServer.closeWait()

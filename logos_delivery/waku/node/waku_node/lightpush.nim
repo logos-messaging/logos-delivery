@@ -116,7 +116,7 @@ proc runRlnRefreshRetry(
 ): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.async, gcsafe.} =
   ## Force-refreshes the RLN merkle proof path and retries the publish once.
   ## Only the refresh (on-chain refetch + proof regeneration) is bounded by
-  ## RlnRefreshRetryTimeout — a hanging RPC cannot stall the caller
+  ## RlnMerkleProofRefreshTimeout — a hanging RPC cannot stall the caller
   ## indefinitely and `fallback` (the original rejection) is returned instead.
   ## The retried publish itself runs unbounded, matching the first attempt.
   info "legacy lightpush send rejected as RLN-invalid; " &
@@ -124,7 +124,7 @@ proc runRlnRefreshRetry(
   rln.get().groupManager.invalidateMerkleProofCache()
 
   let refreshFut = attachRLNProof(rln.get(), msgWithProof)
-  if not (await refreshFut.withTimeout(RlnRefreshRetryTimeout)):
+  if not (await refreshFut.withTimeout(RlnMerkleProofRefreshTimeout)):
     warn "legacy lightpush RLN proof refresh timed out; returning original error"
     return fallback
   let retryMsg = refreshFut.read().valueOr:
@@ -345,12 +345,11 @@ proc lightpushPublish*(
   let firstResult =
     await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
 
-  # A publish error can indicate a stale Merkle proof path; refresh it and
-  # retry the publish once.  Gate only on unambiguously RLN-related failures:
-  # 504 (OUT_OF_RLN_PROOF) is always RLN-specific; 420 (INVALID_MESSAGE) is
-  # also returned for non-RLN rejections (e.g. oversized messages), so require
-  # the error description to contain RlnValidatorErrorMsg — matching the legacy
-  # lightpush path — to avoid unbounded on-chain RPCs on non-RLN errors.
+  # A publish rejection can indicate a stale Merkle proof path. Gate only on
+  # unambiguously RLN-related failures: 504 (OUT_OF_RLN_PROOF) is always
+  # RLN-specific; 420 (INVALID_MESSAGE) is also returned for non-RLN
+  # rejections (e.g. oversized messages), so require the error description to
+  # contain RlnValidatorErrorMsg.
   if firstResult.isOk() or rln.isNone():
     return firstResult
   let isRlnRelatedFailure =
@@ -361,20 +360,16 @@ proc lightpushPublish*(
   if not isRlnRelatedFailure:
     return firstResult
 
-  info "lightpush send rejected; refreshing merkle proof and retrying once",
+  # Schedule a merkle proof refresh and surface the rejection immediately,
+  # normalized to 504 (OUT_OF_RLN_PROOF) with RlnProofRefreshScheduledMsg so
+  # callers can tell "stale proof, retry the publish" from a permanent
+  # rejection. A retried publish regenerates its proof against the refreshed
+  # cache, or coalesces onto the still-running refetch.
+  info "lightpush send rejected as RLN-invalid; scheduling merkle proof refresh",
     statusCode = $firstResult.error.code
-  rln.get().groupManager.invalidateMerkleProofCache()
-
-  # Only the refresh (on-chain refetch + proof regeneration) is bounded — a
-  # hanging RPC cannot stall the caller indefinitely and the original
-  # rejection is returned instead. The retried publish itself runs unbounded,
-  # matching the first attempt.
-  let refreshFut = attachRLNProof(rln.get(), msgWithProof)
-  if not (await refreshFut.withTimeout(RlnRefreshRetryTimeout)):
-    warn "lightpush RLN proof refresh timed out; returning original error",
-      statusCode = $firstResult.error.code
-    return firstResult
-  let retryMsg = refreshFut.read().valueOr:
-    return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
-
-  return await lightpushPublishHandler(node, pubsubForPublish, retryMsg, toPeer, mixify)
+  rln.get().groupManager.scheduleMerkleProofRefresh()
+  return lighpushErrorResult(
+    LightPushErrorCode.OUT_OF_RLN_PROOF,
+    RlnProofRefreshScheduledMsg & ": " &
+      firstResult.error.desc.get($firstResult.error.code),
+  )

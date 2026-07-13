@@ -148,5 +148,13 @@ method invalidateMerkleProofCache*(g: GroupManager) {.base, gcsafe, raises: [].}
   ## cache and refetches from chain. Base implementation is a no-op.
   discard
 
+method scheduleMerkleProofRefresh*(g: GroupManager) {.base, gcsafe, raises: [].} =
+  ## Drops the cached merkle proof path and starts a detached background
+  ## refetch. Callers invoke this when a publish is rejected on a stale
+  ## membership cache but must not wait for the refetch themselves: the next
+  ## proof-gen either finds the refreshed cache or coalesces onto the
+  ## in-flight refetch. Base implementation is a no-op.
+  discard
+
 method isReady*(g: GroupManager): Future[bool] {.base, async.} =
   return true
