@@ -265,7 +265,7 @@ suite "Waku v2 Rest API - Relay":
     await node.setRlnValidator(wakuRlnConfig)
     await node.start()
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[OnchainGroupManager](node.rln.groupManager).withFastRetries()
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -536,7 +536,7 @@ suite "Waku v2 Rest API - Relay":
       await node.connectToNodes(@[meshNode.peerInfo.toRemotePeerInfo()])
 
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[OnchainGroupManager](node.rln.groupManager).withFastRetries()
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -605,7 +605,7 @@ suite "Waku v2 Rest API - Relay":
     await node.start()
 
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[OnchainGroupManager](node.rln.groupManager).withFastRetries()
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -664,7 +664,7 @@ suite "Waku v2 Rest API - Relay":
     await node.start()
 
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[OnchainGroupManager](node.rln.groupManager).withFastRetries()
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -736,7 +736,7 @@ suite "Waku v2 Rest API - Relay":
     await node.start()
 
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[OnchainGroupManager](node.rln.groupManager).withFastRetries()
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:

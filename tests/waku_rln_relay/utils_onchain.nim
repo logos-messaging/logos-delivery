@@ -50,6 +50,13 @@ const FUNDED_TEST_PRIVATE_KEY* =
 # dead time when polling for transaction receipts.
 const FastRetryStrategy = RetryStrategy(retryDelay: 100.millis, retryCount: 15)
 
+proc withFastRetries*(m: OnchainGroupManager): OnchainGroupManager =
+  ## Applies test retry pacing to a manager built outside these helpers, such as
+  ## the node-internal manager created during RLN mount. register() reads the
+  ## strategy at call time, so setting it after init() is effective.
+  m.retryStrategy = FastRetryStrategy
+  return m
+
 proc generateCredentials*(): IdentityCredential =
   let credRes = membershipKeyGen()
   return credRes.get()
