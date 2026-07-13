@@ -262,16 +262,9 @@ method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.a
 proc ensureFreshMerkleProofPath*(
     g: OnchainGroupManager
 ): Future[Result[void, string]] {.async.} =
-  ## Keeps `merkleProofCache` fresh. Refetches only when the cache is empty.
-  ## Callers that suspect the cached path is stale (e.g. after a lightpush
-  ## 420 INVALID_MESSAGE or 504 OUT_OF_RLN_PROOF rejection) must first invoke
-  ## `invalidateMerkleProofCache`, so the next call here sees an empty cache
-  ## and refetches from chain. Guards against a missing membership index
-  ## because `fetchMerkleProofElements` unwraps it.
-  ## The in-flight refetch is awaited via `join` so that cancelling one
-  ## caller (e.g. a timed-out publish retry) never cancels the shared
-  ## refetch: concurrent callers coalesced onto it keep waiting, and the
-  ## refetch runs to completion so the cache is populated for the next call.
+  ## Refetches `merkleProofCache` only when empty; suspected-stale callers
+  ## invalidate first. Concurrent callers coalesce onto one refetch, awaited
+  ## via `join` so cancelling one caller never cancels the shared refetch.
   if g.membershipIndex.isNone():
     return err("membership index is not set")
 
@@ -303,17 +296,12 @@ proc ensureFreshMerkleProofPath*(
   return ok()
 
 method invalidateMerkleProofCache*(g: OnchainGroupManager) {.gcsafe, raises: [].} =
-  ## Drops the cached merkle proof path. The next `ensureFreshMerkleProofPath`
-  ## then sees an empty cache and refetches from chain. Callers invoke this
-  ## when a publish is rejected on a stale membership cache (e.g. a lightpush
-  ## 420 INVALID_MESSAGE or 504 OUT_OF_RLN_PROOF reply).
+  ## Empties the cache so the next `ensureFreshMerkleProofPath` refetches.
   g.merkleProofCache = @[]
 
 method scheduleMerkleProofRefresh*(g: OnchainGroupManager) {.gcsafe, raises: [].} =
-  ## Drops the cached merkle proof path and starts a detached refetch so the
-  ## cache is warm again by the time a caller retries the publish. A refetch
-  ## failure is logged and left for the next `ensureFreshMerkleProofPath` call
-  ## to repair.
+  ## Empties the cache and spawns a detached refetch; a failed refetch is
+  ## logged and repaired by the next `ensureFreshMerkleProofPath`.
   g.merkleProofCache = @[]
 
   proc refresh() {.async.} =

@@ -67,12 +67,9 @@ proc generateRLNProof*(
 proc generateRLNProofWithRootRefresh*(
     rln: Rln, input: seq[byte], senderEpochTime: float64
 ): Future[Result[seq[byte], string]] {.async.} =
-  ## Generates an RLN proof and self-validates its merkle root against the
-  ## acceptable-root window. If the cached path has slid out of that window
-  ## (typical after a long inactivity or on-chain group churn), invalidates
-  ## the local cache and regenerates the proof once — the next proof-gen
-  ## sees an empty cache and refetches from chain. Returns the proof bytes
-  ## the caller can attach to the message.
+  ## Generates an RLN proof and checks its merkle root against the
+  ## acceptable-root window. If the root is stale, invalidates the cache and
+  ## regenerates once against a refetched path. Returns the proof bytes.
   let proofBytes = (await rln.generateRLNProof(input, senderEpochTime)).valueOr:
     return err("failed to generate RLN proof: " & $error)
 
@@ -89,11 +86,9 @@ proc generateRLNProofWithRootRefresh*(
 proc attachRLNProof*(
     r: Rln, message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
-  ## Returns the message with a freshly generated RLN proof attached,
-  ## replacing any existing proof. Always draws a new message id from the
-  ## nonce manager. Retry paths that suspect a stale merkle path should call
-  ## `invalidateMerkleProofCache` first so the proof is generated against a
-  ## refetched path.
+  ## Returns the message with a freshly generated RLN proof, replacing any
+  ## existing one and drawing a new message id. Retry paths suspecting a stale
+  ## path should call `invalidateMerkleProofCache` first.
   var msgWithProof = message
   msgWithProof.proof = (
     await r.generateRLNProof(message.toRLNSignal(), float64(getTime().toUnix()))
@@ -104,9 +99,8 @@ proc attachRLNProof*(
 proc checkAndGenerateRLNProof*(
     rln: Option[Rln], message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
-  ## Returns the message with an attached RLN proof. Passes the message
-  ## through unchanged when it already carries a proof or when RLN is not
-  ## configured.
+  ## Returns the message with an attached RLN proof, or unchanged when it
+  ## already carries a proof or RLN is not configured.
   if message.proof.len > 0:
     return ok(message)
 

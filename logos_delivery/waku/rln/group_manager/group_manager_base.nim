@@ -142,18 +142,13 @@ method generateProof*(
   return err("generateProof is not implemented")
 
 method invalidateMerkleProofCache*(g: GroupManager) {.base, gcsafe, raises: [].} =
-  ## Drops the cached merkle proof path. Callers invoke this when a publish is
-  ## rejected on a stale membership cache (e.g. a lightpush 420 INVALID_MESSAGE
-  ## or 504 OUT_OF_RLN_PROOF reply); the next proof-gen then sees an empty
-  ## cache and refetches from chain. Base implementation is a no-op.
+  ## Drops the cached merkle proof path so the next proof-gen refetches from
+  ## chain. Called after a publish is rejected on a stale cache. No-op base.
   discard
 
 method scheduleMerkleProofRefresh*(g: GroupManager) {.base, gcsafe, raises: [].} =
-  ## Drops the cached merkle proof path and starts a detached background
-  ## refetch. Callers invoke this when a publish is rejected on a stale
-  ## membership cache but must not wait for the refetch themselves: the next
-  ## proof-gen either finds the refreshed cache or coalesces onto the
-  ## in-flight refetch. Base implementation is a no-op.
+  ## Like `invalidateMerkleProofCache`, but starts the refetch in the
+  ## background so the caller need not wait for it. No-op base.
   discard
 
 method isReady*(g: GroupManager): Future[bool] {.base, async.} =

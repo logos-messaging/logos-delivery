@@ -92,10 +92,9 @@ proc internalLegacyLightpushPublish(
 proc resolveLegacyPubsubTopic(
     node: WakuNode, pubsubTopic: Option[PubsubTopic], contentTopic: ContentTopic
 ): Result[PubsubTopic, string] =
-  ## Returns the explicit pubsub topic if provided, otherwise derives it from
-  ## `contentTopic` via autosharding. Unlike v3 lightpush, the legacy wire
-  ## format carries a mandatory pubsub topic and the server never derives it,
-  ## so the client must resolve the topic before building the request.
+  ## Returns the explicit pubsub topic, else derives it from `contentTopic`
+  ## via autosharding. The legacy wire format requires a pubsub topic and the
+  ## server never derives it, so the client must resolve it here.
   if pubsubTopic.isSome():
     return ok(pubsubTopic.get())
   if node.wakuAutoSharding.isNone():
@@ -114,11 +113,9 @@ proc runRlnRefreshRetry(
     peer: RemotePeerInfo,
     fallback: legacy_lightpush_protocol.WakuLightPushResult[string],
 ): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.async, gcsafe.} =
-  ## Force-refreshes the RLN merkle proof path and retries the publish once.
-  ## Only the refresh (on-chain refetch + proof regeneration) is bounded by
-  ## RlnMerkleProofRefreshTimeout — a hanging RPC cannot stall the caller
-  ## indefinitely and `fallback` (the original rejection) is returned instead.
-  ## The retried publish itself runs unbounded, matching the first attempt.
+  ## Refreshes the RLN merkle proof path and retries the publish once. Only the
+  ## refresh is bounded by RlnMerkleProofRefreshTimeout (returning `fallback` on
+  ## timeout); the retried publish runs unbounded, matching the first attempt.
   info "legacy lightpush send rejected as RLN-invalid; " &
     "refreshing merkle proof and retrying once"
   rln.get().groupManager.invalidateMerkleProofCache()
@@ -146,9 +143,8 @@ proc legacyLightpushPublish*(
     error "failed to publish message as legacy lightpush not available"
     return err("Waku lightpush not available")
 
-  # toRLNSignal includes the timestamp in the proof input, so it must be fixed
-  # before proof generation. The downstream ensureTimestampSet in the client
-  # publish becomes an idempotent no-op safety net.
+  # toRLNSignal hashes the timestamp into the proof, so fix it before proof gen;
+  # the downstream ensureTimestampSet then becomes a no-op.
   let message = ensureTimestampSet(message)
 
   let rln =
@@ -168,9 +164,8 @@ proc legacyLightpushPublish*(
     let firstResult =
       await internalLegacyLightpushPublish(node, pubsubForPublish, msgWithProof, peer)
 
-    # A publish error mentioning RLN can indicate a stale merkle proof path;
-    # refresh it and retry the publish once. Legacy lightpush has no status
-    # codes, so we string-match the RLN error for backward compatibility.
+    # Legacy has no status codes, so string-match the RLN error to detect a
+    # stale merkle proof path, then refresh and retry once.
     if firstResult.isOk() or rln.isNone() or
         not firstResult.error.contains(RlnValidatorErrorMsg):
       return firstResult
@@ -329,9 +324,8 @@ proc lightpushPublish*(
       error "lightpush publish error", error = msg
       return lighpushErrorResult(LightPushErrorCode.INTERNAL_SERVER_ERROR, msg)
 
-  # toRLNSignal includes the timestamp in the proof input, so the timestamp
-  # must be fixed before proof generation. The downstream ensureTimestampSet
-  # in the client publish becomes an idempotent no-op safety net.
+  # toRLNSignal hashes the timestamp into the proof, so fix it before proof gen;
+  # the downstream ensureTimestampSet then becomes a no-op.
   let message = ensureTimestampSet(message)
 
   let rln =
@@ -345,11 +339,9 @@ proc lightpushPublish*(
   let firstResult =
     await lightpushPublishHandler(node, pubsubForPublish, msgWithProof, toPeer, mixify)
 
-  # A publish rejection can indicate a stale Merkle proof path. Gate only on
-  # unambiguously RLN-related failures: 504 (OUT_OF_RLN_PROOF) is always
-  # RLN-specific; 420 (INVALID_MESSAGE) is also returned for non-RLN
-  # rejections (e.g. oversized messages), so require the error description to
-  # contain RlnValidatorErrorMsg.
+  # Gate the refresh on unambiguously RLN-related failures: 504
+  # (OUT_OF_RLN_PROOF) is always RLN; 420 (INVALID_MESSAGE) also covers non-RLN
+  # rejections (e.g. oversized), so additionally require RlnValidatorErrorMsg.
   if firstResult.isOk() or rln.isNone():
     return firstResult
   let isRlnRelatedFailure =
@@ -360,11 +352,9 @@ proc lightpushPublish*(
   if not isRlnRelatedFailure:
     return firstResult
 
-  # Schedule a merkle proof refresh and surface the rejection immediately,
-  # normalized to 504 (OUT_OF_RLN_PROOF) with RlnProofRefreshScheduledMsg so
-  # callers can tell "stale proof, retry the publish" from a permanent
-  # rejection. A retried publish regenerates its proof against the refreshed
-  # cache, or coalesces onto the still-running refetch.
+  # Schedule the refresh and return immediately, normalized to 504 with
+  # RlnProofRefreshScheduledMsg so callers can tell "stale proof, retry" from a
+  # permanent rejection. A retry regenerates against the refreshed cache.
   info "lightpush send rejected as RLN-invalid; scheduling merkle proof refresh",
     statusCode = $firstResult.error.code
   rln.get().groupManager.scheduleMerkleProofRefresh()
