@@ -246,9 +246,9 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.storeMessageRetentionPolicy == "time:3600"
       kc.storeMaxNumDbConnections == 7
 
-  test "fleet mode parses a raw kernelConf":
+  test "kernel entry layer parses a raw kernelConf":
     let lc = parseLogosDeliveryConf(
-      """{"mode": "fleet", "kernelConf": {"relay": false, "maxMessageSize": "150KiB"}}"""
+      """{"entrylayer": "kernel", "kernelConf": {"relay": false, "maxMessageSize": "150KiB"}}"""
     ).valueOr:
       raiseAssert error
     check:
@@ -259,24 +259,25 @@ suite "parseLogosDeliveryConf - JSON parsing":
       kc.relay == false
       kc.maxMessageSize == "150KiB"
 
-  test "fleet mode requires a kernelConf":
-    check parseLogosDeliveryConf("""{"mode": "fleet"}""").isErr()
+  test "kernel entry layer requires a kernelConf":
+    check parseLogosDeliveryConf("""{"entrylayer": "kernel"}""").isErr()
 
-  test "fleet mode rejects anything besides kernelConf":
+  test "kernel entry layer rejects anything besides kernelConf":
     check parseLogosDeliveryConf(
-      """{"mode": "fleet", "kernelConf": {}, "messagingOverrides": {"clusterId": 1}}"""
+      """{"entrylayer": "kernel", "kernelConf": {}, "messagingOverrides": {"clusterId": 1}}"""
     )
       .isErr()
-    # a preset for a fleet node goes inside kernelConf (WakuNodeConf.preset); fleet
-    # treats kernelConf as a finished object and overlays nothing onto it
+    # a preset for a kernel node goes inside kernelConf (WakuNodeConf.preset); the
+    # kernel entry layer treats kernelConf as a finished object and overlays nothing
     check parseLogosDeliveryConf(
-      """{"mode": "fleet", "kernelConf": {}, "preset": "twn"}"""
+      """{"entrylayer": "kernel", "kernelConf": {}, "preset": "twn"}"""
     )
       .isErr()
 
-  test "kernelConf is rejected outside fleet mode":
-    # kernelConf is a fleet-only wrapper. Under Core/Edge it is neither consumed by the
-    # structured path nor a flat kernel field, so it must surface as an unknown key.
+  test "kernelConf is rejected outside the kernel entry layer":
+    # kernelConf is a kernel-entry-layer wrapper. Under messaging/channels it is
+    # neither consumed by the structured path nor a flat kernel field, so it must
+    # surface as an unknown key.
     check parseLogosDeliveryConf("""{"mode": "core", "kernelConf": {}}""").isErr()
 
 suite "LogosDelivery.new - construction (the app-dev entry)":
@@ -285,9 +286,9 @@ suite "LogosDelivery.new - construction (the app-dev entry)":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          LogosDeliveryMode.Core,
-          "",
-          MessagingClientConf(
+          mode = LogosDeliveryMode.Core,
+          preset = "",
+          messagingOverrides = MessagingClientConf(
             clusterId: Opt.some(3'u16),
             numShardsInCluster: Opt.some(1'u16),
             listenIpv4: Opt.some(parseIpAddress("0.0.0.0")),
@@ -307,9 +308,10 @@ suite "LogosDelivery.new - construction (the app-dev entry)":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          LogosDeliveryMode.Core,
-          "logostest",
-          MessagingClientConf(listenIpv4: Opt.some(parseIpAddress("0.0.0.0"))),
+          mode = LogosDeliveryMode.Core,
+          preset = "logostest",
+          messagingOverrides =
+            MessagingClientConf(listenIpv4: Opt.some(parseIpAddress("0.0.0.0"))),
         )
       ).valueOr:
         raiseAssert error
@@ -327,7 +329,7 @@ suite "MessagingClientConf - store override":
       kc.relay == false # protocols are owned by the mode, not overridable
 
 suite "LogosDelivery.new - raw kernel construction":
-  asyncTest "a fleet node mounts the kernel only; start/stop tolerate the nil layers":
+  asyncTest "a kernel-only node mounts the kernel only; start/stop tolerate the nil layers":
     let kernel = MessagingClientConf(listenIpv4: Opt.some(parseIpAddress("0.0.0.0"))).toWakuNodeConf(
       LogosDeliveryMode.Core
     ).valueOr:

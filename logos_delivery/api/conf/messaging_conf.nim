@@ -75,6 +75,10 @@ proc toWakuNodeConf*(
   ## Mode sets the protocol flags; set fields map to their kernel counterpart.
   var conf = ?defaultWakuNodeConf()
   ?applyMode(conf, mode)
+  # Keep the `mode` field consistent with the applied flags so a later
+  # `LogosDelivery.new(WakuNodeConf)` re-application is idempotent instead of
+  # clobbering these flags with the field's default (`Core`).
+  conf.mode = mode
 
   if self.store.isSome():
     conf.store = self.store.get()
