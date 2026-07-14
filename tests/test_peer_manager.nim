@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[sequtils, times, sugar, net, options],
+  std/[sequtils, times, sugar, net],
   results,
   testutils/unittests,
   chronos,
@@ -331,7 +331,7 @@ procSuite "Peer Manager":
 
     let peerInfo2 = node2.switch.peerInfo
     var remotePeerInfo2 = peerInfo2.toRemotePeerInfo()
-    remotePeerInfo2.enr = some(node2.enr)
+    remotePeerInfo2.enr = Opt.some(node2.enr)
 
     let is12Connected = await node1.peerManager.connectPeer(remotePeerInfo2)
     assert is12Connected == true, "Node 1 and 2 not connected"
@@ -414,7 +414,7 @@ procSuite "Peer Manager":
 
     let peerInfo2 = node2.switch.peerInfo
     var remotePeerInfo2 = peerInfo2.toRemotePeerInfo()
-    remotePeerInfo2.enr = some(node2.enr)
+    remotePeerInfo2.enr = Opt.some(node2.enr)
 
     let is12Connected = await node1.peerManager.connectPeer(remotePeerInfo2)
     assert is12Connected == true, "Node 1 and 2 not connected"
@@ -588,7 +588,7 @@ procSuite "Peer Manager":
     let nodes = toSeq(0 ..< 4).mapIt(
         newTestWakuNode(
           nodeKey = generateSecp256k1Key(),
-          wakuFlags = some(CapabilitiesBitfield.init(@[Relay])),
+          wakuFlags = Opt.some(CapabilitiesBitfield.init(@[Relay])),
         )
       )
 
@@ -601,7 +601,7 @@ procSuite "Peer Manager":
     let peerInfos = collect:
       for i in 0 .. nodes.high:
         let peerInfo = nodes[i].switch.peerInfo.toRemotePeerInfo()
-        peerInfo.enr = some(nodes[i].enr)
+        peerInfo.enr = Opt.some(nodes[i].enr)
         peerInfo
 
     # Add all peers (but self) to node 0
@@ -659,7 +659,7 @@ procSuite "Peer Manager":
     let nodes = toSeq(0 ..< 4).mapIt(
         newTestWakuNode(
           nodeKey = generateSecp256k1Key(),
-          wakuFlags = some(CapabilitiesBitfield.init(@[Relay])),
+          wakuFlags = Opt.some(CapabilitiesBitfield.init(@[Relay])),
         )
       )
 
@@ -681,7 +681,7 @@ procSuite "Peer Manager":
     let peerInfos = collect:
       for i in 0 .. nodes.high:
         let peerInfo = nodes[i].switch.peerInfo.toRemotePeerInfo()
-        peerInfo.enr = some(nodes[i].enr)
+        peerInfo.enr = Opt.some(nodes[i].enr)
         peerInfo
 
     # Add all peers (but self) to node 0
@@ -1274,7 +1274,7 @@ procSuite "Peer Manager":
     let peerInfos = collect:
       for node in nodes:
         var peerInfo = node.switch.peerInfo.toRemotePeerInfo()
-        peerInfo.enr = some(node.enr)
+        peerInfo.enr = Opt.some(node.enr)
         peerInfo
 
     # Add all peers to node 0's peer manager and peerstore
@@ -1286,7 +1286,7 @@ procSuite "Peer Manager":
         @[WakuRelayCodec]
 
     ## When: We select a peer for shard 0
-    let shard0Topic = some(PubsubTopic("/waku/2/rs/0/0"))
+    let shard0Topic = Opt.some(PubsubTopic("/waku/2/rs/0/0"))
     let selectedPeer0 = nodes[0].peerManager.selectPeer(WakuRelayCodec, shard0Topic)
 
     ## Then: Only peers supporting shard 0 are considered (nodes 2, not node 1)
@@ -1296,7 +1296,7 @@ procSuite "Peer Manager":
       selectedPeer0.get().peerId == peerInfos[2].peerId # node2 has shard 0
 
     ## When: We select a peer for shard 1
-    let shard1Topic = some(PubsubTopic("/waku/2/rs/0/1"))
+    let shard1Topic = Opt.some(PubsubTopic("/waku/2/rs/0/1"))
     let selectedPeer1 = nodes[0].peerManager.selectPeer(WakuRelayCodec, shard1Topic)
 
     ## Then: Only peer with shard 1 is selected
@@ -1349,7 +1349,7 @@ procSuite "Peer Manager":
       pm.switch.peerStore.setShardInfo(peerInfo.peerId, peerInfo.shards)
 
     ## When: We select a peer for shard 0
-    let shard0Topic = some(PubsubTopic("/waku/2/rs/0/0"))
+    let shard0Topic = Opt.some(PubsubTopic("/waku/2/rs/0/0"))
     let selectedPeer0 = pm.selectPeer(WakuRelayCodec, shard0Topic)
 
     ## Then: Peers with shard 0 in shards field are selected
@@ -1358,7 +1358,7 @@ procSuite "Peer Manager":
       selectedPeer0.get().peerId in [peerInfos[0].peerId, peerInfos[2].peerId]
 
     ## When: We select a peer for shard 1
-    let shard1Topic = some(PubsubTopic("/waku/2/rs/0/1"))
+    let shard1Topic = Opt.some(PubsubTopic("/waku/2/rs/0/1"))
     let selectedPeer1 = pm.selectPeer(WakuRelayCodec, shard1Topic)
 
     ## Then: Peer with shard 1 in shards field is selected
@@ -1378,19 +1378,19 @@ procSuite "Peer Manager":
     discard await peer.mountRelay()
 
     var peerInfo = peer.switch.peerInfo.toRemotePeerInfo()
-    peerInfo.enr = some(peer.enr)
+    peerInfo.enr = Opt.some(peer.enr)
     node.peerManager.addPeer(peerInfo)
     node.peerManager.switch.peerStore[ProtoBook][peerInfo.peerId] = @[WakuRelayCodec]
 
     ## When: selectPeer is called with malformed pubsub topic
     let invalidTopics = @[
-      some(PubsubTopic("invalid-topic")),
-      some(PubsubTopic("/waku/2/invalid")),
-      some(PubsubTopic("/waku/2/rs/abc/0")), # non-numeric cluster
-      some(PubsubTopic("")), # empty topic
+      Opt.some(PubsubTopic("invalid-topic")),
+      Opt.some(PubsubTopic("/waku/2/invalid")),
+      Opt.some(PubsubTopic("/waku/2/rs/abc/0")), # non-numeric cluster
+      Opt.some(PubsubTopic("")), # empty topic
     ]
 
-    ## Then: Returns none(RemotePeerInfo) without crashing
+    ## Then: Returns Opt.none(RemotePeerInfo) without crashing
     for invalidTopic in invalidTopics:
       let result = node.peerManager.selectPeer(WakuRelayCodec, invalidTopic)
       check:
@@ -1420,7 +1420,7 @@ procSuite "Peer Manager":
 
     # Create peer info with ENR (shard 0) but set shards field to shard 1
     var peerInfo = peer.switch.peerInfo.toRemotePeerInfo()
-    peerInfo.enr = some(peer.enr) # ENR has shard 0
+    peerInfo.enr = Opt.some(peer.enr) # ENR has shard 0
     peerInfo.shards = @[shardId1] # shards field has shard 1
 
     node.peerManager.addPeer(peerInfo)
@@ -1429,7 +1429,7 @@ procSuite "Peer Manager":
     node.peerManager.switch.peerStore.setShardInfo(peerInfo.peerId, peerInfo.shards)
 
     ## When: We select for shard 0
-    let shard0Topic = some(PubsubTopic("/waku/2/rs/0/0"))
+    let shard0Topic = Opt.some(PubsubTopic("/waku/2/rs/0/0"))
     let selectedPeer = node.peerManager.selectPeer(WakuRelayCodec, shard0Topic)
 
     ## Then: Peer is selected because ENR (shard 0) takes precedence
@@ -1438,7 +1438,7 @@ procSuite "Peer Manager":
       selectedPeer.get().peerId == peerInfo.peerId
 
     ## When: We select for shard 1
-    let shard1Topic = some(PubsubTopic("/waku/2/rs/0/1"))
+    let shard1Topic = Opt.some(PubsubTopic("/waku/2/rs/0/1"))
     let selectedPeer1 = node.peerManager.selectPeer(WakuRelayCodec, shard1Topic)
 
     ## Then: Peer is still selected because shards field is checked as fallback

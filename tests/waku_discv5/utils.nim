@@ -1,4 +1,4 @@
-import std/options, chronos, libp2p/crypto/crypto as libp2p_keys, eth/keys as eth_keys
+import results, chronos, libp2p/crypto/crypto as libp2p_keys, eth/keys as eth_keys
 
 import
   logos_delivery/waku/
@@ -13,7 +13,7 @@ proc newTestDiscv5*(
     record: waku_enr.Record,
     bootstrapRecords = newSeq[waku_enr.Record](),
     queue = newAsyncEventQueue[SubscriptionEvent](30),
-    peerManager: Option[PeerManager] = none(PeerManager),
+    peerManager: Opt[PeerManager] = Opt.none(PeerManager),
 ): WakuDiscoveryV5 =
   let config = WakuDiscoveryV5Config(
     privateKey: eth_keys.PrivateKey(privKey.skkey),
@@ -25,7 +25,7 @@ proc newTestDiscv5*(
   let discv5 = WakuDiscoveryV5.new(
     rng = rng(),
     conf = config,
-    record = some(record),
+    record = Opt.some(record),
     queue = queue,
     peerManager = peerManager,
   )

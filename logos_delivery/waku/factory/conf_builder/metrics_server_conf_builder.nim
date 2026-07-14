@@ -1,4 +1,4 @@
-import chronicles, std/[net, options], results
+import chronicles, std/net, results
 import ../waku_conf
 
 logScope:
@@ -14,36 +14,36 @@ const
 ## Metrics Server Config Builder ##
 ###################################
 type MetricsServerConfBuilder* = object
-  enabled*: Option[bool]
+  enabled*: Opt[bool]
 
-  httpAddress*: Option[IpAddress]
-  httpPort*: Option[Port]
-  logging*: Option[bool]
+  httpAddress*: Opt[IpAddress]
+  httpPort*: Opt[Port]
+  logging*: Opt[bool]
 
 proc init*(T: type MetricsServerConfBuilder): MetricsServerConfBuilder =
   MetricsServerConfBuilder()
 
 proc withEnabled*(b: var MetricsServerConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withHttpAddress*(b: var MetricsServerConfBuilder, httpAddress: IpAddress) =
-  b.httpAddress = some(httpAddress)
+  b.httpAddress = Opt.some(httpAddress)
 
 proc withHttpPort*(b: var MetricsServerConfBuilder, httpPort: Port) =
-  b.httpPort = some(httpPort)
+  b.httpPort = Opt.some(httpPort)
 
 proc withHttpPort*(b: var MetricsServerConfBuilder, httpPort: uint16) =
-  b.httpPort = some(Port(httpPort))
+  b.httpPort = Opt.some(Port(httpPort))
 
 proc withLogging*(b: var MetricsServerConfBuilder, logging: bool) =
-  b.logging = some(logging)
+  b.logging = Opt.some(logging)
 
-proc build*(b: MetricsServerConfBuilder): Result[Option[MetricsServerConf], string] =
+proc build*(b: MetricsServerConfBuilder): Result[Opt[MetricsServerConf], string] =
   if not b.enabled.get(DefaultMetricsEnabled):
-    return ok(none(MetricsServerConf))
+    return ok(Opt.none(MetricsServerConf))
 
   return ok(
-    some(
+    Opt.some(
       MetricsServerConf(
         httpAddress: b.httpAddress.get(DefaultMetricsHttpAddress),
         httpPort: b.httpPort.get(DefaultMetricsHttpPort),

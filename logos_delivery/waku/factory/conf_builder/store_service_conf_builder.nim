@@ -1,6 +1,4 @@
-import logos_delivery/waku/compat/option_valueor
-import std/[options, strutils, sequtils]
-import chronicles, results, chronos
+import std/[strutils, sequtils], chronicles, results, chronos
 import ../waku_conf, ./store_sync_conf_builder
 
 logScope:
@@ -18,35 +16,35 @@ const
 ## Store Service Config Builder ##
 ##################################
 type StoreServiceConfBuilder* = object
-  enabled*: Option[bool]
+  enabled*: Opt[bool]
 
-  dbMigration*: Option[bool]
-  dbURl*: Option[string]
-  dbVacuum*: Option[bool]
-  maxNumDbConnections*: Option[int]
+  dbMigration*: Opt[bool]
+  dbURl*: Opt[string]
+  dbVacuum*: Opt[bool]
+  maxNumDbConnections*: Opt[int]
   retentionPolicies*: seq[string]
-  resume*: Option[bool]
+  resume*: Opt[bool]
   storeSyncConf*: StoreSyncConfBuilder
 
 proc init*(T: type StoreServiceConfBuilder): StoreServiceConfBuilder =
   StoreServiceConfBuilder(storeSyncConf: StoreSyncConfBuilder.init())
 
 proc withEnabled*(b: var StoreServiceConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withDbMigration*(b: var StoreServiceConfBuilder, dbMigration: bool) =
-  b.dbMigration = some(dbMigration)
+  b.dbMigration = Opt.some(dbMigration)
 
 proc withDbUrl*(b: var StoreServiceConfBuilder, dbUrl: string) =
-  b.dbURl = some(dbUrl)
+  b.dbURl = Opt.some(dbUrl)
 
 proc withDbVacuum*(b: var StoreServiceConfBuilder, dbVacuum: bool) =
-  b.dbVacuum = some(dbVacuum)
+  b.dbVacuum = Opt.some(dbVacuum)
 
 proc withMaxNumDbConnections*(
     b: var StoreServiceConfBuilder, maxNumDbConnections: int
 ) =
-  b.maxNumDbConnections = some(maxNumDbConnections)
+  b.maxNumDbConnections = Opt.some(maxNumDbConnections)
 
 proc withRetentionPolicies*(b: var StoreServiceConfBuilder, retentionPolicies: string) =
   b.retentionPolicies = retentionPolicies
@@ -56,7 +54,7 @@ proc withRetentionPolicies*(b: var StoreServiceConfBuilder, retentionPolicies: s
     .filterIt(it.len > 0)
 
 proc withResume*(b: var StoreServiceConfBuilder, resume: bool) =
-  b.resume = some(resume)
+  b.resume = Opt.some(resume)
 
 const ValidRetentionPolicyTypes = ["time", "capacity", "size"]
 
@@ -85,9 +83,9 @@ proc validateRetentionPolicies(policies: seq[string]): Result[void, string] =
 
   return ok()
 
-proc build*(b: StoreServiceConfBuilder): Result[Option[StoreServiceConf], string] =
+proc build*(b: StoreServiceConfBuilder): Result[Opt[StoreServiceConf], string] =
   if not b.enabled.get(DefaultStoreEnabled):
-    return ok(none(StoreServiceConf))
+    return ok(Opt.none(StoreServiceConf))
 
   if b.dbUrl.get("") == "":
     return err "store.dbUrl is not specified"
@@ -104,7 +102,7 @@ proc build*(b: StoreServiceConfBuilder): Result[Option[StoreServiceConf], string
       b.retentionPolicies
 
   return ok(
-    some(
+    Opt.some(
       StoreServiceConf(
         dbMigration: b.dbMigration.get(DefaultStoreDbMigration),
         dbURl: b.dbUrl.get(),

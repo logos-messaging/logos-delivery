@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 import
   chronicles,
   chronos,
@@ -6,7 +5,7 @@ import
   libp2p/crypto/curve25519,
   libp2p/multiaddress,
   libp2p/nameresolving/dnsresolver,
-  std/[options, sequtils, net],
+  std/[sequtils, net],
   results
 
 import
@@ -85,9 +84,9 @@ proc dnsResolve*(
 proc networkConfiguration*(
     clusterId: uint16,
     conf: EndpointConf,
-    discv5Conf: Option[Discv5Conf],
-    webSocketConf: Option[WebSocketConf],
-    quicConf: Option[QuicConf],
+    discv5Conf: Opt[Discv5Conf],
+    webSocketConf: Opt[WebSocketConf],
+    quicConf: Opt[QuicConf],
     wakuFlags: CapabilitiesBitfield,
     dnsAddrsNameServers: seq[IpAddress],
     clientId: string,
@@ -97,9 +96,9 @@ proc networkConfiguration*(
   let (quicEnabled, quicBindPort) =
     if quicConf.isSome():
       let qConf = quicConf.get()
-      (true, some(qConf.port))
+      (true, Opt.some(qConf.port))
     else:
-      (false, none(Port))
+      (false, Opt.none(Port))
 
   # NAT-map the QUIC UDP port (placeholder when QUIC off)
   var (extIp, extTcpPort, extUdpPort) = setupNat(
@@ -110,9 +109,9 @@ proc networkConfiguration*(
   let
     discv5UdpPort =
       if discv5Conf.isSome():
-        some(discv5Conf.get().udpPort)
+        Opt.some(discv5Conf.get().udpPort)
       else:
-        none(Port)
+        Opt.none(Port)
 
     ## TODO: the NAT setup assumes a manual port mapping configuration if extIp
     ## config is set. This probably implies adding manual config item for
@@ -120,7 +119,7 @@ proc networkConfiguration*(
     ## manual config, the external port is the same as the bind port.
     extPort =
       if (extIp.isSome() or conf.dns4DomainName.isSome()) and extTcpPort.isNone():
-        some(tcpBindPort)
+        Opt.some(tcpBindPort)
       else:
         extTcpPort
 
@@ -136,7 +135,7 @@ proc networkConfiguration*(
       let dns = (await dnsResolve(conf.dns4DomainName.get(), dnsAddrsNameServers)).valueOr:
         return err($error) # Pass error down the stack
 
-      extIp = some(parseIpAddress(dns))
+      extIp = Opt.some(parseIpAddress(dns))
     except CatchableError:
       return
         err("Could not update extIp to resolved DNS IP: " & getCurrentExceptionMsg())
@@ -144,9 +143,9 @@ proc networkConfiguration*(
   let (wsEnabled, wsBindPort, wssEnabled) =
     if webSocketConf.isSome:
       let wsConf = webSocketConf.get()
-      (true, some(wsConf.port), wsConf.secureConf.isSome)
+      (true, Opt.some(wsConf.port), wsConf.secureConf.isSome)
     else:
-      (false, none(Port), false)
+      (false, Opt.none(Port), false)
 
   # Wrap in none because NetConfig does not have a default constructor
   # TODO: We could change bindIp in NetConfig to be something less restrictive
@@ -167,7 +166,7 @@ proc networkConfiguration*(
     extQuicPort = extQuicPort,
     dns4DomainName = conf.dns4DomainName,
     discv5UdpPort = discv5UdpPort,
-    wakuFlags = some(wakuFlags),
+    wakuFlags = Opt.some(wakuFlags),
     dnsNameServers = dnsAddrsNameServers,
   )
 

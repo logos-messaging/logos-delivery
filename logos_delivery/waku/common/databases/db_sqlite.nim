@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 # The code in this file is an adaptation of the Sqlite KV Store found in nim-eth.
 # https://github.com/status-im/nim-eth/blob/master/eth/db/kvstore_sqlite3.nim
@@ -172,11 +171,11 @@ proc exec*[P](s: SqliteStmt[P, void], params: P): DatabaseResult[void] =
   res
 
 template readResult(s: RawStmtPtr, column: cint, T: type): auto =
-  when T is Option:
+  when T is Opt:
     if sqlite3_column_type(s, column) == SQLITE_NULL:
-      none(typeof(default(T).get()))
+      Opt.none(typeof(default(T).get()))
     else:
-      some(readSimpleResult(s, column, typeof(default(T).get())))
+      Opt.some(readSimpleResult(s, column, typeof(default(T).get())))
   else:
     readSimpleResult(s, column, T)
 

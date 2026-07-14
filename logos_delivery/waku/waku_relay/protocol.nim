@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 ## Waku Relay module. Thin layer on top of GossipSub.
 ##
 ## See https://github.com/vacp2p/specs/blob/master/specs/waku/v2/waku-relay.md

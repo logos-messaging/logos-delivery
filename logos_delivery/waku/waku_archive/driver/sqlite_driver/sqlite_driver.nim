@@ -1,9 +1,8 @@
-import logos_delivery/waku/compat/option_valueor
 # The code in this file is an adaptation of the Sqlite KV Store found in nim-eth.
 # https://github.com/status-im/nim-eth/blob/master/eth/db/kvstore_sqlite3.nim
 {.push raises: [].}
 
-import std/options, stew/byteutils, chronicles, chronos, results
+import stew/byteutils, chronicles, chronos, results
 import
   ../../../common/databases/db_sqlite,
   ../../../waku_core,
@@ -73,10 +72,10 @@ method getMessages*(
     s: SqliteDriver,
     includeData = true,
     contentTopics = newSeq[ContentTopic](0),
-    pubsubTopic = none(PubsubTopic),
-    cursor = none(ArchiveCursor),
-    startTime = none(Timestamp),
-    endTime = none(Timestamp),
+    pubsubTopic = Opt.none(PubsubTopic),
+    cursor = Opt.none(ArchiveCursor),
+    startTime = Opt.none(Timestamp),
+    endTime = Opt.none(Timestamp),
     hashes = newSeq[WakuMessageHash](0),
     maxPageSize = DefaultPageSize,
     ascendingOrder = true,

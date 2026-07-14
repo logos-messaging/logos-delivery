@@ -1,11 +1,7 @@
 {.used.}
 
 import
-  std/options,
-  chronos,
-  testutils/unittests,
-  libp2p/builders,
-  libp2p/protocols/rendezvous
+  results, chronos, testutils/unittests, libp2p/builders, libp2p/protocols/rendezvous
 
 import
   logos_delivery/waku/waku_core/peers,

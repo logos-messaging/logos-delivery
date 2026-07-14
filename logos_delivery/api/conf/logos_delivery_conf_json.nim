@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[json, options, strutils, tables]
+import std/[json, strutils, tables]
 import results
 
 import tools/confutils/conf_from_json
@@ -82,8 +82,8 @@ proc parseFlatConf(
   return ok(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernel),
-      messagingConf: some(messaging),
-      channelsConf: some(ReliableChannelManagerConf()),
+      messagingConf: Opt.some(messaging),
+      channelsConf: Opt.some(ReliableChannelManagerConf()),
     )
   )
 

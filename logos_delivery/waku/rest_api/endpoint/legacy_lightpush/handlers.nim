@@ -1,12 +1,13 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
   std/strformat,
+  std/options,
+  results,
   stew/byteutils,
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/route,
   presto/common
 
@@ -43,7 +44,7 @@ const ROUTE_LIGHTPUSH = "/lightpush/v1/message"
 proc installLightPushRequestHandler*(
     router: var RestRouter,
     node: WakuNode,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   router.api(MethodPost, ROUTE_LIGHTPUSH) do(
     contentBody: Option[ContentBody]

@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sequtils, strutils, uri, net],
+  std/[sequtils, strutils, uri, net],
   results,
   chronos,
   chronicles,
@@ -49,10 +48,10 @@ type
 type RemotePeerInfo* = ref object
   peerId*: PeerID
   addrs*: seq[MultiAddress]
-  enr*: Option[enr.Record]
+  enr*: Opt[enr.Record]
   protocols*: seq[string]
   shards*: seq[uint16]
-  mixPubKey*: Option[Curve25519Key]
+  mixPubKey*: Opt[Curve25519Key]
 
   agent*: string
   protoVersion*: string
@@ -76,7 +75,7 @@ proc init*(
     T: typedesc[RemotePeerInfo],
     peerId: PeerID,
     addrs: seq[MultiAddress] = @[],
-    enr: Option[enr.Record] = none(enr.Record),
+    enr: Opt[enr.Record] = Opt.none(enr.Record),
     protocols: seq[string] = @[],
     shards: seq[uint16] = @[],
     publicKey: crypto.PublicKey = crypto.PublicKey(),
@@ -88,7 +87,7 @@ proc init*(
     direction: PeerDirection = UnknownDirection,
     lastFailedConn: Moment = Moment.init(0, Second),
     numberFailedConn: int = 0,
-    mixPubKey: Option[Curve25519Key] = none(Curve25519Key),
+    mixPubKey: Opt[Curve25519Key] = Opt.none(Curve25519Key),
 ): T =
   RemotePeerInfo(
     peerId: peerId,
@@ -112,7 +111,7 @@ proc init*(
     T: typedesc[RemotePeerInfo],
     peerId: string,
     addrs: seq[MultiAddress] = @[],
-    enr: Option[enr.Record] = none(enr.Record),
+    enr: Opt[enr.Record] = Opt.none(enr.Record),
     protocols: seq[string] = @[],
     shards: seq[uint16] = @[],
 ): T {.raises: [Defect, ResultError[cstring], LPError].} =
@@ -239,19 +238,17 @@ proc parsePeerInfo*(maddrs: varargs[string]): Result[RemotePeerInfo, string] =
 
   parsePeerInfo(multiAddresses)
 
-proc parseUrlPeerAddr*(
-    peerAddr: Option[string]
-): Result[Option[RemotePeerInfo], string] =
+proc parseUrlPeerAddr*(peerAddr: Opt[string]): Result[Opt[RemotePeerInfo], string] =
   # Checks whether the peerAddr parameter represents a valid p2p multiaddress.
   # The param must be in the format `(ip4|ip6)/tcp/p2p/$peerId` but URL-encoded
   if not peerAddr.isSome() or peerAddr.get() == "":
-    return ok(none(RemotePeerInfo))
+    return ok(Opt.none(RemotePeerInfo))
 
   let parsedAddr = decodeUrl(peerAddr.get())
   let parsedPeerInfo = parsePeerInfo(parsedAddr).valueOr:
     return err("Failed parsing remote peer info: " & error)
 
-  return ok(some(parsedPeerInfo))
+  return ok(Opt.some(parsedPeerInfo))
 
 proc sortQuicFirst(addrs: seq[MultiAddress]): seq[MultiAddress] =
   ## QUIC addresses first, so they are dialed ahead of TCP.
@@ -310,7 +307,7 @@ proc toRemotePeerInfo*(enrRec: enr.Record): Result[RemotePeerInfo, cstring] =
     error "Could not retrieve supported protocols from enr",
       peerId = peerId, msg = protocolsRes.error.msg
 
-  return ok(RemotePeerInfo.init(peerId, addrs, some(enrRec), protocols))
+  return ok(RemotePeerInfo.init(peerId, addrs, Opt.some(enrRec), protocols))
 
 converter toRemotePeerInfo*(peerRecord: PeerRecord): RemotePeerInfo =
   ## Converts peer records to dialable RemotePeerInfo
@@ -323,7 +320,7 @@ converter toRemotePeerInfo*(peerInfo: PeerInfo): RemotePeerInfo =
   RemotePeerInfo(
     peerId: peerInfo.peerId,
     addrs: sortQuicFirst(peerInfo.listenAddrs),
-    enr: none(enr.Record),
+    enr: Opt.none(enr.Record),
     protocols: peerInfo.protocols,
     shards: @[],
     agent: peerInfo.agentVersion,

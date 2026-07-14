@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, sequtils],
+  results,
+  std/sequtils,
   testutils/unittests,
   chronos,
   chronicles,
@@ -81,7 +82,7 @@ suite "Waku Peer Exchange":
       check:
         node.peerManager.switch.peerStore.peers.len == 0
         res.error.status_code == SERVICE_UNAVAILABLE
-        res.error.status_desc == some("PeerExchangeClient is not mounted")
+        res.error.status_desc == Opt.some("PeerExchangeClient is not mounted")
 
     asyncTest "Node fetches with mounted peer exchange, but no peers":
       # Given a node with peer exchange mounted
@@ -91,7 +92,7 @@ suite "Waku Peer Exchange":
       let res = await node.fetchPeerExchangePeers(1)
       check:
         res.error.status_code == SERVICE_UNAVAILABLE
-        res.error.status_desc == some("peer_not_found_failure")
+        res.error.status_desc == Opt.some("peer_not_found_failure")
 
       # Then no peers are fetched
       check node.peerManager.switch.peerStore.peers.len == 0
@@ -103,7 +104,7 @@ suite "Waku Peer Exchange":
 
       # Simulate node2 discovering node3 via Discv5
       var rpInfo = node3.peerInfo.toRemotePeerInfo()
-      rpInfo.enr = some(node3.enr)
+      rpInfo.enr = Opt.some(node3.enr)
       node2.peerManager.addPeer(rpInfo, PeerOrigin.Discv5)
 
       # Set node2 as service peer (default one) for px protocol
@@ -189,13 +190,13 @@ suite "Waku Peer Exchange with discv5":
         bindIp = parseIpAddress("0.0.0.0")
 
         nodeKey1 = generateSecp256k1Key()
-        node1 = newTestWakuNode(nodeKey1, bindIp, Port(0), wakuFlags = some(flags))
+        node1 = newTestWakuNode(nodeKey1, bindIp, Port(0), wakuFlags = Opt.some(flags))
 
         nodeKey2 = generateSecp256k1Key()
-        node2 = newTestWakuNode(nodeKey2, bindIp, Port(0), wakuFlags = some(flags))
+        node2 = newTestWakuNode(nodeKey2, bindIp, Port(0), wakuFlags = Opt.some(flags))
 
         nodeKey3 = generateSecp256k1Key()
-        node3 = newTestWakuNode(nodeKey3, bindIp, Port(0), wakuFlags = some(flags))
+        node3 = newTestWakuNode(nodeKey3, bindIp, Port(0), wakuFlags = Opt.some(flags))
 
       await allFutures(node1.start(), node2.start(), node3.start())
 

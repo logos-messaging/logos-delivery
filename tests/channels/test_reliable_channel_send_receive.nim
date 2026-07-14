@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[net, options, os]
+import results, std/[net, os]
 from std/times import epochTime
 import chronos, testutils/unittests, stew/byteutils
 import brokers/broker_context
@@ -34,7 +34,7 @@ proc createApiNodeConf(): WakuNodeConf =
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
-  conf.clusterId = some(3'u16)
+  conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = 1
   conf.rest = false
   return conf

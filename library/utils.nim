@@ -1,7 +1,7 @@
-import std/[json, options, strutils]
+import std/[json, strutils]
 import results
 
-proc getProtoInt64*(node: JsonNode, key: string): Result[Option[int64], string] =
+proc getProtoInt64*(node: JsonNode, key: string): Result[Opt[int64], string] =
   try:
     let (value, ok) =
       if node.hasKey(key):
@@ -13,8 +13,8 @@ proc getProtoInt64*(node: JsonNode, key: string): Result[Option[int64], string] 
         (0, false)
 
     if ok:
-      return ok(some(value))
+      return ok(Opt.some(value))
 
-    return ok(none(int64))
+    return ok(Opt.none(int64))
   except CatchableError:
     return err("Invalid int64 value in `" & key & "`")

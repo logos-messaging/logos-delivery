@@ -1,5 +1,5 @@
 import
-  std/[algorithm, sequtils, math, options, tables, packedsets, sugar],
+  std/[algorithm, sequtils, math, tables, packedsets, sugar],
   results,
   chronos,
   stew/arrayops
@@ -167,7 +167,7 @@ method prune*(self: SeqStorage, timestamp: Timestamp): int {.raises: [].} =
 
 proc computefingerprintFromSlice(
     self: SeqStorage,
-    sliceOpt: Option[Slice[int]],
+    sliceOpt: Opt[Slice[int]],
     pubsubTopicSet: PackedSet[int],
     contentTopicSet: PackedSet[int],
 ): Fingerprint =
@@ -199,7 +199,7 @@ proc computefingerprintFromSlice(
 
   return fingerprint
 
-proc findIdxBounds(self: SeqStorage, slice: Slice[SyncID]): Option[Slice[int]] =
+proc findIdxBounds(self: SeqStorage, slice: Slice[SyncID]): Opt[Slice[int]] =
   ## Given bounds find the corresponding indices in this storage
 
   let lower = self.elements.lowerBound(slice.a, common.cmp)
@@ -207,13 +207,13 @@ proc findIdxBounds(self: SeqStorage, slice: Slice[SyncID]): Option[Slice[int]] =
 
   if upper < 1:
     # entire range is before any of our elements
-    return none(Slice[int])
+    return Opt.none(Slice[int])
 
   if lower >= self.elements.len:
     # entire range is after any of our elements
-    return none(Slice[int])
+    return Opt.none(Slice[int])
 
-  return some(lower ..< upper)
+  return Opt.some(lower ..< upper)
 
 method computeFingerprint*(
     self: SeqStorage,
@@ -308,7 +308,7 @@ proc processFingerprintRange*(
       continue
 
     let fingerprint =
-      self.computeFingerprintFromSlice(some(slice), pubsubTopicSet, contentTopicSet)
+      self.computeFingerprintFromSlice(Opt.some(slice), pubsubTopicSet, contentTopicSet)
     output.ranges.add((partitionBounds, RangeType.Fingerprint))
     output.fingerprints.add(fingerprint)
     continue

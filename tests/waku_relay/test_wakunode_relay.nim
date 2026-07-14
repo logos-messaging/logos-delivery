@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[os, strutils, sequtils, sysrand, math, options],
+  results,
+  std/[os, strutils, sequtils, sysrand, math],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -113,7 +114,7 @@ suite "WakuNode - Relay":
       assert false, "Failed to subscribe to topic: " & $error
     await sleepAsync(500.millis)
 
-    var res = await node1.publish(some($shard), message)
+    var res = await node1.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
 
     ## Then
@@ -215,13 +216,13 @@ suite "WakuNode - Relay":
       assert false, "Failed to subscribe to topic: " & $error
     await sleepAsync(500.millis)
 
-    var res = await node1.publish(some($shard), message1)
+    var res = await node1.publish(Opt.some($shard), message1)
     assert res.isOk(), $res.error
 
     await sleepAsync(500.millis)
 
     # message2 never gets relayed because of the validator
-    res = await node1.publish(some($shard), message2)
+    res = await node1.publish(Opt.some($shard), message2)
     assert res.isOk(), $res.error
 
     await sleepAsync(500.millis)
@@ -315,7 +316,7 @@ suite "WakuNode - Relay":
       assert false, "Failed to subscribe to topic: " & $error
     await sleepAsync(500.millis)
 
-    let res = await node2.publish(some($shard), message)
+    let res = await node2.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
 
     await sleepAsync(500.millis)
@@ -367,7 +368,7 @@ suite "WakuNode - Relay":
       assert false, "Failed to subscribe to topic: " & $error
     await sleepAsync(500.millis)
 
-    let res = await node2.publish(some($shard), message)
+    let res = await node2.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
 
     await sleepAsync(500.millis)
@@ -428,7 +429,7 @@ suite "WakuNode - Relay":
       assert false, "Failed to subscribe to topic: " & $error
     await sleepAsync(500.millis)
 
-    let res = await node2.publish(some($shard), message)
+    let res = await node2.publish(Opt.some($shard), message)
     check res.isErr()
     check contains($res.error, "NoPeersToPublish")
 
@@ -487,7 +488,7 @@ suite "WakuNode - Relay":
       assert false, "Failed to subscribe to topic: " & $error
     await sleepAsync(500.millis)
 
-    let res = await node2.publish(some($shard), message)
+    let res = await node2.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
 
     await sleepAsync(500.millis)
@@ -547,7 +548,7 @@ suite "WakuNode - Relay":
       assert false, "Failed to subscribe to topic: " & $error
     await sleepAsync(500.millis)
 
-    let res = await node2.publish(some($shard), message)
+    let res = await node2.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
 
     await sleepAsync(500.millis)

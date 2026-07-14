@@ -1,4 +1,3 @@
-import std/options
 {.used.}
 
 import results, stew/byteutils, unittest2, json_serialization
@@ -34,10 +33,10 @@ suite "Waku v2 Rest API - Relay - serialization":
       let payload = base64.encode("MESSAGE")
       let data = RelayWakuMessage(
         payload: payload,
-        contentTopic: none(ContentTopic),
-        version: none(Natural),
-        timestamp: none(int64),
-        ephemeral: none(bool),
+        contentTopic: Opt.none(ContentTopic),
+        version: Opt.none(Natural),
+        timestamp: Opt.none(int64),
+        ephemeral: Opt.none(bool),
       )
 
       # When

@@ -2,7 +2,7 @@
 
 {.push raises: [].}
 
-import std/[options], chronos/timer, libp2p/stream/connection, libp2p/utility
+import results, chronos/timer, libp2p/stream/connection, libp2p/utility
 
 import std/times except TimeInterval, Duration
 
@@ -12,17 +12,17 @@ import ./[setting, service_metrics]
 export token_bucket, setting, service_metrics
 
 proc newTokenBucket*(
-    setting: Option[RateLimitSetting],
+    setting: Opt[RateLimitSetting],
     replenishMode: static[ReplenishMode] = ReplenishMode.Continuous,
     startTime: Moment = Moment.now(),
-): Option[TokenBucket] =
+): Opt[TokenBucket] =
   if setting.isNone():
-    return none[TokenBucket]()
+    return Opt.none(TokenBucket)
 
   if setting.get().isUnlimited():
-    return none[TokenBucket]()
+    return Opt.none(TokenBucket)
 
-  return some(
+  return Opt.some(
     TokenBucket.new(
       capacity = setting.get().volume,
       fillDuration = setting.get().period,
@@ -40,7 +40,7 @@ proc checkUsage(
   return true
 
 proc checkUsage(
-    t: var Option[TokenBucket], proto: string, now = Moment.now()
+    t: var Opt[TokenBucket], proto: string, now = Moment.now()
 ): bool {.raises: [].} =
   if t.isNone():
     return true
@@ -49,7 +49,7 @@ proc checkUsage(
   return checkUsage(tokenBucket, proto, now)
 
 template checkUsageLimit*(
-    t: var Option[TokenBucket] | var TokenBucket,
+    t: var Opt[TokenBucket] | var TokenBucket,
     proto: string,
     conn: Connection,
     bodyWithinLimit, bodyRejected: untyped,

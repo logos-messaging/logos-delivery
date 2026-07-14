@@ -1,9 +1,8 @@
 import libp2p/crypto/crypto
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, tables, sequtils, algorithm, random],
+  std/[tables, sequtils, algorithm, random],
   results,
   chronicles,
   chronos,
@@ -89,7 +88,7 @@ proc query*(
   return await self.sendStoreRequest(request, connection)
 
 proc queryToAny*(
-    self: WakuStoreClient, request: StoreQueryRequest, peerId = none(PeerId)
+    self: WakuStoreClient, request: StoreQueryRequest, peerId = Opt.none(PeerId)
 ): Future[StoreQueryResult] {.async.} =
   ## we don't specify a particular peer and instead we get it from peer manager.
   ## It will retry with different store peers if the dial fails.

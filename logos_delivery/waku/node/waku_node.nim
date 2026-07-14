@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, tables, strutils, sequtils, os, net, random, sets],
+  std/[tables, strutils, sequtils, os, net, random, sets],
   chronos,
   chronicles,
   metrics,
@@ -95,7 +94,7 @@ type
   WakuInfo* = object # NOTE One for simplicity, can extend later as needed
     listenAddresses*: seq[string]
     enrUri*: string #multiaddrStrings*: seq[string]
-    mixPubKey*: Option[string]
+    mixPubKey*: Opt[string]
 
   # NOTE based on Eth2Node in NBC eth2_network.nim
   WakuNode* = ref object
@@ -118,7 +117,7 @@ type
     wakuPeerExchange*: WakuPeerExchange
     wakuPeerExchangeClient*: WakuPeerExchangeClient
     wakuMetadata*: WakuMetadata
-    wakuAutoSharding*: Option[Sharding]
+    wakuAutoSharding*: Opt[Sharding]
     enr*: enr.Record
     libp2pPing*: Ping
     rng*: crypto.Rng
@@ -154,7 +153,7 @@ import ./subscription_manager
 proc deduceRelayShard(
     node: WakuNode,
     contentTopic: ContentTopic,
-    pubsubTopicOp: Option[PubsubTopic] = none[PubsubTopic](),
+    pubsubTopicOp: Opt[PubsubTopic] = Opt.none(PubsubTopic),
 ): Result[RelayShard, string] =
   let pubsubTopic = pubsubTopicOp.valueOr:
     if node.wakuAutoSharding.isNone():
@@ -264,7 +263,7 @@ proc info*(node: WakuNode): WakuInfo =
   var wakuInfo = WakuInfo(listenAddresses: listenStr, enrUri: enrUri)
   if not node.wakuMix.isNil():
     let keyStr = node.wakuMix.pubKey.to0xHex()
-    wakuInfo.mixPubKey = some(keyStr)
+    wakuInfo.mixPubKey = Opt.some(keyStr)
   info "node info", wakuInfo
   return wakuInfo
 
@@ -302,7 +301,7 @@ proc mountAutoSharding*(
 ): Result[void, string] =
   info "mounting auto sharding", clusterId = clusterId, shardCount = shardCount
   node.wakuAutoSharding =
-    some(Sharding(clusterId: clusterId, shardCountGenZero: shardCount))
+    Opt.some(Sharding(clusterId: clusterId, shardCountGenZero: shardCount))
 
   return ok()
 
@@ -519,7 +518,7 @@ proc startProvidersAndListeners*(node: WakuNode) =
   RequestRelayShard.setProvider(
     node.brokerCtx,
     proc(
-        pubsubTopic: Option[PubsubTopic], contentTopic: ContentTopic
+        pubsubTopic: Opt[PubsubTopic], contentTopic: ContentTopic
     ): Result[RequestRelayShard, string] =
       let shard = node.deduceRelayShard(contentTopic, pubsubTopic).valueOr:
         return err($error)
@@ -565,7 +564,7 @@ proc startProvidersAndListeners*(node: WakuNode) =
       for contentTopic in topics:
         var topicHealth = TopicHealth.NOT_SUBSCRIBED
 
-        let shardResult = node.deduceRelayShard(contentTopic, none[PubsubTopic]())
+        let shardResult = node.deduceRelayShard(contentTopic, Opt.none(PubsubTopic))
 
         if shardResult.isOk():
           let shardObj = shardResult.get()

@@ -1,11 +1,10 @@
-import logos_delivery/waku/compat/option_valueor
 ## Waku autosharding utils
 ##
 ## See 51/WAKU2-RELAY-SHARDING RFC: https://rfc.vac.dev/spec/51/#automatic-sharding
 
 {.push raises: [].}
 
-import nimcrypto, std/options, std/tables, stew/endians2, results, stew/byteutils
+import nimcrypto, std/tables, stew/endians2, results, stew/byteutils
 
 import ./content_topic, ./pubsub_topic
 

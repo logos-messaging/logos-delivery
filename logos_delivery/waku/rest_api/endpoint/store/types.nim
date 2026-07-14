@@ -1,12 +1,12 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[sets, strformat, uri, options, sequtils],
+  results,
+  std/[sets, strformat, uri, sequtils],
   stew/byteutils,
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/[route, client, common]
 import ../../../waku_store/common, ../../../common/base64, ../../../waku_core, ../serdes
 
@@ -18,15 +18,15 @@ Json.setWriter JsonWriter, PreferredOutput = string
 
 #### Type conversion
 
-proc parseHash*(input: Option[string]): Result[Option[WakuMessageHash], string] =
+proc parseHash*(input: Opt[string]): Result[Opt[WakuMessageHash], string] =
   let hexUrlEncoded =
     if input.isSome():
       input.get()
     else:
-      return ok(none(WakuMessageHash))
+      return ok(Opt.none(WakuMessageHash))
 
   if hexUrlEncoded == "":
-    return ok(none(WakuMessageHash))
+    return ok(Opt.none(WakuMessageHash))
 
   let hexDecoded = decodeUrl(hexUrlEncoded, false)
 
@@ -42,9 +42,9 @@ proc parseHash*(input: Option[string]): Result[Option[WakuMessageHash], string] 
 
   let hash: WakuMessageHash = fromBytes(decodedBytes)
 
-  return ok(some(hash))
+  return ok(Opt.some(hash))
 
-proc parseHashes*(input: Option[string]): Result[seq[WakuMessageHash], string] =
+proc parseHashes*(input: Opt[string]): Result[seq[WakuMessageHash], string] =
   var hashes: seq[WakuMessageHash] = @[]
 
   if not input.isSome() or input.get() == "":
@@ -54,7 +54,7 @@ proc parseHashes*(input: Option[string]): Result[seq[WakuMessageHash], string] =
 
   if decodedUrl != "":
     for subString in decodedUrl.split(','):
-      let hash = ?parseHash(some(subString))
+      let hash = ?parseHash(Opt.some(subString))
 
       if hash.isSome():
         hashes.add(hash.get())
@@ -172,9 +172,9 @@ proc readValue*(
     reader: var JsonReader, value: var WakuMessageKeyValueHex
 ) {.gcsafe, raises: [SerializationError, IOError].} =
   var
-    messageHash = none(string)
-    message = none(WakuMessage)
-    pubsubTopic = none(PubsubTopic)
+    messageHash = Opt.none(string)
+    message = Opt.none(WakuMessage)
+    pubsubTopic = Opt.none(PubsubTopic)
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -183,19 +183,19 @@ proc readValue*(
         reader.raiseUnexpectedField(
           "Multiple `messageHash` fields found", "WakuMessageKeyValueHex"
         )
-      messageHash = some(reader.readValue(string))
+      messageHash = Opt.some(reader.readValue(string))
     of "message":
       if message.isSome():
         reader.raiseUnexpectedField(
           "Multiple `message` fields found", "WakuMessageKeyValueHex"
         )
-      message = some(reader.readValue(WakuMessage))
+      message = Opt.some(reader.readValue(WakuMessage))
     of "pubsubTopic":
       if pubsubTopic.isSome():
         reader.raiseUnexpectedField(
           "Multiple `pubsubTopic` fields found", "WakuMessageKeyValueHex"
         )
-      pubsubTopic = some(reader.readValue(string))
+      pubsubTopic = Opt.some(reader.readValue(string))
     else:
       reader.raiseUnexpectedField("Unrecognided field", cstring(fieldName))
 
@@ -227,11 +227,11 @@ proc readValue*(
     reader: var JsonReader, value: var StoreQueryResponseHex
 ) {.gcsafe, raises: [SerializationError, IOError].} =
   var
-    requestId = none(string)
-    code = none(uint32)
-    desc = none(string)
-    messages = none(seq[WakuMessageKeyValueHex])
-    cursor = none(string)
+    requestId = Opt.none(string)
+    code = Opt.none(uint32)
+    desc = Opt.none(string)
+    messages = Opt.none(seq[WakuMessageKeyValueHex])
+    cursor = Opt.none(string)
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -240,31 +240,31 @@ proc readValue*(
         reader.raiseUnexpectedField(
           "Multiple `requestId` fields found", "StoreQueryResponseHex"
         )
-      requestId = some(reader.readValue(string))
+      requestId = Opt.some(reader.readValue(string))
     of "statusCode":
       if code.isSome():
         reader.raiseUnexpectedField(
           "Multiple `statusCode` fields found", "StoreQueryResponseHex"
         )
-      code = some(reader.readValue(uint32))
+      code = Opt.some(reader.readValue(uint32))
     of "statusDesc":
       if desc.isSome():
         reader.raiseUnexpectedField(
           "Multiple `statusDesc` fields found", "StoreQueryResponseHex"
         )
-      desc = some(reader.readValue(string))
+      desc = Opt.some(reader.readValue(string))
     of "messages":
       if messages.isSome():
         reader.raiseUnexpectedField(
           "Multiple `messages` fields found", "StoreQueryResponseHex"
         )
-      messages = some(reader.readValue(seq[WakuMessageKeyValueHex]))
+      messages = Opt.some(reader.readValue(seq[WakuMessageKeyValueHex]))
     of "paginationCursor":
       if cursor.isSome():
         reader.raiseUnexpectedField(
           "Multiple `paginationCursor` fields found", "StoreQueryResponseHex"
         )
-      cursor = some(reader.readValue(string))
+      cursor = Opt.some(reader.readValue(string))
     else:
       reader.raiseUnexpectedField("Unrecognided field", cstring(fieldName))
 

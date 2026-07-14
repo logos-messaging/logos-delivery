@@ -48,13 +48,13 @@ proc splitPeerIdAndAddr(maddr: string): (string, string) =
     peerId = parts[1]
   return (address, peerId)
 
-proc setupAndPublish(rng: ref HmacDrbgContext, conf: LightPushMixConf) {.async.} =
+proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
   # use notice to filter all waku messaging
   setupLog(logging.LogLevel.DEBUG, logging.LogFormat.TEXT)
   notice "starting publisher", wakuPort = conf.port
 
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[]).get()
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng).get()
     ip = parseIpAddress("0.0.0.0")
     flags = CapabilitiesBitfield.init(relay = true)
 
@@ -84,7 +84,7 @@ proc setupAndPublish(rng: ref HmacDrbgContext, conf: LightPushMixConf) {.async.}
   )
   node.mountLightPushClient()
   try:
-    await node.mountPeerExchange(some(uint16(clusterId)))
+    await node.mountPeerExchange(Opt.some(uint16(clusterId)))
   except CatchableError:
     error "failed to mount waku peer-exchange protocol",
       error = getCurrentExceptionMsg()
@@ -164,8 +164,9 @@ proc setupAndPublish(rng: ref HmacDrbgContext, conf: LightPushMixConf) {.async.}
       timestamp: getNowInNanosecondTime(),
     ) # current timestamp
 
-    let res =
-      await node.wakuLightpushClient.publish(some(LightpushPubsubTopic), message, conn)
+    let res = await node.wakuLightpushClient.publish(
+      Opt.some(LightpushPubsubTopic), message, conn
+    )
 
     let startTime = getNowInNanosecondTime()
 

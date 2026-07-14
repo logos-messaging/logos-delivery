@@ -1,7 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import net, tables
+import results, net, tables
 import presto
 import
   logos_delivery/waku/waku_node,
@@ -82,9 +81,9 @@ proc startRestServerEssentials*(
 
   let allowedOrigin =
     if len(conf.allowOrigin) > 0:
-      some(conf.allowOrigin.join(","))
+      Opt.some(conf.allowOrigin.join(","))
     else:
-      none(string)
+      Opt.none(string)
 
   let address = conf.listenAddress
   let port = conf.port
@@ -179,9 +178,9 @@ proc startRestServerProtocolSupport*(
 
     let filterDiscoHandler =
       if not wakuDiscv5.isNil():
-        some(defaultDiscoveryHandler(wakuDiscv5, Filter))
+        Opt.some(defaultDiscoveryHandler(wakuDiscv5, Filter))
       else:
-        none(DiscoveryHandler)
+        Opt.none(DiscoveryHandler)
 
     rest_filter_endpoint.installFilterRestApiHandlers(
       router, node, filterCache, filterDiscoHandler
@@ -192,9 +191,9 @@ proc startRestServerProtocolSupport*(
   ## Store REST API
   let storeDiscoHandler =
     if not wakuDiscv5.isNil():
-      some(defaultDiscoveryHandler(wakuDiscv5, Store))
+      Opt.some(defaultDiscoveryHandler(wakuDiscv5, Store))
     else:
-      none(DiscoveryHandler)
+      Opt.none(DiscoveryHandler)
 
   rest_store_endpoint.installStoreApiHandlers(router, node, storeDiscoHandler)
 
@@ -206,9 +205,9 @@ proc startRestServerProtocolSupport*(
       (lightPushEnabled and node.wakuLegacyLightPush != nil and node.wakuRelay != nil):
     let lightDiscoHandler =
       if not wakuDiscv5.isNil():
-        some(defaultDiscoveryHandler(wakuDiscv5, Lightpush))
+        Opt.some(defaultDiscoveryHandler(wakuDiscv5, Lightpush))
       else:
-        none(DiscoveryHandler)
+        Opt.none(DiscoveryHandler)
 
     rest_legacy_lightpush_endpoint.installLightPushRequestHandler(
       router, node, lightDiscoHandler

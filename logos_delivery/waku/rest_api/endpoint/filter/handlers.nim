@@ -1,13 +1,14 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
   std/strformat,
   std/sequtils,
+  std/options,
+  results,
   stew/byteutils,
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/route,
   presto/common
 import
@@ -167,7 +168,7 @@ proc filterPostPutSubscriptionRequestHandler(
     node: WakuNode,
     contentBody: Option[ContentBody],
     cache: MessageCache,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ): Future[RestApiResponse] {.async.} =
   ## handles any filter subscription requests, adds or modifies.
 
@@ -208,7 +209,7 @@ proc installFilterPostSubscriptionsHandler(
     router: var RestRouter,
     node: WakuNode,
     cache: MessageCache,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   router.api(MethodPost, ROUTE_FILTER_SUBSCRIPTIONS) do(
     contentBody: Option[ContentBody]
@@ -224,7 +225,7 @@ proc installFilterPutSubscriptionsHandler(
     router: var RestRouter,
     node: WakuNode,
     cache: MessageCache,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   router.api(MethodPut, ROUTE_FILTER_SUBSCRIPTIONS) do(
     contentBody: Option[ContentBody]
@@ -240,7 +241,7 @@ proc installFilterDeleteSubscriptionsHandler(
     router: var RestRouter,
     node: WakuNode,
     cache: MessageCache,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   router.api(MethodDelete, ROUTE_FILTER_SUBSCRIPTIONS) do(
     contentBody: Option[ContentBody]
@@ -288,7 +289,7 @@ proc installFilterDeleteAllSubscriptionsHandler(
     router: var RestRouter,
     node: WakuNode,
     cache: MessageCache,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   router.api(MethodDelete, ROUTE_FILTER_ALL_SUBSCRIPTIONS) do(
     contentBody: Option[ContentBody]
@@ -335,7 +336,7 @@ const ROUTE_FILTER_SUBSCRIBER_PING* = "/filter/v2/subscriptions/{requestId}"
 proc installFilterPingSubscriberHandler(
     router: var RestRouter,
     node: WakuNode,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   router.api(MethodGet, ROUTE_FILTER_SUBSCRIBER_PING) do(
     requestId: string
@@ -402,7 +403,7 @@ proc installFilterRestApiHandlers*(
     router: var RestRouter,
     node: WakuNode,
     cache: MessageCache,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   installFilterPingSubscriberHandler(router, node, discHandler)
   installFilterPostSubscriptionsHandler(router, node, cache, discHandler)

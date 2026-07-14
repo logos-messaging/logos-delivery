@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 ## Public facade and main driver types for the persistency library.
 ##
 ## ``Persistency`` is the per-root coordinator; one instance owns one
@@ -41,7 +40,7 @@ import logos_delivery/waku/compat/option_valueor
 
 {.push raises: [].}
 
-import std/[locks, options, os, sequtils, tables]
+import std/[locks, os, sequtils, tables]
 import chronos, chronicles, results
 import brokers/[event_broker, request_broker, broker_context]
 import ./[types, keys, payload, backend_comm, backend_thread]
@@ -362,7 +361,7 @@ template liftErr(s: string): PersistencyError =
 
 proc get*(
     t: Job, category: string, key: Key
-): Future[Result[Option[seq[byte]], PersistencyError]] {.async.} =
+): Future[Result[Opt[seq[byte]], PersistencyError]] {.async.} =
   let r = (await KvGet.request(t.context, category, key)).valueOr:
     return err(liftErr(error))
   return ok(r.value)
@@ -409,7 +408,7 @@ proc deleteAcked*(
 
 proc get*(
     p: Persistency, jobId: string, category: string, key: Key
-): Future[Result[Option[seq[byte]], PersistencyError]] {.async.} =
+): Future[Result[Opt[seq[byte]], PersistencyError]] {.async.} =
   let j = ?p.job(jobId)
   return await j.get(category, key)
 

@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[sets, tables, sequtils, options, strformat],
+  std/[sets, tables, sequtils, strformat],
   chronos/timer as chtimer,
   chronicles,
   chronos,
@@ -123,10 +123,10 @@ proc addMessage*(
 
   lpt_receiver_sender_peer_count.set(value = self.len)
 
-proc lastMessageArrivedAt*(self: Statistics): Option[Moment] =
+proc lastMessageArrivedAt*(self: Statistics): Opt[Moment] =
   if self.receivedMessages > 0:
-    return some(self.helper.prevArrivedAt)
-  return none(Moment)
+    return Opt.some(self.helper.prevArrivedAt)
+  return Opt.none(Moment)
 
 proc lossCount*(self: Statistics): uint32 =
   self.helper.maxIndex - self.receivedMessages
@@ -271,7 +271,7 @@ proc jsonStats*(self: PerPeerStatistics): string =
       "{\"result:\": \"Error while generating json stats: " & getCurrentExceptionMsg() &
       "\"}"
 
-proc lastMessageArrivedAt*(self: PerPeerStatistics): Option[Moment] =
+proc lastMessageArrivedAt*(self: PerPeerStatistics): Opt[Moment] =
   var lastArrivedAt = Moment.init(0, Millisecond)
   for stat in self.values:
     let lastMsgFromPeerAt = stat.lastMessageArrivedAt().valueOr:
@@ -281,9 +281,9 @@ proc lastMessageArrivedAt*(self: PerPeerStatistics): Option[Moment] =
       lastArrivedAt = lastMsgFromPeerAt
 
   if lastArrivedAt == Moment.init(0, Millisecond):
-    return none(Moment)
+    return Opt.none(Moment)
 
-  return some(lastArrivedAt)
+  return Opt.some(lastArrivedAt)
 
 proc checkIfAllMessagesReceived*(
     self: PerPeerStatistics, maxWaitForLastMessage: Duration

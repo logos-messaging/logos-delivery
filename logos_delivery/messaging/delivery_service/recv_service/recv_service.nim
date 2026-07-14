@@ -1,9 +1,8 @@
-import logos_delivery/waku/compat/option_valueor
 ## This module is in charge of taking care of the messages that this node is expecting to
 ## receive and is backed by store-v3 requests to get an additional degree of certainty
 ##
 
-import std/[tables, sequtils, options, sets]
+import results, std/[tables, sequtils, sets]
 import chronos, chronicles, libp2p/utility
 import brokers/broker_context
 import
@@ -112,10 +111,10 @@ proc checkStore*(self: RecvService) {.async.} =
       await self.waku.storeQueryToAny(
         StoreQueryRequest(
           includeData: false,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: toSeq(contentTopics),
-          startTime: some(self.startTimeToCheck - DelayExtra.nanos),
-          endTime: some(self.endTimeToCheck + DelayExtra.nanos),
+          startTime: Opt.some(self.startTimeToCheck - DelayExtra.nanos),
+          endTime: Opt.some(self.endTimeToCheck + DelayExtra.nanos),
         )
       )
     ).valueOr:

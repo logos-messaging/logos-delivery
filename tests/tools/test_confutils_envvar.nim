@@ -1,22 +1,15 @@
 {.used.}
 
 import
-  std/[os, options],
-  results,
-  testutils/unittests,
-  confutils,
-  confutils/defs,
-  confutils/std/net
+  std/os, results, testutils/unittests, confutils, confutils/defs, confutils/std/net
 import ../../tools/confutils/[envvar as confEnvvarDefs, envvar_net as confEnvvarNet]
 
 type ConfResult[T] = Result[T, string]
 
 type TestConf = object
-  configFile* {.desc: "Configuration file path", name: "config-file".}:
-    Option[InputFile]
+  configFile* {.desc: "Configuration file path", name: "config-file".}: Opt[InputFile]
 
-  testFile* {.desc: "Configuration test file path", name: "test-file".}:
-    Option[InputFile]
+  testFile* {.desc: "Configuration test file path", name: "test-file".}: Opt[InputFile]
 
   listenAddress* {.
     defaultValue: IpAddress(family: IpAddressFamily.IPv4, address_v4: [127u8, 0, 0, 1]),

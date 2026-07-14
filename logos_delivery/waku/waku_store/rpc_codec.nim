@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/options, stew/arrayops
+import results, stew/arrayops
 import ../common/[protobuf, paging], ../waku_core, ./common
 
 const DefaultMaxRpcSize* = -1
@@ -61,9 +61,9 @@ proc decode*(
 
   var pubsubTopic: string
   if not ?pb.getField(10, pubsubTopic):
-    req.pubsubTopic = none(string)
+    req.pubsubTopic = Opt.none(string)
   else:
-    req.pubsubTopic = some(pubsubTopic)
+    req.pubsubTopic = Opt.some(pubsubTopic)
 
   var topics: seq[string]
   if not ?pb.getRepeatedField(11, topics):
@@ -73,15 +73,15 @@ proc decode*(
 
   var start: zint64
   if not ?pb.getField(12, start):
-    req.startTime = none(Timestamp)
+    req.startTime = Opt.none(Timestamp)
   else:
-    req.startTime = some(Timestamp(int64(start)))
+    req.startTime = Opt.some(Timestamp(int64(start)))
 
   var endTime: zint64
   if not ?pb.getField(13, endTime):
-    req.endTime = none(Timestamp)
+    req.endTime = Opt.none(Timestamp)
   else:
-    req.endTime = some(Timestamp(int64(endTime)))
+    req.endTime = Opt.some(Timestamp(int64(endTime)))
 
   var buffer: seq[seq[byte]]
   if not ?pb.getRepeatedField(20, buffer):
@@ -95,11 +95,11 @@ proc decode*(
 
   var cursor: seq[byte]
   if not ?pb.getField(51, cursor):
-    req.paginationCursor = none(WakuMessageHash)
+    req.paginationCursor = Opt.none(WakuMessageHash)
   else:
     var hash: WakuMessageHash
     discard copyFrom[byte](hash, cursor)
-    req.paginationCursor = some(hash)
+    req.paginationCursor = Opt.some(hash)
 
   var paging: uint32
   if not ?pb.getField(52, paging):
@@ -109,9 +109,9 @@ proc decode*(
 
   var limit: uint64
   if not ?pb.getField(53, limit):
-    req.paginationLimit = none(uint64)
+    req.paginationLimit = Opt.none(uint64)
   else:
-    req.paginationLimit = some(limit)
+    req.paginationLimit = Opt.some(limit)
 
   return ok(req)
 
@@ -164,11 +164,11 @@ proc decode*(
   var proto: ProtoBuffer
   var topic: string
   if ?pb.getField(2, proto) and ?pb.getField(3, topic):
-    keyValue.message = some(?WakuMessage.decode(proto.buffer))
-    keyValue.pubsubTopic = some(topic)
+    keyValue.message = Opt.some(?WakuMessage.decode(proto.buffer))
+    keyValue.pubsubTopic = Opt.some(topic)
   else:
-    keyValue.message = none(WakuMessage)
-    keyValue.pubsubTopic = none(string)
+    keyValue.message = Opt.none(WakuMessage)
+    keyValue.pubsubTopic = Opt.none(string)
 
   return ok(keyValue)
 
@@ -204,10 +204,10 @@ proc decode*(
 
   var cursor: seq[byte]
   if not ?pb.getField(51, cursor):
-    res.paginationCursor = none(WakuMessageHash)
+    res.paginationCursor = Opt.none(WakuMessageHash)
   else:
     var hash: WakuMessageHash
     discard copyFrom[byte](hash, cursor)
-    res.paginationCursor = some(hash)
+    res.paginationCursor = Opt.some(hash)
 
   return ok(res)

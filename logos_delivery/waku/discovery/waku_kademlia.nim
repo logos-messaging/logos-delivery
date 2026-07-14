@@ -1,7 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/[options, sequtils, sets]
+import std/[sequtils, sets]
 import
   chronos,
   chronicles,
@@ -51,45 +50,45 @@ type KademliaDiscoveryConf* = object
   clientMode*: bool
   xprPublishing*: bool
 
-proc extractMixPubKey*(service: ServiceInfo): Option[Curve25519Key] =
+proc extractMixPubKey*(service: ServiceInfo): Opt[Curve25519Key] =
   if service.id != MixProtocolID:
-    return none(Curve25519Key)
+    return Opt.none(Curve25519Key)
 
   if service.data.len != Curve25519KeySize:
     trace "invalid mix pub key length",
       expected = Curve25519KeySize,
       actual = service.data.len,
       dataHex = byteutils.toHex(service.data)
-    return none(Curve25519Key)
+    return Opt.none(Curve25519Key)
 
   let key = intoCurve25519Key(service.data)
 
-  return some(key)
+  return Opt.some(key)
 
-proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Option[RemotePeerInfo] =
+proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
   if record.addresses.len == 0:
     trace "missing addresses", peerId = record.peerId
-    return none(RemotePeerInfo)
+    return Opt.none(RemotePeerInfo)
 
   let addrs = record.addresses.mapIt(it.address)
   if addrs.len == 0:
     trace "no dialable addresses", peerId = record.peerId
-    return none(RemotePeerInfo)
+    return Opt.none(RemotePeerInfo)
 
   let protocols = record.services.mapIt(it.id)
 
-  var mixPubKey: Option[Curve25519Key] = none(Curve25519Key)
+  var mixPubKey: Opt[Curve25519Key] = Opt.none(Curve25519Key)
   for service in record.services:
     let key = extractMixPubKey(service).valueOr:
       continue
-    mixPubKey = some(key)
+    mixPubKey = Opt.some(key)
 
     trace "successfully extracted mix pub key",
       peerId = record.peerId, keyHex = byteutils.toHex(mixPubKey.get())
 
     break
 
-  return some(
+  return Opt.some(
     RemotePeerInfo.init(
       record.peerId,
       addrs = addrs,

@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils, tempfiles], testutils/unittests, chronos, chronicles
+import results, std/[sequtils, tempfiles], testutils/unittests, chronos, chronicles
 
 import
   std/[sequtils, tempfiles],
@@ -62,7 +62,7 @@ suite "Sharding":
 
       # When the client publishes a message in the subscribed topic
       discard await client.publish(
-        some(topic),
+        Opt.some(topic),
         WakuMessage(payload: "message1".toBytes(), contentTopic: "contentTopic"),
       )
 
@@ -78,7 +78,7 @@ suite "Sharding":
       serverHandler.reset()
       clientHandler.reset()
       discard await server.publish(
-        some(topic),
+        Opt.some(topic),
         WakuMessage(payload: "message2".toBytes(), contentTopic: "contentTopic"),
       )
 
@@ -107,7 +107,7 @@ suite "Sharding":
 
       # When a message is published in the server's subscribed topic
       discard await client.publish(
-        some(topic1),
+        Opt.some(topic1),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic),
       )
       let
@@ -123,7 +123,7 @@ suite "Sharding":
       clientHandler.reset()
       let wakuMessage2 =
         WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic)
-      discard await server.publish(some(topic2), wakuMessage2)
+      discard await server.publish(Opt.some(topic2), wakuMessage2)
       let
         serverResult2 = await serverHandler.waitForResult(FUTURE_TIMEOUT)
         clientResult2 = await clientHandler.waitForResult(FUTURE_TIMEOUT)
@@ -149,7 +149,7 @@ suite "Sharding":
 
       # When the client publishes a message
       discard await client.publish(
-        some(pubsubTopic),
+        Opt.some(pubsubTopic),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopicShort),
       )
       let
@@ -164,7 +164,7 @@ suite "Sharding":
       serverHandler.reset()
       clientHandler.reset()
       discard await server.publish(
-        some(pubsubTopic),
+        Opt.some(pubsubTopic),
         WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopicFull),
       )
       let
@@ -194,7 +194,7 @@ suite "Sharding":
 
       # When the server publishes a message in the server's subscribed topic
       discard await server.publish(
-        some(shard1),
+        Opt.some(shard1),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic1),
       )
       let
@@ -209,7 +209,7 @@ suite "Sharding":
       serverHandler.reset()
       clientHandler.reset()
       discard await client.publish(
-        some(shard2),
+        Opt.some(shard2),
         WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic2),
       )
       let
@@ -234,7 +234,7 @@ suite "Sharding":
 
         # When the client publishes a message
         discard await client.publish(
-          some(pubsubTopic),
+          Opt.some(pubsubTopic),
           WakuMessage(payload: "message1".toBytes(), contentTopic: "myContentTopic"),
         )
         let
@@ -261,7 +261,7 @@ suite "Sharding":
           pubsubTopic = "/waku/2/rs/0/1"
           contentTopic = "myContentTopic"
           subscribeResponse = await client.filterSubscribe(
-            some(pubsubTopic),
+            Opt.some(pubsubTopic),
             @[contentTopic],
             server.switch.peerInfo.toRemotePeerInfo(),
           )
@@ -293,7 +293,7 @@ suite "Sharding":
           msg =
             WakuMessage(payload: "message".toBytes(), contentTopic: "myContentTopic")
           lightpublishRespnse = await client.legacyLightpushPublish(
-            some(topic), msg, server.switch.peerInfo.toRemotePeerInfo()
+            Opt.some(topic), msg, server.switch.peerInfo.toRemotePeerInfo()
           )
 
         # Then the client receives the message
@@ -315,7 +315,7 @@ suite "Sharding":
 
         # When the client publishes a message
         discard await client.publish(
-          some(pubsubTopic),
+          Opt.some(pubsubTopic),
           WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopicShort),
         )
         let
@@ -330,7 +330,7 @@ suite "Sharding":
         serverHandler.reset()
         clientHandler.reset()
         discard await server.publish(
-          some(pubsubTopic),
+          Opt.some(pubsubTopic),
           WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopicFull),
         )
         let
@@ -358,7 +358,7 @@ suite "Sharding":
           contentTopicFull = "/0/toychat/2/huilong/proto"
           pubsubTopic = "/waku/2/rs/0/58355"
           subscribeResponse1 = await client.filterSubscribe(
-            some(pubsubTopic),
+            Opt.some(pubsubTopic),
             @[contentTopicShort],
             server.switch.peerInfo.toRemotePeerInfo(),
           )
@@ -381,7 +381,7 @@ suite "Sharding":
           unsubscribeResponse =
             await client.filterUnsubscribeAll(server.switch.peerInfo.toRemotePeerInfo())
           subscribeResponse2 = await client.filterSubscribe(
-            some(pubsubTopic),
+            Opt.some(pubsubTopic),
             @[contentTopicFull],
             server.switch.peerInfo.toRemotePeerInfo(),
           )
@@ -418,7 +418,7 @@ suite "Sharding":
           msg =
             WakuMessage(payload: "message".toBytes(), contentTopic: contentTopicFull)
           lightpublishRespnse = await client.legacyLightpushPublish(
-            some(pubsubTopic), msg, server.switch.peerInfo.toRemotePeerInfo()
+            Opt.some(pubsubTopic), msg, server.switch.peerInfo.toRemotePeerInfo()
           )
 
         # Then the client receives the message
@@ -455,13 +455,13 @@ suite "Sharding":
           storeQuery1 = StoreQueryRequest(
             contentTopics: @[contentTopicShort],
             paginationForward: PagingDirection.Forward,
-            paginationLimit: some(3'u64),
+            paginationLimit: Opt.some(3'u64),
             includeData: true,
           )
           storeQuery2 = StoreQueryRequest(
             contentTopics: @[contentTopicFull],
             paginationForward: PagingDirection.Forward,
-            paginationLimit: some(3'u64),
+            paginationLimit: Opt.some(3'u64),
             includeData: true,
           )
 
@@ -497,7 +497,7 @@ suite "Sharding":
 
         # When the client publishes a message in the client's subscribed topic
         discard await client.publish(
-          some(pubsubTopic2),
+          Opt.some(pubsubTopic2),
           WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic2),
         )
         let
@@ -512,7 +512,7 @@ suite "Sharding":
         serverHandler.reset()
         clientHandler.reset()
         discard await server.publish(
-          some(pubsubTopic1),
+          Opt.some(pubsubTopic1),
           WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic1),
         )
         let
@@ -543,7 +543,7 @@ suite "Sharding":
           pubsubTopic2 = "/waku/2/rs/0/23286"
             # Automatically generated from the contentTopic above
           subscribeResponse1 = await client.filterSubscribe(
-            some(pubsubTopic1),
+            Opt.some(pubsubTopic1),
             @[contentTopic1],
             server.switch.peerInfo.toRemotePeerInfo(),
           )
@@ -580,7 +580,7 @@ suite "Sharding":
         let
           msg = WakuMessage(payload: "message".toBytes(), contentTopic: contentTopic2)
           lightpublishRespnse = await client.legacyLightpushPublish(
-            some(pubsubTopic2), msg, server.switch.peerInfo.toRemotePeerInfo()
+            Opt.some(pubsubTopic2), msg, server.switch.peerInfo.toRemotePeerInfo()
           )
 
         # Then the client does not receive the message
@@ -620,13 +620,13 @@ suite "Sharding":
           storeQuery1 = StoreQueryRequest(
             contentTopics: @[contentTopic1],
             paginationForward: PagingDirection.Forward,
-            paginationLimit: some(2'u64),
+            paginationLimit: Opt.some(2'u64),
             includeData: true,
           )
           storeQuery2 = StoreQueryRequest(
             contentTopics: @[contentTopic2],
             paginationForward: PagingDirection.Forward,
-            paginationLimit: some(2'u64),
+            paginationLimit: Opt.some(2'u64),
             includeData: true,
           )
 
@@ -659,7 +659,7 @@ suite "Sharding":
 
       # When the client publishes a message in the topic1
       discard await client.publish(
-        some(topic1),
+        Opt.some(topic1),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic),
       )
 
@@ -676,7 +676,7 @@ suite "Sharding":
       clientHandler1.reset()
       clientHandler2.reset()
       discard await client.publish(
-        some(topic2),
+        Opt.some(topic2),
         WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
       )
 
@@ -705,7 +705,7 @@ suite "Sharding":
 
       # When the client publishes a message in contentTopic1
       discard await client.publish(
-        some(pubsubTopic1),
+        Opt.some(pubsubTopic1),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic1),
       )
 
@@ -722,7 +722,7 @@ suite "Sharding":
       clientHandler1.reset()
       clientHandler2.reset()
       discard await client.publish(
-        some(pubsubTopic2),
+        Opt.some(pubsubTopic2),
         WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic2),
       )
 
@@ -758,7 +758,7 @@ suite "Sharding":
 
       # When the client publishes a message in the topic1
       discard await client.publish(
-        some(pubsubTopic1),
+        Opt.some(pubsubTopic1),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic),
       )
 
@@ -783,7 +783,7 @@ suite "Sharding":
       serverHandler4.reset()
       clientHandler4.reset()
       discard await client.publish(
-        some(pubsubTopic2),
+        Opt.some(pubsubTopic2),
         WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
       )
 
@@ -808,7 +808,7 @@ suite "Sharding":
       serverHandler4.reset()
       clientHandler4.reset()
       discard await client.publish(
-        some(pubsubTopic3),
+        Opt.some(pubsubTopic3),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic3),
       )
 
@@ -833,7 +833,7 @@ suite "Sharding":
       serverHandler4.reset()
       clientHandler4.reset()
       discard await client.publish(
-        some(pubsubTopic4),
+        Opt.some(pubsubTopic4),
         WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic4),
       )
 
@@ -862,7 +862,7 @@ suite "Sharding":
 
       # When the client publishes a message in the topic
       discard await client.publish(
-        some(topic),
+        Opt.some(topic),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic),
       )
 
@@ -894,7 +894,7 @@ suite "Sharding":
       let
         msg1 = WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic)
         lightpublishRespnse = await client.legacyLightpushPublish(
-          some(topic1), msg1, server.switch.peerInfo.toRemotePeerInfo()
+          Opt.some(topic1), msg1, server.switch.peerInfo.toRemotePeerInfo()
         )
 
       # Then the server and client receive the message in topic1's handlers, but not in topic2's
@@ -912,7 +912,7 @@ suite "Sharding":
       let
         msg2 = WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic)
         lightpublishResponse2 = await client.legacyLightpushPublish(
-          some(topic2), msg2, server.switch.peerInfo.toRemotePeerInfo()
+          Opt.some(topic2), msg2, server.switch.peerInfo.toRemotePeerInfo()
         )
 
       # Then the server and client receive the message in topic2's handlers, but not in topic1's
@@ -953,10 +953,10 @@ suite "Sharding":
 
       let
         subscribeResponse1 = await client.filterSubscribe(
-          some(topic1), @[contentTopic], server.switch.peerInfo.toRemotePeerInfo()
+          Opt.some(topic1), @[contentTopic], server.switch.peerInfo.toRemotePeerInfo()
         )
         subscribeResponse2 = await client.filterSubscribe(
-          some(topic2), @[contentTopic], server.switch.peerInfo.toRemotePeerInfo()
+          Opt.some(topic2), @[contentTopic], server.switch.peerInfo.toRemotePeerInfo()
         )
 
       assertResultOk(subscribeResponse1)
@@ -1008,15 +1008,15 @@ suite "Sharding":
       # Given one query for each pubsub topic
       let
         storeQuery1 = StoreQueryRequest(
-          pubsubTopic: some(topic1),
+          pubsubTopic: Opt.some(topic1),
           paginationForward: PagingDirection.Forward,
-          paginationLimit: some(2'u64),
+          paginationLimit: Opt.some(2'u64),
           includeData: true,
         )
         storeQuery2 = StoreQueryRequest(
-          pubsubTopic: some(topic2),
+          pubsubTopic: Opt.some(topic2),
           paginationForward: PagingDirection.Forward,
-          paginationLimit: some(2'u64),
+          paginationLimit: Opt.some(2'u64),
           includeData: true,
         )
 

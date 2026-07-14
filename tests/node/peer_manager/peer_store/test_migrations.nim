@@ -1,4 +1,4 @@
-import std/[options], results, testutils/unittests
+import results, testutils/unittests
 
 import
   logos_delivery/waku/node/peer_manager/peer_store/migrations,

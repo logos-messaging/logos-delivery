@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, sugar],
+  results,
+  std/sugar,
   chronicles,
   chronos/timer,
   testutils/unittests,
@@ -51,7 +52,7 @@ proc testWakuNode(): WakuNode =
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
-  return newTestWakuNode(privkey, bindIp, port, some(extIp), some(port))
+  return newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
 
 ################################################################################
 # Beginning of the tests
@@ -64,7 +65,7 @@ procSuite "Waku Rest API - Store v3":
     )
 
     let messageHash = computeMessageHash(DefaultPubsubTopic, wakuMsg)
-    let restMsgHash = some(messageHash.toRestStringWakuMessageHash())
+    let restMsgHash = Opt.some(messageHash.toRestStringWakuMessageHash())
 
     let parsedMsgHashRes = parseHash(restMsgHash)
     assert parsedMsgHashRes.isOk(), $parsedMsgHashRes.error
@@ -74,7 +75,7 @@ procSuite "Waku Rest API - Store v3":
 
     # Random validation. Obtained the raw values manually
     let expected =
-      some("0x9e0ea917677a3d2b8610b0126986d89824b6acf76008b5fb9aa8b99ac906c1a7")
+      Opt.some("0x9e0ea917677a3d2b8610b0126986d89824b6acf76008b5fb9aa8b99ac906c1a7")
 
     let msgHashRes = parseHash(expected)
     assert msgHashRes.isOk(), $msgHashRes.error
@@ -98,7 +99,7 @@ procSuite "Waku Rest API - Store v3":
 
     # WakuStore setup
     let db: SqliteDatabase =
-      SqliteDatabase.new(string.none().get(":memory:")).expect("valid DB")
+      SqliteDatabase.new(Opt.none(string).get(":memory:")).expect("valid DB")
     let driver: ArchiveDriver = SqliteDriver.new(db).expect("valid driver")
     let mountArchiveRes = node.mountArchive(driver)
     assert mountArchiveRes.isOk(), mountArchiveRes.error
@@ -282,7 +283,7 @@ procSuite "Waku Rest API - Store v3":
 
     var pages = newSeq[seq[WakuMessage]](2)
 
-    var reqHash = none(string)
+    var reqHash = Opt.none(string)
 
     for i in 0 ..< 2:
       let response = await client.getStoreMessagesV3(
@@ -310,7 +311,7 @@ procSuite "Waku Rest API - Store v3":
 
       # populate the cursor for next page
       if response.data.paginationCursor.isSome():
-        reqHash = some(response.data.paginationCursor.get())
+        reqHash = Opt.some(response.data.paginationCursor.get())
 
       check:
         response.status == 200
@@ -772,7 +773,7 @@ procSuite "Waku Rest API - Store v3":
     var pages = newSeq[seq[WakuMessage]](2)
 
     var reqPubsubTopic = DefaultPubsubTopic
-    var reqHash = none(string)
+    var reqHash = Opt.none(string)
 
     for i in 0 ..< 2:
       let response = await client.getStoreMessagesV3(

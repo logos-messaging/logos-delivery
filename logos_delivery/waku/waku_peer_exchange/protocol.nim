@@ -1,6 +1,5 @@
-import logos_delivery/waku/compat/option_valueor
 import
-  std/[options, sequtils, random],
+  std/[sequtils, random],
   results,
   chronicles,
   chronos,
@@ -33,7 +32,7 @@ logScope:
 
 type WakuPeerExchange* = ref object of LPProtocol
   peerManager*: PeerManager
-  cluster*: Option[uint16]
+  cluster*: Opt[uint16]
     # todo: next step: ring buffer; future: implement cache satisfying https://rfc.vac.dev/spec/34/
   requestRateLimiter*: RequestRateLimiter
 
@@ -52,7 +51,7 @@ proc respond(
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.DIAL_FAILURE,
-        status_desc: some("stream closed before response: " & exc.msg),
+        status_desc: Opt.some("stream closed before response: " & exc.msg),
       )
     )
 
@@ -61,7 +60,7 @@ proc respond(
 proc respondError(
     wpx: WakuPeerExchange,
     status_code: PeerExchangeResponseStatusCode,
-    status_desc: Option[string],
+    status_desc: Opt[string],
     conn: Connection,
 ): Future[WakuPeerExchangeResult[void]] {.async: (raises: [CancelledError]), gcsafe.} =
   let rpc = PeerExchangeRpc.makeErrorResponse(status_code, status_desc)
@@ -76,14 +75,14 @@ proc respondError(
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
-        status_desc: some("stream closed before response: " & exc.msg),
+        status_desc: Opt.some("stream closed before response: " & exc.msg),
       )
     )
 
   return ok()
 
 proc poolFilter*(
-    cluster: Option[uint16], origin: PeerOrigin, enr: enr.Record
+    cluster: Opt[uint16], origin: PeerOrigin, enr: enr.Record
 ): Result[void, string] =
   if origin != Discv5:
     trace "peer not from discv5", origin = $origin
@@ -93,7 +92,7 @@ proc poolFilter*(
     return err("peer has mismatching cluster")
   return ok()
 
-proc poolFilter*(cluster: Option[uint16], peer: RemotePeerInfo): Result[void, string] =
+proc poolFilter*(cluster: Opt[uint16], peer: RemotePeerInfo): Result[void, string] =
   if peer.enr.isNone():
     info "peer has no ENR", peer = $peer
     return err("peer has no ENR: " & $peer)
@@ -147,7 +146,7 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
 
         (
           await wpx.respondError(
-            PeerExchangeResponseStatusCode.BAD_REQUEST, some($error), conn
+            PeerExchangeResponseStatusCode.BAD_REQUEST, Opt.some($error), conn
           )
         ).isOkOr:
           error "Failed to respond with BAD_REQUEST", error = $error
@@ -166,7 +165,7 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
 
       (
         await wpx.respondError(
-          PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, none(string), conn
+          PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, Opt.none(string), conn
         )
       ).isOkOr:
         error "Failed to respond with TOO_MANY_REQUESTS", error = $error
@@ -177,8 +176,8 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
 proc new*(
     T: type WakuPeerExchange,
     peerManager: PeerManager,
-    cluster: Option[uint16] = none(uint16),
-    rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
+    cluster: Opt[uint16] = Opt.none(uint16),
+    rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
 ): T =
   let wpx = WakuPeerExchange(
     peerManager: peerManager,

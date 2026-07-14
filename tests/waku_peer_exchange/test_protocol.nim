@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, sequtils, net],
+  results,
+  std/[sequtils, net],
   testutils/unittests,
   chronos,
   libp2p/[switch, peerId, crypto/crypto],
@@ -42,13 +43,16 @@ suite "Waku Peer Exchange":
           bindIp = parseIpAddress("0.0.0.0")
 
           nodeKey1 = generateSecp256k1Key()
-          node1 = newTestWakuNode(nodeKey1, bindIp, Port(0), wakuFlags = some(flags))
+          node1 =
+            newTestWakuNode(nodeKey1, bindIp, Port(0), wakuFlags = Opt.some(flags))
 
           nodeKey2 = generateSecp256k1Key()
-          node2 = newTestWakuNode(nodeKey2, bindIp, Port(0), wakuFlags = some(flags))
+          node2 =
+            newTestWakuNode(nodeKey2, bindIp, Port(0), wakuFlags = Opt.some(flags))
 
           nodeKey3 = generateSecp256k1Key()
-          node3 = newTestWakuNode(nodeKey3, bindIp, Port(0), wakuFlags = some(flags))
+          node3 =
+            newTestWakuNode(nodeKey3, bindIp, Port(0), wakuFlags = Opt.some(flags))
 
         await allFutures(node1.start(), node2.start(), node3.start())
 
@@ -115,12 +119,12 @@ suite "Waku Peer Exchange":
 
       # Simulate node1 discovering node3 via Discv5
       var info3 = node3.peerInfo.toRemotePeerInfo()
-      info3.enr = some(node3.enr)
+      info3.enr = Opt.some(node3.enr)
       node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
 
       # Simulate node1 discovering node4 via Discv5
       var info4 = node4.peerInfo.toRemotePeerInfo()
-      info4.enr = some(node4.enr)
+      info4.enr = Opt.some(node4.enr)
       node1.peerManager.addPeer(info4, PeerOrigin.Discv5)
 
       # Request 2 peer from px. Test all request variants
@@ -193,7 +197,7 @@ suite "Waku Peer Exchange":
       let
         key1 = generateSecp256k1Key()
         key2 = generateSecp256k1Key()
-        cluster: Option[uint16] = some(uint16(16))
+        cluster: Opt[uint16] = Opt.some(uint16(16))
         bindIp = parseIpAddress("0.0.0.0")
         nodeTcpPort = Port(64010)
         nodeUdpPort = Port(9000)
@@ -202,8 +206,12 @@ suite "Waku Peer Exchange":
         builder1 = EnrBuilder.init(key1)
         builder2 = EnrBuilder.init(key2)
 
-      builder1.withIpAddressAndPorts(some(bindIp), some(nodeTcpPort), some(nodeUdpPort))
-      builder2.withIpAddressAndPorts(some(bindIp), some(nodeTcpPort), some(nodeUdpPort))
+      builder1.withIpAddressAndPorts(
+        Opt.some(bindIp), Opt.some(nodeTcpPort), Opt.some(nodeUdpPort)
+      )
+      builder2.withIpAddressAndPorts(
+        Opt.some(bindIp), Opt.some(nodeTcpPort), Opt.some(nodeUdpPort)
+      )
       builder1.withShardedTopics(@["/waku/2/rs/1/7"]).expect("valid topic")
       builder2.withShardedTopics(@["/waku/2/rs/16/32"]).expect("valid topic")
 
@@ -241,7 +249,7 @@ suite "Waku Peer Exchange":
 
       # Simulate node1 discovering node3 via Discv5
       var info3 = node3.peerInfo.toRemotePeerInfo()
-      info3.enr = some(node3.enr)
+      info3.enr = Opt.some(node3.enr)
       node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
 
       # When requesting 0 peers
@@ -308,7 +316,7 @@ suite "Waku Peer Exchange":
 
       # Simulate node1 discovering node3 via Discv5
       var info3 = node3.peerInfo.toRemotePeerInfo()
-      info3.enr = some(node3.enr)
+      info3.enr = Opt.some(node3.enr)
       node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
 
       # Create connection
@@ -352,7 +360,7 @@ suite "Waku Peer Exchange":
 
       # Simulate node1 discovering nodeA via Discv5
       var info3 = node3.peerInfo.toRemotePeerInfo()
-      info3.enr = some(node3.enr)
+      info3.enr = Opt.some(node3.enr)
       node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
 
       # Create connection

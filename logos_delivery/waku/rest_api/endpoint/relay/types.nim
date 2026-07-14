@@ -1,10 +1,11 @@
 {.push raises: [].}
 
 import
+  results,
   std/[sets, strformat, times],
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/[route, client, common]
 import ../../../common/base64, ../../../waku_core, ../serdes
 
@@ -12,12 +13,12 @@ import ../../../common/base64, ../../../waku_core, ../serdes
 
 type RelayWakuMessage* = object
   payload*: Base64String
-  contentTopic*: Option[ContentTopic]
-  version*: Option[Natural]
-  timestamp*: Option[int64]
-  meta*: Option[Base64String]
-  ephemeral*: Option[bool]
-  proof*: Option[Base64String]
+  contentTopic*: Opt[ContentTopic]
+  version*: Opt[Natural]
+  timestamp*: Opt[int64]
+  meta*: Opt[Base64String]
+  ephemeral*: Opt[bool]
+  proof*: Opt[Base64String]
 
 type
   RelayGetMessagesResponse* = seq[RelayWakuMessage]
@@ -28,16 +29,16 @@ type
 proc toRelayWakuMessage*(msg: WakuMessage): RelayWakuMessage =
   RelayWakuMessage(
     payload: base64.encode(msg.payload),
-    contentTopic: some(msg.contentTopic),
-    version: some(Natural(msg.version)),
-    timestamp: some(msg.timestamp),
+    contentTopic: Opt.some(msg.contentTopic),
+    version: Opt.some(Natural(msg.version)),
+    timestamp: Opt.some(msg.timestamp),
     meta:
       if msg.meta.len > 0:
-        some(base64.encode(msg.meta))
+        Opt.some(base64.encode(msg.meta))
       else:
-        none(Base64String),
-    ephemeral: some(msg.ephemeral),
-    proof: some(base64.encode(msg.proof)),
+        Opt.none(Base64String),
+    ephemeral: Opt.some(msg.ephemeral),
+    proof: Opt.some(base64.encode(msg.proof)),
   )
 
 proc toWakuMessage*(msg: RelayWakuMessage, version = 0): Result[WakuMessage, string] =
@@ -91,13 +92,13 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var RelayWakuMessage
 ) {.raises: [SerializationError, IOError].} =
   var
-    payload = none(Base64String)
-    contentTopic = none(ContentTopic)
-    version = none(Natural)
-    timestamp = none(int64)
-    meta = none(Base64String)
-    ephemeral = none(bool)
-    proof = none(Base64String)
+    payload = Opt.none(Base64String)
+    contentTopic = Opt.none(ContentTopic)
+    version = Opt.none(Natural)
+    timestamp = Opt.none(int64)
+    meta = Opt.none(Base64String)
+    ephemeral = Opt.none(bool)
+    proof = Opt.none(Base64String)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -112,19 +113,19 @@ proc readValue*(
 
     case fieldName
     of "payload":
-      payload = some(reader.readValue(Base64String))
+      payload = Opt.some(reader.readValue(Base64String))
     of "contentTopic":
-      contentTopic = some(reader.readValue(ContentTopic))
+      contentTopic = Opt.some(reader.readValue(ContentTopic))
     of "version":
-      version = some(reader.readValue(Natural))
+      version = Opt.some(reader.readValue(Natural))
     of "timestamp":
-      timestamp = some(reader.readValue(int64))
+      timestamp = Opt.some(reader.readValue(int64))
     of "meta":
-      meta = some(reader.readValue(Base64String))
+      meta = Opt.some(reader.readValue(Base64String))
     of "ephemeral":
-      ephemeral = some(reader.readValue(bool))
+      ephemeral = Opt.some(reader.readValue(bool))
     of "proof":
-      proof = some(reader.readValue(Base64String))
+      proof = Opt.some(reader.readValue(Base64String))
     else:
       unrecognizedFieldWarning(value)
 

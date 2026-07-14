@@ -5,10 +5,8 @@
 ## `WakuLightPushResult` (status code + description) that the send processors
 ## branch on for their retry decisions, and expose relay/lightpush availability
 ## so the messaging layer never inspects `waku.node` directly.
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/options
 import results, chronos
 
 import logos_delivery/waku/waku
@@ -46,7 +44,7 @@ proc relayPushHandler*(self: Waku): PushMessageHandler =
 
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
-  return self.node.peerManager.selectPeer(WakuLightPushCodec, some(shard)).isSome()
+  return self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).isSome()
 
 proc lightpushPublishToAny*(
     self: Waku, shard: PubsubTopic, message: WakuMessage
@@ -55,9 +53,9 @@ proc lightpushPublishToAny*(
   ## through the node's lightpush flow, which attaches an RLN proof per
   ## attempt when RLN is mounted. Returns SERVICE_NOT_AVAILABLE when no peer
   ## is available.
-  let peer = self.node.peerManager.selectPeer(WakuLightPushCodec, some(shard)).valueOr:
+  let peer = self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).valueOr:
     return lightpushResultServiceUnavailable("no lightpush peer available for shard")
   try:
-    return await self.node.lightpushPublish(some(shard), message, some(peer))
+    return await self.node.lightpushPublish(Opt.some(shard), message, Opt.some(peer))
   except CatchableError as e:
     return lightpushResultInternalError(e.msg)

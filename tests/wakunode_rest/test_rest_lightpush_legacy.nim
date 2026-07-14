@@ -1,4 +1,4 @@
-import std/options
+import results
 {.used.}
 
 import
@@ -35,7 +35,7 @@ proc testWakuNode(): WakuNode =
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
-  return newTestWakuNode(privkey, bindIp, port, some(extIp), some(port))
+  return newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
 
 type RestLightPushTest = object
   serviceNode: WakuNode
@@ -110,7 +110,7 @@ suite "Waku v2 Rest API - lightpush":
     check message.proof.isSome()
 
     let requestBody =
-      PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: message)
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
 
     let response = await restLightPushTest.client.sendPushRequest(body = requestBody)
 
@@ -147,7 +147,7 @@ suite "Waku v2 Rest API - lightpush":
       .toRelayWakuMessage()
 
     let requestBody =
-      PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: message)
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
     let response = await restLightPushTest.client.sendPushRequest(requestBody)
 
     echo "response", $response
@@ -180,15 +180,15 @@ suite "Waku v2 Rest API - lightpush":
       )
       .toRelayWakuMessage()
     let badRequestBody1 =
-      PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: badMessage1)
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: badMessage1)
 
     let badMessage2: RelayWakuMessage =
       fakeWakuMessage(contentTopic = "", payload = toBytes("Sthg")).toRelayWakuMessage()
     let badRequestBody2 =
-      PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: badMessage2)
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: badMessage2)
 
     let badRequestBody3 =
-      PushRequest(pubsubTopic: none(PubsubTopic), message: badMessage2)
+      PushRequest(pubsubTopic: Opt.none(PubsubTopic), message: badMessage2)
 
     var response: RestResponse[string]
 
@@ -252,7 +252,7 @@ suite "Waku v2 Rest API - lightpush":
         .toRelayWakuMessage()
 
       let requestBody =
-        PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: message)
+        PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
       let response = await restLightPushTest.client.sendPushRequest(requestBody)
 
       echo "response", $response
@@ -269,7 +269,7 @@ suite "Waku v2 Rest API - lightpush":
         .toRelayWakuMessage()
 
       let requestBody =
-        PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: message)
+        PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
       let response = await restLightPushTest.client.sendPushRequest(requestBody)
 
       echo "response", $response

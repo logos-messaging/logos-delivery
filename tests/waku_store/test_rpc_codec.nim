@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, testutils/unittests, chronos
+import results, testutils/unittests, chronos
 import
   logos_delivery/waku/
     [common/protobuf, common/paging, waku_core, waku_store/common, waku_store/rpc_codec],
@@ -12,14 +12,14 @@ procSuite "Waku Store - RPC codec":
     let query = StoreQueryRequest(
       requestId: "0",
       includeData: true,
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
       contentTopics: @[DefaultContentTopic],
-      startTime: some(Timestamp(10)),
-      endTime: some(Timestamp(11)),
+      startTime: Opt.some(Timestamp(10)),
+      endTime: Opt.some(Timestamp(11)),
       messageHashes: @[],
-      paginationCursor: none(WakuMessageHash),
+      paginationCursor: Opt.none(WakuMessageHash),
       paginationForward: PagingDirection.FORWARD,
-      paginationLimit: some(DefaultPageSize),
+      paginationLimit: Opt.some(DefaultPageSize),
     )
 
     ## When
@@ -56,14 +56,16 @@ procSuite "Waku Store - RPC codec":
       message = fakeWakuMessage()
       hash = computeMessageHash(DefaultPubsubTopic, message)
       keyValue = WakuMessageKeyValue(
-        messageHash: hash, message: some(message), pubsubTopic: some(DefaultPubsubTopic)
+        messageHash: hash,
+        message: Opt.some(message),
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
       )
       res = StoreQueryResponse(
         requestId: "1",
         statusCode: 200,
         statusDesc: "it's fine",
         messages: @[keyValue],
-        paginationCursor: none(WakuMessageHash),
+        paginationCursor: Opt.none(WakuMessageHash),
       )
 
     ## When

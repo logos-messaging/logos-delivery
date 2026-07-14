@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sets, tables, sequtils],
+  std/[sets, tables, sequtils],
   chronicles,
   chronos,
   libp2p/peerid,

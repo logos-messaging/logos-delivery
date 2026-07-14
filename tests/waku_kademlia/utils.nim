@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sets]
+import std/sets
 import chronos, chronicles, results
 import libp2p/[peerid, multiaddress, switch]
 import libp2p/extended_peer_record

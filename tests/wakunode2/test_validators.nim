@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[sequtils, sysrand, math, options],
+  results,
+  std/[sequtils, sysrand, math],
   testutils/unittests,
   chronos,
   libp2p/crypto/crypto,
@@ -86,7 +87,7 @@ suite "WakuNode2 - Validators":
         msg.meta =
           secretKey.sign(SkMessage(spamProtectedShard.msgHash(msg))).toRaw()[0 .. 63]
 
-        discard await nodes[i].publish(some($spamProtectedShard), msg)
+        discard await nodes[i].publish(Opt.some($spamProtectedShard), msg)
 
     # Wait for gossip
     await sleepAsync(2.seconds)
@@ -177,7 +178,7 @@ suite "WakuNode2 - Validators":
           0 .. 63
         ]
 
-        discard await nodes[i].publish(some($spamProtectedShard), msg)
+        discard await nodes[i].publish(Opt.some($spamProtectedShard), msg)
 
     # Each node sends 5 messages that are not signed (total = 25)
     for i in 0 ..< 5:
@@ -189,7 +190,7 @@ suite "WakuNode2 - Validators":
           timestamp: now(),
           ephemeral: true,
         )
-        discard await nodes[i].publish(some($spamProtectedShard), unsignedMessage)
+        discard await nodes[i].publish(Opt.some($spamProtectedShard), unsignedMessage)
 
     # Each node sends 5 messages that dont contain timestamp (total = 25)
     for i in 0 ..< 5:
@@ -201,7 +202,7 @@ suite "WakuNode2 - Validators":
           timestamp: 0,
           ephemeral: true,
         )
-        discard await nodes[i].publish(some($spamProtectedShard), unsignedMessage)
+        discard await nodes[i].publish(Opt.some($spamProtectedShard), unsignedMessage)
 
     # Each node sends 5 messages way BEFORE than the current timestmap (total = 25)
     for i in 0 ..< 5:
@@ -214,7 +215,7 @@ suite "WakuNode2 - Validators":
           timestamp: beforeTimestamp,
           ephemeral: true,
         )
-        discard await nodes[i].publish(some($spamProtectedShard), unsignedMessage)
+        discard await nodes[i].publish(Opt.some($spamProtectedShard), unsignedMessage)
 
     # Each node sends 5 messages way LATER than the current timestmap (total = 25)
     for i in 0 ..< 5:
@@ -227,7 +228,7 @@ suite "WakuNode2 - Validators":
           timestamp: afterTimestamp,
           ephemeral: true,
         )
-        discard await nodes[i].publish(some($spamProtectedShard), unsignedMessage)
+        discard await nodes[i].publish(Opt.some($spamProtectedShard), unsignedMessage)
 
     # Since we have a full mesh with 5 nodes and each one publishes 25+25+25+25+25 msgs
     # there are 625 messages being sent.
@@ -325,7 +326,7 @@ suite "WakuNode2 - Validators":
         timestamp: now(),
         ephemeral: true,
       )
-      discard await nodes[0].publish(some($spamProtectedShard), unsignedMessage)
+      discard await nodes[0].publish(Opt.some($spamProtectedShard), unsignedMessage)
 
     # nodes[0] spams 50 wrongly signed messages (nodes[0] just knows of nodes[1])
     for j in 0 ..< 50:
@@ -339,7 +340,7 @@ suite "WakuNode2 - Validators":
       # Sign the message with a wrong key
       msg.meta =
         wrongSecretKey.sign(SkMessage(spamProtectedShard.msgHash(msg))).toRaw()[0 .. 63]
-      discard await nodes[0].publish(some($spamProtectedShard), msg)
+      discard await nodes[0].publish(Opt.some($spamProtectedShard), msg)
 
     # Wait for gossip
     await sleepAsync(2.seconds)

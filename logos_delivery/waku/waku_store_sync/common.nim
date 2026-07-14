@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[options], chronos, stew/[byteutils]
+import chronos, stew/[byteutils]
 
 import ../waku_core
 

@@ -1,15 +1,16 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sets, random, sequtils, json, strutils, tables],
+  results,
+  std/[sets, random, sequtils, json, strutils, tables],
   chronos,
   chronicles,
   libp2p/protocols/rendezvous,
   libp2p/protocols/pubsub,
   libp2p/protocols/pubsub/rpc/messages,
   logos_delivery/api/types,
-  logos_delivery/api/events/kernel_events, # EventConnectionStatusChange
+  logos_delivery/api/events/kernel_events,
+  # EventConnectionStatusChange
   logos_delivery/waku/[
     waku_relay,
     api/events/health_events,
@@ -360,7 +361,7 @@ proc getAllProtocolHealthInfo(
 proc calculateConnectionState*(
     protocols: seq[ProtocolHealth],
     strength: Table[WakuProtocol, int], ## latest connectivity strength (e.g. peer count) for a protocol
-    dLowOpt: Option[int], ## minimum relay peers for Connected status if in Core (Relay) mode
+    dLowOpt: Opt[int], ## minimum relay peers for Connected status if in Core (Relay) mode
 ): ConnectionStatus =
   var
     relayCount = 0
@@ -429,9 +430,9 @@ proc calculateConnectionState*(
 proc calculateConnectionState*(hm: NodeHealthMonitor): ConnectionStatus =
   let dLow =
     if isNil(hm.node.wakuRelay):
-      none(int)
+      Opt.none(int)
     else:
-      some(hm.node.wakuRelay.parameters.dLow)
+      Opt.some(hm.node.wakuRelay.parameters.dLow)
   return calculateConnectionState(hm.cachedProtocols, hm.strength, dLow)
 
 proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.} =

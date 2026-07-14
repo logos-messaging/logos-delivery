@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, bitops, sequtils, net],
+  std/[bitops, sequtils, net],
   stew/endians2,
   results,
   chronicles,
@@ -58,9 +57,9 @@ func init*(
 
   ok(RelayShards(clusterId: clusterId, shardIds: indicesSeq))
 
-func topicsToRelayShards*(topics: seq[string]): Result[Option[RelayShards], string] =
+func topicsToRelayShards*(topics: seq[string]): Result[Opt[RelayShards], string] =
   if topics.len < 1:
-    return ok(none(RelayShards))
+    return ok(Opt.none(RelayShards))
 
   let parsedTopicsRes = topics.mapIt(RelayShard.parse(it))
 
@@ -75,7 +74,7 @@ func topicsToRelayShards*(topics: seq[string]): Result[Option[RelayShards], stri
     parsedTopicsRes[0].get().clusterId, parsedTopicsRes.mapIt(it.get().shardId)
   )
 
-  return ok(some(relayShard))
+  return ok(Opt.some(relayShard))
 
 func contains*(rs: RelayShards, clusterId, shardId: uint16): bool =
   return rs.clusterId == clusterId and rs.shardIds.contains(shardId)
@@ -193,31 +192,31 @@ func withShardedTopics*(
 
 # ENR record accessors (e.g., Record, TypedRecord, etc.)
 
-proc relayShardingIndicesList*(record: TypedRecord): Option[RelayShards] =
+proc relayShardingIndicesList*(record: TypedRecord): Opt[RelayShards] =
   let field = record.tryGet(ShardingIndicesListEnrField, seq[byte]).valueOr:
-    return none(RelayShards)
+    return Opt.none(RelayShards)
 
   let indexList = fromIndicesList(field).valueOr:
     info "invalid shards list", error = error
-    return none(RelayShards)
+    return Opt.none(RelayShards)
 
-  some(indexList)
+  Opt.some(indexList)
 
-proc relayShardingBitVector*(record: TypedRecord): Option[RelayShards] =
+proc relayShardingBitVector*(record: TypedRecord): Opt[RelayShards] =
   let field = record.tryGet(ShardingBitVectorEnrField, seq[byte]).valueOr:
-    return none(RelayShards)
+    return Opt.none(RelayShards)
 
   let bitVector = fromBitVector(field).valueOr:
     info "invalid shards bit vector", error = error
-    return none(RelayShards)
+    return Opt.none(RelayShards)
 
-  some(bitVector)
+  Opt.some(bitVector)
 
-proc relaySharding*(record: TypedRecord): Option[RelayShards] =
+proc relaySharding*(record: TypedRecord): Opt[RelayShards] =
   let indexList = record.relayShardingIndicesList().valueOr:
     return record.relayShardingBitVector()
 
-  return some(indexList)
+  return Opt.some(indexList)
 
 ## Utils
 

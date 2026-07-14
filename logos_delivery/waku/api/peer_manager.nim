@@ -1,7 +1,7 @@
 ## Waku layer API — peer management operations.
 {.push raises: [].}
 
-import std/[options, sequtils, strutils]
+import std/[sequtils, strutils]
 import results, chronos, chronicles
 import libp2p/[peerid, peerstore]
 

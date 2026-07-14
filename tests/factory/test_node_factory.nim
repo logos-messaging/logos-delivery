@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[net, options, sequtils, strutils],
+  results,
+  std/[net, sequtils, strutils],
   testutils/unittests,
   chronos,
   chronos/transports/[stream, datagram, common],
@@ -75,7 +76,7 @@ suite "Node Factory":
       bindPort = bindPort,
       extMultiAddrs = oversizedMultiaddrs,
       extMultiAddrsOnly = true,
-      wakuFlags = some(conf.wakuFlags),
+      wakuFlags = Opt.some(conf.wakuFlags),
     ).valueOr:
       raiseAssert error
 

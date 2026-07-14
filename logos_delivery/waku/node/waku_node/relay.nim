@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, net],
+  std/net,
   chronos,
   chronicles,
   metrics,
@@ -45,18 +44,18 @@ logScope:
 
 proc getTopicOfSubscriptionEvent(
     node: WakuNode, subscription: SubscriptionEvent
-): Result[(PubsubTopic, Option[ContentTopic]), string] =
+): Result[(PubsubTopic, Opt[ContentTopic]), string] =
   case subscription.kind
   of ContentSub, ContentUnsub:
     if node.wakuAutoSharding.isSome():
       let shard = node.wakuAutoSharding.get().getShard((subscription.topic)).valueOr:
           return err("Autosharding error: " & error)
-      return ok(($shard, some(subscription.topic)))
+      return ok(($shard, Opt.some(subscription.topic)))
     else:
       return
         err("Static sharding is used, relay subscriptions must specify a pubsub topic")
   of PubsubSub, PubsubUnsub:
-    return ok((subscription.topic, none[ContentTopic]()))
+    return ok((subscription.topic, Opt.none(ContentTopic)))
   else:
     return err("Unsupported subscription type in relay getTopicOfSubscriptionEvent")
 
@@ -117,7 +116,7 @@ proc isSubscribed*(
   return ok(node.wakuRelay.isSubscribed(pubsubTopic))
 
 proc publish*(
-    node: WakuNode, pubsubTopicOp: Option[PubsubTopic], message: WakuMessage
+    node: WakuNode, pubsubTopicOp: Opt[PubsubTopic], message: WakuMessage
 ): Future[Result[int, string]] {.async, gcsafe.} =
   ## Publish a `WakuMessage`. Pubsub topic contains; none, a named or static shard.
   ## `WakuMessage` should contain a `contentTopic` field for light node functionality.
@@ -154,7 +153,7 @@ proc publish*(
 
 proc mountRelay*(
     node: WakuNode,
-    peerExchangeHandler = none(RoutingRecordsHandler),
+    peerExchangeHandler = Opt.none(RoutingRecordsHandler),
     maxMessageSize = int(DefaultMaxWakuMessageSize),
 ): Future[Result[void, string]] {.async.} =
   if not node.wakuRelay.isNil():
@@ -188,8 +187,8 @@ proc mountRelay*(
 proc setRlnValidator*(
     node: WakuNode,
     rlnConf: WakuRlnConfig,
-    spamHandler = none(SpamHandler),
-    registrationHandler = none(RegistrationHandler),
+    spamHandler = Opt.none(SpamHandler),
+    registrationHandler = Opt.none(RegistrationHandler),
 ) {.async.} =
   info "setting rln validator"
 

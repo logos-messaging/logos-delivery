@@ -1,7 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import chronicles, std/options, chronos, results, metrics
+import chronicles, chronos, results, metrics
 
 import
   libp2p/crypto/curve25519,
@@ -66,7 +65,7 @@ proc processBootNodes(
     count.inc()
 
     peermgr.addPeer(
-      RemotePeerInfo.init(peerId, @[multiAddr], mixPubKey = some(node.pubKey))
+      RemotePeerInfo.init(peerId, @[multiAddr], mixPubKey = Opt.some(node.pubKey))
     )
   mix_pool_size.set(count)
   info "using mix bootstrap nodes ", count = count

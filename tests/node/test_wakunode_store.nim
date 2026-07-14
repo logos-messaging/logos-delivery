@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils, sets], testutils/unittests, chronos, libp2p/crypto/crypto
+import results, std/[sequtils, sets], testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -52,17 +52,17 @@ suite "Waku Store - End to End - Sorted Archive":
     archiveMessages = messages.mapIt(
       WakuMessageKeyValue(
         messageHash: computeMessageHash(pubsubTopic, it),
-        message: some(it),
-        pubsubTopic: some(pubsubTopic),
+        message: Opt.some(it),
+        pubsubTopic: Opt.some(pubsubTopic),
       )
     )
 
     storeQuery = StoreQueryRequest(
       includeData: true,
-      pubsubTopic: some(pubsubTopic),
+      pubsubTopic: Opt.some(pubsubTopic),
       contentTopics: contentTopicSeq,
       paginationForward: PagingDirection.Forward,
-      paginationLimit: some(uint64(5)),
+      paginationLimit: Opt.some(uint64(5)),
     )
 
     let
@@ -99,11 +99,11 @@ suite "Waku Store - End to End - Sorted Archive":
       # Given the next query
       var otherHistoryQuery = StoreQueryRequest(
         includeData: true,
-        pubsubTopic: some(pubsubTopic),
+        pubsubTopic: Opt.some(pubsubTopic),
         contentTopics: contentTopicSeq,
         paginationCursor: queryResponse.get().paginationCursor,
         paginationForward: PagingDirection.FORWARD,
-        paginationLimit: some(uint64(5)),
+        paginationLimit: Opt.some(uint64(5)),
       )
 
       # When making the next history query
@@ -129,10 +129,10 @@ suite "Waku Store - End to End - Sorted Archive":
       var nextHistoryQuery = StoreQueryRequest(
         includeData: true,
         paginationCursor: queryResponse.get().paginationCursor,
-        pubsubTopic: some(pubsubTopic),
+        pubsubTopic: Opt.some(pubsubTopic),
         contentTopics: contentTopicSeq,
         paginationForward: PagingDirection.BACKWARD,
-        paginationLimit: some(uint64(5)),
+        paginationLimit: Opt.some(uint64(5)),
       )
 
       # When making the next history query
@@ -146,7 +146,7 @@ suite "Waku Store - End to End - Sorted Archive":
     suite "Pagination with Differente Page Sizes":
       asyncTest "Pagination with Small Page Size":
         # Given the first query (1/5)
-        storeQuery.paginationLimit = some(uint64(2))
+        storeQuery.paginationLimit = Opt.some(uint64(2))
 
         # When making a history query
         let queryResponse1 = await client.query(storeQuery, serverRemotePeerInfo)
@@ -159,10 +159,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery2 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse1.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: some(uint64(2)),
+          paginationLimit: Opt.some(uint64(2)),
         )
 
         # When making the next history query
@@ -176,10 +176,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery3 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse2.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: some(uint64(2)),
+          paginationLimit: Opt.some(uint64(2)),
         )
 
         # When making the next history query
@@ -193,10 +193,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery4 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse3.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: some(uint64(2)),
+          paginationLimit: Opt.some(uint64(2)),
         )
 
         # When making the next history query
@@ -210,10 +210,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery5 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse4.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: some(uint64(2)),
+          paginationLimit: Opt.some(uint64(2)),
         )
 
         # When making the next history query
@@ -225,7 +225,7 @@ suite "Waku Store - End to End - Sorted Archive":
 
       asyncTest "Pagination with Large Page Size":
         # Given the first query (1/2)
-        storeQuery.paginationLimit = some(uint64(8))
+        storeQuery.paginationLimit = Opt.some(uint64(8))
 
         # When making a history query
         let queryResponse1 = await client.query(storeQuery, serverRemotePeerInfo)
@@ -238,10 +238,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery2 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse1.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: some(uint64(8)),
+          paginationLimit: Opt.some(uint64(8)),
         )
 
         # When making the next history query
@@ -253,7 +253,7 @@ suite "Waku Store - End to End - Sorted Archive":
 
       asyncTest "Pagination with Excessive Page Size":
         # Given the first query (1/1)
-        storeQuery.paginationLimit = some(uint64(100))
+        storeQuery.paginationLimit = Opt.some(uint64(100))
 
         # When making a history query
         let queryResponse1 = await client.query(storeQuery, serverRemotePeerInfo)
@@ -264,7 +264,7 @@ suite "Waku Store - End to End - Sorted Archive":
 
       asyncTest "Pagination with Mixed Page Size":
         # Given the first query (1/3)
-        storeQuery.paginationLimit = some(uint64(2))
+        storeQuery.paginationLimit = Opt.some(uint64(2))
 
         # When making a history query
         let queryResponse1 = await client.query(storeQuery, serverRemotePeerInfo)
@@ -277,10 +277,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery2 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse1.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: some(uint64(4)),
+          paginationLimit: Opt.some(uint64(4)),
         )
 
         # When making the next history query
@@ -294,10 +294,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery3 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse2.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: some(uint64(6)),
+          paginationLimit: Opt.some(uint64(6)),
         )
 
         # When making the next history query
@@ -331,13 +331,13 @@ suite "Waku Store - End to End - Sorted Archive":
           extraMessages.mapIt(
             WakuMessageKeyValue(
               messageHash: computeMessageHash(pubsubTopic, it),
-              message: some(it),
-              pubsubTopic: some(pubsubTopic),
+              message: Opt.some(it),
+              pubsubTopic: Opt.some(pubsubTopic),
             )
           )
 
         # Given the a query with zero page size (1/2)
-        storeQuery.paginationLimit = none(uint64)
+        storeQuery.paginationLimit = Opt.none(uint64)
 
         # When making a history query
         let queryResponse1 = await client.query(storeQuery, serverRemotePeerInfo)
@@ -350,10 +350,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery2 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse1.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: none(uint64),
+          paginationLimit: Opt.none(uint64),
         )
 
         # When making the next history query
@@ -388,15 +388,15 @@ suite "Waku Store - End to End - Sorted Archive":
           extraMessages.mapIt(
             WakuMessageKeyValue(
               messageHash: computeMessageHash(pubsubTopic, it),
-              message: some(it),
-              pubsubTopic: some(pubsubTopic),
+              message: Opt.some(it),
+              pubsubTopic: Opt.some(pubsubTopic),
             )
           )
 
         # Given a query with default page size (1/2)
         storeQuery = StoreQueryRequest(
           includeData: true,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
         )
@@ -412,7 +412,7 @@ suite "Waku Store - End to End - Sorted Archive":
         let historyQuery2 = StoreQueryRequest(
           includeData: true,
           paginationCursor: queryResponse.get().paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
         )
@@ -429,8 +429,8 @@ suite "Waku Store - End to End - Sorted Archive":
       asyncTest "Starting Cursor":
         # Given a paginationCursor pointing to the first message
         let paginationCursor = archiveMessages[0].messageHash
-        storeQuery.paginationCursor = some(paginationCursor)
-        storeQuery.paginationLimit = some(uint64(1))
+        storeQuery.paginationCursor = Opt.some(paginationCursor)
+        storeQuery.paginationLimit = Opt.some(uint64(1))
 
         # When making a history query
         let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -442,8 +442,8 @@ suite "Waku Store - End to End - Sorted Archive":
       asyncTest "Middle Cursor":
         # Given a paginationCursor pointing to the middle message1
         let paginationCursor = archiveMessages[5].messageHash
-        storeQuery.paginationCursor = some(paginationCursor)
-        storeQuery.paginationLimit = some(uint64(1))
+        storeQuery.paginationCursor = Opt.some(paginationCursor)
+        storeQuery.paginationLimit = Opt.some(uint64(1))
 
         # When making a history query
         let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -455,8 +455,8 @@ suite "Waku Store - End to End - Sorted Archive":
       asyncTest "Ending Cursor":
         # Given a paginationCursor pointing to the last message
         let paginationCursor = archiveMessages[9].messageHash
-        storeQuery.paginationCursor = some(paginationCursor)
-        storeQuery.paginationLimit = some(uint64(1))
+        storeQuery.paginationCursor = Opt.some(paginationCursor)
+        storeQuery.paginationLimit = Opt.some(uint64(1))
 
         # When making a history query
         let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -497,10 +497,10 @@ suite "Waku Store - End to End - Sorted Archive":
         let otherHistoryQuery = StoreQueryRequest(
           includeData: true,
           paginationCursor: paginationCursor,
-          pubsubTopic: some(pubsubTopic),
+          pubsubTopic: Opt.some(pubsubTopic),
           contentTopics: contentTopicSeq,
           paginationForward: PagingDirection.FORWARD,
-          paginationLimit: some(uint64(5)),
+          paginationLimit: Opt.some(uint64(5)),
         )
         let otherQueryResponse =
           await client.query(otherHistoryQuery, otherServerRemotePeerInfo)
@@ -532,10 +532,10 @@ suite "Waku Store - End to End - Unsorted Archive":
 
     storeQuery = StoreQueryRequest(
       includeData: true,
-      pubsubTopic: some(pubsubTopic),
+      pubsubTopic: Opt.some(pubsubTopic),
       contentTopics: contentTopicSeq,
       paginationForward: PagingDirection.FORWARD,
-      paginationLimit: some(uint64(5)),
+      paginationLimit: Opt.some(uint64(5)),
     )
 
     let timeOrigin = now()
@@ -554,8 +554,8 @@ suite "Waku Store - End to End - Unsorted Archive":
     unsortedArchiveMessages = messages.mapIt(
       WakuMessageKeyValue(
         messageHash: computeMessageHash(pubsubTopic, it),
-        message: some(it),
-        pubsubTopic: some(pubsubTopic),
+        message: Opt.some(it),
+        pubsubTopic: Opt.some(pubsubTopic),
       )
     )
 
@@ -617,10 +617,10 @@ suite "Waku Store - End to End - Unsorted Archive":
     var historyQuery2 = StoreQueryRequest(
       includeData: true,
       paginationCursor: queryResponse.get().paginationCursor,
-      pubsubTopic: some(pubsubTopic),
+      pubsubTopic: Opt.some(pubsubTopic),
       contentTopics: contentTopicSeq,
       paginationForward: PagingDirection.FORWARD,
-      paginationLimit: some(uint64(5)),
+      paginationLimit: Opt.some(uint64(5)),
     )
 
     # When making the next history query
@@ -660,7 +660,7 @@ suite "Waku Store - End to End - Unsorted Archive":
       cursor = unsortedArchiveMessages[5].messageHash
 
     storeQuery.paginationForward = PagingDirection.BACKWARD
-    storeQuery.paginationCursor = some(cursor)
+    storeQuery.paginationCursor = Opt.some(cursor)
 
     # When making a history query
     let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -692,8 +692,8 @@ suite "Waku Store - End to End - Unsorted Archive":
       cursor = unsortedArchiveMessages[5].messageHash
 
     storeQuery.paginationForward = PagingDirection.FORWARD
-    storeQuery.paginationCursor = some(cursor)
-    storeQuery.paginationLimit = some(uint64(6))
+    storeQuery.paginationCursor = Opt.some(cursor)
+    storeQuery.paginationLimit = Opt.some(uint64(6))
 
     # When making a history query
     let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -749,10 +749,10 @@ suite "Waku Store - End to End - Unsorted Archive without provided Timestamp":
 
     storeQuery = StoreQueryRequest(
       includeData: true,
-      pubsubTopic: some(pubsubTopic),
+      pubsubTopic: Opt.some(pubsubTopic),
       contentTopics: contentTopicSeq,
       paginationForward: PagingDirection.FORWARD,
-      paginationLimit: some(uint64(5)),
+      paginationLimit: Opt.some(uint64(5)),
     )
 
     let messages = @[
@@ -771,8 +771,8 @@ suite "Waku Store - End to End - Unsorted Archive without provided Timestamp":
     unsortedArchiveMessages = messages.mapIt(
       WakuMessageKeyValue(
         messageHash: computeMessageHash(pubsubTopic, it),
-        message: some(it),
-        pubsubTopic: some(pubsubTopic),
+        message: Opt.some(it),
+        pubsubTopic: Opt.some(pubsubTopic),
       )
     )
 
@@ -824,10 +824,10 @@ suite "Waku Store - End to End - Unsorted Archive without provided Timestamp":
     var historyQuery2 = StoreQueryRequest(
       includeData: true,
       paginationCursor: queryResponse.get().paginationCursor,
-      pubsubTopic: some(pubsubTopic),
+      pubsubTopic: Opt.some(pubsubTopic),
       contentTopics: contentTopicSeq,
       paginationForward: PagingDirection.FORWARD,
-      paginationLimit: some(uint64(5)),
+      paginationLimit: Opt.some(uint64(5)),
     )
 
     # When making the next history query
@@ -886,10 +886,10 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     storeQuery = StoreQueryRequest(
       includeData: true,
-      pubsubTopic: some(pubsubTopic),
+      pubsubTopic: Opt.some(pubsubTopic),
       contentTopics: contentTopicSeq,
       paginationForward: PagingDirection.FORWARD,
-      paginationLimit: some(uint64(5)),
+      paginationLimit: Opt.some(uint64(5)),
     )
 
     let timeOrigin = now()
@@ -914,8 +914,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
     archiveMessages = messages.mapIt(
       WakuMessageKeyValue(
         messageHash: computeMessageHash(pubsubTopic, it),
-        message: some(it),
-        pubsubTopic: some(pubsubTopic),
+        message: Opt.some(it),
+        pubsubTopic: Opt.some(pubsubTopic),
       )
     )
 
@@ -923,7 +923,7 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
       archiveMessages[i].messagehash =
         computeMessageHash(pubsubTopicB, archiveMessages[i].message.get())
 
-      archiveMessages[i].pubsubTopic = some(pubsubTopicB)
+      archiveMessages[i].pubsubTopic = Opt.some(pubsubTopicB)
 
     let
       serverKey = generateSecp256k1Key()
@@ -993,10 +993,10 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
       let historyQuery2 = StoreQueryRequest(
         includeData: true,
         paginationCursor: queryResponse.get().paginationCursor,
-        pubsubTopic: none(PubsubTopic),
+        pubsubTopic: Opt.none(PubsubTopic),
         contentTopics: contentTopicSeq,
         paginationForward: PagingDirection.FORWARD,
-        paginationLimit: some(uint64(5)),
+        paginationLimit: Opt.some(uint64(5)),
       )
 
       # When making the next history query
@@ -1019,7 +1019,7 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     asyncTest "Special Characters in Content Filtering":
       # Given a history query with special characters in content filtering
-      storeQuery.pubsubTopic = some(pubsubTopicB)
+      storeQuery.pubsubTopic = Opt.some(pubsubTopicB)
       storeQuery.contentTopics = @["!@#$%^&*()_+"]
 
       # When making a history query
@@ -1031,7 +1031,7 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     asyncTest "PubsubTopic Specified":
       # Given a history query with pubsub topic specified
-      storeQuery.pubsubTopic = some(pubsubTopicB)
+      storeQuery.pubsubTopic = Opt.some(pubsubTopicB)
 
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -1048,7 +1048,7 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     asyncTest "PubsubTopic Left Empty":
       # Given a history query with pubsub topic left empty
-      storeQuery.pubsubTopic = none(PubsubTopic)
+      storeQuery.pubsubTopic = Opt.none(PubsubTopic)
 
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -1061,10 +1061,10 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
       let historyQuery2 = StoreQueryRequest(
         includeData: true,
         paginationCursor: queryResponse.get().paginationCursor,
-        pubsubTopic: none(PubsubTopic),
+        pubsubTopic: Opt.none(PubsubTopic),
         contentTopics: contentTopicSeq,
         paginationForward: PagingDirection.FORWARD,
-        paginationLimit: some(uint64(5)),
+        paginationLimit: Opt.some(uint64(5)),
       )
 
       # When making the next history query
@@ -1077,8 +1077,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
   suite "Validation of Time-based Filtering":
     asyncTest "Basic Time Filtering":
       # Given a history query with start and end time
-      storeQuery.startTime = some(originTs(20))
-      storeQuery.endTime = some(originTs(40))
+      storeQuery.startTime = Opt.some(originTs(20))
+      storeQuery.endTime = Opt.some(originTs(40))
 
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -1090,8 +1090,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     asyncTest "Only Start Time Specified":
       # Given a history query with only start time
-      storeQuery.startTime = some(originTs(20))
-      storeQuery.endTime = none(Timestamp)
+      storeQuery.startTime = Opt.some(originTs(20))
+      storeQuery.endTime = Opt.none(Timestamp)
 
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -1108,8 +1108,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     asyncTest "Only End Time Specified":
       # Given a history query with only end time
-      storeQuery.startTime = none(Timestamp)
-      storeQuery.endTime = some(originTs(40))
+      storeQuery.startTime = Opt.none(Timestamp)
+      storeQuery.endTime = Opt.some(originTs(40))
 
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -1127,8 +1127,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     asyncTest "Invalid Time Range":
       # Given a history query with invalid time range
-      storeQuery.startTime = some(originTs(60))
-      storeQuery.endTime = some(originTs(40))
+      storeQuery.startTime = Opt.some(originTs(60))
+      storeQuery.endTime = Opt.some(originTs(40))
 
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -1139,8 +1139,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     asyncTest "Time Filtering with Content Filtering":
       # Given a history query with time and content filtering
-      storeQuery.startTime = some(originTs(20))
-      storeQuery.endTime = some(originTs(60))
+      storeQuery.startTime = Opt.some(originTs(20))
+      storeQuery.endTime = Opt.some(originTs(60))
       storeQuery.contentTopics = @[contentTopicC]
 
       # When making a history query
@@ -1152,8 +1152,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
 
     asyncTest "Messages Outside of Time Range":
       # Given a history query with a valid time range which does not contain any messages
-      storeQuery.startTime = some(originTs(100))
-      storeQuery.endTime = some(originTs(200))
+      storeQuery.startTime = Opt.some(originTs(100))
+      storeQuery.endTime = Opt.some(originTs(200))
 
       # When making a history query
       let queryResponse = await client.query(storeQuery, serverRemotePeerInfo)
@@ -1271,8 +1271,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
       let voluminousArchiveMessages = messages.mapIt(
         WakuMessageKeyValue(
           messageHash: computeMessageHash(pubsubTopic, it),
-          message: some(it),
-          pubsubTopic: some(pubsubTopic),
+          message: Opt.some(it),
+          pubsubTopic: Opt.some(pubsubTopic),
         )
       )
 

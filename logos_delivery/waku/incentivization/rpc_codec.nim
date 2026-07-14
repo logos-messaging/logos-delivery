@@ -1,5 +1,4 @@
-import std/options
-import ../common/protobuf, ./rpc
+import results, ../common/protobuf, ./rpc
 
 # Codec for EligibilityProof
 
@@ -18,9 +17,9 @@ proc decode*(T: type EligibilityProof, buffer: seq[byte]): ProtobufResult[T] =
   var epRpc = EligibilityProof()
   var proofOfPayment = newSeq[byte]()
   if not ?pb.getField(1, proofOfPayment):
-    epRpc.proofOfPayment = none(seq[byte])
+    epRpc.proofOfPayment = Opt.none(seq[byte])
   else:
-    epRpc.proofOfPayment = some(proofOfPayment)
+    epRpc.proofOfPayment = Opt.some(proofOfPayment)
   ok(epRpc)
 
 # Codec for EligibilityStatus
@@ -45,7 +44,7 @@ proc decode*(T: type EligibilityStatus, buffer: seq[byte]): ProtobufResult[T] =
   # status description
   var description = ""
   if not ?pb.getField(2, description):
-    esRpc.statusDesc = none(string)
+    esRpc.statusDesc = Opt.none(string)
   else:
-    esRpc.statusDesc = some(description)
+    esRpc.statusDesc = Opt.some(description)
   ok(esRpc)

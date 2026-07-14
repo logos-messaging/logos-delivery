@@ -1,4 +1,4 @@
-import std/options
+import results
 {.used.}
 
 import
@@ -36,7 +36,7 @@ proc testWakuNode(): WakuNode =
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
-  return newTestWakuNode(privkey, bindIp, port, some(extIp), some(port))
+  return newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
 
 type RestFilterTest = object
   serviceNode: WakuNode
@@ -116,7 +116,7 @@ suite "Waku v2 Rest API - Filter V2":
     let requestBody = FilterSubscribeRequest(
       requestId: "1234",
       contentFilters: contentFilters,
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
     )
     let response = await restFilterTest.client.filterPostSubscriptions(requestBody)
 
@@ -148,7 +148,7 @@ suite "Waku v2 Rest API - Filter V2":
 
     # When - error case
     let badRequestBody = FilterSubscribeRequest(
-      requestId: "4567", contentFilters: @[], pubsubTopic: none(string)
+      requestId: "4567", contentFilters: @[], pubsubTopic: Opt.none(string)
     )
     let badRequestResp =
       await restFilterTest.client.filterPostSubscriptions(badRequestBody)
@@ -173,7 +173,7 @@ suite "Waku v2 Rest API - Filter V2":
       requestId: "1234",
       contentFilters:
         @[ContentTopic("1"), ContentTopic("2"), ContentTopic("3"), ContentTopic("4")],
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
     )
     discard await restFilterTest.client.filterPostSubscriptions(requestBody)
 
@@ -186,7 +186,7 @@ suite "Waku v2 Rest API - Filter V2":
     let requestBodyUnsub = FilterUnsubscribeRequest(
       requestId: "4321",
       contentFilters: contentFilters,
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
     )
     let response =
       await restFilterTest.client.filterDeleteSubscriptions(requestBodyUnsub)
@@ -243,7 +243,7 @@ suite "Waku v2 Rest API - Filter V2":
     var requestBody = FilterSubscribeRequest(
       requestId: "1234",
       contentFilters: @[ContentTopic("1")],
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
     )
     discard await restFilterTest.client.filterPostSubscriptions(requestBody)
 
@@ -294,7 +294,7 @@ suite "Waku v2 Rest API - Filter V2":
     var requestBody = FilterSubscribeRequest(
       requestId: "1234",
       contentFilters: @[ContentTopic("1")],
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
     )
     discard await restFilterTest.client.filterPostSubscriptions(requestBody)
 
@@ -346,7 +346,7 @@ suite "Waku v2 Rest API - Filter V2":
     let requestBody = FilterSubscribeRequest(
       requestId: "1001",
       contentFilters: @[DefaultContentTopic],
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
     )
     let response = await restFilterTest.client.filterPostSubscriptions(requestBody)
 
@@ -425,7 +425,7 @@ suite "Waku v2 Rest API - Filter V2":
     let requestBody = FilterSubscribeRequest(
       requestId: "1001",
       contentFilters: @[DefaultContentTopic],
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
     )
     let response = await restFilterTest.client.filterPostSubscriptions(requestBody)
 

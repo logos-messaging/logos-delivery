@@ -1,10 +1,9 @@
 import libp2p/crypto/crypto
 import libp2p/crypto/rng
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[sequtils, strutils, options, sets, net, json],
+  std/[sequtils, strutils, sets, net, json],
   results,
   chronos,
   chronicles,
@@ -40,7 +39,7 @@ type Discv5Conf* {.requiresInit.} = object
   enrAutoUpdate*: bool
 
 type WakuDiscoveryV5Config* = object
-  discv5Config*: Option[DiscoveryConfig]
+  discv5Config*: Opt[DiscoveryConfig]
   address*: IpAddress
   port*: Port
   privateKey*: eth_keys.PrivateKey
@@ -56,21 +55,21 @@ type WakuDiscoveryV5* = ref object
   conf: WakuDiscoveryV5Config
   protocol*: protocol.Protocol
   listening*: bool
-  predicate: Option[WakuDiscv5Predicate]
-  peerManager: Option[PeerManager]
+  predicate: Opt[WakuDiscv5Predicate]
+  peerManager: Opt[PeerManager]
   topicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent]
 
 proc shardingPredicate*(
     record: Record, bootnodes: seq[Record] = @[]
-): Option[WakuDiscv5Predicate] =
+): Opt[WakuDiscv5Predicate] =
   ## Filter peers based on relay sharding information
   let typedRecord = record.toTyped().valueOr:
     info "peer filtering failed", reason = error
-    return none(WakuDiscv5Predicate)
+    return Opt.none(WakuDiscv5Predicate)
 
   let nodeShard = typedRecord.relaySharding().valueOr:
     info "no relay sharding information, peer filtering disabled"
-    return none(WakuDiscv5Predicate)
+    return Opt.none(WakuDiscv5Predicate)
 
   info "peer filtering updated"
 
@@ -81,14 +80,14 @@ proc shardingPredicate*(
       nodeShard.shardIds.anyIt(record.containsShard(nodeShard.clusterId, it))
     ) #RFC 64 guideline
 
-  return some(predicate)
+  return Opt.some(predicate)
 
 proc new*(
     T: type WakuDiscoveryV5,
     rng: crypto.Rng,
     conf: WakuDiscoveryV5Config,
-    record: Option[waku_enr.Record],
-    peerManager: Option[PeerManager] = none(PeerManager),
+    record: Opt[waku_enr.Record],
+    peerManager: Opt[PeerManager] = Opt.none(PeerManager),
     queue: AsyncEventQueue[SubscriptionEvent] =
       newAsyncEventQueue[SubscriptionEvent](30),
 ): T =
@@ -100,7 +99,7 @@ proc new*(
     privKey = conf.privateKey,
     bootstrapRecords = conf.bootstrapRecords,
     enrAutoUpdate = conf.autoupdateRecord,
-    previousRecord = record.toOpt(),
+    previousRecord = record,
     enrIp = Opt.none(IpAddress),
     enrTcpPort = Opt.none(Port),
     enrUdpPort = Opt.none(Port),
@@ -110,7 +109,7 @@ proc new*(
     if record.isSome():
       shardingPredicate(record.get(), conf.bootstrapRecords)
     else:
-      none(WakuDiscv5Predicate)
+      Opt.none(WakuDiscv5Predicate)
 
   WakuDiscoveryV5(
     conf: conf,
@@ -221,7 +220,7 @@ proc logDiscv5FoundPeers(discoveredRecords: seq[waku_enr.Record]) =
       addrs = addrs, enr = recordUri, capabilities = capabilities, shards = shardsStr
 
 proc findRandomPeers*(
-    wd: WakuDiscoveryV5, overridePred = none(WakuDiscv5Predicate)
+    wd: WakuDiscoveryV5, overridePred = Opt.none(WakuDiscv5Predicate)
 ): Future[seq[waku_enr.Record]] {.async.} =
   ## Find random peers to connect to using Discovery v5
   let discoveredNodes = await wd.protocol.queryRandom()
@@ -445,7 +444,7 @@ proc setupDiscoveryV5*(
   let discv5UdpPort = conf.udpPort
 
   let discv5Conf = WakuDiscoveryV5Config(
-    discv5Config: some(discv5Config),
+    discv5Config: Opt.some(discv5Config),
     address: p2pListenAddress,
     port: discv5UdpPort,
     privateKey: eth_keys.PrivateKey(key.skkey),
@@ -455,7 +454,11 @@ proc setupDiscoveryV5*(
 
   return ok(
     WakuDiscoveryV5.new(
-      rng, discv5Conf, some(myENR), some(nodePeerManager), nodeTopicSubscriptionQueue
+      rng,
+      discv5Conf,
+      Opt.some(myENR),
+      Opt.some(nodePeerManager),
+      nodeTopicSubscriptionQueue,
     )
   )
 

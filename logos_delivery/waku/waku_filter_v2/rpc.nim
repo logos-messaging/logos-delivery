@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import json_serialization, std/options
+import results, json_serialization
 import ../waku_core
 
 type
@@ -14,13 +14,13 @@ type
   FilterSubscribeRequest* = object # Request from client to service node
     requestId*: string
     filterSubscribeType*: FilterSubscribeType
-    pubsubTopic*: Option[PubsubTopic]
+    pubsubTopic*: Opt[PubsubTopic]
     contentTopics*: seq[ContentTopic]
 
   FilterSubscribeResponse* = object # Response from service node to client
     requestId*: string
     statusCode*: uint32
-    statusDesc*: Option[string]
+    statusDesc*: Opt[string]
 
   MessagePush* = object # Message pushed from service node to client
     wakuMessage*: WakuMessage
@@ -40,7 +40,7 @@ proc subscribe*(
   FilterSubscribeRequest(
     requestId: requestId,
     filterSubscribeType: SUBSCRIBE,
-    pubsubTopic: some(pubsubTopic),
+    pubsubTopic: Opt.some(pubsubTopic),
     contentTopics: contentTopics,
   )
 
@@ -53,7 +53,7 @@ proc unsubscribe*(
   FilterSubscribeRequest(
     requestId: requestId,
     filterSubscribeType: UNSUBSCRIBE,
-    pubsubTopic: some(pubsubTopic),
+    pubsubTopic: Opt.some(pubsubTopic),
     contentTopics: contentTopics,
   )
 
@@ -61,11 +61,13 @@ proc unsubscribeAll*(T: type FilterSubscribeRequest, requestId: string): T =
   FilterSubscribeRequest(requestId: requestId, filterSubscribeType: UNSUBSCRIBE_ALL)
 
 proc ok*(T: type FilterSubscribeResponse, requestId: string, desc = "OK"): T =
-  FilterSubscribeResponse(requestId: requestId, statusCode: 200, statusDesc: some(desc))
+  FilterSubscribeResponse(
+    requestId: requestId, statusCode: 200, statusDesc: Opt.some(desc)
+  )
 
 proc `$`*(err: FilterSubscribeResponse): string =
   "FilterSubscribeResponse of req:" & err.requestId & " [" & $err.statusCode & "] " &
-    $err.statusDesc
+    err.statusDesc.get("")
 
 proc `$`*(req: FilterSubscribeRequest): string =
   "FilterSubscribeRequest of req:" & req.requestId & " [" & $req.filterSubscribeType &

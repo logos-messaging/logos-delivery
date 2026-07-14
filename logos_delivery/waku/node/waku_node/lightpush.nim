@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[hashes, options, strutils, tables, net],
+  std/[hashes, strutils, tables, net],
   chronos,
   chronicles,
   metrics,
@@ -49,8 +48,9 @@ proc mountLegacyLightPush*(
   info "mounting legacy lightpush with relay"
   let pushHandler = legacy_lightpush_protocol.getRelayPushHandler(node.wakuRelay)
 
-  node.wakuLegacyLightPush =
-    WakuLegacyLightPush.new(node.peerManager, node.rng, pushHandler, some(rateLimit))
+  node.wakuLegacyLightPush = WakuLegacyLightPush.new(
+    node.peerManager, node.rng, pushHandler, Opt.some(rateLimit)
+  )
 
   if node.started:
     # Node has started already. Let's start lightpush too.
@@ -90,7 +90,7 @@ proc internalLegacyLightpushPublish(
   return await node.wakuLegacyLightPush.handleSelfLightPushRequest(pubsubTopic, message)
 
 proc resolveLegacyPubsubTopic(
-    node: WakuNode, pubsubTopic: Option[PubsubTopic], contentTopic: ContentTopic
+    node: WakuNode, pubsubTopic: Opt[PubsubTopic], contentTopic: ContentTopic
 ): Result[PubsubTopic, string] =
   ## Returns the explicit pubsub topic, else derives it from `contentTopic`
   ## via autosharding. The legacy wire format requires a pubsub topic and the
@@ -107,7 +107,7 @@ proc resolveLegacyPubsubTopic(
 
 proc runRlnRefreshRetry(
     node: WakuNode,
-    rln: Option[Rln],
+    rln: Opt[Rln],
     msgWithProof: WakuMessage,
     pubsubForPublish: PubsubTopic,
     peer: RemotePeerInfo,
@@ -131,7 +131,7 @@ proc runRlnRefreshRetry(
 
 proc legacyLightpushPublish*(
     node: WakuNode,
-    pubsubTopic: Option[PubsubTopic],
+    pubsubTopic: Opt[PubsubTopic],
     message: WakuMessage,
     peer: RemotePeerInfo,
 ): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.async, gcsafe.} =
@@ -149,9 +149,9 @@ proc legacyLightpushPublish*(
 
   let rln =
     if node.rln.isNil():
-      none(Rln)
+      Opt.none(Rln)
     else:
-      some(node.rln)
+      Opt.some(node.rln)
   let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
     return err("failed call checkAndGenerateRLNProof from lightpush: " & error)
 
@@ -178,7 +178,7 @@ proc legacyLightpushPublish*(
 
 # TODO: Move to application module (e.g., wakunode2.nim)
 proc legacyLightpushPublish*(
-    node: WakuNode, pubsubTopic: Option[PubsubTopic], message: WakuMessage
+    node: WakuNode, pubsubTopic: Opt[PubsubTopic], message: WakuMessage
 ): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.
     async, gcsafe, deprecated: "Use 'node.legacyLightpushPublish()' instead"
 .} =
@@ -186,7 +186,7 @@ proc legacyLightpushPublish*(
     error "failed to publish message as legacy lightpush not available"
     return err("waku legacy lightpush not available")
 
-  var peerOpt: Option[RemotePeerInfo] = none(RemotePeerInfo)
+  var peerOpt: Opt[RemotePeerInfo] = Opt.none(RemotePeerInfo)
   if not node.wakuLegacyLightpushClient.isNil():
     peerOpt = node.peerManager.selectPeer(WakuLegacyLightPushCodec)
     if peerOpt.isNone():
@@ -194,7 +194,7 @@ proc legacyLightpushPublish*(
       error "failed to publish message", err = msg
       return err(msg)
   elif not node.wakuLegacyLightPush.isNil():
-    peerOpt = some(RemotePeerInfo.init($node.switch.peerInfo.peerId))
+    peerOpt = Opt.some(RemotePeerInfo.init($node.switch.peerInfo.peerId))
 
   return await node.legacyLightpushPublish(pubsubTopic, message, peer = peerOpt.get())
 
@@ -210,7 +210,7 @@ proc mountLightPush*(
   let pushHandler = lightpush_protocol.getRelayPushHandler(node.wakuRelay)
 
   node.wakuLightPush = WakuLightPush.new(
-    node.peerManager, node.rng, pushHandler, node.wakuAutoSharding, some(rateLimit)
+    node.peerManager, node.rng, pushHandler, node.wakuAutoSharding, Opt.some(rateLimit)
   )
 
   if node.started:
@@ -259,9 +259,11 @@ proc lightpushPublishHandler(
             "Waku lightpush with mix not available",
           )
 
-        return await node.wakuLightpushClient.publish(some(pubsubTopic), message, conn)
+        return
+          await node.wakuLightpushClient.publish(Opt.some(pubsubTopic), message, conn)
     else:
-      return await node.wakuLightpushClient.publish(some(pubsubTopic), message, peer)
+      return
+        await node.wakuLightpushClient.publish(Opt.some(pubsubTopic), message, peer)
 
   if not node.wakuLightPush.isNil():
     if mixify:
@@ -275,14 +277,15 @@ proc lightpushPublishHandler(
       contentTopic = message.contentTopic,
       target_peer_id = peer.peerId,
       msg_hash = msgHash
-    return
-      await node.wakuLightPush.handleSelfLightPushRequest(some(pubsubTopic), message)
+    return await node.wakuLightPush.handleSelfLightPushRequest(
+      Opt.some(pubsubTopic), message
+    )
 
 proc lightpushPublish*(
     node: WakuNode,
-    pubsubTopic: Option[PubsubTopic],
+    pubsubTopic: Opt[PubsubTopic],
     message: WakuMessage,
-    peerOpt: Option[RemotePeerInfo] = none(RemotePeerInfo),
+    peerOpt: Opt[RemotePeerInfo] = Opt.none(RemotePeerInfo),
     mixify: bool = false,
 ): Future[lightpush_protocol.WakuLightPushResult] {.async.} =
   if node.wakuLightpushClient.isNil() and node.wakuLightPush.isNil():
@@ -330,9 +333,9 @@ proc lightpushPublish*(
 
   let rln =
     if node.rln.isNil():
-      none(Rln)
+      Opt.none(Rln)
     else:
-      some(node.rln)
+      Opt.some(node.rln)
   let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
     return lighpushErrorResult(LightPushErrorCode.OUT_OF_RLN_PROOF, error)
 

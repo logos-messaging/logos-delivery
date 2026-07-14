@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[sequtils, options], testutils/unittests, chronos
+import results, std/sequtils, testutils/unittests, chronos
 import
   logos_delivery/waku/[
     waku_archive,
@@ -114,14 +114,15 @@ suite "Postgres driver":
     # Get both content topics
     messagesRes = await driver.getMessages(
       contentTopics = @[contentTopic1, contentTopic2],
-      cursor = some(computeMessageHash(pubsubTopic1, messagesRes.get()[1][2])),
+      cursor = Opt.some(computeMessageHash(pubsubTopic1, messagesRes.get()[1][2])),
     )
     assert messagesRes.isOk()
     assert messagesRes.get().len == 1
 
     # Get both content topics but one pubsub topic
     messagesRes = await driver.getMessages(
-      contentTopics = @[contentTopic1, contentTopic2], pubsubTopic = some(pubsubTopic1)
+      contentTopics = @[contentTopic1, contentTopic2],
+      pubsubTopic = Opt.some(pubsubTopic1),
     )
     assert messagesRes.isOk(), messagesRes.error
 

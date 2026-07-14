@@ -1,22 +1,20 @@
-import std/[times, options]
+import std/times
 import confutils, chronicles, chronos, results
 
 import logos_delivery/waku/[waku_core, common/protobuf]
 import libp2p/protobuf/minprotobuf
 
-export
-  times, options, confutils, chronicles, chronos, results, waku_core, protobuf,
-  minprotobuf
+export times, confutils, chronicles, chronos, results, waku_core, protobuf, minprotobuf
 
 type SerializedKey* = seq[byte]
 
 type WakuStealthCommitmentMsg* = object
   request*: bool
-  spendingPubKey*: Option[SerializedKey]
-  viewingPubKey*: Option[SerializedKey]
-  ephemeralPubKey*: Option[SerializedKey]
-  stealthCommitment*: Option[SerializedKey]
-  viewTag*: Option[uint64]
+  spendingPubKey*: Opt[SerializedKey]
+  viewingPubKey*: Opt[SerializedKey]
+  ephemeralPubKey*: Opt[SerializedKey]
+  stealthCommitment*: Opt[SerializedKey]
+  viewTag*: Opt[uint64]
 
 proc decode*(T: type WakuStealthCommitmentMsg, buffer: seq[byte]): ProtoResult[T] =
   var msg = WakuStealthCommitmentMsg()
@@ -29,20 +27,20 @@ proc decode*(T: type WakuStealthCommitmentMsg, buffer: seq[byte]): ProtoResult[T
   discard ?pb.getField(2, spendingPubKey)
   msg.spendingPubKey =
     if spendingPubKey.len > 0:
-      some(spendingPubKey)
+      Opt.some(spendingPubKey)
     else:
-      none(SerializedKey)
+      Opt.none(SerializedKey)
   var viewingPubKey = newSeq[byte]()
   discard ?pb.getField(3, viewingPubKey)
   msg.viewingPubKey =
     if viewingPubKey.len > 0:
-      some(viewingPubKey)
+      Opt.some(viewingPubKey)
     else:
-      none(SerializedKey)
+      Opt.none(SerializedKey)
 
   if msg.spendingPubKey.isSome() and msg.viewingPubKey.isSome():
-    msg.stealthCommitment = none(SerializedKey)
-    msg.viewTag = none(uint64)
+    msg.stealthCommitment = Opt.none(SerializedKey)
+    msg.viewTag = Opt.none(uint64)
     return ok(msg)
   if msg.spendingPubKey.isSome() and msg.viewingPubKey.isNone():
     return err(ProtoError.RequiredFieldMissing)
@@ -55,25 +53,25 @@ proc decode*(T: type WakuStealthCommitmentMsg, buffer: seq[byte]): ProtoResult[T
   discard ?pb.getField(4, stealthCommitment)
   msg.stealthCommitment =
     if stealthCommitment.len > 0:
-      some(stealthCommitment)
+      Opt.some(stealthCommitment)
     else:
-      none(SerializedKey)
+      Opt.none(SerializedKey)
 
   var ephemeralPubKey = newSeq[byte]()
   discard ?pb.getField(5, ephemeralPubKey)
   msg.ephemeralPubKey =
     if ephemeralPubKey.len > 0:
-      some(ephemeralPubKey)
+      Opt.some(ephemeralPubKey)
     else:
-      none(SerializedKey)
+      Opt.none(SerializedKey)
 
   var viewTag: uint64
   discard ?pb.getField(6, viewTag)
   msg.viewTag =
     if viewTag != 0:
-      some(viewTag)
+      Opt.some(viewTag)
     else:
-      none(uint64)
+      Opt.none(uint64)
 
   if msg.stealthCommitment.isNone() and msg.viewTag.isNone() and
       msg.ephemeralPubKey.isNone():
@@ -86,8 +84,8 @@ proc decode*(T: type WakuStealthCommitmentMsg, buffer: seq[byte]): ProtoResult[T
     return err(ProtoError.RequiredFieldMissing)
 
   if msg.stealthCommitment.isSome() and msg.viewTag.isSome():
-    msg.spendingPubKey = none(SerializedKey)
-    msg.viewingPubKey = none(SerializedKey)
+    msg.spendingPubKey = Opt.none(SerializedKey)
+    msg.viewingPubKey = Opt.none(SerializedKey)
 
   ok(msg)
 
@@ -118,8 +116,8 @@ proc constructRequest*(
 ): WakuStealthCommitmentMsg =
   WakuStealthCommitmentMsg(
     request: true,
-    spendingPubKey: some(spendingPubKey),
-    viewingPubKey: some(viewingPubKey),
+    spendingPubKey: Opt.some(spendingPubKey),
+    viewingPubKey: Opt.some(viewingPubKey),
   )
 
 proc constructResponse*(
@@ -127,7 +125,7 @@ proc constructResponse*(
 ): WakuStealthCommitmentMsg =
   WakuStealthCommitmentMsg(
     request: false,
-    stealthCommitment: some(stealthCommitment),
-    ephemeralPubKey: some(ephemeralPubKey),
-    viewTag: some(viewTag),
+    stealthCommitment: Opt.some(stealthCommitment),
+    ephemeralPubKey: Opt.some(ephemeralPubKey),
+    viewTag: Opt.some(viewTag),
   )

@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, net], results, testutils/unittests
+import std/net, results, testutils/unittests
 import logos_delivery/waku/common/enr, ../testlib/wakucore
 
 suite "nim-eth ENR - builder and typed record":
@@ -30,7 +30,7 @@ suite "nim-eth ENR - builder and typed record":
 
     let id = record.id
     check:
-      id == some(RecordId.V4)
+      id == Opt.some(RecordId.V4)
 
     let publicKey = record.secp256k1
     check:
@@ -58,7 +58,9 @@ suite "nim-eth ENR - Ext: IP address and TCP/UDP ports":
 
     ## When
     var builder = EnrBuilder.init(privateKey, seqNum)
-    builder.withIpAddressAndPorts(ipAddr = some(enrIpAddr), udpPort = some(enrUdpPort))
+    builder.withIpAddressAndPorts(
+      ipAddr = Opt.some(enrIpAddr), udpPort = Opt.some(enrUdpPort)
+    )
 
     let enrRes = builder.build()
 
@@ -81,7 +83,9 @@ suite "nim-eth ENR - Ext: IP address and TCP/UDP ports":
 
     ## When
     var builder = EnrBuilder.init(privateKey, seqNum)
-    builder.withIpAddressAndPorts(ipAddr = some(enrIpAddr), tcpPort = some(enrTcpPort))
+    builder.withIpAddressAndPorts(
+      ipAddr = Opt.some(enrIpAddr), tcpPort = Opt.some(enrTcpPort)
+    )
 
     let enrRes = builder.build()
 
@@ -91,10 +95,10 @@ suite "nim-eth ENR - Ext: IP address and TCP/UDP ports":
     let record = enrRes.tryGet().toTyped().get()
     check:
       @(record.secp256k1.get()) == expectedPubKey
-      record.ip == some(enrIpAddr.address_v4)
-      record.tcp == some(enrTcpPort.uint16)
-      record.udp == none(uint16)
-      record.ip6 == none(array[16, byte])
+      record.ip == Opt.some(enrIpAddr.address_v4)
+      record.tcp == Opt.some(enrTcpPort.uint16)
+      record.udp == Opt.none(uint16)
+      record.ip6 == Opt.none(array[16, byte])
 
   test "IPv6 and UDP port":
     let
@@ -108,7 +112,9 @@ suite "nim-eth ENR - Ext: IP address and TCP/UDP ports":
 
     ## When
     var builder = EnrBuilder.init(privateKey, seqNum)
-    builder.withIpAddressAndPorts(ipAddr = some(enrIpAddr), udpPort = some(enrUdpPort))
+    builder.withIpAddressAndPorts(
+      ipAddr = Opt.some(enrIpAddr), udpPort = Opt.some(enrUdpPort)
+    )
 
     let enrRes = builder.build()
 
@@ -118,9 +124,9 @@ suite "nim-eth ENR - Ext: IP address and TCP/UDP ports":
     let record = enrRes.tryGet().toTyped().get()
     check:
       @(record.secp256k1.get()) == expectedPubKey
-      record.ip == none(array[4, byte])
-      record.tcp == none(uint16)
-      record.ip6 == some(enrIpAddr.address_v6)
-      record.tcp6 == none(uint16)
-      record.udp6 == some(enrUdpPort.uint16)
-      record.udp == some(enrUdpPort.uint16)
+      record.ip == Opt.none(array[4, byte])
+      record.tcp == Opt.none(uint16)
+      record.ip6 == Opt.some(enrIpAddr.address_v6)
+      record.tcp6 == Opt.none(uint16)
+      record.udp6 == Opt.some(enrUdpPort.uint16)
+      record.udp == Opt.some(enrUdpPort.uint16)

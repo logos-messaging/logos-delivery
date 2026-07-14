@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/options,
+  results,
   sqlite3_abi,
   chronicles,
   chronos,
@@ -39,7 +38,7 @@ type
     db: SqliteDatabase
     replaceStmt: SqliteStmt[(Timestamp), void]
 
-    transferCallBack: Option[TransferCallback]
+    transferCallBack: Opt[TransferCallback]
 
     peerManager: PeerManager
 
@@ -79,15 +78,15 @@ proc initTransferHandler(
     return
 
   # tying archive, store client and resume into one callback and saving it for later
-  self.transferCallBack = some(
+  self.transferCallBack = Opt.some(
     proc(
         timestamp: Timestamp, peer: RemotePeerInfo
     ): Future[Result[void, string]] {.async: (raises: []), closure.} =
       var req = StoreQueryRequest()
       req.includeData = true
-      req.startTime = some(timestamp)
-      req.endTime = some(getNowInNanosecondTime())
-      req.paginationLimit = some(uint64(100))
+      req.startTime = Opt.some(timestamp)
+      req.endTime = Opt.some(getNowInNanosecondTime())
+      req.paginationLimit = Opt.some(uint64(100))
 
       while true:
         let catchable = catch:

@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, testutils/unittests, eth/p2p/discoveryv5/enr, libp2p/crypto/crypto
+import results, testutils/unittests, eth/p2p/discoveryv5/enr, libp2p/crypto/crypto
 import
   logos_delivery/waku/[
     common/databases/db_sqlite,
@@ -33,7 +33,7 @@ suite "Peer Storage":
     let stored = RemotePeerInfo(
       peerId: peer.peerId,
       addrs: @[peerLoc],
-      enr: some(record),
+      enr: Opt.some(record),
       protocols: @[peerProto],
       publicKey: peerKey.getPublicKey().tryGet(),
       connectedness: connectedness,
@@ -75,7 +75,7 @@ suite "Peer Storage":
     # Test replace and retrieve (update an existing entry)
     stored.connectedness = CannotConnect
     stored.disconnectTime = disconn + 10
-    stored.enr = none(Record)
+    stored.enr = Opt.none(Record)
     require storage.put(stored).isOk
 
     responseCount = 0

@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, os, times]
+import std/[os, times]
 import chronos, results
 import testutils/unittests
 import brokers/[event_broker, request_broker]

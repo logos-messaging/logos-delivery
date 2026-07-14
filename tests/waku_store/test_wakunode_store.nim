@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[sequtils, options],
+  results,
+  std/sequtils,
   testutils/unittests,
   chronicles,
   chronos,
@@ -49,7 +50,9 @@ procSuite "WakuNode - Store":
 
   let kvs = zip(hashes, msgListA).mapIt(
       WakuMessageKeyValue(
-        messageHash: it[0], message: some(it[1]), pubsubTopic: some(DefaultPubsubTopic)
+        messageHash: it[0],
+        message: Opt.some(it[1]),
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
       )
     )
 
@@ -119,7 +122,7 @@ procSuite "WakuNode - Store":
       includeData: true,
       contentTopics: @[DefaultContentTopic],
       paginationForward: PagingDirection.FORWARD,
-      paginationLimit: some(uint64(7)),
+      paginationLimit: Opt.some(uint64(7)),
     )
     let serverPeer = server.peerInfo.toRemotePeerInfo()
 
@@ -127,7 +130,7 @@ procSuite "WakuNode - Store":
     var nextReq = req # copy
 
     var pages = newSeq[seq[WakuMessageKeyValue]](2)
-    var cursors = newSeq[Option[WakuMessageHash]](2)
+    var cursors = newSeq[Opt[WakuMessageHash]](2)
 
     for i in 0 ..< 2:
       let res = waitFor client.query(nextReq, peer = serverPeer)
@@ -143,8 +146,8 @@ procSuite "WakuNode - Store":
 
     ## Then
     check:
-      cursors[0] == some(kvs[6].messageHash)
-      cursors[1] == none(WakuMessageHash)
+      cursors[0] == Opt.some(kvs[6].messageHash)
+      cursors[1] == Opt.none(WakuMessageHash)
 
     check:
       pages[0] == kvs[0 .. 6]
@@ -174,7 +177,7 @@ procSuite "WakuNode - Store":
     let req = StoreQueryRequest(
       includeData: true,
       contentTopics: @[DefaultContentTopic],
-      paginationLimit: some(uint64(7)),
+      paginationLimit: Opt.some(uint64(7)),
       paginationForward: PagingDirection.BACKWARD,
     )
     let serverPeer = server.peerInfo.toRemotePeerInfo()
@@ -183,7 +186,7 @@ procSuite "WakuNode - Store":
     var nextReq = req # copy
 
     var pages = newSeq[seq[WakuMessageKeyValue]](2)
-    var cursors = newSeq[Option[WakuMessageHash]](2)
+    var cursors = newSeq[Opt[WakuMessageHash]](2)
 
     for i in 0 ..< 2:
       let res = waitFor client.query(nextReq, peer = serverPeer)
@@ -199,8 +202,8 @@ procSuite "WakuNode - Store":
 
     ## Then
     check:
-      cursors[0] == some(kvs[3].messageHash)
-      cursors[1] == none(WakuMessageHash)
+      cursors[0] == Opt.some(kvs[3].messageHash)
+      cursors[1] == Opt.none(WakuMessageHash)
 
     check:
       pages[0] == kvs[3 .. 9]
@@ -249,7 +252,7 @@ procSuite "WakuNode - Store":
 
     server.wakuFilterClient.registerPushHandler(filterHandler)
     let resp = waitFor server.filterSubscribe(
-      some(DefaultPubsubTopic), DefaultContentTopic, peer = filterSourcePeer
+      Opt.some(DefaultPubsubTopic), DefaultContentTopic, peer = filterSourcePeer
     )
 
     waitFor sleepAsync(100.millis)
@@ -272,8 +275,8 @@ procSuite "WakuNode - Store":
       response.messages[0] ==
         WakuMessageKeyValue(
           messageHash: hash,
-          message: some(message),
-          pubsubTopic: some(DefaultPubSubTopic),
+          message: Opt.some(message),
+          pubsubTopic: Opt.some(DefaultPubSubTopic),
         )
 
     let (handledPubsubTopic, handledMsg) = filterFut.read()
@@ -309,7 +312,7 @@ procSuite "WakuNode - Store":
 
     ## Given
     let req = StoreQueryRequest(
-      contentTopics: @[DefaultContentTopic], paginationCursor: some(cursor)
+      contentTopics: @[DefaultContentTopic], paginationCursor: Opt.some(cursor)
     )
     let serverPeer = server.peerInfo.toRemotePeerInfo()
 

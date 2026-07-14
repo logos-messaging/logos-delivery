@@ -1,13 +1,13 @@
 {.used.}
 
-import std/options, results, testutils/unittests
+import results, testutils/unittests
 import logos_delivery/waku/waku_core/topics
 
 suite "Waku Message - Content topics namespacing":
   test "Stringify namespaced content topic":
     ## Given
     var ns = NsContentTopic()
-    ns.generation = none(int)
+    ns.generation = Opt.none(int)
     ns.application = "toychat"
     ns.version = "2"
     ns.name = "huilong"
@@ -32,7 +32,7 @@ suite "Waku Message - Content topics namespacing":
 
     let ns = nsRes.get()
     check:
-      ns.generation == none(int)
+      ns.generation == Opt.none(int)
       ns.application == "toychat"
       ns.version == "2"
       ns.name == "huilong"
@@ -50,7 +50,7 @@ suite "Waku Message - Content topics namespacing":
 
     let ns = nsRes.get()
     check:
-      ns.generation == some(0)
+      ns.generation == Opt.some(0)
       ns.application == "toychat"
       ns.version == "2"
       ns.name == "huilong"

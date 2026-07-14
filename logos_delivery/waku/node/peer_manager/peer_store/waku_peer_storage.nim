@@ -1,12 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[sets, options],
-  results,
-  sqlite3_abi,
-  eth/p2p/discoveryv5/enr,
-  libp2p/protobuf/minprotobuf
+  std/sets, results, sqlite3_abi, eth/p2p/discoveryv5/enr, libp2p/protobuf/minprotobuf
 import
   ../../../common/databases/db_sqlite,
   ../../../waku_core,
@@ -51,7 +46,7 @@ proc decode*(T: type RemotePeerInfo, buffer: seq[byte]): ProtoResult[T] =
     var record: Record
 
     if record.fromBytes(rlpBytes):
-      storedInfo.enr = some(record)
+      storedInfo.enr = Opt.some(record)
 
   ok(storedInfo)
 

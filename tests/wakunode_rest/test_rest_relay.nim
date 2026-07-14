@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[sequtils, strformat, strutils, tempfiles, osproc, options],
+  results,
+  std/[sequtils, strformat, strutils, tempfiles, osproc],
   stew/byteutils,
   testutils/unittests,
   presto,
@@ -35,14 +36,14 @@ proc testWakuNode(): WakuNode =
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
-  newTestWakuNode(privkey, bindIp, port, some(extIp), some(port))
+  newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
 
 suite "Waku v2 Rest API - Relay":
   var anvilProc {.threadVar.}: Process
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
     manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
   teardown:
@@ -308,8 +309,8 @@ suite "Waku v2 Rest API - Relay":
       DefaultPubsubTopic,
       RelayWakuMessage(
         payload: base64.encode("TEST-PAYLOAD"),
-        contentTopic: some(DefaultContentTopic),
-        timestamp: some(now()),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
       ),
     )
 
@@ -576,8 +577,8 @@ suite "Waku v2 Rest API - Relay":
     let response = await client.relayPostAutoMessagesV1(
       RelayWakuMessage(
         payload: base64.encode("TEST-PAYLOAD"),
-        contentTopic: some(DefaultContentTopic),
-        timestamp: some(now()),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
       )
     )
 
@@ -636,8 +637,8 @@ suite "Waku v2 Rest API - Relay":
     let response = await client.relayPostAutoMessagesV1(
       RelayWakuMessage(
         payload: base64.encode("TEST-PAYLOAD"),
-        contentTopic: some(invalidContentTopic),
-        timestamp: some(int64(2022)),
+        contentTopic: Opt.some(invalidContentTopic),
+        timestamp: Opt.some(int64(2022)),
       )
     )
 
@@ -707,8 +708,8 @@ suite "Waku v2 Rest API - Relay":
       RelayWakuMessage(
         payload: base64.encode(getByteSequence(DefaultMaxWakuMessageSize)),
           # Message will be bigger than the max size
-        contentTopic: some(DefaultContentTopic),
-        timestamp: some(int64(2022)),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(int64(2022)),
       ),
     )
 
@@ -778,8 +779,8 @@ suite "Waku v2 Rest API - Relay":
       RelayWakuMessage(
         payload: base64.encode(getByteSequence(DefaultMaxWakuMessageSize)),
           # Message will be bigger than the max size
-        contentTopic: some(DefaultContentTopic),
-        timestamp: some(int64(2022)),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(int64(2022)),
       )
     )
 
@@ -851,8 +852,8 @@ suite "Waku v2 Rest API - Relay":
       DefaultPubsubTopic,
       RelayWakuMessage(
         payload: base64.encode("TEST-PAYLOAD"),
-        contentTopic: some(DefaultContentTopic),
-        timestamp: some(now()),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
       ),
     )
 
@@ -872,8 +873,8 @@ suite "Waku v2 Rest API - Relay":
       DefaultPubsubTopic,
       RelayWakuMessage(
         payload: base64.encode("TEST-PAYLOAD"),
-        contentTopic: some(DefaultContentTopic),
-        timestamp: some(now()),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
       ),
     )
 
@@ -957,8 +958,8 @@ suite "Waku v2 Rest API - Relay":
     let response = await client.relayPostAutoMessagesV1(
       RelayWakuMessage(
         payload: base64.encode("TEST-PAYLOAD"),
-        contentTopic: some(DefaultContentTopic),
-        timestamp: some(now()),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
       )
     )
 
@@ -977,8 +978,8 @@ suite "Waku v2 Rest API - Relay":
     let retryResponse = await client.relayPostAutoMessagesV1(
       RelayWakuMessage(
         payload: base64.encode("TEST-PAYLOAD"),
-        contentTopic: some(DefaultContentTopic),
-        timestamp: some(now()),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
       )
     )
 

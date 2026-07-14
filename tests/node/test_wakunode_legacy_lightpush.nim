@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, tempfiles, net, osproc, strutils],
+  results,
+  std/[tempfiles, net, osproc, strutils],
   testutils/unittests,
   chronos,
   std/strformat,
@@ -65,7 +66,7 @@ suite "Waku Legacy Lightpush - End To End":
 
       # When the client publishes a message
       let publishResponse = await lightpushClient.legacyLightpushPublish(
-        some(pubsubTopic), message, serverRemotePeerInfo
+        Opt.some(pubsubTopic), message, serverRemotePeerInfo
       )
 
       if not publishResponse.isOk():
@@ -86,7 +87,7 @@ suite "Waku Legacy Lightpush - End To End":
 
       # When the client publishes an over-limit message
       let publishResponse = await client.legacyLightpushPublish(
-        some(pubsubTopic), msgOverLimit, serverRemotePeerInfo
+        Opt.some(pubsubTopic), msgOverLimit, serverRemotePeerInfo
       )
 
       check:
@@ -115,7 +116,7 @@ suite "RLN Proofs as a Lightpush Service":
     server = newTestWakuNode(serverKey)
     client = newTestWakuNode(clientKey)
 
-    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
     manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
     # mount rln-relay
@@ -170,11 +171,11 @@ suite "RLN Proofs as a Lightpush Service":
       # proof in legacyLightpushPublish; here we generate it using the server's RLN
       # instance since both ends share group state via the in-memory manager.
       let msgWithProof =
-        (await checkAndGenerateRLNProof(some(server.rln), message)).get()
+        (await checkAndGenerateRLNProof(Opt.some(server.rln), message)).get()
 
       # When the client publishes a message
       let publishResponse = await lightpushClient.legacyLightpushPublish(
-        some(pubsubTopic), msgWithProof, serverRemotePeerInfo
+        Opt.some(pubsubTopic), msgWithProof, serverRemotePeerInfo
       )
 
       if not publishResponse.isOk():
@@ -204,7 +205,7 @@ suite "RLN Proofs as a Lightpush Service":
       server.wakuLegacyLightPush.pushHandler = stub
 
       let response = await server.legacyLightpushPublish(
-        some(pubsubTopic), message, server.peerInfo.toRemotePeerInfo()
+        Opt.some(pubsubTopic), message, server.peerInfo.toRemotePeerInfo()
       )
 
       check:
@@ -221,7 +222,7 @@ suite "RLN Proofs as a Lightpush Service":
       server.wakuLegacyLightPush.pushHandler = stub
 
       let response = await server.legacyLightpushPublish(
-        some(pubsubTopic), message, server.peerInfo.toRemotePeerInfo()
+        Opt.some(pubsubTopic), message, server.peerInfo.toRemotePeerInfo()
       )
 
       check:
@@ -239,7 +240,7 @@ suite "RLN Proofs as a Lightpush Service":
       server.wakuLegacyLightPush.pushHandler = stub
 
       let response = await server.legacyLightpushPublish(
-        some(pubsubTopic), message, server.peerInfo.toRemotePeerInfo()
+        Opt.some(pubsubTopic), message, server.peerInfo.toRemotePeerInfo()
       )
 
       check:
@@ -264,7 +265,7 @@ suite "RLN Proofs as a Lightpush Service":
       server.wakuLegacyLightPush.pushHandler = stub
 
       let response = await server.legacyLightpushPublish(
-        some(pubsubTopic), message, server.peerInfo.toRemotePeerInfo()
+        Opt.some(pubsubTopic), message, server.peerInfo.toRemotePeerInfo()
       )
 
       server.rln = savedRln
@@ -318,7 +319,8 @@ suite "Waku Legacy Lightpush message delivery":
     await sleepAsync(100.millis)
 
     ## When
-    let res = await lightNode.legacyLightpushPublish(some(CustomPubsubTopic), message)
+    let res =
+      await lightNode.legacyLightpushPublish(Opt.some(CustomPubsubTopic), message)
     assert res.isOk(), $res.error
 
     ## Then

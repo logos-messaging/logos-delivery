@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/options,
+  results,
   testutils/unittests,
   presto,
   presto/client as presto_client,
@@ -30,7 +30,7 @@ proc testWakuNode(): WakuNode =
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
-  newTestWakuNode(privkey, bindIp, port, some(extIp), some(port))
+  newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
 
 suite "Waku v2 REST API - Debug":
   asyncTest "Get node info - GET /info":

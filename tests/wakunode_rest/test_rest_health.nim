@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[tempfiles, osproc, options],
+  results,
+  std/[tempfiles, osproc],
   testutils/unittests,
   presto,
   presto/client as presto_client,
@@ -34,7 +35,7 @@ proc testWakuNode(): WakuNode =
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
-  newTestWakuNode(privkey, bindIp, port, some(extIp), some(port))
+  newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
 
 suite "Waku v2 REST API - health":
   # TODO: better test for health
@@ -42,7 +43,7 @@ suite "Waku v2 REST API - health":
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
     manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
   teardown:
@@ -89,7 +90,7 @@ suite "Waku v2 REST API - health":
       report.protocolsHealth.len() == 13
 
       report.getHealth(RelayProtocol).health == HealthStatus.NOT_READY
-      report.getHealth(RelayProtocol).desc == some("No connected peers")
+      report.getHealth(RelayProtocol).desc == Opt.some("No connected peers")
 
       report.getHealth(RlnRelayProtocol).health == HealthStatus.READY
 
@@ -103,14 +104,14 @@ suite "Waku v2 REST API - health":
 
       report.getHealth(LightpushClientProtocol).health == HealthStatus.NOT_READY
       report.getHealth(LightpushClientProtocol).desc ==
-        some("No Lightpush service peer available yet")
+        Opt.some("No Lightpush service peer available yet")
 
       report.getHealth(LegacyLightpushClientProtocol).health == HealthStatus.NOT_MOUNTED
       report.getHealth(StoreClientProtocol).health == HealthStatus.NOT_MOUNTED
 
       report.getHealth(FilterClientProtocol).health == HealthStatus.NOT_READY
       report.getHealth(FilterClientProtocol).desc ==
-        some("No Filter service peer available yet")
+        Opt.some("No Filter service peer available yet")
 
     await restServer.stop()
     await restServer.closeWait()

@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, tables, json],
+  std/[tables, json],
   testutils/unittests,
   results,
   chronos,
@@ -44,37 +44,37 @@ proc subscribe(
     serverRemotePeerInfo: RemotePeerInfo,
     pubsubTopic: PubsubTopic,
     contentTopicSeq: seq[ContentTopic],
-): Option[FilterSubscribeErrorKind] =
+): Opt[FilterSubscribeErrorKind] =
   let subscribeResponse = waitFor client.wakuFilterClient.subscribe(
     serverRemotePeerInfo, pubsubTopic, contentTopicSeq
   )
   if subscribeResponse.isOk():
-    return none[FilterSubscribeErrorKind]()
+    return Opt.none(FilterSubscribeErrorKind)
 
-  return some(subscribeResponse.error().kind)
+  return Opt.some(subscribeResponse.error().kind)
 
 proc unsubscribe(
     client: AFilterClient,
     serverRemotePeerInfo: RemotePeerInfo,
     pubsubTopic: PubsubTopic,
     contentTopicSeq: seq[ContentTopic],
-): Option[FilterSubscribeErrorKind] =
+): Opt[FilterSubscribeErrorKind] =
   let unsubscribeResponse = waitFor client.wakuFilterClient.unsubscribe(
     serverRemotePeerInfo, pubsubTopic, contentTopicSeq
   )
   if unsubscribeResponse.isOk():
-    return none[FilterSubscribeErrorKind]()
+    return Opt.none(FilterSubscribeErrorKind)
 
-  return some(unsubscribeResponse.error().kind)
+  return Opt.some(unsubscribeResponse.error().kind)
 
 proc ping(
     client: AFilterClient, serverRemotePeerInfo: RemotePeerInfo
-): Option[FilterSubscribeErrorKind] =
+): Opt[FilterSubscribeErrorKind] =
   let pingResponse = waitFor client.wakuFilterClient.ping(serverRemotePeerInfo)
   if pingResponse.isOk():
-    return none[FilterSubscribeErrorKind]()
+    return Opt.none(FilterSubscribeErrorKind)
 
-  return some(pingResponse.error().kind)
+  return Opt.some(pingResponse.error().kind)
 
 suite "Waku Filter - DOS protection":
   var serverSwitch {.threadvar.}: Switch
@@ -95,7 +95,7 @@ suite "Waku Filter - DOS protection":
     contentTopicSeq = @[contentTopic]
     serverSwitch = newStandardSwitch()
     wakuFilter = await newTestWakuFilter(
-      serverSwitch, rateLimitSetting = some((3, 1000.milliseconds))
+      serverSwitch, rateLimitSetting = Opt.some((3, 1000.milliseconds))
     )
 
     await allFutures(
@@ -118,9 +118,9 @@ suite "Waku Filter - DOS protection":
   asyncTest "Limit number of subscriptions requests":
     # Given
     check client1.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+      Opt.none(FilterSubscribeErrorKind)
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+      Opt.none(FilterSubscribeErrorKind)
 
     # Avoid using tiny sleeps to control refill behavior: CI scheduling can
     # oversleep and mint additional tokens. Instead, issue a small burst of
@@ -145,7 +145,7 @@ suite "Waku Filter - DOS protection":
 
     # Ensure the other client is not affected by client1's rate limit.
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+      Opt.none(FilterSubscribeErrorKind)
 
     var c2SubscribeFutures = newSeq[Future[FilterSubscribeResult]]()
     for i in 0 ..< 6:
@@ -168,9 +168,9 @@ suite "Waku Filter - DOS protection":
     # ensure period of time has passed and clients can again use the service
     await sleepAsync(1100.milliseconds)
     check client1.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+      Opt.none(FilterSubscribeErrorKind)
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+      Opt.none(FilterSubscribeErrorKind)
 
   asyncTest "Ensure normal usage allowed":
     # Given
@@ -180,28 +180,29 @@ suite "Waku Filter - DOS protection":
     # - refill rate = 3 tokens / second => ~1 token every ~333ms
     # - each request consumes 1 token (including UNSUBSCRIBE)
     check client1.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+      Opt.none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId)
 
     # Expected remaining tokens (approx): 2
 
     await sleepAsync(500.milliseconds)
-    check client1.ping(serverRemotePeerInfo) == none(FilterSubscribeErrorKind)
+    check client1.ping(serverRemotePeerInfo) == Opt.none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId)
 
     # After ~500ms, ~1 token refilled; PING consumes 1 => expected remaining: 2
 
     await sleepAsync(500.milliseconds)
-    check client1.ping(serverRemotePeerInfo) == none(FilterSubscribeErrorKind)
+    check client1.ping(serverRemotePeerInfo) == Opt.none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId)
 
     # After another ~500ms, ~1 token refilled; PING consumes 1 => expected remaining: 2
 
     check client1.unsubscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+      Opt.none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client1.clientPeerId) == false
 
-    check client1.ping(serverRemotePeerInfo) == some(FilterSubscribeErrorKind.NOT_FOUND)
+    check client1.ping(serverRemotePeerInfo) ==
+      Opt.some(FilterSubscribeErrorKind.NOT_FOUND)
     # After unsubscribing, PING is expected to return NOT_FOUND while still
     # counting towards the rate limit.
 
@@ -225,5 +226,5 @@ suite "Waku Filter - DOS protection":
     check gotTooMany
 
     check client2.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq) ==
-      none(FilterSubscribeErrorKind)
+      Opt.none(FilterSubscribeErrorKind)
     check wakuFilter.subscriptions.isSubscribed(client2.clientPeerId) == true

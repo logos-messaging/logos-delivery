@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils, times]
+import results, std/[sequtils, times]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
@@ -96,7 +96,7 @@ suite "LM API health checking":
       conf.listenAddress = parseIpAddress("0.0.0.0")
       conf.tcpPort = Port(0)
       conf.discv5UdpPort = Port(0)
-      conf.clusterId = some(3'u16)
+      conf.clusterId = Opt.some(3'u16)
       conf.numShardsInNetwork = 1
       conf.rest = false
 
@@ -241,7 +241,7 @@ suite "LM API health checking":
     let cTopic = ContentTopic("/waku/2/my-content-topic/proto")
 
     let shardReq =
-      RequestRelayShard.request(client.waku.brokerCtx, none(PubsubTopic), cTopic)
+      RequestRelayShard.request(client.waku.brokerCtx, Opt.none(PubsubTopic), cTopic)
 
     check shardReq.isOk()
     let targetShard = $shardReq.get().relayShard
@@ -276,7 +276,7 @@ suite "LM API health checking":
       edgeConf.listenAddress = parseIpAddress("0.0.0.0")
       edgeConf.tcpPort = Port(0)
       edgeConf.discv5UdpPort = Port(0)
-      edgeConf.clusterId = some(3'u16)
+      edgeConf.clusterId = Opt.some(3'u16)
       edgeConf.maxMessageSize = "150 KiB"
       edgeConf.rest = false
 

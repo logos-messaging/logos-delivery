@@ -1,25 +1,23 @@
-import logos_delivery/waku/compat/option_valueor
-import chronicles, std/[net, options], results
-import logos_delivery/waku/common/rate_limit/setting
+import chronicles, std/net, results, logos_delivery/waku/common/rate_limit/setting
 
 logScope:
   topics = "waku conf builder rate limit"
 
 type RateLimitConfBuilder* = object
-  strValue: Option[seq[string]]
-  objValue: Option[ProtocolRateLimitSettings]
+  strValue: Opt[seq[string]]
+  objValue: Opt[ProtocolRateLimitSettings]
 
 proc init*(T: type RateLimitConfBuilder): RateLimitConfBuilder =
   RateLimitConfBuilder()
 
 proc withRateLimits*(b: var RateLimitConfBuilder, rateLimits: seq[string]) =
-  b.strValue = some(rateLimits)
+  b.strValue = Opt.some(rateLimits)
 
 proc withRateLimitsIfNotAssigned*(
     b: var RateLimitConfBuilder, rateLimits: seq[string]
 ) =
   if b.strValue.isNone() or b.strValue.get().len == 0:
-    b.strValue = some(rateLimits)
+    b.strValue = Opt.some(rateLimits)
 
 proc build*(b: RateLimitConfBuilder): Result[ProtocolRateLimitSettings, string] =
   if b.strValue.isSome() and b.objValue.isSome():

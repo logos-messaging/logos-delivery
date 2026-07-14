@@ -1,7 +1,7 @@
 import libp2p/crypto/crypto
 {.push raises: [].}
 
-import std/options, results, stew/byteutils, chronicles, chronos, metrics, bearssl/rand
+import results, stew/byteutils, chronicles, chronos, metrics, bearssl/rand
 import
   ../node/peer_manager/peer_manager,
   ../waku_core,
@@ -62,8 +62,8 @@ proc handleRequest*(
   if not isSuccess:
     waku_lightpush_errors.inc(labelValues = [pushResponseInfo])
     error "failed to push message", error = pushResponseInfo
-  let response = PushResponse(isSuccess: isSuccess, info: some(pushResponseInfo))
-  let rpc = PushRPC(requestId: requestId, response: some(response))
+  let response = PushResponse(isSuccess: isSuccess, info: Opt.some(pushResponseInfo))
+  let rpc = PushRPC(requestId: requestId, response: Opt.some(response))
   return rpc
 
 proc initProtocolHandler(wl: WakuLegacyLightPush) =
@@ -98,8 +98,9 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
           ## in reject case as it is comparably too expensive and opens possible
           ## attack surface
           requestId: "N/A",
-          response:
-            some(PushResponse(isSuccess: false, info: some(TooManyRequestsMessage))),
+          response: Opt.some(
+            PushResponse(isSuccess: false, info: Opt.some(TooManyRequestsMessage))
+          ),
         )
       )
 
@@ -119,7 +120,7 @@ proc new*(
     peerManager: PeerManager,
     rng: crypto.Rng,
     pushHandler: PushMessageHandler,
-    rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
+    rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
 ): T =
   let wl = WakuLegacyLightPush(
     rng: rng,

@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 import std/[strutils, math], results, regex
 
 proc parseMsgSize*(input: string): Result[uint64, string] =

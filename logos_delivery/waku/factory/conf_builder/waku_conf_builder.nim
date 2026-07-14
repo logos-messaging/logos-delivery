@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 import
   libp2p/crypto/crypto,
   libp2p/multiaddress,
-  std/[net, options, sequtils],
+  std/[net, sequtils],
   stint,
   chronicles,
   chronos,
@@ -101,14 +100,14 @@ type MaxMessageSize* = object
 # TODO: Add default to most values so that when a developer uses
 # the builder, it works out-of-the-box
 type WakuConfBuilder* = object
-  nodeKey: Option[crypto.PrivateKey]
+  nodeKey: Opt[crypto.PrivateKey]
 
-  clusterId: Option[uint16]
-  shardingConf: Option[ShardingConfKind]
-  numShardsInCluster: Option[uint16]
-  subscribeShards: Option[seq[uint16]]
-  protectedShards: Option[seq[ProtectedShard]]
-  contentTopics: Option[seq[string]]
+  clusterId: Opt[uint16]
+  shardingConf: Opt[ShardingConfKind]
+  numShardsInCluster: Opt[uint16]
+  subscribeShards: Opt[seq[uint16]]
+  protectedShards: Opt[seq[ProtectedShard]]
+  contentTopics: Opt[seq[string]]
 
   # Conf builders
   dnsDiscoveryConf*: DnsDiscoveryConfBuilder
@@ -124,54 +123,54 @@ type WakuConfBuilder* = object
   rateLimitConf*: RateLimitConfBuilder
   kademliaDiscoveryConf*: KademliaDiscoveryConfBuilder
   # End conf builders
-  relay: Option[bool]
-  lightPush: Option[bool]
-  peerExchange: Option[bool]
-  storeSync: Option[bool]
-  relayPeerExchange: Option[bool]
-  mix: Option[bool]
+  relay: Opt[bool]
+  lightPush: Opt[bool]
+  peerExchange: Opt[bool]
+  storeSync: Opt[bool]
+  relayPeerExchange: Opt[bool]
+  mix: Opt[bool]
 
   # TODO: move within a relayConf
-  rendezvous: Option[bool]
+  rendezvous: Opt[bool]
 
-  networkPresetConf: Option[NetworkPresetConf]
+  networkPresetConf: Opt[NetworkPresetConf]
 
   staticNodes: seq[string]
 
-  remoteStoreNode: Option[string]
-  remoteLightPushNode: Option[string]
-  remoteFilterNode: Option[string]
-  remotePeerExchangeNode: Option[string]
+  remoteStoreNode: Opt[string]
+  remoteLightPushNode: Opt[string]
+  remoteFilterNode: Opt[string]
+  remotePeerExchangeNode: Opt[string]
 
   maxMessageSize: MaxMessageSize
 
-  logLevel: Option[logging.LogLevel]
-  logFormat: Option[logging.LogFormat]
+  logLevel: Opt[logging.LogLevel]
+  logFormat: Opt[logging.LogFormat]
 
-  natStrategy: Option[string]
+  natStrategy: Opt[string]
 
-  p2pTcpPort: Option[Port]
-  p2pListenAddress: Option[IpAddress]
-  portsShift: Option[uint16]
-  dns4DomainName: Option[string]
+  p2pTcpPort: Opt[Port]
+  p2pListenAddress: Opt[IpAddress]
+  portsShift: Opt[uint16]
+  dns4DomainName: Opt[string]
   extMultiAddrs: seq[string]
-  extMultiAddrsOnly: Option[bool]
+  extMultiAddrsOnly: Opt[bool]
 
   dnsAddrsNameServers: seq[IpAddress]
 
-  peerPersistence: Option[bool]
-  peerStoreCapacity: Option[int]
-  maxConnections: Option[int]
-  colocationLimit: Option[int]
+  peerPersistence: Opt[bool]
+  peerStoreCapacity: Opt[int]
+  maxConnections: Opt[int]
+  colocationLimit: Opt[int]
 
-  agentString: Option[string]
+  agentString: Opt[string]
 
-  maxRelayPeers: Option[int]
-  relayShardedPeerManagement: Option[bool]
-  relayServiceRatio: Option[string]
-  circuitRelayClient: Option[bool]
+  maxRelayPeers: Opt[int]
+  relayShardedPeerManagement: Opt[bool]
+  relayServiceRatio: Opt[string]
+  circuitRelayClient: Opt[bool]
 
-  localStoragePath: Option[string]
+  localStoragePath: Opt[string]
 
 proc init*(T: type WakuConfBuilder): WakuConfBuilder =
   WakuConfBuilder(
@@ -191,74 +190,74 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
 proc withNetworkPresetConf*(
     b: var WakuConfBuilder, networkPresetConf: NetworkPresetConf
 ) =
-  b.networkPresetConf = some(networkPresetConf)
+  b.networkPresetConf = Opt.some(networkPresetConf)
 
 proc withNodeKey*(b: var WakuConfBuilder, nodeKey: crypto.PrivateKey) =
-  b.nodeKey = some(nodeKey)
+  b.nodeKey = Opt.some(nodeKey)
 
 proc withClusterId*(b: var WakuConfBuilder, clusterId: uint16) =
-  b.clusterId = some(clusterId)
+  b.clusterId = Opt.some(clusterId)
 
 proc withShardingConf*(b: var WakuConfBuilder, shardingConf: ShardingConfKind) =
-  b.shardingConf = some(shardingConf)
+  b.shardingConf = Opt.some(shardingConf)
 
 proc withNumShardsInCluster*(b: var WakuConfBuilder, numShardsInCluster: uint16) =
-  b.numShardsInCluster = some(numShardsInCluster)
+  b.numShardsInCluster = Opt.some(numShardsInCluster)
 
 proc withSubscribeShards*(b: var WakuConfBuilder, shards: seq[uint16]) =
-  b.subscribeShards = some(shards)
+  b.subscribeShards = Opt.some(shards)
 
 proc withProtectedShards*(
     b: var WakuConfBuilder, protectedShards: seq[ProtectedShard]
 ) =
-  b.protectedShards = some(protectedShards)
+  b.protectedShards = Opt.some(protectedShards)
 
 proc withContentTopics*(b: var WakuConfBuilder, contentTopics: seq[string]) =
-  b.contentTopics = some(contentTopics)
+  b.contentTopics = Opt.some(contentTopics)
 
 proc withRelay*(b: var WakuConfBuilder, relay: bool) =
-  b.relay = some(relay)
+  b.relay = Opt.some(relay)
 
 proc withLightPush*(b: var WakuConfBuilder, lightPush: bool) =
-  b.lightPush = some(lightPush)
+  b.lightPush = Opt.some(lightPush)
 
 proc withStoreSync*(b: var WakuConfBuilder, storeSync: bool) =
-  b.storeSync = some(storeSync)
+  b.storeSync = Opt.some(storeSync)
 
 proc withPeerExchange*(b: var WakuConfBuilder, peerExchange: bool) =
-  b.peerExchange = some(peerExchange)
+  b.peerExchange = Opt.some(peerExchange)
 
 proc withRelayPeerExchange*(b: var WakuConfBuilder, relayPeerExchange: bool) =
-  b.relayPeerExchange = some(relayPeerExchange)
+  b.relayPeerExchange = Opt.some(relayPeerExchange)
 
 proc withRendezvous*(b: var WakuConfBuilder, rendezvous: bool) =
-  b.rendezvous = some(rendezvous)
+  b.rendezvous = Opt.some(rendezvous)
 
 proc withMix*(builder: var WakuConfBuilder, mix: bool) =
-  builder.mix = some(mix)
+  builder.mix = Opt.some(mix)
 
 proc withRemoteStoreNode*(b: var WakuConfBuilder, remoteStoreNode: string) =
-  b.remoteStoreNode = some(remoteStoreNode)
+  b.remoteStoreNode = Opt.some(remoteStoreNode)
 
 proc withRemoteLightPushNode*(b: var WakuConfBuilder, remoteLightPushNode: string) =
-  b.remoteLightPushNode = some(remoteLightPushNode)
+  b.remoteLightPushNode = Opt.some(remoteLightPushNode)
 
 proc withRemoteFilterNode*(b: var WakuConfBuilder, remoteFilterNode: string) =
-  b.remoteFilterNode = some(remoteFilterNode)
+  b.remoteFilterNode = Opt.some(remoteFilterNode)
 
 proc withRemotePeerExchangeNode*(
     b: var WakuConfBuilder, remotePeerExchangeNode: string
 ) =
-  b.remotePeerExchangeNode = some(remotePeerExchangeNode)
+  b.remotePeerExchangeNode = Opt.some(remotePeerExchangeNode)
 
 proc withPeerPersistence*(b: var WakuConfBuilder, peerPersistence: bool) =
-  b.peerPersistence = some(peerPersistence)
+  b.peerPersistence = Opt.some(peerPersistence)
 
 proc withPeerStoreCapacity*(b: var WakuConfBuilder, peerStoreCapacity: int) =
-  b.peerStoreCapacity = some(peerStoreCapacity)
+  b.peerStoreCapacity = Opt.some(peerStoreCapacity)
 
 proc withMaxConnections*(b: var WakuConfBuilder, maxConnections: int) =
-  b.maxConnections = some(maxConnections)
+  b.maxConnections = Opt.some(maxConnections)
 
 proc withDnsAddrsNameServers*(
     b: var WakuConfBuilder, dnsAddrsNameServers: seq[IpAddress]
@@ -266,51 +265,51 @@ proc withDnsAddrsNameServers*(
   b.dnsAddrsNameServers.insert(dnsAddrsNameServers)
 
 proc withLogLevel*(b: var WakuConfBuilder, logLevel: logging.LogLevel) =
-  b.logLevel = some(logLevel)
+  b.logLevel = Opt.some(logLevel)
 
 proc withLogFormat*(b: var WakuConfBuilder, logFormat: logging.LogFormat) =
-  b.logFormat = some(logFormat)
+  b.logFormat = Opt.some(logFormat)
 
 proc withP2pTcpPort*(b: var WakuConfBuilder, p2pTcpPort: Port) =
-  b.p2pTcpPort = some(p2pTcpPort)
+  b.p2pTcpPort = Opt.some(p2pTcpPort)
 
 proc withP2pTcpPort*(b: var WakuConfBuilder, p2pTcpPort: uint16) =
-  b.p2pTcpPort = some(Port(p2pTcpPort))
+  b.p2pTcpPort = Opt.some(Port(p2pTcpPort))
 
 proc withPortsShift*(b: var WakuConfBuilder, portsShift: uint16) =
-  b.portsShift = some(portsShift)
+  b.portsShift = Opt.some(portsShift)
 
 proc withP2pListenAddress*(b: var WakuConfBuilder, p2pListenAddress: IpAddress) =
-  b.p2pListenAddress = some(p2pListenAddress)
+  b.p2pListenAddress = Opt.some(p2pListenAddress)
 
 proc withExtMultiAddrsOnly*(b: var WakuConfBuilder, extMultiAddrsOnly: bool) =
-  b.extMultiAddrsOnly = some(extMultiAddrsOnly)
+  b.extMultiAddrsOnly = Opt.some(extMultiAddrsOnly)
 
 proc withDns4DomainName*(b: var WakuConfBuilder, dns4DomainName: string) =
-  b.dns4DomainName = some(dns4DomainName)
+  b.dns4DomainName = Opt.some(dns4DomainName)
 
 proc withNatStrategy*(b: var WakuConfBuilder, natStrategy: string) =
-  b.natStrategy = some(natStrategy)
+  b.natStrategy = Opt.some(natStrategy)
 
 proc withAgentString*(b: var WakuConfBuilder, agentString: string) =
-  b.agentString = some(agentString)
+  b.agentString = Opt.some(agentString)
 
 proc withColocationLimit*(b: var WakuConfBuilder, colocationLimit: int) =
-  b.colocationLimit = some(colocationLimit)
+  b.colocationLimit = Opt.some(colocationLimit)
 
 proc withRelayServiceRatio*(b: var WakuConfBuilder, relayServiceRatio: string) =
-  b.relayServiceRatio = some(relayServiceRatio)
+  b.relayServiceRatio = Opt.some(relayServiceRatio)
 
 proc withCircuitRelayClient*(b: var WakuConfBuilder, circuitRelayClient: bool) =
-  b.circuitRelayClient = some(circuitRelayClient)
+  b.circuitRelayClient = Opt.some(circuitRelayClient)
 
 proc withRelayShardedPeerManagement*(
     b: var WakuConfBuilder, relayShardedPeerManagement: bool
 ) =
-  b.relayShardedPeerManagement = some(relayShardedPeerManagement)
+  b.relayShardedPeerManagement = Opt.some(relayShardedPeerManagement)
 
 proc withLocalStoragePath*(b: var WakuConfBuilder, localStoragePath: string) =
-  b.localStoragePath = some(localStoragePath)
+  b.localStoragePath = Opt.some(localStoragePath)
 
 proc withExtMultiAddrs*(builder: var WakuConfBuilder, extMultiAddrs: seq[string]) =
   builder.extMultiAddrs = concat(builder.extMultiAddrs, extMultiAddrs)
@@ -339,9 +338,9 @@ proc nodeKey(
     return ok(nodeKey)
 
 proc buildShardingConf(
-    bShardingConfKind: Option[ShardingConfKind],
-    bNumShardsInCluster: Option[uint16],
-    bSubscribeShards: Option[seq[uint16]],
+    bShardingConfKind: Opt[ShardingConfKind],
+    bNumShardsInCluster: Opt[uint16],
+    bSubscribeShards: Opt[seq[uint16]],
 ): (ShardingConf, seq[uint16]) =
   case bShardingConfKind.get(DefaultShardingConfKind)
   of StaticSharding:
@@ -354,7 +353,7 @@ proc buildShardingConf(
     (shardingConf, bSubscribeShards.get(toSeq(0.uint16 .. upperShard)))
 
 template checkSetPresetValueToField[T](
-    field: var Option[T], presetVal: T, msg: static string
+    field: var Opt[T], presetVal: T, msg: static string
 ) =
   ## Set the field to the preset's value, unless the field is already set
   ## (explicit wins). Warn iff the field's existing value differs from the
@@ -364,7 +363,7 @@ template checkSetPresetValueToField[T](
     if field.get() != presetVal:
       warn msg, used = field.get(), discarded = presetVal
   else:
-    field = some(presetVal)
+    field = Opt.some(presetVal)
 
 proc checkAddPresetValueToField[T](field: var seq[T], presetVals: seq[T]) =
   ## Append the preset's list values to the field's existing list. Lists
@@ -481,7 +480,7 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
       warn "Failed to process entry nodes from network conf", error = processed.error()
 
 proc rejectOverride[T](
-    field: Option[T], presetValue: T, msg: string
+    field: Opt[T], presetValue: T, msg: string
 ): Result[void, string] =
   ## Errors with `msg` if `field` is set to anything other than the preset's value.
   if field.isSome() and field.get() != presetValue:
@@ -702,11 +701,11 @@ proc build*(
     if builder.dns4DomainName.isSome():
       let d = builder.dns4DomainName.get()
       if d.string != "":
-        some(d)
+        Opt.some(d)
       else:
-        none(string)
+        Opt.none(string)
     else:
-      none(string)
+      Opt.none(string)
 
   var extMultiAddrs: seq[MultiAddress] = @[]
   for s in builder.extMultiAddrs:

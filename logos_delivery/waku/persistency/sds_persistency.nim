@@ -53,7 +53,7 @@
 
 {.push raises: [].}
 
-import std/[algorithm, options]
+import std/algorithm
 import chronos, chronicles, results
 import libp2p/protobuf/minprotobuf
 import ./persistency

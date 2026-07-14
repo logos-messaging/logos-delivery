@@ -1,10 +1,11 @@
 {.push raises: [].}
 
 import
+  results,
   std/[sets, strformat],
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/[route, client]
 
 import ../../../waku_core, ../relay/types as relay_types, ../serdes
@@ -15,12 +16,12 @@ export relay_types
 
 type
   PushRequest* = object
-    pubsubTopic*: Option[PubSubTopic]
+    pubsubTopic*: Opt[PubSubTopic]
     message*: RelayWakuMessage
 
   PushResponse* = object
-    statusDesc*: Option[string]
-    relayPeerCount*: Option[uint32]
+    statusDesc*: Opt[string]
+    relayPeerCount*: Opt[uint32]
 
 #### Serialization and deserialization
 proc writeValue*(
@@ -36,8 +37,8 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var PushRequest
 ) {.raises: [SerializationError, IOError].} =
   var
-    pubsubTopic = none(PubsubTopic)
-    message = none(RelayWakuMessage)
+    pubsubTopic = Opt.none(PubsubTopic)
+    message = Opt.none(RelayWakuMessage)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -52,9 +53,9 @@ proc readValue*(
 
     case fieldName
     of "pubsubTopic":
-      pubsubTopic = some(reader.readValue(PubsubTopic))
+      pubsubTopic = Opt.some(reader.readValue(PubsubTopic))
     of "message":
-      message = some(reader.readValue(RelayWakuMessage))
+      message = Opt.some(reader.readValue(RelayWakuMessage))
     else:
       unrecognizedFieldWarning(value)
 
@@ -64,9 +65,9 @@ proc readValue*(
   value = PushRequest(
     pubsubTopic:
       if pubsubTopic.isNone() or pubsubTopic.get() == "":
-        none(string)
+        Opt.none(string)
       else:
-        some(pubsubTopic.get()),
+        Opt.some(pubsubTopic.get()),
     message: message.get(),
   )
 
@@ -84,8 +85,8 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var PushResponse
 ) {.raises: [SerializationError, IOError].} =
   var
-    statusDesc = none(string)
-    relayPeerCount = none(uint32)
+    statusDesc = Opt.none(string)
+    relayPeerCount = Opt.none(uint32)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -100,9 +101,9 @@ proc readValue*(
 
     case fieldName
     of "statusDesc":
-      statusDesc = some(reader.readValue(string))
+      statusDesc = Opt.some(reader.readValue(string))
     of "relayPeerCount":
-      relayPeerCount = some(reader.readValue(uint32))
+      relayPeerCount = Opt.some(reader.readValue(uint32))
     else:
       unrecognizedFieldWarning(value)
 

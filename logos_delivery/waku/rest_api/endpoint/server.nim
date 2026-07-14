@@ -73,7 +73,7 @@ proc new*(
     maxRequestBodySize: int = 1_048_576,
     requestErrorHandler: RestRequestErrorHandler = nil,
     dualstack = DualStackType.Auto,
-    allowedOrigin: Option[string] = none(string),
+    allowedOrigin: Opt[string] = Opt.none(string),
 ): RestServerResult[WakuRestServerRef] =
   var server = WakuRestServerRef(router: router)
 
@@ -116,14 +116,13 @@ proc getRouter(): RestRouter =
     ## because it will be used for query routing.
     if pattern.startsWith("{") and pattern.endsWith("}"): 0 else: 1
 
-  # disable allowed origin handling by presto, we add our own handling as middleware
-  RestRouter.init(validate, allowedOrigin = none(string))
+  RestRouter.init(validate)
 
 proc init*(
     T: type WakuRestServerRef,
     ip: IpAddress,
     port: Port,
-    allowedOrigin = none(string),
+    allowedOrigin = Opt.none(string),
     conf = RestServerConf.default(),
     requestErrorHandler: RestRequestErrorHandler = nil,
 ): RestServerResult[T] =
@@ -159,7 +158,7 @@ proc init*(
 proc newRestHttpServer*(
     ip: IpAddress,
     port: Port,
-    allowedOrigin = none(string),
+    allowedOrigin = Opt.none(string),
     conf = RestServerConf.default(),
     requestErrorHandler: RestRequestErrorHandler = nil,
 ): RestServerResult[WakuRestServerRef] =

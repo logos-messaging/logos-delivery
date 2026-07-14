@@ -1,10 +1,11 @@
 {.push raises: [].}
 
 import
+  results,
   std/[sets, strformat],
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/[route, client, common],
   libp2p/peerid
 import ../../../common/base64, ../../../waku_core, ../serdes
@@ -13,17 +14,17 @@ import ../../../common/base64, ../../../waku_core, ../serdes
 
 type FilterWakuMessage* = object
   payload*: Base64String
-  contentTopic*: Option[ContentTopic]
-  version*: Option[Natural]
-  timestamp*: Option[int64]
-  meta*: Option[Base64String]
-  ephemeral*: Option[bool]
+  contentTopic*: Opt[ContentTopic]
+  version*: Opt[Natural]
+  timestamp*: Opt[int64]
+  meta*: Opt[Base64String]
+  ephemeral*: Opt[bool]
 
 type FilterGetMessagesResponse* = seq[FilterWakuMessage]
 
 type FilterLegacySubscribeRequest* = object
   # Subscription request for legacy filter support
-  pubsubTopic*: Option[PubSubTopic]
+  pubsubTopic*: Opt[PubSubTopic]
   contentFilters*: seq[ContentTopic]
 
 type FilterSubscriberPing* = object
@@ -31,12 +32,12 @@ type FilterSubscriberPing* = object
 
 type FilterSubscribeRequest* = object
   requestId*: string
-  pubsubTopic*: Option[PubSubTopic]
+  pubsubTopic*: Opt[PubSubTopic]
   contentFilters*: seq[ContentTopic]
 
 type FilterUnsubscribeRequest* = object
   requestId*: string
-  pubsubTopic*: Option[PubSubTopic]
+  pubsubTopic*: Opt[PubSubTopic]
   contentFilters*: seq[ContentTopic]
 
 type FilterUnsubscribeAllRequest* = object
@@ -51,15 +52,15 @@ type FilterSubscriptionResponse* = object
 proc toFilterWakuMessage*(msg: WakuMessage): FilterWakuMessage =
   FilterWakuMessage(
     payload: base64.encode(msg.payload),
-    contentTopic: some(msg.contentTopic),
-    version: some(Natural(msg.version)),
-    timestamp: some(msg.timestamp),
+    contentTopic: Opt.some(msg.contentTopic),
+    version: Opt.some(Natural(msg.version)),
+    timestamp: Opt.some(msg.timestamp),
     meta:
       if msg.meta.len > 0:
-        some(base64.encode(msg.meta))
+        Opt.some(base64.encode(msg.meta))
       else:
-        none(Base64String),
-    ephemeral: some(msg.ephemeral),
+        Opt.none(Base64String),
+    ephemeral: Opt.some(msg.ephemeral),
   )
 
 proc toWakuMessage*(msg: FilterWakuMessage, version = 0): Result[WakuMessage, string] =
@@ -155,12 +156,12 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterWakuMessage
 ) {.raises: [SerializationError, IOError].} =
   var
-    payload = none(Base64String)
-    contentTopic = none(ContentTopic)
-    version = none(Natural)
-    timestamp = none(int64)
-    meta = none(Base64String)
-    ephemeral = none(bool)
+    payload = Opt.none(Base64String)
+    contentTopic = Opt.none(ContentTopic)
+    version = Opt.none(Natural)
+    timestamp = Opt.none(int64)
+    meta = Opt.none(Base64String)
+    ephemeral = Opt.none(bool)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -175,17 +176,17 @@ proc readValue*(
 
     case fieldName
     of "payload":
-      payload = some(reader.readValue(Base64String))
+      payload = Opt.some(reader.readValue(Base64String))
     of "contentTopic":
-      contentTopic = some(reader.readValue(ContentTopic))
+      contentTopic = Opt.some(reader.readValue(ContentTopic))
     of "version":
-      version = some(reader.readValue(Natural))
+      version = Opt.some(reader.readValue(Natural))
     of "timestamp":
-      timestamp = some(reader.readValue(int64))
+      timestamp = Opt.some(reader.readValue(int64))
     of "meta":
-      meta = some(reader.readValue(Base64String))
+      meta = Opt.some(reader.readValue(Base64String))
     of "ephemeral":
-      ephemeral = some(reader.readValue(bool))
+      ephemeral = Opt.some(reader.readValue(bool))
     else:
       unrecognizedFieldWarning(value)
 
@@ -205,8 +206,8 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterLegacySubscribeRequest
 ) {.raises: [SerializationError, IOError].} =
   var
-    pubsubTopic = none(PubsubTopic)
-    contentFilters = none(seq[ContentTopic])
+    pubsubTopic = Opt.none(PubsubTopic)
+    contentFilters = Opt.none(seq[ContentTopic])
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -221,9 +222,9 @@ proc readValue*(
 
     case fieldName
     of "pubsubTopic":
-      pubsubTopic = some(reader.readValue(PubsubTopic))
+      pubsubTopic = Opt.some(reader.readValue(PubsubTopic))
     of "contentFilters":
-      contentFilters = some(reader.readValue(seq[ContentTopic]))
+      contentFilters = Opt.some(reader.readValue(seq[ContentTopic]))
     else:
       unrecognizedFieldWarning(value)
 
@@ -236,16 +237,16 @@ proc readValue*(
   value = FilterLegacySubscribeRequest(
     pubsubTopic:
       if pubsubTopic.isNone() or pubsubTopic.get() == "":
-        none(string)
+        Opt.none(string)
       else:
-        some(pubsubTopic.get()),
+        Opt.some(pubsubTopic.get()),
     contentFilters: contentFilters.get(),
   )
 
 proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterSubscriberPing
 ) {.raises: [SerializationError, IOError].} =
-  var requestId = none(string)
+  var requestId = Opt.none(string)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -260,7 +261,7 @@ proc readValue*(
 
     case fieldName
     of "requestId":
-      requestId = some(reader.readValue(string))
+      requestId = Opt.some(reader.readValue(string))
     else:
       unrecognizedFieldWarning(value)
 
@@ -273,9 +274,9 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterSubscribeRequest
 ) {.raises: [SerializationError, IOError].} =
   var
-    requestId = none(string)
-    pubsubTopic = none(PubsubTopic)
-    contentFilters = none(seq[ContentTopic])
+    requestId = Opt.none(string)
+    pubsubTopic = Opt.none(PubsubTopic)
+    contentFilters = Opt.none(seq[ContentTopic])
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -290,11 +291,11 @@ proc readValue*(
 
     case fieldName
     of "requestId":
-      requestId = some(reader.readValue(string))
+      requestId = Opt.some(reader.readValue(string))
     of "pubsubTopic":
-      pubsubTopic = some(reader.readValue(PubsubTopic))
+      pubsubTopic = Opt.some(reader.readValue(PubsubTopic))
     of "contentFilters":
-      contentFilters = some(reader.readValue(seq[ContentTopic]))
+      contentFilters = Opt.some(reader.readValue(seq[ContentTopic]))
     else:
       unrecognizedFieldWarning(value)
 
@@ -311,9 +312,9 @@ proc readValue*(
     requestId: requestId.get(),
     pubsubTopic:
       if pubsubTopic.isNone() or pubsubTopic.get() == "":
-        none(string)
+        Opt.none(string)
       else:
-        some(pubsubTopic.get()),
+        Opt.some(pubsubTopic.get()),
     contentFilters: contentFilters.get(),
   )
 
@@ -321,9 +322,9 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterUnsubscribeRequest
 ) {.raises: [SerializationError, IOError].} =
   var
-    requestId = none(string)
-    pubsubTopic = none(PubsubTopic)
-    contentFilters = none(seq[ContentTopic])
+    requestId = Opt.none(string)
+    pubsubTopic = Opt.none(PubsubTopic)
+    contentFilters = Opt.none(seq[ContentTopic])
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -338,11 +339,11 @@ proc readValue*(
 
     case fieldName
     of "requestId":
-      requestId = some(reader.readValue(string))
+      requestId = Opt.some(reader.readValue(string))
     of "pubsubTopic":
-      pubsubTopic = some(reader.readValue(PubsubTopic))
+      pubsubTopic = Opt.some(reader.readValue(PubsubTopic))
     of "contentFilters":
-      contentFilters = some(reader.readValue(seq[ContentTopic]))
+      contentFilters = Opt.some(reader.readValue(seq[ContentTopic]))
     else:
       unrecognizedFieldWarning(value)
 
@@ -359,16 +360,16 @@ proc readValue*(
     requestId: requestId.get(),
     pubsubTopic:
       if pubsubTopic.isNone() or pubsubTopic.get() == "":
-        none(string)
+        Opt.none(string)
       else:
-        some(pubsubTopic.get()),
+        Opt.some(pubsubTopic.get()),
     contentFilters: contentFilters.get(),
   )
 
 proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterUnsubscribeAllRequest
 ) {.raises: [SerializationError, IOError].} =
-  var requestId = none(string)
+  var requestId = Opt.none(string)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -383,7 +384,7 @@ proc readValue*(
 
     case fieldName
     of "requestId":
-      requestId = some(reader.readValue(string))
+      requestId = Opt.some(reader.readValue(string))
     else:
       unrecognizedFieldWarning(value)
 
@@ -396,8 +397,8 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterSubscriptionResponse
 ) {.raises: [SerializationError, IOError].} =
   var
-    requestId = none(string)
-    statusDesc = none(string)
+    requestId = Opt.none(string)
+    statusDesc = Opt.none(string)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -412,9 +413,9 @@ proc readValue*(
 
     case fieldName
     of "requestId":
-      requestId = some(reader.readValue(string))
+      requestId = Opt.some(reader.readValue(string))
     of "statusDesc":
-      statusDesc = some(reader.readValue(string))
+      statusDesc = Opt.some(reader.readValue(string))
     else:
       unrecognizedFieldWarning(value)
 

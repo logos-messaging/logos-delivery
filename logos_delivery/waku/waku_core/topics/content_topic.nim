@@ -1,11 +1,10 @@
-import logos_delivery/waku/compat/option_valueor
 ## Waku content topics definition and namespacing utils
 ##
 ## See 23/WAKU2-TOPICS RFC: https://rfc.vac.dev/spec/23/
 
 {.push raises: [].}
 
-import std/options, std/strutils, results
+import std/strutils, results
 import ./parsing
 
 export parsing
@@ -19,7 +18,7 @@ const DefaultContentTopic* = ContentTopic("/waku/2/default-content/proto")
 ## Namespaced content topic
 
 type NsContentTopic* = object
-  generation*: Option[int]
+  generation*: Opt[int]
   application*: string
   version*: string
   name*: string
@@ -27,7 +26,7 @@ type NsContentTopic* = object
 
 proc init*(
     T: type NsContentTopic,
-    generation: Option[int],
+    generation: Opt[int],
     application: string,
     version: string,
     name: string,
@@ -90,7 +89,7 @@ proc parse*(
     if enc.len == 0:
       return err(ParsingError.missingPart("encoding"))
 
-    return ok(NsContentTopic.init(none(int), app, ver, name, enc))
+    return ok(NsContentTopic.init(Opt.none(int), app, ver, name, enc))
   of 5:
     if parts[0].len == 0:
       return err(ParsingError.missingPart("generation"))
@@ -117,7 +116,7 @@ proc parse*(
     if enc.len == 0:
       return err(ParsingError.missingPart("encoding"))
 
-    return ok(NsContentTopic.init(some(gen), app, ver, name, enc))
+    return ok(NsContentTopic.init(Opt.some(gen), app, ver, name, enc))
   else:
     let errMsg =
       "Invalid content topic structure. Expected either /<application>/<version>/<topic-name>/<encoding> or /<gen>/<application>/<version>/<topic-name>/<encoding>"

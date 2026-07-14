@@ -1,5 +1,4 @@
 ## Waku layer API — lightpush (light client publish) operations.
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import results, chronos, chronicles

@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[net, options]
+import results, std/net
 
 import chronos, testutils/unittests
 
@@ -14,7 +14,7 @@ suite "LogosDelivery API - Create node":
     ## Given
     var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
         raiseAssert "toWakuNodeConf failed: " & error
-    nodeConf.clusterId = some(3'u16)
+    nodeConf.clusterId = Opt.some(3'u16)
     nodeConf.rest = false
 
     # This is the actual minimal config but as the node auto-start, it is not suitable for tests
@@ -33,7 +33,7 @@ suite "LogosDelivery API - Create node":
     ## Given
     var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
         raiseAssert "toWakuNodeConf failed: " & error
-    nodeConf.clusterId = some(99'u16)
+    nodeConf.clusterId = Opt.some(99'u16)
     nodeConf.rest = false
     nodeConf.numShardsInNetwork = 16
     nodeConf.maxMessageSize = "1024 KiB"
@@ -64,7 +64,7 @@ suite "LogosDelivery API - Create node":
     ## Given
     var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
         raiseAssert "toWakuNodeConf failed: " & error
-    nodeConf.clusterId = some(42'u16)
+    nodeConf.clusterId = Opt.some(42'u16)
     nodeConf.rest = false
     nodeConf.entryNodes = @[
       "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im",

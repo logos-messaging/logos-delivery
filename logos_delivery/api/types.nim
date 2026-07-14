@@ -1,8 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
-import libp2p/crypto/crypto
 {.push raises: [].}
 
-import bearssl/rand, std/times, chronos
+import libp2p/crypto/crypto, bearssl/rand, std/times, chronos
 import stew/byteutils
 import logos_delivery/waku/utils/requests as request_utils
 import logos_delivery/waku/waku_core/[topics/content_topic, message/message, time]

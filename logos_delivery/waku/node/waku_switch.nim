@@ -2,7 +2,7 @@
 {.push raises: [].}
 
 import
-  std/options,
+  results,
   chronos,
   chronicles,
   eth/keys,
@@ -56,10 +56,10 @@ proc withWssTransport*(
   )
 
 proc newWakuSwitch*(
-    privKey = none(crypto.PrivateKey),
+    privKey = Opt.none(crypto.PrivateKey),
     address = MultiAddress.init("/ip4/127.0.0.1/tcp/0").tryGet(),
-    wsAddress = none(MultiAddress),
-    quicAddress = none(MultiAddress),
+    wsAddress = Opt.none(MultiAddress),
+    quicAddress = Opt.none(MultiAddress),
     secureManagers: openarray[SecureProtocol] = [SecureProtocol.Noise],
     transportFlags: set[ServerFlags] = {},
     rng: crypto.Rng,
@@ -74,8 +74,8 @@ proc newWakuSwitch*(
     wssEnabled: bool = false,
     secureKeyPath: string = "",
     secureCertPath: string = "",
-    agentString = none(string), # defaults to nim-libp2p version
-    peerStoreCapacity = none(int), # defaults to 1.25 maxConnections
+    agentString = Opt.none(string), # defaults to nim-libp2p version
+    peerStoreCapacity = Opt.none(int), # defaults to 1.25 maxConnections
     rendezvous: RendezVous = nil,
     circuitRelay: Relay,
 ): Switch {.raises: [Defect, IOError, LPError].} =

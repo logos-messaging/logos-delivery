@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/options, results, chronos
+import results, chronos
 import ../waku_core, ./common
 
 const DefaultPageSize*: uint = 25
@@ -30,10 +30,10 @@ method getMessages*(
     driver: ArchiveDriver,
     includeData = true,
     contentTopics = newSeq[ContentTopic](0),
-    pubsubTopic = none(PubsubTopic),
-    cursor = none(ArchiveCursor),
-    startTime = none(Timestamp),
-    endTime = none(Timestamp),
+    pubsubTopic = Opt.none(PubsubTopic),
+    cursor = Opt.none(ArchiveCursor),
+    startTime = Opt.none(Timestamp),
+    endTime = Opt.none(Timestamp),
     hashes = newSeq[WakuMessageHash](0),
     maxPageSize = DefaultPageSize,
     ascendingOrder = true,

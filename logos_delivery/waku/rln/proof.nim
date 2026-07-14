@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[options, times, sequtils]
+import std/[times, sequtils]
 import chronos, chronicles, results, stew/byteutils
 
 import ./types, ./protocol_types, ./conversion_utils, ./group_manager, ./nonce_manager
@@ -97,7 +97,7 @@ proc attachRLNProof*(
   return ok(msgWithProof)
 
 proc checkAndGenerateRLNProof*(
-    rln: Option[Rln], message: WakuMessage
+    rln: Opt[Rln], message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
   ## Returns the message with an attached RLN proof, or unchanged when it
   ## already carries a proof or RLN is not configured.

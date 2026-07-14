@@ -1,7 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/options, chronos
+import results, chronos
 
 import ../common/enr, ../waku_enr/capabilities, ../waku_enr/sharding
 
@@ -40,8 +39,8 @@ proc computeNamespace*(clusterId: uint16, shard: uint16, cap: Capabilities): str
 
   return namespace
 
-proc getRelayShards*(enr: enr.Record): Option[RelayShards] =
+proc getRelayShards*(enr: enr.Record): Opt[RelayShards] =
   let typedRecord = enr.toTyped().valueOr:
-    return none(RelayShards)
+    return Opt.none(RelayShards)
 
   return typedRecord.relaySharding()

@@ -11,7 +11,7 @@ import libp2p/crypto/crypto
 
 import testutils/unittests
 import chronos, libp2p/stream/connection
-import std/options
+import results
 
 import ../../logos_delivery/waku/common/rate_limit/request_limiter
 import ../../logos_delivery/waku/common/rate_limit/timed_map
@@ -27,7 +27,7 @@ suite "RequestRateLimiter":
   test "RequestRateLimiter Allow up to main bucket":
     # keep limits low for easier calculation of ratios
     let rateLimit: RateLimitSetting = (4, 2.minutes)
-    var limiter = newRequestRateLimiter(some(rateLimit))
+    var limiter = newRequestRateLimiter(Opt.some(rateLimit))
     # per peer tokens will be 6 / 4min
     # as ratio is 2 in this case but max tokens are main tokens*ratio . 0.75
     # notice meanwhile we have 8 global tokens over 2 period (4 mins) in sum
@@ -52,7 +52,7 @@ suite "RequestRateLimiter":
   test "RequestRateLimiter Restrict overusing peer":
     # keep limits low for easier calculation of ratios
     let rateLimit: RateLimitSetting = (10, 2.minutes)
-    var limiter = newRequestRateLimiter(some(rateLimit))
+    var limiter = newRequestRateLimiter(Opt.some(rateLimit))
     # per peer tokens will be 15 / 4min
     # as ratio is 2 in this case but max tokens are main tokens*ratio . 0.75
     # notice meanwhile we have 20 tokens over 2 period (4 mins) in sum
@@ -88,7 +88,7 @@ suite "RequestRateLimiter":
   test "RequestRateLimiter lowest possible volume":
     # keep limits low for easier calculation of ratios
     let rateLimit: RateLimitSetting = (1, 1.seconds)
-    var limiter = newRequestRateLimiter(some(rateLimit))
+    var limiter = newRequestRateLimiter(Opt.some(rateLimit))
 
     let now = Moment.now()
     # with first use we register the peer also and start its timer

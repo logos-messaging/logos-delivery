@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sugar, tables, sequtils, os, net],
+  std/[sugar, tables, sequtils, os, net],
   chronos,
   chronicles,
   metrics,
@@ -54,7 +53,7 @@ proc mountFilter*(
     maxFilterPeers,
     maxFilterCriteriaPerPeer,
     messageCacheTTL,
-    some(rateLimitSetting),
+    Opt.some(rateLimitSetting),
   )
 
   try:
@@ -100,7 +99,7 @@ proc mountFilterClient*(node: WakuNode) {.async: (raises: []).} =
 
 proc filterSubscribe*(
     node: WakuNode,
-    pubsubTopic: Option[PubsubTopic],
+    pubsubTopic: Opt[PubsubTopic],
     contentTopics: ContentTopic | seq[ContentTopic],
     peer: RemotePeerInfo | string,
 ): Future[FilterSubscribeResult] {.async: (raises: []).} =
@@ -184,7 +183,7 @@ proc filterSubscribe*(
 
 proc filterUnsubscribe*(
     node: WakuNode,
-    pubsubTopic: Option[PubsubTopic],
+    pubsubTopic: Opt[PubsubTopic],
     contentTopics: ContentTopic | seq[ContentTopic],
     peer: RemotePeerInfo | string,
 ): Future[FilterSubscribeResult] {.async: (raises: []).} =

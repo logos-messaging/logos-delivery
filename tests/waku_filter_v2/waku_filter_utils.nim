@@ -1,4 +1,4 @@
-import std/[options, tables, sets, algorithm], chronos, chronicles, os
+import results, std/[tables, sets, algorithm], chronos, chronicles, os
 
 import
   logos_delivery/waku/[
@@ -16,7 +16,7 @@ proc newTestWakuFilter*(
     subscriptionTimeout: Duration = DefaultSubscriptionTimeToLiveSec,
     maxFilterPeers: uint32 = MaxFilterPeers,
     maxFilterCriteriaPerPeer: uint32 = MaxFilterCriteriaPerPeer,
-    rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
+    rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
 ): Future[WakuFilter] {.async.} =
   let
     peerManager = PeerManager.new(switch)

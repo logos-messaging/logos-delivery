@@ -9,11 +9,11 @@
 ## which spawn a full service Waku node
 ## that could be used also as a lightpush client, helping testing and development.
 
-import results, chronos, std/options, metrics
+import results, chronos, metrics
 import ../waku_core, ./protocol, ./common, ./rpc, ./rpc_codec, ../utils/requests
 
 proc handleSelfLightPushRequest*(
-    self: WakuLightPush, pubSubTopic: Option[PubsubTopic], message: WakuMessage
+    self: WakuLightPush, pubSubTopic: Opt[PubsubTopic], message: WakuMessage
 ): Future[WakuLightPushResult] {.async.} =
   ## Handles the lightpush requests made by the node to itself.
   ## Normally used in REST-lightpush requests

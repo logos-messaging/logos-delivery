@@ -1,9 +1,10 @@
 {.push raises: [].}
 
 import
+  results,
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   json_serialization/lexer
 
 import logos_delivery/waku/rest_api/endpoint/serdes
@@ -34,13 +35,13 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var ProtocolTesterMessage
 ) {.gcsafe, raises: [SerializationError, IOError].} =
   var
-    sender: Option[string]
-    index: Option[uint32]
-    count: Option[uint32]
-    startedAt: Option[int64]
-    sinceStart: Option[int64]
-    sincePrev: Option[int64]
-    size: Option[uint64]
+    sender: Opt[string]
+    index: Opt[uint32]
+    count: Opt[uint32]
+    startedAt: Opt[int64]
+    sinceStart: Opt[int64]
+    sincePrev: Opt[int64]
+    size: Opt[uint64]
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -49,43 +50,43 @@ proc readValue*(
         reader.raiseUnexpectedField(
           "Multiple `sender` fields found", "ProtocolTesterMessage"
         )
-      sender = some(reader.readValue(string))
+      sender = Opt.some(reader.readValue(string))
     of "index":
       if index.isSome():
         reader.raiseUnexpectedField(
           "Multiple `index` fields found", "ProtocolTesterMessage"
         )
-      index = some(reader.readValue(uint32))
+      index = Opt.some(reader.readValue(uint32))
     of "count":
       if count.isSome():
         reader.raiseUnexpectedField(
           "Multiple `count` fields found", "ProtocolTesterMessage"
         )
-      count = some(reader.readValue(uint32))
+      count = Opt.some(reader.readValue(uint32))
     of "startedAt":
       if startedAt.isSome():
         reader.raiseUnexpectedField(
           "Multiple `startedAt` fields found", "ProtocolTesterMessage"
         )
-      startedAt = some(reader.readValue(int64))
+      startedAt = Opt.some(reader.readValue(int64))
     of "sinceStart":
       if sinceStart.isSome():
         reader.raiseUnexpectedField(
           "Multiple `sinceStart` fields found", "ProtocolTesterMessage"
         )
-      sinceStart = some(reader.readValue(int64))
+      sinceStart = Opt.some(reader.readValue(int64))
     of "sincePrev":
       if sincePrev.isSome():
         reader.raiseUnexpectedField(
           "Multiple `sincePrev` fields found", "ProtocolTesterMessage"
         )
-      sincePrev = some(reader.readValue(int64))
+      sincePrev = Opt.some(reader.readValue(int64))
     of "size":
       if size.isSome():
         reader.raiseUnexpectedField(
           "Multiple `size` fields found", "ProtocolTesterMessage"
         )
-      size = some(reader.readValue(uint64))
+      size = Opt.some(reader.readValue(uint64))
     else:
       unrecognizedFieldWarning(value)
 

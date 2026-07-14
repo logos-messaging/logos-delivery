@@ -1,4 +1,4 @@
-import chronicles, std/[net, options, sequtils], results
+import chronicles, std/[net, sequtils], results
 import ../waku_conf
 
 logScope:
@@ -13,41 +13,41 @@ const
 ## REST Server Config Builder ##
 ################################
 type RestServerConfBuilder* = object
-  enabled*: Option[bool]
+  enabled*: Opt[bool]
 
   allowOrigin*: seq[string]
-  listenAddress*: Option[IpAddress]
-  port*: Option[Port]
-  admin*: Option[bool]
-  relayCacheCapacity*: Option[uint32]
+  listenAddress*: Opt[IpAddress]
+  port*: Opt[Port]
+  admin*: Opt[bool]
+  relayCacheCapacity*: Opt[uint32]
 
 proc init*(T: type RestServerConfBuilder): RestServerConfBuilder =
   RestServerConfBuilder()
 
 proc withEnabled*(b: var RestServerConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withAllowOrigin*(b: var RestServerConfBuilder, allowOrigin: seq[string]) =
   b.allowOrigin = concat(b.allowOrigin, allowOrigin)
 
 proc withListenAddress*(b: var RestServerConfBuilder, listenAddress: IpAddress) =
-  b.listenAddress = some(listenAddress)
+  b.listenAddress = Opt.some(listenAddress)
 
 proc withPort*(b: var RestServerConfBuilder, port: Port) =
-  b.port = some(port)
+  b.port = Opt.some(port)
 
 proc withPort*(b: var RestServerConfBuilder, port: uint16) =
-  b.port = some(Port(port))
+  b.port = Opt.some(Port(port))
 
 proc withAdmin*(b: var RestServerConfBuilder, admin: bool) =
-  b.admin = some(admin)
+  b.admin = Opt.some(admin)
 
 proc withRelayCacheCapacity*(b: var RestServerConfBuilder, relayCacheCapacity: uint32) =
-  b.relayCacheCapacity = some(relayCacheCapacity)
+  b.relayCacheCapacity = Opt.some(relayCacheCapacity)
 
-proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
+proc build*(b: RestServerConfBuilder): Result[Opt[RestServerConf], string] =
   if not b.enabled.get(DefaultRestEnabled):
-    return ok(none(RestServerConf))
+    return ok(Opt.none(RestServerConf))
 
   if b.listenAddress.isNone():
     return err("restServer.listenAddress is not specified")
@@ -55,7 +55,7 @@ proc build*(b: RestServerConfBuilder): Result[Option[RestServerConf], string] =
     return err("restServer.relayCacheCapacity is not specified")
 
   return ok(
-    some(
+    Opt.some(
       RestServerConf(
         allowOrigin: b.allowOrigin,
         listenAddress: b.listenAddress.get(),

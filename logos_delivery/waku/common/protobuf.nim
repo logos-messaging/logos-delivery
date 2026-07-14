@@ -2,7 +2,7 @@
 
 {.push raises: [].}
 
-import std/options, libp2p/protobuf/minprotobuf, libp2p/varint
+import results, libp2p/protobuf/minprotobuf, libp2p/varint
 
 export minprotobuf, varint
 
@@ -39,7 +39,7 @@ proc invalidLengthField*(T: type ProtobufError, field: string): T =
 ## Extension methods
 
 proc write3*(proto: var ProtoBuffer, field: int, value: auto) =
-  when value is Option:
+  when value is Opt:
     if value.isSome():
       proto.write(field, value.get())
   else:

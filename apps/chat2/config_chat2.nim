@@ -1,4 +1,5 @@
 import
+  results,
   chronicles,
   chronos,
   confutils,
@@ -26,7 +27,7 @@ type
     .}: LogLevel
 
     nodekey* {.desc: "P2P node private key as 64 char hex string.", name: "nodekey".}:
-      Option[crypto.PrivateKey]
+      Opt[crypto.PrivateKey]
 
     listenAddress* {.
       defaultValue: defaultListenAddress(config),
@@ -234,7 +235,7 @@ type
 
     rlnRelayCredIndex* {.
       desc: "the index of the onchain commitment to use", name: "rln-relay-cred-index"
-    .}: Option[uint]
+    .}: Opt[uint]
 
     rlnRelayDynamic* {.
       desc: "Enable waku-rln-relay with on-chain dynamic group management: true|false",
@@ -317,9 +318,9 @@ proc parseCmdArg*(T: type Port, p: string): T =
 proc completeCmdArg*(T: type Port, val: string): seq[string] =
   return @[]
 
-proc parseCmdArg*(T: type Option[uint], p: string): T =
+proc parseCmdArg*(T: type Opt[uint], p: string): T =
   try:
-    some(parseUint(p))
+    Opt.some(parseUint(p))
   except CatchableError:
     raise newException(ValueError, "Invalid unsigned integer")
 

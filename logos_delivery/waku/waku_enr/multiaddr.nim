@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sequtils, net],
+  std/[sequtils, net],
   stew/endians2,
   results,
   eth/keys,
@@ -84,12 +83,12 @@ func withMultiaddrs*(builder: var EnrBuilder, multiaddrs: varargs[MultiAddress])
 
 # ENR record accessors (e.g., Record, TypedRecord, etc.)
 
-func multiaddrs*(record: TypedRecord): Option[seq[MultiAddress]] =
+func multiaddrs*(record: TypedRecord): Opt[seq[MultiAddress]] =
   let field = record.tryGet(MultiaddrEnrField, seq[byte])
   if field.isNone():
-    return none(seq[MultiAddress])
+    return Opt.none(seq[MultiAddress])
 
   let decodeRes = decodeMultiaddrs(field.get()).valueOr:
-    return none(seq[MultiAddress])
+    return Opt.none(seq[MultiAddress])
 
-  some(decodeRes)
+  Opt.some(decodeRes)

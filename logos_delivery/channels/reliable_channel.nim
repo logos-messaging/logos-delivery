@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 ## Reliable Channel type.
 ##
 ## A `ReliableChannel` orchestrates segmentation, SDS (end-to-end
@@ -14,9 +13,8 @@ import logos_delivery/waku/compat/option_valueor
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/[options, tables]
-import results
-import chronos
+import std/tables
+import results, chronos
 import bearssl/rand
 import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
@@ -160,17 +158,17 @@ type ClaimedSegment = object
   channelReqId: RequestId
   isEphemeral: bool
 
-proc claimAwaitingChannelReq(self: ReliableChannel): Option[ClaimedSegment] =
+proc claimAwaitingChannelReq(self: ReliableChannel): Opt[ClaimedSegment] =
   for channelReqId, state in self.channelReqs.mpairs:
     if state.awaitingDispatch > 0:
       state.awaitingDispatch.dec()
-      return some(
+      return Opt.some(
         ClaimedSegment(
           channelReqId: channelReqId,
           isEphemeral: state.persistenceReqType == MessagePersistence.Ephemeral,
         )
       )
-  return none(ClaimedSegment)
+  return Opt.none(ClaimedSegment)
 
 type MessagingOutcome {.pure.} = enum
   Sent

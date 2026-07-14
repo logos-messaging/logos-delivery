@@ -1,6 +1,6 @@
 ## Reliable Channel layer API — channel lifecycle
 ## (createReliableChannel / closeChannel).
-import std/[options, tables]
+import std/tables
 import results, chronos, chronicles
 
 import logos_delivery/api/types
@@ -15,17 +15,17 @@ const SdsJobId = "sds"
   ## One persistency job shared by every channel's SDS state; rows are
   ## keyed by channelId.
 
-proc sdsPersistence(): Option[Persistence] =
+proc sdsPersistence(): Opt[Persistence] =
   ## SDS backend from the Persistency singleton; memory-only fallback when
   ## it is unavailable (e.g. unit tests).
   let p = Persistency.instance().valueOr:
     info "SDS persistence disabled, running memory-only", reason = $error
-    return none(Persistence)
+    return Opt.none(Persistence)
   let job = p.openJob(SdsJobId).valueOr:
     warn "SDS persistence disabled, could not open persistency job",
       jobId = SdsJobId, reason = $error
-    return none(Persistence)
-  return some(newSdsPersistence(job))
+    return Opt.none(Persistence)
+  return Opt.some(newSdsPersistence(job))
 
 proc createReliableChannel*(
     self: ReliableChannelManager,

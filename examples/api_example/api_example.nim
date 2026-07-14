@@ -1,4 +1,3 @@
-import std/options
 import chronos, results, confutils, confutils/defs
 import logos_delivery
 
@@ -67,11 +66,9 @@ when isMainModule:
   if args.ethRpcEndpoint == "":
     # Create a basic configuration for the Waku node
     # No RLN as we don't have an ETH RPC Endpoint
-    conf.mode = Core
     conf.preset = "logos.dev"
   else:
     # Connect to TWN, use ETH RPC Endpoint for RLN
-    conf.mode = Core
     conf.preset = "twn"
     conf.ethClientUrls = @[EthRpcUrl(args.ethRpcEndpoint)]
 

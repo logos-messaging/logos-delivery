@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, os, strutils, times]
+import std/[os, strutils, times]
 import chronos, results
 import testutils/unittests
 import logos_delivery/waku/persistency/persistency

@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[tempfiles, strutils, options],
+  std/[tempfiles, strutils],
   results,
   testutils/unittests,
   chronos,
@@ -75,18 +75,18 @@ proc getWakuRlnConfigOnChain*(
     rlnRelayEthContractAddress: string,
     password: string,
     credIndex: uint,
-    fatalErrorHandler: Option[OnFatalErrorHandler] = none(OnFatalErrorHandler),
-    ethClientAddress: Option[string] = none(string),
+    fatalErrorHandler: Opt[OnFatalErrorHandler] = Opt.none(OnFatalErrorHandler),
+    ethClientAddress: Opt[string] = Opt.none(string),
 ): WakuRlnConfig =
   return WakuRlnConfig(
     dynamic: true,
-    credIndex: some(credIndex),
+    credIndex: Opt.some(credIndex),
     ethContractAddress: rlnRelayEthContractAddress,
     ethClientAddress: ethClientAddress.get(EthClient),
     epochSizeSec: 1,
     onFatalErrorAction: fatalErrorHandler.get(fatalErrorVoidHandler),
     # If these are used, initialisation fails with "failed to mount Rln: could not initialize the group manager: the commitment does not have a membership"
-    creds: some(RlnCreds(path: keystorePath, password: password)),
+    creds: Opt.some(RlnCreds(path: keystorePath, password: password)),
   )
 
 proc setupRelayWithOnChainRln*(
@@ -205,7 +205,7 @@ suite "Waku RlnRelay - End to End - Static":
       let contractAddress = await uploadRLNContract(EthClient)
       let wakuRlnConfig = WakuRlnConfig(
         dynamic: true,
-        credIndex: some(0.uint),
+        credIndex: Opt.some(0.uint),
         userMessageLimit: 111,
         ethClientAddress: EthClient,
         ethContractAddress: $contractAddress,
@@ -239,7 +239,7 @@ suite "Waku RlnRelay - End to End - Static":
           completionFut.complete((topic, msg))
 
       let subscriptionEvent = (kind: PubsubSub, topic: pubsubTopic)
-      server.subscribe(subscriptionEvent, some(relayHandler)).isOkOr:
+      server.subscribe(subscriptionEvent, Opt.some(relayHandler)).isOkOr:
         assert false, "Failed to subscribe to pubsub topic"
 
       await sleepAsync(FUTURE_TIMEOUT)
@@ -287,14 +287,14 @@ suite "Waku RlnRelay - End to End - Static":
         raiseAssert "generateRLNProof failed: " & error
 
       # When sending the 1B message
-      discard await client.publish(some(pubsubTopic), message1b)
+      discard await client.publish(Opt.some(pubsubTopic), message1b)
       discard await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
 
       # Then the message is relayed
       check completionFut.read() == (pubsubTopic, message1b)
       # When sending the 1KiB message
       completionFut = newPushHandlerFuture() # Reset Future
-      discard await client.publish(some(pubsubTopic), message1kib)
+      discard await client.publish(Opt.some(pubsubTopic), message1kib)
       discard await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
 
       # Then the message is relayed
@@ -302,7 +302,7 @@ suite "Waku RlnRelay - End to End - Static":
 
       # When sending the 150KiB message
       completionFut = newPushHandlerFuture() # Reset Future
-      discard await client.publish(some(pubsubTopic), message150kib)
+      discard await client.publish(Opt.some(pubsubTopic), message150kib)
       discard await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
 
       # Then the message is relayed
@@ -310,7 +310,7 @@ suite "Waku RlnRelay - End to End - Static":
 
       # When sending the 150KiB plus message
       completionFut = newPushHandlerFuture() # Reset Future
-      discard await client.publish(some(pubsubTopic), message151kibPlus)
+      discard await client.publish(Opt.some(pubsubTopic), message151kibPlus)
 
       # Then the message is not relayed
       check not await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
@@ -332,7 +332,7 @@ suite "Waku RlnRelay - End to End - Static":
           completionFut.complete((topic, msg))
 
       let subscriptionEvent = (kind: PubsubSub, topic: pubsubTopic)
-      server.subscribe(subscriptionEvent, some(relayHandler)).isOkOr:
+      server.subscribe(subscriptionEvent, Opt.some(relayHandler)).isOkOr:
         assert false, "Failed to subscribe to pubsub topic"
 
       await sleepAsync(FUTURE_TIMEOUT)
@@ -356,7 +356,7 @@ suite "Waku RlnRelay - End to End - Static":
 
       # When sending the 150KiB plus message
       completionFut = newPushHandlerFuture() # Reset Future
-      discard await client.publish(some(pubsubTopic), message151kibPlus)
+      discard await client.publish(Opt.some(pubsubTopic), message151kibPlus)
 
       # Then the message is not relayed
       check not await completionFut.withTimeout(FUTURE_TIMEOUT_LONG)
@@ -456,7 +456,7 @@ suite "Waku RlnRelay - End to End - OnChain":
           invalidContractAddress,
           password,
           0,
-          some(serverFatalErrorHandler),
+          Opt.some(serverFatalErrorHandler),
         )
         wakuRlnConfig2 = getWakuRlnConfigOnChain(
           keystorePath,
@@ -464,7 +464,7 @@ suite "Waku RlnRelay - End to End - OnChain":
           invalidContractAddress,
           password,
           1,
-          some(clientFatalErrorHandler),
+          Opt.some(clientFatalErrorHandler),
         )
 
       # Given the node enable Relay and Rln while subscribing to a pubsub topic.
@@ -562,8 +562,8 @@ suite "Waku RlnRelay - End to End - OnChain":
           raiseAssert $error
 
         # Test Hack: Monkeypatch the idCredentials into the groupManager
-        server.rln.groupManager.idCredentials = some(idCredential1)
-        client.rln.groupManager.idCredentials = some(idCredential2)
+        server.rln.groupManager.idCredentials = Opt.some(idCredential1)
+        client.rln.groupManager.idCredentials = Opt.some(idCredential2)
       except Exception, CatchableError:
         assert false, "exception raised: " & getCurrentExceptionMsg()
 

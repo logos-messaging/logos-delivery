@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/options, results, chronos, libp2p/peerid
+import results, chronos, libp2p/peerid
 import ../waku_core, ./rpc, ../waku_relay/protocol
 
 from ../waku_core/codecs import WakuLightPushCodec
@@ -21,7 +21,7 @@ const LightPushErrorCode* = (
   NO_PEERS_TO_RELAY: LightPushStatusCode(505),
 )
 
-type ErrorStatus* = tuple[code: LightpushStatusCode, desc: Option[string]]
+type ErrorStatus* = tuple[code: LightpushStatusCode, desc: Opt[string]]
 type WakuLightPushResult* = Result[uint32, ErrorStatus]
 
 type PushMessageHandler* = proc(
@@ -51,40 +51,42 @@ func lightpushSuccessResult*(relayPeerCount: uint32): WakuLightPushResult =
   return ok(relayPeerCount)
 
 func lightpushResultInternalError*(msg: string): WakuLightPushResult =
-  return err((LightPushErrorCode.INTERNAL_SERVER_ERROR, some(msg)))
+  return err((LightPushErrorCode.INTERNAL_SERVER_ERROR, Opt.some(msg)))
 
 func lightpushResultBadRequest*(msg: string): WakuLightPushResult =
-  return err((LightPushErrorCode.BAD_REQUEST, some(msg)))
+  return err((LightPushErrorCode.BAD_REQUEST, Opt.some(msg)))
 
 func lightpushResultServiceUnavailable*(msg: string): WakuLightPushResult =
-  return err((LightPushErrorCode.SERVICE_NOT_AVAILABLE, some(msg)))
+  return err((LightPushErrorCode.SERVICE_NOT_AVAILABLE, Opt.some(msg)))
 
 func lighpushErrorResult*(
     statusCode: LightpushStatusCode, desc: string
 ): WakuLightPushResult =
-  return err((statusCode, some(desc)))
+  return err((statusCode, Opt.some(desc)))
 
 func mapPubishingErrorToPushResult*(
     publishOutcome: PublishOutcome
 ): WakuLightPushResult =
   case publishOutcome
   of NoTopicSpecified:
-    return
-      err((LightPushErrorCode.INVALID_MESSAGE, some("Empty topic, skipping publish")))
+    return err(
+      (LightPushErrorCode.INVALID_MESSAGE, Opt.some("Empty topic, skipping publish"))
+    )
   of DuplicateMessage:
-    return
-      err((LightPushErrorCode.INVALID_MESSAGE, some("Dropping already-seen message")))
+    return err(
+      (LightPushErrorCode.INVALID_MESSAGE, Opt.some("Dropping already-seen message"))
+    )
   of NoPeersToPublish:
     return err(
       (
         LightPushErrorCode.NO_PEERS_TO_RELAY,
-        some("No peers for topic, skipping publish"),
+        Opt.some("No peers for topic, skipping publish"),
       )
     )
   of CannotGenerateMessageId:
     return err(
       (
         LightPushErrorCode.INTERNAL_SERVER_ERROR,
-        some("Error generating message id, skipping publish"),
+        Opt.some("Error generating message id, skipping publish"),
       )
     )

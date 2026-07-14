@@ -1,4 +1,4 @@
-import std/[json, macros, options, strutils, tables]
+import std/[json, macros, strutils, tables]
 import confutils, confutils/defs, confutils/std/net, results
 
 # The shared JSON walker is `raises: []` so the messaging FFI parser (also
@@ -121,19 +121,20 @@ proc applyJsonFieldsToConf*[T](
         # JSON null leaves the field unset; it keeps its default.
         jsonFields.del(matchKey)
       else:
-        when confValue is Option:
+        when confValue is Opt:
           type Inner = typeof(confValue.get())
           when Inner is seq:
             type Elem = typeof(confValue.get()[0])
             when compiles(parseCmdArg(Elem, "")):
-              confValue =
-                some(?parseSeqInto[Elem](jsonValue, confField, jsonKey, parseErrPrefix))
+              confValue = Opt.some(
+                ?parseSeqInto[Elem](jsonValue, confField, jsonKey, parseErrPrefix)
+              )
               jsonFields.del(matchKey)
             else:
               return err("config option '" & jsonKey & "' cannot be set via JSON")
           else:
             when compiles(parseCmdArg(Inner, "")):
-              confValue = some(
+              confValue = Opt.some(
                 ?parseScalarInto[Inner](jsonValue, confField, jsonKey, parseErrPrefix)
               )
               jsonFields.del(matchKey)

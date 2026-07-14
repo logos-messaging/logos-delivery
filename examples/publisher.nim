@@ -1,4 +1,5 @@
 import
+  results,
   std/[tables, times, sequtils],
   stew/byteutils,
   chronicles,
@@ -37,13 +38,13 @@ const bootstrapNode =
 const wakuPort = 60000
 const discv5Port = 9000
 
-proc setupAndPublish(rng: ref HmacDrbgContext) {.async.} =
+proc setupAndPublish(rng: crypto.Rng) {.async.} =
   # use notice to filter all waku messaging
   setupLog(logging.LogLevel.NOTICE, logging.LogFormat.TEXT)
 
   notice "starting publisher", wakuPort = wakuPort, discv5Port = discv5Port
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[]).get()
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng).get()
     ip = parseIpAddress("0.0.0.0")
     flags = CapabilitiesBitfield.init(relay = true)
 
@@ -63,7 +64,7 @@ proc setupAndPublish(rng: ref HmacDrbgContext) {.async.} =
   discard bootstrapNodeEnr.fromURI(bootstrapNode)
 
   let discv5Conf = WakuDiscoveryV5Config(
-    discv5Config: none(DiscoveryConfig),
+    discv5Config: Opt.none(DiscoveryConfig),
     address: ip,
     port: Port(discv5Port),
     privateKey: keys.PrivateKey(nodeKey.skkey),
@@ -75,8 +76,8 @@ proc setupAndPublish(rng: ref HmacDrbgContext) {.async.} =
   let wakuDiscv5 = WakuDiscoveryV5.new(
     node.rng,
     discv5Conf,
-    some(node.enr),
-    some(node.peerManager),
+    Opt.some(node.enr),
+    Opt.some(node.peerManager),
     node.topicSubscriptionQueue,
   )
 
@@ -119,7 +120,7 @@ proc setupAndPublish(rng: ref HmacDrbgContext) {.async.} =
       timestamp: now(),
     ) # current timestamp
 
-    let res = await node.publish(some(pubSubTopic), message)
+    let res = await node.publish(Opt.some(pubSubTopic), message)
 
     if res.isOk:
       notice "published message",

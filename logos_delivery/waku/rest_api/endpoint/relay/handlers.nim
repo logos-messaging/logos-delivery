@@ -1,13 +1,13 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
   std/sequtils,
+  std/options,
   stew/byteutils,
   results,
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/route,
   presto/common
 import
@@ -229,7 +229,9 @@ proc installRelayApiHandlers*(
 
     # if we reach here its either a non-RLN message or a RLN message with a valid proof
     info "Publishing message", pubSubTopic = pubSubTopic, rln = not node.rln.isNil()
-    if not (waitFor node.publish(some(pubSubTopic), message).withTimeout(futTimeout)):
+    if not (
+      waitFor node.publish(Opt.some(pubSubTopic), message).withTimeout(futTimeout)
+    ):
       error "Failed to publish message to topic", pubSubTopic = pubSubTopic
       return RestApiResponse.internalServerError("Failed to publish: timedout")
 
@@ -361,7 +363,7 @@ proc installRelayApiHandlers*(
     info "Publishing message",
       contentTopic = message.contentTopic, rln = not node.rln.isNil()
 
-    var publishFut = node.publish(some($pubsubTopic), message)
+    var publishFut = node.publish(Opt.some($pubsubTopic), message)
     if not await publishFut.withTimeout(futTimeout):
       return RestApiResponse.internalServerError("Failed to publish: timedout")
 

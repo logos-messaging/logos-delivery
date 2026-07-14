@@ -1,4 +1,4 @@
-import std/options
+import results
 {.used.}
 
 import
@@ -35,7 +35,7 @@ proc testWakuNode(): WakuNode =
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
-  return newTestWakuNode(privkey, bindIp, port, some(extIp), some(port))
+  return newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
 
 type RestLightPushTest = object
   serviceNode: WakuNode
@@ -112,7 +112,7 @@ suite "Waku v2 Rest API - lightpush":
     check message.proof.isSome()
 
     let requestBody =
-      PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: message)
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
 
     let response =
       await restLightPushTest.restClient.sendPushRequest(body = requestBody)
@@ -122,8 +122,8 @@ suite "Waku v2 Rest API - lightpush":
     ## handling the proof message attribute within the REST request.
     check:
       response.status == 505
-      response.data.statusDesc == some("No peers for topic, skipping publish")
-      response.data.relayPeerCount == none[uint32]()
+      response.data.statusDesc == Opt.some("No peers for topic, skipping publish")
+      response.data.relayPeerCount == Opt.none(uint32)
 
   asyncTest "Push message request":
     # Given
@@ -153,7 +153,7 @@ suite "Waku v2 Rest API - lightpush":
       .toRelayWakuMessage()
 
     let requestBody =
-      PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: message)
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
     let response = await restLightPushTest.restClient.sendPushRequest(requestBody)
 
     echo "response", $response
@@ -161,7 +161,7 @@ suite "Waku v2 Rest API - lightpush":
     # Then
     check:
       response.status == 200
-      response.data.relayPeerCount == some(1.uint32)
+      response.data.relayPeerCount == Opt.some(1.uint32)
 
     await restLightPushTest.shutdown()
 
@@ -186,15 +186,15 @@ suite "Waku v2 Rest API - lightpush":
       )
       .toRelayWakuMessage()
     let badRequestBody1 =
-      PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: badMessage1)
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: badMessage1)
 
     let badMessage2: RelayWakuMessage =
       fakeWakuMessage(contentTopic = "", payload = toBytes("Sthg")).toRelayWakuMessage()
     let badRequestBody2 =
-      PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: badMessage2)
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: badMessage2)
 
     let badRequestBody3 =
-      PushRequest(pubsubTopic: none(PubsubTopic), message: badMessage2)
+      PushRequest(pubsubTopic: Opt.none(PubsubTopic), message: badMessage2)
 
     # var response: RestResponse[PushResponse]
 
@@ -255,7 +255,7 @@ suite "Waku v2 Rest API - lightpush":
         .toRelayWakuMessage()
 
       let requestBody =
-        PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: message)
+        PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
       let response = await restLightPushTest.restClient.sendPushRequest(requestBody)
 
       echo "response", $response
@@ -263,7 +263,7 @@ suite "Waku v2 Rest API - lightpush":
       # Then
       check:
         response.status == 200
-        response.data.relayPeerCount == some(1.uint32)
+        response.data.relayPeerCount == Opt.some(1.uint32)
 
     let pushRejectedProc = proc() {.async.} =
       let message: RelayWakuMessage = fakeWakuMessage(
@@ -272,7 +272,7 @@ suite "Waku v2 Rest API - lightpush":
         .toRelayWakuMessage()
 
       let requestBody =
-        PushRequest(pubsubTopic: some(DefaultPubsubTopic), message: message)
+        PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
       let response = await restLightPushTest.restClient.sendPushRequest(requestBody)
 
       echo "response", $response

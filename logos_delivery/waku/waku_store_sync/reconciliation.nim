@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[sequtils, options, sets],
+  std/[sequtils, sets],
   stew/byteutils,
   results,
   chronicles,
@@ -110,9 +109,7 @@ proc messageIngress*(
     error "failed to insert new message",
       msg_hash = byteutils.toHex(id.hash), error = $error
 
-proc preProcessPayload(
-    self: SyncReconciliation, payload: RangesData
-): Option[RangesData] =
+proc preProcessPayload(self: SyncReconciliation, payload: RangesData): Opt[RangesData] =
   ## Check the received payload for topics and/or time mismatch.
 
   var payload = payload
@@ -122,7 +119,7 @@ proc preProcessPayload(
     let pubsubIntersection = self.pubsubTopics * payload.pubsubTopics.toHashSet()
 
     if pubsubIntersection.len < 1:
-      return none(RangesData)
+      return Opt.none(RangesData)
 
     payload.pubsubTopics = pubsubIntersection.toSeq()
   elif self.pubsubTopics.len > 0:
@@ -133,7 +130,7 @@ proc preProcessPayload(
     let contentIntersection = self.contentTopics * payload.contentTopics.toHashSet()
 
     if contentIntersection.len < 1:
-      return none(RangesData)
+      return Opt.none(RangesData)
 
     payload.contentTopics = contentIntersection.toSeq()
   elif self.contentTopics.len > 0:
@@ -160,7 +157,7 @@ proc preProcessPayload(
     else:
       break
 
-  return some(payload)
+  return Opt.some(payload)
 
 proc processRequest(
     self: SyncReconciliation, conn: Connection
@@ -304,7 +301,7 @@ proc initiate(
 
 proc storeSynchronization*(
     self: SyncReconciliation,
-    peerInfo: Option[RemotePeerInfo] = none(RemotePeerInfo),
+    peerInfo: Opt[RemotePeerInfo] = Opt.none(RemotePeerInfo),
     offset: Duration = self.relayJitter,
     syncRange: Duration = self.syncRange,
     pubsubTopics: HashSet[PubsubTopic] = self.pubsubTopics,
@@ -348,9 +345,9 @@ proc initFillStorage(
 
   var query = ArchiveQuery(
     includeData: true,
-    cursor: none(ArchiveCursor),
-    startTime: some(starTime),
-    endTime: some(endTime),
+    cursor: Opt.none(ArchiveCursor),
+    startTime: Opt.some(starTime),
+    endTime: Opt.some(endTime),
     pageSize: 100,
     direction: PagingDirection.FORWARD,
   )

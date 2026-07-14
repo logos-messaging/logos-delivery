@@ -1,4 +1,4 @@
-import tables, std/options
+import results, tables
 import ../waku_lightpush_legacy/rpc
 
 type
@@ -8,26 +8,24 @@ type
     BadResponse
     GoodResponse
 
-  # Encode reputation indicator as Option[bool]:
-  #   some(true)  => GoodRep
-  #   some(false) => BadRep
-  #   none(bool)  => unknown / not set
+  # Encode reputation indicator as Opt[bool]:
+  #   Opt.some(true)  => GoodRep
+  #   Opt.some(false) => BadRep
+  #   Opt.none(bool)  => unknown / not set
   ReputationManager* = ref object
-    reputationOf*: Table[PeerId, Option[bool]]
+    reputationOf*: Table[PeerId, Opt[bool]]
 
 proc init*(T: type ReputationManager): ReputationManager =
-  return ReputationManager(reputationOf: initTable[PeerId, Option[bool]]())
+  return ReputationManager(reputationOf: initTable[PeerId, Opt[bool]]())
 
-proc setReputation*(
-    manager: var ReputationManager, peer: PeerId, repValue: Option[bool]
-) =
+proc setReputation*(manager: var ReputationManager, peer: PeerId, repValue: Opt[bool]) =
   manager.reputationOf[peer] = repValue
 
-proc getReputation*(manager: ReputationManager, peer: PeerId): Option[bool] =
+proc getReputation*(manager: ReputationManager, peer: PeerId): Opt[bool] =
   if peer in manager.reputationOf:
     result = manager.reputationOf[peer]
   else:
-    result = none(bool)
+    result = Opt.none(bool)
 
 # Evaluate the quality of a PushResponse by checking its isSuccess field
 proc evaluateResponse*(response: PushResponse): ResponseQuality =
@@ -43,6 +41,6 @@ proc updateReputationFromResponse*(
   let respQuality = evaluateResponse(response)
   case respQuality
   of BadResponse:
-    manager.setReputation(peer, some(false)) # false => BadRep
+    manager.setReputation(peer, Opt.some(false)) # false => BadRep
   of GoodResponse:
-    manager.setReputation(peer, some(true)) # true  => GoodRep
+    manager.setReputation(peer, Opt.some(true)) # true  => GoodRep

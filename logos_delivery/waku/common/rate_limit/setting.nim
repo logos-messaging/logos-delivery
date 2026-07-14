@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import chronos/timer, std/[tables, strutils, options], regex, results
+import chronos/timer, std/[tables, strutils], regex, results
 
 # Setting for TokenBucket defined as volume over period of time
 type RateLimitSetting* = tuple[volume: int, period: Duration]

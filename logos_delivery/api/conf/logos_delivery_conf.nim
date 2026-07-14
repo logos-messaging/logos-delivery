@@ -1,19 +1,18 @@
 {.push raises: [].}
 
-import std/options
 import results
 
 import logos_delivery/api/conf/messaging_conf
 import logos_delivery/api/conf/channels_conf
 
-export options, messaging_conf, channels_conf
+export messaging_conf, channels_conf
 
 type LogosDeliveryConf* = object
   ## Aggregates the per-layer config objects. A layer is mounted iff its config
   ## is present.
   kernelConf*: KernelConf
-  messagingConf*: Option[MessagingClientConf]
-  channelsConf*: Option[ReliableChannelManagerConf]
+  messagingConf*: Opt[MessagingClientConf]
+  channelsConf*: Opt[ReliableChannelManagerConf]
 
 proc init*(T: type LogosDeliveryConf, kernelConf: KernelConf): LogosDeliveryConf =
   return LogosDeliveryConf(kernelConf: kernelConf)
@@ -31,8 +30,8 @@ proc init*(
   return ok(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernelConf),
-      messagingConf: some(merged),
-      channelsConf: some(channelsOverrides),
+      messagingConf: Opt.some(merged),
+      channelsConf: Opt.some(channelsOverrides),
     )
   )
 

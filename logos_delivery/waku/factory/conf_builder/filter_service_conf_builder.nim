@@ -1,4 +1,4 @@
-import chronicles, std/options, results
+import chronicles, results
 import ../waku_conf
 
 logScope:
@@ -14,40 +14,40 @@ const
 ## Filter Service Config Builder ##
 ###################################
 type FilterServiceConfBuilder* = object
-  enabled*: Option[bool]
-  maxPeersToServe*: Option[uint32]
-  subscriptionTimeout*: Option[uint16]
-  maxCriteria*: Option[uint32]
+  enabled*: Opt[bool]
+  maxPeersToServe*: Opt[uint32]
+  subscriptionTimeout*: Opt[uint16]
+  maxCriteria*: Opt[uint32]
 
 proc init*(T: type FilterServiceConfBuilder): FilterServiceConfBuilder =
   FilterServiceConfBuilder()
 
 proc withEnabled*(b: var FilterServiceConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withMaxPeersToServe*(b: var FilterServiceConfBuilder, maxPeersToServe: uint32) =
-  b.maxPeersToServe = some(maxPeersToServe)
+  b.maxPeersToServe = Opt.some(maxPeersToServe)
 
 proc withMaxPeersToServeIfNotAssigned*(
     b: var FilterServiceConfBuilder, maxPeersToServe: uint32
 ) =
   if b.maxPeersToServe.isNone():
-    b.maxPeersToServe = some(maxPeersToServe)
+    b.maxPeersToServe = Opt.some(maxPeersToServe)
 
 proc withSubscriptionTimeout*(
     b: var FilterServiceConfBuilder, subscriptionTimeout: uint16
 ) =
-  b.subscriptionTimeout = some(subscriptionTimeout)
+  b.subscriptionTimeout = Opt.some(subscriptionTimeout)
 
 proc withMaxCriteria*(b: var FilterServiceConfBuilder, maxCriteria: uint32) =
-  b.maxCriteria = some(maxCriteria)
+  b.maxCriteria = Opt.some(maxCriteria)
 
-proc build*(b: FilterServiceConfBuilder): Result[Option[FilterServiceConf], string] =
+proc build*(b: FilterServiceConfBuilder): Result[Opt[FilterServiceConf], string] =
   if not b.enabled.get(DefaultFilterEnabled):
-    return ok(none(FilterServiceConf))
+    return ok(Opt.none(FilterServiceConf))
 
   return ok(
-    some(
+    Opt.some(
       FilterServiceConf(
         maxPeersToServe: b.maxPeersToServe.get(DefaultFilterMaxPeersToServe),
         subscriptionTimeout: b.subscriptionTimeout.get(DefaultFilterSubscriptionTimeout),

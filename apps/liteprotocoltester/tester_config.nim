@@ -37,7 +37,7 @@ type LiteProtocolTesterConf* = object
     desc:
       "Loads configuration from a TOML file (cmd-line parameters take precedence) for the light waku node",
     name: "config-file"
-  .}: Option[InputFile]
+  .}: Opt[InputFile]
 
   ## Log configuration
   logLevel* {.

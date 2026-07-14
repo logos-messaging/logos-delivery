@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sequtils, strutils, strformat, times, sugar],
+  std/[sequtils, strutils, strformat, times, sugar],
   stew/[byteutils, arrayops],
   results,
   chronos,
@@ -169,7 +168,7 @@ proc reset*(s: PostgresDriver): Future[ArchiveDriverResult[void]] {.async.} =
   let ret = await s.decreaseDatabaseSize(targetSize, forceRemoval)
   return ret
 
-proc timeCursorCallbackImpl(pqResult: ptr PGresult, timeCursor: var Option[Timestamp]) =
+proc timeCursorCallbackImpl(pqResult: ptr PGresult, timeCursor: var Opt[Timestamp]) =
   ## Callback to get a timestamp out of the DB.
   ## Used to get the cursor timestamp.
 
@@ -192,7 +191,7 @@ proc timeCursorCallbackImpl(pqResult: ptr PGresult, timeCursor: var Option[Times
     error "could not parse correctly", error = error.msg
     return
 
-  timeCursor = some(time)
+  timeCursor = Opt.some(time)
 
 proc hashCallbackImpl(
     pqResult: ptr PGresult, rows: var seq[(WakuMessageHash, PubsubTopic, WakuMessage)]
@@ -445,8 +444,8 @@ proc dropOrphanPartitions(
 
 proc getTimeCursor(
     s: PostgresDriver, hashHex: string
-): Future[ArchiveDriverResult[Option[Timestamp]]] {.async.} =
-  var timeCursor: Option[Timestamp]
+): Future[ArchiveDriverResult[Opt[Timestamp]]] {.async.} =
+  var timeCursor: Opt[Timestamp]
 
   proc cursorCallback(pqResult: ptr PGresult) =
     timeCursorCallbackImpl(pqResult, timeCursor)
@@ -465,10 +464,10 @@ proc getTimeCursor(
 proc getMessagesArbitraryQuery(
     s: PostgresDriver,
     contentTopics: seq[ContentTopic] = @[],
-    pubsubTopic = none(PubsubTopic),
-    cursor = none(ArchiveCursor),
-    startTime = none(Timestamp),
-    endTime = none(Timestamp),
+    pubsubTopic = Opt.none(PubsubTopic),
+    cursor = Opt.none(ArchiveCursor),
+    startTime = Opt.none(Timestamp),
+    endTime = Opt.none(Timestamp),
     hexHashes: seq[string] = @[],
     maxPageSize = DefaultPageSize,
     ascendingOrder = true,
@@ -544,10 +543,10 @@ proc getMessagesArbitraryQuery(
 proc getMessageHashesArbitraryQuery(
     s: PostgresDriver,
     contentTopics: seq[ContentTopic] = @[],
-    pubsubTopic = none(PubsubTopic),
-    cursor = none(ArchiveCursor),
-    startTime = none(Timestamp),
-    endTime = none(Timestamp),
+    pubsubTopic = Opt.none(PubsubTopic),
+    cursor = Opt.none(ArchiveCursor),
+    startTime = Opt.none(Timestamp),
+    endTime = Opt.none(Timestamp),
     hexHashes: seq[string] = @[],
     maxPageSize = DefaultPageSize,
     ascendingOrder = true,
@@ -626,7 +625,7 @@ proc getMessagesPreparedStmt(
     s: PostgresDriver,
     contentTopic: string,
     pubsubTopic: PubsubTopic,
-    cursor = none(ArchiveCursor),
+    cursor = Opt.none(ArchiveCursor),
     startTime: Timestamp,
     endTime: Timestamp,
     hashes: string,
@@ -717,7 +716,7 @@ proc getMessageHashesPreparedStmt(
     s: PostgresDriver,
     contentTopic: string,
     pubsubTopic: PubsubTopic,
-    cursor = none(ArchiveCursor),
+    cursor = Opt.none(ArchiveCursor),
     startTime: Timestamp,
     endTime: Timestamp,
     hashes: string,
@@ -859,10 +858,10 @@ proc getMessagesWithinLimits(
     self: PostgresDriver,
     includeData: bool,
     contentTopics: seq[ContentTopic],
-    pubsubTopic: Option[PubsubTopic],
-    cursor: Option[ArchiveCursor],
-    startTime: Option[Timestamp],
-    endTime: Option[Timestamp],
+    pubsubTopic: Opt[PubsubTopic],
+    cursor: Opt[ArchiveCursor],
+    startTime: Opt[Timestamp],
+    endTime: Opt[Timestamp],
     hashes: seq[WakuMessageHash],
     maxPageSize: uint,
     ascendingOrder: bool,
@@ -923,10 +922,10 @@ method getMessages*(
     s: PostgresDriver,
     includeData = true,
     contentTopics = newSeq[ContentTopic](0),
-    pubsubTopic = none(PubsubTopic),
-    cursor = none(ArchiveCursor),
-    startTime = none(Timestamp),
-    endTime = none(Timestamp),
+    pubsubTopic = Opt.none(PubsubTopic),
+    cursor = Opt.none(ArchiveCursor),
+    startTime = Opt.none(Timestamp),
+    endTime = Opt.none(Timestamp),
     hashes = newSeq[WakuMessageHash](0),
     maxPageSize = DefaultPageSize,
     ascendingOrder = true,

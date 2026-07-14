@@ -51,7 +51,7 @@ proc sendThruWaku*(
   ).valueOr:
     return err("could not append rate limit proof to the message: " & error)
 
-  (await self.waku.node.publish(some(DefaultPubsubTopic), message)).isOkOr:
+  (await self.waku.node.publish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
     return err("failed to publish message: " & $error)
 
   info "rate limit proof is appended to the message"
@@ -182,7 +182,7 @@ proc new*(
       except CatchableError:
         error "could not handle SCP message: ", err = getCurrentExceptionMsg()
 
-  waku.node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), some(handler)).isOkOr:
+  waku.node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), Opt.some(handler)).isOkOr:
     error "could not subscribe to pubsub topic: ", err = $error
     return err("could not subscribe to pubsub topic: " & $error)
   return ok(SCP)

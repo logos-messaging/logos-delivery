@@ -1,8 +1,8 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[tables, sequtils, sets, options, strutils],
+  results,
+  std/[tables, sequtils, sets, strutils],
   chronos,
   chronicles,
   eth/p2p/discoveryv5/enr,
@@ -57,9 +57,9 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
     addrs: addresses,
     enr:
       if peerStore[ENRBook][peerId] != default(enr.Record):
-        some(peerStore[ENRBook][peerId])
+        Opt.some(peerStore[ENRBook][peerId])
       else:
-        none(enr.Record),
+        Opt.none(enr.Record),
     protocols: peerStore[ProtoBook][peerId],
     shards: peerStore[ShardBook][peerId],
     agent: peerStore[AgentBook][peerId],
@@ -73,9 +73,9 @@ proc getPeer*(peerStore: PeerStore, peerId: PeerId): RemotePeerInfo =
     numberFailedConn: peerStore[NumberFailedConnBook][peerId],
     mixPubKey:
       if peerStore[MixPubKeyBook][peerId] != default(Curve25519Key):
-        some(peerStore[MixPubKeyBook][peerId])
+        Opt.some(peerStore[MixPubKeyBook][peerId])
       else:
-        none(Curve25519Key),
+        Opt.none(Curve25519Key),
   )
 
 proc delete*(peerStore: PeerStore, peerId: PeerId) =

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[httpclient, json, uri, options], results
+import std/[httpclient, json, uri], results
 
 const
   # Resource locators

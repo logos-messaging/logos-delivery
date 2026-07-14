@@ -1,5 +1,4 @@
-import
-  std/[strutils, times, sequtils, osproc], math, results, options, testutils/unittests
+import std/[strutils, times, sequtils, osproc], math, results, testutils/unittests
 
 import
   logos_delivery/waku/[

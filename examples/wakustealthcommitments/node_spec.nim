@@ -3,15 +3,16 @@
 import tools/confutils/cli_args
 import logos_delivery/waku/[common/logging, waku, factory/networks_config]
 import
-  std/[options, strutils, os, sequtils],
+  results,
+  std/[strutils, os, sequtils],
   chronicles,
   chronos,
   metrics,
   libp2p/crypto/crypto
 
 export
-  networks_config, waku, logging, options, strutils, os, sequtils, stewNet, chronicles,
-  chronos, metrics, crypto
+  networks_config, waku, logging, strutils, os, sequtils, stewNet, chronicles, chronos,
+  metrics, crypto
 
 proc setup*(): Waku =
   const versionString = "version / git commit hash: " & waku.git_version
@@ -29,18 +30,18 @@ proc setup*(): Waku =
 
   # Override configuration
   conf.maxMessageSize = twnNetworkConf.maxMessageSize
-  conf.clusterId = some(twnNetworkConf.clusterId)
+  conf.clusterId = Opt.some(twnNetworkConf.clusterId)
   conf.rlnRelayEthContractAddress = twnNetworkConf.rlnRelayEthContractAddress
-  conf.rlnRelayDynamic = some(twnNetworkConf.rlnRelayDynamic)
-  conf.discv5Discovery = some(twnNetworkConf.discv5Discovery)
+  conf.rlnRelayDynamic = Opt.some(twnNetworkConf.rlnRelayDynamic)
+  conf.discv5Discovery = Opt.some(twnNetworkConf.discv5Discovery)
   conf.discv5BootstrapNodes =
     conf.discv5BootstrapNodes & twnNetworkConf.discv5BootstrapNodes
-  conf.rlnEpochSizeSec = some(twnNetworkConf.rlnEpochSizeSec)
-  conf.rlnRelayUserMessageLimit = some(twnNetworkConf.rlnRelayUserMessageLimit)
+  conf.rlnEpochSizeSec = Opt.some(twnNetworkConf.rlnEpochSizeSec)
+  conf.rlnRelayUserMessageLimit = Opt.some(twnNetworkConf.rlnRelayUserMessageLimit)
 
   # Only set rlnRelay to true if relay is configured
   if conf.relay:
-    conf.rlnRelay = some(twnNetworkConf.rlnRelay)
+    conf.rlnRelay = Opt.some(twnNetworkConf.rlnRelay)
 
   info "Starting node"
   var waku = (waitFor Waku.new(conf)).valueOr:

@@ -9,7 +9,7 @@
 ## which spawn a full service Waku node
 ## that could be used also as a lightpush client, helping testing and development.
 
-import results, chronos, chronicles, std/options, metrics, stew/byteutils
+import results, chronos, chronicles, metrics, stew/byteutils
 import
   ../waku_core,
   ./protocol,
@@ -31,7 +31,7 @@ proc handleSelfLightPushRequest*(
     let selfPeerId = self.peerManager.switch.peerInfo.peerId
 
     let req = PushRequest(pubSubTopic: pubSubTopic, message: message)
-    let rpc = PushRPC(requestId: generateRequestId(self.rng), request: some(req))
+    let rpc = PushRPC(requestId: generateRequestId(self.rng), request: Opt.some(req))
 
     let respRpc = await self.handleRequest(selfPeerId, rpc.encode().buffer)
 

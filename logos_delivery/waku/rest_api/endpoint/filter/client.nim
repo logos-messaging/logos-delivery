@@ -5,7 +5,7 @@ import
   stew/byteutils,
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/[route, client, common]
 import ../../../common/base64, ../serdes, ../rest_serdes, ./types
 

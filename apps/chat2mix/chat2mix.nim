@@ -6,7 +6,7 @@ when not (compileOption("threads")):
 
 {.push raises: [].}
 
-import std/[strformat, strutils, times, options, random, sequtils]
+import std/[strformat, strutils, times, random, sequtils, sets]
 import
   confutils,
   chronicles,
@@ -31,9 +31,8 @@ import
     protocols/kademlia/types,
     protocols/service_discovery/types as sd_types,
     nameresolving/dnsresolver,
-    protocols/mix/curve25519,
-    protocols/mix/mix_protocol,
   ] # define DNS resolution
+import libp2p_mix/[curve25519, mix_protocol]
 import
   logos_delivery/waku/[
     waku_core,
@@ -216,9 +215,9 @@ proc publish(c: Chat, line: string) {.async.} =
 
       (
         waitFor c.node.lightpushPublish(
-          some(c.conf.getPubsubTopic(c.node, c.contentTopic)),
+          Opt.some(c.conf.getPubsubTopic(c.node, c.contentTopic)),
           message,
-          none(RemotePeerInfo),
+          Opt.none(RemotePeerInfo),
           true,
         )
       ).isOkOr:
@@ -312,7 +311,7 @@ proc readInput(wfd: AsyncFD) {.thread, raises: [Defect, CatchableError].} =
 var alreadyUsedServicePeers {.threadvar.}: seq[RemotePeerInfo]
 
 proc selectRandomServicePeer*(
-    pm: PeerManager, actualPeer: Option[RemotePeerInfo], codec: string
+    pm: PeerManager, actualPeer: Opt[RemotePeerInfo], codec: string
 ): Result[RemotePeerInfo, void] =
   if actualPeer.isSome():
     alreadyUsedServicePeers.add(actualPeer.get())
@@ -355,7 +354,7 @@ proc maintainSubscription(
 
     let subscribeErr = (
       await wakuNode.filterSubscribe(
-        some(filterPubsubTopic), filterContentTopic, actualFilterPeer
+        Opt.some(filterPubsubTopic), filterContentTopic, actualFilterPeer
       )
     ).errorOr:
       await sleepAsync(SubscriptionMaintenance)
@@ -377,7 +376,7 @@ proc maintainSubscription(
     elif not preventPeerSwitch:
       # try again with new peer without delay
       let actualFilterPeer = selectRandomServicePeer(
-        wakuNode.peerManager, some(actualFilterPeer), WakuFilterSubscribeCodec
+        wakuNode.peerManager, Opt.some(actualFilterPeer), WakuFilterSubscribeCodec
       ).valueOr:
         error "Failed to find new service peer. Exiting."
         noFailedServiceNodeSwitches += 1
@@ -463,10 +462,9 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   if conf.kadBootstrapNodes.len > 0:
     var kadBootstrapPeers: seq[(PeerId, seq[MultiAddress])]
     for nodeStr in conf.kadBootstrapNodes:
-      let (peerId, ma) = block:
-        parseFullAddress(nodeStr).isOkOr:
-          error "Failed to parse kademlia bootstrap node", node = nodeStr, error
-          continue
+      let (peerId, ma) = parseFullAddress(nodeStr).valueOr:
+        error "Failed to parse kademlia bootstrap node", node = nodeStr, error = error
+        continue
 
       kadBootstrapPeers.add((peerId, @[ma]))
 
@@ -474,7 +472,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
       node.mountKademlia(
         KademliaDiscoveryConf(
           bootstrapNodes: kadBootstrapPeers,
-          servicesToDiscover: @[MixProtocolID],
+          servicesToDiscover: toHashSet([MixProtocolID]),
           randomLookupInterval: chronos.seconds(60),
           serviceLookupInterval: chronos.seconds(60),
           kadDhtConfig: KadDHTConfig.new(),
@@ -511,25 +509,25 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     conf: conf,
   )
 
-  var dnsDiscoveryUrl = none(string)
+  var dnsDiscoveryUrl = Opt.none(string)
 
   if conf.fleet != Fleet.none:
     # Use DNS discovery to connect to selected fleet
     echo "Connecting to " & $conf.fleet & " fleet using DNS discovery..."
 
     if conf.fleet == Fleet.test:
-      dnsDiscoveryUrl = some(
+      dnsDiscoveryUrl = Opt.some(
         "enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im"
       )
     else:
       # Connect to sandbox by default
-      dnsDiscoveryUrl = some(
+      dnsDiscoveryUrl = Opt.some(
         "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
       )
   elif conf.dnsDiscoveryUrl != "":
     # No pre-selected fleet. Discover nodes via DNS using user config
     info "Discovering nodes using Waku DNS discovery", url = conf.dnsDiscoveryUrl
-    dnsDiscoveryUrl = some(conf.dnsDiscoveryUrl)
+    dnsDiscoveryUrl = Opt.some(conf.dnsDiscoveryUrl)
 
   var discoveredNodes: seq[RemotePeerInfo]
 
@@ -565,17 +563,17 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   if (conf.storenode != "") or (conf.store == true):
     await node.mountStore()
 
-    var storenode: Option[RemotePeerInfo]
+    var storenode: Opt[RemotePeerInfo]
 
     if conf.storenode != "":
       let peerInfo = parsePeerInfo(conf.storenode)
       if peerInfo.isOk():
-        storenode = some(peerInfo.value)
+        storenode = Opt.some(peerInfo.value)
       else:
         error "Incorrect conf.storenode", error = peerInfo.error
     elif discoveredNodes.len > 0:
       echo "Store enabled, but no store nodes configured. Choosing one at random from discovered peers"
-      storenode = some(discoveredNodes[rand(0 .. len(discoveredNodes) - 1)])
+      storenode = Opt.some(discoveredNodes[rand(0 .. len(discoveredNodes) - 1)])
 
     if storenode.isSome():
       # We have a viable storenode. Let's query it for historical messages.
@@ -620,7 +618,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   if servicePeerInfo == nil or $servicePeerInfo.peerId == "":
     # Assuming that service node supports all services
     servicePeerInfo = selectRandomServicePeer(
-      node.peerManager, none(RemotePeerInfo), WakuLightpushCodec
+      node.peerManager, Opt.none(RemotePeerInfo), WakuLightpushCodec
     ).valueOr:
       error "Couldn't find any service peer"
       quit(QuitFailure)

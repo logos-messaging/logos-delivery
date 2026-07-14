@@ -1,10 +1,8 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
   std/[sequtils, tables, times, deques],
   chronicles,
-  options,
   chronos,
   stint,
   web3,
@@ -182,7 +180,7 @@ proc monitorEpochs(rln: Rln) {.async.} =
     await sleepAsync(sleepDuration)
 
 proc mount(
-    conf: WakuRlnConfig, registrationHandler = none(RegistrationHandler)
+    conf: WakuRlnConfig, registrationHandler = Opt.none(RegistrationHandler)
 ): Future[Result[Rln, string]] {.async.} =
   var
     groupManager: GroupManager
@@ -193,12 +191,12 @@ proc mount(
 
   let (rlnRelayCredPath, rlnRelayCredPassword) =
     if conf.creds.isSome:
-      (some(conf.creds.get().path), some(conf.creds.get().password))
+      (Opt.some(conf.creds.get().path), Opt.some(conf.creds.get().password))
     else:
-      (none(string), none(string))
+      (Opt.none(string), Opt.none(string))
 
   groupManager = OnchainGroupManager(
-    userMessageLimit: some(conf.userMessageLimit),
+    userMessageLimit: Opt.some(conf.userMessageLimit),
     ethClientUrls: conf.ethClientUrls,
     ethContractAddress: $conf.ethContractAddress,
     chainId: conf.chainId,
@@ -258,7 +256,9 @@ proc isReady*(rlnPeer: Rln): Future[bool] {.async.} =
     return false
 
 proc new*(
-    T: type Rln, conf: WakuRlnConfig, registrationHandler = none(RegistrationHandler)
+    T: type Rln,
+    conf: WakuRlnConfig,
+    registrationHandler = Opt.none(RegistrationHandler),
 ): Future[Result[Rln, string]] {.async.} =
   ## Mounts the rln-relay protocol on the node.
   ## The rln-relay protocol can be mounted in two modes: on-chain and off-chain.

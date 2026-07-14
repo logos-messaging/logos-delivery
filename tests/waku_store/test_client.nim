@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sets], testutils/unittests, chronos, libp2p/crypto/crypto
+import results, std/sets, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/
@@ -39,18 +39,18 @@ suite "Store Client":
     messageSeq = @[
       WakuMessageKeyValue(
         messageHash: hash1,
-        message: some(message1),
-        pubsubTopic: some(DefaultPubsubTopic),
+        message: Opt.some(message1),
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
       ),
       WakuMessageKeyValue(
         messageHash: hash2,
-        message: some(message2),
-        pubsubTopic: some(DefaultPubsubTopic),
+        message: Opt.some(message2),
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
       ),
       WakuMessageKeyValue(
         messageHash: hash3,
-        message: some(message3),
-        pubsubTopic: some(DefaultPubsubTopic),
+        message: Opt.some(message3),
+        pubsubTopic: Opt.some(DefaultPubsubTopic),
       ),
     ]
     handlerFuture = newHistoryFuture()
@@ -60,7 +60,7 @@ suite "Store Client":
       handlerFuture.complete(request)
       return ok(StoreQueryResponse(messages: messageSeq))
     storeQuery = StoreQueryRequest(
-      pubsubTopic: some(DefaultPubsubTopic),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
       contentTopics: @[DefaultContentTopic],
       paginationForward: PagingDirection.FORWARD,
     )
@@ -109,36 +109,36 @@ suite "Store Client":
       # Given some invalid queries
       let
         invalidQuery1 = StoreQueryRequest(
-          pubsubTopic: some(DefaultPubsubTopic),
+          pubsubTopic: Opt.some(DefaultPubsubTopic),
           contentTopics: @[],
           paginationForward: PagingDirection.FORWARD,
         )
         invalidQuery2 = StoreQueryRequest(
-          pubsubTopic: PubsubTopic.none(),
+          pubsubTopic: Opt.none(PubsubTopic),
           contentTopics: @[DefaultContentTopic],
           paginationForward: PagingDirection.FORWARD,
         )
         invalidQuery3 = StoreQueryRequest(
-          pubsubTopic: some(DefaultPubsubTopic),
+          pubsubTopic: Opt.some(DefaultPubsubTopic),
           contentTopics: @[DefaultContentTopic],
-          paginationLimit: some(uint64(0)),
+          paginationLimit: Opt.some(uint64(0)),
         )
         invalidQuery4 = StoreQueryRequest(
-          pubsubTopic: some(DefaultPubsubTopic),
+          pubsubTopic: Opt.some(DefaultPubsubTopic),
           contentTopics: @[DefaultContentTopic],
-          paginationLimit: some(uint64(0)),
+          paginationLimit: Opt.some(uint64(0)),
         )
         invalidQuery5 = StoreQueryRequest(
-          pubsubTopic: some(DefaultPubsubTopic),
+          pubsubTopic: Opt.some(DefaultPubsubTopic),
           contentTopics: @[DefaultContentTopic],
-          startTime: some(0.Timestamp),
-          endTime: some(0.Timestamp),
+          startTime: Opt.some(0.Timestamp),
+          endTime: Opt.some(0.Timestamp),
         )
         invalidQuery6 = StoreQueryRequest(
-          pubsubTopic: some(DefaultPubsubTopic),
+          pubsubTopic: Opt.some(DefaultPubsubTopic),
           contentTopics: @[DefaultContentTopic],
-          startTime: some(0.Timestamp),
-          endTime: some(-1.Timestamp),
+          startTime: Opt.some(0.Timestamp),
+          endTime: Opt.some(-1.Timestamp),
         )
 
       # When the query is sent to the server

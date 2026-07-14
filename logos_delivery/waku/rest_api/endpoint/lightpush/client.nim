@@ -7,7 +7,7 @@ import
   strformat,
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/[route, client, common]
 import ../../../waku_core, ../serdes, ../responses, ../rest_serdes, ./types
 

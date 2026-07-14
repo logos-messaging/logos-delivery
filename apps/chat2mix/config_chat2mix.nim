@@ -1,4 +1,4 @@
-import chronicles, chronos, std/strutils, regex
+import results, chronicles, chronos, std/strutils, regex
 
 import
   eth/keys,
@@ -32,7 +32,7 @@ type
     .}: LogLevel
 
     nodekey* {.desc: "P2P node private key as 64 char hex string.", name: "nodekey".}:
-      Option[crypto.PrivateKey]
+      Opt[crypto.PrivateKey]
 
     listenAddress* {.
       defaultValue: defaultListenAddress(config),
@@ -287,9 +287,9 @@ proc parseCmdArg*(T: type Port, p: string): T =
 proc completeCmdArg*(T: type Port, val: string): seq[string] =
   return @[]
 
-proc parseCmdArg*(T: type Option[uint], p: string): T =
+proc parseCmdArg*(T: type Opt[uint], p: string): T =
   try:
-    some(parseUint(p))
+    Opt.some(parseUint(p))
   except CatchableError:
     raise newException(ValueError, "Invalid unsigned integer")
 

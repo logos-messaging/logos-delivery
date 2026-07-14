@@ -1,6 +1,9 @@
-import logos_delivery/waku/compat/option_valueor
-import chronicles, std/options, results
-import libp2p/crypto/crypto, libp2p/crypto/curve25519, libp2p_mix/curve25519
+import
+  chronicles,
+  results,
+  libp2p/crypto/crypto,
+  libp2p/crypto/curve25519,
+  libp2p_mix/curve25519
 import ../waku_conf, logos_delivery/waku/waku_mix
 
 logScope:
@@ -12,35 +15,39 @@ const DefaultMixEnabled: bool = false
 ## Mix Config Builder ##
 ##################################
 type MixConfBuilder* = object
-  enabled: Option[bool]
-  mixKey: Option[string]
+  enabled: Opt[bool]
+  mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
 
 proc withEnabled*(b: var MixConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withMixKey*(b: var MixConfBuilder, mixKey: string) =
-  b.mixKey = some(mixKey)
+  b.mixKey = Opt.some(mixKey)
 
 proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   b.mixNodes = mixNodes
 
-proc build*(b: MixConfBuilder): Result[Option[MixConf], string] =
+proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):
-    return ok(none[MixConf]())
+    return ok(Opt.none(MixConf))
   else:
     if b.mixKey.isSome():
       let mixPrivKey = intoCurve25519Key(ncrutils.fromHex(b.mixKey.get()))
       let mixPubKey = public(mixPrivKey)
       return ok(
-        some(MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes))
+        Opt.some(
+          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+        )
       )
     else:
       let (mixPrivKey, mixPubKey) = generateKeyPair().valueOr:
         return err("Generate key pair error: " & $error)
       return ok(
-        some(MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes))
+        Opt.some(
+          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+        )
       )

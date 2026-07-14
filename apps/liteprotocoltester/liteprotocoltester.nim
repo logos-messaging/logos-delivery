@@ -1,7 +1,8 @@
 {.push raises: [].}
 
 import
-  std/[options, strutils, os, sequtils, net],
+  results,
+  std/[strutils, os, sequtils, net],
   chronicles,
   chronos,
   metrics,
@@ -95,7 +96,7 @@ when isMainModule:
 
   wakuNodeConf.shards = @[conf.shard]
   wakuNodeConf.contentTopics = conf.contentTopics
-  wakuNodeConf.clusterId = some(conf.clusterId)
+  wakuNodeConf.clusterId = Opt.some(conf.clusterId)
   ## TODO: Depending on the tester needs we might extend here with shards, clusterId, etc...
 
   wakuNodeConf.metricsServer = true
@@ -190,7 +191,7 @@ when isMainModule:
         quit(QuitFailure)
 
       serviceNodePeerInfo = selectRandomServicePeer(
-        waku.node.peerManager, none(RemotePeerInfo), codec
+        waku.node.peerManager, Opt.none(RemotePeerInfo), codec
       ).valueOr:
         error "Service node selection failed"
         quit(QuitFailure)

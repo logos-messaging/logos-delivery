@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, os, sequtils, tempfiles, strutils, osproc, algorithm],
+  results,
+  std/[os, sequtils, tempfiles, strutils, osproc, algorithm],
   stew/byteutils,
   testutils/unittests,
   chronos,
@@ -25,7 +26,7 @@ suite "Waku rln relay":
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
     manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
   teardown:

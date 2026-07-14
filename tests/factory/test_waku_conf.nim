@@ -4,7 +4,7 @@ import
   libp2p/crypto/[crypto, secp],
   libp2p/multiaddress,
   nimcrypto/utils,
-  std/[net, options, random, sequtils],
+  std/[net, random, sequtils],
   results,
   testutils/unittests
 import
@@ -288,7 +288,7 @@ suite "Waku Conf - build with cluster conf":
     ## Passing an AutoSharding preset and trying to override with
     ## --num-shards-in-network=0 (which is StaticSharding) doesn't work.
     ## Note that --num-shards-in-network=0 and omitting the switch are
-    ## internally the same. Promoting the config to an Option[uint16] is
+    ## internally the same. Promoting the config to an Opt[uint16] is
     ## probably not worth it since overriding an AutoSharding preset with
     ## StaticSharding shouldn't make any sense (that is, no use case).
 

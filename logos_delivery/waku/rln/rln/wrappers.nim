@@ -1,7 +1,13 @@
-import logos_delivery/waku/compat/option_valueor
-import chronicles, eth/keys, stew/[arrayops, endians2], stint, results
-
-import ./rln_interface, ../conversion_utils, ../protocol_types, ../protocol_metrics
+import
+  chronicles,
+  eth/keys,
+  stew/[arrayops, endians2],
+  stint,
+  results,
+  ./rln_interface,
+  ../conversion_utils,
+  ../protocol_types,
+  ../protocol_metrics
 import ../../waku_core, ../../waku_keystore
 
 {.push raises: [], gcsafe.}

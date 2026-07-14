@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, results, testutils/unittests
+import results, testutils/unittests
 import
   tools/confutils/cli_args,
   logos_delivery/waku/factory/waku_conf,

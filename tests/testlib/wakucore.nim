@@ -1,5 +1,5 @@
 import
-  std/[options, times],
+  std/times,
   results,
   stew/byteutils,
   chronos,
@@ -61,7 +61,7 @@ proc newStandardSwitch*(
   b.build()
 
 proc newTestSwitch*(
-    key = none(libp2p_keys.PrivateKey), address = none(MultiAddress)
+    key = Opt.none(libp2p_keys.PrivateKey), address = Opt.none(MultiAddress)
 ): Switch =
   let peerKey = key.get(generateSecp256k1Key())
   let peerAddr = address.get(MultiAddress.init("/ip4/127.0.0.1/tcp/0").get())

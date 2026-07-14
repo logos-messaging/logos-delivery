@@ -1,7 +1,6 @@
 {.push raises: [].}
 
-import std/options
-import ../common/protobuf, ../waku_core, ./rpc
+import results, ../common/protobuf, ../waku_core, ./rpc
 
 const DefaultMaxRpcSize* = -1
 
@@ -53,9 +52,9 @@ proc decode*(T: type PushResponse, buffer: seq[byte]): ProtobufResult[T] =
 
   var info: string
   if not ?pb.getField(2, info):
-    rpc.info = none(string)
+    rpc.info = Opt.none(string)
   else:
-    rpc.info = some(info)
+    rpc.info = Opt.some(info)
 
   ok(rpc)
 
@@ -81,16 +80,16 @@ proc decode*(T: type PushRPC, buffer: seq[byte]): ProtobufResult[T] =
 
   var requestBuffer: seq[byte]
   if not ?pb.getField(2, requestBuffer):
-    rpc.request = none(PushRequest)
+    rpc.request = Opt.none(PushRequest)
   else:
     let request = ?PushRequest.decode(requestBuffer)
-    rpc.request = some(request)
+    rpc.request = Opt.some(request)
 
   var responseBuffer: seq[byte]
   if not ?pb.getField(3, responseBuffer):
-    rpc.response = none(PushResponse)
+    rpc.response = Opt.none(PushResponse)
   else:
     let response = ?PushResponse.decode(responseBuffer)
-    rpc.response = some(response)
+    rpc.response = Opt.some(response)
 
   ok(rpc)

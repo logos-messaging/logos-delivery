@@ -1,7 +1,13 @@
-import logos_delivery/waku/compat/option_valueor
-import std/[options, sets], chronos, web3, stew/byteutils, stint, results, chronicles
-
-import logos_delivery/waku/incentivization/rpc, tests/waku_rln_relay/utils_onchain
+import
+  std/sets,
+  chronos,
+  web3,
+  stew/byteutils,
+  stint,
+  results,
+  chronicles,
+  logos_delivery/waku/incentivization/rpc,
+  tests/waku_rln_relay/utils_onchain
 
 const SimpleTransferGasUsed = Quantity(21000)
 const TxReceiptQueryTimeout = 3.seconds

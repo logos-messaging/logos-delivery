@@ -1,7 +1,6 @@
 ## Waku layer API — store (historical query) operations.
 {.push raises: [].}
 
-import std/options
 import results, chronos, chronicles
 
 import logos_delivery/waku/waku

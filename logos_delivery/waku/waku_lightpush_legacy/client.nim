@@ -1,8 +1,7 @@
 import libp2p/crypto/crypto
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/options, results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
+import results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
 import libp2p/peerid
 import
   ../waku_core/peers,
@@ -38,7 +37,7 @@ proc sendPushRequest(
   defer:
     await connection.closeWithEOF()
 
-  let rpc = PushRPC(requestId: generateRequestId(wl.rng), request: some(req))
+  let rpc = PushRPC(requestId: generateRequestId(wl.rng), request: Opt.some(req))
   await connection.writeLP(rpc.encode().buffer)
 
   var buffer: seq[byte]

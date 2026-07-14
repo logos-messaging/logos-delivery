@@ -1,8 +1,8 @@
 import ../../common/error_handling, ../protocol_types, ../protocol_metrics, ../constants
 
-import options, chronos, results, std/[deques]
+import chronos, results, std/[deques]
 
-export options, chronos, results, protocol_types, protocol_metrics, deques
+export chronos, results, protocol_types, protocol_metrics, deques
 
 # This module contains the GroupManager interface
 # The GroupManager is responsible for managing the group state
@@ -19,16 +19,16 @@ type OnWithdrawCallback* = proc(withdrawals: seq[Membership]): Future[void] {.gc
 type GroupManagerResult*[T] = Result[T, string]
 
 type GroupManager* = ref object of RootObj
-  idCredentials*: Option[IdentityCredential]
-  membershipIndex*: Option[MembershipIndex]
-  registerCb*: Option[OnRegisterCallback]
-  withdrawCb*: Option[OnWithdrawCallback]
+  idCredentials*: Opt[IdentityCredential]
+  membershipIndex*: Opt[MembershipIndex]
+  registerCb*: Opt[OnRegisterCallback]
+  withdrawCb*: Opt[OnWithdrawCallback]
   rlnInstance*: ptr RlnRaw
   initialized*: bool
   latestIndex*: MembershipIndex
   validRoots*: Deque[MerkleNode]
   onFatalErrorAction*: OnFatalErrorHandler
-  userMessageLimit*: Option[UserMessageLimit]
+  userMessageLimit*: Opt[UserMessageLimit]
   rlnRelayMaxMessageLimit*: uint64
 
 # This proc is used to initialize the group manager
@@ -76,7 +76,7 @@ method registerBatch*(
 # This proc is used to set a callback that will be called when a new identity commitment is registered
 # The callback may be called multiple times, and should be used to for any post processing
 method onRegister*(g: GroupManager, cb: OnRegisterCallback) {.base, gcsafe.} =
-  g.registerCb = some(cb)
+  g.registerCb = Opt.some(cb)
 
 # This proc is used to withdraw/remove an identity commitment from the merkle tree
 # The user should have the identity secret hash to this commitment, by either deriving it, or owning it
@@ -113,7 +113,7 @@ method stop*(g: GroupManager): Future[void] {.base, async.} =
 # This proc is used to set a callback that will be called when an identity commitment is withdrawn
 # The callback may be called multiple times, and should be used to for any post processing
 method onWithdraw*(g: GroupManager, cb: OnWithdrawCallback) {.base, gcsafe.} =
-  g.withdrawCb = some(cb)
+  g.withdrawCb = Opt.some(cb)
 
 method indexOfRoot*(
     g: GroupManager, root: MerkleNode

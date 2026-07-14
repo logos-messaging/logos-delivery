@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, random], testutils/unittests, chronos
+import std/random, testutils/unittests, chronos
 
 import
   ../../logos_delivery/waku/waku_core,
