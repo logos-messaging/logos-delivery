@@ -254,10 +254,13 @@ proc evaluateAndCleanUp(self: SendService) =
     )
   )
 
-proc admitOnce(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
-  ## Charges the task's first transmission against the epoch budget, at most
-  ## once per task (`firstAdmittedTime`); retries then resend for free. Returns
-  ## false when the task must stay parked for a later epoch.
+proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
+  ## Gates a task's first transmission: charges one epoch slot, then attaches
+  ## an RLN proof — strictly in that order, so an over-budget message never
+  ## draws a nonce. Both charge at most once per task lifetime
+  ## (`firstAdmittedTime`): once admitted, a task keeps its slot and its proof,
+  ## and retries resend the same bytes for free. Returns false when the task
+  ## must stay parked for a later round.
   if task.firstAdmittedTime.isSome():
     return true
 
@@ -266,6 +269,14 @@ proc admitOnce(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     return false
   task.firstAdmittedTime = Opt.some(Moment.now())
+
+  ## A no-op when RLN is not mounted, or when a prior round already attached a
+  ## proof.
+  task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
+    error "failed to attach RLN proof, retrying next round",
+      requestId = task.requestId, error = error
+    return false
+
   return true
 
 proc trySendMessages*(self: SendService) {.async.} =
@@ -273,7 +284,7 @@ proc trySendMessages*(self: SendService) {.async.} =
 
   for task in tasksToSend:
     # Todo, check if it has any perf gain to run them concurrent...
-    if not (await self.admitOnce(task)):
+    if not (await self.admitAndProve(task)):
       continue
     await self.sendProcessor.process(task)
 
@@ -304,9 +315,18 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
     error "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 
-  if not (await self.admitOnce(task)):
+  if not (await self.admitAndProve(task)):
     info "SendService.send: parking task for a later round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    task.state = DeliveryState.NextRoundRetry
+    self.addTask(task)
+    return
+
+  ## Strictly after admission, so a rejected message never draws a nonce.
+  ## A no-op when RLN is not mounted.
+  task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
+    error "SendService.send: failed to attach RLN proof, parking task",
+      requestId = task.requestId, error = error
     task.state = DeliveryState.NextRoundRetry
     self.addTask(task)
     return

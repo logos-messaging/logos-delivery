@@ -7,6 +7,7 @@
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
 
+import std/times
 import results, chronos
 
 import logos_delivery/waku/waku
@@ -38,8 +39,8 @@ proc hasLightpush*(self: Waku): bool =
 
 proc relayPushHandler*(self: Waku): PushMessageHandler =
   ## Builds the relay publish handler used by the send pipeline. Caller
-  ## ensures relay is mounted. RLN proof generation is handled client-side
-  ## in (legacy)lightpushPublish; this handler only validates and republishes.
+  ## ensures relay is mounted. The handler validates and republishes; the
+  ## proof is attached by the messaging layer via `attachRlnProof`.
   return getRelayPushHandler(self.node.wakuRelay)
 
 proc currentRlnEpochQuota*(self: Waku): Opt[tuple[epochIndex, messageLimit: uint64]] =
@@ -52,6 +53,30 @@ proc currentRlnEpochQuota*(self: Waku): Opt[tuple[epochIndex, messageLimit: uint
     return Opt.none(tuple[epochIndex, messageLimit: uint64])
 
   return Opt.some((fromEpoch(self.node.rln.getCurrentEpoch()), uint64(limit)))
+
+proc attachRlnProof*(
+    self: Waku, message: WakuMessage
+): Future[Result[WakuMessage, string]] {.async.} =
+  ## Returns `message` carrying an RLN proof. A message that already has one is
+  ## returned untouched, so retrying a task neither redraws a nonce nor changes
+  ## the bytes. Without RLN mounted the message passes through unproven.
+  ##
+  ## Uses the root-refreshing generator: a message can wait in the send
+  ## service's task cache while the group root moves on chain, so the proof is
+  ## validated against the acceptable-root window and regenerated once against a
+  ## refetched merkle path if it went stale.
+  if self.node.rln.isNil() or message.proof.len > 0:
+    return ok(message)
+
+  var msgWithProof = message
+  msgWithProof.proof = (
+    await self.node.rln.generateRLNProofWithRootRefresh(
+      message.toRLNSignal(), float64(getTime().toUnix())
+    )
+  ).valueOr:
+    return err("failed to attach RLN proof: " & error)
+
+  return ok(msgWithProof)
 
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
