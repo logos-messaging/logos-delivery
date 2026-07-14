@@ -389,7 +389,7 @@ task wakunode2, "Build Waku v2 cli node":
   buildBinary name, "apps/wakunode2/", " -d:chronicles_log_level=TRACE "
 
 task logosdeliverynode, "Build Logos Delivery cli node":
-  let name = "logos_delivery_node"
+  let name = "logosdeliverynode"
   buildBinary name, "apps/logos_delivery_node/", " -d:chronicles_log_level=TRACE "
 
 task benchmarks, "Some benchmarks":

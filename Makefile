@@ -54,7 +54,7 @@ endif
 .PHONY: all test clean examples deps nimble install-nim install-nimble
 
 # default target
-all: | wakunode2 liblogosdelivery
+all: | wakunode2 logosdeliverynode liblogosdelivery
 
 examples: | example2 chat2 chat2bridge
 
@@ -241,7 +241,7 @@ endif
 logosdeliverynode: | build-deps build deps librln
 ifeq ($(detected_OS),Windows)
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nim c --out:build/logos_delivery_node --mm:refc --cpu:amd64 $(NIM_PARAMS) -d:chronicles_log_level=TRACE apps/logos_delivery_node/logos_delivery_node.nim
+		nim c --out:build/logosdeliverynode --mm:refc --cpu:amd64 $(NIM_PARAMS) -d:chronicles_log_level=TRACE apps/logos_delivery_node/logosdeliverynode.nim
 else
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) logosdeliverynode

@@ -87,19 +87,25 @@ jobs:
         id: build
         if: ${{ steps.secrets.outcome == 'success' }}
         run: |
-          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" wakunode2
+          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" wakunode2 logosdeliverynode
 
           SHORT_REF=$(git rev-parse --short HEAD)
 
           TAG=$([ "${PR_NUMBER}" == "" ] && echo "${SHORT_REF}" || echo "${PR_NUMBER}")
           IMAGE=quay.io/wakuorg/nwaku-pr:${TAG}
+          LD_IMAGE=quay.io/wakuorg/nwaku-pr:${TAG}-logosdeliverynode
 
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
+          echo "ld_image=${LD_IMAGE}" >> $GITHUB_OUTPUT
           echo "commit_hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
           docker login -u ${QUAY_USER} -p ${QUAY_PASSWORD} quay.io
           docker build -t ${IMAGE} -f docker/binaries/Dockerfile.bn.amd64 --label quay.expires-after=30d .
           docker push ${IMAGE}
+
+          # logosdeliverynode image (same generic Dockerfile, selected via MAKE_TARGET)
+          docker build -t ${LD_IMAGE} --build-arg MAKE_TARGET=logosdeliverynode -f docker/binaries/Dockerfile.bn.amd64 --label quay.expires-after=30d .
+          docker push ${LD_IMAGE}
         env:
           QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
           QUAY_USER: ${{ secrets.QUAY_USER }}
@@ -110,10 +116,11 @@ jobs:
         if: ${{ github.event_name == 'pull_request' && steps.secrets.outcome == 'success' }}
         with:
           message: |
-            You can find the image built from this PR at
+            You can find the images built from this PR at
 
             ```
             ${{steps.build.outputs.image}}
+            ${{steps.build.outputs.ld_image}}
             ```
 
             Built from ${{ steps.build.outputs.commit_hash }}
