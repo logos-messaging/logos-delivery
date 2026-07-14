@@ -20,6 +20,8 @@
 pthread_mutex_t mutex = PTHREAD_MUTEX_INITIALIZER;
 pthread_cond_t cond = PTHREAD_COND_INITIALIZER;
 int callback_executed = 0;
+// Return code (RET_OK / RET_ERR) reported by the most recent FFI callback.
+volatile int last_callback_ret = RET_OK;
 
 void waitForCallback()
 {
@@ -108,6 +110,7 @@ auto cify(F &&f)
     static F fn = std::forward<F>(f);
     return [](int callerRet, const char *msg, size_t len, void *userData)
     {
+        last_callback_ret = callerRet;
         signal_cond();
         return fn(msg, len);
     };
@@ -259,6 +262,23 @@ int main(int argc, char **argv)
                  nullptr);
     waitForCallback();
 
+    // Node creation is asynchronous: logosdelivery_create_node returns a non-null
+    // ctx as soon as the request is enqueued, but the config may still fail to
+    // parse on the worker thread. Using ctx after a failed creation dereferences
+    // a nil node inside the library and crashes (SIGSEGV). Bail out cleanly.
+    if (ctx == nullptr || last_callback_ret != RET_OK)
+    {
+        std::cerr << "Failed to create the node. Aborting." << std::endl;
+        if (ctx != nullptr)
+        {
+            logosdelivery_destroy(ctx,
+                                  cify([](const char *msg, size_t len) {}),
+                                  nullptr);
+            waitForCallback();
+        }
+        return 1;
+    }
+
     // example on how to retrieve a value from the `libwaku` callback.
     std::string defaultPubsubTopic;
     WAKU_CALL(
@@ -302,6 +322,14 @@ int main(int argc, char **argv)
                                         { event_handler(msg, len); }),
                                    nullptr,
                                    defaultPubsubTopic.c_str()));
+
+    std::string myPeerId;
+    WAKU_CALL(waku_get_my_peerid(ctx,
+                                 cify([&myPeerId](const char *msg, size_t len)
+                                      { myPeerId = msg; }),
+                                 nullptr));
+
+    std::cout << "My peer id: " << myPeerId << std::endl;
 
     show_main_menu();
     while (1)

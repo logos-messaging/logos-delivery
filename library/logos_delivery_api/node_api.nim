@@ -1,5 +1,6 @@
 import std/json
 import chronos, chronicles, results, ffi
+import libp2p/peerid # pull PeerId pretty string formatting
 import logos_delivery/waku/common/base64
 import
   logos_delivery,
