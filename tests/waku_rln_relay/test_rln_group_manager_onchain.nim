@@ -432,6 +432,42 @@ suite "Onchain group manager":
       # replaced by a competing refresh.
       manager.rootsRefreshInFlightFut == inFlight
 
+  test "validateRoot: cancelling one caller does not cancel the shared roots refresh":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    manager.lastRootsRefreshMoment = default(Moment)
+    manager.rootsRefreshInFlightFut = nil
+
+    var badRoot: MerkleNode
+    badRoot[0] = 0x66
+
+    let f1 = manager.validateRoot(badRoot)
+    let inFlight = manager.rootsRefreshInFlightFut
+    let f2 = manager.validateRoot(badRoot)
+
+    check:
+      inFlight != nil
+      not inFlight.finished()
+
+    # Cancel the initiating caller; the shared refresh must keep running for
+    # the coalesced one.
+    waitFor f1.cancelAndWait()
+
+    check:
+      f1.cancelled()
+      not inFlight.cancelled()
+
+    discard waitFor f2
+
+    check:
+      inFlight.completed()
+      manager.rootsRefreshInFlightFut == inFlight
+
   test "generateProof: fast-paths without refresh when cache is populated":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
@@ -641,6 +677,71 @@ suite "Onchain group manager":
 
     waitFor inFlight.join()
     check manager.merkleProofCache == goodCache
+
+  test "ensureFreshMerkleProofPath: invalidate during the refetch does not fail callers":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    manager.merkleProofCache = @[]
+    manager.proofPathRefreshInFlightFut = nil
+
+    # Both callers coalesce onto a refetch suspended on the eth call.
+    let f1 = manager.ensureFreshMerkleProofPath()
+    let inFlight = manager.proofPathRefreshInFlightFut
+    let f2 = manager.ensureFreshMerkleProofPath()
+
+    check:
+      inFlight != nil
+      not inFlight.finished()
+
+    # A publish rejection lands mid-fetch. The invalidate must neither fail
+    # the coalesced callers nor be swallowed by the fetch it raced: the path
+    # they receive is refetched after the invalidate.
+    manager.invalidateMerkleProofCache()
+    check manager.merkleProofCache.len == 0
+
+    let r1 = waitFor f1
+    let r2 = waitFor f2
+
+    check:
+      r1.isOk()
+      r1.get().len > 0
+      r2.isOk()
+      r2.get() == r1.get()
+      # The post-invalidate refetch repopulated the cache.
+      manager.merkleProofCache == r1.get()
+
+  test "generateProof: succeeds when the cache is invalidated mid-refetch":
+    (waitFor manager.init()).isOkOr:
+      raiseAssert $error
+
+    let credentials = generateCredentials()
+    (waitFor manager.register(credentials, UserMessageLimit(20))).isOkOr:
+      assert false, "register failed: " & error
+
+    manager.merkleProofCache = @[]
+    manager.proofPathRefreshInFlightFut = nil
+
+    # generateProof runs down to the refetch's suspended eth call.
+    let proofFut = manager.generateProof(
+      data = "hello".toBytes(), epoch = default(Epoch), messageId = MessageId(1)
+    )
+
+    check:
+      manager.proofPathRefreshInFlightFut != nil
+      not manager.proofPathRefreshInFlightFut.finished()
+
+    # A concurrent publish rejection empties the cache while proof-gen waits
+    # on the refetch.
+    manager.invalidateMerkleProofCache()
+
+    let proofRes = waitFor proofFut
+    check:
+      proofRes.isOk()
 
   test "verifyProof: should verify valid proof":
     let credentials = generateCredentials()

@@ -44,7 +44,8 @@ type
     registrationHandler*: Option[RegistrationHandler]
     latestProcessedBlock*: BlockNumber
     merkleProofCache*: seq[byte]
-    proofPathRefreshInFlightFut*: Future[void]
+    merkleProofCacheGeneration: uint64
+    proofPathRefreshInFlightFut*: Future[seq[byte]]
     lastRootsRefreshMoment*: Moment
     rootsRefreshInFlightFut*: Future[void]
 
@@ -235,12 +236,13 @@ proc updateMemberCount*(
 proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
   ## On-demand refresh of validRoots from the on-chain root cache.
   ## Throttled to at most one refresh per RootsRefreshMinInterval; concurrent
-  ## callers outside the throttle window coalesce onto a single in-flight refresh.
+  ## callers outside the throttle window coalesce onto a single in-flight
+  ## refresh, awaited via `join` so cancelling one caller never cancels it.
   if Moment.now() - g.lastRootsRefreshMoment < RootsRefreshMinInterval:
     return
 
   if not g.rootsRefreshInFlightFut.isNil() and not g.rootsRefreshInFlightFut.finished():
-    await g.rootsRefreshInFlightFut
+    await g.rootsRefreshInFlightFut.join()
     return
 
   proc doRefresh(): Future[void] {.async.} =
@@ -250,7 +252,7 @@ proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
     g.lastRootsRefreshMoment = Moment.now()
 
   g.rootsRefreshInFlightFut = doRefresh()
-  await g.rootsRefreshInFlightFut
+  await g.rootsRefreshInFlightFut.join()
 
 method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.async.} =
   if g.indexOfRoot(root) >= 0:
@@ -259,54 +261,71 @@ method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.a
   await g.refreshRoots()
   return g.indexOfRoot(root) >= 0
 
+# Bounds refetches when invalidations keep landing mid-fetch, so a rejection
+# storm cannot pin the refresh loop to the eth client.
+const MerkleProofRefetchMaxAttempts = 3
+
 proc ensureFreshMerkleProofPath*(
     g: OnchainGroupManager
-): Future[Result[void, string]] {.async.} =
-  ## Refetches `merkleProofCache` only when empty; suspected-stale callers
-  ## invalidate first. Concurrent callers coalesce onto one refetch, awaited
-  ## via `join` so cancelling one caller never cancels the shared refetch.
+): Future[Result[seq[byte], string]] {.async.} =
+  ## Returns the merkle proof path, refetching from chain when the cache is
+  ## empty; suspected-stale callers invalidate first. Concurrent callers
+  ## coalesce onto one refetch, awaited via `join` so cancelling one caller
+  ## never cancels the shared refetch. Callers use the returned path, not the
+  ## cache field, so a concurrent invalidate cannot fail an in-flight proof-gen.
   if g.membershipIndex.isNone():
     return err("membership index is not set")
 
   if g.merkleProofCache.len > 0:
-    return ok()
+    return ok(g.merkleProofCache)
 
-  if not g.proofPathRefreshInFlightFut.isNil() and
-      not g.proofPathRefreshInFlightFut.finished():
-    await g.proofPathRefreshInFlightFut.join()
-    if g.merkleProofCache.len > 0:
-      return ok()
+  proc doRefresh(): Future[seq[byte]] {.async.} =
+    var pathBytes: seq[byte]
+    for _ in 0 ..< MerkleProofRefetchMaxAttempts:
+      let generation = g.merkleProofCacheGeneration
+      pathBytes = (await g.fetchMerkleProofElements()).valueOr:
+        error "Failed to refresh merkle proof path", error = error
+        return @[]
+      if g.merkleProofCacheGeneration == generation:
+        g.merkleProofCache = pathBytes
+        break
+      # An invalidate raced this fetch, so the fetched path may predate the
+      # change that triggered it: fetch again. If attempts run out the last
+      # path is returned uncached and the next publish refetches.
+    if pathBytes.len > 0:
+      # Best-effort metric refresh - if there's a failure, it will update with the next root change
+      discard await g.updateMemberCount()
+    return pathBytes
+
+  if g.proofPathRefreshInFlightFut.isNil() or g.proofPathRefreshInFlightFut.finished():
+    g.proofPathRefreshInFlightFut = doRefresh()
+
+  let refreshFut = g.proofPathRefreshInFlightFut
+  await refreshFut.join()
+  if not refreshFut.completed():
     return err("merkle proof path refresh failed")
 
-  var fetchOk = false
-  proc doRefresh(): Future[void] {.async.} =
-    let pathBytes = (await g.fetchMerkleProofElements()).valueOr:
-      error "Failed to refresh merkle proof path", error = error
-      return
-    g.merkleProofCache = pathBytes
-    fetchOk = true
-    # Best-effort metric refresh - if there's a failure, it will update with the next root change
-    discard await g.updateMemberCount()
-
-  g.proofPathRefreshInFlightFut = doRefresh()
-  await g.proofPathRefreshInFlightFut.join()
-
-  if not fetchOk:
+  let pathBytes = refreshFut.read()
+  if pathBytes.len == 0:
     return err("merkle proof path refresh failed")
-  return ok()
+  return ok(pathBytes)
 
 method invalidateMerkleProofCache*(g: OnchainGroupManager) {.gcsafe, raises: [].} =
-  ## Empties the cache so the next `ensureFreshMerkleProofPath` refetches.
+  ## Empties the cache so the next `ensureFreshMerkleProofPath` refetches. The
+  ## generation bump makes a refetch already in flight fetch again rather than
+  ## serve a path that may predate this invalidate.
   g.merkleProofCache = @[]
+  g.merkleProofCacheGeneration.inc()
 
 method scheduleMerkleProofRefresh*(g: OnchainGroupManager) {.gcsafe, raises: [].} =
-  ## Empties the cache and spawns a detached refetch; a failed refetch is
+  ## Invalidates the cache and spawns a detached refetch; a failed refetch is
   ## logged and repaired by the next `ensureFreshMerkleProofPath`.
-  g.merkleProofCache = @[]
+  g.invalidateMerkleProofCache()
 
   proc refresh() {.async.} =
-    (await g.ensureFreshMerkleProofPath()).isOkOr:
-      warn "merkle proof refresh failed", error = error
+    let res = await g.ensureFreshMerkleProofPath()
+    if res.isErr():
+      warn "merkle proof refresh failed", error = res.error
 
   asyncSpawn refresh()
 
@@ -495,12 +514,9 @@ method generateProof*(
     return err("user message limit is not set")
 
   debug "Generating RLN proof"
-  ?(await g.ensureFreshMerkleProofPath())
+  let merkleProofPath = ?(await g.ensureFreshMerkleProofPath())
 
-  if g.merkleProofCache.len == 0:
-    return err("merkle proof cache is empty")
-
-  if (g.merkleProofCache.len mod 32) != 0:
+  if (merkleProofPath.len mod 32) != 0:
     return err("Invalid merkle proof cache length")
 
   let identity_secret = seqToField(g.idCredentials.get().idSecretHash)
@@ -509,8 +525,8 @@ method generateProof*(
   var path_elements = newSeq[byte](0)
 
   let identity_path_index = uint64ToIndex(g.membershipIndex.get(), 20)
-  for i in 0 ..< g.merkleProofCache.len div 32:
-    let chunk = g.merkleProofCache[i * 32 .. (i + 1) * 32 - 1]
+  for i in 0 ..< merkleProofPath.len div 32:
+    let chunk = merkleProofPath[i * 32 .. (i + 1) * 32 - 1]
     path_elements.add(chunk.reversed())
 
   let xCfr = hashToFieldLe(data).valueOr:
