@@ -7,10 +7,8 @@ import logos_delivery/waku/factory/networks_config
 
 export kernel_conf
 
-type LogosDeliveryMode* {.pure.} = enum
-  Edge # client-only node
-  Core # full service node
-  Fleet # kernel-only node from a raw kernel config
+# `LogosDeliveryMode` and `EntryLayer` are defined at the leaf (`cli_args`) so
+# they can appear on `WakuNodeConf`; re-exported here via `kernel_conf`.
 
 type MessagingClientConf* = object
   clusterId* {.name: "cluster-id".}: Opt[uint16] ## Network cluster id.
@@ -69,9 +67,6 @@ proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[voi
     conf.filter = false
     conf.lightpush = false
     conf.store = false
-  of LogosDeliveryMode.Fleet:
-    return
-      err("fleet mode takes a raw kernel config; use LogosDelivery.new(kernelConf)")
   return ok()
 
 proc toWakuNodeConf*(

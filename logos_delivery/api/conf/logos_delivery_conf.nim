@@ -2,10 +2,11 @@
 
 import results
 
+import logos_delivery/api/conf/modes
 import logos_delivery/api/conf/messaging_conf
 import logos_delivery/api/conf/channels_conf
 
-export messaging_conf, channels_conf
+export modes, messaging_conf, channels_conf
 
 type LogosDeliveryConf* = object
   ## Aggregates the per-layer config objects. A layer is mounted iff its config
@@ -19,11 +20,14 @@ proc init*(T: type LogosDeliveryConf, kernelConf: KernelConf): LogosDeliveryConf
 
 proc init*(
     T: type LogosDeliveryConf,
+    entryLayer: EntryLayer = EntryLayer.channels,
     mode: LogosDeliveryMode,
     preset: string,
     messagingOverrides: MessagingClientConf,
     channelsOverrides: ReliableChannelManagerConf,
 ): ConfResult[LogosDeliveryConf] =
+  ## Structured (preset + overrides) entry. Only `messaging` / `channels` layers
+  ## reach here; the `kernel` layer uses `init(kernelConf)` (raw, mode ignored).
   let merged = merge(?resolvePreset(preset), messagingOverrides)
   var kernelConf = ?toWakuNodeConf(merged, mode)
   kernelConf.preset = preset
@@ -31,7 +35,11 @@ proc init*(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernelConf),
       messagingConf: Opt.some(merged),
-      channelsConf: Opt.some(channelsOverrides),
+      channelsConf:
+        if entryLayer == EntryLayer.channels:
+          Opt.some(channelsOverrides)
+        else:
+          Opt.none(ReliableChannelManagerConf),
     )
   )
 

@@ -21,6 +21,7 @@ import
   json
 
 import
+  logos_delivery/api/conf/modes,
   logos_delivery/waku/factory/[waku_conf, conf_builder/conf_builder, networks_config],
   logos_delivery/waku/common/[logging],
   logos_delivery/waku/[
@@ -37,7 +38,7 @@ import ./envvar as confEnvvarDefs, ./envvar_net as confEnvvarNet
 
 export
   confTomlDefs, confTomlNet, confEnvvarDefs, confEnvvarNet, ProtectedShard,
-  DefaultMaxWakuMessageSizeStr, DefaultAgentString
+  DefaultMaxWakuMessageSizeStr, DefaultAgentString, modes
 
 logScope:
   topics = "waku cli args"
@@ -167,6 +168,20 @@ type WakuNodeConf* = object
       defaultValue: "",
       name: "preset"
     .}: string
+
+    entryLayer* {.
+      desc:
+        "Top API layer to run: kernel (transport only), messaging, or channels (messaging + reliable channels).",
+      defaultValue: EntryLayer.channels,
+      name: "entry-layer"
+    .}: EntryLayer
+
+    mode* {.
+      desc:
+        "Kernel operating mode: Edge (client-only) or Core (full service node). Applied only for --entry-layer=messaging|channels; ignored for kernel.",
+      defaultValue: LogosDeliveryMode.Core,
+      name: "mode"
+    .}: LogosDeliveryMode
 
     # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
     clusterId* {.

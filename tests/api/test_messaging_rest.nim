@@ -10,6 +10,7 @@ import
 import brokers/broker_context
 import logos_delivery
 import
+  logos_delivery/api/conf/logos_delivery_conf,
   logos_delivery/messaging/rest_api/client as messaging_rest_client,
   logos_delivery/waku/rest_api/endpoint/client,
   logos_delivery/waku/common/base64
@@ -28,13 +29,13 @@ import ../testlib/[wakucore, testasync]
 proc restNodeConf(): WakuNodeConf =
   var conf = defaultWakuNodeConf().valueOr:
     raiseAssert error
-  conf.mode = cli_args.WakuMode.Core
+  conf.entryLayer = EntryLayer.messaging
+  conf.mode = LogosDeliveryMode.Core
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
   conf.clusterId = some(3'u16)
   conf.numShardsInNetwork = 1
-  conf.reliabilityEnabled = some(true)
   conf.rest = true
   conf.restAddress = parseIpAddress("127.0.0.1")
   conf.restPort = 0'u16 # bind to an ephemeral port

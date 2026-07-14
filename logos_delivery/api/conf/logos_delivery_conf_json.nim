@@ -8,6 +8,7 @@ import logos_delivery/api/conf/logos_delivery_conf
 
 const
   # Lowercased, since `collectJsonFields` keys the object case-insensitively.
+  KeyEntryLayer = "entrylayer"
   KeyMode = "mode"
   KeyPreset = "preset"
   KeyKernelConf = "kernelconf"
@@ -24,10 +25,21 @@ proc parseMode(s: string): Result[LogosDeliveryMode, string] =
     return ok(LogosDeliveryMode.Core)
   of "edge":
     return ok(LogosDeliveryMode.Edge)
-  of "fleet":
-    return ok(LogosDeliveryMode.Fleet)
   else:
-    return err("invalid mode: '" & s & "' (expected 'Core', 'Edge' or 'Fleet')")
+    return err("invalid mode: '" & s & "' (expected 'Core' or 'Edge')")
+
+proc parseEntryLayer(s: string): Result[EntryLayer, string] =
+  case s.strip().toLowerAscii()
+  of "kernel":
+    return ok(EntryLayer.kernel)
+  of "messaging":
+    return ok(EntryLayer.messaging)
+  of "channels":
+    return ok(EntryLayer.channels)
+  else:
+    return err(
+      "invalid entryLayer: '" & s & "' (expected 'kernel', 'messaging' or 'channels')"
+    )
 
 proc parseOverrides[T](defaults: T, node: JsonNode, label: string): Result[T, string] =
   ## Parse the JSON object `node` as overrides on top of `defaults`.
@@ -106,16 +118,25 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
     mode = ?parseMode(v.getStr())
     top.del(KeyMode)
 
-  if mode == LogosDeliveryMode.Fleet:
-    # Kernel-only: a raw kernelConf and no upper layers.
+  var entryLayer = EntryLayer.channels
+  if top.hasKey(KeyEntryLayer):
+    let (_, v) = top.getOrDefault(KeyEntryLayer)
+    if v.kind != JString:
+      return err("entryLayer must be a string")
+    entryLayer = ?parseEntryLayer(v.getStr())
+    top.del(KeyEntryLayer)
+
+  if entryLayer == EntryLayer.kernel:
+    # Kernel-only: a raw kernelConf and no upper layers; mode is ignored.
     if not top.hasKey(KeyKernelConf):
-      return err("fleet mode requires a 'kernelConf' object")
+      return err("kernel entry layer requires a 'kernelConf' object")
     let (_, v) = top.getOrDefault(KeyKernelConf)
     let kernel = ?parseOverrides(?defaultWakuNodeConf(), v, "kernelConf")
     top.del(KeyKernelConf)
     if top.len > 0:
-      return
-        err(unknownKeysError(top, "fleet mode takes only 'kernelConf'; unexpected"))
+      return err(
+        unknownKeysError(top, "kernel entry layer takes only 'kernelConf'; unexpected")
+      )
     return ok(LogosDeliveryConf.init(KernelConf(kernel)))
 
   # [Legacy flat JSON config] A wrapper key marks our structured shape. Otherwise any
@@ -158,6 +179,12 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
   if top.len > 0:
     return err(unknownKeysError(top, "Unrecognized configuration option(s) found"))
 
-  return LogosDeliveryConf.init(mode, preset, messagingOverrides, channelsOverrides)
+  return LogosDeliveryConf.init(
+    entryLayer = entryLayer,
+    mode = mode,
+    preset = preset,
+    messagingOverrides = messagingOverrides,
+    channelsOverrides = channelsOverrides,
+  )
 
 {.pop.}
