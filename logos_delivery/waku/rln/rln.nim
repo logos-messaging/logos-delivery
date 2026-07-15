@@ -72,7 +72,7 @@ proc validateMessage*(
   let timeDiff = uint64(abs(currentTime - messageTime))
 
   info "time info",
-    currentTime = currentTime, messageTime = messageTime, msgHash = msg.hash
+    currentTime = currentTime, messageTime = messageTime, msgHash = msg[].hash
 
   if timeDiff > rlnPeer.rlnMaxTimestampGap:
     warn "invalid message: timestamp difference exceeds threshold",

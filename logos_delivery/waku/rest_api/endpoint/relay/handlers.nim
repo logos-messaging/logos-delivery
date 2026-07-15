@@ -69,7 +69,7 @@ proc attachRlnProofAndValidate(
   ## RlnValidatorErrorMsg), schedules a background merkle proof refresh and
   ## fails early with StaleProofSuspected — the caller decides whether to
   ## retry. Callers invoke only when RLN is mounted.
-  var msg = message
+  let msg = message.clone()
   msg.proof = (
     await rln.generateRLNProof(msg.toRLNSignal(), float64(getTime().toUnix()))
   ).valueOr:

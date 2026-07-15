@@ -689,9 +689,7 @@ proc publish*(
   if pubsubTopic.isEmptyOrWhitespace():
     return err(NoTopicSpecified)
 
-  var message = wakuMessage
-  if message.timestamp == 0:
-    message.timestamp = getNowInNanosecondTime()
+  let message = wakuMessage.ensureTimestampSet()
 
   let data = message.encode().buffer
 

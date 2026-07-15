@@ -257,7 +257,7 @@ proc rowCallbackImpl(
       version: uint
       timestamp: Timestamp
       meta: string
-      wakuMessage: WakuMessage
+      wakuMessage: WakuMessage = WakuMessage()
 
     rawHash = $(pqgetvalue(pqResult, iRow, 0))
     pubSubTopic = $(pqgetvalue(pqResult, iRow, 1))

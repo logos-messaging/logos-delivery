@@ -89,7 +89,7 @@ proc attachRLNProof*(
   ## Returns the message with a freshly generated RLN proof, replacing any
   ## existing one and drawing a new message id. Retry paths suspecting a stale
   ## path should call `invalidateMerkleProofCache` first.
-  var msgWithProof = message
+  let msgWithProof = message.clone()
   msgWithProof.proof = (
     await r.generateRLNProof(message.toRLNSignal(), float64(getTime().toUnix()))
   ).valueOr:
