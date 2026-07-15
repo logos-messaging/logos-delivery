@@ -68,7 +68,9 @@ proc setupSendProcessorChain(
 
   if isRelayAvail:
     let publishProc = waku.relayPushHandler()
-    processors.add(RelaySendProcessor.new(isLightPushAvail, publishProc, brokerCtx))
+    processors.add(
+      RelaySendProcessor.new(isLightPushAvail, publishProc, waku, brokerCtx)
+    )
   if isLightPushAvail:
     processors.add(LightpushSendProcessor.new(waku, brokerCtx))
 
@@ -318,15 +320,6 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
   if not (await self.admitAndProve(task)):
     info "SendService.send: parking task for a later round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
-    task.state = DeliveryState.NextRoundRetry
-    self.addTask(task)
-    return
-
-  ## Strictly after admission, so a rejected message never draws a nonce.
-  ## A no-op when RLN is not mounted.
-  task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
-    error "SendService.send: failed to attach RLN proof, parking task",
-      requestId = task.requestId, error = error
     task.state = DeliveryState.NextRoundRetry
     self.addTask(task)
     return

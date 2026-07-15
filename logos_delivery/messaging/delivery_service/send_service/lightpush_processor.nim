@@ -33,6 +33,17 @@ method sendImpl*(
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
     error "LightpushSendProcessor.sendImpl failed", error = error.desc.get($error.code)
+
+    if error.isRlnRejection():
+      ## The proof was refused, so it must not be sent again: drop it and let
+      ## the refreshed merkle path produce a new one on the next round.
+      ## Re-admission gates the regeneration, so a task cannot spin through the
+      ## epoch budget by retrying.
+      self.waku.onRlnProofRejected()
+      task.msg.proof = @[]
+      task.state = DeliveryState.NextRoundRetry
+      return
+
     case error.code
     of LightPushErrorCode.NO_PEERS_TO_RELAY, LightPushErrorCode.TOO_MANY_REQUESTS,
         LightPushErrorCode.OUT_OF_RLN_PROOF, LightPushErrorCode.SERVICE_NOT_AVAILABLE,

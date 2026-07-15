@@ -105,30 +105,6 @@ proc resolveLegacyPubsubTopic(
       return err("Autosharding error: " & error)
   return ok($shard)
 
-proc runRlnRefreshRetry(
-    node: WakuNode,
-    rln: Opt[Rln],
-    msgWithProof: WakuMessage,
-    pubsubForPublish: PubsubTopic,
-    peer: RemotePeerInfo,
-    fallback: legacy_lightpush_protocol.WakuLightPushResult[string],
-): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.async, gcsafe.} =
-  ## Refreshes the RLN merkle proof path and retries the publish once. Only the
-  ## refresh is bounded by RlnMerkleProofRefreshTimeout (returning `fallback` on
-  ## timeout); the retried publish runs unbounded, matching the first attempt.
-  info "legacy lightpush send rejected as RLN-invalid; " &
-    "refreshing merkle proof and retrying once"
-  rln.get().groupManager.invalidateMerkleProofCache()
-
-  let refreshFut = attachRLNProof(rln.get(), msgWithProof)
-  if not (await refreshFut.withTimeout(RlnMerkleProofRefreshTimeout)):
-    warn "legacy lightpush RLN proof refresh timed out; returning original error"
-    return fallback
-  let retryMsg = refreshFut.read().valueOr:
-    return err("failed call attachRLNProof from lightpush retry: " & error)
-
-  return await internalLegacyLightpushPublish(node, pubsubForPublish, retryMsg, peer)
-
 proc legacyLightpushPublish*(
     node: WakuNode,
     pubsubTopic: Opt[PubsubTopic],
@@ -161,18 +137,20 @@ proc legacyLightpushPublish*(
     ).valueOr:
       return err(error)
 
-    let firstResult =
+    let publishResult =
       await internalLegacyLightpushPublish(node, pubsubForPublish, msgWithProof, peer)
 
     # Legacy has no status codes, so string-match the RLN error to detect a
-    # stale merkle proof path, then refresh and retry once.
-    if firstResult.isOk() or rln.isNone() or
-        not firstResult.error.contains(RlnValidatorErrorMsg):
-      return firstResult
+    # stale merkle proof path. Schedule the refresh and hand the error back:
+    # retrying is the caller's decision, the same way the non-legacy path
+    # behaves. A retry regenerates the proof against the refreshed cache.
+    if publishResult.isOk() or rln.isNone() or
+        not publishResult.error.contains(RlnValidatorErrorMsg):
+      return publishResult
 
-    return await runRlnRefreshRetry(
-      node, rln, msgWithProof, pubsubForPublish, peer, firstResult
-    )
+    info "legacy lightpush send rejected as RLN-invalid; scheduling merkle proof refresh"
+    rln.get().groupManager.scheduleMerkleProofRefresh()
+    return err(RlnProofRefreshScheduledMsg & ": " & publishResult.error)
   except CatchableError:
     return err(getCurrentExceptionMsg())
 

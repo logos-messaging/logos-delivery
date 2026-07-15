@@ -7,7 +7,7 @@
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
 
-import std/times
+import std/[times, strutils]
 import results, chronos
 
 import logos_delivery/waku/waku
@@ -77,6 +77,31 @@ proc attachRlnProof*(
     return err("failed to attach RLN proof: " & error)
 
   return ok(msgWithProof)
+
+func isRlnRejection*(error: ErrorStatus): bool =
+  ## True when a publish failure means "the RLN proof was not accepted", so the
+  ## message is worth retrying with a freshly generated proof rather than being
+  ## failed outright.
+  ##
+  ## OUT_OF_RLN_PROOF is always RLN. INVALID_MESSAGE also covers non-RLN
+  ## rejections (an oversized message, say), so it additionally has to carry the
+  ## validator's error marker — this is the same gate the kernel lightpush path
+  ## applies before scheduling a refresh.
+  return
+    error.code == LightPushErrorCode.OUT_OF_RLN_PROOF or (
+      error.code == LightPushErrorCode.INVALID_MESSAGE and
+      error.desc.get("").contains(RlnValidatorErrorMsg)
+    )
+
+proc onRlnProofRejected*(self: Waku) =
+  ## Called when a publish was rejected as RLN-invalid. Starts refetching the
+  ## merkle path in the background, so the next proof generated for the message
+  ## is built against a fresh one. Non-blocking: the send service's own loop is
+  ## what retries, and it must not stall waiting on an RPC round trip.
+  if self.node.rln.isNil():
+    return
+
+  self.node.rln.groupManager.scheduleMerkleProofRefresh()
 
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
