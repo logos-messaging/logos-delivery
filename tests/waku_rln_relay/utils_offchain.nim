@@ -34,9 +34,9 @@ proc setupRelayWithStaticRln*(
 
 proc subscribeCompletionHandler*(node: WakuNode, pubsubTopic: string): Future[bool] =
   var completionFut = newFuture[bool]()
-  proc relayHandler(
-      topic: PubsubTopic, msg: WakuMessage
-  ): Future[void] {.async, gcsafe.} =
+  proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+    let topic {.used.} = envelope.pubsubTopic
+    let msg {.used.} = envelope.msg
     if topic == pubsubTopic:
       completionFut.complete(true)
 

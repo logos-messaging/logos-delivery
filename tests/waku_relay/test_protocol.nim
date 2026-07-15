@@ -60,10 +60,10 @@ suite "Waku Relay":
     messageSeq = @[]
     handlerFuture = newPushHandlerFuture()
     simpleFutureHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
+        envelope: WakuEnvelope
     ): Future[void] {.async, closure, gcsafe.} =
-      messageSeq.add((topic, msg))
-      handlerFuture.complete((topic, msg))
+      messageSeq.add((envelope.pubsubTopic, envelope.msg))
+      handlerFuture.complete((envelope.pubsubTopic, envelope.msg))
 
     switch = newTestSwitch()
     peerManager = PeerManager.new(switch)
@@ -123,9 +123,9 @@ suite "Waku Relay":
       check await peerManager.connectPeer(otherRemotePeerInfo)
 
       var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture.complete((topic, message))
 
       # When subscribing the second node to the Pubsub Topic
@@ -184,9 +184,9 @@ suite "Waku Relay":
       check await peerManager.connectPeer(otherRemotePeerInfo)
 
       var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture.complete((topic, message))
 
       # When subscribing both nodes to the same Pubsub Topic
@@ -257,9 +257,9 @@ suite "Waku Relay":
 
       # Given the subscription is refreshed
       var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture.complete((topic, message))
 
       node.subscribe(pubsubTopic, otherSimpleFutureHandler)
@@ -303,9 +303,9 @@ suite "Waku Relay":
       check await peerManager.connectPeer(otherRemotePeerInfo)
 
       var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture.complete((topic, message))
 
       otherNode.addValidator(len4Validator)
@@ -393,9 +393,9 @@ suite "Waku Relay":
       check await peerManager.connectPeer(otherRemotePeerInfo)
 
       var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture.complete((topic, message))
 
       node.subscribe(pubsubTopic, simpleFutureHandler)
@@ -477,37 +477,35 @@ suite "Waku Relay":
 
       # Given the first node is subscribed to two pubsub topics
       var handlerFuture2 = newPushHandlerFuture()
-      proc simpleFutureHandler2(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
-        handlerFuture2.complete((topic, message))
+      proc simpleFutureHandler2(envelope: WakuEnvelope) {.async, gcsafe.} =
+        handlerFuture2.complete((envelope.pubsubTopic, envelope.msg))
 
       node.subscribe(pubsubTopic, simpleFutureHandler)
       node.subscribe(pubsubTopicB, simpleFutureHandler2)
 
       # Given the other nodes are subscribed to two pubsub topics
       var otherHandlerFuture1 = newPushHandlerFuture()
-      proc otherSimpleFutureHandler1(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler1(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture1.complete((topic, message))
 
       var otherHandlerFuture2 = newPushHandlerFuture()
-      proc otherSimpleFutureHandler2(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler2(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture2.complete((topic, message))
 
       var anotherHandlerFuture1 = newPushHandlerFuture()
-      proc anotherSimpleFutureHandler1(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc anotherSimpleFutureHandler1(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         anotherHandlerFuture1.complete((topic, message))
 
       var anotherHandlerFuture2 = newPushHandlerFuture()
-      proc anotherSimpleFutureHandler2(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc anotherSimpleFutureHandler2(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         anotherHandlerFuture2.complete((topic, message))
 
       otherNode.subscribe(pubsubTopic, otherSimpleFutureHandler1)
@@ -870,9 +868,9 @@ suite "Waku Relay":
 
       # Given both are subscribed to the same pubsub topic
       var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture.complete((topic, message))
 
       otherNode.subscribe(pubsubTopic, otherSimpleFutureHandler)
@@ -1036,9 +1034,9 @@ suite "Waku Relay":
 
       # Given both are subscribed to the same pubsub topic
       var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture.complete((topic, message))
 
       otherNode.subscribe(pubsubTopic, otherSimpleFutureHandler)
@@ -1169,17 +1167,17 @@ suite "Waku Relay":
       # Create a different handler than the default to include messages in a seq
       var thisHandlerFuture = newPushHandlerFuture()
       var thisMessageSeq: seq[(PubsubTopic, WakuMessage)] = @[]
-      proc thisSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc thisSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         thisMessageSeq.add((topic, message))
         thisHandlerFuture.complete((topic, message))
 
       var otherHandlerFuture = newPushHandlerFuture()
       var otherMessageSeq: seq[(PubsubTopic, WakuMessage)] = @[]
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherMessageSeq.add((topic, message))
         otherHandlerFuture.complete((topic, message))
 
@@ -1252,9 +1250,9 @@ suite "Waku Relay":
 
       # Given both are subscribed to the same pubsub topic
       var otherHandlerFuture = newPushHandlerFuture()
-      proc otherSimpleFutureHandler(
-          topic: PubsubTopic, message: WakuMessage
-      ) {.async, gcsafe.} =
+      proc otherSimpleFutureHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let message {.used.} = envelope.msg
         otherHandlerFuture.complete((topic, message))
 
       otherNode.subscribe(pubsubTopic, otherSimpleFutureHandler)

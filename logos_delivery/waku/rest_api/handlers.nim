@@ -34,5 +34,5 @@ proc defaultDiscoveryHandler*(
 ### Message Cache
 
 proc messageCacheHandler*(cache: MessageCache): WakuRelayHandler =
-  return proc(pubsubTopic: string, msg: WakuMessage): Future[void] {.async, closure.} =
-    cache.addMessage(pubsubTopic, msg)
+  return proc(envelope: WakuEnvelope): Future[void] {.async, closure.} =
+    cache.addMessage(envelope.pubsubTopic, envelope.msg)

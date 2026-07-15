@@ -61,7 +61,7 @@ suite "WakuNode2 - Validators":
     await sleepAsync(500.millis)
 
     var msgReceived = 0
-    proc handler(pubsubTopic: PubsubTopic, data: WakuMessage) {.async, gcsafe.} =
+    proc handler(envelope: WakuEnvelope) {.async, gcsafe.} =
       msgReceived += 1
 
     # Subscribe all nodes to the same topic/handler
@@ -148,7 +148,7 @@ suite "WakuNode2 - Validators":
         require connOk
 
     var msgReceived = 0
-    proc handler(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    proc handler(envelope: WakuEnvelope) {.async, gcsafe.} =
       msgReceived += 1
 
     # Connection triggers different actions, wait for them
@@ -279,7 +279,7 @@ suite "WakuNode2 - Validators":
     await allFutures(nodes.mapIt(it.mountRelay()))
 
     var msgReceived = 0
-    proc handler(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    proc handler(envelope: WakuEnvelope) {.async, gcsafe.} =
       msgReceived += 1
 
     # Subscribe all nodes to the same topic/handler

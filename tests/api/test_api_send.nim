@@ -209,9 +209,7 @@ suite "Waku API - Send":
 
     # Subscribe all relay nodes to the default shard topic
     const testPubsubTopic = PubsubTopic("/waku/2/rs/3/0")
-    proc dummyHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc dummyHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
       discard
 
     relayNode1.subscribe((kind: PubsubSub, topic: testPubsubTopic), dummyHandler).isOkOr:
@@ -476,9 +474,7 @@ suite "Waku API - Send":
       await fakeLightpushNode.mountLibp2pPing()
       await fakeLightpushNode.start()
     let fakeLightpushNodePeerInfo = fakeLightpushNode.peerInfo.toRemotePeerInfo()
-    proc dummyHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc dummyHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
       discard
 
     fakeLightpushNode.subscribe(

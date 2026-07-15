@@ -518,9 +518,9 @@ proc subscribeAndHandleMessages(
     msgPerContentTopic: ContentTopicMessageTableRef,
 ) =
   # handle function
-  proc handler(
-      pubsubTopic: PubsubTopic, msg: WakuMessage
-  ): Future[void] {.async, gcsafe.} =
+  proc handler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+    let pubsubTopic = envelope.pubsubTopic
+    let msg = envelope.msg
     trace "rx message", pubsubTopic = pubsubTopic, contentTopic = msg.contentTopic
 
     # If we reach a table limit size, remove c topics with the least messages.

@@ -73,18 +73,24 @@ proc getMissingMsgsFromStore(
   )
 
 proc processIncomingMessage(
-    self: RecvService, pubsubTopic: string, message: WakuMessage
+    self: RecvService,
+    pubsubTopic: string,
+    message: WakuMessage,
+    precomputedHash = Opt.none(WakuMessageHash),
 ): bool =
   ## Return false if the incoming message is from a non-subscribed topic,
   ## or if the message is a duplicate (recently-seen). Otherwise, save it as
   ## recently-seen, emit a MessageReceivedEvent, and return true.
+  ## `precomputedHash` lets callers that already have the hash (e.g. a
+  ## MessageSeenEvent envelope) skip recomputation.
 
   if not self.waku.isContentSubscribed(pubsubTopic, message.contentTopic):
     trace "skipping message as I am not subscribed",
       shard = pubsubTopic, contentTopic = message.contentTopic
     return false
 
-  let msgHash = computeMessageHash(pubsubTopic, message)
+  let msgHash = precomputedHash.valueOr:
+    computeMessageHash(pubsubTopic, message)
   if self.recentReceivedMsgs.anyIt(it.msgHash == msgHash):
     trace "skipping duplicate message",
       shard = pubsubTopic,
@@ -188,7 +194,9 @@ proc startRecvService*(self: RecvService) =
   self.seenMsgListener = MessageSeenEvent.listen(
     self.brokerCtx,
     proc(event: MessageSeenEvent) {.async: (raises: []).} =
-      discard self.processIncomingMessage(event.topic, event.message),
+      discard self.processIncomingMessage(
+        event.envelope.pubsubTopic, event.envelope.msg, Opt.some(event.envelope.hash)
+      ),
   ).valueOr:
     error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)

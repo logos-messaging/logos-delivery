@@ -126,9 +126,9 @@ suite "Waku v2 Rest API - Relay":
     (await node.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     for shard in @[$shard0, $shard1, $shard2, $shard3, $shard4]:
@@ -292,9 +292,9 @@ suite "Waku v2 Rest API - Relay":
 
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
 
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
@@ -512,9 +512,7 @@ suite "Waku v2 Rest API - Relay":
       await meshNode.setRlnValidator(wakuRlnConfig)
       await meshNode.start()
       const testPubsubTopic = PubsubTopic("/waku/2/rs/1/0")
-      proc dummyHandler(
-          topic: PubsubTopic, msg: WakuMessage
-      ): Future[void] {.async, gcsafe.} =
+      proc dummyHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
         discard
 
       meshNode.subscribe((kind: ContentSub, topic: DefaultContentTopic), dummyHandler).isOkOr:
@@ -562,9 +560,9 @@ suite "Waku v2 Rest API - Relay":
 
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
 
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node.subscribe((kind: ContentSub, topic: DefaultContentTopic), simpleHandler).isOkOr:
@@ -691,9 +689,9 @@ suite "Waku v2 Rest API - Relay":
 
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
 
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
@@ -763,9 +761,9 @@ suite "Waku v2 Rest API - Relay":
 
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
 
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
@@ -839,9 +837,9 @@ suite "Waku v2 Rest API - Relay":
     restServer.start()
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
 
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
@@ -897,9 +895,9 @@ suite "Waku v2 Rest API - Relay":
       assert false, "Failed to mount relay on mesh node"
     require meshNode.mountAutoSharding(1, 8).isOk
     await meshNode.start()
-    let meshHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let meshHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       discard
     meshNode.subscribe((kind: ContentSub, topic: DefaultContentTopic), meshHandler).isOkOr:
       assert false, "Failed to subscribe mesh node"
@@ -946,9 +944,9 @@ suite "Waku v2 Rest API - Relay":
     restServer.start()
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
 
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node.subscribe((kind: ContentSub, topic: DefaultContentTopic), simpleHandler).isOkOr:

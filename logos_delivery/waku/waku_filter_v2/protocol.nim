@@ -168,8 +168,10 @@ proc handleSubscribeRequest*(
   return FilterSubscribeResponse.ok(request.requestId)
 
 proc pushToPeer(
-    wf: WakuFilter, peerId: PeerId, buffer: seq[byte]
+    wf: WakuFilter, peerId: PeerId, buffer: ref seq[byte]
 ): Future[Result[void, string]] {.async.} =
+  ## `buffer` is shared by reference across all target peers (encoded once in
+  ## `pushToPeers`) so no per-peer async-closure copy of the payload happens.
   info "pushing message to subscribed peer", peerId = shortLog(peerId)
 
   let stream = (
@@ -178,21 +180,21 @@ proc pushToPeer(
     error "pushToPeer failed", error
     return err("pushToPeer failed: " & $error)
 
-  await stream.writeLp(buffer)
+  await stream.writeLp(buffer[])
 
   info "published successful", peerId = shortLog(peerId), stream
   waku_service_network_bytes.inc(
-    amount = buffer.len().int64, labelValues = [WakuFilterPushCodec, "out"]
+    amount = buffer[].len().int64, labelValues = [WakuFilterPushCodec, "out"]
   )
 
   return ok()
 
 proc pushToPeers(
-    wf: WakuFilter, peers: seq[PeerId], messagePush: MessagePush
+    wf: WakuFilter, peers: seq[PeerId], messagePush: MessagePush, msgHash: string
 ) {.async.} =
+  ## `msgHash` is the precomputed 0x-hex hash of the pushed message (reused from
+  ## the inbound envelope; not recomputed here).
   let targetPeerIds = peers.mapIt(shortLog(it))
-  let msgHash =
-    messagePush.pubsubTopic.computeMessageHash(messagePush.wakuMessage).to0xHex()
 
   ## it's also refresh expire of msghash, that's why update cache every time, even if it has a value.
   if wf.messageCache.put(msgHash, Moment.now()):
@@ -210,7 +212,8 @@ proc pushToPeers(
       target_peer_ids = targetPeerIds,
       msg_hash = msgHash
 
-    let bufferToPublish = messagePush.encode().buffer
+    let bufferToPublish = new(seq[byte])
+    bufferToPublish[] = messagePush.encode().buffer
     var pushFuts: seq[Future[Result[void, string]]]
 
     for peerId in peers:
@@ -240,10 +243,10 @@ proc maintainSubscriptions*(wf: WakuFilter) {.async.} =
   waku_filter_subscriptions.set(wf.subscriptions.peersSubscribed.len.float64)
 
 const MessagePushTimeout = 20.seconds
-proc handleMessage*(
-    wf: WakuFilter, pubsubTopic: PubsubTopic, message: WakuMessage
-) {.async.} =
-  let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
+proc handleMessage*(wf: WakuFilter, envelope: WakuEnvelope) {.async.} =
+  let pubsubTopic = envelope.pubsubTopic
+  let message = envelope.msg
+  let msgHash = envelope.hash.to0xHex()
 
   info "handling message",
     pubsubTopic = pubsubTopic, contentTopic = message.contentTopic, msg_hash = msgHash
@@ -263,7 +266,7 @@ proc handleMessage*(
 
     let messagePush = MessagePush(pubsubTopic: pubsubTopic, wakuMessage: message)
 
-    if not await wf.pushToPeers(subscribedPeers, messagePush).withTimeout(
+    if not await wf.pushToPeers(subscribedPeers, messagePush, msgHash).withTimeout(
       MessagePushTimeout
     ):
       error "timed out pushing message to peers",
@@ -286,6 +289,14 @@ proc handleMessage*(
     handleMessageDurationSec = handleMessageDuration.milliseconds.float / 1000
       # Duration in seconds with millisecond precision floating point
   waku_filter_handle_message_duration_seconds.observe(handleMessageDurationSec)
+
+proc handleMessage*(
+    wf: WakuFilter, pubsubTopic: PubsubTopic, message: WakuMessage
+) {.async.} =
+  ## Convenience overload building the envelope (and its hash) for callers that
+  ## don't already have one (e.g. tests). The relay dispatch path uses the
+  ## envelope overload directly to avoid re-hashing.
+  await wf.handleMessage(WakuEnvelope.init(pubsubTopic, message))
 
 proc initProtocolHandler(wf: WakuFilter) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =

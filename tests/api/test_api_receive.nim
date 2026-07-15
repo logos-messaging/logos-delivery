@@ -107,7 +107,7 @@ proc setupNetwork(testTopic: ContentTopic): Future[TestNetwork] {.async.} =
   const numShards: uint16 = 1
   let shard = PubsubTopic("/waku/2/rs/3/0")
 
-  proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+  proc dummyHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
     discard
 
   # store node: archive + store + relay, subscribed to the shard

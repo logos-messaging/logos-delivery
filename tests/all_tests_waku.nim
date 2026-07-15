@@ -8,6 +8,7 @@ import
   ./waku_core/test_time,
   ./waku_core/test_message,
   ./waku_core/test_message_digest,
+  ./waku_core/test_message_envelope,
   ./waku_core/test_peers,
   ./waku_core/test_published_address
 

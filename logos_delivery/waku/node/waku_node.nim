@@ -633,7 +633,7 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuFilterClient.isNil():
     node.wakuFilterClient.registerPushHandler(
       proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
-        MessageSeenEvent.emit(node.brokerCtx, pubsubTopic, msg)
+        MessageSeenEvent.emit(node.brokerCtx, WakuEnvelope.init(pubsubTopic, msg))
     )
 
   node.startProvidersAndListeners()

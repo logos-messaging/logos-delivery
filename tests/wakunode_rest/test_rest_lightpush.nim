@@ -129,9 +129,9 @@ suite "Waku v2 Rest API - lightpush":
     # Given
     let restLightPushTest = await RestLightPushTest.init()
 
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     restLightPushTest.consumerNode.subscribe(
@@ -168,9 +168,9 @@ suite "Waku v2 Rest API - lightpush":
   asyncTest "Push message bad-request":
     # Given
     let restLightPushTest = await RestLightPushTest.init()
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     restLightPushTest.serviceNode.subscribe(
@@ -230,9 +230,9 @@ suite "Waku v2 Rest API - lightpush":
     let budgetCap = 3
     let tokenPeriod = 500.millis
     let restLightPushTest = await RestLightPushTest.init((budgetCap, tokenPeriod))
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     restLightPushTest.consumerNode.subscribe(

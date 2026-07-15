@@ -87,9 +87,9 @@ suite "WakuNode - Relay":
     )
 
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       check:
         topic == $shard
         msg.contentTopic == contentTopic
@@ -97,9 +97,9 @@ suite "WakuNode - Relay":
         msg.timestamp > 0
       completionFut.complete(true)
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     ## node1 and node2 explicitly subscribe to the same shard as node3
@@ -189,9 +189,9 @@ suite "WakuNode - Relay":
     node2.wakuRelay.addValidator(validator)
 
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       check:
         topic == $shard
         # check that only messages with contentTopic1 is relayed (but not contentTopic2)
@@ -199,9 +199,9 @@ suite "WakuNode - Relay":
       # relay handler is called
       completionFut.complete(true)
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     ## node1 and node2 explicitly subscribe to the same shard as node3
@@ -295,9 +295,9 @@ suite "WakuNode - Relay":
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       check:
         topic == $shard
         msg.contentTopic == contentTopic
@@ -347,9 +347,9 @@ suite "WakuNode - Relay":
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       check:
         topic == $shard
         msg.contentTopic == contentTopic
@@ -408,9 +408,9 @@ suite "WakuNode - Relay":
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       check:
         topic == $shard
         msg.contentTopic == contentTopic
@@ -467,9 +467,9 @@ suite "WakuNode - Relay":
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       check:
         topic == $shard
         msg.contentTopic == contentTopic
@@ -527,9 +527,9 @@ suite "WakuNode - Relay":
     await node1.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       check:
         topic == $shard
         msg.contentTopic == contentTopic
@@ -563,9 +563,9 @@ suite "WakuNode - Relay":
     await allFutures(nodes.mapIt(it.start()))
     await allFutures(nodes.mapIt(it.mountRelay()))
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     # subscribe all nodes to a topic
@@ -634,10 +634,9 @@ suite "WakuNode - Relay":
       contentTopicB = ContentTopic("/waku/2/default-content1/proto")
       contentTopicC = ContentTopic("/waku/2/default-content2/proto")
       handler: WakuRelayHandler = proc(
-          pubsubTopic: PubsubTopic, message: WakuMessage
+          envelope: WakuEnvelope
       ): Future[void] {.gcsafe, raises: [Defect].} =
-        discard pubsubTopic
-        discard message
+        discard envelope
     assert shard ==
       node.wakuAutoSharding.get().getShard(contentTopicA).expect("Valid Topic"),
       "topic must use the same shard"

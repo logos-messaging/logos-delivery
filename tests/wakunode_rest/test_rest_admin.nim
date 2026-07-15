@@ -60,9 +60,9 @@ suite "Waku v2 Rest API - Admin":
     )
 
     # The three nodes should be subscribed to the same shard
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     let shard = RelayShard(clusterId: clusterId, shardId: 5)

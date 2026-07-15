@@ -668,9 +668,9 @@ procSuite "Peer Manager":
     await allFutures(nodes.mapIt(it.mountRelay()))
     await allFutures(nodes.mapIt(it.start()))
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.millis)
 
     let topic = "/waku/2/rs/0/0"

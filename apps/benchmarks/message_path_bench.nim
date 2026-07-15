@@ -211,7 +211,7 @@ proc emit(res: ScenarioResult) =
 # Node setup
 # ---------------------------------------------------------------------------
 
-proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+proc dummyHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
   discard
 
 proc buildIngestNode(
@@ -304,7 +304,7 @@ proc runMacro(shard: PubsubTopic, work: Workload): Future[ScenarioResult] {.asyn
     times: newSeqOfCap[MonoTime](work.msgs.len),
   )
 
-  proc countingHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+  proc countingHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
     arrivals.times.add(getMonoTime())
     arrivals.count += 1
     if arrivals.count >= arrivals.target:

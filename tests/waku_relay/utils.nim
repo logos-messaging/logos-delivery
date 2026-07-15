@@ -21,7 +21,7 @@ import
 
 proc noopRawHandler*(): WakuRelayHandler =
   var handler: WakuRelayHandler
-  handler = proc(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async, gcsafe.} =
+  handler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
     discard
   handler
 
@@ -39,11 +39,8 @@ proc subscribeToContentTopicWithHandler*(
     node: WakuNode, contentTopic: string
 ): Future[bool] =
   var completionFut = newFuture[bool]()
-  proc relayHandler(
-      topic: PubsubTopic, msg: WakuMessage
-  ): Future[void] {.async, gcsafe.} =
-    if topic == topic:
-      completionFut.complete(true)
+  proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+    completionFut.complete(true)
 
   (node.subscribe((kind: ContentSub, topic: contentTopic), relayHandler)).isOkOr:
     error "Failed to subscribe to content topic", error
@@ -52,10 +49,8 @@ proc subscribeToContentTopicWithHandler*(
 
 proc subscribeCompletionHandler*(node: WakuNode, pubsubTopic: string): Future[bool] =
   var completionFut = newFuture[bool]()
-  proc relayHandler(
-      topic: PubsubTopic, msg: WakuMessage
-  ): Future[void] {.async, gcsafe.} =
-    if topic == pubsubTopic:
+  proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+    if envelope.pubsubTopic == pubsubTopic:
       completionFut.complete(true)
 
   (node.subscribe((kind: PubsubSub, topic: pubsubTopic), relayHandler)).isOkOr:

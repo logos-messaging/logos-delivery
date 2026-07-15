@@ -78,9 +78,9 @@ proc waku_relay_subscribe(
     pubSubTopic: cstring,
 ) {.ffi.} =
   proc onReceivedMessage(ctx: ptr FFIContext[LogosDelivery]): WakuRelayHandler =
-    return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
+    return proc(envelope: WakuEnvelope) {.async.} =
       callEventCallback(ctx, "onReceivedMessage"):
-        $JsonMessageEvent.new(pubsubTopic, msg)
+        $JsonMessageEvent.new(envelope.pubsubTopic, envelope.msg, envelope.hash)
 
   (
     await ctx.myLib[].waku.relaySubscribe(

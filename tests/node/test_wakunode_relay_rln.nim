@@ -232,9 +232,9 @@ suite "Waku RlnRelay - End to End - Static":
 
       # Register Relay Handler
       var completionFut = newPushHandlerFuture()
-      proc relayHandler(
-          topic: PubsubTopic, msg: WakuMessage
-      ): Future[void] {.async, gcsafe.} =
+      proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let msg {.used.} = envelope.msg
         if topic == pubsubTopic:
           completionFut.complete((topic, msg))
 
@@ -325,9 +325,9 @@ suite "Waku RlnRelay - End to End - Static":
 
       # Register Relay Handler
       var completionFut = newPushHandlerFuture()
-      proc relayHandler(
-          topic: PubsubTopic, msg: WakuMessage
-      ): Future[void] {.async, gcsafe.} =
+      proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+        let topic {.used.} = envelope.pubsubTopic
+        let msg {.used.} = envelope.msg
         if topic == pubsubTopic:
           completionFut.complete((topic, msg))
 

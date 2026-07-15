@@ -508,7 +508,9 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
 
   # Subscribe to a topic, if relay is mounted
   if conf.relay:
-    proc handler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async, gcsafe.} =
+    proc handler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic = envelope.pubsubTopic
+      let msg = envelope.msg
       trace "Hit subscribe handler", topic
 
       if msg.contentTopic == chat.contentTopic:

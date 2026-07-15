@@ -150,9 +150,8 @@ const GossipsubParameters = GossipSubParams.init(
 
 type
   WakuRelayResult*[T] = Result[T, string]
-  WakuRelayHandler* = proc(pubsubTopic: PubsubTopic, message: WakuMessage): Future[void] {.
-    gcsafe, raises: [Defect]
-  .}
+  WakuRelayHandler* =
+    proc(envelope: WakuEnvelope): Future[void] {.gcsafe, raises: [Defect].}
   WakuValidatorHandler* = proc(
     pubsubTopic: PubsubTopic, message: WakuMessage
   ): Future[ValidationResult] {.gcsafe, raises: [Defect].}
@@ -253,51 +252,6 @@ proc logMessageInfo*(
   waku_relay_total_msg_bytes_per_shard.set(shardMetrics.sizeSum, labelValues = [topic])
 
 proc initRelayObservers(w: WakuRelay) =
-  proc decodeRpcMessageInfo(
-      peer: PubSubPeer, msg: Message
-  ): Result[
-      tuple[msgId: string, topic: string, wakuMessage: WakuMessage, msgSize: int], void
-  ] =
-    let msg_id = w.msgIdProvider(msg).valueOr:
-      warn "Error generating message id",
-        my_peer_id = w.switch.peerInfo.peerId,
-        from_peer_id = peer.peerId,
-        pubsub_topic = msg.topic,
-        error = $error
-      return err()
-
-    let msg_id_short = shortLog(msg_id)
-
-    let wakuMessage = WakuMessage.decode(msg.data).valueOr:
-      warn "Error decoding to Waku Message",
-        my_peer_id = w.switch.peerInfo.peerId,
-        msg_id = msg_id_short,
-        from_peer_id = peer.peerId,
-        pubsub_topic = msg.topic,
-        error = $error
-      return err()
-
-    let msgSize = msg.data.len + msg.topic.len
-    return ok((msg_id_short, msg.topic, wakuMessage, msgSize))
-
-  proc updateMetrics(
-      peer: PubSubPeer,
-      pubsub_topic: string,
-      msg: WakuMessage,
-      msgSize: int,
-      onRecv: bool,
-  ) =
-    if onRecv:
-      waku_relay_network_bytes.inc(
-        msgSize.int64, labelValues = [pubsub_topic, "gross", "in"]
-      )
-    else:
-      # sent traffic can only be "net"
-      # TODO: If we can measure unsuccessful sends would mean a possible distinction between gross/net
-      waku_relay_network_bytes.inc(
-        msgSize.int64, labelValues = [pubsub_topic, "net", "out"]
-      )
-
   proc onRecv(peer: PubSubPeer, msgs: var RPCMsg) =
     if msgs.control.isSome():
       let ctrl = msgs.control.get()
@@ -315,37 +269,53 @@ proc initRelayObservers(w: WakuRelay) =
         w.topicHealthUpdateEvent.fire()
 
     for msg in msgs.messages:
-      let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
-        continue
-      # message receive log happens in onValidated observer as onRecv is called before checks
-      updateMetrics(peer, topic, wakuMessage, msgSize, onRecv = true)
-    discard
+      # gross incoming traffic; message size needs no proto decode (encoded
+      # buffer length + topic length). The receive log happens in onValidated.
+      waku_relay_network_bytes.inc(
+        (msg.data.len + msg.topic.len).int64, labelValues = [msg.topic, "gross", "in"]
+      )
 
   proc onValidated(peer: PubSubPeer, msg: Message, msgId: MessageId) =
-    let msg_id_short = shortLog(msgId)
-    let wakuMessage = WakuMessage.decode(msg.data).valueOr:
-      warn "onValidated: failed decoding to Waku Message",
-        my_peer_id = w.switch.peerInfo.peerId,
-        msg_id = msg_id_short,
-        from_peer_id = peer.peerId,
-        pubsub_topic = msg.topic,
-        error = $error
-      return
+    # The per-message receive log + per-shard byte gauges require a full proto
+    # decode + hash. Gate them to DEBUG/TRACE builds so production (INFO+) pays
+    # neither. See docs/analysis/plan_phase3_wakuenvelope.md Step 2.4.
+    when enabledLogLevel <= LogLevel.DEBUG:
+      let msg_id_short = shortLog(msgId)
+      let wakuMessage = WakuMessage.decode(msg.data).valueOr:
+        warn "onValidated: failed decoding to Waku Message",
+          my_peer_id = w.switch.peerInfo.peerId,
+          msg_id = msg_id_short,
+          from_peer_id = peer.peerId,
+          pubsub_topic = msg.topic,
+          error = $error
+        return
 
-    logMessageInfo(
-      w, shortLog(peer.peerId), msg.topic, msg_id_short, wakuMessage, onRecv = true
-    )
+      logMessageInfo(
+        w, shortLog(peer.peerId), msg.topic, msg_id_short, wakuMessage, onRecv = true
+      )
 
   proc onSend(peer: PubSubPeer, msgs: var RPCMsg) =
     for msg in msgs.messages:
-      let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
-        warn "onSend: failed decoding RPC info",
-          my_peer_id = w.switch.peerInfo.peerId, to_peer_id = peer.peerId
-        continue
-      logMessageInfo(
-        w, shortLog(peer.peerId), topic, msg_id_short, wakuMessage, onRecv = false
+      # net outgoing traffic; size needs no decode.
+      waku_relay_network_bytes.inc(
+        (msg.data.len + msg.topic.len).int64, labelValues = [msg.topic, "net", "out"]
       )
-      updateMetrics(peer, topic, wakuMessage, msgSize, onRecv = false)
+      # The send log requires a decode + hash: gate to DEBUG/TRACE builds.
+      when enabledLogLevel <= LogLevel.DEBUG:
+        let msg_id = w.msgIdProvider(msg).valueOr:
+          continue
+        let wakuMessage = WakuMessage.decode(msg.data).valueOr:
+          warn "onSend: failed decoding to Waku Message",
+            my_peer_id = w.switch.peerInfo.peerId, to_peer_id = peer.peerId
+          continue
+        logMessageInfo(
+          w,
+          shortLog(peer.peerId),
+          msg.topic,
+          shortLog(msg_id),
+          wakuMessage,
+          onRecv = false,
+        )
 
   let administrativeObserver =
     PubSubObserver(onRecv: onRecv, onSend: onSend, onValidated: onValidated)
@@ -613,7 +583,11 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
       data.len.int64 + pubsubTopic.len.int64, labelValues = [pubsubTopic, "net", "in"]
     )
 
-    return handler(pubsubTopic, decMsg)
+    # Build the envelope here: the single inbound-path hash. It carries the
+    # decoded message + topic + hash through the whole dispatch chain so no
+    # downstream consumer re-decodes or re-hashes.
+    let envelope = WakuEnvelope.init(pubsubTopic, decMsg)
+    return handler(envelope)
 
   # Add the ordered validator to the topic
   # This assumes that if `w.validatorInserted.hasKey(pubSubTopic) is true`, it contains the ordered validator.

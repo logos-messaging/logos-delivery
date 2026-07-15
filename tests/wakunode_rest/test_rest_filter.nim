@@ -278,9 +278,9 @@ suite "Waku v2 Rest API - Filter V2":
       restFilterTest = await RestFilterTest.init()
       subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
 
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     restFilterTest.messageCache.pubsubSubscribe(DefaultPubsubTopic)
@@ -333,9 +333,9 @@ suite "Waku v2 Rest API - Filter V2":
     # setup filter service and client node
     let restFilterTest = await RestFilterTest.init()
     let subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     restFilterTest.serviceNode.subscribe(
@@ -412,9 +412,9 @@ suite "Waku v2 Rest API - Filter V2":
     # setup filter service and client node
     let restFilterTest = await RestFilterTest.init()
     let subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
-    let simpleHandler = proc(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    let simpleHandler = proc(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     restFilterTest.serviceNode.subscribe(

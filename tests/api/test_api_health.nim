@@ -21,9 +21,7 @@ const TestTimeout = chronos.seconds(10)
 const DefaultShard = PubsubTopic("/waku/2/rs/3/0")
 const TestContentTopic = ContentTopic("/waku/2/default-content/proto")
 
-proc dummyHandler(
-    topic: PubsubTopic, msg: WakuMessage
-): Future[void] {.async, gcsafe.} =
+proc dummyHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
   discard
 
 proc waitForConnectionStatus(

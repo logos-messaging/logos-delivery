@@ -42,44 +42,48 @@ proc registerRelayHandler(
   if alreadySubscribed:
     return false
 
-  proc traceHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
-    let msgSizeKB = msg.payload.len / 1000
+  proc traceHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+    let msgSizeKB = envelope.msg.payload.len / 1000
 
     waku_node_messages.inc(labelValues = ["relay"])
     waku_histogram_message_size.observe(msgSizeKB)
 
-  proc filterHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+  proc filterHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
     if node.wakuFilter.isNil():
       return
 
-    await node.wakuFilter.handleMessage(topic, msg)
+    await node.wakuFilter.handleMessage(envelope)
 
-  proc archiveHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+  proc archiveHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
     if node.wakuArchive.isNil():
       return
 
-    await node.wakuArchive.handleMessage(topic, msg)
+    await node.wakuArchive.handleMessage(envelope)
 
-  proc syncHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+  proc syncHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
     if node.wakuStoreReconciliation.isNil():
       return
 
-    node.wakuStoreReconciliation.messageIngress(topic, msg)
+    # Reuse the envelope's precomputed hash (no re-hash).
+    node.wakuStoreReconciliation.messageIngress(
+      envelope.hash, envelope.pubsubTopic, envelope.msg
+    )
 
-  proc internalHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
-    MessageSeenEvent.emit(node.brokerCtx, topic, msg)
+  proc internalHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
+    MessageSeenEvent.emit(node.brokerCtx, envelope)
 
   let uniqueTopicHandler = proc(
-      topic: PubsubTopic, msg: WakuMessage
+      envelope: WakuEnvelope
   ): Future[void] {.async, gcsafe.} =
-    await traceHandler(topic, msg)
-    await filterHandler(topic, msg)
-    await archiveHandler(topic, msg)
-    await syncHandler(topic, msg)
-    await internalHandler(topic, msg)
+    let topic = envelope.pubsubTopic
+    await traceHandler(envelope)
+    await filterHandler(envelope)
+    await archiveHandler(envelope)
+    await syncHandler(envelope)
+    await internalHandler(envelope)
 
     if node.legacyAppHandlers.hasKey(topic) and not node.legacyAppHandlers[topic].isNil():
-      await node.legacyAppHandlers[topic](topic, msg)
+      await node.legacyAppHandlers[topic](envelope)
 
   node.wakuRelay.subscribe(shard, uniqueTopicHandler)
   return true

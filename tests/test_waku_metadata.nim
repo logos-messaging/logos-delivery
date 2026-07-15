@@ -45,7 +45,7 @@ procSuite "Waku Metadata Protocol":
 
     # Subscribe to topics on node1 - relay will track these and metadata will report them
     let noOpHandler: WakuRelayHandler = proc(
-        pubsubTopic: PubsubTopic, message: WakuMessage
+        envelope: WakuEnvelope
     ): Future[void] {.async.} =
       discard
 

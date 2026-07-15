@@ -387,12 +387,10 @@ suite "Waku Lightpush message delivery":
     let message = fakeWakuMessage()
 
     var completionFutRelay = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
       check:
-        topic == CustomPubsubTopic
-        msg == message
+        envelope.pubsubTopic == CustomPubsubTopic
+        envelope.msg == message
       completionFutRelay.complete(true)
 
     destNode.subscribe((kind: PubsubSub, topic: CustomPubsubTopic), relayHandler).isOkOr:

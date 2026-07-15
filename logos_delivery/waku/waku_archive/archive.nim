@@ -95,10 +95,10 @@ proc new*(
 
   return ok(archive)
 
-proc handleMessage*(
-    self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
-) {.async.} =
-  let msgHash = computeMessageHash(pubsubTopic, msg)
+proc handleMessage*(self: WakuArchive, envelope: WakuEnvelope) {.async.} =
+  let pubsubTopic = envelope.pubsubTopic
+  let msg = envelope.msg
+  let msgHash = envelope.hash
   let msgHashHex = msgHash.to0xHex()
 
   trace "handling message",
@@ -143,6 +143,14 @@ proc handleMessage*(
     contentTopic = msg.contentTopic,
     timestamp = msg.timestamp,
     insertDuration = insertDuration
+
+proc handleMessage*(
+    self: WakuArchive, pubsubTopic: PubsubTopic, msg: WakuMessage
+) {.async.} =
+  ## Convenience overload building the envelope (and its hash) for callers that
+  ## don't already have one (e.g. tests, REST). The relay dispatch path uses the
+  ## envelope overload directly to avoid re-hashing.
+  await self.handleMessage(WakuEnvelope.init(pubsubTopic, msg))
 
 proc syncMessageIngress*(
     self: WakuArchive,

@@ -164,3 +164,70 @@ force-copy path exists.
 | 2 | Mutation-site classification produced | **PASS** — `docs/analysis/phase2_mutation_audit.md` |
 | 3 | Alloc volume down ≥ 40 %, decode/hash unchanged | **PARTIAL** — decode/hash byte-exact unchanged (**PASS**); alloc-volume drop **not demonstrable** via this harness's retained-memory metric under refc (technical reason above); no residual deep-copy bug found |
 | 4 | `detect_changes` reviewed; committed (no push) | **PASS** (gitnexus skipped per environment; grep-based mutation sweep committed instead) |
+
+---
+
+# Phase 3 — `WakuEnvelope`: decode once, hash once
+
+Re-run of the same harness after Phase 3 (`WakuEnvelope` threaded through relay
+dispatch; redundant decodes/hashes removed; filter push buffer shared). Same
+machine/toolchain/workload (seed 42, 10/50/150 kB @ 25/50/25 %, N=1000 + 100
+warmup), same build defines (`-d:msgPathCounters -d:chronicles_log_level=ERROR`,
+`--passL:librln_v2.0.2.a --passL:-lm`), `--mm:refc`.
+
+Benchmarked at commit `dab42f85`. Observer decode/hash sites are gated behind
+`enabledLogLevel <= LogLevel.DEBUG`; the build is at `ERROR`, so they are
+compiled out. INFO would give byte-identical counters (the gate threshold is
+DEBUG).
+
+## Results (CSV)
+
+```
+scenario,msgs,payload_profile,wall_ms,msg_per_s,ns_per_msg_p50,ns_per_msg_p99,decodes_per_msg,hashes_per_msg,hashed_MB,decoded_MB,occupied_mem_delta_MB,gc_collections
+micro_run1,1000,10/50/150kB@25/50/25,449.891,2222.8,346625,1040333,2.000,1.000,65.00,130.11,0.04,7
+micro_run2,1000,10/50/150kB@25/50/25,451.472,2215.0,336166,1287166,2.000,1.000,65.00,130.11,1.19,8
+macro,1000,10/50/150kB@25/50/25,2809.200,356.0,2285375,7529458,3.000,3.000,195.00,195.16,137.54,10
+```
+Micro determinism: run1=2222.8 msg/s, run2=2215.0 msg/s → **variance 0.35 %**.
+
+## Phase 1 → Phase 2 → Phase 3
+
+| Scenario | Metric | Phase 1 | Phase 2 | Phase 3 |
+|---|---|---|---|---|
+| micro | msg/s | 1206.9 / 1257.6 | 1235.7 / 1252.4 | **2222.8 / 2215.0** (~+78 %) |
+| micro | decodes/msg | 2.000 | 2.000 | **2.000** |
+| micro | hashes/msg | 2.000 | 2.000 | **1.000** |
+| micro | hashed_MB | 130.00 | 130.00 | **65.00** |
+| macro | msg/s | 229.0 | 230.2 | **356.0** (~+55 %) |
+| macro | decodes/msg | 6.000 | 6.000 | **3.000** |
+| macro | hashes/msg | 5.000 | 5.000 | **3.000** |
+| macro | hashed_MB / decoded_MB | 325.00 / 390.33 | 325.00 / 390.33 | **195.00 / 195.16** |
+
+## Acceptance gate — receiver-side decodes ≤ 2, hashes == 1
+
+The counter is process-global (publisher node A + receiver node B share it).
+
+**Micro directly isolates the receiver path** (single node: ordered validator +
+topicHandler + full dispatch chain trace/filter/archive/sync/internal, no
+publisher leg): **2.000 decodes, 1.000 hashes per message** → gate met
+(decodes ≤ 2 ✓, hashes == 1 ✓). The one hash is the envelope construction in the
+relay topic handler; archive and store-sync reuse `envelope.hash`.
+
+**Macro aggregate 3.0 decodes / 3.0 hashes** decomposes as:
+
+| Counter | Node A (publisher, relay-only, self-subscribed, `triggerSelf`) | Node B (receiver) | Total |
+|---|---|---|---|
+| decode | 1 (own topicHandler via triggerSelf) | 2 (ordered validator + topicHandler) | **3** |
+| hash | 2 (`publish` leg + own envelope) | 1 (envelope; archive & store-sync reuse it) | **3** |
+
+Receiver side (node B) = **2 decodes, 1 hash** → gate met. The publisher's
+contribution is the encode-side `publish` hash plus its own self-delivered
+envelope (triggerSelf), not receiver overhead. Aggregate 6.0/5.0 → 3.0/3.0
+lands within the expected "~≤3.0 decodes / ~2.0 hashes" band (hashes at 3.0
+because node A both publishes *and* self-receives; the pure receiver leg is 1.0).
+
+`computeMessageHash` recomputations removed on the inbound relay path:
+`waku_relay/protocol.nim` onValidated/onSend (gated), `waku_archive/archive.nim`
+(`envelope.hash`), `waku_store_sync/reconciliation.nim` (hash overload),
+`waku_filter_v2/protocol.nim` `pushToPeers`, plus the FFI JSON event and
+`recv_service` (reused via `MessageSeenEvent`).

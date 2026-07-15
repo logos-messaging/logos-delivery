@@ -107,16 +107,16 @@ procSuite "WakuNode - RLN relay":
     await node3.connectToNodes(@[node2.switch.peerInfo.toRemotePeerInfo()])
 
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       info "The received topic:", topic
       if topic == DefaultPubsubTopic:
         completionFut.complete(true)
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node1.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
@@ -224,18 +224,18 @@ procSuite "WakuNode - RLN relay":
 
     var rxMessagesTopic1 = 0
     var rxMessagesTopic2 = 0
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       info "relayHandler. The received topic:", topic
       if topic == $shards[0]:
         rxMessagesTopic1 = rxMessagesTopic1 + 1
       elif topic == $shards[1]:
         rxMessagesTopic2 = rxMessagesTopic2 + 1
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node1.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
@@ -366,16 +366,16 @@ procSuite "WakuNode - RLN relay":
 
     # define a custom relay handler
     var completionFut = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       info "The received topic:", topic
       if topic == DefaultPubsubTopic:
         completionFut.complete(true)
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node1.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
@@ -526,9 +526,9 @@ procSuite "WakuNode - RLN relay":
     var completionFut2 = newFuture[bool]()
     var completionFut3 = newFuture[bool]()
     var completionFut4 = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       info "The received topic:", topic
       if topic == DefaultPubsubTopic:
         if msg == wm1:
@@ -540,9 +540,9 @@ procSuite "WakuNode - RLN relay":
         if msg.payload == wm4.payload:
           completionFut4.complete(true)
 
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node1.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler).isOkOr:
@@ -649,9 +649,9 @@ procSuite "WakuNode - RLN relay":
       completionFut4 = newFuture[bool]()
       completionFut5 = newFuture[bool]()
       completionFut6 = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       info "The received topic:", topic
       if topic == DefaultPubsubTopic:
         if msg == wm1:

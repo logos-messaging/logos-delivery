@@ -108,7 +108,7 @@ proc setupNetwork(
 
   net.publisherPeerInfo = net.publisher.peerInfo.toRemotePeerInfo()
 
-  proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+  proc dummyHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
     discard
 
   var shards: seq[PubsubTopic]
@@ -617,7 +617,7 @@ suite "Messaging API, SubscriptionManager":
     let numShards: uint16 = 1
     let shards = @[PubsubTopic("/waku/2/rs/3/0")]
 
-    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    proc dummyHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
       discard
 
     var publisher: WakuNode
@@ -726,7 +726,7 @@ suite "Messaging API, SubscriptionManager":
     let numShards: uint16 = 1
     let shards = @[PubsubTopic("/waku/2/rs/3/0")]
 
-    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    proc dummyHandler(envelope: WakuEnvelope) {.async, gcsafe.} =
       discard
 
     var publisher: WakuNode

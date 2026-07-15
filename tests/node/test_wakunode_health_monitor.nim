@@ -171,7 +171,7 @@ suite "Health Monitor - events":
 
     await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
 
-    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+    proc dummyHandler(envelope: WakuEnvelope): Future[void] {.async.} =
       discard
 
     nodeA.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(

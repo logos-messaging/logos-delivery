@@ -1,0 +1,358 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Logos Messaging — Async Copy Elimination Report</title>
+<style>
+  :root{
+    --forest:#0E2618; --sage:#4E635E; --parchment:#E2E0C9; --gray:#E5E5E5;
+    --warmgray:#DDDED8; --coral:#E46962; --muted:#808C78; --teal:#0C2B2D;
+    --ink:#111520; --black:#000; --white:#FFF;
+    --font-heading:'Times New Roman',Times,Georgia,serif;
+    --font-body:Arial,Helvetica,sans-serif;
+    --font-code:'Fira Code',Consolas,'Courier New',monospace;
+    color-scheme: light;
+  }
+  *{box-sizing:border-box;margin:0;padding:0}
+  body{font-family:var(--font-body);color:var(--black);background:var(--parchment);line-height:1.55;font-size:15px}
+  h1,h2,h3{font-family:var(--font-heading);font-weight:bold;line-height:1.2}
+  section{padding:56px 6%}
+  .inner{max-width:1060px;margin:0 auto}
+  /* hero */
+  .hero{background:var(--forest);color:var(--white);padding:72px 6% 64px}
+  .hero .lambda{font-family:var(--font-heading);font-size:64px;line-height:1}
+  .hero h1{font-size:42px;margin:18px 0 10px}
+  .hero .sub{font-family:var(--font-heading);font-style:italic;font-size:19px;color:var(--parchment);max-width:760px}
+  .hero .meta{margin-top:28px;font-size:12px;color:var(--muted);letter-spacing:.04em}
+  .hero .meta b{color:var(--parchment);font-weight:normal}
+  .chain{margin-top:14px;font-family:var(--font-code);font-size:12px;color:var(--parchment);word-break:break-all}
+  .chain span{color:var(--coral)}
+  /* section headers */
+  .secno{font-family:var(--font-heading);font-size:15px;font-weight:bold;color:var(--sage);letter-spacing:.12em}
+  .dark .secno{color:var(--muted)}
+  h2{font-size:28px;margin:6px 0 22px}
+  h3{font-size:19px;margin:26px 0 10px}
+  p{margin:0 0 12px;max-width:860px}
+  .dark{background:var(--sage);color:var(--white)}
+  .dark p{color:var(--white)}
+  .light2{background:var(--warmgray)}
+  /* tables */
+  table{border-collapse:collapse;width:100%;margin:14px 0 22px;font-size:13.5px;background:transparent}
+  th{font-family:var(--font-body);text-align:left;font-size:12px;letter-spacing:.05em;
+     border-bottom:2px solid var(--sage);padding:7px 10px;background:var(--warmgray)}
+  .light2 th{background:var(--gray)}
+  td{padding:7px 10px;border-bottom:1px solid #c9c8b4;vertical-align:top}
+  .dark table th{background:transparent;color:var(--parchment);border-bottom:2px solid var(--parchment)}
+  .dark td{border-bottom:1px solid rgba(226,224,201,.35)}
+  td.num,th.num{text-align:right;font-family:var(--font-code);font-size:12.5px;white-space:nowrap}
+  .good{color:var(--coral);font-weight:bold}
+  code,.code{font-family:var(--font-code);font-size:12.5px}
+  .tablewrap{overflow-x:auto}
+  /* stat tiles */
+  .tiles{display:flex;flex-wrap:wrap;gap:14px;margin:20px 0 8px}
+  .tile{flex:1 1 200px;background:var(--forest);color:var(--white);padding:20px 22px;min-width:190px}
+  .tile .v{font-family:var(--font-heading);font-size:40px;font-weight:bold;color:var(--coral)}
+  .tile .l{font-size:12px;margin-top:6px;color:var(--parchment)}
+  .tile .d{font-size:11px;margin-top:4px;color:var(--muted)}
+  /* bars */
+  .chart{margin:18px 0 26px;max-width:860px}
+  .chart .ct{font-size:13px;font-weight:bold;margin-bottom:10px}
+  .row{display:flex;align-items:center;margin:0 0 2px}
+  .row .rl{flex:0 0 190px;font-size:12.5px;padding-right:10px;text-align:right;color:var(--ink)}
+  .row .track{flex:1;display:flex;align-items:center}
+  .bar{height:16px;border-radius:0 4px 4px 0;min-width:2px}
+  .bar.before{background:var(--sage)}
+  .bar.after{background:var(--coral)}
+  .row .val{font-family:var(--font-code);font-size:12px;padding-left:8px;white-space:nowrap;color:var(--black)}
+  .pair{margin-bottom:10px}
+  .legend{display:flex;gap:18px;font-size:12px;margin:6px 0 14px;align-items:center}
+  .legend .sw{display:inline-block;width:12px;height:12px;margin-right:6px;vertical-align:-1px;border-radius:2px}
+  .note{font-size:12px;color:var(--sage);max-width:860px}
+  .dark .note{color:var(--parchment)}
+  /* verdict cards */
+  .verdicts{display:flex;gap:14px;flex-wrap:wrap;margin:16px 0}
+  .verdict{flex:1 1 380px;background:var(--parchment);color:var(--black);padding:18px 20px;border-left:4px solid var(--coral)}
+  .verdict h3{margin:0 0 8px;font-size:16px}
+  .verdict .tag{font-family:var(--font-code);font-size:11px;letter-spacing:.08em;color:var(--coral);font-weight:bold}
+  /* phases */
+  .phases{display:flex;gap:22px;flex-wrap:wrap;margin-top:8px}
+  .phase{flex:1 1 280px;border-top:2px solid var(--sage);padding-top:12px}
+  .phase .pn{font-family:var(--font-heading);font-size:15px;font-weight:bold;color:var(--sage)}
+  .phase h3{margin:4px 0 8px;font-size:18px}
+  .phase .br{font-family:var(--font-code);font-size:11px;color:var(--sage);word-break:break-all;margin-bottom:8px}
+  .phase ul{margin:0 0 8px 18px;font-size:13.5px}
+  .phase li{margin-bottom:5px}
+  .gate{font-size:12px;background:var(--warmgray);padding:8px 10px;margin-top:6px}
+  .gate b{color:var(--forest)}
+  /* footer */
+  .closing{background:var(--forest);color:var(--white)}
+  .closing h2{color:var(--white)}
+  .closing ul{margin:10px 0 20px 20px;font-size:13.5px;color:var(--parchment)}
+  .closing li{margin-bottom:7px}
+  .foot{display:flex;justify-content:space-between;border-top:1px solid var(--sage);
+        padding-top:16px;margin-top:34px;font-size:12px;color:var(--muted)}
+  .divider{border:none;border-top:1px solid #c9c8b4;margin:30px 0}
+  @media (max-width:700px){ .row .rl{flex-basis:110px;font-size:11px} .hero h1{font-size:30px} }
+</style>
+</head>
+<body>
+
+<!-- ================= HERO ================= -->
+<header class="hero">
+  <div class="inner">
+    <div class="lambda">λ</div>
+    <h1>Async Copy Elimination in the Message Path</h1>
+    <div class="sub">Deep-copy and hash-recomputation analysis of Logos Messaging under chronos / refc,
+      and the measured result of removing them — engineering summary report.</div>
+    <div class="meta">
+      LOGOS MESSAGING (NIM) &nbsp;·&nbsp; <b>logos-delivery</b> &nbsp;·&nbsp; 2026-07-15
+      &nbsp;·&nbsp; Nim 2.2.4 · <b>--mm:refc</b> · chronos 4.2.2 · Apple M4
+    </div>
+    <div class="chain">
+      master → <span>experimental/chore-nocopy-e2e-perf-harness</span> (2a4da679)
+      → <span>experimental/chore-nocopy-wakumessage-refobj</span> (3d98a28d)
+      → <span>experimental/chore-nocopy-wakuenvelop</span> (a6f1065a · be6bfed6)
+    </div>
+  </div>
+</header>
+
+<!-- ================= 01 HYPOTHESIS & ANALYSIS ================= -->
+<section>
+  <div class="inner">
+    <div class="secno">01</div>
+    <h2>Hypothesis &amp; Static Analysis</h2>
+
+    <p><b>Hypothesis.</b> Under <code>--mm:refc</code>, chronos async gates and Result/Option idioms force
+    deep copies of every <code>seq</code>-carrying value they touch. A single inbound relayed
+    <code>WakuMessage</code> (three heap seqs + a string) was predicted to cost on the order of
+    <b>19&nbsp;+&nbsp;F full-payload copies</b> (F&nbsp;=&nbsp;filter peers) and <b>4–6 SHA-256 passes</b>,
+    almost all redundant. A secondary memory hypothesis was stated up front: <i>no real gain in retained
+    memory is expected (the copies are temporaries), but a slower heap-allocation elevation pattern on the
+    GC side.</i> Both were put to measurement.</p>
+
+    <h3>Where chronos deep-copies (root mechanics)</h3>
+    <div class="tablewrap"><table>
+      <tr><th>Copy point</th><th>Mechanism</th><th>refc</th><th>ORC</th></tr>
+      <tr><td>Every <code>{.async.}</code> call, per seq/string param</td>
+          <td>params lambda-lifted into the closure-iterator env (<code>asyncmacro.nim:445-517</code>)</td>
+          <td>deep copy per param</td><td>elided (move)</td></tr>
+      <tr><td><code>complete(future, val)</code></td>
+          <td><code>val: T</code> not <code>sink</code>; <code>internalValue = val</code> (<code>asyncfutures.nim:198-202</code>); <code>move()</code> degrades to copy under refc</td>
+          <td>1–2 copies</td><td>1 copy</td></tr>
+      <tr><td><code>let x = await f(...)</code></td>
+          <td><code>value()</code> returns <code>lent T</code>; the bind to <code>x</code> copies</td>
+          <td>1 copy</td><td>1 copy</td></tr>
+      <tr><td>Result/Option bind-out (<code>valueOr</code>, <code>?</code>, <code>get</code>)</td>
+          <td>accessors are <code>lent</code>/templates; the <code>let</code> bind of a large value copies; <code>valueOr</code>/<code>?</code> also copy an lvalue Result</td>
+          <td>1 copy per bind</td><td>usually moved</td></tr>
+    </table></div>
+
+    <h3>Accumulated per-message budget on the inbound relay path (static count, verified by counters)</h3>
+    <div class="tablewrap"><table>
+      <tr><th>Cost class</th><th>Sites</th><th>Count / msg</th></tr>
+      <tr><td><b>Redundant proto decodes</b> of the same bytes</td>
+          <td><code>waku_relay/protocol.nim</code> — ordered validator :543 · onRecv observer :271 · onValidated :326 · topicHandler :603 (+ onSend :341 outbound)</td>
+          <td class="num">4 (receiver), ≈2 avoidable copies each</td></tr>
+      <tr><td><b>Async closure env captures</b> of the decoded message</td>
+          <td><code>node/subscription_manager.nim</code> — uniqueTopicHandler :72 + trace/filter/archive/sync/internal/legacyApp handlers :45–82</td>
+          <td class="num">7 deep copies</td></tr>
+      <tr><td><b>Hash recomputation</b> (<code>computeMessageHash</code>)</td>
+          <td>relay :217/:553/:571/:686 · archive :101 · filter :195/:246 · store-sync :78 · node publish :148</td>
+          <td class="num">4–6 SHA-256 passes</td></tr>
+      <tr><td><b>Per-peer buffer copy</b> (filter push)</td>
+          <td><code>waku_filter_v2/protocol.nim:170</code> — <code>{.async.}</code> by-value buffer per subscribed peer</td>
+          <td class="num">F copies</td></tr>
+      <tr><td><b>Total</b></td><td>vs. theoretical minimum ≈ 3 (decode once · hash once · encode once)</td>
+          <td class="num"><b>≈ 19 + F copies, 4–6 hashes</b></td></tr>
+    </table></div>
+    <p class="note">Phase 1 instrumentation confirmed the static analysis before any fix: the two-node
+    benchmark measured 6.0 decodes / 5.0 hashes per message process-wide — the receiver alone decoding the
+    identical proto bytes 4×. At the 10/50/150&nbsp;kB payload profile this amplifies a 50&nbsp;kB message
+    into ≈ 1&nbsp;MB of heap traffic.</p>
+  </div>
+</section>
+
+<!-- ================= 02 PHASES ================= -->
+<section class="light2">
+  <div class="inner">
+    <div class="secno">02</div>
+    <h2>Three Phases, One Branch Train</h2>
+    <p>Each phase lives on its own local branch, chained for a PR train off <code>master</code>.
+    Every phase ends with the same harness re-run, so each claim is a measured delta, not a projection.</p>
+    <div class="phases">
+      <div class="phase">
+        <div class="pn">PHASE 01 — Measure first</div>
+        <h3>E2E performance harness</h3>
+        <div class="br">experimental/chore-nocopy-e2e-perf-harness · 4 commits → 2a4da679</div>
+        <ul>
+          <li>Micro + macro benchmark (<code>apps/benchmarks/message_path_bench.nim</code>), deterministic fixed-seed workload.</li>
+          <li><code>-d:msgPathCounters</code>: counters inside <code>WakuMessage.decode</code> and <code>computeMessageHash</code> — zero cost when undefined.</li>
+          <li>Baseline committed (<code>bench_baseline.md</code>) before touching production code.</li>
+        </ul>
+        <div class="gate"><b>Gate:</b> counters must confirm ≥ 4 decodes and 4–6 hashes/msg — <b>passed</b> (6.0 / 5.0 aggregate).</div>
+      </div>
+      <div class="phase">
+        <div class="pn">PHASE 02 — Copies become pointers</div>
+        <h3>WakuMessage as <code>ref object</code></h3>
+        <div class="br">experimental/chore-nocopy-wakumessage-refobj · 5 commits → 3d98a28d</div>
+        <ul>
+          <li>Every assignment / async capture / Result bind of a message: 3-seq deep copy → pointer + refcount. No signature changes.</li>
+          <li>Structural <code>==</code>, explicit <code>clone()</code>, immutable-by-convention.</li>
+          <li>Aliasing audit of all mutation sites; <b>5 real fixes</b> (publish timestamp, <code>ensureTimestampSet</code>, 2× RLN proof attach, postgres nil-init). ASAN clean.</li>
+        </ul>
+        <div class="gate"><b>Gate:</b> decode/hash counters byte-identical to baseline (no behavior change) — <b>passed</b> (2/2 · 6/5 unchanged).</div>
+      </div>
+      <div class="phase">
+        <div class="pn">PHASE 03 — Decode once, hash once</div>
+        <h3>WakuEnvelope API break</h3>
+        <div class="br">experimental/chore-nocopy-wakuenvelop · 7 commits → a6f1065a</div>
+        <ul>
+          <li><code>WakuEnvelope</code> = (msg · pubsubTopic · hash) as one ref; <code>WakuRelayHandler</code> takes the envelope; archive/filter/sync/FFI reuse <code>envelope.hash</code>.</li>
+          <li>Unused onRecv observer decode deleted; onValidated/onSend decodes gated to DEBUG.</li>
+          <li>Filter push buffer shared across peers (no per-peer copy).</li>
+        </ul>
+        <div class="gate"><b>Gate:</b> receiver-side ≤ 2 decodes and exactly 1 hash per message — <b>passed</b> (2.0 / 1.0).</div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= 03 METHOD ================= -->
+<section class="dark">
+  <div class="inner">
+    <div class="secno">03</div>
+    <h2>Measurement Method</h2>
+    <div class="tablewrap"><table>
+      <tr><th>Scenario</th><th>Entry endpoint</th><th>Exit endpoint (measured)</th><th>What it isolates</th></tr>
+      <tr>
+        <td><b>micro</b> — in-process, no network</td>
+        <td>raw proto bytes into the relay’s registered <i>ordered validator</i>, then its <i>topicHandler</i></td>
+        <td>return of the full dispatch chain (trace → archive insert → store-sync → internal event)</td>
+        <td>the receiver pipeline, low-noise (0.4–4 % variance)</td>
+      </tr>
+      <tr>
+        <td><b>macro</b> — end-to-end</td>
+        <td><code>nodeA.publish()</code> — public node API → gossipsub → loopback TCP</td>
+        <td>application-level relay handler on node B, firing only after validation, decode, dispatch and archive insert complete</td>
+        <td>the full pipeline incl. libp2p observers</td>
+      </tr>
+    </table></div>
+    <p>Workload: fixed seed 42, payload mix <b>10 / 50 / 150 kB at 25 / 50 / 25 %</b>, N = 1000 + 100 warmup,
+    unique payload prefix + timestamp (no gossipsub dedup). Publisher flow-controlled to a 32-message window.
+    Decode/hash counters live inside the codec and hash procs themselves — they count reality, not expectations.
+    Peak heap via <code>getMaxMem()</code>; heap series sampled every 50 messages; retained delta via
+    <code>getOccupiedMem()</code> after <code>GC_fullCollect()</code>.</p>
+    <p class="note">Final comparison ran both branch heads back-to-back in one session on the same machine
+    (one post-refactor pass discarded for a &gt;5 % variance load spike, rerun within bounds). Not covered by
+    these numbers: RLN validation, filter push to remote peers, REST/FFI boundary, real network latency.</p>
+  </div>
+</section>
+
+<!-- ================= 04 RESULTS ================= -->
+<section>
+  <div class="inner">
+    <div class="secno">04</div>
+    <h2>Measured Gains — Before vs. After</h2>
+    <p>“Before” = pre-Phase-2 head (<code>2a4da679</code>: original production code + harness).
+    “After” = post-Phase-3 head (<code>a6f1065a</code>). Same-session A/B.</p>
+
+    <div class="tiles">
+      <div class="tile"><div class="v">+86 %</div><div class="l">micro throughput</div><div class="d">1,223 → 2,274 msg/s</div></div>
+      <div class="tile"><div class="v">+57 %</div><div class="l">e2e (macro) throughput</div><div class="d">225 → 353 msg/s</div></div>
+      <div class="tile"><div class="v">−21 %</div><div class="l">peak heap (both scenarios)</div><div class="d">515 → 408 MB macro</div></div>
+      <div class="tile"><div class="v">4 → 2</div><div class="l">receiver decodes / msg</div><div class="d">hashes: receiver 3 → 1</div></div>
+    </div>
+
+    <div class="legend">
+      <span><span class="sw" style="background:var(--sage)"></span>Before (pre-Phase-2)</span>
+      <span><span class="sw" style="background:var(--coral)"></span>After (post-Phase-3)</span>
+      <span class="note">bars are supplementary — full values in the tables below</span>
+    </div>
+
+    <div class="chart">
+      <div class="ct">Throughput (msg/s, higher is better)</div>
+      <div class="pair">
+        <div class="row"><div class="rl">micro — before</div><div class="track"><div class="bar before" style="width:54%"></div><span class="val">1,223</span></div></div>
+        <div class="row"><div class="rl">micro — after</div><div class="track"><div class="bar after" style="width:100%"></div><span class="val">2,274</span></div></div>
+      </div>
+      <div class="pair">
+        <div class="row"><div class="rl">macro e2e — before</div><div class="track"><div class="bar before" style="width:9.9%"></div><span class="val">225</span></div></div>
+        <div class="row"><div class="rl">macro e2e — after</div><div class="track"><div class="bar after" style="width:15.5%"></div><span class="val">353</span></div></div>
+      </div>
+    </div>
+
+    <div class="chart">
+      <div class="ct">Redundant work per message (macro, process aggregate — lower is better)</div>
+      <div class="pair">
+        <div class="row"><div class="rl">proto decodes — before</div><div class="track"><div class="bar before" style="width:60%"></div><span class="val">6.0</span></div></div>
+        <div class="row"><div class="rl">proto decodes — after</div><div class="track"><div class="bar after" style="width:30%"></div><span class="val">3.0</span></div></div>
+      </div>
+      <div class="pair">
+        <div class="row"><div class="rl">SHA-256 passes — before</div><div class="track"><div class="bar before" style="width:50%"></div><span class="val">5.0</span></div></div>
+        <div class="row"><div class="rl">SHA-256 passes — after</div><div class="track"><div class="bar after" style="width:30%"></div><span class="val">3.0</span></div></div>
+      </div>
+      <div class="pair">
+        <div class="row"><div class="rl">bytes hashed — before</div><div class="track"><div class="bar before" style="width:65%"></div><span class="val">325 MB / 1000 msgs</span></div></div>
+        <div class="row"><div class="rl">bytes hashed — after</div><div class="track"><div class="bar after" style="width:39%"></div><span class="val">195 MB / 1000 msgs</span></div></div>
+      </div>
+    </div>
+
+    <h3>Full comparison</h3>
+    <div class="tablewrap"><table>
+      <tr><th>Metric</th><th class="num">Before</th><th class="num">After</th><th class="num">Δ</th></tr>
+      <tr><td>micro msg/s</td><td class="num">1,222.8</td><td class="num">2,273.7</td><td class="num good">+85.9 %</td></tr>
+      <tr><td>micro p50 / p99 per msg</td><td class="num">630 µs / 1.94 ms</td><td class="num">338 µs / 1.09 ms</td><td class="num good">−46 % / −44 %</td></tr>
+      <tr><td>micro decodes / hashes per msg</td><td class="num">2.0 / 2.0</td><td class="num">2.0 / 1.0</td><td class="num good">hash −50 %</td></tr>
+      <tr><td>macro msg/s (e2e)</td><td class="num">225.5</td><td class="num">353.1</td><td class="num good">+56.6 %</td></tr>
+      <tr><td>macro p50 / p99 inter-arrival</td><td class="num">3.55 ms / 10.7 ms</td><td class="num">2.29 ms / 7.5 ms</td><td class="num good">−35 % / −30 %</td></tr>
+      <tr><td>macro decodes / hashes per msg (aggregate)</td><td class="num">6.0 / 5.0</td><td class="num">3.0 / 3.0</td><td class="num good">−50 % / −40 %</td></tr>
+      <tr><td>&nbsp;&nbsp;— receiver-side only</td><td class="num">4 dec / 3 hash</td><td class="num">2 dec / 1 hash</td><td class="num good">gate met</td></tr>
+      <tr><td>bytes decoded / hashed per 1000 msgs</td><td class="num">390 / 325 MB</td><td class="num">195 / 195 MB</td><td class="num good">−50 % / −40 %</td></tr>
+      <tr><td>peak heap <code>getMaxMem</code> (micro / macro)</td><td class="num">333.6 / 514.9 MB</td><td class="num">263.6 / 408.4 MB</td><td class="num good">−21 % both</td></tr>
+      <tr><td>GC collections (micro / macro)</td><td class="num">7–8 / 10</td><td class="num">7–8 / 10</td><td class="num">identical</td></tr>
+      <tr><td>retained-mem slope, macro</td><td class="num">≈ 12.6 MB / 100 msg</td><td class="num">≈ 13.2 MB / 100 msg</td><td class="num">flat (archive-driven)</td></tr>
+    </table></div>
+
+    <h3>Memory hypothesis — verdict</h3>
+    <div class="verdicts">
+      <div class="verdict">
+        <div class="tag">CONFIRMED</div>
+        <h3>(a) No real retained-memory gain</h3>
+        <p>Retention slope is identical before and after — it is the archive holding the same 1000 messages.
+        The eliminated copies were temporaries, exactly as hypothesized.</p>
+      </div>
+      <div class="verdict">
+        <div class="tag">REFUTED — LEVEL SHIFT INSTEAD</div>
+        <h3>(b) Slower heap-elevation pattern</h3>
+        <p>Slope and collection counts are unchanged: under refc the transient copies were refcount-freed
+        deterministically and never accumulated toward collection triggers. The win manifests as a
+        <b>−21 % peak heap</b> and a ~65–75 MB lower level throughout the run — the copies cost CPU
+        (memcpy + alloc/free churn) and peak footprint, not GC-cycle pressure. Quantifying raw churn would
+        require cumulative-allocation counters or malloc profiling.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- ================= CLOSING ================= -->
+<section class="closing">
+  <div class="inner">
+    <h2>Conclusions &amp; Open Items</h2>
+    <p style="color:var(--parchment)">The message path now performs one decode per trust boundary and one hash per message,
+    carried by reference through every async gate. Verification at each phase: representative suites green
+    (~160+ tests), ASAN clean on the dispatch path, counters byte-exact where no change was claimed.</p>
+    <ul>
+      <li>Per-shard payload byte gauges (<code>waku_relay_*_msg_bytes_per_shard</code>) now populate only at DEBUG/TRACE — decide before merge if dashboards need them.</li>
+      <li>Archive/filter keep thin <code>(topic, msg)</code> compat overloads; removable later.</li>
+      <li>Lightpush <code>validateMessage</code> double-encode deferred (needs <code>PushMessageHandler</code> signature change).</li>
+      <li>Under a future ORC build the remaining <code>complete()</code>/await-bind copies persist — returning refs from async procs stays best practice.</li>
+    </ul>
+    <p style="font-size:12px;color:var(--muted)">Sources: docs/analysis/async_copy_analysis.md · async_copy_fix_plan.md · plan_phase{1,2,3}_*.md ·
+    bench_baseline.md · phase2_mutation_audit.md · speed_gain_pre2_post3.md — all committed on the branch train. Local branches only; nothing pushed.</p>
+    <div class="foot"><span>Logos.co</span><span>λ Logos Messaging · Engineering Report · 2026-07-15</span></div>
+  </div>
+</section>
+
+</body>
+</html>

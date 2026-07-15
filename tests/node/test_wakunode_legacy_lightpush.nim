@@ -303,9 +303,9 @@ suite "Waku Legacy Lightpush message delivery":
     const CustomPubsubTopic = "/waku/2/rs/0/1"
     let message = fakeWakuMessage()
     var completionFutRelay = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc relayHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       check:
         topic == CustomPubsubTopic
         msg == message

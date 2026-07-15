@@ -69,9 +69,15 @@ type JsonMessageEvent* = ref object of JsonEvent
   messageHash*: string
   wakuMessage*: JsonMessage
 
-proc new*(T: type JsonMessageEvent, pubSubTopic: string, msg: WakuMessage): T =
+proc new*(
+    T: type JsonMessageEvent,
+    pubSubTopic: string,
+    msg: WakuMessage,
+    msgHash: WakuMessageHash,
+): T =
   # Returns a WakuMessage event as indicated in
   # https://github.com/vacp2p/rfc/blob/master/content/docs/rfcs/36/README.md#jsonmessageevent-type
+  # `msgHash` is the precomputed message hash (reused from the inbound envelope).
 
   var payload = newSeq[byte](len(msg.payload))
   if len(msg.payload) != 0:
@@ -84,8 +90,6 @@ proc new*(T: type JsonMessageEvent, pubSubTopic: string, msg: WakuMessage): T =
   var proof = newSeq[byte](len(msg.proof))
   if len(msg.proof) != 0:
     copyMem(addr proof[0], unsafeAddr msg.proof[0], len(msg.proof))
-
-  let msgHash = computeMessageHash(pubSubTopic, msg)
 
   return JsonMessageEvent(
     eventType: "message",
@@ -101,6 +105,10 @@ proc new*(T: type JsonMessageEvent, pubSubTopic: string, msg: WakuMessage): T =
       proof: base64.encode(proof),
     ),
   )
+
+proc new*(T: type JsonMessageEvent, pubSubTopic: string, msg: WakuMessage): T =
+  ## Convenience overload computing the hash for callers without one.
+  JsonMessageEvent.new(pubSubTopic, msg, computeMessageHash(pubSubTopic, msg))
 
 method `$`*(jsonMessage: JsonMessageEvent): string =
   $(%*jsonMessage)

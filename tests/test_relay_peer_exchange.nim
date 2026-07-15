@@ -91,9 +91,9 @@ procSuite "Relay (GossipSub) Peer Exchange":
     await allFutures([node1.start(), node2.start(), node3.start()])
 
     # The three nodes should be subscribed to the same shard
-    proc simpleHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
+    proc simpleHandler(envelope: WakuEnvelope): Future[void] {.async, gcsafe.} =
+      let topic {.used.} = envelope.pubsubTopic
+      let msg {.used.} = envelope.msg
       await sleepAsync(0.milliseconds)
 
     node1.subscribe((kind: PubsubSub, topic: $DefaultRelayShard), simpleHandler).isOkOr:
