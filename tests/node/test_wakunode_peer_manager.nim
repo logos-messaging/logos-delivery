@@ -614,6 +614,11 @@ suite "Peer Manager":
               serverPeerStore.getPeer(clientPeerId).connectedness ==
               Connectedness.CanConnect
 
+          # reconnectPeers only acts on peers restored from persistent storage,
+          # so tag the server as such. Peers coming from live discovery are
+          # deliberately left out of the reconnect (and its backoff) path.
+          client.peerManager.addPeer(serverRemotePeerInfo, origin = Cache)
+
           # When triggering the reconnection
           await client.peerManager.reconnectPeers(WakuRelayCodec)
 
