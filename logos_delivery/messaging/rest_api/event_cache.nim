@@ -70,7 +70,7 @@ proc recordSend*(
       self.sendByReqId.del(evicted)
 
   self.sendByReqId.withValue(requestId, status):
-    status.events.add(record)
+    status[].events.add(record)
 
 proc recordReceived*(
     self: MessagingEventCache, messageHash: string, message: MessagingMessage
