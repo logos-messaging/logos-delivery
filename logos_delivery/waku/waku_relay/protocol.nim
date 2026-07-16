@@ -268,7 +268,10 @@ proc initRelayObservers(w: WakuRelay) =
 
     let msg_id_short = shortLog(msg_id)
 
-    let wakuMessage = WakuMessage.decode(msg.data).valueOr:
+    # libp2p >= 2.2: Message.data is Opt[seq[byte]]
+    let data = msg.data.valueOr:
+      return err()
+    let wakuMessage = WakuMessage.decode(data).valueOr:
       warn "Error decoding to Waku Message",
         my_peer_id = w.switch.peerInfo.peerId,
         msg_id = msg_id_short,
@@ -277,7 +280,7 @@ proc initRelayObservers(w: WakuRelay) =
         error = $error
       return err()
 
-    let msgSize = msg.data.len + msg.topic.len
+    let msgSize = data.len + msg.topic.len
     return ok((msg_id_short, msg.topic, wakuMessage, msgSize))
 
   proc updateMetrics(
@@ -304,11 +307,16 @@ proc initRelayObservers(w: WakuRelay) =
       var topicsChanged = false
 
       for graft in ctrl.graft:
-        w.topicHealthDirty.incl(graft.topicID)
+        # libp2p >= 2.2: topicID is Opt[string]
+        let topicId = graft.topicID.valueOr:
+          continue
+        w.topicHealthDirty.incl(topicId)
         topicsChanged = true
 
       for prune in ctrl.prune:
-        w.topicHealthDirty.incl(prune.topicID)
+        let topicId = prune.topicID.valueOr:
+          continue
+        w.topicHealthDirty.incl(topicId)
         topicsChanged = true
 
       if topicsChanged:
@@ -323,7 +331,9 @@ proc initRelayObservers(w: WakuRelay) =
 
   proc onValidated(peer: PubSubPeer, msg: Message, msgId: MessageId) =
     let msg_id_short = shortLog(msgId)
-    let wakuMessage = WakuMessage.decode(msg.data).valueOr:
+    let data = msg.data.valueOr:
+      return
+    let wakuMessage = WakuMessage.decode(data).valueOr:
       warn "onValidated: failed decoding to Waku Message",
         my_peer_id = w.switch.peerInfo.peerId,
         msg_id = msg_id_short,
@@ -540,7 +550,12 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
   ): Future[ValidationResult] {.async.} =
     # can be optimized by checking if the message is a WakuMessage without allocating memory
     # see nim-libp2p protobuf library
-    let msg = WakuMessage.decode(message.data).valueOr:
+    # libp2p >= 2.2: Message.data is Opt[seq[byte]]
+    let data = message.data.valueOr:
+      error "protocol generateOrderedValidator reject missing data",
+        pubsubTopic = pubsubTopic
+      return ValidationResult.Reject
+    let msg = WakuMessage.decode(data).valueOr:
       error "protocol generateOrderedValidator reject decode error",
         pubsubTopic = pubsubTopic, error = $error
       return ValidationResult.Reject

@@ -4,7 +4,7 @@ import logos_delivery/waku/compat/option_valueor
 ##
 
 import std/[tables, sequtils, options, sets]
-import chronos, chronicles, libp2p/utility
+import chronos, chronicles, libp2p/utils/[shortlog, collections]
 import brokers/broker_context
 import
   logos_delivery/waku/[waku_core, waku_core/topics, waku_store/common],

@@ -75,11 +75,25 @@ endif
 %:
 	@true
 
-logos_delivery.nims:
-	ln -s logos_delivery.nimble $@
+# Prefer a symlink; fall back to a full copy when `ln` is unavailable (some sandboxes).
+logos_delivery.nims: logos_delivery.nimble
+	@if command -v ln >/dev/null 2>&1 && ln -sfn logos_delivery.nimble $@ 2>/dev/null; then \
+		: ; \
+	else \
+		cp -f logos_delivery.nimble $@; \
+	fi
 
-$(NIMBLEDEPS_STAMP): nimble.lock | install-nimble build-nph logos_delivery.nims
-	$(NIMBLE) setup --localdeps
+# Install locked deps. `nimble setup` is preferred when it works; on SAT failures
+# (seen with libp2p git tags) fall back to tools/install_from_lock.nim which
+# clones exact lock revisions, writes nimble.paths, and applies libp2p 2.2 shims.
+$(NIMBLEDEPS_STAMP): nimble.lock tools/install_from_lock.nim tools/apply-libp2p-2.2-shims.sh | install-nimble build-nph logos_delivery.nims
+	@if $(NIMBLE) setup --localdeps; then \
+		echo "nimble setup ok"; \
+		bash tools/apply-libp2p-2.2-shims.sh || true; \
+	else \
+		echo "nimble setup failed; installing from nimble.lock via tools/install_from_lock.nim"; \
+		nim c -r --hints:off --mm:refc -d:release -o:nimbledeps/install_from_lock tools/install_from_lock.nim; \
+	fi
 	touch $@
 
 # Must be phony so the recipe always runs and the sub-make re-evaluates
@@ -219,7 +233,7 @@ testcommon: | build-deps build
 ##########
 ## Waku ##
 ##########
-.PHONY: testwaku wakunode2 testwakunode2 example2 chat2 chat2bridge liteprotocoltester
+.PHONY: testwaku wakunode2 testwakunode2 example2 chat2 chat2mix chat2disco chat2bridge liteprotocoltester
 
 testwaku: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -255,6 +269,15 @@ chat2: | build-deps build deps librln
 chat2mix: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) chat2mix
+
+# Compile with `nim c` (not `nimble chat2disco`) so a failed nimble SAT resolve
+# after deps are already installed cannot block the build. Paths come from
+# nimble.paths written by nimble setup or tools/install_from_lock.nim.
+chat2disco: | build-deps build deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		nim c --out:build/chat2disco --mm:refc --path:. \
+			$(NIM_PARAMS) -d:chronicles_log_level=TRACE \
+			apps/chat2disco/chat2disco.nim
 
 rln-db-inspector: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \

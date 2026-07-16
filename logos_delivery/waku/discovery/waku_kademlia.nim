@@ -55,14 +55,18 @@ proc extractMixPubKey*(service: ServiceInfo): Option[Curve25519Key] =
   if service.id != MixProtocolID:
     return none(Curve25519Key)
 
-  if service.data.len != Curve25519KeySize:
-    trace "invalid mix pub key length",
-      expected = Curve25519KeySize,
-      actual = service.data.len,
-      dataHex = byteutils.toHex(service.data)
+  # libp2p >= 2.2: ServiceInfo.data is Opt[seq[byte]]
+  let data = service.data.valueOr:
     return none(Curve25519Key)
 
-  let key = intoCurve25519Key(service.data)
+  if data.len != Curve25519KeySize:
+    trace "invalid mix pub key length",
+      expected = Curve25519KeySize,
+      actual = data.len,
+      dataHex = byteutils.toHex(data)
+    return none(Curve25519Key)
+
+  let key = intoCurve25519Key(data)
 
   return some(key)
 

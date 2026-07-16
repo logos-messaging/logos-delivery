@@ -8,7 +8,6 @@ import
   chronicles,
   chronos,
   metrics,
-  libp2p/utility,
   libp2p/protocols/protocol,
   libp2p/stream/connection,
   libp2p/crypto/crypto,

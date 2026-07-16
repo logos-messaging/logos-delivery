@@ -24,7 +24,12 @@ output_filename=$3
 
 # --- Prefer the prebuilt release asset --------------------------------------
 # Host target triple, e.g. x86_64-unknown-linux-gnu / aarch64-apple-darwin.
-host_triplet=$(rustc --version --verbose | awk '/host:/{print $2}')
+# Prefer rustc's dedicated flag; fall back to parsing -vV without requiring awk.
+host_triplet=$(rustc --print host-tuple 2>/dev/null || true)
+if [[ -z "${host_triplet}" ]]; then
+  host_triplet=$(rustc -vV | sed -n 's/^host: //p')
+fi
+[[ -n "${host_triplet}" ]] || { echo "Could not determine rustc host triple"; exit 1; }
 tarball="${host_triplet}-stateless-rln.tar.gz"
 url="https://github.com/vacp2p/zerokit/releases/download/${rln_version}/${tarball}"
 
@@ -45,12 +50,10 @@ echo "No prebuilt asset for ${host_triplet} at ${rln_version}; building from sou
 # Check if submodule version = version in Makefile
 cargo metadata --format-version=1 --no-deps --manifest-path "${build_dir}/rln/Cargo.toml"
 
-detected_OS=$(uname -s)
-if [[ "$detected_OS" == MINGW* || "$detected_OS" == MSYS* ]]; then
-    submodule_version=$(cargo metadata --format-version=1 --no-deps --manifest-path "${build_dir}/rln/Cargo.toml" | sed -n 's/.*"name":"rln","version":"\([^"]*\)".*/\1/p')
-else
-    submodule_version=$(cargo metadata --format-version=1 --no-deps --manifest-path "${build_dir}/rln/Cargo.toml" | jq -r '.packages[] | select(.name == "rln") | .version')
-fi
+# Portable: sed works without jq (some sandboxes lack jq/curl/awk).
+submodule_version=$(cargo metadata --format-version=1 --no-deps --manifest-path "${build_dir}/rln/Cargo.toml" \
+  | sed -n 's/.*"name":"rln","version":"\([^"]*\)".*/\1/p' | head -1)
+
 
 if [[ "v${submodule_version}" != "${rln_version}" ]]; then
     echo "Submodule version (v${submodule_version}) does not match version in Makefile (${rln_version})"

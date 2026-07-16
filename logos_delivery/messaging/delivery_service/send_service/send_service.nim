@@ -3,7 +3,7 @@ import logos_delivery/waku/compat/option_valueor
 ##
 
 import std/[sequtils, tables, options, typetraits]
-import chronos, chronicles, libp2p/utility
+import chronos, chronicles, libp2p/utils/[shortlog, collections]
 import brokers/broker_context
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],

@@ -23,7 +23,10 @@ type MessageIdProvider* = pubsub.MsgIdProvider
 proc defaultMessageIdProvider*(
     message: messages.Message
 ): Result[MessageID, ValidationResult] =
-  let hash = sha256.digest(message.data)
+  # libp2p >= 2.2: Message.data is Opt[seq[byte]]
+  let data = message.data.valueOr:
+    return err(ValidationResult.Reject)
+  let hash = sha256.digest(data)
   ok(@(hash.data))
 
 ## Waku message Unique ID provider

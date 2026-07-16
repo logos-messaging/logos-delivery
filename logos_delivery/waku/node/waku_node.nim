@@ -22,7 +22,6 @@ import
   libp2p/transports/transport,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utility,
   libp2p/utils/offsettedseq,
   libp2p_mix,
   libp2p_mix/mix_protocol,
@@ -150,6 +149,11 @@ type
     ownsEdgeFilterPeerCountProvider*: bool
 
 import ./subscription_manager
+
+proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
+  var randomPeers = peers
+  shuffle(randomPeers)
+  return randomPeers[0 ..< min(len(randomPeers), numRandomPeers)]
 
 proc deduceRelayShard(
     node: WakuNode,
@@ -337,6 +341,8 @@ proc mountMix*(
     return err(error.msg)
   return ok()
 
+import logos_delivery/waku/factory/conf_builder/kademlia_discovery_conf_builder
+
 proc mountKademlia*(
     node: WakuNode, config: KademliaDiscoveryConf
 ): Result[void, string] =
@@ -415,11 +421,6 @@ proc reconnectRelayPeers*(node: WakuNode) {.async.} =
   let backoffPeriod =
     node.wakuRelay.parameters.pruneBackoff + chronos.seconds(BackoffSlackTime)
   await node.peerManager.reconnectPeers(WakuRelayCodec, backoffPeriod)
-
-proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
-  var randomPeers = peers
-  shuffle(randomPeers)
-  return randomPeers[0 ..< min(len(randomPeers), numRandomPeers)]
 
 proc mountRendezvousClient*(node: WakuNode, clusterId: uint16) {.async: (raises: []).} =
   info "mounting rendezvous client"

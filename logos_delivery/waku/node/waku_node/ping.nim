@@ -9,8 +9,7 @@ import
   results,
   libp2p/protocols/ping,
   libp2p/builders,
-  libp2p/transports/tcptransport,
-  libp2p/utility
+  libp2p/transports/tcptransport
 
 import ../waku_node, ../peer_manager
 

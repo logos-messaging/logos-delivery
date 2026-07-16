@@ -3,6 +3,7 @@ import
   std/[options, sequtils],
   chronicles,
   chronos,
+  results,
   libp2p/peerid,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/connectivity/relay/relay,
@@ -175,8 +176,9 @@ proc setupProtocols(
     var kadConf = conf.kademliaDiscoveryConf.get()
 
     if conf.mixConf.isSome():
-      let mixService =
-        ServiceInfo(id: MixProtocolID, data: @(conf.mixConf.get().mixPubKey))
+      let mixService = ServiceInfo(
+        id: MixProtocolID, data: Opt.some(@(conf.mixConf.get().mixPubKey))
+      )
       kadConf.servicesToAdvertise.incl(mixService)
       kadConf.servicesToDiscover.incl(mixService.id)
 

@@ -18,7 +18,6 @@ import
   libp2p/builders,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utility,
   brokers/broker_context
 
 import

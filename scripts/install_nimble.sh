@@ -37,7 +37,11 @@ PKGS2_NIMBLE=$(ls -dt "${HOME}/.nimble/pkgs2/nimble-${NIMBLE_VERSION}-"*/nimble 
 if [ -n "${PKGS2_NIMBLE}" ] && [ -x "${PKGS2_NIMBLE}" ]; then
   echo "Nimble ${NIMBLE_VERSION} found in pkgs2, re-linking to ${NIMBLE_BIN}."
   mkdir -p "${HOME}/.nimble/bin"
-  ln -sf "${PKGS2_NIMBLE}" "${NIMBLE_BIN}"
+  if command -v ln >/dev/null 2>&1 && ln -sf "${PKGS2_NIMBLE}" "${NIMBLE_BIN}" 2>/dev/null; then
+    :
+  else
+    cp -f "${PKGS2_NIMBLE}" "${NIMBLE_BIN}"
+  fi
   exit 0
 fi
 
