@@ -10,30 +10,31 @@ import
 import
   logos_delivery/waku/common/base64,
   logos_delivery/waku/rest_api/endpoint/serdes,
+  logos_delivery/waku/rest_api/endpoint/relay/types as relay_types,
   logos_delivery/api/types
 
-export types
+export types, relay_types
 
 #### Types
 
-type MessagingMessage* = object
-  ## REST wire representation of a `MessageEnvelope`. `payload` is base64.
+type MessagingJsonEnvelope* = object
+  ## REST wire (JSON) representation of the messaging API's `MessageEnvelope`.
+  ## `payload` / `meta` are base64. Fields mirror `MessageEnvelope` exactly.
   payload*: Base64String
   contentTopic*: ContentTopic
   ephemeral*: Option[bool]
   meta*: Option[Base64String]
 
-type
-  MessagingPostMessageRequest* = MessagingMessage
+type MessagingPostMessageRequest* = MessagingJsonEnvelope
 
-  MessagingSendResponse* = object
-    ## Returned by the send endpoint; correlates with `MessageSentEvent` /
-    ## `MessageErrorEvent`.
-    requestId*: string
+type MessagingSendResponse* = object
+  ## Returned by the send endpoint on success; correlates with
+  ## `MessageSentEvent` / `MessageErrorEvent`.
+  requestId*: string
 
 #### Type conversion
 
-proc toMessageEnvelope*(msg: MessagingMessage): Result[MessageEnvelope, string] =
+proc toMessageEnvelope*(msg: MessagingJsonEnvelope): Result[MessageEnvelope, string] =
   let
     payload = ?msg.payload.decode()
     meta = ?msg.meta.get(Base64String("")).decode()
@@ -50,7 +51,7 @@ proc toMessageEnvelope*(msg: MessagingMessage): Result[MessageEnvelope, string] 
 #### Serialization and deserialization
 
 proc writeValue*(
-    writer: var JsonWriter[RestJson], value: MessagingMessage
+    writer: var JsonWriter[RestJson], value: MessagingJsonEnvelope
 ) {.raises: [IOError].} =
   writer.beginRecord()
   writer.writeField("payload", value.payload)
@@ -62,7 +63,7 @@ proc writeValue*(
   writer.endRecord()
 
 proc readValue*(
-    reader: var JsonReader[RestJson], value: var MessagingMessage
+    reader: var JsonReader[RestJson], value: var MessagingJsonEnvelope
 ) {.raises: [SerializationError, IOError].} =
   var
     payload = none(Base64String)
@@ -79,7 +80,7 @@ proc readValue*(
           fmt"Multiple `{fieldName}` fields found"
         except CatchableError:
           "Multiple fields with the same name found"
-      reader.raiseUnexpectedField(err, "MessagingMessage")
+      reader.raiseUnexpectedField(err, "MessagingJsonEnvelope")
 
     case fieldName
     of "payload":
@@ -99,7 +100,7 @@ proc readValue*(
   if contentTopic.isNone() or contentTopic.get().isEmptyOrWhitespace():
     reader.raiseUnexpectedValue("Field `contentTopic` is missing or empty")
 
-  value = MessagingMessage(
+  value = MessagingJsonEnvelope(
     payload: payload.get(),
     contentTopic: contentTopic.get(),
     ephemeral: ephemeral,
@@ -141,9 +142,10 @@ proc readValue*(
 
 #### Event observability DTOs
 ##
-## Send-related events (sent / propagated / error) are grouped per request id;
-## received messages are cached for polling. Both are populated by the broker
-## listeners installed in the messaging REST handlers.
+## Send-related events (sent / propagated / error) are grouped per request id.
+## Received messages carry the full `WakuMessage` (serialized as
+## `RelayWakuMessage`), matching the nim `MessageReceivedEvent`. Both surfaces
+## are populated by the broker listeners installed in the messaging handlers.
 
 type
   SendEventKind* {.pure.} = enum
@@ -163,20 +165,7 @@ type
 
   ReceivedMessageRecord* = object
     messageHash*: string
-    message*: MessagingMessage
-    timestamp*: int64 ## nanoseconds, stamped when cached
-
-proc toMessagingMessage*(msg: WakuMessage): MessagingMessage =
-  MessagingMessage(
-    payload: base64.encode(msg.payload),
-    contentTopic: msg.contentTopic,
-    ephemeral: some(msg.ephemeral),
-    meta:
-      if msg.meta.len > 0:
-        some(base64.encode(msg.meta))
-      else:
-        none(Base64String),
-  )
+    message*: RelayWakuMessage ## the received WakuMessage, full fidelity
 
 #### Event DTO serialization
 
@@ -205,7 +194,6 @@ proc writeValue*(
   writer.beginRecord()
   writer.writeField("messageHash", value.messageHash)
   writer.writeField("message", value.message)
-  writer.writeField("timestamp", value.timestamp)
   writer.endRecord()
 
 proc readValue*(
@@ -274,20 +262,15 @@ proc readValue*(
 ) {.raises: [SerializationError, IOError].} =
   var
     messageHash = ""
-    message = MessagingMessage()
-    timestamp = int64(0)
+    message = RelayWakuMessage()
 
   for fieldName in readObjectFields(reader):
     case fieldName
     of "messageHash":
       messageHash = reader.readValue(string)
     of "message":
-      message = reader.readValue(MessagingMessage)
-    of "timestamp":
-      timestamp = reader.readValue(int64)
+      message = reader.readValue(RelayWakuMessage)
     else:
       unrecognizedFieldWarning(value)
 
-  value = ReceivedMessageRecord(
-    messageHash: messageHash, message: message, timestamp: timestamp
-  )
+  value = ReceivedMessageRecord(messageHash: messageHash, message: message)

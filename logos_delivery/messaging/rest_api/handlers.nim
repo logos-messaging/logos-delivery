@@ -53,7 +53,7 @@ proc installEventListeners(brokerCtx: BrokerContext, cache: MessagingEventCache)
   discard MessageReceivedEvent.listen(
     brokerCtx,
     proc(evt: MessageReceivedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordReceived(evt.messageHash, toMessagingMessage(evt.message)),
+      cache.recordReceived(evt.messageHash, toRelayWakuMessage(evt.message)),
   )
 
 proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClient) =
@@ -105,7 +105,9 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
     ## Sends a message through the messaging client, returning the request id.
-    let req: MessagingMessage = decodeRequestBody[MessagingMessage](contentBody).valueOr:
+    let req: MessagingJsonEnvelope = decodeRequestBody[MessagingJsonEnvelope](
+      contentBody
+    ).valueOr:
       return error
 
     let envelope = req.toMessageEnvelope().valueOr:

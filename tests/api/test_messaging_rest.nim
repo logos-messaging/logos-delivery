@@ -63,7 +63,7 @@ suite "Messaging REST API":
     let subResp = await client.messagingPostSubscriptionsV1(@[contentTopic])
     check subResp.status == 200
 
-    let msg = MessagingMessage(
+    let msg = MessagingJsonEnvelope(
       payload: base64.encode("hello rest"),
       contentTopic: contentTopic,
       ephemeral: none(bool),
