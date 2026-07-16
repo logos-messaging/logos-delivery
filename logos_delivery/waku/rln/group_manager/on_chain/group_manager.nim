@@ -1,7 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
+  results,
   os,
   web3,
   web3/eth_api_types,
@@ -33,15 +33,15 @@ type
   WakuRlnContractWithSender = Sender[WakuRlnContract]
   OnchainGroupManager* = ref object of GroupManager
     ethClientUrls*: seq[string]
-    ethPrivateKey*: Option[string]
+    ethPrivateKey*: Opt[string]
     ethContractAddress*: string
-    ethRpc*: Option[Web3]
-    wakuRlnContract*: Option[WakuRlnContractWithSender]
-    registrationTxHash*: Option[TxHash]
+    ethRpc*: Opt[Web3]
+    wakuRlnContract*: Opt[WakuRlnContractWithSender]
+    registrationTxHash*: Opt[TxHash]
     chainId*: UInt256
-    keystorePath*: Option[string]
-    keystorePassword*: Option[string]
-    registrationHandler*: Option[RegistrationHandler]
+    keystorePath*: Opt[string]
+    keystorePassword*: Opt[string]
+    registrationHandler*: Opt[RegistrationHandler]
     latestProcessedBlock*: BlockNumber
     merkleProofCache*: seq[byte]
     merkleProofCacheGeneration: uint64
@@ -406,7 +406,7 @@ method register*(
     )
   ).valueOr:
     return err("Failed to get transaction receipt: " & error)
-  g.registrationTxHash = some(txHash)
+  g.registrationTxHash = Opt.some(txHash)
   # the receipt topic holds the hash of signature of the raised events
   trace "registration receipt", receipt = tsReceipt[]
 
@@ -420,10 +420,10 @@ method register*(
     "MembershipRegistered(uint256,uint256,uint32)"
   ).data)
 
-  var membershipRegisteredLog: Option[LogObject]
+  var membershipRegisteredLog: Opt[LogObject]
   for log in tsReceipt.logs:
     if log.topics.len > 0 and log.topics[0] == expectedEventSignature:
-      membershipRegisteredLog = some(log)
+      membershipRegisteredLog = Opt.some(log)
       break
 
   if membershipRegisteredLog.isNone():
@@ -438,9 +438,9 @@ method register*(
     ## Extract membership index from transaction log data (big endian)
     membershipIndex = UInt256.fromBytesBE(arguments[64 .. 95])
 
-  g.userMessageLimit = some(userMessageLimit)
-  g.membershipIndex = some(membershipIndex.toMembershipIndex())
-  g.idCredentials = some(identityCredential)
+  g.userMessageLimit = Opt.some(userMessageLimit)
+  g.membershipIndex = Opt.some(membershipIndex.toMembershipIndex())
+  g.idCredentials = Opt.some(identityCredential)
 
   let rateCommitment = RateCommitment(
       idCommitment: identityCredential.idCommitment, userMessageLimit: userMessageLimit
@@ -573,10 +573,10 @@ method verifyProof*(
   return ok(validProof)
 
 method onRegister*(g: OnchainGroupManager, cb: OnRegisterCallback) {.gcsafe.} =
-  g.registerCb = some(cb)
+  g.registerCb = Opt.some(cb)
 
 method onWithdraw*(g: OnchainGroupManager, cb: OnWithdrawCallback) {.gcsafe.} =
-  g.withdrawCb = some(cb)
+  g.withdrawCb = Opt.some(cb)
 
 proc establishConnection(
     g: OnchainGroupManager
@@ -648,8 +648,8 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
   let contractAddress = web3.fromHex(web3.Address, g.ethContractAddress)
   let wakuRlnContract = ethRpc.contractSender(WakuRlnContract, contractAddress)
 
-  g.ethRpc = some(ethRpc)
-  g.wakuRlnContract = some(wakuRlnContract)
+  g.ethRpc = Opt.some(ethRpc)
+  g.wakuRlnContract = Opt.some(wakuRlnContract)
 
   if g.keystorePath.isSome() and g.keystorePassword.isSome():
     if not fileExists(g.keystorePath.get()):
@@ -671,14 +671,14 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
       ).valueOr:
         return err("failed to get the keystore credentials: " & $error)
 
-    g.membershipIndex = some(keystoreCred.treeIndex)
-    g.userMessageLimit = some(keystoreCred.userMessageLimit)
+    g.membershipIndex = Opt.some(keystoreCred.treeIndex)
+    g.userMessageLimit = Opt.some(keystoreCred.userMessageLimit)
 
     let idCommitment = keystoreCred.identityCredential.idCommitment
     let membershipExists = (await g.fetchMembershipStatus(idCommitment)).valueOr:
       return err("the commitment does not have a membership: " & error)
 
-    g.idCredentials = some(keystoreCred.identityCredential)
+    g.idCredentials = Opt.some(keystoreCred.identityCredential)
 
   let maxMembershipRateLimitRes = await g.fetchMaxMembershipRateLimit()
   let maxMembershipRateLimit = maxMembershipRateLimitRes.valueOr:
@@ -696,7 +696,7 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
       return
 
     newEthRpc.ondisconnect = ethRpc.ondisconnect
-    g.ethRpc = some(newEthRpc)
+    g.ethRpc = Opt.some(newEthRpc)
 
   ethRpc.ondisconnect = proc() =
     asyncSpawn onDisconnect()

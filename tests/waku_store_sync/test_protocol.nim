@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, sets, random, math, algorithm],
+  results,
+  std/[sets, random, math, algorithm],
   testutils/unittests,
   chronos,
   libp2p/crypto/crypto
@@ -80,7 +81,7 @@ suite "Waku Sync: reconciliation":
       idsChannel.len == 0
       remoteNeeds.len == 0
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), res.error
 
     check:
@@ -114,7 +115,7 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.contains((clientPeerInfo.peerId, hash2)) == false
       remoteNeeds.contains((clientPeerInfo.peerId, hash3)) == false
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), res.error
 
     check:
@@ -150,7 +151,7 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.contains((serverPeerInfo.peerId, hash2)) == false
       remoteNeeds.contains((serverPeerInfo.peerId, hash3)) == false
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), res.error
 
     check:
@@ -186,7 +187,7 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.contains((serverPeerInfo.peerId, hash3)) == false
       remoteNeeds.contains((clientPeerInfo.peerId, hash2)) == false
 
-    var syncRes = await client.storeSynchronization(some(serverPeerInfo))
+    var syncRes = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert syncRes.isOk(), $syncRes.error
 
     check:
@@ -240,7 +241,7 @@ suite "Waku Sync: reconciliation":
     check:
       remoteNeeds.len == 0
 
-    var syncRes = await client.storeSynchronization(some(serverPeerInfo))
+    var syncRes = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert syncRes.isOk(), $syncRes.error
 
     check:
@@ -270,7 +271,7 @@ suite "Waku Sync: reconciliation":
     check:
       remoteNeeds.len == 0
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check:
@@ -312,7 +313,7 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.len == 0
       remoteNeeds.contains((clientPeerInfo.peerId, WakuMessageHash(diff))) == false
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check:
@@ -355,7 +356,7 @@ suite "Waku Sync: reconciliation":
     check remoteNeeds.len == 0
 
     ## ── launch reconciliation from the client towards the server ─────────
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     ## ── verify that ≈1000 diffs were queued (allow 10 % slack) ────────────
@@ -398,7 +399,7 @@ suite "Waku Sync: reconciliation":
 
     check remoteNeeds.len == 0
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check remoteNeeds.len >= diffCount - tol and remoteNeeds.len < diffCount
@@ -444,7 +445,7 @@ suite "Waku Sync: reconciliation":
 
     check remoteNeeds.len == 0
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check remoteNeeds.len == diffCount
@@ -497,7 +498,7 @@ suite "Waku Sync: reconciliation":
 
     check remoteNeeds.len == 0
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check remoteNeeds.len == diffCount
@@ -564,7 +565,7 @@ suite "Waku Sync: reconciliation":
       await server.stop()
       await client.stop()
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check remoteNeeds.len == diffInWin
@@ -613,7 +614,7 @@ suite "Waku Sync: reconciliation":
       await server.stop()
       await client.stop()
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check remoteNeeds.len == 1
@@ -660,7 +661,7 @@ suite "Waku Sync: reconciliation":
       await server.stop()
       await client.stop()
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check remoteNeeds.len == 1
@@ -704,7 +705,7 @@ suite "Waku Sync: reconciliation":
       await server.stop()
       await client.stop()
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check remoteNeeds.len == 1
@@ -739,7 +740,7 @@ suite "Waku Sync: reconciliation":
       await server.stop()
       await client.stop()
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check remoteNeeds.len == 1
@@ -776,7 +777,7 @@ suite "Waku Sync: reconciliation":
       await server.stop()
       await client.stop()
 
-    let res = await client.storeSynchronization(some(serverPeerInfo))
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
     assert res.isOk(), $res.error
 
     check needsQ.len == 0

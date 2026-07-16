@@ -1,11 +1,7 @@
 {.used.}
 
 import
-  std/[options, strscans],
-  testutils/unittests,
-  chronos,
-  chronicles,
-  libp2p/crypto/crypto
+  results, std/strscans, testutils/unittests, chronos, chronicles, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -80,7 +76,7 @@ suite "Waku Lightpush Client":
 
       # When publishing a valid payload
       let publishResponse =
-        await client.publish(some(pubsubTopic), message, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message, serverRemotePeerInfo)
 
       # Then the message is received by the server
       discard await handlerFuture.withTimeout(FUTURE_TIMEOUT)
@@ -93,7 +89,7 @@ suite "Waku Lightpush Client":
       # When publishing a valid payload
       handlerFuture = newPushHandlerFuture()
       let publishResponse2 = await client.publish(
-        some(pubsub_topics.CURRENT), message2, serverRemotePeerInfo
+        Opt.some(pubsub_topics.CURRENT), message2, serverRemotePeerInfo
       )
 
       # Then the message is received by the server
@@ -107,7 +103,7 @@ suite "Waku Lightpush Client":
       # When publishing a valid payload
       handlerFuture = newPushHandlerFuture()
       let publishResponse3 = await client.publish(
-        some(pubsub_topics.CURRENT_NESTED), message3, serverRemotePeerInfo
+        Opt.some(pubsub_topics.CURRENT_NESTED), message3, serverRemotePeerInfo
       )
 
       # Then the message is received by the server
@@ -121,7 +117,7 @@ suite "Waku Lightpush Client":
       # When publishing a valid payload
       handlerFuture = newPushHandlerFuture()
       let publishResponse4 = await client.publish(
-        some(pubsub_topics.SHARDING), message4, serverRemotePeerInfo
+        Opt.some(pubsub_topics.SHARDING), message4, serverRemotePeerInfo
       )
 
       # Then the message is received by the server
@@ -134,8 +130,9 @@ suite "Waku Lightpush Client":
 
       # When publishing a valid payload
       handlerFuture = newPushHandlerFuture()
-      let publishResponse5 =
-        await client.publish(some(pubsub_topics.PLAIN), message5, serverRemotePeerInfo)
+      let publishResponse5 = await client.publish(
+        Opt.some(pubsub_topics.PLAIN), message5, serverRemotePeerInfo
+      )
 
       # Then the message is received by the server
       discard await handlerFuture.withTimeout(FUTURE_TIMEOUT)
@@ -147,8 +144,9 @@ suite "Waku Lightpush Client":
 
       # When publishing a valid payload
       handlerFuture = newPushHandlerFuture()
-      let publishResponse6 =
-        await client.publish(some(pubsub_topics.LEGACY), message6, serverRemotePeerInfo)
+      let publishResponse6 = await client.publish(
+        Opt.some(pubsub_topics.LEGACY), message6, serverRemotePeerInfo
+      )
 
       # Then the message is received by the server
       discard await handlerFuture.withTimeout(FUTURE_TIMEOUT)
@@ -161,7 +159,7 @@ suite "Waku Lightpush Client":
       # When publishing a valid payload
       handlerFuture = newPushHandlerFuture()
       let publishResponse7 = await client.publish(
-        some(pubsub_topics.LEGACY_NESTED), message7, serverRemotePeerInfo
+        Opt.some(pubsub_topics.LEGACY_NESTED), message7, serverRemotePeerInfo
       )
 
       # Then the message is received by the server
@@ -175,7 +173,7 @@ suite "Waku Lightpush Client":
       # When publishing a valid payload
       handlerFuture = newPushHandlerFuture()
       let publishResponse8 = await client.publish(
-        some(pubsub_topics.LEGACY_ENCODING), message8, serverRemotePeerInfo
+        Opt.some(pubsub_topics.LEGACY_ENCODING), message8, serverRemotePeerInfo
       )
 
       # Then the message is received by the server
@@ -189,7 +187,7 @@ suite "Waku Lightpush Client":
       # When publishing a valid payload
       handlerFuture = newPushHandlerFuture()
       let publishResponse9 =
-        await client.publish(some(pubsubTopic), message9, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message9, serverRemotePeerInfo)
 
       # Then the message is received by the server
       discard await handlerFuture.withTimeout(FUTURE_TIMEOUT)
@@ -223,7 +221,7 @@ suite "Waku Lightpush Client":
 
       # When publishing the 1KiB payload
       let publishResponse1 =
-        await client.publish(some(pubsubTopic), message1, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message1, serverRemotePeerInfo)
 
       # Then the message is received by the server
       assertResultOk publishResponse1
@@ -232,7 +230,7 @@ suite "Waku Lightpush Client":
       # When publishing the 10KiB payload
       handlerFuture = newPushHandlerFuture()
       let publishResponse2 =
-        await client.publish(some(pubsubTopic), message2, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message2, serverRemotePeerInfo)
 
       # Then the message is received by the server
       assertResultOk publishResponse2
@@ -241,7 +239,7 @@ suite "Waku Lightpush Client":
       # When publishing the 100KiB payload
       handlerFuture = newPushHandlerFuture()
       let publishResponse3 =
-        await client.publish(some(pubsubTopic), message3, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message3, serverRemotePeerInfo)
 
       # Then the message is received by the server
       assertResultOk publishResponse3
@@ -250,7 +248,7 @@ suite "Waku Lightpush Client":
       # When publishing the 1MiB + 63KiB + 911B payload (1113999B)
       handlerFuture = newPushHandlerFuture()
       let publishResponse4 =
-        await client.publish(some(pubsubTopic), message4, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message4, serverRemotePeerInfo)
 
       # Then the message is received by the server
       assertResultOk publishResponse4
@@ -259,7 +257,7 @@ suite "Waku Lightpush Client":
       # When publishing the 1MiB + 63KiB + 912B payload (1114000B)
       handlerFuture = newPushHandlerFuture()
       let publishResponse5 =
-        await client.publish(some(pubsubTopic), message5, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message5, serverRemotePeerInfo)
 
       # Then the message is not received by the server
       check:
@@ -302,12 +300,12 @@ suite "Waku Lightpush Client":
 
       # When publishing a payload
       let publishResponse =
-        await client.publish(some(pubsubTopic), message, serverRemotePeerInfo2)
+        await client.publish(Opt.some(pubsubTopic), message, serverRemotePeerInfo2)
 
       # Then the response is negative
       check:
         publishResponse.error.code == LightPushErrorCode.PAYLOAD_TOO_LARGE
-        publishResponse.error.desc == some(handlerError)
+        publishResponse.error.desc == Opt.some(handlerError)
         (await handlerFuture2.waitForResult()).isOk()
 
       # Cleanup
@@ -325,7 +323,7 @@ suite "Waku Lightpush Client":
 
       # When publishing a valid payload
       let publishResponse =
-        await client.publish(some(pubsubTopic), message, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message, serverRemotePeerInfo)
 
       # Then the message is received by the server
       discard await handlerFuture.withTimeout(FUTURE_TIMEOUT)
@@ -350,7 +348,7 @@ suite "Waku Lightpush Client":
     asyncTest "Positive Responses":
       # When sending a valid PushRequest
       let publishResponse =
-        await client.publish(some(pubsubTopic), message, serverRemotePeerInfo)
+        await client.publish(Opt.some(pubsubTopic), message, serverRemotePeerInfo)
 
       # Then the response is positive
       assertResultOk publishResponse
@@ -366,7 +364,7 @@ suite "Waku Lightpush Client":
 
       # When sending an invalid PushRequest
       let publishResponse =
-        await client.publish(some(pubsubTopic), message, serverRemotePeerInfo2)
+        await client.publish(Opt.some(pubsubTopic), message, serverRemotePeerInfo2)
 
       # Then the response is negative
       check not publishResponse.isOk()

@@ -1,7 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/[strutils, options], regex, results
+import std/strutils, regex, results
 import
   ../retention_policy,
   ./retention_policy_time,
@@ -10,12 +9,12 @@ import
 
 proc new(
     T: type RetentionPolicy, retPolicy: string
-): RetentionPolicyResult[Option[RetentionPolicy]] =
+): RetentionPolicyResult[Opt[RetentionPolicy]] =
   let retPolicy = retPolicy.toLower
 
   # Validate the retention policy format
   if retPolicy == "" or retPolicy == "none":
-    return ok(none(RetentionPolicy))
+    return ok(Opt.none(RetentionPolicy))
 
   const StoreMessageRetentionPolicyRegex = re2"^\w+:\d*\.?\d+((g|m)b)?$"
   if not retPolicy.match(StoreMessageRetentionPolicyRegex):
@@ -35,7 +34,7 @@ proc new(
       return err("invalid time retention policy argument")
 
     let retPolicy: RetentionPolicy = TimeRetentionPolicy.new(retentionTimeSeconds)
-    return ok(some(retPolicy))
+    return ok(Opt.some(retPolicy))
   elif policy == "capacity":
     var retentionCapacity: int
     try:
@@ -44,7 +43,7 @@ proc new(
       return err("invalid capacity retention policy argument")
 
     let retPolicy: RetentionPolicy = CapacityRetentionPolicy.new(retentionCapacity)
-    return ok(some(retPolicy))
+    return ok(Opt.some(retPolicy))
   elif policy == "size":
     var retentionSize: string
     retentionSize = policyArgs
@@ -81,7 +80,7 @@ proc new(
       return err("invalid size retention policy argument: a non-zero value is required")
 
     let retPolicy: RetentionPolicy = SizeRetentionPolicy.new(sizeQuantity)
-    return ok(some(retPolicy))
+    return ok(Opt.some(retPolicy))
   else:
     return err("unknown retention policy")
 

@@ -1,4 +1,4 @@
-import std/options
+import results
 
 type
   PeerExchangeResponseStatusCode* {.pure.} = enum
@@ -19,10 +19,10 @@ type
   PeerExchangeResponse* = object
     peerInfos*: seq[PeerExchangePeerInfo]
     status_code*: PeerExchangeResponseStatusCode
-    status_desc*: Option[string]
+    status_desc*: Opt[string]
 
   PeerExchangeResponseStatus* =
-    tuple[status_code: PeerExchangeResponseStatusCode, status_desc: Option[string]]
+    tuple[status_code: PeerExchangeResponseStatusCode, status_desc: Opt[string]]
 
   PeerExchangeRpc* = object
     request*: PeerExchangeRequest
@@ -41,7 +41,7 @@ proc makeResponse*(T: type PeerExchangeRpc, peerInfos: seq[PeerExchangePeerInfo]
 proc makeErrorResponse*(
     T: type PeerExchangeRpc,
     status_code: PeerExchangeResponseStatusCode,
-    status_desc: Option[string] = none(string),
+    status_desc: Opt[string] = Opt.none(string),
 ): T =
   return T(
     response: PeerExchangeResponse(status_code: status_code, status_desc: status_desc)

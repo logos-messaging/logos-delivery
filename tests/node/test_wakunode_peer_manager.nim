@@ -1,8 +1,9 @@
 {.used.}
 
 import
+  results,
   os,
-  std/[options, tables],
+  std/tables,
   testutils/unittests,
   chronos,
   # chronos/timer,
@@ -211,7 +212,7 @@ suite "Peer Manager":
         clientPeerStore.setCapacity(0)
 
         # And the server's remote peer info contains the node's ENR
-        serverRemotePeerInfo.enr = some(server.enr)
+        serverRemotePeerInfo.enr = Opt.some(server.enr)
 
         # And the client connects to the server
         await client.connectToNodes(@[serverRemotePeerInfo])
@@ -360,7 +361,7 @@ suite "Peer Manager":
     suite "Tracked Peer Metadata":
       asyncTest "Metadata Recording":
         # When adding a peer other than self to the peer store
-        serverRemotePeerInfo.enr = some(server.enr)
+        serverRemotePeerInfo.enr = Opt.some(server.enr)
         client.peerManager.addPeer(serverRemotePeerInfo)
 
         # Then the peer store should contain the peer
@@ -614,6 +615,11 @@ suite "Peer Manager":
               serverPeerStore.getPeer(clientPeerId).connectedness ==
               Connectedness.CanConnect
 
+          # reconnectPeers only acts on peers restored from persistent storage,
+          # so tag the server as such. Peers coming from live discovery are
+          # deliberately left out of the reconnect (and its backoff) path.
+          client.peerManager.addPeer(serverRemotePeerInfo, origin = Cache)
+
           # When triggering the reconnection
           await client.peerManager.reconnectPeers(WakuRelayCodec)
 
@@ -656,7 +662,7 @@ suite "Handling Connections on Different Networks":
       bindIp: string = "0.0.0.0",
       extIp: string = "127.0.0.1",
       indices: seq[uint64] = @[],
-      recordFlags: Option[CapabilitiesBitfield] = none(CapabilitiesBitfield),
+      recordFlags: Opt[CapabilitiesBitfield] = Opt.none(CapabilitiesBitfield),
       bootstrapRecords: seq[waku_enr.Record] = @[],
   ): (WakuDiscoveryV5, Record) =
     let
@@ -713,7 +719,7 @@ suite "Persistence Check":
 
     # Given an on-disk peer db exists, with a peer in it; and two connected nodes
     let
-      clientPeerStorage = newTestWakuPeerStorage(some(baseDbPath))
+      clientPeerStorage = newTestWakuPeerStorage(Opt.some(baseDbPath))
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
       server = newTestWakuNode(serverKey, listenIp, listenPort)
@@ -733,7 +739,7 @@ suite "Persistence Check":
 
     # When initializing a new client using the prepopulated on-disk storage
     let
-      newClientPeerStorage = newTestWakuPeerStorage(some(baseDbPath))
+      newClientPeerStorage = newTestWakuPeerStorage(Opt.some(baseDbPath))
       newClient = newTestWakuNode(
         clientKey, listenIp, listenPort, peerStorage = newClientPeerStorage
       )
@@ -755,7 +761,7 @@ suite "Persistence Check":
 
     # When creating a new server with memory storage, and a client with on-disk peer storage
     let
-      clientPeerStorage = newTestWakuPeerStorage(some(baseDbPath))
+      clientPeerStorage = newTestWakuPeerStorage(Opt.some(baseDbPath))
       serverKey = generateSecp256k1Key()
       clientKey = generateSecp256k1Key()
       server = newTestWakuNode(serverKey, listenIp, listenPort)

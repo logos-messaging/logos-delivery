@@ -1,9 +1,14 @@
-import logos_delivery/waku/compat/option_valueor
-import std/options, results, chronicles, chronos, metrics
+import results
+import chronicles, chronos, metrics
+import
+  logos_delivery/waku/[
+    waku_peer_exchange/common,
+    waku_peer_exchange/rpc,
+    waku_peer_exchange/rpc_codec,
+    node/peer_manager,
+  ]
 
-import ./common, ./rpc, ./rpc_codec, ../node/peer_manager
-
-from ../waku_core/codecs import WakuPeerExchangeCodec
+from logos_delivery/waku/waku_core/codecs import WakuPeerExchangeCodec
 
 declarePublicGauge waku_px_peers_received_total,
   "number of ENRs received via peer exchange"
@@ -26,7 +31,7 @@ proc request*(
 
   var buffer: seq[byte]
   var callResult =
-    (status_code: PeerExchangeResponseStatusCode.SUCCESS, status_desc: none(string))
+    (status_code: PeerExchangeResponseStatusCode.SUCCESS, status_desc: Opt.none(string))
   try:
     await conn.writeLP(rpc.encode().buffer)
     buffer = await conn.readLp(DefaultMaxRpcSize.int)
@@ -35,7 +40,7 @@ proc request*(
     waku_px_client_errors.inc(labelValues = ["error_sending_or_receiving_px_req"])
     callResult = (
       status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
-      status_desc: some($exc.msg),
+      status_desc: Opt.some($exc.msg),
     )
   finally:
     # close, no more data is expected
@@ -50,7 +55,7 @@ proc request*(
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.BAD_RESPONSE,
-        status_desc: some($error),
+        status_desc: Opt.some($error),
       )
     )
   if decoded.response.status_code != PeerExchangeResponseStatusCode.SUCCESS:
@@ -74,7 +79,7 @@ proc request*(
       return err(
         (
           status_code: PeerExchangeResponseStatusCode.DIAL_FAILURE,
-          status_desc: some(dialFailure),
+          status_desc: Opt.some(dialFailure),
         )
       )
     return await wpx.request(numPeers, connOpt.get())
@@ -83,7 +88,7 @@ proc request*(
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.BAD_RESPONSE,
-        status_desc: some("exception dialing peer: " & getCurrentExceptionMsg()),
+        status_desc: Opt.some("exception dialing peer: " & getCurrentExceptionMsg()),
       )
     )
 
@@ -97,7 +102,7 @@ proc request*(
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
-        status_desc: some(peerNotFoundFailure),
+        status_desc: Opt.some(peerNotFoundFailure),
       )
     )
   return await wpx.request(numPeers, peerOpt.get())

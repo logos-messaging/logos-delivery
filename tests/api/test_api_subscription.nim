@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[strutils, sequtils, net, options, sets, tables]
+import results, std/[strutils, sequtils, net, sets, tables]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
 import brokers/broker_context
@@ -77,7 +77,7 @@ proc createApiNodeConf(
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
-  conf.clusterId = some(3'u16)
+  conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = numShards
   conf.rest = false
   result = conf
@@ -205,7 +205,7 @@ proc publishToMesh(
   let msg = WakuMessage(
     payload: payload, contentTopic: contentTopic, version: 0, timestamp: now()
   )
-  return await net.publisher.publish(some(shard), msg)
+  return await net.publisher.publish(Opt.some(shard), msg)
 
 proc publishToMeshAfterEdgeReady(
     net: TestNetwork, contentTopic: ContentTopic, payload: seq[byte]
@@ -688,7 +688,7 @@ suite "Messaging API, SubscriptionManager":
       version: 0,
       timestamp: now(),
     )
-    discard (await publisher.publish(some(shard), msg1)).expect("Publish 1 failed")
+    discard (await publisher.publish(Opt.some(shard), msg1)).expect("Publish 1 failed")
 
     require await eventManager.waitForEvents(TestTimeout)
     check eventManager.receivedMessages[0].payload == "Before failover".toBytes()
@@ -709,7 +709,7 @@ suite "Messaging API, SubscriptionManager":
       version: 0,
       timestamp: now(),
     )
-    discard (await publisher.publish(some(shard), msg2)).expect("Publish 2 failed")
+    discard (await publisher.publish(Opt.some(shard), msg2)).expect("Publish 2 failed")
 
     require await eventManager.waitForEvents(TestTimeout)
     check eventManager.receivedMessages[0].payload == "After failover".toBytes()
@@ -822,7 +822,7 @@ suite "Messaging API, SubscriptionManager":
       version: 0,
       timestamp: now(),
     )
-    discard (await publisher.publish(some(shard), msg)).expect("Publish failed")
+    discard (await publisher.publish(Opt.some(shard), msg)).expect("Publish failed")
 
     require await eventManager.waitForEvents(TestTimeout)
     check eventManager.receivedMessages[0].payload == "After replacement".toBytes()

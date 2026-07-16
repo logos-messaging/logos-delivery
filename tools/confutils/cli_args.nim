@@ -64,7 +64,7 @@ type WakuNodeConf* = object
   configFile* {.
     desc: "Loads configuration from a TOML file (cmd-line parameters take precedence)",
     name: "config-file"
-  .}: Option[InputFile]
+  .}: Opt[InputFile]
 
   ## Log configuration
   logLevel* {.
@@ -119,23 +119,23 @@ type WakuNodeConf* = object
     name: "rln-relay-eth-private-key"
   .}: string
 
-  # Option-typed; desc states the default since the CLI can't auto-show it for none().
+  # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   rlnRelayUserMessageLimit* {.
     desc:
       "Set a user message limit for the rln membership registration. Must be a positive integer. Default is " &
       $DefaultRlnRelayUserMessageLimit & ".",
-    defaultValue: none(uint64),
+    defaultValue: Opt.none(uint64),
     name: "rln-relay-user-message-limit"
-  .}: Option[uint64]
+  .}: Opt[uint64]
 
-  # Option-typed; desc states the default since the CLI can't auto-show it for none().
+  # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   rlnEpochSizeSec* {.
     desc:
       "Epoch size in seconds used to rate limit RLN memberships. Default is " &
       $DefaultRlnRelayEpochSizeSec & " second.",
-    defaultValue: none(uint64),
+    defaultValue: Opt.none(uint64),
     name: "rln-relay-epoch-sec"
-  .}: Option[uint64]
+  .}: Opt[uint64]
 
   maxMessageSize* {.
     desc:
@@ -168,15 +168,15 @@ type WakuNodeConf* = object
       name: "preset"
     .}: string
 
-    # Option-typed; desc states the default since the CLI can't auto-show it for none().
+    # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
     clusterId* {.
       desc: static(
         "Cluster id that the node is running in. Node in a different cluster id is disconnected. Default is " &
           $DefaultClusterId & "."
       ),
-      defaultValue: none(uint16),
+      defaultValue: Opt.none(uint16),
       name: "cluster-id"
-    .}: Option[uint16]
+    .}: Opt[uint16]
 
     agentString* {.
       defaultValue: DefaultAgentString,
@@ -185,7 +185,7 @@ type WakuNodeConf* = object
     .}: string
 
     nodekey* {.desc: "P2P node private key as 64 char hex string.", name: "nodekey".}:
-      Option[PrivateKey]
+      Opt[PrivateKey]
 
     listenAddress* {.
       defaultValue: defaultListenAddress(),
@@ -243,7 +243,7 @@ type WakuNodeConf* = object
 
     peerStoreCapacity* {.
       desc: "Maximum stored peers in the peerstore.", name: "peer-store-capacity"
-    .}: Option[int]
+    .}: Opt[int]
 
     peerPersistence* {.
       desc: "Enable peer persistence.", defaultValue: false, name: "peer-persistence"
@@ -295,25 +295,25 @@ hence would have reachability issues.""",
       name: "relay-shard-manager"
     .}: bool
 
-    # Option-typed; desc states the default since the CLI can't auto-show it for none().
+    # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
     rlnRelay* {.
       desc:
         "Enable spam protection through rln-relay: true|false. Default is " &
         $DefaultRlnRelayEnabled & ".",
-      defaultValue: none(bool),
+      defaultValue: Opt.none(bool),
       name: "rln-relay"
-    .}: Option[bool]
+    .}: Opt[bool]
 
     rlnRelayCredIndex* {.
       desc: "the index of the onchain commitment to use",
       name: "rln-relay-membership-index"
-    .}: Option[uint]
+    .}: Opt[uint]
 
     rlnRelayDynamic* {.
       desc: "Enable  waku-rln-relay with on-chain dynamic group management: true|false.",
-      defaultValue: none(bool),
+      defaultValue: Opt.none(bool),
       name: "rln-relay-dynamic"
-    .}: Option[bool]
+    .}: Opt[bool]
 
     entryNodes* {.
       desc:
@@ -557,9 +557,10 @@ hence would have reachability issues.""",
     ## Discovery v5 config
     discv5Discovery* {.
       desc: "Enable discovering nodes via Node Discovery v5. Default is true.",
-      defaultValue: some(true),
+      defaultValue: Opt.some(true),
+      defaultValueDesc: "true",
       name: "discv5-discovery"
-    .}: Option[bool]
+    .}: Opt[bool]
 
     discv5UdpPort* {.
       desc: "Listening UDP port for Node Discovery v5.",
@@ -625,18 +626,18 @@ hence would have reachability issues.""",
     .}: bool
 
     #Mix config
-    # Option-typed; desc states the default since the CLI can't auto-show it for none().
+    # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
     mix* {.
       desc: "Enable mix protocol: true|false. Default is " & $DefaultMix & ".",
-      defaultValue: none(bool),
+      defaultValue: Opt.none(bool),
       name: "mix"
-    .}: Option[bool]
+    .}: Opt[bool]
 
     mixkey* {.
       desc:
         "ED25519 private key as 64 char hex string , without 0x. If not provided, a random key will be generated.",
       name: "mixkey"
-    .}: Option[string]
+    .}: Opt[string]
 
     mixnodes* {.
       desc:
@@ -645,14 +646,14 @@ hence would have reachability issues.""",
     .}: seq[MixNodePubInfo]
 
     # Kademlia Discovery config
-    # Option-typed; desc states the default since the CLI can't auto-show it for none().
+    # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
     enableKadDiscovery* {.
       desc:
         "Enable extended kademlia discovery. Can be enabled without bootstrap nodes for the first node in the network. Default is " &
         $DefaultKadEnabled & ".",
-      defaultValue: none(bool),
+      defaultValue: Opt.none(bool),
       name: "enable-kad-discovery"
-    .}: Option[bool]
+    .}: Opt[bool]
 
     kadBootstrapNodes* {.
       desc:
@@ -915,6 +916,12 @@ proc readValue*(
   except CatchableError:
     raise newException(SerializationError, getCurrentExceptionMsg())
 
+proc readValue*[T](
+    r: var TomlReader, value: var Opt[T]
+) {.gcsafe, raises: [SerializationError, IOError].} =
+  mixin readValue
+  value = Opt.some(r.readValue(T))
+
 proc load*(T: type WakuNodeConf, version = ""): ConfResult[T] =
   try:
     let conf = WakuNodeConf.load(
@@ -953,8 +960,8 @@ proc toKeystoreGeneratorConf*(n: WakuNodeConf): RlnKeystoreGeneratorConf =
   )
 
 proc toNetworkPresetConf*(
-    preset: string, clusterId: Option[uint16]
-): ConfResult[Option[NetworkPresetConf]] =
+    preset: string, clusterId: Opt[uint16]
+): ConfResult[Opt[NetworkPresetConf]] =
   var lcPreset = toLowerAscii(preset)
   if clusterId.isSome() and clusterId.get() == 1:
     warn(
@@ -969,15 +976,15 @@ proc toNetworkPresetConf*(
 
   case lcPreset
   of "":
-    ok(none(NetworkPresetConf))
+    ok(Opt.none(NetworkPresetConf))
   of "twn":
-    ok(some(NetworkPresetConf.TheWakuNetworkConf()))
+    ok(Opt.some(NetworkPresetConf.TheWakuNetworkConf()))
   of "logos.dev", "logosdev":
-    ok(some(NetworkPresetConf.LogosDevConf()))
+    ok(Opt.some(NetworkPresetConf.LogosDevConf()))
   of "logos.test", "logostest":
-    ok(some(NetworkPresetConf.LogosTestConf()))
+    ok(Opt.some(NetworkPresetConf.LogosTestConf()))
   of "status.prod", "statusprod":
-    ok(some(NetworkPresetConf.StatusProdConf()))
+    ok(Opt.some(NetworkPresetConf.StatusProdConf()))
   else:
     err("Invalid --preset value passed: " & lcPreset)
 
@@ -1093,7 +1100,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.storeServiceConf.withMaxNumDbConnections(n.storeMaxNumDbConnections)
   b.storeServiceConf.withResume(n.storeResume)
 
-  # TODO: can we just use `Option` on the CLI?
+  # TODO: can we just use `Opt` on the CLI?
   if n.storenode != "":
     b.withRemoteStoreNode(n.storenode)
   if n.filternode != "":

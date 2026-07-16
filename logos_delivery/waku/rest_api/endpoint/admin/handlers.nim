@@ -1,8 +1,9 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
   std/[sets, strformat, sequtils, tables],
+  std/options,
+  results,
   chronicles,
   chronicles/topics_registry,
   json_serialization,
@@ -70,7 +71,7 @@ proc tuplesToWakuPeers(peers: var WakuPeers, peersTup: seq[PeerProtocolTuple]) =
     )
 
 proc populateAdminPeerInfo(
-    peers: var WakuPeers, node: WakuNode, codec: Option[string] = none[string]()
+    peers: var WakuPeers, node: WakuNode, codec: Opt[string] = Opt.none(string)
 ) =
   if codec.isNone():
     peers = node.peerManager.switch.peerStore.peers().mapIt(WakuPeer.init(it))
@@ -96,7 +97,7 @@ proc populateAdminPeerInfoForCodecs(node: WakuNode, codecs: seq[string]): WakuPe
   var peers: WakuPeers = @[]
 
   for codec in codecs:
-    populateAdminPeerInfo(peers, node, some(codec))
+    populateAdminPeerInfo(peers, node, Opt.some(codec))
 
   return peers
 

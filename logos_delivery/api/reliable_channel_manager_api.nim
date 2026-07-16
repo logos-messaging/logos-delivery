@@ -10,6 +10,7 @@ type ReliableChannelApi* = concept c
   createReliableChannel(
     c, channelId = ChannelId, contentTopic = ContentTopic, senderId = SdsParticipantID
   ) is Result[ChannelId, string]
+  channelExists(c, channelId = ChannelId) is bool
   closeChannel(c, channelId = ChannelId) is Future[Result[void, string]]
   send(c, channelId = ChannelId, appPayload = seq[byte]) is
     Future[Result[RequestId, string]]

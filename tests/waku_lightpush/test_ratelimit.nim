@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, testutils/unittests, chronos, libp2p/crypto/crypto
+import results, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/
@@ -27,8 +27,9 @@ suite "Rate limited push service":
 
     let
       tokenPeriod = 500.millis
-      server =
-        await newTestWakuLightpushNode(serverSwitch, handler, some((3, tokenPeriod)))
+      server = await newTestWakuLightpushNode(
+        serverSwitch, handler, Opt.some((3, tokenPeriod))
+      )
       client = newTestWakuLightpushClient(clientSwitch)
 
     let serverPeerId = serverSwitch.peerInfo.toRemotePeerInfo()
@@ -38,7 +39,7 @@ suite "Rate limited push service":
 
       handlerFuture = newFuture[(string, WakuMessage)]()
       let requestRes =
-        await client.publish(some(DefaultPubsubTopic), message, serverPeerId)
+        await client.publish(Opt.some(DefaultPubsubTopic), message, serverPeerId)
 
       check await handlerFuture.withTimeout(50.millis)
 
@@ -91,7 +92,7 @@ suite "Rate limited push service":
 
     let
       server =
-        await newTestWakuLightpushNode(serverSwitch, handler, some((3, 500.millis)))
+        await newTestWakuLightpushNode(serverSwitch, handler, Opt.some((3, 500.millis)))
       client = newTestWakuLightpushClient(clientSwitch)
 
     let serverPeerId = serverSwitch.peerInfo.toRemotePeerInfo()
@@ -102,7 +103,7 @@ suite "Rate limited push service":
     for i in 0 ..< 10:
       let message = fakeWakuMessage()
       publishFutures.add(
-        client.publish(some(DefaultPubsubTopic), message, serverPeerId)
+        client.publish(Opt.some(DefaultPubsubTopic), message, serverPeerId)
       )
 
     let finished = await allFinished(publishFutures)
@@ -115,7 +116,7 @@ suite "Rate limited push service":
         gotOk = true
       else:
         check res.error.code == LightPushErrorCode.TOO_MANY_REQUESTS
-        check res.error.desc == some(TooManyRequestsMessage)
+        check res.error.desc == Opt.some(TooManyRequestsMessage)
         gotTooMany = true
 
     check gotOk
@@ -123,8 +124,9 @@ suite "Rate limited push service":
 
     # ensure period of time has passed and the client can again use the service
     await sleepAsync(tokenPeriod + 100.millis)
-    let recoveryRes =
-      await client.publish(some(DefaultPubsubTopic), fakeWakuMessage(), serverPeerId)
+    let recoveryRes = await client.publish(
+      Opt.some(DefaultPubsubTopic), fakeWakuMessage(), serverPeerId
+    )
     check recoveryRes.isOk()
 
     ## Cleanup

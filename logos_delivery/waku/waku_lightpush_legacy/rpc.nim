@@ -1,7 +1,6 @@
 {.push raises: [].}
 
-import std/options
-import ../waku_core
+import results, ../waku_core
 
 type
   PushRequest* = object
@@ -10,9 +9,9 @@ type
 
   PushResponse* = object
     isSuccess*: bool
-    info*: Option[string]
+    info*: Opt[string]
 
   PushRPC* = object
     requestId*: string
-    request*: Option[PushRequest]
-    response*: Option[PushResponse]
+    request*: Opt[PushRequest]
+    response*: Opt[PushResponse]

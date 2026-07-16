@@ -1,7 +1,6 @@
 ## Messaging layer core: the `MessagingClient` type plus its construction and
 ## lifecycle. The public operations (subscribe / unsubscribe / send) live in
 ## `messaging/api.nim`.
-import std/options
 import results, chronos, chronicles
 import
   logos_delivery/api/conf/messaging_conf,

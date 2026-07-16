@@ -2,7 +2,6 @@
 ## subscribe to messages without relay
 
 import
-  std/options,
   system/ansi_c,
   chronicles,
   chronos,
@@ -74,7 +73,7 @@ proc maintainSubscription(
 
     let subscribeErr = (
       await wakuNode.filterSubscribe(
-        some(filterPubsubTopic), filterContentTopic, actualFilterPeer
+        Opt.some(filterPubsubTopic), filterContentTopic, actualFilterPeer
       )
     ).errorOr:
       await sleepAsync(SubscriptionMaintenanceMs)
@@ -99,7 +98,7 @@ proc maintainSubscription(
     elif not preventPeerSwitch:
       # try again with new peer without delay
       actualFilterPeer = selectRandomServicePeer(
-        wakuNode.peerManager, some(actualFilterPeer), WakuFilterSubscribeCodec
+        wakuNode.peerManager, Opt.some(actualFilterPeer), WakuFilterSubscribeCodec
       ).valueOr:
         error "Failed to find new service peer. Exiting."
         noFailedServiceNodeSwitches += 1

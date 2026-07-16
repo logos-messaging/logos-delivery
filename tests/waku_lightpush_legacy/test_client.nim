@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, strscans], testutils/unittests, chronos, libp2p/crypto/crypto
+import std/strscans, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[

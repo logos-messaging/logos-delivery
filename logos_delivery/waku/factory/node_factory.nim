@@ -1,6 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 import
-  std/[options, sequtils],
+  results,
+  std/sequtils,
   chronicles,
   chronos,
   libp2p/peerid,
@@ -44,7 +44,7 @@ import
 ## Peer persistence
 
 const PeerPersistenceDbUrl = "peers.db"
-proc setupPeerStorage(): Result[Option[WakuPeerStorage], string] =
+proc setupPeerStorage(): Result[Opt[WakuPeerStorage], string] =
   let db = ?SqliteDatabase.new(PeerPersistenceDbUrl)
 
   ?peer_store_sqlite_migrations.migrate(db)
@@ -52,7 +52,7 @@ proc setupPeerStorage(): Result[Option[WakuPeerStorage], string] =
   let res = WakuPeerStorage.new(db).valueOr:
     return err("failed to init peer store" & error)
 
-  return ok(some(res))
+  return ok(Opt.some(res))
 
 ## Init waku node instance
 
@@ -61,7 +61,7 @@ proc initNode(
     netConfig: NetConfig,
     rng: crypto.Rng,
     record: enr.Record,
-    peerStore: Option[WakuPeerStorage],
+    peerStore: Opt[WakuPeerStorage],
     relay: Relay,
     dynamicBootstrapNodes: openArray[RemotePeerInfo] = @[],
 ): Result[WakuNode, string] =
@@ -78,9 +78,9 @@ proc initNode(
   let (secureKey, secureCert) =
     if conf.webSocketConf.isSome() and conf.webSocketConf.get().secureConf.isSome():
       let wssConf = conf.webSocketConf.get().secureConf.get()
-      (some(wssConf.keyPath), some(wssConf.certPath))
+      (Opt.some(wssConf.keyPath), Opt.some(wssConf.certPath))
     else:
-      (none(string), none(string))
+      (Opt.none(string), Opt.none(string))
 
   let nameResolver =
     DnsResolver.new(conf.dnsAddrsNameServers.mapIt(initTAddress(it, Port(53))))
@@ -93,13 +93,13 @@ proc initNode(
   builder.withNetworkConfiguration(netConfig)
   builder.withPeerStorage(pStorage, capacity = conf.peerStoreCapacity)
   builder.withSwitchConfiguration(
-    maxConnections = some(conf.maxConnections.int),
+    maxConnections = Opt.some(conf.maxConnections.int),
     secureKey = secureKey,
     secureCert = secureCert,
     nameResolver = nameResolver,
     sendSignedPeerRecord = conf.relayPeerExchange,
       # We send our own signed peer record when peer exchange enabled
-    agentString = some(conf.agentString),
+    agentString = Opt.some(conf.agentString),
   )
   builder.withColocationLimit(conf.colocationLimit)
 
@@ -252,7 +252,7 @@ proc setupProtocols(
     warn("Auto sharding is disabled")
 
   # Mount relay on all nodes
-  var peerExchangeHandler = none(RoutingRecordsHandler)
+  var peerExchangeHandler = Opt.none(RoutingRecordsHandler)
   if conf.relayPeerExchange:
     proc handlePeerExchange(
         peer: PeerId, topic: string, peers: seq[RoutingRecordsPair]
@@ -270,7 +270,7 @@ proc setupProtocols(
         # Peers added are filtered by the peer manager
         node.peerManager.addPeer(peer, PeerOrigin.PeerExchange)
 
-    peerExchangeHandler = some(handlePeerExchange)
+    peerExchangeHandler = Opt.some(handlePeerExchange)
 
   # TODO: when using autosharding, the user should not be expected to pass any shards, but only content topics
   # Hence, this joint logic should be removed in favour of an either logic:
@@ -388,7 +388,7 @@ proc setupProtocols(
   if conf.peerExchangeService:
     try:
       await mountPeerExchange(
-        node, some(conf.clusterId), node.rateLimitSettings.getSetting(PEEREXCHG)
+        node, Opt.some(conf.clusterId), node.rateLimitSettings.getSetting(PEEREXCHG)
       )
     except CatchableError:
       return
@@ -479,7 +479,7 @@ proc setupNode*(
   info "Setting up storage"
 
   ## Peer persistence
-  var peerStore: Option[WakuPeerStorage]
+  var peerStore: Opt[WakuPeerStorage]
   if wakuConf.peerPersistence:
     peerStore = setupPeerStorage().valueOr:
       error "Setting up storage failed", error = "failed to setup peer store " & error

@@ -1,7 +1,6 @@
 {.push raises: [].}
 
-import std/options
-import metrics, setting
+import results, metrics, setting
 
 export metrics
 
@@ -14,7 +13,7 @@ declarePublicCounter waku_service_requests,
 declarePublicCounter waku_service_network_bytes,
   "total incoming traffic of specific waku services", labels = ["service", "direction"]
 
-proc setServiceLimitMetric*(service: string, limit: Option[RateLimitSetting]) =
+proc setServiceLimitMetric*(service: string, limit: Opt[RateLimitSetting]) =
   if limit.isSome() and not limit.get().isUnlimited():
     waku_service_requests_limit.set(
       limit.get().calculateLimitPerSecond(), labelValues = [service]

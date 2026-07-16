@@ -1,5 +1,5 @@
 import
-  std/[nativesockets, options, sequtils],
+  std/[nativesockets, sequtils],
   testutils/unittests,
   libp2p/[multiaddress, peerid],
   libp2p/crypto/crypto,

@@ -1,7 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/options, results, stew/sorted_set, chronicles, chronos
+import results, stew/sorted_set, chronicles, chronos
 import ../../../waku_core, ../../common, ../../driver, ./index
 
 logScope:
@@ -81,7 +80,7 @@ proc getPage(
     driver: QueueDriver,
     pageSize: uint = 0,
     forward: bool = true,
-    cursor: Option[Index] = none(Index),
+    cursor: Opt[Index] = Opt.none(Index),
     predicate: QueryFilterMatcher = nil,
 ): QueueDriverGetPageResult {.raises: [].} =
   ## Populate a single page in forward direction
@@ -249,19 +248,19 @@ method getMessages*(
     driver: QueueDriver,
     includeData = true,
     contentTopics: seq[ContentTopic] = @[],
-    pubsubTopic = none(PubsubTopic),
-    cursor = none(ArchiveCursor),
-    startTime = none(Timestamp),
-    endTime = none(Timestamp),
+    pubsubTopic = Opt.none(PubsubTopic),
+    cursor = Opt.none(ArchiveCursor),
+    startTime = Opt.none(Timestamp),
+    endTime = Opt.none(Timestamp),
     hashes: seq[WakuMessageHash] = @[],
     maxPageSize = DefaultPageSize,
     ascendingOrder = true,
     requestId = "",
 ): Future[ArchiveDriverResult[seq[ArchiveRow]]] {.async.} =
-  var index = none(Index)
+  var index = Opt.none(Index)
 
   if cursor.isSome():
-    index = some(Index(hash: cursor.get()))
+    index = Opt.some(Index(hash: cursor.get()))
 
   let matchesQuery: QueryFilterMatcher =
     func (index: Index, msg: WakuMessage): bool =

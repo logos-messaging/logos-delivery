@@ -8,7 +8,7 @@
 
 {.push raises: [].}
 
-import std/[options, tables]
+import std/tables
 from std/times import initDuration, getTime, toUnix, nanosecond
 import results, chronos, chronicles
 import nimcrypto/keccak
@@ -37,7 +37,7 @@ type
     acknowledgementTimeoutMs*: int
     maxRetransmissions*: int
     causalHistorySize*: int
-    persistence*: Option[Persistence]
+    persistence*: Opt[Persistence]
       ## Durability backend. `none` runs memory-only: reliability still
       ## works, state does not survive a restart.
 

@@ -1,8 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options],
   chronos,
   chronicles,
   metrics,
@@ -84,8 +82,8 @@ proc toStoreResult(res: waku_archive.ArchiveResult): StoreQueryResult =
     res.messages.add(kv)
 
   for i in 0 ..< response.messages.len:
-    res.messages[i].message = some(response.messages[i])
-    res.messages[i].pubsubTopic = some(response.topics[i])
+    res.messages[i].message = Opt.some(response.messages[i])
+    res.messages[i].pubsubTopic = Opt.some(response.topics[i])
 
   res.paginationCursor = response.cursor
 
@@ -109,7 +107,7 @@ proc mountStore*(
     return response.toStoreResult()
 
   node.wakuStore =
-    store.WakuStore.new(node.peerManager, node.rng, requestHandler, some(rateLimit))
+    store.WakuStore.new(node.peerManager, node.rng, requestHandler, Opt.some(rateLimit))
 
   if node.started:
     await node.wakuStore.start()

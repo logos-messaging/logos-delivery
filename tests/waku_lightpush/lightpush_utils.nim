@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, chronos, chronicles, libp2p/crypto/crypto
+import results, chronos, chronicles, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/node/peer_manager,
@@ -14,13 +14,17 @@ import
 proc newTestWakuLightpushNode*(
     switch: Switch,
     handler: PushMessageHandler,
-    rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
+    rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
 ): Future[WakuLightPush] {.async.} =
   let
     peerManager = PeerManager.new(switch)
     wakuAutoSharding = Sharding(clusterId: 1, shardCountGenZero: 8)
     proto = WakuLightPush.new(
-      peerManager, crypto.newRng(), handler, some(wakuAutoSharding), rateLimitSetting
+      peerManager,
+      crypto.newRng(),
+      handler,
+      Opt.some(wakuAutoSharding),
+      rateLimitSetting,
     )
 
   await proto.start()

@@ -1,7 +1,6 @@
 {.push raises: [].}
 
-import std/options
-import ../common/protobuf, ../waku_core, ./rpc
+import results, ../common/protobuf, ../waku_core, ./rpc
 
 const
   DefaultMaxSubscribeSize* = 10 * DefaultMaxWakuMessageSize + 64 * 1024
@@ -39,9 +38,9 @@ proc decode*(T: type FilterSubscribeRequest, buffer: seq[byte]): ProtobufResult[
 
   var pubsubTopic: PubsubTopic
   if not ?pb.getField(10, pubsubTopic):
-    rpc.pubsubTopic = none(PubsubTopic)
+    rpc.pubsubTopic = Opt.none(PubsubTopic)
   else:
-    rpc.pubsubTopic = some(pubsubTopic)
+    rpc.pubsubTopic = Opt.some(pubsubTopic)
 
   discard ?pb.getRepeatedField(11, rpc.contentTopics)
 
@@ -68,9 +67,9 @@ proc decode*(T: type FilterSubscribeResponse, buffer: seq[byte]): ProtobufResult
 
   var statusDesc: string
   if not ?pb.getField(11, statusDesc):
-    rpc.statusDesc = none(string)
+    rpc.statusDesc = Opt.none(string)
   else:
-    rpc.statusDesc = some(statusDesc)
+    rpc.statusDesc = Opt.some(statusDesc)
 
   ok(rpc)
 

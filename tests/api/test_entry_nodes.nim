@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, results, testutils/unittests
+import results, testutils/unittests
 
 import tools/confutils/entry_nodes
 

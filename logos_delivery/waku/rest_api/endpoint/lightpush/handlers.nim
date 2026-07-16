@@ -1,12 +1,13 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
   std/strformat,
+  std/options,
+  results,
   stew/byteutils,
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/route,
   presto/common
 
@@ -42,7 +43,7 @@ proc makeRestResponse(response: WakuLightPushResult): RestApiResponse =
   var apiResponse: PushResponse
 
   if response.isOk():
-    apiResponse.relayPeerCount = some(response.get())
+    apiResponse.relayPeerCount = Opt.some(response.get())
   else:
     httpStatus = convertErrorKindToHttpStatus(response.error().code)
     apiResponse.statusDesc = response.error().desc
@@ -61,7 +62,7 @@ const ROUTE_LIGHTPUSH = "/lightpush/v3/message"
 proc installLightPushRequestHandler*(
     router: var RestRouter,
     node: WakuNode,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   router.api(MethodPost, ROUTE_LIGHTPUSH) do(
     contentBody: Option[ContentBody]
@@ -77,7 +78,7 @@ proc installLightPushRequestHandler*(
     let msg = req.message.toWakuMessage().valueOr:
       return makeRestResponse(lightpushResultBadRequest("Invalid message! " & $error))
 
-    var toPeer = none(RemotePeerInfo)
+    var toPeer = Opt.none(RemotePeerInfo)
     if useSelfHostedLightPush(node):
       discard
     else:
@@ -93,7 +94,7 @@ proc installLightPushRequestHandler*(
         peerOp.valueOr:
           return
             makeRestResponse(lightpushResultServiceUnavailable(NoPeerNoneFoundError))
-      toPeer = some(aPeer)
+      toPeer = Opt.some(aPeer)
 
     let subFut = node.lightpushPublish(req.pubsubTopic, msg, toPeer)
 

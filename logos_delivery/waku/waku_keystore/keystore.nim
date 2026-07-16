@@ -1,7 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import options, json, strutils, sequtils, std/[tables, os]
+import json, strutils, sequtils, std/[tables, os]
 
 import ./keyfile, ./conversion_utils, ./protocol_types, ./utils
 

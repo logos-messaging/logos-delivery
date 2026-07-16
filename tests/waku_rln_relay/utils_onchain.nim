@@ -4,7 +4,7 @@ import libp2p/crypto/rng
 {.push raises: [].}
 
 import
-  std/[net, options, os, osproc, streams, strutils, strformat],
+  std/[net, os, osproc, streams, strutils, strformat],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -99,7 +99,7 @@ proc sendMintCall(
     tokenAddress: Address,
     recipientAddress: Address,
     amountTokens: UInt256,
-    recipientBalanceBeforeExpectedTokens: Option[UInt256] = none(UInt256),
+    recipientBalanceBeforeExpectedTokens: Opt[UInt256] = Opt.none(UInt256),
 ): Future[void] {.async.} =
   let doBalanceAssert = recipientBalanceBeforeExpectedTokens.isSome()
 
@@ -235,7 +235,7 @@ proc approveTokenAllowanceAndVerify*(
     tokenAddress: Address,
     spender: Address,
     amountWei: UInt256,
-    expectedAllowanceBefore: Option[UInt256] = none(UInt256),
+    expectedAllowanceBefore: Opt[UInt256] = Opt.none(UInt256),
 ): Future[Result[TxHash, string]] {.async.} =
   var allowanceBefore: UInt256
   if expectedAllowanceBefore.isSome():
@@ -372,7 +372,7 @@ proc sendEthTransfer*(
     accountFrom: Address,
     accountTo: Address,
     amountWei: UInt256,
-    accountToBalanceBeforeExpectedWei: Option[UInt256] = none(UInt256),
+    accountToBalanceBeforeExpectedWei: Opt[UInt256] = Opt.none(UInt256),
 ): Future[TxHash] {.async.} =
   let doBalanceAssert = accountToBalanceBeforeExpectedWei.isSome()
 
@@ -482,7 +482,7 @@ proc compressGzipFile*(sourcePath: string, targetPath: string): Result[void, str
 proc runAnvil*(
     port: int = 8540,
     chainId: string = "1234",
-    stateFile: Option[string] = none(string),
+    stateFile: Opt[string] = Opt.none(string),
     dumpStateOnExit: bool = false,
 ): Process =
   # Gas/fee values mirror Linea Sepolia testnet.
@@ -697,7 +697,7 @@ proc setupOnchainGroupManager*(
     (privateKey, acc) = createEthAccount(web3)
 
     discard await sendEthTransfer(
-      web3, web3.defaultAccount, acc, ethToWei(1000.u256), some(0.u256)
+      web3, web3.defaultAccount, acc, ethToWei(1000.u256), Opt.some(0.u256)
     )
 
     testTokenAddress = (await deployTestToken(privateKey, acc, web3)).valueOr:
@@ -710,7 +710,7 @@ proc setupOnchainGroupManager*(
       testTokenAddress,
       acc,
       ethToWei(1000.u256),
-      some(0.u256),
+      Opt.some(0.u256),
     )
 
     contractAddress = (await executeForgeContractDeployScripts(privateKey, acc, web3)).valueOr:
@@ -735,7 +735,7 @@ proc setupOnchainGroupManager*(
       testTokenAddress,
       contractAddress,
       ethToWei(2000.u256),
-      some(0.u256),
+      Opt.some(0.u256),
     )
 
     assert tokenApprovalResult.isOk(), tokenApprovalResult.error
@@ -744,7 +744,7 @@ proc setupOnchainGroupManager*(
     ethClientUrls: @[ethClientUrl],
     ethContractAddress: $contractAddress,
     chainId: CHAIN_ID,
-    ethPrivateKey: some($privateKey),
+    ethPrivateKey: Opt.some($privateKey),
     rlnInstance: rlnInstance,
     onFatalErrorAction: proc(errStr: string) =
       raiseAssert errStr
@@ -768,7 +768,7 @@ proc buildOnchainGroupManager*(
     ethClientUrls: @[ethClientUrl],
     ethContractAddress: WAKU_RLNV2_PROXY_ADDRESS,
     chainId: CHAIN_ID,
-    ethPrivateKey: some(privateKey),
+    ethPrivateKey: Opt.some(privateKey),
     rlnInstance: rlnInstanceRes.get(),
     onFatalErrorAction: proc(errStr: string) =
       raiseAssert errStr

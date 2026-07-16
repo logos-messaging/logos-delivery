@@ -4,7 +4,6 @@
 ## per-job storage threads driven by brokers; phase 2 verifies the SQL
 ## itself against an in-memory database.
 
-import std/options
 import results, sqlite3_abi
 import ../common/databases/[common, db_sqlite]
 import ./[types, keys, schema]
@@ -192,10 +191,10 @@ proc applyOps*(b: KvBackend, ops: openArray[TxOp]): Result[void, PersistencyErro
 
 proc getOne*(
     b: KvBackend, category: string, key: Key
-): Result[Option[seq[byte]], PersistencyError] =
-  var found: Option[seq[byte]] = none(seq[byte])
+): Result[Opt[seq[byte]], PersistencyError] =
+  var found: Opt[seq[byte]] = Opt.none(seq[byte])
   proc onRow(rs: ptr sqlite3_stmt) {.gcsafe, raises: [].} =
-    found = some(readBlob(rs, 0.cint))
+    found = Opt.some(readBlob(rs, 0.cint))
 
   ?b.db.runRead(
     "SELECT payload FROM kv WHERE category = ? AND key = ? LIMIT 1;",

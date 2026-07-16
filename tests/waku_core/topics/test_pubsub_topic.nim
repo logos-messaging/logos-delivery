@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options], testutils/unittests, results
+import testutils/unittests, results
 
 import logos_delivery/waku/waku_core/topics/pubsub_topic, ../../testlib/[wakucore]
 

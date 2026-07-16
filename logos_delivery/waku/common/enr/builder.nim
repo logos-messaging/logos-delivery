@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[options, net],
+  std/net,
   results,
   eth/keys as eth_keys,
   eth/p2p/discoveryv5/enr,
@@ -62,22 +62,22 @@ proc build*(builder: EnrBuilder): EnrResult[enr.Record] =
 ## Builder extension: IP address and TCP/UDP ports
 
 proc addAddressAndPorts(
-    builder: var EnrBuilder, ip: IpAddress, tcpPort, udpPort: Option[Port]
+    builder: var EnrBuilder, ip: IpAddress, tcpPort, udpPort: Opt[Port]
 ) =
   builder.ipAddress = Opt.some(ip)
-  builder.tcpPort = tcpPort.toOpt()
-  builder.udpPort = udpPort.toOpt()
+  builder.tcpPort = tcpPort
+  builder.udpPort = udpPort
 
-proc addPorts(builder: var EnrBuilder, tcp, udp: Option[Port]) =
+proc addPorts(builder: var EnrBuilder, tcp, udp: Opt[Port]) =
   # Based on: https://github.com/status-im/nim-eth/blob/4b22fcd/eth/p2p/discoveryv5/enr.nim#L166
-  builder.tcpPort = tcp.toOpt()
-  builder.udpPort = udp.toOpt()
+  builder.tcpPort = tcp
+  builder.udpPort = udp
 
 proc withIpAddressAndPorts*(
     builder: var EnrBuilder,
-    ipAddr = none(IpAddress),
-    tcpPort = none(Port),
-    udpPort = none(Port),
+    ipAddr = Opt.none(IpAddress),
+    tcpPort = Opt.none(Port),
+    udpPort = Opt.none(Port),
 ) =
   if ipAddr.isSome():
     addAddressAndPorts(builder, ipAddr.get(), tcpPort, udpPort)

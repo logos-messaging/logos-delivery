@@ -86,6 +86,13 @@ extern "C"
                            const char *contentTopic,
                            const char *senderId);
 
+  // Check whether a reliable channel is currently open. Returns "true" or
+  // "false"; an unknown channel id is not an error.
+  int logosdelivery_channel_exists(void *ctx,
+                           FFICallBack callback,
+                           void *userData,
+                           const char *channelId);
+
   // Send a message on a reliable channel.
   // messageJson: { "payload": "base64-encoded-payload", "ephemeral": false }
   // Returns a request ID that can be used to track delivery.

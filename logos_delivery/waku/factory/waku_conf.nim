@@ -1,5 +1,5 @@
 import
-  std/[net, options, strutils],
+  std/[net, strutils],
   chronicles,
   chronos,
   libp2p/crypto/crypto,
@@ -36,7 +36,7 @@ type WebSocketSecureConf* {.requiresInit.} = object
 
 type WebSocketConf* = object
   port*: Port
-  secureConf*: Option[WebSocketSecureConf]
+  secureConf*: Opt[WebSocketSecureConf]
 
 type QuicConf* = object
   port*: Port
@@ -61,14 +61,14 @@ type MixConf* = ref object
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
 
-type StoreServiceConf* {.requiresInit.} = object
+type StoreServiceConf* = object
   dbMigration*: bool
   dbURl*: string
   dbVacuum*: bool
   maxNumDbConnections*: int
   retentionPolicies*: seq[string]
   resume*: bool
-  storeSyncConf*: Option[StoreSyncConf]
+  storeSyncConf*: Opt[StoreSyncConf]
 
 type FilterServiceConf* {.requiresInit.} = object
   maxPeersToServe*: uint32
@@ -78,7 +78,7 @@ type FilterServiceConf* {.requiresInit.} = object
 type EndpointConf* = object # TODO: make enum
   natStrategy*: string
   p2pTcpPort*: Port
-  dns4DomainName*: Option[string]
+  dns4DomainName*: Opt[string]
   p2pListenAddress*: IpAddress
   extMultiAddrs*: seq[MultiAddress]
   extMultiAddrsOnly*: bool
@@ -87,7 +87,7 @@ type EndpointConf* = object # TODO: make enum
 ## All information needed by a waku node should be contained
 ## In this object. A convenient `validate` method enables doing
 ## sanity checks beyond type enforcement.
-## If `Option` is `some` it means the related protocol is enabled.
+## If `Opt` is `some` it means the related protocol is enabled.
 type WakuConf* {.requiresInit.} = ref object
   # ref because `getRunningNetConfig` modifies it
   nodeKey*: crypto.PrivateKey
@@ -109,17 +109,17 @@ type WakuConf* {.requiresInit.} = ref object
   rendezvous*: bool
   circuitRelayClient*: bool
 
-  discv5Conf*: Option[Discv5Conf]
-  dnsDiscoveryConf*: Option[DnsDiscoveryConf]
-  filterServiceConf*: Option[FilterServiceConf]
-  storeServiceConf*: Option[StoreServiceConf]
-  rlnRelayConf*: Option[RlnConf]
-  restServerConf*: Option[RestServerConf]
-  metricsServerConf*: Option[MetricsServerConf]
-  webSocketConf*: Option[WebSocketConf]
-  quicConf*: Option[QuicConf]
-  mixConf*: Option[MixConf]
-  kademliaDiscoveryConf*: Option[KademliaDiscoveryConf]
+  discv5Conf*: Opt[Discv5Conf]
+  dnsDiscoveryConf*: Opt[DnsDiscoveryConf]
+  filterServiceConf*: Opt[FilterServiceConf]
+  storeServiceConf*: Opt[StoreServiceConf]
+  rlnRelayConf*: Opt[RlnConf]
+  restServerConf*: Opt[RestServerConf]
+  metricsServerConf*: Opt[MetricsServerConf]
+  webSocketConf*: Opt[WebSocketConf]
+  quicConf*: Opt[QuicConf]
+  mixConf*: Opt[MixConf]
+  kademliaDiscoveryConf*: Opt[KademliaDiscoveryConf]
 
   dnsAddrsNameServers*: seq[IpAddress]
   endpointConf*: EndpointConf
@@ -127,10 +127,10 @@ type WakuConf* {.requiresInit.} = ref object
 
   # TODO: could probably make it a `PeerRemoteInfo`
   staticNodes*: seq[string]
-  remoteStoreNode*: Option[string]
-  remoteLightPushNode*: Option[string]
-  remoteFilterNode*: Option[string]
-  remotePeerExchangeNode*: Option[string]
+  remoteStoreNode*: Opt[string]
+  remoteLightPushNode*: Opt[string]
+  remoteFilterNode*: Opt[string]
+  remotePeerExchangeNode*: Opt[string]
 
   maxMessageSizeBytes*: uint64
 
@@ -139,7 +139,7 @@ type WakuConf* {.requiresInit.} = ref object
 
   peerPersistence*: bool
   # TODO: should clearly be a uint
-  peerStoreCapacity*: Option[int]
+  peerStoreCapacity*: Opt[int]
   # TODO: should clearly be a uint
   maxConnections*: int
 
@@ -150,7 +150,7 @@ type WakuConf* {.requiresInit.} = ref object
   rateLimit*: ProtocolRateLimitSettings
 
   # TODO: those could be in a relay conf object
-  maxRelayPeers*: Option[int]
+  maxRelayPeers*: Opt[int]
   relayShardedPeerManagement*: bool
   # TODO: use proper type
   relayServiceRatio*: string

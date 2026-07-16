@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, sequtils, tables],
+  std/[sequtils, tables],
   testutils/unittests,
   chronos,
   chronicles,

@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, testutils/unittests, chronos, libp2p/crypto/crypto
+import results, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -33,7 +33,7 @@ suite "Rate limited push service":
     let
       tokenPeriod = 500.millis
       server = await newTestWakuLegacyLightpushNode(
-        serverSwitch, handler, some((3, tokenPeriod))
+        serverSwitch, handler, Opt.some((3, tokenPeriod))
       )
       client = newTestWakuLegacyLightpushClient(clientSwitch)
 
@@ -94,7 +94,7 @@ suite "Rate limited push service":
     let
       tokenPeriod = 500.millis
       server = await newTestWakuLegacyLightpushNode(
-        serverSwitch, handler, some((3, tokenPeriod))
+        serverSwitch, handler, Opt.some((3, tokenPeriod))
       )
       client = newTestWakuLegacyLightpushClient(clientSwitch)
 

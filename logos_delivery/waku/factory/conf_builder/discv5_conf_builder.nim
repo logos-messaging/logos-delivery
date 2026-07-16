@@ -1,4 +1,4 @@
-import chronicles, std/[net, options, sequtils], results
+import chronicles, std/[net, sequtils], results
 import ../waku_conf
 
 logScope:
@@ -16,49 +16,49 @@ const
 ## Discv5 Config Builder ##
 ###########################
 type Discv5ConfBuilder* = object
-  enabled*: Option[bool]
+  enabled*: Opt[bool]
 
   bootstrapNodes*: seq[string]
-  bitsPerHop*: Option[int]
-  bucketIpLimit*: Option[uint]
-  enrAutoUpdate*: Option[bool]
-  tableIpLimit*: Option[uint]
-  udpPort*: Option[Port]
+  bitsPerHop*: Opt[int]
+  bucketIpLimit*: Opt[uint]
+  enrAutoUpdate*: Opt[bool]
+  tableIpLimit*: Opt[uint]
+  udpPort*: Opt[Port]
 
 proc init*(T: type Discv5ConfBuilder): Discv5ConfBuilder =
   Discv5ConfBuilder()
 
 proc withEnabled*(b: var Discv5ConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withBitsPerHop*(b: var Discv5ConfBuilder, bitsPerHop: int) =
-  b.bitsPerHop = some(bitsPerHop)
+  b.bitsPerHop = Opt.some(bitsPerHop)
 
 proc withBucketIpLimit*(b: var Discv5ConfBuilder, bucketIpLimit: uint) =
-  b.bucketIpLimit = some(bucketIpLimit)
+  b.bucketIpLimit = Opt.some(bucketIpLimit)
 
 proc withEnrAutoUpdate*(b: var Discv5ConfBuilder, enrAutoUpdate: bool) =
-  b.enrAutoUpdate = some(enrAutoUpdate)
+  b.enrAutoUpdate = Opt.some(enrAutoUpdate)
 
 proc withTableIpLimit*(b: var Discv5ConfBuilder, tableIpLimit: uint) =
-  b.tableIpLimit = some(tableIpLimit)
+  b.tableIpLimit = Opt.some(tableIpLimit)
 
 proc withUdpPort*(b: var Discv5ConfBuilder, udpPort: Port) =
-  b.udpPort = some(udpPort)
+  b.udpPort = Opt.some(udpPort)
 
 proc withUdpPort*(b: var Discv5ConfBuilder, udpPort: uint16) =
-  b.udpPort = some(Port(udpPort))
+  b.udpPort = Opt.some(Port(udpPort))
 
 proc withBootstrapNodes*(b: var Discv5ConfBuilder, bootstrapNodes: seq[string]) =
   # TODO: validate ENRs?
   b.bootstrapNodes = concat(b.bootstrapNodes, bootstrapNodes)
 
-proc build*(b: Discv5ConfBuilder): Result[Option[Discv5Conf], string] =
+proc build*(b: Discv5ConfBuilder): Result[Opt[Discv5Conf], string] =
   if not b.enabled.get(DefaultDiscv5Enabled):
-    return ok(none(Discv5Conf))
+    return ok(Opt.none(Discv5Conf))
 
   return ok(
-    some(
+    Opt.some(
       Discv5Conf(
         bootstrapNodes: b.bootstrapNodes,
         bitsPerHop: b.bitsPerHop.get(DefaultDiscv5BitsPerHop),

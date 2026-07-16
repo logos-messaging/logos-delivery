@@ -1,4 +1,4 @@
-import chronicles, std/[options, tables, strutils], chronos, testutils/unittests
+import results, chronicles, std/[tables, strutils], chronos, testutils/unittests
 
 import
   logos_delivery/waku/node/waku_node,
@@ -52,7 +52,7 @@ suite "Peer Manager":
 
       # When making an operation that triggers onPeerMetadata
       discard await client.filterSubscribe(
-        some("/waku/2/rs/0/0"), "waku/lightpush/1", serverRemotePeerInfo
+        Opt.some("/waku/2/rs/0/0"), "waku/lightpush/1", serverRemotePeerInfo
       )
       await sleepAsync(FUTURE_TIMEOUT)
 

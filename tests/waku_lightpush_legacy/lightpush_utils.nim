@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, chronos, chronicles, libp2p/crypto/crypto
+import results, chronos, chronicles, libp2p/crypto/crypto
 
 logScope:
   topics = "test waku_lightpush_legacy"
@@ -15,7 +15,7 @@ import
 proc newTestWakuLegacyLightpushNode*(
     switch: Switch,
     handler: PushMessageHandler,
-    rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
+    rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
 ): Future[WakuLegacyLightPush] {.async.} =
   let
     peerManager = PeerManager.new(switch)

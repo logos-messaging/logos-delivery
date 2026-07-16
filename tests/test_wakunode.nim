@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[sequtils, strutils, net, options],
+  results,
+  std/[sequtils, strutils, net],
   stew/byteutils,
   testutils/unittests,
   chronicles,
@@ -77,7 +78,7 @@ suite "WakuNode":
       assert false, "Failed to subscribe to topic"
     await sleepAsync(2000.millis)
 
-    var res = await node1.publish(some($shard), message)
+    var res = await node1.publish(Opt.some($shard), message)
     assert res.isOk(), $res.error
 
     await sleepAsync(2000.millis)
@@ -180,8 +181,8 @@ suite "WakuNode":
       nodeKey = generateSecp256k1Key()
       bindIp = parseIpAddress("0.0.0.0")
       bindPort = Port(61006)
-      extIp = some(getPrimaryIPAddr())
-      extPort = some(Port(61008))
+      extIp = Opt.some(getPrimaryIPAddr())
+      extPort = Opt.some(Port(61008))
       # tcp-only: asserts exact single listen addr; quic variant below
       node =
         newTestWakuNode(nodeKey, bindIp, bindPort, extIp, extPort, quicEnabled = false)
@@ -219,8 +220,8 @@ suite "WakuNode":
       nodeKey = generateSecp256k1Key()
       bindIp = parseIpAddress("0.0.0.0")
       bindPort = Port(0)
-      extIp = some(getPrimaryIPAddr())
-      extPort = some(Port(61008))
+      extIp = Opt.some(getPrimaryIPAddr())
+      extPort = Opt.some(Port(61008))
       node =
         newTestWakuNode(nodeKey, bindIp, bindPort, extIp, extPort, quicEnabled = true)
 
@@ -287,13 +288,13 @@ suite "WakuNode":
       nodeKey = generateSecp256k1Key()
       bindIp = parseIpAddress("0.0.0.0")
       bindPort = Port(61010)
-      extIp = some(getPrimaryIPAddr())
-      extPort = some(Port(61012))
+      extIp = Opt.some(getPrimaryIPAddr())
+      extPort = Opt.some(Port(61012))
       domainName = "example.com"
       expectedDns4Addr =
         MultiAddress.init("/dns4/" & domainName & "/tcp/" & $(extPort.get())).get()
       node = newTestWakuNode(
-        nodeKey, bindIp, bindPort, extIp, extPort, dns4DomainName = some(domainName)
+        nodeKey, bindIp, bindPort, extIp, extPort, dns4DomainName = Opt.some(domainName)
       )
 
     check:
@@ -308,8 +309,9 @@ suite "WakuNode":
       bindPort = Port(0)
 
       domainName = "status.im"
-      node =
-        newTestWakuNode(nodeKey, bindIp, bindPort, dns4DomainName = some(domainName))
+      node = newTestWakuNode(
+        nodeKey, bindIp, bindPort, dns4DomainName = Opt.some(domainName)
+      )
 
     var ipStr = ""
     var enrIp = node.enr.tryGet("ip", array[4, byte])
@@ -339,15 +341,16 @@ suite "WakuNode":
     # Create node with inexistent domain
     try:
       let node = newTestWakuNode(
-        nodeKey, bindIp, bindPort, dns4DomainName = some(inexistentDomain)
+        nodeKey, bindIp, bindPort, dns4DomainName = Opt.some(inexistentDomain)
       )
     except Exception as e:
       inexistentDomainErr = e.msg
 
     # Create node with invalid domain
     try:
-      let node =
-        newTestWakuNode(nodeKey, bindIp, bindPort, dns4DomainName = some(invalidDomain))
+      let node = newTestWakuNode(
+        nodeKey, bindIp, bindPort, dns4DomainName = Opt.some(invalidDomain)
+      )
     except Exception as e:
       invalidDomainErr = e.msg
 
@@ -366,7 +369,7 @@ suite "WakuNode":
     let
       # node with custom agent string
       nodeKey1 = generateSecp256k1Key()
-      node1 = newTestWakuNode(nodeKey1, agentString = some(expectedAgentString1))
+      node1 = newTestWakuNode(nodeKey1, agentString = Opt.some(expectedAgentString1))
 
       # node with default agent string from libp2p
       nodeKey2 = generateSecp256k1Key()

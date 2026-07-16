@@ -1,11 +1,9 @@
-import logos_delivery/waku/compat/option_valueor
-import libp2p/crypto/crypto
+import results, libp2p/crypto/crypto
 ## Waku Filter client for subscribing and receiving filtered messages
 
 {.push raises: [].}
 
 import
-  std/options,
   chronicles,
   chronos,
   libp2p/protocols/protocol,
@@ -42,7 +40,7 @@ proc sendSubscribeRequest(
   trace "Sending filter subscribe request",
     peerId = servicePeer.peerId, filterSubscribeRequest
 
-  var connOpt: Option[Connection]
+  var connOpt: Opt[Connection]
   try:
     connOpt = await wfc.peerManager.dialPeer(servicePeer, WakuFilterSubscribeCodec)
     if connOpt.isNone():

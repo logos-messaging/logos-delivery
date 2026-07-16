@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[options, tables, deques], stew/arrayops, stint, chronos, web3, eth/keys
+import std/[tables, deques], stew/arrayops, stint, chronos, web3, eth/keys
 import ../waku_core, ../waku_keystore, ../common/protobuf
 
 export waku_keystore, waku_core

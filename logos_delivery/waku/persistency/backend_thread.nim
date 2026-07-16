@@ -18,7 +18,7 @@
 ## refc ref-count traffic across threads. The arg is freed by
 ## ``stopStorageThread`` after ``joinThread`` returns.
 
-import std/[options, os]
+import std/os
 import std/atomics # std/concurrency/atomics is the same module in Nim 2.2
 import chronos, chronicles, results
 import brokers/[event_broker, request_broker, broker_context]

@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 ## Nim wrappers for librln (zerokit v2.0.2, safer-ffi typed handles).
 ##
 ## Built against the `stateless` zerokit feature: tree-mutation FFI is not
@@ -17,8 +16,7 @@ import logos_delivery/waku/compat/option_valueor
 ##                     x<32> | y<32> | nullifier<32> ]
 ## Total RLNProof byte size: 1 + 128 + 1 + 5*32 = 290 bytes.
 
-import results
-import ../protocol_types
+import results, ../protocol_types
 
 {.push raises: [], gcsafe.}
 

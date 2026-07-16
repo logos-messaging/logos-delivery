@@ -1,4 +1,5 @@
 import
+  results,
   std/[strutils, sequtils, tables, strformat],
   confutils,
   chronos,
@@ -215,7 +216,7 @@ proc main(rng: Rng): Future[int] {.async.} =
   let netConfig = NetConfig.init(
     bindIp = bindIp,
     bindPort = nodeTcpPort,
-    wsBindPort = some(wsBindPort),
+    wsBindPort = Opt.some(wsBindPort),
     wsEnabled = isWs,
     wssEnabled = isWss,
   )
@@ -244,7 +245,9 @@ proc main(rng: Rng): Future[int] {.async.} =
   builder.withRecord(record)
   builder.withNetworkConfiguration(netConfig.tryGet())
   builder.withSwitchConfiguration(
-    secureKey = some(keyPath), secureCert = some(certPath), nameResolver = resolver
+    secureKey = Opt.some(keyPath),
+    secureCert = Opt.some(certPath),
+    nameResolver = resolver,
   )
 
   let node = builder.build().tryGet()

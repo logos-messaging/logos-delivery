@@ -2,7 +2,8 @@ import libp2p/crypto/crypto
 {.used.}
 
 import
-  std/[options, tables, sequtils, strutils, sets],
+  results,
+  std/[tables, sequtils, strutils, sets],
   testutils/unittests,
   chronos,
   chronicles,
@@ -28,7 +29,7 @@ proc generateRequestId(rng: crypto.Rng): string =
 
 proc createRequest(
     filterSubscribeType: FilterSubscribeType,
-    pubsubTopic = none(PubsubTopic),
+    pubsubTopic = Opt.none(PubsubTopic),
     contentTopics = newSeq[ContentTopic](),
 ): FilterSubscribeRequest =
   let requestId = generateRequestId(common.rng())
@@ -91,7 +92,7 @@ suite "Waku Filter - End to End":
   asyncTest "Client Node receives Push from Server Node, via Filter":
     # When a client node subscribes to a filter node
     let subscribeResponse = await client.filterSubscribe(
-      some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
     )
 
     # Then the subscription is successful
@@ -113,7 +114,7 @@ suite "Waku Filter - End to End":
 
     # When unsubscribing from the subscription
     let unsubscribeResponse = await client.filterUnsubscribe(
-      some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
     )
 
     # Then the unsubscription is successful
@@ -137,7 +138,7 @@ suite "Waku Filter - End to End":
 
     # And valid filter subscription
     let subscribeResponse = await client.filterSubscribe(
-      some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
     )
     require:
       subscribeResponse.isOk()
@@ -145,7 +146,7 @@ suite "Waku Filter - End to End":
 
     # When a server node gets a Relay message
     let msg1 = fakeWakuMessage(contentTopic = contentTopic)
-    discard await server.publish(some(pubsubTopic), msg1)
+    discard await server.publish(Opt.some(pubsubTopic), msg1)
 
     # Then the message is not sent to the client's filter push handler
     check (not await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT))
@@ -164,7 +165,7 @@ suite "Waku Filter - End to End":
 
     # When a client node subscribes to the server node
     let subscribeResponse = await client.filterSubscribe(
-      some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
     )
 
     # Then the subscription is successful
@@ -178,7 +179,7 @@ suite "Waku Filter - End to End":
 
     # Given a valid filter subscription
     var subscribeResponse = await client.filterSubscribe(
-      some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
     )
     require:
       subscribeResponse.isOk()
@@ -203,7 +204,7 @@ suite "Waku Filter - End to End":
 
     # Given a valid filter subscription
     subscribeResponse = await client.filterSubscribe(
-      some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
     )
     require:
       subscribeResponse.isOk()
@@ -226,7 +227,7 @@ suite "Waku Filter - End to End":
 
     # Given a valid filter subscription
     let subscribeResponse = await client.filterSubscribe(
-      some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
     )
     require:
       subscribeResponse.isOk()
@@ -238,14 +239,14 @@ suite "Waku Filter - End to End":
 
     # When a message is sent to the subscribed content topic, via Relay
     let msg = fakeWakuMessage(contentTopic = contentTopic)
-    discard await server.publish(some(pubsubTopic), msg)
+    discard await server.publish(Opt.some(pubsubTopic), msg)
 
     # Then the message is not sent to the client's filter push handler
     check (not await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT))
 
     # Given the client refreshes the subscription
     let subscribeResponse2 = await clientClone.filterSubscribe(
-      some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
     )
     check:
       subscribeResponse2.isOk()
@@ -254,7 +255,7 @@ suite "Waku Filter - End to End":
     # When a message is sent to the subscribed content topic, via Relay
     pushHandlerFuture = newPushHandlerFuture()
     let msg2 = fakeWakuMessage(contentTopic = contentTopic)
-    discard await server.publish(some(pubsubTopic), msg2)
+    discard await server.publish(Opt.some(pubsubTopic), msg2)
 
     # Then the message is not sent to the client's filter push handler
     check (not await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT))
@@ -269,7 +270,7 @@ suite "Waku Filter - End to End":
         createRequest(filterSubscribeType = FilterSubscribeType.SUBSCRIBER_PING)
       filterSubscribeRequest = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[DefaultContentTopic],
       )
 
@@ -308,7 +309,7 @@ suite "Waku Filter - End to End":
       serverPeerId = server.switch.peerInfo.peerId
       filterSubscribeRequest = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[DefaultContentTopic],
       )
       filterUnsubscribeRequest = createRequest(
@@ -353,7 +354,7 @@ suite "Waku Filter - End to End":
       nonDefaultContentTopic = ContentTopic("/waku/2/non-default-waku/proto")
       filterSubscribeRequest = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[DefaultContentTopic, nonDefaultContentTopic],
       )
       filterUnsubscribeAllRequest =
@@ -399,7 +400,7 @@ suite "Waku Filter - End to End":
       nonDefaultContentTopic = ContentTopic("/waku/2/non-default-waku/proto")
       filterSubscribeRequest1 = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[DefaultContentTopic],
       )
       filterSubscribeRequest2 = createRequest(
@@ -500,12 +501,12 @@ suite "Waku Filter - End to End":
     let
       reqNoPubsubTopic = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = none(PubsubTopic),
+        pubsubTopic = Opt.none(PubsubTopic),
         contentTopics = @[DefaultContentTopic],
       )
       reqNoContentTopics = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[],
       )
       response1 =
@@ -535,7 +536,7 @@ suite "Waku Filter - End to End":
         )
       reqTooManyContentTopics = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = contentTopics,
       )
       response3 =
@@ -561,7 +562,7 @@ suite "Waku Filter - End to End":
     let
       reqTooManyFilterCriteria = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[DefaultContentTopic],
       )
       response4 =
@@ -609,7 +610,7 @@ suite "Waku Filter - End to End":
     let
       reqTooManySubscriptions = createRequest(
         filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[DefaultContentTopic],
       )
       response5 =
@@ -645,12 +646,12 @@ suite "Waku Filter - End to End":
     let
       reqNoPubsubTopic = createRequest(
         filterSubscribeType = FilterSubscribeType.UNSUBSCRIBE,
-        pubsubTopic = none(PubsubTopic),
+        pubsubTopic = Opt.none(PubsubTopic),
         contentTopics = @[DefaultContentTopic],
       )
       reqNoContentTopics = createRequest(
         filterSubscribeType = FilterSubscribeType.UNSUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[],
       )
       response1 =
@@ -680,7 +681,7 @@ suite "Waku Filter - End to End":
         )
       reqTooManyContentTopics = createRequest(
         filterSubscribeType = FilterSubscribeType.UNSUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = contentTopics,
       )
       response3 =
@@ -698,7 +699,7 @@ suite "Waku Filter - End to End":
     let
       reqSubscriptionNotFound = createRequest(
         filterSubscribeType = FilterSubscribeType.UNSUBSCRIBE,
-        pubsubTopic = some(DefaultPubsubTopic),
+        pubsubTopic = Opt.some(DefaultPubsubTopic),
         contentTopics = @[DefaultContentTopic],
       )
       response4 =
@@ -740,7 +741,7 @@ suite "Waku Filter - End to End":
         client3 = newTestWakuNode(generateSecp256k1Key())
         filterSubscribeRequest = createRequest(
           filterSubscribeType = FilterSubscribeType.SUBSCRIBE,
-          pubsubTopic = some(DefaultPubsubTopic),
+          pubsubTopic = Opt.some(DefaultPubsubTopic),
           contentTopics = @[DefaultContentTopic],
         )
 

@@ -1,5 +1,4 @@
-import logos_delivery/waku/compat/option_valueor
-import std/[atomics, options, macros]
+import std/[atomics, macros]
 import chronicles, chronos, chronos/threadsync, ffi
 import
   logos_delivery/waku/waku_core/message/message,

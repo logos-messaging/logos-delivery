@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, os, sequtils, tempfiles, strutils, osproc],
+  results,
+  std/[os, sequtils, tempfiles, strutils, osproc],
   stew/byteutils,
   testutils/unittests,
   chronicles,
@@ -33,7 +34,7 @@ procSuite "WakuNode - RLN relay":
   var manager {.threadVar.}: OnchainGroupManager
 
   setup:
-    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
     manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
   teardown:
@@ -149,7 +150,7 @@ procSuite "WakuNode - RLN relay":
     ## node1 publishes a message with a rate limit proof, the message is then relayed to node2 which in turn
     ## verifies the rate limit proof of the message and relays the message to node3
     ## verification at node2 occurs inside a topic validator which is installed as part of the waku-rln-relay mount proc
-    discard await node1.publish(some(DefaultPubsubTopic), message)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), message)
     assert (await completionFut.withTimeout(15.seconds)), "completionFut timed out"
 
     await node1.stop()
@@ -285,9 +286,9 @@ procSuite "WakuNode - RLN relay":
     # publish 3 messages from node[0] (last 2 are spam, window is 10 secs)
     # publish 3 messages from node[1] (last 2 are spam, window is 10 secs)
     for msg in messages1:
-      discard await node1.publish(some($shards[0]), msg)
+      discard await node1.publish(Opt.some($shards[0]), msg)
     for msg in messages2:
-      discard await node2.publish(some($shards[1]), msg)
+      discard await node2.publish(Opt.some($shards[1]), msg)
 
     # wait for gossip to propagate
     await sleepAsync(5000.millis)
@@ -402,7 +403,7 @@ procSuite "WakuNode - RLN relay":
     # message.payload = "Invalid".toBytes()
     message.proof[0] = message.proof[0] xor 0x01
 
-    discard await node1.publish(some(DefaultPubsubTopic), message)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), message)
     await sleepAsync(2000.millis)
 
     check:
@@ -561,10 +562,10 @@ procSuite "WakuNode - RLN relay":
     ## node2 should detect either of wm1 or wm2 as spam and not relay it
     ## node2 should relay wm3 to node3
     ## node2 should not relay wm4 because it has no valid rln proof
-    discard await node1.publish(some(DefaultPubsubTopic), wm1)
-    discard await node1.publish(some(DefaultPubsubTopic), wm2)
-    discard await node1.publish(some(DefaultPubsubTopic), wm3)
-    discard await node1.publish(some(DefaultPubsubTopic), wm4)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm1)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm2)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm3)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm4)
     await sleepAsync(2000.millis)
 
     let
@@ -690,8 +691,8 @@ procSuite "WakuNode - RLN relay":
     node1.rln.unsafeAppendRLNProof(wm2, epoch_1, MessageId(0)).isOkOr:
       raiseAssert $error
 
-    discard await node1.publish(some(DefaultPubsubTopic), wm1)
-    discard await node1.publish(some(DefaultPubsubTopic), wm2)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm1)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm2)
     await sleepAsync(publishSleepDuration)
     check:
       await node1.waitForNullifierLog(0)
@@ -702,7 +703,7 @@ procSuite "WakuNode - RLN relay":
     node1.rln.unsafeAppendRLNProof(wm3, epoch_2, MessageId(0)).isOkOr:
       raiseAssert $error
 
-    discard await node1.publish(some(DefaultPubsubTopic), wm3)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm3)
 
     await sleepAsync(publishSleepDuration)
 
@@ -714,7 +715,7 @@ procSuite "WakuNode - RLN relay":
     node1.rln.unsafeAppendRLNProof(wm4, epoch_3, MessageId(0)).isOkOr:
       raiseAssert $error
 
-    discard await node1.publish(some(DefaultPubsubTopic), wm4)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm4)
     await sleepAsync(publishSleepDuration)
     check:
       await node1.waitForNullifierLog(0)
@@ -724,7 +725,7 @@ procSuite "WakuNode - RLN relay":
     node1.rln.unsafeAppendRLNProof(wm5, epoch_4, MessageId(0)).isOkOr:
       raiseAssert $error
 
-    discard await node1.publish(some(DefaultPubsubTopic), wm5)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm5)
     await sleepAsync(publishSleepDuration)
     check:
       await node1.waitForNullifierLog(0)
@@ -734,7 +735,7 @@ procSuite "WakuNode - RLN relay":
     node1.rln.unsafeAppendRLNProof(wm6, epoch_5, MessageId(0)).isOkOr:
       raiseAssert $error
 
-    discard await node1.publish(some(DefaultPubsubTopic), wm6)
+    discard await node1.publish(Opt.some(DefaultPubsubTopic), wm6)
     await sleepAsync(publishSleepDuration)
     check:
       await node1.waitForNullifierLog(0)

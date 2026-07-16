@@ -1,36 +1,30 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import
-  std/[options, strutils, net],
-  regex,
-  results,
-  chronicles,
-  chronos,
-  chronos/apps/http/httpserver
+import std/[strutils, net], regex, results
+import chronicles, chronos, chronos/apps/http/httpserver
 
 type OriginHandlerMiddlewareRef* = ref object of HttpServerMiddlewareRef
-  allowedOriginMatcher: Option[Regex2]
+  allowedOriginMatcher: Opt[Regex2]
   everyOriginAllowed: bool
 
-proc isEveryOriginAllowed(maybeAllowedOrigin: Option[string]): bool =
+proc isEveryOriginAllowed(maybeAllowedOrigin: Opt[string]): bool =
   return maybeAllowedOrigin.isSome() and maybeAllowedOrigin.get() == "*"
 
-proc compileOriginMatcher(maybeAllowedOrigin: Option[string]): Option[Regex2] =
+proc compileOriginMatcher(maybeAllowedOrigin: Opt[string]): Opt[Regex2] =
   if maybeAllowedOrigin.isNone():
-    return none(Regex2)
+    return Opt.none(Regex2)
 
   let allowedOrigin = maybeAllowedOrigin.get()
 
   if (len(allowedOrigin) == 0):
-    return none(Regex2)
+    return Opt.none(Regex2)
 
   try:
     var matchOrigin: string
 
     if allowedOrigin == "*":
       matchOrigin = r".*"
-      return some(re2(matchOrigin, {regexCaseless, regexExtended}))
+      return Opt.some(re2(matchOrigin, {regexCaseless, regexExtended}))
 
     let allowedOrigins = allowedOrigin.split(",")
 
@@ -56,11 +50,11 @@ proc compileOriginMatcher(maybeAllowedOrigin: Option[string]): Option[Regex2] =
 
     let finalExpression = matchExpressions.join("|")
 
-    return some(re2(finalExpression, {regexCaseless, regexExtended}))
+    return Opt.some(re2(finalExpression, {regexCaseless, regexExtended}))
   except RegexError:
     var msg = getCurrentExceptionMsg()
     error "Failed to compile regex", source = allowedOrigin, err = msg
-    return none(Regex2)
+    return Opt.none(Regex2)
 
 proc originsMatch(
     originHandler: OriginHandlerMiddlewareRef, requestOrigin: string
@@ -115,7 +109,7 @@ proc originMiddlewareProc(
 
 proc new*(
     t: typedesc[OriginHandlerMiddlewareRef],
-    allowedOrigin: Option[string] = none(string),
+    allowedOrigin: Opt[string] = Opt.none(string),
 ): HttpServerMiddlewareRef =
   let middleware = OriginHandlerMiddlewareRef(
     allowedOriginMatcher: compileOriginMatcher(allowedOrigin),

@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[sequtils, sugar, algorithm, options],
+  std/[sequtils, sugar, algorithm],
   results,
   chronicles,
   chronos,
@@ -41,23 +41,23 @@ proc pubsubTopicCount*(self: MessageCache): int =
 proc contentTopicCount*(self: MessageCache): int =
   self.contentTopics.len
 
-proc pubsubSearch(self: MessageCache, pubsubTopic: PubsubTopic): Option[int] =
+proc pubsubSearch(self: MessageCache, pubsubTopic: PubsubTopic): Opt[int] =
   # Return some with the index if found none otherwise.
 
   for i, topic in self.pubsubTopics:
     if topic == pubsubTopic:
-      return some(i)
+      return Opt.some(i)
 
-  return none(int)
+  return Opt.none(int)
 
-proc contentSearch(self: MessageCache, contentTopic: ContentTopic): Option[int] =
+proc contentSearch(self: MessageCache, contentTopic: ContentTopic): Opt[int] =
   # Return some with the index if found none otherwise.
 
   for i, topic in self.contentTopics:
     if topic == contentTopic:
-      return some(i)
+      return Opt.some(i)
 
-  return none(int)
+  return Opt.none(int)
 
 proc isPubsubSubscribed*(self: MessageCache, pubsubTopic: PubsubTopic): bool =
   self.pubsubSearch(pubsubTopic).isSome()

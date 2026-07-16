@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[sugar, options, sequtils, tables],
+  std/[sugar, sequtils, tables],
   results,
   chronos,
   chronicles,

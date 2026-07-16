@@ -1,8 +1,6 @@
 {.used.}
 
-import std/options
-import results
-import testutils/unittests
+import results, testutils/unittests
 import logos_delivery/waku/persistency/[types, keys, backend_sqlite]
 
 template str(b: seq[byte]): string =

@@ -1,4 +1,4 @@
-import chronicles, std/[net, options, strutils], results
+import chronicles, std/[net, strutils], results
 import ../waku_conf
 
 logScope:
@@ -8,21 +8,21 @@ logScope:
 ## DNS Discovery Config Builder ##
 ##################################
 type DnsDiscoveryConfBuilder* = object
-  enrTreeUrl*: Option[string]
+  enrTreeUrl*: Opt[string]
   nameServers*: seq[IpAddress]
 
 proc init*(T: type DnsDiscoveryConfBuilder): DnsDiscoveryConfBuilder =
   DnsDiscoveryConfBuilder()
 
 proc withEnrTreeUrl*(b: var DnsDiscoveryConfBuilder, enrTreeUrl: string) =
-  b.enrTreeUrl = some(enrTreeUrl)
+  b.enrTreeUrl = Opt.some(enrTreeUrl)
 
 proc withNameServers*(b: var DnsDiscoveryConfBuilder, nameServers: seq[IpAddress]) =
   b.nameServers = nameServers
 
-proc build*(b: DnsDiscoveryConfBuilder): Result[Option[DnsDiscoveryConf], string] =
+proc build*(b: DnsDiscoveryConfBuilder): Result[Opt[DnsDiscoveryConf], string] =
   if b.enrTreeUrl.isNone():
-    return ok(none(DnsDiscoveryConf))
+    return ok(Opt.none(DnsDiscoveryConf))
 
   if isEmptyOrWhiteSpace(b.enrTreeUrl.get()):
     return err("dnsDiscovery.enrTreeUrl cannot be an empty string")
@@ -30,5 +30,7 @@ proc build*(b: DnsDiscoveryConfBuilder): Result[Option[DnsDiscoveryConf], string
     return err("dnsDiscovery.nameServers is not specified")
 
   return ok(
-    some(DnsDiscoveryConf(nameServers: b.nameServers, enrTreeUrl: b.enrTreeUrl.get()))
+    Opt.some(
+      DnsDiscoveryConf(nameServers: b.nameServers, enrTreeUrl: b.enrTreeUrl.get())
+    )
   )

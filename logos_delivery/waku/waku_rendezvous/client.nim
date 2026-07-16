@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sequtils, tables],
+  std/[sequtils, tables],
   results,
   chronos,
   chronicles,
@@ -68,7 +67,7 @@ proc requestAll*(
     let rInfo = RemotePeerInfo.init(
       record.peerId,
       record.addresses,
-      mixPubKey = some(intoCurve25519Key(fromHex(record.mixKey))),
+      mixPubKey = Opt.some(intoCurve25519Key(fromHex(record.mixKey))),
     )
     self.peerManager.addPeer(rInfo)
 

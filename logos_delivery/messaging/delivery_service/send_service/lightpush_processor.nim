@@ -1,7 +1,4 @@
-import logos_delivery/waku/compat/option_valueor
-import chronicles, chronos, results
-import std/options
-import brokers/broker_context
+import chronicles, chronos, results, brokers/broker_context
 import logos_delivery/waku/waku_core, logos_delivery/waku/waku
 import logos_delivery/waku/api/publish
 
@@ -54,7 +51,7 @@ method sendImpl*(
     task.state = DeliveryState.SuccessfullyPropagated
     task.deliveryTime = Moment.now()
     if task.firstPropagatedTime.isNone():
-      task.firstPropagatedTime = some(Moment.now())
+      task.firstPropagatedTime = Opt.some(Moment.now())
     # TODO: with a simple retry processor it might be more accurate to say `Sent`
   else:
     # Controversial state, publish says ok but no peer. It should not happen.

@@ -188,7 +188,7 @@ proc publishMessages(
         if not preventPeerSwitch and noFailedPush > maxFailedPush:
           info "Max push failure limit reached, Try switching peer."
           actualServicePeer = selectRandomServicePeer(
-            wakuNode.peerManager, some(actualServicePeer), WakuLightPushCodec
+            wakuNode.peerManager, Opt.some(actualServicePeer), WakuLightPushCodec
           ).valueOr:
             error "Failed to find new service peer. Exiting."
             noFailedServiceNodeSwitches += 1

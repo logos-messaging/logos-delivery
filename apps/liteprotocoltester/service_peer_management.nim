@@ -1,7 +1,8 @@
 {.push raises: [].}
 
 import
-  std/[options, net, sysrand, random, strformat, strutils, sequtils],
+  results,
+  std/[net, sysrand, random, strformat, strutils, sequtils],
   chronicles,
   chronos,
   metrics,
@@ -53,7 +54,7 @@ proc translateToRemotePeerInfo*(peerAddress: string): Result[RemotePeerInfo, voi
 ## Note: This is kept for future use.
 proc selectRandomCapablePeer*(
     pm: PeerManager, codec: string, pubsubTopic: PubsubTopic
-): Future[Option[RemotePeerInfo]] {.async.} =
+): Future[Opt[RemotePeerInfo]] {.async.} =
   var cap = Capabilities.Filter
   if codec.contains("lightpush"):
     cap = Capabilities.Lightpush
@@ -65,9 +66,9 @@ proc selectRandomCapablePeer*(
   trace "Found supportive peers count", count = supportivePeers.len()
   trace "Found supportive peers", supportivePeers = $supportivePeers
   if supportivePeers.len == 0:
-    return none(RemotePeerInfo)
+    return Opt.none(RemotePeerInfo)
 
-  var found = none(RemotePeerInfo)
+  var found = Opt.none(RemotePeerInfo)
   while found.isNone() and supportivePeers.len > 0:
     let rndPeerIndex = rand(0 .. supportivePeers.len - 1)
     let randomPeer = supportivePeers[rndPeerIndex]
@@ -80,7 +81,7 @@ proc selectRandomCapablePeer*(
     let connOpt = pm.dialPeer(randomPeer, codec)
     if (await connOpt.withTimeout(10.seconds)):
       if connOpt.value().isSome():
-        found = some(randomPeer)
+        found = Opt.some(randomPeer)
         info "Dialing successful",
           peer = constructMultiaddrStr(randomPeer), codec = codec
       else:
@@ -94,7 +95,7 @@ proc selectRandomCapablePeer*(
 # Debugging PX gathered peers connectivity
 proc tryCallAllPxPeers*(
     pm: PeerManager, codec: string, pubsubTopic: PubsubTopic
-): Future[Option[seq[RemotePeerInfo]]] {.async.} =
+): Future[Opt[seq[RemotePeerInfo]]] {.async.} =
   var capability = Capabilities.Filter
   if codec.contains("lightpush"):
     capability = Capabilities.Lightpush
@@ -107,7 +108,7 @@ proc tryCallAllPxPeers*(
   info "Found supportive peers count", count = supportivePeers.len()
   info "Found supportive peers", supportivePeers = $supportivePeers
   if supportivePeers.len == 0:
-    return none(seq[RemotePeerInfo])
+    return Opt.none(seq[RemotePeerInfo])
 
   var okPeers: seq[RemotePeerInfo] = @[]
 
@@ -152,7 +153,7 @@ proc tryCallAllPxPeers*(
   echo "PX returned peers found callable for " & codec & " / " & $capability & ":\n"
   echo okPeersStr
 
-  return some(okPeers)
+  return Opt.some(okPeers)
 
 proc pxLookupServiceNode*(
     node: WakuNode, conf: LiteProtocolTesterConf
@@ -168,7 +169,7 @@ proc pxLookupServiceNode*(
     node.peerManager.addServicePeer(peerExchangeNode, WakuPeerExchangeCodec)
 
     try:
-      await node.mountPeerExchange(some(conf.clusterId))
+      await node.mountPeerExchange(Opt.some(conf.clusterId))
     except CatchableError:
       error "failed to mount waku peer-exchange protocol",
         error = getCurrentExceptionMsg()
@@ -207,7 +208,7 @@ var alreadyUsedServicePeers {.threadvar.}: seq[RemotePeerInfo]
 
 ## Select service peers by codec from peer store randomly.
 proc selectRandomServicePeer*(
-    pm: PeerManager, actualPeer: Option[RemotePeerInfo], codec: string
+    pm: PeerManager, actualPeer: Opt[RemotePeerInfo], codec: string
 ): Result[RemotePeerInfo, void] =
   if actualPeer.isSome():
     alreadyUsedServicePeers.add(actualPeer.get())

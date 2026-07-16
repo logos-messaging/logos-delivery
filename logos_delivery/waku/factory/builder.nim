@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[options, net, math],
+  std/[net, math],
   results,
   chronicles,
   libp2p/crypto/crypto,
@@ -23,14 +23,14 @@ import
 
 type
   WakuNodeBuilder* = object # General
-    nodeRng: Option[crypto.Rng]
-    nodeKey: Option[crypto.PrivateKey]
-    netConfig: Option[NetConfig]
-    record: Option[enr.Record]
+    nodeRng: Opt[crypto.Rng]
+    nodeKey: Opt[crypto.PrivateKey]
+    netConfig: Opt[NetConfig]
+    record: Opt[enr.Record]
 
     # Peer storage and peer manager
-    peerStorage: Option[PeerStorage]
-    peerStorageCapacity: Option[int]
+    peerStorage: Opt[PeerStorage]
+    peerStorageCapacity: Opt[int]
 
     # Peer manager config
     maxRelayPeers: int
@@ -39,16 +39,16 @@ type
     shardAware: bool
 
     # Libp2p switch
-    switchMaxConnections: Option[int]
-    switchNameResolver: Option[NameResolver]
-    switchAgentString: Option[string]
-    switchSslSecureKey: Option[string]
-    switchSslSecureCert: Option[string]
-    switchSendSignedPeerRecord: Option[bool]
+    switchMaxConnections: Opt[int]
+    switchNameResolver: Opt[NameResolver]
+    switchAgentString: Opt[string]
+    switchSslSecureKey: Opt[string]
+    switchSslSecureCert: Opt[string]
+    switchSendSignedPeerRecord: Opt[bool]
     circuitRelay: Relay
 
     # Rate limit configs for non-relay req-resp protocols
-    rateLimitSettings: Option[ProtocolRateLimitSettings]
+    rateLimitSettings: Opt[ProtocolRateLimitSettings]
 
   WakuNodeBuilderResult* = Result[void, string]
 
@@ -60,29 +60,29 @@ proc init*(T: type WakuNodeBuilder): WakuNodeBuilder =
 ## General
 
 proc withRng*(builder: var WakuNodeBuilder, rng: crypto.Rng) =
-  builder.nodeRng = some(rng)
+  builder.nodeRng = Opt.some(rng)
 
 proc withNodeKey*(builder: var WakuNodeBuilder, nodeKey: crypto.PrivateKey) =
-  builder.nodeKey = some(nodeKey)
+  builder.nodeKey = Opt.some(nodeKey)
 
 proc withRecord*(builder: var WakuNodeBuilder, record: enr.Record) =
-  builder.record = some(record)
+  builder.record = Opt.some(record)
 
 proc withNetworkConfiguration*(builder: var WakuNodeBuilder, config: NetConfig) =
-  builder.netConfig = some(config)
+  builder.netConfig = Opt.some(config)
 
 proc withNetworkConfigurationDetails*(
     builder: var WakuNodeBuilder,
     bindIp: IpAddress,
     bindPort: Port,
-    extIp = none(IpAddress),
-    extPort = none(Port),
+    extIp = Opt.none(IpAddress),
+    extPort = Opt.none(Port),
     extMultiAddrs = newSeq[MultiAddress](),
     wsBindPort: Port = Port(8000),
     wsEnabled: bool = false,
     wssEnabled: bool = false,
-    wakuFlags = none(CapabilitiesBitfield),
-    dns4DomainName = none(string),
+    wakuFlags = Opt.none(CapabilitiesBitfield),
+    dns4DomainName = Opt.none(string),
     dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
 ): WakuNodeBuilderResult {.
     deprecated: "use 'builder.withNetworkConfiguration()' instead"
@@ -93,7 +93,7 @@ proc withNetworkConfigurationDetails*(
     extIp = extIp,
     extPort = extPort,
     extMultiAddrs = extMultiAddrs,
-    wsBindPort = some(wsBindPort),
+    wsBindPort = Opt.some(wsBindPort),
     wsEnabled = wsEnabled,
     wssEnabled = wssEnabled,
     wakuFlags = wakuFlags,
@@ -106,10 +106,10 @@ proc withNetworkConfigurationDetails*(
 ## Peer storage and peer manager
 
 proc withPeerStorage*(
-    builder: var WakuNodeBuilder, peerStorage: PeerStorage, capacity = none(int)
+    builder: var WakuNodeBuilder, peerStorage: PeerStorage, capacity = Opt.none(int)
 ) =
   if not peerStorage.isNil():
-    builder.peerStorage = some(peerStorage)
+    builder.peerStorage = Opt.some(peerStorage)
 
   builder.peerStorageCapacity = capacity
 
@@ -131,7 +131,7 @@ proc withColocationLimit*(builder: var WakuNodeBuilder, colocationLimit: int) =
   builder.colocationLimit = colocationLimit
 
 proc withRateLimit*(builder: var WakuNodeBuilder, limits: ProtocolRateLimitSettings) =
-  builder.rateLimitSettings = some(limits)
+  builder.rateLimitSettings = Opt.some(limits)
 
 proc withCircuitRelay*(builder: var WakuNodeBuilder, circuitRelay: Relay) =
   builder.circuitRelay = circuitRelay
@@ -140,21 +140,21 @@ proc withCircuitRelay*(builder: var WakuNodeBuilder, circuitRelay: Relay) =
 
 proc withSwitchConfiguration*(
     builder: var WakuNodeBuilder,
-    maxConnections = none(int),
+    maxConnections = Opt.none(int),
     nameResolver: NameResolver = nil,
     sendSignedPeerRecord = false,
-    secureKey = none(string),
-    secureCert = none(string),
-    agentString = none(string),
+    secureKey = Opt.none(string),
+    secureCert = Opt.none(string),
+    agentString = Opt.none(string),
 ) =
   builder.switchMaxConnections = maxConnections
-  builder.switchSendSignedPeerRecord = some(sendSignedPeerRecord)
+  builder.switchSendSignedPeerRecord = Opt.some(sendSignedPeerRecord)
   builder.switchSslSecureKey = secureKey
   builder.switchSslSecureCert = secureCert
   builder.switchAgentString = agentString
 
   if not nameResolver.isNil():
-    builder.switchNameResolver = some(nameResolver)
+    builder.switchNameResolver = Opt.some(nameResolver)
 
 ## Build
 
@@ -209,8 +209,8 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
   let peerManager = PeerManager.new(
     switch = switch,
     storage = builder.peerStorage.get(nil),
-    maxRelayPeers = some(builder.maxRelayPeers),
-    maxServicePeers = some(builder.maxServicePeers),
+    maxRelayPeers = Opt.some(builder.maxRelayPeers),
+    maxServicePeers = Opt.some(builder.maxServicePeers),
     colocationLimit = builder.colocationLimit,
     shardedPeerManagement = builder.shardAware,
     maxConnections = builder.switchMaxConnections.get(MaxConnections),

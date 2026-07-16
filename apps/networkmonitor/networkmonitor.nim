@@ -422,7 +422,7 @@ proc initAndStartApp(
 
   let
     # some hardcoded parameters
-    rng = keys.newRng()
+    rng = crypto.newRng()
     key = crypto.PrivateKey.random(Secp256k1, rng)[]
     nodeTcpPort = Port(60000)
     nodeUdpPort = Port(9000)
@@ -433,7 +433,9 @@ proc initAndStartApp(
   var builder = EnrBuilder.init(key)
 
   builder.withIpAddressAndPorts(
-    ipAddr = some(extIp), tcpPort = some(nodeTcpPort), udpPort = some(nodeUdpPort)
+    ipAddr = Opt.some(extIp),
+    tcpPort = Opt.some(nodeTcpPort),
+    udpPort = Opt.some(nodeUdpPort),
   )
   builder.withWakuCapabilities(flags)
 
@@ -450,7 +452,7 @@ proc initAndStartApp(
 
   nodeBuilder.withNodeKey(key)
   nodeBuilder.withRecord(record)
-  nodeBuilder.withSwitchConfiguration(maxConnections = some(MaxConnectedPeers))
+  nodeBuilder.withSwitchConfiguration(maxConnections = Opt.some(MaxConnectedPeers))
 
   nodeBuilder.withPeerManagerConfig(
     maxConnections = MaxConnectedPeers,
@@ -473,7 +475,7 @@ proc initAndStartApp(
 
   # discv5
   let discv5Conf = WakuDiscoveryV5Config(
-    discv5Config: none(DiscoveryConfig),
+    discv5Config: Opt.none(DiscoveryConfig),
     address: bindIp,
     port: nodeUdpPort,
     privateKey: keys.PrivateKey(key.skkey),
@@ -481,7 +483,7 @@ proc initAndStartApp(
     autoupdateRecord: false,
   )
 
-  let wakuDiscv5 = WakuDiscoveryV5.new(node.rng, discv5Conf, some(record))
+  let wakuDiscv5 = WakuDiscoveryV5.new(node.rng, discv5Conf, Opt.some(record))
 
   try:
     wakuDiscv5.protocol.open()
@@ -610,11 +612,11 @@ when isMainModule:
   if conf.rlnRelay and conf.rlnRelayEthContractAddress != "":
     let rlnConf = WakuRlnConfig(
       dynamic: conf.rlnRelayDynamic,
-      credIndex: some(uint(0)),
+      credIndex: Opt.some(uint(0)),
       ethContractAddress: conf.rlnRelayEthContractAddress,
       ethClientUrls: conf.ethClientUrls.mapIt(string(it)),
       epochSizeSec: conf.rlnEpochSizeSec,
-      creds: none(RlnCreds),
+      creds: Opt.none(RlnCreds),
       onFatalErrorAction: onFatalErrorAction,
     )
 

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import chronicles, json_serialization, json_serialization/std/options
+import results, chronicles, json_serialization, json_serialization/pkg/results
 import ../../../waku_node, ../serdes
 import std/typetraits
 
@@ -8,15 +8,15 @@ import std/typetraits
 
 type DebugWakuInfo* = object
   listenAddresses*: seq[string]
-  enrUri*: Option[string]
-  mixPubKey*: Option[string]
+  enrUri*: Opt[string]
+  mixPubKey*: Opt[string]
 
 #### Type conversion
 
 proc toDebugWakuInfo*(nodeInfo: WakuInfo): DebugWakuInfo =
   DebugWakuInfo(
     listenAddresses: nodeInfo.listenAddresses,
-    enrUri: some(nodeInfo.enrUri),
+    enrUri: Opt.some(nodeInfo.enrUri),
     mixPubKey: nodeInfo.mixPubKey,
   )
 
@@ -37,8 +37,8 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var DebugWakuInfo
 ) {.raises: [SerializationError, IOError].} =
   var
-    listenAddresses: Option[seq[string]]
-    enrUri: Option[string]
+    listenAddresses: Opt[seq[string]]
+    enrUri: Opt[string]
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -47,17 +47,17 @@ proc readValue*(
         reader.raiseUnexpectedField(
           "Multiple `listenAddresses` fields found", "DebugWakuInfo"
         )
-      listenAddresses = some(reader.readValue(seq[string]))
+      listenAddresses = Opt.some(reader.readValue(seq[string]))
     of "enrUri":
       if enrUri.isSome():
         reader.raiseUnexpectedField("Multiple `enrUri` fields found", "DebugWakuInfo")
-      enrUri = some(reader.readValue(string))
+      enrUri = Opt.some(reader.readValue(string))
     of "mixPubKey":
       if value.mixPubKey.isSome():
         reader.raiseUnexpectedField(
           "Multiple `mixPubKey` fields found", "DebugWakuInfo"
         )
-      value.mixPubKey = some(reader.readValue(string))
+      value.mixPubKey = Opt.some(reader.readValue(string))
     else:
       unrecognizedFieldWarning(value)
 

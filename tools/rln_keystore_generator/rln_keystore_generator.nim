@@ -52,9 +52,9 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
     ethClientUrls: conf.ethClientUrls,
     chainId: conf.chainId,
     ethContractAddress: conf.ethContractAddress,
-    keystorePath: none(string),
-    keystorePassword: none(string),
-    ethPrivateKey: some(conf.ethPrivateKey),
+    keystorePath: Opt.none(string),
+    keystorePassword: Opt.none(string),
+    ethPrivateKey: Opt.some(conf.ethPrivateKey),
     onFatalErrorAction: onFatalErrorAction,
   )
   try:

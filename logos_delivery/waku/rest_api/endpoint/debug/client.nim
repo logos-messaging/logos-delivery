@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  chronicles, json_serialization, json_serialization/std/options, presto/[route, client]
+  chronicles, json_serialization, json_serialization/pkg/results, presto/[route, client]
 import ../serdes, ../rest_serdes, ./types
 
 export types

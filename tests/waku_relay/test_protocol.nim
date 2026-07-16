@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, strformat, sets, tables],
+  std/[strformat, sets, tables],
   testutils/unittests,
   chronos,
   libp2p/protocols/pubsub/[pubsub, gossipsub],

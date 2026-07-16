@@ -1,10 +1,11 @@
 {.push raises: [].}
 
 import
+  results,
   std/[sets, strformat],
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/[route, client]
 
 import ../../../waku_core, ../relay/types as relay_types, ../serdes
@@ -14,7 +15,7 @@ export relay_types
 #### Types
 
 type PushRequest* = object
-  pubsubTopic*: Option[PubSubTopic]
+  pubsubTopic*: Opt[PubSubTopic]
   message*: RelayWakuMessage
 
 #### Serialization and deserialization
@@ -32,8 +33,8 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var PushRequest
 ) {.raises: [SerializationError, IOError].} =
   var
-    pubsubTopic = none(PubsubTopic)
-    message = none(RelayWakuMessage)
+    pubsubTopic = Opt.none(PubsubTopic)
+    message = Opt.none(RelayWakuMessage)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -48,9 +49,9 @@ proc readValue*(
 
     case fieldName
     of "pubsubTopic":
-      pubsubTopic = some(reader.readValue(PubsubTopic))
+      pubsubTopic = Opt.some(reader.readValue(PubsubTopic))
     of "message":
-      message = some(reader.readValue(RelayWakuMessage))
+      message = Opt.some(reader.readValue(RelayWakuMessage))
     else:
       unrecognizedFieldWarning(value)
 
@@ -60,8 +61,8 @@ proc readValue*(
   value = PushRequest(
     pubsubTopic:
       if pubsubTopic.isNone() or pubsubTopic.get() == "":
-        none(string)
+        Opt.none(string)
       else:
-        some(pubsubTopic.get()),
+        Opt.some(pubsubTopic.get()),
     message: message.get(),
   )

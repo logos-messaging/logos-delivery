@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/options, stint
+import results, stint
 
 import logos_delivery/waku/common/error_handling
 
@@ -13,14 +13,14 @@ type RlnConf* = object of RootObj
   # change the config to either nest or use enum/type variant so it's obvious
   # and then it can be set to `requiresInit`
   dynamic*: bool
-  credIndex*: Option[uint]
+  credIndex*: Opt[uint]
   ethContractAddress*: string
   ethClientUrls*: seq[string]
   chainId*: UInt256
-  creds*: Option[RlnCreds]
+  creds*: Opt[RlnCreds]
   epochSizeSec*: uint64
   userMessageLimit*: uint64
-  ethPrivateKey*: Option[string]
+  ethPrivateKey*: Opt[string]
 
 type WakuRlnConfig* = object of RlnConf
   onFatalErrorAction*: OnFatalErrorHandler

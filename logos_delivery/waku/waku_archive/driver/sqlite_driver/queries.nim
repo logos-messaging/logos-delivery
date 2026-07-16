@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[options, sequtils], stew/byteutils, sqlite3_abi, results
+import std/sequtils, stew/byteutils, sqlite3_abi, results
 import chronicles
 import
   ../../../common/databases/db_sqlite,
@@ -253,15 +253,15 @@ proc selectAllMessageHashes*(db: SqliteDatabase): DatabaseResult[seq[WakuMessage
 
 ## Select messages by history query with limit
 
-proc combineClauses(clauses: varargs[Option[string]]): Option[string] =
+proc combineClauses(clauses: varargs[Opt[string]]): Opt[string] =
   let whereSeq = @clauses.filterIt(it.isSome()).mapIt(it.get())
   if whereSeq.len <= 0:
-    return none(string)
+    return Opt.none(string)
 
   var where: string = whereSeq[0]
   for clause in whereSeq[1 ..^ 1]:
     where &= " AND " & clause
-  return some(where)
+  return Opt.some(where)
 
 proc prepareStmt(
     db: SqliteDatabase, stmt: string
@@ -299,11 +299,11 @@ proc selectTimestampByHashQuery(table: string): SqlQueryStr =
 
 proc getCursorTimestamp(
     db: SqliteDatabase, hash: WakuMessageHash
-): DatabaseResult[Option[Timestamp]] =
-  var timestamp = none(Timestamp)
+): DatabaseResult[Opt[Timestamp]] =
+  var timestamp = Opt.none(Timestamp)
 
   proc queryRowCallback(s: ptr sqlite3_stmt) =
-    timestamp = some(queryRowTimestampCallback(s, 0))
+    timestamp = Opt.some(queryRowTimestampCallback(s, 0))
 
   let query = selectTimestampByHashQuery(DbTable)
   let dbStmt = ?db.prepareStmt(query)
@@ -314,60 +314,60 @@ proc getCursorTimestamp(
 
 proc whereClause(
     cursor: bool,
-    pubsubTopic: Option[PubsubTopic],
+    pubsubTopic: Opt[PubsubTopic],
     contentTopic: seq[ContentTopic],
-    startTime: Option[Timestamp],
-    endTime: Option[Timestamp],
+    startTime: Opt[Timestamp],
+    endTime: Opt[Timestamp],
     hashes: seq[WakuMessageHash],
     ascending: bool,
-): Option[string] =
+): Opt[string] =
   let cursorClause =
     if cursor:
       let comp = if ascending: ">" else: "<"
 
-      some("(timestamp, messageHash) " & comp & " (?, ?)")
+      Opt.some("(timestamp, messageHash) " & comp & " (?, ?)")
     else:
-      none(string)
+      Opt.none(string)
 
   let pubsubTopicClause =
     if pubsubTopic.isNone():
-      none(string)
+      Opt.none(string)
     else:
-      some("pubsubTopic = (?)")
+      Opt.some("pubsubTopic = (?)")
 
   let contentTopicClause =
     if contentTopic.len <= 0:
-      none(string)
+      Opt.none(string)
     else:
       var where = "contentTopic IN ("
       where &= "?"
       for _ in 1 ..< contentTopic.len:
         where &= ", ?"
       where &= ")"
-      some(where)
+      Opt.some(where)
 
   let startTimeClause =
     if startTime.isNone():
-      none(string)
+      Opt.none(string)
     else:
-      some("timestamp >= (?)")
+      Opt.some("timestamp >= (?)")
 
   let endTimeClause =
     if endTime.isNone():
-      none(string)
+      Opt.none(string)
     else:
-      some("timestamp <= (?)")
+      Opt.some("timestamp <= (?)")
 
   let hashesClause =
     if hashes.len <= 0:
-      none(string)
+      Opt.none(string)
     else:
       var where = "messageHash IN ("
       where &= "?"
       for _ in 1 ..< hashes.len:
         where &= ", ?"
       where &= ")"
-      some(where)
+      Opt.some(where)
 
   return combineClauses(
     cursorClause, pubsubTopicClause, contentTopicClause, startTimeClause, endTimeClause,
@@ -376,11 +376,11 @@ proc whereClause(
 
 proc execSelectMessagesWithLimitStmt(
     s: SqliteStmt,
-    cursor: Option[(Timestamp, WakuMessageHash)],
-    pubsubTopic: Option[PubsubTopic],
+    cursor: Opt[(Timestamp, WakuMessageHash)],
+    pubsubTopic: Opt[PubsubTopic],
     contentTopic: seq[ContentTopic],
-    startTime: Option[Timestamp],
-    endTime: Option[Timestamp],
+    startTime: Opt[Timestamp],
+    endTime: Opt[Timestamp],
     hashes: seq[WakuMessageHash],
     onRowCallback: DataProc,
 ): DatabaseResult[void] =
@@ -438,7 +438,7 @@ proc execSelectMessagesWithLimitStmt(
   discard sqlite3_clear_bindings(s) # no errors possible
 
 proc selectMessagesWithLimitQuery(
-    table: string, where: Option[string], limit: uint, ascending = true
+    table: string, where: Opt[string], limit: uint, ascending = true
 ): SqlQueryStr =
   let order = if ascending: "ASC" else: "DESC"
 
@@ -458,7 +458,7 @@ proc selectMessagesWithLimitQuery(
   return query
 
 proc selectMessageHashesWithLimitQuery(
-    table: string, where: Option[string], limit: uint, ascending = true
+    table: string, where: Opt[string], limit: uint, ascending = true
 ): SqlQueryStr =
   let order = if ascending: "ASC" else: "DESC"
 
@@ -476,15 +476,15 @@ proc selectMessageHashesWithLimitQuery(
 proc selectMessagesByStoreQueryWithLimit*(
     db: SqliteDatabase,
     contentTopic: seq[ContentTopic],
-    pubsubTopic: Option[PubsubTopic],
-    cursor: Option[WakuMessageHash],
-    startTime: Option[Timestamp],
-    endTime: Option[Timestamp],
+    pubsubTopic: Opt[PubsubTopic],
+    cursor: Opt[WakuMessageHash],
+    startTime: Opt[Timestamp],
+    endTime: Opt[Timestamp],
     hashes: seq[WakuMessageHash],
     limit: uint,
     ascending: bool,
 ): DatabaseResult[seq[(WakuMessageHash, PubsubTopic, WakuMessage)]] =
-  var timeCursor = none((Timestamp, WakuMessageHash))
+  var timeCursor = Opt.none((Timestamp, WakuMessageHash))
 
   if cursor.isSome():
     let hash: WakuMessageHash = cursor.get()
@@ -494,7 +494,7 @@ proc selectMessagesByStoreQueryWithLimit*(
     if timeOpt.isNone():
       return err("cursor not found")
 
-    timeCursor = some((timeOpt.get(), hash))
+    timeCursor = Opt.some((timeOpt.get(), hash))
 
   var rows: seq[(WakuMessageHash, PubsubTopic, WakuMessage)] = @[]
 
@@ -536,15 +536,15 @@ proc selectMessagesByStoreQueryWithLimit*(
 proc selectMessageHashesByStoreQueryWithLimit*(
     db: SqliteDatabase,
     contentTopic: seq[ContentTopic],
-    pubsubTopic: Option[PubsubTopic],
-    cursor: Option[WakuMessageHash],
-    startTime: Option[Timestamp],
-    endTime: Option[Timestamp],
+    pubsubTopic: Opt[PubsubTopic],
+    cursor: Opt[WakuMessageHash],
+    startTime: Opt[Timestamp],
+    endTime: Opt[Timestamp],
     hashes: seq[WakuMessageHash],
     limit: uint,
     ascending: bool,
 ): DatabaseResult[seq[(WakuMessageHash, PubsubTopic, WakuMessage)]] =
-  var timeCursor = none((Timestamp, WakuMessageHash))
+  var timeCursor = Opt.none((Timestamp, WakuMessageHash))
 
   if cursor.isSome():
     let hash: WakuMessageHash = cursor.get()
@@ -554,7 +554,7 @@ proc selectMessageHashesByStoreQueryWithLimit*(
     if timeOpt.isNone():
       return err("cursor not found")
 
-    timeCursor = some((timeOpt.get(), hash))
+    timeCursor = Opt.some((timeOpt.get(), hash))
 
   var rows: seq[(WakuMessageHash, PubsubTopic, WakuMessage)] = @[]
 

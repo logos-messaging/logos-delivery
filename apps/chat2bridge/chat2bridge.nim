@@ -1,7 +1,8 @@
 {.push raises: [].}
 
 import
-  std/[tables, times, strutils, hashes, sequtils, json, options],
+  results,
+  std/[tables, times, strutils, hashes, sequtils, json],
   chronos,
   confutils,
   chronicles,
@@ -102,7 +103,7 @@ proc toChat2(cmb: Chat2MatterBridge, jsonNode: JsonNode) {.async.} =
 
   chat2_mb_transfers.inc(labelValues = ["mb_to_chat2"])
 
-  (await cmb.nodev2.publish(some(DefaultPubsubTopic), msg)).isOkOr:
+  (await cmb.nodev2.publish(Opt.some(DefaultPubsubTopic), msg)).isOkOr:
     error "failed to publish message", error = error
 
 proc toMatterbridge(
@@ -156,8 +157,8 @@ proc new*(
     nodev2Key: crypto.PrivateKey,
     nodev2BindIp: IpAddress,
     nodev2BindPort: Port,
-    nodev2ExtIp = none[IpAddress](),
-    nodev2ExtPort = none[Port](),
+    nodev2ExtIp = Opt.none(IpAddress),
+    nodev2ExtPort = Opt.none(Port),
     contentTopic: string,
 ): T {.
     raises: [Defect, ValueError, KeyError, TLSStreamProtocolError, IOError, LPError]
@@ -264,7 +265,7 @@ when isMainModule:
   ## config, the external port is the same as the bind port.
   let extPort =
     if nodev2ExtIp.isSome() and nodev2ExtPort.isNone():
-      some(Port(uint16(conf.libp2pTcpPort) + conf.portsShift))
+      Opt.some(Port(uint16(conf.libp2pTcpPort) + conf.portsShift))
     else:
       nodev2ExtPort
 

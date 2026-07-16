@@ -1,4 +1,3 @@
-import std/options
 import std/tempfiles
 import results
 
@@ -48,10 +47,10 @@ proc getWakuRlnConfig*(
     ethClientUrls: @[EthClient],
     ethContractAddress: manager.ethContractAddress,
     chainId: manager.chainId,
-    credIndex: some(index),
+    credIndex: Opt.some(index),
     userMessageLimit: userMessageLimit,
     epochSizeSec: epochSizeSec,
-    ethPrivateKey: some(manager.ethPrivateKey.get()),
+    ethPrivateKey: Opt.some(manager.ethPrivateKey.get()),
     onFatalErrorAction: proc(errStr: string) =
       warn "non-fatal onchain test error", errStr
     ,

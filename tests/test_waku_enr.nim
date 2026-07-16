@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils], results, testutils/unittests
+import std/sequtils, results, testutils/unittests
 import logos_delivery/waku/waku_core, logos_delivery/waku/waku_enr, ./testlib/wakucore
 
 suite "Waku ENR -  Capabilities bitfield":

@@ -7,7 +7,7 @@
 ## the op is queued, not applied — Persistency v1), so every read-back polls
 ## until the row appears/disappears.
 
-import std/[options, os, times]
+import std/[os, times]
 import chronos, results
 import testutils/unittests
 import logos_delivery/waku/persistency/persistency

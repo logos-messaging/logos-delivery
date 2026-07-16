@@ -11,7 +11,7 @@ import libp2p/crypto/crypto
 
 import testutils/unittests
 import chronos, libp2p/stream/connection
-import std/[options, tables]
+import std/tables
 
 import ../../logos_delivery/waku/common/rate_limit/request_limiter
 import ../../logos_delivery/waku/common/rate_limit/timed_map

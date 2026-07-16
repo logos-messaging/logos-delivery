@@ -1,4 +1,5 @@
 import
+  results,
   std/[tables, sequtils],
   stew/byteutils,
   chronicles,
@@ -35,13 +36,13 @@ const bootstrapNode =
 const wakuPort = 50000
 const discv5Port = 8000
 
-proc setupAndSubscribe(rng: ref HmacDrbgContext) {.async.} =
+proc setupAndSubscribe(rng: crypto.Rng) {.async.} =
   # use notice to filter all waku messaging
   setupLog(logging.LogLevel.NOTICE, logging.LogFormat.TEXT)
 
   notice "starting subscriber", wakuPort = wakuPort, discv5Port = discv5Port
   let
-    nodeKey = crypto.PrivateKey.random(Secp256k1, rng[])[]
+    nodeKey = crypto.PrivateKey.random(Secp256k1, rng)[]
     ip = parseIpAddress("0.0.0.0")
     flags = CapabilitiesBitfield.init(relay = true)
 
@@ -61,7 +62,7 @@ proc setupAndSubscribe(rng: ref HmacDrbgContext) {.async.} =
   discard bootstrapNodeEnr.fromURI(bootstrapNode)
 
   let discv5Conf = WakuDiscoveryV5Config(
-    discv5Config: none(DiscoveryConfig),
+    discv5Config: Opt.none(DiscoveryConfig),
     address: ip,
     port: Port(discv5Port),
     privateKey: keys.PrivateKey(nodeKey.skkey),
@@ -73,8 +74,8 @@ proc setupAndSubscribe(rng: ref HmacDrbgContext) {.async.} =
   let wakuDiscv5 = WakuDiscoveryV5.new(
     node.rng,
     discv5Conf,
-    some(node.enr),
-    some(node.peerManager),
+    Opt.some(node.enr),
+    Opt.some(node.peerManager),
     node.topicSubscriptionQueue,
   )
 

@@ -1,5 +1,5 @@
 import
-  std/[options, sequtils, strutils],
+  std/[sequtils, strutils],
   results,
   chronos,
   chronicles,

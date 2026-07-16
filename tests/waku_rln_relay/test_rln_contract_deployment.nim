@@ -2,7 +2,7 @@
 
 {.push raises: [].}
 
-import std/[options, os], results, testutils/unittests, chronos, web3
+import std/os, results, testutils/unittests, chronos, web3
 
 import
   logos_delivery/waku/
@@ -12,7 +12,8 @@ import
 suite "Token and RLN Contract Deployment":
   test "anvil should dump state to file on exit":
     # git will ignore this file, if the contract has been updated and the state file needs to be regenerated then this file can be renamed to replace the one in the repo (tests/waku_rln_relay/anvil_state/tests/waku_rln_relay/anvil_state/state-deployed-contracts-mint-and-approved.json)
-    let testStateFile = some("tests/waku_rln_relay/anvil_state/anvil_state.ignore.json")
+    let testStateFile =
+      Opt.some("tests/waku_rln_relay/anvil_state/anvil_state.ignore.json")
     let anvilProc = runAnvil(stateFile = testStateFile, dumpStateOnExit = true)
     let manager = waitFor setupOnchainGroupManager(deployContracts = true)
 

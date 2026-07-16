@@ -1,5 +1,5 @@
-import logos_delivery/waku/compat/option_valueor
-import std/[sequtils, sets, tables, options], chronos, chronicles, metrics, results
+import std/[sequtils, sets, tables], chronos, chronicles, metrics, results
+
 import libp2p/[peerid, peerinfo]
 import brokers/broker_context
 
@@ -479,7 +479,7 @@ proc selectFilterCandidates(
 
   # Start with every filter server peer that can serve the shard
   var allCandidates = self.node.peerManager.selectPeers(
-    filter_common.WakuFilterSubscribeCodec, some(shard)
+    filter_common.WakuFilterSubscribeCodec, Opt.some(shard)
   )
 
   # Remove all already used in this shard or being filter-subscribed for it

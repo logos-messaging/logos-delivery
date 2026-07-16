@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, strutils],
+  std/strutils,
   testutils/unittests,
   chronos,
   libp2p/crypto/[crypto, secp],

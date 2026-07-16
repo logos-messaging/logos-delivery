@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, sequtils, algorithm], testutils/unittests, libp2p/protobuf/minprotobuf
+  results, std/[sequtils, algorithm], testutils/unittests, libp2p/protobuf/minprotobuf
 import
   logos_delivery/waku/[
     waku_archive,
@@ -41,7 +41,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 2
-      cursor: Option[Index] = some(indexList[3])
+      cursor: Opt[Index] = Opt.some(indexList[3])
       forward: bool = true
 
     ## When
@@ -57,7 +57,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 2
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward: bool = true
 
     ## When
@@ -73,7 +73,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 13
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward: bool = true
 
     ## When
@@ -90,7 +90,7 @@ procSuite "Queue driver - pagination":
     let driver = getTestQueueDriver(0)
     let
       pageSize: uint = 2
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward: bool = true
 
     ## When
@@ -105,7 +105,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 10
-      cursor: Option[Index] = some(indexList[3])
+      cursor: Opt[Index] = Opt.some(indexList[3])
       forward: bool = true
 
     ## When
@@ -121,7 +121,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = MaxPageSize + 1
-      cursor: Option[Index] = some(indexList[3])
+      cursor: Opt[Index] = Opt.some(indexList[3])
       forward: bool = true
 
     ## When
@@ -136,7 +136,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 10
-      cursor: Option[Index] = some(indexList[9])
+      cursor: Opt[Index] = Opt.some(indexList[9])
       forward: bool = true
 
     ## When
@@ -154,7 +154,7 @@ procSuite "Queue driver - pagination":
 
     let
       pageSize: uint = 10
-      cursor: Option[Index] = some(index)
+      cursor: Opt[Index] = Opt.some(index)
       forward: bool = true
 
     ## When
@@ -170,7 +170,7 @@ procSuite "Queue driver - pagination":
     let driver = getTestQueueDriver(1)
     let
       pageSize: uint = 10
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward: bool = true
 
     ## When
@@ -186,7 +186,7 @@ procSuite "Queue driver - pagination":
     let driver = getTestQueueDriver(1)
     let
       pageSize: uint = 10
-      cursor: Option[Index] = some(indexList[0])
+      cursor: Opt[Index] = Opt.some(indexList[0])
       forward: bool = true
 
     ## When
@@ -201,7 +201,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 3
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward = true
 
     proc onlyEvenTimes(index: Index, msg: WakuMessage): bool =
@@ -221,7 +221,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 2
-      cursor: Option[Index] = some(indexList[3])
+      cursor: Opt[Index] = Opt.some(indexList[3])
       forward: bool = false
 
     ## When
@@ -237,7 +237,7 @@ procSuite "Queue driver - pagination":
     let driver = getTestQueueDriver(0)
     let
       pageSize: uint = 2
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward: bool = false
 
     ## When
@@ -252,7 +252,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 2
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward: bool = false
 
     ## When
@@ -268,7 +268,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 13
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward: bool = false
 
     ## When
@@ -284,7 +284,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 5
-      cursor: Option[Index] = some(indexList[3])
+      cursor: Opt[Index] = Opt.some(indexList[3])
       forward: bool = false
 
     ## When
@@ -299,7 +299,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = MaxPageSize + 1
-      cursor: Option[Index] = some(indexList[3])
+      cursor: Opt[Index] = Opt.some(indexList[3])
       forward: bool = false
 
     ## When
@@ -314,7 +314,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 5
-      cursor: Option[Index] = some(indexList[0])
+      cursor: Opt[Index] = Opt.some(indexList[0])
       forward: bool = false
 
     ## When
@@ -332,7 +332,7 @@ procSuite "Queue driver - pagination":
 
     let
       pageSize: uint = 2
-      cursor: Option[Index] = some(index)
+      cursor: Opt[Index] = Opt.some(index)
       forward: bool = false
 
     ## When
@@ -348,7 +348,7 @@ procSuite "Queue driver - pagination":
     let driver = getTestQueueDriver(1)
     let
       pageSize: uint = 10
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward: bool = false
 
     ## When
@@ -364,7 +364,7 @@ procSuite "Queue driver - pagination":
     let driver = getTestQueueDriver(1)
     let
       pageSize: uint = 10
-      cursor: Option[Index] = some(indexList[0])
+      cursor: Opt[Index] = Opt.some(indexList[0])
       forward: bool = false
 
     ## When
@@ -379,7 +379,7 @@ procSuite "Queue driver - pagination":
     ## Given
     let
       pageSize: uint = 3
-      cursor: Option[Index] = none(Index)
+      cursor: Opt[Index] = Opt.none(Index)
       forward = false
 
     proc onlyOddTimes(index: Index, msg: WakuMessage): bool =

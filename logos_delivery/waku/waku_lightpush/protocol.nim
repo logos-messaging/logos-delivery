@@ -1,15 +1,7 @@
 import libp2p/crypto/crypto
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import
-  std/[options, strutils],
-  results,
-  stew/byteutils,
-  chronicles,
-  chronos,
-  metrics,
-  bearssl/rand
+import std/strutils, results, stew/byteutils, chronicles, chronos, metrics, bearssl/rand
 import
   ../node/peer_manager/peer_manager,
   ../waku_core,
@@ -28,7 +20,7 @@ type WakuLightPush* = ref object of LPProtocol
   peerManager*: PeerManager
   pushHandler*: PushMessageHandler
   requestRateLimiter*: RequestRateLimiter
-  autoSharding: Option[Sharding]
+  autoSharding: Opt[Sharding]
 
 proc handleRequest(
     wl: WakuLightPush, peerId: PeerId, pushRequest: LightpushRequest
@@ -38,29 +30,30 @@ proc handleRequest(
       let msg = "Pubsub topic must be specified when static sharding is enabled"
       error "lightpush request handling error", error = msg
       return WakuLightPushResult.err(
-        (code: LightPushErrorCode.INVALID_MESSAGE, desc: some(msg))
+        (code: LightPushErrorCode.INVALID_MESSAGE, desc: Opt.some(msg))
       )
 
     let parsedTopic = NsContentTopic.parse(pushRequest.message.contentTopic).valueOr:
       let msg = "Invalid content-topic:" & $error
       error "lightpush request handling error", error = msg
       return WakuLightPushResult.err(
-        (code: LightPushErrorCode.INVALID_MESSAGE, desc: some(msg))
+        (code: LightPushErrorCode.INVALID_MESSAGE, desc: Opt.some(msg))
       )
 
     wl.autoSharding.get().getShard(parsedTopic).valueOr:
       let msg = "Auto-sharding error: " & error
       error "lightpush request handling error", error = msg
       return WakuLightPushResult.err(
-        (code: LightPushErrorCode.INTERNAL_SERVER_ERROR, desc: some(msg))
+        (code: LightPushErrorCode.INTERNAL_SERVER_ERROR, desc: Opt.some(msg))
       )
 
   # ensure checking topic will not cause error at gossipsub level
   if pubsubTopic.isEmptyOrWhitespace():
     let msg = "topic must not be empty"
     error "lightpush request handling error", error = msg
-    return
-      WakuLightPushResult.err((code: LightPushErrorCode.BAD_REQUEST, desc: some(msg)))
+    return WakuLightPushResult.err(
+      (code: LightPushErrorCode.BAD_REQUEST, desc: Opt.some(msg))
+    )
 
   waku_lightpush_v3_messages.inc(labelValues = ["PushRequest"])
 
@@ -89,13 +82,13 @@ proc handleRequest*(
     return LightPushResponse(
       requestId: "N/A", # due to decode failure we don't know requestId
       statusCode: errorCode,
-      statusDesc: some(desc),
+      statusDesc: Opt.some(desc),
     )
 
   let relayPeerCount = (await wl.handleRequest(peerId, request)).valueOr:
     let desc = error.desc
     waku_lightpush_v3_errors.inc(labelValues = [$error.code])
-    error "failed to push message", error = desc
+    error "failed to push message", error = desc.get("")
     return LightPushResponse(
       requestId: request.requestId, statusCode: error.code, statusDesc: desc
     )
@@ -103,8 +96,8 @@ proc handleRequest*(
   return LightPushResponse(
     requestId: request.requestId,
     statusCode: LightPushSuccessCode.SUCCESS,
-    statusDesc: none[string](),
-    relayPeerCount: some(relayPeerCount),
+    statusDesc: Opt.none(string),
+    relayPeerCount: Opt.some(relayPeerCount),
   )
 
 proc initProtocolHandler(wl: WakuLightPush) =
@@ -140,7 +133,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
           ## attack surface
           requestId: "N/A",
           statusCode: LightPushErrorCode.TOO_MANY_REQUESTS,
-          statusDesc: some(TooManyRequestsMessage),
+          statusDesc: Opt.some(TooManyRequestsMessage),
         )
       )
 
@@ -160,8 +153,8 @@ proc new*(
     peerManager: PeerManager,
     rng: crypto.Rng,
     pushHandler: PushMessageHandler,
-    autoSharding: Option[Sharding],
-    rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
+    autoSharding: Opt[Sharding],
+    rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
 ): T =
   let wl = WakuLightPush(
     rng: rng,

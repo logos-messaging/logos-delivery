@@ -1,19 +1,21 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
+import std/options, std/[strformat, sugar], results
+
+import chronicles, uri, json_serialization, presto/route
 import
-  std/[strformat, sugar], results, chronicles, uri, json_serialization, presto/route
-import
-  ../../../waku_core,
-  ../../../waku_store/common,
-  ../../../waku_store/self_req_handler,
-  ../../../waku_node,
-  ../../../node/peer_manager,
-  ../../../common/paging,
-  ../../handlers,
-  ../responses,
-  ../serdes,
-  ./types
+  logos_delivery/waku/[
+    waku_core,
+    waku_store/common,
+    waku_store/self_req_handler,
+    waku_node,
+    node/peer_manager,
+    common/paging,
+    rest_api/handlers,
+    rest_api/endpoint/responses,
+    rest_api/endpoint/serdes,
+    rest_api/endpoint/store/types,
+  ]
 
 export types
 
@@ -54,20 +56,20 @@ proc performStoreQuery(
 
   return resp
 
-# Converts a string time representation into an Option[Timestamp].
+# Converts a string time representation into an Opt[Timestamp].
 # Only positive time is considered a valid Timestamp in the request
-proc parseTime(input: Option[string]): Result[Option[Timestamp], string] =
+proc parseTime(input: Opt[string]): Result[Opt[Timestamp], string] =
   if input.isSome() and input.get() != "":
     try:
       let time = parseInt(input.get())
       if time > 0:
-        return ok(some(Timestamp(time)))
+        return ok(Opt.some(Timestamp(time)))
     except ValueError:
       return err("time parsing error: " & getCurrentExceptionMsg())
 
-  return ok(none(Timestamp))
+  return ok(Opt.none(Timestamp))
 
-proc parseIncludeData(input: Option[string]): Result[bool, string] =
+proc parseIncludeData(input: Opt[string]): Result[bool, string] =
   var includeData = false
   if input.isSome() and input.get() != "":
     try:
@@ -79,24 +81,24 @@ proc parseIncludeData(input: Option[string]): Result[bool, string] =
 
 # Creates a HistoryQuery from the given params
 proc createStoreQuery(
-    includeData: Option[string],
-    pubsubTopic: Option[string],
-    contentTopics: Option[string],
-    startTime: Option[string],
-    endTime: Option[string],
-    hashes: Option[string],
-    cursor: Option[string],
-    direction: Option[string],
-    pageSize: Option[string],
+    includeData: Opt[string],
+    pubsubTopic: Opt[string],
+    contentTopics: Opt[string],
+    startTime: Opt[string],
+    endTime: Opt[string],
+    hashes: Opt[string],
+    cursor: Opt[string],
+    direction: Opt[string],
+    pageSize: Opt[string],
 ): Result[StoreQueryRequest, string] =
   var parsedIncludeData = ?parseIncludeData(includeData)
 
   # Parse pubsubTopic parameter
-  var parsedPubsubTopic = none(string)
+  var parsedPubsubTopic = Opt.none(string)
   if pubsubTopic.isSome():
     let decodedPubsubTopic = decodeUrl(pubsubTopic.get())
     if decodedPubsubTopic != "":
-      parsedPubsubTopic = some(decodedPubsubTopic)
+      parsedPubsubTopic = Opt.some(decodedPubsubTopic)
 
   # Parse the content topics
   var parsedContentTopics = newSeq[ContentTopic](0)
@@ -123,20 +125,20 @@ proc createStoreQuery(
     parsedDirection = direction.get().into()
 
   # Parse page size field
-  var parsedPagedSize = none(uint64)
+  var parsedPagedSize = Opt.none(uint64)
   if pageSize.isSome() and pageSize.get() != "":
     try:
-      parsedPagedSize = some(uint64(parseInt(pageSize.get())))
+      parsedPagedSize = Opt.some(uint64(parseInt(pageSize.get())))
     except CatchableError:
       return err("page size parsing error: " & getCurrentExceptionMsg())
 
   # Enforce default value of page_size to 20
   if parsedPagedSize.isNone():
-    parsedPagedSize = some(20.uint64)
+    parsedPagedSize = Opt.some(20.uint64)
 
   # Enforce max value of page_size to 100
   if parsedPagedSize.get() > 100:
-    parsedPagedSize = some(100.uint64)
+    parsedPagedSize = Opt.some(100.uint64)
 
   return ok(
     StoreQueryRequest(
@@ -152,13 +154,11 @@ proc createStoreQuery(
     )
   )
 
-# Simple type conversion. The "Option[Result[string, cstring]]"
-# type is used by the nim-presto library.
-proc toOpt(self: Option[Result[string, cstring]]): Option[string] =
+proc toOpt(self: Option[Result[string, cstring]]): Opt[string] =
   if not self.isSome() or self.get().value == "":
-    return none(string)
+    return Opt.none(string)
   if self.isSome() and self.get().value != "":
-    return some(self.get().value)
+    return Opt.some(self.get().value)
 
 proc retrieveMsgsFromSelfNode(
     self: WakuNode, storeQuery: StoreQueryRequest
@@ -183,7 +183,7 @@ proc retrieveMsgsFromSelfNode(
 proc installStoreApiHandlers*(
     router: var RestRouter,
     node: WakuNode,
-    discHandler: Option[DiscoveryHandler] = none(DiscoveryHandler),
+    discHandler: Opt[DiscoveryHandler] = Opt.none(DiscoveryHandler),
 ) =
   # Handles the store-query request according to the passed parameters
   router.api(MethodGet, "/store/v3/messages") do(

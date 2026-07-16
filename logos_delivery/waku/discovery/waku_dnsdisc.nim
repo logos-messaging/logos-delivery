@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 ## A set of utilities to integrate EIP-1459 DNS-based discovery
@@ -7,7 +6,7 @@ import logos_delivery/waku/compat/option_valueor
 ## EIP-1459 is defined in https://eips.ethereum.org/EIPS/eip-1459
 
 import
-  std/[options, net, sequtils, sugar],
+  std/[net, sequtils, sugar],
   chronicles,
   chronos,
   metrics,

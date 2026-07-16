@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 ## RequestRateLimiter
 ##
 ## RequestRateLimiter is a general service protection mechanism.
@@ -17,11 +16,7 @@ import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, math],
-  chronicles,
-  chronos/timer,
-  libp2p/stream/connection,
-  libp2p/utility
+  results, std/math, chronicles, chronos/timer, libp2p/stream/connection, libp2p/utility
 
 import std/times except TimeInterval, Duration, seconds, minutes
 
@@ -41,7 +36,7 @@ const MINUTES_RATIO = 2
 
 type RequestRateLimiter* = ref object of RootObj
   tokenBucket: TokenBucket
-  setting*: Option[RateLimitSetting]
+  setting*: Opt[RateLimitSetting]
   mainBucketSetting: RateLimitSetting
   ratio: int
   peerBucketSetting*: RateLimitSetting
@@ -80,7 +75,7 @@ proc mgetOrPut(
     requestRateLimiter: var RequestRateLimiter, peerId: PeerId, now: Moment
 ): var TokenBucket =
   let bucketForNew = newTokenBucket(
-    some(requestRateLimiter.peerBucketSetting), Discrete, now
+    Opt.some(requestRateLimiter.peerBucketSetting), Discrete, now
   ).valueOr:
     raiseAssert "This branch is not allowed to be reached as it will not be called if the setting is None."
 
@@ -137,7 +132,7 @@ template checkUsageLimit*(
     bodyRejected
 
 # TODO: review these ratio assumptions! Debatable!
-func calcPeriodRatio(settingOpt: Option[RateLimitSetting]): int =
+func calcPeriodRatio(settingOpt: Opt[RateLimitSetting]): int =
   settingOpt.withValue(setting):
     if setting.isUnlimited():
       return UNLIMITED_RATIO
@@ -155,7 +150,7 @@ func calcPeriodRatio(settingOpt: Option[RateLimitSetting]): int =
 
 # calculates peer cache items timeout
 # effectively if a peer does not issue any requests for this amount of time will be forgotten.
-func calcCacheTimeout(settingOpt: Option[RateLimitSetting], ratio: int): Duration =
+func calcCacheTimeout(settingOpt: Opt[RateLimitSetting], ratio: int): Duration =
   settingOpt.withValue(setting):
     if setting.isUnlimited():
       return UNLIMITED_TIMEOUT
@@ -167,7 +162,7 @@ func calcCacheTimeout(settingOpt: Option[RateLimitSetting], ratio: int): Duratio
     return UNLIMITED_TIMEOUT
 
 func calcPeerTokenSetting(
-    setting: Option[RateLimitSetting], ratio: int
+    setting: Opt[RateLimitSetting], ratio: int
 ): RateLimitSetting =
   let s = setting.valueOr:
     return (0, 0.minutes)
@@ -178,7 +173,7 @@ func calcPeerTokenSetting(
 
   return (peerVolume, peerPeriod)
 
-proc newRequestRateLimiter*(setting: Option[RateLimitSetting]): RequestRateLimiter =
+proc newRequestRateLimiter*(setting: Opt[RateLimitSetting]): RequestRateLimiter =
   let ratio = calcPeriodRatio(setting)
   let isLimited = setting.isSome() and not setting.get().isUnlimited()
   let mainBucketSetting =

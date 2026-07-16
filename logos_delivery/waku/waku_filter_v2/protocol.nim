@@ -1,10 +1,10 @@
-import logos_delivery/waku/compat/option_valueor
 ## Waku Filter protocol for subscribing and filtering messages
 
 {.push raises: [].}
 
 import
-  std/[options, sequtils, sets, tables],
+  results,
+  std/[sequtils, sets, tables],
   stew/byteutils,
   chronicles,
   chronos,
@@ -48,7 +48,7 @@ proc setSubscriptionTimeout*(wf: WakuFilter, newTimeout: Duration) =
 proc subscribe(
     wf: WakuFilter,
     peerId: PeerID,
-    pubsubTopic: Option[PubsubTopic],
+    pubsubTopic: Opt[PubsubTopic],
     contentTopics: seq[ContentTopic],
 ): Future[FilterSubscribeResult] {.async.} =
   # TODO: check if this condition is valid???
@@ -81,7 +81,7 @@ proc subscribe(
 proc unsubscribe(
     wf: WakuFilter,
     peerId: PeerID,
-    pubsubTopic: Option[PubsubTopic],
+    pubsubTopic: Opt[PubsubTopic],
     contentTopics: seq[ContentTopic],
 ): FilterSubscribeResult =
   if pubsubTopic.isNone() or contentTopics.len == 0:
@@ -163,7 +163,7 @@ proc handleSubscribeRequest*(
     return FilterSubscribeResponse(
       requestId: request.requestId,
       statusCode: error.kind.uint32,
-      statusDesc: some($error),
+      statusDesc: Opt.some($error),
     )
   return FilterSubscribeResponse.ok(request.requestId)
 
@@ -331,7 +331,7 @@ proc initProtocolHandler(wf: WakuFilter) =
       response = FilterSubscribeResponse(
         requestId: "N/A",
         statusCode: FilterSubscribeErrorKind.TOO_MANY_REQUESTS.uint32,
-        statusDesc: some("filter request rejected due rate limit exceeded"),
+        statusDesc: Opt.some("filter request rejected due rate limit exceeded"),
       )
 
     try:
@@ -360,7 +360,7 @@ proc new*(
     maxFilterPeers: uint32 = MaxFilterPeers,
     maxFilterCriteriaPerPeer: uint32 = MaxFilterCriteriaPerPeer,
     messageCacheTTL: Duration = MessageCacheTTL,
-    rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
+    rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
 ): T =
   let wf = WakuFilter(
     subscriptions: FilterSubscriptions.new(

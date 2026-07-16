@@ -1,4 +1,4 @@
-import std/[tables, sequtils, options]
+import std/[tables, sequtils]
 
 import logos_delivery/waku/waku_core/topics, ../testlib/wakucore
 

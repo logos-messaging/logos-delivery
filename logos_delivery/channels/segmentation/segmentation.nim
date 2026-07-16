@@ -9,8 +9,7 @@
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/options
-import ./segment_message_proto
+import results, ./segment_message_proto
 import ./segmentation_persistence
 
 export segment_message_proto, segmentation_persistence
@@ -54,12 +53,12 @@ proc performSegmentation*(
 
 proc handleIncomingSegment*(
     self: SegmentationHandler, segmentBytes: seq[byte]
-): Option[ReassemblyResult] =
+): Opt[ReassemblyResult] =
   ## Skeleton behaviour: every segment is already a complete message
   ## (since `performSegmentation` always emits one), so just hand the
   ## payload straight back.
   let segment = SegmentMessageProto.decode(segmentBytes)
-  return some(
+  return Opt.some(
     ReassemblyResult(
       payload: segment.payload, entireMessageHash: segment.entireMessageHash
     )

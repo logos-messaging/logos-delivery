@@ -1,4 +1,4 @@
-import std/[json, sugar, options]
+import std/[json, sugar]
 import chronos, chronicles, results, ffi
 import
   logos_delivery,
@@ -24,17 +24,17 @@ func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
 
   let pubsubTopic =
     if jsonContent.contains("pubsubTopic"):
-      some(jsonContent["pubsubTopic"].getStr())
+      Opt.some(jsonContent["pubsubTopic"].getStr())
     else:
-      none(string)
+      Opt.none(string)
 
   let paginationCursor =
     if jsonContent.contains("paginationCursor"):
       let hash = jsonContent["paginationCursor"].getStr().hexToHash().valueOr:
           return err("Failed converting paginationCursor hex string to bytes: " & error)
-      some(hash)
+      Opt.some(hash)
     else:
-      none(WakuMessageHash)
+      Opt.none(WakuMessageHash)
 
   let paginationForwardBool = jsonContent["paginationForward"].getBool()
   let paginationForward =
@@ -42,9 +42,9 @@ func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
 
   let paginationLimit =
     if jsonContent.contains("paginationLimit"):
-      some(uint64(jsonContent["paginationLimit"].getInt()))
+      Opt.some(uint64(jsonContent["paginationLimit"].getInt()))
     else:
-      none(uint64)
+      Opt.none(uint64)
 
   let startTime = ?jsonContent.getProtoInt64("timeStart")
   let endTime = ?jsonContent.getProtoInt64("timeEnd")

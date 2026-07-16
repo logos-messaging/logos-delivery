@@ -1,7 +1,8 @@
 {.push raises: [].}
 
 import
-  std/[tables, typetraits, options, os],
+  results,
+  std/[options, tables, typetraits, os],
   serialization/object_serialization,
   serialization/errors
 import ./utils
@@ -49,6 +50,22 @@ proc readValue*[T](r: var EnvvarReader, value: var T) {.raises: [SerializationEr
         SerializationError,
         "Couldn't getValue SomePrimitives: " & getCurrentExceptionMsg(),
       )
+  elif T is Opt:
+    template getUnderlyingType[T](_: Opt[T]): untyped =
+      T
+
+    let key = constructKey(r.prefix, r.key)
+    if os.existsEnv(key):
+      type uType = getUnderlyingType(value)
+      when uType is string:
+        value = Opt.some(os.getEnv(key))
+      else:
+        try:
+          value = Opt.some(r.readValue(uType))
+        except ValueError, IOError:
+          raise newException(
+            SerializationError, "Couldn't read Opt value: " & getCurrentExceptionMsg()
+          )
   elif T is Option:
     template getUnderlyingType[T](_: Option[T]): untyped =
       T
@@ -57,10 +74,10 @@ proc readValue*[T](r: var EnvvarReader, value: var T) {.raises: [SerializationEr
     if os.existsEnv(key):
       type uType = getUnderlyingType(value)
       when uType is string:
-        value = some(os.getEnv(key))
+        value = options.some(os.getEnv(key))
       else:
         try:
-          value = some(r.readValue(uType))
+          value = options.some(r.readValue(uType))
         except ValueError, IOError:
           raise newException(
             SerializationError,

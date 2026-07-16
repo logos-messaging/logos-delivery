@@ -1,5 +1,5 @@
-import std/options, results
 import
+  results,
   logos_delivery/waku/
     [node/peer_manager, node/waku_node, waku_enr/sharding, common/enr/typed_record],
   ../testlib/[wakucore]

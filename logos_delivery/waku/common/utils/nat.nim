@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[options, strutils, net]
+import std/[strutils, net]
 import chronicles, eth/net/nat, results, nativesockets
 
 logScope:
@@ -18,9 +18,9 @@ var singletonNat: bool = false
 # TODO: pass `NatStrategy`, not a string
 proc setupNat*(
     natConf, clientId: string, tcpPort, udpPort: Port
-): Result[
-    tuple[ip: Option[IpAddress], tcpPort: Option[Port], udpPort: Option[Port]], string
-] {.gcsafe.} =
+): Result[tuple[ip: Opt[IpAddress], tcpPort: Opt[Port], udpPort: Opt[Port]], string] {.
+    gcsafe
+.} =
   let strategy =
     case natConf.toLowerAscii()
     of "any": NatAny
@@ -29,8 +29,7 @@ proc setupNat*(
     of "pmp": NatPmp
     else: NatNone
 
-  var endpoint:
-    tuple[ip: Option[IpAddress], tcpPort: Option[Port], udpPort: Option[Port]]
+  var endpoint: tuple[ip: Opt[IpAddress], tcpPort: Opt[Port], udpPort: Opt[Port]]
 
   if strategy != NatNone:
     ## Only initialize the NAT module once
@@ -47,7 +46,7 @@ proc setupNat*(
         warn "exception in setupNat", error = getCurrentExceptionMsg()
 
       if extIP.isSome():
-        endpoint.ip = some(extIp.get())
+        endpoint.ip = Opt.some(extIp.get())
         # RedirectPorts in considered a gcsafety violation
         # because it obtains the address of a non-gcsafe proc?
         var extPorts: Opt[(Port, Port)]
@@ -65,15 +64,15 @@ proc setupNat*(
 
         if extPorts.isSome():
           let (extTcpPort, extUdpPort) = extPorts.get()
-          endpoint.tcpPort = some(extTcpPort)
-          endpoint.udpPort = some(extUdpPort)
+          endpoint.tcpPort = Opt.some(extTcpPort)
+          endpoint.udpPort = Opt.some(extUdpPort)
   else: # NatNone
     if not natConf.startsWith("extip:"):
       return err("not a valid NAT mechanism: " & $natConf)
 
     try:
       # any required port redirection is assumed to be done by hand
-      endpoint.ip = some(parseIpAddress(natConf[6 ..^ 1]))
+      endpoint.ip = Opt.some(parseIpAddress(natConf[6 ..^ 1]))
     except ValueError:
       return err("not a valid IP address: " & $natConf[6 ..^ 1])
 

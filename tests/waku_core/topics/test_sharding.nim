@@ -1,4 +1,4 @@
-import std/[options, tables], testutils/unittests
+import results, std/tables, testutils/unittests
 
 import logos_delivery/waku/waku_core/topics, ../../testlib/[wakucore, tables, testutils]
 
@@ -143,7 +143,7 @@ suite "Autosharding":
       let sharding =
         Sharding(clusterId: ClusterId, shardCountGenZero: GenerationZeroShardsCount)
       # When calling with contentTopic as string
-      let topicMap = sharding.parseSharding(some(pubsubTopic04), contentTopicShort)
+      let topicMap = sharding.parseSharding(Opt.some(pubsubTopic04), contentTopicShort)
 
       # Then the topicMap is valid
       check:
@@ -154,7 +154,7 @@ suite "Autosharding":
         Sharding(clusterId: ClusterId, shardCountGenZero: GenerationZeroShardsCount)
       # When calling with contentTopic as string seq
       let topicMap = sharding.parseSharding(
-        some(pubsubTopic04), @[contentTopicShort, "/0/foo/1/bar/proto"]
+        Opt.some(pubsubTopic04), @[contentTopicShort, "/0/foo/1/bar/proto"]
       )
 
       # Then the topicMap is valid
@@ -165,7 +165,7 @@ suite "Autosharding":
       let sharding =
         Sharding(clusterId: ClusterId, shardCountGenZero: GenerationZeroShardsCount)
       # When calling with pubsubTopic as none
-      let topicMap = sharding.parseSharding(PubsubTopic.none(), contentTopicShort)
+      let topicMap = sharding.parseSharding(Opt.none(PubsubTopic), contentTopicShort)
 
       # Then the topicMap is valid
       check:
@@ -175,7 +175,7 @@ suite "Autosharding":
       let sharding =
         Sharding(clusterId: ClusterId, shardCountGenZero: GenerationZeroShardsCount)
       # When calling with pubsubTopic as none with invalid content
-      let topicMap = sharding.parseSharding(PubsubTopic.none(), "invalid")
+      let topicMap = sharding.parseSharding(Opt.none(PubsubTopic), "invalid")
 
       # Then the topicMap is valid
       check:
@@ -186,7 +186,7 @@ suite "Autosharding":
       let sharding =
         Sharding(clusterId: ClusterId, shardCountGenZero: GenerationZeroShardsCount)
       # When calling with pubsubTopic as none with invalid content
-      let topicMap = sharding.parseSharding(some("invalid"), contentTopicShort)
+      let topicMap = sharding.parseSharding(Opt.some("invalid"), contentTopicShort)
 
       # Then the topicMap is valid
       check:
@@ -197,7 +197,7 @@ suite "Autosharding":
       let sharding =
         Sharding(clusterId: ClusterId, shardCountGenZero: GenerationZeroShardsCount)
       # When calling with pubsubTopic as none with invalid content
-      let topicMap = sharding.parseSharding(PubsubTopic.none(), contentTopicInvalid)
+      let topicMap = sharding.parseSharding(Opt.none(PubsubTopic), contentTopicInvalid)
 
       # Then the topicMap is valid
       check:

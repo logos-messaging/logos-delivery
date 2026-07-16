@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, net],
+  std/net,
   results,
   testutils/unittests,
   chronos,
@@ -38,14 +38,15 @@ proc startDiscv5WithAutoPort*(
     record.update(key, udpPort = Opt.some(p)).isOkOr:
       return err("could not set discv5 udp port in enr: " & $error)
     let conf = WakuDiscoveryV5Config(
-      discv5Config: none(DiscoveryConfig),
+      discv5Config: Opt.none(DiscoveryConfig),
       address: bindIp,
       port: p,
       privateKey: key,
       bootstrapRecords: bootstrapRecords,
       autoupdateRecord: true,
     )
-    let wd = WakuDiscoveryV5.new(node.rng, conf, some(record), some(node.peerManager))
+    let wd =
+      WakuDiscoveryV5.new(node.rng, conf, Opt.some(record), Opt.some(node.peerManager))
     (await wd.start()).isOkOr:
       return err(error)
     return ok(wd)

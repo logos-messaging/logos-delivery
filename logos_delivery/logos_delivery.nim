@@ -9,7 +9,6 @@
 
 {.push raises: [].}
 
-import std/options
 import results, chronos, chronicles
 
 # Each layer has a core module (type + new/start/stop) and an api/ folder whose
@@ -111,8 +110,8 @@ proc new*(
   return await LogosDelivery.new(
     LogosDeliveryConf(
       kernelConf: KernelConf(conf),
-      messagingConf: some(MessagingClientConf()),
-      channelsConf: some(ReliableChannelManagerConf()),
+      messagingConf: Opt.some(MessagingClientConf()),
+      channelsConf: Opt.some(ReliableChannelManagerConf()),
     ),
     appCallbacks,
   )
@@ -136,8 +135,8 @@ proc new*(
   return await LogosDelivery.new(
     LogosDeliveryConf(
       kernelConf: kernelConf,
-      messagingConf: some(messagingOverrides),
-      channelsConf: some(channelsOverrides),
+      messagingConf: Opt.some(messagingOverrides),
+      channelsConf: Opt.some(channelsOverrides),
     ),
     appCallbacks,
   )

@@ -1,12 +1,12 @@
-import std/options
+import results
 
 # Implementing the RFC:
 # https://github.com/vacp2p/rfc/tree/master/content/docs/rfcs/73
 
 type
   EligibilityProof* = object
-    proofOfPayment*: Option[seq[byte]]
+    proofOfPayment*: Opt[seq[byte]]
 
   EligibilityStatus* = object
     statusCode*: uint32
-    statusDesc*: Option[string]
+    statusDesc*: Opt[string]

@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, sequtils, strformat, random, algorithm],
+  results,
+  std/[sequtils, strformat, random, algorithm],
   testutils/unittests,
   chronos,
   chronicles
@@ -237,11 +238,11 @@ suite "Postgres driver - queries":
     ## When
     var res = await driver.getMessages(
       contentTopics = @[contentTopic1, contentTopic2],
-      pubsubTopic = some(DefaultPubsubTopic),
+      pubsubTopic = Opt.some(DefaultPubsubTopic),
       maxPageSize = 2,
       ascendingOrder = true,
-      startTime = some(ts(00)),
-      endTime = some(ts(40)),
+      startTime = Opt.some(ts(00)),
+      endTime = Opt.some(ts(40)),
     )
 
     ## Then
@@ -254,11 +255,11 @@ suite "Postgres driver - queries":
     ## statement by querying one single content topic
     res = await driver.getMessages(
       contentTopics = @[contentTopic1],
-      pubsubTopic = some(DefaultPubsubTopic),
+      pubsubTopic = Opt.some(DefaultPubsubTopic),
       maxPageSize = 2,
       ascendingOrder = true,
-      startTime = some(ts(00)),
-      endTime = some(ts(40)),
+      startTime = Opt.some(ts(00)),
+      endTime = Opt.some(ts(40)),
     )
 
     ## Then
@@ -372,7 +373,7 @@ suite "Postgres driver - queries":
 
     ## When
     let res = await driver.getMessages(
-      pubsubTopic = some(pubsubTopic), maxPageSize = 2, ascendingOrder = true
+      pubsubTopic = Opt.some(pubsubTopic), maxPageSize = 2, ascendingOrder = true
     )
 
     ## Then
@@ -483,7 +484,7 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      pubsubTopic = some(pubsubTopic),
+      pubsubTopic = Opt.some(pubsubTopic),
       maxPageSize = 2,
       ascendingOrder = true,
     )
@@ -526,7 +527,7 @@ suite "Postgres driver - queries":
 
     ## When
     let res = await driver.getMessages(
-      cursor = some(cursor), maxPageSize = 2, ascendingOrder = true
+      cursor = Opt.some(cursor), maxPageSize = 2, ascendingOrder = true
     )
 
     ## Then
@@ -566,7 +567,7 @@ suite "Postgres driver - queries":
 
     ## When
     let res = await driver.getMessages(
-      cursor = some(cursor), maxPageSize = 2, ascendingOrder = false
+      cursor = Opt.some(cursor), maxPageSize = 2, ascendingOrder = false
     )
 
     ## Then
@@ -607,10 +608,10 @@ suite "Postgres driver - queries":
     let res = await driver.getMessages(
       includeData = true,
       contentTopics = @[DefaultContentTopic],
-      pubsubTopic = none(PubsubTopic),
-      cursor = some(cursor),
-      startTime = none(Timestamp),
-      endTime = none(Timestamp),
+      pubsubTopic = Opt.none(PubsubTopic),
+      cursor = Opt.some(cursor),
+      startTime = Opt.none(Timestamp),
+      endTime = Opt.none(Timestamp),
       hashes = @[],
       maxPageSize = 5,
       ascendingOrder = true,
@@ -653,7 +654,7 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      cursor = some(cursor),
+      cursor = Opt.some(cursor),
       maxPageSize = 10,
       ascendingOrder = true,
     )
@@ -696,7 +697,7 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      cursor = some(cursor),
+      cursor = Opt.some(cursor),
       maxPageSize = 10,
       ascendingOrder = false,
     )
@@ -764,8 +765,8 @@ suite "Postgres driver - queries":
 
     ## When
     let res = await driver.getMessages(
-      pubsubTopic = some(pubsubTopic),
-      cursor = some(cursor),
+      pubsubTopic = Opt.some(pubsubTopic),
+      cursor = Opt.some(cursor),
       maxPageSize = 10,
       ascendingOrder = true,
     )
@@ -834,8 +835,8 @@ suite "Postgres driver - queries":
 
     ## When
     let res = await driver.getMessages(
-      pubsubTopic = some(pubsubTopic),
-      cursor = some(cursor),
+      pubsubTopic = Opt.some(pubsubTopic),
+      cursor = Opt.some(cursor),
       maxPageSize = 10,
       ascendingOrder = false,
     )
@@ -913,7 +914,7 @@ suite "Postgres driver - queries":
 
     ## When
     let res = await driver.getMessages(
-      startTime = some(ts(15, timeOrigin)), maxPageSize = 10, ascendingOrder = true
+      startTime = Opt.some(ts(15, timeOrigin)), maxPageSize = 10, ascendingOrder = true
     )
 
     ## Then
@@ -952,7 +953,7 @@ suite "Postgres driver - queries":
 
     ## When
     let res = await driver.getMessages(
-      endTime = some(ts(45, timeOrigin)), maxPageSize = 10, ascendingOrder = true
+      endTime = Opt.some(ts(45, timeOrigin)), maxPageSize = 10, ascendingOrder = true
     )
 
     ## Then
@@ -1018,8 +1019,8 @@ suite "Postgres driver - queries":
 
     ## When
     let res = await driver.getMessages(
-      startTime = some(ts(15, timeOrigin)),
-      endTime = some(ts(45, timeOrigin)),
+      startTime = Opt.some(ts(15, timeOrigin)),
+      endTime = Opt.some(ts(45, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = true,
     )
@@ -1063,8 +1064,8 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      startTime = some(ts(45, timeOrigin)),
-      endTime = some(ts(15, timeOrigin)),
+      startTime = Opt.some(ts(45, timeOrigin)),
+      endTime = Opt.some(ts(15, timeOrigin)),
       maxPageSize = 2,
       ascendingOrder = true,
     )
@@ -1105,7 +1106,7 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      startTime = some(ts(15, timeOrigin)),
+      startTime = Opt.some(ts(15, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = true,
     )
@@ -1149,7 +1150,7 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      startTime = some(ts(15, timeOrigin)),
+      startTime = Opt.some(ts(15, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = false,
     )
@@ -1196,8 +1197,8 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      cursor = some(cursor),
-      startTime = some(ts(15, timeOrigin)),
+      cursor = Opt.some(cursor),
+      startTime = Opt.some(ts(15, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = true,
     )
@@ -1244,8 +1245,8 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      cursor = some(cursor),
-      startTime = some(ts(15, timeOrigin)),
+      cursor = Opt.some(cursor),
+      startTime = Opt.some(ts(15, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = false,
     )
@@ -1310,10 +1311,10 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      pubsubTopic = some(pubsubTopic),
-      cursor = some(cursor),
-      startTime = some(ts(0, timeOrigin)),
-      endTime = some(ts(45, timeOrigin)),
+      pubsubTopic = Opt.some(pubsubTopic),
+      cursor = Opt.some(cursor),
+      startTime = Opt.some(ts(0, timeOrigin)),
+      endTime = Opt.some(ts(45, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = true,
     )
@@ -1378,10 +1379,10 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      pubsubTopic = some(pubsubTopic),
-      cursor = some(cursor),
-      startTime = some(ts(35, timeOrigin)),
-      endTime = some(ts(85, timeOrigin)),
+      pubsubTopic = Opt.some(pubsubTopic),
+      cursor = Opt.some(cursor),
+      startTime = Opt.some(ts(35, timeOrigin)),
+      endTime = Opt.some(ts(85, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = false,
     )
@@ -1447,10 +1448,10 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      pubsubTopic = some(pubsubTopic),
-      cursor = some(cursor),
-      startTime = some(ts(35, timeOrigin)),
-      endTime = some(ts(85, timeOrigin)),
+      pubsubTopic = Opt.some(pubsubTopic),
+      cursor = Opt.some(cursor),
+      startTime = Opt.some(ts(35, timeOrigin)),
+      endTime = Opt.some(ts(85, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = true,
     )
@@ -1517,10 +1518,10 @@ suite "Postgres driver - queries":
     ## When
     let res = await driver.getMessages(
       contentTopics = @[contentTopic],
-      pubsubTopic = some(pubsubTopic),
-      cursor = some(cursor),
-      startTime = some(ts(35, timeOrigin)),
-      endTime = some(ts(85, timeOrigin)),
+      pubsubTopic = Opt.some(pubsubTopic),
+      cursor = Opt.some(cursor),
+      startTime = Opt.some(ts(35, timeOrigin)),
+      endTime = Opt.some(ts(85, timeOrigin)),
       maxPageSize = 10,
       ascendingOrder = false,
     )

@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, tables, net],
+  std/[tables, net],
   chronos,
   chronicles,
   metrics,
@@ -33,13 +32,13 @@ logScope:
 
 proc mountPeerExchange*(
     node: WakuNode,
-    cluster: Option[uint16] = none(uint16),
+    cluster: Opt[uint16] = Opt.none(uint16),
     rateLimit: RateLimitSetting = DefaultGlobalNonRelayRateLimit,
 ) {.async: (raises: []).} =
   info "mounting waku peer exchange"
 
   node.wakuPeerExchange =
-    WakuPeerExchange.new(node.peerManager, cluster, some(rateLimit))
+    WakuPeerExchange.new(node.peerManager, cluster, Opt.some(rateLimit))
 
   if node.started:
     try:
@@ -65,7 +64,7 @@ proc fetchPeerExchangePeers*(
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
-        status_desc: some("PeerExchangeClient is not mounted"),
+        status_desc: Opt.some("PeerExchangeClient is not mounted"),
       )
     )
 

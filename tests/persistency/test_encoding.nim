@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[algorithm, options, os, times]
+import std/[algorithm, os, times]
 import chronos, results
 import testutils/unittests
 import logos_delivery/waku/persistency/persistency
@@ -142,7 +142,7 @@ suite "Persistency generic encoding":
 
     # Poll for the row, then read it back as raw bytes.
     let deadline = epochTime() + 1.0
-    var got: Option[seq[byte]]
+    var got: Opt[seq[byte]]
     while epochTime() < deadline:
       let r = await job.get("msg", k)
       check r.isOk

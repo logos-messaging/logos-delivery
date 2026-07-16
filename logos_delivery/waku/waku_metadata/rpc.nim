@@ -1,15 +1,15 @@
 {.push raises: [].}
 
-import std/options
+import results
 
 import ../common/protobuf
 
 type WakuMetadataRequest* = object
-  clusterId*: Option[uint32]
+  clusterId*: Opt[uint32]
   shards*: seq[uint32]
 
 type WakuMetadataResponse* = object
-  clusterId*: Option[uint32]
+  clusterId*: Opt[uint32]
   shards*: seq[uint32]
 
 proc encode*(rpc: WakuMetadataRequest): ProtoBuffer =
@@ -29,9 +29,9 @@ proc decode*(T: type WakuMetadataRequest, buffer: seq[byte]): ProtoResult[T] =
 
   var clusterId: uint64
   if not ?pb.getField(1, clusterId):
-    rpc.clusterId = none(uint32)
+    rpc.clusterId = Opt.none(uint32)
   else:
-    rpc.clusterId = some(clusterId.uint32)
+    rpc.clusterId = Opt.some(clusterId.uint32)
 
   var shards: seq[uint64]
   if ?pb.getPackedRepeatedField(3, shards):
@@ -63,9 +63,9 @@ proc decode*(T: type WakuMetadataResponse, buffer: seq[byte]): ProtoResult[T] =
 
   var clusterId: uint64
   if not ?pb.getField(1, clusterId):
-    rpc.clusterId = none(uint32)
+    rpc.clusterId = Opt.none(uint32)
   else:
-    rpc.clusterId = some(clusterId.uint32)
+    rpc.clusterId = Opt.some(clusterId.uint32)
 
   var shards: seq[uint64]
 

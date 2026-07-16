@@ -1,4 +1,3 @@
-import std/options
 {.used.}
 
 import results, stew/byteutils, testutils/unittests, json_serialization
@@ -25,7 +24,7 @@ suite "Waku v2 REST API - Debug -  serialization":
   suite "DebugWakuInfo - encode":
     test "optional field is none":
       # Given
-      let data = DebugWakuInfo(listenAddresses: @["GO"], enrUri: none(string))
+      let data = DebugWakuInfo(listenAddresses: @["GO"], enrUri: Opt.none(string))
 
       # When
       let res = encodeIntoJsonBytes(data)

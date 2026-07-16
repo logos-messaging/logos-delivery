@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, random, sequtils, packedsets], testutils/unittests, chronos
+import results, std/[random, sequtils, packedsets], testutils/unittests, chronos
 
 import
   ../../logos_delivery/waku/waku_core,
@@ -218,7 +218,7 @@ suite "Waku Sync Storage":
 
     let before = getMonoTime()
 
-    discard storage.fingerprinting(some(0 .. count))
+    discard storage.fingerprinting(Opt.some(0 .. count))
 
     let after = getMonoTime()
 

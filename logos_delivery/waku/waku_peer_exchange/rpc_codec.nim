@@ -1,7 +1,6 @@
 {.push raises: [].}
 
-import std/options
-import ../common/protobuf, ./rpc
+import results, ../common/protobuf, ./rpc
 
 proc encode*(rpc: PeerExchangeRequest): ProtoBuffer =
   var pb = initProtoBuffer()
@@ -79,9 +78,9 @@ proc decode*(T: type PeerExchangeResponse, buffer: seq[byte]): ProtobufResult[T]
 
   var status_desc: string
   if ?pb.getField(11, status_desc):
-    rpc.status_desc = some(status_desc)
+    rpc.status_desc = Opt.some(status_desc)
   else:
-    rpc.status_desc = none(string)
+    rpc.status_desc = Opt.none(string)
 
   ok(rpc)
 

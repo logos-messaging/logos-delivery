@@ -1,6 +1,5 @@
 {.used.}
 
-import std/options
 import testutils/unittests, chronos, chronicles
 import libp2p/switch
 

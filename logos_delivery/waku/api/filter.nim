@@ -1,8 +1,6 @@
 ## Waku layer API — filter (light client) operations.
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/options
 import results, chronos, chronicles
 
 import logos_delivery/waku/waku
@@ -36,7 +34,7 @@ proc filterSubscribe*(
     let peer = self.node.peerManager.selectPeer(WakuFilterSubscribeCodec).valueOr:
       return err("could not find peer with WakuFilterSubscribeCodec when subscribing")
 
-    let subFut = self.node.filterSubscribe(some(pubsubTopic), contentTopics, peer)
+    let subFut = self.node.filterSubscribe(Opt.some(pubsubTopic), contentTopics, peer)
     if not await subFut.withTimeout(FilterOpTimeout):
       return err("filter subscription timed out")
     subFut.read().isOkOr:
@@ -57,7 +55,8 @@ proc filterUnsubscribe*(
     let peer = self.node.peerManager.selectPeer(WakuFilterSubscribeCodec).valueOr:
       return err("could not find peer with WakuFilterSubscribeCodec when unsubscribing")
 
-    let unsubFut = self.node.filterUnsubscribe(some(pubsubTopic), contentTopics, peer)
+    let unsubFut =
+      self.node.filterUnsubscribe(Opt.some(pubsubTopic), contentTopics, peer)
     if not await unsubFut.withTimeout(FilterOpTimeout):
       return err("filter un-subscription timed out")
     unsubFut.read().isOkOr:

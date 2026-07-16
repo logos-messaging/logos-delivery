@@ -1,4 +1,4 @@
-import typetraits, options, tables, os, serialization, ./utils
+import results, std/options, typetraits, tables, os, serialization, ./utils
 
 type EnvvarWriter* = object
   prefix: string
@@ -17,6 +17,9 @@ proc writeValue*(w: var EnvvarWriter, value: auto) =
   elif value is (SomePrimitives or range):
     let key = constructKey(w.prefix, w.key)
     setValue(key, value)
+  elif value is Opt:
+    if value.isSome:
+      w.writeValue value.get
   elif value is Option:
     if value.isSome:
       w.writeValue value.get

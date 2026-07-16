@@ -1,5 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
-import std/[options, sets], chronos, web3, stew/byteutils, stint, results, chronicles
+import std/sets, chronos, web3, stew/byteutils, stint, results
+
+import chronicles
 
 import logos_delivery/waku/incentivization/rpc, tests/waku_rln_relay/utils_onchain
 

@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, net], testutils/unittests, chronos, results
+import std/net, testutils/unittests, chronos, results
 
 import
   logos_delivery/waku/[

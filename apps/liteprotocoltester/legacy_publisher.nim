@@ -1,4 +1,4 @@
-import chronos, results, options
+import chronos, results
 import logos_delivery/waku/[waku_node, waku_core]
 import publisher_base
 
@@ -18,7 +18,7 @@ method send*(
 ): Future[Result[void, string]] {.async.} =
   # when error it must return original error desc due the text is used for distinction between error types in metrics.
   discard (
-    await self.wakuNode.legacyLightpushPublish(some(topic), message, servicePeer)
+    await self.wakuNode.legacyLightpushPublish(Opt.some(topic), message, servicePeer)
   ).valueOr:
     return err(error)
   return ok()

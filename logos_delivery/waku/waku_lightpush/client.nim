@@ -1,8 +1,7 @@
 import libp2p/crypto/crypto
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import std/options, results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
+import results, chronicles, chronos, metrics, bearssl/rand, stew/byteutils
 import libp2p/peerid, libp2p/stream/connection
 import
   ../waku_core/peers,
@@ -35,7 +34,7 @@ proc sendPushRequest(
     wl: WakuLightPushClient,
     req: LightPushRequest,
     peer: PeerId | RemotePeerInfo,
-    conn: Option[Connection] = none(Connection),
+    conn: Opt[Connection] = Opt.none(Connection),
 ): Future[WakuLightPushResult] {.async.} =
   let connection = conn.valueOr:
     (await wl.peerManager.dialPeer(peer, WakuLightPushCodec)).valueOr:
@@ -74,7 +73,7 @@ proc sendPushRequest(
 
 proc publish*(
     wl: WakuLightPushClient,
-    pubSubTopic: Option[PubsubTopic] = none(PubsubTopic),
+    pubSubTopic: Opt[PubsubTopic] = Opt.none(PubsubTopic),
     wakuMessage: WakuMessage,
     dest: Connection | PeerId | RemotePeerInfo,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
@@ -100,7 +99,7 @@ proc publish*(
 
   let relayPeerCount =
     when dest is Connection:
-      ?await wl.sendPushRequest(request, dest.peerId, some(dest))
+      ?await wl.sendPushRequest(request, dest.peerId, Opt.some(dest))
     else:
       ?await wl.sendPushRequest(request, dest)
 
@@ -115,7 +114,7 @@ proc publishToAny*(
     return lighpushErrorResult(
       LightPushErrorCode.NO_PEERS_TO_RELAY, "no suitable remote peers"
     )
-  return await wl.publish(some(pubsubTopic), wakuMessage, peer)
+  return await wl.publish(Opt.some(pubsubTopic), wakuMessage, peer)
 
 proc publishWithConn*(
     wl: WakuLightPushClient,
@@ -124,4 +123,4 @@ proc publishWithConn*(
     conn: Connection,
     destPeer: PeerId,
 ): Future[WakuLightPushResult] {.async, gcsafe.} =
-  return await wl.publish(some(pubSubTopic), message, conn)
+  return await wl.publish(Opt.some(pubSubTopic), message, conn)

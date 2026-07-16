@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[options, tempfiles, osproc, strutils],
+  results,
+  std/[tempfiles, osproc, strutils],
   testutils/unittests,
   chronos,
   std/strformat,
@@ -60,7 +61,7 @@ suite "Waku Lightpush - End To End":
 
       # When the client publishes a message
       let publishResponse = await lightpushClient.lightpushPublish(
-        some(pubsubTopic), message, some(serverRemotePeerInfo)
+        Opt.some(pubsubTopic), message, Opt.some(serverRemotePeerInfo)
       )
 
       if not publishResponse.isOk():
@@ -81,14 +82,16 @@ suite "Waku Lightpush - End To End":
 
       # When the client publishes an over-limit message
       let publishResponse = await client.lightpushPublish(
-        some(pubsubTopic), msgOverLimit, some(serverRemotePeerInfo)
+        Opt.some(pubsubTopic), msgOverLimit, Opt.some(serverRemotePeerInfo)
       )
 
       check:
         publishResponse.isErr()
         publishResponse.error.code == LightPushErrorCode.INVALID_MESSAGE
         publishResponse.error.desc ==
-          some(fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes")
+          Opt.some(
+            fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+          )
 
 suite "RLN Proofs as a Lightpush Service":
   var
@@ -111,7 +114,7 @@ suite "RLN Proofs as a Lightpush Service":
     server = newTestWakuNode(serverKey)
     client = newTestWakuNode(clientKey)
 
-    anvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+    anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
     manager = waitFor setupOnchainGroupManager(deployContracts = false)
 
     # mount rln-relay
@@ -166,11 +169,11 @@ suite "RLN Proofs as a Lightpush Service":
       # proof in lightpushPublish; here we generate it using the server's RLN instance
       # since both ends share group state via the in-memory manager.
       let msgWithProof =
-        (await checkAndGenerateRLNProof(some(server.rln), message)).get()
+        (await checkAndGenerateRLNProof(Opt.some(server.rln), message)).get()
 
       # When the client publishes a message
       let publishResponse = await lightpushClient.lightpushPublish(
-        some(pubsubTopic), msgWithProof, some(serverRemotePeerInfo)
+        Opt.some(pubsubTopic), msgWithProof, Opt.some(serverRemotePeerInfo)
       )
 
       if not publishResponse.isOk():
@@ -186,7 +189,8 @@ suite "RLN Proofs as a Lightpush Service":
       # invalidateMerkleProofCache empties the cached path so the next
       # proof-gen refetches from chain, and attachRLNProof rebuilds the proof
       # even though the message already carries one.
-      let firstMsg = (await checkAndGenerateRLNProof(some(server.rln), message)).get()
+      let firstMsg =
+        (await checkAndGenerateRLNProof(Opt.some(server.rln), message)).get()
       check firstMsg.proof.len > 0
 
       # Corrupt the cache to model a stale/invalid witness — the same state a
@@ -231,7 +235,7 @@ suite "RLN Proofs as a Lightpush Service":
       let goodCache = manager.merkleProofCache
       check goodCache.len > 0
 
-      let response = await server.lightpushPublish(some(pubsubTopic), message)
+      let response = await server.lightpushPublish(Opt.some(pubsubTopic), message)
 
       check:
         # The rejection is surfaced immediately — no internal republish — and
@@ -260,7 +264,7 @@ suite "RLN Proofs as a Lightpush Service":
         )
       server.wakuLightPush.pushHandler = stub
 
-      let response = await server.lightpushPublish(some(pubsubTopic), message)
+      let response = await server.lightpushPublish(Opt.some(pubsubTopic), message)
 
       check:
         callCount == 1
@@ -280,7 +284,7 @@ suite "RLN Proofs as a Lightpush Service":
         return lightpushSuccessResult(1)
       server.wakuLightPush.pushHandler = stub
 
-      let firstResponse = await server.lightpushPublish(some(pubsubTopic), message)
+      let firstResponse = await server.lightpushPublish(Opt.some(pubsubTopic), message)
 
       check:
         firstResponse.isErr()
@@ -288,7 +292,7 @@ suite "RLN Proofs as a Lightpush Service":
 
       # Model the caller-level retry (send service next round, REST handler):
       # a second publish regenerates the proof against the refreshed cache.
-      let secondResponse = await server.lightpushPublish(some(pubsubTopic), message)
+      let secondResponse = await server.lightpushPublish(Opt.some(pubsubTopic), message)
 
       check:
         callCount == 2
@@ -305,7 +309,7 @@ suite "RLN Proofs as a Lightpush Service":
           lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, "unrelated rejection")
       server.wakuLightPush.pushHandler = stub
 
-      let response = await server.lightpushPublish(some(pubsubTopic), message)
+      let response = await server.lightpushPublish(Opt.some(pubsubTopic), message)
 
       check:
         callCount == 1
@@ -323,7 +327,7 @@ suite "RLN Proofs as a Lightpush Service":
         )
       server.wakuLightPush.pushHandler = stub
 
-      let response = await server.lightpushPublish(some(pubsubTopic), message)
+      let response = await server.lightpushPublish(Opt.some(pubsubTopic), message)
 
       check:
         callCount == 1
@@ -347,7 +351,7 @@ suite "RLN Proofs as a Lightpush Service":
         )
       server.wakuLightPush.pushHandler = stub
 
-      let response = await server.lightpushPublish(some(pubsubTopic), message)
+      let response = await server.lightpushPublish(Opt.some(pubsubTopic), message)
 
       server.rln = savedRln
 
@@ -402,7 +406,7 @@ suite "Waku Lightpush message delivery":
     await sleepAsync(100.millis)
 
     ## When
-    let res = await lightNode.lightpushPublish(some(CustomPubsubTopic), message)
+    let res = await lightNode.lightpushPublish(Opt.some(CustomPubsubTopic), message)
     assert res.isOk(), $res.error
     assert res.get() == 1, "Expected to relay the message to 1 node"
 

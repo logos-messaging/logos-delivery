@@ -3,7 +3,7 @@
 import
   chronicles,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   json_serialization/lexer,
   results,
   libp2p/protocols/pubsub/pubsubpeer
@@ -17,7 +17,7 @@ type WakuPeer* = object
   connected*: Connectedness
   agent*: string
   origin*: PeerOrigin
-  score*: Option[float64]
+  score*: Opt[float64]
 
 type WakuPeers* = seq[WakuPeer]
 
@@ -97,44 +97,44 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var WakuPeer
 ) {.gcsafe, raises: [SerializationError, IOError].} =
   var
-    multiaddr: Option[string]
-    protocols: Option[seq[string]]
-    shards: Option[seq[uint16]]
-    connected: Option[Connectedness]
-    agent: Option[string]
-    origin: Option[PeerOrigin]
-    score: Option[float64]
+    multiaddr: Opt[string]
+    protocols: Opt[seq[string]]
+    shards: Opt[seq[uint16]]
+    connected: Opt[Connectedness]
+    agent: Opt[string]
+    origin: Opt[PeerOrigin]
+    score: Opt[float64]
 
   for fieldName in readObjectFields(reader):
     case fieldName
     of "multiaddr":
       if multiaddr.isSome():
         reader.raiseUnexpectedField("Multiple `multiaddr` fields found", "WakuPeer")
-      multiaddr = some(reader.readValue(string))
+      multiaddr = Opt.some(reader.readValue(string))
     of "protocols":
       if protocols.isSome():
         reader.raiseUnexpectedField("Multiple `protocols` fields found", "WakuPeer")
-      protocols = some(reader.readValue(seq[string]))
+      protocols = Opt.some(reader.readValue(seq[string]))
     of "shards":
       if shards.isSome():
         reader.raiseUnexpectedField("Multiple `shards` fields found", "WakuPeer")
-      shards = some(reader.readValue(seq[uint16]))
+      shards = Opt.some(reader.readValue(seq[uint16]))
     of "connected":
       if connected.isSome():
         reader.raiseUnexpectedField("Multiple `connected` fields found", "WakuPeer")
-      connected = some(reader.readValue(Connectedness))
+      connected = Opt.some(reader.readValue(Connectedness))
     of "agent":
       if agent.isSome():
         reader.raiseUnexpectedField("Multiple `agent` fields found", "WakuPeer")
-      agent = some(reader.readValue(string))
+      agent = Opt.some(reader.readValue(string))
     of "origin":
       if origin.isSome():
         reader.raiseUnexpectedField("Multiple `origin` fields found", "WakuPeer")
-      origin = some(reader.readValue(PeerOrigin))
+      origin = Opt.some(reader.readValue(PeerOrigin))
     of "score":
       if score.isSome():
         reader.raiseUnexpectedField("Multiple `score` fields found", "WakuPeer")
-      score = some(reader.readValue(float64))
+      score = Opt.some(reader.readValue(float64))
     else:
       unrecognizedFieldWarning(value)
 
@@ -170,19 +170,19 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var PeersOfShard
 ) {.gcsafe, raises: [SerializationError, IOError].} =
   var
-    shard: Option[uint16]
-    peers: Option[WakuPeers]
+    shard: Opt[uint16]
+    peers: Opt[WakuPeers]
 
   for fieldName in readObjectFields(reader):
     case fieldName
     of "shard":
       if shard.isSome():
         reader.raiseUnexpectedField("Multiple `shard` fields found", "PeersOfShard")
-      shard = some(reader.readValue(uint16))
+      shard = Opt.some(reader.readValue(uint16))
     of "peers":
       if peers.isSome():
         reader.raiseUnexpectedField("Multiple `peers` fields found", "PeersOfShard")
-      peers = some(reader.readValue(WakuPeers))
+      peers = Opt.some(reader.readValue(WakuPeers))
     else:
       unrecognizedFieldWarning(value)
 
@@ -198,8 +198,8 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterTopic
 ) {.gcsafe, raises: [SerializationError, IOError].} =
   var
-    pubsubTopic: Option[string]
-    contentTopic: Option[string]
+    pubsubTopic: Opt[string]
+    contentTopic: Opt[string]
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -208,13 +208,13 @@ proc readValue*(
         reader.raiseUnexpectedField(
           "Multiple `pubsubTopic` fields found", "FilterTopic"
         )
-      pubsubTopic = some(reader.readValue(string))
+      pubsubTopic = Opt.some(reader.readValue(string))
     of "contentTopic":
       if contentTopic.isSome():
         reader.raiseUnexpectedField(
           "Multiple `contentTopic` fields found", "FilterTopic"
         )
-      contentTopic = some(reader.readValue(string))
+      contentTopic = Opt.some(reader.readValue(string))
     else:
       unrecognizedFieldWarning(value)
 
@@ -230,8 +230,8 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var FilterSubscription
 ) {.gcsafe, raises: [SerializationError, IOError].} =
   var
-    peerId: Option[string]
-    filterCriteria: Option[seq[FilterTopic]]
+    peerId: Opt[string]
+    filterCriteria: Opt[seq[FilterTopic]]
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -240,13 +240,13 @@ proc readValue*(
         reader.raiseUnexpectedField(
           "Multiple `peerId` fields found", "FilterSubscription"
         )
-      peerId = some(reader.readValue(string))
+      peerId = Opt.some(reader.readValue(string))
     of "filterCriteria":
       if filterCriteria.isSome():
         reader.raiseUnexpectedField(
           "Multiple `filterCriteria` fields found", "FilterSubscription"
         )
-      filterCriteria = some(reader.readValue(seq[FilterTopic]))
+      filterCriteria = Opt.some(reader.readValue(seq[FilterTopic]))
     else:
       unrecognizedFieldWarning(value)
 
@@ -284,7 +284,7 @@ proc init*(T: type WakuPeer, peerInfo: RemotePeerInfo): WakuPeer =
     connected: peerInfo.connectedness,
     agent: peerInfo.agent,
     origin: peerInfo.origin,
-    score: none(float64),
+    score: Opt.none(float64),
   )
 
 proc init*(T: type WakuPeer, pubsubPeer: PubSubPeer, pm: PeerManager): WakuPeer =
@@ -296,7 +296,7 @@ proc init*(T: type WakuPeer, pubsubPeer: PubSubPeer, pm: PeerManager): WakuPeer 
     connected: peerInfo.connectedness,
     agent: peerInfo.agent,
     origin: peerInfo.origin,
-    score: some(pubsubPeer.score),
+    score: Opt.some(pubsubPeer.score),
   )
 
 proc add*(

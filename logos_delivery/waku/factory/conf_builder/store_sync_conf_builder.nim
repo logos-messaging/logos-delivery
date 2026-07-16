@@ -1,4 +1,4 @@
-import chronicles, std/options, results
+import chronicles, results
 import ../waku_conf
 
 logScope:
@@ -10,30 +10,30 @@ const DefaultStoreSyncEnabled: bool = false
 ## Store Sync Config Builder ##
 ##################################
 type StoreSyncConfBuilder* = object
-  enabled*: Option[bool]
+  enabled*: Opt[bool]
 
-  rangeSec*: Option[uint32]
-  intervalSec*: Option[uint32]
-  relayJitterSec*: Option[uint32]
+  rangeSec*: Opt[uint32]
+  intervalSec*: Opt[uint32]
+  relayJitterSec*: Opt[uint32]
 
 proc init*(T: type StoreSyncConfBuilder): StoreSyncConfBuilder =
   StoreSyncConfBuilder()
 
 proc withEnabled*(b: var StoreSyncConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withRangeSec*(b: var StoreSyncConfBuilder, rangeSec: uint32) =
-  b.rangeSec = some(rangeSec)
+  b.rangeSec = Opt.some(rangeSec)
 
 proc withIntervalSec*(b: var StoreSyncConfBuilder, intervalSec: uint32) =
-  b.intervalSec = some(intervalSec)
+  b.intervalSec = Opt.some(intervalSec)
 
 proc withRelayJitterSec*(b: var StoreSyncConfBuilder, relayJitterSec: uint32) =
-  b.relayJitterSec = some(relayJitterSec)
+  b.relayJitterSec = Opt.some(relayJitterSec)
 
-proc build*(b: StoreSyncConfBuilder): Result[Option[StoreSyncConf], string] =
+proc build*(b: StoreSyncConfBuilder): Result[Opt[StoreSyncConf], string] =
   if not b.enabled.get(DefaultStoreSyncEnabled):
-    return ok(none(StoreSyncConf))
+    return ok(Opt.none(StoreSyncConf))
 
   if b.rangeSec.isNone():
     return err "store.rangeSec is not specified"
@@ -43,7 +43,7 @@ proc build*(b: StoreSyncConfBuilder): Result[Option[StoreSyncConf], string] =
     return err "store.relayJitterSec is not specified"
 
   return ok(
-    some(
+    Opt.some(
       StoreSyncConf(
         rangeSec: b.rangeSec.get(),
         intervalSec: b.intervalSec.get(),

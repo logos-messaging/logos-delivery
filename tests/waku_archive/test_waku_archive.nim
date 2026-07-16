@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils], testutils/unittests, chronos, libp2p/crypto/crypto
+import results, std/sequtils, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -287,7 +287,7 @@ procSuite "Waku Archive - find messages":
     # This query targets: pubsubtopic1 AND (contentTopic1 OR contentTopic3)
     let req = ArchiveQuery(
       includeData: true,
-      pubsubTopic: some(pubsubTopic1),
+      pubsubTopic: Opt.some(pubsubTopic1),
       contentTopics: @[contentTopic1, contentTopic3],
     )
 
@@ -323,7 +323,7 @@ procSuite "Waku Archive - find messages":
     waitFor archive.handleMessage(pubsubtopic2, msg3)
 
     ## Given
-    let req = ArchiveQuery(pubsubTopic: some(pubsubTopic1))
+    let req = ArchiveQuery(pubsubTopic: Opt.some(pubsubTopic1))
 
     ## When
     let res = waitFor archive.findMessages(req)
@@ -354,7 +354,7 @@ procSuite "Waku Archive - find messages":
     waitFor archive.handleMessage(pubsubTopic, msg3)
 
     ## Given
-    let req = ArchiveQuery(includeData: true, pubsubTopic: some(pubsubTopic))
+    let req = ArchiveQuery(includeData: true, pubsubTopic: Opt.some(pubsubTopic))
 
     ## When
     let res = waitFor archive.findMessages(req)
@@ -379,7 +379,7 @@ procSuite "Waku Archive - find messages":
     var nextReq = req # copy
 
     var pages = newSeq[seq[WakuMessage]](3)
-    var cursors = newSeq[Option[ArchiveCursor]](3)
+    var cursors = newSeq[Opt[ArchiveCursor]](3)
 
     for i in 0 ..< 3:
       let res = waitFor archiveA.findMessages(nextReq)
@@ -395,9 +395,9 @@ procSuite "Waku Archive - find messages":
 
     ## Then
     check:
-      cursors[0] == some(computeMessageHash(DefaultPubsubTopic, msgListA[3]))
-      cursors[1] == some(computeMessageHash(DefaultPubsubTopic, msgListA[7]))
-      cursors[2] == none(ArchiveCursor)
+      cursors[0] == Opt.some(computeMessageHash(DefaultPubsubTopic, msgListA[3]))
+      cursors[1] == Opt.some(computeMessageHash(DefaultPubsubTopic, msgListA[7]))
+      cursors[2] == Opt.none(ArchiveCursor)
 
     check:
       pages[0] == msgListA[0 .. 3]
@@ -413,7 +413,7 @@ procSuite "Waku Archive - find messages":
     var nextReq = req # copy
 
     var pages = newSeq[seq[WakuMessage]](3)
-    var cursors = newSeq[Option[ArchiveCursor]](3)
+    var cursors = newSeq[Opt[ArchiveCursor]](3)
 
     for i in 0 ..< 3:
       let res = waitFor archiveA.findMessages(nextReq)
@@ -429,9 +429,9 @@ procSuite "Waku Archive - find messages":
 
     ## Then
     check:
-      cursors[0] == some(computeMessageHash(DefaultPubsubTopic, msgListA[6]))
-      cursors[1] == some(computeMessageHash(DefaultPubsubTopic, msgListA[2]))
-      cursors[2] == none(ArchiveCursor)
+      cursors[0] == Opt.some(computeMessageHash(DefaultPubsubTopic, msgListA[6]))
+      cursors[1] == Opt.some(computeMessageHash(DefaultPubsubTopic, msgListA[2]))
+      cursors[2] == Opt.none(ArchiveCursor)
 
     check:
       pages[0] == msgListA[6 .. 9]
@@ -486,8 +486,8 @@ procSuite "Waku Archive - find messages":
     let req = ArchiveQuery(
       includeData: true,
       contentTopics: @[ContentTopic("1")],
-      startTime: some(ts(15, timeOrigin)),
-      endTime: some(ts(55, timeOrigin)),
+      startTime: Opt.some(ts(15, timeOrigin)),
+      endTime: Opt.some(ts(55, timeOrigin)),
       direction: PagingDirection.FORWARD,
     )
 
@@ -507,8 +507,8 @@ procSuite "Waku Archive - find messages":
     ## Given
     let req = ArchiveQuery(
       contentTopics: @[ContentTopic("1")],
-      startTime: some(Timestamp(2)),
-      endTime: some(Timestamp(2)),
+      startTime: Opt.some(Timestamp(2)),
+      endTime: Opt.some(Timestamp(2)),
     )
 
     ## When
@@ -526,8 +526,8 @@ procSuite "Waku Archive - find messages":
     ## Given
     let req = ArchiveQuery(
       contentTopics: @[ContentTopic("1")],
-      startTime: some(Timestamp(5)),
-      endTime: some(Timestamp(2)),
+      startTime: Opt.some(Timestamp(5)),
+      endTime: Opt.some(Timestamp(2)),
     )
 
     ## When

@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, testutils/unittests, chronos, web3, stint, tests/testlib/testasync
+import results, testutils/unittests, chronos, web3, stint, tests/testlib/testasync
 
 import
   logos_delivery/waku/node/peer_manager,
@@ -145,7 +145,7 @@ suite "Waku Incentivization PoC Eligibility Proofs":
     ## Test that an unconfirmed tx is not eligible.
 
     let eligibilityProof =
-      EligibilityProof(proofOfPayment: some(@(TxHashNonExisting.bytes())))
+      EligibilityProof(proofOfPayment: Opt.some(@(TxHashNonExisting.bytes())))
     let isEligible = await manager.isEligibleTxId(
       eligibilityProof, receiverExpected, TxValueExpectedWei
     )
@@ -156,7 +156,7 @@ suite "Waku Incentivization PoC Eligibility Proofs":
     ## Test that a contract creation tx is not eligible.
 
     let eligibilityProof =
-      EligibilityProof(proofOfPayment: some(@(txHashContractCreation.bytes())))
+      EligibilityProof(proofOfPayment: Opt.some(@(txHashContractCreation.bytes())))
     let isEligible = await manager.isEligibleTxId(
       eligibilityProof, receiverExpected, TxValueExpectedWei
     )
@@ -168,7 +168,7 @@ suite "Waku Incentivization PoC Eligibility Proofs":
     ## This assumes a payment in native currency (ETH), not a token.
 
     let eligibilityProof =
-      EligibilityProof(proofOfPayment: some(@(txHashContractCall.bytes())))
+      EligibilityProof(proofOfPayment: Opt.some(@(txHashContractCall.bytes())))
     let isEligible = await manager.isEligibleTxId(
       eligibilityProof, receiverExpected, TxValueExpectedWei
     )
@@ -178,8 +178,9 @@ suite "Waku Incentivization PoC Eligibility Proofs":
   asyncTest "incentivization PoC: simple transfer tx is eligible":
     ## Test that a simple transfer tx is eligible (if necessary conditions hold).
 
-    let eligibilityProof =
-      EligibilityProof(proofOfPayment: some(@(txHashRightReceiverRightAmount.bytes())))
+    let eligibilityProof = EligibilityProof(
+      proofOfPayment: Opt.some(@(txHashRightReceiverRightAmount.bytes()))
+    )
     let isEligible = await manager.isEligibleTxId(
       eligibilityProof, receiverExpected, TxValueExpectedWei
     )
@@ -189,8 +190,9 @@ suite "Waku Incentivization PoC Eligibility Proofs":
   asyncTest "incentivization PoC: double-spend tx is not eligible":
     ## Test that the same tx submitted twice is not eligible the second time
 
-    let eligibilityProof =
-      EligibilityProof(proofOfPayment: some(@(txHashRightReceiverRightAmount.bytes())))
+    let eligibilityProof = EligibilityProof(
+      proofOfPayment: Opt.some(@(txHashRightReceiverRightAmount.bytes()))
+    )
 
     let isEligibleOnce = await manager.isEligibleTxId(
       eligibilityProof, receiverExpected, TxValueExpectedWei

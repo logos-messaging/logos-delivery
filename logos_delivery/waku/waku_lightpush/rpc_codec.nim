@@ -1,7 +1,6 @@
 {.push raises: [].}
 
-import std/options
-import ../common/protobuf, ../waku_core, ./rpc
+import results, ../common/protobuf, ../waku_core, ./rpc
 
 const DefaultMaxRpcSize* = -1
 
@@ -27,9 +26,9 @@ proc decode*(T: type LightpushRequest, buffer: seq[byte]): ProtobufResult[T] =
 
   var pubSubTopic: PubsubTopic
   if not ?pb.getField(20, pubSubTopic):
-    rpc.pubSubTopic = none(PubsubTopic)
+    rpc.pubSubTopic = Opt.none(PubsubTopic)
   else:
-    rpc.pubSubTopic = some(pubSubTopic)
+    rpc.pubSubTopic = Opt.some(pubSubTopic)
 
   var messageBuf: seq[byte]
   if not ?pb.getField(21, messageBuf):
@@ -68,14 +67,14 @@ proc decode*(T: type LightPushResponse, buffer: seq[byte]): ProtobufResult[T] =
 
   var statusDesc: string
   if not ?pb.getField(11, statusDesc):
-    rpc.statusDesc = none(string)
+    rpc.statusDesc = Opt.none(string)
   else:
-    rpc.statusDesc = some(statusDesc)
+    rpc.statusDesc = Opt.some(statusDesc)
 
   var relayPeerCount: uint32
   if not ?pb.getField(12, relayPeerCount):
-    rpc.relayPeerCount = none(uint32)
+    rpc.relayPeerCount = Opt.none(uint32)
   else:
-    rpc.relayPeerCount = some(relayPeerCount)
+    rpc.relayPeerCount = Opt.some(relayPeerCount)
 
   return ok(rpc)

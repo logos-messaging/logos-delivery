@@ -1,6 +1,4 @@
-import logos_delivery/waku/compat/option_valueor
-import chronicles, std/options, results
-import logos_delivery/waku/discovery/waku_kademlia
+import chronicles, results, logos_delivery/waku/discovery/waku_kademlia
 import chronos
 import libp2p/[peerid, multiaddress, peerinfo]
 import libp2p/protocols/kademlia/types
@@ -15,16 +13,16 @@ const
   DefaultServiceLookupInterval* = chronos.seconds(60)
 
 type KademliaDiscoveryConfBuilder* = object
-  enabled*: Option[bool]
+  enabled*: Opt[bool]
   bootstrapNodes*: seq[string]
-  randomLookupInterval*: Option[Duration]
-  serviceLookupInterval*: Option[Duration]
+  randomLookupInterval*: Opt[Duration]
+  serviceLookupInterval*: Opt[Duration]
 
 proc init*(T: type KademliaDiscoveryConfBuilder): KademliaDiscoveryConfBuilder =
   KademliaDiscoveryConfBuilder()
 
 proc withEnabled*(b: var KademliaDiscoveryConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withBootstrapNodes*(
     b: var KademliaDiscoveryConfBuilder, bootstrapNodes: seq[string]
@@ -34,22 +32,22 @@ proc withBootstrapNodes*(
 proc withRandomLookupInterval*(
     b: var KademliaDiscoveryConfBuilder, interval: Duration
 ) =
-  b.randomLookupInterval = some(interval)
+  b.randomLookupInterval = Opt.some(interval)
 
 proc withServiceLookupInterval*(
     b: var KademliaDiscoveryConfBuilder, interval: Duration
 ) =
-  b.serviceLookupInterval = some(interval)
+  b.serviceLookupInterval = Opt.some(interval)
 
 proc build*(
     b: KademliaDiscoveryConfBuilder
-): Result[Option[KademliaDiscoveryConf], string] =
+): Result[Opt[KademliaDiscoveryConf], string] =
   # Explicit disable wins: enabled=false disables regardless of bootstrap nodes.
-  if b.enabled == some(false):
-    return ok(none(KademliaDiscoveryConf))
+  if b.enabled == Opt.some(false):
+    return ok(Opt.none(KademliaDiscoveryConf))
   # Otherwise enabled if config-enabled or any bootstrap nodes are provided.
   if not b.enabled.get(DefaultKadEnabled) and b.bootstrapNodes.len == 0:
-    return ok(none(KademliaDiscoveryConf))
+    return ok(Opt.none(KademliaDiscoveryConf))
 
   var parsedNodes: seq[(PeerId, seq[MultiAddress])]
   for nodeStr in b.bootstrapNodes:
@@ -58,7 +56,7 @@ proc build*(
     parsedNodes.add((peerId, @[ma]))
 
   return ok(
-    some(
+    Opt.some(
       KademliaDiscoveryConf(
         bootstrapNodes: parsedNodes,
         randomLookupInterval: b.randomLookupInterval.get(DefaultRandomLookupInterval),

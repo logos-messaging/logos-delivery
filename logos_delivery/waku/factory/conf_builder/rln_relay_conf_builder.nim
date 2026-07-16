@@ -1,4 +1,4 @@
-import chronicles, std/options, results, stint, stew/endians2
+import chronicles, results, stint, stew/endians2
 import ../waku_conf
 
 logScope:
@@ -13,69 +13,69 @@ const
 ## RLN Relay Config Builder ##
 ##############################
 type RlnConfBuilder* = object
-  enabled*: Option[bool]
-  chainId*: Option[UInt256]
-  ethClientUrls*: Option[seq[string]]
-  ethContractAddress*: Option[string]
-  credIndex*: Option[uint]
-  credPassword*: Option[string]
-  credPath*: Option[string]
-  dynamic*: Option[bool]
-  epochSizeSec*: Option[uint64]
-  userMessageLimit*: Option[uint64]
+  enabled*: Opt[bool]
+  chainId*: Opt[UInt256]
+  ethClientUrls*: Opt[seq[string]]
+  ethContractAddress*: Opt[string]
+  credIndex*: Opt[uint]
+  credPassword*: Opt[string]
+  credPath*: Opt[string]
+  dynamic*: Opt[bool]
+  epochSizeSec*: Opt[uint64]
+  userMessageLimit*: Opt[uint64]
 
 proc init*(T: type RlnConfBuilder): RlnConfBuilder =
   RlnConfBuilder()
 
 proc withEnabled*(b: var RlnConfBuilder, enabled: bool) =
-  b.enabled = some(enabled)
+  b.enabled = Opt.some(enabled)
 
 proc withChainId*(b: var RlnConfBuilder, chainId: uint | UInt256) =
   when chainId is uint:
-    b.chainId = some(UInt256.fromBytesBE(chainId.toBytesBE()))
+    b.chainId = Opt.some(UInt256.fromBytesBE(chainId.toBytesBE()))
   else:
-    b.chainId = some(chainId)
+    b.chainId = Opt.some(chainId)
 
 proc withCredIndex*(b: var RlnConfBuilder, credIndex: uint) =
-  b.credIndex = some(credIndex)
+  b.credIndex = Opt.some(credIndex)
 
 proc withCredPassword*(b: var RlnConfBuilder, credPassword: string) =
-  b.credPassword = some(credPassword)
+  b.credPassword = Opt.some(credPassword)
 
 proc withCredPath*(b: var RlnConfBuilder, credPath: string) =
-  b.credPath = some(credPath)
+  b.credPath = Opt.some(credPath)
 
 proc withDynamic*(b: var RlnConfBuilder, dynamic: bool) =
-  b.dynamic = some(dynamic)
+  b.dynamic = Opt.some(dynamic)
 
 proc withEthClientUrls*(b: var RlnConfBuilder, ethClientUrls: seq[string]) =
-  b.ethClientUrls = some(ethClientUrls)
+  b.ethClientUrls = Opt.some(ethClientUrls)
 
 proc withEthContractAddress*(b: var RlnConfBuilder, ethContractAddress: string) =
-  b.ethContractAddress = some(ethContractAddress)
+  b.ethContractAddress = Opt.some(ethContractAddress)
 
 proc withEpochSizeSec*(b: var RlnConfBuilder, epochSizeSec: uint64) =
-  b.epochSizeSec = some(epochSizeSec)
+  b.epochSizeSec = Opt.some(epochSizeSec)
 
 proc withUserMessageLimit*(b: var RlnConfBuilder, userMessageLimit: uint64) =
-  b.userMessageLimit = some(userMessageLimit)
+  b.userMessageLimit = Opt.some(userMessageLimit)
 
-proc build*(b: RlnConfBuilder): Result[Option[RlnConf], string] =
+proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
   if not b.enabled.get(DefaultRlnRelayEnabled):
-    return ok(none(RlnConf))
+    return ok(Opt.none(RlnConf))
 
   if b.chainId.isNone():
     return err("RLN Relay Chain Id is not specified")
 
   let creds =
     if b.credPath.isSome() and b.credPassword.isSome():
-      some(RlnCreds(path: b.credPath.get(), password: b.credPassword.get()))
+      Opt.some(RlnCreds(path: b.credPath.get(), password: b.credPassword.get()))
     elif b.credPath.isSome() and b.credPassword.isNone():
       return err("RLN Relay Credential Password is not specified but path is")
     elif b.credPath.isNone() and b.credPassword.isSome():
       return err("RLN Relay Credential Path is not specified but password is")
     else:
-      none(RlnCreds)
+      Opt.none(RlnCreds)
 
   if b.dynamic.isNone():
     return err("rlnRelay.dynamic is not specified")
@@ -84,7 +84,7 @@ proc build*(b: RlnConfBuilder): Result[Option[RlnConf], string] =
   if b.ethContractAddress.get("") == "":
     return err("rlnRelay.ethContractAddress is not specified")
   return ok(
-    some(
+    Opt.some(
       RlnConf(
         chainId: b.chainId.get(),
         credIndex: b.credIndex,

@@ -1,10 +1,8 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[
-    options, sets, sequtils, times, strformat, strutils, math, random, tables, algorithm
-  ],
+  results,
+  std/[sets, sequtils, times, strformat, strutils, math, random, tables, algorithm],
   chronos,
   chronicles,
   metrics,
@@ -223,7 +221,10 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
     pm.switch.peerStore[ConnectionBook][peerId] = NotConnected
       # Reset connectedness state
     pm.switch.peerStore[DisconnectBook][peerId] = remotePeerInfo.disconnectTime
-    pm.switch.peerStore[SourceBook][peerId] = remotePeerInfo.origin
+    # Mark as Cache so it is distinguishable from live-discovered peers. If the
+    # same peer is later rediscovered, addPeer overrides this with the live
+    # origin, and reconnect backoff no longer applies to it.
+    pm.switch.peerStore[SourceBook][peerId] = Cache
 
     if remotePeerInfo.enr.isSome():
       pm.switch.peerStore[ENRBook][peerId] = remotePeerInfo.enr.get()
@@ -238,7 +239,7 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
   trace "recovered peers from storage", amount = amount
 
 proc selectPeers*(
-    pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
+    pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)
 ): seq[RemotePeerInfo] =
   ## Returns all peers that support the given protocol (and optionally shard),
   ## shuffled randomly. Callers can further filter or pick from this list.
@@ -260,8 +261,8 @@ proc selectPeers*(
   return peers
 
 proc selectPeer*(
-    pm: PeerManager, proto: string, shard: Option[PubsubTopic] = none(PubsubTopic)
-): Option[RemotePeerInfo] =
+    pm: PeerManager, proto: string, shard: Opt[PubsubTopic] = Opt.none(PubsubTopic)
+): Opt[RemotePeerInfo] =
   ## Selects a single peer for a given protocol, checking service slots first
   ## (for non-relay protocols).
   let peers = pm.selectPeers(proto, shard)
@@ -272,23 +273,23 @@ proc selectPeer*(
     if peers.len > 0:
       trace "Got peer from peerstore",
         peerId = peers[0].peerId, multi = peers[0].addrs[0], protocol = proto
-      return some(peers[0])
+      return Opt.some(peers[0])
     trace "No peer found for protocol", protocol = proto
-    return none(RemotePeerInfo)
+    return Opt.none(RemotePeerInfo)
 
   # For other protocols, we select the peer that is slotted for the given protocol
   pm.serviceSlots.withValue(proto, serviceSlot):
     trace "Got peer from service slots",
       peerId = serviceSlot[].peerId, multi = serviceSlot[].addrs[0], protocol = proto
-    return some(serviceSlot[])
+    return Opt.some(serviceSlot[])
 
   # If not slotted, we select a random peer for the given protocol
   if peers.len > 0:
     trace "Got peer from peerstore",
       peerId = peers[0].peerId, multi = peers[0].addrs[0], protocol = proto
-    return some(peers[0])
+    return Opt.some(peers[0])
   trace "No peer found for protocol", protocol = proto
-  return none(RemotePeerInfo)
+  return Opt.none(RemotePeerInfo)
 
 # Adds a peer to the service slots, which is a list of peers that are slotted for a given protocol
 proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: string) =
@@ -436,14 +437,14 @@ proc dialPeer(
     proto: string,
     dialTimeout = DefaultDialTimeout,
     source = "api",
-): Future[Option[Connection]] {.async.} =
+): Future[Opt[Connection]] {.async.} =
   if peerId == pm.switch.peerInfo.peerId:
     error "could not dial self"
-    return none(Connection)
+    return Opt.none(Connection)
 
   if proto == WakuRelayCodec:
     error "dial shall not be used to connect to relays"
-    return none(Connection)
+    return Opt.none(Connection)
 
   trace "Dialing peer", wireAddr = addrs, peerId = peerId, proto = proto
 
@@ -452,7 +453,7 @@ proc dialPeer(
 
   let res = catch:
     if await dialFut.withTimeout(dialTimeout):
-      return some(dialFut.read())
+      return Opt.some(dialFut.read())
     else:
       await cancelAndWait(dialFut)
 
@@ -460,7 +461,7 @@ proc dialPeer(
 
   trace "Dialing peer failed", peerId = peerId, reason = reasonFailed, proto = proto
 
-  return none(Connection)
+  return Opt.none(Connection)
 
 proc dialPeer*(
     pm: PeerManager,
@@ -468,7 +469,7 @@ proc dialPeer*(
     proto: string,
     dialTimeout = DefaultDialTimeout,
     source = "api",
-): Future[Option[Connection]] {.async.} =
+): Future[Opt[Connection]] {.async.} =
   # Dial a given peer and add it to the list of known peers
   # TODO: check peer validity and score before continuing. Limit number of peers to be managed.
 
@@ -489,7 +490,7 @@ proc dialPeer*(
     proto: string,
     dialTimeout = DefaultDialTimeout,
     source = "api",
-): Future[Option[Connection]] {.async.} =
+): Future[Opt[Connection]] {.async.} =
   # Dial an existing peer by looking up it's existing addrs in the switch's peerStore
   # TODO: check peer validity and score before continuing. Limit number of peers to be managed.
 
@@ -695,21 +696,28 @@ proc reconnectPeers*(
 
   info "Reconnecting peers", proto = proto
 
-  # Proto is not persisted, we need to iterate over all peers.
-  for peerInfo in pm.switch.peerStore.peers(protocolMatcher(proto)):
-    # Check that the peer can be connected
-    if peerInfo.connectedness == CannotConnect:
-      error "Not reconnecting to unreachable or non-existing peer",
-        peerId = peerInfo.peerId
-      continue
+  # Only reconnect peers that come from persistent storage (Cache). Freshly
+  # discovered peers must not be delayed by the reconnect backoff: they are
+  # connected right away by the relay connectivity loop. Rediscovered peers get
+  # their origin overridden by addPeer, so they naturally drop out of this set.
+  let peersToReconnect = pm.switch.peerStore.peers(protocolMatcher(proto)).filterIt(
+      it.origin == Cache and it.connectedness != CannotConnect
+    )
 
-    if backoffTime > ZeroDuration:
-      info "Backing off before reconnect",
-        peerId = peerInfo.peerId, backoffTime = backoffTime
-      # We disconnected recently and still need to wait for a backoff period before connecting
-      await sleepAsync(backoffTime)
+  if peersToReconnect.len == 0:
+    return
 
-    await pm.connectToNodes(@[peerInfo])
+  # We disconnected recently and still need to wait a backoff period before
+  # reconnecting. The wait is shared across all peers rather than applied once
+  # per peer, so reconnection can't stall behind a slow/unreachable peer and
+  # keep the node from taking on freshly discovered ones.
+  if backoffTime > ZeroDuration:
+    info "Backing off before reconnect", backoffTime = backoffTime
+    await sleepAsync(backoffTime)
+
+  # Dial all reconnectable peers in parallel; a single slow dial must not delay
+  # the rest.
+  await allFutures(peersToReconnect.mapIt(pm.connectToNodes(@[it])))
 
 proc getNumStreams*(pm: PeerManager, protocol: string): (int, int) =
   var
@@ -725,20 +733,20 @@ proc getNumStreams*(pm: PeerManager, protocol: string): (int, int) =
             numStreamsOut += 1
   return (numStreamsIn, numStreamsOut)
 
-proc getPeerIp(pm: PeerManager, peerId: PeerId): Option[string] =
+proc getPeerIp(pm: PeerManager, peerId: PeerId): Opt[string] =
   if not pm.switch.connManager.getConnections().hasKey(peerId):
-    return none(string)
+    return Opt.none(string)
 
   let conns = pm.switch.connManager.getConnections().getOrDefault(peerId)
   if conns.len == 0:
-    return none(string)
+    return Opt.none(string)
 
   let obAddr = conns[0].connection.observedAddr.valueOr:
-    return none(string)
+    return Opt.none(string)
 
   # TODO: think if circuit relay ips should be handled differently
 
-  return some(obAddr.getHostname())
+  return Opt.some(obAddr.getHostname())
 
 #~~~~~~~~~~~~~~~~~#
 # Event Handling  #
@@ -1158,8 +1166,8 @@ proc new*(
     T: type PeerManager,
     switch: Switch,
     wakuMetadata: WakuMetadata = nil,
-    maxRelayPeers: Option[int] = none(int),
-    maxServicePeers: Option[int] = none(int),
+    maxRelayPeers: Opt[int] = Opt.none(int),
+    maxServicePeers: Opt[int] = Opt.none(int),
     relayServiceRatio: string = "50:50",
     storage: PeerStorage = nil,
     initialBackoffInSec = InitialBackoffInSec,

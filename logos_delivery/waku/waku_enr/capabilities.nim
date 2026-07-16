@@ -1,8 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import
-  std/[options, bitops, sequtils, net, tables], results, eth/keys, libp2p/crypto/crypto
+import std/[bitops, sequtils, net, tables], results, eth/keys, libp2p/crypto/crypto
 import ../common/enr, ../waku_core/codecs
 import libp2p_mix
 
@@ -84,15 +82,15 @@ proc withWakuCapabilities*(builder: var EnrBuilder, caps: openArray[Capabilities
 
 # ENR record accessors (e.g., Record, TypedRecord, etc.)
 
-func waku2*(record: TypedRecord): Option[CapabilitiesBitfield] =
+func waku2*(record: TypedRecord): Opt[CapabilitiesBitfield] =
   let field = record.tryGet(CapabilitiesEnrField, seq[uint8])
   if field.isNone():
-    return none(CapabilitiesBitfield)
+    return Opt.none(CapabilitiesBitfield)
 
   if field.get().len != 1:
-    return none(CapabilitiesBitfield)
+    return Opt.none(CapabilitiesBitfield)
 
-  some(CapabilitiesBitfield(field.get()[0]))
+  Opt.some(CapabilitiesBitfield(field.get()[0]))
 
 proc supportsCapability*(r: Record, cap: Capabilities): bool =
   let recordRes = r.toTyped().valueOr:

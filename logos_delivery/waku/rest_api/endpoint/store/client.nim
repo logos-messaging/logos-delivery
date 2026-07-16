@@ -1,7 +1,11 @@
 {.push raises: [].}
 
 import
-  chronicles, json_serialization, json_serialization/std/options, presto/[route, client]
+  results,
+  chronicles,
+  json_serialization,
+  json_serialization/pkg/results,
+  presto/[route, client]
 import
   ../../../waku_store/common,
   ../../../waku_core/message/digest,
@@ -34,7 +38,7 @@ proc decodeBytes*(
         statusCode: uint32(ErrorCode.BAD_RESPONSE),
         statusDesc: res,
         messages: newSeq[WakuMessageKeyValueHex](0),
-        paginationCursor: none(string),
+        paginationCursor: Opt.none(string),
       )
     )
 

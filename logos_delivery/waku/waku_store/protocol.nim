@@ -1,11 +1,10 @@
-import logos_delivery/waku/compat/option_valueor
 ## Waku Store protocol for historical messaging support.
 ## See spec for more details:
 ## https://github.com/vacp2p/specs/blob/master/specs/waku/v2/waku-store.md
 {.push raises: [].}
 
 import
-  std/[options, times],
+  std/times,
   results,
   chronicles,
   chronos,
@@ -159,9 +158,9 @@ proc new*(
     peerManager: PeerManager,
     rng: crypto.Rng,
     requestHandler: StoreQueryRequestHandler,
-    rateLimitSetting: Option[RateLimitSetting] = none[RateLimitSetting](),
+    rateLimitSetting: Opt[RateLimitSetting] = Opt.none(RateLimitSetting),
 ): T =
-  if requestHandler.isNil(): # TODO use an Option instead ???
+  if requestHandler.isNil(): # TODO use an Opt instead ???
     raise newException(NilAccessDefect, "history query handler is nil")
 
   let store = WakuStore(

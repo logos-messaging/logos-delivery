@@ -6,7 +6,7 @@ when not (compileOption("threads")):
 
 {.push raises: [].}
 
-import std/[strformat, strutils, times, options, random, sequtils]
+import std/[strformat, strutils, times, random, sequtils]
 import
   confutils,
   chronicles,
@@ -48,7 +48,7 @@ import
   ./config_chat2
 
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
-import ../../logos_delivery/waku/rln
+import logos_delivery/waku/rln
 
 const Help = """
   Commands: /[?|help|connect|nick|exit]
@@ -215,10 +215,10 @@ proc publish(c: Chat, line: string) =
     try:
       if not c.node.wakuLegacyLightPush.isNil():
         # Attempt lightpush
-        (waitFor c.node.legacyLightpushPublish(some(DefaultPubsubTopic), message)).isOkOr:
+        (waitFor c.node.legacyLightpushPublish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
           error "failed to publish lightpush message", error = error
       else:
-        (waitFor c.node.publish(some(DefaultPubsubTopic), message)).isOkOr:
+        (waitFor c.node.publish(Opt.some(DefaultPubsubTopic), message)).isOkOr:
           error "failed to publish message", error = error
     except CatchableError:
       error "caught error publishing message: ", error = getCurrentExceptionMsg()
@@ -383,25 +383,25 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     echo "Connecting to static peers..."
     await connectToNodes(chat, conf.staticnodes)
 
-  var dnsDiscoveryUrl = none(string)
+  var dnsDiscoveryUrl = Opt.none(string)
 
   if conf.fleet != Fleet.none:
     # Use DNS discovery to connect to selected fleet
     echo "Connecting to " & $conf.fleet & " fleet using DNS discovery..."
 
     if conf.fleet == Fleet.test:
-      dnsDiscoveryUrl = some(
+      dnsDiscoveryUrl = Opt.some(
         "enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im"
       )
     else:
       # Connect to sandbox by default
-      dnsDiscoveryUrl = some(
+      dnsDiscoveryUrl = Opt.some(
         "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im"
       )
   elif conf.dnsDiscoveryUrl != "":
     # No pre-selected fleet. Discover nodes via DNS using user config
     info "Discovering nodes using Waku DNS discovery", url = conf.dnsDiscoveryUrl
-    dnsDiscoveryUrl = some(conf.dnsDiscoveryUrl)
+    dnsDiscoveryUrl = Opt.some(conf.dnsDiscoveryUrl)
 
   var discoveredNodes: seq[RemotePeerInfo]
 
@@ -437,17 +437,17 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   if (conf.storenode != "") or (conf.store == true):
     await node.mountStore()
 
-    var storenode: Option[RemotePeerInfo]
+    var storenode: Opt[RemotePeerInfo]
 
     if conf.storenode != "":
       let peerInfo = parsePeerInfo(conf.storenode)
       if peerInfo.isOk():
-        storenode = some(peerInfo.value)
+        storenode = Opt.some(peerInfo.value)
       else:
         error "Incorrect conf.storenode", error = peerInfo.error
     elif discoveredNodes.len > 0:
       echo "Store enabled, but no store nodes configured. Choosing one at random from discovered peers"
-      storenode = some(discoveredNodes[rand(0 .. len(discoveredNodes) - 1)])
+      storenode = Opt.some(discoveredNodes[rand(0 .. len(discoveredNodes) - 1)])
 
     if storenode.isSome():
       # We have a viable storenode. Let's query it for historical messages.
@@ -537,14 +537,14 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
         credIndex: conf.rlnRelayCredIndex,
         chainId: UInt256.fromBytesBE(conf.rlnRelayChainId.toBytesBE()),
         ethClientUrls: conf.ethClientUrls.mapIt(string(it)),
-        creds: some(
+        creds: Opt.some(
           RlnCreds(path: conf.rlnRelayCredPath, password: conf.rlnRelayCredPassword)
         ),
         userMessageLimit: conf.rlnRelayUserMessageLimit,
         epochSizeSec: conf.rlnEpochSizeSec,
       )
 
-      waitFor node.setRlnValidator(rlnConf, spamHandler = some(spamHandler))
+      waitFor node.setRlnValidator(rlnConf, spamHandler = Opt.some(spamHandler))
 
       let membershipIndex = node.rln.groupManager.membershipIndex.get()
       let identityCredential = node.rln.groupManager.idCredentials.get()

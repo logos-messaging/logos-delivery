@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[strutils, sequtils, tempfiles, options],
+  results,
+  std/[strutils, sequtils, tempfiles],
   stew/byteutils,
   chronos,
   chronicles,
@@ -75,7 +76,7 @@ proc sendRlnMessage*(
     await client.rln.generateRLNProof(message.toRLNSignal(), epochTime())
   ).valueOr:
     raiseAssert "generateRLNProof failed: " & error
-  discard await client.publish(some(pubsubTopic), message)
+  discard await client.publish(Opt.some(pubsubTopic), message)
   let isCompleted = await completionFuture.withTimeout(FUTURE_TIMEOUT)
   return isCompleted
 
@@ -98,6 +99,6 @@ proc sendRlnMessageWithInvalidProof*(
     message =
       WakuMessage(payload: @payload, contentTopic: contentTopic, proof: rateLimitProof)
 
-  discard await client.publish(some(pubsubTopic), message)
+  discard await client.publish(Opt.some(pubsubTopic), message)
   let isCompleted = await completionFuture.withTimeout(FUTURE_TIMEOUT)
   return isCompleted

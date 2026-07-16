@@ -2,7 +2,7 @@ import libp2p/crypto/rng
 {.used.}
 
 import
-  std/[sequtils, algorithm, options, net],
+  std/[sequtils, algorithm, net],
   results,
   chronos,
   chronicles,
@@ -183,7 +183,7 @@ suite "Waku Discovery v5":
         bindIp: string = "0.0.0.0",
         extIp: string = "127.0.0.1",
         indices: seq[uint64] = @[],
-        recordFlags: Option[CapabilitiesBitfield] = none(CapabilitiesBitfield),
+        recordFlags: Opt[CapabilitiesBitfield] = Opt.none(CapabilitiesBitfield),
         bootstrapRecords: seq[waku_enr.Record] = @[],
     ): Future[Result[(WakuDiscoveryV5, waku_enr.Record), string]] {.async.} =
       let privKey = generateSecp256k1Key()
@@ -265,7 +265,7 @@ suite "Waku Discovery v5":
         await buildNode(
           tcpPort = 61504u16,
           recordFlags =
-            some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Filter)),
+            Opt.some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Filter)),
         )
       ).valueOr:
         raiseAssert "node3: " & error
@@ -273,7 +273,7 @@ suite "Waku Discovery v5":
         await buildNode(
           tcpPort = 61506u16,
           recordFlags =
-            some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
+            Opt.some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
         )
       ).valueOr:
         raiseAssert "node4: " & error
@@ -281,7 +281,7 @@ suite "Waku Discovery v5":
         await buildNode(
           tcpPort = 61502u16,
           recordFlags =
-            some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
+            Opt.some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
           bootstrapRecords = @[record3, record4],
         )
       ).valueOr:
@@ -289,7 +289,7 @@ suite "Waku Discovery v5":
       let (node1, record1) = (
         await buildNode(
           tcpPort = 61500u16,
-          recordFlags = some(CapabilitiesBitfield.init(Capabilities.Relay)),
+          recordFlags = Opt.some(CapabilitiesBitfield.init(Capabilities.Relay)),
           bootstrapRecords = @[record2],
         )
       ).valueOr:
@@ -298,7 +298,7 @@ suite "Waku Discovery v5":
       await sleepAsync(FUTURE_TIMEOUT)
 
       ## When
-      let peers = await node1.findRandomPeers(some(filterForStore))
+      let peers = await node1.findRandomPeers(Opt.some(filterForStore))
 
       ## Then
       check:
@@ -317,7 +317,7 @@ suite "Waku Discovery v5":
         await buildNode(
           tcpPort = 61504u16,
           recordFlags =
-            some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Filter)),
+            Opt.some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Filter)),
         )
       ).valueOr:
         raiseAssert "node3: " & error
@@ -325,7 +325,7 @@ suite "Waku Discovery v5":
         await buildNode(
           tcpPort = 61506u16,
           recordFlags =
-            some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
+            Opt.some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
         )
       ).valueOr:
         raiseAssert "node4: " & error
@@ -333,7 +333,7 @@ suite "Waku Discovery v5":
         await buildNode(
           tcpPort = 61502u16,
           recordFlags =
-            some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
+            Opt.some(CapabilitiesBitfield.init(Capabilities.Relay, Capabilities.Store)),
           bootstrapRecords = @[record3, record4],
         )
       ).valueOr:
@@ -341,7 +341,7 @@ suite "Waku Discovery v5":
       let (node1, record1) = (
         await buildNode(
           tcpPort = 61500u16,
-          recordFlags = some(CapabilitiesBitfield.init(Capabilities.Relay)),
+          recordFlags = Opt.some(CapabilitiesBitfield.init(Capabilities.Relay)),
           indices = @[0u64, 0u64, 1u64, 0u64, 0u64],
           bootstrapRecords = @[record2],
         )

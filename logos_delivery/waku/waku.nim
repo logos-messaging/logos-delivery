@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sequtils, strformat],
+  std/[sequtils, strformat],
   results,
   chronicles,
   chronos,

@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[options, sequtils], results, stew/byteutils
+import std/sequtils, results, stew/byteutils
 import ../waku_core, ../common/paging
 
 from ../waku_core/codecs import WakuStoreCodec
@@ -22,21 +22,21 @@ type
     requestId*: string
     includeData*: bool
 
-    pubsubTopic*: Option[PubsubTopic]
+    pubsubTopic*: Opt[PubsubTopic]
     contentTopics*: seq[ContentTopic]
-    startTime*: Option[Timestamp]
-    endTime*: Option[Timestamp]
+    startTime*: Opt[Timestamp]
+    endTime*: Opt[Timestamp]
 
     messageHashes*: seq[WakuMessageHash]
 
-    paginationCursor*: Option[WakuMessageHash]
+    paginationCursor*: Opt[WakuMessageHash]
     paginationForward*: PagingDirection
-    paginationLimit*: Option[uint64]
+    paginationLimit*: Opt[uint64]
 
   WakuMessageKeyValue* = object
     messageHash*: WakuMessageHash
-    message*: Option[WakuMessage]
-    pubsubTopic*: Option[PubsubTopic]
+    message*: Opt[WakuMessage]
+    pubsubTopic*: Opt[PubsubTopic]
 
   StoreQueryResponse* = object
     requestId*: string
@@ -46,13 +46,13 @@ type
 
     messages*: seq[WakuMessageKeyValue]
 
-    paginationCursor*: Option[WakuMessageHash]
+    paginationCursor*: Opt[WakuMessageHash]
 
   # Types to be used by clients that use the hash in hex
   WakuMessageKeyValueHex* = object
     messageHash*: string
-    message*: Option[WakuMessage]
-    pubsubTopic*: Option[PubsubTopic]
+    message*: Opt[WakuMessage]
+    pubsubTopic*: Opt[PubsubTopic]
 
   StoreQueryResponseHex* = object
     requestId*: string
@@ -62,7 +62,7 @@ type
 
     messages*: seq[WakuMessageKeyValueHex]
 
-    paginationCursor*: Option[string]
+    paginationCursor*: Opt[string]
 
   StatusCode* {.pure.} = enum
     UNKNOWN = uint32(000)
@@ -150,7 +150,7 @@ proc toHex*(response: StoreQueryResponse): StoreQueryResponseHex =
     messages: response.messages.mapIt(it.toHex()), # Convert each message to hex
     paginationCursor:
       if response.paginationCursor.isSome:
-        some(response.paginationCursor.get().to0xHex())
+        Opt.some(response.paginationCursor.get().to0xHex())
       else:
-        none[string](),
+        Opt.none(string),
   )

@@ -1,4 +1,3 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import chronicles, chronos, metrics, metrics/chronos_httpserver

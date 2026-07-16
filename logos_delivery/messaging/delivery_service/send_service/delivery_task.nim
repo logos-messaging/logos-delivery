@@ -1,5 +1,4 @@
-import logos_delivery/waku/compat/option_valueor
-import std/[options, times], chronos
+import results, std/times, chronos
 import brokers/broker_context
 import
   logos_delivery/waku/waku_core,
@@ -24,7 +23,7 @@ type DeliveryTask* = ref object
   tryCount*: int
   state*: DeliveryState
   deliveryTime*: Moment
-  firstPropagatedTime*: Option[Moment]
+  firstPropagatedTime*: Opt[Moment]
     ## Set once on the first successful propagation; never reset on re-publish.
     ## Anchors the store-validation time cap (see propagationAge).
   propagateEventEmitted*: bool
@@ -39,7 +38,7 @@ proc new*(
   let msg = envelop.toWakuMessage()
   # TODO: use sync request for such as soon as available
   let relayShardRes = (
-    RequestRelayShard.request(brokerCtx, none[PubsubTopic](), envelop.contentTopic)
+    RequestRelayShard.request(brokerCtx, Opt.none(PubsubTopic), envelop.contentTopic)
   ).valueOr:
     error "RequestRelayShard.request failed", error = error
     return err("Failed create DeliveryTask: " & $error)

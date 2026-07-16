@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, sequtils, net, sets]
+import results, std/[sequtils, net, sets]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, crypto/crypto]
 import brokers/broker_context
@@ -89,7 +89,7 @@ proc createApiNodeConf(numShards: uint16 = 1): WakuNodeConf =
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
-  conf.clusterId = some(3'u16)
+  conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = numShards
   conf.rest = false
   result = conf
@@ -168,14 +168,14 @@ proc setupNetwork(testTopic: ContentTopic): Future[TestNetwork] {.async.} =
   let missedMsg = WakuMessage(
     payload: missedPayload, contentTopic: testTopic, version: 0, timestamp: now()
   )
-  discard (await publisher.publish(some(shard), missedMsg)).expect(
+  discard (await publisher.publish(Opt.some(shard), missedMsg)).expect(
     "Publish missed msg failed"
   )
 
   block waitArchive:
     for _ in 0 ..< 50:
       let query = archive_common.ArchiveQuery(
-        includeData: false, contentTopics: @[testTopic], pubsubTopic: some(shard)
+        includeData: false, contentTopics: @[testTopic], pubsubTopic: Opt.some(shard)
       )
       let res = await storeNode.wakuArchive.findMessages(query)
       if res.isOk() and res.get().hashes.len > 0:

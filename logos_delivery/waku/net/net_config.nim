@@ -1,31 +1,28 @@
 {.push raises: [].}
 
-import
-  std/[options, sequtils, strutils, net],
-  results,
-  libp2p/[multiaddress, multicodec, wire]
+import std/[sequtils, strutils, net], results, libp2p/[multiaddress, multicodec, wire]
 import ../../waku/waku_core/peers
 import ../waku_enr
 
 type NetConfig* = object
   hostAddress*: MultiAddress
   clusterId*: uint16
-  wsHostAddress*: Option[MultiAddress]
-  quicHostAddress*: Option[MultiAddress]
-  hostExtAddress*: Option[MultiAddress]
-  wsExtAddress*: Option[MultiAddress]
+  wsHostAddress*: Opt[MultiAddress]
+  quicHostAddress*: Opt[MultiAddress]
+  hostExtAddress*: Opt[MultiAddress]
+  wsExtAddress*: Opt[MultiAddress]
   wssEnabled*: bool
-  extIp*: Option[IpAddress]
-  extPort*: Option[Port]
-  dns4DomainName*: Option[string]
+  extIp*: Opt[IpAddress]
+  extPort*: Opt[Port]
+  dns4DomainName*: Opt[string]
   dnsNameServers*: seq[IpAddress]
   announcedAddresses*: seq[MultiAddress]
   extMultiAddrs*: seq[MultiAddress]
   enrMultiAddrs*: seq[MultiAddress]
-  enrIp*: Option[IpAddress]
-  enrPort*: Option[Port]
-  discv5UdpPort*: Option[Port]
-  wakuFlags*: Option[CapabilitiesBitfield]
+  enrIp*: Opt[IpAddress]
+  enrPort*: Opt[Port]
+  discv5UdpPort*: Opt[Port]
+  wakuFlags*: Opt[CapabilitiesBitfield]
   bindIp*: IpAddress
   bindPort*: Port
 
@@ -81,24 +78,24 @@ proc isP2pTcpAddress*(ma: MultiAddress): bool =
 
 proc getPorts*(
     listenAddrs: seq[MultiAddress]
-): Result[tuple[tcpPort, websocketPort, quicPort: Option[Port]], string] =
-  var tcpPort, websocketPort, quicPort = none(Port)
+): Result[tuple[tcpPort, websocketPort, quicPort: Opt[Port]], string] =
+  var tcpPort, websocketPort, quicPort = Opt.none(Port)
 
   for a in listenAddrs:
     if a.isWsAddress():
       if websocketPort.isNone():
         let wsAddress = initTAddress(a).valueOr:
           return err("getPorts wsAddr error:" & $error)
-        websocketPort = some(wsAddress.port)
+        websocketPort = Opt.some(wsAddress.port)
     elif a.isQuicAddress():
       if quicPort.isNone():
         let quicAddress = initTAddress(a).valueOr:
           return err("getPorts quicAddr error:" & $error)
-        quicPort = some(quicAddress.port)
+        quicPort = Opt.some(quicAddress.port)
     elif tcpPort.isNone():
       let tcpAddress = initTAddress(a).valueOr:
         return err("getPorts tcpAddr error:" & $error)
-      tcpPort = some(tcpAddress.port)
+      tcpPort = Opt.some(tcpAddress.port)
 
   return ok((tcpPort: tcpPort, websocketPort: websocketPort, quicPort: quicPort))
 
@@ -114,20 +111,20 @@ proc init*(
     T: type NetConfig,
     bindIp: IpAddress,
     bindPort: Port,
-    extIp = none(IpAddress),
-    extPort = none(Port),
+    extIp = Opt.none(IpAddress),
+    extPort = Opt.none(Port),
     extMultiAddrs = newSeq[MultiAddress](),
     extMultiAddrsOnly: bool = false,
-    wsBindPort: Option[Port] = some(DefaultWsBindPort),
+    wsBindPort: Opt[Port] = Opt.some(DefaultWsBindPort),
     wsEnabled: bool = false,
     wssEnabled: bool = false,
-    quicBindPort = none(Port),
+    quicBindPort = Opt.none(Port),
     quicEnabled: bool = false,
-    extQuicPort = none(Port),
-    dns4DomainName = none(string),
-    discv5UdpPort = none(Port),
+    extQuicPort = Opt.none(Port),
+    dns4DomainName = Opt.none(string),
+    discv5UdpPort = Opt.none(Port),
     clusterId: uint16 = 0,
-    wakuFlags = none(CapabilitiesBitfield),
+    wakuFlags = Opt.none(CapabilitiesBitfield),
     dnsNameServers = @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")],
 ): NetConfigResult =
   ## Initialize and validate waku node network configuration
@@ -135,19 +132,19 @@ proc init*(
   # Bind addresses
   let hostAddress = ip4TcpEndPoint(bindIp, bindPort)
 
-  var wsHostAddress = none(MultiAddress)
+  var wsHostAddress = Opt.none(MultiAddress)
   if wsEnabled or wssEnabled:
     try:
-      wsHostAddress = some(
+      wsHostAddress = Opt.some(
         ip4TcpEndPoint(bindIp, wsbindPort.get(DefaultWsBindPort)) & wsFlag(wssEnabled)
       )
     except CatchableError:
       return err(getCurrentExceptionMsg())
 
-  var quicHostAddress = none(MultiAddress)
+  var quicHostAddress = Opt.none(MultiAddress)
   if quicEnabled:
     try:
-      quicHostAddress = some(ipQuicEndPoint(bindIp, quicBindPort.get(bindPort)))
+      quicHostAddress = Opt.some(ipQuicEndPoint(bindIp, quicBindPort.get(bindPort)))
     except CatchableError:
       return err("failed to initialize quic address: " & getCurrentExceptionMsg())
 
@@ -155,26 +152,26 @@ proc init*(
     if extIp.isSome():
       extIp
     else:
-      some(bindIp)
+      Opt.some(bindIp)
   let enrPort =
     if extPort.isSome():
       extPort
     else:
-      some(bindPort)
+      Opt.some(bindPort)
 
   # Setup external addresses, if available
-  var hostExtAddress, wsExtAddress, quicExtAddress = none(MultiAddress)
+  var hostExtAddress, wsExtAddress, quicExtAddress = Opt.none(MultiAddress)
 
   if dns4DomainName.isSome():
     # Use dns4 for externally announced addresses
     try:
-      hostExtAddress = some(dns4TcpEndPoint(dns4DomainName.get(), extPort.get()))
+      hostExtAddress = Opt.some(dns4TcpEndPoint(dns4DomainName.get(), extPort.get()))
     except CatchableError:
       return err(getCurrentExceptionMsg())
 
     if wsHostAddress.isSome():
       try:
-        wsExtAddress = some(
+        wsExtAddress = Opt.some(
           dns4TcpEndPoint(dns4DomainName.get(), wsBindPort.get(DefaultWsBindPort)) &
             wsFlag(wssEnabled)
         )
@@ -183,7 +180,7 @@ proc init*(
 
     if quicHostAddress.isSome():
       try:
-        quicExtAddress = some(
+        quicExtAddress = Opt.some(
           dns4QuicEndPoint(
             dns4DomainName.get(), extQuicPort.get(quicBindPort.get(bindPort))
           )
@@ -193,11 +190,11 @@ proc init*(
   else:
     # No public domain name, use ext IP if available
     if extIp.isSome() and extPort.isSome():
-      hostExtAddress = some(ip4TcpEndPoint(extIp.get(), extPort.get()))
+      hostExtAddress = Opt.some(ip4TcpEndPoint(extIp.get(), extPort.get()))
 
       if wsHostAddress.isSome():
         try:
-          wsExtAddress = some(
+          wsExtAddress = Opt.some(
             ip4TcpEndPoint(extIp.get(), wsBindPort.get(DefaultWsBindPort)) &
               wsFlag(wssEnabled)
           )
@@ -206,7 +203,7 @@ proc init*(
 
       if quicHostAddress.isSome():
         try:
-          quicExtAddress = some(
+          quicExtAddress = Opt.some(
             ipQuicEndPoint(extIp.get(), extQuicPort.get(quicBindPort.get(bindPort)))
           )
         except CatchableError:

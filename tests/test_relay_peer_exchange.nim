@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[sequtils, options],
+  results,
+  std/sequtils,
   testutils/unittests,
   chronos,
   libp2p/peerid,
@@ -28,7 +29,7 @@ procSuite "Relay (GossipSub) Peer Exchange":
     # When both client and server mount relay without a handler
     (await node1.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    (await node2.mountRelay(none(RoutingRecordsHandler))).isOkOr:
+    (await node2.mountRelay(Opt.none(RoutingRecordsHandler))).isOkOr:
       assert false, "Failed to mount relay"
 
     # Then the relays are mounted without a handler
@@ -78,11 +79,11 @@ procSuite "Relay (GossipSub) Peer Exchange":
       peerExchangeHandle: RoutingRecordsHandler = peerExchangeHandler
 
     # Givem the nodes mount relay with a peer exchange handler
-    (await node1.mountRelay(some(emptyPeerExchangeHandle))).isOkOr:
+    (await node1.mountRelay(Opt.some(emptyPeerExchangeHandle))).isOkOr:
       assert false, "Failed to mount relay"
-    (await node2.mountRelay(some(emptyPeerExchangeHandle))).isOkOr:
+    (await node2.mountRelay(Opt.some(emptyPeerExchangeHandle))).isOkOr:
       assert false, "Failed to mount relay"
-    (await node3.mountRelay(some(peerExchangeHandle))).isOkOr:
+    (await node3.mountRelay(Opt.some(peerExchangeHandle))).isOkOr:
       assert false, "Failed to mount relay"
 
     # Ensure that node1 prunes all peers after the first connection

@@ -1,4 +1,4 @@
-import std/options
+import results
 
 type PagingDirection* {.pure.} = enum
   ## PagingDirection determines the direction of pagination
@@ -11,7 +11,7 @@ proc default*(): PagingDirection {.inline.} =
 proc into*(b: bool): PagingDirection =
   PagingDirection(b)
 
-proc into*(b: Option[bool]): PagingDirection =
+proc into*(b: Opt[bool]): PagingDirection =
   if b.isNone():
     return default()
   b.get().into()
@@ -19,7 +19,7 @@ proc into*(b: Option[bool]): PagingDirection =
 proc into*(d: PagingDirection): bool =
   d == PagingDirection.FORWARD
 
-proc into*(d: Option[PagingDirection]): bool =
+proc into*(d: Opt[PagingDirection]): bool =
   if d.isNone():
     return false
   d.get().into()

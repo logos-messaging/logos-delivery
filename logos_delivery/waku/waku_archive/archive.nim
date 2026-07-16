@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[times, options, sequtils, algorithm],
+  std/[times, sequtils, algorithm],
   stew/[byteutils],
   chronicles,
   chronos,
@@ -233,7 +232,7 @@ proc findMessages*(
   var hashes = newSeq[WakuMessageHash]()
   var messages = newSeq[WakuMessage]()
   var topics = newSeq[PubsubTopic]()
-  var cursor = none(ArchiveCursor)
+  var cursor = Opt.none(ArchiveCursor)
 
   if rows.len == 0:
     return ok(ArchiveResponse(hashes: hashes, messages: messages, cursor: cursor))
@@ -253,7 +252,7 @@ proc findMessages*(
 
     let (hash, _, _) = rows[^2]
 
-    cursor = some(hash)
+    cursor = Opt.some(hash)
 
   # Messages MUST be returned in chronological order
   if not isAscendingOrder:

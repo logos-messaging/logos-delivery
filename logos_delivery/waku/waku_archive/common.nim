@@ -1,7 +1,6 @@
 {.push raises: [].}
 
-import std/options, results
-import ../waku_core, ../common/paging
+import results, ../waku_core, ../common/paging
 
 ## Public API types
 
@@ -10,11 +9,11 @@ type
 
   ArchiveQuery* = object
     includeData*: bool
-    pubsubTopic*: Option[PubsubTopic]
+    pubsubTopic*: Opt[PubsubTopic]
     contentTopics*: seq[ContentTopic]
-    cursor*: Option[ArchiveCursor]
-    startTime*: Option[Timestamp]
-    endTime*: Option[Timestamp]
+    cursor*: Opt[ArchiveCursor]
+    startTime*: Opt[Timestamp]
+    endTime*: Opt[Timestamp]
     hashes*: seq[WakuMessageHash]
     pageSize*: uint
     direction*: PagingDirection
@@ -24,7 +23,7 @@ type
     hashes*: seq[WakuMessageHash]
     messages*: seq[WakuMessage]
     topics*: seq[PubsubTopic]
-    cursor*: Option[ArchiveCursor]
+    cursor*: Opt[ArchiveCursor]
 
   ArchiveErrorKind* {.pure.} = enum
     UNKNOWN = uint32(0)

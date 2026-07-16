@@ -1,7 +1,8 @@
 {.used.}
 
 import
-  std/[sequtils, tempfiles, options],
+  results,
+  std/[sequtils, tempfiles],
   stew/byteutils,
   chronos,
   chronicles,
@@ -20,10 +21,10 @@ import
 proc setupStaticRln*(
     node: WakuNode,
     identifier: uint,
-    rlnRelayEthContractAddress: Option[string] = none(string),
+    rlnRelayEthContractAddress: Opt[string] = Opt.none(string),
 ) {.async.} =
   await node.setRlnValidator(
-    WakuRlnConfig(dynamic: false, credIndex: some(identifier), epochSizeSec: 1)
+    WakuRlnConfig(dynamic: false, credIndex: Opt.some(identifier), epochSizeSec: 1)
   )
 
 proc setupRelayWithStaticRln*(
@@ -40,7 +41,7 @@ proc subscribeCompletionHandler*(node: WakuNode, pubsubTopic: string): Future[bo
     if topic == pubsubTopic:
       completionFut.complete(true)
 
-  node.subscribe((kind: PubsubSub, topic: pubsubTopic), some(relayHandler)).isOkOr:
+  node.subscribe((kind: PubsubSub, topic: pubsubTopic), Opt.some(relayHandler)).isOkOr:
     error "failed to subscribe to relay", topic = pubsubTopic, error = error
     completionFut.complete(false)
 
@@ -58,7 +59,7 @@ proc sendRlnMessage*(
     await client.rln.generateRLNProof(message.toRLNSignal(), epochTime())
   ).valueOr:
     raiseAssert "generateRLNProof failed: " & error
-  discard await client.publish(some(pubsubTopic), message)
+  discard await client.publish(Opt.some(pubsubTopic), message)
   let isCompleted = await completionFuture.withTimeout(FUTURE_TIMEOUT)
   return isCompleted
 
@@ -80,6 +81,6 @@ proc sendRlnMessageWithInvalidProof*(
     message =
       WakuMessage(payload: @payload, contentTopic: contentTopic, proof: rateLimitProof)
 
-  discard await client.publish(some(pubsubTopic), message)
+  discard await client.publish(Opt.some(pubsubTopic), message)
   let isCompleted = await completionFuture.withTimeout(FUTURE_TIMEOUT)
   return isCompleted

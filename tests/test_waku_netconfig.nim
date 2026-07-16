@@ -1,4 +1,4 @@
-import std/options
+import results
 {.used.}
 
 import chronos, confutils/toml/std/net, libp2p/multiaddress, testutils/unittests
@@ -24,23 +24,23 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      extIp = none(IpAddress),
-      extPort = none(Port),
+      extIp = Opt.none(IpAddress),
+      extPort = Opt.none(Port),
       extMultiAddrs = @[],
       wsBindPort =
         if conf.webSocketConf.isSome():
-          some(conf.webSocketConf.get().port)
+          Opt.some(conf.webSocketConf.get().port)
         else:
-          none(Port),
+          Opt.none(Port),
       wsEnabled = conf.webSocketConf.isSome(),
       wssEnabled =
         if conf.webSocketConf.isSome():
           conf.webSocketConf.get().secureConf.isSome()
         else:
           false,
-      dns4DomainName = none(string),
-      discv5UdpPort = none(Port),
-      wakuFlags = some(wakuFlags),
+      dns4DomainName = Opt.none(string),
+      discv5UdpPort = Opt.none(Port),
+      wakuFlags = Opt.some(wakuFlags),
     )
 
     check:
@@ -76,8 +76,8 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      extIp = some(extIp),
-      extPort = some(extPort),
+      extIp = Opt.some(extIp),
+      extPort = Opt.some(extPort),
     )
 
     assert netConfigRes.isOk(), $netConfigRes.error
@@ -97,8 +97,8 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      dns4DomainName = some(dns4DomainName),
-      extPort = some(extPort),
+      dns4DomainName = Opt.some(dns4DomainName),
+      extPort = Opt.some(extPort),
     )
 
     assert netConfigRes.isOk(), $netConfigRes.error
@@ -141,7 +141,7 @@ suite "Waku NetConfig":
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = bindPort,
       quicEnabled = true,
-      quicBindPort = some(bindPort),
+      quicBindPort = Opt.some(bindPort),
     )
     assert autoRes.isOk(), $autoRes.error
     check autoRes.get().announcedAddresses.filterIt(it.isQuicAddress()).len == 1
@@ -151,7 +151,7 @@ suite "Waku NetConfig":
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = bindPort,
       quicEnabled = true,
-      quicBindPort = some(bindPort),
+      quicBindPort = Opt.some(bindPort),
       extMultiAddrs = @[operatorQuic],
     )
     assert opRes.isOk(), $opRes.error
@@ -170,11 +170,11 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      extIp = some(extIp),
-      extPort = some(Port(1234)),
+      extIp = Opt.some(extIp),
+      extPort = Opt.some(Port(1234)),
       quicEnabled = true,
-      quicBindPort = some(quicBindPort),
-      extQuicPort = some(natQuicPort),
+      quicBindPort = Opt.some(quicBindPort),
+      extQuicPort = Opt.some(natQuicPort),
     )
     assert netConfigRes.isOk(), $netConfigRes.error
 
@@ -194,9 +194,9 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      dns4DomainName = some(dns4DomainName),
-      extIp = some(extIp),
-      extPort = some(extPort),
+      dns4DomainName = Opt.some(dns4DomainName),
+      extIp = Opt.some(extIp),
+      extPort = Opt.some(extPort),
     )
 
     assert netConfigRes.isOk(), $netConfigRes.error
@@ -217,8 +217,8 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      dns4DomainName = some(dns4DomainName),
-      extPort = some(extPort),
+      dns4DomainName = Opt.some(dns4DomainName),
+      extPort = Opt.some(extPort),
       extMultiAddrs = @[dns4Address],
     )
 
@@ -301,8 +301,8 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      extIp = some(extIp),
-      extPort = some(extPort),
+      extIp = Opt.some(extIp),
+      extPort = Opt.some(extPort),
       wsEnabled = true,
       wssEnabled = wssEnabled,
     )
@@ -332,8 +332,8 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      dns4DomainName = some(dns4DomainName),
-      extPort = some(extPort),
+      dns4DomainName = Opt.some(dns4DomainName),
+      extPort = Opt.some(extPort),
       wsEnabled = true,
       wssEnabled = wssEnabled,
     )
@@ -366,9 +366,9 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      dns4DomainName = some(dns4DomainName),
-      extIp = some(extIp),
-      extPort = some(extPort),
+      dns4DomainName = Opt.some(dns4DomainName),
+      extIp = Opt.some(extIp),
+      extPort = Opt.some(extPort),
       wsEnabled = true,
       wssEnabled = wssEnabled,
     )
@@ -410,8 +410,8 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      extIp = some(extIp),
-      extPort = some(extPort),
+      extIp = Opt.some(extIp),
+      extPort = Opt.some(extPort),
     )
 
     assert netConfigRes.isOk(), $netConfigRes.error
@@ -431,8 +431,8 @@ suite "Waku NetConfig":
     let netConfigRes = NetConfig.init(
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
-      dns4DomainName = some(dns4DomainName),
-      extPort = some(extPort),
+      dns4DomainName = Opt.some(dns4DomainName),
+      extPort = Opt.some(extPort),
     )
 
     assert netConfigRes.isOk(), $netConfigRes.error
@@ -496,7 +496,7 @@ suite "Waku NetConfig":
       bindIp = conf.endpointConf.p2pListenAddress,
       bindPort = conf.endpointConf.p2pTcpPort,
       quicEnabled = true,
-      quicBindPort = some(Port(60000)),
+      quicBindPort = Opt.some(Port(60000)),
       extMultiAddrs = extMultiAddrs,
       extMultiAddrsOnly = true,
     )

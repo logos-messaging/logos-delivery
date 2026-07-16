@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, results, chronos, libp2p/crypto/crypto
+import results, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -13,7 +13,7 @@ import
   ],
   ../testlib/[wakucore]
 
-proc newSqliteDatabase*(path: Option[string] = string.none()): SqliteDatabase =
+proc newSqliteDatabase*(path: Opt[string] = Opt.none(string)): SqliteDatabase =
   SqliteDatabase.new(path.get(":memory:")).tryGet()
 
 proc newSqliteArchiveDriver*(): ArchiveDriver =

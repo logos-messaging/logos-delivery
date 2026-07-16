@@ -1,8 +1,7 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
 import
-  std/[options, sequtils],
+  std/sequtils,
   results,
   chronicles,
   chronos,
@@ -29,7 +28,7 @@ proc respond(
     m: WakuMetadata, conn: Connection
 ): Future[Result[void, string]] {.async, gcsafe.} =
   let response = WakuMetadataResponse(
-    clusterId: some(m.clusterId.uint32), shards: m.getShards().mapIt(it.uint32)
+    clusterId: Opt.some(m.clusterId.uint32), shards: m.getShards().mapIt(it.uint32)
   )
 
   let res = catch:
@@ -43,7 +42,7 @@ proc request*(
     m: WakuMetadata, conn: Connection
 ): Future[Result[WakuMetadataResponse, string]] {.async, gcsafe.} =
   let request = WakuMetadataRequest(
-    clusterId: some(m.clusterId), shards: m.getShards().mapIt(it.uint32)
+    clusterId: Opt.some(m.clusterId), shards: m.getShards().mapIt(it.uint32)
   )
 
   let writeRes = catch:

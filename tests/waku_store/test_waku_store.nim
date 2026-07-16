@@ -1,6 +1,6 @@
 {.used.}
 
-import std/options, testutils/unittests, chronos, libp2p/crypto/crypto
+import results, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -30,7 +30,9 @@ suite "Waku Store - query handler":
     let msg = fakeWakuMessage(contentTopic = DefaultContentTopic)
     let hash = computeMessageHash(DefaultPubsubTopic, msg)
     let kv = WakuMessageKeyValue(
-      messageHash: hash, message: some(msg), pubsubTopic: some(DefaultPubsubTopic)
+      messageHash: hash,
+      message: Opt.some(msg),
+      pubsubTopic: Opt.some(DefaultPubsubTopic),
     )
 
     var queryHandlerFut = newFuture[(StoreQueryRequest)]()

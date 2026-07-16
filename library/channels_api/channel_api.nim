@@ -30,6 +30,21 @@ proc logosdelivery_channel_create(
 
   return ok(string(id))
 
+proc logosdelivery_channel_exists(
+    ctx: ptr FFIContext[LogosDelivery],
+    callback: FFICallBack,
+    userData: pointer,
+    channelIdStr: cstring,
+) {.ffi.} =
+  ## Returns `"true"` or `"false"`; a missing channel is not an error.
+  requireInitializedNode(ctx, "ChannelExists"):
+    return err(errMsg)
+
+  requireChannels(ctx, "ChannelExists"):
+    return err(errMsg)
+
+  return ok($ctx.myLib[].reliableChannelManager.channelExists(ChannelId($channelIdStr)))
+
 proc logosdelivery_channel_send(
     ctx: ptr FFIContext[LogosDelivery],
     callback: FFICallBack,

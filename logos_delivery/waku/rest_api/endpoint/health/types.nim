@@ -1,8 +1,6 @@
-import logos_delivery/waku/compat/option_valueor
 {.push raises: [].}
 
-import results
-import chronicles, json_serialization, json_serialization/std/options
+import results, chronicles, json_serialization, json_serialization/pkg/results
 import ../serdes
 import logos_delivery/api/types
 import logos_delivery/waku/[waku_node, node/health_monitor]
@@ -20,14 +18,14 @@ proc writeValue*(
 proc readValue*(
     reader: var JsonReader[RestJson], value: var ProtocolHealth
 ) {.gcsafe, raises: [SerializationError, IOError].} =
-  var protocol = none[string]()
-  var health = none[HealthStatus]()
-  var desc = none[string]()
+  var protocol = Opt.none(string)
+  var health = Opt.none(HealthStatus)
+  var desc = Opt.none(string)
   for fieldName in readObjectFields(reader):
     if fieldName == "desc":
       if desc.isSome():
         reader.raiseUnexpectedField("Multiple `desc` fields found", "ProtocolHealth")
-      desc = some(reader.readValue(string))
+      desc = Opt.some(reader.readValue(string))
     else:
       if protocol.isSome():
         reader.raiseUnexpectedField(
@@ -37,8 +35,8 @@ proc readValue*(
       let fieldValue = reader.readValue(string)
       let h = HealthStatus.init(fieldValue).valueOr:
         reader.raiseUnexpectedValue("Invalid `health` value: " & $error)
-      health = some(h)
-      protocol = some(fieldName)
+      health = Opt.some(h)
+      protocol = Opt.some(fieldName)
 
     value = ProtocolHealth(protocol: protocol.get(), health: health.get(), desc: desc)
 
@@ -55,9 +53,9 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var HealthReport
 ) {.raises: [SerializationError, IOError].} =
   var
-    nodeHealth: Option[HealthStatus]
-    connectionStatus: Option[ConnectionStatus]
-    protocolsHealth: Option[seq[ProtocolHealth]]
+    nodeHealth: Opt[HealthStatus]
+    connectionStatus: Opt[ConnectionStatus]
+    protocolsHealth: Opt[seq[ProtocolHealth]]
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -70,7 +68,7 @@ proc readValue*(
       let health = HealthStatus.init(reader.readValue(string)).valueOr:
         reader.raiseUnexpectedValue("Invalid `health` value: " & $error)
 
-      nodeHealth = some(health)
+      nodeHealth = Opt.some(health)
     of "connectionStatus":
       if connectionStatus.isSome():
         reader.raiseUnexpectedField(
@@ -80,14 +78,14 @@ proc readValue*(
       let state = ConnectionStatus.init(reader.readValue(string)).valueOr:
         reader.raiseUnexpectedValue("Invalid `connectionStatus` value: " & $error)
 
-      connectionStatus = some(state)
+      connectionStatus = Opt.some(state)
     of "protocolsHealth":
       if protocolsHealth.isSome():
         reader.raiseUnexpectedField(
           "Multiple `protocolsHealth` fields found", "HealthReport"
         )
 
-      protocolsHealth = some(reader.readValue(seq[ProtocolHealth]))
+      protocolsHealth = Opt.some(reader.readValue(seq[ProtocolHealth]))
     else:
       unrecognizedFieldWarning(value)
 

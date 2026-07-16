@@ -3,7 +3,7 @@
 {.push raises: [].}
 
 import
-  std/[options, sequtils, deques, random, locks, osproc, algorithm, exitprocs],
+  std/[sequtils, deques, random, locks, osproc, algorithm, exitprocs],
   results,
   stew/byteutils,
   testutils/unittests,
@@ -46,7 +46,7 @@ suite "Onchain group manager":
 
   setup:
     if not anvilStarted:
-      sharedAnvilProc = runAnvil(stateFile = some(DEFAULT_ANVIL_STATE_PATH))
+      sharedAnvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
       anvilStarted = true
       addExitProc(
         proc() =
@@ -89,8 +89,8 @@ suite "Onchain group manager":
       raiseAssert "Expected error when contract address doesn't exist"
 
   test "should error when keystore path and password are provided but file doesn't exist":
-    manager.keystorePath = some("/inexistent/file")
-    manager.keystorePassword = some("password")
+    manager.keystorePath = Opt.some("/inexistent/file")
+    manager.keystorePassword = Opt.some("password")
 
     (waitFor manager.init()).isErrOr:
       raiseAssert "Expected error when keystore file doesn't exist"
@@ -248,7 +248,7 @@ suite "Onchain group manager":
           registrations[0].rateCommitment ==
           getRateCommitment(idCredentials, UserMessageLimit(20)).get() and
           registrations[0].index == 0:
-        manager.idCredentials = some(idCredentials)
+        manager.idCredentials = Opt.some(idCredentials)
         fut.complete()
 
     manager.onRegister(callback)
@@ -293,9 +293,9 @@ suite "Onchain group manager":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
-    manager.userMessageLimit = some(UserMessageLimit(20))
-    manager.membershipIndex = some(MembershipIndex(0))
-    manager.idCredentials = some(idCredentials)
+    manager.userMessageLimit = Opt.some(UserMessageLimit(20))
+    manager.membershipIndex = Opt.some(MembershipIndex(0))
+    manager.idCredentials = Opt.some(idCredentials)
 
     manager.merkleProofCache = newSeq[byte](640)
     for i in 0 ..< 640:
@@ -522,7 +522,7 @@ suite "Onchain group manager":
       raiseAssert $error
 
     # No registration → no membership index. Guard must error rather than
-    # crashing inside fetchMerkleProofElements (which unwraps the Option).
+    # crashing inside fetchMerkleProofElements (which unwraps the Opt).
     check:
       manager.membershipIndex.isNone()
 
@@ -755,7 +755,7 @@ suite "Onchain group manager":
           registrations[0].rateCommitment ==
           getRateCommitment(credentials, UserMessageLimit(20)).get() and
           registrations[0].index == 0:
-        manager.idCredentials = some(credentials)
+        manager.idCredentials = Opt.some(credentials)
         fut.complete()
 
     manager.onRegister(callback)
@@ -835,7 +835,7 @@ suite "Onchain group manager":
     (waitFor manager.init()).isOkOr:
       raiseAssert $error
 
-    manager.ethRpc = none(Web3)
+    manager.ethRpc = Opt.none(Web3)
 
     var isReady = true
     try:

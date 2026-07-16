@@ -1,11 +1,17 @@
 {.push raises: [].}
 
-import std/[options, times, sequtils]
+import std/[times, sequtils]
 import chronos, chronicles, results, stew/byteutils
 
-import ./types, ./protocol_types, ./conversion_utils, ./group_manager, ./nonce_manager
-
-import logos_delivery/waku/waku_core
+import
+  logos_delivery/waku/[
+    rln/types,
+    rln/protocol_types,
+    rln/conversion_utils,
+    rln/group_manager,
+    rln/nonce_manager,
+    waku_core,
+  ]
 
 proc calcEpoch*(rln: Rln, t: float64): Epoch =
   ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
@@ -56,13 +62,16 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
 
 proc generateRLNProof*(
     rln: Rln, input: seq[byte], senderEpochTime: float64
-): Future[Result[seq[byte], string]] {.async.} =
+): Future[Result[seq[byte], string]] {.async: (raises: []).} =
   let epoch = rln.calcEpoch(senderEpochTime)
   let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
-  let proof = (await rln.groupManager.generateProof(input, epoch, nonce)).valueOr:
-    return err("could not generate rln-v2 proof: " & $error)
-  return ok(proof.encode().buffer)
+  try:
+    let proof = (await rln.groupManager.generateProof(input, epoch, nonce)).valueOr:
+      return err("could not generate rln-v2 proof: " & $error)
+    return ok(proof.encode().buffer)
+  except CatchableError as e:
+    return err("exception generating rln proof: " & e.msg)
 
 proc generateRLNProofWithRootRefresh*(
     rln: Rln, input: seq[byte], senderEpochTime: float64
@@ -97,7 +106,7 @@ proc attachRLNProof*(
   return ok(msgWithProof)
 
 proc checkAndGenerateRLNProof*(
-    rln: Option[Rln], message: WakuMessage
+    rln: Opt[Rln], message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
   ## Returns the message with an attached RLN proof, or unchanged when it
   ## already carries a proof or RLN is not configured.

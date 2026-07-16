@@ -1,5 +1,4 @@
 import
-  std/options,
   results,
   chronos,
   libp2p/switch,
@@ -53,8 +52,8 @@ proc newTestWakuNode*(
     nodeKey: crypto.PrivateKey,
     bindIp: IpAddress = parseIpAddress("0.0.0.0"),
     bindPort: Port = Port(0),
-    extIp = none(IpAddress),
-    extPort = none(Port),
+    extIp = Opt.none(IpAddress),
+    extPort = Opt.none(Port),
     extMultiAddrs = newSeq[MultiAddress](),
     peerStorage: PeerStorage = nil,
     maxConnections = MaxConnections,
@@ -65,13 +64,13 @@ proc newTestWakuNode*(
     quicEnabled: bool = true,
     secureKey: string = "",
     secureCert: string = "",
-    wakuFlags = none(CapabilitiesBitfield),
+    wakuFlags = Opt.none(CapabilitiesBitfield),
     nameResolver: NameResolver = nil,
     sendSignedPeerRecord = false,
-    dns4DomainName = none(string),
-    discv5UdpPort = none(Port),
-    agentString = none(string),
-    peerStoreCapacity = none(int),
+    dns4DomainName = Opt.none(string),
+    discv5UdpPort = Opt.none(Port),
+    agentString = Opt.none(string),
+    peerStoreCapacity = Opt.none(int),
     clusterId = DefaultClusterId,
     subscribeShards = @[DefaultShardId],
 ): WakuNode =
@@ -93,7 +92,7 @@ proc newTestWakuNode*(
   # Update extPort to default value if it's missing and there's an extIp or a DNS domain
   let extPort =
     if (extIp.isSome() or dns4DomainName.isSome()) and extPort.isNone():
-      some(Port(0))
+      Opt.some(Port(0))
     else:
       extPort
 
@@ -107,7 +106,7 @@ proc newTestWakuNode*(
     let dns = (waitFor dnsResolve(dns4DomainName.get(), conf.dnsAddrsNameServers)).valueOr:
       raise newException(Defect, error)
 
-    resolvedExtIp = some(parseIpAddress(dns))
+    resolvedExtIp = Opt.some(parseIpAddress(dns))
 
   let netConf = NetConfig.init(
     clusterId = conf.clusterId,
@@ -116,10 +115,10 @@ proc newTestWakuNode*(
     extIp = resolvedExtIp,
     extPort = extPort,
     extMultiAddrs = extMultiAddrs,
-    wsBindPort = some(wsBindPort),
+    wsBindPort = Opt.some(wsBindPort),
     wsEnabled = wsEnabled,
     wssEnabled = wssEnabled,
-    quicBindPort = some(quicBindPort),
+    quicBindPort = Opt.some(quicBindPort),
     quicEnabled = quicEnabled,
     dns4DomainName = dns4DomainName,
     discv5UdpPort = discv5UdpPort,
@@ -153,19 +152,19 @@ proc newTestWakuNode*(
   builder.withNetworkConfiguration(netConf)
   builder.withPeerStorage(peerStorage, capacity = peerStoreCapacity)
   builder.withSwitchConfiguration(
-    maxConnections = some(maxConnections),
+    maxConnections = Opt.some(maxConnections),
     nameResolver = nameResolver,
     sendSignedPeerRecord = sendSignedPeerRecord,
     secureKey =
       if secureKey != "":
-        some(secureKey)
+        Opt.some(secureKey)
       else:
-        none(string),
+        Opt.none(string),
     secureCert =
       if secureCert != "":
-        some(secureCert)
+        Opt.some(secureCert)
       else:
-        none(string),
+        Opt.none(string),
     agentString = agentString,
   )
 

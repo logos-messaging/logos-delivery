@@ -21,7 +21,7 @@
 
 {.push raises: [].}
 
-import std/[options, strutils]
+import std/strutils
 import chronos, results
 import brokers/[event_broker, request_broker, broker_context]
 import brokers/internal/mt_codec
@@ -51,6 +51,40 @@ proc mtUnmarshalValue*(
     return false
   value = Key(s)
   return true
+
+proc mtMarshalValue*[T](
+    buf: ptr UncheckedArray[byte], cap: int, value: Opt[T], pos: var int
+): bool {.gcsafe.} =
+  let present = uint8(if value.isSome(): 1 else: 0)
+  if not mtMarshalValue(buf, cap, present, pos):
+    return false
+  if value.isSome():
+    return mtMarshalValue(buf, cap, value.get(), pos)
+  return true
+
+proc mtUnmarshalValue*[T](
+    buf: ptr UncheckedArray[byte], len: int, value: var Opt[T], pos: var int
+): bool {.gcsafe.} =
+  var present: uint8
+  if not mtUnmarshalValue(buf, len, present, pos):
+    return false
+  if present == 0:
+    value = Opt.none(T)
+    return true
+  var payload: T
+  if not mtUnmarshalValue(buf, len, payload, pos):
+    return false
+  value = Opt.some(payload)
+  return true
+
+proc mtMarshalSizeValue*[T](value: Opt[T]): int {.gcsafe.} =
+  # Opt[T] is generic: for a copyMem-able T the generic size pass takes the
+  # sizeof() branch (padding included) while our marshal writes flag+payload.
+  mixin mtMarshalSizeValue
+  var size = sizeof(uint8)
+  if value.isSome():
+    size += mtMarshalSizeValue(value.get())
+  return size
 
 proc mtMarshalValue*(
     buf: ptr UncheckedArray[byte], cap: int, value: TxOp, pos: var int
@@ -103,7 +137,7 @@ EventBroker(mt):
 
 RequestBroker(mt):
   type KvGet* = object
-    value*: Option[seq[byte]]
+    value*: Opt[seq[byte]]
 
   proc signature*(category: string, key: Key): Future[Result[KvGet, string]] {.async.}
 
