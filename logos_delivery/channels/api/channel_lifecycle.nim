@@ -74,6 +74,12 @@ proc createReliableChannel*(
   self.channels[channelId] = chn
   return ok(channelId)
 
+proc channelExists*(self: ReliableChannelManager, channelId: ChannelId): bool =
+  ## True while the channel is held by the manager, i.e. between a successful
+  ## `createReliableChannel` and `closeChannel`. Persisted SDS state for a
+  ## closed channel does not count as existing.
+  return self.channels.hasKey(channelId)
+
 proc closeChannel*(
     self: ReliableChannelManager, channelId: ChannelId
 ): Future[Result[void, string]] {.async: (raises: []).} =
