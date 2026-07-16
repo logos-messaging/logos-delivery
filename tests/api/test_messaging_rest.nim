@@ -34,7 +34,7 @@ proc restNodeConf(): WakuNodeConf =
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
-  conf.clusterId = some(3'u16)
+  conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = 1
   conf.rest = true
   conf.restAddress = parseIpAddress("127.0.0.1")
@@ -66,8 +66,8 @@ suite "Messaging REST API":
     let msg = MessagingJsonEnvelope(
       payload: base64.encode("hello rest"),
       contentTopic: contentTopic,
-      ephemeral: none(bool),
-      meta: none(Base64String),
+      ephemeral: Opt.none(bool),
+      meta: Opt.none(Base64String),
     )
     let sendResp = await client.messagingPostMessagesV1(msg)
     check:

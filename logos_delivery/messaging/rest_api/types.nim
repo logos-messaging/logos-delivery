@@ -5,7 +5,7 @@ import
   chronicles,
   results,
   json_serialization,
-  json_serialization/std/options,
+  json_serialization/pkg/results,
   presto/[route, client, common]
 import
   logos_delivery/waku/common/base64,
@@ -22,8 +22,8 @@ type MessagingJsonEnvelope* = object
   ## `payload` / `meta` are base64. Fields mirror `MessageEnvelope` exactly.
   payload*: Base64String
   contentTopic*: ContentTopic
-  ephemeral*: Option[bool]
-  meta*: Option[Base64String]
+  ephemeral*: Opt[bool]
+  meta*: Opt[Base64String]
 
 type MessagingPostMessageRequest* = MessagingJsonEnvelope
 
@@ -66,10 +66,10 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var MessagingJsonEnvelope
 ) {.raises: [SerializationError, IOError].} =
   var
-    payload = none(Base64String)
-    contentTopic = none(ContentTopic)
-    ephemeral = none(bool)
-    meta = none(Base64String)
+    payload = Opt.none(Base64String)
+    contentTopic = Opt.none(ContentTopic)
+    ephemeral = Opt.none(bool)
+    meta = Opt.none(Base64String)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -84,13 +84,13 @@ proc readValue*(
 
     case fieldName
     of "payload":
-      payload = some(reader.readValue(Base64String))
+      payload = Opt.some(reader.readValue(Base64String))
     of "contentTopic":
-      contentTopic = some(reader.readValue(ContentTopic))
+      contentTopic = Opt.some(reader.readValue(ContentTopic))
     of "ephemeral":
-      ephemeral = some(reader.readValue(bool))
+      ephemeral = Opt.some(reader.readValue(bool))
     of "meta":
-      meta = some(reader.readValue(Base64String))
+      meta = Opt.some(reader.readValue(Base64String))
     else:
       unrecognizedFieldWarning(value)
 
@@ -117,7 +117,7 @@ proc writeValue*(
 proc readValue*(
     reader: var JsonReader[RestJson], value: var MessagingSendResponse
 ) {.raises: [SerializationError, IOError].} =
-  var requestId = none(string)
+  var requestId = Opt.none(string)
 
   var keys = initHashSet[string]()
   for fieldName in readObjectFields(reader):
@@ -131,7 +131,7 @@ proc readValue*(
 
     case fieldName
     of "requestId":
-      requestId = some(reader.readValue(string))
+      requestId = Opt.some(reader.readValue(string))
     else:
       unrecognizedFieldWarning(value)
 
@@ -214,7 +214,7 @@ proc readValue*(
     reader: var JsonReader[RestJson], value: var SendEventRecord
 ) {.raises: [SerializationError, IOError].} =
   var
-    kind = none(SendEventKind)
+    kind = Opt.none(SendEventKind)
     messageHash = ""
     error = ""
     timestamp = int64(0)
@@ -222,7 +222,7 @@ proc readValue*(
   for fieldName in readObjectFields(reader):
     case fieldName
     of "kind":
-      kind = some(reader.readValue(SendEventKind))
+      kind = Opt.some(reader.readValue(SendEventKind))
     of "messageHash":
       messageHash = reader.readValue(string)
     of "error":

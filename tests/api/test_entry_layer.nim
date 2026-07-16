@@ -27,7 +27,7 @@ proc nodeConf(entryLayer: EntryLayer, rest = false): WakuNodeConf =
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
-  conf.clusterId = some(3'u16)
+  conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = 1
   conf.rest = rest
   conf.restAddress = parseIpAddress("127.0.0.1")
