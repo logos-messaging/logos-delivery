@@ -300,6 +300,54 @@ procSuite "Peer Manager":
 
     await allFutures(nodes.mapIt(it.stop()))
 
+  asyncTest "reconnectPeers only reconnects persisted (Cache) peers":
+    ## Regression: freshly discovered relay peers were wrongly swept into the
+    ## reconnect backoff path. reconnectPeers must act only on peers loaded from
+    ## persistent storage (origin == Cache); discovered peers are left for the
+    ## connectivity loop to dial without any backoff.
+    let node = newTestWakuNode(generateSecp256k1Key())
+    await node.start()
+
+    let basePeerId = "QmeuZJbXrszW2jdT7GdduSjQskPU3S7vvGWKtKgDfkDvW"
+    var cachePeerId, discoveredPeerId: PeerId
+    require cachePeerId.init(basePeerId & "1")
+    require discoveredPeerId.init(basePeerId & "2")
+
+    # Both peers advertise relay and point at an unreachable address, so a dial
+    # attempt fails fast and is observable via the failed-connection counter.
+    let unreachableAddr = MultiAddress.init("/ip4/127.0.0.1/tcp/1").tryGet()
+
+    node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        peerId = cachePeerId, addrs = @[unreachableAddr], protocols = @[WakuRelayCodec]
+      ),
+      origin = Cache,
+    )
+    node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        peerId = discoveredPeerId,
+        addrs = @[unreachableAddr],
+        protocols = @[WakuRelayCodec],
+      ),
+      origin = Discv5,
+    )
+
+    # Default backoff is zero, so the test stays fast; the origin filter is what
+    # we are validating here.
+    await node.peerManager.reconnectPeers(WakuRelayCodec)
+
+    let peerStore = node.peerManager.switch.peerStore
+    check:
+      # The Cache peer was dialed (and failed against the unreachable address).
+      peerStore[NumberFailedConnBook][cachePeerId] == 1
+      peerStore.connectedness(cachePeerId) == CannotConnect
+
+      # The discovered peer was never touched by reconnectPeers.
+      peerStore[NumberFailedConnBook][discoveredPeerId] == 0
+      peerStore.connectedness(discoveredPeerId) == NotConnected
+
+    await node.stop()
+
   asyncTest "Peer manager can use persistent storage and survive restarts":
     let
       database = SqliteDatabase.new(":memory:")[]
