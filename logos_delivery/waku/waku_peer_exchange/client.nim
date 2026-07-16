@@ -1,14 +1,14 @@
+import results
+import chronicles, chronos, metrics
 import
-  results,
-  chronicles,
-  chronos,
-  metrics,
-  ./common,
-  ./rpc,
-  ./rpc_codec,
-  ../node/peer_manager
+  logos_delivery/waku/[
+    waku_peer_exchange/common,
+    waku_peer_exchange/rpc,
+    waku_peer_exchange/rpc_codec,
+    node/peer_manager,
+  ]
 
-from ../waku_core/codecs import WakuPeerExchangeCodec
+from logos_delivery/waku/waku_core/codecs import WakuPeerExchangeCodec
 
 declarePublicGauge waku_px_peers_received_total,
   "number of ENRs received via peer exchange"

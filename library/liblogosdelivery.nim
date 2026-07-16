@@ -1,4 +1,5 @@
-import std/[atomics, macros], chronicles, chronos, chronos/threadsync, ffi
+import std/[atomics, macros]
+import chronicles, chronos, chronos/threadsync, ffi
 import
   logos_delivery/waku/waku_core/message/message,
   logos_delivery/waku/waku_core/topics/pubsub_topic,

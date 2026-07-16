@@ -1,14 +1,16 @@
+import stew/[arrayops, endians2], stint, results
+
+import chronicles, eth/keys
+
 import
-  chronicles,
-  eth/keys,
-  stew/[arrayops, endians2],
-  stint,
-  results,
-  ./rln_interface,
-  ../conversion_utils,
-  ../protocol_types,
-  ../protocol_metrics
-import ../../waku_core, ../../waku_keystore
+  logos_delivery/waku/[
+    rln/rln/rln_interface,
+    rln/conversion_utils,
+    rln/protocol_types,
+    rln/protocol_metrics,
+    waku_core,
+    waku_keystore,
+  ]
 
 {.push raises: [], gcsafe.}
 

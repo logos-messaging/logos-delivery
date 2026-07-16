@@ -81,9 +81,10 @@ proc mtMarshalSizeValue*[T](value: Opt[T]): int {.gcsafe.} =
   # Opt[T] is generic: for a copyMem-able T the generic size pass takes the
   # sizeof() branch (padding included) while our marshal writes flag+payload.
   mixin mtMarshalSizeValue
-  result = sizeof(uint8)
+  var size = sizeof(uint8)
   if value.isSome():
-    result += mtMarshalSizeValue(value.get())
+    size += mtMarshalSizeValue(value.get())
+  return size
 
 proc mtMarshalValue*(
     buf: ptr UncheckedArray[byte], cap: int, value: TxOp, pos: var int

@@ -1,24 +1,21 @@
 {.push raises: [].}
 
+import std/options, std/[strformat, sugar], results
+
+import chronicles, uri, json_serialization, presto/route
 import
-  std/options,
-  std/[strformat, sugar],
-  results,
-  chronicles,
-  uri,
-  json_serialization,
-  presto/route
-import
-  ../../../waku_core,
-  ../../../waku_store/common,
-  ../../../waku_store/self_req_handler,
-  ../../../waku_node,
-  ../../../node/peer_manager,
-  ../../../common/paging,
-  ../../handlers,
-  ../responses,
-  ../serdes,
-  ./types
+  logos_delivery/waku/[
+    waku_core,
+    waku_store/common,
+    waku_store/self_req_handler,
+    waku_node,
+    node/peer_manager,
+    common/paging,
+    rest_api/handlers,
+    rest_api/endpoint/responses,
+    rest_api/endpoint/serdes,
+    rest_api/endpoint/store/types,
+  ]
 
 export types
 

@@ -1,10 +1,6 @@
-import
-  std/[sequtils, sets, tables],
-  chronos,
-  chronicles,
-  metrics,
-  results,
-  libp2p/[peerid, peerinfo]
+import std/[sequtils, sets, tables], chronos, chronicles, metrics, results
+
+import libp2p/[peerid, peerinfo]
 import brokers/broker_context
 
 import

@@ -48,7 +48,7 @@ import
   ./config_chat2
 
 import libp2p/protocols/pubsub/rpc/messages, libp2p/protocols/pubsub/pubsub
-import ../../logos_delivery/waku/rln
+import logos_delivery/waku/rln
 
 const Help = """
   Commands: /[?|help|connect|nick|exit]
@@ -193,12 +193,7 @@ proc publish(c: Chat, line: string) =
     # for future version when we support more than one rln protected content topic,
     # we should check the message content topic as well
     let proofRes =
-      try:
-        waitFor c.node.rln.generateRLNProof(message.toRLNSignal(), float64(time))
-      except CatchableError:
-        Result[seq[byte], string].err(
-          "exception generating rln proof: " & getCurrentExceptionMsg()
-        )
+      waitFor c.node.rln.generateRLNProof(message.toRLNSignal(), float64(time))
     if proofRes.isErr():
       info "could not append rate limit proof to the message"
     else:

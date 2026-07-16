@@ -1,7 +1,7 @@
 {.push raises: [].}
 
-import
-  std/[strutils, net], regex, results, chronicles, chronos, chronos/apps/http/httpserver
+import std/[strutils, net], regex, results
+import chronicles, chronos, chronos/apps/http/httpserver
 
 type OriginHandlerMiddlewareRef* = ref object of HttpServerMiddlewareRef
   allowedOriginMatcher: Opt[Regex2]
