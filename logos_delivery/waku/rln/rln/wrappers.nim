@@ -8,9 +8,8 @@ import
     rln/conversion_utils,
     rln/protocol_types,
     rln/protocol_metrics,
-    waku_core,
-    waku_keystore,
   ]
+import logos_delivery/waku/[waku_core, waku_keystore]
 
 {.push raises: [], gcsafe.}
 
