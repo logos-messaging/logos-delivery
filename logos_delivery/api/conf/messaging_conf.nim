@@ -4,9 +4,9 @@ import results, libp2p/crypto/crypto
 import logos_delivery/api/conf/kernel_conf
 import logos_delivery/waku/common/logging
 import logos_delivery/waku/factory/networks_config
-import logos_delivery/messaging/rate_limit_manager/rate_limit_manager
+import logos_delivery/messaging/rate_limit_manager/rate_limit_config
 
-export kernel_conf, rate_limit_manager
+export kernel_conf, rate_limit_config
 
 # `LogosDeliveryMode` and `EntryLayer` are defined at the leaf (`cli_args`) so
 # they can appear on `WakuNodeConf`; re-exported here via `kernel_conf`.

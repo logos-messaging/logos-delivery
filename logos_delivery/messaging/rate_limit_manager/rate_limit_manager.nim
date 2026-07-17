@@ -1,63 +1,80 @@
 ## Rate Limit Manager for the Messaging API.
 ##
-## Tracks messages sent per RLN epoch and rejects admission when the
-## budget is exhausted, ensuring RLN compliance on enforcing relays.
+## Rate-limits message transmissions against the per-epoch user message limit
+## and rejects admission once it is spent, keeping the node within the quota
+## that RLN-enforcing relays check. Each admission mirrors one RLN message id
+## (nonce) draw; the epoch rolling over refills the allowance.
 ##
-## Budgeting is a lazily rolled fixed window: the first admission after
-## `epochPeriodSec` has elapsed resets the counter. Parking and retrying
-## of over-budget messages is owned by the send service scheduler; this
-## module only answers whether one more transmission fits the current
-## epoch's budget.
+## The epoch and the limit come from a `QuotaProvider` when RLN is mounted
+## (see `quota_source`); otherwise a wall-clock window and the configured limit
+## stand in. Parking and retrying over-budget messages is the send service
+## scheduler's job — this module only answers whether one more transmission
+## fits the current epoch.
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/times
+import std/options
 import results, chronos
 
-type
-  RateLimitError* {.pure.} = enum
-    OverBudget
+import ./rate_limit_config, ./quota_source
 
-  RateLimitConfig* = object
-    enabled*: bool ## spec: rate limiting opt-in; SHOULD be true when RLN active
-    epochPeriodSec*: int
-    messagesPerEpoch*: int
+export rate_limit_config, quota_source
 
-  RateLimitManager* = ref object
-    config*: RateLimitConfig
-    currentEpochStart*: Time
-    sentInCurrentEpoch*: int
+type RateLimitManager* = ref object
+  config*: RateLimitConfig
+  quotaProvider: QuotaProvider
+    ## Supplies the RLN epoch + user message limit. Nil, or a call returning
+    ## `none`, selects the wall-clock fallback. Queried per admission so a node
+    ## whose RLN mounts after construction upgrades automatically.
+  currentEpochIndex*: uint64
+  sentInCurrentEpoch*: uint64
 
-const
-  DefaultEpochPeriodSec* = 600
-  DefaultMessagesPerEpoch* = 1
+proc new*(
+    T: type RateLimitManager,
+    config: RateLimitConfig,
+    quotaProvider: QuotaProvider = nil,
+): T =
+  return T(
+    config: config,
+    quotaProvider: quotaProvider,
+    currentEpochIndex: 0,
+    sentInCurrentEpoch: 0,
+  )
 
-  DefaultRateLimitConfig* = RateLimitConfig(
-    epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
-  ) ## Used when no rate-limit config is supplied; `enabled` defaults false.
-
-proc new*(T: type RateLimitManager, config: RateLimitConfig): T =
-  return T(config: config, currentEpochStart: getTime(), sentInCurrentEpoch: 0)
-
-proc resetEpoch*(self: RateLimitManager) =
-  self.currentEpochStart = getTime()
-  self.sentInCurrentEpoch = 0
+proc currentQuota(self: RateLimitManager): Option[EpochQuota] =
+  if self.quotaProvider.isNil():
+    return none(EpochQuota)
+  return self.quotaProvider()
 
 proc admit*(
     self: RateLimitManager, msg: seq[byte]
 ): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
-  ## Charges one message against the current epoch's budget, rolling the
-  ## window first when `epochPeriodSec` has elapsed. A disabled or
-  ## non-positive configuration admits everything.
-  if not self.config.enabled or self.config.epochPeriodSec <= 0 or
-      self.config.messagesPerEpoch <= 0:
+  ## Charges one message against the current epoch's user message limit,
+  ## rolling the window first when the epoch has advanced. A disabled or zeroed
+  ## configuration admits everything.
+  if not self.config.isEnforcing():
     return ok()
 
-  if getTime() - self.currentEpochStart >=
-      initDuration(seconds = self.config.epochPeriodSec):
-    self.resetEpoch()
+  let quota = self.currentQuota()
 
-  if self.sentInCurrentEpoch >= self.config.messagesPerEpoch:
+  let epochIndex =
+    if quota.isSome():
+      quota.get().epochIndex
+    else:
+      wallClockEpochIndex(self.config.epochPeriodSec)
+
+  # RLN can only tighten the configured cap, never widen it: exceeding RLN's
+  # user message limit would fail later at proof generation, once the epoch's
+  # message ids are exhausted.
+  var limit = self.config.messagesPerEpoch
+  if quota.isSome() and quota.get().userMessageLimit < limit:
+    limit = quota.get().userMessageLimit
+
+  if epochIndex != self.currentEpochIndex:
+    self.currentEpochIndex = epochIndex
+    self.sentInCurrentEpoch = 0
+
+  if self.sentInCurrentEpoch >= limit:
     return err(RateLimitError.OverBudget)
 
   inc self.sentInCurrentEpoch
