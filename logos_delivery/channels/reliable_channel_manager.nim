@@ -18,6 +18,7 @@ import logos_delivery/api/reliable_channel_manager_api
 import logos_delivery/api/conf/channels_conf
 
 import ./reliable_channel
+import ./encryption/noop_encryption
 
 export reliable_channel, channels_conf
 
@@ -40,10 +41,15 @@ proc new*(
   )
 
 proc start*(self: ReliableChannelManager): Result[void, string] =
-  ## Placeholder: per-channel listeners are installed in `ReliableChannel.new`,
-  ## so the manager has nothing to start at this layer. Kept for symmetry
-  ## with the `Waku` mount/start lifecycle and as a hook for future state.
-  discard
+  ## Per-channel listeners are installed in `ReliableChannel.new`, so the only
+  ## thing to wire up here is the encryption brokers. Channels encrypt on egress
+  ## and decrypt on ingress via the `Encrypt`/`Decrypt` request brokers; with no
+  ## provider registered every send and receive would fail, so `channel_send`
+  ## would never reach the wire and `ChannelMessageReceivedEvent` would never
+  ## fire. Install the pass-through noop so channels default to unencrypted
+  ## payloads. `setProvider` refuses to overwrite, so an application that
+  ## installed its own encryption before start keeps it.
+  setNoopEncryption()
   ok()
 
 proc stop*(self: ReliableChannelManager) {.async.} =
