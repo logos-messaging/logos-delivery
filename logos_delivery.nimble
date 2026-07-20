@@ -94,6 +94,11 @@ requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312
 # Temporary pin to the mix commit that widens its libp2p requirement.
 requires "https://github.com/logos-co/nim-libp2p-mix#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94"
 
+# Pinned to the commit that relaxes the plugin's libp2p requirement to a range
+# and aligns its libp2p_mix pin with the one above, so the diamond dep stays
+# collapsed on a single libp2p source.
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#d9045c146124cc4ac661188ea50df48da0445233"
+
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
   when defined(macosx) and defined(arm64):
