@@ -21,7 +21,7 @@ import
   chronicles,
   chronos/timer,
   libp2p/stream/connection,
-  libp2p/utility
+  libp2p/utils/opt
 
 import std/times except TimeInterval, Duration, seconds, minutes
 

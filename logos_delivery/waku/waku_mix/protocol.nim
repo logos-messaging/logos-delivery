@@ -154,7 +154,7 @@ proc setupSpamProtectionCallbacks(mix: WakuMix) =
 
   let publishCallback: PublishCallback = proc(
       contentTopic: string, data: seq[byte]
-  ) {.async.} =
+  ): Future[Result[void, string]] {.async.} =
     # Create a WakuMessage for the coordination data
     let msg = WakuMessage(
       payload: data,
@@ -168,9 +168,10 @@ proc setupSpamProtectionCallbacks(mix: WakuMix) =
     if res.isErr():
       warn "Failed to publish spam protection coordination message",
         contentTopic = contentTopic, error = res.error
-      return
+      return err(res.error)
 
     trace "Published spam protection coordination message", contentTopic = contentTopic
+    return ok()
 
   mix.mixRlnSpamProtection.setPublishCallback(publishCallback)
   trace "Spam protection publish callback configured"
