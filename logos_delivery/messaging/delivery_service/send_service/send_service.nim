@@ -197,15 +197,19 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     # rest of the states are intermediate and does not translate to event
     discard
 
-  # Only tasks that never propagated are reported as hard send failures here.
+  # Hard-fail a task that was admitted (drew a slot) but has been trying to
+  # deliver longer than MaxTimeInCache without ever propagating. A task still
+  # parked for epoch budget (never admitted) is exempt — it is waiting for the
+  # epoch to roll, not failing to deliver, and the timeout is measured from
+  # admission, not message creation, so budget wait does not count against it.
   # Propagated-but-not-store-validated tasks are handled (warn + drop, no event)
   # in evaluateAndCleanUp.
-  if task.firstPropagatedTime.isNone() and task.messageAge() > MaxTimeInCache:
+  if task.isDeliveryTimedOut(MaxTimeInCache):
     error "Failed to send message",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       error = "Message too old",
-      age = task.messageAge()
+      age = task.admissionAge()
     task.state = DeliveryState.FailedToDeliver
     MessageErrorEvent.emit(
       self.brokerCtx,
@@ -253,12 +257,17 @@ proc trySendMessages(self: SendService) {.async.} =
 
   for task in tasksToSend:
     # Todo, check if it has any perf gain to run them concurrent...
-    if task.firstPropagatedTime.isNone():
-      ## Never propagated: this transmission consumes a fresh epoch slot, so
-      ## it must be admitted. Tasks that stay over budget remain in
-      ## `NextRoundRetry` and are retried as the epoch rolls over.
+    if task.firstAdmittedTime.isNone():
+      ## Not yet admitted: this transmission will consume a fresh epoch slot, so
+      ## it must be admitted (and draw a nonce). Guarding on admission rather
+      ## than propagation means a task that failed to propagate is not
+      ## re-charged every tick — it keeps its slot and its proof. Tasks that
+      ## stay over budget remain in `NextRoundRetry` and are retried as the
+      ## epoch rolls over.
       (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
         continue
+      task.firstAdmittedTime = Opt.some(Moment.now())
+
     await self.sendProcessor.process(task)
 
 proc serviceLoop(self: SendService) {.async.} =
@@ -294,6 +303,7 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
     task.state = DeliveryState.NextRoundRetry
     self.addTask(task)
     return
+  task.firstAdmittedTime = Opt.some(Moment.now())
 
   await self.sendProcessor.process(task)
   reportTaskResult(self, task)
