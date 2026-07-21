@@ -112,6 +112,20 @@ suite "MessagingClientConf - merge (override wins)":
       mc.clusterId == Opt.some(2'u16) # override wins
       mc.maxMessageSize == Opt.some("1MB") # base preserved
 
+  test "a rateLimit override propagates through merge":
+    ## Regression: rateLimit must be `Opt` so `merge` copies it; as a plain
+    ## object it was always taken from base, leaving the field unreachable.
+    let overrides = MessagingClientConf(
+      rateLimit: Opt.some(
+        RateLimitConfig(enabled: true, epochPeriodSec: 30, messagesPerEpoch: 5)
+      )
+    )
+    let mc = merge(MessagingClientConf(), overrides)
+    check:
+      mc.rateLimit == overrides.rateLimit
+      mc.rateLimit.get().enabled
+      mc.rateLimit.get().messagesPerEpoch == 5
+
 suite "parseLogosDeliveryConf - JSON parsing":
   test "empty object resolves to a full Core node conf":
     let lc = parseLogosDeliveryConf("{}").valueOr:

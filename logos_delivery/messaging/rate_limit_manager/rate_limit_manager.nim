@@ -32,6 +32,10 @@ const
   DefaultEpochPeriodSec* = 600
   DefaultMessagesPerEpoch* = 1
 
+  DefaultRateLimitConfig* = RateLimitConfig(
+    epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
+  ) ## Used when no rate-limit config is supplied; `enabled` defaults false.
+
 proc new*(T: type RateLimitManager, config: RateLimitConfig): T =
   return
     T(config: config, queue: @[], currentEpochStart: getTime(), sentInCurrentEpoch: 0)

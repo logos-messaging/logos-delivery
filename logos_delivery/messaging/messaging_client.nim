@@ -25,8 +25,9 @@ proc new*(
   ## The messaging layer chains onto Waku: it drives the underlying Waku kernel
   ## for transport while exposing its own send/recv API.
   let reliability = conf.reliabilityEnabled.get(DefaultP2pReliability)
-  let sendService =
-    ?SendService.new(reliability, waku, RateLimitManager.new(conf.rateLimit))
+  let sendService = ?SendService.new(
+    reliability, waku, RateLimitManager.new(conf.rateLimit.get(DefaultRateLimitConfig))
+  )
   let recvService = RecvService.new(waku)
   return ok(
     T(
