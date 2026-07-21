@@ -13,7 +13,6 @@
 ##
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
-import std/options
 import results, chronos
 
 import ./rate_limit_config, ./quota_source
@@ -41,9 +40,9 @@ proc new*(
     sentInCurrentEpoch: 0,
   )
 
-proc currentQuota(self: RateLimitManager): Option[EpochQuota] =
+proc currentQuota(self: RateLimitManager): Opt[EpochQuota] =
   if self.quotaProvider.isNil():
-    return none(EpochQuota)
+    return Opt.none(EpochQuota)
   return self.quotaProvider()
 
 proc admit*(

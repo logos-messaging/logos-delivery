@@ -42,6 +42,19 @@ proc relayPushHandler*(self: Waku): PushMessageHandler =
   ## in (legacy)lightpushPublish; this handler only validates and republishes.
   return getRelayPushHandler(self.node.wakuRelay)
 
+proc currentRlnEpochQuota*(self: Waku): Opt[tuple[epochIndex, messageLimit: uint64]] =
+  ## RLN's current epoch index and the epoch's user message limit, read
+  ## together so the pair cannot straddle an epoch boundary. `none` when RLN is
+  ## not mounted (or its limit is unset) — which the rate limit manager reads as
+  ## "fall back to the wall-clock window and the configured limit".
+  if self.node.rln.isNil():
+    return Opt.none(tuple[epochIndex, messageLimit: uint64])
+
+  let limit = self.node.rln.groupManager.userMessageLimit.valueOr:
+    return Opt.none(tuple[epochIndex, messageLimit: uint64])
+
+  return Opt.some((fromEpoch(self.node.rln.getCurrentEpoch()), uint64(limit)))
+
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.
   return self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).isSome()

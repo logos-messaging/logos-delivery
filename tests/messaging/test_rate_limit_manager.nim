@@ -1,15 +1,14 @@
 {.used.}
 
-import std/options
-import chronos, testutils/unittests, stew/byteutils
+import results, chronos, testutils/unittests, stew/byteutils
 
 import logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 
 proc fixedQuota(epochIndex, userMessageLimit: uint64): QuotaProvider =
   ## A quota source pinned to one epoch — the epoch never rolls on its own, so
   ## limit-boundary tests are deterministic without touching the wall clock.
-  return proc(): Option[EpochQuota] {.gcsafe, raises: [].} =
-    some(EpochQuota(epochIndex: epochIndex, userMessageLimit: userMessageLimit))
+  return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
+    Opt.some(EpochQuota(epochIndex: epochIndex, userMessageLimit: userMessageLimit))
 
 suite "RateLimitManager - admission":
   asyncTest "admit is a pass-through when disabled":
@@ -49,8 +48,8 @@ suite "RateLimitManager - admission":
     var epoch = 1'u64
     let rl = RateLimitManager.new(
       RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-      proc(): Option[EpochQuota] {.gcsafe, raises: [].} =
-        some(EpochQuota(epochIndex: epoch, userMessageLimit: 100)),
+      proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
+        Opt.some(EpochQuota(epochIndex: epoch, userMessageLimit: 100)),
     )
     check (await rl.admit("first".toBytes())).isOk()
     check (await rl.admit("second".toBytes())).isErr()

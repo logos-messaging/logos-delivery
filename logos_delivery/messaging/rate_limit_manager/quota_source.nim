@@ -15,7 +15,8 @@
 ## scope. It returns `none` when RLN is not mounted, which is the signal to
 ## fall back to the wall clock.
 
-import std/[options, times]
+import std/times
+import results
 
 type
   EpochQuota* = object
@@ -26,7 +27,7 @@ type
       ## Message ids the epoch grants — the hard ceiling on admissions before
       ## the epoch rolls over.
 
-  QuotaProvider* = proc(): Option[EpochQuota] {.gcsafe, raises: [].}
+  QuotaProvider* = proc(): Opt[EpochQuota] {.gcsafe, raises: [].}
     ## The epoch and its user message limit, or `none` when RLN is not mounted.
 
 proc wallClockEpochIndex*(epochPeriodSec: uint64): uint64 =
