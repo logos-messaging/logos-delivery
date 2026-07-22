@@ -197,19 +197,10 @@ proc periodicSetLastOnline(self: StoreResume) {.async.} =
     self.setLastOnlineTimestamp(ts).isOkOr:
       error "failed to set last online timestamp", error, time = ts
 
-proc start*(self: StoreResume) {.async.} =
-  # start resume process, will try thrice.
-  var tries = 3
-  while tries > 0:
-    (await self.autoStoreResume()).isOkOr:
-      tries -= 1
-      error "store resume failed", triesLeft = tries, error = $error
-      await sleepAsync(30.seconds)
-      continue
-
-    break
-
-  # starting periodic storage of last online timestamp
+proc startPeriodicOnly*(self: StoreResume) =
+  ## Starts only the periodic last-online bookkeeping; the catch-up decision
+  ## (neighbour sync within the window vs store resume beyond it) is made by
+  ## the node's startup catch-up.
   self.handle = self.periodicSetLastOnline()
 
 proc stopWait*(self: StoreResume) {.async.} =

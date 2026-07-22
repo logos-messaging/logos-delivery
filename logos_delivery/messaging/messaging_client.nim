@@ -1,6 +1,7 @@
 ## Messaging layer core: the `MessagingClient` type plus its construction and
 ## lifecycle. The public operations (subscribe / unsubscribe / send) live in
 ## `messaging/api.nim`.
+import std/strutils
 import results, chronos, chronicles
 import
   logos_delivery/api/conf/messaging_conf,
@@ -24,7 +25,17 @@ proc new*(
   ## The messaging layer chains onto Waku: it drives the underlying Waku kernel
   ## for transport while exposing its own send/recv API.
   let reliability = conf.reliabilityEnabled.get(DefaultP2pReliability)
-  let sendService = ?SendService.new(reliability, waku)
+
+  let confirmationMode =
+    case conf.sendConfirmation.get("store").strip().toLowerAscii()
+    of "store":
+      SendConfirmationMode.Store
+    of "propagation":
+      SendConfirmationMode.Propagation
+    else:
+      return err("invalid send-confirmation mode: " & conf.sendConfirmation.get(""))
+
+  let sendService = ?SendService.new(reliability, waku, confirmationMode)
   let recvService = RecvService.new(waku)
   return ok(
     T(

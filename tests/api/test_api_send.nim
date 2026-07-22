@@ -319,6 +319,53 @@ suite "Waku API - Send":
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error
 
+  asyncTest "Propagation mode: send confirmed without a store node":
+    ## send-confirmation=propagation: MessageSent fires from the publish path;
+    ## no store node is connected (same shape as "Send only propagates", which
+    ## in store mode never fires MessageSent).
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          LogosDeliveryConf(
+            kernelConf: KernelConf(createApiNodeConf()),
+            messagingConf:
+              Opt.some(MessagingClientConf(sendConfirmation: Opt.some("propagation"))),
+            channelsConf: Opt.some(ReliableChannelManagerConf()),
+          )
+        )
+      ).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start Waku node: " & error
+
+      await node.waku.node.connectToNodes(@[relayNode1PeerInfo])
+
+    let eventManager = newSendEventListenerManager(node.waku.brokerCtx)
+    defer:
+      await eventManager.teardown()
+
+    let envelope = MessageEnvelope.init(
+      ContentTopic("/waku/2/default-content/proto"), "test payload"
+    )
+
+    let requestId = (await node.messagingClient.send(envelope)).valueOr:
+      raiseAssert error
+
+    const eventTimeout = 10.seconds
+    discard await eventManager.waitForEvents(eventTimeout)
+
+    eventManager.validate(
+      {SendEventOutcome.Sent, SendEventOutcome.Propagated}, requestId
+    )
+    # exactly one confirmation: the finalized task must not be re-reported
+    # by later service-loop ticks
+    check eventManager.sentCount == 1
+    check eventManager.propagatedCount == 1
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
   asyncTest "Send only propagates fallback to lightpush":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:

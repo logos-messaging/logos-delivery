@@ -25,6 +25,7 @@ import
   ../waku_core/codecs,
   ../rln,
   ../discovery/waku_dnsdisc,
+  ../common/error_handling,
   ../waku_archive/retention_policy as policy,
   ../waku_archive/retention_policy/builder as policy_builder,
   ../waku_archive/driver as driver,
@@ -147,6 +148,30 @@ proc getAutoshards*(
     autoShards.add(shard)
   return ok(autoshards)
 
+proc setupArchive(
+    node: WakuNode,
+    dbUrl: string,
+    dbVacuum: bool,
+    dbMigration: bool,
+    maxNumDbConnections: int,
+    retentionPolicies: seq[string],
+    onFatalErrorAction: OnFatalErrorHandler,
+): Future[Result[void, string]] {.async.} =
+  let archiveDriver = (
+    await driver.ArchiveDriver.new(
+      dbUrl, dbVacuum, dbMigration, maxNumDbConnections, onFatalErrorAction
+    )
+  ).valueOr:
+    return err("failed to setup archive driver: " & error)
+
+  let retPolicies = policy.RetentionPolicy.new(retentionPolicies).valueOr:
+    return err("failed to create retention policy: " & error)
+
+  node.mountArchive(archiveDriver, retPolicies).isOkOr:
+    return err("failed to mount waku archive protocol: " & error)
+
+  return ok()
+
 proc setupProtocols(
     node: WakuNode, conf: WakuConf
 ): Future[Result[void, string]] {.async.} =
@@ -197,19 +222,14 @@ proc setupProtocols(
   if conf.storeServiceConf.isSome():
     let storeServiceConf = conf.storeServiceConf.get()
 
-    let archiveDriver = (
-      await driver.ArchiveDriver.new(
+    (
+      await node.setupArchive(
         storeServiceConf.dbUrl, storeServiceConf.dbVacuum, storeServiceConf.dbMigration,
-        storeServiceConf.maxNumDbConnections, onFatalErrorAction,
+        storeServiceConf.maxNumDbConnections, storeServiceConf.retentionPolicies,
+        onFatalErrorAction,
       )
-    ).valueOr:
-      return err("failed to setup archive driver: " & error)
-
-    let retPolicies = policy.RetentionPolicy.new(storeServiceConf.retentionPolicies).valueOr:
-      return err("failed to create retention policy: " & error)
-
-    node.mountArchive(archiveDriver, retPolicies).isOkOr:
-      return err("failed to mount waku archive protocol: " & error)
+    ).isOkOr:
+      return err(error)
 
     # Store setup
     try:
@@ -217,24 +237,41 @@ proc setupProtocols(
     except CatchableError:
       return err("failed to mount waku store protocol: " & getCurrentExceptionMsg())
 
-    if storeServiceConf.storeSyncConf.isSome():
-      let confStoreSync = storeServiceConf.storeSyncConf.get()
+  if conf.storeSyncConf.isSome():
+    let confStoreSync = conf.storeSyncConf.get()
 
+    if conf.storeServiceConf.isNone():
+      # No store service: back reconciliation & transfer with a small
+      # archive bounded to twice the sync window (pruned every 30 min,
+      # so it transiently holds up to 2 * range + 30 min of messages).
       (
-        await node.mountStoreSync(
-          conf.clusterId, conf.subscribeShards, conf.contentTopics,
-          confStoreSync.rangeSec, confStoreSync.intervalSec,
-          confStoreSync.relayJitterSec,
+        await node.setupArchive(
+          dbUrl = confStoreSync.dbUrl,
+          dbVacuum = false,
+          dbMigration = true,
+          maxNumDbConnections = 4,
+          retentionPolicies = @["time:" & $(2'u64 * confStoreSync.rangeSec)],
+          onFatalErrorAction = onFatalErrorAction,
         )
       ).isOkOr:
-        return err("failed to mount waku store sync protocol: " & $error)
+        return err(error)
 
-      if conf.remoteStoreNode.isSome():
-        let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
-          return err("failed to set node waku store-sync peer: " & error)
+    (
+      await node.mountStoreSync(
+        conf.clusterId, conf.subscribeShards, conf.contentTopics,
+        confStoreSync.rangeSec, confStoreSync.intervalSec, confStoreSync.relayJitterSec,
+      )
+    ).isOkOr:
+      return err("failed to mount waku store sync protocol: " & $error)
 
-        node.peerManager.addServicePeer(storeNode, WakuReconciliationCodec)
-        node.peerManager.addServicePeer(storeNode, WakuTransferCodec)
+    if conf.storeServiceConf.isSome() and conf.remoteStoreNode.isSome():
+      let storeNode = parsePeerInfo(conf.remoteStoreNode.get()).valueOr:
+        return err("failed to set node waku store-sync peer: " & error)
+
+      node.peerManager.addServicePeer(storeNode, WakuReconciliationCodec)
+      node.peerManager.addServicePeer(storeNode, WakuTransferCodec)
+    elif conf.remoteStoreNode.isSome():
+      warn "storenode is not used by store-sync without the store service; sync peers are found via discovery"
 
   mountStoreClient(node)
   if conf.remoteStoreNode.isSome():
@@ -242,7 +279,10 @@ proc setupProtocols(
       return err("failed to set node waku store peer: " & error)
     node.peerManager.addServicePeer(storeNode, WakuStoreCodec)
 
-  if conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume:
+  if (conf.storeServiceConf.isSome and conf.storeServiceConf.get().resume) or
+      conf.storeSyncConf.isSome():
+    # sync-enabled full nodes track last-online so the startup catch-up can
+    # choose between neighbour reconciliation and store resume
     node.setupStoreResume()
 
   if conf.shardingConf.kind == AutoSharding:

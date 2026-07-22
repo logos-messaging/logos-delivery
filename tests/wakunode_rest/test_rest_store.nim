@@ -673,6 +673,82 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_JSON
       response.data.messages.len == 0
 
+  asyncTest "retrieve messages from an archive-only node (no store protocol)":
+    ## Store-sync standalone nodes carry an archive without mounting the
+    ## store protocol; REST self-queries must be served from the archive.
+
+    # Given
+    let node = testWakuNode()
+    await node.start()
+
+    var restPort = Port(0)
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, restPort).tryGet()
+    restPort = restServer.httpServer.address.port # update with bound port for client use
+
+    installStoreApiHandlers(restServer.router, node)
+    restServer.start()
+
+    # Archive only, deliberately no mountStore
+    let driver: ArchiveDriver = QueueDriver.new()
+    let mountArchiveRes = node.mountArchive(driver)
+    assert mountArchiveRes.isOk(), mountArchiveRes.error
+
+    require node.wakuStore.isNil()
+
+    let msgList = @[
+      fakeWakuMessage(@[byte 0], ts = 0),
+      fakeWakuMessage(@[byte 1], ts = 1),
+      fakeWakuMessage(@[byte 2], ts = 2),
+      fakeWakuMessage(@[byte 3], ts = 3),
+      fakeWakuMessage(@[byte 4], ts = 4),
+    ]
+    for msg in msgList:
+      require (await driver.put(DefaultPubsubTopic, msg)).isOk()
+
+    let client = newRestHttpClient(initTAddress(restAddress, restPort))
+
+    # Self-query without a peer address is served from the archive
+    let response = await client.getStoreMessagesV3(
+      includeData = "true", pubsubTopic = encodeUrl(DefaultPubsubTopic)
+    )
+
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.messages.len == 5
+
+    # Cursor pagination works through the archive fallback
+    var received = newSeq[WakuMessage]()
+    var reqCursor = ""
+    for page in 0 ..< 3:
+      let resp = await client.getStoreMessagesV3(
+        includeData = "true",
+        pubsubTopic = encodeUrl(DefaultPubsubTopic),
+        cursor = reqCursor,
+        ascending = "true",
+        pageSize = "2",
+      )
+
+      check:
+        resp.status == 200
+        $resp.contentType == $MIMETYPE_JSON
+
+      for element in resp.data.messages:
+        if element.message.isSome():
+          received.add(element.message.get())
+
+      if resp.data.paginationCursor.isSome():
+        reqCursor = resp.data.paginationCursor.get()
+      else:
+        break
+
+    check received == msgList
+
+    await restServer.stop()
+    await restServer.closeWait()
+    await node.stop()
+
   asyncTest "correct message fields are returned":
     # Given
     let node = testWakuNode()

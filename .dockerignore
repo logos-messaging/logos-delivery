@@ -7,3 +7,5 @@
 /nimcache
 librln*
 **/vendor/*
+/nimbledeps
+/build

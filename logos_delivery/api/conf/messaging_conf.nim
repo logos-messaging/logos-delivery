@@ -36,6 +36,9 @@ type MessagingClientConf* = object
     ## RLN epoch size, in seconds.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
     ## Enable store-based send reliability.
+  sendConfirmation* {.name: "send-confirmation".}: Opt[string]
+    ## How MessageSent is confirmed: "store" (store witness, default) or
+    ## "propagation" (publish-path peer count; no store dependency).
   store*: Opt[bool] ## Enable the store protocol.
   storenode* {.name: "storenode".}: Opt[string]
   storeMessageDbUrl* {.name: "store-message-db-url".}: Opt[string]

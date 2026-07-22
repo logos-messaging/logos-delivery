@@ -49,7 +49,6 @@ const
   DefaultLightPush: bool = false
   DefaultPeerExchange: bool = false
     # historical confbuilder default; wakunode2 CLI deviates (true)
-  DefaultStoreSyncMount: bool = false
   DefaultRendezvous: bool = false
     # historical confbuilder default; wakunode2 CLI deviates (true)
   DefaultMix*: bool = false
@@ -117,6 +116,7 @@ type WakuConfBuilder* = object
   restServerConf*: RestServerConfBuilder
   rlnRelayConf*: RlnConfBuilder
   storeServiceConf*: StoreServiceConfBuilder
+  storeSyncConf*: StoreSyncConfBuilder
   mixConf*: MixConfBuilder
   webSocketConf*: WebSocketConfBuilder
   quicConf*: QuicConfBuilder
@@ -126,7 +126,6 @@ type WakuConfBuilder* = object
   relay: Opt[bool]
   lightPush: Opt[bool]
   peerExchange: Opt[bool]
-  storeSync: Opt[bool]
   relayPeerExchange: Opt[bool]
   mix: Opt[bool]
 
@@ -181,6 +180,7 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     restServerConf: RestServerConfBuilder.init(),
     rlnRelayConf: RlnConfBuilder.init(),
     storeServiceConf: StoreServiceConfBuilder.init(),
+    storeSyncConf: StoreSyncConfBuilder.init(),
     webSocketConf: WebSocketConfBuilder.init(),
     quicConf: QuicConfBuilder.init(),
     rateLimitConf: RateLimitConfBuilder.init(),
@@ -220,9 +220,6 @@ proc withRelay*(b: var WakuConfBuilder, relay: bool) =
 
 proc withLightPush*(b: var WakuConfBuilder, lightPush: bool) =
   b.lightPush = Opt.some(lightPush)
-
-proc withStoreSync*(b: var WakuConfBuilder, storeSync: bool) =
-  b.storeSync = Opt.some(storeSync)
 
 proc withPeerExchange*(b: var WakuConfBuilder, peerExchange: bool) =
   b.peerExchange = Opt.some(peerExchange)
@@ -566,13 +563,6 @@ proc build*(
       warn "whether to mount peerExchange is not specified, defaulting to not mounting"
       DefaultPeerExchange
 
-  let storeSync =
-    if builder.storeSync.isSome():
-      builder.storeSync.get()
-    else:
-      warn "whether to mount storeSync is not specified, defaulting to not mounting"
-      DefaultStoreSyncMount
-
   let rendezvous =
     if builder.rendezvous.isSome():
       builder.rendezvous.get()
@@ -642,6 +632,9 @@ proc build*(
 
   let storeServiceConf = builder.storeServiceConf.build().valueOr:
     return err("Store Conf building failed: " & $error)
+
+  let storeSyncConf = builder.storeSyncConf.build().valueOr:
+    return err("Store Sync Conf building failed: " & $error)
 
   let mixConf = builder.mixConf.build().valueOr:
     return err("Mix Conf building failed: " & $error)
@@ -759,7 +752,7 @@ proc build*(
     filter = filterServiceConf.isSome,
     store = storeServiceConf.isSome,
     relay = relay,
-    sync = storeServiceConf.isSome() and storeServiceConf.get().storeSyncConf.isSome,
+    sync = storeSyncConf.isSome,
     mix = mix,
   )
 
@@ -780,6 +773,7 @@ proc build*(
   let wakuConf = WakuConf(
     # confs
     storeServiceConf: storeServiceConf,
+    storeSyncConf: storeSyncConf,
     filterServiceConf: filterServiceConf,
     discv5Conf: discv5Conf,
     rlnRelayConf: rlnRelayConf,

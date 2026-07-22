@@ -114,6 +114,19 @@ proc mountStore*(
 
   node.switch.mount(node.wakuStore, protocolMatcher(store_common.WakuStoreCodec))
 
+proc queryArchive*(
+    node: WakuNode, request: StoreQueryRequest
+): Future[StoreQueryResult] {.async.} =
+  ## Serves a store query directly from the local archive, for nodes that
+  ## carry an archive without mounting the store protocol (e.g. full nodes
+  ## running store sync standalone). Same conversion path as mountStore's
+  ## request handler, so pagination/cursor semantics are identical.
+  if node.wakuArchive.isNil():
+    return err(StoreError.new(300, "waku archive is not available"))
+
+  let response = await node.wakuArchive.findMessages(request.toArchiveQuery())
+  return response.toStoreResult()
+
 proc mountStoreClient*(node: WakuNode) =
   info "mounting store client"
 

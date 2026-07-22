@@ -179,6 +179,23 @@ proc retrieveMsgsFromSelfNode(
 
   return resp
 
+proc retrieveMsgsFromArchive(
+    self: WakuNode, storeQuery: StoreQueryRequest
+): Future[RestApiResponse] {.async.} =
+  ## Serves a local store query from the node's archive when the store
+  ## protocol is not mounted (e.g. store-sync standalone full nodes).
+
+  let storeResp = (await self.queryArchive(storeQuery)).valueOr:
+    return RestApiResponse.internalServerError($error)
+
+  let resp = RestApiResponse.jsonResponse(storeResp.toHex(), status = Http200).valueOr:
+    const msg = "Error building the json respose"
+    let e = $error
+    error msg, error = e
+    return RestApiResponse.internalServerError(fmt("{msg} [{e}]"))
+
+  return resp
+
 # Subscribes the rest handler to attend "/store/v1/messages" requests
 proc installStoreApiHandlers*(
     router: var RestRouter,
@@ -225,6 +242,13 @@ proc installStoreApiHandlers*(
       ## In this case we assume that the user is willing to retrieve the messages stored by
       ## the local/self store node.
       return await node.retrieveMsgsFromSelfNode(storeQuery)
+
+    if peer.isNone() and not node.wakuArchive.isNil():
+      ## No peer given and no store protocol, but the node carries an archive
+      ## (store-sync standalone): serve the query from the local archive, like
+      ## a store node serving its own. Only the archive's retention window is
+      ## returned; pass peerAddr to query a remote store for deeper history.
+      return await node.retrieveMsgsFromArchive(storeQuery)
 
     # Parse the peer address parameter
     let parsedPeerAddr = parseUrlPeerAddr(peer).valueOr:

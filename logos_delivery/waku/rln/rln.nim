@@ -48,7 +48,7 @@ proc stop*(rlnPeer: Rln) {.async: (raises: [Exception]).} =
   await rlnPeer.groupManager.stop()
 
 proc validateMessage*(
-    rlnPeer: Rln, msg: WakuMessage
+    rlnPeer: Rln, msg: WakuMessage, checkFreshness = true
 ): Future[MessageValidationResult] {.async.} =
   ## validate the supplied `msg` based on the waku-rln-relay routing protocol i.e.,
   ## the `msg`'s epoch is within MaxEpochGap of the current epoch
@@ -56,6 +56,9 @@ proc validateMessage*(
   ## the `msg` does not violate the rate limit
   ## `timeOption` indicates Unix epoch time (fractional part holds sub-seconds)
   ## if `timeOption` is supplied, then the current epoch is calculated based on that
+  ## `checkFreshness = false` skips the timestamp-recency bound: used for
+  ## messages that are legitimately old, e.g. received via store sync
+  ## transfer. Proof, root and timestamp/epoch binding are still verified.
 
   let proof = RateLimitProof.init(msg.proof).valueOr:
     return MessageValidationResult.Invalid
@@ -72,7 +75,7 @@ proc validateMessage*(
   info "time info",
     currentTime = currentTime, messageTime = messageTime, msgHash = msg.hash
 
-  if timeDiff > rlnPeer.rlnMaxTimestampGap:
+  if checkFreshness and timeDiff > rlnPeer.rlnMaxTimestampGap:
     warn "invalid message: timestamp difference exceeds threshold",
       timeDiff = timeDiff,
       maxTimestampGap = rlnPeer.rlnMaxTimestampGap,

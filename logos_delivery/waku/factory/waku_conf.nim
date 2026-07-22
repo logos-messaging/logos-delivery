@@ -55,6 +55,9 @@ type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32
   intervalSec*: uint32
   relayJitterSec*: uint32
+  dbUrl*: string
+    ## Backs reconciliation & transfer with a small bounded archive
+    ## when the store service is not enabled. Ignored otherwise.
 
 type MixConf* = ref object
   mixKey*: Curve25519Key
@@ -68,7 +71,6 @@ type StoreServiceConf* = object
   maxNumDbConnections*: int
   retentionPolicies*: seq[string]
   resume*: bool
-  storeSyncConf*: Opt[StoreSyncConf]
 
 type FilterServiceConf* {.requiresInit.} = object
   maxPeersToServe*: uint32
@@ -113,6 +115,7 @@ type WakuConf* {.requiresInit.} = ref object
   dnsDiscoveryConf*: Opt[DnsDiscoveryConf]
   filterServiceConf*: Opt[FilterServiceConf]
   storeServiceConf*: Opt[StoreServiceConf]
+  storeSyncConf*: Opt[StoreSyncConf]
   rlnRelayConf*: Opt[RlnConf]
   restServerConf*: Opt[RestServerConf]
   metricsServerConf*: Opt[MetricsServerConf]

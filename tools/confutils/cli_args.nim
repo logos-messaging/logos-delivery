@@ -38,7 +38,7 @@ import ./envvar as confEnvvarDefs, ./envvar_net as confEnvvarNet
 
 export
   confTomlDefs, confTomlNet, confEnvvarDefs, confEnvvarNet, ProtectedShard,
-  DefaultMaxWakuMessageSizeStr, DefaultAgentString, modes
+  DefaultMaxWakuMessageSizeStr, DefaultAgentString, modes, DefaultStoreSyncDbUrl
 
 logScope:
   topics = "waku cli args"
@@ -442,6 +442,14 @@ hence would have reachability issues.""",
       defaultValue: 20,
       name: "store-sync-relay-jitter"
     .}: uint32
+
+    storeSyncDbUrl* {.
+      hidden,
+      desc:
+        "Database connection URL backing store sync when the store service is disabled.",
+      defaultValue: DefaultStoreSyncDbUrl,
+      name: "store-sync-db-url"
+    .}: string
 
     ## Filter config
     filter* {.
@@ -1125,10 +1133,11 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.peerExchangeNode != "":
     b.withRemotePeerExchangeNode(n.peerExchangeNode)
 
-  b.storeServiceConf.storeSyncConf.withEnabled(n.storeSync)
-  b.storeServiceConf.storeSyncConf.withIntervalSec(n.storeSyncInterval)
-  b.storeServiceConf.storeSyncConf.withRangeSec(n.storeSyncRange)
-  b.storeServiceConf.storeSyncConf.withRelayJitterSec(n.storeSyncRelayJitter)
+  b.storeSyncConf.withEnabled(n.storeSync)
+  b.storeSyncConf.withIntervalSec(n.storeSyncInterval)
+  b.storeSyncConf.withRangeSec(n.storeSyncRange)
+  b.storeSyncConf.withRelayJitterSec(n.storeSyncRelayJitter)
+  b.storeSyncConf.withDbUrl(n.storeSyncDbUrl)
 
   if n.mix.isSome():
     b.mixConf.withEnabled(n.mix.get())

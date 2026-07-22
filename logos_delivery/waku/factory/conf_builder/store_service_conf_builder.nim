@@ -1,5 +1,5 @@
 import std/[strutils, sequtils], chronicles, results, chronos
-import ../waku_conf, ./store_sync_conf_builder
+import ../waku_conf
 
 logScope:
   topics = "waku conf builder store service"
@@ -24,10 +24,9 @@ type StoreServiceConfBuilder* = object
   maxNumDbConnections*: Opt[int]
   retentionPolicies*: seq[string]
   resume*: Opt[bool]
-  storeSyncConf*: StoreSyncConfBuilder
 
 proc init*(T: type StoreServiceConfBuilder): StoreServiceConfBuilder =
-  StoreServiceConfBuilder(storeSyncConf: StoreSyncConfBuilder.init())
+  StoreServiceConfBuilder()
 
 proc withEnabled*(b: var StoreServiceConfBuilder, enabled: bool) =
   b.enabled = Opt.some(enabled)
@@ -90,9 +89,6 @@ proc build*(b: StoreServiceConfBuilder): Result[Opt[StoreServiceConf], string] =
   if b.dbUrl.get("") == "":
     return err "store.dbUrl is not specified"
 
-  let storeSyncConf = b.storeSyncConf.build().valueOr:
-    return err("Store Sync Conf failed to build")
-
   let retentionPolicies =
     if b.retentionPolicies.len == 0:
       @[DefaultStoreRetentionPolicy]
@@ -110,7 +106,6 @@ proc build*(b: StoreServiceConfBuilder): Result[Opt[StoreServiceConf], string] =
         maxNumDbConnections: b.maxNumDbConnections.get(DefaultStoreMaxNumDbConnections),
         retentionPolicies: retentionPolicies,
         resume: b.resume.get(DefaultStoreResume),
-        storeSyncConf: storeSyncConf,
       )
     )
   )

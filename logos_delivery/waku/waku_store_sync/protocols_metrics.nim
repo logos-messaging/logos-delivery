@@ -17,6 +17,12 @@ declarePublicHistogram reconciliation_differences,
 declarePublicCounter total_bytes_exchanged,
   "the number of bytes sent and received by the protocols", ["protocol", "direction"]
 
+declarePublicCounter total_transfer_messages_rejected,
+  "number of received transfer messages dropped by validation"
+
+declarePublicCounter total_transfer_messages_unverified,
+  "number of received transfer messages accepted without proof verification (archives do not persist RLN proofs)"
+
 declarePublicCounter total_transfer_messages_exchanged,
   "the number of messages sent and received by the transfer protocol", ["direction"]
 

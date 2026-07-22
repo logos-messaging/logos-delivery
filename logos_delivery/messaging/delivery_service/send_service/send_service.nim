@@ -38,6 +38,10 @@ const ArchiveTime = chronos.seconds(3)
   ## Estimation of the time we wait until we start confirming that a message has been properly
   ## received and archived by a store node
 
+type SendConfirmationMode* {.pure.} = enum
+  Store ## MessageSent fires when a store node confirms the message (default)
+  Propagation ## MessageSent fires from the publish path (relay/lightpush peer count)
+
 type SendService* = ref object of RootObj
   brokerCtx: BrokerContext
   taskCache: seq[DeliveryTask]
@@ -48,6 +52,7 @@ type SendService* = ref object of RootObj
   sendProcessor: BaseSendProcessor
 
   waku: Waku
+  confirmationMode: SendConfirmationMode
   checkStoreForMessages: bool
   lastStoreCheckTime: Moment ## throttles store validation queries to ArchiveTime cadence
 
@@ -77,14 +82,19 @@ proc setupSendProcessorChain(
   return ok(processors[0])
 
 proc new*(
-    T: typedesc[SendService], preferP2PReliability: bool, waku: Waku
+    T: typedesc[SendService],
+    preferP2PReliability: bool,
+    waku: Waku,
+    confirmationMode = SendConfirmationMode.Store,
 ): Result[T, string] =
   if not waku.hasRelay() and not waku.hasLightpush():
     return err(
       "Could not create SendService. wakuRelay or wakuLightpushClient should be set"
     )
 
-  let checkStoreForMessages = preferP2PReliability and waku.isStoreMounted()
+  let checkStoreForMessages =
+    confirmationMode == SendConfirmationMode.Store and preferP2PReliability and
+    waku.isStoreMounted()
 
   let sendProcessorChain = setupSendProcessorChain(waku, waku.brokerCtx).valueOr:
     return err("failed to setup SendProcessorChain: " & $error)
@@ -95,6 +105,7 @@ proc new*(
     serviceLoopHandle: nil,
     sendProcessor: sendProcessorChain,
     waku: waku,
+    confirmationMode: confirmationMode,
     checkStoreForMessages: checkStoreForMessages,
     lastStoreCheckTime: Moment.now(),
   )
@@ -170,6 +181,13 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
         self.brokerCtx, task.requestId, task.msgHash.to0xHex()
       )
       task.propagateEventEmitted = true
+    if self.confirmationMode == SendConfirmationMode.Propagation:
+      # The publish path is the confirmation signal: report sent right after
+      # propagation; the validated task is dropped by evaluateAndCleanUp.
+      info "Message successfully sent (propagation confirmed)",
+        requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+      MessageSentEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+      task.state = DeliveryState.SuccessfullyValidated
     return
   of DeliveryState.SuccessfullyValidated:
     info "Message successfully sent",
@@ -276,5 +294,8 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
 
   await self.sendProcessor.process(task)
   reportTaskResult(self, task)
-  if task.state != DeliveryState.FailedToDeliver:
+  # finalized tasks (failed, or already confirmed in propagation mode) must
+  # not enter the cache: the service loop would report them a second time
+  if task.state notin
+      {DeliveryState.FailedToDeliver, DeliveryState.SuccessfullyValidated}:
     self.addTask(task)

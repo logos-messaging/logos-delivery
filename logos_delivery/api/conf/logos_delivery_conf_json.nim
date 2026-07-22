@@ -18,6 +18,8 @@ const
   # a flat blob before the WakuNodeConf walker sees them (it would reject them).
   KeyReliabilityEnabled = "reliabilityenabled"
   KeyReliability = "reliability"
+  KeySendConfirmation = "sendconfirmation"
+  KeySendConfirmationName = "send-confirmation"
 
 proc parseMode(s: string): Result[LogosDeliveryMode, string] =
   case s.strip().toLowerAscii()
@@ -64,7 +66,9 @@ proc parseFlatConf(
   ## `WakuNodeConf`. Full stack. Delete this proc and its call site to drop support.
   var messaging = MessagingClientConf()
   var reliabilityFields: Table[string, (string, JsonNode)]
-  for key in [KeyReliabilityEnabled, KeyReliability]:
+  for key in [
+    KeyReliabilityEnabled, KeyReliability, KeySendConfirmation, KeySendConfirmationName
+  ]:
     if topJsonNode.hasKey(key):
       reliabilityFields[key] = topJsonNode.getOrDefault(key)
       topJsonNode.del(key)

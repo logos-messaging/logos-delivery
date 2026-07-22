@@ -31,9 +31,14 @@ import
 logScope:
   topics = "waku transfer"
 
+type TransferValidator* = proc(msg: WakuMessage): Future[bool] {.gcsafe, raises: [].}
+  ## Returns false when a received transfer message must be dropped
+  ## (e.g. failed RLN proof verification).
+
 type SyncTransfer* = ref object of LPProtocol
   wakuArchive: WakuArchive
   peerManager: PeerManager
+  msgValidator: Opt[TransferValidator]
 
   # Send IDs to reconciliation protocol for storage
   idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)]
@@ -169,8 +174,24 @@ proc initProtocolHandler(self: SyncTransfer) =
 
       let hash = computeMessageHash(pubsub, msg)
 
+      if self.msgValidator.isSome():
+        let valid =
+          try:
+            await self.msgValidator.get()(msg)
+          except CancelledError as exc:
+            raise exc
+          except CatchableError:
+            error "transfer message validation error",
+              remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
+            false
+
+        if not valid:
+          total_transfer_messages_rejected.inc()
+          warn "transfer message failed validation, dropping",
+            remote_peer_id = conn.peerId
+          continue
+
       try:
-        #TODO verify msg RLN proof...
         (await self.wakuArchive.syncMessageIngress(hash, pubsub, msg)).isOkOr:
           error "failed to archive message", error = $error
           continue
@@ -202,6 +223,7 @@ proc new*(
     idsTx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     localWantsRx: AsyncQueue[PeerId],
     remoteNeedsRx: AsyncQueue[(PeerId, WakuMessageHash)],
+    msgValidator: Opt[TransferValidator] = Opt.none(TransferValidator),
 ): T =
   var transfer = SyncTransfer(
     peerManager: peerManager,
@@ -209,6 +231,7 @@ proc new*(
     idsTx: idsTx,
     localWantsRx: localWantsRx,
     remoteNeedsRx: remoteNeedsRx,
+    msgValidator: msgValidator,
   )
 
   transfer.initProtocolHandler()
