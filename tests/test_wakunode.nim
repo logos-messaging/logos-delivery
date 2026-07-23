@@ -242,24 +242,6 @@ suite "WakuNode":
 
     await node.stop()
 
-  test "toRemotePeerInfo sorts quic-v1 addresses first":
-    let
-      nodeKey = generateSecp256k1Key()
-      node = newTestWakuNode(nodeKey, quicEnabled = true)
-
-    # peerinfo path
-    let fromPeerInfo = node.switch.peerInfo.toRemotePeerInfo()
-    check:
-      fromPeerInfo.addrs.anyIt("/quic-v1" in $it)
-      "/quic-v1" in $fromPeerInfo.addrs[0]
-
-    # enr path
-    let fromEnr = toRemotePeerInfo(node.enr).valueOr:
-      raiseAssert "toRemotePeerInfo(enr) failed: " & $error
-    check:
-      fromEnr.addrs.anyIt("/quic-v1" in $it)
-      "/quic-v1" in $fromEnr.addrs[0]
-
   asyncTest "Dual-stack nodes connect over QUIC":
     let
       nodeKey1 = generateSecp256k1Key()

@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[sequtils, times, sugar, net],
+  std/[sequtils, strutils, times, sugar, net],
   results,
   testutils/unittests,
   chronos,
@@ -60,6 +60,34 @@ procSuite "Peer Manager":
       )
       nodes[0].peerManager.switch.peerStore.connectedness(nodes[1].peerInfo.peerId) ==
         Connectedness.Connected
+
+  asyncTest "connectPeer() prefers quic even when tcp is listed first":
+    ## Announced address lists are tcp-first and identify rewrites the
+    ## address book with that order after every connection, so dial paths
+    ## must reorder quic ahead of tcp themselves.
+    let nodes = toSeq(0 ..< 2).mapIt(newTestWakuNode(generateSecp256k1Key()))
+    await allFutures(nodes.mapIt(it.start()))
+
+    let announced = nodes[1].peerInfo.toRemotePeerInfo().addrs
+    let tcpFirst =
+      announced.filterIt("/quic-v1" notin $it) & announced.filterIt("/quic-v1" in $it)
+    require tcpFirst.anyIt("/quic-v1" in $it)
+    require "/quic-v1" notin $tcpFirst[0]
+
+    let peer = RemotePeerInfo.init(nodes[1].peerInfo.peerId, tcpFirst)
+    require await nodes[0].peerManager.connectPeer(peer)
+    await sleepAsync(chronos.milliseconds(200))
+
+    let conns = nodes[0].peerManager.switch.connManager.getConnections().getOrDefault(
+        nodes[1].peerInfo.peerId
+      )
+    require conns.len >= 1
+    let obsAddr = conns[0].connection.observedAddr
+    check:
+      obsAddr.isSome()
+      "/quic-v1" in $obsAddr.get()
+
+    await allFutures(nodes.mapIt(it.stop()))
 
   asyncTest "Peer manager tracks active store request state":
     let nodes = toSeq(0 ..< 2).mapIt(newTestWakuNode(generateSecp256k1Key()))

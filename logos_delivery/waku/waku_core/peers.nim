@@ -251,13 +251,9 @@ proc parseUrlPeerAddr*(peerAddr: Opt[string]): Result[Opt[RemotePeerInfo], strin
 
   return ok(Opt.some(parsedPeerInfo))
 
-proc sortQuicFirst(addrs: seq[MultiAddress]): seq[MultiAddress] =
-  ## QUIC addresses first, so they are dialed ahead of TCP.
-  addrs.filterIt("/quic-v1" in $it) & addrs.filterIt("/quic-v1" notin $it)
-
 proc toRemotePeerInfo*(enrRec: enr.Record): Result[RemotePeerInfo, cstring] =
   ## enr to dialable RemotePeerInfo. tcp from tcp/tcp6 fields, quic from the
-  ## multiaddrs ext (udp field is discv5, not quic). quic sorted first.
+  ## multiaddrs ext (udp field is discv5, not quic).
   let typedR = enrRec.toTyped().valueOr:
     return err(cstring("enr: failed to construct typed record: " & $error))
   if not typedR.secp256k1.isSome():
@@ -296,8 +292,6 @@ proc toRemotePeerInfo*(enrRec: enr.Record): Result[RemotePeerInfo, cstring] =
   if addrs.len == 0:
     return err("enr: no dialable addresses in record")
 
-  addrs = sortQuicFirst(addrs)
-
   let protocolsRes = catch:
     enrRec.getCapabilitiesCodecs()
 
@@ -320,7 +314,7 @@ converter toRemotePeerInfo*(peerInfo: PeerInfo): RemotePeerInfo =
   ## Useful for testing or internal connections
   RemotePeerInfo(
     peerId: peerInfo.peerId,
-    addrs: sortQuicFirst(peerInfo.listenAddrs),
+    addrs: peerInfo.listenAddrs,
     enr: Opt.none(enr.Record),
     protocols: peerInfo.protocols,
     shards: @[],
