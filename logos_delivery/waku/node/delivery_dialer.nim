@@ -16,18 +16,18 @@ export dialer
 proc sortQuicFirst(addrs: seq[MultiAddress]): seq[MultiAddress] =
   addrs.filterIt("/quic-v1" in $it) & addrs.filterIt("/quic-v1" notin $it)
 
-type DeliveryDial* = ref object of Dialer
+type DeliveryDialer* = ref object of Dialer
   ## Logos Delivery dial policy layer. Replaces the switch dialer; every
   ## dial in the process goes through here. Dials quic addresses before tcp.
 
-proc install*(T: typedesc[DeliveryDial], switch: Switch) =
-  switch.dialer = DeliveryDial.new(
+proc install*(T: typedesc[DeliveryDialer], switch: Switch) =
+  switch.dialer = DeliveryDialer.new(
     switch.peerInfo.peerId, switch.connManager, switch.peerStore, switch.transports,
     switch.ms, switch.nameResolver,
   )
 
 method connect*(
-    self: DeliveryDial,
+    self: DeliveryDialer,
     peerId: PeerId,
     addrs: seq[MultiAddress],
     forceDial = false,
@@ -39,7 +39,7 @@ method connect*(
   )
 
 method dial*(
-    self: DeliveryDial,
+    self: DeliveryDialer,
     peerId: PeerId,
     addrs: seq[MultiAddress],
     protos: seq[string],
@@ -48,7 +48,7 @@ method dial*(
   await procCall Dialer(self).dial(peerId, sortQuicFirst(addrs), protos, forceDial)
 
 method dialAndUpgrade*(
-    self: DeliveryDial,
+    self: DeliveryDialer,
     peerId: Opt[PeerId],
     addrs: seq[MultiAddress],
     dir = Direction.Out,
@@ -58,6 +58,6 @@ method dialAndUpgrade*(
   await procCall Dialer(self).dialAndUpgrade(peerId, sortQuicFirst(addrs), dir)
 
 method tryDial*(
-    self: DeliveryDial, peerId: PeerId, addrs: seq[MultiAddress]
+    self: DeliveryDialer, peerId: PeerId, addrs: seq[MultiAddress]
 ): Future[Opt[MultiAddress]] {.async: (raises: [DialFailedError, CancelledError]).} =
   await procCall Dialer(self).tryDial(peerId, sortQuicFirst(addrs))
