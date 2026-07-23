@@ -86,8 +86,16 @@ jobs:
       - name: Build binaries
         id: build
         if: ${{ steps.secrets.outcome == 'success' }}
+        # Sequential make invocations: wakunode2 and logosdeliverynode each run
+        # via `nimble <task>`. Under a single `make -j` the two nimble
+        # invocations re-resolve git deps concurrently and clobber each other
+        # in the shared ~/.nimble/pkgcache (e.g. "destination already exists",
+        # "fetch-pack: invalid index-pack output"), failing the build.
+        # Serializing the targets removes the race; Nim's own --parallelBuild
+        # still parallelizes compilation. Mirrors the -j1 fix in ci.yml.
         run: |
-          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" wakunode2 logosdeliverynode
+          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" wakunode2
+          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" logosdeliverynode
 
           SHORT_REF=$(git rev-parse --short HEAD)
 
