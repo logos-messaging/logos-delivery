@@ -55,6 +55,13 @@ type MessagingClientConf* = object
     ## Per-epoch message rate limit enforced by the send service. `Opt` like
     ## every other field so `merge` propagates a caller's override; unset falls
     ## back to `DefaultRateLimitConfig` (rate limiting disabled).
+    ##
+    ## Known limitation — settable only programmatically (build the object, or
+    ## via `merge`), not through the JSON config or a CLI flag. It carries no
+    ## `{.name.}` pragma, and because `RateLimitConfig` is a nested object with
+    ## no `parseCmdArg`, the JSON overrides walker rejects it with "cannot be
+    ## set via JSON" (see `applyJsonFieldsToConf`). Exposing it over JSON/CLI
+    ## needs a `parseCmdArg(RateLimitConfig)` or nested-object support there.
 
 proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
   ## Sets the protocol flags implied by the mode.
