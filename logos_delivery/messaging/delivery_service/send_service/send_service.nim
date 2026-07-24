@@ -260,22 +260,30 @@ proc evaluateAndCleanUp(self: SendService) =
     )
   )
 
+proc admitOnce(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
+  ## Charges the task's first transmission against the epoch budget — at most
+  ## once per task lifetime (`firstAdmittedTime`): a transmission consumes a
+  ## fresh epoch slot only until it is admitted, then the task keeps its slot
+  ## and retries resend the same bytes for free. Returns false when the task
+  ## must stay parked (`NextRoundRetry`) for a later round; it is retried as
+  ## the epoch rolls over.
+  if task.firstAdmittedTime.isSome():
+    return true
+
+  (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
+    debug "over rate-limit budget, task waits for the epoch to roll",
+      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    return false
+  task.firstAdmittedTime = Opt.some(Moment.now())
+  return true
+
 proc trySendMessages*(self: SendService) {.async.} =
   let tasksToSend = self.taskCache.filterIt(it.state == DeliveryState.NextRoundRetry)
 
   for task in tasksToSend:
     # Todo, check if it has any perf gain to run them concurrent...
-    if task.firstAdmittedTime.isNone():
-      ## Not yet admitted: this transmission will consume a fresh epoch slot, so
-      ## it must be admitted (and draw a nonce). Guarding on admission rather
-      ## than propagation means a task that failed to propagate is not
-      ## re-charged every tick — it keeps its slot and its proof. Tasks that
-      ## stay over budget remain in `NextRoundRetry` and are retried as the
-      ## epoch rolls over.
-      (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-        continue
-      task.firstAdmittedTime = Opt.some(Moment.now())
-
+    if not (await self.admitOnce(task)):
+      continue
     await self.sendProcessor.process(task)
 
 proc serviceLoop(self: SendService) {.async.} =
@@ -305,13 +313,12 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
     error "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 
-  (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-    info "SendService.send: over rate-limit budget, parking task",
+  if not (await self.admitOnce(task)):
+    info "SendService.send: parking task for a later round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.NextRoundRetry
     self.addTask(task)
     return
-  task.firstAdmittedTime = Opt.some(Moment.now())
 
   await self.sendProcessor.process(task)
   reportTaskResult(self, task)
