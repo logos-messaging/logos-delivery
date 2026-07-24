@@ -48,6 +48,11 @@ suite "SendService RLN proof attach":
       attached.payload == msg.payload
       attached.contentTopic == msg.contentTopic
 
+  asyncTest "currentRlnEpochQuota is none when RLN is not mounted":
+    ## The rate limit manager reads `none` as "use the wall-clock fallback".
+    let waku = (await Waku.new(testConf())).expect("Waku.new")
+    check waku.currentRlnEpochQuota().isNone()
+
 suite "SendService RLN proof attach - RLN mounted":
   var
     waku {.threadvar.}: Waku
@@ -89,6 +94,15 @@ suite "SendService RLN proof attach - RLN mounted":
     let attached = (await waku.attachRlnProof(testMessage())).expect("attachRlnProof")
 
     check attached.proof.len > 0
+
+  asyncTest "currentRlnEpochQuota reports RLN's epoch and user message limit":
+    ## Wires the rate limit manager to RLN: the manager clamps its configured
+    ## cap to `messageLimit` and rolls on `epochIndex`.
+    let quota = waku.currentRlnEpochQuota()
+    check:
+      quota.isSome()
+      quota.get().messageLimit == 20'u64 # the mounted userMessageLimit
+      quota.get().epochIndex > 0'u64 # unixTime div epochSize, far from zero
 
   asyncTest "is idempotent: a message that already carries a proof is untouched":
     ## Pins the retry contract: the send service re-attaches on every round, so
