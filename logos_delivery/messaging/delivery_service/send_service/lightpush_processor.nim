@@ -35,13 +35,7 @@ method sendImpl*(
     error "LightpushSendProcessor.sendImpl failed", error = error.desc.get($error.code)
 
     if error.isRlnRejection():
-      ## The proof was refused, so it must not be sent again: drop it and let
-      ## the refreshed merkle path produce a new one on the next round.
-      ## Re-admission gates the regeneration, so a task cannot spin through the
-      ## epoch budget by retrying.
-      self.waku.onRlnProofRejected()
-      task.msg.proof = @[]
-      task.state = DeliveryState.NextRoundRetry
+      task.parkForRlnProofRefresh(self.waku)
       return
 
     case error.code

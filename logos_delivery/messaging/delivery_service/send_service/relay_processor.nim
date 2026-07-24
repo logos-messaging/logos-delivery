@@ -66,13 +66,7 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
       request = task.requestId, msgHash = task.msgHash.to0xHex(), error = errorMessage
 
     if error.isRlnRejection():
-      ## The relay validator refused the proof. Dropping it and retrying is not
-      ## the same as failing: the message is valid, its proof went stale against
-      ## a moved merkle root. Clearing it makes the next round regenerate one
-      ## against the refreshed path.
-      self.waku.onRlnProofRejected()
-      task.msg.proof = @[]
-      task.state = DeliveryState.NextRoundRetry
+      task.parkForRlnProofRefresh(self.waku)
       return
 
     if error.code != LightPushErrorCode.NO_PEERS_TO_RELAY:
