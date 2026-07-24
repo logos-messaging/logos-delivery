@@ -85,7 +85,11 @@ proc new*(
     preferP2PReliability: bool,
     waku: Waku,
     rateLimitManager: RateLimitManager,
+    sendProcessor: BaseSendProcessor = nil,
 ): Result[T, string] =
+  ## `sendProcessor` overrides the relay/lightpush processor chain that is
+  ## otherwise built from `waku`; passing one lets a caller drive the scheduler
+  ## against a processor whose delivery outcome it controls.
   if not waku.hasRelay() and not waku.hasLightpush():
     return err(
       "Could not create SendService. wakuRelay or wakuLightpushClient should be set"
@@ -93,8 +97,12 @@ proc new*(
 
   let checkStoreForMessages = preferP2PReliability and waku.isStoreMounted()
 
-  let sendProcessorChain = setupSendProcessorChain(waku, waku.brokerCtx).valueOr:
-    return err("failed to setup SendProcessorChain: " & $error)
+  let sendProcessorChain =
+    if sendProcessor.isNil():
+      setupSendProcessorChain(waku, waku.brokerCtx).valueOr:
+        return err("failed to setup SendProcessorChain: " & $error)
+    else:
+      sendProcessor
 
   let sendService = SendService(
     brokerCtx: waku.brokerCtx,
@@ -252,7 +260,7 @@ proc evaluateAndCleanUp(self: SendService) =
     )
   )
 
-proc trySendMessages(self: SendService) {.async.} =
+proc trySendMessages*(self: SendService) {.async.} =
   let tasksToSend = self.taskCache.filterIt(it.state == DeliveryState.NextRoundRetry)
 
   for task in tasksToSend:
