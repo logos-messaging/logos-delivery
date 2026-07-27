@@ -31,208 +31,293 @@ extern "C"
   // logosdelivery_start_node, logosdelivery_stop_node and logosdelivery_destroy
   // (declared in liblogosdelivery.h, included above) regardless of whether you
   // drive the node through the messaging surface or this kernel API.
+  //
+  // Every proc below takes the same CBOR request ABI as the stable surface:
+  //   int proc(ctx, callback, userData, reqCbor, reqCborLen)
+  // where reqCbor is a CBOR map keyed by the Nim-side parameter names (listed
+  // above each declaration) and the callback receives a CBOR text string on
+  // success or raw UTF-8 on error. Procs with no parameters take the
+  // placeholder map {"_placeholder": 0}.
+  //
+  // NOTE: event callbacks are registered per event name via
+  // logosdelivery_add_event_listener (declared in the stable header), which the
+  // waku_* API shares. Relay and filter message pushes arrive under the
+  // "message" event.
 
+  // --- debug node ---
+
+  // {} (placeholder map)
   int waku_version(void *ctx,
                    FFICallBack callback,
-                   void *userData);
+                   void *userData,
+                   const uint8_t *reqCbor,
+                   size_t reqCborLen);
 
-  // NOTE: event callbacks are registered via logosdelivery_set_event_callback
-  // (declared above) which the waku_* API shares.
-
-  int waku_content_topic(void *ctx,
-                         FFICallBack callback,
-                         void *userData,
-                         const char *appName,
-                         unsigned int appVersion,
-                         const char *contentTopicName,
-                         const char *encoding);
-
-  int waku_pubsub_topic(void *ctx,
-                        FFICallBack callback,
-                        void *userData,
-                        const char *topicName);
-
-  int waku_default_pubsub_topic(void *ctx,
-                                FFICallBack callback,
-                                void *userData);
-
-  int waku_relay_publish(void *ctx,
-                         FFICallBack callback,
-                         void *userData,
-                         const char *pubSubTopic,
-                         const char *jsonWakuMessage,
-                         unsigned int timeoutMs);
-
-  int waku_lightpush_publish(void *ctx,
-                             FFICallBack callback,
-                             void *userData,
-                             const char *pubSubTopic,
-                             const char *jsonWakuMessage);
-
-  int waku_relay_subscribe(void *ctx,
-                           FFICallBack callback,
-                           void *userData,
-                           const char *pubSubTopic);
-
-  int waku_relay_add_protected_shard(void *ctx,
-                                     FFICallBack callback,
-                                     void *userData,
-                                     int clusterId,
-                                     int shardId,
-                                     char *publicKey);
-
-  int waku_relay_unsubscribe(void *ctx,
-                             FFICallBack callback,
-                             void *userData,
-                             const char *pubSubTopic);
-
-  int waku_filter_subscribe(void *ctx,
+  // {} (placeholder map)
+  int waku_listen_addresses(void *ctx,
                             FFICallBack callback,
                             void *userData,
-                            const char *pubSubTopic,
-                            const char *contentTopics);
+                            const uint8_t *reqCbor,
+                            size_t reqCborLen);
 
-  int waku_filter_unsubscribe(void *ctx,
-                              FFICallBack callback,
-                              void *userData,
-                              const char *pubSubTopic,
-                              const char *contentTopics);
+  // {} (placeholder map)
+  int waku_get_my_enr(void *ctx,
+                      FFICallBack callback,
+                      void *userData,
+                      const uint8_t *reqCbor,
+                      size_t reqCborLen);
 
-  int waku_filter_unsubscribe_all(void *ctx,
-                                  FFICallBack callback,
-                                  void *userData);
+  // {} (placeholder map)
+  int waku_get_my_peerid(void *ctx,
+                         FFICallBack callback,
+                         void *userData,
+                         const uint8_t *reqCbor,
+                         size_t reqCborLen);
 
-  int waku_relay_get_num_connected_peers(void *ctx,
-                                         FFICallBack callback,
-                                         void *userData,
-                                         const char *pubSubTopic);
+  // {} (placeholder map)
+  int waku_get_metrics(void *ctx,
+                       FFICallBack callback,
+                       void *userData,
+                       const uint8_t *reqCbor,
+                       size_t reqCborLen);
 
-  int waku_relay_get_connected_peers(void *ctx,
-                                     FFICallBack callback,
-                                     void *userData,
-                                     const char *pubSubTopic);
+  // {} (placeholder map)
+  int waku_is_online(void *ctx,
+                     FFICallBack callback,
+                     void *userData,
+                     const uint8_t *reqCbor,
+                     size_t reqCborLen);
 
-  int waku_relay_get_num_peers_in_mesh(void *ctx,
-                                       FFICallBack callback,
-                                       void *userData,
-                                       const char *pubSubTopic);
+  // --- relay ---
 
+  // {"pubSubTopic": ...}
   int waku_relay_get_peers_in_mesh(void *ctx,
                                    FFICallBack callback,
                                    void *userData,
-                                   const char *pubSubTopic);
+                                   const uint8_t *reqCbor,
+                                   size_t reqCborLen);
 
+  // {"pubSubTopic": ...}
+  int waku_relay_get_num_peers_in_mesh(void *ctx,
+                                       FFICallBack callback,
+                                       void *userData,
+                                       const uint8_t *reqCbor,
+                                       size_t reqCborLen);
+
+  // {"pubSubTopic": ...}
+  int waku_relay_get_connected_peers(void *ctx,
+                                     FFICallBack callback,
+                                     void *userData,
+                                     const uint8_t *reqCbor,
+                                     size_t reqCborLen);
+
+  // {"pubSubTopic": ...}
+  int waku_relay_get_num_connected_peers(void *ctx,
+                                         FFICallBack callback,
+                                         void *userData,
+                                         const uint8_t *reqCbor,
+                                         size_t reqCborLen);
+
+  // {"clusterId": ..., "shardId": ..., "publicKey": ...}
+  int waku_relay_add_protected_shard(void *ctx,
+                                     FFICallBack callback,
+                                     void *userData,
+                                     const uint8_t *reqCbor,
+                                     size_t reqCborLen);
+
+  // {"pubSubTopic": ...}
+  int waku_relay_subscribe(void *ctx,
+                           FFICallBack callback,
+                           void *userData,
+                           const uint8_t *reqCbor,
+                           size_t reqCborLen);
+
+  // {"pubSubTopic": ...}
+  int waku_relay_unsubscribe(void *ctx,
+                             FFICallBack callback,
+                             void *userData,
+                             const uint8_t *reqCbor,
+                             size_t reqCborLen);
+
+  // {"pubSubTopic": ..., "jsonWakuMessage": ..., "timeoutMs": ...}
+  int waku_relay_publish(void *ctx,
+                         FFICallBack callback,
+                         void *userData,
+                         const uint8_t *reqCbor,
+                         size_t reqCborLen);
+
+  // {} (placeholder map)
+  int waku_default_pubsub_topic(void *ctx,
+                                FFICallBack callback,
+                                void *userData,
+                                const uint8_t *reqCbor,
+                                size_t reqCborLen);
+
+  // {"appName": ..., "appVersion": ..., "contentTopicName": ..., "encoding": ...}
+  int waku_content_topic(void *ctx,
+                         FFICallBack callback,
+                         void *userData,
+                         const uint8_t *reqCbor,
+                         size_t reqCborLen);
+
+  // {"topicName": ...}
+  int waku_pubsub_topic(void *ctx,
+                        FFICallBack callback,
+                        void *userData,
+                        const uint8_t *reqCbor,
+                        size_t reqCborLen);
+
+  // --- lightpush ---
+
+  // {"pubSubTopic": ..., "jsonWakuMessage": ...}
+  int waku_lightpush_publish(void *ctx,
+                             FFICallBack callback,
+                             void *userData,
+                             const uint8_t *reqCbor,
+                             size_t reqCborLen);
+
+  // --- filter ---
+
+  // {"pubSubTopic": ..., "contentTopics": ...}
+  int waku_filter_subscribe(void *ctx,
+                            FFICallBack callback,
+                            void *userData,
+                            const uint8_t *reqCbor,
+                            size_t reqCborLen);
+
+  // {"pubSubTopic": ..., "contentTopics": ...}
+  int waku_filter_unsubscribe(void *ctx,
+                              FFICallBack callback,
+                              void *userData,
+                              const uint8_t *reqCbor,
+                              size_t reqCborLen);
+
+  // {} (placeholder map)
+  int waku_filter_unsubscribe_all(void *ctx,
+                                  FFICallBack callback,
+                                  void *userData,
+                                  const uint8_t *reqCbor,
+                                  size_t reqCborLen);
+
+  // --- store ---
+
+  // {"jsonQuery": ..., "peerAddr": ..., "timeoutMs": ...}
   int waku_store_query(void *ctx,
                        FFICallBack callback,
                        void *userData,
-                       const char *jsonQuery,
-                       const char *peerAddr,
-                       int timeoutMs);
+                       const uint8_t *reqCbor,
+                       size_t reqCborLen);
 
+  // --- peer manager ---
+
+  // {} (placeholder map)
+  int waku_get_peerids_from_peerstore(void *ctx,
+                                      FFICallBack callback,
+                                      void *userData,
+                                      const uint8_t *reqCbor,
+                                      size_t reqCborLen);
+
+  // {"peerMultiAddr": ..., "timeoutMs": ...}
   int waku_connect(void *ctx,
                    FFICallBack callback,
                    void *userData,
-                   const char *peerMultiAddr,
-                   unsigned int timeoutMs);
+                   const uint8_t *reqCbor,
+                   size_t reqCborLen);
 
+  // {"peerId": ...}
   int waku_disconnect_peer_by_id(void *ctx,
                                  FFICallBack callback,
                                  void *userData,
-                                 const char *peerId);
+                                 const uint8_t *reqCbor,
+                                 size_t reqCborLen);
 
+  // {} (placeholder map)
   int waku_disconnect_all_peers(void *ctx,
                                 FFICallBack callback,
-                                void *userData);
+                                void *userData,
+                                const uint8_t *reqCbor,
+                                size_t reqCborLen);
 
+  // {"peerMultiAddr": ..., "protocol": ..., "timeoutMs": ...}
   int waku_dial_peer(void *ctx,
                      FFICallBack callback,
                      void *userData,
-                     const char *peerMultiAddr,
-                     const char *protocol,
-                     int timeoutMs);
+                     const uint8_t *reqCbor,
+                     size_t reqCborLen);
 
+  // {"peerId": ..., "protocol": ..., "timeoutMs": ...}
   int waku_dial_peer_by_id(void *ctx,
                            FFICallBack callback,
                            void *userData,
-                           const char *peerId,
-                           const char *protocol,
-                           int timeoutMs);
+                           const uint8_t *reqCbor,
+                           size_t reqCborLen);
 
-  int waku_get_peerids_from_peerstore(void *ctx,
-                                      FFICallBack callback,
-                                      void *userData);
-
+  // {} (placeholder map)
   int waku_get_connected_peers_info(void *ctx,
                                     FFICallBack callback,
-                                    void *userData);
+                                    void *userData,
+                                    const uint8_t *reqCbor,
+                                    size_t reqCborLen);
 
+  // {} (placeholder map)
+  int waku_get_connected_peers(void *ctx,
+                               FFICallBack callback,
+                               void *userData,
+                               const uint8_t *reqCbor,
+                               size_t reqCborLen);
+
+  // {"protocol": ...}
   int waku_get_peerids_by_protocol(void *ctx,
                                    FFICallBack callback,
                                    void *userData,
-                                   const char *protocol);
+                                   const uint8_t *reqCbor,
+                                   size_t reqCborLen);
 
-  int waku_listen_addresses(void *ctx,
-                            FFICallBack callback,
-                            void *userData);
+  // --- discovery ---
 
-  int waku_get_connected_peers(void *ctx,
-                               FFICallBack callback,
-                               void *userData);
-
-  // Returns a list of multiaddress given a url to a DNS discoverable ENR tree
-  // Parameters
-  //     char* entTreeUrl: URL containing a discoverable ENR tree
-  //     char* nameDnsServer: The nameserver to resolve the ENR tree url.
-  //     int timeoutMs: Timeout value in milliseconds to execute the call.
-  int waku_dns_discovery(void *ctx,
-                         FFICallBack callback,
-                         void *userData,
-                         const char *entTreeUrl,
-                         const char *nameDnsServer,
-                         int timeoutMs);
-
-  // Updates the bootnode list used for discovering new peers via DiscoveryV5
-  // bootnodes - JSON array containing the bootnode ENRs i.e. `["enr:...", "enr:..."]`
+  // {"bootnodes": ...}
   int waku_discv5_update_bootnodes(void *ctx,
                                    FFICallBack callback,
                                    void *userData,
-                                   char *bootnodes);
+                                   const uint8_t *reqCbor,
+                                   size_t reqCborLen);
 
+  // {"enrTreeUrl": ..., "nameDnsServer": ..., "timeoutMs": ...}
+  int waku_dns_discovery(void *ctx,
+                         FFICallBack callback,
+                         void *userData,
+                         const uint8_t *reqCbor,
+                         size_t reqCborLen);
+
+  // {} (placeholder map)
   int waku_start_discv5(void *ctx,
                         FFICallBack callback,
-                        void *userData);
+                        void *userData,
+                        const uint8_t *reqCbor,
+                        size_t reqCborLen);
 
+  // {} (placeholder map)
   int waku_stop_discv5(void *ctx,
                        FFICallBack callback,
-                       void *userData);
+                       void *userData,
+                       const uint8_t *reqCbor,
+                       size_t reqCborLen);
 
-  // Retrieves the ENR information
-  int waku_get_my_enr(void *ctx,
-                      FFICallBack callback,
-                      void *userData);
-
-  int waku_get_my_peerid(void *ctx,
-                         FFICallBack callback,
-                         void *userData);
-
-  int waku_get_metrics(void *ctx,
-                       FFICallBack callback,
-                       void *userData);
-
+  // {"numPeers": ...}
   int waku_peer_exchange_request(void *ctx,
                                  FFICallBack callback,
                                  void *userData,
-                                 int numPeers);
+                                 const uint8_t *reqCbor,
+                                 size_t reqCborLen);
 
+  // --- ping ---
+
+  // {"peerAddr": ..., "timeoutMs": ...}
   int waku_ping_peer(void *ctx,
                      FFICallBack callback,
                      void *userData,
-                     const char *peerAddr,
-                     int timeoutMs);
-
-  int waku_is_online(void *ctx,
-                     FFICallBack callback,
-                     void *userData);
+                     const uint8_t *reqCbor,
+                     size_t reqCborLen);
 
 #ifdef __cplusplus
 }
