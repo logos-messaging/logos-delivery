@@ -82,10 +82,12 @@ suite "SendService - rate-limit scheduling":
     ## First round fails to propagate, second succeeds. The retry must not draw a
     ## second slot: `firstAdmittedTime` guards re-admission.
     var epoch = 5'u64
-    let manager = RateLimitManager.new(
-      RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 3),
-      fixedEpochQuota(addr epoch, userMessageLimit = 100),
-    )
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 3),
+        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+      )
+      .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(
       script: @[DeliveryState.NextRoundRetry, DeliveryState.SuccessfullyPropagated]
     )
@@ -109,10 +111,12 @@ suite "SendService - rate-limit scheduling":
     ## Budget of one per epoch. The second send is parked until the epoch rolls,
     ## then admitted and delivered.
     var epoch = 1'u64
-    let manager = RateLimitManager.new(
-      RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-      fixedEpochQuota(addr epoch, userMessageLimit = 100),
-    )
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
+        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+      )
+      .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
     let service =
       SendService.new(false, waku, manager, processor).expect("SendService.new")

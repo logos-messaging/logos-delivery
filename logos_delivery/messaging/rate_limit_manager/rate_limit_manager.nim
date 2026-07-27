@@ -27,12 +27,19 @@ proc new*(
     T: type RateLimitManager,
     config: RateLimitConfig,
     quotaProvider: QuotaProvider = nil,
-): T =
-  return T(
-    config: config,
-    quotaProvider: quotaProvider,
-    currentEpochIndex: 0,
-    sentInCurrentEpoch: 0,
+): Result[T, string] =
+  ## Rejects an enabled config with a zero epoch period: the wall-clock
+  ## fallback derives the epoch as `unixTime div epochPeriodSec`.
+  if config.enabled and config.epochPeriodSec == 0:
+    return err("rate limit config: epochPeriodSec must be positive when enabled")
+
+  return ok(
+    T(
+      config: config,
+      quotaProvider: quotaProvider,
+      currentEpochIndex: 0,
+      sentInCurrentEpoch: 0,
+    )
   )
 
 proc currentQuota(self: RateLimitManager): Opt[EpochQuota] =
@@ -45,7 +52,7 @@ proc admit*(
 ): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
   ## Charges one message against the current epoch's limit, rolling the window
   ## first when the epoch has advanced. A disabled config admits everything.
-  if not self.config.isEnforcing():
+  if not self.config.enabled:
     return ok()
 
   let quota = self.currentQuota()
@@ -69,5 +76,5 @@ proc admit*(
   if self.sentInCurrentEpoch >= limit:
     return err(RateLimitError.OverBudget)
 
-  inc self.sentInCurrentEpoch
+  self.sentInCurrentEpoch.inc()
   return ok()

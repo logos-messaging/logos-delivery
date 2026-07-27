@@ -23,8 +23,3 @@ const
   DefaultRateLimitConfig* = RateLimitConfig(
     epochPeriodSec: DefaultEpochPeriodSec, messagesPerEpoch: DefaultMessagesPerEpoch
   ) ## Used when no rate-limit config is supplied; `enabled` defaults false.
-
-func isEnforcing*(config: RateLimitConfig): bool =
-  ## Whether the config asks for actual rate limiting; a disabled or zeroed
-  ## config admits everything.
-  return config.enabled and config.epochPeriodSec > 0 and config.messagesPerEpoch > 0
