@@ -43,10 +43,8 @@ proc relayPushHandler*(self: Waku): PushMessageHandler =
   return getRelayPushHandler(self.node.wakuRelay)
 
 proc currentRlnEpochQuota*(self: Waku): Opt[tuple[epochIndex, messageLimit: uint64]] =
-  ## RLN's current epoch index and the epoch's user message limit, read
-  ## together so the pair cannot straddle an epoch boundary. `none` when RLN is
-  ## not mounted (or its limit is unset) — which the rate limit manager reads as
-  ## "fall back to the wall-clock window and the configured limit".
+  ## RLN's current epoch index and user message limit, read together so the
+  ## pair cannot straddle an epoch boundary.
   if self.node.rln.isNil():
     return Opt.none(tuple[epochIndex, messageLimit: uint64])
 

@@ -21,10 +21,9 @@ type MessagingClient* = ref object
   started*: bool
 
 proc rlnQuotaProvider(waku: Waku): QuotaProvider =
-  ## Sources the rate limit manager's epoch + limit from RLN. Late-binding: the
-  ## closure queries `waku` on each admission, so a node whose RLN mounts after
-  ## this client is constructed upgrades from the wall-clock fallback to RLN's
-  ## epoch and user message limit automatically.
+  ## Sources the rate limit manager's epoch and limit from RLN. The closure
+  ## queries `waku` on each admission, so a node whose RLN mounts after
+  ## construction upgrades from the wall-clock fallback automatically.
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
     let q = waku.currentRlnEpochQuota().valueOr:
       return Opt.none(EpochQuota)

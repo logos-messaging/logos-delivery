@@ -7,14 +7,12 @@ import logos_delivery/messaging/delivery_service/send_service/delivery_task
 const MaxTime = chronos.minutes(1)
 
 proc taskWith(admitted, propagated: Opt[Moment]): DeliveryTask =
-  ## Builds a DeliveryTask directly (bypassing `new`, which needs a broker) with
-  ## only the fields the reaping predicate reads.
+  ## Builds a DeliveryTask directly (bypassing `new`, which needs a broker).
   return DeliveryTask(firstAdmittedTime: admitted, firstPropagatedTime: propagated)
 
 suite "DeliveryTask - delivery-timeout reaping":
   test "a task parked for budget (never admitted) is exempt, however old":
-    ## The #4049 fix: budget-parked tasks must survive to the epoch roll instead
-    ## of being aged out with a misleading failure.
+    ## Budget-parked tasks must survive to the epoch roll, not be aged out.
     let task = taskWith(Opt.none(Moment), Opt.none(Moment))
     check not task.isDeliveryTimedOut(MaxTime)
 
@@ -32,8 +30,7 @@ suite "DeliveryTask - delivery-timeout reaping":
     check not task.isDeliveryTimedOut(MaxTime)
 
   test "the timeout clock runs from admission, not message creation":
-    ## A task that waited a long time for budget then just got admitted has a
-    ## fresh clock — it is not reaped immediately on admission.
+    ## A just-admitted task has a fresh clock, even after a long budget wait.
     let task = taskWith(Opt.some(Moment.now()), Opt.none(Moment))
     check task.admissionAge() < MaxTime
     check not task.isDeliveryTimedOut(MaxTime)

@@ -48,8 +48,8 @@ type SendService* = ref object of RootObj
   serviceLoopHandle: Future[void] ## handle that allows to stop the async task
   sendProcessor: BaseSendProcessor
   rateLimitManager: RateLimitManager
-    ## Meters first transmissions against the per-epoch budget; re-publishes
-    ## of an already-propagated message resend the same bytes and are free.
+    ## Charges first transmissions against the per-epoch budget; re-publishes
+    ## are free.
 
   waku: Waku
   checkStoreForMessages: bool
@@ -87,9 +87,8 @@ proc new*(
     rateLimitManager: RateLimitManager,
     sendProcessor: BaseSendProcessor = nil,
 ): Result[T, string] =
-  ## `sendProcessor` overrides the relay/lightpush processor chain that is
-  ## otherwise built from `waku`; passing one lets a caller drive the scheduler
-  ## against a processor whose delivery outcome it controls.
+  ## `sendProcessor` overrides the relay/lightpush chain built from `waku`,
+  ## letting a caller drive the scheduler against a scripted delivery outcome.
   if not waku.hasRelay() and not waku.hasLightpush():
     return err(
       "Could not create SendService. wakuRelay or wakuLightpushClient should be set"
@@ -205,13 +204,8 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     # rest of the states are intermediate and does not translate to event
     discard
 
-  # Hard-fail a task that was admitted (drew a slot) but has been trying to
-  # deliver longer than MaxTimeInCache without ever propagating. A task still
-  # parked for epoch budget (never admitted) is exempt — it is waiting for the
-  # epoch to roll, not failing to deliver, and the timeout is measured from
-  # admission, not message creation, so budget wait does not count against it.
-  # Propagated-but-not-store-validated tasks are handled (warn + drop, no event)
-  # in evaluateAndCleanUp.
+  # Hard-fail a task admitted but never propagated within MaxTimeInCache.
+  # Propagated-but-unvalidated tasks are dropped in evaluateAndCleanUp instead.
   if task.isDeliveryTimedOut(MaxTimeInCache):
     error "Failed to send message",
       requestId = task.requestId,
@@ -261,12 +255,9 @@ proc evaluateAndCleanUp(self: SendService) =
   )
 
 proc admitOnce(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
-  ## Charges the task's first transmission against the epoch budget — at most
-  ## once per task lifetime (`firstAdmittedTime`): a transmission consumes a
-  ## fresh epoch slot only until it is admitted, then the task keeps its slot
-  ## and retries resend the same bytes for free. Returns false when the task
-  ## must stay parked (`NextRoundRetry`) for a later round; it is retried as
-  ## the epoch rolls over.
+  ## Charges the task's first transmission against the epoch budget, at most
+  ## once per task (`firstAdmittedTime`); retries then resend for free. Returns
+  ## false when the task must stay parked for a later epoch.
   if task.firstAdmittedTime.isSome():
     return true
 

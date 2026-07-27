@@ -1,17 +1,13 @@
 ## Rate Limit Manager for the Messaging API.
 ##
-## Rate-limits message transmissions against the per-epoch user message limit
-## and rejects admission once it is spent, keeping the node within the quota
-## that RLN-enforcing relays check. Each admission mirrors one RLN message id
-## (nonce) draw; the epoch rolling over refills the allowance.
+## Rate-limits message transmissions against the per-epoch user message limit,
+## rejecting admission once the epoch's budget is spent. The epoch rolling
+## over refills the budget.
 ##
-## The epoch and the limit come from a `QuotaProvider` when RLN is mounted
-## (see `quota_source`); otherwise a wall-clock window and the configured limit
-## stand in. Parking and retrying over-budget messages is the send service
-## scheduler's job — this module only answers whether one more transmission
-## fits the current epoch.
-##
-## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
+## The epoch and limit come from a `QuotaProvider` when RLN is mounted;
+## otherwise a wall-clock window and the configured limit stand in. Parking and
+## retrying over-budget messages is the send service's job — this module only
+## answers whether one more transmission fits the current epoch.
 
 import results, chronos
 
@@ -22,9 +18,8 @@ export rate_limit_config, quota_source
 type RateLimitManager* = ref object
   config*: RateLimitConfig
   quotaProvider: QuotaProvider
-    ## Supplies the RLN epoch + user message limit. Nil, or a call returning
-    ## `none`, selects the wall-clock fallback. Queried per admission so a node
-    ## whose RLN mounts after construction upgrades automatically.
+    ## Nil or a `none` result selects the wall-clock fallback. Queried per
+    ## admission so a late RLN mount upgrades automatically.
   currentEpochIndex*: uint64
   sentInCurrentEpoch*: uint64
 
@@ -48,9 +43,8 @@ proc currentQuota(self: RateLimitManager): Opt[EpochQuota] =
 proc admit*(
     self: RateLimitManager, msg: seq[byte]
 ): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
-  ## Charges one message against the current epoch's user message limit,
-  ## rolling the window first when the epoch has advanced. A disabled or zeroed
-  ## configuration admits everything.
+  ## Charges one message against the current epoch's limit, rolling the window
+  ## first when the epoch has advanced. A disabled config admits everything.
   if not self.config.isEnforcing():
     return ok()
 
@@ -63,8 +57,7 @@ proc admit*(
       wallClockEpochIndex(self.config.epochPeriodSec)
 
   # RLN can only tighten the configured cap, never widen it: exceeding RLN's
-  # user message limit would fail later at proof generation, once the epoch's
-  # message ids are exhausted.
+  # limit would fail later at proof generation.
   var limit = self.config.messagesPerEpoch
   if quota.isSome() and quota.get().userMessageLimit < limit:
     limit = quota.get().userMessageLimit

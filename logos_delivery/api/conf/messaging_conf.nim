@@ -52,16 +52,12 @@ type MessagingClientConf* = object
   nodeKey* {.name: "nodekey".}: Opt[crypto.PrivateKey]
     ## P2P node private key (64-char hex): stable identity / peerId across restarts.
   rateLimit*: Opt[RateLimitConfig]
-    ## Per-epoch message rate limit enforced by the send service. `Opt` like
-    ## every other field so `merge` propagates a caller's override; unset falls
+    ## Per-epoch message rate limit enforced by the send service; unset falls
     ## back to `DefaultRateLimitConfig` (rate limiting disabled).
     ##
-    ## Known limitation — settable only programmatically (build the object, or
-    ## via `merge`), not through the JSON config or a CLI flag. It carries no
-    ## `{.name.}` pragma, and because `RateLimitConfig` is a nested object with
-    ## no `parseCmdArg`, the JSON overrides walker rejects it with "cannot be
-    ## set via JSON" (see `applyJsonFieldsToConf`). Exposing it over JSON/CLI
-    ## needs a `parseCmdArg(RateLimitConfig)` or nested-object support there.
+    ## Settable only programmatically: as a nested object with no `{.name.}`
+    ## pragma or `parseCmdArg`, it is not reachable from the JSON config or a
+    ## CLI flag.
 
 proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
   ## Sets the protocol flags implied by the mode.

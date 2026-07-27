@@ -5,8 +5,8 @@ import results, chronos, testutils/unittests, stew/byteutils
 import logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 
 proc fixedQuota(epochIndex, userMessageLimit: uint64): QuotaProvider =
-  ## A quota source pinned to one epoch — the epoch never rolls on its own, so
-  ## limit-boundary tests are deterministic without touching the wall clock.
+  ## A quota source pinned to one epoch, so limit-boundary tests don't touch
+  ## the wall clock.
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
     return
       Opt.some(EpochQuota(epochIndex: epochIndex, userMessageLimit: userMessageLimit))
@@ -44,7 +44,7 @@ suite "RateLimitManager - admission":
       res.isErr()
       res.error == RateLimitError.OverBudget
 
-  asyncTest "allowance refills when the epoch rolls over":
+  asyncTest "budget refills when the epoch rolls over":
     ## Drive the roll through the provider — no sleeps, no flake.
     var epoch = 1'u64
     let rl = RateLimitManager.new(
@@ -59,8 +59,7 @@ suite "RateLimitManager - admission":
     check (await rl.admit("fourth".toBytes())).isErr()
 
   asyncTest "RLN user message limit clamps a looser configured cap":
-    ## config cap 5, RLN grants 2 — the third admission must reject, since
-    ## exceeding RLN's limit would fail at proof generation anyway.
+    ## config cap 5, RLN grants 2 — the lower RLN limit wins.
     let rl = RateLimitManager.new(
       RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 5),
       fixedQuota(epochIndex = 7, userMessageLimit = 2),

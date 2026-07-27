@@ -14,12 +14,10 @@ import
     [send_service, send_processor, delivery_task]
 import ../testlib/testasync
 
-## Scheduler-level coverage for the rate-limit seam in the send service: that a
-## task is charged against the budget exactly once no matter how many rounds it
-## takes to deliver, and that an over-budget task is parked and then released
-## when the epoch rolls. A fake processor stands in for relay/lightpush so the
-## delivery outcome is scripted and the loop is driven a tick at a time — no
-## network, no wall-clock sleeps.
+## Scheduler-level coverage for the send service's rate-limit seam: a task is
+## charged exactly once however many rounds it takes, and an over-budget task
+## is parked then released when the epoch rolls. A fake processor scripts the
+## delivery outcome so the loop runs without network or sleeps.
 
 type FakeSendProcessor = ref object of BaseSendProcessor
   calls: int
@@ -48,8 +46,8 @@ proc testConf(): WakuConf =
     raiseAssert error
 
 proc fixedEpochQuota(epoch: ptr uint64, userMessageLimit: uint64): QuotaProvider =
-  ## Quota pinned to whatever `epoch` currently holds, so a test rolls the epoch
-  ## by writing through the pointer instead of waiting on the wall clock.
+  ## Quota pinned to whatever `epoch` holds, so a test rolls the epoch by
+  ## writing through the pointer.
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
     return Opt.some(EpochQuota(epochIndex: epoch[], userMessageLimit: userMessageLimit))
 
@@ -60,14 +58,12 @@ suite "SendService - rate-limit scheduling":
     waku = (await Waku.new(testConf())).expect("Waku.new")
 
   asyncTeardown:
-    ## The node is constructed but never started (the scheduler is driven by
-    ## hand), so stop is best-effort cleanup, not an assertion.
+    ## The node is never started, so stop is best-effort cleanup.
     discard await waku.stop()
 
   proc buildTask(id, payload: string): DeliveryTask =
-    ## Built directly rather than through `DeliveryTask.new`, which resolves the
-    ## pubsub shard via a broker provider only registered once the node starts.
-    ## The scheduler path under test reads `msg`, `pubsubTopic` and `msgHash`.
+    ## Built directly rather than via `DeliveryTask.new`, which needs a broker
+    ## provider only registered once the node starts.
     let msg = WakuMessage(
       contentTopic: "/test/1/scheduler/proto",
       payload: payload.toBytes(),
@@ -110,9 +106,8 @@ suite "SendService - rate-limit scheduling":
       task.state == DeliveryState.SuccessfullyPropagated
 
   asyncTest "an over-budget task is parked, then released when the epoch rolls":
-    ## Budget of one per epoch. The second send is parked (never admitted); it
-    ## stays parked while the epoch holds, and is admitted and delivered on the
-    ## first tick after the epoch rolls.
+    ## Budget of one per epoch. The second send is parked until the epoch rolls,
+    ## then admitted and delivered.
     var epoch = 1'u64
     let manager = RateLimitManager.new(
       RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
@@ -135,7 +130,7 @@ suite "SendService - rate-limit scheduling":
       second.firstAdmittedTime.isNone() # never admitted
     let callsWhenParked = processor.calls
 
-    # Same epoch: still over budget, so the parked task is not even handed to the
+    # Same epoch: still over budget, so the parked task is not handed to the
     # processor.
     await service.trySendMessages()
     check:
