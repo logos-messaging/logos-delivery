@@ -111,9 +111,9 @@ proc lightpushPublishToAny*(
     self: Waku, shard: PubsubTopic, message: WakuMessage
 ): Future[WakuLightPushResult] {.async.} =
   ## Selects a lightpush service peer for `shard` and publishes `message`
-  ## through the node's lightpush flow, which attaches an RLN proof per
-  ## attempt when RLN is mounted. Returns SERVICE_NOT_AVAILABLE when no peer
-  ## is available.
+  ## through the node's lightpush flow. With RLN mounted the flow proves
+  ## `message` only if it carries no proof, so an already-proven task reuses its
+  ## nonce. Returns SERVICE_NOT_AVAILABLE when no peer is available.
   let peer = self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).valueOr:
     return lightpushResultServiceUnavailable("no lightpush peer available for shard")
   try:
