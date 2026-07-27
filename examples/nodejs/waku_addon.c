@@ -284,7 +284,15 @@ static napi_value WakuSetEventCallback(napi_env env, napi_callback_info info) {
 
   // Inside 'event_handler', the event will be dispatched to the NodeJs
   // if there is a proper napi_function (ref_event_callback) being set.
-  logosdelivery_set_event_callback(event_handler, userData);
+  static const char *kEventNames[] = {
+      "onMessageSent",            "onMessageError",
+      "onMessagePropagated",      "onMessageReceived",
+      "onConnectionStatusChange", "onTopicHealthChange",
+      "onConnectionChange",       "onReceivedMessage",
+      "onChannelMessageReceived", "onChannelMessageSent",
+      "onChannelMessageError"};
+  for (size_t i = 0; i < sizeof(kEventNames) / sizeof(kEventNames[0]); i++)
+    logosdelivery_add_event_listener(ctx, kEventNames[i], event_handler, userData);
 
   return NULL;
 }

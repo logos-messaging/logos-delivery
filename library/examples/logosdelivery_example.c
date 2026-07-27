@@ -155,9 +155,11 @@ int main() {
         return 1;
     }
 
-    printf("\n2. Setting up event callback...\n");
-    logosdelivery_set_event_callback(ctx, event_callback, NULL);
-    printf("Event callback registered for message events\n");
+    printf("\n2. Setting up event listeners...\n");
+    logosdelivery_add_event_listener(ctx, "onMessageSent", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx, "onMessagePropagated", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx, "onMessageError", event_callback, NULL);
+    printf("Event listeners registered for message events\n");
 
     printf("\n3. Starting node...\n");
     logosdelivery_start_node(ctx, simple_callback, (void *)"start_node");

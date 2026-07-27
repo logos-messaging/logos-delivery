@@ -27,7 +27,13 @@ public:
     void initialize(const QString& jsonConfig, WakuCallBack event_handler, void* userData) {
         ctx = logosdelivery_create_node(jsonConfig.toUtf8().constData(), WakuCallBack(event_handler), userData);
 
-        logosdelivery_set_event_callback(ctx, on_event_received, userData);
+        for (const char *eventName :
+             {"onMessageSent", "onMessageError", "onMessagePropagated",
+              "onMessageReceived", "onConnectionStatusChange", "onTopicHealthChange",
+              "onConnectionChange", "onReceivedMessage", "onChannelMessageReceived",
+              "onChannelMessageSent", "onChannelMessageError"}) {
+            logosdelivery_add_event_listener(ctx, eventName, on_event_received, userData);
+        }
         qDebug() << "Waku context initialized, ready to start.";
     }
 

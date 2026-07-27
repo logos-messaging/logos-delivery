@@ -2,7 +2,7 @@
 
 ## Overview
 
-The liblogosdelivery library emits three types of message delivery events that clients can listen to by registering an event callback using `logosdelivery_set_event_callback()`.
+The liblogosdelivery library emits three types of message delivery events that clients can listen to by registering a per-event callback with `logosdelivery_add_event_listener()`. The events are delivered under the wire names `onMessageSent`, `onMessagePropagated` and `onMessageError` (the JSON `eventType` inside each payload is `message_sent` / `message_propagated` / `message_error`).
 
 ## Event Types
 
@@ -85,9 +85,14 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
 
 ### 2. Register the Callback
 
+Register the callback once per event name you want to receive. Each call returns a
+listener id you can later pass to `logosdelivery_remove_event_listener(ctx, id)`.
+
 ```c
 void *ctx = logosdelivery_create_node(config, callback, userData);
-logosdelivery_set_event_callback(ctx, event_callback, NULL);
+logosdelivery_add_event_listener(ctx, "onMessageSent", event_callback, NULL);
+logosdelivery_add_event_listener(ctx, "onMessagePropagated", event_callback, NULL);
+logosdelivery_add_event_listener(ctx, "onMessageError", event_callback, NULL);
 ```
 
 ### 3. Start the Node
@@ -114,7 +119,7 @@ For a failed message send:
 
 ## Important Notes
 
-1. **Thread Safety**: The event callback is invoked from the FFI worker thread. Ensure your callback is thread-safe if it accesses shared state.
+1. **Thread Safety**: The event callback is invoked from a dedicated event thread (separate from the FFI worker thread). Ensure your callback is thread-safe if it accesses shared state.
 
 2. **Non-Blocking**: Keep the callback fast and non-blocking. Do not perform long-running operations in the callback.
 

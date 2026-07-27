@@ -112,7 +112,14 @@ package main
 
 		// This technique is needed because cgo only allows to export Go functions and not methods.
 
-		logosdelivery_set_event_callback(wakuCtx, (FFICallBack) globalEventCallback, wakuCtx);
+		static const char* eventNames[] = {
+			"onMessageSent", "onMessageError", "onMessagePropagated",
+			"onMessageReceived", "onConnectionStatusChange", "onTopicHealthChange",
+			"onConnectionChange", "onReceivedMessage", "onChannelMessageReceived",
+			"onChannelMessageSent", "onChannelMessageError"};
+		for (size_t i = 0; i < sizeof(eventNames) / sizeof(eventNames[0]); i++) {
+			logosdelivery_add_event_listener(wakuCtx, eventNames[i], (FFICallBack) globalEventCallback, wakuCtx);
+		}
 	}
 
 	static void cGoWakuContentTopic(void* wakuCtx,

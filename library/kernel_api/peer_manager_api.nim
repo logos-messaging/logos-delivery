@@ -8,7 +8,7 @@ type PeerInfo = object
 
 proc waku_get_peerids_from_peerstore(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   ## returns a comma-separated string of peerIDs
   let peerIds = (await ctx.myLib[].waku.peerIdsFromPeerstore()).valueOr:
     return err(error)
@@ -20,7 +20,7 @@ proc waku_connect(
     userData: pointer,
     peerMultiAddr: cstring,
     timeoutMs: cuint,
-) {.ffi.} =
+) {.ffiRaw.} =
   let peers = ($peerMultiAddr).split(",")
   (await ctx.myLib[].waku.connect(peers, uint32(timeoutMs))).isOkOr:
     return err(error)
@@ -31,7 +31,7 @@ proc waku_disconnect_peer_by_id(
     callback: FFICallBack,
     userData: pointer,
     peerId: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   (await ctx.myLib[].waku.disconnectPeerById($peerId)).isOkOr:
     error "DISCONNECT_PEER_BY_ID failed", error = error
     return err(error)
@@ -39,7 +39,7 @@ proc waku_disconnect_peer_by_id(
 
 proc waku_disconnect_all_peers(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   (await ctx.myLib[].waku.disconnectAllPeers()).isOkOr:
     return err(error)
   return ok("")
@@ -51,7 +51,7 @@ proc waku_dial_peer(
     peerMultiAddr: cstring,
     protocol: cstring,
     timeoutMs: cuint,
-) {.ffi.} =
+) {.ffiRaw.} =
   (await ctx.myLib[].waku.dialPeer($peerMultiAddr, $protocol, int(timeoutMs))).isOkOr:
     error "DIAL_PEER failed", error = error
     return err(error)
@@ -64,7 +64,7 @@ proc waku_dial_peer_by_id(
     peerId: cstring,
     protocol: cstring,
     timeoutMs: cuint,
-) {.ffi.} =
+) {.ffiRaw.} =
   (await ctx.myLib[].waku.dialPeerById($peerId, $protocol, int(timeoutMs))).isOkOr:
     error "DIAL_PEER_BY_ID failed", error = error
     return err(error)
@@ -72,7 +72,7 @@ proc waku_dial_peer_by_id(
 
 proc waku_get_connected_peers_info(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   ## returns a JSON string mapping peerIDs to objects with protocols and addresses
   let peers = (await ctx.myLib[].waku.connectedPeersInfo()).valueOr:
     return err(error)
@@ -86,7 +86,7 @@ proc waku_get_connected_peers_info(
 
 proc waku_get_connected_peers(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   ## returns a comma-separated string of peerIDs
   let peerIds = (await ctx.myLib[].waku.connectedPeers()).valueOr:
     return err(error)
@@ -97,7 +97,7 @@ proc waku_get_peerids_by_protocol(
     callback: FFICallBack,
     userData: pointer,
     protocol: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   ## returns a comma-separated string of peerIDs that mount the given protocol
   let peerIds = (await ctx.myLib[].waku.peerIdsByProtocol($protocol)).valueOr:
     return err(error)

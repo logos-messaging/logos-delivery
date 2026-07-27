@@ -7,7 +7,7 @@ proc waku_discv5_update_bootnodes(
     callback: FFICallBack,
     userData: pointer,
     bootnodes: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   ## Updates the bootnode list used for discovering new peers via DiscoveryV5
   ## bootnodes - JSON array containing the bootnode ENRs i.e. `["enr:...", "enr:..."]`
   (await ctx.myLib[].waku.discv5UpdateBootnodes($bootnodes)).isOkOr:
@@ -22,7 +22,7 @@ proc waku_dns_discovery(
     enrTreeUrl: cstring,
     nameDnsServer: cstring,
     timeoutMs: cint,
-) {.ffi.} =
+) {.ffiRaw.} =
   let nodes = (
     await ctx.myLib[].waku.dnsDiscovery($enrTreeUrl, $nameDnsServer, int(timeoutMs))
   ).valueOr:
@@ -33,7 +33,7 @@ proc waku_dns_discovery(
 
 proc waku_start_discv5(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   (await ctx.myLib[].waku.startDiscv5()).isOkOr:
     error "START_DISCV5 failed", error = error
     return err(error)
@@ -41,7 +41,7 @@ proc waku_start_discv5(
 
 proc waku_stop_discv5(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   (await ctx.myLib[].waku.stopDiscv5()).isOkOr:
     error "STOP_DISCV5 failed", error = error
     return err(error)
@@ -52,7 +52,7 @@ proc waku_peer_exchange_request(
     callback: FFICallBack,
     userData: pointer,
     numPeers: uint64,
-) {.ffi.} =
+) {.ffiRaw.} =
   let numValidPeers = (await ctx.myLib[].waku.peerExchangeRequest(numPeers)).valueOr:
     error "waku_peer_exchange_request failed", error = error
     return err(error)

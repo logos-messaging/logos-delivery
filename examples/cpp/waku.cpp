@@ -307,10 +307,14 @@ int main(int argc, char **argv)
 
     std::cout << "Custom pubsub topic: " << pubsubTopic << std::endl;
 
-    logosdelivery_set_event_callback(ctx,
-                       cify([&](const char *msg, size_t len)
-                            { event_handler(msg, len); }),
-                       nullptr);
+    auto onEvent = cify([&](const char *msg, size_t len)
+                        { event_handler(msg, len); });
+    for (const char *eventName :
+         {"onMessageSent", "onMessageError", "onMessagePropagated",
+          "onMessageReceived", "onConnectionStatusChange", "onTopicHealthChange",
+          "onConnectionChange", "onReceivedMessage", "onChannelMessageReceived",
+          "onChannelMessageSent", "onChannelMessageError"})
+        logosdelivery_add_event_listener(ctx, eventName, onEvent, nullptr);
 
     WAKU_CALL(logosdelivery_start_node(ctx,
                          cify([&](const char *msg, size_t len)

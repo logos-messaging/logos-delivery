@@ -13,7 +13,7 @@ proc waku_lightpush_publish(
     userData: pointer,
     pubSubTopic: cstring,
     jsonWakuMessage: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   var jsonMessage: JsonMessage
   try:
     let jsonContent = parseJson($jsonWakuMessage)

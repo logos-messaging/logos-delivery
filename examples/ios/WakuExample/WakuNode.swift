@@ -344,8 +344,16 @@ actor WakuActor {
 
         ctx = createResult.ctx
 
-        // Set event callback
-        logosdelivery_set_event_callback(ctx, WakuActor.eventCallback, nil)
+        // Register per-event listeners
+        let eventNames = [
+            "onMessageSent", "onMessageError", "onMessagePropagated",
+            "onMessageReceived", "onConnectionStatusChange", "onTopicHealthChange",
+            "onConnectionChange", "onReceivedMessage", "onChannelMessageReceived",
+            "onChannelMessageSent", "onChannelMessageError",
+        ]
+        for name in eventNames {
+            _ = logosdelivery_add_event_listener(ctx, name, WakuActor.eventCallback, nil)
+        }
 
         // Start node
         let startResult = await callWakuSync { userData in
