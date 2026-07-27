@@ -9,7 +9,7 @@ const MaxTime = chronos.minutes(1)
 proc taskWith(admitted, propagated: Opt[Moment]): DeliveryTask =
   ## Builds a DeliveryTask directly (bypassing `new`, which needs a broker) with
   ## only the fields the reaping predicate reads.
-  DeliveryTask(firstAdmittedTime: admitted, firstPropagatedTime: propagated)
+  return DeliveryTask(firstAdmittedTime: admitted, firstPropagatedTime: propagated)
 
 suite "DeliveryTask - delivery-timeout reaping":
   test "a task parked for budget (never admitted) is exempt, however old":

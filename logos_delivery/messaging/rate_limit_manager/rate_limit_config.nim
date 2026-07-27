@@ -36,4 +36,4 @@ const
 func isEnforcing*(config: RateLimitConfig): bool =
   ## Whether the config asks for actual rate limiting. A disabled or zeroed
   ## configuration admits everything, so the manager can short-circuit.
-  config.enabled and config.epochPeriodSec > 0 and config.messagesPerEpoch > 0
+  return config.enabled and config.epochPeriodSec > 0 and config.messagesPerEpoch > 0

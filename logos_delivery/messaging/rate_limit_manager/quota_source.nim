@@ -36,4 +36,4 @@ proc wallClockEpochIndex*(epochPeriodSec: uint64): uint64 =
   ## so two managers started at different moments agree on the boundary.
   ## `epochPeriodSec` is assumed positive; the manager only calls this when
   ## enforcing.
-  uint64(getTime().toUnix()) div epochPeriodSec
+  return uint64(getTime().toUnix()) div epochPeriodSec

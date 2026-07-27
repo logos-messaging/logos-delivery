@@ -51,7 +51,7 @@ proc fixedEpochQuota(epoch: ptr uint64, userMessageLimit: uint64): QuotaProvider
   ## Quota pinned to whatever `epoch` currently holds, so a test rolls the epoch
   ## by writing through the pointer instead of waiting on the wall clock.
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
-    Opt.some(EpochQuota(epochIndex: epoch[], userMessageLimit: userMessageLimit))
+    return Opt.some(EpochQuota(epochIndex: epoch[], userMessageLimit: userMessageLimit))
 
 suite "SendService - rate-limit scheduling":
   var waku {.threadvar.}: Waku
@@ -74,7 +74,7 @@ suite "SendService - rate-limit scheduling":
       timestamp: 1_700_000_000_000_000_000,
     )
     let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
-    DeliveryTask(
+    return DeliveryTask(
       requestId: RequestId(id),
       pubsubTopic: pubsubTopic,
       msg: msg,

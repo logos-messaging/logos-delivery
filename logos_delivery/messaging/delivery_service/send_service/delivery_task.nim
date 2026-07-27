@@ -67,38 +67,38 @@ proc new*(
 
 func `==`*(r, l: DeliveryTask): bool =
   if r.isNil() == l.isNil():
-    r.isNil() or r.msgHash == l.msgHash
+    return r.isNil() or r.msgHash == l.msgHash
   else:
-    false
+    return false
 
 proc messageAge*(self: DeliveryTask): timer.Duration =
   let actual = getNanosecondTime(getTime().toUnixFloat())
   if self.msg.timestamp >= 0 and self.msg.timestamp < actual:
-    nanoseconds(actual - self.msg.timestamp)
+    return nanoseconds(actual - self.msg.timestamp)
   else:
-    ZeroDuration
+    return ZeroDuration
 
 proc deliveryAge*(self: DeliveryTask): timer.Duration =
   if self.state == DeliveryState.SuccessfullyPropagated:
-    timer.Moment.now() - self.deliveryTime
+    return timer.Moment.now() - self.deliveryTime
   else:
-    ZeroDuration
+    return ZeroDuration
 
 proc propagationAge*(self: DeliveryTask): timer.Duration =
   ## Time elapsed since the message was first successfully propagated.
   ## Stable across re-publishes; ZeroDuration until first propagation.
   if self.firstPropagatedTime.isSome():
-    timer.Moment.now() - self.firstPropagatedTime.get()
+    return timer.Moment.now() - self.firstPropagatedTime.get()
   else:
-    ZeroDuration
+    return ZeroDuration
 
 proc admissionAge*(self: DeliveryTask): timer.Duration =
   ## Time elapsed since the task first passed admission; ZeroDuration while it
   ## has never been admitted (i.e. still parked waiting for epoch budget).
   if self.firstAdmittedTime.isSome():
-    timer.Moment.now() - self.firstAdmittedTime.get()
+    return timer.Moment.now() - self.firstAdmittedTime.get()
   else:
-    ZeroDuration
+    return ZeroDuration
 
 proc isDeliveryTimedOut*(self: DeliveryTask, maxTime: timer.Duration): bool =
   ## True when the task was admitted (drew a slot) and has been trying to
@@ -106,7 +106,8 @@ proc isDeliveryTimedOut*(self: DeliveryTask, maxTime: timer.Duration): bool =
   ## admitted — still parked waiting for epoch budget — is exempt: it is waiting
   ## for the epoch to roll, not failing to deliver, and the clock runs from
   ## admission, not message creation, so budget wait does not count against it.
-  self.firstAdmittedTime.isSome() and self.firstPropagatedTime.isNone() and
+  return
+    self.firstAdmittedTime.isSome() and self.firstPropagatedTime.isNone() and
     self.admissionAge() > maxTime
 
 proc isEphemeral*(self: DeliveryTask): bool =

@@ -28,7 +28,8 @@ proc rlnQuotaProvider(waku: Waku): QuotaProvider =
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
     let q = waku.currentRlnEpochQuota().valueOr:
       return Opt.none(EpochQuota)
-    Opt.some(EpochQuota(epochIndex: q.epochIndex, userMessageLimit: q.messageLimit))
+    return
+      Opt.some(EpochQuota(epochIndex: q.epochIndex, userMessageLimit: q.messageLimit))
 
 proc new*(
     T: type MessagingClient, conf: MessagingClientConf, waku: Waku

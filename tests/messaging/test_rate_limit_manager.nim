@@ -8,7 +8,8 @@ proc fixedQuota(epochIndex, userMessageLimit: uint64): QuotaProvider =
   ## A quota source pinned to one epoch — the epoch never rolls on its own, so
   ## limit-boundary tests are deterministic without touching the wall clock.
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
-    Opt.some(EpochQuota(epochIndex: epochIndex, userMessageLimit: userMessageLimit))
+    return
+      Opt.some(EpochQuota(epochIndex: epochIndex, userMessageLimit: userMessageLimit))
 
 suite "RateLimitManager - admission":
   asyncTest "admit is a pass-through when disabled":
