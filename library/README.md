@@ -6,6 +6,21 @@ A C FFI library providing a simplified interface to Logos Messaging functionalit
 
 This library wraps the high-level API functions from `waku/api/api.nim` and exposes them via a C FFI interface, making them accessible from C, C++, and other languages that support C FFI.
 
+## Wire format
+
+Since nim-ffi 0.2 the FFI boundary speaks CBOR (RFC 8949):
+
+- **Requests** are a CBOR map whose keys are the Nim-side parameter names,
+  listed with each function below. A function with no parameters takes the
+  placeholder map `{"_placeholder": 0}`.
+- **Successful responses** arrive in the callback as a CBOR-encoded value; for
+  every function here that is a CBOR text string.
+- **Errors** arrive as raw UTF-8, *not* CBOR.
+- **Events** are a CBOR map `{"eventType": <name>, "payload": <body>}`.
+
+`library/examples/cbor_helpers.c` implements the small encoder/decoder subset
+this ABI needs, and `library/examples/logosdelivery_example.c` shows it in use.
+
 ## API Functions
 
 ### Node Lifecycle
@@ -15,18 +30,22 @@ Creates a new instance of the node from the given configuration JSON.
 
 ```c
 void *logosdelivery_create_node(
-    const char *configJson,
+    const uint8_t *reqCbor,
+    size_t reqCborLen,
     FFICallBack callback,
     void *userData
 );
 ```
 
 **Parameters:**
-- `configJson`: JSON string containing node configuration
+- `reqCbor` / `reqCborLen`: CBOR map `{"configJson": "<json>"}`
 - `callback`: Callback function to receive the result
 - `userData`: User data passed to the callback
 
-**Returns:** Pointer to the context needed by other API functions, or NULL on error.
+**Returns:** Pointer to the context needed by other API functions, or NULL on
+error. Node initialization is asynchronous: the callback fires later with the
+context address on success, or the failure reason on error. Wait for it before
+issuing further calls.
 
 **Example configuration JSON:**
 ```json
@@ -66,9 +85,13 @@ Starts the node.
 int logosdelivery_start_node(
     void *ctx,
     FFICallBack callback,
-    void *userData
+    void *userData,
+    const uint8_t *reqCbor,
+    size_t reqCborLen
 );
 ```
+
+Request: `{}` (placeholder map).
 
 #### `logosdelivery_stop_node`
 Stops the node.
@@ -77,19 +100,21 @@ Stops the node.
 int logosdelivery_stop_node(
     void *ctx,
     FFICallBack callback,
-    void *userData
+    void *userData,
+    const uint8_t *reqCbor,
+    size_t reqCborLen
 );
 ```
 
+Request: `{}` (placeholder map).
+
 #### `logosdelivery_destroy`
-Destroys a node instance and frees resources.
+Destroys a node instance and returns its slot to the context pool. Stop the
+node first. This one is synchronous — it takes no callback and no request
+buffer, and reports the outcome through its return code.
 
 ```c
-int logosdelivery_destroy(
-    void *ctx,
-    FFICallBack callback,
-    void *userData
-);
+int logosdelivery_destroy(void *ctx);
 ```
 
 ### Messaging
@@ -102,7 +127,8 @@ int logosdelivery_subscribe(
     void *ctx,
     FFICallBack callback,
     void *userData,
-    const char *contentTopic
+    const uint8_t *reqCbor,
+    size_t reqCborLen
 );
 ```
 
@@ -110,7 +136,7 @@ int logosdelivery_subscribe(
 - `ctx`: Context pointer from `logosdelivery_create_node`
 - `callback`: Callback function to receive the result
 - `userData`: User data passed to the callback
-- `contentTopic`: Content topic string (e.g., "/myapp/1/chat/proto")
+- `reqCbor` / `reqCborLen`: CBOR map `{"contentTopic": "/myapp/1/chat/proto"}`
 
 #### `logosdelivery_unsubscribe`
 Unsubscribe from a content topic.
@@ -120,9 +146,12 @@ int logosdelivery_unsubscribe(
     void *ctx,
     FFICallBack callback,
     void *userData,
-    const char *contentTopic
+    const uint8_t *reqCbor,
+    size_t reqCborLen
 );
 ```
+
+Request: `{"contentTopic": "/myapp/1/chat/proto"}`.
 
 #### `logosdelivery_send`
 Send a message.
@@ -132,12 +161,13 @@ int logosdelivery_send(
     void *ctx,
     FFICallBack callback,
     void *userData,
-    const char *messageJson
+    const uint8_t *reqCbor,
+    size_t reqCborLen
 );
 ```
 
 **Parameters:**
-- `messageJson`: JSON string containing the message
+- `reqCbor` / `reqCborLen`: CBOR map `{"messageJson": "<json>"}`
 
 **Example message JSON:**
 ```json
@@ -154,18 +184,33 @@ Note: The `payload` field should be base64-encoded.
 
 ### Events
 
-#### `logosdelivery_set_event_callback`
-Sets a callback that will be invoked whenever an event occurs (e.g., message received).
+Listeners are registered per event name; there is no single catch-all callback.
+
+#### `logosdelivery_add_event_listener`
+Registers `callback` for one event name and returns its listener id (`0` on a
+bad context or callback). Subscribe to each event you care about.
 
 ```c
-void logosdelivery_set_event_callback(
+uint64_t logosdelivery_add_event_listener(
     void *ctx,
+    const char *eventName,
     FFICallBack callback,
     void *userData
 );
 ```
 
-**Important:** The callback should be fast, non-blocking, and thread-safe.
+**Important:** The callback runs on the library's event thread, so it should be
+fast, non-blocking, and thread-safe.
+
+#### `logosdelivery_remove_event_listener`
+Unregisters a listener by id. Returns `RET_OK` (0), or non-zero if no listener
+with that id exists.
+
+```c
+int logosdelivery_remove_event_listener(void *ctx, uint64_t listenerId);
+```
+
+See [MESSAGE_EVENTS.md](MESSAGE_EVENTS.md) for the event names and payloads.
 
 ## Building
 
@@ -210,34 +255,68 @@ typedef void (*FFICallBack)(
 
 ```c
 #include "liblogosdelivery.h"
+#include "cbor_helpers.h"
 #include <stdio.h>
+#include <stdlib.h>
 
 void callback(int ret, const char *msg, size_t len, void *userData) {
     if (ret == RET_OK) {
-        printf("Success: %.*s\n", (int)len, msg);
+        // Success payloads are CBOR; errors are raw text.
+        char out[4096];
+        size_t out_len = 0;
+        if (cbor_decode_tstr((const uint8_t *)msg, len, out, sizeof(out), &out_len) == 0) {
+            printf("Success: %s\n", out);
+        } else {
+            printf("Success\n");
+        }
     } else {
         printf("Error: %.*s\n", (int)len, msg);
     }
 }
 
+// Encodes {"<key>": "<val>"} and issues the call.
+static void call_kv(int (*fn)(void *, FFICallBack, void *, const uint8_t *, size_t),
+                    void *ctx, const char *key, const char *val) {
+    size_t len = 0;
+    const size_t cap = cbor_size_map1_tstr_tstr(key, val);
+    uint8_t *req = malloc(cap);
+    if (!req || cbor_encode_map1_tstr_tstr(req, cap, key, val, &len) != 0) {
+        free(req);
+        return;
+    }
+    fn(ctx, callback, NULL, req, len);
+    free(req);
+}
+
 int main() {
     const char *config = "{"
-        "\"logLevel\": \"INFO\","
         "\"mode\": \"Core\","
         "\"preset\": \"logos.dev\""
         "}";
 
     // Create node
-    void *ctx = logosdelivery_create_node(config, callback, NULL);
+    size_t req_len = 0;
+    const size_t cap = cbor_size_map1_tstr_tstr("configJson", config);
+    uint8_t *req = malloc(cap);
+    cbor_encode_map1_tstr_tstr(req, cap, "configJson", config, &req_len);
+    void *ctx = logosdelivery_create_node(req, req_len, callback, NULL);
+    free(req);
     if (ctx == NULL) {
         return 1;
     }
+    // ...wait for the create callback before continuing...
 
-    // Start node
-    logosdelivery_start_node(ctx, callback, NULL);
+    // Listen for delivery confirmations
+    logosdelivery_add_event_listener(ctx, "message_sent", callback, NULL);
+
+    // Start node (no parameters -> placeholder map)
+    size_t empty_len = 0;
+    uint8_t empty[16];
+    cbor_encode_map1_placeholder(empty, sizeof(empty), &empty_len);
+    logosdelivery_start_node(ctx, callback, NULL, empty, empty_len);
 
     // Subscribe to a topic
-    logosdelivery_subscribe(ctx, callback, NULL, "/myapp/1/chat/proto");
+    call_kv(logosdelivery_subscribe, ctx, "contentTopic", "/myapp/1/chat/proto");
 
     // Send a message
     const char *msg = "{"
@@ -245,15 +324,18 @@ int main() {
         "\"payload\": \"SGVsbG8gV29ybGQ=\","
         "\"ephemeral\": false"
         "}";
-    logosdelivery_send(ctx, callback, NULL, msg);
+    call_kv(logosdelivery_send, ctx, "messageJson", msg);
 
     // Clean up
-    logosdelivery_stop_node(ctx, callback, NULL);
-    logosdelivery_destroy(ctx, callback, NULL);
+    logosdelivery_stop_node(ctx, callback, NULL, empty, empty_len);
+    logosdelivery_destroy(ctx);
 
     return 0;
 }
 ```
+
+A complete, runnable version lives in
+`library/examples/logosdelivery_example.c` (`make logosdelivery_example`).
 
 ## Architecture
 
@@ -262,8 +344,9 @@ The library is structured as follows:
 - `liblogosdelivery.h`: C header file with function declarations
 - `liblogosdelivery.nim`: Main library entry point
 - `declare_lib.nim`: Library declaration and initialization
-- `lmapi/node_api.nim`: Node lifecycle API implementation
-- `lmapi/messaging_api.nim`: Subscribe/send API implementation
+- `logos_delivery_api/node_api.nim`: Node lifecycle API implementation
+- `logos_delivery_api/messaging_api.nim`: Subscribe/send API implementation
+- `events/event_bodies.nim`: CBOR-friendly event payload types
 
 The library uses the nim-ffi framework for FFI infrastructure, which handles:
 - Thread-safe request processing
@@ -273,6 +356,6 @@ The library uses the nim-ffi framework for FFI infrastructure, which handles:
 
 ## See Also
 
-- Main API documentation: `waku/api/api.nim`
-- Original libwaku library: `library/libwaku.nim`
-- nim-ffi framework: `vendor/nim-ffi/`
+- Main API documentation: `logos_delivery/api/`
+- Kernel (advanced) surface: `library/liblogosdelivery_kernel.h`
+- nim-ffi framework: <https://github.com/logos-messaging/nim-ffi>
