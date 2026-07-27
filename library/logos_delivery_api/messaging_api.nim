@@ -9,57 +9,48 @@ import
   ../declare_lib
 
 proc logosdelivery_subscribe(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    contentTopicStr: cstring,
-) {.ffi.} =
-  requireInitializedNode(ctx, "Subscribe"):
+    ld: LogosDelivery, contentTopic: cstring
+): Future[Result[string, string]] {.ffi.} =
+  requireInitializedNode(ld, "Subscribe"):
     return err(errMsg)
 
-  requireMessaging(ctx, "Subscribe"):
+  requireMessaging(ld, "Subscribe"):
     return err(errMsg)
 
   # ContentTopic is just a string type alias
-  let contentTopic = ContentTopic($contentTopicStr)
+  let topic = ContentTopic($contentTopic)
 
-  (await ctx.myLib[].messagingClient.subscribe(contentTopic)).isOkOr:
+  (await ld.messagingClient.subscribe(topic)).isOkOr:
     let errMsg = $error
     return err("Subscribe failed: " & errMsg)
 
   return ok("")
 
 proc logosdelivery_unsubscribe(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    contentTopicStr: cstring,
-) {.ffi.} =
-  requireInitializedNode(ctx, "Unsubscribe"):
+    ld: LogosDelivery, contentTopic: cstring
+): Future[Result[string, string]] {.ffi.} =
+  requireInitializedNode(ld, "Unsubscribe"):
     return err(errMsg)
 
-  requireMessaging(ctx, "Unsubscribe"):
+  requireMessaging(ld, "Unsubscribe"):
     return err(errMsg)
 
   # ContentTopic is just a string type alias
-  let contentTopic = ContentTopic($contentTopicStr)
+  let topic = ContentTopic($contentTopic)
 
-  ctx.myLib[].messagingClient.unsubscribe(contentTopic).isOkOr:
+  ld.messagingClient.unsubscribe(topic).isOkOr:
     let errMsg = $error
     return err("Unsubscribe failed: " & errMsg)
 
   return ok("")
 
 proc logosdelivery_send(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    messageJson: cstring,
-) {.ffi.} =
-  requireInitializedNode(ctx, "Send"):
+    ld: LogosDelivery, messageJson: cstring
+): Future[Result[string, string]] {.ffi.} =
+  requireInitializedNode(ld, "Send"):
     return err(errMsg)
 
-  requireMessaging(ctx, "Send"):
+  requireMessaging(ld, "Send"):
     return err(errMsg)
 
   ## Parse the message JSON and send the message
@@ -93,7 +84,7 @@ proc logosdelivery_send(
   )
 
   # Send the message via the messaging layer's own API.
-  let requestId = (await ctx.myLib[].messagingClient.send(envelope)).valueOr:
+  let requestId = (await ld.messagingClient.send(envelope)).valueOr:
     let errMsg = $error
     return err("Send failed: " & errMsg)
 

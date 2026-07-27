@@ -2,12 +2,8 @@ import chronos, results, ffi
 import logos_delivery, library/declare_lib
 
 proc waku_ping_peer(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    peerAddr: cstring,
-    timeoutMs: cuint,
-) {.ffi.} =
-  let rttNanos = (await ctx.myLib[].waku.pingPeer($peerAddr, int(timeoutMs))).valueOr:
+    ld: LogosDelivery, peerAddr: cstring, timeoutMs: cuint
+): Future[Result[string, string]] {.ffi.} =
+  let rttNanos = (await ld.waku.pingPeer($peerAddr, int(timeoutMs))).valueOr:
     return err(error)
   return ok($rttNanos)
