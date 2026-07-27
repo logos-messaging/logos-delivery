@@ -321,5 +321,14 @@ void Java_com_mobile_WakuModule_wakuSetEventCallback(JNIEnv *env, jobject thiz,
   cb_env *c = (cb_env *)malloc(sizeof(cb_env));
   c->wakuPtr = wakuPtr;
   c->env = env;
-  logosdelivery_set_event_callback((void *)wakuPtr, wk_callback, (void *)c);
+  static const char *kEventNames[] = {
+      "onMessageSent",            "onMessageError",
+      "onMessagePropagated",      "onMessageReceived",
+      "onConnectionStatusChange", "onTopicHealthChange",
+      "onConnectionChange",       "onReceivedMessage",
+      "onChannelMessageReceived", "onChannelMessageSent",
+      "onChannelMessageError"};
+  for (size_t i = 0; i < sizeof(kEventNames) / sizeof(kEventNames[0]); i++)
+    logosdelivery_add_event_listener((void *)wakuPtr, kEventNames[i], wk_callback,
+                                     (void *)c);
 }

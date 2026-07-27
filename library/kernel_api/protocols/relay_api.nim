@@ -13,7 +13,7 @@ proc waku_relay_get_peers_in_mesh(
     callback: FFICallBack,
     userData: pointer,
     pubSubTopic: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   let peers = (await ctx.myLib[].waku.relayPeersInMesh(PubsubTopic($pubSubTopic))).valueOr:
     error "LIST_MESH_PEERS failed", error = error
     return err(error)
@@ -25,7 +25,7 @@ proc waku_relay_get_num_peers_in_mesh(
     callback: FFICallBack,
     userData: pointer,
     pubSubTopic: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   let n = (await ctx.myLib[].waku.relayNumPeersInMesh(PubsubTopic($pubSubTopic))).valueOr:
     error "NUM_MESH_PEERS failed", error = error
     return err(error)
@@ -36,7 +36,7 @@ proc waku_relay_get_connected_peers(
     callback: FFICallBack,
     userData: pointer,
     pubSubTopic: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   ## Returns the list of all connected peers to an specific pubsub topic
   let peers = (await ctx.myLib[].waku.relayConnectedPeers(PubsubTopic($pubSubTopic))).valueOr:
     error "LIST_CONNECTED_PEERS failed", error = error
@@ -48,7 +48,7 @@ proc waku_relay_get_num_connected_peers(
     callback: FFICallBack,
     userData: pointer,
     pubSubTopic: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   let n = (await ctx.myLib[].waku.relayNumConnectedPeers(PubsubTopic($pubSubTopic))).valueOr:
     error "NUM_CONNECTED_PEERS failed", error = error
     return err(error)
@@ -61,7 +61,7 @@ proc waku_relay_add_protected_shard(
     clusterId: cint,
     shardId: cint,
     publicKey: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   ## Protects a shard with a public key
   (
     await ctx.myLib[].waku.relayAddProtectedShard(
@@ -76,10 +76,10 @@ proc waku_relay_subscribe(
     callback: FFICallBack,
     userData: pointer,
     pubSubTopic: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   proc onReceivedMessage(ctx: ptr FFIContext[LogosDelivery]): WakuRelayHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
-      callEventCallback(ctx, "onReceivedMessage"):
+      emitEvent("onReceivedMessage"):
         $JsonMessageEvent.new(pubsubTopic, msg)
 
   (
@@ -96,7 +96,7 @@ proc waku_relay_unsubscribe(
     callback: FFICallBack,
     userData: pointer,
     pubSubTopic: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   (await ctx.myLib[].waku.relayUnsubscribe(PubsubTopic($pubSubTopic))).isOkOr:
     error "UNSUBSCRIBE failed", error = error
     return err(error)
@@ -109,7 +109,7 @@ proc waku_relay_publish(
     pubSubTopic: cstring,
     jsonWakuMessage: cstring,
     timeoutMs: cuint,
-) {.ffi.} =
+) {.ffiRaw.} =
   var jsonMessage: JsonMessage
   try:
     let jsonContent = parseJson($jsonWakuMessage)
@@ -132,7 +132,7 @@ proc waku_relay_publish(
 
 proc waku_default_pubsub_topic(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   let topic = (await ctx.myLib[].waku.defaultPubsubTopic()).valueOr:
     return err(error)
   return ok(string(topic))
@@ -145,7 +145,7 @@ proc waku_content_topic(
     appVersion: cuint,
     contentTopicName: cstring,
     encoding: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   let topic = (
     await ctx.myLib[].waku.buildContentTopic(
       $appName, uint32(appVersion), $contentTopicName, $encoding
@@ -159,7 +159,7 @@ proc waku_pubsub_topic(
     callback: FFICallBack,
     userData: pointer,
     topicName: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   let topic = (await ctx.myLib[].waku.buildPubsubTopic($topicName)).valueOr:
     return err(error)
   return ok(string(topic))

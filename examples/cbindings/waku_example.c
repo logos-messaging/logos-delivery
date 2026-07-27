@@ -312,7 +312,15 @@ int main(int argc, char **argv)
   printf("Bind addr: %s:%u\n", cfgNode.host, cfgNode.port);
   printf("Waku Relay enabled: %s\n", cfgNode.relay == 1 ? "YES" : "NO");
 
-  logosdelivery_set_event_callback(ctx, on_event_received, userData);
+  static const char *kEventNames[] = {
+      "onMessageSent",            "onMessageError",
+      "onMessagePropagated",      "onMessageReceived",
+      "onConnectionStatusChange", "onTopicHealthChange",
+      "onConnectionChange",       "onReceivedMessage",
+      "onChannelMessageReceived", "onChannelMessageSent",
+      "onChannelMessageError"};
+  for (size_t i = 0; i < sizeof(kEventNames) / sizeof(kEventNames[0]); i++)
+    logosdelivery_add_event_listener(ctx, kEventNames[i], on_event_received, userData);
 
   logosdelivery_start_node(ctx, event_handler, userData);
   waitForCallback();

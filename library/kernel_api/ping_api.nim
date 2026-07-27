@@ -7,7 +7,7 @@ proc waku_ping_peer(
     userData: pointer,
     peerAddr: cstring,
     timeoutMs: cuint,
-) {.ffi.} =
+) {.ffiRaw.} =
   let rttNanos = (await ctx.myLib[].waku.pingPeer($peerAddr, int(timeoutMs))).valueOr:
     return err(error)
   return ok($rttNanos)

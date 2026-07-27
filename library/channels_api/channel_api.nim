@@ -14,7 +14,7 @@ proc logosdelivery_channel_create(
     channelIdStr: cstring,
     contentTopicStr: cstring,
     senderIdStr: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   requireInitializedNode(ctx, "ChannelCreate"):
     return err(errMsg)
 
@@ -35,7 +35,7 @@ proc logosdelivery_channel_exists(
     callback: FFICallBack,
     userData: pointer,
     channelIdStr: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   ## Returns `"true"` or `"false"`; a missing channel is not an error.
   requireInitializedNode(ctx, "ChannelExists"):
     return err(errMsg)
@@ -51,7 +51,7 @@ proc logosdelivery_channel_send(
     userData: pointer,
     channelIdStr: cstring,
     messageJson: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   ## `messageJson` carries `{ "payload": <base64>, "ephemeral": <bool> }`.
   requireInitializedNode(ctx, "ChannelSend"):
     return err(errMsg)
@@ -87,7 +87,7 @@ proc logosdelivery_channel_close(
     callback: FFICallBack,
     userData: pointer,
     channelIdStr: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   requireInitializedNode(ctx, "ChannelClose"):
     return err(errMsg)
 

@@ -71,7 +71,7 @@ proc waku_store_query(
     jsonQuery: cstring,
     peerAddr: cstring,
     timeoutMs: cint,
-) {.ffi.} =
+) {.ffiRaw.} =
   let jsonContentRes = catch:
     parseJson($jsonQuery)
 

@@ -15,10 +15,10 @@ proc waku_filter_subscribe(
     userData: pointer,
     pubSubTopic: cstring,
     contentTopics: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   proc onReceivedMessage(ctx: ptr FFIContext[LogosDelivery]): FilterPushHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
-      callEventCallback(ctx, "onReceivedMessage"):
+      emitEvent("onReceivedMessage"):
         $JsonMessageEvent.new(pubsubTopic, msg)
 
   (
@@ -38,7 +38,7 @@ proc waku_filter_unsubscribe(
     userData: pointer,
     pubSubTopic: cstring,
     contentTopics: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   (
     await ctx.myLib[].waku.filterUnsubscribe(
       PubsubTopic($pubSubTopic), ($contentTopics).split(",").mapIt(ContentTopic(it))
@@ -50,7 +50,7 @@ proc waku_filter_unsubscribe(
 
 proc waku_filter_unsubscribe_all(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   (await ctx.myLib[].waku.filterUnsubscribeAll()).isOkOr:
     error "fail filter unsubscribe all", error = error
     return err(error)

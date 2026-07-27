@@ -112,8 +112,17 @@ print("Waku Relay enabled: {}".format(args.relay))
 # Set the event callback
 callback = callback_type(handle_event) # This line is important so that the callback is not gc'ed
 
-libwaku.logosdelivery_set_event_callback.argtypes = [callback_type, ctypes.c_void_p]
-libwaku.logosdelivery_set_event_callback(callback, ctypes.c_void_p(0))
+libwaku.logosdelivery_add_event_listener.argtypes = [ctypes.c_void_p,
+                                                     ctypes.c_char_p,
+                                                     callback_type,
+                                                     ctypes.c_void_p]
+libwaku.logosdelivery_add_event_listener.restype = ctypes.c_uint64
+for event_name in [b"onMessageSent", b"onMessageError", b"onMessagePropagated",
+                   b"onMessageReceived", b"onConnectionStatusChange",
+                   b"onTopicHealthChange", b"onConnectionChange", b"onReceivedMessage",
+                   b"onChannelMessageReceived", b"onChannelMessageSent",
+                   b"onChannelMessageError"]:
+    libwaku.logosdelivery_add_event_listener(ctx, event_name, callback, ctypes.c_void_p(0))
 
 # Start the node
 libwaku.logosdelivery_start_node.argtypes = [ctypes.c_void_p,

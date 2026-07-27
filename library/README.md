@@ -154,18 +154,41 @@ Note: The `payload` field should be base64-encoded.
 
 ### Events
 
-#### `logosdelivery_set_event_callback`
-Sets a callback that will be invoked whenever an event occurs (e.g., message received).
+Events are delivered through a per-event listener registry: register one callback
+per event name you care about. A registration returns a listener id you can later
+pass to remove it.
+
+#### `logosdelivery_add_event_listener`
+Registers `callback` for the named event and returns a non-zero listener id (0 on
+an invalid context).
 
 ```c
-void logosdelivery_set_event_callback(
+uint64_t logosdelivery_add_event_listener(
     void *ctx,
+    const char *eventName,
     FFICallBack callback,
     void *userData
 );
 ```
 
-**Important:** The callback should be fast, non-blocking, and thread-safe.
+Event names: `onMessageSent`, `onMessageError`, `onMessagePropagated`,
+`onMessageReceived`, `onConnectionStatusChange`, `onTopicHealthChange`,
+`onConnectionChange`, `onReceivedMessage`, `onChannelMessageReceived`,
+`onChannelMessageSent`, `onChannelMessageError`.
+
+#### `logosdelivery_remove_event_listener`
+Removes a previously registered listener. Returns `0` on success, `1` if the
+listener id was not found or the context is invalid.
+
+```c
+int logosdelivery_remove_event_listener(
+    void *ctx,
+    uint64_t listenerId
+);
+```
+
+**Important:** Callbacks run on a dedicated event thread and should be fast,
+non-blocking, and thread-safe.
 
 ## Building
 

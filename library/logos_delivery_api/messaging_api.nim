@@ -13,7 +13,7 @@ proc logosdelivery_subscribe(
     callback: FFICallBack,
     userData: pointer,
     contentTopicStr: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   requireInitializedNode(ctx, "Subscribe"):
     return err(errMsg)
 
@@ -34,7 +34,7 @@ proc logosdelivery_unsubscribe(
     callback: FFICallBack,
     userData: pointer,
     contentTopicStr: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   requireInitializedNode(ctx, "Unsubscribe"):
     return err(errMsg)
 
@@ -55,7 +55,7 @@ proc logosdelivery_send(
     callback: FFICallBack,
     userData: pointer,
     messageJson: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   requireInitializedNode(ctx, "Send"):
     return err(errMsg)
 

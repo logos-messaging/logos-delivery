@@ -4,7 +4,7 @@ import tools/confutils/[cli_args, config_option_meta]
 
 proc logosdelivery_get_available_node_info_ids(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   ## Returns the list of all available node info item ids that
   ## can be queried with `get_node_info_item`.
   requireInitializedNode(ctx, "GetNodeInfoIds"):
@@ -17,7 +17,7 @@ proc logosdelivery_get_node_info(
     callback: FFICallBack,
     userData: pointer,
     nodeInfoId: cstring,
-) {.ffi.} =
+) {.ffiRaw.} =
   ## Returns the content of the node info item with the given id if it exists.
   requireInitializedNode(ctx, "GetNodeInfoItem"):
     return err(errMsg)
@@ -32,7 +32,7 @@ proc logosdelivery_get_node_info(
 
 proc logosdelivery_get_available_configs(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw.} =
   ## Returns information about the accepted config items.
   requireInitializedNode(ctx, "GetAvailableConfigs"):
     return err(errMsg)

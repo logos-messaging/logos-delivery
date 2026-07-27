@@ -1,12 +1,26 @@
 import ffi
-import std/locks
 import results
 import logos_delivery
 
-declareLibrary("logosdelivery")
+declareLibrary("logosdelivery", LogosDelivery)
 
-var eventCallbackLock: Lock
-initLock(eventCallbackLock)
+template checkParams*(
+    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
+) =
+  ## Re-implements the `checkParams` helper dropped from nim-ffi in 0.3.0.
+  if not ctx.isNil():
+    ctx[].userData = userData
+  if callback.isNil():
+    return RET_MISSING_CALLBACK
+
+template emitEvent*(eventName: string, body: untyped) =
+  ## Enqueues `body`'s payload for nim-ffi's event thread to fan out to listeners.
+  ## The try/except is what lets this be called from `{.raises: [].}` listeners.
+  try:
+    dispatchFFIEvent(eventName):
+      body
+  except CatchableError as e:
+    chronicles.error "failed to emit FFI event", event = eventName, err = e.msg
 
 template requireInitializedNode*(
     ctx: ptr FFIContext[LogosDelivery], opName: string, onError: untyped
@@ -35,18 +49,3 @@ template requireChannels*(
   ctx.myLib[].ensureChannels().isOkOr:
     let errMsg {.inject.} = opName & " failed: " & error
     onError
-
-proc logosdelivery_set_event_callback(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.dynlib, exportc, cdecl.} =
-  if isNil(ctx):
-    echo "error: invalid context in logosdelivery_set_event_callback"
-    return
-
-  # prevent race conditions that might happen due incorrect usage.
-  eventCallbackLock.acquire()
-  defer:
-    eventCallbackLock.release()
-
-  ctx[].eventCallback = cast[pointer](callback)
-  ctx[].eventUserData = userData

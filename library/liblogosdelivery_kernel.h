@@ -36,7 +36,7 @@ extern "C"
                    FFICallBack callback,
                    void *userData);
 
-  // NOTE: event callbacks are registered via logosdelivery_set_event_callback
+  // NOTE: event callbacks are registered via logosdelivery_add_event_listener
   // (declared above) which the waku_* API shares.
 
   int waku_content_topic(void *ctx,
