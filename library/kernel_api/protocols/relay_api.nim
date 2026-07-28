@@ -56,7 +56,7 @@ proc waku_relay_subscribe(
 ): Future[Result[string, string]] {.ffi.} =
   proc onReceivedMessage(): WakuRelayHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
-      dispatchFFIEventCbor("message", toRelayMessageBody(pubsubTopic, msg))
+      onMessage(toRelayMessageBody(pubsubTopic, msg))
 
   (
     await ld.waku.relaySubscribe(

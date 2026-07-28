@@ -8,6 +8,7 @@
 
 import ffi
 import libp2p/peerid
+import ../declare_lib
 import
   logos_delivery/api/types,
   logos_delivery/api/events/messaging_client_events,
@@ -127,3 +128,44 @@ proc toFfi*(e: ChannelMessageErrorEvent): ChannelMessageErrorBody =
   ChannelMessageErrorBody(
     channelId: string(e.channelId), requestId: $e.requestId, error: e.error
   )
+
+## Library-initiated events. Declaring them with `{.ffiEvent.}` rather than
+## calling `dispatchFFIEventCbor` by hand keeps the wire name next to its
+## payload type and lets the binding generators emit a typed handler per event.
+## The wire names are the documented ones (see library/MESSAGE_EVENTS.md), so
+## they are passed explicitly instead of being derived from the proc name.
+
+proc onMessageSent*(body: MessageSentBody) {.ffiEvent: "message_sent".}
+
+proc onMessageError*(body: MessageErrorBody) {.ffiEvent: "message_error".}
+
+proc onMessagePropagated*(
+  body: MessagePropagatedBody
+) {.ffiEvent: "message_propagated".}
+
+proc onMessageReceived*(body: MessageReceivedBody) {.ffiEvent: "message_received".}
+
+proc onConnectionStatusChange*(
+  body: ConnectionStatusChangeBody
+) {.ffiEvent: "connection_status_change".}
+
+proc onTopicHealthChange*(
+  body: TopicHealthChangeBody
+) {.ffiEvent: "relay_topic_health_change".}
+
+proc onConnectionChange*(body: ConnectionChangeBody) {.ffiEvent: "connection_change".}
+
+proc onChannelMessageReceived*(
+  body: ChannelMessageReceivedBody
+) {.ffiEvent: "channel_message_received".}
+
+proc onChannelMessageSent*(
+  body: ChannelMessageSentBody
+) {.ffiEvent: "channel_message_sent".}
+
+proc onChannelMessageError*(
+  body: ChannelMessageErrorBody
+) {.ffiEvent: "channel_message_error".}
+
+## Kernel-level relay / filter push.
+proc onMessage*(body: RelayMessageBody) {.ffiEvent: "message".}

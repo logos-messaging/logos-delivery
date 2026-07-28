@@ -38,7 +38,7 @@ proc logosdelivery_start_node(
   let sentListener = MessageSentEvent.listen(
     ld.waku.brokerCtx,
     proc(event: MessageSentEvent) {.async: (raises: []).} =
-      dispatchFFIEventCbor("message_sent", toFfi(event)),
+      onMessageSent(toFfi(event)),
   ).valueOr:
     chronicles.error "MessageSentEvent.listen failed", err = $error
     return err("MessageSentEvent.listen failed: " & $error)
@@ -46,7 +46,7 @@ proc logosdelivery_start_node(
   let errorListener = MessageErrorEvent.listen(
     ld.waku.brokerCtx,
     proc(event: MessageErrorEvent) {.async: (raises: []).} =
-      dispatchFFIEventCbor("message_error", toFfi(event)),
+      onMessageError(toFfi(event)),
   ).valueOr:
     chronicles.error "MessageErrorEvent.listen failed", err = $error
     return err("MessageErrorEvent.listen failed: " & $error)
@@ -54,7 +54,7 @@ proc logosdelivery_start_node(
   let propagatedListener = MessagePropagatedEvent.listen(
     ld.waku.brokerCtx,
     proc(event: MessagePropagatedEvent) {.async: (raises: []).} =
-      dispatchFFIEventCbor("message_propagated", toFfi(event)),
+      onMessagePropagated(toFfi(event)),
   ).valueOr:
     chronicles.error "MessagePropagatedEvent.listen failed", err = $error
     return err("MessagePropagatedEvent.listen failed: " & $error)
@@ -62,7 +62,7 @@ proc logosdelivery_start_node(
   let receivedListener = MessageReceivedEvent.listen(
     ld.waku.brokerCtx,
     proc(event: MessageReceivedEvent) {.async: (raises: []).} =
-      dispatchFFIEventCbor("message_received", toFfi(event)),
+      onMessageReceived(toFfi(event)),
   ).valueOr:
     chronicles.error "MessageReceivedEvent.listen failed", err = $error
     return err("MessageReceivedEvent.listen failed: " & $error)
@@ -70,7 +70,7 @@ proc logosdelivery_start_node(
   let ConnectionStatusChangeListener = EventConnectionStatusChange.listen(
     ld.waku.brokerCtx,
     proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
-      dispatchFFIEventCbor("connection_status_change", toFfi(event)),
+      onConnectionStatusChange(toFfi(event)),
   ).valueOr:
     chronicles.error "ConnectionStatusChange.listen failed", err = $error
     return err("ConnectionStatusChange.listen failed: " & $error)
@@ -78,7 +78,7 @@ proc logosdelivery_start_node(
   let shardTopicHealthListener = EventShardTopicHealthChange.listen(
     ld.waku.brokerCtx,
     proc(event: EventShardTopicHealthChange) {.async: (raises: []).} =
-      dispatchFFIEventCbor("relay_topic_health_change", toFfi(event)),
+      onTopicHealthChange(toFfi(event)),
   ).valueOr:
     chronicles.error "EventShardTopicHealthChange.listen failed", err = $error
     return err("EventShardTopicHealthChange.listen failed: " & $error)
@@ -86,7 +86,7 @@ proc logosdelivery_start_node(
   let peerEventListener = WakuPeerEvent.listen(
     ld.waku.brokerCtx,
     proc(event: WakuPeerEvent) {.async: (raises: []).} =
-      dispatchFFIEventCbor("connection_change", toFfi(event)),
+      onConnectionChange(toFfi(event)),
   ).valueOr:
     chronicles.error "WakuPeerEvent.listen failed", err = $error
     return err("WakuPeerEvent.listen failed: " & $error)
@@ -94,7 +94,7 @@ proc logosdelivery_start_node(
   let channelReceivedListener = ChannelMessageReceivedEvent.listen(
     ld.waku.brokerCtx,
     proc(event: ChannelMessageReceivedEvent) {.async: (raises: []).} =
-      dispatchFFIEventCbor("channel_message_received", toFfi(event)),
+      onChannelMessageReceived(toFfi(event)),
   ).valueOr:
     chronicles.error "ChannelMessageReceivedEvent.listen failed", err = $error
     return err("ChannelMessageReceivedEvent.listen failed: " & $error)
@@ -102,7 +102,7 @@ proc logosdelivery_start_node(
   let channelSentListener = ChannelMessageSentEvent.listen(
     ld.waku.brokerCtx,
     proc(event: ChannelMessageSentEvent) {.async: (raises: []).} =
-      dispatchFFIEventCbor("channel_message_sent", toFfi(event)),
+      onChannelMessageSent(toFfi(event)),
   ).valueOr:
     chronicles.error "ChannelMessageSentEvent.listen failed", err = $error
     return err("ChannelMessageSentEvent.listen failed: " & $error)
@@ -110,7 +110,7 @@ proc logosdelivery_start_node(
   let channelErrorListener = ChannelMessageErrorEvent.listen(
     ld.waku.brokerCtx,
     proc(event: ChannelMessageErrorEvent) {.async: (raises: []).} =
-      dispatchFFIEventCbor("channel_message_error", toFfi(event)),
+      onChannelMessageError(toFfi(event)),
   ).valueOr:
     chronicles.error "ChannelMessageErrorEvent.listen failed", err = $error
     return err("ChannelMessageErrorEvent.listen failed: " & $error)

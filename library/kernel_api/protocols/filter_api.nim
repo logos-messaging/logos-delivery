@@ -14,7 +14,7 @@ proc waku_filter_subscribe(
 ): Future[Result[string, string]] {.ffi.} =
   proc onReceivedMessage(): FilterPushHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
-      dispatchFFIEventCbor("message", toRelayMessageBody(pubsubTopic, msg))
+      onMessage(toRelayMessageBody(pubsubTopic, msg))
 
   (
     await ld.waku.filterSubscribe(
