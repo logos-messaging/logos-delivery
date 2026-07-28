@@ -23,6 +23,22 @@ store_query_latency = Gauge('store_query_latency', 'Latency of the last store qu
 consecutive_successful_responses = Gauge('consecutive_successful_responses', 'Consecutive successful store responses', ['node'])
 node_health = Gauge('node_health', "Binary indicator of a node's health. 1 is healthy, 0 is not", ['node'])
 
+# Bounded set of values for the 'error' label of failed_store_queries. A label must
+# never hold a raw cause string: that is what blows up cardinality.
+ERR_LOCAL_NODE_UNREACHABLE = 'local_node_unreachable'
+ERR_PEER_UNREACHABLE = 'peer_unreachable'
+ERR_QUERY_TIMEOUT = 'query_timeout'
+ERR_STORE_BACKEND_ERROR = 'store_backend_error'
+ERR_UNKNOWN = 'unknown'
+
+# Store protocol status code -> error label. 300 (BAD_RESPONSE) is absent on purpose:
+# it is the only status whose cause string has to be inspected to be classified.
+STORE_STATUS_ERRORS = {
+    504: ERR_PEER_UNREACHABLE,     # PEER_DIAL_FAILURE
+    503: ERR_STORE_BACKEND_ERROR,  # SERVICE_UNAVAILABLE
+    429: ERR_STORE_BACKEND_ERROR,  # TOO_MANY_REQUESTS: load shedding is store-side
+}
+
 
 # Argparser configuration
 parser = argparse.ArgumentParser(description='')
@@ -77,18 +93,49 @@ def send_sonda_msg(rest_address, pubsub_topic, content_topic, timestamp):
     return False
 
 
+# Maps the cause of a store BAD_RESPONSE (300) onto the bounded error set.
+# This is the only place where a cause string is inspected.
+def classify_bad_response(cause):
+    cause = cause.lower()
+    if 'archive error' in cause or 'driver_error' in cause:
+        return ERR_STORE_BACKEND_ERROR
+    if 'cancel' in cause or 'timed out' in cause or 'timeout' in cause:
+        return ERR_QUERY_TIMEOUT
+    if 'closed' in cause or 'reset' in cause or 'eof' in cause:
+        return ERR_PEER_UNREACHABLE
+    return ERR_UNKNOWN
+
+
+# Increments failed_store_queries with a bounded 'error' label, keeping the raw cause in
+# the log only. blame_peer=False leaves 'node' empty for failures where sonda never got
+# an answer about the store peer, so we don't blame a peer that was never contacted.
+def record_store_failure(store_node, error, cause, blame_peer=True):
+    log_with_utc(f'Failed store query node={store_node} error={error} cause={cause}')
+    failed_store_queries.labels(node=store_node if blame_peer else '', error=error).inc()
+    consecutive_successful_responses.labels(node=store_node).set(0)
+
+
 # We return true if both our node and the queried Store node returned a 200
 # If our message isn't found but we did get a store 200 response, this function still returns true
 def check_store_response(json_response, store_node, timestamp):
+  status_code = json_response.get('statusCode')
+  status_desc = json_response.get('statusDesc') or ''
+
   # Check for the store node status code
-  if json_response.get('statusCode') != 200:
-    error = f"{json_response.get('statusCode')} {json_response.get('statusDesc')}"
-    log_with_utc(f'Failed performing store query {error}')
-    failed_store_queries.labels(node=store_node, error=error).inc()
-    consecutive_successful_responses.labels(node=store_node).set(0)
-    
+  if status_code != 200:
+    blame_peer = True
+    if status_code == 300:
+      error = classify_bad_response(status_desc)
+    elif status_code in STORE_STATUS_ERRORS:
+      error = STORE_STATUS_ERRORS[status_code]
+    else:
+      # A 400 means sonda built a bad query. That is a sonda bug, not the peer's fault.
+      error = ERR_UNKNOWN
+      blame_peer = False
+
+    record_store_failure(store_node, error, f'{status_code} {status_desc}', blame_peer)
     return False
-  
+
   messages = json_response.get('messages')
   # If there's no message in the response, increase counters and return
   if not messages:
@@ -132,27 +179,34 @@ def send_store_query(rest_address, store_node, encoded_pubsub_topic, encoded_con
     try:
         log_with_utc(f'Sending store request to {store_node}')
         response = requests.get(url, params=params)
+    except requests.RequestException as e:
+        # No HTTP response at all, so sonda learned nothing about the store peer.
+        # Checked first: attributing this to a peer we never reached would be a lie.
+        record_store_failure(store_node, ERR_LOCAL_NODE_UNREACHABLE, str(e), blame_peer=False)
+        return False
     except Exception as e:
-      log_with_utc(f'Error sending request: {e}')
-      failed_store_queries.labels(node=store_node, error=str(e)).inc()
-      consecutive_successful_responses.labels(node=store_node).set(0)
-      return False
+        # An exception inside sonda itself.
+        record_store_failure(store_node, ERR_UNKNOWN, str(e), blame_peer=False)
+        return False
 
     elapsed_seconds = time.time() - s_time
     log_with_utc(f'Response from {rest_address}: status:{response.status_code} [{elapsed_seconds:.4f} s.]')
 
+    # Our node turns a store TOO_MANY_REQUESTS into an HTTP 429 instead of a status code.
+    if response.status_code == 429:
+        record_store_failure(store_node, ERR_STORE_BACKEND_ERROR, response.text)
+        return False
+
     if response.status_code != 200:
-        failed_store_queries.labels(node=store_node, error=f'{response.status_code} {response.content}').inc()
-        consecutive_successful_responses.labels(node=store_node).set(0)
+        record_store_failure(store_node, ERR_UNKNOWN,
+                             f'HTTP {response.status_code} {response.text}', blame_peer=False)
         return False
 
     # Parse REST response into JSON
     try:
         json_response = response.json()
-    except Exception as e:
-        log_with_utc(f'Error parsing response JSON: {e}')
-        failed_store_queries.labels(node=store_node, error="JSON parse error").inc()
-        consecutive_successful_responses.labels(node=store_node).set(0)
+    except ValueError as e:
+        record_store_failure(store_node, ERR_UNKNOWN, str(e), blame_peer=False)
         return False
 
     # Analyze Store response. Return false if response is incorrect or has an error status
