@@ -163,6 +163,65 @@ suite "Reliable Channel - ingress":
 
     (await waku.stop()).expect("stop")
 
+  asyncTest "closed channel emits no channel event":
+    ## Issue #4065: no ChannelMessageReceivedEvent after closeChannel.
+    const
+      channelId = ChannelId("test-channel-3")
+      contentTopic = ContentTopic("/reliable-channel/test/proto")
+    let appPayload = "after close".toBytes()
+
+    var waku: LogosDelivery
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
+      manager = waku.reliableChannelManager
+
+    setNoopEncryption()
+
+    discard manager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+
+    (await manager.closeChannel(channelId)).expect("closeChannel")
+
+    var fired = false
+    discard ChannelMessageReceivedEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageReceivedEvent) {.async: (raises: []).} =
+          if evt.channelId == channelId:
+            fired = true
+        ,
+      )
+      .expect("listen ChannelMessageReceivedEvent")
+
+    let remotePeer =
+      ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
+    let sdsWire = (
+      await remotePeer.wrapOutgoingMessage(
+        appPayload, "close-test-msg-1", SdsChannelID(channelId)
+      )
+    ).expect("wrapOutgoingMessage")
+
+    let inboundMsg = WakuMessage(
+      payload: sdsWire,
+      contentTopic: contentTopic,
+      version: 0,
+      meta: LipWireReliableChannelVersion.toBytes(),
+    )
+
+    waku_message_events.MessageReceivedEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageReceivedEvent(messageHash: "", message: inboundMsg),
+    )
+
+    await sleepAsync(100.milliseconds)
+    check not fired
+
+    (await waku.stop()).expect("stop")
+
 suite "Reliable Channel - send state machine":
   asyncTest "MessageSentEvent finalises the channelReqId as Sent":
     ## Drives the real send pipeline (`send` -> segmentation -> SDS ->

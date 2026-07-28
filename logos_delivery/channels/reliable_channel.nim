@@ -78,6 +78,9 @@ type
 
     channelReqs: ChannelReqs
     brokerCtx: BrokerContext
+    receivedListener: MessageReceivedEventListener
+    sentListener: MessageSentEventListener
+    errorListener: MessageErrorEventListener
 
 func init(
     T: type ChannelReqState,
@@ -102,7 +105,10 @@ func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
   self.senderId
 
 proc stop*(self: ReliableChannel) {.async: (raises: []).} =
-  ## Stops the SDS background loops. Persisted SDS state survives.
+  ## Drops the event listeners and stops the SDS loops. Persisted SDS state survives.
+  await MessageReceivedEvent.dropListener(self.brokerCtx, self.receivedListener)
+  await MessageSentEvent.dropListener(self.brokerCtx, self.sentListener)
+  await MessageErrorEvent.dropListener(self.brokerCtx, self.errorListener)
   await self.sdsHandler.stop()
 
 proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
@@ -361,7 +367,7 @@ proc new*(
   ## Keeping the listeners (and the handler procs they call) inside the
   ## channel lets `onMessageReceived` / `onMessageFinal` stay private —
   ## the manager doesn't need to know about them.
-  discard MessageReceivedEvent.listen(
+  chn.receivedListener = MessageReceivedEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageReceivedEvent): Future[void] {.async: (raises: []).} =
       ## Drop foreign traffic (non-Reliable-Channel `meta`) and traffic
@@ -372,22 +378,28 @@ proc new*(
         return
       await chn.onMessageReceived(evt.messageHash, evt.message.payload)
     ,
-  )
+  ).valueOr:
+    error "MessageReceivedEvent.listen failed", channelId = channelId, error = error
+    MessageReceivedEventListener()
 
   ## Send-completion events are tagged with the per-segment messaging
   ## `requestId` — globally unique, so we don't need any channel filter
   ## up front. The handler scans this channel's pending entries for a
   ## match and is a no-op when the id belongs to a different channel.
-  discard MessageSentEvent.listen(
+  chn.sentListener = MessageSentEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageSentEvent): Future[void] {.async: (raises: []).} =
       chn.onMessageFinal(evt.requestId, MessagingOutcome.Sent),
-  )
+  ).valueOr:
+    error "MessageSentEvent.listen failed", channelId = channelId, error = error
+    MessageSentEventListener()
 
-  discard MessageErrorEvent.listen(
+  chn.errorListener = MessageErrorEvent.listen(
     chn.brokerCtx,
     proc(evt: MessageErrorEvent): Future[void] {.async: (raises: []).} =
       chn.onMessageFinal(evt.requestId, MessagingOutcome.Failed),
-  )
+  ).valueOr:
+    error "MessageErrorEvent.listen failed", channelId = channelId, error = error
+    MessageErrorEventListener()
 
   return chn
