@@ -14,7 +14,7 @@ def get_env_var(var_name, default=None):
 
 
 # Configuration constants. Need to be upercase to appear in reports
-DEFAULT_NWAKU = "wakuorg/nwaku:latest"
+DEFAULT_NWAKU = "wakuorg/nwaku:v0.38.1"
 STRESS_ENABLED = False
 USE_WRAPPERS = True
 NODE_1 = get_env_var("NODE_1", DEFAULT_NWAKU)

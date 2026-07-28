@@ -44,4 +44,6 @@ jobs:
 
       - name: Run API/e2e tests (${{ inputs.subset }} subset)
         working-directory: tests-e2e
-        run: pytest tests/wrappers_tests -m "${{ inputs.subset == 'docker' && 'docker_required' || 'not docker_required' }}" --reruns 2
+        run: |
+          echo "docker peer image: ${NODE_2:-public default (DEFAULT_NWAKU)}"
+          pytest tests/wrappers_tests -m "${{ inputs.subset == 'docker' && 'docker_required' || 'not docker_required' }}" --reruns 2
