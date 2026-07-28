@@ -71,13 +71,13 @@ suite "Reliable Channel - ingress":
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
 
-    let received = newFuture[seq[byte]]("channel-message-received")
+    let received = newFuture[ChannelMessageReceivedEvent]("channel-message-received")
     discard ChannelMessageReceivedEvent
       .listen(
         brokerCtx,
         proc(evt: ChannelMessageReceivedEvent) {.async: (raises: []).} =
           if not received.finished() and evt.channelId == channelId:
-            received.complete(evt.payload)
+            received.complete(evt)
         ,
       )
       .expect("listen ChannelMessageReceivedEvent")
@@ -108,7 +108,10 @@ suite "Reliable Channel - ingress":
     let arrived = await received.withTimeout(TestTimeout)
     check arrived
     if arrived:
-      check received.read() == appPayload
+      let evt = received.read()
+      check evt.payload == appPayload
+      ## wire sender's id, not the local participant id
+      check evt.senderId == SdsParticipantID("remote")
 
     (await waku.stop()).expect("stop")
 

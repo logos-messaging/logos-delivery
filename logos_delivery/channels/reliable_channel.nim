@@ -246,9 +246,9 @@ proc send*(
 
   return ok(channelReqId)
 
-proc reportReceived(self: ReliableChannel, content: seq[byte]) =
+proc reportReceived(self: ReliableChannel, deliverable: SdsDeliverable) =
   ## Tail of the ingress pipeline (reassemble -> emit).
-  let reassembled = self.segmentation.handleIncomingSegment(content)
+  let reassembled = self.segmentation.handleIncomingSegment(deliverable.content)
   if reassembled.isSome():
     ## Emit on the captured `brokerCtx` (the manager's), so the
     ## application listener that the manager has set up on that same
@@ -257,7 +257,7 @@ proc reportReceived(self: ReliableChannel, content: seq[byte]) =
       self.brokerCtx,
       ChannelMessageReceivedEvent(
         channelId: self.channelId,
-        senderId: self.senderId,
+        senderId: deliverable.senderId,
         payload: reassembled.get().payload,
       ),
     )
@@ -323,8 +323,8 @@ proc onMessageReceived(
       ),
     )
     return
-  for content in deliverable:
-    self.reportReceived(content)
+  for item in deliverable:
+    self.reportReceived(item)
 
 proc new*(
     T: type ReliableChannel,

@@ -44,12 +44,17 @@ type
   RebroadcastHandler* = proc(wire: seq[byte]) {.gcsafe, raises: [].}
     ## Invoked with a full SDS envelope to rebroadcast (SDS-R repair).
 
+  SdsDeliverable* = object
+    ## Deliverable segment tagged with the sender id from the SDS envelope.
+    content*: seq[byte]
+    senderId*: SdsParticipantID
+
   SdsHandler* = ref object
     reliabilityManager: ReliabilityManager
     channelId: SdsChannelID
-    pendingContent: OrderedTable[SdsMessageID, seq[byte]]
+    pendingContent: OrderedTable[SdsMessageID, SdsDeliverable]
       ## Segments parked until their causal dependencies arrive.
-    released: seq[seq[byte]]
+    released: seq[SdsDeliverable]
       ## Parked segments released by the unwrap currently in flight;
       ## filled via `onMessageReady`, drained by `handleIncoming`.
     ingressLock: AsyncLock
@@ -128,7 +133,7 @@ proc new*(
   let handler = T(
     reliabilityManager: rm,
     channelId: channelId,
-    pendingContent: initOrderedTable[SdsMessageID, seq[byte]](),
+    pendingContent: initOrderedTable[SdsMessageID, SdsDeliverable](),
     released: @[],
     ingressLock: newAsyncLock(),
     participantId: participantId,
@@ -162,8 +167,8 @@ proc wrapOutgoing*(
 
 proc handleIncoming*(
     self: SdsHandler, wire: seq[byte]
-): Future[Result[seq[seq[byte]], string]] {.async: (raises: []).} =
-  ## Returns the payloads deliverable now, in causal order. Empty when SDS
+): Future[Result[seq[SdsDeliverable], string]] {.async: (raises: []).} =
+  ## Returns the deliverables ready now, in causal order. Empty when SDS
   ## consumed the message; `err` when the bytes are not an SDS envelope.
   let msg = deserializeMessage(wire).valueOr:
     return err("SDS deserialization failed: " & $error)
@@ -173,7 +178,7 @@ proc handleIncoming*(
   if msg.channelId != self.channelId:
     debug "dropping SDS message for foreign channel",
       channelId = self.channelId, wireChannelId = msg.channelId
-    return ok(newSeq[seq[byte]]())
+    return ok(newSeq[SdsDeliverable]())
 
   ## Only the lock acquisition can raise (CancelledError); the unwrap work
   ## below is `raises: []`, so the try stays scoped to exactly the acquire.
@@ -184,7 +189,7 @@ proc handleIncoming*(
 
   ## Funnel every unwrap outcome into `res` so the lock is released once on
   ## the tail path, where `releaseIngressLock` can surface its own error.
-  var res: Result[seq[seq[byte]], string]
+  var res: Result[seq[SdsDeliverable], string]
   block ingress:
     ## Load persisted state before the duplicate check, so a replay right
     ## after a restart is not re-delivered. Idempotent, cheap once loaded.
@@ -203,7 +208,7 @@ proc handleIncoming*(
       break ingress
 
     if isDuplicate:
-      res = ok(newSeq[seq[byte]]())
+      res = ok(newSeq[SdsDeliverable]())
       break ingress
 
     if unwrapped.missingDeps.len > 0:
@@ -215,14 +220,17 @@ proc handleIncoming*(
         self.pendingContent.del(oldest)
         warn "SDS pending-content stash full, dropping oldest entry",
           channelId = self.channelId, dropped = oldest
-      self.pendingContent[msg.messageId] = unwrapped.message
-      res = ok(newSeq[seq[byte]]())
+      self.pendingContent[msg.messageId] =
+        SdsDeliverable(content: unwrapped.message, senderId: msg.senderId)
+      res = ok(newSeq[SdsDeliverable]())
       break ingress
 
-    var deliverable = newSeq[seq[byte]]()
+    var deliverable = newSeq[SdsDeliverable]()
     if unwrapped.message.len > 0:
       ## Empty content is sync traffic: causal metadata only.
-      deliverable.add(unwrapped.message)
+      deliverable.add(
+        SdsDeliverable(content: unwrapped.message, senderId: msg.senderId)
+      )
     deliverable.add(self.released)
     self.released.setLen(0)
     res = ok(deliverable)
