@@ -513,6 +513,44 @@ proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string]
 
   return ok()
 
+func hasZeroPort(ma: MultiAddress): bool =
+  ## True when the address's transport port is 0. The config uses port 0 to
+  ## ask the kernel for a port at bind time, so such an address is a
+  ## placeholder: it names a transport, but not a dialable endpoint.
+  let transportAddress = initTAddress(ma).valueOr:
+    return false
+  return transportAddress.port == Port(0)
+
+proc resolveAnnouncedAddresses(node: WakuNode) =
+  ## The announced addresses only ever carry switch transports (tcp,
+  ## websocket, quic); service ports (rest, discv5, metrics) are bound and
+  ## resolved elsewhere. The list is built at configuration time, before any
+  ## socket exists: entries whose port the config left at 0 are placeholders
+  ## that must never reach a peer (dialing one fails instantly on linux and
+  ## stalls a full handshake timeout on macos).
+  ##
+  ## `switch.start()` has just bound the switch's sockets, so this is the
+  ## first moment the true addresses exist: drop the placeholders and
+  ## announce every switch-resolved address in their place. Real-port
+  ## entries are operator intent (explicit external or dns announces, which
+  ## may differ from the listen addresses by design) and are kept verbatim.
+  ##
+  ## The factory later resyncs the announced addresses again from its config
+  ## (`getRunningNetConfig`), but only for factory-built nodes; a node built
+  ## directly as WakuNode - every test, any embedder - is made true here or
+  ## never.
+  if not node.announcedAddresses.anyIt(it.hasZeroPort()):
+    return
+
+  var newAnnounced = node.announcedAddresses.filterIt(not it.hasZeroPort())
+  for resolved in node.switch.peerInfo.addrs:
+    if resolved notin newAnnounced:
+      newAnnounced.add(resolved)
+
+  info "Resolved dynamically allocated ports in announced addresses",
+    previous = $node.announcedAddresses, updated = $newAnnounced
+  node.announcedAddresses = newAnnounced
+
 proc startProvidersAndListeners*(node: WakuNode) =
   RequestRelayShard.setProvider(
     node.brokerCtx,
@@ -618,6 +656,10 @@ proc start*(node: WakuNode) {.async.} =
   ## The switch will update addresses after start using the addressMapper
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
+
+  ## The switch just bound its sockets: replace any zero-port placeholders
+  ## in the announced addresses with the resolved ones.
+  node.resolveAnnouncedAddresses()
 
   # Reconnect to known relay peers in the background; it waits a prune backoff
   # and must not block startup.
