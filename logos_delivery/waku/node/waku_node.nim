@@ -21,7 +21,6 @@ import
   libp2p/transports/transport,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utility,
   libp2p/utils/offsettedseq,
   libp2p_mix,
   libp2p_mix/mix_protocol,
@@ -60,6 +59,7 @@ import
     requests/health_requests,
     api/events/health_events,
     api/events/peer_events,
+    api/events/discovery_events,
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
   logos_delivery/waku/discovery/waku_kademlia,
@@ -122,6 +122,7 @@ type
     libp2pPing*: Ping
     rng*: crypto.Rng
     brokerCtx*: BrokerContext
+    mixTopUpLoop: Future[void]
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
     announcedAddresses*: seq[MultiAddress]
@@ -189,6 +190,18 @@ proc getShardsGetter(node: WakuNode, configuredShards: seq[uint16]): GetShards =
       let shards = relayShards.get().shardIds
       return shards
     return configuredShards
+
+proc getRelayMixHandler*(node: WakuNode): Option[WakuRelayHandler] =
+  ## Returns a handler for mix spam protection coordination messages if mix is mounted
+  if node.wakuMix.isNil():
+    return none(WakuRelayHandler)
+
+  let handler: WakuRelayHandler = proc(
+      pubsubTopic: PubsubTopic, message: WakuMessage
+  ): Future[void] {.async, gcsafe.} =
+    await node.wakuMix.handleMessage(pubsubTopic, message)
+
+  return some(handler)
 
 proc getCapabilitiesGetter(node: WakuNode): GetCapabilities =
   return proc(): seq[Capabilities] {.closure, gcsafe, raises: [].} =
@@ -313,6 +326,7 @@ proc mountMix*(
     clusterId: uint16,
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
+    userMessageLimit: Option[int] = none(int),
 ): Future[Result[void, string]] {.async.} =
   info "mounting mix protocol", nodeId = node.info #TODO log the config used
 
@@ -323,8 +337,30 @@ proc mountMix*(
     return err("Failed to convert multiaddress to string.")
   info "local addr", localaddr = localaddrStr
 
+  # Create callback to publish coordination messages via relay
+  let publishMessage: PublishMessage = proc(
+      message: WakuMessage
+  ): Future[Result[void, string]] {.async.} =
+    # Inline implementation of publish logic to avoid circular import
+    if node.wakuRelay.isNil():
+      return err("WakuRelay not mounted")
+
+    # Derive pubsub topic from content topic using auto sharding
+    let pubsubTopic =
+      if node.wakuAutoSharding.isNone():
+        return err("Auto sharding not configured")
+      else:
+        node.wakuAutoSharding.get().getShard(message.contentTopic).valueOr:
+          return err("Autosharding error: " & error)
+
+    # Publish via relay
+    (await node.wakuRelay.publish(pubsubTopic, message)).isOkOr:
+      return err("publish failed in relay: " & $error)
+    return ok()
+
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes
+    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes, publishMessage,
+    userMessageLimit,
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
     return
@@ -334,6 +370,7 @@ proc mountMix*(
     node.switch.mount(node.wakuMix)
   catchRes.isOkOr:
     return err(error.msg)
+
   return ok()
 
 proc mountKademlia*(
@@ -358,6 +395,22 @@ proc mountKademlia*(
     return err("failed to mount service discovery: " & error.msg)
 
   return ok()
+
+proc runServicePeerTopUp(
+    node: WakuNode, serviceId: string, target: int, interval: Duration
+) {.async.} =
+  ## Adaptive service-peer discovery: while the mix node pool is below `target`,
+  ## pull more providers for `serviceId` through the broker. The registered
+  ## ServicePeersRequest provider (kademlia) performs the lookup and fills the
+  ## pool.
+  debug "service peer top-up loop started", serviceId, target, interval = $interval
+  while true:
+    await sleepAsync(interval)
+    if node.getMixNodePoolSize() >= target:
+      continue
+    (await ServicePeersRequest.request(node.brokerCtx, serviceId)).isOkOr:
+      debug "service peer top-up request failed", serviceId, error = error
+      continue
 
 ## Waku Sync
 
@@ -585,10 +638,22 @@ proc startProvidersAndListeners*(node: WakuNode) =
   ).isOkOr:
     error "Can't set provider for RequestContentTopicsHealth", error = error
 
+  # Service-peer lookups are answered by kademlia; register only when it's mounted.
+  if not node.wakuKademlia.isNil():
+    ServicePeersRequest.setProvider(
+      node.brokerCtx,
+      proc(serviceId: string): Future[Result[ServicePeersRequest, string]] {.async.} =
+        let peers = (await node.wakuKademlia.lookupServicePeers(serviceId)).valueOr:
+          return err("failed call to lookupServicePeers: " & error)
+        return ok(ServicePeersRequest(serviceId: serviceId, peers: peers)),
+    ).isOkOr:
+      error "Can't set provider for ServicePeersRequest", error = error
+
 proc stopProvidersAndListeners*(node: WakuNode) =
   RequestRelayShard.clearProvider(node.brokerCtx)
   RequestContentTopicsHealth.clearProvider(node.brokerCtx)
   RequestShardTopicsHealth.clearProvider(node.brokerCtx)
+  ServicePeersRequest.clearProvider(node.brokerCtx)
 
 proc start*(node: WakuNode) {.async.} =
   ## Starts a created Waku Node and
@@ -620,14 +685,33 @@ proc start*(node: WakuNode) {.async.} =
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
 
+  # Explicit start is required: switch.start() dispatches only as far as
+  # MixProtocol.start (LPProtocol flag + cover traffic). WakuMix.start, which
+  # performs the RLN spam-protection init()/loadTree(), is not reached by that
+  # dispatch, so removing this silently disables spam protection.
+  if not node.wakuMix.isNil():
+    await node.wakuMix.start()
+
   # Reconnect to known relay peers in the background; it waits a prune backoff
   # and must not block startup.
   node.relayReconnectFut = node.reconnectRelayPeers()
+
+  # Kick off the DoS-protection registration broadcast now that peers are
+  # reconnected. Fire-and-forget: the proc returns immediately and an
+  # internal background task retries until the broadcast lands.
+  if not node.wakuMix.isNil():
+    node.wakuMix.registerDoSProtectionWithNetwork()
 
   node.started = true
 
   if not node.wakuKademlia.isNil():
     await node.wakuKademlia.start()
+
+    # Keep the mix pool filled: top up mix service peers via the broker while
+    # the pool is below the minimum size.
+    if not node.wakuMix.isNil():
+      node.mixTopUpLoop =
+        node.runServicePeerTopUp(MixProtocolID, minMixPoolSize, chronos.seconds(5))
 
   if not node.wakuFilterClient.isNil():
     node.wakuFilterClient.registerPushHandler(
@@ -658,6 +742,10 @@ proc stop*(node: WakuNode) {.async.} =
   await node.subscriptionManager.stop()
 
   node.stopProvidersAndListeners()
+
+  if not node.mixTopUpLoop.isNil():
+    await node.mixTopUpLoop.cancelAndWait()
+    node.mixTopUpLoop = nil
 
   if not node.wakuKademlia.isNil():
     await node.wakuKademlia.stop()

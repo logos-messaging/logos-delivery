@@ -39,8 +39,8 @@ suite "Waku Filter - End to End":
       pubsubTopic = DefaultPubsubTopic
       contentTopic = DefaultContentTopic
       contentTopicSeq = @[contentTopic]
-      serverSwitch = newStandardSwitch()
-      clientSwitch = newStandardSwitch()
+      serverSwitch = newTestSwitch()
+      clientSwitch = newTestSwitch()
       wakuFilter = await newTestWakuFilter(serverSwitch)
       wakuFilterClient = await newTestWakuFilterClient(clientSwitch)
 
@@ -106,7 +106,7 @@ suite "Waku Filter - End to End":
     suite "Subscribe":
       asyncTest "Server remote peer info doesn't match an online server":
         # Given an offline service node
-        let offlineServerSwitch = newStandardSwitch()
+        let offlineServerSwitch = newTestSwitch()
         let offlineServerRemotePeerInfo =
           offlineServerSwitch.peerInfo.toRemotePeerInfo()
 
@@ -721,7 +721,7 @@ suite "Waku Filter - End to End":
         # Given a WakuFilterClient list of size MaxFilterPeers
         var clients: seq[(WakuFilterClient, Switch)] = @[]
         for i in 0 ..< MaxFilterPeers:
-          let standardSwitch = newStandardSwitch()
+          let standardSwitch = newTestSwitch()
           let wakuFilterClient = await newTestWakuFilterClient(standardSwitch)
           clients.add((wakuFilterClient, standardSwitch))
 
@@ -738,7 +738,7 @@ suite "Waku Filter - End to End":
           wakuFilter.subscriptions.subscribedPeerCount() == MaxFilterPeers
 
         # When initialising a new WakuFilterClient and subscribing it to the same service
-        let standardSwitch = newStandardSwitch()
+        let standardSwitch = newTestSwitch()
         let wakuFilterClient = await newTestWakuFilterClient(standardSwitch)
         await standardSwitch.start()
         let subscribeResponse = await wakuFilterClient.subscribe(
@@ -752,7 +752,7 @@ suite "Waku Filter - End to End":
 
       asyncTest "Multiple Subscriptions":
         # Given a second service node
-        let serverSwitch2 = newStandardSwitch()
+        let serverSwitch2 = newTestSwitch()
         let wakuFilter2 = await newTestWakuFilter(serverSwitch2)
         await allFutures(serverSwitch2.start())
         let serverRemotePeerInfo2 = serverSwitch2.peerInfo.toRemotePeerInfo()

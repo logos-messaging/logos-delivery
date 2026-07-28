@@ -11,6 +11,7 @@ import
     node/node_telemetry,
     waku_relay,
     waku_archive,
+    waku_mix,
     waku_store_sync,
     waku_filter_v2/common as filter_common,
     waku_filter_v2/client as filter_client,
@@ -66,6 +67,12 @@ proc registerRelayHandler(
 
     node.wakuStoreReconciliation.messageIngress(topic, msg)
 
+  proc mixHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+    if node.wakuMix.isNil():
+      return
+
+    await node.wakuMix.handleMessage(topic, msg)
+
   proc internalHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     MessageSeenEvent.emit(node.brokerCtx, topic, msg)
 
@@ -76,6 +83,7 @@ proc registerRelayHandler(
     await filterHandler(topic, msg)
     await archiveHandler(topic, msg)
     await syncHandler(topic, msg)
+    await mixHandler(topic, msg)
     await internalHandler(topic, msg)
 
     if node.legacyAppHandlers.hasKey(topic) and not node.legacyAppHandlers[topic].isNil():

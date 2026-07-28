@@ -14,7 +14,6 @@
 
 import std/[hashes, sets]
 import chronos/timer, results
-import libp2p/utility
 
 export results
 

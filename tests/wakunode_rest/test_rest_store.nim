@@ -108,7 +108,7 @@ procSuite "Waku Rest API - Store v3":
     node.mountStoreClient()
 
     let key = generateEcdsaKey()
-    var peerSwitch = newStandardSwitch(Opt.some(key))
+    var peerSwitch = newTestSwitch(some(key))
     await peerSwitch.start()
 
     peerSwitch.mount(node.wakuStore)
@@ -185,7 +185,7 @@ procSuite "Waku Rest API - Store v3":
     node.mountStoreClient()
 
     let key = generateEcdsaKey()
-    var peerSwitch = newStandardSwitch(Opt.some(key))
+    var peerSwitch = newTestSwitch(some(key))
     await peerSwitch.start()
 
     peerSwitch.mount(node.wakuStore)
@@ -254,7 +254,7 @@ procSuite "Waku Rest API - Store v3":
     node.mountStoreClient()
 
     let key = generateEcdsaKey()
-    var peerSwitch = newStandardSwitch(Opt.some(key))
+    var peerSwitch = newTestSwitch(some(key))
     await peerSwitch.start()
 
     peerSwitch.mount(node.wakuStore)
@@ -349,7 +349,7 @@ procSuite "Waku Rest API - Store v3":
     node.mountStoreClient()
 
     let key = generateEcdsaKey()
-    var peerSwitch = newStandardSwitch(Opt.some(key))
+    var peerSwitch = newTestSwitch(some(key))
     await peerSwitch.start()
 
     peerSwitch.mount(node.wakuStore)
@@ -422,7 +422,7 @@ procSuite "Waku Rest API - Store v3":
     node.mountStoreClient()
 
     let key = generateEcdsaKey()
-    var peerSwitch = newStandardSwitch(Opt.some(key))
+    var peerSwitch = newTestSwitch(some(key))
     await peerSwitch.start()
 
     peerSwitch.mount(node.wakuStore)
@@ -511,7 +511,7 @@ procSuite "Waku Rest API - Store v3":
     node.mountStoreClient()
 
     let key = generateEcdsaKey()
-    var peerSwitch = newStandardSwitch(Opt.some(key))
+    var peerSwitch = newTestSwitch(some(key))
     await peerSwitch.start()
 
     peerSwitch.mount(node.wakuStore)
@@ -561,7 +561,7 @@ procSuite "Waku Rest API - Store v3":
     node.mountStoreClient()
 
     let key = generateEcdsaKey()
-    var peerSwitch = newStandardSwitch(Opt.some(key))
+    var peerSwitch = newTestSwitch(some(key))
     await peerSwitch.start()
 
     let client = newRestHttpClient(initTAddress(restAddress, restPort))
@@ -743,7 +743,7 @@ procSuite "Waku Rest API - Store v3":
     node.mountStoreClient()
 
     let key = generateEcdsaKey()
-    var peerSwitch = newStandardSwitch(Opt.some(key))
+    var peerSwitch = newTestSwitch(some(key))
     await peerSwitch.start()
 
     peerSwitch.mount(node.wakuStore)

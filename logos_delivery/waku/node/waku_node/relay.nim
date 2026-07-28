@@ -17,7 +17,6 @@ import
   libp2p/builders,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utility,
   brokers/broker_context
 
 import
@@ -29,6 +28,7 @@ import
     waku_archive,
     waku_store_sync,
     rln,
+    waku_mix,
     node/waku_node,
     node/subscription_manager,
     node/peer_manager,

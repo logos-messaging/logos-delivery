@@ -10,8 +10,7 @@ import
   libp2p/protocols/rendezvous/protobuf,
   libp2p/utils/offsettedseq,
   libp2p/crypto/curve25519,
-  libp2p/switch,
-  libp2p/utility
+  libp2p/switch
 
 import metrics except collect
 

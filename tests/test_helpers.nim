@@ -22,7 +22,7 @@ proc setupTestNode*(
     addAllCapabilities = false,
     bindUdpPort = address.udpPort, # Assume same as external
     bindTcpPort = address.tcpPort, # Assume same as external
-    rng = rng,
+    rng = rng(),
   )
   nextPort.inc
   for capability in capabilities:
@@ -40,7 +40,10 @@ proc getRng(): crypto.Rng =
   #      purpose of the tests, it's ok as long as we only use a single thread
   {.gcsafe.}:
     if rngVar.rng.isNil:
-      rngVar.rng = crypto.newRng()
+      # libp2p v2.0.0: crypto.newRng() returns the new `Rng` wrapper type;
+      # construct an HmacDrbgContext directly so the field type stays as
+      # `ref HmacDrbgContext` (what bearssl-style consumers expect).
+      rngVar.rng = HmacDrbgContext.new()
     rngVar.rng
 
 template rng*(): crypto.Rng =

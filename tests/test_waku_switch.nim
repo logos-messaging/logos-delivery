@@ -4,6 +4,7 @@ import
   testutils/unittests,
   chronos,
   libp2p/builders,
+  libp2p/crypto/crypto,
   libp2p/protocols/connectivity/autonat/client,
   libp2p/protocols/connectivity/relay/relay,
   libp2p/protocols/connectivity/relay/client,
@@ -13,7 +14,7 @@ import logos_delivery/waku/node/waku_switch, ./testlib/common, ./testlib/wakucor
 proc newCircuitRelayClientSwitch(relayClient: RelayClient): Switch =
   SwitchBuilder
     .new()
-    .withRng(rng())
+    .withRng(crypto.newRng())
     .withAddresses(@[MultiAddress.init("/ip4/0.0.0.0/tcp/0").tryGet()])
     .withTcpTransport()
     .withMplex()
@@ -26,7 +27,7 @@ suite "Waku Switch":
     ## Given
     let
       sourceSwitch = newTestSwitch()
-      wakuSwitch = newWakuSwitch(rng = rng(), circuitRelay = Relay.new())
+      wakuSwitch = newWakuSwitch(rng = crypto.newRng(), circuitRelay = Relay.new())
     await sourceSwitch.start()
     await wakuSwitch.start()
 
@@ -46,7 +47,7 @@ suite "Waku Switch":
   asyncTest "Waku Switch acts as circuit relayer":
     ## Setup
     let
-      wakuSwitch = newWakuSwitch(rng = rng(), circuitRelay = Relay.new())
+      wakuSwitch = newWakuSwitch(rng = crypto.newRng(), circuitRelay = Relay.new())
       sourceClient = RelayClient.new()
       destClient = RelayClient.new()
       sourceSwitch = newCircuitRelayClientSwitch(sourceClient)
