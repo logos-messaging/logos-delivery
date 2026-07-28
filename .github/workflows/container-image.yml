@@ -71,6 +71,7 @@ jobs:
         uses: actions/cache@v3
         with:
           path: |
+            ~/.nimble
             nimbledeps/
             nimble.paths
           key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}

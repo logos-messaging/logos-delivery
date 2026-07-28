@@ -13,8 +13,7 @@ import
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/builders,
   libp2p/transports/tcptransport,
-  libp2p/transports/wstransport,
-  libp2p/utility
+  libp2p/transports/wstransport
 
 import
   ../waku_node,

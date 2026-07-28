@@ -33,7 +33,9 @@ proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   builder.withDnsAddrsNameServers(
     @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
   )
-  builder.withNatStrategy("any")
+  # Tests must not talk to real gateways on the LAN the suite happens to
+  # run on, and CI has none to talk to.
+  builder.withNatStrategy("none")
   builder.withMaxConnections(150)
   builder.withRelayServiceRatio("50:50")
   builder.withMaxMessageSize("1024 KiB")

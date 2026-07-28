@@ -31,4 +31,34 @@ jobs:
 
       - name: Run API/e2e tests (non-docker subset)
         working-directory: tests-e2e
-        run: pytest tests/wrappers_tests -m "not docker_required" --reruns 2
+        # Cores enabled and routed to plain files, python faulthandler on: a
+        # native crash in the library leaves a core and a fault report
+        # instead of only an exit code.
+        run: |
+          ulimit -c unlimited
+          sudo sh -c 'echo "/tmp/cores/core.%e.%p" > /proc/sys/kernel/core_pattern'
+          mkdir -p /tmp/cores
+          PYTHONFAULTHANDLER=1 pytest tests/wrappers_tests -m "not docker_required" --reruns 2
+
+      - name: Collect crash evidence
+        if: failure()
+        run: |
+          sudo apt-get install -y -qq gdb > /dev/null 2>&1 || true
+          mkdir -p /tmp/crash-evidence
+          cp tests-e2e/vendor/logos-delivery-python-bindings/lib/liblogosdelivery.so /tmp/crash-evidence/ || true
+          for core in /tmp/cores/core.*; do
+            [ -e "$core" ] || continue
+            cp "$core" /tmp/crash-evidence/
+            gdb -batch -ex "thread apply all bt full" "$(which python3)" "$core" \
+              > "/tmp/crash-evidence/$(basename "$core").backtrace.txt" 2>&1 || true
+          done
+          ls -l /tmp/crash-evidence/
+
+      - name: Upload crash evidence
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: api-e2e-crash-evidence
+          path: /tmp/crash-evidence/
+          if-no-files-found: ignore
+          retention-days: 14

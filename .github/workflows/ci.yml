@@ -137,7 +137,9 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # The full flow (deps + two large test-binary compiles + the 890-test
+    # run) needs ~70 minutes on slower runner instances.
+    timeout-minutes: 80
 
     name: test-${{ matrix.os }}
     steps:

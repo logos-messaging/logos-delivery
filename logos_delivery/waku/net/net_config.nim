@@ -121,6 +121,8 @@ proc init*(
     quicBindPort = Opt.none(Port),
     quicEnabled: bool = false,
     extQuicPort = Opt.none(Port),
+    extWsPort = Opt.none(Port),
+    natDiscovered: bool = false,
     dns4DomainName = Opt.none(string),
     discv5UdpPort = Opt.none(Port),
     clusterId: uint16 = 0,
@@ -192,22 +194,34 @@ proc init*(
     if extIp.isSome() and extPort.isSome():
       hostExtAddress = Opt.some(ip4TcpEndPoint(extIp.get(), extPort.get()))
 
+      # With an operator-provided external IP the configured ports are used
+      # as-is (the operator vouches for the endpoint). With a NAT-discovered
+      # one (`natDiscovered`), each transport's external address is only
+      # built from an actually mapped port — no guessing.
       if wsHostAddress.isSome():
-        try:
-          wsExtAddress = Opt.some(
-            ip4TcpEndPoint(extIp.get(), wsBindPort.get(DefaultWsBindPort)) &
-              wsFlag(wssEnabled)
-          )
-        except CatchableError:
-          return err(getCurrentExceptionMsg())
+        let wsPort =
+          if natDiscovered:
+            extWsPort
+          else:
+            Opt.some(extWsPort.get(wsBindPort.get(DefaultWsBindPort)))
+        if wsPort.isSome():
+          try:
+            wsExtAddress =
+              Opt.some(ip4TcpEndPoint(extIp.get(), wsPort.get()) & wsFlag(wssEnabled))
+          except CatchableError:
+            return err(getCurrentExceptionMsg())
 
       if quicHostAddress.isSome():
-        try:
-          quicExtAddress = Opt.some(
-            ipQuicEndPoint(extIp.get(), extQuicPort.get(quicBindPort.get(bindPort)))
-          )
-        except CatchableError:
-          return err("failed to set ip quic endpoint: " & getCurrentExceptionMsg())
+        let quicPort =
+          if natDiscovered:
+            extQuicPort
+          else:
+            Opt.some(extQuicPort.get(quicBindPort.get(bindPort)))
+        if quicPort.isSome():
+          try:
+            quicExtAddress = Opt.some(ipQuicEndPoint(extIp.get(), quicPort.get()))
+          except CatchableError:
+            return err("failed to set ip quic endpoint: " & getCurrentExceptionMsg())
 
   var announcedAddresses = newSeq[MultiAddress]()
 

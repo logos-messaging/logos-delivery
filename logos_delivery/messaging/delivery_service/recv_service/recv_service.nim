@@ -3,7 +3,7 @@
 ##
 
 import results, std/[tables, sequtils, sets]
-import chronos, chronicles, libp2p/utility
+import chronos, chronicles
 import brokers/broker_context
 import
   logos_delivery/waku/[waku_core, waku_core/topics, waku_store/common],

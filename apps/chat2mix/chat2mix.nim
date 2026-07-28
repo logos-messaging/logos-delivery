@@ -47,7 +47,7 @@ import
     node/peer_manager,
     factory/waku_conf,
     factory/builder,
-    common/utils/nat,
+    common/nat_config,
     waku_store/common,
     waku_filter_v2/client,
     common/logging,
@@ -405,13 +405,19 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
   if conf.logLevel != LogLevel.NONE:
     setLogLevel(conf.logLevel)
 
-  let (extIp, extTcpPort, extUdpPort) = setupNat(
-    conf.nat,
-    clientId,
-    Port(uint16(conf.tcpPort) + conf.portsShift),
-    Port(uint16(conf.udpPort) + conf.portsShift),
-  ).valueOr:
-    raise newException(ValueError, "setupNat error " & error)
+  let natStrategy = parseNatStrategy(conf.nat).valueOr:
+    raise newException(ValueError, "invalid --nat value: " & error)
+
+  # A static extip: is known up front; UPnP/NAT-PMP mapping is performed by
+  # the switch's NATService when the node starts.
+  let (extIp, extTcpPort) =
+    if natStrategy.kind == NatExtIp:
+      (
+        Opt.some(natStrategy.extIp),
+        Opt.some(Port(uint16(conf.tcpPort) + conf.portsShift)),
+      )
+    else:
+      (Opt.none(IpAddress), Opt.none(Port))
 
   var enrBuilder = EnrBuilder.init(nodeKey)
 
@@ -429,6 +435,7 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
     var builder = WakuNodeBuilder.init()
     builder.withNodeKey(nodeKey)
     builder.withRecord(record)
+    builder.withNatConfig(toNatConfig(natStrategy), natPortMapperFactory(natStrategy))
 
     builder
       .withNetworkConfigurationDetails(
