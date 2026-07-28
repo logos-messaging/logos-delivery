@@ -14,7 +14,7 @@ pipeline {
   options {
     timestamps()
     disableRestartFromStage()
-    timeout(time: 20, unit: 'MINUTES')
+    timeout(time: 40, unit: 'MINUTES')
     buildDiscarder(logRotator(
       numToKeepStr: '10',
       daysToKeepStr: '30',
@@ -36,6 +36,11 @@ pipeline {
       name: 'IMAGE_NAME',
       description: 'Name of Docker image to push.',
       defaultValue: params.IMAGE_NAME ?: 'harbor.status.im/wakuorg/nwaku',
+    )
+    string(
+      name: 'LOGOSDELIVERY_IMAGE_NAME',
+      description: 'Name of the logosdeliverynode Docker image to push.',
+      defaultValue: params.LOGOSDELIVERY_IMAGE_NAME ?: 'harbor.status.im/wakuorg/logosdelivery',
     )
     string(
       name: 'DOCKER_CRED',
@@ -106,6 +111,23 @@ pipeline {
             "--target='prod' ."
           )
         }
+
+        /* logosdeliverynode image is always built, regardless of the primary
+         * target / heaptrack selection above. It uses the dedicated
+         * 'logosdeliverynode' stage so its entrypoint is /usr/bin/logosdeliverynode. */
+        echo 'Building logosdeliverynode image'
+        logosDeliveryImage = docker.build(
+          "${params.LOGOSDELIVERY_IMAGE_NAME}:${params.IMAGE_TAG ?: env.GIT_COMMIT.take(8)}",
+          "--label=build='${env.BUILD_URL}' " +
+          "--label=commit='${git.commit()}' " +
+          "--label=version='${git.describe('--tags')}' " +
+          "--build-arg=MAKE_TARGET='logosdeliverynode' " +
+          "--build-arg=NIMFLAGS='${params.NIMFLAGS}' " +
+          "--build-arg=POSTGRES='1' " +
+          "--build-arg=LOG_LEVEL='${params.LOWEST_LOG_LEVEL_ALLOWED}' "  +
+          "--build-arg=DEBUG='${params.DEBUG ? "1" : "0"} ' " +
+          "--target='logosdeliverynode' ."
+        )
       } }
     }
 
@@ -113,6 +135,9 @@ pipeline {
       steps { script {
         image.inside('--entrypoint=""') { c ->
           sh '/usr/bin/wakunode --version'
+        }
+        logosDeliveryImage.inside('--entrypoint=""') { c ->
+          sh '/usr/bin/logosdeliverynode --version'
         }
       } }
     }
@@ -124,10 +149,13 @@ pipeline {
           credentialsId: params.DOCKER_CRED, url: params.DOCKER_REGISTRY_URL
         ]) {
           image.push()
+          logosDeliveryImage.push()
           /* If Git ref is a tag push it as Docker tag too. */
           if (params.GIT_REF ==~ /v\d+\.\d+\.\d+.*/) {
             image.push(params.GIT_REF)
             image.push('latest-release')
+            logosDeliveryImage.push(params.GIT_REF)
+            logosDeliveryImage.push('latest-release')
           }
         }
       } }
