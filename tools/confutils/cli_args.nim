@@ -172,7 +172,7 @@ type WakuNodeConf* = object
     entryLayer* {.
       desc:
         "Top API layer to run: kernel (transport only), messaging, or channels (messaging + reliable channels).",
-      defaultValue: EntryLayer.channels,
+      defaultValue: EntryLayer.kernel,
       name: "entry-layer"
     .}: EntryLayer
 
