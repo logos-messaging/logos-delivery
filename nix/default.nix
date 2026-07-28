@@ -11,7 +11,15 @@
 let
   deps      = import ./deps.nix    { inherit pkgs; };
 
-  buildWakucanary = builtins.elem "wakucanary" targets;
+  # Binary app targets built as executables; anything else builds the FFI library.
+  appSources = {
+    wakucanary        = "apps/wakucanary/wakucanary.nim";
+    logosdeliverynode = "apps/logos_delivery_node/logosdeliverynode.nim";
+  };
+  appTarget =
+    let requested = builtins.filter (t: builtins.hasAttr t appSources) targets;
+    in if requested == [] then null else builtins.head requested;
+  buildApp = appTarget != null;
 
   nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
@@ -59,7 +67,7 @@ let
   '';
 in
 pkgs.stdenv.mkDerivation {
-  pname = if buildWakucanary then "wakucanary" else "liblogosdelivery";
+  pname = if buildApp then appTarget else "liblogosdelivery";
   version = "dev";
 
   inherit src;
@@ -94,11 +102,11 @@ pkgs.stdenv.mkDerivation {
     make -C $NAT_TRAV/vendor/libnatpmp-upstream \
       CFLAGS="-Wall -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4" libnatpmp.a
 
-    ${if buildWakucanary then ''
-    echo "== Building wakucanary =="
+    ${if buildApp then ''
+    echo "== Building ${appTarget} =="
     ${nimCompile {
-      outFile = "build/wakucanary";
-      sourceFile = "apps/wakucanary/wakucanary.nim";
+      outFile = "build/${appTarget}";
+      sourceFile = appSources.${appTarget};
       extraArgs = [ "--path:." ];
     }}
     '' else ''
@@ -129,10 +137,10 @@ pkgs.stdenv.mkDerivation {
     ''}
   '';
 
-  installPhase = if buildWakucanary then ''
+  installPhase = if buildApp then ''
     runHook preInstall
     mkdir -p $out/bin $out/lib
-    cp build/wakucanary $out/bin/
+    cp build/${appTarget} $out/bin/
     runHook postInstall
   '' else ''
     runHook preInstall
@@ -148,20 +156,20 @@ pkgs.stdenv.mkDerivation {
   # Use --add-rpath (not --set-rpath) so fixupPhase's stdenv RUNPATH injection
   # for libstdc++ is preserved.
   postInstall =
-    if buildWakucanary then
+    if buildApp then
       pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
         cp ${zerokitRln}/lib/librln.dylib $out/lib/
-        chmod +w $out/lib/librln.dylib $out/bin/wakucanary
+        chmod +w $out/lib/librln.dylib $out/bin/${appTarget}
         install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
-        old=$(otool -L $out/bin/wakucanary | awk 'NR>1{print $1}' | grep librln || true)
+        old=$(otool -L $out/bin/${appTarget} | awk 'NR>1{print $1}' | grep librln || true)
         if [ -n "$old" ]; then
-          install_name_tool -change "$old" @rpath/librln.dylib $out/bin/wakucanary
+          install_name_tool -change "$old" @rpath/librln.dylib $out/bin/${appTarget}
         fi
-        install_name_tool -add_rpath @loader_path/../lib $out/bin/wakucanary
+        install_name_tool -add_rpath @loader_path/../lib $out/bin/${appTarget}
       ''
       + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
         cp ${zerokitRln}/lib/librln.so $out/lib/
-        patchelf --add-rpath '$ORIGIN/../lib' $out/bin/wakucanary
+        patchelf --add-rpath '$ORIGIN/../lib' $out/bin/${appTarget}
       ''
     else
       pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
@@ -180,8 +188,8 @@ pkgs.stdenv.mkDerivation {
 
   meta = with pkgs.lib; {
     description =
-      if buildWakucanary
-      then "Waku network canary tool"
+      if buildApp
+      then "logos-delivery ${appTarget} binary"
       else "logos-delivery shared/static library";
     homepage = "https://github.com/logos-messaging/logos-delivery";
     license  = licenses.mit;

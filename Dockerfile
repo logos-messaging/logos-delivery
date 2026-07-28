@@ -63,6 +63,21 @@ ENTRYPOINT ["/usr/bin/wakunode"]
 CMD ["--help"]
 
 
+# LOGOS DELIVERY NODE IMAGE ----------------------------------------------------
+
+# Reuses the prod image but exposes the binary under its own name so the image
+# identity and entrypoint are logosdeliverynode rather than the generic
+# /usr/bin/wakunode symlink. Build with --build-arg MAKE_TARGET=logosdeliverynode.
+FROM prod AS logosdeliverynode
+
+LABEL source="https://github.com/logos-messaging/logos-delivery"
+LABEL description="Logos Delivery node"
+
+RUN ln -sv /usr/local/bin/logosdeliverynode /usr/bin/logosdeliverynode
+
+ENTRYPOINT ["/usr/bin/logosdeliverynode"]
+
+
 # DEBUG IMAGE ------------------------------------------------------------------
 
 # Build debug tools: heaptrack

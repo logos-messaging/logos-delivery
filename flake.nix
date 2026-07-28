@@ -86,8 +86,16 @@
             targets = ["wakucanary"];
             inherit zerokitRln;
           };
+
+          logosdeliverynode = pkgs.callPackage ./nix/default.nix {
+            inherit pkgs;
+            src = ./.;
+            targets = ["logosdeliverynode"];
+            inherit zerokitRln;
+            gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
+          };
         in {
-          inherit liblogosdelivery wakucanary;
+          inherit liblogosdelivery wakucanary logosdeliverynode;
           # Expose librln so downstream consumers link the exact same build.
           rln = zerokitRln;
           default = liblogosdelivery;
