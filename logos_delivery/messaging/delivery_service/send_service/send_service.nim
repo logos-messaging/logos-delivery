@@ -259,21 +259,19 @@ proc evaluateAndCleanUp(self: SendService) =
 proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
   ## Gates a task's first transmission: charges one epoch slot, then attaches
   ## an RLN proof — strictly in that order, so an over-budget message never
-  ## draws a nonce. Both charge at most once per task lifetime
-  ## (`firstAdmittedTime`): once admitted, a task keeps its slot and its proof,
-  ## and retries resend the same bytes for free. Returns false when the task
-  ## must stay parked for a later round.
-  if task.firstAdmittedTime.isSome():
-    return true
-
-  (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-    debug "over rate-limit budget, task waits for the epoch to roll",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
-    return false
-  task.firstAdmittedTime = Opt.some(Moment.now())
+  ## draws a nonce. The slot is charged at most once per task lifetime
+  ## (`firstAdmittedTime`); the proof attach is retried each round until it
+  ## sticks, then short-circuits, so a task charged but not yet proven never
+  ## ships bare. Returns false while the task must stay parked for a later round.
+  if task.firstAdmittedTime.isNone():
+    (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
+      debug "over rate-limit budget, task waits for the epoch to roll",
+        requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+      return false
+    task.firstAdmittedTime = Opt.some(Moment.now())
 
   ## A no-op when RLN is not mounted, or when a prior round already attached a
-  ## proof.
+  ## proof; otherwise draws the nonce and attaches.
   task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
     error "failed to attach RLN proof, retrying next round",
       requestId = task.requestId, error = error
