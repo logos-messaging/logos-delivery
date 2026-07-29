@@ -12,13 +12,13 @@ declarePublicGauge logos_delivery_store_time_seconds,
   "Time in seconds spent by each store phase", labels = ["phase"]
 
 declarePublicGauge(
-  logos_delivery_relay_fleet_store_msg_size_bytes,
+  logos_delivery_store_fleet_msg_size_bytes,
   "Total size of messages stored by fleet store nodes per shard",
   labels = ["shard"],
 )
 
 declarePublicGauge(
-  logos_delivery_relay_fleet_store_msg_count,
+  logos_delivery_store_fleet_msg_count,
   "Number of messages stored by fleet store nodes per shard",
   labels = ["shard"],
 )

@@ -67,10 +67,10 @@ proc sendStoreRequest(
       self.storeMsgMetricsPerShard[topic] = 0
     self.storeMsgMetricsPerShard[topic] += float64(req.encode().buffer.len)
 
-    logos_delivery_relay_fleet_store_msg_size_bytes.inc(
+    logos_delivery_store_fleet_msg_size_bytes.inc(
       self.storeMsgMetricsPerShard[topic], labelValues = [topic]
     )
-    logos_delivery_relay_fleet_store_msg_count.inc(1.0, labelValues = [topic])
+    logos_delivery_store_fleet_msg_count.inc(1.0, labelValues = [topic])
 
   return ok(res)
 
