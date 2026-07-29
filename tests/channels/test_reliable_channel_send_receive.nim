@@ -166,6 +166,148 @@ suite "Reliable Channel - ingress":
 
     (await waku.stop()).expect("stop")
 
+  asyncTest "closed channel emits no channel event":
+    ## Issue #4065: no ChannelMessageReceivedEvent after closeChannel.
+    const
+      channelId = ChannelId("test-channel-3")
+      contentTopic = ContentTopic("/reliable-channel/test/proto")
+    let appPayload = "after close".toBytes()
+
+    var waku: LogosDelivery
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
+      manager = waku.reliableChannelManager
+
+    setNoopEncryption()
+
+    discard manager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+
+    (await manager.closeChannel(channelId)).expect("closeChannel")
+
+    var fired = false
+    discard ChannelMessageReceivedEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageReceivedEvent) {.async: (raises: []).} =
+          if evt.channelId == channelId:
+            fired = true
+        ,
+      )
+      .expect("listen ChannelMessageReceivedEvent")
+
+    let remotePeer =
+      ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
+    let sdsWire = (
+      await remotePeer.wrapOutgoingMessage(
+        appPayload, "close-test-msg-1", SdsChannelID(channelId)
+      )
+    ).expect("wrapOutgoingMessage")
+
+    let inboundMsg = WakuMessage(
+      payload: sdsWire,
+      contentTopic: contentTopic,
+      version: 0,
+      meta: LipWireReliableChannelVersion.toBytes(),
+    )
+
+    waku_message_events.MessageReceivedEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageReceivedEvent(messageHash: "", message: inboundMsg),
+    )
+
+    await sleepAsync(100.milliseconds)
+    check not fired
+
+    (await waku.stop()).expect("stop")
+
+  asyncTest "in-flight receive does not emit after close":
+    ## A message already inside the ingress pipeline when closeChannel
+    ## runs must not emit after close returns.
+    const
+      channelId = ChannelId("test-channel-4")
+      contentTopic = ContentTopic("/reliable-channel/test/proto")
+    let appPayload = "in flight".toBytes()
+
+    var waku: LogosDelivery
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
+      manager = waku.reliableChannelManager
+
+    setNoopEncryption()
+
+    ## Gate decryption so the receive handler parks mid-pipeline.
+    let decryptGate = newFuture[void]("decrypt-gate")
+    Decrypt
+      .replaceProvider(
+        DefaultBrokerContext,
+        proc(payload: seq[byte]): Future[Result[Decrypt, string]] {.async.} =
+          await decryptGate
+          return ok(Decrypt(payload)),
+      )
+      .expect("replaceProvider")
+
+    discard manager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+
+    var fired = false
+    discard ChannelMessageReceivedEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageReceivedEvent) {.async: (raises: []).} =
+          if evt.channelId == channelId:
+            fired = true
+        ,
+      )
+      .expect("listen ChannelMessageReceivedEvent")
+
+    let remotePeer =
+      ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
+    let sdsWire = (
+      await remotePeer.wrapOutgoingMessage(
+        appPayload, "inflight-test-msg-1", SdsChannelID(channelId)
+      )
+    ).expect("wrapOutgoingMessage")
+
+    let inboundMsg = WakuMessage(
+      payload: sdsWire,
+      contentTopic: contentTopic,
+      version: 0,
+      meta: LipWireReliableChannelVersion.toBytes(),
+    )
+
+    waku_message_events.MessageReceivedEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageReceivedEvent(messageHash: "", message: inboundMsg),
+    )
+
+    ## Let the handler reach the decrypt await, then close mid-flight.
+    await sleepAsync(50.milliseconds)
+    (await manager.closeChannel(channelId)).expect("closeChannel")
+
+    decryptGate.complete()
+    await sleepAsync(100.milliseconds)
+    check not fired
+
+    ## Restore pass-through decryption for the remaining tests.
+    Decrypt
+      .replaceProvider(
+        DefaultBrokerContext,
+        proc(payload: seq[byte]): Future[Result[Decrypt, string]] {.async.} =
+          return ok(Decrypt(payload)),
+      )
+      .expect("replaceProvider restore")
+
+    (await waku.stop()).expect("stop")
+
 suite "Reliable Channel - send state machine":
   asyncTest "MessageSentEvent finalises the channelReqId as Sent":
     ## Drives the real send pipeline (`send` -> segmentation -> SDS ->
