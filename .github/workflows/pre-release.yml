@@ -69,10 +69,11 @@ jobs:
           make V=1 CI=false POSTGRES=1\
             NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
             wakunode2\
+            logosdeliverynode\
             chat2\
             tools
 
-          tar -cvzf ${{steps.vars.outputs.nwaku}} ./build/wakunode2 ./build/chat2
+          tar -cvzf ${{steps.vars.outputs.nwaku}} ./build/wakunode2 ./build/logosdeliverynode ./build/chat2
           tar -cvzf ${{steps.vars.outputs.nwakutools}} ./build/wakucanary ./build/networkmonitor
 
       - name: upload artifacts
