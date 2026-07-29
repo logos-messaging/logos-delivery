@@ -56,14 +56,14 @@ template checkUsageLimit*(
 ) =
   if t.checkUsage(proto):
     let requestStartTime = Moment.now()
-    waku_service_requests.inc(labelValues = [proto, "served"])
+    logos_delivery_service_requests.inc(labelValues = [proto, "served"])
 
     bodyWithinLimit
 
     let requestDuration = Moment.now() - requestStartTime
-    waku_service_request_handling_duration_seconds.observe(
+    logos_delivery_service_request_handling_duration_seconds.observe(
       requestDuration.milliseconds.float / 1000, labelValues = [proto]
     )
   else:
-    waku_service_requests.inc(labelValues = [proto, "rejected"])
+    logos_delivery_service_requests.inc(labelValues = [proto, "rejected"])
     bodyRejected

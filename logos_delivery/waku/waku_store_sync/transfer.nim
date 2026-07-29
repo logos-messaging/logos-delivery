@@ -53,7 +53,9 @@ proc sendMessage(
 ): Future[Result[void, string]] {.async.} =
   let rawPayload = payload.encode().buffer
 
-  total_bytes_exchanged.inc(rawPayload.len, labelValues = [Transfer, Sending])
+  logos_delivery_total_bytes_exchanged.inc(
+    rawPayload.len, labelValues = [Transfer, Sending]
+  )
 
   let writeRes = catch:
     await conn.writeLP(rawPayload)
@@ -61,7 +63,7 @@ proc sendMessage(
   writeRes.isOkOr:
     return err("remote [" & $conn.peerId & "] connection write error: " & error.msg)
 
-  total_transfer_messages_exchanged.inc(labelValues = [Sending])
+  logos_delivery_total_transfer_messages_exchanged.inc(labelValues = [Sending])
 
   return ok()
 
@@ -156,13 +158,15 @@ proc initProtocolHandler(self: SyncTransfer) =
         # connection closed normally
         break
 
-      total_bytes_exchanged.inc(buffer.len, labelValues = [Transfer, Receiving])
+      logos_delivery_total_bytes_exchanged.inc(
+        buffer.len, labelValues = [Transfer, Receiving]
+      )
 
       let payload = WakuMessageAndTopic.decode(buffer).valueOr:
         error "decoding error", error = $error
         continue
 
-      total_transfer_messages_exchanged.inc(labelValues = [Receiving])
+      logos_delivery_total_transfer_messages_exchanged.inc(labelValues = [Receiving])
 
       let msg = payload.message
       let pubsub = payload.pubsub

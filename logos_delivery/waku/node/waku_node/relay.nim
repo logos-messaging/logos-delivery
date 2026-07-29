@@ -236,7 +236,7 @@ proc setRlnValidator*(
         shareX = shareX,
         shareY = shareY,
         nullifier = nullifier
-      waku_rln_valid_messages_total.inc(labelValues = [topic])
+      logos_delivery_rln_valid_messages_total.inc(labelValues = [topic])
       return pubsub.ValidationResult.Accept
     of Invalid:
       trace "message validity could not be verified, discarding",

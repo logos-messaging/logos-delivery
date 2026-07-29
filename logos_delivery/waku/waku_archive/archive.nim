@@ -107,7 +107,7 @@ proc handleMessage*(
     msgTimestamp = msg.timestamp
 
   self.validator(msg).isOkOr:
-    waku_archive_errors.inc(labelValues = [error])
+    logos_delivery_archive_errors.inc(labelValues = [error])
     trace "invalid message",
       msg_hash = msgHashHex,
       pubsubTopic = pubsubTopic,
@@ -119,7 +119,7 @@ proc handleMessage*(
   let insertStartTime = getTime().toUnixFloat()
 
   (await self.driver.put(msgHash, pubsubTopic, msg)).isOkOr:
-    waku_archive_errors.inc(labelValues = [insertFailure])
+    logos_delivery_archive_errors.inc(labelValues = [insertFailure])
     trace "failed to insert message",
       msg_hash = msgHashHex,
       pubsubTopic = pubsubTopic,
@@ -129,12 +129,12 @@ proc handleMessage*(
     return
 
   let insertDuration = getTime().toUnixFloat() - insertStartTime
-  waku_archive_insert_duration_seconds.observe(insertDuration)
+  logos_delivery_archive_insert_duration_seconds.observe(insertDuration)
 
   let shard = RelayShard.parseStaticSharding(pubsubTopic).valueOr:
     DefaultRelayShard
 
-  waku_archive_messages_per_shard.inc(labelValues = [$shard.shardId])
+  logos_delivery_archive_messages_per_shard.inc(labelValues = [$shard.shardId])
 
   trace "message archived",
     msg_hash = msgHashHex,
@@ -162,7 +162,7 @@ proc syncMessageIngress*(
 
   let insertStartTime = getTime().toUnixFloat()
   (await self.driver.put(msgHash, pubsubTopic, msg)).isOkOr:
-    waku_archive_errors.inc(labelValues = [insertFailure])
+    logos_delivery_archive_errors.inc(labelValues = [insertFailure])
     trace "failed to insert message in in syncMessageIngress",
       msg_hash = msgHashHex,
       pubsubTopic = pubsubTopic,
@@ -172,7 +172,7 @@ proc syncMessageIngress*(
     return err(error)
 
   let insertDuration = getTime().toUnixFloat() - insertStartTime
-  waku_archive_insert_duration_seconds.observe(insertDuration)
+  logos_delivery_archive_insert_duration_seconds.observe(insertDuration)
 
   trace "message archived in syncMessageIngress",
     msg_hash = msgHashHex,
@@ -227,7 +227,7 @@ proc findMessages*(
   ).valueOr:
     return err(ArchiveError(kind: ArchiveErrorKind.DRIVER_ERROR, cause: error))
   let queryDuration = getTime().toUnixFloat() - queryStartTime
-  waku_archive_query_duration_seconds.observe(queryDuration)
+  logos_delivery_archive_query_duration_seconds.observe(queryDuration)
 
   var hashes = newSeq[WakuMessageHash]()
   var messages = newSeq[WakuMessage]()
@@ -269,7 +269,7 @@ proc periodicRetentionPolicy(self: WakuArchive) {.async.} =
     for policy in self.retentionPolicies:
       info "executing message retention policy", policy = $policy
       (await policy.execute(self.driver)).isOkOr:
-        waku_archive_errors.inc(labelValues = [retPolicyFailure])
+        logos_delivery_archive_errors.inc(labelValues = [retPolicyFailure])
         error "failed execution of retention policy", policy = $policy, error = error
         await sleepAsync(WakuArchiveDefaultRetentionPolicyIntervalWhenError)
         ## in case of error, let's try again faster
@@ -285,7 +285,7 @@ proc periodicMetricReport(self: WakuArchive) {.async.} =
         error = countRes.error
     else:
       let count = countRes.get()
-      waku_archive_messages.set(count, labelValues = ["stored"])
+      logos_delivery_archive_messages.set(count, labelValues = ["stored"])
 
     await sleepAsync(WakuArchiveDefaultMetricsReportInterval)
 

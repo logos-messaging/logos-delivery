@@ -44,7 +44,7 @@ proc handleRequest*(
       pubSubTopic = request.get().pubSubTopic
       message = request.get().message
     let msg_hash = pubsubTopic.computeMessageHash(message).to0xHex()
-    waku_lightpush_messages.inc(labelValues = ["PushRequest"])
+    logos_delivery_lightpush_messages.inc(labelValues = ["PushRequest"])
 
     notice "handling legacy lightpush request",
       my_peer_id = wl.peerManager.switch.peerInfo.peerId,
@@ -60,7 +60,7 @@ proc handleRequest*(
     pushResponseInfo = (if isSuccess: "OK" else: handleRes.error)
 
   if not isSuccess:
-    waku_lightpush_errors.inc(labelValues = [pushResponseInfo])
+    logos_delivery_lightpush_errors.inc(labelValues = [pushResponseInfo])
     error "failed to push message", error = pushResponseInfo
   let response = PushResponse(isSuccess: isSuccess, info: Opt.some(pushResponseInfo))
   let rpc = PushRPC(requestId: requestId, response: Opt.some(response))
@@ -80,7 +80,7 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
         error "lightpush legacy read stream failed", error = getCurrentExceptionMsg()
         return
 
-      waku_service_network_bytes.inc(
+      logos_delivery_service_network_bytes.inc(
         amount = buffer.len().int64, labelValues = [WakuLegacyLightPushCodec, "in"]
       )
 

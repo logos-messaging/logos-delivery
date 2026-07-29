@@ -55,7 +55,7 @@ proc handleRequest(
       (code: LightPushErrorCode.BAD_REQUEST, desc: Opt.some(msg))
     )
 
-  waku_lightpush_v3_messages.inc(labelValues = ["PushRequest"])
+  logos_delivery_lightpush_v3_messages.inc(labelValues = ["PushRequest"])
 
   let msg_hash = pubsubTopic.computeMessageHash(pushRequest.message).to0xHex()
   notice "handling lightpush request",
@@ -78,7 +78,7 @@ proc handleRequest*(
     let desc = decodeRpcFailure & ": " & $error
     error "failed to decode Lightpush request", error = desc
     let errorCode = LightPushErrorCode.BAD_REQUEST
-    waku_lightpush_v3_errors.inc(labelValues = [$errorCode])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [$errorCode])
     return LightPushResponse(
       requestId: "N/A", # due to decode failure we don't know requestId
       statusCode: errorCode,
@@ -87,7 +87,7 @@ proc handleRequest*(
 
   let relayPeerCount = (await wl.handleRequest(peerId, request)).valueOr:
     let desc = error.desc
-    waku_lightpush_v3_errors.inc(labelValues = [$error.code])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [$error.code])
     error "failed to push message", error = desc.get("")
     return LightPushResponse(
       requestId: request.requestId, statusCode: error.code, statusDesc: desc
@@ -114,7 +114,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
         error "lightpush read stream failed", error = getCurrentExceptionMsg()
         return
 
-      waku_service_network_bytes.inc(
+      logos_delivery_service_network_bytes.inc(
         amount = buffer.len().int64, labelValues = [WakuLightPushCodec, "in"]
       )
 

@@ -38,7 +38,7 @@ proc sendPushRequest(
 ): Future[WakuLightPushResult] {.async.} =
   let connection = conn.valueOr:
     (await wl.peerManager.dialPeer(peer, WakuLightPushCodec)).valueOr:
-      waku_lightpush_v3_errors.inc(labelValues = [dialFailure])
+      logos_delivery_lightpush_v3_errors.inc(labelValues = [dialFailure])
       return lighpushErrorResult(
         LightPushErrorCode.NO_PEERS_TO_RELAY,
         dialFailure & ": " & $peer & " is not accessible",
@@ -60,7 +60,7 @@ proc sendPushRequest(
 
   let response = LightpushResponse.decode(buffer).valueOr:
     error "failed to decode response"
-    waku_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
+    logos_delivery_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
     return lightpushResultInternalError(decodeRpcFailure)
 
   if response.requestId != req.requestId and

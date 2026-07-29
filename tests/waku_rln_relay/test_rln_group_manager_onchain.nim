@@ -102,7 +102,7 @@ suite "Onchain group manager":
     # No members registered yet; metric should reflect nextFreeIndex == 0.
     (waitFor manager.updateMemberCount()).isOkOr:
       raiseAssert "updateMemberCount failed (initial): " & error
-    check waku_rln_number_registered_memberships.value() == 0.0
+    check logos_delivery_rln_number_registered_memberships.value() == 0.0
 
     const credentialCount = 1
     let credentials = generateCredentials(credentialCount)
@@ -112,7 +112,8 @@ suite "Onchain group manager":
 
     (waitFor manager.updateMemberCount()).isOkOr:
       raiseAssert "updateMemberCount failed (after registrations): " & error
-    check waku_rln_number_registered_memberships.value() == float64(credentialCount)
+    check logos_delivery_rln_number_registered_memberships.value() ==
+      float64(credentialCount)
 
   test "updateRoots: appends new on-chain root to validRoots after registration":
     # basic check for the soon to be deprecated root contract function, is replaced by getRecentRoots()
@@ -569,14 +570,15 @@ suite "Onchain group manager":
     # invoke updateMemberCount on the success path.
     manager.merkleProofCache = @[]
     manager.proofPathRefreshInFlightFut = nil
-    waku_rln_number_registered_memberships.set(0.0) # baseline
+    logos_delivery_rln_number_registered_memberships.set(0.0) # baseline
 
     let res = waitFor manager.ensureFreshMerkleProofPath()
 
     check:
       res.isOk()
       manager.merkleProofCache.len > 0
-      waku_rln_number_registered_memberships.value() == float64(credentialCount)
+      logos_delivery_rln_number_registered_memberships.value() ==
+        float64(credentialCount)
 
   test "ensureFreshMerkleProofPath: concurrent calls coalesce onto a single refresh future":
     (waitFor manager.init()).isOkOr:

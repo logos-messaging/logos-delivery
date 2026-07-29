@@ -45,7 +45,7 @@ proc handleQueryRequest(
 
   let req = StoreQueryRequest.decode(raw_request).valueOr:
     error "failed to decode rpc", peerId = requestor, error = $error
-    waku_store_errors.inc(labelValues = [DecodeRpcFailure])
+    logos_delivery_store_errors.inc(labelValues = [DecodeRpcFailure])
 
     res.statusCode = uint32(ErrorCode.BAD_REQUEST)
     res.statusDesc = "decoding rpc failed: " & $error
@@ -56,7 +56,7 @@ proc handleQueryRequest(
 
   info "received store query request",
     peerId = requestor, requestId = requestId, request = req
-  waku_store_queries.inc()
+  logos_delivery_store_queries.inc()
 
   let queryResult = await self.requestHandler(req)
 
@@ -106,7 +106,7 @@ proc initProtocolHandler(self: WakuStore) =
         error "Connection read error", error = error.msg
         return
 
-      waku_service_network_bytes.inc(
+      logos_delivery_service_network_bytes.inc(
         amount = reqBuf.len().int64, labelValues = [WakuStoreCodec, "in"]
       )
 
@@ -122,7 +122,7 @@ proc initProtocolHandler(self: WakuStore) =
         return
 
       queryDuration = getTime().toUnixFloat() - queryStartTime
-      waku_store_time_seconds.set(queryDuration, ["query-db-time"])
+      logos_delivery_store_time_seconds.set(queryDuration, ["query-db-time"])
       successfulQuery = true
     do:
       info "store query request rejected due rate limit exceeded",
@@ -140,13 +140,13 @@ proc initProtocolHandler(self: WakuStore) =
 
     if successfulQuery:
       let writeDuration = getTime().toUnixFloat() - writeRespStartTime
-      waku_store_time_seconds.set(writeDuration, ["send-store-resp-time"])
+      logos_delivery_store_time_seconds.set(writeDuration, ["send-store-resp-time"])
       info "after sending response",
         requestId = resBuf.requestId,
         queryDurationSecs = queryDuration,
         writeStreamDurationSecs = writeDuration
 
-    waku_service_network_bytes.inc(
+    logos_delivery_service_network_bytes.inc(
       amount = resBuf.resp.len().int64, labelValues = [WakuStoreCodec, "out"]
     )
 

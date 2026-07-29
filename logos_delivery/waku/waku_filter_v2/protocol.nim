@@ -130,7 +130,7 @@ proc handleSubscribeRequest*(
     wf: WakuFilter, peerId: PeerId, request: FilterSubscribeRequest
 ): Future[FilterSubscribeResponse] {.async.} =
   info "received filter subscribe request", peerId = peerId, request = request
-  waku_filter_requests.inc(labelValues = [$request.filterSubscribeType])
+  logos_delivery_filter_requests.inc(labelValues = [$request.filterSubscribeType])
 
   var subscribeResult: FilterSubscribeResult
 
@@ -154,7 +154,7 @@ proc handleSubscribeRequest*(
     requestDuration = Moment.now() - requestStartTime
     requestDurationSec = requestDuration.milliseconds.float / 1000
       # Duration in seconds with millisecond precision floating point
-  waku_filter_request_duration_seconds.observe(
+  logos_delivery_filter_request_duration_seconds.observe(
     requestDurationSec, labelValues = [$request.filterSubscribeType]
   )
 
@@ -181,7 +181,7 @@ proc pushToPeer(
   await stream.writeLp(buffer)
 
   info "published successful", peerId = shortLog(peerId), stream
-  waku_service_network_bytes.inc(
+  logos_delivery_service_network_bytes.inc(
     amount = buffer.len().int64, labelValues = [WakuFilterPushCodec, "out"]
   )
 
@@ -237,7 +237,7 @@ proc maintainSubscriptions*(wf: WakuFilter) {.async.} =
   wf.subscriptions.cleanUp()
 
   ## Periodic report of number of subscriptions
-  waku_filter_subscriptions.set(wf.subscriptions.peersSubscribed.len.float64)
+  logos_delivery_filter_subscriptions.set(wf.subscriptions.peersSubscribed.len.float64)
 
 const MessagePushTimeout = 20.seconds
 proc handleMessage*(
@@ -272,7 +272,7 @@ proc handleMessage*(
         msg_hash = msgHash,
         numPeers = subscribedPeers.len,
         target_peer_ids = subscribedPeers.mapIt(shortLog(it))
-      waku_filter_errors.inc(labelValues = [pushTimeoutFailure])
+      logos_delivery_filter_errors.inc(labelValues = [pushTimeoutFailure])
     else:
       notice "pushed message succesfully to all subscribers",
         pubsubTopic = pubsubTopic,
@@ -285,7 +285,9 @@ proc handleMessage*(
     handleMessageDuration = Moment.now() - handleMessageStartTime
     handleMessageDurationSec = handleMessageDuration.milliseconds.float / 1000
       # Duration in seconds with millisecond precision floating point
-  waku_filter_handle_message_duration_seconds.observe(handleMessageDurationSec)
+  logos_delivery_filter_handle_message_duration_seconds.observe(
+    handleMessageDurationSec
+  )
 
 proc initProtocolHandler(wf: WakuFilter) =
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
@@ -306,14 +308,14 @@ proc initProtocolHandler(wf: WakuFilter) =
           remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()
         return
 
-      waku_service_network_bytes.inc(
+      logos_delivery_service_network_bytes.inc(
         amount = buf.len().int64, labelValues = [WakuFilterSubscribeCodec, "in"]
       )
 
       let request = FilterSubscribeRequest.decode(buf).valueOr:
         error "failed to decode filter subscribe request",
           peer_id = conn.peerId, err = error
-        waku_filter_errors.inc(labelValues = [decodeRpcFailure])
+        logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
         return
 
       try:

@@ -22,8 +22,9 @@ import ../waku_core
 
 export client
 
-declarePublicGauge waku_dnsdisc_discovered, "number of nodes discovered"
-declarePublicCounter waku_dnsdisc_errors, "number of waku dnsdisc errors", ["type"]
+declarePublicGauge logos_delivery_dnsdisc_discovered, "number of nodes discovered"
+declarePublicCounter logos_delivery_dnsdisc_errors,
+  "number of waku dnsdisc errors", ["type"]
 
 logScope:
   topics = "waku dnsdisc"
@@ -53,7 +54,7 @@ proc findPeers*(
     tree = (await syncTree(wdd.resolver, wdd.client.loc)).tryGet()
   except Exception:
     error "Failed to synchronise client tree"
-    waku_dnsdisc_errors.inc(labelValues = ["tree_sync_failure"])
+    logos_delivery_dnsdisc_errors.inc(labelValues = ["tree_sync_failure"])
     return err("Node discovery failed")
 
   let discoveredEnr = tree.getNodes().mapIt(it.record)
@@ -69,12 +70,12 @@ proc findPeers*(
     # Convert discovered ENR to RemotePeerInfo and add to discovered nodes
     let peerInfo = enr.toRemotePeerInfo().valueOr:
       error "Failed to convert ENR to peer info", enr = $enr, error = error
-      waku_dnsdisc_errors.inc(labelValues = ["peer_info_failure"])
+      logos_delivery_dnsdisc_errors.inc(labelValues = ["peer_info_failure"])
       continue
     discoveredNodes.add(peerInfo)
   if discoveredNodes.len > 0:
     info "Successfully discovered nodes", count = discoveredNodes.len
-    waku_dnsdisc_discovered.inc(discoveredNodes.len.int64)
+    logos_delivery_dnsdisc_discovered.inc(discoveredNodes.len.int64)
 
   return ok(discoveredNodes)
 

@@ -230,7 +230,7 @@ proc updateMemberCount*(
   let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
     return err("Failed to fetch next free index: " & error)
   let memberCount = cast[int64](nextFreeIndex)
-  waku_rln_number_registered_memberships.set(float64(memberCount))
+  logos_delivery_rln_number_registered_memberships.set(float64(memberCount))
   return ok()
 
 proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
@@ -549,7 +549,7 @@ method generateProof*(
     external_nullifier: extNullifier,
   )
 
-  waku_rln_proof_generation_duration_seconds.nanosecondTime:
+  logos_delivery_rln_proof_generation_duration_seconds.nanosecondTime:
     let output = generateRlnProofWithWitness(
       g.rlnInstance, witness, epoch, rlnIdentifier
     ).valueOr:
@@ -557,8 +557,8 @@ method generateProof*(
 
   info "Proof generated successfully", proof = output
 
-  waku_rln_remaining_proofs_per_epoch.dec()
-  waku_rln_total_generated_proofs.inc()
+  logos_delivery_rln_remaining_proofs_per_epoch.dec()
+  logos_delivery_rln_total_generated_proofs.inc()
   return ok(output)
 
 method verifyProof*(
@@ -662,7 +662,7 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
     )
     if g.membershipIndex.isSome():
       keystoreQuery.treeIndex = MembershipIndex(g.membershipIndex.get())
-    waku_rln_membership_credentials_import_duration_seconds.nanosecondTime:
+    logos_delivery_rln_membership_credentials_import_duration_seconds.nanosecondTime:
       let keystoreCred = getMembershipCredentials(
         path = g.keystorePath.get(),
         password = g.keystorePassword.get(),

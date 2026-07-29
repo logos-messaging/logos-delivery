@@ -61,7 +61,7 @@ proc validateMessage*(
     return MessageValidationResult.Invalid
 
   # track message count for metrics
-  waku_rln_messages_total.inc()
+  logos_delivery_rln_messages_total.inc()
 
   # checks if the message's timestamp is within acceptable range
   let currentTime = getTime().toUnixFloat()
@@ -77,7 +77,7 @@ proc validateMessage*(
       timeDiff = timeDiff,
       maxTimestampGap = rlnPeer.rlnMaxTimestampGap,
       contentTopic = msg.contentTopic
-    waku_rln_invalid_messages_total.inc(labelValues = ["invalid_timestamp"])
+    logos_delivery_rln_invalid_messages_total.inc(labelValues = ["invalid_timestamp"])
     return MessageValidationResult.Invalid
 
   let computedEpoch = rlnPeer.calcEpoch(messageTime)
@@ -86,7 +86,7 @@ proc validateMessage*(
       proofEpoch = fromEpoch(proof.epoch),
       computedEpoch = fromEpoch(computedEpoch),
       contentTopic = msg.contentTopic
-    waku_rln_invalid_messages_total.inc(labelValues = ["timestamp_mismatch"])
+    logos_delivery_rln_invalid_messages_total.inc(labelValues = ["timestamp_mismatch"])
     return MessageValidationResult.Invalid
 
   let rootValidationRes = await rlnPeer.groupManager.validateRoot(proof.merkleRoot)
@@ -95,7 +95,7 @@ proc validateMessage*(
       provided = proof.merkleRoot.inHex(),
       validRoots = rlnPeer.groupManager.validRoots.mapIt(it.inHex()),
       contentTopic = msg.contentTopic
-    waku_rln_invalid_messages_total.inc(labelValues = ["invalid_root"])
+    logos_delivery_rln_invalid_messages_total.inc(labelValues = ["invalid_root"])
     return MessageValidationResult.Invalid
 
   # verify the proof
@@ -104,13 +104,13 @@ proc validateMessage*(
     timestampBytes = toBytes(msg.timestamp.uint64)
     input = concat(msg.payload, contentTopicBytes, @(timestampBytes))
 
-  waku_rln_proof_verification_total.inc()
-  waku_rln_proof_verification_duration_seconds.nanosecondTime:
+  logos_delivery_rln_proof_verification_total.inc()
+  logos_delivery_rln_proof_verification_duration_seconds.nanosecondTime:
     let proofVerificationRes =
       rlnPeer.groupManager.verifyProof(msg.toRLNSignal(), proof)
 
   proofVerificationRes.isOkOr:
-    waku_rln_errors_total.inc(labelValues = ["proof_verification"])
+    logos_delivery_rln_errors_total.inc(labelValues = ["proof_verification"])
     warn "invalid message: proof verification failed",
       payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     return MessageValidationResult.Invalid
@@ -119,22 +119,22 @@ proc validateMessage*(
     # invalid proof
     warn "invalid message: invalid proof",
       payloadLen = msg.payload.len, contentTopic = msg.contentTopic
-    waku_rln_invalid_messages_total.inc(labelValues = ["invalid_proof"])
+    logos_delivery_rln_invalid_messages_total.inc(labelValues = ["invalid_proof"])
     return MessageValidationResult.Invalid
 
   # check if double messaging has happened
   let proofMetadata = proof.extractMetadata().valueOr:
-    waku_rln_errors_total.inc(labelValues = ["proof_metadata_extraction"])
+    logos_delivery_rln_errors_total.inc(labelValues = ["proof_metadata_extraction"])
     return MessageValidationResult.Invalid
 
   let msgEpoch = proof.epoch
   let hasDup = rlnPeer.hasDuplicate(msgEpoch, proofMetadata)
   if hasDup.isErr():
-    waku_rln_errors_total.inc(labelValues = ["duplicate_check"])
+    logos_delivery_rln_errors_total.inc(labelValues = ["duplicate_check"])
   elif hasDup.value == true:
     trace "invalid message: message is spam",
       payloadLen = msg.payload.len, contentTopic = msg.contentTopic
-    waku_rln_spam_messages_total.inc()
+    logos_delivery_rln_spam_messages_total.inc()
     return MessageValidationResult.Spam
 
   trace "message is valid",
@@ -167,7 +167,7 @@ proc monitorEpochs(rln: Rln) {.async.} =
   while true:
     try:
       if rln.groupManager.userMessageLimit.isSome():
-        waku_rln_remaining_proofs_per_epoch.set(
+        logos_delivery_rln_remaining_proofs_per_epoch.set(
           rln.groupManager.userMessageLimit.get().float64
         )
       else:

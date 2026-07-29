@@ -18,9 +18,10 @@ import
 
 export protocol, waku_enr
 
-declarePublicGauge waku_discv5_discovered_per_shard,
+declarePublicGauge logos_delivery_discv5_discovered_per_shard,
   "number of nodes discovered by each shard", labels = ["shard"]
-declarePublicCounter waku_discv5_errors, "number of waku discv5 errors", ["type"]
+declarePublicCounter logos_delivery_discv5_errors,
+  "number of waku discv5 errors", ["type"]
 
 logScope:
   topics = "waku discv5"
@@ -240,16 +241,16 @@ proc findRandomPeers*(
   for record in discoveredRecords:
     let typedRecord = record.toTyped().valueOr:
       # If we can't parse the record, skip it
-      waku_discv5_errors.inc(labelValues = ["ParseFailure"])
+      logos_delivery_discv5_errors.inc(labelValues = ["ParseFailure"])
       continue
 
     let relayShards = typedRecord.relaySharding().valueOr:
       # If no relay sharding info, skip it
-      waku_discv5_errors.inc(labelValues = ["NoShardInfo"])
+      logos_delivery_discv5_errors.inc(labelValues = ["NoShardInfo"])
       continue
 
     for shardId in relayShards.shardIds:
-      waku_discv5_discovered_per_shard.inc(labelValues = [$shardId])
+      logos_delivery_discv5_discovered_per_shard.inc(labelValues = [$shardId])
 
   return discoveredRecords
 
@@ -273,7 +274,7 @@ proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
       let peerInfo = record.toRemotePeerInfo().valueOr:
         ## in case of error, we keep track of it for debugging purposes
         wrongRecordsReasons.add(($record, $error))
-        waku_discv5_errors.inc(labelValues = [$error])
+        logos_delivery_discv5_errors.inc(labelValues = [$error])
         continue
 
       discoveredPeers.add(peerInfo)

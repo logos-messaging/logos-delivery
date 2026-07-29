@@ -21,7 +21,7 @@ import
 logScope:
   topics = "waku rendezvous client"
 
-declarePublicCounter rendezvousPeerFoundTotal,
+declarePublicCounter logos_delivery_rendezvous_peer_found,
   "total number of peers found via rendezvous"
 
 type WakuRendezVousClient* = ref object
@@ -59,7 +59,7 @@ proc requestAll*(
   trace "waku rendezvous client request got peers", count = records.len
   for record in records:
     if not self.switch.peerStore.peerExists(record.peerId):
-      rendezvousPeerFoundTotal.inc()
+      logos_delivery_rendezvous_peer_found.inc()
     if record.mixKey.len == 0 or record.peerId == self.switch.peerInfo.peerId:
       continue
     trace "adding peer from rendezvous",

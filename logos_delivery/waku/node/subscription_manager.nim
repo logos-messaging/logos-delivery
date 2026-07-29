@@ -45,8 +45,8 @@ proc registerRelayHandler(
   proc traceHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     let msgSizeKB = msg.payload.len / 1000
 
-    waku_node_messages.inc(labelValues = ["relay"])
-    waku_histogram_message_size.observe(msgSizeKB)
+    logos_delivery_node_messages.inc(labelValues = ["relay"])
+    logos_delivery_histogram_message_size.observe(msgSizeKB)
 
   proc filterHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     if node.wakuFilter.isNil():

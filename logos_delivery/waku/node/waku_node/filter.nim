@@ -132,12 +132,12 @@ proc filterSubscribe*(
       node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: pubsubTopic.get()))
     else:
       error "failed filter v2 subscription", error = subRes.error
-      waku_node_errors.inc(labelValues = ["subscribe_filter_failure"])
+      logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
 
     return subRes
   elif node.wakuAutoSharding.isNone():
     error "Failed filter subscription, pubsub topic must be specified with static sharding"
-    waku_node_errors.inc(labelValues = ["subscribe_filter_failure"])
+    logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
   else:
     # No pubsub topic, autosharding is used to deduce it
     # but content topics must be well-formed for this
@@ -163,7 +163,7 @@ proc filterSubscribe*(
 
         if res.isErr():
           error "failed filter subscription", error = res.error
-          waku_node_errors.inc(labelValues = ["subscribe_filter_failure"])
+          logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
           subRes = FilterSubscribeResult.err(res.error)
 
       for pubsub, topics in topicMap.pairs:
@@ -174,7 +174,7 @@ proc filterSubscribe*(
     except CatchableError:
       let errMsg = "exception in filterSubscribe: " & getCurrentExceptionMsg()
       error "exception in filterSubscribe", error = getCurrentExceptionMsg()
-      waku_node_errors.inc(labelValues = ["subscribe_filter_failure"])
+      logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
       subRes =
         FilterSubscribeResult.err(FilterSubscribeError.serviceUnavailable(errMsg))
 
@@ -210,12 +210,12 @@ proc filterUnsubscribe*(
       node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: pubsubTopic.get()))
     else:
       error "failed filter unsubscription", error = unsubRes.error
-      waku_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
+      logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
 
     return unsubRes
   elif node.wakuAutoSharding.isNone():
     error "Failed filter un-subscription, pubsub topic must be specified with static sharding"
-    waku_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
+    logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
   else: # pubsubTopic.isNone
     let topicMap = node.wakuAutoSharding
       .get()
@@ -239,7 +239,7 @@ proc filterUnsubscribe*(
 
         if res.isErr():
           error "failed filter unsubscription", error = res.error
-          waku_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
+          logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
           unsubRes = FilterSubscribeResult.err(res.error)
 
       for pubsub, topics in topicMap.pairs:
@@ -250,7 +250,7 @@ proc filterUnsubscribe*(
     except CatchableError:
       let errMsg = "exception in filterUnsubscribe: " & getCurrentExceptionMsg()
       error "exception in filterUnsubscribe", error = getCurrentExceptionMsg()
-      waku_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
+      logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
       unsubRes =
         FilterSubscribeResult.err(FilterSubscribeError.serviceUnavailable(errMsg))
 
@@ -273,7 +273,7 @@ proc filterUnsubscribeAll*(
     info "unsubscribed from all content-topic", peerId = remotePeer.peerId
   else:
     error "failed filter unsubscription from all content-topic", error = unsubRes.error
-    waku_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
+    logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
 
   return unsubRes
 

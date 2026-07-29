@@ -177,7 +177,9 @@ proc processRequest(
       await conn.close()
       return err("remote " & $conn.peerId & " connection read error: " & error.msg)
 
-    total_bytes_exchanged.inc(buffer.len, labelValues = [Reconciliation, Receiving])
+    logos_delivery_total_bytes_exchanged.inc(
+      buffer.len, labelValues = [Reconciliation, Receiving]
+    )
 
     let recvPayload = RangesData.deltaDecode(buffer).valueOr:
       await conn.close()
@@ -226,7 +228,9 @@ proc processRequest(
 
       rawPayload = sendPayload.deltaEncode()
 
-    total_bytes_exchanged.inc(rawPayload.len, labelValues = [Reconciliation, Sending])
+    logos_delivery_total_bytes_exchanged.inc(
+      rawPayload.len, labelValues = [Reconciliation, Sending]
+    )
 
     let writeRes = catch:
       await conn.writeLP(rawPayload)
@@ -248,8 +252,8 @@ proc processRequest(
   # Signal to transfer protocol that this reconciliation is done
   await self.localWantsTx.addLast(conn.peerId)
 
-  reconciliation_roundtrips.observe(roundTrips)
-  reconciliation_differences.observe(diffs)
+  logos_delivery_reconciliation_roundtrips.observe(roundTrips)
+  logos_delivery_reconciliation_differences.observe(diffs)
 
   await conn.close()
 
@@ -281,7 +285,9 @@ proc initiate(
 
   let sendPayload = initPayload.deltaEncode()
 
-  total_bytes_exchanged.inc(sendPayload.len, labelValues = [Reconciliation, Sending])
+  logos_delivery_total_bytes_exchanged.inc(
+    sendPayload.len, labelValues = [Reconciliation, Sending]
+  )
 
   let writeRes = catch:
     await connection.writeLP(sendPayload)
@@ -456,7 +462,7 @@ proc periodicPrune(self: SyncReconciliation) {.async.} =
 
     let count = self.storage.prune(time)
 
-    total_messages_cached.set(self.storage.length())
+    logos_delivery_total_messages_cached.set(self.storage.length())
 
     info "periodic prune done", elements_pruned = count
 

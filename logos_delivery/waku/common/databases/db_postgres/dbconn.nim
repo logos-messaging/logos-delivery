@@ -265,7 +265,7 @@ proc dbConnQuery*(
     return err("error in dbConnQuery calling sendQuery: " & $error)
 
   let sendDuration = getTime().toUnixFloat() - queryStartTime
-  query_time_secs.set(sendDuration, [metricLabel, "sendToDBQuery"])
+  logos_delivery_query_time_secs.set(sendDuration, [metricLabel, "sendToDBQuery"])
 
   queryStartTime = getTime().toUnixFloat()
 
@@ -273,9 +273,9 @@ proc dbConnQuery*(
     return err("error in dbConnQuery calling waitQueryToFinish: " & $error)
 
   let waitDuration = getTime().toUnixFloat() - queryStartTime
-  query_time_secs.set(waitDuration, [metricLabel, "waitFinish"])
+  logos_delivery_query_time_secs.set(waitDuration, [metricLabel, "waitFinish"])
 
-  query_count.inc(labelValues = [metricLabel])
+  logos_delivery_query_count.inc(labelValues = [metricLabel])
 
   if "insert" notin ($query).toLower():
     info "dbConnQuery",
@@ -306,7 +306,7 @@ proc dbConnQueryPrepared*(
     return err("error in dbConnQueryPrepared calling sendQuery: " & $error)
 
   let sendDuration = getTime().toUnixFloat() - queryStartTime
-  query_time_secs.set(sendDuration, [stmtName, "sendToDBQuery"])
+  logos_delivery_query_time_secs.set(sendDuration, [stmtName, "sendToDBQuery"])
 
   queryStartTime = getTime().toUnixFloat()
 
@@ -314,9 +314,9 @@ proc dbConnQueryPrepared*(
     return err("error in dbConnQueryPrepared calling waitQueryToFinish: " & $error)
 
   let waitDuration = getTime().toUnixFloat() - queryStartTime
-  query_time_secs.set(waitDuration, [stmtName, "waitFinish"])
+  logos_delivery_query_time_secs.set(waitDuration, [stmtName, "waitFinish"])
 
-  query_count.inc(labelValues = [stmtName])
+  logos_delivery_query_count.inc(labelValues = [stmtName])
 
   if "insert" notin stmtName.toLower():
     info "dbConnQueryPrepared",

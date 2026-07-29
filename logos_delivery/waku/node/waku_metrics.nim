@@ -32,15 +32,16 @@ proc startMetricsLog*() =
       # public in libp2p or do our own peer counting after all.
 
       # track cumulative values
-      let freshErrorCount = parseAndAccumulate(waku_node_errors, cumulativeErrors)
+      let freshErrorCount =
+        parseAndAccumulate(logos_delivery_node_errors, cumulativeErrors)
       let freshConnCount =
-        parseAndAccumulate(waku_node_conns_initiated, cumulativeConns)
+        parseAndAccumulate(logos_delivery_node_conns_initiated, cumulativeConns)
 
-      let totalMessages = collectorAsF64(waku_node_messages)
-      let storePeers = collectorAsF64(waku_store_peers)
-      let pxPeers = collectorAsF64(waku_px_peers)
-      let lightpushPeers = collectorAsF64(waku_lightpush_peers)
-      let filterPeers = collectorAsF64(waku_filter_peers)
+      let totalMessages = collectorAsF64(logos_delivery_node_messages)
+      let storePeers = collectorAsF64(logos_delivery_store_peers)
+      let pxPeers = collectorAsF64(logos_delivery_px_peers)
+      let lightpushPeers = collectorAsF64(logos_delivery_lightpush_peers)
+      let filterPeers = collectorAsF64(logos_delivery_filter_peers)
 
       info "Total connections initiated", count = $freshConnCount
       info "Total messages", count = totalMessages

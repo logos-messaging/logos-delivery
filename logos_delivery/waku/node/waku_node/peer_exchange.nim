@@ -117,4 +117,4 @@ proc setPeerExchangePeer*(
     return
 
   node.peerManager.addPeer(remotePeer, PeerExchange)
-  waku_px_peers.inc()
+  logos_delivery_px_peers.inc()

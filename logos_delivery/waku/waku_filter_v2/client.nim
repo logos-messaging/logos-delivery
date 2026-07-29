@@ -45,12 +45,12 @@ proc sendSubscribeRequest(
     connOpt = await wfc.peerManager.dialPeer(servicePeer, WakuFilterSubscribeCodec)
     if connOpt.isNone():
       trace "Failed to dial filter service peer", servicePeer
-      waku_filter_errors.inc(labelValues = [dialFailure])
+      logos_delivery_filter_errors.inc(labelValues = [dialFailure])
       return err(FilterSubscribeError.peerDialFailure($servicePeer))
   except CatchableError:
     let errMsg = "failed to dialPeer: " & getCurrentExceptionMsg()
     trace "failed to dialPeer", error = getCurrentExceptionMsg()
-    waku_filter_errors.inc(labelValues = [errMsg])
+    logos_delivery_filter_errors.inc(labelValues = [errMsg])
     return err(FilterSubscribeError.badResponse(errMsg))
 
   let connection = connOpt.get()
@@ -64,7 +64,7 @@ proc sendSubscribeRequest(
     let errMsg =
       "exception in waku_filter_v2 client writeLP: " & getCurrentExceptionMsg()
     trace "exception in waku_filter_v2 client writeLP", error = getCurrentExceptionMsg()
-    waku_filter_errors.inc(labelValues = [errMsg])
+    logos_delivery_filter_errors.inc(labelValues = [errMsg])
     return err(FilterSubscribeError.badResponse(errMsg))
 
   var respBuf: seq[byte]
@@ -74,24 +74,24 @@ proc sendSubscribeRequest(
     let errMsg =
       "exception in waku_filter_v2 client readLp: " & getCurrentExceptionMsg()
     trace "exception in waku_filter_v2 client readLp", error = getCurrentExceptionMsg()
-    waku_filter_errors.inc(labelValues = [errMsg])
+    logos_delivery_filter_errors.inc(labelValues = [errMsg])
     return err(FilterSubscribeError.badResponse(errMsg))
 
   let response = FilterSubscribeResponse.decode(respBuf).valueOr:
     trace "Failed to decode filter subscribe response", servicePeer
-    waku_filter_errors.inc(labelValues = [decodeRpcFailure])
+    logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
     return err(FilterSubscribeError.badResponse(decodeRpcFailure))
 
   # DOS protection rate limit checks does not know about request id
   if response.statusCode != FilterSubscribeErrorKind.TOO_MANY_REQUESTS.uint32 and
       response.requestId != filterSubscribeRequest.requestId:
     trace "Filter subscribe response requestId mismatch", servicePeer, response
-    waku_filter_errors.inc(labelValues = [requestIdMismatch])
+    logos_delivery_filter_errors.inc(labelValues = [requestIdMismatch])
     return err(FilterSubscribeError.badResponse(requestIdMismatch))
 
   if response.statusCode != 200:
     trace "Filter subscribe error response", servicePeer, response
-    waku_filter_errors.inc(labelValues = [errorResponse])
+    logos_delivery_filter_errors.inc(labelValues = [errorResponse])
     let cause =
       if response.statusDesc.isSome():
         response.statusDesc.get()
@@ -188,7 +188,7 @@ proc initProtocolHandler(wfc: WakuFilterClient) =
 
       let msgPush = MessagePush.decode(buf).valueOr:
         error "Failed to decode message push", peerId = conn.peerId, error = $error
-        waku_filter_errors.inc(labelValues = [decodeRpcFailure])
+        logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
         return
 
       let msg_hash =
