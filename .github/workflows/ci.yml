@@ -213,6 +213,17 @@ jobs:
   send-api-e2e-tests:
     needs: build
     uses: ./.github/workflows/e2e-api-tests.yml
+    with:
+      subset: non-docker
+    secrets: inherit
+
+  # Docker subset; an empty node_image falls back to DEFAULT_NWAKU (fork PRs lack the quay secrets).
+  send-api-e2e-docker-tests:
+    needs: [build, build-docker-image]
+    uses: ./.github/workflows/e2e-api-tests.yml
+    with:
+      subset: docker
+      node_image: ${{ needs.build-docker-image.outputs.image }}
     secrets: inherit
 
   lint:
