@@ -104,7 +104,7 @@ proc tryCallAllPxPeers*(
 
   var supportivePeers = pm.switch.peerStore.getPeersByCapability(capability)
 
-  lpt_px_peers.set(supportivePeers.len)
+  logos_delivery_lpt_px_peers.set(supportivePeers.len)
   info "Found supportive peers count", count = supportivePeers.len()
   info "Found supportive peers", supportivePeers = $supportivePeers
   if supportivePeers.len == 0:
@@ -129,15 +129,15 @@ proc tryCallAllPxPeers*(
           peer = constructMultiaddrStr(randomPeer),
           agent = randomPeer.getAgent(),
           codec = codec
-        lpt_dialed_peers.inc(labelValues = [randomPeer.getAgent()])
+        logos_delivery_lpt_dialed_peers.inc(labelValues = [randomPeer.getAgent()])
       else:
-        lpt_dial_failures.inc(labelValues = [randomPeer.getAgent()])
+        logos_delivery_lpt_dial_failures.inc(labelValues = [randomPeer.getAgent()])
         error "Dialing failed",
           peer = constructMultiaddrStr(randomPeer),
           agent = randomPeer.getAgent(),
           codec = codec
     else:
-      lpt_dial_failures.inc(labelValues = [randomPeer.getAgent()])
+      logos_delivery_lpt_dial_failures.inc(labelValues = [randomPeer.getAgent()])
       error "Timeout dialing service peer",
         peer = constructMultiaddrStr(randomPeer),
         agent = randomPeer.getAgent(),

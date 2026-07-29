@@ -176,12 +176,12 @@ proc setupAndPublish(rng: crypto.Rng, conf: LightPushMixConf) {.async.} =
       )
     ).isOkOr:
       error "failed to publish message via mix", error = error.desc
-      lp_mix_failed.inc(labelValues = ["publish_error"])
+      logos_delivery_lp_mix_failed.inc(labelValues = ["publish_error"])
       return
 
     let latency = float64(getNowInNanosecondTime() - startTime) / 1_000_000.0
-    lp_mix_latency.observe(latency)
-    lp_mix_success.inc()
+    logos_delivery_lp_mix_latency.observe(latency)
+    logos_delivery_lp_mix_success.inc()
     notice "published message",
       text = text,
       timestamp = message.timestamp,
