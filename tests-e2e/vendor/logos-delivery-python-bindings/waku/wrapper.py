@@ -86,6 +86,30 @@ int logosdelivery_get_available_configs(
     FFICallBack callback,
     void *userData
 );
+
+int logosdelivery_channel_create(
+    void *ctx,
+    FFICallBack callback,
+    void *userData,
+    const char *channelId,
+    const char *contentTopic,
+    const char *senderId
+);
+
+int logosdelivery_channel_send(
+    void *ctx,
+    FFICallBack callback,
+    void *userData,
+    const char *channelId,
+    const char *messageJson
+);
+
+int logosdelivery_channel_close(
+    void *ctx,
+    FFICallBack callback,
+    void *userData,
+    const char *channelId
+);
 """
 )
 
@@ -361,6 +385,30 @@ class NodeWrapper:
 
         return destroy_result
 
+    def destroy_keep_ctx(self, *, timeout_s: float = 20.0) -> Result[int, str]:
+        """Destroy the node without nilling self.ctx afterwards.
+
+        Intended for library-contract tests that need the dangling-but-non-nil
+        pointer to actually reach the C side after destroy() — for example, to
+        verify that logosdelivery_send rejects a destroyed handle on its own
+        rather than relying on the binding's defensive nil-out.
+        
+        added for the S01 tests
+        """
+        state = _new_cb_state()
+        cb = self._make_waiting_cb(state)
+
+        rc = lib.logosdelivery_destroy(self.ctx, cb, ffi.NULL)
+        if rc != 0:
+            return Err(f"destroy_keep_ctx: immediate call failed (ret={rc})")
+
+        wait_result = _wait_cb_ok(state, "destroy_keep_ctx", timeout_s)
+        if wait_result.is_err():
+            return Err(wait_result.err())
+
+        # Deliberately NOT setting self.ctx = ffi.NULL — see docstring.
+        return wait_result
+
     def subscribe_content_topic(self, content_topic: str, *, timeout_s: float = 20.0) -> Result[int, str]:
         state = _new_cb_state()
         cb = self._make_waiting_cb(state)
@@ -497,3 +545,85 @@ class NodeWrapper:
 
         return Ok(result)
 
+    def channel_create(
+        self,
+        channel_id: str,
+        content_topic: str,
+        sender_id: str,
+        *,
+        timeout_s: float = 20.0,
+    ) -> Result[str, str]:
+        state = _new_cb_state()
+        cb = self._make_waiting_cb(state)
+
+        rc = lib.logosdelivery_channel_create(
+            self.ctx,
+            cb,
+            ffi.NULL,
+            channel_id.encode("utf-8"),
+            content_topic.encode("utf-8"),
+            sender_id.encode("utf-8"),
+        )
+        if rc != 0:
+            return Err(f"channel_create: immediate call failed (ret={rc})")
+
+        wait_result = _wait_cb_raw(state, f"channel_create({channel_id})", timeout_s)
+        if wait_result.is_err():
+            return Err(wait_result.err())
+
+        cb_ret, cb_msg = wait_result.ok_value
+        if cb_ret != 0:
+            return Err(cb_msg.decode("utf-8") if cb_msg else f"channel_create({channel_id}): callback failed (ret={cb_ret})")
+
+        created_channel_id = cb_msg.decode("utf-8") if cb_msg else ""
+        return Ok(created_channel_id)
+
+    def channel_send(self, channel_id: str, message: dict, *, timeout_s: float = 20.0) -> Result[str, str]:
+        state = _new_cb_state()
+        cb = self._make_waiting_cb(state)
+
+        message_json = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
+
+        rc = lib.logosdelivery_channel_send(
+            self.ctx,
+            cb,
+            ffi.NULL,
+            channel_id.encode("utf-8"),
+            message_json.encode("utf-8"),
+        )
+        if rc != 0:
+            return Err(f"channel_send: immediate call failed (ret={rc})")
+
+        wait_result = _wait_cb_raw(state, f"channel_send({channel_id})", timeout_s)
+        if wait_result.is_err():
+            return Err(wait_result.err())
+
+        cb_ret, cb_msg = wait_result.ok_value
+        if cb_ret != 0:
+            return Err(cb_msg.decode("utf-8") if cb_msg else f"channel_send({channel_id}): callback failed (ret={cb_ret})")
+
+        channel_req_id = cb_msg.decode("utf-8") if cb_msg else ""
+        return Ok(channel_req_id)
+
+    def channel_close(self, channel_id: str, *, timeout_s: float = 20.0) -> Result[int, str]:
+        state = _new_cb_state()
+        cb = self._make_waiting_cb(state)
+
+        rc = lib.logosdelivery_channel_close(
+            self.ctx,
+            cb,
+            ffi.NULL,
+            channel_id.encode("utf-8"),
+        )
+        if rc != 0:
+            return Err(f"channel_close: immediate call failed (ret={rc})")
+
+        wait_result = _wait_cb_raw(state, f"channel_close({channel_id})", timeout_s)
+        if wait_result.is_err():
+            return Err(wait_result.err())
+
+        cb_ret, cb_msg = wait_result.ok_value
+        if cb_ret != 0:
+            return Err(cb_msg.decode("utf-8") if cb_msg else f"channel_close({channel_id}): callback failed (ret={cb_ret})")
+
+        return Ok(cb_ret)
