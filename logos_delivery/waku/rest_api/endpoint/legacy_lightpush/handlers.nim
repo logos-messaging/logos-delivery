@@ -3,6 +3,7 @@
 import
   std/strformat,
   std/options,
+  std/strutils,
   results,
   stew/byteutils,
   chronicles,
@@ -15,6 +16,7 @@ import
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/waku_lightpush_legacy/common,
   ../../../waku_node,
+  ../../../rln,
   ../../handlers,
   ../serdes,
   ../responses,
@@ -72,13 +74,27 @@ proc installLightPushRequestHandler*(
         peerOp.valueOr:
           return NoPeerNoneFoundError
 
-    let subFut = node.legacyLightpushPublish(req.pubsubTopic, msg, peer)
+    var pushFut = node.legacyLightpushPublish(req.pubsubTopic, msg, peer)
 
-    if not await subFut.withTimeout(FutTimeoutForPushRequestProcessing):
+    if not await pushFut.withTimeout(FutTimeoutForPushRequestProcessing):
       error "Failed to request a message push due to timeout!"
       return RestApiResponse.serviceUnavailable("Push request timed out")
 
-    subFut.value().isOkOr:
+    var pushResult = pushFut.value()
+
+    # An error tagged RlnProofRefreshScheduledMsg is a publish rejected on a
+    # stale merkle root. On this error the kernel scheduled a cache refresh
+    # before failing early. This synchronous endpoint has no retry loop of its
+    # own, so retry once — the second attempt generates its proof against the
+    # refreshed merkle path.
+    if pushResult.isErr() and pushResult.error.contains(RlnProofRefreshScheduledMsg):
+      pushFut = node.legacyLightpushPublish(req.pubsubTopic, msg, peer)
+      if not await pushFut.withTimeout(FutTimeoutForPushRequestProcessing):
+        error "Failed to request a message push due to timeout!"
+        return RestApiResponse.serviceUnavailable("Push request timed out")
+      pushResult = pushFut.value()
+
+    pushResult.isOkOr:
       if error == TooManyRequestsMessage:
         return RestApiResponse.tooManyRequests("Request rate limmit reached")
 
