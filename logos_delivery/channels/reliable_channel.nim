@@ -81,6 +81,7 @@ type
     receivedListener: MessageReceivedEventListener
     sentListener: MessageSentEventListener
     errorListener: MessageErrorEventListener
+    closed: bool
 
 func init(
     T: type ChannelReqState,
@@ -106,6 +107,8 @@ func getSenderId*(self: ReliableChannel): SdsParticipantID {.inline.} =
 
 proc stop*(self: ReliableChannel) {.async: (raises: []).} =
   ## Drops the event listeners and stops the SDS loops. Persisted SDS state survives.
+  ## `closed` gates any in-flight receive handler that survives the listener drop.
+  self.closed = true
   await MessageReceivedEvent.dropListener(self.brokerCtx, self.receivedListener)
   await MessageSentEvent.dropListener(self.brokerCtx, self.sentListener)
   await MessageErrorEvent.dropListener(self.brokerCtx, self.errorListener)
@@ -254,6 +257,8 @@ proc send*(
 
 proc reportReceived(self: ReliableChannel, content: seq[byte]) =
   ## Tail of the ingress pipeline (reassemble -> emit).
+  if self.closed:
+    return
   let reassembled = self.segmentation.handleIncomingSegment(content)
   if reassembled.isSome():
     ## Emit on the captured `brokerCtx` (the manager's), so the
@@ -298,6 +303,8 @@ proc onMessageReceived(
   ## Invoked from this channel's `MessageReceivedEvent` listener, which
   ## already filtered on the spec marker and on `contentTopic`. The
   ## channel only sees the raw payload bytes for itself.
+  if self.closed:
+    return
 
   ## Notice that the following "request" is implemented implicitly as a broker call to
   ## the `Decrypt` request broker.
