@@ -624,7 +624,7 @@ proc keepAliveLoop(
     let successfulPings = await parallelPings(node, peersToPing)
 
     if successfulPings != numPeersToPing:
-      waku_node_errors.inc(
+      logos_delivery_node_errors.inc(
         amount = numPeersToPing - successfulPings, labelValues = ["keep_alive_failure"]
       )
 

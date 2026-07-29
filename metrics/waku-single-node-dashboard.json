@@ -362,7 +362,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "waku_version{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+          "expr": "(waku_version{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_version{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
           "format": "table",
           "instant": true,
           "legendFormat": "__auto",
@@ -879,7 +879,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "(increase(waku_node_messages_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m]))",
+          "expr": "((increase(waku_node_messages_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m]) or increase(logos_delivery_node_messages_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m])))",
           "interval": "",
           "legendFormat": "{{type}}: {{instance}}",
           "range": true,
@@ -978,7 +978,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum by (type)(increase(waku_peers_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]))",
+          "expr": "sum by (type)((increase(waku_peers_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]) or increase(logos_delivery_peers_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval])))",
           "interval": "",
           "legendFormat": "peer {{type}}",
           "range": true,
@@ -991,7 +991,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum by (type)(increase(waku_store_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]))",
+          "expr": "sum by (type)((increase(waku_store_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]) or increase(logos_delivery_store_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval])))",
           "hide": false,
           "interval": "",
           "legendFormat": "store {{type}}",
@@ -1005,7 +1005,7 @@
           },
           "editorMode": "code",
           "exemplar": false,
-          "expr": "sum by (type)(increase(waku_node_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]))",
+          "expr": "sum by (type)((increase(waku_node_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]) or increase(logos_delivery_node_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval])))",
           "hide": false,
           "interval": "",
           "legendFormat": "node {{type}}",
@@ -1104,7 +1104,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "count(count by (contentTopic)(waku_node_messages_total))",
+          "expr": "count(count by (contentTopic)((waku_node_messages_total or logos_delivery_node_messages_total)))",
           "interval": "",
           "legendFormat": "content topics",
           "refId": "A"
@@ -1205,7 +1205,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "waku_version{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_version{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_version{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}:{{version}}",
           "range": true,
@@ -1414,7 +1414,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_node_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+          "expr": "(waku_node_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_node_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{type}}: {{instance}}",
           "refId": "A"
@@ -1839,7 +1839,7 @@
             "uid": "P6693426190CB2316"
           },
           "editorMode": "code",
-          "expr": "waku_peer_store_size{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+          "expr": "(waku_peer_store_size{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_peer_store_size{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "range": true,
@@ -2947,7 +2947,7 @@
                 "uid": "P6693426190CB2316"
               },
               "exemplar": true,
-              "expr": "increase(waku_node_messages_total{instance=~\"bridge*[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[10m])",
+              "expr": "(increase(waku_node_messages_total{instance=~\"bridge*[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[10m]) or increase(logos_delivery_node_messages_total{instance=~\"bridge*[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[10m]))",
               "hide": false,
               "interval": "",
               "legendFormat": "{{fleet}} : v2_messages",
@@ -3168,7 +3168,7 @@
                 "uid": "P6693426190CB2316"
               },
               "exemplar": true,
-              "expr": "waku_store_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_store_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_store_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "interval": "",
               "legendFormat": "{{instance}}",
               "refId": "A"
@@ -3273,7 +3273,7 @@
                 "uid": "P6693426190CB2316"
               },
               "editorMode": "code",
-              "expr": "waku_archive_messages{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_archive_messages{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_archive_messages{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "hide": false,
               "legendFormat": "{{type}}: {{instance}}",
               "range": true,
@@ -3366,7 +3366,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "increase(waku_store_queries_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m])",
+              "expr": "(increase(waku_store_queries_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m]) or increase(logos_delivery_store_queries_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m]))",
               "interval": "",
               "legendFormat": "{{instance}}",
               "range": true,
@@ -3459,7 +3459,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum by (type)(increase(waku_archive_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[1m]))",
+              "expr": "sum by (type)((increase(waku_archive_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[1m]) or increase(logos_delivery_archive_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[1m])))",
               "hide": false,
               "interval": "",
               "legendFormat": "{{type}}",
@@ -3473,7 +3473,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum by (type)(increase(waku_store_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[1m]))",
+              "expr": "sum by (type)((increase(waku_store_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[1m]) or increase(logos_delivery_store_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[1m])))",
               "hide": false,
               "interval": "",
               "legendFormat": "{{type}}",
@@ -3558,7 +3558,7 @@
                 "uid": "P6693426190CB2316"
               },
               "editorMode": "code",
-              "expr": "sum(increase(waku_archive_query_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval])) by (le)",
+              "expr": "sum((increase(waku_archive_query_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]) or increase(logos_delivery_archive_query_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]))) by (le)",
               "format": "heatmap",
               "hide": false,
               "legendFormat": "{{le}}",
@@ -3657,7 +3657,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "sum(increase(waku_archive_insert_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval])) by (le)",
+              "expr": "sum((increase(waku_archive_insert_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]) or increase(logos_delivery_archive_insert_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]))) by (le)",
               "format": "heatmap",
               "hide": false,
               "instant": false,
@@ -3782,7 +3782,7 @@
                 "uid": "P6693426190CB2316"
               },
               "editorMode": "code",
-              "expr": "waku_filter_requests_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_filter_requests_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_filter_requests_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "legendFormat": "{{type}} : {{instance}}",
               "range": true,
               "refId": "A"
@@ -3873,7 +3873,7 @@
                 "uid": "P6693426190CB2316"
               },
               "editorMode": "code",
-              "expr": "waku_filter_subscriptions{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_filter_subscriptions{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_filter_subscriptions{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "legendFormat": "{{instance}}",
               "range": true,
               "refId": "A"
@@ -3964,7 +3964,7 @@
                 "uid": "P6693426190CB2316"
               },
               "editorMode": "code",
-              "expr": "waku_filter_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_filter_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_filter_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "legendFormat": "{{type}} : {{instance}}",
               "range": true,
               "refId": "A"
@@ -4043,7 +4043,7 @@
                 "uid": "P6693426190CB2316"
               },
               "editorMode": "code",
-              "expr": "sum(increase(waku_filter_request_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval])) by (le)",
+              "expr": "sum((increase(waku_filter_request_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]) or increase(logos_delivery_filter_request_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]))) by (le)",
               "format": "heatmap",
               "interval": "",
               "legendFormat": "{{le}}",
@@ -4124,7 +4124,7 @@
                 "uid": "P6693426190CB2316"
               },
               "editorMode": "code",
-              "expr": "sum(increase(waku_filter_handle_message_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval])) by (le)",
+              "expr": "sum((increase(waku_filter_handle_message_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]) or increase(logos_delivery_filter_handle_message_duration_seconds_bucket{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}[$__rate_interval]))) by (le)",
               "format": "heatmap",
               "legendFormat": "{{le}}",
               "range": true,
@@ -4231,7 +4231,7 @@
                 "uid": "P6693426190CB2316"
               },
               "exemplar": true,
-              "expr": "waku_filter_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_filter_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_filter_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "hide": false,
               "interval": "",
               "legendFormat": "{{instance}}",
@@ -4325,7 +4325,7 @@
               },
               "editorMode": "code",
               "exemplar": true,
-              "expr": "waku_filter_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_filter_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_filter_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "interval": "",
               "legendFormat": "{{type}}: {{instance}}",
               "range": true,
@@ -4651,7 +4651,7 @@
                 "uid": "P6693426190CB2316"
               },
               "exemplar": true,
-              "expr": "waku_lightpush_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_lightpush_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_lightpush_peers{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "interval": "",
               "legendFormat": "{{instance}}",
               "refId": "A"
@@ -4742,7 +4742,7 @@
                 "uid": "P6693426190CB2316"
               },
               "exemplar": true,
-              "expr": "waku_lightpush_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"}",
+              "expr": "(waku_lightpush_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"} or logos_delivery_lightpush_errors_total{instance=~\"[[host]].([[dc:pipe]]).*.([[fleet:pipe]])\"})",
               "interval": "",
               "legendFormat": "{{type}}: {[instance}}",
               "refId": "A"
@@ -4846,7 +4846,7 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "(increase(waku_node_messages_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m]))/60",
+              "expr": "((increase(waku_node_messages_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m]) or increase(logos_delivery_node_messages_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1m])))/60",
               "format": "heatmap",
               "instant": false,
               "legendFormat": "{{fleet}}_{{datacenter}}",
@@ -4938,7 +4938,7 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "waku_histogram_message_size_sum{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}/waku_histogram_message_size_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+              "expr": "(waku_histogram_message_size_sum{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_histogram_message_size_sum{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})/(waku_histogram_message_size_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_histogram_message_size_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
               "format": "heatmap",
               "instant": false,
               "legendFormat": "{{fleet}}_{{datacenter}}",
@@ -5002,7 +5002,7 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "rate(waku_histogram_message_size_bucket{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1h])/scalar(rate(waku_histogram_message_size_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1h]))*100",
+              "expr": "(rate(waku_histogram_message_size_bucket{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1h]) or rate(logos_delivery_histogram_message_size_bucket{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1h]))/scalar((rate(waku_histogram_message_size_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1h]) or rate(logos_delivery_histogram_message_size_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}[1h])))*100",
               "format": "heatmap",
               "instant": false,
               "legendFormat": "{{le}}",
@@ -5070,7 +5070,7 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "waku_connected_peers{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+              "expr": "(waku_connected_peers{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_connected_peers{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
               "format": "heatmap",
               "instant": false,
               "legendFormat": "Direction:{{direction}} {{protocol}}",
@@ -5138,7 +5138,7 @@
               },
               "editorMode": "code",
               "exemplar": false,
-              "expr": "waku_streams_peers{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+              "expr": "(waku_streams_peers{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_streams_peers{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
               "format": "heatmap",
               "instant": false,
               "legendFormat": "Direction:{{direction}} {{protocol}}",
@@ -5254,7 +5254,7 @@
             "uid": "P6693426190CB2316"
           },
           "editorMode": "code",
-          "expr": "waku_rln_invalid_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_invalid_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_invalid_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "legendFormat": "{{type}}_{{datacenter}}",
           "range": true,
           "refId": "A"
@@ -5351,7 +5351,7 @@
             "uid": "P6693426190CB2316"
           },
           "editorMode": "code",
-          "expr": "waku_rln_valid_messages_total_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_valid_messages_total_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_valid_messages_total_count{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "legendFormat": "{{__name__}}_{{datacenter}}",
           "range": true,
           "refId": "A"
@@ -5448,7 +5448,7 @@
             "uid": "P6693426190CB2316"
           },
           "editorMode": "code",
-          "expr": "waku_rln_spam_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_spam_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_spam_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "legendFormat": "{{__name__}}_{{datacenter}}",
           "range": true,
           "refId": "A"
@@ -5545,7 +5545,7 @@
             "uid": "P6693426190CB2316"
           },
           "editorMode": "code",
-          "expr": "waku_rln_proof_verification_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_proof_verification_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_proof_verification_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "legendFormat": "{{__name__}}_{{datacenter}}",
           "range": true,
           "refId": "A"
@@ -5642,7 +5642,7 @@
             "uid": "P6693426190CB2316"
           },
           "editorMode": "code",
-          "expr": "waku_rln_number_registered_memberships{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_number_registered_memberships{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_number_registered_memberships{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "legendFormat": "{{__name__}}_{{datacenter}}",
           "range": true,
           "refId": "A"

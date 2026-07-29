@@ -155,7 +155,9 @@ proc publishMessages(
     let msgHash = computeMessageHash(lightpushPubsubTopic, message).to0xHex
 
     if wlpRes.isOk():
-      lpt_publish_duration_seconds.observe(publishDuration.milliseconds.float / 1000)
+      logos_delivery_lpt_publish_duration_seconds.observe(
+        publishDuration.milliseconds.float / 1000
+      )
 
       sentMessages[messagesSent] = (hash: msgHash, relayed: true)
       notice "published message using lightpush",
@@ -165,8 +167,8 @@ proc publishMessages(
         pubsubTopic = lightpushPubsubTopic,
         hash = msgHash
       inc(messagesSent)
-      lpt_publisher_sent_messages_count.inc()
-      lpt_publisher_sent_bytes.inc(amount = msgSize.int64)
+      logos_delivery_lpt_publisher_sent_messages_count.inc()
+      logos_delivery_lpt_publisher_sent_bytes.inc(amount = msgSize.int64)
       if noFailedPush > 0:
         noFailedPush -= 1
     else:
@@ -175,14 +177,16 @@ proc publishMessages(
       error "failed to publish message using lightpush",
         err = wlpRes.error, hash = msgHash
       inc(failedToSendCount)
-      lpt_publisher_failed_messages_count.inc(labelValues = [wlpRes.error])
+      logos_delivery_lpt_publisher_failed_messages_count.inc(
+        labelValues = [wlpRes.error]
+      )
       if not wlpRes.error.toLower().contains("dial"):
         # retry sending after shorter wait
         await sleepAsync(2.seconds)
         continue
       else:
         noFailedPush += 1
-        lpt_service_peer_failure_count.inc(
+        logos_delivery_lpt_service_peer_failure_count.inc(
           labelValues = ["publisher", actualServicePeer.getAgent()]
         )
         if not preventPeerSwitch and noFailedPush > maxFailedPush:
@@ -200,7 +204,7 @@ proc publishMessages(
 
           noFailedPush = 0
           noOfServicePeerSwitches += 1
-          lpt_change_service_peer_count.inc(labelValues = ["publisher"])
+          logos_delivery_lpt_change_service_peer_count.inc(labelValues = ["publisher"])
           continue # try again with new peer without delay
 
     await sleepAsync(messageInterval)

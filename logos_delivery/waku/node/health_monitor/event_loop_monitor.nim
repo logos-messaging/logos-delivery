@@ -6,11 +6,11 @@ import chronos, chronicles, metrics
 logScope:
   topics = "waku event_loop_monitor"
 
-declarePublicGauge event_loop_load,
+declarePublicGauge logos_delivery_event_loop_load,
   "chronos event loop load EWMA by window (1.0 = sustained lag at MaxAcceptedLag)",
   labels = ["window"]
 
-declarePublicCounter event_loop_accumulated_lag_secs,
+declarePublicCounter logos_delivery_event_loop_accumulated_lag_secs,
   "chronos event loop total accumulated lag in seconds since node start"
 
 type OnLagChange* = proc(lagTooHigh: bool) {.gcsafe, raises: [].}
@@ -21,7 +21,7 @@ proc eventLoopMonitorLoop*(onLagChange: OnLagChange = nil) {.async.} =
   ##
   ## The lag is normalised against `MaxAcceptedLag` and tracked as an EWMA
   ## over 1, 5, and 15-minute windows (Unix load-average decay model),
-  ## exposed via the `event_loop_load` gauge (labelled by window: 1m/5m/15m):
+  ## exposed via the `logos_delivery_event_loop_load` gauge (labelled by window: 1m/5m/15m):
   ##
   ##   load < 1.0   → within budget
   ##   load = 1.0   → sustained lag at MaxAcceptedLag (fully loaded)
@@ -58,15 +58,15 @@ proc eventLoopMonitorLoop*(onLagChange: OnLagChange = nil) {.async.} =
     let lagSecs = lag.nanoseconds.float64 / 1_000_000_000.0
     let load = lagSecs / maxAcceptedLagSecs
 
-    event_loop_accumulated_lag_secs.inc(lagSecs)
+    logos_delivery_event_loop_accumulated_lag_secs.inc(lagSecs)
 
     ewma1m = alpha1m * load + (1.0 - alpha1m) * ewma1m
     ewma5m = alpha5m * load + (1.0 - alpha5m) * ewma5m
     ewma15m = alpha15m * load + (1.0 - alpha15m) * ewma15m
 
-    event_loop_load.set(round(ewma1m, 4), labelValues = ["1m"])
-    event_loop_load.set(round(ewma5m, 4), labelValues = ["5m"])
-    event_loop_load.set(round(ewma15m, 4), labelValues = ["15m"])
+    logos_delivery_event_loop_load.set(round(ewma1m, 4), labelValues = ["1m"])
+    logos_delivery_event_loop_load.set(round(ewma5m, 4), labelValues = ["5m"])
+    logos_delivery_event_loop_load.set(round(ewma15m, 4), labelValues = ["15m"])
 
     let lagIsHigh = lag > MaxAcceptedLag
 

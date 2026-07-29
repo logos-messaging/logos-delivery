@@ -36,7 +36,7 @@ proc handleSelfLightPushRequest*(
     let respRpc = await self.handleRequest(selfPeerId, rpc.encode().buffer)
 
     if respRpc.response.isNone():
-      waku_lightpush_errors.inc(labelValues = [emptyResponseBodyFailure])
+      logos_delivery_lightpush_errors.inc(labelValues = [emptyResponseBodyFailure])
       return err(emptyResponseBodyFailure)
 
     let response = respRpc.response.get()

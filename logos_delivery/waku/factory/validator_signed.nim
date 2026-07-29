@@ -15,7 +15,7 @@ const MessageWindowInSec = 5 * 60 # +- 5 minutes
 
 import ./waku_conf, ../waku_relay/protocol, ../waku_core
 
-declarePublicCounter waku_msg_validator_signed_outcome,
+declarePublicCounter logos_delivery_msg_validator_signed_outcome,
   "number of messages for each validation outcome", ["result"]
 
 # Application level message hash
@@ -74,7 +74,7 @@ proc addSignedShardsValidator*(
         if outcome != errors.ValidationResult.Accept:
           info "signed topic validation failed",
             topic = topic, publicShardKey = protectedShard.key
-        waku_msg_validator_signed_outcome.inc(labelValues = [$outcome])
+        logos_delivery_msg_validator_signed_outcome.inc(labelValues = [$outcome])
         return outcome
 
     return errors.ValidationResult.Accept

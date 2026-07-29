@@ -39,24 +39,24 @@ type ShardMetrics = object
 logScope:
   topics = "waku relay"
 
-declareCounter waku_relay_network_bytes,
+declareCounter logos_delivery_relay_network_bytes,
   "total traffic per topic, distinct gross/net and direction",
   labels = ["topic", "type", "direction"]
 
 declarePublicGauge(
-  waku_relay_total_msg_bytes_per_shard,
+  logos_delivery_relay_total_msg_bytes_per_shard,
   "total length of messages seen per shard",
   labels = ["shard"],
 )
 
 declarePublicGauge(
-  waku_relay_max_msg_bytes_per_shard,
+  logos_delivery_relay_max_msg_bytes_per_shard,
   "Maximum length of messages seen per shard",
   labels = ["shard"],
 )
 
 declarePublicGauge(
-  waku_relay_avg_msg_bytes_per_shard,
+  logos_delivery_relay_avg_msg_bytes_per_shard,
   "Average length of messages seen per shard",
   labels = ["shard"],
 )
@@ -245,11 +245,17 @@ proc logMessageInfo*(
   shardMetrics.avgSize = shardMetrics.sizeSum / shardMetrics.count
   w.msgMetricsPerShard[topic] = shardMetrics
 
-  waku_relay_max_msg_bytes_per_shard.set(shardMetrics.maxSize, labelValues = [topic])
+  logos_delivery_relay_max_msg_bytes_per_shard.set(
+    shardMetrics.maxSize, labelValues = [topic]
+  )
 
-  waku_relay_avg_msg_bytes_per_shard.set(shardMetrics.avgSize, labelValues = [topic])
+  logos_delivery_relay_avg_msg_bytes_per_shard.set(
+    shardMetrics.avgSize, labelValues = [topic]
+  )
 
-  waku_relay_total_msg_bytes_per_shard.set(shardMetrics.sizeSum, labelValues = [topic])
+  logos_delivery_relay_total_msg_bytes_per_shard.set(
+    shardMetrics.sizeSum, labelValues = [topic]
+  )
 
 proc initRelayObservers(w: WakuRelay) =
   proc decodeRpcMessageInfo(
@@ -287,13 +293,13 @@ proc initRelayObservers(w: WakuRelay) =
       onRecv: bool,
   ) =
     if onRecv:
-      waku_relay_network_bytes.inc(
+      logos_delivery_relay_network_bytes.inc(
         msgSize.int64, labelValues = [pubsub_topic, "gross", "in"]
       )
     else:
       # sent traffic can only be "net"
       # TODO: If we can measure unsuccessful sends would mean a possible distinction between gross/net
-      waku_relay_network_bytes.inc(
+      logos_delivery_relay_network_bytes.inc(
         msgSize.int64, labelValues = [pubsub_topic, "net", "out"]
       )
 
@@ -608,7 +614,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
       return fut
     # this subscription handler is called once for every validated message
     # that will be relayed, hence this is the place we can count net incoming traffic
-    waku_relay_network_bytes.inc(
+    logos_delivery_relay_network_bytes.inc(
       data.len.int64 + pubsubTopic.len.int64, labelValues = [pubsubTopic, "net", "in"]
     )
 

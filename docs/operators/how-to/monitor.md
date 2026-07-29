@@ -106,6 +106,44 @@ which you can [import to your Grafana instance](https://grafana.com/docs/grafana
 
 Some of the most important metrics to keep an eye on include:
 - `libp2p_peers` as an indication of how many peers your node is connected to,
-- `waku_node_messages_total` to view the total amount of network traffic relayed by your node and
-- `waku_node_errors` as a rough indication of basic operating errors logged by the node.
+- `logos_delivery_node_messages_total` to view the total amount of network traffic relayed by your node and
+- `logos_delivery_node_errors` as a rough indication of basic operating errors logged by the node.
+
+## Metric names
+
+Every metric exported by the node is prefixed with `logos_delivery_`.
+Metrics coming from libraries the node builds on (`libp2p_*`, `nim_gc_*`, `process_*`)
+keep their own names and are unaffected.
+
+Nodes before this rename exported the same metrics under a `waku_` prefix (and a few
+under no prefix at all, such as `query_count` or `event_loop_load`). The dashboards in
+[`metrics/`](https://github.com/logos-messaging/logos-delivery/tree/master/metrics) query
+both spellings, so they keep working across the upgrade and over historical data:
+
+```
+(waku_store_queries_total or logos_delivery_store_queries_total)
+```
+
+Place the `or` around the leaf, inside any aggregation — not around the whole
+expression. `or` keeps its right operand only for label sets that are absent from the
+left, so this undercounts while a fleet is mid-upgrade:
+
+```
+sum by (type)(waku_node_errors_total) or sum by (type)(logos_delivery_node_errors_total)
+```
+
+Both sides collapse to the same label set, so the right one is discarded entirely and
+every already-upgraded node vanishes from the panel. Write this instead:
+
+```
+sum by (type)(waku_node_errors_total or logos_delivery_node_errors_total)
+```
+
+When the metric sits inside a range vector, duplicate the whole call —
+`(rate(old[5m]) or rate(new[5m]))` — since `(old or new)[5m]` is not valid PromQL.
+
+If you maintain your own dashboards, alert rules or recording rules, apply the same
+change before upgrading. Once every node you scrape runs a release with the new names
+and the old samples have aged out of your Prometheus retention window, the `waku_`
+alternative can be dropped.
 

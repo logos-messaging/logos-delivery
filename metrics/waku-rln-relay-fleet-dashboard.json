@@ -111,7 +111,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_membership_insertion_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_membership_insertion_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_membership_insertion_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -203,7 +203,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -295,7 +295,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_proof_verification_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_proof_verification_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_proof_verification_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -388,7 +388,7 @@
           },
           "editorMode": "code",
           "exemplar": true,
-          "expr": "waku_rln_proof_verification_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_proof_verification_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_proof_verification_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "range": true,
@@ -481,7 +481,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_spam_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_spam_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_spam_messages_total_total{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -665,7 +665,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_membership_credentials_import_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_membership_credentials_import_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_membership_credentials_import_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -757,7 +757,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_valid_messages_total_sum{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_valid_messages_total_sum{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_valid_messages_total_sum{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -849,7 +849,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_proof_generation_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_proof_generation_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_proof_generation_duration_seconds{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "interval": "",
           "legendFormat": "{{instance}}",
           "refId": "A"
@@ -941,7 +941,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_valid_messages_total_bucket{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"}",
+          "expr": "(waku_rln_valid_messages_total_bucket{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"} or logos_delivery_rln_valid_messages_total_bucket{instance=~\"[[host]].([[dc:pipe]]).([[fleet:pipe]])\"})",
           "format": "time_series",
           "interval": "",
           "intervalFactor": 1,

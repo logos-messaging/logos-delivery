@@ -54,11 +54,11 @@ proc sendStoreRequest(
     return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: error.msg))
 
   let res = StoreQueryResponse.decode(buf).valueOr:
-    waku_store_errors.inc(labelValues = [DecodeRpcFailure])
+    logos_delivery_store_errors.inc(labelValues = [DecodeRpcFailure])
     return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: DecodeRpcFailure))
 
   if res.statusCode != uint32(StatusCode.SUCCESS):
-    waku_store_errors.inc(labelValues = [NoSuccessStatusCode])
+    logos_delivery_store_errors.inc(labelValues = [NoSuccessStatusCode])
     return err(StoreError.new(res.statusCode, res.statusDesc))
 
   if req.pubsubTopic.isSome():
@@ -67,10 +67,10 @@ proc sendStoreRequest(
       self.storeMsgMetricsPerShard[topic] = 0
     self.storeMsgMetricsPerShard[topic] += float64(req.encode().buffer.len)
 
-    waku_relay_fleet_store_msg_size_bytes.inc(
+    logos_delivery_store_fleet_msg_size_bytes.inc(
       self.storeMsgMetricsPerShard[topic], labelValues = [topic]
     )
-    waku_relay_fleet_store_msg_count.inc(1.0, labelValues = [topic])
+    logos_delivery_store_fleet_msg_count.inc(1.0, labelValues = [topic])
 
   return ok(res)
 
@@ -81,7 +81,7 @@ proc query*(
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
 
   let connection = (await self.peerManager.dialPeer(peer, WakuStoreCodec)).valueOr:
-    waku_store_errors.inc(labelValues = [DialFailure])
+    logos_delivery_store_errors.inc(labelValues = [DialFailure])
 
     return err(StoreError(kind: ErrorCode.PEER_DIAL_FAILURE, address: $peer))
 
@@ -108,7 +108,7 @@ proc queryToAny*(
   var lastError: StoreError
   for peer in peersToTry:
     let connection = (await self.peerManager.dialPeer(peer, WakuStoreCodec)).valueOr:
-      waku_store_errors.inc(labelValues = [DialFailure])
+      logos_delivery_store_errors.inc(labelValues = [DialFailure])
       warn "failed to dial store peer, trying next"
       lastError = StoreError(kind: ErrorCode.PEER_DIAL_FAILURE, address: $peer)
       continue

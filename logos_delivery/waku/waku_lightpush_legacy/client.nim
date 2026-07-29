@@ -30,7 +30,7 @@ proc sendPushRequest(
 ): Future[WakuLightPushResult[void]] {.async, gcsafe.} =
   let connOpt = await wl.peerManager.dialPeer(peer, WakuLegacyLightPushCodec)
   if connOpt.isNone():
-    waku_lightpush_errors.inc(labelValues = [dialFailure])
+    logos_delivery_lightpush_errors.inc(labelValues = [dialFailure])
     return err(dialFailure)
   let connection = connOpt.get()
 
@@ -48,11 +48,11 @@ proc sendPushRequest(
 
   let pushResponseRes = PushRPC.decode(buffer).valueOr:
     error "failed to decode response"
-    waku_lightpush_errors.inc(labelValues = [decodeRpcFailure])
+    logos_delivery_lightpush_errors.inc(labelValues = [decodeRpcFailure])
     return err(decodeRpcFailure)
 
   if pushResponseRes.response.isNone():
-    waku_lightpush_errors.inc(labelValues = [emptyResponseBodyFailure])
+    logos_delivery_lightpush_errors.inc(labelValues = [emptyResponseBodyFailure])
     return err(emptyResponseBodyFailure)
 
   let response = pushResponseRes.response.get()

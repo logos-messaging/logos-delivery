@@ -594,7 +594,7 @@ proc start*(node: WakuNode) {.async.} =
   ## Starts a created Waku Node and
   ## all its mounted protocols.
 
-  waku_version.set(1, labelValues = [git_version])
+  logos_delivery_version.set(1, labelValues = [git_version])
   info "Starting Waku node", version = git_version
 
   var zeroPortPresent = false

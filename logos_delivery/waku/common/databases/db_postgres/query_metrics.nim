@@ -1,9 +1,9 @@
 import metrics, tables
 
-declarePublicGauge query_time_secs,
+declarePublicGauge logos_delivery_query_time_secs,
   "query time measured in nanoseconds", labels = ["query", "phase"]
 
-declarePublicCounter query_count,
+declarePublicCounter logos_delivery_query_count,
   "number of times a query is being performed", labels = ["query"]
 
 ## Maps parts of the possible known queries with a fixed and shorter query label.

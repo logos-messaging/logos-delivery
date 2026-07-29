@@ -101,7 +101,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_membership_insertion_duration_seconds{}",
+          "expr": "(waku_rln_membership_insertion_duration_seconds{} or logos_delivery_rln_membership_insertion_duration_seconds{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -186,7 +186,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_messages_total_total{}",
+          "expr": "(waku_rln_messages_total_total{} or logos_delivery_rln_messages_total_total{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -271,7 +271,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_proof_verification_total_total{}",
+          "expr": "(waku_rln_proof_verification_total_total{} or logos_delivery_rln_proof_verification_total_total{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -441,7 +441,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_spam_messages_total_total{}",
+          "expr": "(waku_rln_spam_messages_total_total{} or logos_delivery_rln_spam_messages_total_total{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -526,7 +526,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_valid_messages_total_sum{}",
+          "expr": "(waku_rln_valid_messages_total_sum{} or logos_delivery_rln_valid_messages_total_sum{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -611,7 +611,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_membership_credentials_import_duration_seconds{}",
+          "expr": "(waku_rln_membership_credentials_import_duration_seconds{} or logos_delivery_rln_membership_credentials_import_duration_seconds{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -696,7 +696,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_valid_messages_total_bucket{}",
+          "expr": "(waku_rln_valid_messages_total_bucket{} or logos_delivery_rln_valid_messages_total_bucket{})",
           "format": "time_series",
           "interval": "",
           "intervalFactor": 1,
@@ -783,7 +783,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_proof_generation_duration_seconds{}",
+          "expr": "(waku_rln_proof_generation_duration_seconds{} or logos_delivery_rln_proof_generation_duration_seconds{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"
@@ -953,7 +953,7 @@
             "uid": "P6693426190CB2316"
           },
           "exemplar": true,
-          "expr": "waku_rln_proof_verification_duration_seconds{}",
+          "expr": "(waku_rln_proof_verification_duration_seconds{} or logos_delivery_rln_proof_verification_duration_seconds{})",
           "interval": "",
           "legendFormat": "",
           "refId": "A"

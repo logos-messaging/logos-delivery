@@ -31,24 +31,26 @@ import
 
 export waku_peer_store, peer_storage, peers
 
-declareCounter waku_peers_dials, "Number of peer dials", ["outcome"]
+declareCounter logos_delivery_peers_dials, "Number of peer dials", ["outcome"]
 # TODO: Populate from PeerStore.Source when ready
-declarePublicCounter waku_node_conns_initiated,
+declarePublicCounter logos_delivery_node_conns_initiated,
   "Number of connections initiated", ["source"]
-declarePublicCounter waku_peers_errors, "Number of peer manager errors", ["type"]
-declarePublicGauge waku_connected_peers,
+declarePublicCounter logos_delivery_peers_errors,
+  "Number of peer manager errors", ["type"]
+declarePublicGauge logos_delivery_connected_peers,
   "Number of physical connections per direction and protocol",
   labels = ["direction", "protocol"]
-declarePublicGauge waku_connected_peers_per_shard,
+declarePublicGauge logos_delivery_connected_peers_per_shard,
   "Number of physical connections per shard", labels = ["shard"]
-declarePublicGauge waku_connected_peers_per_agent,
+declarePublicGauge logos_delivery_connected_peers_per_agent,
   "Number of physical connections per agent", labels = ["agent"]
-declarePublicGauge waku_streams_peers,
+declarePublicGauge logos_delivery_streams_peers,
   "Number of streams per direction and protocol", labels = ["direction", "protocol"]
-declarePublicGauge waku_peer_store_size, "Number of peers managed by the peer store"
-declarePublicGauge waku_service_peers,
+declarePublicGauge logos_delivery_peer_store_size,
+  "Number of peers managed by the peer store"
+declarePublicGauge logos_delivery_service_peers,
   "Service peer protocol and multiaddress ", labels = ["protocol", "peerId"]
-declarePublicGauge waku_total_unique_peers, "total number of unique peers"
+declarePublicGauge logos_delivery_total_unique_peers, "total number of unique peers"
 
 logScope:
   topics = "waku node peer_manager"
@@ -140,7 +142,7 @@ proc insertOrReplace(ps: PeerStorage, remotePeerInfo: RemotePeerInfo) {.gcsafe.}
   ## Insert peer entry into persistent storage, or replace existing entry with updated info
   ps.put(remotePeerInfo).isOkOr:
     warn "failed to store peers", err = error
-    waku_peers_errors.inc(labelValues = ["storage_failure"])
+    logos_delivery_peers_errors.inc(labelValues = ["storage_failure"])
     return
 
 proc addPeer*(
@@ -157,7 +159,7 @@ proc addPeer*(
   trace "Adding peer to manager",
     peerId = remotePeerInfo.peerId, addresses = remotePeerInfo.addrs, origin
 
-  waku_total_unique_peers.inc()
+  logos_delivery_total_unique_peers.inc()
 
   # Add peer to storage. Entry will subsequently be updated with connectedness information
   if not pm.storage.isNil:
@@ -233,7 +235,7 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
 
   pm.storage.getAll(onData).isOkOr:
     warn "loading peers from storage failed", err = error
-    waku_peers_errors.inc(labelValues = ["storage_load_failure"])
+    logos_delivery_peers_errors.inc(labelValues = ["storage_load_failure"])
     return
 
   trace "recovered peers from storage", amount = amount
@@ -306,7 +308,7 @@ proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: str
 
   info "Adding peer to service slots",
     peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs[0], service = proto
-  waku_service_peers.set(1, labelValues = [$proto, $remotePeerInfo.addrs[0]])
+  logos_delivery_service_peers.set(1, labelValues = [$proto, $remotePeerInfo.addrs[0]])
 
     # Set peer for service slot
   pm.serviceSlots[proto] = remotePeerInfo
@@ -361,8 +363,8 @@ proc connectPeer*(
       if not deadline.finished():
         await deadline.cancelAndWait()
 
-      waku_peers_dials.inc(labelValues = ["successful"])
-      waku_node_conns_initiated.inc(labelValues = [source])
+      logos_delivery_peers_dials.inc(labelValues = ["successful"])
+      logos_delivery_node_conns_initiated.inc(labelValues = [source])
 
       peerStore[NumberFailedConnBook][peerId] = 0
 
@@ -377,7 +379,7 @@ proc connectPeer*(
     peerId = peerId,
     reason = reasonFailed,
     failedAttempts = peerStore[NumberFailedConnBook][peerId]
-  waku_peers_dials.inc(labelValues = [reasonFailed])
+  logos_delivery_peers_dials.inc(labelValues = [reasonFailed])
 
   return false
 
@@ -893,16 +895,16 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
     for proto in peerStore.getWakuProtos():
       let (protoConnsIn, protoConnsOut) = pm.connectedPeers(proto)
       let (protoStreamsIn, protoStreamsOut) = pm.getNumStreams(proto)
-      waku_connected_peers.set(
+      logos_delivery_connected_peers.set(
         protoConnsIn.len.float64, labelValues = [$Direction.In, proto]
       )
-      waku_connected_peers.set(
+      logos_delivery_connected_peers.set(
         protoConnsOut.len.float64, labelValues = [$Direction.Out, proto]
       )
-      waku_streams_peers.set(
+      logos_delivery_streams_peers.set(
         protoStreamsIn.float64, labelValues = [$Direction.In, proto]
       )
-      waku_streams_peers.set(
+      logos_delivery_streams_peers.set(
         protoStreamsOut.float64, labelValues = [$Direction.Out, proto]
       )
 
@@ -914,7 +916,9 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
         let agent = peerStore[AgentBook][peerId]
         agentCounts[agent] = agentCounts.getOrDefault(agent, 0) + 1
     for agent, count in agentCounts:
-      waku_connected_peers_per_agent.set(count.float64, labelValues = [$agent])
+      logos_delivery_connected_peers_per_agent.set(
+        count.float64, labelValues = [$agent]
+      )
 
     for shard in pm.getShards().items:
       # peers known for this shard
@@ -924,7 +928,7 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
       # keep only those that are physically connected right now
       let connectedInShard = shardPeers.filterIt(connectedPeerIds.contains(it.peerId))
 
-      waku_connected_peers_per_shard.set(
+      logos_delivery_connected_peers_per_shard.set(
         connectedInShard.len.float64, labelValues = [$shard]
       )
 
@@ -1243,7 +1247,9 @@ proc new*(
   var peerStore = pm.switch.peerStore
 
   proc peerStoreChanged(peerId: PeerId) {.gcsafe.} =
-    waku_peer_store_size.set(toSeq(peerStore[AddressBook].book.keys).len.int64)
+    logos_delivery_peer_store_size.set(
+      toSeq(peerStore[AddressBook].book.keys).len.int64
+    )
 
   pm.switch.addPeerEventHandler(peerHook, PeerEventKind.Joined)
   pm.switch.addPeerEventHandler(peerHook, PeerEventKind.Left)

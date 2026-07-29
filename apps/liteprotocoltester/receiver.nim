@@ -65,7 +65,7 @@ proc maintainSubscription(
 
     if isFirstPingOnNewPeer == false:
       # Very first ping expected to fail as we have not yet subscribed at all
-      lpt_receiver_lost_subscription_count.inc()
+      logos_delivery_lpt_receiver_lost_subscription_count.inc()
     isFirstPingOnNewPeer = false
     # No subscription found. Let's subscribe.
     error "ping failed.", error = pingErr
@@ -83,7 +83,7 @@ proc maintainSubscription(
       continue
 
     noFailedSubscribes += 1
-    lpt_service_peer_failure_count.inc(
+    logos_delivery_lpt_service_peer_failure_count.inc(
       labelValues = ["receiver", actualFilterPeer.getAgent()]
     )
     error "Subscribe request failed.",
@@ -108,7 +108,7 @@ proc maintainSubscription(
         codec = filterPubsubTopic, peer = constructMultiaddrStr(actualFilterPeer)
 
       noFailedSubscribes = 0
-      lpt_change_service_peer_count.inc(labelValues = ["receiver"])
+      logos_delivery_lpt_change_service_peer_count.inc(labelValues = ["receiver"])
       isFirstPingOnNewPeer = true
     else:
       await sleepAsync(SubscriptionMaintenanceMs)

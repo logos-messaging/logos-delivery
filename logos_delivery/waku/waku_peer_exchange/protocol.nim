@@ -21,10 +21,11 @@ import
 from ../waku_core/codecs import WakuPeerExchangeCodec
 export WakuPeerExchangeCodec
 
-declarePublicGauge waku_px_peers_received_unknown,
+declarePublicGauge logos_delivery_px_peers_received_unknown,
   "number of previously unknown ENRs received via peer exchange"
-declarePublicCounter waku_px_errors, "number of peer exchange errors", ["type"]
-declarePublicCounter waku_px_peers_sent,
+declarePublicCounter logos_delivery_px_errors,
+  "number of peer exchange errors", ["type"]
+declarePublicCounter logos_delivery_px_peers_sent,
   "number of ENRs sent to peer exchange requesters"
 
 logScope:
@@ -47,7 +48,7 @@ proc respond(
     # Remote closed the stream before we responded - expected during peer churn.
     debug "peer exchange response not delivered: stream closed",
       peerId = conn.peerId, error = exc.msg
-    waku_px_errors.inc(labelValues = [streamClosedFailure])
+    logos_delivery_px_errors.inc(labelValues = [streamClosedFailure])
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.DIAL_FAILURE,
@@ -71,7 +72,7 @@ proc respondError(
     # Remote closed the stream before we responded - expected during peer churn.
     debug "peer exchange error response not delivered: stream closed",
       peerId = conn.peerId, error = exc.msg
-    waku_px_errors.inc(labelValues = [streamClosedFailure])
+    logos_delivery_px_errors.inc(labelValues = [streamClosedFailure])
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
@@ -137,11 +138,11 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
         # no point responding on a dead stream.
         debug "peer exchange request not received: stream closed",
           peerId = conn.peerId, error = exc.msg
-        waku_px_errors.inc(labelValues = [streamClosedFailure])
+        logos_delivery_px_errors.inc(labelValues = [streamClosedFailure])
         return
 
       let decBuf = PeerExchangeRpc.decode(buffer).valueOr:
-        waku_px_errors.inc(labelValues = [decodeRpcFailure])
+        logos_delivery_px_errors.inc(labelValues = [decodeRpcFailure])
         error "Failed to decode PeerExchange request", error = $error
 
         (
@@ -157,7 +158,7 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
       info "peer exchange request received"
       trace "px enrs to respond", enrs = $enrs
       (await wpx.respond(enrs, conn)).isErrOr:
-        waku_px_peers_sent.inc(enrs.len().int64())
+        logos_delivery_px_peers_sent.inc(enrs.len().int64())
     do:
       defer:
         # close, no data is expected

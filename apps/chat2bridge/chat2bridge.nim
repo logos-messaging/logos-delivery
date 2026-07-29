@@ -31,9 +31,10 @@ import
   # Common cli config
   ./config_chat2bridge
 
-declarePublicCounter chat2_mb_transfers,
+declarePublicCounter logos_delivery_chat2_mb_transfers,
   "Number of messages transferred between chat2 and Matterbridge", ["type"]
-declarePublicCounter chat2_mb_dropped, "Number of messages dropped", ["reason"]
+declarePublicCounter logos_delivery_chat2_mb_dropped,
+  "Number of messages dropped", ["reason"]
 
 logScope:
   topics = "chat2bridge"
@@ -96,12 +97,12 @@ proc toChat2(cmb: Chat2MatterBridge, jsonNode: JsonNode) {.async.} =
 
   if cmb.seen.containsOrAdd(msg.payload.hash()):
     # This is a duplicate message. Return.
-    chat2_mb_dropped.inc(labelValues = ["duplicate"])
+    logos_delivery_chat2_mb_dropped.inc(labelValues = ["duplicate"])
     return
 
   trace "Post Matterbridge message to chat2"
 
-  chat2_mb_transfers.inc(labelValues = ["mb_to_chat2"])
+  logos_delivery_chat2_mb_transfers.inc(labelValues = ["mb_to_chat2"])
 
   (await cmb.nodev2.publish(Opt.some(DefaultPubsubTopic), msg)).isOkOr:
     error "failed to publish message", error = error
@@ -111,17 +112,17 @@ proc toMatterbridge(
 ) {.gcsafe, raises: [Exception].} =
   if cmb.seen.containsOrAdd(msg.payload.hash()):
     # This is a duplicate message. Return.
-    chat2_mb_dropped.inc(labelValues = ["duplicate"])
+    logos_delivery_chat2_mb_dropped.inc(labelValues = ["duplicate"])
     return
 
   if msg.contentTopic != cmb.contentTopic:
     # Only bridge messages on the configured content topic
-    chat2_mb_dropped.inc(labelValues = ["filtered"])
+    logos_delivery_chat2_mb_dropped.inc(labelValues = ["filtered"])
     return
 
   trace "Post chat2 message to Matterbridge"
 
-  chat2_mb_transfers.inc(labelValues = ["chat2_to_mb"])
+  logos_delivery_chat2_mb_transfers.inc(labelValues = ["chat2_to_mb"])
 
   let chat2Msg = Chat2Message.init(msg.payload)
 
@@ -132,7 +133,7 @@ proc toMatterbridge(
       text = string.fromBytes(chat2Msg[].payload), username = chat2Msg[].nick
     )
     .containsValue(true):
-    chat2_mb_dropped.inc(labelValues = ["duplicate"])
+    logos_delivery_chat2_mb_dropped.inc(labelValues = ["duplicate"])
     error "Matterbridge host unreachable. Dropping message."
 
 proc pollMatterbridge(cmb: Chat2MatterBridge, handler: MbMessageHandler) {.async.} =

@@ -75,7 +75,9 @@ proc addMessage*(
       prevIndex: self.helper.prevIndex,
     ),
   )
-  lpt_receiver_received_bytes.inc(labelValues = [sender], amount = msg.size.int64)
+  logos_delivery_lpt_receiver_received_bytes.inc(
+    labelValues = [sender], amount = msg.size.int64
+  )
   if self.received.hasKeyOrPut(msg.index, currentArrived):
     inc(self.duplicateCount)
     self.helper.duplicates.mgetOrPut(msg.index, (msgHash, 0, msg.size)).dupCount.inc()
@@ -83,8 +85,8 @@ proc addMessage*(
       index = msg.index,
       hash = msgHash,
       times_duplicated = self.helper.duplicates[msg.index].dupCount
-    lpt_receiver_duplicate_messages_count.inc(labelValues = [sender])
-    lpt_receiver_distinct_duplicate_messages_count.set(
+    logos_delivery_lpt_receiver_duplicate_messages_count.inc(labelValues = [sender])
+    logos_delivery_lpt_receiver_distinct_duplicate_messages_count.set(
       labelValues = [sender], value = self.helper.duplicates.len()
     )
     return
@@ -102,8 +104,8 @@ proc addMessage*(
   self.helper.prevIndex = msg.index
   self.helper.prevArrivedAt = currentArrived.info.arrivedAt
   inc(self.receivedMessages)
-  lpt_receiver_received_messages_count.inc(labelValues = [sender])
-  lpt_receiver_missing_messages_count.set(
+  logos_delivery_lpt_receiver_received_messages_count.inc(labelValues = [sender])
+  logos_delivery_lpt_receiver_missing_messages_count.set(
     labelValues = [sender], value = (self.helper.maxIndex - self.receivedMessages).int64
   )
 
@@ -121,7 +123,7 @@ proc addMessage*(
   discard catch:
     self[peerId].addMessage(shortSenderId, msg, msgHash)
 
-  lpt_receiver_sender_peer_count.set(value = self.len)
+  logos_delivery_lpt_receiver_sender_peer_count.set(value = self.len)
 
 proc lastMessageArrivedAt*(self: Statistics): Opt[Moment] =
   if self.receivedMessages > 0:
@@ -193,9 +195,15 @@ proc dupMsgs(self: Statistics): string =
 
 proc echoStat*(self: Statistics, peerId: string) =
   let (minL, maxL, avgL) = self.calcLatency()
-  lpt_receiver_latencies.set(labelValues = [peerId, "min"], value = minL.nanos())
-  lpt_receiver_latencies.set(labelValues = [peerId, "avg"], value = avgL.nanos())
-  lpt_receiver_latencies.set(labelValues = [peerId, "max"], value = maxL.nanos())
+  logos_delivery_lpt_receiver_latencies.set(
+    labelValues = [peerId, "min"], value = minL.nanos()
+  )
+  logos_delivery_lpt_receiver_latencies.set(
+    labelValues = [peerId, "avg"], value = avgL.nanos()
+  )
+  logos_delivery_lpt_receiver_latencies.set(
+    labelValues = [peerId, "max"], value = maxL.nanos()
+  )
 
   let printable = catch:
     """*------------------------------------------------------------------------------------------*

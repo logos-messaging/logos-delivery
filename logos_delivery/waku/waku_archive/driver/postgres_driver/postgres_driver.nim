@@ -20,7 +20,7 @@ import
 logScope:
   topics = "postgres driver"
 
-declarePublicGauge postgres_payload_size_bytes,
+declarePublicGauge logos_delivery_postgres_payload_size_bytes,
   "Payload size in bytes of correctly stored messages"
 
 logScope:
@@ -343,7 +343,7 @@ method put*(
   )
 
   if ret.isOk():
-    postgres_payload_size_bytes.set(message.payload.len)
+    logos_delivery_postgres_payload_size_bytes.set(message.payload.len)
   return ret
 
 method getAllMessages*(

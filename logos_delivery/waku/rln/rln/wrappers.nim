@@ -145,7 +145,7 @@ proc createRLNInstanceLocal(): Result[ptr RlnRaw, string] =
 proc createRLNInstance*(): Result[ptr RlnRaw, string] =
   ## Wraps createRLNInstanceLocal with metrics timing.
   var res: Result[ptr RlnRaw, string]
-  waku_rln_instance_creation_duration_seconds.nanosecondTime:
+  logos_delivery_rln_instance_creation_duration_seconds.nanosecondTime:
     res = createRLNInstanceLocal()
   return res
 

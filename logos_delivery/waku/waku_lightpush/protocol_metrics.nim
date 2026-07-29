@@ -2,9 +2,9 @@
 
 import metrics
 
-declarePublicCounter waku_lightpush_v3_errors,
+declarePublicCounter logos_delivery_lightpush_v3_errors,
   "number of lightpush protocol errors", ["type"]
-declarePublicCounter waku_lightpush_v3_messages,
+declarePublicCounter logos_delivery_lightpush_v3_messages,
   "number of lightpush messages received", ["type"]
 
 # Error types (metric label values)

@@ -10,9 +10,10 @@ import
 
 from logos_delivery/waku/waku_core/codecs import WakuPeerExchangeCodec
 
-declarePublicGauge waku_px_peers_received_total,
+declarePublicGauge logos_delivery_px_peers_received_total,
   "number of ENRs received via peer exchange"
-declarePublicCounter waku_px_client_errors, "number of peer exchange errors", ["type"]
+declarePublicCounter logos_delivery_px_client_errors,
+  "number of peer exchange errors", ["type"]
 
 logScope:
   topics = "waku peer_exchange client"
@@ -37,7 +38,9 @@ proc request*(
     buffer = await conn.readLp(DefaultMaxRpcSize.int)
   except CatchableError as exc:
     error "exception when handling peer exchange request", error = exc.msg
-    waku_px_client_errors.inc(labelValues = ["error_sending_or_receiving_px_req"])
+    logos_delivery_px_client_errors.inc(
+      labelValues = ["error_sending_or_receiving_px_req"]
+    )
     callResult = (
       status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
       status_desc: Opt.some($exc.msg),
@@ -97,7 +100,7 @@ proc request*(
 ): Future[WakuPeerExchangeResult[PeerExchangeResponse]] {.async: (raises: []).} =
   let peerOpt = wpx.peerManager.selectPeer(WakuPeerExchangeCodec)
   if peerOpt.isNone():
-    waku_px_client_errors.inc(labelValues = [peerNotFoundFailure])
+    logos_delivery_px_client_errors.inc(labelValues = [peerNotFoundFailure])
     info "peer exchange request could not be made as no peer exchange peers found"
     return err(
       (
