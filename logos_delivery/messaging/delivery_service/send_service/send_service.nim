@@ -48,8 +48,8 @@ type SendService* = ref object of RootObj
   serviceLoopHandle: Future[void] ## handle that allows to stop the async task
   sendProcessor: BaseSendProcessor
   rateLimitManager: RateLimitManager
-    ## Meters first transmissions against the per-epoch budget; re-publishes
-    ## of an already-propagated message resend the same bytes and are free.
+    ## Charges first transmissions against the per-epoch budget; re-publishes
+    ## are free.
 
   waku: Waku
   checkStoreForMessages: bool
@@ -85,7 +85,10 @@ proc new*(
     preferP2PReliability: bool,
     waku: Waku,
     rateLimitManager: RateLimitManager,
+    sendProcessor: BaseSendProcessor = nil,
 ): Result[T, string] =
+  ## `sendProcessor` overrides the relay/lightpush chain built from `waku`,
+  ## letting a caller drive the scheduler against a scripted delivery outcome.
   if not waku.hasRelay() and not waku.hasLightpush():
     return err(
       "Could not create SendService. wakuRelay or wakuLightpushClient should be set"
@@ -93,8 +96,12 @@ proc new*(
 
   let checkStoreForMessages = preferP2PReliability and waku.isStoreMounted()
 
-  let sendProcessorChain = setupSendProcessorChain(waku, waku.brokerCtx).valueOr:
-    return err("failed to setup SendProcessorChain: " & $error)
+  let sendProcessorChain =
+    if sendProcessor.isNil():
+      setupSendProcessorChain(waku, waku.brokerCtx).valueOr:
+        return err("failed to setup SendProcessorChain: " & $error)
+    else:
+      sendProcessor
 
   let sendService = SendService(
     brokerCtx: waku.brokerCtx,
@@ -197,15 +204,14 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     # rest of the states are intermediate and does not translate to event
     discard
 
-  # Only tasks that never propagated are reported as hard send failures here.
-  # Propagated-but-not-store-validated tasks are handled (warn + drop, no event)
-  # in evaluateAndCleanUp.
-  if task.firstPropagatedTime.isNone() and task.messageAge() > MaxTimeInCache:
+  # Hard-fail a task admitted but never propagated within MaxTimeInCache.
+  # Propagated-but-unvalidated tasks are dropped in evaluateAndCleanUp instead.
+  if task.isDeliveryTimedOut(MaxTimeInCache):
     error "Failed to send message",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       error = "Message too old",
-      age = task.messageAge()
+      age = task.admissionAge()
     task.state = DeliveryState.FailedToDeliver
     MessageErrorEvent.emit(
       self.brokerCtx,
@@ -248,17 +254,27 @@ proc evaluateAndCleanUp(self: SendService) =
     )
   )
 
-proc trySendMessages(self: SendService) {.async.} =
+proc admitOnce(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
+  ## Charges the task's first transmission against the epoch budget, at most
+  ## once per task (`firstAdmittedTime`); retries then resend for free. Returns
+  ## false when the task must stay parked for a later epoch.
+  if task.firstAdmittedTime.isSome():
+    return true
+
+  (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
+    debug "over rate-limit budget, task waits for the epoch to roll",
+      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    return false
+  task.firstAdmittedTime = Opt.some(Moment.now())
+  return true
+
+proc trySendMessages*(self: SendService) {.async.} =
   let tasksToSend = self.taskCache.filterIt(it.state == DeliveryState.NextRoundRetry)
 
   for task in tasksToSend:
     # Todo, check if it has any perf gain to run them concurrent...
-    if task.firstPropagatedTime.isNone():
-      ## Never propagated: this transmission consumes a fresh epoch slot, so
-      ## it must be admitted. Tasks that stay over budget remain in
-      ## `NextRoundRetry` and are retried as the epoch rolls over.
-      (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-        continue
+    if not (await self.admitOnce(task)):
+      continue
     await self.sendProcessor.process(task)
 
 proc serviceLoop(self: SendService) {.async.} =
@@ -288,8 +304,8 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
     error "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 
-  (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-    info "SendService.send: over rate-limit budget, parking task",
+  if not (await self.admitOnce(task)):
+    info "SendService.send: parking task for a later round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.NextRoundRetry
     self.addTask(task)

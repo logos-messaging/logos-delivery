@@ -4,9 +4,9 @@ import results, libp2p/crypto/crypto
 import logos_delivery/api/conf/kernel_conf
 import logos_delivery/waku/common/logging
 import logos_delivery/waku/factory/networks_config
-import logos_delivery/messaging/rate_limit_manager/rate_limit_manager
+import logos_delivery/messaging/rate_limit_manager/rate_limit_config
 
-export kernel_conf, rate_limit_manager
+export kernel_conf, rate_limit_config
 
 # `LogosDeliveryMode` and `EntryLayer` are defined at the leaf (`cli_args`) so
 # they can appear on `WakuNodeConf`; re-exported here via `kernel_conf`.
@@ -52,9 +52,12 @@ type MessagingClientConf* = object
   nodeKey* {.name: "nodekey".}: Opt[crypto.PrivateKey]
     ## P2P node private key (64-char hex): stable identity / peerId across restarts.
   rateLimit*: Opt[RateLimitConfig]
-    ## Per-epoch message rate limit enforced by the send service. `Opt` like
-    ## every other field so `merge` propagates a caller's override; unset falls
+    ## Per-epoch message rate limit enforced by the send service; unset falls
     ## back to `DefaultRateLimitConfig` (rate limiting disabled).
+    ##
+    ## Settable only programmatically: as a nested object with no `{.name.}`
+    ## pragma or `parseCmdArg`, it is not reachable from the JSON config or a
+    ## CLI flag.
 
 proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
   ## Sets the protocol flags implied by the mode.
