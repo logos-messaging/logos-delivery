@@ -644,7 +644,7 @@
     },
     "ffi": {
       "version": "0.3.0",
-      "vcsRevision": "435eebf9e3896e800c1586058a85df120a7fe870",
+      "vcsRevision": "aad9374354a5e3d98964a9adf80766a12f8f200d",
       "url": "https://github.com/logos-messaging/nim-ffi",
       "downloadMethod": "git",
       "dependencies": [
@@ -655,7 +655,7 @@
         "cbor_serialization"
       ],
       "checksums": {
-        "sha1": "2901505700de0f5767ae4469399eb4977b0bd1a0"
+        "sha1": "db5fc50aa4717418e481cb0b1f7ca36f2d76586c"
       }
     },
     "boringssl": {

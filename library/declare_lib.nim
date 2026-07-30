@@ -15,11 +15,15 @@ template checkParams*(
 
 template emitEvent*(eventName: string, body: untyped) =
   ## Enqueues `body`'s payload for nim-ffi's event thread to fan out to listeners.
-  ## The try/except is what lets this be called from `{.raises: [].}` listeners.
+  ## Callers are `{.async: (raises: []).}` broker listeners, and the payload
+  ## builders infer an `Exception` effect, so nothing narrower than `Exception`
+  ## compiles here. That also swallows `Defect`, which is why the handler only
+  ## logs: a defect raised while rendering one event must not take the node down,
+  ## and it cannot be re-raised without breaking the `raises: []` contract.
   try:
     dispatchFFIEvent(eventName):
       body
-  except CatchableError as e:
+  except Exception as e:
     chronicles.error "failed to emit FFI event", event = eventName, err = e.msg
 
 template requireInitializedNode*(

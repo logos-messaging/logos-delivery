@@ -61,7 +61,7 @@ requires "nim >= 2.2.4",
 
 # Packages not on nimble (use git URLs)
 
-requires "https://github.com/logos-messaging/nim-ffi#435eebf9e3896e800c1586058a85df120a7fe870" # v0.3.0-rc.0
+requires "https://github.com/logos-messaging/nim-ffi#aad9374354a5e3d98964a9adf80766a12f8f200d" # v0.3.0-rc.1
 
 requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb948b32a4ade1de3b5"
 
