@@ -45,27 +45,27 @@ suite "MessagingClientConf - field mapping + transport policy":
       kc.numShardsInNetwork == 4
       kc.maxMessageSize == "150KiB"
 
-  test "messaging transport defaults: ephemeral ports, websocket off, quic on":
+  test "messaging transport defaults: ephemeral ports, websocket off, quic off":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
         raiseAssert error
     check:
       kc.tcpPort == Port(0)
       kc.discv5UdpPort == Port(0)
       kc.websocketSupport == false
-      kc.quicSupport == true
+      kc.quicSupport == false
 
   test "explicit transport overrides win":
     let mc = MessagingClientConf(
       p2pTcpPort: Opt.some(Port(1234)),
       websocketSupport: Opt.some(true),
-      quicSupport: Opt.some(false),
+      quicSupport: Opt.some(true),
     )
     let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
       raiseAssert error
     check:
       kc.tcpPort == Port(1234)
       kc.websocketSupport == true
-      kc.quicSupport == false
+      kc.quicSupport == true
 
 suite "MessagingClientConf - preset resolution":
   test "resolvePreset lifts only messaging-exclusive fields, not kernel-mirrored ones":
@@ -153,6 +153,13 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check:
       WakuNodeConf(lc.kernelConf).clusterId == Opt.some(7'u16) # kernel field
       lc.messagingConf.get().reliabilityEnabled == Opt.some(true) # messaging-only
+
+  test "localStoragePath override maps to the kernel":
+    let lc = parseLogosDeliveryConf(
+      """{"mode": "Core", "messagingOverrides": {"localStoragePath": "/tmp/inst-1/data"}}"""
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(lc.kernelConf).localStoragePath == "/tmp/inst-1/data"
 
   test "messaging overrides are recorded verbatim, unset fields left none":
     let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"clusterId": 7}}""").valueOr:
