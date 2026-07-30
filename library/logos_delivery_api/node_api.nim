@@ -34,9 +34,13 @@ proc logosdelivery_destroy(
     ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
 ): cint {.dynlib, exportc, cdecl.} =
   initializeLibrary()
+  if not LogosDeliveryFFIPool.isValidCtx(cast[pointer](ctx)):
+    return RET_ERR
   checkParams(ctx, callback, userData)
 
-  ffi.destroyFFIContext(LogosDeliveryFFIPool, ctx).isOkOr:
+  # Recycle instead of destroy: under refc a full teardown cannot close the
+  # context signal fds, so every create/destroy cycle would leak them.
+  ffi.recycleFFIContext(LogosDeliveryFFIPool, ctx).isOkOr:
     let msg = "liblogosdelivery error: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
     return RET_ERR
@@ -68,8 +72,8 @@ proc logosdelivery_create_node(
     let msg = "error in sendRequestToFFIThread: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
     # free allocated resources as they won't be available
-    ffi.destroyFFIContext(LogosDeliveryFFIPool, ctx).isOkOr:
-      chronicles.error "Error in destroyFFIContext after sendRequestToFFIThread during creation",
+    ffi.recycleFFIContext(LogosDeliveryFFIPool, ctx).isOkOr:
+      chronicles.error "Error in recycleFFIContext after sendRequestToFFIThread during creation",
         err = $error
     return nil
 
