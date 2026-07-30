@@ -8,6 +8,7 @@ import
   logos_delivery/messaging/api/send,
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
+  logos_delivery/waku/api/subscriptions,
   logos_delivery/messaging/delivery_service/[recv_service, send_service]
 
 # Surfaces the messaging API interface (and its Message* events) to consumers.
@@ -25,6 +26,18 @@ proc start*(self: MessagingClient): Result[void, string] =
       return await self.send(envelope),
   )
 
+  ?MessagingSubscribe.setProvider(
+    self.brokerCtx,
+    proc(contentTopic: ContentTopic): Result[void, string] =
+      self.waku.subscribe(contentTopic),
+  )
+
+  ?MessagingUnsubscribe.setProvider(
+    self.brokerCtx,
+    proc(contentTopic: ContentTopic): Result[void, string] =
+      self.waku.unsubscribe(contentTopic),
+  )
+
   self.started = true
   ok()
 
@@ -32,6 +45,8 @@ proc stop*(self: MessagingClient) {.async.} =
   if not self.started:
     return
   MessagingSend.clearProvider(self.brokerCtx)
+  MessagingSubscribe.clearProvider(self.brokerCtx)
+  MessagingUnsubscribe.clearProvider(self.brokerCtx)
   await self.sendService.stopSendService()
   await self.recvService.stopRecvService()
   self.started = false

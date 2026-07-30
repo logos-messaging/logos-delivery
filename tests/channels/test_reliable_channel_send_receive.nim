@@ -1315,3 +1315,47 @@ suite "Reliable Channel - SDS protocol semantics":
     check (await manager.closeChannel(ChannelId("no-such-channel"))).isErr()
 
     (await waku.stop()).expect("stop")
+
+suite "Reliable Channel - content topic subscription":
+  asyncTest "channels subscribe on create/start and unsubscribe on close":
+    ## Without a subscription `RecvService` drops the channel's inbound traffic.
+    const
+      preStartChannelId = ChannelId("sub-pre-start-channel")
+      preStartTopic = ContentTopic("/reliable-channel/1/sub-pre-start/proto")
+      postStartChannelId = ChannelId("sub-post-start-channel")
+      postStartTopic = ContentTopic("/reliable-channel/1/sub-post-start/proto")
+
+    var waku: LogosDelivery
+    var manager: ReliableChannelManager
+    lockNewGlobalBrokerContext:
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
+      manager = waku.reliableChannelManager
+
+      setNoopEncryption()
+
+      ## Created before start: subscribed by `ReliableChannelManager.start`.
+      discard manager
+        .createReliableChannel(
+          preStartChannelId, preStartTopic, SdsParticipantID("local")
+        )
+        .expect("createReliableChannel pre-start")
+      check not waku.waku.isSubscribed(preStartTopic).expect("isSubscribed")
+
+      (await waku.start()).expect("start")
+      check waku.waku.isSubscribed(preStartTopic).expect("isSubscribed")
+
+      ## Created after start: subscribed immediately.
+      discard manager
+        .createReliableChannel(
+          postStartChannelId, postStartTopic, SdsParticipantID("local")
+        )
+        .expect("createReliableChannel post-start")
+      check waku.waku.isSubscribed(postStartTopic).expect("isSubscribed")
+
+      (await manager.closeChannel(postStartChannelId)).expect("closeChannel post-start")
+      check not waku.waku.isSubscribed(postStartTopic).expect("isSubscribed")
+
+      (await manager.closeChannel(preStartChannelId)).expect("closeChannel pre-start")
+      check not waku.waku.isSubscribed(preStartTopic).expect("isSubscribed")
+
+    (await waku.stop()).expect("stop")
