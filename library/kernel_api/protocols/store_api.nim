@@ -65,15 +65,10 @@ func fromJsonNode(jsonContent: JsonNode): Result[StoreQueryRequest, string] =
   )
 
 proc waku_store_query(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    jsonQuery: cstring,
-    peerAddr: cstring,
-    timeoutMs: cint,
-) {.ffiRaw.} =
+    self: LogosDelivery, jsonQuery: string, peerAddr: string, timeoutMs: int32
+): Future[Result[string, string]] {.ffi.} =
   let jsonContentRes = catch:
-    parseJson($jsonQuery)
+    parseJson(jsonQuery)
 
   if jsonContentRes.isErr():
     return err("StoreRequest failed parsing store request: " & jsonContentRes.error.msg)
@@ -81,7 +76,7 @@ proc waku_store_query(
   let storeQueryRequest = ?fromJsonNode(jsonContentRes.get())
 
   let queryResponse = (
-    await ctx.myLib[].waku.storeQuery(storeQueryRequest, $peerAddr, int(timeoutMs))
+    await self.waku.storeQuery(storeQueryRequest, peerAddr, int(timeoutMs))
   ).valueOr:
     return err("StoreRequest failed store query: " & error)
 

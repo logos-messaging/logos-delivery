@@ -9,25 +9,40 @@ ffi = FFI()
 
 ffi.cdef(
     """
+// Raw FFICallBack, used by the event listener registry and by the
+// scalar-fast-path exports (no string arguments).
 typedef void (*FFICallBack)(int callerRet, const char *msg, size_t len, void *userData);
 
+// Reply callback of the `abi = c` exports that take arguments. `reply` and
+// `errMsg` are NUL-terminated and valid only for the duration of the call.
+typedef void (*ReplyFn)(int errCode, const char *reply, const char *errMsg, void *userData);
+
+// The constructor reports the context address as decimal text.
+typedef void (*CreateRawFn)(int errCode, const char *ctxAddr, const char *errMsg, void *userData);
+
+typedef struct { const char *configJson; } CreateNodeCtorReq;
+typedef struct { const char *contentTopicStr; } SubscribeReq;
+typedef struct { const char *contentTopicStr; } UnsubscribeReq;
+typedef struct { const char *messageJson; } SendReq;
+typedef struct { const char *nodeInfoId; } GetNodeInfoReq;
+
 void *logosdelivery_create_node(
-    const char *configJson,
-    FFICallBack callback,
+    const CreateNodeCtorReq *req,
+    CreateRawFn onCreated,
     void *userData
 );
 
-int logosdelivery_start_node(
-    void *ctx,
-    FFICallBack callback,
-    void *userData
-);
+int logosdelivery_destroy(void *ctx);
 
-int logosdelivery_stop_node(
-    void *ctx,
-    FFICallBack callback,
-    void *userData
-);
+int logosdelivery_start_node(void *ctx, FFICallBack callback, void *userData);
+int logosdelivery_stop_node(void *ctx, FFICallBack callback, void *userData);
+int logosdelivery_get_available_node_info_ids(void *ctx, FFICallBack callback, void *userData);
+int logosdelivery_get_available_configs(void *ctx, FFICallBack callback, void *userData);
+
+int logosdelivery_subscribe(void *ctx, ReplyFn onReply, void *userData, const SubscribeReq *req);
+int logosdelivery_unsubscribe(void *ctx, ReplyFn onReply, void *userData, const UnsubscribeReq *req);
+int logosdelivery_send(void *ctx, ReplyFn onReply, void *userData, const SendReq *req);
+int logosdelivery_get_node_info(void *ctx, ReplyFn onReply, void *userData, const GetNodeInfoReq *req);
 
 uint64_t logosdelivery_add_event_listener(
     void *ctx,
@@ -40,52 +55,6 @@ int logosdelivery_remove_event_listener(
     void *ctx,
     uint64_t listenerId
 );
-
-int logosdelivery_destroy(
-    void *ctx,
-    FFICallBack callback,
-    void *userData
-);
-
-int logosdelivery_subscribe(
-    void *ctx,
-    FFICallBack callback,
-    void *userData,
-    const char *contentTopic
-);
-
-int logosdelivery_unsubscribe(
-    void *ctx,
-    FFICallBack callback,
-    void *userData,
-    const char *contentTopic
-);
-
-int logosdelivery_send(
-    void *ctx,
-    FFICallBack callback,
-    void *userData,
-    const char *messageJson
-);
-
-int logosdelivery_get_available_node_info_ids(
-    void *ctx,
-    FFICallBack callback,
-    void *userData
-);
-
-int logosdelivery_get_node_info(
-    void *ctx,
-    FFICallBack callback,
-    void *userData,
-    const char *nodeInfoId
-);
-
-int logosdelivery_get_available_configs(
-    void *ctx,
-    FFICallBack callback,
-    void *userData
-);
 """
 )
 
@@ -93,17 +62,23 @@ _repo_root = Path(__file__).resolve().parents[1]
 lib = ffi.dlopen(str(_repo_root / "lib" / "liblogosdelivery.so"))
 
 CallbackType = ffi.callback("void(int, const char*, size_t, void*)")
-
-RET_OK = 0
+ReplyCallbackType = ffi.callback("void(int, const char*, const char*, void*)")
 
 # Non-terminal progress tick. It fires every ~5s while a request is still in
 # flight and is always followed by a terminal RET_OK/RET_ERR, so a caller that
 # latched it would fail every call slower than five seconds -- start_node most
 # of all, since it boots the node and joins the network.
+#
+# Only the scalar-fast-path exports deliver it here: start_node, stop_node,
+# get_available_node_info_ids and get_available_configs take no arguments, so
+# they hand the raw callback straight to the caller. The argument-taking exports
+# go through a reply trampoline inside nim-ffi that already drops it. The guard
+# in _make_waiting_reply_cb is therefore belt-and-braces, kept so this wrapper
+# stays correct if that trampoline ever changes.
 RET_STALE_WARN = 3
 
-# Since 0.3.0 a listener is registered per event name, so a caller that wants
-# every event registers once per name.
+# Every event the library emits. Since 0.3.0 a listener is registered per event
+# name, so an `event_cb` that wants them all registers once per name.
 EVENT_NAMES = (
     "onMessageSent",
     "onMessageError",
@@ -117,38 +92,6 @@ EVENT_NAMES = (
     "onChannelMessageSent",
     "onChannelMessageError",
 )
-
-_CBOR_MAJOR_BYTES = 2
-_CBOR_MAJOR_TEXT = 3
-
-
-def _decode_cbor_string(raw: bytes) -> bytes:
-    """Unwrap a CBOR definite-length text/byte string.
-
-    Since 0.3.0 the library encodes every RET_OK reply payload with CBOR. Error
-    payloads and the RET_STALE_WARN tick stay plain, and so do event payloads.
-    """
-    if not raw:
-        return b""
-
-    header = raw[0]
-    if header >> 5 not in (_CBOR_MAJOR_BYTES, _CBOR_MAJOR_TEXT):
-        raise ValueError(f"reply is not a CBOR string: header {header:#04x}")
-
-    info = header & 0x1F
-    if info < 24:
-        length, offset = info, 1
-    elif info <= 27:
-        size = 1 << (info - 24)
-        length, offset = int.from_bytes(raw[1 : 1 + size], "big"), 1 + size
-    else:
-        raise ValueError(f"unsupported CBOR string header: {header:#04x}")
-
-    payload = raw[offset : offset + length]
-    if len(payload) != length:
-        raise ValueError(f"truncated CBOR string: want {length} bytes, got {len(payload)}")
-
-    return payload
 
 
 def _new_cb_state():
@@ -168,17 +111,10 @@ def _wait_cb_raw(
     if not ok:
         return Err(f"{op_name}: timeout after {timeout_s}s")
 
-    cb_ret = state["ret"]
-    if cb_ret is None:
+    if state["ret"] is None:
         return Err(f"{op_name}: callback ret is None")
 
-    if cb_ret != RET_OK:
-        return Ok((cb_ret, state["msg"]))
-
-    try:
-        return Ok((cb_ret, _decode_cbor_string(state["msg"])))
-    except ValueError as e:
-        return Err(f"{op_name}: {e}")
+    return Ok((state["ret"], state["msg"]))
 
 
 def _wait_cb_ok(state, op_name: str, timeout_s: float = 20.0) -> Result[int, str]:
@@ -216,14 +152,28 @@ class NodeWrapper:
         return CallbackType(c_cb)
 
     @staticmethod
+    def _make_waiting_reply_cb(state):
+        def c_cb(err_code, reply_p, err_p, userData):
+            if int(err_code) == RET_STALE_WARN:
+                return
+
+            text_p = reply_p if int(err_code) == 0 else err_p
+            msg = ffi.string(text_p) if text_p != ffi.NULL else b""
+
+            if not state["done"].is_set():
+                state["ret"] = int(err_code)
+                state["msg"] = msg
+                state["done"].set()
+
+        return ReplyCallbackType(c_cb)
+
+    @staticmethod
     def _make_event_cb(py_callback):
         def c_cb(ret, char_p, length, userData):
             msg = ffi.buffer(char_p, length)[:] if char_p != ffi.NULL else b""
             py_callback(int(ret), msg)
 
-        handler = CallbackType(c_cb)
-        _PINNED_EVENT_CALLBACKS.append(handler)
-        return handler
+        return CallbackType(c_cb)
 
     @classmethod
     def create_node(
@@ -237,23 +187,23 @@ class NodeWrapper:
         config_buffer = ffi.new("char[]", config_json.encode("utf-8"))
 
         state = _new_cb_state()
-        cb = cls._make_waiting_cb(state)
+        cb = cls._make_waiting_reply_cb(state)
 
-        ctx = lib.logosdelivery_create_node(
-            config_buffer,
-            cb,
-            ffi.NULL,
-        )
-
-        if ctx == ffi.NULL:
-            return Err("create_node: ctx is NULL")
-
-        node = cls(ctx, config_buffer, None)
+        req = ffi.new("CreateNodeCtorReq *", {"configJson": config_buffer})
+        lib.logosdelivery_create_node(req, cb, ffi.NULL)
 
         wait_result = _wait_cb_ok(state, "create_node", timeout_s)
         if wait_result.is_err():
-            node.destroy()
             return Err(wait_result.err())
+
+        # The constructor reports the context address as decimal text.
+        try:
+            ctx = ffi.cast("void *", int(state["msg"].decode("utf-8")))
+        except Exception as e:
+            return Err(f"create_node: invalid context address: {e}")
+
+        if ctx == ffi.NULL:
+            return Err("create_node: ctx is NULL")
 
         event_cb_handler = None
         listener_ids = []
@@ -320,31 +270,21 @@ class NodeWrapper:
         return _wait_cb_ok(state, "stop_node", timeout_s)
 
     def destroy(self, *, timeout_s: float = 20.0) -> Result[int, str]:
-<<<<<<< HEAD
         if self.ctx == ffi.NULL:
-            return Ok(RET_OK)
+            return Ok(0)
 
-=======
->>>>>>> 5e599eb1 (fix: failing ci)
         # Drop the listeners first so the event thread cannot reach the Python
         # callback once the context is gone.
         for listener_id in self._listener_ids:
             lib.logosdelivery_remove_event_listener(self.ctx, listener_id)
         self._listener_ids = ()
 
-        state = _new_cb_state()
-        cb = self._make_waiting_cb(state)
-
-        rc = lib.logosdelivery_destroy(self.ctx, cb, ffi.NULL)
+        rc = lib.logosdelivery_destroy(self.ctx)
         if rc != 0:
-            return Err(f"destroy: immediate call failed (ret={rc})")
-
-        wait_result = _wait_cb_ok(state, "destroy", timeout_s)
-        if wait_result.is_err():
-            return Err(wait_result.err())
+            return Err(f"destroy: call failed (ret={rc})")
 
         self.ctx = ffi.NULL
-        return wait_result
+        return Ok(rc)
 
     def stop_and_destroy(self, *, timeout_s: float = 20.0) -> Result[int, str]:
         stop_result = self.stop_node(timeout_s=timeout_s)
@@ -360,14 +300,11 @@ class NodeWrapper:
 
     def subscribe_content_topic(self, content_topic: str, *, timeout_s: float = 20.0) -> Result[int, str]:
         state = _new_cb_state()
-        cb = self._make_waiting_cb(state)
+        cb = self._make_waiting_reply_cb(state)
 
-        rc = lib.logosdelivery_subscribe(
-            self.ctx,
-            cb,
-            ffi.NULL,
-            content_topic.encode("utf-8"),
-        )
+        topic_buffer = ffi.new("char[]", content_topic.encode("utf-8"))
+        req = ffi.new("SubscribeReq *", {"contentTopicStr": topic_buffer})
+        rc = lib.logosdelivery_subscribe(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
             return Err(f"subscribe_content_topic: immediate call failed (ret={rc})")
 
@@ -375,14 +312,11 @@ class NodeWrapper:
 
     def unsubscribe_content_topic(self, content_topic: str, *, timeout_s: float = 20.0) -> Result[int, str]:
         state = _new_cb_state()
-        cb = self._make_waiting_cb(state)
+        cb = self._make_waiting_reply_cb(state)
 
-        rc = lib.logosdelivery_unsubscribe(
-            self.ctx,
-            cb,
-            ffi.NULL,
-            content_topic.encode("utf-8"),
-        )
+        topic_buffer = ffi.new("char[]", content_topic.encode("utf-8"))
+        req = ffi.new("UnsubscribeReq *", {"contentTopicStr": topic_buffer})
+        rc = lib.logosdelivery_unsubscribe(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
             return Err(f"unsubscribe_content_topic: immediate call failed (ret={rc})")
 
@@ -390,16 +324,13 @@ class NodeWrapper:
 
     def send_message(self, message: dict, *, timeout_s: float = 20.0) -> Result[str, str]:
         state = _new_cb_state()
-        cb = self._make_waiting_cb(state)
+        cb = self._make_waiting_reply_cb(state)
 
         message_json = json.dumps(message, separators=(",", ":"), ensure_ascii=False)
 
-        rc = lib.logosdelivery_send(
-            self.ctx,
-            cb,
-            ffi.NULL,
-            message_json.encode("utf-8"),
-        )
+        message_buffer = ffi.new("char[]", message_json.encode("utf-8"))
+        req = ffi.new("SendReq *", {"messageJson": message_buffer})
+        rc = lib.logosdelivery_send(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
             return Err(f"send_message: immediate call failed (ret={rc})")
 
@@ -433,20 +364,17 @@ class NodeWrapper:
             return Err("get_available_node_info_ids: empty response")
 
         try:
-            return Ok(json.loads(cb_msg.decode("utf-8").strip().lstrip("@")))
+            return Ok(json.loads(cb_msg.decode("utf-8")))
         except Exception as e:
             return Err(f"get_available_node_info_ids: invalid response: {e}")
 
-    def get_node_info(self, node_info_id: str, *, timeout_s: float = 20.0) -> Result[dict, str]:
+    def get_node_info(self, node_info_id: str, *, timeout_s: float = 20.0) -> Result[str, str]:
         state = _new_cb_state()
-        cb = self._make_waiting_cb(state)
+        cb = self._make_waiting_reply_cb(state)
 
-        rc = lib.logosdelivery_get_node_info(
-            self.ctx,
-            cb,
-            ffi.NULL,
-            node_info_id.encode("utf-8"),
-        )
+        info_id_buffer = ffi.new("char[]", node_info_id.encode("utf-8"))
+        req = ffi.new("GetNodeInfoReq *", {"nodeInfoId": info_id_buffer})
+        rc = lib.logosdelivery_get_node_info(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
             return Err(f"get_node_info: immediate call failed (ret={rc})")
 
@@ -458,15 +386,10 @@ class NodeWrapper:
         if cb_ret != 0:
             return Err(f"get_node_info: callback failed (ret={cb_ret}) msg={cb_msg!r}")
 
-        if not cb_msg:
-            return Err("get_node_info: empty response")
-
-        try:
-            result = json.loads(cb_msg.decode("utf-8"))
-        except Exception as e:
-            return Err(f"get_node_info: invalid json: {e}")
-
-        return Ok(result)
+        # The item is a plain string, not JSON: a peer id, an ENR URI, a
+        # comma-separated multiaddress list or the Prometheus metrics text.
+        # MyMixPubKey is legitimately empty when mix is not mounted.
+        return Ok(cb_msg.decode("utf-8"))
 
     def get_available_configs(self, *, timeout_s: float = 20.0) -> Result[dict, str]:
         state = _new_cb_state()

@@ -86,13 +86,17 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
 ### 2. Register the Callback
 
 Register the callback once per event name you want to receive. Each call returns a
-listener id you can later pass to `logosdelivery_remove_event_listener(ctx, id)`.
+listener id you can later pass to `logosdelivery_remove_event_listener(rawCtx, id)`.
+
+The event API takes the raw context, which is the `ptr` field of the
+`LogosDeliveryCtx` that `logosdelivery_ctx_create` hands to its callback.
 
 ```c
-void *ctx = logosdelivery_create_node(config, callback, userData);
-logosdelivery_add_event_listener(ctx, "onMessageSent", event_callback, NULL);
-logosdelivery_add_event_listener(ctx, "onMessagePropagated", event_callback, NULL);
-logosdelivery_add_event_listener(ctx, "onMessageError", event_callback, NULL);
+// ctx comes from the logosdelivery_ctx_create callback; see the README.
+void *rawCtx = ctx->ptr;
+logosdelivery_add_event_listener(rawCtx, "onMessageSent", event_callback, NULL);
+logosdelivery_add_event_listener(rawCtx, "onMessagePropagated", event_callback, NULL);
+logosdelivery_add_event_listener(rawCtx, "onMessageError", event_callback, NULL);
 ```
 
 ### 3. Start the Node
@@ -100,7 +104,7 @@ logosdelivery_add_event_listener(ctx, "onMessageError", event_callback, NULL);
 Once the node is started, events will be delivered to your callback:
 
 ```c
-logosdelivery_start_node(ctx, callback, userData);
+logosdelivery_ctx_start_node(ctx, on_reply, userData);
 ```
 
 ## Event Flow

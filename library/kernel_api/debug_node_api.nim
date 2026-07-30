@@ -2,45 +2,35 @@ import std/strutils
 import chronos, results, ffi
 import logos_delivery, library/declare_lib
 
-proc waku_version(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffiRaw.} =
-  let v = (await ctx.myLib[].waku.version()).valueOr:
+proc waku_version(self: LogosDelivery): Future[Result[string, string]] {.ffi.} =
+  let v = (await self.waku.version()).valueOr:
     return err(error)
   return ok(v)
 
 proc waku_listen_addresses(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffiRaw.} =
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
   ## returns a comma-separated string of the listen addresses
-  let addrs = (await ctx.myLib[].waku.listenAddresses()).valueOr:
+  let addrs = (await self.waku.listenAddresses()).valueOr:
     return err(error)
   return ok(addrs.join(","))
 
-proc waku_get_my_enr(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffiRaw.} =
-  let enrUri = (await ctx.myLib[].waku.myEnr()).valueOr:
+proc waku_get_my_enr(self: LogosDelivery): Future[Result[string, string]] {.ffi.} =
+  let enrUri = (await self.waku.myEnr()).valueOr:
     return err(error)
   return ok(enrUri)
 
-proc waku_get_my_peerid(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffiRaw.} =
-  let peerId = (await ctx.myLib[].waku.myPeerId()).valueOr:
+proc waku_get_my_peerid(self: LogosDelivery): Future[Result[string, string]] {.ffi.} =
+  let peerId = (await self.waku.myPeerId()).valueOr:
     return err(error)
   return ok(peerId)
 
-proc waku_get_metrics(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffiRaw.} =
-  let m = (await ctx.myLib[].waku.metrics()).valueOr:
+proc waku_get_metrics(self: LogosDelivery): Future[Result[string, string]] {.ffi.} =
+  let m = (await self.waku.metrics()).valueOr:
     return err(error)
   return ok(m)
 
-proc waku_is_online(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffiRaw.} =
-  let online = (await ctx.myLib[].waku.isOnline()).valueOr:
+proc waku_is_online(self: LogosDelivery): Future[Result[string, string]] {.ffi.} =
+  let online = (await self.waku.isOnline()).valueOr:
     return err(error)
   return ok($online)

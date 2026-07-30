@@ -181,9 +181,9 @@ def get_node_multiaddr(node) -> str:
     list), this fails loudly instead of silently passing a malformed string
     downstream to staticnodes / add_peers.
     """
-    result = node.get_node_info_raw("MyMultiaddresses")
+    result = node.get_node_info("MyMultiaddresses")
     if result.is_err():
-        raise RuntimeError(f"get_node_info_raw failed: {result.err()}")
+        raise RuntimeError(f"get_node_info failed: {result.err()}")
 
     addr = result.ok_value.strip()
     if not addr or not addr.startswith("/"):
