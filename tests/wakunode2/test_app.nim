@@ -26,6 +26,20 @@ suite "Wakunode2 - Waku":
     check:
       version == git_version
 
+  test "max message size should be reported from node info":
+    ## Given
+    let conf = defaultTestWakuConf()
+
+    let waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+
+    ## When
+    let maxMessageSize = waku.stateInfo.getNodeInfoItem(NodeInfoId.MaxMessageSize)
+
+    ## Then
+    check:
+      maxMessageSize == $conf.maxMessageSizeBytes
+
 suite "Wakunode2 - Waku initialization":
   test "peer persistence setup should be successfully mounted":
     ## Given

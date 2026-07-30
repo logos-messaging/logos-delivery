@@ -7,6 +7,7 @@
 import std/[tables, sequtils, strutils]
 import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
 import logos_delivery/waku/[waku_node, net/bound_ports]
+import logos_delivery/waku/factory/waku_conf
 
 type
   NodeInfoId* {.pure.} = enum
@@ -17,9 +18,11 @@ type
     MyPeerId
     MyBoundPorts
     MyMixPubKey
+    MaxMessageSize
 
   WakuStateInfo* {.requiresInit.} = object
     node: WakuNode
+    conf: WakuConf
 
 proc getAllPossibleInfoItemIds*(self: WakuStateInfo): seq[NodeInfoId] =
   ## Returns all possible options that can be queried to learn about the node's information.
@@ -52,8 +55,11 @@ proc getNodeInfoItem*(self: WakuStateInfo, infoItemId: NodeInfoId): string =
     if self.node.wakuMix.isNil():
       return ""
     return self.node.wakuMix.pubKey.to0xHex()
+  of NodeInfoId.MaxMessageSize:
+    ## Configured max message size (in bytes) for this node.
+    return $self.conf.maxMessageSizeBytes
   else:
     return "unknown info item id"
 
-proc init*(T: typedesc[WakuStateInfo], node: WakuNode): T =
-  return WakuStateInfo(node: node)
+proc init*(T: typedesc[WakuStateInfo], node: WakuNode, conf: WakuConf): T =
+  return WakuStateInfo(node: node, conf: conf)

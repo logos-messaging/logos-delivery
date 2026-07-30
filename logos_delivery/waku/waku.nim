@@ -234,7 +234,7 @@ proc new*(
     return err("Failed setting up app callbacks: " & $error)
 
   var waku = Waku(
-    stateInfo: WakuStateInfo.init(node),
+    stateInfo: WakuStateInfo.init(node, wakuConf),
     conf: wakuConf,
     rng: rng,
     key: wakuConf.nodeKey,
