@@ -16,3 +16,10 @@ RequestBroker:
   proc MessagingSend(
     envelope: MessageEnvelope
   ): Future[Result[RequestId, string]] {.async.}
+
+# Semi detached MessagingClient subscription interface, same pattern as MessagingSend.
+RequestBroker(sync):
+  proc MessagingSubscribe(contentTopic: ContentTopic): Result[void, string]
+
+RequestBroker(sync):
+  proc MessagingUnsubscribe(contentTopic: ContentTopic): Result[void, string]

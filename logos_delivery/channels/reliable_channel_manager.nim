@@ -15,6 +15,7 @@ import brokers/broker_context
 
 import logos_delivery/api/types
 import logos_delivery/api/reliable_channel_manager_api
+import logos_delivery/api/messaging_client_api
 import logos_delivery/api/conf/channels_conf
 
 import ./reliable_channel
@@ -55,6 +56,15 @@ proc start*(self: ReliableChannelManager): Result[void, string] =
   ## payloads. `setProvider` refuses to overwrite, so an application that
   ## installed its own encryption before start keeps it.
   setNoopEncryption()
+
+  # Subscribe channels created before the MessagingSubscribe provider existed.
+  if MessagingSubscribe.isProvided(self.brokerCtx):
+    for chn in self.channels.values:
+      MessagingSubscribe.request(self.brokerCtx, chn.getContentTopic()).isOkOr:
+        warn "failed to subscribe channel's content topic",
+          channelId = chn.getChannelId(),
+          contentTopic = chn.getContentTopic(),
+          error = error
   ok()
 
 proc stop*(self: ReliableChannelManager) {.async.} =
