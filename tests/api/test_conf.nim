@@ -45,27 +45,27 @@ suite "MessagingClientConf - field mapping + transport policy":
       kc.numShardsInNetwork == 4
       kc.maxMessageSize == "150KiB"
 
-  test "messaging transport defaults: ephemeral ports, websocket off, quic on":
+  test "messaging transport defaults: ephemeral ports, websocket off, quic off":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
         raiseAssert error
     check:
       kc.tcpPort == Port(0)
       kc.discv5UdpPort == Port(0)
       kc.websocketSupport == false
-      kc.quicSupport == true
+      kc.quicSupport == false
 
   test "explicit transport overrides win":
     let mc = MessagingClientConf(
       p2pTcpPort: Opt.some(Port(1234)),
       websocketSupport: Opt.some(true),
-      quicSupport: Opt.some(false),
+      quicSupport: Opt.some(true),
     )
     let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
       raiseAssert error
     check:
       kc.tcpPort == Port(1234)
       kc.websocketSupport == true
-      kc.quicSupport == false
+      kc.quicSupport == true
 
 suite "MessagingClientConf - preset resolution":
   test "resolvePreset lifts only messaging-exclusive fields, not kernel-mirrored ones":

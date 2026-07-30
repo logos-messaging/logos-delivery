@@ -134,7 +134,7 @@ proc toWakuNodeConf*(
   conf.websocketPort = self.websocketPort.get(Port(0))
   conf.quicPort = self.quicPort.get(Port(0))
   conf.websocketSupport = self.websocketSupport.get(false)
-  conf.quicSupport = self.quicSupport.get(true)
+  conf.quicSupport = self.quicSupport.get(false)
 
   return ok(conf)
 
