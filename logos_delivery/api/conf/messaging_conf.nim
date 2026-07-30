@@ -45,6 +45,8 @@ type MessagingClientConf* = object
     ## Store retention policy (e.g. "time:3600;size:1GB").
   storeMaxNumDbConnections* {.name: "store-max-num-db-connections".}: Opt[int]
     ## Maximum number of simultaneous store database connections.
+  localStoragePath* {.name: "local-storage-path".}: Opt[string]
+    ## Path to store local data.
   logLevel* {.name: "log-level".}: Opt[logging.LogLevel]
     ## Process log level (TRACE..FATAL); applied by the kernel on node creation.
   logFormat* {.name: "log-format".}: Opt[logging.LogFormat]
@@ -98,6 +100,8 @@ proc toWakuNodeConf*(
     conf.storeMaxNumDbConnections = self.storeMaxNumDbConnections.get()
   if self.storenode.isSome():
     conf.storenode = self.storenode.get()
+  if self.localStoragePath.isSome():
+    conf.localStoragePath = self.localStoragePath.get()
 
   if self.clusterId.isSome():
     conf.clusterId = self.clusterId
