@@ -154,6 +154,13 @@ suite "parseLogosDeliveryConf - JSON parsing":
       WakuNodeConf(lc.kernelConf).clusterId == Opt.some(7'u16) # kernel field
       lc.messagingConf.get().reliabilityEnabled == Opt.some(true) # messaging-only
 
+  test "localStoragePath override maps to the kernel":
+    let lc = parseLogosDeliveryConf(
+      """{"mode": "Core", "messagingOverrides": {"localStoragePath": "/tmp/inst-1/data"}}"""
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(lc.kernelConf).localStoragePath == "/tmp/inst-1/data"
+
   test "messaging overrides are recorded verbatim, unset fields left none":
     let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"clusterId": 7}}""").valueOr:
       raiseAssert error
