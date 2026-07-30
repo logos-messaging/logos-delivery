@@ -121,11 +121,6 @@ EVENT_NAMES = (
 _CBOR_MAJOR_BYTES = 2
 _CBOR_MAJOR_TEXT = 3
 
-# The event thread calls these from outside Python. cffi frees the trampoline
-# when the object dies, so a late event would land on freed memory; keep every
-# event callback alive for the whole process.
-_PINNED_EVENT_CALLBACKS = []
-
 
 def _decode_cbor_string(raw: bytes) -> bytes:
     """Unwrap a CBOR definite-length text/byte string.
@@ -260,23 +255,22 @@ class NodeWrapper:
             node.destroy()
             return Err(wait_result.err())
 
-        if event_cb is None:
-            return Ok(node)
+        event_cb_handler = None
+        listener_ids = []
+        if event_cb is not None:
+            event_cb_handler = cls._make_event_cb(event_cb)
+            for event_name in EVENT_NAMES:
+                listener_id = lib.logosdelivery_add_event_listener(
+                    ctx,
+                    event_name.encode("utf-8"),
+                    event_cb_handler,
+                    ffi.NULL,
+                )
+                if listener_id == 0:
+                    return Err(f"create_node: add_event_listener({event_name}) failed")
+                listener_ids.append(listener_id)
 
-        node._event_cb_handler = cls._make_event_cb(event_cb)
-        for event_name in EVENT_NAMES:
-            listener_id = lib.logosdelivery_add_event_listener(
-                ctx,
-                event_name.encode("utf-8"),
-                node._event_cb_handler,
-                ffi.NULL,
-            )
-            if listener_id == 0:
-                node.destroy()
-                return Err(f"create_node: add_event_listener({event_name}) failed")
-            node._listener_ids += (listener_id,)
-
-        return Ok(node)
+        return Ok(cls(ctx, config_buffer, event_cb_handler, listener_ids))
 
     @classmethod
     def create_and_start(
@@ -326,9 +320,12 @@ class NodeWrapper:
         return _wait_cb_ok(state, "stop_node", timeout_s)
 
     def destroy(self, *, timeout_s: float = 20.0) -> Result[int, str]:
+<<<<<<< HEAD
         if self.ctx == ffi.NULL:
             return Ok(RET_OK)
 
+=======
+>>>>>>> 5e599eb1 (fix: failing ci)
         # Drop the listeners first so the event thread cannot reach the Python
         # callback once the context is gone.
         for listener_id in self._listener_ids:
