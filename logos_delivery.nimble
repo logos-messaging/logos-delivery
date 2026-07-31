@@ -115,9 +115,15 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
       getMyCPU() & getNimParams() & srcDir & "/" & srcFile
   else:
+    # -Bsymbolic binds the library's references to its own symbols at link
+    # time. Without it, a host process that already loads OpenSSL (e.g.
+    # Node.js) interposes our statically linked BoringSSL functions and data
+    # (ASN1_ITEM tables), and QUIC startup crashes in lsquic setupSSLContext
+    # (issue #4085).
+    let elfFlags = when defined(linux): "--passL:-Wl,-Bsymbolic " else: ""
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
+      elfFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
@@ -173,8 +179,9 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   if not dirExists outDir:
     mkDir outDir
 
+  # -Bsymbolic: see buildLibrary's dynamic branch (issue #4085).
   exec "nim c" & " --out:" & outDir &
-    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
+    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-Wl,-Bsymbolic --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
