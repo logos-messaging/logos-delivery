@@ -34,9 +34,9 @@ proc logosdelivery_create_node(
 proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
   discard
 
-proc registerOutgoingEventListeners(self: LogosDelivery): Result[void, string] =
+proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ## Bridges every broker event the library re-publishes onto the FFI event
-  ## registry. Keep in step with `dropOutgoingEventListeners`.
+  ## registry. Keep in step with `dropFFIEventListeners`.
   MessageSentEvent.listen(
     self.waku.brokerCtx,
     proc(event: MessageSentEvent) {.async: (raises: []).} =
@@ -148,8 +148,8 @@ proc registerOutgoingEventListeners(self: LogosDelivery): Result[void, string] =
 
   return ok()
 
-proc dropOutgoingEventListeners(self: LogosDelivery) {.async.} =
-  ## Reverse of `registerOutgoingEventListeners`.
+proc dropFFIEventListeners(self: LogosDelivery) {.async.} =
+  ## Reverse of `registerFFIEventListeners`.
   await MessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
   await MessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await MessagePropagatedEvent.dropAllListeners(self.waku.brokerCtx)
@@ -164,7 +164,7 @@ proc dropOutgoingEventListeners(self: LogosDelivery) {.async.} =
 proc logosdelivery_start_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
-  self.registerOutgoingEventListeners().isOkOr:
+  self.registerFFIEventListeners().isOkOr:
     return err(error)
 
   (await self.start()).isOkOr:
@@ -176,7 +176,7 @@ proc logosdelivery_start_node(
 proc logosdelivery_stop_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
-  await self.dropOutgoingEventListeners()
+  await self.dropFFIEventListeners()
 
   (await self.stop()).isOkOr:
     let errMsg = $error

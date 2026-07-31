@@ -64,17 +64,9 @@ lib = ffi.dlopen(str(_repo_root / "lib" / "liblogosdelivery.so"))
 CallbackType = ffi.callback("void(int, const char*, size_t, void*)")
 ReplyCallbackType = ffi.callback("void(int, const char*, const char*, void*)")
 
-# Non-terminal progress tick. It fires every ~5s while a request is still in
-# flight and is always followed by a terminal RET_OK/RET_ERR, so a caller that
-# latched it would fail every call slower than five seconds -- start_node most
-# of all, since it boots the node and joins the network.
-#
-# Only the scalar-fast-path exports deliver it here: start_node, stop_node,
-# get_available_node_info_ids and get_available_configs take no arguments, so
-# they hand the raw callback straight to the caller. The argument-taking exports
-# go through a reply trampoline inside nim-ffi that already drops it. The guard
-# in _make_waiting_reply_cb is therefore belt-and-braces, kept so this wrapper
-# stays correct if that trampoline ever changes.
+# Non-terminal progress tick (~every 5s while a request is in flight), always
+# followed by a terminal RET_OK/RET_ERR. The waiting callbacks drop it so a slow
+# call (start_node most of all) is not latched as a result.
 RET_STALE_WARN = 3
 
 # Every event the library emits. Since 0.3.0 a listener is registered per event

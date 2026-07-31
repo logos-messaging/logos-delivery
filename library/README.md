@@ -15,50 +15,59 @@ library before you compile anything against it.
 Include `library/liblogosdelivery.h`, which pulls in the generated header and
 adds the event-listener ABI.
 
-Each call takes its arguments first and a reply callback last:
+Every entry point takes the context handle (`void *ctx`) first, except the
+constructor. The rest of the signature depends on the call:
+
+- No-argument calls (`start_node`, `stop_node`, `get_available_configs`,
+  `get_available_node_info_ids`) take a raw `LogosDeliveryScalarRawFn`:
+  `(void *ctx, LogosDeliveryScalarRawFn cb, void *userData)`.
+- Argument-taking calls (`subscribe`, `unsubscribe`, `send`, `get_node_info`)
+  take a per-call `LogosDelivery<Name>ReplyFn` and pass their arguments last, in
+  a request struct:
+  `(void *ctx, LogosDelivery<Name>ReplyFn onReply, void *userData, const <Name>Req *req)`.
+
+The generator emits one reply typedef per call (e.g. `LogosDeliverySubscribeReplyFn`),
+all with the same shape:
 
 ```c
-typedef void (*<Name>ReplyFn)(
-    int errCode,          // NIMFFI_RET_OK or NIMFFI_RET_ERR
-    const char *reply,    // result on success, NUL-terminated
-    const char *errMsg,   // message on failure, NUL-terminated
-    void *userData
-);
+typedef void (*LogosDeliveryScalarRawFn)(int callerRet, char *msg, size_t len, void *userData);
+typedef void (*LogosDeliverySubscribeReplyFn)(int errCode, const char *reply, const char *errMsg, void *userData);
 ```
 
-`reply` and `errMsg` are borrowed: copy them if you need them after the callback
-returns.
+`reply`, `errMsg` and `msg` are borrowed: copy them if you need them after the
+callback returns.
 
 ## API Functions
 
 ### Node Lifecycle
 
-#### `logosdelivery_ctx_create`
-Creates a new instance of the node from the given configuration JSON.
+#### `logosdelivery_create_node`
+Creates a node from the given configuration JSON.
 
 ```c
-typedef void (*LogosDeliveryCreateFn)(
+typedef struct { const char *configJson; } CreateNodeCtorReq;
+
+typedef void (*LogosDeliveryCreateRawFn)(
     int errCode,
-    LogosDeliveryCtx *ctx,
+    const char *ctxAddr,   // context address as decimal text, on success
     const char *errMsg,
     void *userData
 );
 
-int logosdelivery_ctx_create(
-    const char *configJson,
-    LogosDeliveryCreateFn onCreated,
+void *logosdelivery_create_node(
+    const CreateNodeCtorReq *req,
+    LogosDeliveryCreateRawFn onCreated,
     void *userData
 );
 ```
 
 **Parameters:**
-- `configJson`: JSON string containing node configuration
-- `onCreated`: Callback that receives the context
+- `req->configJson`: JSON string containing node configuration
+- `onCreated`: Callback that receives the terminal result
 - `userData`: User data passed to the callback
 
-**Returns:** 0 once the request is enqueued. Creation is asynchronous: the
-context arrives in `onCreated`, so wait for that callback before you make any
-other call.
+**Returns:** the context handle, or `NULL` on failure. Creation is asynchronous:
+wait for `onCreated` before you make any other call.
 
 **Example configuration JSON:**
 ```json
@@ -95,30 +104,22 @@ Available presets:
 Starts the node.
 
 ```c
-int logosdelivery_ctx_start_node(
-    const LogosDeliveryCtx *ctx,
-    LogosDeliveryStartNodeReplyFn onReply,
-    void *userData
-);
+int logosdelivery_start_node(void *ctx, LogosDeliveryScalarRawFn callback, void *userData);
 ```
 
 #### `logosdelivery_stop_node`
 Stops the node.
 
 ```c
-int logosdelivery_ctx_stop_node(
-    const LogosDeliveryCtx *ctx,
-    LogosDeliveryStopNodeReplyFn onReply,
-    void *userData
-);
+int logosdelivery_stop_node(void *ctx, LogosDeliveryScalarRawFn callback, void *userData);
 ```
 
-#### `logosdelivery_ctx_destroy`
-Destroys a node instance and frees resources. This call is synchronous and also
-frees the `LogosDeliveryCtx` wrapper, so do not use `ctx` afterwards.
+#### `logosdelivery_destroy`
+Destroys a node instance and frees resources. This call is synchronous; do not
+use `ctx` afterwards.
 
 ```c
-int logosdelivery_ctx_destroy(LogosDeliveryCtx *ctx);
+int logosdelivery_destroy(void *ctx);
 ```
 
 ### Messaging
@@ -127,17 +128,19 @@ int logosdelivery_ctx_destroy(LogosDeliveryCtx *ctx);
 Subscribe to a content topic to receive messages.
 
 ```c
-int logosdelivery_ctx_subscribe(
-    const LogosDeliveryCtx *ctx,
-    const char *contentTopic,
+typedef struct { const char *contentTopicStr; } SubscribeReq;
+
+int logosdelivery_subscribe(
+    void *ctx,
     LogosDeliverySubscribeReplyFn onReply,
-    void *userData
+    void *userData,
+    const SubscribeReq *req
 );
 ```
 
 **Parameters:**
-- `ctx`: Context from the `logosdelivery_ctx_create` callback
-- `contentTopic`: Content topic string (e.g., "/myapp/1/chat/proto")
+- `ctx`: Context handle returned by `logosdelivery_create_node`
+- `req->contentTopicStr`: Content topic string (e.g., "/myapp/1/chat/proto")
 - `onReply`: Callback function to receive the result
 - `userData`: User data passed to the callback
 
@@ -145,11 +148,13 @@ int logosdelivery_ctx_subscribe(
 Unsubscribe from a content topic.
 
 ```c
-int logosdelivery_ctx_unsubscribe(
-    const LogosDeliveryCtx *ctx,
-    const char *contentTopic,
+typedef struct { const char *contentTopicStr; } UnsubscribeReq;
+
+int logosdelivery_unsubscribe(
+    void *ctx,
     LogosDeliveryUnsubscribeReplyFn onReply,
-    void *userData
+    void *userData,
+    const UnsubscribeReq *req
 );
 ```
 
@@ -157,16 +162,18 @@ int logosdelivery_ctx_unsubscribe(
 Send a message.
 
 ```c
-int logosdelivery_ctx_send(
-    const LogosDeliveryCtx *ctx,
-    const char *messageJson,
+typedef struct { const char *messageJson; } SendReq;
+
+int logosdelivery_send(
+    void *ctx,
     LogosDeliverySendReplyFn onReply,
-    void *userData
+    void *userData,
+    const SendReq *req
 );
 ```
 
 **Parameters:**
-- `messageJson`: JSON string containing the message
+- `req->messageJson`: JSON string containing the message
 
 **Example message JSON:**
 ```json
@@ -243,31 +250,35 @@ All functions that return `int` use the following return codes:
 
 ## Callback Functions
 
-Each API function takes a reply callback named after it. Every one of them has
-the same shape:
+Results come back through one of four callback shapes. The generated names carry
+the library prefix (`LogosDelivery`); the reply typedef is emitted once per call.
 
 ```c
-typedef void (*<Name>ReplyFn)(
+// Argument-taking calls: one typedef per call, all this shape.
+typedef void (*LogosDeliverySubscribeReplyFn)(
     int errCode,
     const char *reply,
     const char *errMsg,
     void *userData
 );
-```
 
-**Parameters:**
-- `errCode`: Return code (`RET_OK`, `RET_ERR`, ...)
-- `reply`: Result on success, NUL-terminated (may be empty)
-- `errMsg`: Message on failure, NUL-terminated
-- `userData`: User data passed in the original call
+// No-argument calls (start/stop/get_available_*).
+typedef void (*LogosDeliveryScalarRawFn)(
+    int callerRet,
+    char *msg,
+    size_t len,
+    void *userData
+);
 
-Both strings are borrowed and are valid only for the duration of the call. Copy
-them if you need them afterwards.
+// Constructor.
+typedef void (*LogosDeliveryCreateRawFn)(
+    int errCode,
+    const char *ctxAddr,
+    const char *errMsg,
+    void *userData
+);
 
-Event listeners take the raw callback instead, because an event payload is a
-byte run rather than a string:
-
-```c
+// Event listeners (declared by liblogosdelivery.h, not the generated header).
 typedef void (*FFICallBack)(
     int callerRet,
     const char *msg,
@@ -276,7 +287,15 @@ typedef void (*FFICallBack)(
 );
 ```
 
-`msg` holds `len` bytes and is not NUL-terminated.
+- Reply typedefs (`LogosDelivery<Name>ReplyFn`): `reply` is the result on success
+  (NUL-terminated, may be empty); `errMsg` is the message on failure.
+- `LogosDeliveryScalarRawFn` and `FFICallBack`: `msg` holds `len` bytes and is
+  not NUL-terminated.
+- `LogosDeliveryCreateRawFn`: `ctxAddr` is the context address as decimal text on
+  success.
+
+All of these strings are borrowed and valid only for the duration of the call.
+Copy them if you need them afterwards.
 
 ## Example Usage
 
@@ -286,9 +305,9 @@ typedef void (*FFICallBack)(
 #include <unistd.h>
 
 static volatile int created = -1;
-static LogosDeliveryCtx *node = NULL;
+static void *node = NULL;
 
-// Every reply callback has this shape, so one function serves them all.
+// The argument-taking calls share this reply shape.
 void on_reply(int ret, const char *reply, const char *errMsg, void *userData) {
     if (ret == RET_OK) {
         printf("Success: %s\n", reply ? reply : "");
@@ -297,8 +316,13 @@ void on_reply(int ret, const char *reply, const char *errMsg, void *userData) {
     }
 }
 
-void on_created(int ret, LogosDeliveryCtx *ctx, const char *errMsg, void *userData) {
-    node = (ret == RET_OK) ? ctx : NULL;
+// The no-argument calls (start/stop) take the raw callback.
+void on_scalar(int ret, char *msg, size_t len, void *userData) {
+    if (ret == RET_STALE_WARN) return;  // progress tick, ignore
+    printf("%.*s\n", (int)len, msg ? msg : "");
+}
+
+void on_created(int ret, const char *ctxAddr, const char *errMsg, void *userData) {
     created = (ret == RET_OK);
 }
 
@@ -308,20 +332,23 @@ int main() {
         "\"preset\": \"logos.dev\""
         "}";
 
-    // Create the node. The context arrives in on_created, so wait for it.
-    logosdelivery_ctx_create(config, on_created, NULL);
+    // Create the node. The return value is the context handle; wait for
+    // on_created before making any other call.
+    CreateNodeCtorReq createReq = { .configJson = config };
+    node = logosdelivery_create_node(&createReq, on_created, NULL);
     for (int i = 0; i < 100 && created == -1; i++) {
         usleep(100000);
     }
-    if (created != 1) {
+    if (created != 1 || node == NULL) {
         return 1;
     }
 
     // Start node
-    logosdelivery_ctx_start_node(node, on_reply, NULL);
+    logosdelivery_start_node(node, on_scalar, NULL);
 
     // Subscribe to a topic
-    logosdelivery_ctx_subscribe(node, "/myapp/1/chat/proto", on_reply, NULL);
+    SubscribeReq subReq = { .contentTopicStr = "/myapp/1/chat/proto" };
+    logosdelivery_subscribe(node, on_reply, NULL, &subReq);
 
     // Send a message
     const char *msg = "{"
@@ -329,11 +356,12 @@ int main() {
         "\"payload\": \"SGVsbG8gV29ybGQ=\","
         "\"ephemeral\": false"
         "}";
-    logosdelivery_ctx_send(node, msg, on_reply, NULL);
+    SendReq sendReq = { .messageJson = msg };
+    logosdelivery_send(node, on_reply, NULL, &sendReq);
 
-    // Clean up. logosdelivery_ctx_destroy is synchronous.
-    logosdelivery_ctx_stop_node(node, on_reply, NULL);
-    logosdelivery_ctx_destroy(node);
+    // Clean up. logosdelivery_destroy is synchronous.
+    logosdelivery_stop_node(node, on_scalar, NULL);
+    logosdelivery_destroy(node);
 
     return 0;
 }
@@ -347,8 +375,8 @@ The library is structured as follows:
 - `generated/logosdelivery.h`: Generated call surface, emitted by `make liblogosdelivery` (not checked in)
 - `liblogosdelivery.nim`: Main library entry point
 - `declare_lib.nim`: Library declaration and initialization
-- `lmapi/node_api.nim`: Node lifecycle API implementation
-- `lmapi/messaging_api.nim`: Subscribe/send API implementation
+- `logos_delivery_api/node_api.nim`: Node lifecycle API implementation
+- `logos_delivery_api/messaging_api.nim`: Subscribe/send API implementation
 
 The library uses the nim-ffi framework for FFI infrastructure, which handles:
 - Thread-safe request processing

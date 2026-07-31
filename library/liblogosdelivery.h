@@ -43,8 +43,8 @@ extern "C"
   // base64-encoded), "onChannelMessageSent" and "onChannelMessageError".
 
   // Registers a callback for the named event and returns a non-zero listener id
-  // (0 on an invalid context). `ctx` is the `ptr` field of the LogosDeliveryCtx
-  // handed to the LogosDeliveryCreateFn callback.
+  // (0 on an invalid context). `ctx` is the context handle returned by
+  // logosdelivery_create_node.
   // The callback runs on a dedicated event thread and must be fast,
   // non-blocking and thread-safe.
   uint64_t logosdelivery_add_event_listener(void *ctx,

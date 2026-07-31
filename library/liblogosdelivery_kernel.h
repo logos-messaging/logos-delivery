@@ -7,10 +7,10 @@
 // existing includes keep resolving.
 //
 // The tiering still holds as a support promise, even though the compiler no
-// longer enforces it. The `waku_*` and `logosdelivery_ctx_waku_*` functions
-// expose per-protocol internals (relay, filter, lightpush, store, discovery,
-// peer management) and may change or be removed at ANY time, without notice or
-// a deprecation cycle. Only the messaging and reliable-channel entry points are
+// longer enforces it. The `waku_*` functions expose per-protocol internals
+// (relay, filter, lightpush, store, discovery, peer management) and may change
+// or be removed at ANY time, without notice or a deprecation cycle. Only the
+// messaging and reliable-channel entry points are
 // supported.
 //
 // See https://github.com/logos-messaging/logos-delivery/issues/3851 for the

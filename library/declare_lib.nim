@@ -2,7 +2,7 @@ import ffi
 import results
 import logos_delivery
 
-declareLibrary("logosdelivery", LogosDelivery, "c")
+declareLibrary("logosdelivery", LogosDelivery, defaultABIFormat = "c")
 
 template emitEvent*(eventName: string, body: untyped) =
   ## Enqueues `body`'s payload for nim-ffi's event thread to fan out to listeners.
