@@ -8,9 +8,7 @@ import
   std/[sequtils, net],
   results
 
-import
-  logos_delivery/waku/[common/utils/nat, net/net_config, waku_enr, waku_core],
-  ./waku_conf
+import logos_delivery/waku/[net/net_config, waku_enr, waku_core], ./waku_conf
 
 proc tryBuildEnrRecord(
     conf: WakuConf, netConfig: NetConfig, multiaddrs: seq[MultiAddress]
@@ -89,7 +87,9 @@ proc networkConfiguration*(
     quicConf: Opt[QuicConf],
     wakuFlags: CapabilitiesBitfield,
     dnsAddrsNameServers: seq[IpAddress],
-    clientId: string,
+    natExtIp = Opt.none(IpAddress),
+    natExtTcpPort = Opt.none(Port),
+    natExtUdpPort = Opt.none(Port),
 ): Future[NetConfigResult] {.async.} =
   let tcpBindPort = conf.p2pTcpPort
 
@@ -100,11 +100,14 @@ proc networkConfiguration*(
     else:
       (false, Opt.none(Port))
 
-  # NAT-map the QUIC UDP port (placeholder when QUIC off)
-  var (extIp, extTcpPort, extUdpPort) = setupNat(
-    conf.natStrategy, clientId, tcpBindPort, quicBindPort.get(tcpBindPort)
-  ).valueOr:
-    return err("failed to setup NAT: " & $error)
+  ## External IP/ports as far as they can be known at this point: `extip:` is
+  ## static configuration, while UPnP/NAT-PMP mappings are performed by the
+  ## switch's NATService at startup; the caller passes their results in
+  ## (`natExtIp`/`natExt*Port`) when recomputing the config on a running node.
+  var extIp = natExtIp
+  let (extTcpPort, extUdpPort) = (natExtTcpPort, natExtUdpPort)
+  if extIp.isNone() and conf.natStrategy.kind == NatExtIp:
+    extIp = Opt.some(conf.natStrategy.extIp)
 
   let
     discv5UdpPort =

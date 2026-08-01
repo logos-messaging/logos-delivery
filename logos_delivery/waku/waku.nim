@@ -105,28 +105,36 @@ proc setupSwitchServices(
         error "failed to update announced multiaddress", error = $error
 
   let autonatService = getAutonatService(rng)
-  if conf.circuitRelayClient:
-    ## The node is considered to be behind a NAT or firewall and then it
-    ## should struggle to be reachable and establish connections to other nodes
-    const MaxNumRelayServers = 2
-    let autoRelayService = AutoRelayService.new(
-      MaxNumRelayServers, RelayClient(circuitRelay), onReservation, rng
-    )
-    let holePunchService = HPService.new(autonatService, autoRelayService)
-    waku.node.switch.services = @[Service(holePunchService)]
-  else:
-    waku.node.switch.services = @[Service(autonatService)]
+  let newService =
+    if conf.circuitRelayClient:
+      ## The node is considered to be behind a NAT or firewall and then it
+      ## should struggle to be reachable and establish connections to other nodes
+      const MaxNumRelayServers = 2
+      let autoRelayService = AutoRelayService.new(
+        MaxNumRelayServers, RelayClient(circuitRelay), onReservation, rng
+      )
+      Service(HPService.new(autonatService, autoRelayService))
+    else:
+      Service(autonatService)
+
+  # The builder-attached NATService (port mapping) must survive, but the
+  # rest of the build-time service list (wildcard address resolver) is
+  # dropped, as it always was before the NATService existed: running the
+  # wildcard resolver's start/stop alongside these services mutates
+  # peerInfo.addressMappers while libp2p iterates it across awaits
+  # (AssertionDefect: seq changed while iterating).
+  waku.node.switch.services.keepItIf(it of NATService)
+  waku.node.switch.services.add(newService)
 
   # libp2p 2.0.0 split Service.setup out of Service.start: the switch runs setup
   # only at build time (SwitchBuilder.setupServices), while switch.start calls
-  # just start. These services are created and attached post-build, so setup must
+  # just start. This service is created and attached post-build, so setup must
   # be invoked explicitly here -- otherwise AutonatService.addressMapper stays nil
   # and the peerInfo.update() inside start dereferences it (SIGSEGV).
-  for service in waku.node.switch.services:
-    try:
-      service.setup(waku.node.switch)
-    except ServiceSetupError as e:
-      error "failed to set up libp2p switch service", error = e.msg
+  try:
+    newService.setup(waku.node.switch)
+  except ServiceSetupError as e:
+    error "failed to set up libp2p switch service", error = e.msg
 
 ## Initialisation
 
@@ -269,7 +277,7 @@ proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.
   let netConf = (
     await networkConfiguration(
       conf.clusterId, conf.endpointConf, conf.discv5Conf, conf.webSocketConf,
-      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, clientId,
+      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers,
     )
   ).valueOr:
     return err("Could not update NetConfig: " & error)

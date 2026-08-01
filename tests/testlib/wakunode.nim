@@ -33,7 +33,8 @@ proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   builder.withDnsAddrsNameServers(
     @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
   )
-  builder.withNatStrategy("any")
+  # "none": tests must not attempt real UPnP/NAT-PMP discovery on the switch
+  builder.withNatStrategy("none")
   builder.withMaxConnections(150)
   builder.withRelayServiceRatio("50:50")
   builder.withMaxMessageSize("1024 KiB")

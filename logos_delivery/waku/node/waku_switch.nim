@@ -13,7 +13,8 @@ import
   libp2p/nameresolving/nameresolver,
   libp2p/builders,
   libp2p/switch,
-  libp2p/transports/[transport, tcptransport, wstransport]
+  libp2p/transports/[transport, tcptransport, wstransport],
+  libp2p/utils/opt
 import ./delivery_dialer
 
 # override nim-libp2p default value (which is also 1)
@@ -79,6 +80,8 @@ proc newWakuSwitch*(
     peerStoreCapacity = Opt.none(int), # defaults to 1.25 maxConnections
     rendezvous: RendezVous = nil,
     circuitRelay: Relay,
+    natConfig = Opt.none(NATConfig),
+    natPortMapperFactory: PortMapperFactory = nil,
 ): Switch {.raises: [Defect, IOError, LPError].} =
   var b = SwitchBuilder
     .new()
@@ -91,6 +94,11 @@ proc newWakuSwitch*(
     .withSignedPeerRecord(sendSignedPeerRecord)
     .withCircuitRelay(circuitRelay)
     .withAutonat()
+
+  # UPnP / NAT-PMP port mapping via libp2p's NATService (the `extip:` strategy
+  # is handled statically in NetConfig and never reaches the switch).
+  natConfig.withValue(config):
+    b = b.withNAT(config, natPortMapperFactory)
 
   # libp2p 2.0.0 folded withMaxConnections and withMaxInOut into a single
   # `limits` field: they are mutually exclusive (last one wins), and

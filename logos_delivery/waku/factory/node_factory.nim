@@ -102,6 +102,10 @@ proc initNode(
     agentString = Opt.some(conf.agentString),
   )
   builder.withColocationLimit(conf.colocationLimit)
+  builder.withNatConfig(
+    toNatConfig(conf.endpointConf.natStrategy),
+    natPortMapperFactory(conf.endpointConf.natStrategy),
+  )
 
   if conf.maxRelayPeers.isSome():
     let
@@ -462,7 +466,7 @@ proc setupNode*(
     await networkConfiguration(
       wakuConf.clusterId, wakuConf.endpointConf, wakuConf.discv5Conf,
       wakuConf.webSocketConf, wakuConf.quicConf, wakuConf.wakuFlags,
-      wakuConf.dnsAddrsNameServers, clientId,
+      wakuConf.dnsAddrsNameServers,
     )
   ).valueOr:
     error "failed to create internal config", error = error
