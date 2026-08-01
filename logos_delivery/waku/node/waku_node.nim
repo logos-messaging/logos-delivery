@@ -513,6 +513,30 @@ proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string]
 
   return ok()
 
+func hasZeroPort(ma: MultiAddress): bool =
+  ## Port 0 means "kernel picks a port at bind time": a placeholder, not a
+  ## dialable endpoint.
+  let transportAddress = initTAddress(ma).valueOr:
+    return false
+  return transportAddress.port == Port(0)
+
+proc resolveAnnouncedAddresses(node: WakuNode) =
+  ## Replace port-0 placeholders with the addresses the switch actually bound.
+  ## Must run after `switch.start()`, the first point where those are known.
+  ## Entries with a real port are operator intent (explicit external or dns
+  ## announces) and are kept as they are.
+  if not node.announcedAddresses.anyIt(it.hasZeroPort()):
+    return
+
+  var newAnnounced = node.announcedAddresses.filterIt(not it.hasZeroPort())
+  for resolved in node.switch.peerInfo.addrs:
+    if resolved notin newAnnounced:
+      newAnnounced.add(resolved)
+
+  info "Resolved dynamically allocated ports in announced addresses",
+    previous = $node.announcedAddresses, updated = $newAnnounced
+  node.announcedAddresses = newAnnounced
+
 proc startProvidersAndListeners*(node: WakuNode) =
   RequestRelayShard.setProvider(
     node.brokerCtx,
@@ -607,17 +631,25 @@ proc start*(node: WakuNode) {.async.} =
   if not node.wakuRendezvousClient.isNil():
     await node.wakuRendezvousClient.start()
 
-  ## The switch uses this mapper to update peer info addrs
-  ## with announced addrs after start
+  ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
+  await node.switch.start()
+
+  ## The switch just bound its sockets: replace any zero-port placeholders
+  ## in the announced addresses with the resolved ones.
+  node.resolveAnnouncedAddresses()
+
+  ## Mapper that answers with the announced addresses. Installed after
+  ## switch.start: the announced addresses are correct by then, and the
+  ## chain is not being walked by the switch's own starting services.
   let addressMapper = proc(
       listenAddrs: seq[MultiAddress]
   ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
     return node.announcedAddresses
   node.switch.peerInfo.addressMappers.add(addressMapper)
 
-  ## The switch will update addresses after start using the addressMapper
-  ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
-  await node.switch.start()
+  ## `update` also regenerates the signed peer record; assigning
+  ## `peerInfo.addrs` directly would leave it advertising the placeholders.
+  await node.switch.peerInfo.update()
 
   # Reconnect to known relay peers in the background; it waits a prune backoff
   # and must not block startup.
