@@ -124,6 +124,12 @@ type
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
     announcedAddresses*: seq[MultiAddress]
+    baseAnnouncedAddresses*: seq[MultiAddress]
+      ## Announced addresses as configuration produced them. The NAT fold
+      ## recomputes from this, so a lapsed mapping stops being announced.
+    natMappedAddresses: seq[MultiAddress]
+      ## Latest address-mapper chain output: the NATService's mapped
+      ## addresses when mappings exist, the listen addresses otherwise.
     extMultiAddrsOnly*: bool # When true, skip automatic IP address replacement
     started*: bool # Indicates that node has started listening
     topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
@@ -460,12 +466,65 @@ proc mountRendezvous*(
   except LPError:
     error "failed to mount wakuRendezvous", error = getCurrentExceptionMsg()
 
-proc isBindIpWithZeroPort(inputMultiAdd: MultiAddress): bool =
-  let inputStr = $inputMultiAdd
-  if inputStr.contains("0.0.0.0/tcp/0") or inputStr.contains("127.0.0.1/tcp/0"):
-    return true
+proc natExternalIp*(node: WakuNode): Opt[IpAddress] =
+  ## External IP discovered by the switch's NATService, if any.
+  let natSvc = natService(node.switch).valueOr:
+    return Opt.none(IpAddress)
+  return natSvc.externalIp
 
-  return false
+func ipOf(ma: MultiAddress): Opt[IpAddress] =
+  let ta = initTAddress(ma).valueOr:
+    return Opt.none(IpAddress)
+  try:
+    return Opt.some(ta.address())
+  except ValueError:
+    return Opt.none(IpAddress)
+
+proc natMappedExternalAddresses*(node: WakuNode): seq[MultiAddress] =
+  ## Captured chain output carrying the discovered external IP.
+  let externalIp = node.natExternalIp().valueOr:
+    return @[]
+  return node.natMappedAddresses.filterIt(it.ipOf() == Opt.some(externalIp))
+
+proc setBaseAnnouncedAddresses*(node: WakuNode, addresses: seq[MultiAddress]) =
+  ## Set the base the fold re-derives from. NAT-mapped addresses are stripped:
+  ## the fold adds them back from the live mapping every time, so one left in
+  ## the base would outlive the mapping it came from and keep being announced.
+  let externalIp = node.natExternalIp()
+  node.baseAnnouncedAddresses =
+    if externalIp.isNone():
+      addresses
+    else:
+      addresses.filterIt(it.ipOf() != externalIp)
+
+proc foldNatMappedAddresses*(node: WakuNode) =
+  ## Recompute the announced addresses from the base and the NATService's
+  ## current mappings. Recomputed rather than edited, so a mapping that
+  ## lapses stops being announced.
+  if node.extMultiAddrsOnly:
+    return
+
+  ## Without a NATService the announced addresses stay as configured.
+  if natService(node.switch).isNone():
+    return
+
+  let mapped = node.natMappedExternalAddresses()
+  var newAnnounced =
+    if mapped.len == 0:
+      node.baseAnnouncedAddresses
+    else:
+      var addrs = mapped
+      for address in node.baseAnnouncedAddresses:
+        if address.isPublicMA() and address notin addrs:
+          addrs.add(address)
+      addrs
+
+  if newAnnounced == node.announcedAddresses:
+    return
+
+  info "Replacing announced addresses with NAT-mapped external addresses",
+    previous = $node.announcedAddresses, updated = $newAnnounced
+  node.announcedAddresses = newAnnounced
 
 proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string] =
   # Skip automatic IP replacement if extMultiAddrsOnly is set
@@ -497,6 +556,18 @@ proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string]
     newAnnouncedAddresses.add(newMultiAddr)
 
   node.announcedAddresses = newAnnouncedAddresses
+
+  ## The same substitution has to reach the base, which the NAT fold
+  ## re-derives from. Rewriting only the announced set would let the next
+  ## fold (the NATService refreshes every 30 minutes) recompute from a base
+  ## still holding the bind-IP form and undo this.
+  var newBaseAddresses = newSeq[MultiAddress](0)
+  for address in node.baseAnnouncedAddresses:
+    let rewritten = ($address).replace("0.0.0.0", localIp).replace("127.0.0.1", localIp)
+    let rewrittenMultiAddr = MultiAddress.init(rewritten).valueOr:
+      return err("error rewriting base announced address: " & $error)
+    newBaseAddresses.add(rewrittenMultiAddr)
+  node.baseAnnouncedAddresses = newBaseAddresses
 
   ## Update the Switch addresses
   node.switch.peerInfo.addrs = newAnnouncedAddresses
@@ -620,10 +691,9 @@ proc start*(node: WakuNode) {.async.} =
   logos_delivery_version.set(1, labelValues = [git_version])
   info "Starting Waku node", version = git_version
 
-  var zeroPortPresent = false
-  for address in node.announcedAddresses:
-    if isBindIpWithZeroPort(address):
-      zeroPortPresent = true
+  ## Computed before start: whether the config left any port to the sockets
+  ## (see hasZeroPort); such configs postpone the primary-IP announce rewrite.
+  let zeroPortPresent = node.announcedAddresses.anyIt(it.hasZeroPort())
 
   if not node.wakuStoreResume.isNil():
     await node.wakuStoreResume.start()
@@ -638,12 +708,21 @@ proc start*(node: WakuNode) {.async.} =
   ## in the announced addresses with the resolved ones.
   node.resolveAnnouncedAddresses()
 
-  ## Mapper that answers with the announced addresses. Installed after
-  ## switch.start: the announced addresses are correct by then, and the
-  ## chain is not being walked by the switch's own starting services.
+  ## Everything the NAT fold derives comes from this base. switch.start has
+  ## already run peerInfo.update once, so the resolved addresses can already
+  ## carry the NATService's mapped endpoint; setBaseAnnouncedAddresses keeps
+  ## it out of the base.
+  node.setBaseAnnouncedAddresses(node.announcedAddresses)
+
+  ## Last stage of the address-mapper chain: capture the chain output and
+  ## fold it into the announced addresses, which stay authoritative for
+  ## peerInfo.addrs. Installed after switch.start, so the chain is not being
+  ## walked by the switch's own starting services while we add to it.
   let addressMapper = proc(
       listenAddrs: seq[MultiAddress]
   ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
+    node.natMappedAddresses = listenAddrs
+    node.foldNatMappedAddresses()
     return node.announcedAddresses
   node.switch.peerInfo.addressMappers.add(addressMapper)
 

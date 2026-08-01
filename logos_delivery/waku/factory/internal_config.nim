@@ -88,8 +88,8 @@ proc networkConfiguration*(
     wakuFlags: CapabilitiesBitfield,
     dnsAddrsNameServers: seq[IpAddress],
     natExtIp = Opt.none(IpAddress),
-    natExtTcpPort = Opt.none(Port),
-    natExtUdpPort = Opt.none(Port),
+    extTcpPort = Opt.none(Port),
+    extUdpPort = Opt.none(Port),
 ): Future[NetConfigResult] {.async.} =
   let tcpBindPort = conf.p2pTcpPort
 
@@ -103,9 +103,9 @@ proc networkConfiguration*(
   ## External IP/ports as far as they can be known at this point: `extip:` is
   ## static configuration, while UPnP/NAT-PMP mappings are performed by the
   ## switch's NATService at startup; the caller passes their results in
-  ## (`natExtIp`/`natExt*Port`) when recomputing the config on a running node.
+  ## (`natExtIp`/`extTcpPort`/`extUdpPort`) when recomputing the config on a
+  ## running node.
   var extIp = natExtIp
-  let (extTcpPort, extUdpPort) = (natExtTcpPort, natExtUdpPort)
   if extIp.isNone() and conf.natStrategy.kind == NatExtIp:
     extIp = Opt.some(conf.natStrategy.extIp)
 
@@ -116,18 +116,25 @@ proc networkConfiguration*(
       else:
         Opt.none(Port)
 
-    ## TODO: the NAT setup assumes a manual port mapping configuration if extIp
-    ## config is set. This probably implies adding manual config item for
-    ## extPort as well. The following heuristic assumes that, in absence of
-    ## manual config, the external port is the same as the bind port.
+    ## The bind-port fallback below assumes the operator vouches for the
+    ## external endpoint (`extip:` implies a manual port mapping, dns4 a name
+    ## that resolves to this node). For a NAT-discovered external IP the
+    ## mapped ports are authoritative instead: a transport without a mapping
+    ## in place has no external endpoint and must not announce a guessed one.
+    natDiscovered = natExtIp.isSome()
+
     extPort =
-      if (extIp.isSome() or conf.dns4DomainName.isSome()) and extTcpPort.isNone():
+      if natDiscovered:
+        extTcpPort
+      elif (extIp.isSome() or conf.dns4DomainName.isSome()) and extTcpPort.isNone():
         Opt.some(tcpBindPort)
       else:
         extTcpPort
 
     extQuicPort =
-      if (extIp.isSome() or conf.dns4DomainName.isSome()) and extUdpPort.isNone():
+      if natDiscovered:
+        extUdpPort
+      elif (extIp.isSome() or conf.dns4DomainName.isSome()) and extUdpPort.isNone():
         quicBindPort
       else:
         extUdpPort

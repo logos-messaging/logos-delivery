@@ -273,11 +273,24 @@ proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.
   if quicPort.isSome() and conf.quicConf.isSome():
     conf.quicConf.get().port = quicPort.get()
 
+  # NATService results feed the recomputed NetConfig and the ENR. The
+  # external IP is used only when a mapping is actually in place: a
+  # discovered IP without one is not reachable.
+  let natMappedAddresses = waku.node.natMappedExternalAddresses()
+  let natMappedPorts = getPorts(natMappedAddresses).valueOr:
+    return err("Could not retrieve NAT-mapped ports: " & error)
+  let natExtIp =
+    if natMappedAddresses.len > 0:
+      waku.node.natExternalIp()
+    else:
+      Opt.none(IpAddress)
+
   # Rebuild NetConfig from the bound ports already read back into `conf`.
   let netConf = (
     await networkConfiguration(
       conf.clusterId, conf.endpointConf, conf.discv5Conf, conf.webSocketConf,
-      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers,
+      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, natExtIp,
+      natMappedPorts.tcpPort, natMappedPorts.quicPort,
     )
   ).valueOr:
     return err("Could not update NetConfig: " & error)
@@ -296,8 +309,13 @@ proc updateEnr(waku: Waku): Future[Result[void, string]] {.async.} =
   waku.node.enr = record
 
   # If TCP/WS was configured with port 0, node.announcedAddresses was built
-  # pre-bind with a port value of 0. In any case, the resync is harmless.
+  # pre-bind with a port value of 0, so resync from the recomputed config.
+  # That config is scalar (one external IP, one port per transport, as the
+  # ENR slots hold), while the mapped set can carry one entry per interface,
+  # so the fold re-derives the announced set instead of the base replacing it.
+  waku.node.setBaseAnnouncedAddresses(netConf.announcedAddresses)
   waku.node.announcedAddresses = netConf.announcedAddresses
+  waku.node.foldNatMappedAddresses()
 
   return ok()
 

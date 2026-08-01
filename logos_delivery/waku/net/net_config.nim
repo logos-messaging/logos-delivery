@@ -201,11 +201,11 @@ proc init*(
         except CatchableError:
           return err(getCurrentExceptionMsg())
 
-      if quicHostAddress.isSome():
+      # No bind-port guessing here: when the external quic port is unknown
+      # (e.g. no NAT mapping for it), no external quic address is announced.
+      if quicHostAddress.isSome() and extQuicPort.isSome():
         try:
-          quicExtAddress = Opt.some(
-            ipQuicEndPoint(extIp.get(), extQuicPort.get(quicBindPort.get(bindPort)))
-          )
+          quicExtAddress = Opt.some(ipQuicEndPoint(extIp.get(), extQuicPort.get()))
         except CatchableError:
           return err("failed to set ip quic endpoint: " & getCurrentExceptionMsg())
 
