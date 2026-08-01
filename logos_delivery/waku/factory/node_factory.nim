@@ -103,7 +103,10 @@ proc initNode(
   )
   builder.withColocationLimit(conf.colocationLimit)
   builder.withNatConfig(
-    toNatConfig(conf.endpointConf.natStrategy),
+    toNatConfig(
+      conf.endpointConf.natStrategy,
+      conf.endpointConf.natDiscoveryTimeoutMs.int64.milliseconds,
+    ),
     natPortMapperFactory(conf.endpointConf.natStrategy),
   )
 

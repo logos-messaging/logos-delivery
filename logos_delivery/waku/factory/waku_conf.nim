@@ -79,6 +79,7 @@ type FilterServiceConf* {.requiresInit.} = object
 
 type EndpointConf* = object
   natStrategy*: NatStrategy
+  natDiscoveryTimeoutMs*: uint32
   p2pTcpPort*: Port
   dns4DomainName*: Opt[string]
   p2pListenAddress*: IpAddress

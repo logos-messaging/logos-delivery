@@ -82,8 +82,16 @@ suite "Announced addresses":
       0,
     )
 
+    ## The hook the factory uses to refresh the ENR must fire when the
+    ## announced addresses change.
+    var changeSignalled = false
+    node.onAnnouncedAddressesChange = proc() {.gcsafe, raises: [].} =
+      changeSignalled = true
+
     await node.switch.peerInfo.update()
-    check mapped in node.announcedAddresses
+    check:
+      mapped in node.announcedAddresses
+      changeSignalled
     await node.stop()
 
   asyncTest "a dynamically allocated quic port postpones the primary-IP rewrite":
@@ -124,6 +132,37 @@ suite "Announced addresses":
     check:
       netConf.announcedAddresses.anyIt("203.0.113.9/tcp/60111" in $it)
       not netConf.announcedAddresses.anyIt("203.0.113.9" in $it and "quic" in $it)
+
+  asyncTest "a NAT external IP without a ws mapping announces no external ws address":
+    ## Same provenance rule as quic: with a NAT-discovered external IP, the
+    ## websocket external address is only real if the ws port mapping is in
+    ## place; the configured ws port must not be guessed into it.
+    let conf = defaultTestWakuConf()
+    conf.webSocketConf = Opt.some(
+      WebSocketConf(port: Port(60822), secureConf: Opt.none(WebSocketSecureConf))
+    )
+    conf.endpointConf.natStrategy = NatStrategy(kind: NatUpnp)
+    conf.endpointConf.p2pTcpPort = Port(60821)
+
+    let netConf = (
+      await networkConfiguration(
+        conf.clusterId,
+        conf.endpointConf,
+        conf.discv5Conf,
+        conf.webSocketConf,
+        conf.quicConf,
+        conf.wakuFlags,
+        conf.dnsAddrsNameServers,
+        Opt.some(parseIpAddress("203.0.113.9")),
+        Opt.some(Port(60111)),
+        Opt.none(Port),
+      )
+    ).valueOr:
+      raiseAssert "networkConfiguration failed: " & error
+
+    check:
+      netConf.announcedAddresses.anyIt("203.0.113.9/tcp/60111" in $it)
+      not netConf.announcedAddresses.anyIt("203.0.113.9" in $it and "/ws" in $it)
 
 suite "Announced addresses - multi-homed NAT":
   asyncTest "every mapped endpoint survives a resync from the recomputed config":

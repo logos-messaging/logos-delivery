@@ -130,6 +130,9 @@ type
     natMappedAddresses: seq[MultiAddress]
       ## Latest address-mapper chain output: the NATService's mapped
       ## addresses when mappings exist, the listen addresses otherwise.
+    onAnnouncedAddressesChange*: proc() {.gcsafe, raises: [].}
+      ## Called when a peerInfo update changes the announced addresses, so
+      ## the owning layer can refresh the ENR.
     extMultiAddrsOnly*: bool # When true, skip automatic IP address replacement
     started*: bool # Indicates that node has started listening
     topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
@@ -497,7 +500,7 @@ proc setBaseAnnouncedAddresses*(node: WakuNode, addresses: seq[MultiAddress]) =
     else:
       addresses.filterIt(it.ipOf() != externalIp)
 
-proc foldNatMappedAddresses*(node: WakuNode) =
+proc foldNatMappedAddresses*(node: WakuNode, notify = true) =
   ## Recompute the announced addresses from the base and the NATService's
   ## current mappings. Recomputed rather than edited, so a mapping that
   ## lapses stops being announced.
@@ -525,6 +528,10 @@ proc foldNatMappedAddresses*(node: WakuNode) =
   info "Replacing announced addresses with NAT-mapped external addresses",
     previous = $node.announcedAddresses, updated = $newAnnounced
   node.announcedAddresses = newAnnounced
+
+  ## `notify = false` when the caller refreshes the ENR itself right after.
+  if notify and not node.onAnnouncedAddressesChange.isNil():
+    node.onAnnouncedAddressesChange()
 
 proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string] =
   # Skip automatic IP replacement if extMultiAddrsOnly is set

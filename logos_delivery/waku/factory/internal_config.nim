@@ -90,6 +90,7 @@ proc networkConfiguration*(
     natExtIp = Opt.none(IpAddress),
     extTcpPort = Opt.none(Port),
     extUdpPort = Opt.none(Port),
+    extWsPort = Opt.none(Port),
 ): Future[NetConfigResult] {.async.} =
   let tcpBindPort = conf.p2pTcpPort
 
@@ -139,6 +140,15 @@ proc networkConfiguration*(
       else:
         extUdpPort
 
+    wsExtPort =
+      if natDiscovered:
+        extWsPort
+      elif (extIp.isSome() or conf.dns4DomainName.isSome()) and extWsPort.isNone() and
+        webSocketConf.isSome():
+        Opt.some(webSocketConf.get().port)
+      else:
+        extWsPort
+
   # Resolve and use DNS domain IP
   if conf.dns4DomainName.isSome() and extIp.isNone():
     try:
@@ -174,6 +184,8 @@ proc networkConfiguration*(
     quicBindPort = quicBindPort,
     quicEnabled = quicEnabled,
     extQuicPort = extQuicPort,
+    extWsPort = wsExtPort,
+    natDiscovered = natDiscovered,
     dns4DomainName = conf.dns4DomainName,
     discv5UdpPort = discv5UdpPort,
     wakuFlags = Opt.some(wakuFlags),
