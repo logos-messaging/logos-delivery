@@ -1,7 +1,8 @@
 {.push raises: [].}
 
-import std/[strutils, net]
-import chronicles, eth/net/nat, results, nativesockets
+import std/net
+import chronicles, eth/net/nat as eth_nat, results, nativesockets
+import ../../net/nat_config
 
 logScope:
   topics = "nat"
@@ -15,19 +16,17 @@ logScope:
 ## Those threads will dead lock each other in tear down.
 var singletonNat: bool = false
 
-# TODO: pass `NatStrategy`, not a string
 proc setupNat*(
-    natConf, clientId: string, tcpPort, udpPort: Port
+    natStrategy: nat_config.NatStrategy, clientId: string, tcpPort, udpPort: Port
 ): Result[tuple[ip: Opt[IpAddress], tcpPort: Opt[Port], udpPort: Opt[Port]], string] {.
     gcsafe
 .} =
   let strategy =
-    case natConf.toLowerAscii()
-    of "any": NatAny
-    of "none": NatNone
-    of "upnp": NatUpnp
-    of "pmp": NatPmp
-    else: NatNone
+    case natStrategy.kind
+    of nat_config.NatAny: eth_nat.NatAny
+    of nat_config.NatUpnp: eth_nat.NatUpnp
+    of nat_config.NatPmp: eth_nat.NatPmp
+    of nat_config.NatNone, nat_config.NatExtIp: eth_nat.NatNone
 
   var endpoint: tuple[ip: Opt[IpAddress], tcpPort: Opt[Port], udpPort: Opt[Port]]
 
@@ -66,14 +65,19 @@ proc setupNat*(
           let (extTcpPort, extUdpPort) = extPorts.get()
           endpoint.tcpPort = Opt.some(extTcpPort)
           endpoint.udpPort = Opt.some(extUdpPort)
-  else: # NatNone
-    if not natConf.startsWith("extip:"):
-      return err("not a valid NAT mechanism: " & $natConf)
-
-    try:
-      # any required port redirection is assumed to be done by hand
-      endpoint.ip = Opt.some(parseIpAddress(natConf[6 ..^ 1]))
-    except ValueError:
-      return err("not a valid IP address: " & $natConf[6 ..^ 1])
+  elif natStrategy.kind == nat_config.NatExtIp:
+    # Any required port redirection is assumed to be configured manually.
+    endpoint.ip = Opt.some(natStrategy.extIp)
 
   return ok(endpoint)
+
+proc setupNat*(
+    natConf, clientId: string, tcpPort, udpPort: Port
+): Result[tuple[ip: Opt[IpAddress], tcpPort: Opt[Port], udpPort: Opt[Port]], string] {.
+    gcsafe
+.} =
+  ## Compatibility overload for applications that have not moved their
+  ## configuration boundary to `NatStrategy` yet.
+  let strategy = parseNatStrategy(natConf).valueOr:
+    return err(error)
+  setupNat(strategy, clientId, tcpPort, udpPort)

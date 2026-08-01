@@ -13,6 +13,7 @@ import
   results
 
 import
+  ../net/nat_config,
   ../rln/rln,
   ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
@@ -26,6 +27,7 @@ import
   ./conf_builder/kademlia_discovery_conf_builder
 
 export RlnConf, RlnCreds, RestServerConf, Discv5Conf, MetricsServerConf
+export nat_config
 
 logScope:
   topics = "waku conf"
@@ -75,8 +77,8 @@ type FilterServiceConf* {.requiresInit.} = object
   subscriptionTimeout*: uint16
   maxCriteria*: uint32
 
-type EndpointConf* = object # TODO: make enum
-  natStrategy*: string
+type EndpointConf* = object
+  natStrategy*: NatStrategy
   p2pTcpPort*: Port
   dns4DomainName*: Opt[string]
   p2pListenAddress*: IpAddress

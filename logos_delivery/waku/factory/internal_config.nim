@@ -102,7 +102,7 @@ proc networkConfiguration*(
 
   # NAT-map the QUIC UDP port (placeholder when QUIC off)
   var (extIp, extTcpPort, extUdpPort) = setupNat(
-    conf.natStrategy.string, clientId, tcpBindPort, quicBindPort.get(tcpBindPort)
+    conf.natStrategy, clientId, tcpBindPort, quicBindPort.get(tcpBindPort)
   ).valueOr:
     return err("failed to setup NAT: " & $error)
 

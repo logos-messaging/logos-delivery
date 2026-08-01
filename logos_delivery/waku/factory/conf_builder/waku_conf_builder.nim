@@ -674,12 +674,15 @@ proc build*(
       warn "Log Format not specified, defaulting to TEXT"
       DefaultLogFormat
 
-  let natStrategy =
+  let natStrategyString =
     if builder.natStrategy.isSome():
       builder.natStrategy.get()
     else:
       warn "Nat Strategy is not specified, defaulting to none"
       DefaultNatStrategy
+
+  let natStrategy = parseNatStrategy(natStrategyString).valueOr:
+    return err("Invalid NAT strategy: " & error)
 
   var p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
 
