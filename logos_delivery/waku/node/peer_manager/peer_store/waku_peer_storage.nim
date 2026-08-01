@@ -29,10 +29,16 @@ proc decode*(T: type RemotePeerInfo, buffer: seq[byte]): ProtoResult[T] =
 
   var pb = initProtoBuffer(buffer)
 
+  var pubKeyBytes: seq[byte]
+
   discard ?pb.getField(1, storedInfo.peerId)
   discard ?pb.getRepeatedField(2, multiaddrSeq)
   discard ?pb.getRepeatedField(3, protoSeq)
-  discard ?pb.getField(4, storedInfo.publicKey)
+  # the public key is stored in its protobuf encoding; decode it from the
+  # raw field bytes
+  let hasPublicKey = ?pb.getField(4, pubKeyBytes)
+  if hasPublicKey and not storedInfo.publicKey.init(pubKeyBytes):
+    return err(ProtoError.IncorrectBlob)
   discard ?pb.getField(5, connectedness)
   discard ?pb.getField(6, disconnectTime)
   let hasENR = ?pb.getField(7, rlpBytes)
@@ -61,10 +67,9 @@ proc encode*(remotePeerInfo: RemotePeerInfo): PeerStorageResult[ProtoBuffer] =
   for proto in remotePeerInfo.protocols.items:
     pb.write(3, proto)
 
-  let catchRes = catch:
-    pb.write(4, remotePeerInfo.publicKey)
-  catchRes.isOkOr:
-    return err("Enncoding public key failed: " & catchRes.error.msg)
+  let pubKeyBytes = remotePeerInfo.publicKey.getBytes().valueOr:
+    return err("Encoding public key failed: " & $error)
+  pb.write(4, pubKeyBytes)
 
   pb.write(5, uint32(ord(remotePeerInfo.connectedness)))
 
