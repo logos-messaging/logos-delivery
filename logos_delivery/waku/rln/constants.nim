@@ -25,11 +25,6 @@ const RlnValidatorErrorMsg* = "RLN validation failed"
 const RlnProofRefreshScheduledMsg* =
   "stale RLN proof suspected; refresh scheduled, retry the publish"
 
-# Bounds the legacy lightpush merkle proof refresh (eth_call refetch + proof
-# regen) so a hanging RPC cannot stall the caller. The retried publish is not
-# bounded.
-const RlnMerkleProofRefreshTimeout* = 5.seconds
-
 # inputs of the membership contract constructor
 # TODO may be able to make these constants private and put them inside the waku_rln_utils
 const

@@ -33,6 +33,11 @@ method sendImpl*(
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
     error "LightpushSendProcessor.sendImpl failed", error = error.desc.get($error.code)
+
+    if error.isRlnRejection():
+      task.parkForRlnProofRefresh(self.waku)
+      return
+
     case error.code
     of LightPushErrorCode.NO_PEERS_TO_RELAY, LightPushErrorCode.TOO_MANY_REQUESTS,
         LightPushErrorCode.OUT_OF_RLN_PROOF, LightPushErrorCode.SERVICE_NOT_AVAILABLE,
