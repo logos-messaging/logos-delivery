@@ -1,6 +1,7 @@
 import results, chronos, chronicles
 import brokers/broker_context
 import logos_delivery/waku/[waku_core], logos_delivery/waku/waku_lightpush/[common, rpc]
+import logos_delivery/waku/waku, logos_delivery/waku/api/publish
 import logos_delivery/waku/requests/health_requests
 import logos_delivery/api/types
 import ./[delivery_task, send_processor]
@@ -9,6 +10,7 @@ logScope:
   topics = "send service relay processor"
 
 type RelaySendProcessor* = ref object of BaseSendProcessor
+  waku: Waku
   publishProc: PushMessageHandler
   fallbackStateToSet: DeliveryState
 
@@ -16,6 +18,7 @@ proc new*(
     T: typedesc[RelaySendProcessor],
     lightpushAvailable: bool,
     publishProc: PushMessageHandler,
+    waku: Waku,
     brokerCtx: BrokerContext,
 ): RelaySendProcessor =
   let fallbackStateToSet =
@@ -25,6 +28,7 @@ proc new*(
       DeliveryState.FailedToDeliver
 
   return RelaySendProcessor(
+    waku: waku,
     publishProc: publishProc,
     fallbackStateToSet: fallbackStateToSet,
     brokerCtx: brokerCtx,
@@ -60,6 +64,11 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
     let errorMessage = error.desc.get($error.code)
     error "Failed to publish message with relay",
       request = task.requestId, msgHash = task.msgHash.to0xHex(), error = errorMessage
+
+    if error.isRlnRejection():
+      task.parkForRlnProofRefresh(self.waku)
+      return
+
     if error.code != LightPushErrorCode.NO_PEERS_TO_RELAY:
       task.state = DeliveryState.FailedToDeliver
       task.errorDesc = errorMessage

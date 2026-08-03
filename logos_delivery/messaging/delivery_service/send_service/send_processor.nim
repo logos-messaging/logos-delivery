@@ -1,5 +1,6 @@
-import chronos
+import results, chronos
 import brokers/broker_context
+import logos_delivery/waku/waku, logos_delivery/waku/api/publish
 import ./delivery_task
 
 {.push raises: [].}
@@ -20,6 +21,19 @@ method sendImpl*(
     self: BaseSendProcessor, task: DeliveryTask
 ): Future[void] {.async, base.} =
   assert false, "Not implemented"
+
+proc parkForRlnProofRefresh*(task: DeliveryTask, waku: Waku) =
+  ## The service refused the task's proof as RLN-invalid: the message itself is
+  ## fine, its proof went stale against a moved merkle root. Schedules a
+  ## background merkle-path refresh and clears the proof so the next round
+  ## regenerates one against the refreshed path — `attachRlnProof`
+  ## short-circuits on an existing proof, so without the clear the rejected
+  ## bytes would be resent until age-out. Resetting admission re-charges the
+  ## fresh nonce that regeneration draws.
+  waku.onRlnProofRejected()
+  task.msg.proof = @[]
+  task.firstAdmittedTime = Opt.none(Moment)
+  task.state = DeliveryState.NextRoundRetry
 
 method process*(
     self: BaseSendProcessor, task: DeliveryTask
