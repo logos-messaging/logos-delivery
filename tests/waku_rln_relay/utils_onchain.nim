@@ -746,7 +746,12 @@ proc setupOnchainGroupManager*(
     return
 
   await sendMintCall(
-    web3, web3.defaultAccount, testTokenAddress, acc, ethToWei(1000.u256), Opt.some(0.u256)
+    web3,
+    web3.defaultAccount,
+    testTokenAddress,
+    acc,
+    ethToWei(1000.u256),
+    Opt.some(0.u256),
   )
 
   let contractAddress = (await executeForgeContractDeployScripts(privateKey, acc, web3)).valueOr:

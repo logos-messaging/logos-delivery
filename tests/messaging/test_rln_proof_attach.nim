@@ -75,9 +75,9 @@ suite "SendService RLN proof attach - RLN mounted":
 
     let credentials = generateCredentials()
     (
-      waitFor cast[OnchainGroupManager](waku.node.rln.groupManager).register(
-        credentials, UserMessageLimit(20)
-      )
+      waitFor cast[OnchainGroupManager](waku.node.rln.groupManager)
+        .withFastRetries()
+        .register(credentials, UserMessageLimit(20))
     ).isOkOr:
       assert false, "failed to register RLN credentials: " & error
 
