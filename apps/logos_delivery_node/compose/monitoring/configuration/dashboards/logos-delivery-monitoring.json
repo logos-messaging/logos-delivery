@@ -96,7 +96,7 @@
             "uid": "PBFA97CFB590B2093"
           },
           "editorMode": "code",
-          "expr": "process_start_time_seconds{job=\"nwaku\"}*1000",
+          "expr": "process_start_time_seconds{job=\"logos-messaging-node\"}*1000",
           "legendFormat": "__auto",
           "range": true,
           "refId": "A"
@@ -167,7 +167,7 @@
           },
           "editorMode": "builder",
           "exemplar": false,
-          "expr": "waku_version{instance=\"nwaku:8003\"}",
+          "expr": "waku_version{instance=\"logos-messaging-node:8003\"}",
           "format": "table",
           "instant": true,
           "legendFormat": "__auto",
@@ -263,7 +263,7 @@
             "include": {
               "names": [
                 "Time",
-                "{__name__=\"routing_table_nodes\", instance=\"nwaku:8003\", job=\"nwaku\"}"
+                "{__name__=\"routing_table_nodes\", instance=\"logos-messaging-node:8003\", job=\"logos-messaging-node\"}"
               ]
             }
           }

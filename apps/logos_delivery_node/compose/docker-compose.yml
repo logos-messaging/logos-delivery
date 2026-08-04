@@ -24,6 +24,9 @@ services:
     build:
       context: ../../..
       dockerfile: Dockerfile
+      # Build the `prod` stage; without this compose builds the Dockerfile's
+      # last stage (debug-with-heaptrack), shipping gdb/heaptrack needlessly.
+      target: prod
       args:
         MAKE_TARGET: logosdeliverynode
         POSTGRES: "1"
