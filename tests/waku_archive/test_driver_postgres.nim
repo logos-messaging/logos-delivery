@@ -1,16 +1,19 @@
 {.used.}
 
-import results, std/sequtils, testutils/unittests, chronos
+import results, std/[sequtils, strutils], testutils/unittests, chronos
 import
   logos_delivery/waku/[
     waku_archive,
     waku_archive/driver/postgres_driver,
     waku_core,
     waku_core/message/digest,
+    common/databases/db_postgres/pgasyncpool,
   ],
   ../testlib/wakucore,
   ../testlib/testasync,
   ../testlib/postgres
+
+const TestDbUrl = "postgres://postgres:test123@localhost:5432/postgres"
 
 suite "Postgres driver":
   ## Unique driver instance
@@ -169,3 +172,51 @@ suite "Postgres driver":
 
     assert newNumMsgs == (initialNumMsgs + 1.int64),
       "wrong number of messages: " & $newNumMsgs
+
+  asyncTest "messages_lookup partitions are created and dropped with messages partitions":
+    ## Issue #3790: lookup rows are pruned by dropping hourly partitions in
+    ## lockstep with the messages partitions, never by bulk DELETEs.
+    let msg = fakeWakuMessage(ts = now())
+    require (
+      await driver.put(
+        computeMessageHash(DefaultPubsubTopic, msg), DefaultPubsubTopic, msg
+      )
+    ).isOk()
+
+    let msgPartitions =
+      (await driver.getPartitionsList("messages")).expect("messages list")
+    let lookupPartitions =
+      (await driver.getPartitionsList("messages_lookup")).expect("lookup list")
+    check msgPartitions.len > 0
+    check lookupPartitions.len == msgPartitions.len
+    for p in msgPartitions:
+      check ("lookup_" & p.replace("messages_", "")) in lookupPartitions
+
+    ## dropping every messages partition must take the lookup siblings with it
+    require (await driver.reset()).isOk()
+    check (await driver.getPartitionsList("messages_lookup")).expect("lookup list").len ==
+      0
+
+  asyncTest "ensureLookupPartitions rebuilds dropped lookup partitions":
+    ## Simulates a hand-dropped messages_lookup: hash queries degrade, and
+    ## ensureLookupPartitions recreates and backfills from messages partitions.
+    let msg = fakeWakuMessage(ts = now())
+    let hash = computeMessageHash(DefaultPubsubTopic, msg)
+    require (await driver.put(hash, DefaultPubsubTopic, msg)).isOk()
+
+    check (await driver.getMessages(hashes = @[hash])).expect("hash query").len == 1
+
+    ## drop every lookup partition behind the driver's back
+    let rawPool = PgAsyncPool.new(TestDbUrl, 1).expect("raw pool")
+    let lookupPartitions =
+      (await driver.getPartitionsList("messages_lookup")).expect("lookup list")
+    require lookupPartitions.len > 0
+    for p in lookupPartitions:
+      (await rawPool.pgQuery("DROP TABLE IF EXISTS " & p)).expect("drop " & p)
+    (await rawPool.close()).expect("close raw pool")
+
+    check (await driver.getMessages(hashes = @[hash])).expect("degraded query").len == 0
+
+    (await driver.ensureLookupPartitions()).expect("ensureLookupPartitions")
+
+    check (await driver.getMessages(hashes = @[hash])).expect("healed query").len == 1
