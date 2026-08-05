@@ -364,6 +364,10 @@ def main() -> int:
         print("\nABORTING — fleet never reached a publishable state.")
         return _summarize(results)
 
+    # A publish into an empty gossipsub mesh is dropped but still returns 200,
+    # so WARMUP can pass before the sender has peers. Let the mesh settle.
+    time.sleep(10)
+
     run(scenario_propagation, nodes[0], nodes[1:])
     # Rate limit: per-node burst, asserts exactly msg_limit then 500.
     # Requires epoch_sec large enough that the burst can't straddle an epoch.

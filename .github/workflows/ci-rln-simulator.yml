@@ -161,6 +161,9 @@ jobs:
       - name: Write simulator .env
         working-directory: ${{ runner.temp }}/logos-delivery-simulator
         run: |
+          # Deploy the contract revision this repo vendors, so they can't drift.
+          CONTRACT_COMMIT=$(git -C "$GITHUB_WORKSPACE" rev-parse HEAD:vendor/waku-rlnv2-contract)
+          echo "contract commit (from vendor/waku-rlnv2-contract): $CONTRACT_COMMIT"
           cat > .env <<EOF
           LD_IMAGE=nwaku-rln-ci:test
           NUM_LD_NODES=${{ steps.cfg.outputs.num_nodes }}
@@ -172,7 +175,7 @@ jobs:
           RPC_URL=http://foundry:8545
           PRIVATE_KEY=0xac0974bec39a17e36ba4a6b4d238ff944bacb478cbed5efcae784d7bf4f2ff80
           ETH_FROM=0xf39fd6e51aad88f6f4ce6ab8827279cfffb92266
-          RLN_CONTRACT_REPO_COMMIT=e75ac913e579ad872f54b2225eec35d1de3d98b0
+          RLN_CONTRACT_REPO_COMMIT=${CONTRACT_COMMIT}
           WATCHTOWER_ENABLED=false
           EOF
 
