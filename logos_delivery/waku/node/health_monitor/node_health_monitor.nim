@@ -634,7 +634,7 @@ proc keepAliveLoop(
     # Update failure tracking
     if numPeersToPing > 0 and successfulPings == 0:
       consecutiveIterationFailures.inc()
-      error "All pings failed", consecutiveFailures = consecutiveIterationFailures
+      debug "All pings failed", consecutiveFailures = consecutiveIterationFailures
     else:
       consecutiveIterationFailures = 0
 

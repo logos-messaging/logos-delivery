@@ -272,7 +272,7 @@ proc lightpushPublish*(
       LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush not available"
     )
   if mixify and node.wakuMix.isNil():
-    error "failed to publish message using mix as mix protocol is not mounted"
+    debug "Failed to publish message using mix as mix protocol is not mounted"
     return lighpushErrorResult(
       LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush with mix not available"
     )
