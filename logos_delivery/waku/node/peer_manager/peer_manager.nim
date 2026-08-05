@@ -658,7 +658,7 @@ proc getStreamByPeerIdAndProtocol*(
 proc connectToRelayPeers*(pm: PeerManager) {.async.} =
   # only attempt if current node is online
   if not pm.online:
-    error "connectToRelayPeers: won't attempt new connections - node is offline"
+    debug "connectToRelayPeers: won't attempt new connections - node is offline"
     return
 
   var (inRelayPeers, outRelayPeers) = pm.connectedPeers(WakuRelayCodec)
@@ -934,6 +934,11 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
 
 proc getOnlineStateObserver*(pm: PeerManager): OnOnlineStateChange =
   return proc(online: bool) {.gcsafe, raises: [].} =
+    if online != pm.online:
+      if online:
+        info "Node is online"
+      else:
+        warn "Node is offline"
     pm.online = online
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#
@@ -947,7 +952,7 @@ proc manageRelayPeers*(pm: PeerManager) {.async.} =
     return
 
   if not pm.online:
-    error "manageRelayPeers: won't attempt new connections - node is offline"
+    debug "manageRelayPeers: won't attempt new connections - node is offline"
     return
 
   var peersToConnect: HashSet[PeerId] # Can't use RemotePeerInfo as they are ref objects

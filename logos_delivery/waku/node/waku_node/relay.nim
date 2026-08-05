@@ -69,7 +69,7 @@ proc subscribe*(
   ## another call to this proc for the same gossipsub topic).
 
   if isNil(node.wakuRelay):
-    error "Invalid API call to `subscribe`. WakuRelay not mounted."
+    debug "Invalid API call to `subscribe`. WakuRelay not mounted."
     return err("Invalid API call to `subscribe`. WakuRelay not mounted.")
 
   let (pubsubTopic, _) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
@@ -90,7 +90,7 @@ proc unsubscribe*(
   ## NOTE: This works because using MAPI and Kernel API at the same time is unsupported.
 
   if isNil(node.wakuRelay):
-    error "Invalid API call to `unsubscribe`. WakuRelay not mounted."
+    debug "Invalid API call to `unsubscribe`. WakuRelay not mounted."
     return err("Invalid API call to `unsubscribe`. WakuRelay not mounted.")
 
   let (pubsubTopic, _) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
@@ -106,7 +106,7 @@ proc isSubscribed*(
     node: WakuNode, subscription: SubscriptionEvent
 ): Result[bool, string] =
   if node.wakuRelay.isNil():
-    error "Invalid API call to `isSubscribed`. WakuRelay not mounted."
+    debug "Invalid API call to `isSubscribed`. WakuRelay not mounted."
     return err("Invalid API call to `isSubscribed`. WakuRelay not mounted.")
 
   let (pubsubTopic, contentTopicOp) = getTopicOfSubscriptionEvent(node, subscription).valueOr:

@@ -36,7 +36,7 @@ proc setupNat*(
     ## redirectPorts cannot be called twice in a program lifetime.
     ## We can do it as same happens if getExternalIP fails and returns None
     if singletonNat:
-      warn "NAT already initialized, skipping as cannot be done multiple times"
+      debug "NAT already initialized, skipping as cannot be done multiple times"
     else:
       singletonNat = true
       var extIp = Opt.none(IpAddress)

@@ -116,7 +116,8 @@ proc initNode(
       relayServiceRatio = $relayRatio & ":" & $serviceRatio,
       shardAware = conf.relayShardedPeerManagement,
     )
-    error "maxRelayPeers is deprecated. It is recommended to use relayServiceRatio instead. If relayServiceRatio is not set, it will be automatically calculated based on maxConnections and maxRelayPeers."
+    warn "maxRelayPeers is deprecated, use relayServiceRatio instead",
+      relayServiceRatio = $relayRatio & ":" & $serviceRatio
   else:
     builder.withPeerManagerConfig(
       maxConnections = conf.maxConnections,
@@ -249,7 +250,7 @@ proc setupProtocols(
     node.mountAutoSharding(conf.clusterId, conf.shardingConf.numShardsInCluster).isOkOr:
       return err("failed to mount waku auto sharding: " & error)
   else:
-    warn("Auto sharding is disabled")
+    info "Auto sharding is disabled"
 
   # Mount relay on all nodes
   var peerExchangeHandler = Opt.none(RoutingRecordsHandler)

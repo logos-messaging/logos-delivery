@@ -60,7 +60,7 @@ proc fetchPeerExchangePeers*(
     node: Wakunode, amount = DefaultPXNumPeersReq
 ): Future[Result[int, PeerExchangeResponseStatus]] {.async: (raises: []).} =
   if node.wakuPeerExchangeClient.isNil():
-    error "could not get peers from px, waku peer-exchange-client is nil"
+    debug "Could not get peers from px, waku peer-exchange-client is nil"
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
@@ -97,7 +97,7 @@ proc peerExchangeLoop(node: WakuNode) {.async.} =
 
 proc startPeerExchangeLoop*(node: WakuNode) =
   if node.wakuPeerExchangeClient.isNil():
-    error "startPeerExchangeLoop: Peer Exchange is not mounted"
+    debug "startPeerExchangeLoop: Peer Exchange is not mounted"
     return
   info "Starting peer exchange loop"
   node.wakuPeerExchangeClient.pxLoopHandle = node.peerExchangeLoop()
@@ -107,7 +107,7 @@ proc setPeerExchangePeer*(
     node: WakuNode, peer: RemotePeerInfo | MultiAddress | string
 ) =
   if node.wakuPeerExchange.isNil():
-    error "could not set peer, waku peer-exchange is nil"
+    debug "Could not set peer, waku peer-exchange is nil"
     return
 
   info "Set peer-exchange peer", peer = peer
