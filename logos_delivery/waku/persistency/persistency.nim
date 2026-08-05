@@ -136,19 +136,17 @@ proc ensureRootDir(p: Persistency): Result[void, PersistencyError] =
   return ok()
 
 proc reset*(T: type Persistency) {.gcsafe.} =
-  ## Tear down the singleton: close every open job and free the slot so a
-  ## subsequent ``Persistency.instance`` starts fresh. Idempotent. Tests
-  ## use this in `defer`.
+  ## Tear down the singleton: close every open job, clear the Teardown
+  ## provider, and free the slot so a subsequent ``Persistency.instance``
+  ## starts fresh. Idempotent. Tests use this in `defer`;.
   {.cast(gcsafe).}:
     acquire(gPersistencyLock)
     defer:
       release(gPersistencyLock)
     if gPersistency != nil:
-      # Close first: refc emits no incref for `let p = gPersistency`, so
-      # nulling the global frees the object before close() can read it.
-      gPersistency.close()
-
+      let p = gPersistency
       gPersistency = nil
+      p.close()
 
 proc instance*(
     T: type Persistency, rootDir: string
@@ -181,12 +179,6 @@ proc instance*(
       )
 
     let p = ?Persistency.new(rootDir)
-
-    # Pin it for the process lifetime. Nodes run on pooled FFI threads, so this
-    # gets created on one thread and released on another, and under refc that
-    # frees into the wrong thread's heap. Leaks one small object per reset.
-    GC_ref(p)
-
     gPersistency = p
     return ok(p)
 
