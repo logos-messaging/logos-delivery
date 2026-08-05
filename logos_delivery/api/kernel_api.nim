@@ -5,7 +5,12 @@ import logos_delivery/waku/waku_core/topics/pubsub_topic
 import logos_delivery/waku/waku_core/message
 import logos_delivery/waku/waku_core/subscription/push_handler
 import logos_delivery/waku/waku_store/common as store_types
+import logos_delivery/waku/rln/api/types as rln_api_types
 
+# rln_api_types is deliberately not re-exported: the messaging layer's rate
+# limit manager declares its own EpochQuota, and re-exporting here would make
+# the name ambiguous for kernel_api importers. Consumers of the RLN ops get
+# the types from `waku/api/rln`.
 export api_types, pubsub_topic, store_types
 
 # Structural API contract for the Kernel surface, implemented by `Waku`
@@ -70,6 +75,17 @@ type KernelApi* = concept w
   startDiscv5(w) is Future[Result[bool, string]]
   stopDiscv5(w) is Future[Result[bool, string]]
   peerExchangeRequest(w, numPeers = uint64) is Future[Result[int, string]]
+
+  # --- rln ---
+  rlnRegister(w, scope = MembershipScope, options = RegistryOptions) is
+    Future[Result[MembershipState, string]]
+  rlnMembershipState(w, scope = MembershipScope) is
+    Future[Result[MembershipState, string]]
+  rlnEpochQuota(w, scope = MembershipScope) is Future[Result[EpochQuota, string]]
+  rlnGenerateProof(w, scope = MembershipScope, signal = seq[byte], timestamp = uint64) is
+    Future[Result[seq[byte], string]]
+  rlnVerifyProof(w, scope = MembershipScope, signal = seq[byte], proof = seq[byte]) is
+    Future[Result[VerificationResult, string]]
 
   # --- debug / info ---
   version(w) is Future[Result[string, string]]
