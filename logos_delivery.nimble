@@ -61,7 +61,7 @@ requires "nim >= 2.2.4",
 
 # Packages not on nimble (use git URLs)
 
-requires "https://github.com/logos-messaging/nim-ffi#aad9374354a5e3d98964a9adf80766a12f8f200d" # v0.3.0-rc.1
+requires "https://github.com/logos-messaging/nim-ffi#53515de17af0ef3e88b2aec9675b8163dddc14ae" # v0.3.0-rc.2
 
 requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb948b32a4ade1de3b5"
 
@@ -123,7 +123,7 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
 
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       cBindingsFlags & getMyCPU() & getNimParams() & srcDir & "/" & srcFile
   else:
     # -Bsymbolic binds the library's references to its own symbols at link
