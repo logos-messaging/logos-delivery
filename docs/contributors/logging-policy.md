@@ -26,8 +26,9 @@ Increasing severity: `TRACE`, `DEBUG`, `INFO`, `NOTICE`, `WARN`, `ERROR`,
   (request served, peer selected, dial result, retry attempt). Scales with
   protocol activity, not raw throughput.
 - **INFO** — the operator narrative: lifecycle steps, one mount summary,
-  connection-state changes, one periodic health line. Never per-message or
-  per-peer-event.
+  connection-state changes, one periodic health line, and messages sent or
+  received through the Messaging / Reliable Channels API. Not for
+  per-peer-event churn.
 - **NOTICE** — rare must-see lifecycle facts, visible above `INFO`: node
   started (version, addresses, ENR), shutdown initiated. A handful per process.
 - **WARN** — degraded but recoverable, or config needing attention: exhausted
@@ -48,7 +49,8 @@ Increasing severity: `TRACE`, `DEBUG`, `INFO`, `NOTICE`, `WARN`, `ERROR`,
 3. **Persistent conditions** — log the transition, not every tick. Repeats go
    to `DEBUG`.
 4. **API and idempotent guards** ("not mounted", "already started") — `DEBUG`.
-5. **Deprecated options** — `WARN`, once, at config-parse time.
+5. **Deprecated options** — config to be removed in future versions; `WARN`
+   once, at config-parse time.
 6. **Periodic status** — one consolidated `INFO` line per tick; detail to
    metrics or `DEBUG`.
 7. **Hot paths** — request/response protocols `DEBUG` per request; relay/gossip
