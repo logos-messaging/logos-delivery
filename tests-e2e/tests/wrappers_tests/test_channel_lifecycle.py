@@ -30,7 +30,8 @@ class TestChannelLifecycle:
         The reliable channel manager is mounted automatically for a Core-mode
         node, so no store / --reliability is needed. No events are expected.
         """
-        node_config.update({"mode": "Core"})
+        # channel_create subscribes to its content topic, which needs autosharding.
+        node_config.update({"mode": "Core", "numShardsInNetwork": 1})
 
         collector = EventCollector()
         create_node_result = WrapperManager.create_and_start(config=node_config, event_cb=collector.event_callback)
@@ -78,7 +79,7 @@ class TestChannelLifecycle:
         close of a never-created id both Err with "unknown channel: <id>".
         Lifecycle teardown + idempotency guard. No events are expected.
         """
-        node_config.update({"mode": "Core"})
+        node_config.update({"mode": "Core", "numShardsInNetwork": 1})
 
         collector = EventCollector()
         create_node_result = WrapperManager.create_and_start(config=node_config, event_cb=collector.event_callback)
@@ -113,7 +114,7 @@ class TestChannelLifecycle:
         "unknown channel: <id>" and must not disturb the open channel, which then
         still closes cleanly. No events are expected.
         """
-        node_config.update({"mode": "Core"})
+        node_config.update({"mode": "Core", "numShardsInNetwork": 1})
 
         channel_id = f"rc03-open-{uuid.uuid4()}"
         random_id = f"rc03-random-{uuid.uuid4()}"
@@ -148,7 +149,7 @@ class TestChannelLifecycle:
         channel_send returns Ok(channelReqId) immediately (delivery is async).
         Input validation + the immediate-handle contract of send.
         """
-        node_config.update({"mode": "Core"})
+        node_config.update({"mode": "Core", "numShardsInNetwork": 1})
 
         create_node_result = WrapperManager.create_and_start(config=node_config)
         assert create_node_result.is_ok(), f"Failed to create and start node: {create_node_result.err()}"
@@ -176,7 +177,7 @@ class TestChannelLifecycle:
         The ephemeral flag only affects downstream persistence / terminal events,
         not the send contract, so channel_send returns Ok(channelReqId) immediately.
         """
-        node_config.update({"mode": "Core"})
+        node_config.update({"mode": "Core", "numShardsInNetwork": 1})
 
         create_node_result = WrapperManager.create_and_start(config=node_config)
         assert create_node_result.is_ok(), f"Failed to create and start node: {create_node_result.err()}"
@@ -200,7 +201,7 @@ class TestChannelLifecycle:
         Every channel_send is its own request, so two sends on the same channel
         return two different (non-empty) channelReqId handles.
         """
-        node_config.update({"mode": "Core"})
+        node_config.update({"mode": "Core", "numShardsInNetwork": 1})
 
         create_node_result = WrapperManager.create_and_start(config=node_config)
         assert create_node_result.is_ok(), f"Failed to create and start node: {create_node_result.err()}"
