@@ -73,10 +73,10 @@ type
     ## Per-root coordinator. One Persistency instance manages a directory
     ## of per-job SQLite files at ``rootDir/<jobId>.db``.
     ##
-    ## Not thread-safe: an instance (and its Jobs) is confined to the
-    ## thread that created it — under ``--mm:refc`` its memory belongs to
-    ## that thread's heap. Resolve it via the context-scoped
-    ## ``GetPersistency`` broker instead of sharing the ref across threads.
+    ## ``GetPersistency`` RequestBroker will give access to the active
+    ## instance of the current node.
+    ## Owner must close it properly (``Persistency.close``) to stop all jobs and
+    ## free the threads.
     rootDir*: string
     jobs*: Table[string, Job]
 
