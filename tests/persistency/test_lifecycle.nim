@@ -48,9 +48,9 @@ suite "Persistency lifecycle":
     defer:
       removeFile(marker)
 
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     # The pre-existing file is untouched.
     check fileExists(marker)
     check readFile(marker) == "hi"
@@ -60,7 +60,7 @@ suite "Persistency lifecycle":
     defer:
       removeFile(root)
     writeFile(root, "im a file not a dir") # collide with rootDir name
-    let r = Persistency.instance(root)
+    let r = Persistency.new(root)
     check r.isErr
     check r.error.kind == peInvalidArgument
 
@@ -70,9 +70,9 @@ suite "Persistency lifecycle":
       removeDir(root)
     check not dirExists(root)
 
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     # instance() must not have touched the filesystem
     check not dirExists(root)
 
@@ -86,7 +86,7 @@ suite "Persistency lifecycle":
       removeFile(parent)
     writeFile(parent, "not a directory")
     let root = parent / "child"
-    let r = Persistency.instance(root)
+    let r = Persistency.new(root)
     check r.isErr
     check r.error.kind == peInvalidArgument
 
@@ -97,20 +97,20 @@ suite "Persistency lifecycle":
 
     # First "session": write something then close.
     block firstSession:
-      let p = Persistency.instance(root).get()
+      let p = Persistency.new(root).get()
       let j = p.openJob("persist").get()
       await j.persistPut("msg", key("c", 1'i64), payloadBytes("v1"))
       let ckOk1 = await j.pollExists("msg", key("c", 1'i64))
       check ckOk1
-      Persistency.reset()
+      p.close()
 
     check fileExists(root / "persist.db")
 
     # Second "session": reopen and read the data back.
     block secondSession:
-      let p = Persistency.instance(root).get()
+      let p = Persistency.new(root).get()
       defer:
-        Persistency.reset()
+        p.close()
       let j = p.openJob("persist").get()
       let aw1 = await KvGet.request(j.context, "msg", key("c", 1'i64))
       let got = aw1.get()
@@ -121,9 +121,9 @@ suite "Persistency lifecycle":
     let root = tmpRoot("idem")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let a = p.openJob("same").get()
     let b = p.openJob("same").get()
     check a.id == b.id
@@ -134,9 +134,9 @@ suite "Persistency lifecycle":
     defer:
       removeDir(root)
 
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
 
     let t = p.openJob("alpha").get()
     check t.id == "alpha"
@@ -147,9 +147,9 @@ suite "Persistency lifecycle":
     let root = tmpRoot("rw")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t1").get()
 
     let k = key("c", 1'i64)
@@ -169,9 +169,9 @@ suite "Persistency lifecycle":
     let root = tmpRoot("isolation")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
 
     let a = p.openJob("alpha").get()
     let b = p.openJob("beta").get()
@@ -216,9 +216,9 @@ suite "Persistency lifecycle":
     let root = tmpRoot("close")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
 
     let t = p.openJob("x").get()
     let ctx = t.context
@@ -233,9 +233,9 @@ suite "Persistency lifecycle":
     let root = tmpRoot("drop")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     discard p.openJob("ephemeral").get()
     check fileExists(root / "ephemeral.db")
     p.dropJob("ephemeral")
@@ -245,9 +245,9 @@ suite "Persistency lifecycle":
     let root = tmpRoot("scan")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t").get()
 
     var ops: seq[TxOp]
@@ -275,9 +275,9 @@ suite "Persistency lifecycle":
     let root = tmpRoot("delete")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t").get()
 
     let k = key("d", 1'i64)

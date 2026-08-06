@@ -10,7 +10,7 @@
 ## it. Cheapest, no map lookup per call:
 ##
 ## ```nim
-## let p = Persistency.instance("/var/lib/wakustore").get()
+## let p = Persistency.new("/var/lib/wakustore").get()
 ## let j = p.openJob("alpha").get()
 ## await j.persistPut("msg", k, payload)
 ## let v = await j.get("msg", k)
@@ -40,7 +40,7 @@
 
 {.push raises: [].}
 
-import std/[locks, os, sequtils, tables]
+import std/[os, sequtils, tables]
 import chronos, chronicles, results
 import brokers/[event_broker, request_broker, broker_context]
 import ./[types, keys, payload, backend_comm, backend_thread]
@@ -51,6 +51,11 @@ logScope:
   topics = "persistency"
 
 const DefaultStoragePath* = "./data"
+
+const InMemoryStoragePath* = ":memory:"
+  ## Pass as ``rootDir`` to keep every job in a private in-memory SQLite
+  ## database (one per job worker; nothing touches the filesystem).
+  ## State is lost when the job closes. Intended for tests.
 
 # ── Driver types ────────────────────────────────────────────────────────
 
@@ -67,32 +72,36 @@ type
   Persistency* = ref object
     ## Per-root coordinator. One Persistency instance manages a directory
     ## of per-job SQLite files at ``rootDir/<jobId>.db``.
+    ##
+    ## ``GetPersistency`` RequestBroker will give access to the active
+    ## instance of the current node.
+    ## Owner must close it properly (``Persistency.close``) to stop all jobs and
+    ## free the threads.
     rootDir*: string
     jobs*: Table[string, Job]
 
-# ── Singleton state ─────────────────────────────────────────────────────
+# ── Instance access broker ──────────────────────────────────────────────
 #
-# Persistency is a process-wide singleton: one rootDir at a time. The
-# `instance` factory is the only public constructor; `new` below is
-# private and skips the singleton bookkeeping (used internally and never
-# called twice with conflicting rootDirs).
+# The owner of a Persistency instance (the Waku node) provides it under
+# its BrokerContext; consumers on the same context (e.g. the SDS channel
+# layer) resolve it without holding a reference to the owner. Sync and
+# same-thread: the provider returns the ref directly, no copies or
+# marshalling. One instance per owner — nothing is process-global.
 
-var
-  gPersistency {.global.}: Persistency
-  gPersistencyLock {.global.}: Lock
-
-once:
-  gPersistencyLock.initLock()
+RequestBroker(sync):
+  proc getPersistency(): Result[Persistency, string]
 
 # ── Lifecycle ───────────────────────────────────────────────────────────
 
 proc dbPathFor(p: Persistency, jobId: string): string =
+  if p.rootDir == InMemoryStoragePath:
+    return InMemoryStoragePath
   p.rootDir / (jobId & ".db")
 
-proc new(T: type Persistency, rootDir: string): Result[T, PersistencyError] =
-  ## Private. Build a Persistency value without touching the singleton
-  ## slot. Validates ``rootDir`` but does **not** create it — directory
-  ## materialisation is deferred to the first ``openJob`` call. Semantics:
+proc new*(T: type Persistency, rootDir: string): Result[T, PersistencyError] =
+  ## Build a Persistency instance for ``rootDir``. Validates ``rootDir``
+  ## but does **not** create it — directory materialisation is deferred
+  ## to the first ``openJob`` call. Semantics:
   ##
   ## * If ``rootDir`` is empty, returns ``peInvalidArgument``.
   ## * If ``rootDir`` exists and is a directory, accept it.
@@ -102,6 +111,8 @@ proc new(T: type Persistency, rootDir: string): Result[T, PersistencyError] =
   ##   existing ancestor must be a directory; otherwise returns
   ##   ``peInvalidArgument``. This catches "obviously broken" paths early
   ##   without actually touching the filesystem.
+  if rootDir == InMemoryStoragePath:
+    return ok(T(rootDir: rootDir, jobs: initTable[string, Job]()))
   if rootDir.len == 0:
     return err(persistencyErr(peInvalidArgument, "rootDir is empty"))
   if fileExists(rootDir) and not dirExists(rootDir):
@@ -126,6 +137,8 @@ proc new(T: type Persistency, rootDir: string): Result[T, PersistencyError] =
 proc ensureRootDir(p: Persistency): Result[void, PersistencyError] =
   ## Materialise ``rootDir`` on demand. Idempotent; called from
   ## ``openJob`` so an unused Persistency leaves no directory behind.
+  if p.rootDir == InMemoryStoragePath:
+    return ok()
   if dirExists(p.rootDir):
     return ok()
   try:
@@ -134,65 +147,6 @@ proc ensureRootDir(p: Persistency): Result[void, PersistencyError] =
     return
       err(persistencyErr(peBackend, "createDir failed: " & getCurrentExceptionMsg()))
   return ok()
-
-proc reset*(T: type Persistency) {.gcsafe.} =
-  ## Tear down the singleton: close every open job, clear the Teardown
-  ## provider, and free the slot so a subsequent ``Persistency.instance``
-  ## starts fresh. Idempotent. Tests use this in `defer`;.
-  {.cast(gcsafe).}:
-    acquire(gPersistencyLock)
-    defer:
-      release(gPersistencyLock)
-    if gPersistency != nil:
-      let p = gPersistency
-      gPersistency = nil
-      p.close()
-
-proc instance*(
-    T: type Persistency, rootDir: string
-): Result[T, PersistencyError] {.gcsafe.} =
-  ## Get-or-init the process-wide Persistency singleton.
-  ##
-  ## * First call: validates ``rootDir`` (without creating it) and
-  ##   registers the Teardown handler. The directory itself is created
-  ##   lazily by the first ``openJob`` call, so a Persistency that never
-  ##   opens a job leaves no filesystem footprint.
-  ## * Later calls with the same ``rootDir``: returns the live instance
-  ##   (idempotent).
-  ## * Later calls with a different ``rootDir``: returns
-  ##   ``peInvalidArgument`` — the singleton can only be re-targeted via
-  ##   ``Persistency.reset`` (or by the Teardown shutdown flow).
-  {.cast(gcsafe).}:
-    acquire(gPersistencyLock)
-    defer:
-      release(gPersistencyLock)
-
-    if gPersistency != nil:
-      if gPersistency.rootDir == rootDir:
-        return ok(gPersistency)
-      return err(
-        persistencyErr(
-          peInvalidArgument,
-          "Persistency already initialised with rootDir " & gPersistency.rootDir &
-            "; cannot re-init with " & rootDir,
-        )
-      )
-
-    let p = ?Persistency.new(rootDir)
-    gPersistency = p
-    return ok(p)
-
-proc instance*(T: type Persistency): Result[T, PersistencyError] {.gcsafe.} =
-  ## No-args form: succeeds only if the singleton is already initialised.
-  ## Use this from services that must not be the first to touch
-  ## persistency.
-  {.cast(gcsafe).}:
-    acquire(gPersistencyLock)
-    defer:
-      release(gPersistencyLock)
-    if gPersistency.isNil:
-      return err(persistencyErr(peClosed, "Persistency not initialised"))
-    return ok(gPersistency)
 
 proc openJob*(p: Persistency, jobId: string): Result[Job, PersistencyError] =
   ## Open-or-create a job under this Persistency.
@@ -240,6 +194,8 @@ proc dropJob*(p: Persistency, jobId: string) =
   ## Close the job if open, then delete its DB file (plus -wal / -shm
   ## sidecars). Best-effort: a missing file is not an error.
   p.closeJob(jobId)
+  if p.rootDir == InMemoryStoragePath:
+    return
   let path = dbPathFor(p, jobId)
   for suffix in ["", "-wal", "-shm"]:
     try:

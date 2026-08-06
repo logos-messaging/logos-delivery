@@ -127,9 +127,9 @@ suite "Persistency generic encoding":
     removeDir(root)
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let job = p.openJob("t").get()
 
     let m = Msg(

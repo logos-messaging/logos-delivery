@@ -8,3 +8,4 @@ import ./test_encoding
 import ./test_sds_persistency
 import ./test_string_lookup
 import ./test_singleton
+import ./test_thread_affinity
