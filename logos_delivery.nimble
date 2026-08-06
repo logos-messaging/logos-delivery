@@ -17,7 +17,7 @@ const RequiredNimbleVersion = "0.22.3"
 
 ### Dependencies
 requires "nim >= 2.2.4",
-  "chronos >= 4.2.0",
+  "chronos >= 4.2.0 & < 4.4.0",
   "taskpools",
   # Logging & Configuration
   "chronicles",
