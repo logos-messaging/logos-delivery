@@ -393,14 +393,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     else:
       waku.dynamicBootstrapNodes = dynamicBootstrapNodesRes.get()
 
-  ## Create this node's Persistency instance and provide it under the node's
-  ## BrokerContext so same-context consumers (e.g. SDS) can resolve it.
-  waku.persistency = Persistency.new(conf.localStoragePath).valueOr:
-    error "Failed to initialize persistency instance", error = $error
-    return err("Failed to initialize persistency instance: " & $error)
-  discard GetPersistency.reprovideIt(waku.brokerCtx):
-    ok(waku.persistency)
-
   (await startNode(waku.node, waku.conf, waku.dynamicBootstrapNodes)).isOkOr:
     return err("error while calling startNode: " & $error)
 
@@ -514,6 +506,17 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
         "Caught exception starting monitoring and external interfaces failed: " &
           getCurrentExceptionMsg()
       )
+  ## Create this node's Persistency instance and provide it under the node's
+  ## BrokerContext so same-context consumers (e.g. SDS) can resolve it.
+  ## Deliberately the last startup step: the instance is inert until the
+  ## first openJob and every consumer runs post-start, so none of the
+  ## error returns above has to tear it down.
+  waku.persistency = Persistency.new(conf.localStoragePath).valueOr:
+    error "Failed to initialize persistency instance", error = $error
+    return err("Failed to initialize persistency instance: " & $error)
+  discard GetPersistency.reprovideIt(waku.brokerCtx):
+    ok(waku.persistency)
+
   waku.healthMonitor.setOverallHealth(HealthStatus.READY)
 
   return ok()
