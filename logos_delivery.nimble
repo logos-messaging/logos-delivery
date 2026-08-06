@@ -403,6 +403,15 @@ task benchmarks, "Some benchmarks":
   let name = "benchmarks"
   buildBinary name, "apps/benchmarks/", "-p:../.."
 
+task benchMessagePath, "Message-path decode/hash benchmark (micro + macro)":
+  # Imports the full node stack (relay + archive + store-sync), which pulls in
+  # RLN transitively via node/waku_node/relay.nim, so librln must be linked.
+  let name = "message_path_bench"
+  buildBinary name, "apps/benchmarks/",
+    "-p:../.. -d:msgPathCounters -d:chronicles_log_level=ERROR " &
+    "--passL:librln_v2.0.2.a --passL:-lm"
+  exec "build/" & name
+
 task wakucanary, "Build waku-canary tool":
   let name = "wakucanary"
   buildBinary name, "apps/wakucanary/"

@@ -638,6 +638,18 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   w.topicHealthDirty.incl(pubsubTopic)
   w.topicHealthUpdateEvent.fire()
 
+when defined(msgPathCounters):
+  ## Benchmark-only accessors (see `apps/benchmarks/message_path_bench.nim`).
+  ## They expose the per-topic gossipsub artifacts so the micro benchmark can
+  ## replay the inbound validator + handler decode path without a live network.
+  ## Guarded by `-d:msgPathCounters` so production builds never see them and the
+  ## `topicValidator`/`topicHandlers` fields stay module-private.
+  proc benchTopicValidator*(w: WakuRelay, pubsubTopic: PubsubTopic): ValidatorHandler =
+    w.topicValidator.getOrDefault(pubsubTopic)
+
+  proc benchTopicHandler*(w: WakuRelay, pubsubTopic: PubsubTopic): TopicHandler =
+    w.topicHandlers.getOrDefault(pubsubTopic)
+
 proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   ## Unsubscribe all handlers on this pubsub topic
 
