@@ -422,8 +422,17 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
   of mmskNone:
     builder.withMaxMessageSize(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
   of mmskStr, mmskInt:
-    warn "Max Message Size was provided alongside a network conf",
-      used = $builder.maxMessageSize, discarded = networkPresetConf.maxMessageSize
+    let usedBytes =
+      case builder.maxMessageSize.kind
+      of mmskInt:
+        builder.maxMessageSize.bytes
+      of mmskStr:
+        parseCorrectMsgSize(builder.maxMessageSize.str)
+      of mmskNone:
+        0'u64
+    if usedBytes != parseCorrectMsgSize(networkPresetConf.maxMessageSize):
+      warn "Max Message Size was provided alongside a network conf",
+        used = $builder.maxMessageSize, discarded = networkPresetConf.maxMessageSize
 
   checkSetPresetValueToField(
     builder.shardingConf, networkPresetConf.shardingConf.kind,
