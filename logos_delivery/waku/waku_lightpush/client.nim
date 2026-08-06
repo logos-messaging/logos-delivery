@@ -47,7 +47,7 @@ proc sendPushRequest(
   defer:
     await connection.closeWithEOF()
 
-  await connection.writeLP(req.encode().buffer)
+  await connection.writeLP(req.encode())
 
   var buffer: seq[byte]
   try:

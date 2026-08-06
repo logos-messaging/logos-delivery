@@ -105,7 +105,7 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
       )
 
     try:
-      await conn.writeLp(rpc.encode().buffer)
+      await conn.writeLp(rpc.encode())
     except LPStreamError:
       error "lightpush legacy write stream failed", error = getCurrentExceptionMsg()
 

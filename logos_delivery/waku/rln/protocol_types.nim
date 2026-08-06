@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import std/[tables, deques], stew/arrayops, stint, chronos, web3, eth/keys
-import ../waku_core, ../waku_keystore, ../common/protobuf
+import ../waku_core, ../waku_keystore, ../common/protobuf, ../common/protobuf_ext
 
 export waku_keystore, waku_core
 
@@ -75,54 +75,49 @@ type MessageValidationResult* {.pure.} = enum
   Spam
 
 # Protobufs enc and init
-proc init*(T: type RateLimitProof, buffer: seq[byte]): ProtoResult[T] =
-  var nsp: RateLimitProof
+# externalNullifier not serialized
+type RateLimitProofPB {.proto2.} = object
+  proof {.fieldNumber: 1, ext, required.}: ZKSNARK
+  merkleRoot {.fieldNumber: 2, ext, required.}: MerkleNode
+  epoch {.fieldNumber: 3, ext, required.}: Epoch
+  shareX {.fieldNumber: 4, ext, required.}: MerkleNode
+  shareY {.fieldNumber: 5, ext, required.}: MerkleNode
+  nullifier {.fieldNumber: 6, ext, required.}: Nullifier
+  rlnIdentifier {.fieldNumber: 7, ext, required.}: RlnIdentifier
 
-  let pb = initProtoBuffer(buffer)
+proc decodeRateLimitProof(buffer: seq[byte]): ProtobufResult[RateLimitProof] =
+  var pb: RateLimitProofPB
+  try:
+    pb = Protobuf.decode(buffer, RateLimitProofPB)
+  except SerializationError:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+  ok(
+    RateLimitProof(
+      proof: pb.proof,
+      merkleRoot: pb.merkleRoot,
+      epoch: pb.epoch,
+      shareX: pb.shareX,
+      shareY: pb.shareY,
+      nullifier: pb.nullifier,
+      rlnIdentifier: pb.rlnIdentifier,
+    )
+  )
 
-  var proof: seq[byte]
-  discard ?pb.getField(1, proof)
-  discard nsp.proof.copyFrom(proof)
+proc init*(T: type RateLimitProof, buffer: seq[byte]): ProtobufResult[T] =
+  decodeRateLimitProof(buffer)
 
-  var merkleRoot: seq[byte]
-  discard ?pb.getField(2, merkleRoot)
-  discard nsp.merkleRoot.copyFrom(merkleRoot)
-
-  var epoch: seq[byte]
-  discard ?pb.getField(3, epoch)
-  discard nsp.epoch.copyFrom(epoch)
-
-  var shareX: seq[byte]
-  discard ?pb.getField(4, shareX)
-  discard nsp.shareX.copyFrom(shareX)
-
-  var shareY: seq[byte]
-  discard ?pb.getField(5, shareY)
-  discard nsp.shareY.copyFrom(shareY)
-
-  var nullifier: seq[byte]
-  discard ?pb.getField(6, nullifier)
-  discard nsp.nullifier.copyFrom(nullifier)
-
-  var rlnIdentifier: seq[byte]
-  discard ?pb.getField(7, rlnIdentifier)
-  discard nsp.rlnIdentifier.copyFrom(rlnIdentifier)
-
-  return ok(nsp)
-
-proc encode*(nsp: RateLimitProof): ProtoBuffer =
-  var output = initProtoBuffer()
-
-  output.write3(1, nsp.proof)
-  output.write3(2, nsp.merkleRoot)
-  output.write3(3, nsp.epoch)
-  output.write3(4, nsp.shareX)
-  output.write3(5, nsp.shareY)
-  output.write3(6, nsp.nullifier)
-  output.write3(7, nsp.rlnIdentifier)
-
-  output.finish3()
-  return output
+proc encode*(nsp: RateLimitProof): seq[byte] =
+  Protobuf.encode(
+    RateLimitProofPB(
+      proof: nsp.proof,
+      merkleRoot: nsp.merkleRoot,
+      epoch: nsp.epoch,
+      shareX: nsp.shareX,
+      shareY: nsp.shareY,
+      nullifier: nsp.nullifier,
+      rlnIdentifier: nsp.rlnIdentifier,
+    )
+  )
 
 func encode*(x: UInt32): seq[byte] =
   ## the Ethereum ABI imposes a 32 byte width for every type

@@ -572,7 +572,7 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
 proc validateMessage*(
     w: WakuRelay, pubsubTopic: string, msg: WakuMessage
 ): Future[Result[void, string]] {.async.} =
-  let messageSizeBytes = msg.encode().buffer.len
+  let messageSizeBytes = msg.encode().len
   let msgHash = computeMessageHash(pubsubTopic, msg).to0xHex()
 
   if messageSizeBytes > w.maxMessageSize:
@@ -686,7 +686,7 @@ proc publish*(
   if message.timestamp == 0:
     message.timestamp = getNowInNanosecondTime()
 
-  let data = message.encode().buffer
+  let data = message.encode()
 
   let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
   notice "start publish Waku message",

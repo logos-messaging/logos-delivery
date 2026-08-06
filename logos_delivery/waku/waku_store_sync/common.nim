@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import chronos, stew/[byteutils]
+import chronos, stew/[byteutils], protobuf_serialization
 
 import ../waku_core
 
@@ -33,9 +33,9 @@ type
     fingerprints*: seq[Fingerprint] # Range type fingerprint stored here in order
     itemSets*: seq[ItemSet] # Range type itemset stored here in order
 
-  WakuMessageAndTopic* = object
-    pubsub*: PubSubTopic
-    message*: WakuMessage
+  WakuMessageAndTopic* {.proto2.} = object
+    pubsub* {.fieldNumber: 1, required.}: PubSubTopic
+    message* {.fieldNumber: 2, ext, required.}: WakuMessage
 
 const EmptyFingerprint*: Fingerprint = [
   0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0,

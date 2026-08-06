@@ -71,7 +71,7 @@ proc generateRLNProofWithNonce(
   try:
     let proof = (await rln.groupManager.generateProof(input, epoch, nonce)).valueOr:
       return err("could not generate rln-v2 proof: " & $error)
-    return ok(proof.encode().buffer)
+    return ok(proof.encode())
   except CatchableError as e:
     return err("exception generating rln proof: " & e.msg)
 

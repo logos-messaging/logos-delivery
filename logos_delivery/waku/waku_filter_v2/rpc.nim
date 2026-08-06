@@ -1,6 +1,11 @@
 {.push raises: [].}
 
-import results, json_serialization
+import
+  results,
+  json_serialization,
+  protobuf_serialization,
+  protobuf_serialization/pkg/results,
+  protobuf_serialization/std/enums
 import ../waku_core
 
 type
@@ -11,20 +16,22 @@ type
     UNSUBSCRIBE = uint32(2)
     UNSUBSCRIBE_ALL = uint32(3)
 
-  FilterSubscribeRequest* = object # Request from client to service node
+  FilterSubscribeRequest* = object
+    # Request from client to service node
+    # serialized via DTO in rpc_codec.nim; absent filterSubscribeType -> ping
     requestId*: string
     filterSubscribeType*: FilterSubscribeType
     pubsubTopic*: Opt[PubsubTopic]
     contentTopics*: seq[ContentTopic]
 
-  FilterSubscribeResponse* = object # Response from service node to client
-    requestId*: string
-    statusCode*: uint32
-    statusDesc*: Opt[string]
+  FilterSubscribeResponse* {.proto2.} = object # Response from service node to client
+    requestId* {.fieldNumber: 1, required.}: string
+    statusCode* {.fieldNumber: 10, pint, required.}: uint32
+    statusDesc* {.fieldNumber: 11.}: Opt[string]
 
-  MessagePush* = object # Message pushed from service node to client
-    wakuMessage*: WakuMessage
-    pubsubTopic*: string
+  MessagePush* {.proto2.} = object # Message pushed from service node to client
+    wakuMessage* {.fieldNumber: 1, ext, required.}: WakuMessage
+    pubsubTopic* {.fieldNumber: 2, required.}: string
 
 # Convenience functions
 

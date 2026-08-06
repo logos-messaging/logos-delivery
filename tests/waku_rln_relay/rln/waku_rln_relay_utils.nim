@@ -33,7 +33,7 @@ proc unsafeAppendRLNProof*(
   let proof = (waitFor manager.generateProof(msg.toRLNSignal(), epoch, messageId)).valueOr:
     return err("could not generate rln-v2 proof: " & $error)
 
-  msg.proof = proof.encode().buffer
+  msg.proof = proof.encode()
   return ok()
 
 proc getWakuRlnConfig*(

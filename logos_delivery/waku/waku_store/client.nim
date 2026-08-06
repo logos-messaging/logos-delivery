@@ -43,7 +43,7 @@ proc sendStoreRequest(
     req.requestId = generateRequestId(self.rng)
 
   let writeRes = catch:
-    await connection.writeLP(req.encode().buffer)
+    await connection.writeLP(req.encode())
   if writeRes.isErr():
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: writeRes.error.msg))
 
@@ -65,7 +65,7 @@ proc sendStoreRequest(
     let topic = req.pubsubTopic.get()
     if not self.storeMsgMetricsPerShard.hasKey(topic):
       self.storeMsgMetricsPerShard[topic] = 0
-    self.storeMsgMetricsPerShard[topic] += float64(req.encode().buffer.len)
+    self.storeMsgMetricsPerShard[topic] += float64(req.encode().len)
 
     logos_delivery_store_fleet_msg_size_bytes.inc(
       self.storeMsgMetricsPerShard[topic], labelValues = [topic]

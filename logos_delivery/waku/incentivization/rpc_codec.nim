@@ -1,50 +1,30 @@
-import results, ../common/protobuf, ./rpc
+import protobuf_serialization, protobuf_serialization/pkg/results
+import ../common/protobuf, ./rpc
 
 # Codec for EligibilityProof
 
-proc encode*(epRpc: EligibilityProof): ProtoBuffer =
-  var pb = initProtoBuffer()
-  if epRpc.proofOfPayment.isSome():
-    let proofOfPayment = epRpc.proofOfPayment.get()
-    pb.write3(1, proofOfPayment)
-  else:
-    # there is no proof
-    discard
-  pb
+proc encode*(epRpc: EligibilityProof): seq[byte] =
+  Protobuf.encode(epRpc)
+
+proc decodeEligibilityProof(buffer: seq[byte]): ProtobufResult[EligibilityProof] =
+  try:
+    ok(Protobuf.decode(buffer, EligibilityProof))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
 
 proc decode*(T: type EligibilityProof, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var epRpc = EligibilityProof()
-  var proofOfPayment = newSeq[byte]()
-  if not ?pb.getField(1, proofOfPayment):
-    epRpc.proofOfPayment = Opt.none(seq[byte])
-  else:
-    epRpc.proofOfPayment = Opt.some(proofOfPayment)
-  ok(epRpc)
+  decodeEligibilityProof(buffer)
 
 # Codec for EligibilityStatus
 
-proc encode*(esRpc: EligibilityStatus): ProtoBuffer =
-  var pb = initProtoBuffer()
-  pb.write3(1, esRpc.statusCode)
-  if esRpc.statusDesc.isSome():
-    pb.write3(2, esRpc.statusDesc.get())
-  pb
+proc encode*(esRpc: EligibilityStatus): seq[byte] =
+  Protobuf.encode(esRpc)
+
+proc decodeEligibilityStatus(buffer: seq[byte]): ProtobufResult[EligibilityStatus] =
+  try:
+    ok(Protobuf.decode(buffer, EligibilityStatus))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
 
 proc decode*(T: type EligibilityStatus, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var esRpc = EligibilityStatus()
-  # status code
-  var code = uint32(0)
-  if not ?pb.getField(1, code):
-    # status code is mandatory
-    return err(ProtobufError.missingRequiredField("status_code"))
-  else:
-    esRpc.statusCode = code
-  # status description
-  var description = ""
-  if not ?pb.getField(2, description):
-    esRpc.statusDesc = Opt.none(string)
-  else:
-    esRpc.statusDesc = Opt.some(description)
-  ok(esRpc)
+  decodeEligibilityStatus(buffer)

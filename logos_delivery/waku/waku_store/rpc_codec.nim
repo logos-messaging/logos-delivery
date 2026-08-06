@@ -1,213 +1,175 @@
 {.push raises: [].}
 
-import results, stew/arrayops
+import std/sequtils, results, stew/arrayops
+import protobuf_serialization, protobuf_serialization/pkg/results
 import ../common/[protobuf, paging], ../waku_core, ./common
 
 const DefaultMaxRpcSize* = -1
 
+type
+  WakuMessageKeyValuePB {.proto2.} = object
+    messageHash {.fieldNumber: 1, required.}: seq[byte]
+    message {.fieldNumber: 2, ext.}: Opt[WakuMessage]
+    pubsubTopic {.fieldNumber: 3.}: Opt[string]
+
+  StoreQueryRequestPB {.proto2.} = object
+    requestId {.fieldNumber: 1, required.}: string
+    includeData {.fieldNumber: 2.}: Opt[bool]
+    pubsubTopic {.fieldNumber: 10.}: Opt[string]
+    contentTopics {.fieldNumber: 11.}: seq[string]
+    startTime {.fieldNumber: 12, sint.}: Opt[int64]
+    endTime {.fieldNumber: 13, sint.}: Opt[int64]
+    messageHashes {.fieldNumber: 20.}: seq[seq[byte]]
+    paginationCursor {.fieldNumber: 51.}: Opt[seq[byte]]
+    paginationForward {.fieldNumber: 52, pint.}: Opt[uint32]
+    paginationLimit {.fieldNumber: 53, pint.}: Opt[uint64]
+
+  StoreQueryResponsePB {.proto2.} = object
+    requestId {.fieldNumber: 1, required.}: string
+    statusCode {.fieldNumber: 10, pint, required.}: uint32
+    statusDesc {.fieldNumber: 11, required.}: string
+    messages {.fieldNumber: 20.}: seq[WakuMessageKeyValuePB]
+    paginationCursor {.fieldNumber: 51.}: Opt[seq[byte]]
+
+proc toHash(s: seq[byte]): WakuMessageHash =
+  var h: WakuMessageHash
+  discard copyFrom[byte](h, s)
+  h
+
 ### Request ###
 
-proc encode*(req: StoreQueryRequest): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, req.requestId)
-  pb.write3(2, uint32(req.includeData))
-
-  pb.write3(10, req.pubsubTopic)
-
-  for contentTopic in req.contentTopics:
-    pb.write3(11, contentTopic)
-
-  pb.write3(
-    12,
-    req.startTime.map(
-      proc(time: int64): zint64 =
-        zint64(time)
-    ),
+proc encode*(req: StoreQueryRequest): seq[byte] =
+  Protobuf.encode(
+    StoreQueryRequestPB(
+      requestId: req.requestId,
+      includeData: Opt.some(req.includeData),
+      pubsubTopic: req.pubsubTopic,
+      contentTopics: req.contentTopics,
+      startTime: req.startTime.map(
+        proc(t: Timestamp): int64 =
+          int64(t)
+      ),
+      endTime: req.endTime.map(
+        proc(t: Timestamp): int64 =
+          int64(t)
+      ),
+      messageHashes: req.messageHashes.mapIt(@it),
+      paginationCursor: req.paginationCursor.map(
+        proc(h: WakuMessageHash): seq[byte] =
+          @h
+      ),
+      paginationForward: Opt.some(uint32(ord(req.paginationForward))),
+      paginationLimit: req.paginationLimit,
+    )
   )
-  pb.write3(
-    13,
-    req.endTime.map(
-      proc(time: int64): zint64 =
-        zint64(time)
-    ),
+
+proc decodeStoreQueryRequest(buffer: seq[byte]): ProtobufResult[StoreQueryRequest] =
+  var pb: StoreQueryRequestPB
+  try:
+    pb = Protobuf.decode(buffer, StoreQueryRequestPB)
+  except SerializationError:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+  ok(
+    StoreQueryRequest(
+      requestId: pb.requestId,
+      includeData: pb.includeData.get(false),
+      pubsubTopic: pb.pubsubTopic,
+      contentTopics: pb.contentTopics,
+      startTime: pb.startTime.map(
+        proc(t: int64): Timestamp =
+          Timestamp(t)
+      ),
+      endTime: pb.endTime.map(
+        proc(t: int64): Timestamp =
+          Timestamp(t)
+      ),
+      messageHashes: pb.messageHashes.mapIt(toHash(it)),
+      paginationCursor: pb.paginationCursor.map(
+        proc(s: seq[byte]): WakuMessageHash =
+          toHash(s)
+      ),
+      paginationForward: PagingDirection(pb.paginationForward.get(1'u32)),
+      paginationLimit: pb.paginationLimit,
+    )
   )
-
-  for hash in req.messagehashes:
-    pb.write3(20, hash)
-
-  pb.write3(51, req.paginationCursor)
-  pb.write3(52, uint32(req.paginationForward))
-  pb.write3(53, req.paginationLimit)
-
-  pb.finish3()
-
-  return pb
 
 proc decode*(
     T: type StoreQueryRequest, buffer: seq[byte]
 ): ProtobufResult[StoreQueryRequest] =
-  var req = StoreQueryRequest()
-  let pb = initProtoBuffer(buffer)
-
-  if not ?pb.getField(1, req.requestId):
-    return err(ProtobufError.missingRequiredField("request_id"))
-
-  var inclData: uint32
-  if not ?pb.getField(2, inclData):
-    req.includeData = false
-  else:
-    req.includeData = inclData > 0
-
-  var pubsubTopic: string
-  if not ?pb.getField(10, pubsubTopic):
-    req.pubsubTopic = Opt.none(string)
-  else:
-    req.pubsubTopic = Opt.some(pubsubTopic)
-
-  var topics: seq[string]
-  if not ?pb.getRepeatedField(11, topics):
-    req.contentTopics = @[]
-  else:
-    req.contentTopics = topics
-
-  var start: zint64
-  if not ?pb.getField(12, start):
-    req.startTime = Opt.none(Timestamp)
-  else:
-    req.startTime = Opt.some(Timestamp(int64(start)))
-
-  var endTime: zint64
-  if not ?pb.getField(13, endTime):
-    req.endTime = Opt.none(Timestamp)
-  else:
-    req.endTime = Opt.some(Timestamp(int64(endTime)))
-
-  var buffer: seq[seq[byte]]
-  if not ?pb.getRepeatedField(20, buffer):
-    req.messageHashes = @[]
-  else:
-    req.messageHashes = newSeqOfCap[WakuMessageHash](buffer.len)
-    for buf in buffer:
-      var hash: WakuMessageHash
-      discard copyFrom[byte](hash, buf)
-      req.messageHashes.add(hash)
-
-  var cursor: seq[byte]
-  if not ?pb.getField(51, cursor):
-    req.paginationCursor = Opt.none(WakuMessageHash)
-  else:
-    var hash: WakuMessageHash
-    discard copyFrom[byte](hash, cursor)
-    req.paginationCursor = Opt.some(hash)
-
-  var paging: uint32
-  if not ?pb.getField(52, paging):
-    req.paginationForward = PagingDirection.default()
-  else:
-    req.paginationForward = PagingDirection(paging)
-
-  var limit: uint64
-  if not ?pb.getField(53, limit):
-    req.paginationLimit = Opt.none(uint64)
-  else:
-    req.paginationLimit = Opt.some(limit)
-
-  return ok(req)
+  decodeStoreQueryRequest(buffer)
 
 ### Response ###
 
-proc encode*(keyValue: WakuMessageKeyValue): ProtoBuffer =
-  var pb = initProtoBuffer()
+proc toPB(kv: WakuMessageKeyValue): WakuMessageKeyValuePB =
+  # message + pubsubTopic: both or neither
+  if kv.message.isSome() and kv.pubsubTopic.isSome():
+    WakuMessageKeyValuePB(
+      messageHash: @(kv.messageHash), message: kv.message, pubsubTopic: kv.pubsubTopic
+    )
+  else:
+    WakuMessageKeyValuePB(messageHash: @(kv.messageHash))
 
-  pb.write3(1, keyValue.messageHash)
+proc encode*(keyValue: WakuMessageKeyValue): seq[byte] =
+  Protobuf.encode(toPB(keyValue))
 
-  if keyValue.message.isSome() and keyValue.pubsubTopic.isSome():
-    pb.write3(2, keyValue.message.get().encode())
-    pb.write3(3, keyValue.pubsubTopic.get())
+proc encode*(res: StoreQueryResponse): seq[byte] =
+  Protobuf.encode(
+    StoreQueryResponsePB(
+      requestId: res.requestId,
+      statusCode: res.statusCode,
+      statusDesc: res.statusDesc,
+      messages: res.messages.mapIt(toPB(it)),
+      paginationCursor: res.paginationCursor.map(
+        proc(h: WakuMessageHash): seq[byte] =
+          @h
+      ),
+    )
+  )
 
-  pb.finish3()
+proc fromPB(pb: WakuMessageKeyValuePB): WakuMessageKeyValue =
+  # message + pubsubTopic: both or neither
+  if pb.message.isSome() and pb.pubsubTopic.isSome():
+    WakuMessageKeyValue(
+      messageHash: toHash(pb.messageHash),
+      message: pb.message,
+      pubsubTopic: pb.pubsubTopic,
+    )
+  else:
+    WakuMessageKeyValue(messageHash: toHash(pb.messageHash))
 
-  return pb
-
-proc encode*(res: StoreQueryResponse): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, res.requestId)
-
-  pb.write3(10, res.statusCode)
-  pb.write3(11, res.statusDesc)
-
-  for msg in res.messages:
-    pb.write3(20, msg.encode())
-
-  pb.write3(51, res.paginationCursor)
-
-  pb.finish3()
-
-  return pb
+proc decodeWakuMessageKeyValue(buffer: seq[byte]): ProtobufResult[WakuMessageKeyValue] =
+  try:
+    ok(fromPB(Protobuf.decode(buffer, WakuMessageKeyValuePB)))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
 
 proc decode*(
     T: type WakuMessageKeyValue, buffer: seq[byte]
 ): ProtobufResult[WakuMessageKeyValue] =
-  var keyValue = WakuMessageKeyValue()
-  let pb = initProtoBuffer(buffer)
+  decodeWakuMessageKeyValue(buffer)
 
-  var buf: seq[byte]
-  if not ?pb.getField(1, buf):
-    return err(ProtobufError.missingRequiredField("message_hash"))
-  else:
-    var hash: WakuMessageHash
-    discard copyFrom[byte](hash, buf)
-    keyValue.messagehash = hash
+proc decodeStoreQueryResponse(buffer: seq[byte]): ProtobufResult[StoreQueryResponse] =
+  var pb: StoreQueryResponsePB
+  try:
+    pb = Protobuf.decode(buffer, StoreQueryResponsePB)
+  except SerializationError:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
 
-  var proto: ProtoBuffer
-  var topic: string
-  if ?pb.getField(2, proto) and ?pb.getField(3, topic):
-    keyValue.message = Opt.some(?WakuMessage.decode(proto.buffer))
-    keyValue.pubsubTopic = Opt.some(topic)
-  else:
-    keyValue.message = Opt.none(WakuMessage)
-    keyValue.pubsubTopic = Opt.none(string)
-
-  return ok(keyValue)
+  ok(
+    StoreQueryResponse(
+      requestId: pb.requestId,
+      statusCode: pb.statusCode,
+      statusDesc: pb.statusDesc,
+      messages: pb.messages.mapIt(fromPB(it)),
+      paginationCursor: pb.paginationCursor.map(
+        proc(s: seq[byte]): WakuMessageHash =
+          toHash(s)
+      ),
+    )
+  )
 
 proc decode*(
     T: type StoreQueryResponse, buffer: seq[byte]
 ): ProtobufResult[StoreQueryResponse] =
-  var res = StoreQueryResponse()
-  let pb = initProtoBuffer(buffer)
-
-  if not ?pb.getField(1, res.requestId):
-    return err(ProtobufError.missingRequiredField("request_id"))
-
-  var code: uint32
-  if not ?pb.getField(10, code):
-    return err(ProtobufError.missingRequiredField("status_code"))
-  else:
-    res.statusCode = code
-
-  var desc: string
-  if not ?pb.getField(11, desc):
-    return err(ProtobufError.missingRequiredField("status_desc"))
-  else:
-    res.statusDesc = desc
-
-  var buffer: seq[seq[byte]]
-  if not ?pb.getRepeatedField(20, buffer):
-    res.messages = @[]
-  else:
-    res.messages = newSeqOfCap[WakuMessageKeyValue](buffer.len)
-    for buf in buffer:
-      let msg = ?WakuMessageKeyValue.decode(buf)
-      res.messages.add(msg)
-
-  var cursor: seq[byte]
-  if not ?pb.getField(51, cursor):
-    res.paginationCursor = Opt.none(WakuMessageHash)
-  else:
-    var hash: WakuMessageHash
-    discard copyFrom[byte](hash, cursor)
-    res.paginationCursor = Opt.some(hash)
-
-  return ok(res)
+  decodeStoreQueryResponse(buffer)

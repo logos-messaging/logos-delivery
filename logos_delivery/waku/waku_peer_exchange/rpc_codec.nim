@@ -1,42 +1,24 @@
 {.push raises: [].}
 
-import results, ../common/protobuf, ./rpc
+import std/sequtils, results
+import protobuf_serialization, protobuf_serialization/pkg/results
+import ../common/protobuf, ./rpc
 
-proc encode*(rpc: PeerExchangeRequest): ProtoBuffer =
-  var pb = initProtoBuffer()
+type
+  PeerExchangePeerInfoPB {.proto2.} = object
+    enr {.fieldNumber: 1.}: Opt[seq[byte]]
 
-  pb.write3(1, rpc.numPeers)
-  pb.finish3()
+  PeerExchangeRequestPB {.proto2.} = object
+    numPeers {.fieldNumber: 1, pint.}: Opt[uint64]
 
-  pb
+  PeerExchangeResponsePB {.proto2.} = object
+    peerInfos {.fieldNumber: 1.}: seq[PeerExchangePeerInfoPB]
+    statusCode {.fieldNumber: 10, pint.}: Opt[uint32]
+    statusDesc {.fieldNumber: 11.}: Opt[string]
 
-proc decode*(T: type PeerExchangeRequest, buffer: seq[byte]): ProtoResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = PeerExchangeRequest(numPeers: 0)
-
-  var numPeers: uint64
-  if ?pb.getField(1, numPeers):
-    rpc.numPeers = numPeers
-
-  ok(rpc)
-
-proc encode*(rpc: PeerExchangePeerInfo): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, rpc.enr)
-  pb.finish3()
-
-  pb
-
-proc decode*(T: type PeerExchangePeerInfo, buffer: seq[byte]): ProtoResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = PeerExchangePeerInfo(enr: @[])
-
-  var peerInfoBuffer: seq[byte]
-  if ?pb.getField(1, peerInfoBuffer):
-    rpc.enr = peerInfoBuffer
-
-  ok(rpc)
+  PeerExchangeRpcPB {.proto2.} = object
+    request {.fieldNumber: 1, required.}: PeerExchangeRequestPB
+    response {.fieldNumber: 2.}: Opt[PeerExchangeResponsePB]
 
 proc parse*(T: type PeerExchangeResponseStatusCode, status: uint32): T =
   case status
@@ -45,70 +27,98 @@ proc parse*(T: type PeerExchangeResponseStatusCode, status: uint32): T =
   else:
     PeerExchangeResponseStatusCode.UNKNOWN
 
-proc encode*(rpc: PeerExchangeResponse): ProtoBuffer =
-  var pb = initProtoBuffer()
+proc toPB(pi: PeerExchangePeerInfo): PeerExchangePeerInfoPB =
+  PeerExchangePeerInfoPB(enr: Opt.some(pi.enr))
 
-  for pi in rpc.peerInfos:
-    pb.write3(1, pi.encode())
-  pb.write3(10, rpc.status_code.uint32)
-  pb.write3(11, rpc.status_desc)
+proc fromPB(pb: PeerExchangePeerInfoPB): PeerExchangePeerInfo =
+  PeerExchangePeerInfo(enr: pb.enr.get(@[]))
 
-  pb.finish3()
+proc toPB(req: PeerExchangeRequest): PeerExchangeRequestPB =
+  PeerExchangeRequestPB(numPeers: Opt.some(req.numPeers))
 
-  pb
+proc fromPB(pb: PeerExchangeRequestPB): PeerExchangeRequest =
+  PeerExchangeRequest(numPeers: pb.numPeers.get(0'u64))
+
+proc toPB(res: PeerExchangeResponse): PeerExchangeResponsePB =
+  PeerExchangeResponsePB(
+    peerInfos: res.peerInfos.mapIt(toPB(it)),
+    statusCode: Opt.some(uint32(ord(res.status_code))),
+    statusDesc: res.status_desc,
+  )
+
+proc fromPB(pb: PeerExchangeResponsePB): PeerExchangeResponse =
+  let peerInfos = pb.peerInfos.mapIt(fromPB(it))
+  let statusCode =
+    if pb.statusCode.isSome():
+      PeerExchangeResponseStatusCode.parse(pb.statusCode.get())
+    elif peerInfos.len() > 0:
+      # older peers may not support the status_code field yet
+      PeerExchangeResponseStatusCode.SUCCESS
+    else:
+      PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE
+  PeerExchangeResponse(
+    peerInfos: peerInfos, status_code: statusCode, status_desc: pb.statusDesc
+  )
+
+proc encode*(rpc: PeerExchangeRequest): seq[byte] =
+  Protobuf.encode(toPB(rpc))
+
+proc encode*(rpc: PeerExchangePeerInfo): seq[byte] =
+  Protobuf.encode(toPB(rpc))
+
+proc encode*(rpc: PeerExchangeResponse): seq[byte] =
+  Protobuf.encode(toPB(rpc))
+
+proc encode*(rpc: PeerExchangeRpc): seq[byte] =
+  Protobuf.encode(
+    PeerExchangeRpcPB(
+      request: toPB(rpc.request), response: Opt.some(toPB(rpc.response))
+    )
+  )
+
+proc decodePeerExchangeRequest(buffer: seq[byte]): ProtobufResult[PeerExchangeRequest] =
+  try:
+    ok(fromPB(Protobuf.decode(buffer, PeerExchangeRequestPB)))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+proc decodePeerExchangePeerInfo(
+    buffer: seq[byte]
+): ProtobufResult[PeerExchangePeerInfo] =
+  try:
+    ok(fromPB(Protobuf.decode(buffer, PeerExchangePeerInfoPB)))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+proc decodePeerExchangeResponse(
+    buffer: seq[byte]
+): ProtobufResult[PeerExchangeResponse] =
+  try:
+    ok(fromPB(Protobuf.decode(buffer, PeerExchangeResponsePB)))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+proc decodePeerExchangeRpc(buffer: seq[byte]): ProtobufResult[PeerExchangeRpc] =
+  var pb: PeerExchangeRpcPB
+  try:
+    pb = Protobuf.decode(buffer, PeerExchangeRpcPB)
+  except SerializationError:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+  let response =
+    if pb.response.isSome():
+      fromPB(pb.response.get())
+    else:
+      PeerExchangeResponse(status_code: PeerExchangeResponseStatusCode.UNKNOWN)
+  ok(PeerExchangeRpc(request: fromPB(pb.request), response: response))
+
+proc decode*(T: type PeerExchangeRequest, buffer: seq[byte]): ProtobufResult[T] =
+  decodePeerExchangeRequest(buffer)
+
+proc decode*(T: type PeerExchangePeerInfo, buffer: seq[byte]): ProtobufResult[T] =
+  decodePeerExchangePeerInfo(buffer)
 
 proc decode*(T: type PeerExchangeResponse, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = PeerExchangeResponse(peerInfos: @[])
-
-  var peerInfoBuffers: seq[seq[byte]]
-  if ?pb.getRepeatedField(1, peerInfoBuffers):
-    for pib in peerInfoBuffers:
-      rpc.peerInfos.add(?PeerExchangePeerInfo.decode(pib))
-
-  var status_code: uint32
-  if ?pb.getField(10, status_code):
-    rpc.status_code = PeerExchangeResponseStatusCode.parse(status_code)
-  else:
-    # older peers may not support status_code field yet
-    if rpc.peerInfos.len() > 0:
-      rpc.status_code = PeerExchangeResponseStatusCode.SUCCESS
-    else:
-      rpc.status_code = PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE
-
-  var status_desc: string
-  if ?pb.getField(11, status_desc):
-    rpc.status_desc = Opt.some(status_desc)
-  else:
-    rpc.status_desc = Opt.none(string)
-
-  ok(rpc)
-
-proc encode*(rpc: PeerExchangeRpc): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, rpc.request.encode())
-  pb.write3(2, rpc.response.encode())
-
-  pb.finish3()
-
-  pb
+  decodePeerExchangeResponse(buffer)
 
 proc decode*(T: type PeerExchangeRpc, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = PeerExchangeRpc()
-
-  var requestBuffer: seq[byte]
-  if not ?pb.getField(1, requestBuffer):
-    return err(ProtobufError.missingRequiredField("request"))
-
-  rpc.request = ?PeerExchangeRequest.decode(requestBuffer)
-
-  var responseBuffer: seq[byte]
-  if not ?pb.getField(2, responseBuffer):
-    rpc.response =
-      PeerExchangeResponse(status_code: PeerExchangeResponseStatusCode.UNKNOWN)
-  else:
-    rpc.response = ?PeerExchangeResponse.decode(responseBuffer)
-
-  ok(rpc)
+  decodePeerExchangeRpc(buffer)

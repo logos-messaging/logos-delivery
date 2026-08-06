@@ -1,9 +1,11 @@
 {.push raises: [].}
 
-import
-  std/sets, results, sqlite3_abi, eth/p2p/discoveryv5/enr, libp2p/protobuf/minprotobuf
+import std/sets, results, sqlite3_abi, eth/p2p/discoveryv5/enr
+import protobuf_serialization, protobuf_serialization/pkg/results
+import libp2p/[peerid, multiaddress, crypto/crypto]
 import
   ../../../common/databases/db_sqlite,
+  ../../../common/protobuf,
   ../../../waku_core,
   ../waku_peer_store,
   ./peer_storage
@@ -18,62 +20,67 @@ type WakuPeerStorage* = ref object of PeerStorage
 # Protobuf Serialisation #
 ##########################
 
-proc decode*(T: type RemotePeerInfo, buffer: seq[byte]): ProtoResult[T] =
-  var
-    multiaddrSeq: seq[MultiAddress]
-    protoSeq: seq[string]
-    storedInfo = RemotePeerInfo()
-    rlpBytes: seq[byte]
-    connectedness: uint32
-    disconnectTime: uint64
+type RemotePeerInfoPB {.proto2.} = object
+  peerId {.fieldNumber: 1, ext, required.}: PeerId
+  addrs {.fieldNumber: 2, ext.}: seq[MultiAddress]
+  protocols {.fieldNumber: 3.}: seq[string]
+  publicKey {.fieldNumber: 4, required.}: seq[byte]
+  connectedness {.fieldNumber: 5, pint.}: Opt[uint32]
+  disconnectTime {.fieldNumber: 6, pint.}: Opt[uint64]
+  enr {.fieldNumber: 7.}: Opt[seq[byte]]
 
-  var pb = initProtoBuffer(buffer)
+proc decodeRemotePeerInfo(buffer: seq[byte]): ProtobufResult[RemotePeerInfo] =
+  var pb: RemotePeerInfoPB
+  try:
+    pb = Protobuf.decode(buffer, RemotePeerInfoPB)
+  except SerializationError:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
 
-  discard ?pb.getField(1, storedInfo.peerId)
-  discard ?pb.getRepeatedField(2, multiaddrSeq)
-  discard ?pb.getRepeatedField(3, protoSeq)
-  discard ?pb.getField(4, storedInfo.publicKey)
-  discard ?pb.getField(5, connectedness)
-  discard ?pb.getField(6, disconnectTime)
-  let hasENR = ?pb.getField(7, rlpBytes)
+  var storedInfo = RemotePeerInfo()
+  storedInfo.peerId = pb.peerId
+  storedInfo.addrs = pb.addrs
+  storedInfo.protocols = pb.protocols
 
-  storedInfo.addrs = multiaddrSeq
-  storedInfo.protocols = protoSeq
-  storedInfo.connectedness = Connectedness(connectedness)
-  storedInfo.disconnectTime = int64(disconnectTime)
+  var publicKey: crypto.PublicKey
+  if publicKey.init(pb.publicKey):
+    storedInfo.publicKey = publicKey
 
-  if hasENR:
+  storedInfo.connectedness = Connectedness(pb.connectedness.get(0'u32))
+  storedInfo.disconnectTime = int64(pb.disconnectTime.get(0'u64))
+
+  if pb.enr.isSome():
     var record: Record
-
-    if record.fromBytes(rlpBytes):
+    if record.fromBytes(pb.enr.get()):
       storedInfo.enr = Opt.some(record)
 
   ok(storedInfo)
 
-proc encode*(remotePeerInfo: RemotePeerInfo): PeerStorageResult[ProtoBuffer] =
-  var pb = initProtoBuffer()
+proc decode*(T: type RemotePeerInfo, buffer: seq[byte]): ProtobufResult[T] =
+  decodeRemotePeerInfo(buffer)
 
-  pb.write(1, remotePeerInfo.peerId)
+proc encode*(remotePeerInfo: RemotePeerInfo): PeerStorageResult[seq[byte]] =
+  let publicKeyBytes = remotePeerInfo.publicKey.getBytes().valueOr:
+    return err("Encoding public key failed: " & $error)
 
-  for multiaddr in remotePeerInfo.addrs.items:
-    pb.write(2, multiaddr)
+  let enr =
+    if remotePeerInfo.enr.isSome():
+      Opt.some(remotePeerInfo.enr.get().raw)
+    else:
+      Opt.none(seq[byte])
 
-  for proto in remotePeerInfo.protocols.items:
-    pb.write(3, proto)
-
-  let catchRes = catch:
-    pb.write(4, remotePeerInfo.publicKey)
-  catchRes.isOkOr:
-    return err("Enncoding public key failed: " & catchRes.error.msg)
-
-  pb.write(5, uint32(ord(remotePeerInfo.connectedness)))
-
-  pb.write(6, uint64(remotePeerInfo.disconnectTime))
-
-  if remotePeerInfo.enr.isSome():
-    pb.write(7, remotePeerInfo.enr.get().raw)
-
-  return ok(pb)
+  ok(
+    Protobuf.encode(
+      RemotePeerInfoPB(
+        peerId: remotePeerInfo.peerId,
+        addrs: remotePeerInfo.addrs,
+        protocols: remotePeerInfo.protocols,
+        publicKey: publicKeyBytes,
+        connectedness: Opt.some(uint32(ord(remotePeerInfo.connectedness))),
+        disconnectTime: Opt.some(uint64(remotePeerInfo.disconnectTime)),
+        enr: enr,
+      )
+    )
+  )
 
 ##########################
 # Storage implementation #
@@ -128,7 +135,7 @@ method put*(
   let encoded = remotePeerInfo.encode().valueOr:
     return err("peer info encoding failed: " & error)
 
-  db.replaceStmt.exec((remotePeerInfo.peerId.data, encoded.buffer)).isOkOr:
+  db.replaceStmt.exec((remotePeerInfo.peerId.data, encoded)).isOkOr:
     return err("DB operation failed: " & error)
 
   return ok()
@@ -138,7 +145,9 @@ method getAll*(
 ): PeerStorageResult[void] =
   ## Retrieves all peers from storage
 
-  proc peer(s: ptr sqlite3_stmt) {.gcsafe, raises: [ResultError[ProtoError]].} =
+  proc peer(
+      s: ptr sqlite3_stmt
+  ) {.gcsafe, raises: [ResultError[protobuf.ProtobufError]].} =
     let
       # Stored Info
       sTo = cast[ptr UncheckedArray[byte]](sqlite3_column_blob(s, 1))

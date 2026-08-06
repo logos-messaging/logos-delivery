@@ -4,6 +4,7 @@ import ./test_waku
 
 # Waku core test suite
 import
+  ./waku_core/test_message_codec,
   ./waku_core/test_namespaced_topics,
   ./waku_core/test_time,
   ./waku_core/test_message_digest,

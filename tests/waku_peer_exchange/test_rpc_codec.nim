@@ -23,7 +23,7 @@ suite "Peer Exchange RPC":
   asyncTest "Encode - Decode":
     # Setup
     let rpcReq = PeerExchangeRpc.makeRequest(2)
-    let rpcReqBuffer: seq[byte] = rpcReq.encode().buffer
+    let rpcReqBuffer: seq[byte] = rpcReq.encode()
     let resReq = PeerExchangeRpc.decode(rpcReqBuffer)
 
     check:
@@ -47,7 +47,7 @@ suite "Peer Exchange RPC":
     let rpc = PeerExchangeRpc.makeResponse(peerInfos)
 
     # When encoding and decoding
-    let rpcBuffer: seq[byte] = rpc.encode().buffer
+    let rpcBuffer: seq[byte] = rpc.encode()
     let res = PeerExchangeRpc.decode(rpcBuffer)
 
     # Then the peerInfos match the originals

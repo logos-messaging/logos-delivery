@@ -20,7 +20,7 @@ suite "Waku Payload":
 
     ## When
     let pb = msg.encode()
-    let msgDecoded = WakuMessage.decode(pb.buffer)
+    let msgDecoded = WakuMessage.decode(pb)
 
     ## Then
     check:
@@ -41,7 +41,7 @@ suite "Waku Payload":
 
     ## When
     let pb = msg.encode()
-    let msgDecoded = WakuMessage.decode(pb.buffer)
+    let msgDecoded = WakuMessage.decode(pb)
 
     ## Then
     check:

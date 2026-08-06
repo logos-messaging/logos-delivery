@@ -210,7 +210,7 @@ proc pushToPeers(
       target_peer_ids = targetPeerIds,
       msg_hash = msgHash
 
-    let bufferToPublish = messagePush.encode().buffer
+    let bufferToPublish = messagePush.encode()
     var pushFuts: seq[Future[Result[void, string]]]
 
     for peerId in peers:
@@ -337,7 +337,7 @@ proc initProtocolHandler(wf: WakuFilter) =
       )
 
     try:
-      await conn.writeLp(response.encode().buffer) #TODO: toRPC() separation here
+      await conn.writeLp(response.encode()) #TODO: toRPC() separation here
     except LPStreamError:
       error "failed to write stream in writeLp",
         remote_peer_id = conn.peerId, error = getCurrentExceptionMsg()

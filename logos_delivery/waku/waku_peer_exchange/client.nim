@@ -34,7 +34,7 @@ proc request*(
   var callResult =
     (status_code: PeerExchangeResponseStatusCode.SUCCESS, status_desc: Opt.none(string))
   try:
-    await conn.writeLP(rpc.encode().buffer)
+    await conn.writeLP(rpc.encode())
     buffer = await conn.readLp(DefaultMaxRpcSize.int)
   except CatchableError as exc:
     error "exception when handling peer exchange request", error = exc.msg
