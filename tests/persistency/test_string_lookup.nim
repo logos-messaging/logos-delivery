@@ -38,9 +38,9 @@ suite "Persistency string-id lookup":
     let root = tmpRoot("notfound")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
 
     let r = p.job("nope")
     check r.isErr
@@ -50,9 +50,9 @@ suite "Persistency string-id lookup":
     let root = tmpRoot("found")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
 
     let opened = p.openJob("alpha").get()
     let looked = p.job("alpha").get()
@@ -63,9 +63,9 @@ suite "Persistency string-id lookup":
     let root = tmpRoot("has")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
 
     check not p.hasJob("x")
     discard p.openJob("x")
@@ -77,9 +77,9 @@ suite "Persistency string-id lookup":
     let root = tmpRoot("subscript")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     discard p.openJob("a").get()
     let j = p["a"]
     check j.id == "a"
@@ -88,9 +88,9 @@ suite "Persistency string-id lookup":
     let root = tmpRoot("rw")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     discard p.openJob("svc").get()
 
     let k = key("c", 1'i64)
@@ -107,9 +107,9 @@ suite "Persistency string-id lookup":
     let root = tmpRoot("missingread")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
 
     let g = await p.get("nope", "msg", key("k"))
     check g.isErr
@@ -127,9 +127,9 @@ suite "Persistency string-id lookup":
     let root = tmpRoot("missingwrite")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
 
     # Should not raise and should not leak any state.
     await p.persistPut("ghost", "msg", key("k"), payloadBytes("v"))
@@ -145,9 +145,9 @@ suite "Persistency string-id lookup":
       tag: string
       n: int64
 
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     discard p.openJob("e").get()
 
     let k = key("items", 1'i64)
@@ -164,9 +164,9 @@ suite "Persistency string-id lookup":
     let root = tmpRoot("scan")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let j = p.openJob("s").get()
 
     for i in 1'i64 .. 3:

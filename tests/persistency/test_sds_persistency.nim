@@ -56,9 +56,9 @@ suite "SDS persistency adapter (0.3.0 snapshot model)":
     let root = tmpRoot("roundtrip")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let job = p.openJob("sds").get()
     let persistence = newSdsPersistence(job)
     let channelId = "chan-1".SdsChannelID
@@ -86,9 +86,9 @@ suite "SDS persistency adapter (0.3.0 snapshot model)":
     let root = tmpRoot("empty")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let job = p.openJob("sds").get()
     let persistence = newSdsPersistence(job)
 
@@ -102,9 +102,9 @@ suite "SDS persistency adapter (0.3.0 snapshot model)":
     let root = tmpRoot("evict")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let job = p.openJob("sds").get()
     let persistence = newSdsPersistence(job)
     let channelId = "c".SdsChannelID
@@ -129,9 +129,9 @@ suite "SDS persistency adapter (0.3.0 snapshot model)":
     let root = tmpRoot("drop")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let job = p.openJob("sds").get()
     let persistence = newSdsPersistence(job)
     let channelId = "d".SdsChannelID

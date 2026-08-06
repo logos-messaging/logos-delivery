@@ -88,6 +88,8 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
 
   brokerCtx*: BrokerContext
 
+  persistency*: Persistency
+
 proc setupSwitchServices(
     waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: crypto.Rng
 ) =
@@ -391,11 +393,13 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     else:
       waku.dynamicBootstrapNodes = dynamicBootstrapNodesRes.get()
 
-  ## Initialize persistency singleton instance - we don't need the instance itself here,
-  ## but this ensures it's initialized before any store job starts.
-  discard Persistency.instance(conf.localStoragePath).valueOr:
+  ## Create this node's Persistency instance and provide it under the node's
+  ## BrokerContext so same-context consumers (e.g. SDS) can resolve it.
+  waku.persistency = Persistency.new(conf.localStoragePath).valueOr:
     error "Failed to initialize persistency instance", error = $error
     return err("Failed to initialize persistency instance: " & $error)
+  discard GetPersistency.reprovideIt(waku.brokerCtx):
+    ok(waku.persistency)
 
   (await startNode(waku.node, waku.conf, waku.dynamicBootstrapNodes)).isOkOr:
     return err("error while calling startNode: " & $error)
@@ -521,7 +525,10 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   try:
     waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
 
-    Persistency.reset()
+    GetPersistency.clearProvider(waku.brokerCtx)
+    if not waku.persistency.isNil():
+      waku.persistency.close()
+      waku.persistency = nil
 
     if not waku.metricsServer.isNil():
       await waku.metricsServer.stop()

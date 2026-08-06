@@ -38,9 +38,9 @@ suite "Persistency facade":
     let root = tmpRoot("put_get")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t").get()
 
     let k = key("c", 1'i64)
@@ -57,9 +57,9 @@ suite "Persistency facade":
     let root = tmpRoot("batch")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t").get()
 
     var ops: seq[TxOp]
@@ -79,9 +79,9 @@ suite "Persistency facade":
     let root = tmpRoot("scan")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t").get()
 
     for i in [3'i64, 1, 4, 1, 5, 9, 2]:
@@ -103,9 +103,9 @@ suite "Persistency facade":
     let root = tmpRoot("scan_rev")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t").get()
 
     for i in 1'i64 .. 3:
@@ -123,9 +123,9 @@ suite "Persistency facade":
     let root = tmpRoot("delete")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t").get()
 
     let k = key("c", 1'i64)
@@ -147,9 +147,9 @@ suite "Persistency facade":
     let root = tmpRoot("fadel")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let t = p.openJob("t").get()
 
     let k = key("c", 1'i64)
@@ -172,9 +172,9 @@ suite "Persistency facade":
     let root = tmpRoot("iso")
     defer:
       removeDir(root)
-    let p = Persistency.instance(root).get()
+    let p = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p.close()
     let a = p.openJob("a").get()
     let b = p.openJob("b").get()
 
