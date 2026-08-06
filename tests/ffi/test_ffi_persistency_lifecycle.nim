@@ -71,14 +71,13 @@ const
 # ── C ABI surface ───────────────────────────────────────────────────────
 
 type
-  FfiCallback = proc(
-    callerRet: cint, msg: ptr cchar, len: csize_t, userData: pointer
-  ) {.cdecl, gcsafe, raises: [].}
+  FfiCallback = proc(callerRet: cint, msg: ptr cchar, len: csize_t, userData: pointer) {.
+    cdecl, gcsafe, raises: []
+  .}
 
-  CreateNodeFn =
-    proc(configJson: cstring, cb: FfiCallback, userData: pointer): pointer {.
-      cdecl, gcsafe
-    .}
+  CreateNodeFn = proc(configJson: cstring, cb: FfiCallback, userData: pointer): pointer {.
+    cdecl, gcsafe
+  .}
   CtxFn = proc(ctx: pointer, cb: FfiCallback, userData: pointer): cint {.cdecl, gcsafe.}
   ChannelCreateFn = proc(
     ctx: pointer,
@@ -202,7 +201,8 @@ proc createCtx(
     api: Api, s: ptr Slot, label, storagePath: string, tcpPort, discv5Port: int
 ): pointer =
   armSlot(s)
-  let ctx = api.createNode(nodeConfig(storagePath, tcpPort, discv5Port).cstring, onDone, s)
+  let ctx =
+    api.createNode(nodeConfig(storagePath, tcpPort, discv5Port).cstring, onDone, s)
   if ctx.isNil():
     echo "  FAIL: ", label, " create_node returned nil"
     failed = true
@@ -217,7 +217,9 @@ proc call(api: Api, s: ptr Slot, label: string, fn: CtxFn, ctx: pointer) =
 
 proc createChannel(api: Api, s: ptr Slot, label: string, ctx: pointer, id: string) =
   armSlot(s)
-  discard api.channelCreate(ctx, onDone, s, id.cstring, ContentTopic.cstring, SenderId.cstring)
+  discard api.channelCreate(
+    ctx, onDone, s, id.cstring, ContentTopic.cstring, SenderId.cstring
+  )
   expectOk(label, awaitSlot(s))
 
 proc churn(api: Api, s: ptr Slot, ctx: pointer, rounds = 500) =
@@ -305,10 +307,14 @@ proc runChild(which: string) =
   let s = createShared(Slot)
 
   case which
-  of CaseStopSteals: runStopSteals(api, s)
-  of CaseDestroyOnly: runDestroyOnly(api, s)
-  of CaseTwoPaths: runTwoPaths(api, s)
-  else: quit("unknown case " & which, 2)
+  of CaseStopSteals:
+    runStopSteals(api, s)
+  of CaseDestroyOnly:
+    runDestroyOnly(api, s)
+  of CaseTwoPaths:
+    runTwoPaths(api, s)
+  else:
+    quit("unknown case " & which, 2)
 
   quit(if failed: 1 else: 0)
 
@@ -319,8 +325,9 @@ if paramCount() >= 1 and paramStr(1).startsWith("--case-"):
 
 proc runCase(flag: string): tuple[code: int, output: string] =
   let logFile = getTempDir() / ("ffi_persistency_repro" & flag & ".log")
-  removeFile(logFile)
-  let cmd = quoteShell(getAppFilename()) & " " & flag & " > " & quoteShell(logFile) & " 2>&1"
+  discard tryRemoveFile(logFile)
+  let cmd =
+    quoteShell(getAppFilename()) & " " & flag & " > " & quoteShell(logFile) & " 2>&1"
 
   let child = startProcess("/bin/sh", args = @["-c", cmd], options = {})
   let code = child.waitForExit(timeout = 300_000)
@@ -331,7 +338,7 @@ proc runCase(flag: string): tuple[code: int, output: string] =
       readFile(logFile)
     except IOError:
       ""
-  removeFile(logFile)
+  discard tryRemoveFile(logFile)
   return (code, output)
 
 proc report(flag: string, r: tuple[code: int, output: string]) =
