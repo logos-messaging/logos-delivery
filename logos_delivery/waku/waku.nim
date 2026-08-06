@@ -88,6 +88,8 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
 
   brokerCtx*: BrokerContext
 
+  persistency*: Persistency
+
 proc setupSwitchServices(
     waku: Waku, conf: WakuConf, circuitRelay: Relay, rng: crypto.Rng
 ) =
@@ -363,6 +365,14 @@ proc startDnsDiscoveryRetryLoop(waku: Waku): Future[void] {.async.} =
       error "failed to connect to dynamic bootstrap nodes: " & getCurrentExceptionMsg()
     return
 
+proc closePersistency(waku: Waku) =
+  ## Clear the GetPersistency provider and close the instance (joins any
+  ## job worker threads). Idempotent; shared by `stop` and a failed `start`.
+  GetPersistency.clearProvider(waku.brokerCtx)
+  if not waku.persistency.isNil():
+    waku.persistency.close()
+    waku.persistency = nil
+
 proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if waku.node.started:
     warn "start: waku node already started"
@@ -370,6 +380,21 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   info "Retrieve dynamic bootstrap nodes"
   let conf = waku.conf
+
+  ## Create this node's Persistency instance and provide it under the node's
+  ## BrokerContext first, so any later startup stage can restore persisted
+  ## state through it. Inert until the first openJob. The defer below tears
+  ## it down again on every one of start's error return paths.
+  waku.persistency = Persistency.new(conf.localStoragePath).valueOr:
+    error "Failed to initialize persistency instance", error = $error
+    return err("Failed to initialize persistency instance: " & $error)
+  discard GetPersistency.reprovideIt(waku.brokerCtx):
+    ok(waku.persistency)
+
+  var startSucceeded = false
+  defer:
+    if not startSucceeded:
+      waku.closePersistency()
 
   if conf.dnsDiscoveryConf.isSome():
     let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()
@@ -390,12 +415,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       waku.dnsRetryLoopHandle = waku.startDnsDiscoveryRetryLoop()
     else:
       waku.dynamicBootstrapNodes = dynamicBootstrapNodesRes.get()
-
-  ## Initialize persistency singleton instance - we don't need the instance itself here,
-  ## but this ensures it's initialized before any store job starts.
-  discard Persistency.instance(conf.localStoragePath).valueOr:
-    error "Failed to initialize persistency instance", error = $error
-    return err("Failed to initialize persistency instance: " & $error)
 
   (await startNode(waku.node, waku.conf, waku.dynamicBootstrapNodes)).isOkOr:
     return err("error while calling startNode: " & $error)
@@ -512,6 +531,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       )
   waku.healthMonitor.setOverallHealth(HealthStatus.READY)
 
+  startSucceeded = true
   return ok()
 
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
@@ -521,7 +541,7 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   try:
     waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
 
-    Persistency.reset()
+    waku.closePersistency()
 
     if not waku.metricsServer.isNil():
       await waku.metricsServer.stop()

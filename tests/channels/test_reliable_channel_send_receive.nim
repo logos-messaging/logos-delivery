@@ -585,12 +585,11 @@ suite "Reliable Channel - SDS persistence":
       channelId = ChannelId("sds-persist-channel")
       contentTopic = ContentTopic("/reliable-channel/test/persist")
 
-    Persistency.reset()
     let root = getTempDir() / ("reliable_channel_sds_" & $epochTime().int)
     removeDir(root)
-    let persistency = Persistency.instance(root).expect("persistency init")
+    let persistency = Persistency.new(root).expect("persistency init")
     defer:
-      Persistency.reset()
+      persistency.close()
       removeDir(root)
 
     var waku: LogosDelivery
@@ -598,6 +597,9 @@ suite "Reliable Channel - SDS persistence":
     lockNewGlobalBrokerContext:
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
+
+    discard GetPersistency.reprovideIt(manager.brokerCtx):
+      ok(persistency)
 
     setNoopEncryption()
 
@@ -841,12 +843,11 @@ suite "Reliable Channel - SDS lifecycle":
       contentTopic = ContentTopic("/reliable-channel/test/restore")
     let appPayload = "survive restart".toBytes()
 
-    Persistency.reset()
     let root = getTempDir() / ("reliable_channel_sds_restore_" & $epochTime().int)
     removeDir(root)
-    let persistency = Persistency.instance(root).expect("persistency init")
+    let persistency = Persistency.new(root).expect("persistency init")
     defer:
-      Persistency.reset()
+      persistency.close()
       removeDir(root)
 
     var waku: LogosDelivery
@@ -856,6 +857,9 @@ suite "Reliable Channel - SDS lifecycle":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
+
+    discard GetPersistency.reprovideIt(manager.brokerCtx):
+      ok(persistency)
 
     setNoopEncryption()
 
@@ -991,12 +995,11 @@ suite "Reliable Channel - SDS protocol semantics":
       channelId = ChannelId("sds-ack-channel")
       contentTopic = ContentTopic("/reliable-channel/test/ack")
 
-    Persistency.reset()
     let root = getTempDir() / ("reliable_channel_sds_ack_" & $epochTime().int)
     removeDir(root)
-    let persistency = Persistency.instance(root).expect("persistency init")
+    let persistency = Persistency.new(root).expect("persistency init")
     defer:
-      Persistency.reset()
+      persistency.close()
       removeDir(root)
 
     var waku: LogosDelivery
@@ -1006,6 +1009,9 @@ suite "Reliable Channel - SDS protocol semantics":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
+
+    discard GetPersistency.reprovideIt(manager.brokerCtx):
+      ok(persistency)
 
     setNoopEncryption()
 
