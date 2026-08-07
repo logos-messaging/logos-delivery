@@ -75,12 +75,42 @@ proc parseArrayInner(s: string): string {.compileTime.} =
     return ""
   inner[comma + 1 .. ^1].strip()
 
+proc parseTableParams(s: string): (string, string) {.compileTime.} =
+  ## "Table[K, V]" -> ("K", "V"); split on the first top-level comma.
+  let inner = s.strip()[6 ..^ 2]
+  var depth = 0
+  for i in 0 ..< inner.len:
+    case inner[i]
+    of '[', '(':
+      inc depth
+    of ']', ')':
+      dec depth
+    of ',':
+      if depth == 0:
+        return (inner[0 ..< i].strip(), inner[i + 1 .. ^1].strip())
+    else:
+      discard
+  ("", "")
+
 proc nimTypeToRustHint*(nimType: string): string {.compileTime.} =
   ## Recursive Nim → Rust type. Falls back to "" for types we can't yet map.
   let t = nimType.strip()
   let lower = t.toLowerAscii()
   if isRustPrimitive(t):
     return primRustHint(t)
+  if lower.startsWith("table[") and lower.endsWith("]"):
+    # Table[K, V] -> HashMap<Krust, Vrust>, all scalar key types. Keys ride the
+    # wire as CBOR text strings; non-String key fields get a `#[serde(with =
+    # "cbor_strkey_map")]` adapter (see generateCborRustFile) that converts
+    # text <-> typed key. string/char keys map to String and need no adapter.
+    let (k, v) = parseTableParams(t)
+    let kr = nimTypeToRustHint(k)
+    let vr = nimTypeToRustHint(v)
+    return
+      if kr.len > 0 and vr.len > 0:
+        "HashMap<" & kr & ", " & vr & ">"
+      else:
+        ""
   if lower.startsWith("seq[") and lower.endsWith("]"):
     let inner = nimTypeToRustHint(unwrapBracket(t, "seq"))
     return
@@ -109,9 +139,12 @@ proc nimTypeToRustHint*(nimType: string): string {.compileTime.} =
     of atkObject, atkEnum:
       return t
     of atkAlias, atkDistinct:
-      # Recurse via outer mapper so distinct/alias over compound types
-      # (e.g. `distinct seq[byte]`) maps to `Vec<u8>` rather than the "" fallback.
-      return nimTypeToRustHint(resolveUnderlyingType(t))
+      # Reference the emitted `pub type <name> = ...` alias BY NAME so
+      # fields/params keep the meaningful type (`ContentTopic`, `Timestamp`)
+      # instead of flattening to the underlying; "" when it doesn't map.
+      if nimTypeToRustHint(resolveUnderlyingType(t)).len > 0:
+        return t
+      return ""
   ""
 
 proc nimTypeToRustDefaultHint*(nimType: string): string {.compileTime.} =
@@ -151,6 +184,19 @@ proc nimTypeToRustDefaultHint*(nimType: string): string {.compileTime.} =
 proc isRustMappable*(nimType: string): bool {.compileTime.} =
   nimTypeToRustHint(nimType).len > 0
 
+proc rustTableNeedsKeyConv*(nimType: string): bool {.compileTime.} =
+  ## True when the field is a `Table[K, V]` whose Rust key type is not
+  ## `String` — i.e. an int / enum / distinct-of-int key that must be
+  ## converted to/from the text key on the wire via the `cbor_strkey_map`
+  ## serde helper. (string / char keys map to `String` and need no helper.)
+  let t = nimType.strip()
+  let lower = t.toLowerAscii()
+  if not (lower.startsWith("table[") and lower.endsWith("]")):
+    return false
+  let (k, _) = parseTableParams(t)
+  let kr = nimTypeToRustHint(k)
+  kr.len > 0 and kr != "String"
+
 # ---------------------------------------------------------------------------
 # File emission
 # ---------------------------------------------------------------------------
@@ -183,6 +229,9 @@ proc generateCborRustFile*(
     requestEntries: seq[CborRequestEntry],
     eventEntries: seq[CborEventEntry],
     mainClass: string = "",
+    asyncTimeoutMs: int = 30000,
+    asyncQueueDepth: int = 64,
+    signalEntries: seq[CborSignalEntry] = @[],
 ) {.compileTime, raises: [].} =
   ## Writes the Rust wrapper crate (Cargo.toml + src/lib.rs) for a
   ## CBOR-mode library under `<outDir>/<libName>_rs/`.
@@ -201,6 +250,12 @@ proc generateCborRustFile*(
     if mainClass.len == 0:
       return true
     let o = interfaceOwningEventType(ev.typeName)
+    o.len == 0 or o == mainClass
+
+  proc ownsSigMain(s: CborSignalEntry): bool {.compileTime.} =
+    if mainClass.len == 0:
+      return true
+    let o = interfaceOwningSignalType(s.typeName)
     o.len == 0 or o == mainClass
 
   var subInterfaceNames: seq[string] = @[]
@@ -236,6 +291,11 @@ proc generateCborRustFile*(
   cargo.add("serde = { version = \"1\", features = [\"derive\"] }\n")
   cargo.add("serde_bytes = \"0.11\"\n")
   cargo.add("serde_json = \"1\"\n")
+  # Async request surface (`<method>_async().await`) bridges the C response
+  # callback to a runtime-agnostic futures-channel oneshot: the crate works
+  # under tokio, smol, async-std, or futures::executor::block_on alike —
+  # no async runtime is forced on consumers.
+  cargo.add("futures-channel = \"0.3\"\n")
   try:
     writeFile(crateDir & "/Cargo.toml", cargo)
   except IOError:
@@ -316,6 +376,16 @@ proc generateCborRustFile*(
     "    fn " & p &
       "unsubscribe(ctx: u32, event_name: *const c_char, handle: u64) -> i32;\n"
   )
+  rs.add("    fn " & p & "callAsync(\n")
+  rs.add("        ctx: u32,\n")
+  rs.add("        api_name: *const c_char,\n")
+  rs.add("        in_buf: *const c_void,\n")
+  rs.add("        in_len: i32,\n")
+  rs.add("        req_id: u64,\n")
+  rs.add("        timeout_ms: u32,\n")
+  rs.add("        cb: ResponseCb,\n")
+  rs.add("        user_data: *mut c_void,\n")
+  rs.add("    ) -> i32;\n")
   rs.add(
     "    fn " & p & "listApis(out_buf: *mut *mut c_void, out_len: *mut i32) -> i32;\n"
   )
@@ -325,8 +395,229 @@ proc generateCborRustFile*(
   rs.add("}\n\n")
 
   rs.add(
-    "pub type EventCb = unsafe extern \"C\" fn(ctx: u32, name: *const c_char, buf: *const c_void, buf_len: i32, ud: *mut c_void);\n\n"
+    "pub type EventCb = unsafe extern \"C\" fn(ctx: u32, name: *const c_char, buf: *const c_void, buf_len: i32, ud: *mut c_void);\n"
   )
+  rs.add(
+    "pub type ResponseCb = unsafe extern \"C\" fn(ud: *mut c_void, req_id: u64, status: i32, resp_buf: *const c_void, resp_len: i32);\n\n"
+  )
+
+  # ---- Async request plumbing (runtime-agnostic oneshot bridge) --------
+  rs.add("/// Max concurrent in-flight `_async` requests per context (full =>\n")
+  rs.add("/// the async method returns `Err(AsyncError::Again)`).\n")
+  rs.add("pub const ASYNC_QUEUE_DEPTH: u32 = " & $asyncQueueDepth & ";\n")
+  rs.add("/// Library default dispatch timeout (ms) applied by `_async` methods.\n")
+  rs.add("pub const DEFAULT_ASYNC_TIMEOUT_MS: u32 = " & $asyncTimeoutMs & ";\n\n")
+  rs.add("/// Typed error surface of the `_async` methods, so callers can MATCH\n")
+  rs.add("/// backpressure / timeout / shutdown instead of string-comparing. The\n")
+  rs.add(
+    "/// sync methods keep the wrapper `Result<T>` (cross-language parity surface).\n"
+  )
+  rs.add("#[derive(Debug, Clone, PartialEq, Eq)]\n")
+  rs.add("pub enum AsyncError {\n")
+  rs.add("    /// Async window full (EAGAIN, -6): NOT queued — back off and retry.\n")
+  rs.add("    Again,\n")
+  rs.add("    /// Provider exceeded the dispatch timeout (-12).\n")
+  rs.add("    TimedOut,\n")
+  rs.add("    /// Library shut down before the response was delivered (-11).\n")
+  rs.add("    ShutDown,\n")
+  rs.add("    /// Provider-level failure (the envelope `err`, or -4 unknown api).\n")
+  rs.add("    Provider(String),\n")
+  rs.add("    /// CBOR encode/decode failure in the wrapper.\n")
+  rs.add("    Codec(String),\n")
+  rs.add("    /// Any other framework status / enqueue rc.\n")
+  rs.add("    Framework(i32),\n")
+  rs.add("}\n\n")
+  rs.add("impl AsyncError {\n")
+  rs.add("    /// True when the call was rejected with EAGAIN — retry later.\n")
+  rs.add("    pub fn is_again(&self) -> bool { matches!(self, AsyncError::Again) }\n")
+  rs.add("}\n\n")
+  rs.add("impl std::fmt::Display for AsyncError {\n")
+  rs.add("    fn fmt(&self, f: &mut std::fmt::Formatter<'_>) -> std::fmt::Result {\n")
+  rs.add("        match self {\n")
+  rs.add("            AsyncError::Again => write!(f, \"EAGAIN: async window full\"),\n")
+  rs.add("            AsyncError::TimedOut => write!(f, \"request timed out\"),\n")
+  rs.add("            AsyncError::ShutDown => write!(f, \"library shut down\"),\n")
+  rs.add("            AsyncError::Provider(m) => write!(f, \"{}\", m),\n")
+  rs.add("            AsyncError::Codec(m) => write!(f, \"{}\", m),\n")
+  rs.add(
+    "            AsyncError::Framework(s) => write!(f, \"framework error: {}\", s),\n"
+  )
+  rs.add("        }\n")
+  rs.add("    }\n")
+  rs.add("}\n\n")
+  rs.add("impl std::error::Error for AsyncError {}\n\n")
+  rs.add(
+    "type CborAsyncSlot = futures_channel::oneshot::Sender<::std::result::Result<Vec<u8>, AsyncError>>;\n\n"
+  )
+  rs.add(
+    "/// C response trampoline: reconstruct the boxed oneshot sender (the opaque\n"
+  )
+  rs.add("/// userData), turn (status, respBuf) into Ok(bytes)/Err(AsyncError), and\n")
+  rs.add(
+    "/// fulfil it. Runs on the library's delivery thread; the caller's runtime\n/// (tokio, smol, block_on, ...) wakes the awaiting task.\n"
+  )
+  rs.add(
+    "unsafe extern \"C\" fn cbor_response_trampoline(ud: *mut c_void, _req_id: u64, status: i32, resp_buf: *const c_void, resp_len: i32) {\n"
+  )
+  rs.add("    if ud.is_null() { return; }\n")
+  rs.add(
+    "    let sender: Box<CborAsyncSlot> = unsafe { Box::from_raw(ud as *mut CborAsyncSlot) };\n"
+  )
+  rs.add(
+    "    let result: ::std::result::Result<Vec<u8>, AsyncError> = if status != 0 {\n"
+  )
+  rs.add(
+    "        if status == " & $ApiStatusUnknownApi &
+      " && !resp_buf.is_null() && resp_len > 0 {\n"
+  )
+  rs.add(
+    "            let slice = unsafe { std::slice::from_raw_parts(resp_buf as *const u8, resp_len as usize) };\n"
+  )
+  rs.add(
+    "            Err(AsyncError::Provider(String::from_utf8_lossy(slice).into_owned()))\n"
+  )
+  rs.add("        } else if status == " & $ApiStatusTimeout & " {\n")
+  rs.add("            Err(AsyncError::TimedOut)\n")
+  rs.add("        } else if status == " & $ApiStatusShutdown & " {\n")
+  rs.add("            Err(AsyncError::ShutDown)\n")
+  rs.add("        } else {\n")
+  rs.add("            Err(AsyncError::Framework(status))\n")
+  rs.add("        }\n")
+  rs.add("    } else if resp_buf.is_null() || resp_len <= 0 {\n")
+  rs.add("        Err(AsyncError::Codec(\"empty response envelope\".to_string()))\n")
+  rs.add("    } else {\n")
+  rs.add(
+    "        let slice = unsafe { std::slice::from_raw_parts(resp_buf as *const u8, resp_len as usize) };\n"
+  )
+  rs.add("        Ok(slice.to_vec())\n")
+  rs.add("    };\n")
+  rs.add("    let _ = sender.send(result);\n")
+  rs.add("}\n\n")
+
+  # Shared `do_signal` body (used by the main Lib impl and each sub-impl that
+  # owns a signal — both have a private `ctx: u32`, so a sub-interface signal
+  # routes to that sub-instance's ctx). Slot-free one-way `_call`.
+  proc emitRustDoSignal(p: string): string {.compileTime.} =
+    result.add(
+      "    fn do_signal(&self, api_name: &str, req_payload: &[u8]) -> ::std::result::Result<(), String> {\n"
+    )
+    result.add(
+      "        if self.ctx == 0 { return Err(\"Library context is not created\".into()); }\n"
+    )
+    result.add("        unsafe {\n")
+    result.add(
+      "            let cname = CString::new(api_name).map_err(|e| e.to_string())?;\n"
+    )
+    result.add("            let in_buf: *const c_void = if req_payload.is_empty() {\n")
+    result.add("                std::ptr::null()\n")
+    result.add("            } else {\n")
+    result.add(
+      "                let p = " & p & "allocBuffer(req_payload.len() as i32);\n"
+    )
+    result.add(
+      "                if p.is_null() { return Err(\"allocBuffer failed\".into()); }\n"
+    )
+    result.add(
+      "                std::ptr::copy_nonoverlapping(req_payload.as_ptr(), p as *mut u8, req_payload.len());\n"
+    )
+    result.add("                p as *const c_void\n")
+    result.add("            };\n")
+    result.add("            let mut out_buf: *mut c_void = std::ptr::null_mut();\n")
+    result.add("            let mut out_len: i32 = 0;\n")
+    result.add("            let status = " & p & "call(\n")
+    result.add(
+      "                self.ctx, cname.as_ptr(), in_buf, req_payload.len() as i32,\n"
+    )
+    result.add("                &mut out_buf as *mut _, &mut out_len as *mut _,\n")
+    result.add("            );\n")
+    result.add(
+      "            if !out_buf.is_null() && out_len > 0 { " & p &
+        "freeBuffer(out_buf); }\n"
+    )
+    result.add("            match status {\n")
+    result.add("                0 => Ok(()),\n")
+    result.add(
+      "                " & $ApiStatusAgain &
+        " => Err(\"EAGAIN: signal queue full\".into()),\n"
+    )
+    result.add(
+      "                " & $ApiStatusProviderErr &
+        " => Err(\"no signal handler installed\".into()),\n"
+    )
+    result.add("                s => Err(format!(\"signal failed: {}\", s)),\n")
+    result.add("            }\n")
+    result.add("        }\n")
+    result.add("    }\n\n")
+
+  # Shared `do_call_async` body (used by the main Lib impl and each sub-impl —
+  # both have a private `ctx: u32`). Encodes nothing; takes raw request bytes,
+  # bridges the C response callback to a futures-channel oneshot (runtime-
+  # agnostic), and returns the raw
+  # response envelope bytes (the per-method async fn decodes them into T).
+  proc emitDoCallAsync(p: string): string {.compileTime.} =
+    result.add(
+      "    async fn do_call_async(&self, api_name: &str, req_payload: &[u8], timeout_ms: u32) -> ::std::result::Result<Vec<u8>, AsyncError> {\n"
+    )
+    result.add(
+      "        if self.ctx == 0 { return Err(AsyncError::Provider(\"Library context is not created\".into())); }\n"
+    )
+    result.add(
+      "        let cname = CString::new(api_name).map_err(|e| AsyncError::Codec(e.to_string()))?;\n"
+    )
+    result.add("        let in_buf: *const c_void = if req_payload.is_empty() {\n")
+    result.add("            std::ptr::null()\n")
+    result.add("        } else {\n")
+    result.add("            unsafe {\n")
+    result.add(
+      "                let bp = " & p & "allocBuffer(req_payload.len() as i32);\n"
+    )
+    result.add(
+      "                if bp.is_null() { return Err(AsyncError::Codec(\"allocBuffer failed\".into())); }\n"
+    )
+    result.add(
+      "                std::ptr::copy_nonoverlapping(req_payload.as_ptr(), bp as *mut u8, req_payload.len());\n"
+    )
+    result.add("                bp as *const c_void\n")
+    result.add("            }\n")
+    result.add("        };\n")
+    result.add(
+      "        let (tx, rx) = futures_channel::oneshot::channel::<::std::result::Result<Vec<u8>, AsyncError>>();\n"
+    )
+    result.add(
+      "        let boxed: *mut c_void = Box::into_raw(Box::new(tx)) as *mut c_void;\n"
+    )
+    result.add("        let rc = unsafe {\n")
+    result.add("            " & p & "callAsync(\n")
+    result.add("                self.ctx,\n")
+    result.add("                cname.as_ptr(),\n")
+    result.add("                in_buf,\n")
+    result.add("                req_payload.len() as i32,\n")
+    result.add("                0,\n")
+    result.add("                timeout_ms,\n")
+    result.add("                cbor_response_trampoline,\n")
+    result.add("                boxed,\n")
+    result.add("            )\n")
+    result.add("        };\n")
+    result.add("        if rc != 0 {\n")
+    result.add(
+      "            // Not queued: the library freed in_buf (ABI) and the callback\n"
+    )
+    result.add("            // will NOT fire — reclaim the boxed sender ourselves.\n")
+    result.add(
+      "            unsafe { drop(Box::from_raw(boxed as *mut CborAsyncSlot)); }\n"
+    )
+    result.add(
+      "            if rc == " & $ApiStatusAgain & " { return Err(AsyncError::Again); }\n"
+    )
+    result.add("            return Err(AsyncError::Framework(rc));\n")
+    result.add("        }\n")
+    result.add("        match rx.await {\n")
+    result.add("            Ok(r) => r,\n")
+    result.add(
+      "            Err(_) => Err(AsyncError::Codec(\"response channel closed\".into())),\n"
+    )
+    result.add("        }\n")
+    result.add("    }\n\n")
 
   # ---- Result envelope -------------------------------------------------
   rs.add("/// Mirror of Nim's `Result[T, string]` envelope on the wire.\n")
@@ -369,10 +660,12 @@ proc generateCborRustFile*(
   # Its CBOR wire value is a bare scalar; the Rust surface uses the
   # `pub type X = <prim>` alias directly. Such a type is an emittable
   # request response / event payload despite having no object fields.
+  # Full mapper (not just primRustHint) so a container payload (`seq[string]`
+  # -> Vec<String>) is an emittable scalar payload, not only primitives.
   proc isScalarPayload(name: string): bool {.compileTime.} =
     name.len > 0 and isTypeRegistered(name) and
       lookupTypeEntry(name).kind in {atkAlias, atkDistinct} and
-      primRustHint(resolveUnderlyingType(name)).len > 0
+      nimTypeToRustHint(resolveUnderlyingType(name)).len > 0
 
   proc isEmittablePayload(name: string): bool {.compileTime.} =
     name in objectNames or isScalarPayload(name)
@@ -383,7 +676,9 @@ proc generateCborRustFile*(
   # Enums.
   for name in enumNames:
     let entry = lookupTypeEntry(name)
-    rs.add("#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]\n")
+    rs.add(
+      "#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]\n"
+    )
     rs.add("#[repr(i32)]\n")
     rs.add("#[serde(into = \"i32\", from = \"i32\")]\n")
     rs.add("pub enum " & name & " {\n")
@@ -413,18 +708,81 @@ proc generateCborRustFile*(
     rs.add("impl From<" & name & "> for i32 {\n")
     rs.add("    fn from(v: " & name & ") -> Self { v as i32 }\n")
     rs.add("}\n\n")
+    # Display / FromStr over the ordinal so the enum can be a Table key via the
+    # `cbor_strkey_map` serde helper (keys travel as text on the wire).
+    rs.add("impl std::fmt::Display for " & name & " {\n")
+    rs.add(
+      "    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result { write!(f, \"{}\", *self as i32) }\n"
+    )
+    rs.add("}\n\n")
+    rs.add("impl std::str::FromStr for " & name & " {\n")
+    rs.add("    type Err = std::num::ParseIntError;\n")
+    rs.add(
+      "    fn from_str(s: &str) -> std::result::Result<Self, Self::Err> { Ok(" & name &
+        "::from(s.parse::<i32>()?)) }\n"
+    )
+    rs.add("}\n\n")
 
-  # Distinct / alias.
+  # Distinct / alias. A bare-primitive response payload is unwrapped to the
+  # simple type, so its synthetic `pub type Verb = bool;` alias is dead — skip it
+  # (a field-used alias like `ContentTopic` is never a response name, so it stays).
+  var responseNames: seq[string] = @[]
+  for e in requestEntries:
+    if e.responseTypeName.len > 0 and e.responseTypeName notin responseNames:
+      responseNames.add(e.responseTypeName)
   for name in aliasNames:
+    if name in responseNames and effectiveResponsePayload(name) != name:
+      continue
     let underlying = resolveUnderlyingType(name)
-    let pyU = primRustHint(underlying)
+    let pyU = nimTypeToRustHint(underlying)
     if pyU.len == 0:
       rs.add(
         "// TODO: alias '" & name & "' resolves to '" & underlying &
-          "' which has no Rust primitive mapping\n\n"
+          "' which has no Rust mapping\n\n"
       )
       continue
     rs.add("pub type " & name & " = " & pyU & ";\n\n")
+
+  # Generic text-key <-> typed-key map adapter, emitted only when some object
+  # field is a non-string-keyed Table. Table keys ride the wire as CBOR text
+  # strings; this serde `with` helper converts them to/from the typed key
+  # (int / enum / distinct) — string/char keys map to `String` and skip it.
+  var needsStrKeyMap = false
+  for name in objectNames:
+    for f in lookupTypeEntry(name).fields:
+      if rustTableNeedsKeyConv(f.nimType):
+        needsStrKeyMap = true
+  if needsStrKeyMap:
+    rs.add("mod cbor_strkey_map {\n")
+    rs.add("    use serde::de::Error as _;\n")
+    rs.add("    use serde::ser::SerializeMap;\n")
+    rs.add("    use serde::{Deserialize, Deserializer, Serialize, Serializer};\n")
+    rs.add("    use std::collections::HashMap;\n")
+    rs.add("    use std::fmt::Display;\n")
+    rs.add("    use std::hash::Hash;\n")
+    rs.add("    use std::str::FromStr;\n")
+    rs.add(
+      "    pub fn serialize<S, K, V>(m: &HashMap<K, V>, s: S) -> std::result::Result<S::Ok, S::Error>\n"
+    )
+    rs.add("    where S: Serializer, K: Display + Eq + Hash, V: Serialize {\n")
+    rs.add("        let mut map = s.serialize_map(Some(m.len()))?;\n")
+    rs.add("        for (k, v) in m { map.serialize_entry(&k.to_string(), v)?; }\n")
+    rs.add("        map.end()\n")
+    rs.add("    }\n")
+    rs.add(
+      "    pub fn deserialize<'de, D, K, V>(d: D) -> std::result::Result<HashMap<K, V>, D::Error>\n"
+    )
+    rs.add(
+      "    where D: Deserializer<'de>, K: FromStr + Eq + Hash, <K as FromStr>::Err: Display, V: Deserialize<'de> {\n"
+    )
+    rs.add("        let sm = HashMap::<String, V>::deserialize(d)?;\n")
+    rs.add("        let mut out = HashMap::with_capacity(sm.len());\n")
+    rs.add(
+      "        for (k, v) in sm { out.insert(k.parse::<K>().map_err(D::Error::custom)?, v); }\n"
+    )
+    rs.add("        Ok(out)\n")
+    rs.add("    }\n")
+    rs.add("}\n\n")
 
   # Objects.
   for name in objectNames:
@@ -441,6 +799,8 @@ proc generateCborRustFile*(
       let useByteBuf = f.nimType.strip().toLowerAscii() == "seq[byte]"
       if useByteBuf:
         rs.add("    #[serde(with = \"serde_bytes\")]\n")
+      elif rustTableNeedsKeyConv(f.nimType):
+        rs.add("    #[serde(with = \"cbor_strkey_map\")]\n")
       rs.add("    pub " & f.name & ": " & hint & ",\n")
       anyField = true
     if not anyField:
@@ -598,7 +958,9 @@ proc generateCborRustFile*(
   rs.add("                " & p & "freeBuffer(out_buf);\n")
   rs.add("            }\n")
   rs.add("            if status != 0 {\n")
-  rs.add("                if status == -4 && !out.is_empty() {\n")
+  rs.add(
+    "                if status == " & $ApiStatusUnknownApi & " && !out.is_empty() {\n"
+  )
   rs.add(
     "                    return Err(String::from_utf8_lossy(&out).into_owned());\n"
   )
@@ -608,6 +970,11 @@ proc generateCborRustFile*(
   rs.add("            Ok(out)\n")
   rs.add("        }\n")
   rs.add("    }\n\n")
+
+  # Slot-free one-way signal dispatch through `_call` (shared with sub-impls).
+  rs.add(emitRustDoSignal(p))
+
+  rs.add(emitDoCallAsync(p))
 
   # Per-request methods. Factored into a reusable emitter so the main Lib impl
   # and each sub-interface impl share identical bodies (reduced-A).
@@ -642,9 +1009,17 @@ proc generateCborRustFile*(
         argsStructDecl.add("            " & n & ": " & nimTypeToRustHint(t) & ",\n")
         argsStructInit.add("            " & n & ",\n")
       argsStructDecl.add("        }\n")
+    # A synthetic proc-sugar payload surfaces its real type: the named alias
+    # (`Result<RequestId>`), the bare primitive (`Result<bool>`), or the
+    # synthetic name for an anonymous container (`Result<ConnectedPeers>`).
+    let resp = effectiveResponsePayload(e.responseTypeName)
+    let respRust =
+      if isNimPrimitive(resp):
+        primRustHint(resp)
+      else:
+        resp
     result.add(
-      "    pub fn " & methodName & "(" & sigParams & ") -> Result<" & e.responseTypeName &
-        "> {\n"
+      "    pub fn " & methodName & "(" & sigParams & ") -> Result<" & respRust & "> {\n"
     )
     if e.argFields.len > 0:
       result.add(argsStructDecl)
@@ -666,7 +1041,7 @@ proc generateCborRustFile*(
     result.add("        }\n")
     result.add("        #[derive(Deserialize)]\n")
     result.add(
-      "        struct __Env { #[serde(default)] ok: Option<" & e.responseTypeName &
+      "        struct __Env { #[serde(default)] ok: Option<" & respRust &
         ">, #[serde(default)] err: Option<String> }\n"
     )
     result.add(
@@ -681,6 +1056,68 @@ proc generateCborRustFile*(
     result.add("        match env.ok {\n")
     result.add("            Some(v) => Result::ok(v),\n")
     result.add("            None => Result::err(\"missing ok in envelope\"),\n")
+    result.add("        }\n")
+    result.add("    }\n\n")
+
+    # ---- async sibling: `<method>_async().await` via oneshot bridge ----
+    # Returns STD Result with the typed AsyncError (not the wrapper Result<T>):
+    # composes with `?`/`.await?`, and EAGAIN/timeout/shutdown are matchable
+    # variants instead of strings.
+    # Per-call timeout parity with the C++/Python/Go wrappers: the ABI carries
+    # a per-call `timeoutMs`, so expose it here as `Option<u32>` (ms). `None`
+    # falls back to the library default — the idiomatic Rust analogue of the
+    # defaulted C++ arg / Python `Optional[float]`.
+    result.add(
+      "    pub async fn " & methodName & "_async(" & sigParams &
+        ", timeout_ms: Option<u32>) -> ::std::result::Result<" & respRust &
+        ", AsyncError> {\n"
+    )
+    if e.argFields.len > 0:
+      result.add(argsStructDecl)
+      result.add("        let args = __Args {\n")
+      result.add(argsStructInit)
+      result.add("        };\n")
+      result.add("        let mut buf: Vec<u8> = Vec::new();\n")
+      result.add("        if let Err(e) = ciborium::into_writer(&args, &mut buf) {\n")
+      result.add(
+        "            return Err(AsyncError::Codec(format!(\"cbor encode: {}\", e)));\n"
+      )
+      result.add("        }\n")
+    else:
+      result.add("        let buf: Vec<u8> = Vec::new();\n")
+    result.add(
+      "        let timeout_ms = timeout_ms.unwrap_or(DEFAULT_ASYNC_TIMEOUT_MS);\n"
+    )
+    result.add(
+      "        let raw = self.do_call_async(\"" & e.apiName &
+        "\", &buf, timeout_ms).await?;\n"
+    )
+    result.add("        if raw.is_empty() {\n")
+    result.add(
+      "            return Err(AsyncError::Codec(\"empty response envelope\".into()));\n"
+    )
+    result.add("        }\n")
+    result.add("        #[derive(Deserialize)]\n")
+    result.add(
+      "        struct __Env { #[serde(default)] ok: Option<" & respRust &
+        ">, #[serde(default)] err: Option<String> }\n"
+    )
+    result.add(
+      "        let env: __Env = match ciborium::from_reader(raw.as_slice()) {\n"
+    )
+    result.add("            Ok(v) => v,\n")
+    result.add(
+      "            Err(e) => return Err(AsyncError::Codec(format!(\"cbor decode: {}\", e))),\n"
+    )
+    result.add("        };\n")
+    result.add(
+      "        if let Some(msg) = env.err { return Err(AsyncError::Provider(msg)); }\n"
+    )
+    result.add("        match env.ok {\n")
+    result.add("            Some(v) => Ok(v),\n")
+    result.add(
+      "            None => Err(AsyncError::Codec(\"missing ok in envelope\".into())),\n"
+    )
     result.add("        }\n")
     result.add("    }\n\n")
 
@@ -753,6 +1190,74 @@ proc generateCborRustFile*(
       rs.add(emitRustInstanceMethod(e))
     else:
       rs.add(emitRustReqMethod(e))
+
+  # Per-signal one-way methods: `pub fn <name>(&self, fields...) ->
+  # Result<(), String>`. No async sibling — signals are one-way.
+  proc emitRustSignalMethod(s: CborSignalEntry): string {.compileTime.} =
+    if not isEmittablePayload(s.typeName):
+      return
+        "    // TODO: signal '" & s.apiName & "' payload '" & s.typeName &
+        "' is not a registered type.\n\n"
+    var fields: seq[ApiFieldDef]
+    if s.typeName in objectNames:
+      fields = lookupTypeEntry(s.typeName).fields
+    else:
+      fields = @[ApiFieldDef(name: "value", nimType: resolveUnderlyingType(s.typeName))]
+    for f in fields:
+      if not isRustMappable(f.nimType):
+        return
+          "    // TODO: signal '" & s.apiName &
+          "' has fields whose Nim types aren't yet mappable to Rust.\n\n"
+    var sigParams = "&self"
+    for f in fields:
+      sigParams.add(", " & f.name & ": " & nimTypeToRustHint(f.nimType))
+    result.add("    #[allow(non_snake_case)]\n")
+    result.add(
+      "    pub fn " & s.apiName & "(" & sigParams &
+        ") -> ::std::result::Result<(), String> {\n"
+    )
+    if fields.len == 0:
+      result.add("        let buf: Vec<u8> = Vec::new();\n")
+    elif s.typeName in objectNames:
+      result.add("        #[derive(Serialize)]\n")
+      result.add("        #[allow(non_snake_case)]\n")
+      result.add("        struct __Sig {\n")
+      for f in fields:
+        let lowered = f.nimType.toLowerAscii().strip()
+        if lowered == "seq[byte]":
+          result.add("            #[serde(with = \"serde_bytes\")]\n")
+        elif lowered == "option[seq[byte]]":
+          result.add(
+            "            #[serde(with = \"::serde_bytes\", default, skip_serializing_if = \"Option::is_none\")]\n"
+          )
+        result.add(
+          "            " & f.name & ": " & nimTypeToRustHint(f.nimType) & ",\n"
+        )
+      result.add("        }\n")
+      result.add("        let sig = __Sig {\n")
+      for f in fields:
+        result.add("            " & f.name & ",\n")
+      result.add("        };\n")
+      result.add("        let mut buf: Vec<u8> = Vec::new();\n")
+      result.add("        if let Err(e) = ciborium::into_writer(&sig, &mut buf) {\n")
+      result.add("            return Err(format!(\"cbor encode: {}\", e));\n")
+      result.add("        }\n")
+    else:
+      result.add("        let mut buf: Vec<u8> = Vec::new();\n")
+      result.add("        if let Err(e) = ciborium::into_writer(&value, &mut buf) {\n")
+      result.add("            return Err(format!(\"cbor encode: {}\", e));\n")
+      result.add("        }\n")
+    result.add("        self.do_signal(\"" & s.apiName & "\", &buf)\n")
+    result.add("    }\n\n")
+
+  var mainSigs: seq[CborSignalEntry] = @[]
+  for s in signalEntries:
+    if ownsSigMain(s):
+      mainSigs.add(s)
+  if mainSigs.len > 0:
+    rs.add("    // ---- Signal methods ----\n\n")
+    for s in mainSigs:
+      rs.add(emitRustSignalMethod(s))
 
   # Per-event subscribe / unsubscribe.
   rs.add("    // ---- Event registration ----\n\n")
@@ -900,7 +1405,9 @@ proc generateCborRustFile*(
     rs.add("                " & p & "freeBuffer(out_buf);\n")
     rs.add("            }\n")
     rs.add("            if status != 0 {\n")
-    rs.add("                if status == -4 && !out.is_empty() {\n")
+    rs.add(
+      "                if status == " & $ApiStatusUnknownApi & " && !out.is_empty() {\n"
+    )
     rs.add(
       "                    return Err(String::from_utf8_lossy(&out).into_owned());\n"
     )
@@ -910,6 +1417,17 @@ proc generateCborRustFile*(
     rs.add("            Ok(out)\n")
     rs.add("        }\n")
     rs.add("    }\n\n")
+    rs.add(emitDoCallAsync(p))
+    # Sub-interface one-way signals (routed by self.ctx — this instance). Emit
+    # do_signal only when this sub-interface owns at least one signal.
+    var ifaceSigs: seq[CborSignalEntry] = @[]
+    for s in signalEntries:
+      if interfaceOwningSignalType(s.typeName) == ifaceName:
+        ifaceSigs.add(s)
+    if ifaceSigs.len > 0:
+      rs.add(emitRustDoSignal(p))
+      for s in ifaceSigs:
+        rs.add(emitRustSignalMethod(s))
     for e in requestEntries:
       if interfaceOwningRequestType(e.responseTypeName) == ifaceName:
         rs.add(emitRustReqMethod(e))

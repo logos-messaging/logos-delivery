@@ -98,6 +98,41 @@ type
     base: int ## global index of `slots[0]`
     len: int ## number of slots in this segment
 
+  PodRing*[T] = object
+    ## Minimal single-lock POD-element MPSC ring, fixed capacity (no growth).
+    ## Storage in shared heap, single owner; never copied. Used for both the
+    ## async call ring and the response ring. `false` from `tryPush` is real
+    ## backpressure here (EAGAIN), unlike the sync `CborCallRing`.
+    buf: ptr UncheckedArray[T]
+    cap: int
+    head: int ## next index the consumer reads
+    tail: int ## next index a producer writes
+    count: int ## guarded by `lock`
+    lock: Lock
+
+  CborAsyncCallMsg* = object
+    ## Pure-POD message a foreign `_callAsync` thread hands to the processing
+    ## thread. Mirrors `CborCallMsg` but carries the foreign response callback
+    ## + opaque `userData` (response↔request correlation) and the caller's
+    ## `reqId` instead of a response-slot index.
+    apiName*: array[CborApiNameMax, char] ## NUL-terminated ASCII
+    reqBuf*: pointer ## allocShared0; ownership transfers to the processing thread
+    reqLen*: int32
+    targetCtx*: uint32
+      ## reduced-A full BrokerContext — same meaning as `CborCallMsg.targetCtx`
+    reqId*: uint64 ## carried for logging/cancel/idempotency; NOT used for matching
+    timeoutMs*: uint32
+      ## Dispatch-scoped timeout. 0 = infinite (no timeout); N = N milliseconds.
+      ## The processing thread RACES the provider dispatch against a chronos timer
+      ## (`race`, deliberately not `withTimeout` — the broker/provider machinery
+      ## swallows `withTimeout`'s cancellation into a normal completion, masking
+      ## the timeout). On expiry it delivers status -12 exactly once and
+      ## best-effort-cancels the provider. The library default (when a
+      ## wrapper/caller wants it) is applied at the call site, NOT here — this
+      ## field is the literal effective value.
+    cb*: pointer ## the foreign `<lib>_response_cb_t`; never interpreted by the library
+    userData*: pointer ## opaque correlation handle; handed back verbatim in `cb`
+
   CborCourier* = object
     ## One per library context. Lives in shared heap; created in
     ## `_createContext`, freed in `_shutdown` after the processing thread
@@ -114,21 +149,110 @@ type
     origSlotCount: int
       ## Set once at construction; the growth ceiling is `4 * origSlotCount`.
     inFlight*: Atomic[int]
-      ## Count of `_call`s that passed the active-check but have not yet
-      ## finished reading their slot. `_shutdown` waits for this to reach
-      ## zero — while the processing thread is still handling — before it
-      ## tells the processing thread to stop.
+      ## Count of `_call`s AND `_callAsync`s that passed the active-check but
+      ## have not yet released the path. Sync: decremented after the slot is
+      ## read. Async: decremented when the response is handed to the response
+      ## courier (the processing thread is done with it). `_shutdown` waits for
+      ## this to reach zero before telling the processing thread to stop.
+    asyncRing*: PodRing[CborAsyncCallMsg]
+      ## Fire-and-forget request ring for `_callAsync`. Separate from `ring`;
+      ## fixed-capacity, full ⇒ EAGAIN. Never gated by the slot pool.
+    asyncCap: int ## In-flight ceiling for async calls (== `asyncRing` capacity).
+    asyncDepth*: Atomic[int]
+      ## Accept→delivery counter bounding outstanding async calls so the
+      ## response ring (sized to `asyncCap`) can never overflow. Incremented at
+      ## `_callAsync` accept, decremented after the foreign callback fires on
+      ## the delivery thread. Distinct from `inFlight` (the shutdown gate),
+      ## which spans accept→response-enqueue only.
+
+# ---------------------------------------------------------------------------
+# Async call path (side by side with the sync slot/Cond machinery above).
+#
+# `<lib>_callAsync` is fire-and-forget: it never claims a response slot and
+# never blocks on a `Cond`. The request rides its OWN ring (`asyncRing`,
+# fixed-capacity — full ⇒ EAGAIN, no growth) into the processing thread; the
+# response rides a separate `CborRespCourier` ring that the EXISTING event
+# delivery thread drains and hands to a foreign callback. The sync types,
+# `CborCallRing`, the slot pool, and every proc above are intentionally
+# untouched.
+# ---------------------------------------------------------------------------
+
+type
+  CborRespMsg* = object
+    ## Pure-POD message the processing thread hands to the delivery thread to
+    ## fan a single async response back to its foreign callback.
+    cb*: pointer ## the `<lib>_response_cb_t` copied from the originating call
+    userData*: pointer ## opaque correlation handle, verbatim
+    reqId*: uint64
+    status*: int32
+    buf*: pointer ## allocShared0 CBOR response; delivery thread frees after `cb`
+    bufLen*: int32
+
+  CborRespCourier* = object
+    ## One per library context. Lives in shared heap; created in
+    ## `_createContext`, drained + freed in `_shutdown`. Drained by the
+    ## existing event delivery thread via a second broker poller.
+    ring*: PodRing[CborRespMsg]
+
+# ---------------------------------------------------------------------------
+# PodRing[T] — generic fixed-capacity MPSC ring for the async paths
+# ---------------------------------------------------------------------------
+
+proc initPodRing[T](r: var PodRing[T], cap: int) =
+  r.buf = cast[ptr UncheckedArray[T]](allocShared0(cap * sizeof(T)))
+  r.cap = cap
+  r.head = 0
+  r.tail = 0
+  r.count = 0
+  initLock(r.lock)
+
+proc deinitPodRing[T](r: var PodRing[T]) =
+  deinitLock(r.lock)
+  if not r.buf.isNil:
+    deallocShared(r.buf)
+    r.buf = nil
+
+proc tryPush[T](r: var PodRing[T], msg: T): bool =
+  ## Multi-producer. Returns false on full (real backpressure / EAGAIN).
+  acquire(r.lock)
+  if r.count >= r.cap:
+    release(r.lock)
+    return false
+  r.buf[r.tail] = msg
+  r.tail = (r.tail + 1) mod r.cap
+  inc r.count
+  release(r.lock)
+  true
+
+proc tryPop[T](r: var PodRing[T], dst: var T): bool =
+  ## Single consumer. Returns false on empty.
+  acquire(r.lock)
+  if r.count == 0:
+    release(r.lock)
+    return false
+  dst = r.buf[r.head]
+  r.head = (r.head + 1) mod r.cap
+  dec r.count
+  release(r.lock)
+  true
 
 # ---------------------------------------------------------------------------
 # Lifecycle
 # ---------------------------------------------------------------------------
 
-proc newCborCourier*(slotCount: int): ptr CborCourier =
-  ## Allocate a courier with `slotCount` response slots. `slotCount` is the
-  ## *initial* ceiling on concurrent in-flight `_call`s; the request ring is
-  ## sized the same, so the slot pool gates the ring (a `_call` always claims
-  ## a slot before enqueuing). On exhaustion the pool and ring grow together
-  ## by doubling, up to a hard ceiling of `4 * slotCount` — see `claimSlot`.
+proc newCborCourier*(slotCount: int, asyncCap = 0): ptr CborCourier =
+  ## Allocate a courier. `slotCount` is the *initial* ceiling on concurrent
+  ## in-flight SYNC `_call`s; the sync request ring is sized the same, so the
+  ## slot pool gates the ring (a `_call` always claims a slot before enqueuing).
+  ## On exhaustion the sync pool and ring grow together by doubling, up to a
+  ## hard ceiling of `4 * slotCount` — see `claimSlot`.
+  ##
+  ## `asyncCap` is the SEPARATE, fixed ceiling on concurrent in-flight
+  ## `_callAsync`s (the async ring does not grow). `asyncCap <= 0` defaults it to
+  ## `slotCount`. The owning context's response courier MUST be sized
+  ## `>= asyncCap` so a bounded set of outstanding async calls can never overflow
+  ## the response ring.
+  let effAsyncCap = if asyncCap > 0: asyncCap else: slotCount
   let c = cast[ptr CborCourier](allocShared0(sizeof(CborCourier)))
   c.ring.buf =
     cast[ptr UncheckedArray[CborCallMsg]](allocShared0(slotCount * sizeof(CborCallMsg)))
@@ -148,6 +272,11 @@ proc newCborCourier*(slotCount: int): ptr CborCourier =
     seg0[i].inUse.store(0, moRelaxed)
   c.segs[0] = CborSlotSegment(slots: seg0, base: 0, len: slotCount)
   c.nSegs.store(1, moRelease)
+  # Async path: own fixed-capacity ring + in-flight ceiling (independent of the
+  # sync slot pool, which may grow).
+  initPodRing(c.asyncRing, effAsyncCap)
+  c.asyncCap = effAsyncCap
+  c.asyncDepth.store(0, moRelaxed)
   c
 
 proc freeCborCourier*(c: ptr CborCourier) =
@@ -164,6 +293,13 @@ proc freeCborCourier*(c: ptr CborCourier) =
   deinitLock(c.ring.lock)
   if not c.ring.buf.isNil:
     deallocShared(c.ring.buf)
+  # Free any async request buffers still queued (never reached the processing
+  # thread): their `reqBuf` ownership was transferred to the message on enqueue.
+  var am: CborAsyncCallMsg
+  while tryPop(c.asyncRing, am):
+    if not am.reqBuf.isNil:
+      deallocShared(am.reqBuf)
+  deinitPodRing(c.asyncRing)
   deallocShared(c)
 
 # ---------------------------------------------------------------------------
@@ -341,5 +477,70 @@ proc waitSlot*(
   result = (s.respBuf, s.respLen, s.status)
   s.ready = 0
   release(s.lock)
+
+# ---------------------------------------------------------------------------
+# Async call path — enqueue / dequeue + depth accounting
+# ---------------------------------------------------------------------------
+
+proc tryEnqueueAsync*(c: ptr CborCourier, msg: CborAsyncCallMsg): bool =
+  ## Foreign `_callAsync` side. Reserves an in-flight depth slot (bounding
+  ## outstanding async calls so the response ring cannot overflow) and pushes
+  ## the message. Returns false — having reserved nothing — when the async ring
+  ## is full or the in-flight ceiling is reached (EAGAIN). On success the caller
+  ## owns the depth reservation; it is released by `asyncDepthDec` after the
+  ## foreign callback fires. `msg.reqBuf` ownership transfers on success.
+  if c.asyncDepth.fetchAdd(1, moAcquireRelease) >= c.asyncCap:
+    discard c.asyncDepth.fetchSub(1, moRelease)
+    return false
+  if not tryPush(c.asyncRing, msg):
+    discard c.asyncDepth.fetchSub(1, moRelease)
+    return false
+  true
+
+proc tryDequeueAsync*(c: ptr CborCourier, dst: var CborAsyncCallMsg): bool =
+  ## Processing-thread side: pull the next queued async request. Returns false
+  ## on empty.
+  tryPop(c.asyncRing, dst)
+
+proc asyncDepthDec*(c: ptr CborCourier) =
+  ## Delivery-thread side: release one in-flight depth reservation after the
+  ## foreign response callback has fired.
+  discard c.asyncDepth.fetchSub(1, moRelease)
+
+# ---------------------------------------------------------------------------
+# Response courier — processing thread → delivery thread async-response ring
+# ---------------------------------------------------------------------------
+
+proc newCborRespCourier*(cap: int): ptr CborRespCourier =
+  ## Allocate a response courier with `cap` ring slots. `cap` MUST be >= the
+  ## owning call courier's `asyncCap`, so a bounded set of outstanding async
+  ## calls can never overflow the ring.
+  let rc = cast[ptr CborRespCourier](allocShared0(sizeof(CborRespCourier)))
+  initPodRing(rc.ring, cap)
+  rc
+
+proc freeCborRespCourier*(rc: ptr CborRespCourier) =
+  ## Release a response courier. Call only after `_shutdown` has drained it
+  ## (invoking each pending callback). As a backstop, frees any response buffer
+  ## still queued.
+  if rc.isNil:
+    return
+  var m: CborRespMsg
+  while tryPop(rc.ring, m):
+    if not m.buf.isNil:
+      deallocShared(m.buf)
+  deinitPodRing(rc.ring)
+  deallocShared(rc)
+
+proc tryEnqueueResp*(rc: ptr CborRespCourier, msg: CborRespMsg): bool =
+  ## Processing-thread side: hand a response to the delivery thread. Returns
+  ## false only if the ring is full (cannot happen while outstanding async
+  ## calls are bounded to <= ring cap); caller then frees `msg.buf`.
+  tryPush(rc.ring, msg)
+
+proc tryDequeueResp*(rc: ptr CborRespCourier, dst: var CborRespMsg): bool =
+  ## Delivery-thread side: pull the next response to fan out. Returns false on
+  ## empty.
+  tryPop(rc.ring, dst)
 
 {.pop.}

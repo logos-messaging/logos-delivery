@@ -60,12 +60,42 @@ proc parseArrayInner(s: string): string {.compileTime.} =
     return ""
   inner[comma + 1 .. ^1].strip()
 
+proc parseTableParams(s: string): (string, string) {.compileTime.} =
+  ## "Table[K, V]" -> ("K", "V"); split on the first top-level comma.
+  let inner = s.strip()[6 ..^ 2]
+  var depth = 0
+  for i in 0 ..< inner.len:
+    case inner[i]
+    of '[', '(':
+      inc depth
+    of ']', ')':
+      dec depth
+    of ',':
+      if depth == 0:
+        return (inner[0 ..< i].strip(), inner[i + 1 .. ^1].strip())
+    else:
+      discard
+  ("", "")
+
 proc nimTypeToGoCborHint*(nimType: string): string {.compileTime.} =
   ## Recursive Nim → Go type for CBOR mode. Returns "" when unmappable.
   let t = nimType.strip()
   let lower = t.toLowerAscii()
   if isGoPrimitive(t):
     return primGoHint(t)
+  if lower.startsWith("table[") and lower.endsWith("]"):
+    # Table[K, V] -> map[Kgo]Vgo. Keys ride the wire as CBOR text strings;
+    # non-string key fields are converted text <-> typed via generated
+    # Marshal/UnmarshalCBOR (see generateCborGoFile). string/char keys map to
+    # string and need no conversion.
+    let (k, v) = parseTableParams(t)
+    let kg = nimTypeToGoCborHint(k)
+    let vg = nimTypeToGoCborHint(v)
+    return
+      if kg.len > 0 and vg.len > 0:
+        "map[" & kg & "]" & vg
+      else:
+        ""
   if lower.startsWith("seq[") and lower.endsWith("]"):
     let inner = nimTypeToGoCborHint(unwrapBracket(t, "seq"))
     return
@@ -95,9 +125,12 @@ proc nimTypeToGoCborHint*(nimType: string): string {.compileTime.} =
     of atkObject, atkEnum:
       return t
     of atkAlias, atkDistinct:
-      # Recurse via outer mapper for distinct/alias-over-compound (e.g.
-      # `distinct seq[byte]` → `[]byte` rather than `""`).
-      return nimTypeToGoCborHint(resolveUnderlyingType(t))
+      # Reference the emitted `type <name> = ...` alias BY NAME so fields/params
+      # keep the meaningful type (`ContentTopic`, `Timestamp`) instead of
+      # flattening to the underlying; "" when it doesn't map.
+      if nimTypeToGoCborHint(resolveUnderlyingType(t)).len > 0:
+        return t
+      return ""
   ""
 
 proc isGoCborMappable*(nimType: string): bool {.compileTime.} =
@@ -108,6 +141,40 @@ proc goExportedField*(name: string): string {.compileTime.} =
     chr(ord(name[0]) - 32) & name[1 ..^ 1]
   else:
     name
+
+proc goTableNeedsKeyConv*(nimType: string): bool {.compileTime.} =
+  ## True for a Table[K, V] whose Go key type is not `string` (int / enum /
+  ## distinct-of-int). Such fields ride the wire as text-keyed maps and need
+  ## conversion in the owning struct's Marshal/UnmarshalCBOR.
+  let t = nimType.strip()
+  let lower = t.toLowerAscii()
+  if not (lower.startsWith("table[") and lower.endsWith("]")):
+    return false
+  let (k, _) = parseTableParams(t)
+  let kg = nimTypeToGoCborHint(k)
+  kg.len > 0 and kg != "string"
+
+proc goTableKeyType*(nimType: string): string {.compileTime.} =
+  let (k, _) = parseTableParams(nimType.strip())
+  nimTypeToGoCborHint(k)
+
+proc goTableValType*(nimType: string): string {.compileTime.} =
+  let (_, v) = parseTableParams(nimType.strip())
+  nimTypeToGoCborHint(v)
+
+proc goWireStructField*(f: ApiFieldDef): string {.compileTime.} =
+  ## One field line for the string-keyed wire struct used by Marshal/
+  ## UnmarshalCBOR — non-string-keyed maps become `map[string]V`.
+  let fx = goExportedField(f.name)
+  if goTableNeedsKeyConv(f.nimType):
+    "\t\t" & fx & " map[string]" & goTableValType(f.nimType) & " `cbor:\"" & f.name &
+      "\"`\n"
+  else:
+    let hint = nimTypeToGoCborHint(f.nimType)
+    if hint.len == 0:
+      ""
+    else:
+      "\t\t" & fx & " " & hint & " `cbor:\"" & f.name & "\"`\n"
 
 const goReservedWords = [
   "break", "case", "chan", "const", "continue", "default", "defer", "else",
@@ -187,6 +254,9 @@ proc generateCborGoFile*(
     requestEntries: seq[CborRequestEntry],
     eventEntries: seq[CborEventEntry],
     mainClass: string = "",
+    asyncTimeoutMs: int = 30000,
+    asyncQueueDepth: int = 64,
+    signalEntries: seq[CborSignalEntry] = @[],
 ) {.compileTime, raises: [].} =
   ## Emits `<outDir>/<libName>_go/{<libName>.go, <libName>_callbacks.c}`.
   ## Same filenames as the native generator — only one wrapper exists per
@@ -206,6 +276,12 @@ proc generateCborGoFile*(
     if mainClass.len == 0:
       return true
     let o = interfaceOwningEventType(ev.typeName)
+    o.len == 0 or o == mainClass
+
+  proc ownsSigMain(s: CborSignalEntry): bool {.compileTime.} =
+    if mainClass.len == 0:
+      return true
+    let o = interfaceOwningSignalType(s.typeName)
     o.len == 0 or o == mainClass
 
   var subInterfaceNames: seq[string] = @[]
@@ -282,19 +358,30 @@ proc generateCborGoFile*(
   g.add(
     "uint64_t go_cbor_subscribe(uint32_t ctx, const char* name, void* user_data);\n"
   )
+  g.add(
+    "int32_t go_cbor_call_async(uint32_t ctx, const char* name, const void* in_buf, int32_t in_len, uint64_t req_id, uint32_t timeout_ms, void* user_data);\n"
+  )
   g.add("*/\n")
   g.add("import \"C\"\n\n")
 
   g.add("import (\n")
+  g.add("\t\"context\"\n")
   g.add("\t\"errors\"\n")
+  g.add("\t\"fmt\"\n")
   g.add("\t\"runtime\"\n")
   g.add("\t\"runtime/cgo\"\n")
+  g.add("\t\"strconv\"\n")
   g.add("\t\"sync\"\n")
+  g.add("\t\"time\"\n")
   g.add("\t\"unsafe\"\n")
   g.add("\t\"github.com/fxamacker/cbor/v2\"\n")
   g.add(")\n\n")
+  g.add("var _ = context.Background\n")
   g.add("var _ = errors.New\n")
+  g.add("var _ = time.Until\n")
+  g.add("var _ = fmt.Errorf\n")
   g.add("var _ = runtime.SetFinalizer\n")
+  g.add("var _ = strconv.Itoa\n")
   g.add("var _ cgo.Handle\n")
   g.add("var _ sync.Mutex\n")
   g.add("var _ unsafe.Pointer\n")
@@ -340,10 +427,12 @@ proc generateCborGoFile*(
   # Its CBOR wire value is a bare scalar; the Go surface uses the
   # `type X = <prim>` alias directly. Such a type has no object fields, so
   # the event handler delivers the bare value rather than unpacked fields.
+  # Full mapper (not just primGoHint) so a container payload (`seq[string]`
+  # -> []string) is an emittable scalar payload, not only primitives.
   proc isScalarPayload(name: string): bool {.compileTime.} =
     name.len > 0 and isTypeRegistered(name) and
       lookupTypeEntry(name).kind in {atkAlias, atkDistinct} and
-      primGoHint(resolveUnderlyingType(name)).len > 0
+      nimTypeToGoCborHint(resolveUnderlyingType(name)).len > 0
 
   if enumNames.len > 0 or aliasNames.len > 0 or objectNames.len > 0:
     g.add("// -------- Generated payload types --------\n\n")
@@ -359,13 +448,22 @@ proc generateCborGoFile*(
         g.add("\t" & name & "_" & v.name & " " & name & " = " & $v.ordinal & "\n")
     g.add(")\n\n")
 
+  # A bare-primitive response payload is unwrapped to the simple type, so its
+  # synthetic `type Verb = bool` alias is dead — skip it. Field-used aliases
+  # (`ContentTopic`) are never response names, so they stay.
+  var responseNames: seq[string] = @[]
+  for e in requestEntries:
+    if e.responseTypeName.len > 0 and e.responseTypeName notin responseNames:
+      responseNames.add(e.responseTypeName)
   for name in aliasNames:
+    if name in responseNames and effectiveResponsePayload(name) != name:
+      continue
     let underlying = resolveUnderlyingType(name)
-    let goU = primGoHint(underlying)
+    let goU = nimTypeToGoCborHint(underlying)
     if goU.len == 0:
       g.add(
         "// TODO: alias '" & name & "' resolves to '" & underlying &
-          "' (no Go primitive)\n\n"
+          "' (no Go mapping)\n\n"
       )
       continue
     g.add("type " & name & " = " & goU & "\n\n")
@@ -385,6 +483,58 @@ proc generateCborGoFile*(
     if not anyField:
       g.add("\t_ struct{}\n")
     g.add("}\n\n")
+
+    # When a field is a non-string-keyed Table, fxamacker cannot decode the
+    # text-keyed wire map into the typed-key Go map (it silently drops the
+    # entries). Emit Marshal/UnmarshalCBOR that round-trip through a
+    # string-keyed wire struct, converting keys via strconv. int / enum /
+    # distinct-of-int keys all convert through int64.
+    var hasConv = false
+    for f in entry.fields:
+      if goTableNeedsKeyConv(f.nimType):
+        hasConv = true
+    if hasConv:
+      g.add("func (s " & name & ") MarshalCBOR() ([]byte, error) {\n")
+      g.add("\ttype wire struct {\n")
+      for f in entry.fields:
+        g.add(goWireStructField(f))
+      g.add("\t}\n\tvar w wire\n")
+      for f in entry.fields:
+        if nimTypeToGoCborHint(f.nimType).len == 0:
+          continue
+        let fx = goExportedField(f.name)
+        if goTableNeedsKeyConv(f.nimType):
+          let vt = goTableValType(f.nimType)
+          g.add("\tw." & fx & " = make(map[string]" & vt & ", len(s." & fx & "))\n")
+          g.add(
+            "\tfor k, v := range s." & fx & " { w." & fx &
+              "[strconv.FormatInt(int64(k), 10)] = v }\n"
+          )
+        else:
+          g.add("\tw." & fx & " = s." & fx & "\n")
+      g.add("\treturn cbor.Marshal(w)\n}\n\n")
+
+      g.add("func (s *" & name & ") UnmarshalCBOR(data []byte) error {\n")
+      g.add("\ttype wire struct {\n")
+      for f in entry.fields:
+        g.add(goWireStructField(f))
+      g.add("\t}\n\tvar w wire\n")
+      g.add("\tif err := cbor.Unmarshal(data, &w); err != nil {\n\t\treturn err\n\t}\n")
+      for f in entry.fields:
+        if nimTypeToGoCborHint(f.nimType).len == 0:
+          continue
+        let fx = goExportedField(f.name)
+        if goTableNeedsKeyConv(f.nimType):
+          let kt = goTableKeyType(f.nimType)
+          let vt = goTableValType(f.nimType)
+          g.add("\ts." & fx & " = make(map[" & kt & "]" & vt & ", len(w." & fx & "))\n")
+          g.add("\tfor k, v := range w." & fx & " {\n")
+          g.add("\t\tn, err := strconv.ParseInt(k, 10, 64)\n")
+          g.add("\t\tif err != nil {\n\t\t\treturn err\n\t\t}\n")
+          g.add("\t\ts." & fx & "[" & kt & "(n)] = v\n\t}\n")
+        else:
+          g.add("\ts." & fx & " = w." & fx & "\n")
+      g.add("\treturn nil\n}\n\n")
 
   # ---- Lib struct + event handler type -----------------------------------
   g.add("// -------- Event dispatch --------\n\n")
@@ -483,11 +633,119 @@ proc generateCborGoFile*(
   g.add("\treturn out, nil\n")
   g.add("}\n\n")
 
+  # signalCall: slot-free one-way dispatch through `_call`. No response; status
+  # maps to nil (accepted) or a distinguishable error. Emitted for the main class
+  # and for each sub-interface that owns a signal (both keyed by l.ctx, so a
+  # sub-interface signal routes to that sub-instance's ctx).
+  proc emitGoSignalCall(recv: string): string {.compileTime.} =
+    result.add("// signalCall dispatches a one-way signal (no response envelope).\n")
+    result.add(
+      "func (l *" & recv & ") signalCall(apiName string, args interface{}) error {\n"
+    )
+    result.add(
+      "\tif l.ctx == 0 { return errors.New(\"library context is not created\") }\n"
+    )
+    result.add("\tvar inBytes []byte\n")
+    result.add("\tif args != nil {\n")
+    result.add("\t\tvar err error\n")
+    result.add("\t\tinBytes, err = cbor.Marshal(args)\n")
+    result.add("\t\tif err != nil { return err }\n")
+    result.add("\t}\n")
+    result.add("\tcName := C.CString(apiName)\n")
+    result.add("\tdefer C.free(unsafe.Pointer(cName))\n")
+    result.add("\tvar inPtr unsafe.Pointer\n")
+    result.add("\tif len(inBytes) > 0 {\n")
+    result.add("\t\tinPtr = C." & p & "allocBuffer(C.int32_t(len(inBytes)))\n")
+    result.add("\t\tif inPtr == nil { return errors.New(\"allocBuffer failed\") }\n")
+    result.add(
+      "\t\tC.memcpy(inPtr, unsafe.Pointer(&inBytes[0]), C.size_t(len(inBytes)))\n"
+    )
+    result.add("\t}\n")
+    result.add("\tvar outBuf unsafe.Pointer\n")
+    result.add("\tvar outLen C.int32_t\n")
+    result.add(
+      "\trc := C." & p &
+        "call(l.ctx, cName, inPtr, C.int32_t(len(inBytes)), &outBuf, &outLen)\n"
+    )
+    result.add("\tif outBuf != nil { C." & p & "freeBuffer(outBuf) }\n")
+    result.add("\tswitch int32(rc) {\n")
+    result.add("\tcase 0:\n\t\treturn nil\n")
+    result.add(
+      "\tcase " & $ApiStatusAgain &
+        ":\n\t\treturn errors.New(\"EAGAIN: signal queue full\")\n"
+    )
+    result.add(
+      "\tcase " & $ApiStatusProviderErr &
+        ":\n\t\treturn errors.New(\"no signal handler installed\")\n"
+    )
+    result.add("\tdefault:\n\t\treturn fmt.Errorf(\"signal failed: %d\", int32(rc))\n")
+    result.add("\t}\n")
+    result.add("}\n\n")
+
+  g.add(emitGoSignalCall(className))
+
+  # ---- Async request plumbing (goroutine + channel per call) --------------
+  g.add("// AsyncQueueDepth is the max concurrent in-flight <Method>Async calls\n")
+  g.add("// per context; a full window makes <Method>Async return ErrAsyncAgain.\n")
+  g.add("const AsyncQueueDepth = " & $asyncQueueDepth & "\n")
+  g.add("// DefaultAsyncTimeoutMs is the library default dispatch timeout applied\n")
+  g.add("// by <Method>Async (0 would mean infinite).\n")
+  g.add("const DefaultAsyncTimeoutMs = " & $asyncTimeoutMs & "\n\n")
+  g.add(
+    "// ErrAsyncAgain is returned by <Method>Async when the async window is full.\n"
+  )
+  g.add("var ErrAsyncAgain = errors.New(\"EAGAIN: async window full\")\n\n")
+  g.add("// cborAsyncRaw carries one raw response from the trampoline to the\n")
+  g.add("// per-call goroutine, which decodes it into the typed <Method>Result.\n")
+  g.add("type cborAsyncRaw struct {\n")
+  g.add("\tstatus  int32\n")
+  g.add("\tpayload []byte\n")
+  g.add("}\n\n")
+  g.add("func asyncStatusError(status int32, payload []byte) error {\n")
+  g.add("\tswitch {\n")
+  g.add("\tcase status == " & $ApiStatusUnknownApi & " && len(payload) > 0:\n")
+  g.add("\t\treturn errors.New(string(payload))\n")
+  g.add("\tcase status == " & $ApiStatusTimeout & ":\n")
+  g.add("\t\treturn errors.New(\"request timed out\")\n")
+  g.add("\tcase status == " & $ApiStatusShutdown & ":\n")
+  g.add("\t\treturn errors.New(\"library shut down\")\n")
+  g.add("\tdefault:\n")
+  g.add("\t\treturn fmt.Errorf(\"framework error: %d\", status)\n")
+  g.add("\t}\n")
+  g.add("}\n\n")
+  g.add("// goCborResponseTrampoline runs on the library's delivery thread: it\n")
+  g.add("// reconstructs the per-call channel (the opaque user_data cgo.Handle),\n")
+  g.add("// hands over the raw (status, payload), then frees the handle.\n")
+  g.add("//export goCborResponseTrampoline\n")
+  g.add(
+    "func goCborResponseTrampoline(ud unsafe.Pointer, reqId C.uint64_t, status C.int32_t, respBuf unsafe.Pointer, respLen C.int32_t) {\n"
+  )
+  g.add("\t_ = reqId\n")
+  g.add("\tif ud == nil { return }\n")
+  g.add("\th := cgo.Handle(uintptr(ud))\n")
+  g.add("\tch, ok := h.Value().(chan cborAsyncRaw)\n")
+  g.add("\th.Delete()\n")
+  g.add("\tif !ok { return }\n")
+  g.add("\tvar payload []byte\n")
+  g.add("\tif respBuf != nil && respLen > 0 {\n")
+  g.add("\t\tpayload = C.GoBytes(respBuf, C.int(respLen))\n")
+  g.add("\t}\n")
+  g.add("\tch <- cborAsyncRaw{status: int32(status), payload: payload}\n")
+  g.add("}\n\n")
+
   # ---- Per-request methods ------------------------------------------------
   # Factored emitters reused by the main Lib and each sub-interface struct.
   proc emitGoReqMethod(e: CborRequestEntry, recv: string): string {.compileTime.} =
     let methodName = snakeToPascal(e.apiName)
-    let respType = e.responseTypeName
+    # A synthetic proc-sugar payload surfaces its real type: the named alias
+    # (`(RequestId, error)`), the bare primitive (`(bool, error)`), or the
+    # synthetic name for an anonymous container (`(ConnectedPeers, error)`).
+    let resp = effectiveResponsePayload(e.responseTypeName)
+    let respType =
+      if isNimPrimitive(resp):
+        primGoHint(resp)
+      else:
+        resp
     var argsStructFields = ""
     var argsAssign = ""
     var firstNonZero = false
@@ -529,6 +787,119 @@ proc generateCborGoFile*(
     result.add("\tif env.Err != nil { return zeroResp, errors.New(*env.Err) }\n")
     result.add("\tif env.Ok != nil { return *env.Ok, nil }\n")
     result.add("\treturn zeroResp, errors.New(\"empty response envelope\")\n")
+    result.add("}\n\n")
+
+  # Context sibling (database/sql `QueryContext` idiom): a BLOCKING, ctx-aware
+  # call riding the async ABI. `ctx.Deadline()` maps to the ABI `timeoutMs`
+  # (no deadline → library default); `ctx.Done()` returns `ctx.Err()` early.
+  # Fan-out is the caller's goroutines — no per-call goroutine or typed channel
+  # is spawned here; the C response callback fulfils the buffered raw chan and
+  # the caller's goroutine decodes inline. Abandonment on ctx-cancel is
+  # leak-free: the trampoline owns the cgo.Handle deletion and the raw chan is
+  # buffered (cap 1), so the late send never blocks and the chan is GC'd.
+  # NOTE: ctx cancellation cannot stop the Nim-side request (no cancel ABI);
+  # the in-flight slot is reclaimed when the response or library timeout fires.
+  proc emitGoContextMethod(e: CborRequestEntry, recv: string): string {.compileTime.} =
+    let methodName = snakeToPascal(e.apiName)
+    let resp = effectiveResponsePayload(e.responseTypeName)
+    let respType =
+      if isNimPrimitive(resp):
+        primGoHint(resp)
+      else:
+        resp
+    var argsStructFields = ""
+    var argsAssign = ""
+    var firstNonZero = false
+    for (n, t) in e.argFields:
+      let h = nimTypeToGoCborHint(t)
+      let hType = if h.len > 0: h else: "any"
+      let exN = goExportedField(n)
+      argsStructFields.add("\t\t" & exN & " " & hType & " `cbor:\"" & n & "\"`\n")
+      argsAssign.add("\t\t" & exN & ": " & goSafeParam(n) & ",\n")
+      firstNonZero = true
+    result.add("func (l *" & recv & ") " & methodName & "Context(ctx context.Context")
+    for (n, t) in e.argFields:
+      let h = nimTypeToGoCborHint(t)
+      let hType = if h.len > 0: h else: "any"
+      result.add(", " & goSafeParam(n) & " " & hType)
+    result.add(") (" & respType & ", error) {\n")
+    result.add("\tvar zeroResp " & respType & "\n")
+    result.add(
+      "\tif l.ctx == 0 { return zeroResp, errors.New(\"library context is not created\") }\n"
+    )
+    result.add("\tif ctx == nil {\n")
+    result.add("\t\tctx = context.Background()\n")
+    result.add("\t}\n")
+    result.add("\t// ctx deadline -> ABI timeoutMs; no deadline -> library default.\n")
+    result.add("\ttimeoutMs := uint32(DefaultAsyncTimeoutMs)\n")
+    result.add("\tif d, ok := ctx.Deadline(); ok {\n")
+    result.add("\t\tremaining := time.Until(d)\n")
+    result.add("\t\tif remaining <= 0 { return zeroResp, context.DeadlineExceeded }\n")
+    result.add("\t\tms := remaining.Milliseconds()\n")
+    result.add("\t\tif ms < 1 {\n")
+    result.add("\t\t\tms = 1\n")
+    result.add("\t\t}\n")
+    result.add("\t\ttimeoutMs = uint32(ms)\n")
+    result.add("\t}\n")
+    if firstNonZero:
+      result.add("\targs := struct {\n")
+      result.add(argsStructFields)
+      result.add("\t}{\n")
+      result.add(argsAssign)
+      result.add("\t}\n")
+      result.add("\tinBytes, merr := cbor.Marshal(args)\n")
+      result.add("\tif merr != nil { return zeroResp, merr }\n")
+    else:
+      result.add("\tvar inBytes []byte\n")
+    result.add("\tcName := C.CString(\"" & e.apiName & "\")\n")
+    result.add("\tdefer C.free(unsafe.Pointer(cName))\n")
+    result.add("\tvar inPtr unsafe.Pointer\n")
+    result.add("\tif len(inBytes) > 0 {\n")
+    result.add("\t\tinPtr = C." & p & "allocBuffer(C.int32_t(len(inBytes)))\n")
+    result.add(
+      "\t\tif inPtr == nil { return zeroResp, errors.New(\"allocBuffer failed\") }\n"
+    )
+    result.add(
+      "\t\tC.memcpy(inPtr, unsafe.Pointer(&inBytes[0]), C.size_t(len(inBytes)))\n"
+    )
+    result.add("\t}\n")
+    result.add("\trawCh := make(chan cborAsyncRaw, 1)\n")
+    result.add("\th := cgo.NewHandle(rawCh)\n")
+    result.add(
+      "\trc := int32(C.go_cbor_call_async(l.ctx, cName, inPtr, C.int32_t(len(inBytes)), 0, C.uint32_t(timeoutMs), unsafe.Pointer(h)))\n"
+    )
+    result.add("\tif rc != 0 {\n")
+    result.add("\t\th.Delete()\n")
+    result.add(
+      "\t\tif rc == " & $ApiStatusAgain & " { return zeroResp, ErrAsyncAgain }\n"
+    )
+    result.add("\t\treturn zeroResp, fmt.Errorf(\"framework error: %d\", rc)\n")
+    result.add("\t}\n")
+    result.add("\tselect {\n")
+    result.add("\tcase <-ctx.Done():\n")
+    result.add("\t\t// The Nim-side request keeps running (no cancel ABI); its slot\n")
+    result.add("\t\t// frees on response/timeout. The late trampoline send hits the\n")
+    result.add("\t\t// buffered chan and the whole thing is GC'd — leak-free.\n")
+    result.add("\t\treturn zeroResp, ctx.Err()\n")
+    result.add("\tcase raw := <-rawCh:\n")
+    result.add("\t\tif raw.status != 0 {\n")
+    result.add("\t\t\treturn zeroResp, asyncStatusError(raw.status, raw.payload)\n")
+    result.add("\t\t}\n")
+    result.add("\t\tvar env struct {\n")
+    result.add("\t\t\tOk  *" & respType & " `cbor:\"ok\"`\n")
+    result.add("\t\t\tErr *string `cbor:\"err\"`\n")
+    result.add("\t\t}\n")
+    result.add("\t\tif derr := cbor.Unmarshal(raw.payload, &env); derr != nil {\n")
+    result.add("\t\t\treturn zeroResp, derr\n")
+    result.add("\t\t}\n")
+    result.add("\t\tif env.Err != nil {\n")
+    result.add("\t\t\treturn zeroResp, errors.New(*env.Err)\n")
+    result.add("\t\t}\n")
+    result.add("\t\tif env.Ok != nil {\n")
+    result.add("\t\t\treturn *env.Ok, nil\n")
+    result.add("\t\t}\n")
+    result.add("\t\treturn zeroResp, errors.New(\"empty response envelope\")\n")
+    result.add("\t}\n")
     result.add("}\n\n")
 
   # reduced-A: a create-instance method returns the typed sub-wrapper. The wire
@@ -589,6 +960,60 @@ proc generateCborGoFile*(
       g.add(emitGoInstanceMethod(e, className))
     else:
       g.add(emitGoReqMethod(e, className))
+      g.add(emitGoContextMethod(e, className))
+
+  # ---- Per-signal one-way methods: `func (l *Lib) <Name>(fields...) error` --
+  proc emitGoSignalMethod(s: CborSignalEntry, recv: string): string {.compileTime.} =
+    if not (s.typeName in objectNames or isScalarPayload(s.typeName)):
+      return
+        "// TODO: signal '" & s.apiName & "' payload '" & s.typeName &
+        "' is not a registered type.\n\n"
+    var fields: seq[ApiFieldDef]
+    if s.typeName in objectNames:
+      fields = lookupTypeEntry(s.typeName).fields
+    else:
+      fields = @[ApiFieldDef(name: "value", nimType: resolveUnderlyingType(s.typeName))]
+    for f in fields:
+      if nimTypeToGoCborHint(f.nimType).len == 0:
+        return
+          "// TODO: signal '" & s.apiName &
+          "' has fields whose Nim types aren't yet mappable to Go.\n\n"
+    let methodName = snakeToPascal(s.apiName)
+    var sigParams = ""
+    var first = true
+    for f in fields:
+      if not first:
+        sigParams.add(", ")
+      sigParams.add(goSafeParam(f.name) & " " & nimTypeToGoCborHint(f.nimType))
+      first = false
+    result.add("func (l *" & recv & ") " & methodName & "(" & sigParams & ") error {\n")
+    if fields.len == 0:
+      result.add("\treturn l.signalCall(\"" & s.apiName & "\", nil)\n")
+    elif s.typeName in objectNames:
+      result.add("\targs := struct {\n")
+      for f in fields:
+        result.add(
+          "\t\t" & goExportedField(f.name) & " " & nimTypeToGoCborHint(f.nimType) &
+            " `cbor:\"" & f.name & "\"`\n"
+        )
+      result.add("\t}{\n")
+      for f in fields:
+        result.add(
+          "\t\t" & goExportedField(f.name) & ": " & goSafeParam(f.name) & ",\n"
+        )
+      result.add("\t}\n")
+      result.add("\treturn l.signalCall(\"" & s.apiName & "\", args)\n")
+    else:
+      result.add(
+        "\treturn l.signalCall(\"" & s.apiName & "\", " & goSafeParam(fields[0].name) &
+          ")\n"
+      )
+    result.add("}\n\n")
+
+  for s in signalEntries:
+    if not ownsSigMain(s):
+      continue
+    g.add(emitGoSignalMethod(s, className))
 
   # ---- Single CBOR event trampoline + per-event On/Off ---------------------
   if eventEntries.len > 0:
@@ -759,6 +1184,17 @@ proc generateCborGoFile*(
     for e in requestEntries:
       if interfaceOwningRequestType(e.responseTypeName) == ifaceName:
         g.add(emitGoReqMethod(e, sub))
+        g.add(emitGoContextMethod(e, sub))
+    # Sub-interface one-way signals (routed by l.ctx — this instance). Emit
+    # signalCall only when this sub-interface owns at least one signal.
+    var ifaceSigs: seq[CborSignalEntry] = @[]
+    for s in signalEntries:
+      if interfaceOwningSignalType(s.typeName) == ifaceName:
+        ifaceSigs.add(s)
+    if ifaceSigs.len > 0:
+      g.add(emitGoSignalCall(sub))
+      for s in ifaceSigs:
+        g.add(emitGoSignalMethod(s, sub))
     # Sub-interface event methods (subscribe/unsubscribe keyed by l.ctx).
     for ev in eventEntries:
       if interfaceOwningEventType(ev.typeName) != ifaceName:
@@ -842,20 +1278,34 @@ proc generateCborGoFile*(
     error("Failed to write CBOR Go file: " & getCurrentExceptionMsg())
 
   # ---------------------- <libName>_callbacks.c ----------------------
-  if eventEntries.len > 0:
+  # Bridges the Go //export trampolines to the C library's callback-taking
+  # entry points. The subscribe shim is only emitted when events exist (its
+  # trampoline is only //export'd then); the async-call shim whenever requests
+  # exist. Every library has requests, so this file is always written.
+  if requestEntries.len > 0 or eventEntries.len > 0:
     var c = "// Generated by nim-brokers CBOR FFI Go codegen — do not edit.\n"
     c.add("#include <stdint.h>\n")
     c.add("#include <stdlib.h>\n")
     c.add("#include \"" & libName & ".h\"\n")
     c.add("#include \"_cgo_export.h\"\n\n")
-    c.add(
-      "uint64_t go_cbor_subscribe(uint32_t ctx, const char* name, void* user_data) {\n"
-    )
-    c.add(
-      "    return " & p & "subscribe(ctx, name, (" & p &
-        "event_cb_t)goCborEventTrampoline, user_data);\n"
-    )
-    c.add("}\n")
+    if eventEntries.len > 0:
+      c.add(
+        "uint64_t go_cbor_subscribe(uint32_t ctx, const char* name, void* user_data) {\n"
+      )
+      c.add(
+        "    return " & p & "subscribe(ctx, name, (" & p &
+          "event_cb_t)goCborEventTrampoline, user_data);\n"
+      )
+      c.add("}\n\n")
+    if requestEntries.len > 0:
+      c.add(
+        "int32_t go_cbor_call_async(uint32_t ctx, const char* name, const void* in_buf, int32_t in_len, uint64_t req_id, uint32_t timeout_ms, void* user_data) {\n"
+      )
+      c.add(
+        "    return " & p & "callAsync(ctx, name, in_buf, in_len, req_id, timeout_ms, (" &
+          p & "response_cb_t)goCborResponseTrampoline, user_data);\n"
+      )
+      c.add("}\n")
     try:
       writeFile(modDir & "/" & libName & "_callbacks.c", c)
     except IOError:

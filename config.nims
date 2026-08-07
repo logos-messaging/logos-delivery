@@ -143,3 +143,23 @@ if defined(android):
 when withDir(thisDir(), system.fileExists("nimble.paths")):
   include "nimble.paths"
 # end Nimble config
+
+# wasm/edge dependency overrides. Both packages are the pinned upstream with the
+# threading collapsed out, because the edge build is --threads:off:
+#
+#  - brokers: its EventBroker / RequestBroker / SignalBroker macros each carry a
+#    `when not compileOption("threads"): {.error.}` inside their own body. That
+#    pragma is evaluated when the macro is semchecked -- i.e. on a plain
+#    `import` -- so threads-off the modules cannot be imported at all, not
+#    merely used. The copy rewrites them as `macros.error(...)` calls, which
+#    fire only on actual mt use.
+#  - ffi: upstream spawns an FFI worker thread and signals it over
+#    chronos/threadsync, a hard {.fatal.} threads-off. The copy runs requests
+#    inline on the calling thread (see wasm-deps/ffi/ffi/ffi_config.nim).
+#
+# Deliberately after the Nimble block: Nim prepends each --path as it is added,
+# so the one registered last is searched first. That also means these beat any
+# --path passed on the command line, which is applied before the config files.
+when defined(emscripten):
+  switch("path", thisDir() & "/wasm-deps/brokers")
+  switch("path", thisDir() & "/wasm-deps/ffi")

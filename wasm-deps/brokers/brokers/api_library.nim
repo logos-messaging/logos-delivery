@@ -49,6 +49,12 @@ export mt_broker_common
 
 export results, chronos, chronicles, broker_context, api_common
 
+# Optional override for where the generated FFI artifacts (headers, wrappers,
+# cmake, cddl) are written. Set with `-d:BrokerFfiApiOutDir:<dir>`. Empty (the
+# default) makes `detectOutputDir` fall back to the project path. Declared here
+# as a `{.strdefine.}` so the `when defined(...)` use below resolves to a value.
+const BrokerFfiApiOutDir* {.strdefine.} = ""
+
 # ---------------------------------------------------------------------------
 # Macro helpers
 # ---------------------------------------------------------------------------
@@ -58,13 +64,28 @@ proc parseLibraryConfig(
 ): tuple[
   name: string,
   version: string,
+  versionExpr: NimNode,
   initializeRequest: NimNode,
   shutdownRequest: NimNode,
   refType: NimNode,
   mainClass: string,
+  asyncTimeoutMs: int,
+  asyncQueueDepth: int,
 ] {.compileTime.} =
   var name = ""
   var version = "0.1.0"
+  # Default dispatch-scoped timeout (ms) for `<lib>_callAsync`. Surfaced to
+  # wrappers + the C header as the policy default; the raw ABI stays mechanism
+  # (0 = infinite). 30 s unless overridden by `asyncTimeoutMs:`.
+  var asyncTimeoutMs = 30000
+  # Ceiling on concurrent in-flight `<lib>_callAsync`s per context (the async
+  # ring does not grow; full => -6 EAGAIN). Independent of the sync `_call` slot
+  # pool. Exposed to clients via the generated `<LIB>_ASYNC_QUEUE_DEPTH` macro so
+  # they can size a bounded send window. 64 unless overridden.
+  var asyncQueueDepth = 64
+  # AST emitted into the generated `<lib>_version()` proc: a string literal, or
+  # a const identifier (e.g. a `{.strdefine.}` `git_version`) the caller defines.
+  var versionExpr: NimNode = newLit("0.1.0")
   var initializeReq: NimNode = nil
   var shutdownReq: NimNode = nil
   var refTy: NimNode = nil
@@ -86,10 +107,20 @@ proc parseLibraryConfig(
         var v = value
         if v.kind == nnkStmtList and v.len == 1:
           v = v[0]
-        if v.kind == nnkStrLit:
+        case v.kind
+        of nnkStrLit:
           version = v.strVal
+          versionExpr = v
+        of nnkIdent, nnkSym:
+          # A const reference (e.g. a `{.strdefine.}` `git_version`). The value
+          # isn't knowable here (untyped macro, caller scope), so we don't bake a
+          # literal — the generated `<lib>_version()` proc references the const
+          # directly and it resolves when the generated code compiles in the
+          # caller's module. `version` stays "" so the header comment omits it.
+          version = ""
+          versionExpr = v
         else:
-          error("version must be a string literal", v)
+          error("version must be a string literal or a string const identifier", v)
       of "initializerequest":
         if value.kind == nnkStmtList and value.len == 1:
           initializeReq = value[0]
@@ -105,6 +136,28 @@ proc parseLibraryConfig(
           refTy = value[0]
         else:
           refTy = value
+      of "asynctimeoutms":
+        var v = value
+        if v.kind == nnkStmtList and v.len == 1:
+          v = v[0]
+        if v.kind == nnkIntLit:
+          if v.intVal < 0:
+            error("asyncTimeoutMs must be >= 0 (0 = infinite)", v)
+          asyncTimeoutMs = int(v.intVal)
+        else:
+          error(
+            "asyncTimeoutMs must be an integer literal (milliseconds, 0 = infinite)", v
+          )
+      of "asyncqueuedepth":
+        var v = value
+        if v.kind == nnkStmtList and v.len == 1:
+          v = v[0]
+        if v.kind == nnkIntLit:
+          if v.intVal <= 0:
+            error("asyncQueueDepth must be > 0", v)
+          asyncQueueDepth = int(v.intVal)
+        else:
+          error("asyncQueueDepth must be a positive integer literal", v)
       of "mainclass":
         # reduced-A (A1): designates the main `BrokerInterface(API)` facade for
         # a multi-interface library. Other (API) interfaces are auto-discovered
@@ -144,10 +197,13 @@ proc parseLibraryConfig(
   (
     name: name,
     version: version,
+    versionExpr: versionExpr,
     initializeRequest: initializeReq,
     shutdownRequest: shutdownReq,
     refType: refTy,
     mainClass: mainClass,
+    asyncTimeoutMs: asyncTimeoutMs,
+    asyncQueueDepth: asyncQueueDepth,
   )
 
 proc parseTypeExpr(
@@ -171,10 +227,13 @@ proc registerBrokerLibraryCborImpl(
     tuple[
       name: string,
       version: string,
+      versionExpr: NimNode,
       initializeRequest: NimNode,
       shutdownRequest: NimNode,
       refType: NimNode,
       mainClass: string,
+      asyncTimeoutMs: int,
+      asyncQueueDepth: int,
     ],
 ): NimNode
 
@@ -203,10 +262,13 @@ proc registerBrokerLibraryCborImpl(
       tuple[
         name: string,
         version: string,
+        versionExpr: NimNode,
         initializeRequest: NimNode,
         shutdownRequest: NimNode,
         refType: NimNode,
         mainClass: string,
+        asyncTimeoutMs: int,
+        asyncQueueDepth: int,
       ],
 ): NimNode =
   let libName = config.name
@@ -228,6 +290,13 @@ proc registerBrokerLibraryCborImpl(
   let callFuncName = libName & "_call"
   let callFuncNameLit = newLit(callFuncName)
   let callFuncIdent = ident(callFuncName)
+  # Async fire-and-forget call (side by side with the sync `_call`): enqueues
+  # onto the courier async ring and returns immediately; the response is fanned
+  # back through the event delivery thread to a foreign callback.
+  let callAsyncFuncName = libName & "_callAsync"
+  let callAsyncFuncNameLit = newLit(callAsyncFuncName)
+  let callAsyncFuncIdent = ident(callAsyncFuncName)
+  let responseCallbackTypeIdent = ident(libName & "CborResponseCallback")
   let allocBufFuncName = libName & "_allocBuffer"
   let allocBufFuncNameLit = newLit(allocBufFuncName)
   let allocBufFuncIdent = ident(allocBufFuncName)
@@ -304,6 +373,10 @@ proc registerBrokerLibraryCborImpl(
   # Hard cap on a single buffer to detect runaway encodes.
   let bufSizeCap = newLit(64 * 1024 * 1024)
 
+  # Configured async in-flight window (per context), baked into `_createContext`
+  # courier sizing.
+  let asyncQueueDepthLit = newLit(config.asyncQueueDepth)
+
   result = newStmtList()
 
   # Compile-time validation of the mandatory request types.
@@ -351,12 +424,21 @@ proc registerBrokerLibraryCborImpl(
   # (e.g., snapshot a length and slice from there next time).
   let entries = gApiCborRequestEntries
   let eventEntries = gApiCborEventEntries
+  let signalEntries = gApiCborSignalEntries
 
   # The dispatch proc is async and returns just `seq[byte]`. To signal
   # "unknown apiName" without raising or capturing a `var bool`, the
   # convention is: empty seq + the calling `<lib>_call` checks against the
   # known-name set (a separate non-async predicate proc).
   let knownNamePredIdent = ident(libName & "CborIsKnownApiName")
+
+  # SignalBroker(API): a signal rides `<lib>_call` on a slot-free path — no
+  # response slot, no round trip. Its dispatch proc returns `Future[void]`
+  # (no envelope); `isSignalName` routes `<lib>_call` to the slot-free branch
+  # and `signalHasHandler` is the lock-free caller-thread fast-fail.
+  let signalDispatchProcIdent = ident(libName & "CborSignalDispatch")
+  let isSignalNamePredIdent = ident(libName & "CborIsSignalName")
+  let signalHasHandlerPredIdent = ident(libName & "CborSignalHasHandler")
 
   var caseStmt = nnkCaseStmt.newTree(ident("apiName"))
   for entry in entries:
@@ -426,6 +508,17 @@ proc registerBrokerLibraryCborImpl(
           "      " & e.typeName & ".dropAllListeners(ctx)\n" & "    else:\n" &
           "      discard " & e.typeName & ".dropAllListeners(ctx)\n"
       )
+    var seenSig: seq[string] = @[]
+    for e in signalEntries:
+      if e.typeName in seenSig:
+        continue
+      seenSig.add(e.typeName)
+      # dropSignalHandler is async Future[void]; discard is safe — the MT drop
+      # body is suspension-free, so it clears eagerly.
+      body.add(
+        "  when compiles(" & e.typeName & ".dropSignalHandler(ctx)):\n" & "    discard " &
+          e.typeName & ".dropSignalHandler(ctx)\n"
+      )
     if body.len == 0:
       body = "  discard ctx\n"
     src.add(body)
@@ -459,6 +552,97 @@ proc registerBrokerLibraryCborImpl(
     nameSet,
   )
   result.add(knownProc)
+
+  # ------------------------------------------------------------------
+  # SignalBroker(API) codegen: a Future[void] dispatch proc + two plain
+  # predicates. `<lib>_call` uses `isSignalName` to take the slot-free branch,
+  # `signalHasHandler` (lock-free) to fast-fail with ProviderErr, and the
+  # processing thread runs `signalDispatch` (which awaits the one-way adapter
+  # that decodes the payload and calls `signal()` — no response is produced).
+  # ------------------------------------------------------------------
+  block:
+    var sigCase = nnkCaseStmt.newTree(ident("apiName"))
+    for e in signalEntries:
+      let adapterCall = newCall(ident(e.adapterProc), ident("ctx"), ident("reqBuf"))
+      sigCase.add(
+        nnkOfBranch.newTree(
+          newLit(e.apiName),
+          newStmtList(nnkCommand.newTree(ident("await"), adapterCall)),
+        )
+      )
+    sigCase.add(nnkElse.newTree(newStmtList(nnkDiscardStmt.newTree(newEmptyNode()))))
+    let sigDispatchProc = nnkProcDef.newTree(
+      postfix(signalDispatchProcIdent, "*"),
+      newEmptyNode(),
+      newEmptyNode(),
+      nnkFormalParams.newTree(
+        nnkBracketExpr.newTree(ident("Future"), ident("void")),
+        newIdentDefs(ident("apiName"), ident("string")),
+        newIdentDefs(ident("ctx"), ident("BrokerContext")),
+        newIdentDefs(
+          ident("reqBuf"), nnkBracketExpr.newTree(ident("seq"), ident("byte"))
+        ),
+      ),
+      nnkPragma.newTree(
+        newColonExpr(
+          ident("async"),
+          nnkTupleConstr.newTree(newColonExpr(ident("raises"), nnkBracket.newTree())),
+        ),
+        ident("gcsafe"),
+      ),
+      newEmptyNode(),
+      newStmtList(sigCase),
+    )
+    result.add(sigDispatchProc)
+
+    # isSignalName predicate.
+    var isSigCase = nnkCaseStmt.newTree(ident("apiName"))
+    for e in signalEntries:
+      isSigCase.add(
+        nnkOfBranch.newTree(
+          newLit(e.apiName), newStmtList(nnkReturnStmt.newTree(ident("true")))
+        )
+      )
+    isSigCase.add(nnkElse.newTree(newStmtList(nnkReturnStmt.newTree(ident("false")))))
+    result.add(
+      nnkProcDef.newTree(
+        postfix(isSignalNamePredIdent, "*"),
+        newEmptyNode(),
+        newEmptyNode(),
+        nnkFormalParams.newTree(
+          ident("bool"), newIdentDefs(ident("apiName"), ident("string"))
+        ),
+        nnkPragma.newTree(ident("gcsafe")),
+        newEmptyNode(),
+        newStmtList(isSigCase),
+      )
+    )
+
+    # signalHasHandler predicate — lock-free, caller-thread fast-fail. Each
+    # branch reads the per-type present counter via `<Type>.signalHandlerPresent`.
+    var hasCase = nnkCaseStmt.newTree(ident("apiName"))
+    for e in signalEntries:
+      let presentCall =
+        newCall(newDotExpr(ident(e.typeName), ident("signalHandlerPresent")))
+      hasCase.add(
+        nnkOfBranch.newTree(
+          newLit(e.apiName), newStmtList(nnkReturnStmt.newTree(presentCall))
+        )
+      )
+    hasCase.add(nnkElse.newTree(newStmtList(nnkReturnStmt.newTree(ident("false")))))
+    result.add(
+      nnkProcDef.newTree(
+        postfix(signalHasHandlerPredIdent, "*"),
+        newEmptyNode(),
+        newEmptyNode(),
+        nnkFormalParams.newTree(
+          ident("bool"), newIdentDefs(ident("apiName"), ident("string"))
+        ),
+        nnkPragma.newTree(ident("gcsafe")),
+        newEmptyNode(),
+        newStmtList(hasCase),
+      )
+    )
 
   # ------------------------------------------------------------------
   # Event known-name predicate (companion to request side).
@@ -504,7 +688,7 @@ proc registerBrokerLibraryCborImpl(
           # the processing thread once its chronos loop is up so a foreign
           # `<lib>_call` can wake it after enqueuing a request.
           courier: ptr CborCourier
-          courierSignal: ThreadSignalPtr
+          courierSignal: ptr BrokerSignalShared
           # Part D-3 — event courier. Producer is the processing thread
           # (per-event handler runs there now, encode-once-on-emit-thread);
           # consumer is the delivery thread, which polls the ring and
@@ -512,7 +696,13 @@ proc registerBrokerLibraryCborImpl(
           # thread's broker dispatch signal so the processing thread can
           # wake it after enqueuing an event.
           eventCourier: ptr CborEventCourier
-          deliverySignal: ThreadSignalPtr
+          deliverySignal: ptr BrokerSignalShared
+          # Async request response courier. Producer is the processing thread
+          # (after the provider runs for a `_callAsync` request); consumer is
+          # the delivery thread, which polls the ring and invokes the foreign
+          # response callback. Reuses `deliverySignal` to wake the delivery
+          # thread, exactly like `eventCourier`.
+          respCourier: ptr CborRespCourier
 
         `ctxEntryIdent` = object
           ctx: BrokerContext
@@ -527,6 +717,14 @@ proc registerBrokerLibraryCborImpl(
           payloadBuf: pointer,
           payloadLen: int32,
           userData: pointer,
+        ) {.cdecl, gcsafe, raises: [].}
+
+        `responseCallbackTypeIdent`* = proc(
+          userData: pointer,
+          reqId: uint64,
+          status: int32,
+          respBuf: pointer,
+          respLen: int32,
         ) {.cdecl, gcsafe, raises: [].}
 
       var `ctxsIdent`: seq[ptr `ctxEntryIdent`]
@@ -549,14 +747,19 @@ proc registerBrokerLibraryCborImpl(
   let cborVersionFuncNameLit = newLit(cborVersionFuncName)
   let cborVersionFuncIdent = ident(cborVersionFuncName)
   let cborVersionConstIdent = ident("g" & libName & "VersionStr")
-  let cborVersionStrLit = newLit(config.version)
+  # `versionExpr` is either a string literal or a const identifier the caller
+  # defines (e.g. a `{.strdefine.}` `git_version`). Binding it to a `string`
+  # const and converting in the proc works for both — a const ident can't be a
+  # compile-time `cstring` initialiser, but a global string const's `.cstring`
+  # is stable for the program lifetime.
+  let cborVersionExpr = config.versionExpr
   result.add(
     quote do:
-      const `cborVersionConstIdent`: cstring = `cborVersionStrLit`
+      const `cborVersionConstIdent`: string = `cborVersionExpr`
       proc `cborVersionFuncIdent`*(): cstring {.
           exportc: `cborVersionFuncNameLit`, cdecl, dynlib
       .} =
-        `cborVersionConstIdent`
+        `cborVersionConstIdent`.cstring
 
   )
 
@@ -819,7 +1022,7 @@ proc registerBrokerLibraryCborImpl(
             # exact emitting ctx — per-instance event routing stays exact.
             let libCtxKey = uint32(ctx) and 0x0000FFFF'u32
             var courier: ptr CborEventCourier = nil
-            var sig: ThreadSignalPtr = nil
+            var sig: ptr BrokerSignalShared = nil
             {.cast(gcsafe).}:
               withLock `ctxsLockIdent`:
                 for i in 0 ..< `ctxsIdent`.len:
@@ -838,6 +1041,19 @@ proc registerBrokerLibraryCborImpl(
               # The buffer never entered the ring so we own it.
               if not payloadBuf.isNil:
                 deallocShared(payloadBuf)
+              # Throttled warn: the first drop, then a geometric count backoff
+              # plus a periodic floor (see `recordDrop`). `dropAccount` is only
+              # ever touched on this processing thread, so no lock is needed.
+              var totalDropped, droppedSinceLog: int64
+              if recordDrop(
+                courier.dropAccount, monoNowMs(), totalDropped, droppedSinceLog
+              ):
+                {.cast(gcsafe).}:
+                  warn "FFI event courier ring full — delivery thread stalled or blocked; dropping outbound events",
+                    event = `eventNameLit`,
+                    ringCap = courier.ringCap(),
+                    totalDropped = totalDropped,
+                    droppedSinceLastLog = droppedSinceLog
               return
             if not sig.isNil:
               fireBrokerSignal(sig)
@@ -1038,7 +1254,29 @@ proc registerBrokerLibraryCborImpl(
               deallocShared(m.buf)
           didWork
 
+        # Async-response poller — drains the response courier and invokes the
+        # foreign response callback for each `<lib>_callAsync`. Runs on this
+        # (delivery) thread, off the processing thread, exactly like event
+        # fanout. `m.buf` is library-owned and freed after the callback returns;
+        # the per-call `asyncDepth` reservation is released here.
+        proc respCourierPoll(): int {.gcsafe, raises: [].} =
+          var didWork = 0
+          while true:
+            var m: CborRespMsg
+            if not tryDequeueResp(arg.respCourier, m):
+              break
+            didWork = 1
+            let cbPtr = m.cb
+            if not cbPtr.isNil:
+              let cbTyped = cast[`responseCallbackTypeIdent`](cbPtr)
+              cbTyped(m.userData, m.reqId, m.status, m.buf, m.bufLen)
+            if not m.buf.isNil:
+              deallocShared(m.buf)
+            asyncDepthDec(arg.courier)
+          didWork
+
         registerBrokerPoller(eventCourierPoll)
+        registerBrokerPoller(respCourierPoll)
         ensureBrokerDispatchStarted()
 
         arg.deliveryReady.store(1, moRelease)
@@ -1056,7 +1294,10 @@ proc registerBrokerLibraryCborImpl(
         # eventCourierPoll and returns before the loop exits. Buffers
         # still queued in the courier ring at this point are freed by
         # `drainAndFree(arg.eventCourier)` in `_shutdown`.
-        stopBrokerDispatchHere()
+        # teardownBrokerThread = stopBrokerDispatchHere + drainPendingRingFrees
+        # + closeThreadDispatcherSelector, latched so the automatic
+        # onThreadDestruction hook does not run it a second time.
+        teardownBrokerThread()
 
   )
 
@@ -1121,6 +1362,29 @@ proc registerBrokerLibraryCborImpl(
         # us a raw request buffer over `arg.courier.chan` and blocks on a
         # response slot; we wake on the shared broker dispatch signal.
         # ----------------------------------------------------------------
+        # Shared by both courier handlers below: turn a resolved dispatch
+        # outcome into the (status, respBuf, respLen) triple the delivery paths
+        # hand back. `known == false` → -4 unknown apiName; `dispErr` → -10
+        # provider error; otherwise the CBOR bytes are copied into a fresh
+        # shared buffer (nil/0 for an empty payload). Timeout (-12, async-only)
+        # is decided by the async handler and never flows through here.
+        proc encodeApiResp(
+            apiName: string, known: bool, dispErr: bool, respBytes: seq[byte]
+        ): tuple[status: int32, respBuf: pointer, respLen: int32] {.gcsafe, raises: [].} =
+          if not known:
+            let em = "unknown apiName: " & apiName
+            let b = allocShared0(em.len)
+            if em.len > 0:
+              copyMem(b, unsafeAddr em[0], em.len)
+            return (ApiStatusUnknownApi, b, int32(em.len))
+          if dispErr:
+            return (ApiStatusProviderErr, nil, 0'i32)
+          if respBytes.len > 0:
+            let b = allocShared0(respBytes.len)
+            copyMem(b, unsafeAddr respBytes[0], respBytes.len)
+            return (ApiStatusOk, b, int32(respBytes.len))
+          return (ApiStatusOk, nil, 0'i32)
+
         proc handleCourierMsg(m: CborCallMsg) {.async: (raises: []), gcsafe.} =
           # Copy the request bytes off the shared buffer, then free it —
           # ownership of `m.reqBuf` transferred to us via the channel.
@@ -1130,9 +1394,6 @@ proc registerBrokerLibraryCborImpl(
           if not m.reqBuf.isNil:
             deallocShared(m.reqBuf)
           let apiName = $cast[cstring](addr m.apiName[0])
-          var respBuf: pointer = nil
-          var respLen: int32 = 0
-          var status: int32 = 0
           if apiName == `releaseApiNameLit`:
             # reduced-A: per-context teardown control op (from
             # `<lib>_releaseInstance`). Clears providers + listeners for the
@@ -1140,15 +1401,24 @@ proc registerBrokerLibraryCborImpl(
             `releaseCtxProcIdent`(BrokerContext(m.targetCtx))
             completeSlot(arg.courier, m.slotIdx.int, nil, 0'i32, 0'i32)
             return
-          if not `knownNamePredIdent`(apiName):
-            let em = "unknown apiName: " & apiName
-            let b = allocShared0(em.len)
-            if em.len > 0:
-              copyMem(b, unsafeAddr em[0], em.len)
-            respBuf = b
-            respLen = int32(em.len)
-            status = -4'i32
-          else:
+          if m.slotIdx < 0'i32:
+            # Slot-free signal (`<lib>_call` enqueued it with slotIdx = -1). Run
+            # the one-way adapter — it decodes the payload and calls `signal()`
+            # (same-thread fast path). No response slot to complete. Release the
+            # shutdown gate here, mirroring the async path (the foreign caller
+            # already returned Ok at enqueue time).
+            let sigCtx =
+              if m.targetCtx != 0'u32:
+                BrokerContext(m.targetCtx)
+              else:
+                arg.ctx
+            await `signalDispatchProcIdent`(apiName, sigCtx, nimReq)
+            discard arg.courier.inFlight.fetchSub(1, moAcquireRelease)
+            return
+          let known = `knownNamePredIdent`(apiName)
+          var dispErr = false
+          var respBytes: seq[byte]
+          if known:
             # reduced-A: dispatch against the FULL ctx the caller addressed
             # (sub-instance ctx for create-instance subs; == arg.ctx otherwise),
             # so the broker provider keyed by the sub ctx is reached. Falls back
@@ -1161,15 +1431,100 @@ proc registerBrokerLibraryCborImpl(
             let dispRes = catch:
               await `dispatchProcIdent`(apiName, dispCtx, nimReq)
             if dispRes.isErr():
-              status = -10'i32
+              dispErr = true
             else:
-              let respBytes = dispRes.get()
-              if respBytes.len > 0:
-                let b = allocShared0(respBytes.len)
-                copyMem(b, unsafeAddr respBytes[0], respBytes.len)
-                respBuf = b
-                respLen = int32(respBytes.len)
+              respBytes = dispRes.get()
+          let (status, respBuf, respLen) =
+            encodeApiResp(apiName, known, dispErr, respBytes)
           completeSlot(arg.courier, m.slotIdx.int, respBuf, respLen, status)
+
+        # Async sibling of `handleCourierMsg`. Same dispatch, but instead of
+        # waking a blocked foreign caller via the slot/Cond, it hands the
+        # response to the delivery thread (response courier) which invokes the
+        # foreign response callback. No slot is involved. The `inFlight`
+        # shutdown gate is released here (processing thread done with the
+        # request); the `asyncDepth` backpressure reservation is released later
+        # on the delivery thread, after the callback fires.
+        proc handleAsyncCourierMsg(
+            m: CborAsyncCallMsg
+        ) {.async: (raises: []), gcsafe.} =
+          var nimReq = newSeq[byte](m.reqLen.int)
+          if m.reqLen > 0 and not m.reqBuf.isNil:
+            copyMem(addr nimReq[0], m.reqBuf, m.reqLen.int)
+          if not m.reqBuf.isNil:
+            deallocShared(m.reqBuf)
+          let apiName = $cast[cstring](addr m.apiName[0])
+          let known = `knownNamePredIdent`(apiName)
+          var dispErr = false
+          var respBytes: seq[byte]
+          var timedOut = false
+          if known:
+            let dispCtx =
+              if m.targetCtx != 0'u32:
+                BrokerContext(m.targetCtx)
+              else:
+                arg.ctx
+            let dispFut = `dispatchProcIdent`(apiName, dispCtx, nimReq)
+            # Dispatch-scoped timeout. `timeoutMs == 0` means infinite — fall
+            # through and await directly. Otherwise RACE the dispatch against a
+            # chronos timer. We use `race` (not `withTimeout`) deliberately:
+            # `withTimeout` cancels the dispatch on expiry, and the broker /
+            # provider machinery swallows that cancellation into a normal
+            # completion — masking the timeout. `race` leaves the loser running
+            # and we decide by `dispFut.finished()`. Because this is a single
+            # coroutine with a mutually-exclusive outcome, exactly ONE response
+            # is enqueued below; a late provider completion resolves a future
+            # nobody reads and is discarded — the callback never double-fires.
+            if m.timeoutMs != 0'u32:
+              let timerFut = sleepAsync(milliseconds(m.timeoutMs.int64))
+              let raceRes = catch:
+                await race(dispFut, timerFut)
+              timedOut = (not raceRes.isErr()) and (not dispFut.finished())
+              if not timerFut.finished():
+                timerFut.cancelSoon()
+            if timedOut:
+              # Budget exceeded: best-effort-cancel the provider. We do NOT read
+              # dispFut — its (late) result is dropped. Status is set to -12 below.
+              dispFut.cancelSoon()
+            else:
+              # Completed in time, or infinite timeout: `await dispFut` returns
+              # its already-available (or awaited) result.
+              let dispRes = catch:
+                await dispFut
+              if dispRes.isErr():
+                dispErr = true
+              else:
+                respBytes = dispRes.get()
+          var status: int32 = 0
+          var respBuf: pointer = nil
+          var respLen: int32 = 0
+          if timedOut:
+            status = ApiStatusTimeout
+          else:
+            let enc = encodeApiResp(apiName, known, dispErr, respBytes)
+            status = enc.status
+            respBuf = enc.respBuf
+            respLen = enc.respLen
+          var rmsg: CborRespMsg
+          rmsg.cb = m.cb
+          rmsg.userData = m.userData
+          rmsg.reqId = m.reqId
+          rmsg.status = status
+          rmsg.buf = respBuf
+          rmsg.bufLen = respLen
+          # Release the shutdown gate before handing off — the processing
+          # thread is finished with this request either way.
+          discard arg.courier.inFlight.fetchSub(1, moAcquireRelease)
+          if not tryEnqueueResp(arg.respCourier, rmsg):
+            # Response ring full. Cannot happen while outstanding async calls
+            # are bounded to <= ring cap (see `asyncDepth`), but stay safe: free
+            # the buffer, release the depth reservation (the callback will not
+            # fire for this lost response), and drop.
+            if not respBuf.isNil:
+              deallocShared(respBuf)
+            asyncDepthDec(arg.courier)
+          elif not arg.deliverySignal.isNil:
+            fireBrokerSignal(arg.deliverySignal)
 
         # Drained by the shared `brokerDispatchLoop` whenever the dispatch
         # signal fires. Each message is handled on its own spawned
@@ -1184,12 +1539,25 @@ proc registerBrokerLibraryCborImpl(
             didWork = 1
           didWork
 
+        # Async-call poller — drains the separate async ring. Woken by the same
+        # processing-thread dispatch signal that `<lib>_callAsync` fires.
+        proc asyncCourierPoll(): int {.gcsafe, raises: [].} =
+          var didWork = 0
+          while true:
+            var m: CborAsyncCallMsg
+            if not tryDequeueAsync(arg.courier, m):
+              break
+            asyncSpawn handleAsyncCourierMsg(m)
+            didWork = 1
+          didWork
+
         # Publish this thread's dispatch signal so a foreign `<lib>_call`
         # can wake us, register the courier poller, and start the loop.
         # Done BEFORE `processingReady = 1` so the first `_call` (which can
         # only arrive after `createContext` returns) is always serviced.
         arg.courierSignal = getOrInitBrokerSignal()
         registerBrokerPoller(courierPoll)
+        registerBrokerPoller(asyncCourierPoll)
         ensureBrokerDispatchStarted()
 
         arg.processingReady.store(1, moRelease)
@@ -1206,7 +1574,10 @@ proc registerBrokerLibraryCborImpl(
         # thread exits. `_shutdown` waits for `courier.inFlight` to reach 0
         # (while this thread is still handling) before it sets
         # `shutdownFlag`, so no courier message is in flight here.
-        stopBrokerDispatchHere()
+        # teardownBrokerThread = stopBrokerDispatchHere + drainPendingRingFrees
+        # + closeThreadDispatcherSelector, latched so the automatic
+        # onThreadDestruction hook does not run it a second time.
+        teardownBrokerThread()
 
   )
 
@@ -1239,15 +1610,20 @@ proc registerBrokerLibraryCborImpl(
         arg.deliveryReady.store(0, moRelaxed)
         arg.processingErrorMessage = nil
         arg.deliveryErrorMessage = nil
-        # Part C — courier: 64 response slots = ceiling on concurrent
-        # in-flight `<lib>_call`s; a call past that fails fast.
-        arg.courier = newCborCourier(64)
+        # Part C — courier: 64 response slots = initial ceiling on concurrent
+        # in-flight SYNC `<lib>_call`s (grows to 4x). The async window is a
+        # separate, fixed ceiling (`asyncQueueDepth`, default 64) — full => -6.
+        arg.courier = newCborCourier(64, `asyncQueueDepthLit`)
         arg.courierSignal = nil
         # Part D-3 — event courier: 256-slot ring (burst capacity, not
         # concurrency bound; producer is fire-and-forget). A full ring
         # drops the event with a diagnostic. Re-tunable after D-6 bench.
         arg.eventCourier = newCborEventCourier(256)
         arg.deliverySignal = nil
+        # Async-response courier: sized to the call courier's async in-flight
+        # ceiling so a bounded set of outstanding `<lib>_callAsync`s can never
+        # overflow the ring. Drained by the delivery thread.
+        arg.respCourier = newCborRespCourier(`asyncQueueDepthLit`)
 
         let entry = cast[ptr `ctxEntryIdent`](allocShared0(sizeof(`ctxEntryIdent`)))
         entry.ctx = bctx
@@ -1266,6 +1642,7 @@ proc registerBrokerLibraryCborImpl(
             )
           freeCborCourier(arg.courier)
           drainAndFree(arg.eventCourier)
+          freeCborRespCourier(arg.respCourier)
           deallocShared(arg)
           deallocShared(entry)
           return 0'u32
@@ -1291,6 +1668,8 @@ proc registerBrokerLibraryCborImpl(
               else:
                 errOut[] = allocCStringCopy("delivery thread did not become ready")
             freeCborCourier(arg.courier)
+            drainAndFree(arg.eventCourier)
+            freeCborRespCourier(arg.respCourier)
             deallocShared(arg)
             deallocShared(entry)
             return 0'u32
@@ -1307,6 +1686,7 @@ proc registerBrokerLibraryCborImpl(
           joinThread(entry.delivThread)
           freeCborCourier(arg.courier)
           drainAndFree(arg.eventCourier)
+          freeCborRespCourier(arg.respCourier)
           deallocShared(arg)
           deallocShared(entry)
           return 0'u32
@@ -1334,6 +1714,7 @@ proc registerBrokerLibraryCborImpl(
               errOut[] = allocCStringCopy("processing thread did not become ready")
           freeCborCourier(arg.courier)
           drainAndFree(arg.eventCourier)
+          freeCborRespCourier(arg.respCourier)
           deallocShared(arg)
           deallocShared(entry)
           return 0'u32
@@ -1395,11 +1776,33 @@ proc registerBrokerLibraryCborImpl(
           freeCString(entryToShutdown.arg.processingErrorMessage)
         if not entryToShutdown.arg.deliveryErrorMessage.isNil:
           freeCString(entryToShutdown.arg.deliveryErrorMessage)
+        # Async responses: any still queued in the response courier when the
+        # delivery thread joined could not be delivered in time. Release the
+        # foreign caller's continuation by invoking each callback with a
+        # shutdown status (-11) and a nil buffer, so no `userData` is leaked.
+        # Both threads are joined here, so this drain has no concurrent consumer.
+        block:
+          let rc = entryToShutdown.arg.respCourier
+          if not rc.isNil:
+            var rm: CborRespMsg
+            while tryDequeueResp(rc, rm):
+              if not rm.cb.isNil:
+                let cbTyped = cast[`responseCallbackTypeIdent`](rm.cb)
+                cbTyped(rm.userData, rm.reqId, ApiStatusShutdown, nil, 0'i32)
+              if not rm.buf.isNil:
+                deallocShared(rm.buf)
+              # Symmetry with `respCourierPoll`, which releases one depth
+              # reservation per delivered response. Harmless today (the courier
+              # is freed just below), but keeps `asyncDepth` a correct running
+              # sum if the courier ever outlives a single shutdown.
+              asyncDepthDec(entryToShutdown.arg.courier)
         # Part C — free the courier after both threads joined.
         freeCborCourier(entryToShutdown.arg.courier)
         # Part D-3 — free the event courier (drains any messages left
         # in the ring, freeing their buffers) after both threads joined.
         drainAndFree(entryToShutdown.arg.eventCourier)
+        # Free the (now-empty) response courier.
+        freeCborRespCourier(entryToShutdown.arg.respCourier)
         deallocShared(entryToShutdown.arg)
 
         withLock `ctxsLockIdent`:
@@ -1461,7 +1864,7 @@ proc registerBrokerLibraryCborImpl(
         # (targetCtx) so the processing thread dispatches against the sub ctx.
         let libCtxKey = ctx and 0x0000FFFF'u32
         var courier: ptr CborCourier = nil
-        var courierSig: ThreadSignalPtr = nil
+        var courierSig: ptr BrokerSignalShared = nil
         withLock `ctxsLockIdent`:
           for i in 0 ..< `ctxsIdent`.len:
             let e = `ctxsIdent`[i]
@@ -1475,12 +1878,42 @@ proc registerBrokerLibraryCborImpl(
             deallocShared(reqBuf)
           return -5'i32
 
+        # SignalBroker(API): slot-free one-way path. No response slot is
+        # claimed and the caller does not block — both failure modes resolve
+        # here on the caller's thread. `signalHasHandler` is a lock-free atomic
+        # load; a false is a fast ProviderErr with no cross-thread hop. The
+        # message rides the SAME courier ring with slotIdx = -1 (the processing
+        # thread's `handleCourierMsg` recognises the sentinel, runs the one-way
+        # adapter, and decrements `inFlight` — which stays bumped until then).
+        let sigApiName = $apiNameC
+        if `isSignalNamePredIdent`(sigApiName):
+          if not `signalHasHandlerPredIdent`(sigApiName):
+            discard courier.inFlight.fetchSub(1, moAcquireRelease)
+            if not reqBuf.isNil:
+              deallocShared(reqBuf)
+            return ApiStatusProviderErr
+          var smsg: CborCallMsg
+          if nameLen > 0:
+            copyMem(addr smsg.apiName[0], apiNameC, nameLen)
+          smsg.reqBuf = reqBuf
+          smsg.reqLen = reqLen
+          smsg.slotIdx = -1'i32 # signal sentinel: no response slot
+          smsg.targetCtx = ctx
+          if not tryEnqueue(addr courier.ring, smsg):
+            discard courier.inFlight.fetchSub(1, moAcquireRelease)
+            if not reqBuf.isNil:
+              deallocShared(reqBuf)
+            return ApiStatusAgain
+          if not courierSig.isNil:
+            fireBrokerSignal(courierSig)
+          return ApiStatusOk
+
         let slotIdx = claimSlot(courier)
         if slotIdx < 0:
           discard courier.inFlight.fetchSub(1, moAcquireRelease)
           if not reqBuf.isNil:
             deallocShared(reqBuf)
-          return -6'i32
+          return ApiStatusAgain
 
         var msg: CborCallMsg
         if nameLen > 0:
@@ -1500,9 +1933,9 @@ proc registerBrokerLibraryCborImpl(
           discard courier.inFlight.fetchSub(1, moAcquireRelease)
           if not reqBuf.isNil:
             deallocShared(reqBuf)
-          return -6'i32
+          return ApiStatusAgain
         if not courierSig.isNil:
-          discard courierSig.fireSync()
+          fireBrokerSignal(courierSig)
 
         let res = waitSlot(courier, slotIdx)
         releaseSlot(courier, slotIdx)
@@ -1510,6 +1943,104 @@ proc registerBrokerLibraryCborImpl(
         respLenOut[] = res.respLen
         discard courier.inFlight.fetchSub(1, moAcquireRelease)
         return res.status
+
+  )
+
+  # ------------------------------------------------------------------
+  # `<lib>_callAsync` — fire-and-forget sibling of `<lib>_call`. Enqueues onto
+  # the courier's SEPARATE async ring and returns immediately (no slot, no
+  # Cond block). The response is fanned back later through the event delivery
+  # thread to `cb(userData, reqId, status, respBuf, respLen)`. `userData` is an
+  # opaque correlation handle, never interpreted, handed back verbatim. `reqId`
+  # is carried for the caller's logging/cancel/idempotency only.
+  #   0  -> enqueued (callback will fire later)
+  #  -2  -> nil/oversized apiName            -3 -> bad reqLen
+  #  -5  -> unknown/torn-down ctx            -6 -> EAGAIN (async ring full / ceiling)
+  #  -7  -> nil callback
+  # respBuf delivered to the callback is library-owned and freed after the
+  # callback returns — the callback must NOT free it and must copy out anything
+  # it needs to retain.
+  # ------------------------------------------------------------------
+  result.add(
+    quote do:
+      proc `callAsyncFuncIdent`*(
+          ctx: uint32,
+          apiNameC: cstring,
+          reqBuf: pointer,
+          reqLen: int32,
+          reqId: uint64,
+          timeoutMs: uint32,
+          cb: `responseCallbackTypeIdent`,
+          userData: pointer,
+      ): int32 {.exportc: `callAsyncFuncNameLit`, cdecl, dynlib.} =
+        ensureForeignThreadGc()
+        if apiNameC.isNil:
+          if not reqBuf.isNil:
+            deallocShared(reqBuf)
+          return -2'i32
+        if reqLen < 0 or reqLen.int > `bufSizeCap`:
+          if not reqBuf.isNil:
+            deallocShared(reqBuf)
+          return -3'i32
+        if cb.isNil:
+          if not reqBuf.isNil:
+            deallocShared(reqBuf)
+          return -7'i32
+        let nameLen = apiNameC.len
+        if nameLen >= CborApiNameMax:
+          if not reqBuf.isNil:
+            deallocShared(reqBuf)
+          return -2'i32
+
+        # Resolve ctx -> courier, same routing + `inFlight` gate as `_call`.
+        let libCtxKey = ctx and 0x0000FFFF'u32
+        var courier: ptr CborCourier = nil
+        var courierSig: ptr BrokerSignalShared = nil
+        withLock `ctxsLockIdent`:
+          for i in 0 ..< `ctxsIdent`.len:
+            let e = `ctxsIdent`[i]
+            if uint32(e.ctx) == libCtxKey and e.active:
+              courier = e.arg.courier
+              courierSig = e.arg.courierSignal
+              discard courier.inFlight.fetchAdd(1, moAcquireRelease)
+              break
+        if courier.isNil:
+          if not reqBuf.isNil:
+            deallocShared(reqBuf)
+          return -5'i32
+
+        # Signals are one-way: a completion callback would carry no information
+        # not already returned synchronously by the slot-free `<lib>_call`, and
+        # a signal burst would starve the bounded async window real async
+        # requests depend on. Reject here (before reserving a depth slot).
+        if `isSignalNamePredIdent`($apiNameC):
+          discard courier.inFlight.fetchSub(1, moAcquireRelease)
+          if not reqBuf.isNil:
+            deallocShared(reqBuf)
+          return ApiStatusOneWay
+
+        var msg: CborAsyncCallMsg
+        if nameLen > 0:
+          copyMem(addr msg.apiName[0], apiNameC, nameLen)
+        # `msg` is stack-zero-initialised, so apiName stays NUL-terminated.
+        msg.reqBuf = reqBuf
+        msg.reqLen = reqLen
+        msg.targetCtx = ctx # full ctx (sub-instance routing, reduced-A)
+        msg.reqId = reqId
+        msg.timeoutMs = timeoutMs # 0 = infinite; N = N ms (dispatch-scoped)
+        msg.cb = cast[pointer](cb)
+        msg.userData = userData
+        # Ownership of reqBuf transfers into the async ring on success.
+        # `tryEnqueueAsync` reserves the in-flight depth slot (bounding
+        # outstanding async calls) and rolls it back itself on failure.
+        if not tryEnqueueAsync(courier, msg):
+          discard courier.inFlight.fetchSub(1, moAcquireRelease)
+          if not reqBuf.isNil:
+            deallocShared(reqBuf)
+          return ApiStatusAgain
+        if not courierSig.isNil:
+          fireBrokerSignal(courierSig)
+        return 0'i32
 
   )
 
@@ -1530,7 +2061,7 @@ proc registerBrokerLibraryCborImpl(
         ensureForeignThreadGc()
         let libCtxKey = ctx and 0x0000FFFF'u32
         var courier: ptr CborCourier = nil
-        var courierSig: ThreadSignalPtr = nil
+        var courierSig: ptr BrokerSignalShared = nil
         withLock `ctxsLockIdent`:
           for i in 0 ..< `ctxsIdent`.len:
             let e = `ctxsIdent`[i]
@@ -1544,7 +2075,7 @@ proc registerBrokerLibraryCborImpl(
         let slotIdx = claimSlot(courier)
         if slotIdx < 0:
           discard courier.inFlight.fetchSub(1, moAcquireRelease)
-          return -6'i32
+          return ApiStatusAgain
         var msg: CborCallMsg
         const relName = `releaseApiNameLit`
         copyMem(addr msg.apiName[0], cstring(relName), relName.len)
@@ -1555,9 +2086,9 @@ proc registerBrokerLibraryCborImpl(
         if not tryEnqueue(addr courier.ring, msg):
           releaseSlot(courier, slotIdx)
           discard courier.inFlight.fetchSub(1, moAcquireRelease)
-          return -6'i32
+          return ApiStatusAgain
         if not courierSig.isNil:
-          discard courierSig.fireSync()
+          fireBrokerSignal(courierSig)
         let res = waitSlot(courier, slotIdx)
         releaseSlot(courier, slotIdx)
         discard courier.inFlight.fetchSub(1, moAcquireRelease)
@@ -1577,22 +2108,41 @@ proc registerBrokerLibraryCborImpl(
   var eventNames: seq[string] = @[]
   for e in eventEntries:
     eventNames.add(e.apiName)
-  generateCborCHeaderFile(outDir, libName, config.version, requestNames, eventNames)
-  generateCborCppHeaderFile(outDir, libName, entries, eventEntries, config.mainClass)
+  var signalNames: seq[string] = @[]
+  for s in signalEntries:
+    signalNames.add(s.apiName)
+  generateCborCHeaderFile(
+    outDir, libName, config.version, requestNames, eventNames, config.asyncTimeoutMs,
+    config.asyncQueueDepth, signalNames,
+  )
+  generateCborCppHeaderFile(
+    outDir, libName, entries, eventEntries, config.mainClass, config.asyncTimeoutMs,
+    config.asyncQueueDepth, signalEntries,
+  )
   when defined(BrokerFfiApiGenPy):
-    generateCborPyFile(outDir, libName, entries, eventEntries, config.mainClass)
+    generateCborPyFile(
+      outDir, libName, entries, eventEntries, config.mainClass, config.asyncTimeoutMs,
+      config.asyncQueueDepth, signalEntries,
+    )
   when defined(BrokerFfiApiGenRust):
-    generateCborRustFile(outDir, libName, entries, eventEntries, config.mainClass)
+    generateCborRustFile(
+      outDir, libName, entries, eventEntries, config.mainClass, config.asyncTimeoutMs,
+      config.asyncQueueDepth, signalEntries,
+    )
   when defined(BrokerFfiApiGenGo):
-    generateCborGoFile(outDir, libName, entries, eventEntries, config.mainClass)
+    generateCborGoFile(
+      outDir, libName, entries, eventEntries, config.mainClass, config.asyncTimeoutMs,
+      config.asyncQueueDepth, signalEntries,
+    )
 
   generateCMakePackageFiles(
     outDir, libName, config.version, cborMode = true, hasCpp = true
   )
 
   # Emit the CDDL schema and capture its text for the runtime descriptor.
-  let cddlText =
-    generateCborCddlFile(outDir, libName, entries, eventEntries, gApiTypeRegistry)
+  let cddlText = generateCborCddlFile(
+    outDir, libName, entries, eventEntries, gApiTypeRegistry, signalEntries
+  )
 
   # ------------------------------------------------------------------
   # Discovery API (Phase 6): runtime descriptor + `<lib>_listApis` /
@@ -1631,6 +2181,13 @@ proc registerBrokerLibraryCborImpl(
     buildSrc.add(
       "    ApiEventInfo(apiName: " & escape(e.apiName) & ", payloadType: " &
         escape(e.typeName) & "),\n"
+    )
+  buildSrc.add("  ]\n")
+  buildSrc.add("  result.signals = @[\n")
+  for s in signalEntries:
+    buildSrc.add(
+      "    ApiSignalInfo(apiName: " & escape(s.apiName) & ", payloadType: " &
+        escape(s.typeName) & "),\n"
     )
   buildSrc.add("  ]\n")
   buildSrc.add("  result.types = @[\n")
@@ -1673,6 +2230,10 @@ proc registerBrokerLibraryCborImpl(
   buildSrc.add("  result.events = @[\n")
   for e in eventEntries:
     buildSrc.add("    " & escape(e.apiName) & ",\n")
+  buildSrc.add("  ]\n")
+  buildSrc.add("  result.signals = @[\n")
+  for s in signalEntries:
+    buildSrc.add("    " & escape(s.apiName) & ",\n")
   buildSrc.add("  ]\n")
 
   try:
@@ -1721,7 +2282,7 @@ proc registerBrokerLibraryCborImpl(
         try:
           jsonStr = toJsonString(`apiListIdent`)
         except CatchableError:
-          return -10'i32
+          return ApiStatusProviderErr
         if jsonStr.len > 0:
           let buf = allocShared0(jsonStr.len)
           copyMem(buf, addr jsonStr[0], jsonStr.len)
@@ -1747,7 +2308,7 @@ proc registerBrokerLibraryCborImpl(
         try:
           jsonStr = toJsonString(`descriptorIdent`)
         except CatchableError:
-          return -10'i32
+          return ApiStatusProviderErr
         if jsonStr.len > 0:
           let buf = allocShared0(jsonStr.len)
           copyMem(buf, addr jsonStr[0], jsonStr.len)

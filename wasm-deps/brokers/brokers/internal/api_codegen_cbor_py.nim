@@ -79,6 +79,24 @@ proc parseArrayInner(s: string): string {.compileTime.} =
     return ""
   inner[comma + 1 .. ^1].strip()
 
+proc parseTableParams*(s: string): (string, string) {.compileTime.} =
+  ## "Table[K, V]" -> ("K", "V"). Splits on the first top-level comma so a
+  ## composite value type's own commas (array/nested Table) are preserved.
+  let inner = s.strip()[6 ..^ 2]
+  var depth = 0
+  for i in 0 ..< inner.len:
+    case inner[i]
+    of '[', '(':
+      inc depth
+    of ']', ')':
+      dec depth
+    of ',':
+      if depth == 0:
+        return (inner[0 ..< i].strip(), inner[i + 1 .. ^1].strip())
+    else:
+      discard
+  ("", "")
+
 proc nimTypeToPyHint*(nimType: string): string {.compileTime.} =
   ## Recursive Nim → Python type hint. Falls back to "" for types we
   ## don't yet know how to map (the caller emits a TODO).
@@ -113,6 +131,15 @@ proc nimTypeToPyHint*(nimType: string): string {.compileTime.} =
         "Optional[" & inner & "]"
       else:
         "Optional[Any]"
+  if lower.startsWith("table[") and lower.endsWith("]"):
+    let (k, v) = parseTableParams(t)
+    let kh = nimTypeToPyHint(k)
+    let vh = nimTypeToPyHint(v)
+    return
+      if kh.len > 0 and vh.len > 0:
+        "Dict[" & kh & ", " & vh & "]"
+      else:
+        "Dict[Any, Any]"
   if isTypeRegistered(t):
     let entry = lookupTypeEntry(t)
     case entry.kind
@@ -121,9 +148,12 @@ proc nimTypeToPyHint*(nimType: string): string {.compileTime.} =
     of atkEnum:
       return t
     of atkAlias, atkDistinct:
-      # Recurse via outer mapper for distinct/alias-over-compound (e.g.
-      # `distinct seq[byte]` → `List[int]` rather than `""`).
-      return nimTypeToPyHint(resolveUnderlyingType(t))
+      # Reference the emitted alias BY NAME so fields/params keep the meaningful
+      # type (`ContentTopic`, `Timestamp`) instead of flattening to the
+      # underlying; "" when the underlying doesn't map.
+      if nimTypeToPyHint(resolveUnderlyingType(t)).len > 0:
+        return t
+      return ""
   ""
 
 proc nimTypeToPyDefault*(nimType: string): string {.compileTime.} =
@@ -173,12 +203,41 @@ proc isPyMappable*(nimType: string): bool {.compileTime.} =
 # Python anyway.
 # ---------------------------------------------------------------------------
 
+proc pyKeyClass(keyType: string): string {.compileTime.} =
+  ## Classify a Table key type for text-key conversion: "str" (string/char),
+  ## "int" (int8..64), or "enum:<Name>". Distinct keys resolve to their base.
+  let t = keyType.strip()
+  if isTypeRegistered(t):
+    let entry = lookupTypeEntry(t)
+    if entry.kind == atkEnum:
+      return "enum:" & t
+    if entry.kind in {atkAlias, atkDistinct}:
+      return pyKeyClass(resolveUnderlyingType(t))
+  let lo = t.toLowerAscii()
+  if lo == "string" or lo == "char":
+    return "str"
+  "int"
+
 proc pyDecodeExpr(nimType, src: string): string {.compileTime.} =
   ## Python expression that decodes the value at `src` (a Python
   ## expression yielding the raw cbor2 result) into the in-memory
   ## representation of `nimType`.
   let t = nimType.strip()
   let lower = t.toLowerAscii()
+  if lower.startsWith("table[") and lower.endsWith("]"):
+    # Keys arrive as CBOR text strings; rebuild the declared key type.
+    let (k, v) = parseTableParams(t)
+    let kc = pyKeyClass(k)
+    let keyExpr =
+      if kc == "str":
+        "_k"
+      elif kc == "int":
+        "int(_k)"
+      else:
+        kc[5 ..^ 1] & "(int(_k))" # enum:<Name> -> Name(int(_k))
+    return
+      "{" & keyExpr & ": " & pyDecodeExpr(v, "_v") & " for _k, _v in (" & src &
+      " or {}).items()}"
   if t == "bool":
     return "bool(" & src & ") if isinstance(" & src & ", bool) else False"
   if t == "string" or t == "char":
@@ -226,6 +285,20 @@ proc pyEncodeExpr(nimType, src: string): string {.compileTime.} =
   let lower = t.toLowerAscii()
   if isPrimitive(t):
     return src
+  if lower.startsWith("table[") and lower.endsWith("]"):
+    # Stringify non-string keys so the wire matches the Nim text-key format.
+    let (k, v) = parseTableParams(t)
+    let kc = pyKeyClass(k)
+    let keyExpr =
+      if kc == "str":
+        "str(_k)"
+      elif kc == "int":
+        "str(_k)"
+      else:
+        "str(int(_k))" # enum -> ordinal text
+    return
+      "{" & keyExpr & ": " & pyEncodeExpr(v, "_v") & " for _k, _v in (" & src &
+      " or {}).items()}"
   if lower == "seq[byte]":
     # cbor2 encodes Python `bytes` as CBOR byte string (major type 2),
     # which is what the Nim provider expects. Tolerate list-of-int input
@@ -290,6 +363,9 @@ proc generateCborPyFile*(
     requestEntries: seq[CborRequestEntry],
     eventEntries: seq[CborEventEntry],
     mainClass: string = "",
+    asyncTimeoutMs: int = 30000,
+    asyncQueueDepth: int = 64,
+    signalEntries: seq[CborSignalEntry] = @[],
 ) {.compileTime, raises: [].} =
   ## Writes the Python wrapper module (.py) for a CBOR-mode library.
   ensureGeneratedOutputDir(outDir)
@@ -325,8 +401,9 @@ proc generateCborPyFile*(
     "# Generated by nim-brokers CBOR FFI codegen — do not edit.\n" & "#\n" &
     "# Python wrapper around the C ABI declared in `" & libName & ".h`.\n" &
     "# Requires Python 3.8+ and the `cbor2` package (pip install cbor2).\n" & "\n" &
-    "from __future__ import annotations\n" & "\n" & "import ctypes\n" & "import json\n" &
-    "import os\n" & "import platform\n" & "from dataclasses import dataclass, field\n" &
+    "from __future__ import annotations\n" & "\n" & "import asyncio\n" &
+    "import ctypes\n" & "import json\n" & "import os\n" & "import platform\n" &
+    "import threading\n" & "from dataclasses import dataclass, field\n" &
     "from enum import IntEnum\n" &
     "from typing import Any, Callable, Dict, Generic, List, Optional, TypeVar\n" & "\n" &
     "import cbor2\n" & "\n\n"
@@ -447,6 +524,97 @@ proc generateCborPyFile*(
   )
   py.add("_LIB." & p & "unsubscribe.restype = ctypes.c_int32\n\n")
 
+  # ---- Async request gate (asyncio bridge) ----
+  py.add("RESPONSE_CB_T = ctypes.CFUNCTYPE(\n")
+  py.add("    None,\n")
+  py.add("    ctypes.c_void_p,    # userData (our correlation token)\n")
+  py.add("    ctypes.c_uint64,    # reqId\n")
+  py.add("    ctypes.c_int32,     # status\n")
+  py.add("    ctypes.c_void_p,    # respBuf\n")
+  py.add("    ctypes.c_int32,     # respLen\n")
+  py.add(")\n")
+  py.add("_LIB." & p & "callAsync.argtypes = [\n")
+  py.add("    ctypes.c_uint32,\n")
+  py.add("    ctypes.c_char_p,\n")
+  py.add("    ctypes.c_void_p,\n")
+  py.add("    ctypes.c_int32,\n")
+  py.add("    ctypes.c_uint64,\n")
+  py.add("    ctypes.c_uint32,\n")
+  py.add("    RESPONSE_CB_T,\n")
+  py.add("    ctypes.c_void_p,\n")
+  py.add("]\n")
+  py.add("_LIB." & p & "callAsync.restype = ctypes.c_int32\n\n")
+
+  py.add("# Max concurrent in-flight *_async calls per context; a full window\n")
+  py.add("# makes an *_async method raise AsyncAgainError.\n")
+  py.add("ASYNC_QUEUE_DEPTH = " & $asyncQueueDepth & "\n")
+  py.add("# Library default dispatch timeout (ms) applied by *_async methods.\n")
+  py.add("DEFAULT_ASYNC_TIMEOUT_MS = " & $asyncTimeoutMs & "\n\n")
+  py.add("class AsyncAgainError(RuntimeError):\n")
+  py.add(
+    "    \"\"\"Raised by *_async when the async window is full (EAGAIN) — retry later.\"\"\"\n\n"
+  )
+  py.add("def _timeout_to_ms(timeout: Optional[float]) -> int:\n")
+  py.add("    \"\"\"asyncio-style seconds -> ABI milliseconds.\n\n")
+  py.add("    None -> library default; float('inf') -> 0 (infinite); else >= 1 ms.\n")
+  py.add("    \"\"\"\n")
+  py.add("    if timeout is None:\n")
+  py.add("        return DEFAULT_ASYNC_TIMEOUT_MS\n")
+  py.add("    if timeout == float(\"inf\"):\n")
+  py.add("        return 0\n")
+  py.add("    if timeout <= 0:\n")
+  py.add(
+    "        raise ValueError(\"timeout must be positive, None, or float('inf')\")\n"
+  )
+  py.add("    return max(1, int(timeout * 1000))\n\n")
+  py.add("# Correlation registry: each in-flight *_async call gets an integer token\n")
+  py.add("# passed to the C ABI as userData and handed back verbatim in the response\n")
+  py.add("# callback (which runs on the library's delivery thread).\n")
+  py.add("_async_lock = threading.Lock()\n")
+  py.add("_async_registry: Dict[int, Any] = {}\n")
+  py.add("_async_token = 0\n\n")
+  py.add("def _async_register(loop: Any, fut: Any) -> int:\n")
+  py.add("    global _async_token\n")
+  py.add("    with _async_lock:\n")
+  py.add("        _async_token += 1\n")
+  py.add("        token = _async_token\n")
+  py.add("        _async_registry[token] = (loop, fut)\n")
+  py.add("        return token\n\n")
+  py.add("def _async_unregister(token: int) -> None:\n")
+  py.add("    with _async_lock:\n")
+  py.add("        _async_registry.pop(token, None)\n\n")
+  py.add("def _async_set(fut: Any, status: int, payload: bytes) -> None:\n")
+  py.add("    if not fut.done():\n")
+  py.add("        fut.set_result((status, payload))\n\n")
+  py.add("def _async_status_message(status: int, payload: bytes) -> str:\n")
+  py.add("    if status == " & $ApiStatusUnknownApi & " and payload:\n")
+  py.add("        return payload.decode(\"utf-8\", errors=\"replace\")\n")
+  py.add("    if status == " & $ApiStatusTimeout & ":\n")
+  py.add("        return \"request timed out\"\n")
+  py.add("    if status == " & $ApiStatusShutdown & ":\n")
+  py.add("        return \"library shut down\"\n")
+  py.add("    return f\"framework error: {status}\"\n\n")
+  py.add(
+    "def _async_response_trampoline(ud, req_id, status, resp_buf, resp_len):  # type: ignore[no-untyped-def]\n"
+  )
+  py.add("    token = ud if ud is not None else 0\n")
+  py.add("    if token == 0:\n")
+  py.add("        return\n")
+  py.add("    with _async_lock:\n")
+  py.add("        entry = _async_registry.pop(token, None)\n")
+  py.add("    if entry is None:\n")
+  py.add("        return\n")
+  py.add("    loop, fut = entry\n")
+  py.add("    payload = b\"\"\n")
+  py.add("    if resp_buf and resp_len > 0:\n")
+  py.add("        payload = ctypes.string_at(resp_buf, resp_len)\n")
+  py.add("    try:\n")
+  py.add("        loop.call_soon_threadsafe(_async_set, fut, int(status), payload)\n")
+  py.add("    except RuntimeError:\n")
+  py.add("        pass\n\n")
+  py.add("# Kept alive at module scope so ctypes doesn't GC the C callback.\n")
+  py.add("_ASYNC_RESPONSE_CB = RESPONSE_CB_T(_async_response_trampoline)\n\n")
+
   py.add(
     "_LIB." & p &
       "listApis.argtypes = [ctypes.POINTER(ctypes.c_void_p), ctypes.POINTER(ctypes.c_int32)]\n"
@@ -511,10 +679,12 @@ proc generateCborPyFile*(
   # Its CBOR wire value is a bare scalar; the Python surface uses the
   # `X = <prim>` alias directly. Such a type is an emittable request
   # response / event payload despite having no object fields.
+  # Full mapper (not just primPyHint) so a container payload (`seq[string]`
+  # -> list[str]) is an emittable scalar payload, not only primitives.
   proc isScalarPayload(name: string): bool {.compileTime.} =
     name.len > 0 and isTypeRegistered(name) and
       lookupTypeEntry(name).kind in {atkAlias, atkDistinct} and
-      primPyHint(resolveUnderlyingType(name)).len > 0
+      nimTypeToPyHint(resolveUnderlyingType(name)).len > 0
 
   proc isEmittablePayload(name: string): bool {.compileTime.} =
     name in objectNames or isScalarPayload(name)
@@ -549,16 +719,22 @@ proc generateCborPyFile*(
   # Distinct / alias — Python alias of the underlying primitive plus
   # passthrough decode/encode helpers (so callers can freely use the
   # alias name in type hints).
+  # The `Name = <pyType>` assignment is deferred until AFTER the object classes:
+  # for a proc-sugar broker returning an object (`GetRow = RowData`) the RHS is a
+  # class defined below, so a runtime assignment here would `NameError`. The
+  # decode/encode helpers stay (their annotations are lazy via
+  # `from __future__ import annotations`, and their bodies forward-ref fine).
+  var aliasAssigns: seq[(string, string)] = @[]
   for name in aliasNames:
     let underlying = resolveUnderlyingType(name)
-    let pyU = primPyHint(underlying)
+    let pyU = nimTypeToPyHint(underlying)
     if pyU.len == 0:
       py.add(
         "# TODO: alias '" & name & "' resolves to '" & underlying &
-          "' which has no Python primitive mapping\n\n"
+          "' which has no Python mapping\n\n"
       )
       continue
-    py.add(name & " = " & pyU & "\n")
+    aliasAssigns.add((name, pyU))
     py.add("def _decode_" & name & "(data: Any) -> " & pyU & ":\n")
     py.add("    return " & pyDecodeExpr(underlying, "data") & "\n\n")
     py.add("def _encode_" & name & "(v: Any) -> " & pyU & ":\n")
@@ -584,6 +760,24 @@ proc generateCborPyFile*(
       anyField = true
     if not anyField:
       py.add("    pass\n")
+    py.add("\n")
+
+  # Deferred alias assignments (`GetRow = RowData`, `ContentTopic = str`, …),
+  # now that any object RHS class is defined above. A bare-primitive response
+  # payload is decoded as the simple type (its `_decode_<Verb>` helper still
+  # exists), so its synthetic `Verb = bool` alias is dead — skip it; a field-used
+  # alias (`ContentTopic`) is never a response name, so it stays.
+  var responseNames: seq[string] = @[]
+  for e in requestEntries:
+    if e.responseTypeName.len > 0 and e.responseTypeName notin responseNames:
+      responseNames.add(e.responseTypeName)
+  var emittedAssign = false
+  for (name, pyU) in aliasAssigns:
+    if name in responseNames and effectiveResponsePayload(name) != name:
+      continue
+    py.add(name & " = " & pyU & "\n")
+    emittedAssign = true
+  if emittedAssign:
     py.add("\n")
 
   # Per-object _decode and _encode helpers.
@@ -651,6 +845,12 @@ proc generateCborPyFile*(
     if mainClass.len == 0:
       return true
     let o = interfaceOwningEventType(ev.typeName)
+    o.len == 0 or o == mainClass
+
+  proc ownsSigMain(s: CborSignalEntry): bool =
+    if mainClass.len == 0:
+      return true
+    let o = interfaceOwningSignalType(s.typeName)
     o.len == 0 or o == mainClass
 
   py.add("    def __init__(self) -> None:\n")
@@ -776,12 +976,68 @@ proc generateCborPyFile*(
   py.add("            out = ctypes.string_at(resp_buf, resp_len.value)\n")
   py.add("            _LIB." & p & "freeBuffer(resp_buf)\n")
   py.add("        if status != 0:\n")
-  py.add("            if status == -4 and out:\n")
+  py.add("            if status == " & $ApiStatusUnknownApi & " and out:\n")
   py.add(
     "                raise RuntimeError(out.decode(\"utf-8\", errors=\"replace\"))\n"
   )
   py.add("            raise RuntimeError(f\"framework error: {status}\")\n")
   py.add("        return cbor2.loads(out) if out else None\n\n")
+
+  # `_do_signal`: slot-free one-way dispatch through `_call`. No response is
+  # produced; status maps to None (accepted) or a distinguishable RuntimeError.
+  py.add("    def _do_signal(self, api_name: str, req_payload: bytes) -> None:\n")
+  py.add("        in_buf = None\n")
+  py.add("        if req_payload:\n")
+  py.add("            in_buf = _LIB." & p & "allocBuffer(len(req_payload))\n")
+  py.add("            if not in_buf:\n")
+  py.add("                raise RuntimeError(\"allocBuffer failed\")\n")
+  py.add("            ctypes.memmove(in_buf, req_payload, len(req_payload))\n")
+  py.add("        resp_buf = ctypes.c_void_p()\n")
+  py.add("        resp_len = ctypes.c_int32()\n")
+  py.add("        status = _LIB." & p & "call(\n")
+  py.add("            self._ctx,\n")
+  py.add("            api_name.encode(\"utf-8\"),\n")
+  py.add("            in_buf,\n")
+  py.add("            len(req_payload),\n")
+  py.add("            ctypes.byref(resp_buf),\n")
+  py.add("            ctypes.byref(resp_len),\n")
+  py.add("        )\n")
+  py.add("        if resp_buf and resp_len.value > 0:\n")
+  py.add("            _LIB." & p & "freeBuffer(resp_buf)\n")
+  py.add("        if status == 0:\n")
+  py.add("            return\n")
+  py.add(
+    "        if status == " & $ApiStatusAgain &
+      ":\n            raise RuntimeError(\"EAGAIN: signal queue full\")\n"
+  )
+  py.add(
+    "        if status == " & $ApiStatusProviderErr &
+      ":\n            raise RuntimeError(\"no signal handler installed\")\n"
+  )
+  py.add("        raise RuntimeError(f\"signal failed: {status}\")\n\n")
+
+  # `_call_async`: fire-and-forget dispatch. Allocates the library input buffer
+  # (the C ABI frees it), passes the correlation token as userData, and returns
+  # the raw rc (0 queued; negative not queued — callback will not fire).
+  py.add(
+    "    def _call_async(self, api_name: str, req_payload: bytes, token: int, timeout_ms: int) -> int:\n"
+  )
+  py.add("        in_buf = None\n")
+  py.add("        if req_payload:\n")
+  py.add("            in_buf = _LIB." & p & "allocBuffer(len(req_payload))\n")
+  py.add("            if not in_buf:\n")
+  py.add("                raise RuntimeError(\"allocBuffer failed\")\n")
+  py.add("            ctypes.memmove(in_buf, req_payload, len(req_payload))\n")
+  py.add("        return _LIB." & p & "callAsync(\n")
+  py.add("            self._ctx,\n")
+  py.add("            api_name.encode(\"utf-8\"),\n")
+  py.add("            in_buf,\n")
+  py.add("            len(req_payload),\n")
+  py.add("            token,\n")
+  py.add("            timeout_ms,\n")
+  py.add("            _ASYNC_RESPONSE_CB,\n")
+  py.add("            ctypes.c_void_p(token),\n")
+  py.add("        )\n\n")
 
   # reduced-A: a request method's body, indented for a wrapper class. Handles
   # both normal requests (decode the typed payload) and instance-returning
@@ -874,11 +1130,149 @@ proc generateCborPyFile*(
         "(envelope.get(\"ok\")))\n\n"
     )
 
+  # Async sibling: `await lib.<method>_async(args) -> Result[T]`. Bridges the C
+  # response callback to an asyncio.Future via call_soon_threadsafe. EAGAIN (-6)
+  # raises AsyncAgainError; -12/-11 + provider errors come back as Result.err.
+  proc emitAsyncReqMethod(e: CborRequestEntry): string =
+    if e.responseTypeName.len == 0:
+      return ""
+    if e.returnsInterface.len > 0:
+      return "" # create-instance methods stay sync-only
+    if not isEmittablePayload(e.responseTypeName):
+      return ""
+    for (n, t) in e.argFields:
+      if not isPyMappable(t):
+        return ""
+    let methodName = e.apiName
+    var sigParams = "self"
+    var argsDictBuilder = "{}"
+    if e.argFields.len > 0:
+      var dictParts = ""
+      for i, (n, t) in e.argFields.pairs:
+        sigParams.add(", " & n & ": " & nimTypeToPyHint(t))
+        if i > 0:
+          dictParts.add(", ")
+        dictParts.add("\"" & n & "\": " & pyEncodeExpr(t, n))
+      argsDictBuilder = "{" & dictParts & "}"
+    # asyncio idiom: `timeout` in SECONDS (None -> lib default, inf -> none);
+    # -12 raises TimeoutError (like asyncio.wait_for); backpressure AWAITS on a
+    # per-instance Semaphore(ASYNC_QUEUE_DEPTH) instead of throwing, so
+    # `asyncio.gather(*many)` pipelines beyond the window transparently.
+    # AsyncAgainError remains only for the residual cross-process -6.
+    result.add(
+      "    async def " & methodName & "_async(" & sigParams &
+        ", timeout: Optional[float] = None) -> Result[" & e.responseTypeName & "]:\n"
+    )
+    result.add("        if self._ctx == 0:\n")
+    result.add("            return Result.err(\"Library context is not created\")\n")
+    result.add("        timeout_ms = _timeout_to_ms(timeout)\n")
+    result.add("        # Lazy per-instance window semaphore (bound to the running\n")
+    result.add("        # loop on first await; one loop per wrapper instance).\n")
+    result.add("        sem = getattr(self, \"_async_sem\", None)\n")
+    result.add("        if sem is None:\n")
+    result.add("            sem = asyncio.Semaphore(ASYNC_QUEUE_DEPTH)\n")
+    result.add("            self._async_sem = sem\n")
+    if e.argFields.len > 0:
+      result.add("        req_payload = cbor2.dumps(" & argsDictBuilder & ")\n")
+    else:
+      result.add("        req_payload = b\"\"\n")
+    result.add("        async with sem:\n")
+    result.add("            loop = asyncio.get_running_loop()\n")
+    result.add("            fut = loop.create_future()\n")
+    result.add("            token = _async_register(loop, fut)\n")
+    result.add("            try:\n")
+    result.add(
+      "                rc = self._call_async(\"" & methodName &
+        "\", req_payload, token, timeout_ms)\n"
+    )
+    result.add("            except RuntimeError as exc:\n")
+    result.add("                _async_unregister(token)\n")
+    result.add("                return Result.err(str(exc))\n")
+    result.add("            if rc != 0:\n")
+    result.add("                _async_unregister(token)\n")
+    result.add("                if rc == " & $ApiStatusAgain & ":\n")
+    result.add(
+      "                    # The semaphore bounds this instance to the window;\n"
+    )
+    result.add(
+      "                    # -6 here means another client shares the context.\n"
+    )
+    result.add("                    raise AsyncAgainError(\"async window full\")\n")
+    result.add("                return Result.err(f\"framework error: {rc}\")\n")
+    result.add("            status, resp = await fut\n")
+    result.add("        if status == " & $ApiStatusTimeout & ":\n")
+    result.add("            raise TimeoutError(\n")
+    result.add(
+      "                f\"" & methodName & " timed out after {timeout_ms} ms\"\n"
+    )
+    result.add("            )\n")
+    result.add("        if status != 0:\n")
+    result.add("            return Result.err(_async_status_message(status, resp))\n")
+    result.add("        if not resp:\n")
+    result.add(
+      "            return Result.err(\"empty or malformed response envelope\")\n"
+    )
+    result.add("        envelope = cbor2.loads(resp)\n")
+    result.add("        if not isinstance(envelope, dict):\n")
+    result.add(
+      "            return Result.err(\"empty or malformed response envelope\")\n"
+    )
+    result.add("        if envelope.get(\"err\") is not None:\n")
+    result.add("            return Result.err(str(envelope[\"err\"]))\n")
+    result.add(
+      "        return Result.ok(_decode_" & e.responseTypeName &
+        "(envelope.get(\"ok\")))\n\n"
+    )
+
   # Per-request typed methods (main class).
   for e in requestEntries:
     if not ownsReqMain(e):
       continue
     py.add(emitReqMethod(e))
+    py.add(emitAsyncReqMethod(e))
+
+  # Per-signal one-way methods: `def <name>(self, fields...) -> None`, raising a
+  # distinguishable RuntimeError on backpressure / no-handler. No async sibling.
+  proc emitSignalMethod(s: CborSignalEntry): string =
+    if not isEmittablePayload(s.typeName):
+      return
+        "    # TODO: signal '" & s.apiName & "' payload '" & s.typeName &
+        "' is not a registered type.\n\n"
+    var fields: seq[ApiFieldDef]
+    if s.typeName in objectNames:
+      fields = lookupTypeEntry(s.typeName).fields
+    else:
+      fields = @[ApiFieldDef(name: "value", nimType: resolveUnderlyingType(s.typeName))]
+    for f in fields:
+      if not isPyMappable(f.nimType):
+        return
+          "    # TODO: signal '" & s.apiName &
+          "' has fields whose Nim types aren't yet mappable to Python.\n\n"
+    var sigParams = "self"
+    var dictParts = ""
+    for i, f in fields.pairs:
+      sigParams.add(", " & f.name & ": " & nimTypeToPyHint(f.nimType))
+      if i > 0:
+        dictParts.add(", ")
+      dictParts.add("\"" & f.name & "\": " & pyEncodeExpr(f.nimType, f.name))
+    result.add("    def " & s.apiName & "(" & sigParams & ") -> None:\n")
+    result.add("        if self._ctx == 0:\n")
+    result.add("            raise RuntimeError(\"Library context is not created\")\n")
+    if fields.len == 0:
+      result.add("        req_payload = b\"\"\n")
+    elif s.typeName in objectNames:
+      result.add("        req_payload = cbor2.dumps({" & dictParts & "})\n")
+    else:
+      result.add(
+        "        req_payload = cbor2.dumps(" &
+          pyEncodeExpr(fields[0].nimType, fields[0].name) & ")\n"
+      )
+    result.add("        self._do_signal(\"" & s.apiName & "\", req_payload)\n\n")
+
+  for s in signalEntries:
+    if not ownsSigMain(s):
+      continue
+    py.add(emitSignalMethod(s))
 
   # Per-event subscribe / unsubscribe (main-class events only).
   for ev in eventEntries:
@@ -1042,14 +1436,74 @@ proc generateCborPyFile*(
       py.add("            out = ctypes.string_at(resp_buf, resp_len.value)\n")
       py.add("            _LIB." & p & "freeBuffer(resp_buf)\n")
       py.add("        if status != 0:\n")
-      py.add("            if status == -4 and out:\n")
+      py.add("            if status == " & $ApiStatusUnknownApi & " and out:\n")
       py.add(
         "                raise RuntimeError(out.decode(\"utf-8\", errors=\"replace\"))\n"
       )
       py.add("            raise RuntimeError(f\"framework error: {status}\")\n")
       py.add("        return cbor2.loads(out) if out else None\n\n")
+      py.add(
+        "    def _call_async(self, api_name: str, req_payload: bytes, token: int, timeout_ms: int) -> int:\n"
+      )
+      py.add("        in_buf = None\n")
+      py.add("        if req_payload:\n")
+      py.add("            in_buf = _LIB." & p & "allocBuffer(len(req_payload))\n")
+      py.add("            if not in_buf:\n")
+      py.add("                raise RuntimeError(\"allocBuffer failed\")\n")
+      py.add("            ctypes.memmove(in_buf, req_payload, len(req_payload))\n")
+      py.add("        return _LIB." & p & "callAsync(\n")
+      py.add("            self._ctx,\n")
+      py.add("            api_name.encode(\"utf-8\"),\n")
+      py.add("            in_buf,\n")
+      py.add("            len(req_payload),\n")
+      py.add("            token,\n")
+      py.add("            timeout_ms,\n")
+      py.add("            _ASYNC_RESPONSE_CB,\n")
+      py.add("            ctypes.c_void_p(token),\n")
+      py.add("        )\n\n")
+      # Sub-interface one-way signals (routed by self._ctx — the sub-instance
+      # ctx — so the handler installed under that ctx runs). Emit the _do_signal
+      # helper only when this sub-interface owns at least one signal.
+      var ifaceSigs: seq[CborSignalEntry] = @[]
+      for s in signalEntries:
+        if interfaceOwningSignalType(s.typeName) == ifaceName:
+          ifaceSigs.add(s)
+      if ifaceSigs.len > 0:
+        py.add("    def _do_signal(self, api_name: str, req_payload: bytes) -> None:\n")
+        py.add("        in_buf = None\n")
+        py.add("        if req_payload:\n")
+        py.add("            in_buf = _LIB." & p & "allocBuffer(len(req_payload))\n")
+        py.add("            if not in_buf:\n")
+        py.add("                raise RuntimeError(\"allocBuffer failed\")\n")
+        py.add("            ctypes.memmove(in_buf, req_payload, len(req_payload))\n")
+        py.add("        resp_buf = ctypes.c_void_p()\n")
+        py.add("        resp_len = ctypes.c_int32()\n")
+        py.add("        status = _LIB." & p & "call(\n")
+        py.add("            self._ctx,\n")
+        py.add("            api_name.encode(\"utf-8\"),\n")
+        py.add("            in_buf,\n")
+        py.add("            len(req_payload),\n")
+        py.add("            ctypes.byref(resp_buf),\n")
+        py.add("            ctypes.byref(resp_len),\n")
+        py.add("        )\n")
+        py.add("        if resp_buf and resp_len.value > 0:\n")
+        py.add("            _LIB." & p & "freeBuffer(resp_buf)\n")
+        py.add("        if status == 0:\n")
+        py.add("            return\n")
+        py.add(
+          "        if status == " & $ApiStatusAgain &
+            ":\n            raise RuntimeError(\"EAGAIN: signal queue full\")\n"
+        )
+        py.add(
+          "        if status == " & $ApiStatusProviderErr &
+            ":\n            raise RuntimeError(\"no signal handler installed\")\n"
+        )
+        py.add("        raise RuntimeError(f\"signal failed: {status}\")\n\n")
+      for s in ifaceSigs:
+        py.add(emitSignalMethod(s))
       for e in ifaceReqs:
         py.add(emitReqMethod(e))
+        py.add(emitAsyncReqMethod(e))
       # Sub-interface event methods (subscribe/unsubscribe keyed by self._ctx).
       for ev in eventEntries:
         if interfaceOwningEventType(ev.typeName) != ifaceName:

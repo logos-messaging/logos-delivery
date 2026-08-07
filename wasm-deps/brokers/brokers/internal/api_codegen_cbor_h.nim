@@ -25,11 +25,17 @@ proc generateCborCHeaderFile*(
     version: string,
     requestApiNames: seq[string],
     eventApiNames: seq[string],
+    asyncTimeoutMs: int = 30000,
+    asyncQueueDepth: int = 64,
+    signalApiNames: seq[string] = @[],
 ) {.compileTime, raises: [].} =
   ## Writes the fixed-shape C header for a CBOR-mode library.
   ensureGeneratedOutputDir(outDir)
 
-  let guardName = libName.toUpperAscii().replace("-", "_") & "_H"
+  let upperLib = libName.toUpperAscii().replace("-", "_")
+  let guardName = upperLib & "_H"
+  let defaultTimeoutMacro = upperLib & "_DEFAULT_ASYNC_TIMEOUT_MS"
+  let queueDepthMacro = upperLib & "_ASYNC_QUEUE_DEPTH"
   let headerPath =
     if outDir.len > 0:
       outDir & "/" & libName & ".h"
@@ -48,9 +54,17 @@ proc generateCborCHeaderFile*(
   h.add("/* ----------------------------------------------------------------\n")
   h.add(" * Library identity\n")
   h.add(" * ---------------------------------------------------------------- */\n\n")
+  # `version` is "" when registerBrokerLibrary was given a const identifier
+  # (resolved at the library's compile time, not knowable here) — omit the
+  # literal from the doc comment in that case.
+  let versionNote =
+    if version.len > 0:
+      " (\"" & version & "\")"
+    else:
+      " (resolved at build time)"
   h.add(
-    "/* Returns a NUL-terminated semver string for this library build (\"" & version &
-      "\").\n" & " * The returned pointer is owned by the library — do NOT free. */\n"
+    "/* Returns a NUL-terminated semver string for this library build" & versionNote &
+      ".\n" & " * The returned pointer is owned by the library — do NOT free. */\n"
   )
   h.add("const char* " & p & "version(void);\n\n")
 
@@ -111,12 +125,82 @@ proc generateCborCHeaderFile*(
   h.add(" *   -3 — reqLen is negative or exceeds 64 MiB\n")
   h.add(" *   -4 — apiName is unknown; *respBufOut holds a UTF-8 message\n")
   h.add(" *   -10 — internal dispatch failure\n")
+  h.add(" *\n")
+  h.add(" * SIGNALS (one-way, see the documented list below) also travel through\n")
+  h.add(" * " & p & "call but are slot-free: the payload is enqueued and the call\n")
+  h.add(" * returns immediately with NO response buffer (*respBufOut stays NULL).\n")
+  h.add(" * The complete status set for a signal is:\n")
+  h.add(" *   0   — accepted (a handler exists and the queue had room). This is a\n")
+  h.add(" *         best-effort acknowledgement, NOT a guarantee the handler ran.\n")
+  h.add(" *   -6  — EAGAIN: the courier queue is full (retry/throttle).\n")
+  h.add(" *   -10 — no handler installed for this signal.\n")
+  h.add(" * A malformed CBOR payload for a signal is logged library-side and\n")
+  h.add(" * dropped (still returns 0) — generated wrappers encode it correctly, so\n")
+  h.add(" * this only affects hand-written callers.\n")
   h.add(" * ---------------------------------------------------------------- */\n\n")
   h.add(
     "int32_t " & p & "call(uint32_t ctx,\n" &
       "                       const char* apiName,\n" &
       "                       const void* reqBuf, int32_t reqLen,\n" &
       "                       void** respBufOut, int32_t* respLenOut);\n\n"
+  )
+
+  h.add("/* ----------------------------------------------------------------\n")
+  h.add(" * Async request gate (fire-and-forget; sits beside the sync `call`)\n")
+  h.add(" *\n")
+  h.add(" * " & p & "callAsync enqueues the request and returns immediately. The\n")
+  h.add(" * response is delivered LATER on the library's event-delivery thread\n")
+  h.add(" * via `cb(userData, reqId, status, respBuf, respLen)`:\n")
+  h.add(" *\n")
+  h.add(" *   userData — opaque handle passed straight back, never interpreted;\n")
+  h.add(" *              use it to correlate the response with the request.\n")
+  h.add(" *   reqId    — echoed back verbatim (caller's logging/cancel id).\n")
+  h.add(" *   status   — 0 success, -4 unknown apiName, -10 dispatch failure,\n")
+  h.add(" *              -11 library shut down before the response was delivered,\n")
+  h.add(" *              -12 request timed out (provider exceeded timeoutMs).\n")
+  h.add(" *   respBuf  — CBOR response envelope, valid ONLY for the duration of\n")
+  h.add(" *              the callback; library-owned, freed after the callback\n")
+  h.add(" *              returns. Do NOT free it; copy out what you need.\n")
+  h.add(" *\n")
+  h.add(" * " & p & "callAsync returns:\n")
+  h.add(" *   0  — enqueued; the callback will fire exactly once\n")
+  h.add(" *   -2 — apiName is NULL or too long\n")
+  h.add(" *   -3 — reqLen is negative or exceeds 64 MiB\n")
+  h.add(" *   -5 — unknown or torn-down ctx\n")
+  h.add(" *   -6 — EAGAIN: too many async calls in flight (retry later)\n")
+  h.add(" *   -7 — cb is NULL\n")
+  h.add(" *   -13 — apiName is a one-way signal; use " & p & "call instead.\n")
+  h.add(" * On any negative return the callback does NOT fire.\n")
+  h.add(" *\n")
+  h.add(" * timeoutMs is dispatch-scoped: 0 = infinite (no timeout); N = N ms.\n")
+  h.add(" * On expiry the callback fires exactly once with status -12 and a NULL\n")
+  h.add(" * respBuf, and the in-flight slot is released. A late provider result is\n")
+  h.add(
+    " * discarded — the callback never fires twice. Pass " & defaultTimeoutMacro & "\n"
+  )
+  h.add(" * for the library's policy default. */\n\n")
+  h.add("#define " & defaultTimeoutMacro & " " & $asyncTimeoutMs & "u\n")
+  h.add(
+    "/* Max concurrent in-flight " & p &
+      "callAsync requests per context (fixed; full => -6 EAGAIN).\n" &
+      " * Size a client-side bounded send window to this value. */\n"
+  )
+  h.add("#define " & queueDepthMacro & " " & $asyncQueueDepth & "u\n\n")
+  h.add(
+    "typedef void (*" & p & "response_cb_t)(void* userData,\n" &
+      "                                          uint64_t reqId,\n" &
+      "                                          int32_t status,\n" &
+      "                                          const void* respBuf,\n" &
+      "                                          int32_t respLen);\n\n"
+  )
+  h.add(
+    "int32_t " & p & "callAsync(uint32_t ctx,\n" &
+      "                            const char* apiName,\n" &
+      "                            const void* reqBuf, int32_t reqLen,\n" &
+      "                            uint64_t reqId,\n" &
+      "                            uint32_t timeoutMs,\n" &
+      "                            " & p & "response_cb_t cb,\n" &
+      "                            void* userData);\n\n"
   )
 
   h.add("/* ----------------------------------------------------------------\n")
@@ -173,7 +257,7 @@ proc generateCborCHeaderFile*(
   h.add("int32_t " & p & "listApis(void** respBufOut, int32_t* respLenOut);\n\n")
   h.add("int32_t " & p & "getSchema(void** respBufOut, int32_t* respLenOut);\n\n")
 
-  if requestApiNames.len > 0 or eventApiNames.len > 0:
+  if requestApiNames.len > 0 or eventApiNames.len > 0 or signalApiNames.len > 0:
     h.add("/* ----------------------------------------------------------------\n")
     h.add(" * Documented apiNames\n")
     h.add(" * ---------------------------------------------------------------- */\n\n")
@@ -185,6 +269,13 @@ proc generateCborCHeaderFile*(
     if eventApiNames.len > 0:
       h.add("/* Events (pass these as `eventName` to " & p & "subscribe):\n")
       for n in eventApiNames:
+        h.add(" *   \"" & n & "\"\n")
+      h.add(" */\n\n")
+    if signalApiNames.len > 0:
+      h.add(
+        "/* Signals (one-way; pass these as `apiName` to " & p & "call, no response):\n"
+      )
+      for n in signalApiNames:
         h.add(" *   \"" & n & "\"\n")
       h.add(" */\n\n")
 

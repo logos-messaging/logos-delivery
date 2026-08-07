@@ -60,6 +60,25 @@ proc parseArrayInner(s: string): string {.compileTime.} =
     return ""
   inner[comma + 1 .. ^1].strip()
 
+proc parseTableParams*(s: string): (string, string) {.compileTime.} =
+  ## "Table[K, V]" -> ("K", "V"). The key is always a scalar (no nested
+  ## commas), so the first top-level comma separates key from value; the
+  ## value may itself carry commas (array[N, T], nested Table[..]).
+  let inner = s.strip()[6 ..^ 2] # strip "Table[" and "]"
+  var depth = 0
+  for i in 0 ..< inner.len:
+    case inner[i]
+    of '[', '(':
+      inc depth
+    of ']', ')':
+      dec depth
+    of ',':
+      if depth == 0:
+        return (inner[0 ..< i].strip(), inner[i + 1 .. ^1].strip())
+    else:
+      discard
+  ("", "")
+
 proc nimTypeToCppType*(nimType: string): string {.compileTime.} =
   ## Recursive Nim → C++ type mapping. Returns "" for unmappable types
   ## (callers emit a TODO and skip the affected typed surface).
@@ -68,15 +87,31 @@ proc nimTypeToCppType*(nimType: string): string {.compileTime.} =
   let prim = primCppType(t)
   if prim.len > 0:
     return prim
+  if lower.startsWith("table[") and lower.endsWith("]"):
+    # Table[K, V] -> std::unordered_map<Kcpp, Vcpp>, all scalar key types.
+    # Keys ride the wire as CBOR text strings; jsoncons cannot parse a text key
+    # into a non-string key, so structs holding such a field get a wire-struct
+    # + custom json_type_traits that convert (see generateCborHppFile).
+    let (k, v) = parseTableParams(t)
+    let kc = nimTypeToCppType(k)
+    let vc = nimTypeToCppType(v)
+    return
+      if kc.len > 0 and vc.len > 0:
+        "std::unordered_map<" & kc & ", " & vc & ">"
+      else:
+        ""
   if lower == "seq[byte]":
-    # `jsoncons::byte_string` is jsoncons' own byte-string container. It
-    # satisfies `is_basic_byte_string`, so jsoncons encodes/decodes it as
-    # a CBOR byte string (major type 2) — what the Nim cbor_serialization
-    # decoder expects for `seq[byte]`. A plain `std::vector<uint8_t>` would
-    # ride the wire as a CBOR array (major type 4) and be rejected on
-    # INBOUND request params. `byte_string` is container-like (data/size/
-    # begin/end/operator[]/push_back).
-    return "jsoncons::byte_string"
+    # `Bytes` is a per-library wrapper over `std::vector<uint8_t>` (idiomatic,
+    # dependency-free, supports .size()/[]/begin()/end()) that carries a
+    # `json_type_traits` specialisation forcing CBOR byte-string (major type 2)
+    # on the wire — what the Nim cbor_serialization decoder expects for
+    # `seq[byte]`. A bare `std::vector<uint8_t>` would ride as a CBOR array
+    # (major type 4) and be rejected on INBOUND params. Because the traits
+    # attach to the TYPE (not per field), `std::optional<Bytes>`,
+    # `std::vector<Bytes>`, and nested structs compose automatically.
+    # The type + traits are emitted once per library (see emitBytesType /
+    # emitBytesTraits in generateCborCppHeaderFile).
+    return "Bytes"
   if lower.startsWith("seq[") and lower.endsWith("]"):
     let inner = nimTypeToCppType(unwrapBracket(t, "seq"))
     return
@@ -110,14 +145,53 @@ proc nimTypeToCppType*(nimType: string): string {.compileTime.} =
     of atkEnum:
       return t
     of atkAlias, atkDistinct:
-      # Recurse through the outer mapper (not just `primCppType`) so an
-      # alias / distinct over a compound Nim type like `seq[byte]` maps to
-      # `std::vector<uint8_t>` rather than falling through to "".
-      return nimTypeToCppType(resolveUnderlyingType(t))
+      # The alias is emitted as `using <name> = <mapped>;`, so reference it BY
+      # NAME — a field/param keeps the meaningful type (`ContentTopic timestamp`,
+      # `Timestamp timestamp`) instead of being flattened to the primitive —
+      # provided the underlying actually maps; else "" so the caller emits a TODO.
+      # (The alias *definition* itself passes the resolved underlying, not the
+      # name, so `using ContentTopic = std::string;` is unaffected.)
+      if nimTypeToCppType(resolveUnderlyingType(t)).len > 0:
+        return t
+      return ""
   ""
 
 proc isCppMappable*(nimType: string): bool {.compileTime.} =
   nimTypeToCppType(nimType).len > 0
+
+proc cppTableKeyType*(nimType: string): string {.compileTime.} =
+  let (k, _) = parseTableParams(nimType.strip())
+  nimTypeToCppType(k)
+
+proc cppTableValType*(nimType: string): string {.compileTime.} =
+  let (_, v) = parseTableParams(nimType.strip())
+  nimTypeToCppType(v)
+
+proc cppTableNeedsKeyConv*(nimType: string): bool {.compileTime.} =
+  ## True for a Table[K, V] whose C++ key type is not `std::string`
+  ## (int / enum / char / distinct-of-scalar). jsoncons can't parse a text
+  ## key into such a type, so the owning struct gets a wire-struct + custom
+  ## json_type_traits that convert.
+  let t = nimType.strip()
+  let lower = t.toLowerAscii()
+  if not (lower.startsWith("table[") and lower.endsWith("]")):
+    return false
+  let kc = cppTableKeyType(t)
+  kc.len > 0 and kc != "std::string"
+
+proc cppWireFieldType*(nimType: string): string {.compileTime.} =
+  ## Field type for the string-keyed wire struct: non-string-keyed maps
+  ## become `std::unordered_map<std::string, V>`; everything else is itself.
+  if cppTableNeedsKeyConv(nimType):
+    "std::unordered_map<std::string, " & cppTableValType(nimType) & ">"
+  else:
+    nimTypeToCppType(nimType)
+
+proc structHasKeyConv*(entry: ApiTypeEntry): bool {.compileTime.} =
+  for f in entry.fields:
+    if cppTableNeedsKeyConv(f.nimType):
+      return true
+  false
 
 # ---------------------------------------------------------------------------
 # Identifier helpers
@@ -191,6 +265,14 @@ proc eventCallbackParamType*(nimType: string): string {.compileTime.} =
         "std::optional<" & inner & ">"
       else:
         ""
+  if lower.startsWith("table[") and lower.endsWith("]"):
+    # Deliver the decoded map by const reference (no view materialisation).
+    let m = nimTypeToCppType(t)
+    return
+      if m.len > 0:
+        "const " & m & "&"
+      else:
+        ""
   if isTypeRegistered(t):
     let entry = lookupTypeEntry(t)
     case entry.kind
@@ -199,10 +281,10 @@ proc eventCallbackParamType*(nimType: string): string {.compileTime.} =
     of atkEnum:
       return t
     of atkAlias, atkDistinct:
-      # Recurse through the outer mapper (not just `primCppType`) so an
-      # alias / distinct over a compound Nim type like `seq[byte]` maps to
-      # `std::vector<uint8_t>` rather than falling through to "".
-      return nimTypeToCppType(resolveUnderlyingType(t))
+      # Deliver the unpacked callback arg by its alias NAME (`ChannelId channelId`,
+      # `Timestamp timestamp`) — `nimTypeToCppType` already yields the emitted
+      # alias name, matching the struct field type and the Rust/Go callbacks.
+      return nimTypeToCppType(t)
   ""
 
 proc eventCallbackArgExpr*(fieldName, nimType: string): string {.compileTime.} =
@@ -322,6 +404,75 @@ proc emitEnvelopeTraits*(h: var string, qualifiedName: string) {.compileTime.} =
   ## BrokerCbor flavor), so the required-count is 0.
   h.add("JSONCONS_N_MEMBER_TRAITS(" & qualifiedName & ", 0, ok, err)\n")
 
+proc emitCppMapStructTraits*(
+    h: var string, libName, name: string, entry: ApiTypeEntry
+) {.compileTime.} =
+  ## Custom `json_type_traits<Json, <name>>` for a struct holding non-string-
+  ## keyed maps. Delegates all field (de)serialisation to the auto-generated
+  ## `<name>__wire` traits and converts only the map keys: text <-> typed
+  ## (char via the first byte; int / enum / distinct via std::stoll / to_string).
+  let q = libName & "::" & name
+  let qw = libName & "::" & name & "__wire"
+  h.add("namespace jsoncons {\n")
+  h.add("template <typename Json>\n")
+  h.add("struct json_type_traits<Json, " & q & "> {\n")
+  h.add("  using allocator_type = typename Json::allocator_type;\n")
+  h.add("  static bool is(const Json& j) noexcept { return j.is_object(); }\n")
+  h.add("  static " & q & " as(const Json& j) {\n")
+  h.add("    auto w = j.template as<" & qw & ">();\n")
+  h.add("    " & q & " v;\n")
+  for f in entry.fields:
+    if nimTypeToCppType(f.nimType).len == 0:
+      continue
+    if cppTableNeedsKeyConv(f.nimType):
+      let kt = cppTableKeyType(f.nimType)
+      # Registered key types (enum, and now alias/distinct like `JobId`) live in
+      # the lib namespace; qualify them for use here inside `namespace jsoncons`.
+      # Primitive keys (int*/char → int32_t/char, not registered) stay bare.
+      let ktQ =
+        if isTypeRegistered(kt):
+          libName & "::" & kt
+        else:
+          kt
+      if kt == "char":
+        h.add(
+          "    for (const auto& kv : w." & f.name & ") v." & f.name &
+            "[kv.first.empty() ? char(0) : kv.first[0]] = kv.second;\n"
+        )
+      else:
+        h.add(
+          "    for (const auto& kv : w." & f.name & ") v." & f.name & "[static_cast<" &
+            ktQ & ">(std::stoll(kv.first))] = kv.second;\n"
+        )
+    else:
+      h.add("    v." & f.name & " = w." & f.name & ";\n")
+  h.add("    return v;\n  }\n")
+  h.add(
+    "  static Json to_json(const " & q &
+      "& v, const allocator_type& alloc = allocator_type()) {\n"
+  )
+  h.add("    " & qw & " w;\n")
+  for f in entry.fields:
+    if nimTypeToCppType(f.nimType).len == 0:
+      continue
+    if cppTableNeedsKeyConv(f.nimType):
+      let kt = cppTableKeyType(f.nimType)
+      if kt == "char":
+        h.add(
+          "    for (const auto& kv : v." & f.name & ") w." & f.name &
+            "[std::string(1, kv.first)] = kv.second;\n"
+        )
+      else:
+        h.add(
+          "    for (const auto& kv : v." & f.name & ") w." & f.name &
+            "[std::to_string(static_cast<long long>(kv.first))] = kv.second;\n"
+        )
+    else:
+      h.add("    w." & f.name & " = v." & f.name & ";\n")
+  h.add("    return json_type_traits<Json, " & qw & ">::to_json(w, alloc);\n  }\n")
+  h.add("};\n")
+  h.add("} // namespace jsoncons\n\n")
+
 # ---------------------------------------------------------------------------
 # Header file emission
 # ---------------------------------------------------------------------------
@@ -342,9 +493,15 @@ proc generateCborCppHeaderFile*(
     requestEntries: seq[CborRequestEntry],
     eventEntries: seq[CborEventEntry],
     mainClass: string = "",
+    asyncTimeoutMs: int = 30000,
+    asyncQueueDepth: int = 64,
+    signalEntries: seq[CborSignalEntry] = @[],
 ) {.compileTime, raises: [].} =
   ## Writes the C++ wrapper header (.hpp) for a CBOR-mode library.
   ensureGeneratedOutputDir(outDir)
+  let upperLib = libName.toUpperAscii().replace("-", "_")
+  let defaultTimeoutMacro = upperLib & "_DEFAULT_ASYNC_TIMEOUT_MS"
+  let queueDepthMacro = upperLib & "_ASYNC_QUEUE_DEPTH"
 
   # reduced-A: an entry belongs to the main class when no mainClass is
   # designated (legacy single class), or it is flat, or its owning interface is
@@ -361,6 +518,12 @@ proc generateCborCppHeaderFile*(
     if mainClass.len == 0:
       return true
     let o = interfaceOwningEventType(ev.typeName)
+    o.len == 0 or o == mainClass
+
+  proc ownsSigMain(s: CborSignalEntry): bool {.compileTime.} =
+    if mainClass.len == 0:
+      return true
+    let o = interfaceOwningSignalType(s.typeName)
     o.len == 0 or o == mainClass
 
   var subInterfaceNames: seq[string] = @[]
@@ -407,11 +570,12 @@ proc generateCborCppHeaderFile*(
     "// Requires C++20 and jsoncons + jsoncons_ext/cbor in the include path.\n" &
     "#ifndef " & guardName & "\n" & "#define " & guardName & "\n\n" & "#include \"" &
     libName & ".h\"\n\n" & "#include <jsoncons/json.hpp>\n" &
-    "#include <jsoncons_ext/cbor/cbor.hpp>\n\n" & "#include <cstdint>\n" &
-    "#include <cstring>\n" & "#include <functional>\n" & "#include <memory>\n" &
-    "#include <optional>\n" & "#include <span>\n" & "#include <string>\n" &
-    "#include <system_error>\n" & "#include <unordered_map>\n" & "#include <utility>\n" &
-    "#include <vector>\n\n" & "namespace " & libName & " {\n\n"
+    "#include <jsoncons_ext/cbor/cbor.hpp>\n\n" & "#include <atomic>\n" &
+    "#include <chrono>\n" & "#include <cstdint>\n" & "#include <cstring>\n" &
+    "#include <functional>\n" & "#include <future>\n" & "#include <memory>\n" &
+    "#include <optional>\n" & "#include <semaphore>\n" & "#include <span>\n" &
+    "#include <string>\n" & "#include <system_error>\n" & "#include <unordered_map>\n" &
+    "#include <utility>\n" & "#include <vector>\n\n" & "namespace " & libName & " {\n\n"
 
   # Result<T>
   h.add("template <typename T>\n")
@@ -462,6 +626,23 @@ proc generateCborCppHeaderFile*(
   h.add("    const std::string& error() const { return error_; }\n")
   h.add("};\n\n")
 
+  # ---- Bytes ----
+  # Idiomatic byte vector for `seq[byte]`. Derives std::vector<uint8_t> so the
+  # public surface is dependency-free (.size()/[]/begin()/end()/push_back),
+  # while a json_type_traits specialisation (emitted after this namespace)
+  # forces a CBOR byte string (major type 2) on the wire. Setting
+  # is_json_type_traits_declared<Bytes> there disables jsoncons' built-in
+  # byte-container paths (which would encode std::vector<uint8_t> as a CBOR
+  # array), so the custom traits drive both encode and decode and compose
+  # through std::optional<Bytes>, std::vector<Bytes>, and nested structs.
+  h.add("struct Bytes : std::vector<uint8_t> {\n")
+  h.add("  using std::vector<uint8_t>::vector;\n")
+  h.add("  Bytes() = default;\n")
+  h.add(
+    "  explicit Bytes(std::vector<uint8_t> v) : std::vector<uint8_t>(std::move(v)) {}\n"
+  )
+  h.add("};\n\n")
+
   # ---- All registered enums + distinct/alias aliases + structs ----
   # We walk gApiTypeRegistry directly so types referenced from fields
   # (e.g. `seq[Tag]` inside an object) get emitted, not just the
@@ -495,29 +676,45 @@ proc generateCborCppHeaderFile*(
       h.add("  " & v.name & " = " & $v.ordinal & ",\n")
     h.add("};\n\n")
 
-  # Distinct / alias — plain `using` aliases of the underlying primitive.
-  if aliasNames.len > 0:
-    h.add("// ---- Distinct / alias types ----\n\n")
-  for name in aliasNames:
-    let underlying = resolveUnderlyingType(name)
-    let prim = primCppType(underlying)
-    if prim.len == 0:
-      h.add(
-        "// TODO: alias '" & name & "' resolves to '" & underlying &
-          "' which has no C++ primitive mapping\n\n"
-      )
-      continue
-    h.add("using " & name & " = " & prim & ";\n")
-  if aliasNames.len > 0:
-    h.add("\n")
-
-  # Object structs — emit forward declarations first so cross-references
-  # (e.g. `std::vector<Tag>` inside another struct) compile regardless
-  # of registry order.
+  # Object forward declarations FIRST, so a `using X = SomeObject` alias (a
+  # proc-sugar broker returning an object) and cross-references like
+  # `std::vector<Tag>` compile regardless of registry order.
   if objectNames.len > 0:
     h.add("// ---- Object payload structs ----\n\n")
     for name in objectNames:
       h.add("struct " & name & ";\n")
+    h.add("\n")
+
+  # Distinct / alias — `using` aliases of the underlying mapped type. Uses the
+  # full mapper (not just primCppType) so a container payload like
+  # `proc connectedPeers(): Result[seq[string]]` emits
+  # `using ConnectedPeers = std::vector<std::string>;`, and an object payload
+  # `proc getRow(): Result[RowData]` emits `using GetRow = RowData;` (RowData is
+  # forward-declared just above).
+  # Response-payload type names — a synthetic proc-sugar alias (`Send`,
+  # `StartDiscv5`, `GetRow`) is unwrapped to its real payload everywhere it is
+  # used, so its `using <Verb> = ...;` alias is dead — skip it. An anonymous
+  # container alias (`ConnectedPeers = seq[string]`) stays (it is the only handle
+  # for that type); a field-used alias (`ContentTopic`) is never a response name.
+  var responseNames: seq[string] = @[]
+  for e in requestEntries:
+    if e.responseTypeName.len > 0 and e.responseTypeName notin responseNames:
+      responseNames.add(e.responseTypeName)
+  if aliasNames.len > 0:
+    h.add("// ---- Distinct / alias types ----\n\n")
+  for name in aliasNames:
+    if name in responseNames and effectiveResponsePayload(name) != name:
+      continue
+    let underlying = resolveUnderlyingType(name)
+    let cpp = nimTypeToCppType(underlying)
+    if cpp.len == 0:
+      h.add(
+        "// TODO: alias '" & name & "' resolves to '" & underlying &
+          "' which has no C++ mapping\n\n"
+      )
+      continue
+    h.add("using " & name & " = " & cpp & ";\n")
+  if aliasNames.len > 0:
     h.add("\n")
 
   # Captured (typeName, [fieldName...]) for global-scope JSONCONS macros.
@@ -534,6 +731,14 @@ proc generateCborCppHeaderFile*(
       else:
         h.add("  " & cppType & " " & f.name & "{};\n")
     h.add("};\n")
+    # A string-keyed mirror struct for structs holding non-string-keyed maps.
+    # jsoncons auto-(de)serialises this; the public struct's custom traits
+    # convert keys to/from it (see the json_type_traits emission below).
+    if allMapped and structHasKeyConv(entry):
+      h.add("struct " & name & "__wire {\n")
+      for f in entry.fields:
+        h.add("  " & cppWireFieldType(f.nimType) & " " & f.name & "{};\n")
+      h.add("};\n")
     if allMapped:
       var fieldNames: seq[string] = @[]
       for f in entry.fields:
@@ -552,10 +757,13 @@ proc generateCborCppHeaderFile*(
   # The CBOR wire value is a bare scalar; the C++ surface uses the `using X
   # = <prim>` alias directly (no struct). Such a type is an emittable
   # request response / event payload even though it has no object fields.
+  # Uses the full mapper (not just primCppType) so a non-object payload that
+  # resolves to a container (`seq[string]` -> std::vector<std::string>) is
+  # emittable too, not only bare primitives.
   proc isScalarPayload(name: string): bool {.compileTime.} =
     name.len > 0 and isTypeRegistered(name) and
       lookupTypeEntry(name).kind in {atkAlias, atkDistinct} and
-      primCppType(resolveUnderlyingType(name)).len > 0
+      nimTypeToCppType(resolveUnderlyingType(name)).len > 0
 
   # A "void payload" is a zero-field broker type — `type X = void` (lowered
   # to an empty object). It has no value; the request envelope carries only
@@ -571,9 +779,16 @@ proc generateCborCppHeaderFile*(
     name in emittablePayloads or isScalarPayload(name)
 
   # The C++ type used in the request/event payload slot: `void` surfaces a
-  # `Result<void>`, scalar/object payloads use their own type.
+  # `Result<void>`; a bare-primitive proc-sugar payload surfaces the simple type
+  # directly (`Result<bool>`, not `Result<StartDiscv5>`); other scalar/object
+  # payloads use their own (named) type.
   proc payloadCppType(name: string): string {.compileTime.} =
-    if isVoidPayload(name): "void" else: name
+    if isVoidPayload(name):
+      return "void"
+    let eff = effectiveResponsePayload(name)
+    if isNimPrimitive(eff):
+      return primCppType(eff)
+    eff
 
   # Effective callback/struct fields for a payload type: an object's real
   # fields, or a single synthetic `value` field for a scalar payload.
@@ -703,6 +918,22 @@ proc generateCborCppHeaderFile*(
   h.add("  " & className & "(" & className & "&&) = delete;\n")
   h.add("  " & className & "& operator=(" & className & "&&) = delete;\n\n")
   h.add("  static std::string_view version() noexcept;\n\n")
+  h.add(
+    "  // Max concurrent in-flight <method>Async requests (full => returns the\n" &
+      "  // EAGAIN code below). Size a bounded send window to this value.\n"
+  )
+  h.add("  static constexpr uint32_t asyncQueueDepth = " & queueDepthMacro & ";\n")
+  h.add(
+    "  // <method>Async returns 0 when queued (callback fires once later) or a\n" &
+      "  // negative code when NOT queued (callback does NOT fire):\n"
+  )
+  h.add(
+    "  static constexpr int32_t asyncAgain = " & $ApiStatusAgain &
+      ";     // EAGAIN — retry/slow down\n"
+  )
+  h.add("  static constexpr int32_t asyncBadContext = -5;\n")
+  h.add("  static constexpr int32_t asyncNoCallback = -7;\n")
+  h.add("  static constexpr int32_t asyncEncodeFailed = -1;\n\n")
   h.add("  Result<void> createContext();\n")
   h.add("  bool validContext() const noexcept;\n")
   h.add("  explicit operator bool() const noexcept;\n")
@@ -752,7 +983,158 @@ proc generateCborCppHeaderFile*(
       "  Result<" & payloadCppType(e.responseTypeName) & "> " & methodName & "(" &
         sigParams & ");\n"
     )
+    # Fire-and-forget async sibling: same args, plus a completion callback and
+    # a std::chrono timeout (<= 0ms means infinite; default = library policy).
+    # Delivered on the library's event delivery thread. reqId is internal.
+    # (Instance-returning create methods are sync-only here.)
+    let asyncTail =
+      ", std::chrono::milliseconds timeout = std::chrono::milliseconds(" &
+      defaultTimeoutMacro & ")"
+    let asyncSig =
+      if sigParams.len > 0:
+        sigParams & ", std::function<void(Result<" & payloadCppType(e.responseTypeName) &
+          ">)> cb" & asyncTail
+      else:
+        "std::function<void(Result<" & payloadCppType(e.responseTypeName) & ">)> cb" &
+          asyncTail
+    h.add("  int32_t " & methodName & "Async(" & asyncSig & ");\n")
+    # Future-returning convenience (built on <method>Async via std::promise —
+    # no thread parked per call, unlike wrapping the sync call in std::async).
+    # Backpressure-aware: blocks briefly on the window semaphore when full, so
+    # this surface never returns EAGAIN.
+    let futureTail =
+      "std::chrono::milliseconds timeout = std::chrono::milliseconds(" &
+      defaultTimeoutMacro & ")"
+    let futureSig =
+      if sigParams.len > 0:
+        sigParams & ", " & futureTail
+      else:
+        futureTail
+    h.add(
+      "  std::future<Result<" & payloadCppType(e.responseTypeName) & ">> " & methodName &
+        "Future(" & futureSig & ");\n"
+    )
   h.add("\n")
+
+  # Per-signal method declarations (one-way; slot-free `_call`). Returns
+  # `Result<void>`: ok() = accepted (a handler exists + the queue had room),
+  # never "handled". No async sibling — signals are one-way, so a completion
+  # callback would carry nothing not already known synchronously.
+  proc isObjectSignal(typeName: string): bool {.compileTime.} =
+    (not isVoidPayload(typeName)) and isTypeRegistered(typeName) and
+      lookupTypeEntry(typeName).kind == atkObject
+
+  proc signalSigParams(typeName: string): tuple[params: string, mappable: bool] =
+    result.mappable = true
+    if isVoidPayload(typeName):
+      return
+    var first = true
+    for f in effectiveFields(typeName):
+      if not isCppMappable(f.nimType):
+        result.mappable = false
+        return
+      if not first:
+        result.params.add(", ")
+      result.params.add(nimTypeToCppType(f.nimType) & " " & f.name)
+      first = false
+
+  # Signal method DECLARATION (class-independent) — shared by the main class and
+  # each sub-interface class (a sub-interface signal is emitted on its sub class).
+  proc emitSignalDecl(s: CborSignalEntry): string {.compileTime.} =
+    let methodName = snakeToLowerCamel(s.apiName)
+    if not (
+      isVoidPayload(s.typeName) or isObjectSignal(s.typeName) or
+      isScalarPayload(s.typeName)
+    ):
+      return
+        "  // TODO: signal '" & s.apiName & "' payload '" & s.typeName &
+        "' is not yet emitted as a typed C++ signal method.\n"
+    let sp = signalSigParams(s.typeName)
+    if not sp.mappable:
+      return
+        "  // TODO: signal '" & s.apiName &
+        "' has fields whose Nim types aren't yet mappable to C++.\n"
+    "  Result<void> " & methodName & "(" & sp.params & ");\n"
+
+  # Signal method DEFINITION for class `clsName` (main or a sub class). Both use
+  # a `ctx_` member + `detail::rawCallOwned(ctx_, …)`, so the body is identical
+  # apart from the `clsName::` qualifier — for a sub class `ctx_` is the
+  # sub-instance ctx, so the signal routes to that instance's handler.
+  proc emitSignalImpl(s: CborSignalEntry, clsName: string): string {.compileTime.} =
+    if not (
+      isVoidPayload(s.typeName) or isObjectSignal(s.typeName) or
+      isScalarPayload(s.typeName)
+    ):
+      return ""
+    let sp = signalSigParams(s.typeName)
+    if not sp.mappable:
+      return ""
+    let methodName = snakeToLowerCamel(s.apiName)
+    result.add(
+      "inline Result<void> " & clsName & "::" & methodName & "(" & sp.params & ") {\n"
+    )
+    if isVoidPayload(s.typeName):
+      result.add("  std::string lastError;\n")
+      result.add(
+        "  auto [status, resp] = detail::rawCallOwned(ctx_, lastError, \"" & s.apiName &
+          "\", nullptr, 0);\n"
+      )
+    else:
+      if isObjectSignal(s.typeName):
+        result.add("  " & s.typeName & " __p;\n")
+        for f in effectiveFields(s.typeName):
+          result.add("  __p." & f.name & " = " & f.name & ";\n")
+      else:
+        result.add("  const auto& __p = value;\n")
+      result.add("  std::size_t cborLen = 0;\n")
+      result.add("  try { cborLen = detail::cborEncodedSize(__p); }\n")
+      result.add(
+        "  catch (const std::exception& ex) { return Result<void>::err(std::string(\"size pass failed: \") + ex.what()); }\n"
+      )
+      result.add(
+        "  void* inBuf = (cborLen > 0) ? " & p &
+          "allocBuffer(static_cast<int32_t>(cborLen)) : nullptr;\n"
+      )
+      result.add(
+        "  if (cborLen > 0 && !inBuf) return Result<void>::err(\"allocBuffer failed\");\n"
+      )
+      result.add("  try {\n")
+      result.add(
+        "    if (cborLen > 0) detail::cborEncodeInto(__p, static_cast<std::uint8_t*>(inBuf), cborLen);\n"
+      )
+      result.add("  } catch (const std::exception& ex) {\n")
+      result.add("    if (inBuf) { " & p & "freeBuffer(inBuf); }\n")
+      result.add(
+        "    return Result<void>::err(std::string(\"encode pass failed: \") + ex.what());\n"
+      )
+      result.add("  }\n")
+      result.add("  std::string lastError;\n")
+      result.add(
+        "  auto [status, resp] = detail::rawCallOwned(ctx_, lastError, \"" & s.apiName &
+          "\", inBuf, cborLen);\n"
+      )
+    result.add("  if (status == 0) return Result<void>::ok();\n")
+    result.add(
+      "  if (status == " & $ApiStatusAgain &
+        ") return Result<void>::err(\"EAGAIN: signal queue full\");\n"
+    )
+    result.add(
+      "  if (status == " & $ApiStatusProviderErr &
+        ") return Result<void>::err(\"no signal handler installed\");\n"
+    )
+    result.add(
+      "  return Result<void>::err(lastError.empty() ? (std::string(\"signal failed: rc=\") + std::to_string(status)) : lastError);\n"
+    )
+    result.add("}\n\n")
+
+  var mainSigCount = 0
+  for s in signalEntries:
+    if not ownsSigMain(s):
+      continue
+    inc mainSigCount
+    h.add(emitSignalDecl(s))
+  if mainSigCount > 0:
+    h.add("\n")
 
   # Per-event Callback aliases + on/off declarations. The public alias is
   # emitted as a fully-spelled `std::function<...>` (mirrors native FFI)
@@ -796,6 +1178,18 @@ proc generateCborCppHeaderFile*(
   # caught by ASAN under stress_shutdown).
   h.add(" private:\n")
   h.add("  uint32_t ctx_ = 0;\n")
+  h.add("  // Internal reqId for the ABI (logging/correlation is via the boxed\n")
+  h.add("  // callback, not reqId — so it is not part of the typed surface).\n")
+  h.add("  std::atomic<uint64_t> asyncReqId_{0};\n")
+  h.add("  // <method>Future backpressure: acquire before issue, release in the\n")
+  h.add("  // completion callback. Initialised to asyncQueueDepth - 1 because the\n")
+  h.add("  // library releases its own depth slot only AFTER the callback returns\n")
+  h.add("  // (single delivery thread => at most one such in-flight release), so\n")
+  h.add("  // the margin of one makes a post-release reissue race-free.\n")
+  h.add(
+    "  std::counting_semaphore<> asyncWindow_{static_cast<std::ptrdiff_t>(\n" &
+      "      asyncQueueDepth > 1 ? asyncQueueDepth - 1 : 1)};\n"
+  )
   for ev in mainEvents:
     let dispatcherType = ev.typeName & "Dispatcher"
     let dispatcherMember = ev.apiName & "Dispatcher_"
@@ -945,7 +1339,7 @@ proc generateCborCppHeaderFile*(
       h.add("  std::unique_ptr<" & dispType & "> " & dispMember & ";\n")
     h.add("\n public:\n")
     # Ctor/dtor/copy/move — declared here, defined out-of-class in detail::.
-    h.add("  explicit " & sub & "(uint32_t ctx);\n")
+    h.add("  explicit " & sub & "(uint32_t ctx) noexcept;\n")
     h.add("  ~" & sub & "();\n")
     h.add("  " & sub & "(const " & sub & "&) = delete;\n")
     h.add("  " & sub & "& operator=(const " & sub & "&) = delete;\n")
@@ -963,6 +1357,10 @@ proc generateCborCppHeaderFile*(
     for e in requestEntries:
       if interfaceOwningRequestType(e.responseTypeName) == ifaceName:
         h.add(emitSubReqDecl(e))
+    # Signal method declarations (one-way; routed by this instance's ctx_).
+    for s in signalEntries:
+      if interfaceOwningSignalType(s.typeName) == ifaceName:
+        h.add(emitSignalDecl(s))
     # Event callback aliases + on/off declarations.
     for ev in subEvts:
       let camelBase = snakeToLowerCamel(ev.apiName)
@@ -994,8 +1392,13 @@ proc generateCborCppHeaderFile*(
     # A `void` payload has no struct jsoncons can (de)serialise — the `ok`
     # slot holds the generic `jsoncons::json` so the empty `{}` map sent on
     # the wire still round-trips and `has_value()` reports success.
+    # `void` -> generic json; a bare-primitive payload -> the simple type
+    # (so `optional<bool>`, matching the unwrapped `Result<bool>` method).
     let okType =
-      if isVoidPayload(e.responseTypeName): "jsoncons::json" else: e.responseTypeName
+      if isVoidPayload(e.responseTypeName):
+        "jsoncons::json"
+      else:
+        payloadCppType(e.responseTypeName)
     h.add("struct " & envName & " {\n")
     h.add("  std::optional<" & okType & "> ok;\n")
     h.add("  std::optional<std::string> err;\n")
@@ -1018,6 +1421,41 @@ proc generateCborCppHeaderFile*(
   # Section 4: JSONCONS macros (global scope)
   # ==================================================================
   h.add("} // namespace " & libName & "\n\n")
+
+  # ---- Bytes json_type_traits ----
+  # Forces CBOR byte-string (major type 2) for the public `Bytes` vector and
+  # decodes a byte string back into it. Specialising is_json_type_traits_declared
+  # is what disables jsoncons' built-in byte-container conv/encode paths (which
+  # would otherwise encode std::vector<uint8_t> as a CBOR array): both the
+  # json_conv_traits container partial-spec and the encode_traits container
+  # specialisations are gated on !is_json_type_traits_declared, so this routes
+  # all encode/decode through the traits below.
+  block:
+    let q = libName & "::Bytes"
+    h.add("namespace jsoncons {\n")
+    h.add(
+      "template <> struct is_json_type_traits_declared<" & q &
+        "> : public std::true_type {};\n"
+    )
+    h.add("template <typename Json>\n")
+    h.add("struct json_type_traits<Json, " & q & "> {\n")
+    h.add("  using allocator_type = typename Json::allocator_type;\n")
+    h.add("  static bool is(const Json& j) noexcept { return j.is_byte_string(); }\n")
+    h.add("  static " & q & " as(const Json& j) {\n")
+    h.add("    auto bsv = j.as_byte_string_view();\n")
+    h.add("    return " & q & "(bsv.begin(), bsv.end());\n")
+    h.add("  }\n")
+    h.add(
+      "  static Json to_json(const " & q &
+        "& v, const allocator_type& alloc = allocator_type()) {\n"
+    )
+    h.add(
+      "    return jsoncons::make_obj_using_allocator<Json>(\n" &
+        "        alloc, jsoncons::byte_string_arg, v, jsoncons::semantic_tag::none);\n"
+    )
+    h.add("  }\n")
+    h.add("};\n")
+    h.add("} // namespace jsoncons\n\n")
 
   if enumNames.len > 0:
     h.add(
@@ -1044,7 +1482,13 @@ proc generateCborCppHeaderFile*(
     h.add("} // namespace jsoncons\n\n")
 
   for (name, fields) in payloadFields:
-    emitMemberTraitsMacro(h, libName & "::" & name, name, fields)
+    if isTypeRegistered(name) and structHasKeyConv(lookupTypeEntry(name)):
+      # Non-string-keyed map struct: auto-traits on the string-keyed wire
+      # mirror, then custom traits on the public struct that convert keys.
+      emitMemberTraitsMacro(h, libName & "::" & name & "__wire", name, fields)
+      emitCppMapStructTraits(h, libName, name, lookupTypeEntry(name))
+    else:
+      emitMemberTraitsMacro(h, libName & "::" & name, name, fields)
   for envName in envelopeNames:
     emitEnvelopeTraits(h, libName & "::" & envName)
   if anyInstanceReturn:
@@ -1174,7 +1618,7 @@ proc generateCborCppHeaderFile*(
   )
   h.add("  NimBuffer resp{respBuf, respLen};\n")
   h.add("  if (status != 0) {\n")
-  h.add("    if (status == -4 && !resp.empty()) {\n")
+  h.add("    if (status == " & $ApiStatusUnknownApi & " && !resp.empty()) {\n")
   h.add("      auto v = resp.view();\n")
   h.add("      lastError.assign(reinterpret_cast<const char*>(v.data()), v.size());\n")
   h.add("    } else {\n")
@@ -1204,7 +1648,7 @@ proc generateCborCppHeaderFile*(
   )
   h.add("  NimBuffer resp{respBuf, respLen};\n")
   h.add("  if (status != 0) {\n")
-  h.add("    if (status == -4 && !resp.empty()) {\n")
+  h.add("    if (status == " & $ApiStatusUnknownApi & " && !resp.empty()) {\n")
   h.add("      auto v = resp.view();\n")
   h.add("      lastError.assign(reinterpret_cast<const char*>(v.data()), v.size());\n")
   h.add("    } else {\n")
@@ -1214,6 +1658,20 @@ proc generateCborCppHeaderFile*(
   h.add("    return {status, std::move(resp)};\n")
   h.add("  }\n")
   h.add("  return {0, std::move(resp)};\n")
+  h.add("}\n\n")
+
+  # ---- Async response trampoline ----
+  # `callAsync` boxes a type-erased invoker (the typed user callback + its
+  # decode step) as `userData`. One C-ABI trampoline reconstructs the box,
+  # runs it with the raw (status, respBuf, respLen), then frees it. `respBuf`
+  # is library-owned and valid only for the duration of the call.
+  h.add("using AsyncInvoker = std::function<void(int32_t, const void*, int32_t)>;\n")
+  h.add(
+    "inline void asyncResponseTrampoline(void* userData, uint64_t /*reqId*/,\n" &
+      "    int32_t status, const void* respBuf, int32_t respLen) {\n"
+  )
+  h.add("  std::unique_ptr<AsyncInvoker> inv(static_cast<AsyncInvoker*>(userData));\n")
+  h.add("  if (inv && *inv) (*inv)(status, respBuf, respLen);\n")
   h.add("}\n\n")
 
   # ---- EventDispatcher template (CBOR-flavored) ----
@@ -1374,7 +1832,7 @@ proc generateCborCppHeaderFile*(
     h.add("// ---- " & sub & " implementations ----\n")
     # Ctor
     if hasEvts:
-      h.add("inline " & sub & "::" & sub & "(uint32_t ctx)\n")
+      h.add("inline " & sub & "::" & sub & "(uint32_t ctx) noexcept\n")
       h.add("    : ctx_(ctx)\n")
       for ev in subEvts:
         let dispType = ev.typeName & "Dispatcher"
@@ -1406,6 +1864,10 @@ proc generateCborCppHeaderFile*(
     for e in requestEntries:
       if interfaceOwningRequestType(e.responseTypeName) == ifaceName:
         h.add(emitSubReqImpl(e, sub))
+    # Signal method implementations (route to this instance via ctx_).
+    for s in signalEntries:
+      if interfaceOwningSignalType(s.typeName) == ifaceName:
+        h.add(emitSignalImpl(s, sub))
     # Event on/off implementations.
     for ev in subEvts:
       let camelBase = snakeToLowerCamel(ev.apiName)
@@ -1596,6 +2058,169 @@ proc generateCborCppHeaderFile*(
     h.add("    return " & okExpr & ";\n")
     h.add("  return " & resTy & "::err(\"malformed response envelope\");\n")
     h.add("}\n\n")
+
+    # ---- Async sibling definition (non-instance methods only) ----
+    if not isInstance:
+      let aResTy = "Result<" & payloadCppType(e.responseTypeName) & ">"
+      let aOkExpr =
+        if voidResp:
+          aResTy & "::ok()"
+        else:
+          aResTy & "::ok(std::move(*env.ok))"
+      let asyncSig =
+        if sigParams.len > 0:
+          sigParams & ", std::function<void(" & aResTy &
+            ")> cb, std::chrono::milliseconds timeout"
+        else:
+          "std::function<void(" & aResTy & ")> cb, std::chrono::milliseconds timeout"
+      # Returns 0 when queued (cb fires once later) or a negative code when NOT
+      # queued (cb does NOT fire): asyncAgain (-6) = EAGAIN, asyncBadContext (-5),
+      # asyncNoCallback (-7), asyncEncodeFailed (-1). This mirrors the raw ABI so
+      # callers can implement backpressure (retry on -6) without the callback
+      # being consumed by a transient failure.
+      h.add(
+        "inline int32_t " & className & "::" & methodName & "Async(" & asyncSig & ") {\n"
+      )
+      h.add("  if (!cb) return asyncNoCallback;\n")
+      if e.argFields.len > 0:
+        h.add("  " & argsName & " args;\n")
+        h.add(argsAssign)
+        h.add("  std::size_t cborLen = 0;\n")
+        h.add("  try { cborLen = detail::cborEncodedSize(args); }\n")
+        h.add("  catch (const std::exception&) { return asyncEncodeFailed; }\n")
+        h.add(
+          "  void* inBuf = (cborLen > 0) ? " & p &
+            "allocBuffer(static_cast<int32_t>(cborLen)) : nullptr;\n"
+        )
+        h.add("  if (cborLen > 0 && !inBuf) return asyncEncodeFailed;\n")
+        h.add("  try {\n")
+        h.add(
+          "    if (cborLen > 0) detail::cborEncodeInto(args, static_cast<std::uint8_t*>(inBuf), cborLen);\n"
+        )
+        h.add("  } catch (const std::exception&) {\n")
+        h.add("    if (inBuf) { " & p & "freeBuffer(inBuf); }\n")
+        h.add("    return asyncEncodeFailed;\n")
+        h.add("  }\n")
+      else:
+        h.add("  void* inBuf = nullptr;\n")
+        h.add("  std::size_t cborLen = 0;\n")
+      # Box the typed decode + user callback as the opaque correlation handle.
+      h.add(
+        "  auto* inv = new detail::AsyncInvoker(\n" &
+          "      [cb = std::move(cb)](int32_t status, const void* respBuf, int32_t respLen) {\n"
+      )
+      h.add("    if (status != 0) {\n")
+      h.add("      std::string lastError;\n")
+      h.add(
+        "      if (status == " & $ApiStatusUnknownApi & " && respBuf && respLen > 0)\n"
+      )
+      h.add(
+        "        lastError.assign(reinterpret_cast<const char*>(respBuf), static_cast<size_t>(respLen));\n"
+      )
+      h.add("      else if (status == " & $ApiStatusTimeout & ")\n")
+      h.add("        lastError = \"request timed out\";\n")
+      h.add("      else if (status == " & $ApiStatusShutdown & ")\n")
+      h.add("        lastError = \"library shut down\";\n")
+      h.add("      else\n")
+      h.add(
+        "        lastError = std::string(\"framework error: \") + std::to_string(status);\n"
+      )
+      h.add("      cb(" & aResTy & "::err(lastError)); return;\n")
+      h.add("    }\n")
+      h.add("    if (!respBuf || respLen <= 0) {\n")
+      h.add("      cb(" & aResTy & "::err(\"empty response\")); return;\n")
+      h.add("    }\n")
+      h.add("    " & envName & " env;\n")
+      h.add("    try {\n")
+      h.add("      const auto* p0 = static_cast<const std::uint8_t*>(respBuf);\n")
+      h.add(
+        "      env = jsoncons::cbor::decode_cbor<" & envName & ">(p0, p0 + respLen);\n"
+      )
+      h.add("    } catch (const std::exception& ex) {\n")
+      h.add(
+        "      cb(" & aResTy &
+          "::err(std::string(\"decode failed: \") + ex.what())); return;\n"
+      )
+      h.add("    }\n")
+      h.add(
+        "    if (env.err.has_value()) { cb(" & aResTy & "::err(*env.err)); return; }\n"
+      )
+      h.add("    if (env.ok.has_value()) { cb(" & aOkExpr & "); return; }\n")
+      h.add("    cb(" & aResTy & "::err(\"malformed response envelope\"));\n")
+      h.add("  });\n")
+      h.add("  // chrono -> ABI ms: <= 0 means infinite (ABI 0); clamp to u32.\n")
+      h.add("  const auto __tc = timeout.count();\n")
+      h.add(
+        "  const uint32_t timeoutMs = __tc <= 0 ? 0u\n" &
+          "      : (__tc > 0xFFFFFFFFll ? 0xFFFFFFFFu : static_cast<uint32_t>(__tc));\n"
+      )
+      h.add(
+        "  const int32_t rc = " & p & "callAsync(ctx_, \"" & e.apiName &
+          "\", inBuf, static_cast<int32_t>(cborLen),\n" &
+          "      asyncReqId_.fetch_add(1, std::memory_order_relaxed) + 1, timeoutMs,\n" &
+          "      &detail::asyncResponseTrampoline, inv);\n"
+      )
+      h.add("  if (rc != 0) {\n")
+      h.add("    // Not queued — the library frees inBuf and will NOT invoke the\n")
+      h.add("    // callback. Drop the box (cb unconsumed) and report rc so the\n")
+      h.add("    // caller can retry on asyncAgain (-6) or handle the rejection.\n")
+      h.add("    delete inv;\n")
+      h.add("    return rc;\n")
+      h.add("  }\n")
+      h.add("  return 0;\n")
+      h.add("}\n\n")
+
+      # ---- Future-returning definition (std::promise bridge over Async) ----
+      var argNamesCsv = ""
+      for (n, _) in e.argFields:
+        argNamesCsv.add(n & ", ")
+      let futureSig =
+        if sigParams.len > 0:
+          sigParams & ", std::chrono::milliseconds timeout"
+        else:
+          "std::chrono::milliseconds timeout"
+      h.add(
+        "inline std::future<" & aResTy & "> " & className & "::" & methodName & "Future(" &
+          futureSig & ") {\n"
+      )
+      h.add("  auto prom = std::make_shared<std::promise<" & aResTy & ">>();\n")
+      h.add("  auto fut = prom->get_future();\n")
+      h.add("  // Backpressure by WAITING, not erroring: block briefly on the window\n")
+      h.add(
+        "  // semaphore when asyncQueueDepth calls are in flight. Released in the\n"
+      )
+      h.add("  // completion callback (below) or inline on a rejected call.\n")
+      h.add("  asyncWindow_.acquire();\n")
+      h.add(
+        "  // The promise is fulfilled from exactly one place: the delivery-thread\n"
+      )
+      h.add(
+        "  // callback when the call is queued (rc == 0), or inline below when it\n"
+      )
+      h.add("  // is rejected (rc != 0 — the callback never fires).\n")
+      h.add(
+        "  const int32_t rc = " & methodName & "Async(" & argNamesCsv & "[this, prom](" &
+          aResTy & " __r) {\n" & "      asyncWindow_.release();\n" &
+          "      prom->set_value(std::move(__r));\n" & "  }, timeout);\n"
+      )
+      h.add("  if (rc != 0) {\n")
+      h.add("    asyncWindow_.release();\n")
+      h.add("    // asyncAgain can still surface here when callback-style fooAsync\n")
+      h.add("    // callers share the same context window outside the semaphore.\n")
+      h.add("    prom->set_value(" & aResTy & "::err(\n")
+      h.add("        rc == asyncAgain ? std::string(\"EAGAIN: async window full\")\n")
+      h.add(
+        "                         : std::string(\"request not queued: rc=\") + std::to_string(rc)));\n"
+      )
+      h.add("  }\n")
+      h.add("  return fut;\n")
+      h.add("}\n\n")
+
+  # ---- Per-signal method implementations (one-way, slot-free `_call`) ----
+  for s in signalEntries:
+    if not ownsSigMain(s):
+      continue
+    h.add(emitSignalImpl(s, className))
 
   # ---- Per-event on/off implementations (delegate to dispatcher) ----
   for ev in mainEvents:

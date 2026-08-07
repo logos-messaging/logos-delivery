@@ -1,7 +1,7 @@
 import std/[os, strutils]
 
 # Package
-version = "3.1.1"
+version = "3.3.0"
 author = "Nagy Zoltan Peter"
 description =
   "Type-safe, decoupled messaging patterns for Nim / single thread, cross-thread and FFI API support!"
@@ -88,29 +88,14 @@ proc nimWindowsImplibFlag(outDir, libName: string): string =
   else:
     ""
 
-proc skipRefcOnWindows(opt, label: string): bool =
-  ## Returns true (and prints a skip notice) when `opt` requests --mm:refc on
-  ## Windows. See README → "Platform Support" + "Known Limitations" for the
-  ## reasoning: chronos' Win32 RegisterWaitForSingleObject path fires its
-  ## completion on a thread-pool thread that the refc stop-the-world GC
-  ## cannot suspend, leading to use-after-free on
-  ## ThreadSignalPtr/Channel-driven workloads. This affects every layer that
-  ## relies on the cross-thread signal infrastructure: MT brokers, the FFI
-  ## API runtime and all FFI tests. ORC's atomic refcounting has no STW
-  ## phase, so the same code is safe under --mm:orc.
-  ##
-  ## TEMPORARILY DISABLED — refc-on-Windows is forced through CI so we
-  ## can observe whether the channel-dispatch refactor + Round-2 CBOR
-  ## work has actually closed the failure mode. Restore the body when
-  ## the experiment ends (or wrap the experiment in a kill switch).
-  discard opt
-  discard label
-  # when defined(windows):
-  #   if "--mm:refc" in opt or "refc" == opt:
-  #     echo "Skipping " & label & " (" & opt &
-  #       ") on Windows: refc + chronos thread-pool callback is unsafe — use --mm:orc."
-  #     return true
-  false
+# NOTE: the historical `skipRefcOnWindows` predicate (refc excluded from the
+# Windows MT/FFI matrix) was removed in the teardown-sequence fix. The crash
+# it papered over was a worker-thread-exit UAF (live RegisterWaitForSingleObject
+# registration + refc deallocOsPages), fixed by BrokerSignalShared +
+# teardownBrokerThread in brokers/internal/mt_broker_common.nim and regression-
+# gated by `nimble testAllocRace` (a Windows step in ci.yml) — see
+# doc/LIMITATION.md §2.2. refc and orc run the identical matrix on every
+# platform; if a regression ever reappears, the gate fails loudly.
 
 proc memoryManagerMatrix(): seq[string] =
   ## Returns the set of `--mm:` values the wrapper / example tasks
@@ -119,16 +104,9 @@ proc memoryManagerMatrix(): seq[string] =
   ## - If `MM` is set in the environment, honour the explicit choice
   ##   (e.g. `MM=refc nimble runTypeMapTestLibPy`) — run that one only.
   ## - Otherwise, run both `orc` and `refc` so the parity matrix is
-  ##   exercised end-to-end under both memory managers.
-  ##
-  ## TEMPORARILY: Windows runs the same orc+refc default — see the
-  ## `skipRefcOnWindows` doc-block for the (commented-out) historical
-  ## reason refc was excluded. Restore the branch below when the
-  ## experiment ends.
+  ##   exercised end-to-end under both memory managers, on every platform.
   if existsEnv("MM"):
     @[getEnv("MM")]
-  # elif defined(windows):
-  #   @["orc"]
   else:
     @["orc", "refc"]
 
@@ -257,16 +235,20 @@ proc test(env, path: string) =
   exec quoteArg(outputPath)
   echo "=== PASS " & label & " ==="
 
+# Directory names that are pruned at ANY depth during the Nim-file walk. These
+# hold no source we format but can contain huge generated trees (cargo `target/`
+# under the Rust example + test crates, cmake build dirs, Python venvs) that
+# would otherwise blow the NimScript VM iteration budget in `collectNimFiles`.
+const nphExcludedDirs = [
+  "nimbledeps", "vendor", "doc", "build", ".venv", ".git", "target", "cmake-build",
+  "cmake-build-asan", "node_modules", "__pycache__", ".mypy_cache",
+]
+
 proc isExcludedNimPath(path: string): bool =
-  let normalized = path.replace('\\', '/')
-  normalized == "nimbledeps" or normalized == "vendor" or normalized == "doc" or
-    normalized == "build" or normalized == ".venv" or normalized == ".git" or
-    normalized.startsWith("nimbledeps/") or normalized.startsWith("vendor/") or
-    normalized.startsWith("doc/") or normalized.startsWith("build/") or
-    normalized.startsWith(".venv/") or normalized.startsWith(".git/") or
-    normalized.startsWith("./nimbledeps/") or normalized.startsWith("./vendor/") or
-    normalized.startsWith("./doc/") or normalized.startsWith("./build/") or
-    normalized.startsWith("./.venv/") or normalized.startsWith("./.git/")
+  for part in path.replace('\\', '/').split('/'):
+    if part.len > 0 and part != "." and part in nphExcludedDirs:
+      return true
+  false
 
 proc isNphFile(path: string): bool =
   path.endsWith(".nim") or path.endsWith(".nimble")
@@ -335,8 +317,9 @@ task fetchVendor, "Initialize/update vendored third-party dependencies (git subm
 task test, "Run all single and multi-threaded broker tests":
   let tests = [
     "test_event_broker", "test_request_broker", "test_request_broker_sugar",
-    "test_request_broker_sync_void", "test_multi_request_broker", "test_broker_oop",
-    "test_broker_lifecycle",
+    "test_request_broker_sync_void", "test_multi_request_broker", "test_signal_broker",
+    "test_broker_oop", "test_broker_lifecycle", "test_broker_ctor_shapes",
+    "test_broker_interface_signal", "test_handler_sugar",
   ]
   for f in tests:
     for opt in [
@@ -349,7 +332,9 @@ task test, "Run all single and multi-threaded broker tests":
 
   let mtTests = [
     "test_multi_thread_request_broker", "test_multi_thread_event_broker",
-    "test_multi_thread_broker_configs", "test_mt_large_payload",
+    "test_multi_thread_signal_broker", "test_multi_thread_broker_configs",
+    "test_mt_large_payload", "test_mt_drop_async_eager", "test_alloc_race_variants",
+    "test_multi_thread_handler_sugar",
   ]
   for f in mtTests:
     for opt in [
@@ -358,13 +343,71 @@ task test, "Run all single and multi-threaded broker tests":
       "-d:nimUnittestOutputLevel:VERBOSE -d:release --mm:orc --threads:on",
       "-d:nimUnittestOutputLevel:VERBOSE -d:release --mm:refc --threads:on",
     ]:
-      if skipRefcOnWindows(opt, f):
-        continue
       test opt, f
 
+task testAllocRace,
+  "Regression gate: worker-thread teardown UAF reproducer, N trials per variant":
+  ## Repeated-run crash harness for the historical win+refc MT-broker UAF
+  ## (0xC0000005 at worker-thread exit; see teardownBrokerThread in
+  ## brokers/internal/mt_broker_common.nim). Before the teardown-sequence fix
+  ## the V1 variant crashed ~30% of runs on GitHub win runners under
+  ## refc+release, on every Nim 2.2.x. The gate runs each single-ingredient
+  ## variant from test/test_alloc_race_variants.nim solo (own process,
+  ## unittest2 positional glob), `trials` times, and fails on ANY crash.
+  ##
+  ## Piped output (gorgeEx) is intentional — it widens the race window far
+  ## beyond what a single console-attached CI run samples.
+  const
+    varFile = "test_alloc_race_variants"
+    varSuite = "alloc-race variants"
+    variants = [
+      "V1 worker provider, one worker requester",
+      "V2 main provider, three concurrent requesters",
+      "V3 worker provider, main-thread requester",
+      "V4 no provider, one error-path requester",
+      "V5 worker provider, worker requester + default-fail requester",
+      "V6 full original shape",
+    ]
+    trials = 40
+
+  proc buildBin(name, opt: string): string =
+    result = joinPath("build", "alloc_race_" & name).addFileExt(ExeExt)
+    exec "nim c " & opt & " --path:. --out:" & quoteArg(result) & " test/" & varFile &
+      ".nim"
+
+  proc runTrials(label, exePath, args: string): int =
+    ## Runs the binary `trials` times with `args`, returns crashed-run count.
+    for i in 1 .. trials:
+      let (outp, code) = gorgeEx(quoteArg(exePath) & args)
+      if code != 0:
+        inc result
+        echo "[" & label & "] trial " & $i & "/" & $trials & ": CRASH (exit code " &
+          $code & "), last output lines:"
+        let lines = outp.splitLines()
+        for l in lines[max(0, lines.len - 8) ..< lines.len]:
+          echo "    " & l
+
+  let exe = buildBin(
+    "refc_rel", "-d:nimUnittestOutputLevel:VERBOSE -d:release --mm:refc --threads:on"
+  )
+
+  var totalCrashes = 0
+  for v in variants:
+    let crashes = runTrials(v, exe, " " & quoteArg(varSuite & "::" & v))
+    totalCrashes += crashes
+    echo "TEARDOWN-GATE: " & v & ": " & $crashes & "/" & $trials & " crashed"
+  if totalCrashes > 0:
+    quit("TEARDOWN-GATE FAILED: " & $totalCrashes & " crashed trials", 1)
+  echo "TEARDOWN-GATE PASSED: 0 crashes across " & $(variants.len * trials) & " trials"
+
 task testSugarRejects, "Compile-fail tests: each test/reject/*.nim must NOT compile":
-  let rejects =
-    ["reject_mismatch", "reject_mixedname", "reject_dupzero", "reject_badret"]
+  let rejects = [
+    "reject_mismatch", "reject_mixedname", "reject_dupzero", "reject_badret",
+    "reject_signal_badmode", "reject_signal_nohandler", "reject_signal_badshape",
+    "reject_signal_duphandler", "reject_provideit_fallthrough",
+    "reject_provideit_loopend", "reject_provideit_partialif",
+    "reject_provideit_voidtrailing", "reject_provideit_multi",
+  ]
   for f in rejects:
     let (outp, code) = gorgeEx(
       "nim c --hints:off --path:. --outdir:build/reject test/reject/" & f & ".nim"
@@ -469,6 +512,45 @@ task perftestFfi, "FFI perftest from C++ (5×500×512B; orc + refc × debug + re
       exec "cmake --build test/ffibench/cmake-build --target perf_driver"
       exec "test/ffibench/build/perf_driver"
 
+task perftestInproc,
+  "In-proc Nim request baselines — single-thread + multi-thread vecRequest (5×500×512B; orc + refc × debug + release)":
+  ## Layered companion to `perftestFfi`. Same 5 × 500 × 512 B shape, but the
+  ## traffic stays in-process: ST = single-thread dispatch floor, MT =
+  ## cross-thread channel hop. Stack the boxes against the FFI request path
+  ## (CBOR + FFI ABI on top of the MT cost) to attribute where the time goes.
+  for mm in memoryManagerMatrix():
+    for releaseTag in ["debug", "release"]:
+      let release = releaseTag == "release"
+      echo "\n=== perftestInproc: --mm:" & mm & " (" & releaseTag & ") ==="
+      var flags = "--threads:on --path:. --outdir:build --mm:" & mm
+      if release:
+        flags.add(" -d:release")
+      exec "nim c -r " & flags & " test/ffibench/perf_inproc.nim"
+
+task perfOverhead,
+  "Same-thread RequestBroker dispatch overhead vs direct proc call + memory (sync/async, scalar+512B; orc + refc, release)":
+  ## Isolates the broker machinery cost: each row calls one shared impl, so
+  ## the only variable is the dispatch path (direct / sync broker / async
+  ## broker). Reports ns/call overhead vs the matching direct-call floor,
+  ## per-call allocation churn, and the static footprint of a registered
+  ## broker. Churn is mm-specific (refc shows garbage/call; ORC reclaims
+  ## inline ≈ 0), so the matrix is orc + refc, release only.
+  for mm in memoryManagerMatrix():
+    echo "\n=== perfOverhead: --mm:" & mm & " (release) ==="
+    exec "nim c -r -d:release --path:. --outdir:build --mm:" & mm &
+      " test/ffibench/perf_overhead.nim"
+
+task perfPhases,
+  "Phase-timed MT RequestBroker round-trip: inbound/handler/outbound wake legs + same-thread floor (orc + refc, release)":
+  ## Splits one cross-thread request into inbound (requester→provider wake),
+  ## handler (provider body), and outbound (provider→requester wake) using a
+  ## shared monotonic epoch. Same-thread row is the dispatch floor. Proves
+  ## where the ~110 µs round-trip actually goes.
+  for mm in memoryManagerMatrix():
+    echo "\n=== perfPhases: --mm:" & mm & " (release) ==="
+    exec "nim c -r -d:release --threads:on --path:. --outdir:build --mm:" & mm &
+      " test/ffibench/perf_phases.nim"
+
 task runFfiBenchEvent, "Build benchlib (release/orc) + bench_event_driver and run it":
   ## Part D-6 — captures the per-emit cost across four scenarios:
   ##   (a) no foreign subs, no nim listeners — atomic-counter fast path
@@ -486,8 +568,10 @@ task runFfiBenchEvent, "Build benchlib (release/orc) + bench_event_driver and ru
   exec "test/ffibench/build/bench_event_driver"
 
 task perftest, "Run performance and stress tests":
-  let mtTests =
-    ["perf_test_multi_thread_request_broker", "perf_test_multi_thread_event_broker"]
+  let mtTests = [
+    "perf_test_multi_thread_request_broker", "perf_test_multi_thread_event_broker",
+    "perf_test_multi_thread_signal_broker",
+  ]
   for f in mtTests:
     for opt in [
       "-d:nimUnittestOutputLevel:VERBOSE --mm:orc --threads:on",
@@ -495,13 +579,12 @@ task perftest, "Run performance and stress tests":
       "-d:nimUnittestOutputLevel:VERBOSE -d:release --mm:orc --threads:on",
       "-d:nimUnittestOutputLevel:VERBOSE -d:release --mm:refc --threads:on",
     ]:
-      if skipRefcOnWindows(opt, f):
-        continue
       test opt, f
 
 task testApi, "Run codec unit tests + library init integration tests":
-  # Codec round-trip tests (no FFI flags needed).
-  let codecTests = ["test_api_codec"]
+  # Codec round-trip tests + event-courier drop evidence (no FFI flags needed).
+  let codecTests =
+    ["test_api_codec", "test_api_table_codec", "test_api_event_drop_under_overload"]
   for f in codecTests:
     for opt in [
       "-d:nimUnittestOutputLevel:VERBOSE --mm:orc",
@@ -516,6 +599,8 @@ task testApi, "Run codec unit tests + library init integration tests":
   # NimMain symbols distinct.
   let apiTests = [
     ("test_api_library_init", "apitest"),
+    ("test_api_callAsync", "acbtest"),
+    ("test_api_signal_broker", "sigtest"),
     ("test_api_event_teardown_isolation", "cbevt"),
     ("test_api_discovery", "apidisc"),
     ("test_broker_interface_api", "brokerifaceapi"),
@@ -529,8 +614,6 @@ task testApi, "Run codec unit tests + library init integration tests":
       "-d:nimUnittestOutputLevel:VERBOSE -d:BrokerFfiApi -d:release --mm:orc --threads:on",
       "-d:nimUnittestOutputLevel:VERBOSE -d:BrokerFfiApi -d:release --mm:refc --threads:on",
     ]:
-      if skipRefcOnWindows(opt, f):
-        continue
       let extraOpt = nimMainPrefixFlag(prefix)
       test opt & extraOpt, f
 
@@ -713,6 +796,8 @@ proc buildPersistenceExampleLibrary(
     flags.add(" --mm:" & getEnv("MM"))
   else:
     flags.add(" --mm:orc")
+  if existsEnv("SRCGEN"):
+    flags.add(" -d:brokerDebug")
   if generatePy or existsEnv("GEN_PY"):
     flags.add(" -d:BrokerFfiApiGenPy")
   if generateRust or existsEnv("GEN_RUST"):
@@ -780,6 +865,10 @@ task runPersistenceExampleNim, "Build and run the pure-Nim persistence example":
     else:
       "orc"
   var flags = "--threads:on --path:. --outdir:build --mm:" & mm
+
+  if existsEnv("SRCGEN"):
+    flags.add(" -d:brokerDebug")
+
   exec "nim c -r " & flags & " examples/persistence/nim_example/main.nim"
 
 task runHierExamplePy,
@@ -971,7 +1060,10 @@ proc setSanitizerEnv(mode: string) =
       "symbolize=1:halt_on_error=1:second_deadlock_stack=1:history_size=4:exitcode=66"
     let supp = sanitizerSuppPath("tsan.supp")
     if fileExists(supp):
-      opts.add(":suppressions=" & supp)
+      # Single-quote the path: the sanitizer flag parser splits on ':', so an
+      # unquoted Windows drive letter ("D:\...") aborts the runtime with
+      # "expected '=' in TSAN_OPTIONS". Quotes are accepted on POSIX too.
+      opts.add(":suppressions='" & supp & "'")
     putEnv("TSAN_OPTIONS", opts)
     linuxSharedRuntimeOnPath("libclang_rt.tsan-x86_64.so")
   else: # asan / asanleak
@@ -989,12 +1081,15 @@ proc setSanitizerEnv(mode: string) =
     var ubopts = "print_stacktrace=1:halt_on_error=1"
     let usupp = sanitizerSuppPath("ubsan.supp")
     if fileExists(usupp):
-      ubopts.add(":suppressions=" & usupp)
+      # Single-quoted for the same Windows drive-letter reason as tsan above —
+      # this unquoted path is what failed every Windows Sanitizer CI cell with
+      # "AddressSanitizer: ERROR: expected '=' in UBSAN_OPTIONS".
+      ubopts.add(":suppressions='" & usupp & "'")
     putEnv("UBSAN_OPTIONS", ubopts)
     if leaks:
       let lsupp = sanitizerSuppPath("lsan.supp")
       if fileExists(lsupp):
-        putEnv("LSAN_OPTIONS", "suppressions=" & lsupp)
+        putEnv("LSAN_OPTIONS", "suppressions='" & lsupp & "'")
     linuxSharedRuntimeOnPath("libclang_rt.asan-x86_64.so")
 
 # Back-compat shims (pre-existing call sites + external dispatch references).
@@ -1047,8 +1142,6 @@ task testMtEventBrokerAsanOrc,
 
 task testMtEventBrokerAsanRefc,
   "Run multi-thread event broker tests under AddressSanitizer (clang, refc, debug)":
-  if skipRefcOnWindows("refc", "testMtEventBrokerAsanRefc"):
-    return
   testAsan("refc", "test_multi_thread_event_broker")
 
 task testMtRequestBrokerAsanOrc,
@@ -1057,8 +1150,6 @@ task testMtRequestBrokerAsanOrc,
 
 task testMtRequestBrokerAsanRefc,
   "Run multi-thread request broker tests under AddressSanitizer (clang, refc, debug)":
-  if skipRefcOnWindows("refc", "testMtRequestBrokerAsanRefc"):
-    return
   testAsan("refc", "test_multi_thread_request_broker")
 
 task testMtBrokerConfigsAsanOrc,
@@ -1067,9 +1158,15 @@ task testMtBrokerConfigsAsanOrc,
 
 task testMtBrokerConfigsAsanRefc,
   "Run multi-thread broker config showcase under AddressSanitizer (clang, refc, debug)":
-  if skipRefcOnWindows("refc", "testMtBrokerConfigsAsanRefc"):
-    return
   testAsan("refc", "test_multi_thread_broker_configs")
+
+task testMtSignalBrokerAsanOrc,
+  "Run multi-thread signal broker tests under AddressSanitizer (clang, orc, debug)":
+  testAsan("orc", "test_multi_thread_signal_broker")
+
+task testMtSignalBrokerAsanRefc,
+  "Run multi-thread signal broker tests under AddressSanitizer (clang, refc, debug)":
+  testAsan("refc", "test_multi_thread_signal_broker")
 
 # ---------------------------------------------------------------------------
 # ThreadSanitizer variants of the multi-thread broker tests. TSan is the
@@ -1083,8 +1180,6 @@ task testMtEventBrokerTsanOrc,
 
 task testMtEventBrokerTsanRefc,
   "Run multi-thread event broker tests under ThreadSanitizer (clang, refc, debug)":
-  if skipRefcOnWindows("refc", "testMtEventBrokerTsanRefc"):
-    return
   testSan("tsan", "refc", "test_multi_thread_event_broker")
 
 task testMtRequestBrokerTsanOrc,
@@ -1093,8 +1188,6 @@ task testMtRequestBrokerTsanOrc,
 
 task testMtRequestBrokerTsanRefc,
   "Run multi-thread request broker tests under ThreadSanitizer (clang, refc, debug)":
-  if skipRefcOnWindows("refc", "testMtRequestBrokerTsanRefc"):
-    return
   testSan("tsan", "refc", "test_multi_thread_request_broker")
 
 task testMtBrokerConfigsTsanOrc,
@@ -1103,9 +1196,15 @@ task testMtBrokerConfigsTsanOrc,
 
 task testMtBrokerConfigsTsanRefc,
   "Run multi-thread broker config showcase under ThreadSanitizer (clang, refc, debug)":
-  if skipRefcOnWindows("refc", "testMtBrokerConfigsTsanRefc"):
-    return
   testSan("tsan", "refc", "test_multi_thread_broker_configs")
+
+task testMtSignalBrokerTsanOrc,
+  "Run multi-thread signal broker tests under ThreadSanitizer (clang, orc, debug)":
+  testSan("tsan", "orc", "test_multi_thread_signal_broker")
+
+task testMtSignalBrokerTsanRefc,
+  "Run multi-thread signal broker tests under ThreadSanitizer (clang, refc, debug)":
+  testSan("tsan", "refc", "test_multi_thread_signal_broker")
 
 # ---------------------------------------------------------------------------
 # Sanitizer coverage for the FFI event-teardown isolation regression test
@@ -1120,9 +1219,25 @@ task testApiTeardownAsanOrc,
 
 task testApiTeardownAsanRefc,
   "Run FFI event-teardown isolation test under ASan+UBSan (clang, refc, debug)":
-  if skipRefcOnWindows("refc", "testApiTeardownAsanRefc"):
-    return
   testSan("asan", "refc", "test_api_event_teardown_isolation", teardownTestExtra)
+
+const signalApiTestExtra = "-d:BrokerFfiApi --nimMainPrefix:sigtest"
+
+task testApiSignalAsanOrc,
+  "Run FFI SignalBroker(API) slot-free _call test under ASan+UBSan (clang, orc, debug)":
+  testSan("asan", "orc", "test_api_signal_broker", signalApiTestExtra)
+
+task testApiSignalAsanRefc,
+  "Run FFI SignalBroker(API) slot-free _call test under ASan+UBSan (clang, refc, debug)":
+  testSan("asan", "refc", "test_api_signal_broker", signalApiTestExtra)
+
+task testApiSignalTsanOrc,
+  "Run FFI SignalBroker(API) slot-free _call test under ThreadSanitizer (clang, orc, debug)":
+  testSan("tsan", "orc", "test_api_signal_broker", signalApiTestExtra)
+
+task testApiSignalTsanRefc,
+  "Run FFI SignalBroker(API) slot-free _call test under ThreadSanitizer (clang, refc, debug)":
+  testSan("tsan", "refc", "test_api_signal_broker", signalApiTestExtra)
 
 task testApiTeardownTsanOrc,
   "Run FFI event-teardown isolation test under ThreadSanitizer (clang, orc, debug)":
@@ -1130,8 +1245,6 @@ task testApiTeardownTsanOrc,
 
 task testApiTeardownTsanRefc,
   "Run FFI event-teardown isolation test under ThreadSanitizer (clang, refc, debug)":
-  if skipRefcOnWindows("refc", "testApiTeardownTsanRefc"):
-    return
   testSan("tsan", "refc", "test_api_event_teardown_isolation", teardownTestExtra)
 
 # ---------------------------------------------------------------------------
@@ -1291,6 +1404,19 @@ task runTorpedoExamplePy,
   exec quoteArg(findPythonExe()) & " " &
     quoteArg("examples/torpedo/python_example/main.py")
 
+task demoEventDrop,
+  "Demo: drive the REAL threaded FFI route until the courier drops events + logs them":
+  # Build benchlib (the EventBroker(API) lib) so its generated emit handler —
+  # the actual production drop-warn call site — runs on a real processing
+  # thread, draining to a real delivery thread.
+  exec "nim c --hints:off -d:BrokerFfiApi --threads:on --app:lib --path:. " &
+    "--outdir:test/ffibench/build --mm:orc " &
+    "--nimMainPrefix:benchlib test/ffibench/benchlib.nim"
+  mkDir("test/ffibench/cmake-build")
+  exec "cmake -S test/ffibench -B test/ffibench/cmake-build"
+  exec "cmake --build test/ffibench/cmake-build --target stress_event_drop_overload"
+  exec "test/ffibench/build/stress_event_drop_overload"
+
 task nph, "Install nph if needed and format modified Nim files":
   runNph(changedNimFiles(), "No modified .nim or .nimble files to format")
 
@@ -1313,8 +1439,12 @@ task allAsan, "Run all tests under ASan+UBSan (clang, orc/refc, debug)":
   exec "nimble testMtRequestBrokerAsanRefc"
   exec "nimble testMtBrokerConfigsAsanOrc"
   exec "nimble testMtBrokerConfigsAsanRefc"
+  exec "nimble testMtSignalBrokerAsanOrc"
+  exec "nimble testMtSignalBrokerAsanRefc"
   exec "nimble testApiTeardownAsanOrc"
   exec "nimble testApiTeardownAsanRefc"
+  exec "nimble testApiSignalAsanOrc"
+  exec "nimble testApiSignalAsanRefc"
 
 task allTsan,
   "Run all multi-thread + FFI-teardown tests under ThreadSanitizer (orc/refc)":
@@ -1324,8 +1454,12 @@ task allTsan,
   exec "nimble testMtRequestBrokerTsanRefc"
   exec "nimble testMtBrokerConfigsTsanOrc"
   exec "nimble testMtBrokerConfigsTsanRefc"
+  exec "nimble testMtSignalBrokerTsanOrc"
+  exec "nimble testMtSignalBrokerTsanRefc"
   exec "nimble testApiTeardownTsanOrc"
   exec "nimble testApiTeardownTsanRefc"
+  exec "nimble testApiSignalTsanOrc"
+  exec "nimble testApiSignalTsanRefc"
 
 task allAsanLeak, "Run all tests under ASan+UBSan+LSan (Linux leak detection; orc/refc)":
   # LSan is Linux-only; on macOS/Windows these degrade to plain ASan+UBSan.

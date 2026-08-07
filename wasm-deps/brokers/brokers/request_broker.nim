@@ -156,7 +156,7 @@
 ## If no `signature` proc is declared, a zero-argument form is generated
 ## automatically, so the caller only needs to provide the type definition.
 
-import std/[macros, strutils]
+import std/[macros, strutils, options]
 from std/sequtils import keepItIf
 import chronos
 import results
@@ -174,7 +174,10 @@ when compileOption("threads") and defined(BrokerFfiApi):
   import ./internal/api_request_broker_cbor
   export api_request_broker_cbor
 
-export results, chronos, keepItIf, broker_context
+export results, chronos, keepItIf, broker_context, options
+# The generated provideIt/reprovideIt templates expand `providerBody` at the
+# user's call site, so the checker macro must be visible there.
+export providerBody
 
 proc errorFuture[T](message: string): Future[Result[T, string]] {.inline.} =
   ## Build a future that is already completed with an error result.
@@ -529,15 +532,6 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
       result.add(
         quote do:
           proc request*(
-              _: typedesc[`typeIdent`]
-          ): Future[Result[`payloadType`, string]] {.async: (raises: []).} =
-            return await request(`typeIdent`, DefaultBrokerContext)
-
-      )
-
-      result.add(
-        quote do:
-          proc request*(
               _: typedesc[`typeIdent`], brokerCtx: BrokerContext
           ): Future[Result[`payloadType`, string]] {.async: (raises: []).} =
             var provider: `zeroArgProviderName`
@@ -577,6 +571,17 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
                     "RequestBroker(" & `typeNameLit` & "): provider returned nil result"
                   )
             return providerRes
+
+      )
+
+      # Non-async pass-through forwarder (see the arg-based note): returns the
+      # keyed request's Future directly so no wrapper Future is allocated for
+      # the default-context call. `auto` preserves the keyed raises-typed
+      # Future so callers keep raises:[] tracking through `await`.
+      result.add(
+        quote do:
+          proc request*(_: typedesc[`typeIdent`]): auto {.inline, gcsafe, raises: [].} =
+            request(`typeIdent`, DefaultBrokerContext)
 
       )
     of rbSync:
@@ -711,32 +716,39 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
     for argName in argNameIdents:
       forwardCall.add(argName)
 
+    # The default-context forwarder is a non-async pass-through: it returns
+    # the keyed request's Future directly (no `await`), so the async lane
+    # allocates NO wrapper Future for `request(args)` — the caller's `await`
+    # drives the keyed Future straight through. For async modes the return
+    # type becomes `auto` so it inherits the keyed proc's raises-typed Future
+    # (InternalRaisesFuture[..., void]) and callers keep raises:[] tracking.
     var requestBody = newStmtList()
-    case mode
-    of rbAsync, rbMultiThread, rbApi:
-      requestBody.add(
-        quote do:
-          return await `forwardCall`
-      )
-    of rbSync:
-      requestBody.add(
-        quote do:
-          return `forwardCall`
-      )
+    requestBody.add(
+      quote do:
+        return `forwardCall`
+    )
+
+    var forwarderFormalParams = copyNimTree(formalParams)
+    let forwarderPragmas =
+      case mode
+      of rbAsync, rbMultiThread, rbApi:
+        forwarderFormalParams[0] = ident("auto")
+        quote:
+          {.inline, gcsafe, raises: [].}
+      of rbSync:
+        requestPragmas
 
     # Built now, but added to `result` only *after* the keyed variant below:
-    # the forwarder's body calls the keyed `request`, and in `sync` mode the
-    # body is sem-checked eagerly, so the keyed overload must already be
-    # declared (Nim has no forward references for overloaded routines). Async
-    # tolerates either order because the `async` macro reprocesses the body
-    # after the surrounding scope is fully populated.
+    # the forwarder's body calls the keyed `request`, so the keyed overload
+    # must already be declared (Nim has no forward references for overloaded
+    # routines, and the `auto` return needs the keyed proc's type resolved).
     let nonKeyedRequestProc = newTree(
       nnkProcDef,
       postfix(ident("request"), "*"),
       newEmptyNode(),
       newEmptyNode(),
-      formalParams,
-      requestPragmas,
+      forwarderFormalParams,
+      forwarderPragmas,
       newEmptyNode(),
       requestBody,
     )
@@ -954,6 +966,192 @@ proc generateRequestBroker(body: NimNode, mode: RequestBrokerMode): NimNode =
 
   )
 
+  # ── getCurrentProvider / replaceProvider ───────────────────────────
+  # Read the currently-installed provider closure (per ctx, per slot), and
+  # overwrite it without setProvider's "already set" guard. Together they let a
+  # test capture → mock → restore (see the generated `withMockProvider`). Two
+  # slots can coexist on one broker, so the zero-arg getter takes a distinct
+  # name (return-type-only overloads are illegal); `replaceProvider` overloads
+  # cleanly on the handler proc type.
+  if not zeroArgSig.isNil():
+    let zeroArgProvidersFieldName = ident("providersNoArgs")
+    result.add(
+      quote do:
+        proc getCurrentProviderNoArgs*(
+            _: typedesc[`typeIdent`], brokerCtx: BrokerContext
+        ): Option[`zeroArgProviderName`] =
+          var provider: `zeroArgProviderName`
+          if brokerCtx == DefaultBrokerContext:
+            provider = `accessProcIdent`().`zeroArgProvidersFieldName`[0].handler
+          else:
+            for entry in `accessProcIdent`().`zeroArgProvidersFieldName`:
+              if entry.brokerCtx == brokerCtx:
+                provider = entry.handler
+                break
+          if provider.isNil():
+            none(`zeroArgProviderName`)
+          else:
+            some(provider)
+
+        proc replaceProvider*(
+            _: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            handler: `zeroArgProviderName`,
+        ): Result[void, string] =
+          ## Replace-or-insert; unlike setProvider it never errors on an existing
+          ## entry. `default(handler-type)` clears the slot.
+          if brokerCtx == DefaultBrokerContext:
+            `accessProcIdent`().`zeroArgProvidersFieldName`[0].handler = handler
+            return ok()
+          for i in 0 ..< `accessProcIdent`().`zeroArgProvidersFieldName`.len:
+            if `accessProcIdent`().`zeroArgProvidersFieldName`[i].brokerCtx == brokerCtx:
+              `accessProcIdent`().`zeroArgProvidersFieldName`[i].handler = handler
+              return ok()
+          `accessProcIdent`().`zeroArgProvidersFieldName`.add(
+            (brokerCtx: brokerCtx, handler: handler)
+          )
+          ok()
+
+        template withMockProvider*(
+            t: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            mock: `zeroArgProviderName`,
+            body: untyped,
+        ): untyped =
+          ## Install `mock` for the duration of `body`, then restore the captured
+          ## provider (or clear it if none was set). Scoped, exception-safe.
+          let savedMockProvider = getCurrentProviderNoArgs(t, brokerCtx)
+          discard replaceProvider(t, brokerCtx, mock)
+          try:
+            body
+          finally:
+            if savedMockProvider.isSome:
+              discard replaceProvider(t, brokerCtx, savedMockProvider.get)
+            else:
+              clearProvider(t, brokerCtx)
+
+    )
+  if not argSig.isNil():
+    let argProvidersFieldName = ident("providersWithArgs")
+    result.add(
+      quote do:
+        proc getCurrentProvider*(
+            _: typedesc[`typeIdent`], brokerCtx: BrokerContext
+        ): Option[`argProviderName`] =
+          var provider: `argProviderName`
+          if brokerCtx == DefaultBrokerContext:
+            provider = `accessProcIdent`().`argProvidersFieldName`[0].handler
+          else:
+            for entry in `accessProcIdent`().`argProvidersFieldName`:
+              if entry.brokerCtx == brokerCtx:
+                provider = entry.handler
+                break
+          if provider.isNil():
+            none(`argProviderName`)
+          else:
+            some(provider)
+
+        proc replaceProvider*(
+            _: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            handler: `argProviderName`,
+        ): Result[void, string] =
+          ## Replace-or-insert; unlike setProvider it never errors on an existing
+          ## entry. `default(handler-type)` clears the slot.
+          if brokerCtx == DefaultBrokerContext:
+            `accessProcIdent`().`argProvidersFieldName`[0].handler = handler
+            return ok()
+          for i in 0 ..< `accessProcIdent`().`argProvidersFieldName`.len:
+            if `accessProcIdent`().`argProvidersFieldName`[i].brokerCtx == brokerCtx:
+              `accessProcIdent`().`argProvidersFieldName`[i].handler = handler
+              return ok()
+          `accessProcIdent`().`argProvidersFieldName`.add(
+            (brokerCtx: brokerCtx, handler: handler)
+          )
+          ok()
+
+        template withMockProvider*(
+            t: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            mock: `argProviderName`,
+            body: untyped,
+        ): untyped =
+          ## Install `mock` for the duration of `body`, then restore the captured
+          ## provider (or clear it if none was set). Scoped, exception-safe.
+          let savedMockProvider = getCurrentProvider(t, brokerCtx)
+          discard replaceProvider(t, brokerCtx, mock)
+          try:
+            body
+          finally:
+            if savedMockProvider.isSome:
+              discard replaceProvider(t, brokerCtx, savedMockProvider.get)
+            else:
+              clearProvider(t, brokerCtx)
+
+    )
+
+  # ── bind / rebind provider sugar (issue #42) ──────────────────────
+  # `bindProvider` = sugar for `setProvider`, `rebindProvider` = sugar for
+  # `replaceProvider`; both forward a class method (`self.send`) without the
+  # hand-written trampoline closure. The generated trampoline carries the
+  # provider proc type's exact pragma so it stays assignable.
+  block:
+    let awaitCall = mode != rbSync
+    let providerPragma = procTyPragma(makeProcType(returnType, @[], mode))
+    var slots: seq[BindSlot] = @[]
+    if not argSig.isNil():
+      slots.add(
+        BindSlot(
+          params: cloneParams(argParams),
+          returnType: copyNimTree(returnType),
+          pragma: providerPragma,
+        )
+      )
+    if not zeroArgSig.isNil():
+      slots.add(
+        BindSlot(
+          params: @[], returnType: copyNimTree(returnType), pragma: providerPragma
+        )
+      )
+    result.add(
+      buildBindTemplates(typeIdent, "setProvider", "bindProvider", slots, awaitCall)
+    )
+    result.add(
+      buildBindTemplates(
+        typeIdent, "replaceProvider", "rebindProvider", slots, awaitCall
+      )
+    )
+
+  # ── provideIt / reprovideIt body sugar ─────────────────────────────
+  # The block is the provider's real proc body with the declared signature arg
+  # names injected; `providerBody` rejects bodies that could silently fall
+  # through to err(""). Dual-slot brokers get distinct names per slot
+  # (`provideIt` = args slot, `provideItNoArgs` = zero-arg slot) — no
+  # `when compiles` slot-guessing, since an args-free body is valid for both.
+  block:
+    let providerPragma = procTyPragma(makeProcType(returnType, @[], mode))
+    let dualSlot = (not argSig.isNil()) and (not zeroArgSig.isNil())
+    if not argSig.isNil():
+      let slot = BindSlot(
+        params: cloneParams(argParams),
+        returnType: copyNimTree(returnType),
+        pragma: providerPragma,
+      )
+      result.add(buildProvideTemplates(typeIdent, "setProvider", "provideIt", slot))
+      result.add(
+        buildProvideTemplates(typeIdent, "replaceProvider", "reprovideIt", slot)
+      )
+    if not zeroArgSig.isNil():
+      let slot = BindSlot(
+        params: @[], returnType: copyNimTree(returnType), pragma: providerPragma
+      )
+      let provideName = if dualSlot: "provideItNoArgs" else: "provideIt"
+      let reprovideName = if dualSlot: "reprovideItNoArgs" else: "reprovideIt"
+      result.add(buildProvideTemplates(typeIdent, "setProvider", provideName, slot))
+      result.add(
+        buildProvideTemplates(typeIdent, "replaceProvider", reprovideName, slot)
+      )
+
   when defined(brokerDebug):
     writeBrokerDebug("RequestBroker", typeDisplayName, result, header = "mode=" & $mode)
     when defined(brokerDebugStdout):
@@ -1001,15 +1199,19 @@ macro RequestBroker*(args: varargs[untyped]): untyped =
   case m
   of rbMultiThread:
     when not compileOption("threads"):
-      macros.error("RequestBroker(mt) requires --threads:on. " &
-          "Compile with `--threads:on` to use multi-thread RequestBroker.")
+      macros.error(
+          "RequestBroker(mt) requires --threads:on. " &
+          "Compile with `--threads:on` to use multi-thread RequestBroker."
+      )
     else:
       let cfg = parseMtReqKwargs(split.kwargs)
       generateMtRequestBroker(body, cfg)
   of rbApi:
     when not compileOption("threads"):
-      macros.error("RequestBroker(API) requires --threads:on. " &
-          "Compile with `--threads:on` to use API RequestBroker.")
+      macros.error(
+          "RequestBroker(API) requires --threads:on. " &
+          "Compile with `--threads:on` to use API RequestBroker."
+      )
     else:
       when defined(BrokerFfiApi):
         # Validate kwargs at the outer macro for clear error origin,

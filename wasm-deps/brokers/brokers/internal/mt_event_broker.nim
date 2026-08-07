@@ -182,7 +182,7 @@ proc generateMtEventBroker*(
         `bucketName` = object
           brokerCtx: BrokerContext
           ring: ptr VyukovMpscRing[uint32]
-          listenerSignal: ThreadSignalPtr
+          listenerSignal: ptr BrokerSignalShared
           threadId: pointer
           threadGen: uint64 ## disambiguates reused threadvar addresses
           active: bool
@@ -482,11 +482,17 @@ proc generateMtEventBroker*(
   )
 
   # ── emit impl ─────────────────────────────────────────────────────────
+  # SYNC, for cross-lane shape parity with the single-thread EventBroker
+  # (whose public `emit` is also void). emit never awaits listener completion
+  # in any lane — same-thread listeners are asyncSpawn'd (fire-and-forget),
+  # cross-thread cells are marshalled + enqueued synchronously here. Keeping
+  # this a plain proc (not async) means the marshal/enqueue happens before
+  # `emit` returns — no deferral vs the previous async-but-await-free shape.
   result.add(
     quote do:
       proc `emitImplIdent`(
           brokerCtx: BrokerContext, event: `typeIdent`
-      ) {.async: (raises: []).} =
+      ) {.gcsafe, raises: [].} =
         `initProcIdent`()
 
         when compiles(event.isNil()):
@@ -496,7 +502,7 @@ proc generateMtEventBroker*(
 
         type CrossTarget = object
           ring: ptr VyukovMpscRing[uint32]
-          signal: ThreadSignalPtr
+          signal: ptr BrokerSignalShared
 
         var crossTargets: seq[CrossTarget] = @[]
         var hasSameThread = false
@@ -596,18 +602,19 @@ proc generateMtEventBroker*(
   )
 
   # ── Public emit ───────────────────────────────────────────────────────
+  # SYNC void, matching the single-thread EventBroker. See the emit-impl note.
   result.add(
     quote do:
-      proc emit*(event: `typeIdent`) {.async: (raises: []).} =
-        await `emitImplIdent`(DefaultBrokerContext, event)
+      proc emit*(event: `typeIdent`) =
+        `emitImplIdent`(DefaultBrokerContext, event)
 
-      proc emit*(_: typedesc[`typeIdent`], event: `typeIdent`) {.async: (raises: []).} =
-        await `emitImplIdent`(DefaultBrokerContext, event)
+      proc emit*(_: typedesc[`typeIdent`], event: `typeIdent`) =
+        `emitImplIdent`(DefaultBrokerContext, event)
 
       proc emit*(
           _: typedesc[`typeIdent`], brokerCtx: BrokerContext, event: `typeIdent`
-      ) {.async: (raises: []).} =
-        await `emitImplIdent`(brokerCtx, event)
+      ) =
+        `emitImplIdent`(brokerCtx, event)
 
   )
 
@@ -616,18 +623,8 @@ proc generateMtEventBroker*(
     let typedescParamType =
       newTree(nnkBracketExpr, ident("typedesc"), copyNimTree(typeIdent))
 
-    let asyncPragma = newTree(
-      nnkPragma,
-      newTree(
-        nnkExprColonExpr,
-        ident("async"),
-        newTree(
-          nnkTupleConstr,
-          newTree(nnkExprColonExpr, ident("raises"), newTree(nnkBracket)),
-        ),
-      ),
-    )
-
+    # SYNC ctor-emit overloads (parity with single-thread + the void public
+    # emit above): no async pragma, direct call to the sync emitImpl.
     var emitCtorParams = newTree(nnkFormalParams, newEmptyNode())
     emitCtorParams.add(
       newTree(nnkIdentDefs, ident("_"), typedescParamType, newEmptyNode())
@@ -652,8 +649,7 @@ proc generateMtEventBroker*(
 
     let emitCtorCallDefault =
       newCall(copyNimTree(emitImplIdent), ident("DefaultBrokerContext"), emitCtorExpr)
-    let emitCtorBodyDefault = quote:
-      await `emitCtorCallDefault`
+    let emitCtorBodyDefault = newStmtList(emitCtorCallDefault)
 
     let typedescEmitProcDefault = newTree(
       nnkProcDef,
@@ -661,7 +657,7 @@ proc generateMtEventBroker*(
       newEmptyNode(),
       newEmptyNode(),
       emitCtorParams,
-      copyNimTree(asyncPragma),
+      newEmptyNode(),
       newEmptyNode(),
       emitCtorBodyDefault,
     )
@@ -686,8 +682,7 @@ proc generateMtEventBroker*(
 
     let emitCtorCallCtx =
       newCall(copyNimTree(emitImplIdent), ident("brokerCtx"), copyNimTree(emitCtorExpr))
-    let emitCtorBodyCtx = quote:
-      await `emitCtorCallCtx`
+    let emitCtorBodyCtx = newStmtList(emitCtorCallCtx)
 
     let typedescEmitProcCtx = newTree(
       nnkProcDef,
@@ -695,13 +690,23 @@ proc generateMtEventBroker*(
       newEmptyNode(),
       newEmptyNode(),
       emitCtorParamsCtx,
-      copyNimTree(asyncPragma),
+      newEmptyNode(),
       newEmptyNode(),
       emitCtorBodyCtx,
     )
     result.add(typedescEmitProcCtx)
 
   # ── dropListener impl ─────────────────────────────────────────────────
+  # ┌──────────────────────────────────────────────────────────────────┐
+  # │ NO async / NO await in this impl body — keep it SUSPENSION-FREE.   │
+  # │ The public dropListener/dropAllListeners overloads are async only  │
+  # │ for cross-lane shape parity (single-thread is genuinely async).    │
+  # │ chronos runs an await-free async body eagerly, which is what keeps │
+  # │ FFI teardown + the Part D-3 dropAll hook correct even when the     │
+  # │ returned Future is discarded/unpolled. Adding an await here        │
+  # │ reintroduces the SubsRegistry-orphan regression.                   │
+  # │ See doc/design/DROP_ASYNC_EMIT_SYNC_PLAN.md §Risks (R2).            │
+  # └──────────────────────────────────────────────────────────────────┘
   result.add(
     quote do:
       proc `dropListenerImplIdent`(
@@ -748,13 +753,21 @@ proc generateMtEventBroker*(
   # Cross-thread: flips flag + pushes a CtrlClearListeners sentinel into
   # the bucket's ring so the listener thread clears its tvHandlers on
   # the next poll cycle.
+  # ┌──────────────────────────────────────────────────────────────────┐
+  # │ NO async / NO await in this impl body — keep it SUSPENSION-FREE.   │
+  # │ The public overload is async only for cross-lane shape parity.     │
+  # │ The Part D-3 dropAll hook fires at the TAIL of this body; an await │
+  # │ before it would defer the hook past return, so a discarded/        │
+  # │ unawaited Future would never decrement subsCount → phantom         │
+  # │ foreign-subscriber orphan bug. See DROP_ASYNC_EMIT_SYNC_PLAN §R2.  │
+  # └──────────────────────────────────────────────────────────────────┘
   result.add(
     quote do:
       proc `dropAllListenersImplIdent`(brokerCtx: BrokerContext) =
         `initProcIdent`()
 
         let myThreadId = currentMtThreadId()
-        var crossRings: seq[(ptr VyukovMpscRing[uint32], ThreadSignalPtr)] = @[]
+        var crossRings: seq[(ptr VyukovMpscRing[uint32], ptr BrokerSignalShared)] = @[]
 
         withLock(`globalLockIdent`):
           for i in 0 ..< `globalBucketCountIdent`:
@@ -801,22 +814,33 @@ proc generateMtEventBroker*(
   )
 
   # ── Public dropListener / dropAllListeners ────────────────────────────
+  # Async for cross-lane shape parity with the single-thread EventBroker
+  # (where drop genuinely awaits in-flight listener cancellation). The MT
+  # impls above are suspension-free, so these complete eagerly on first
+  # poll — the `await` is purely a uniform call-site contract. NOT
+  # `{.discardable.}`: callers must `await`, identical to single-thread.
   result.add(
     quote do:
-      proc dropListener*(_: typedesc[`typeIdent`], handle: `listenerHandleIdent`) =
+      proc dropListener*(
+          _: typedesc[`typeIdent`], handle: `listenerHandleIdent`
+      ): Future[void] {.async: (raises: []).} =
         `dropListenerImplIdent`(DefaultBrokerContext, handle)
 
       proc dropListener*(
           _: typedesc[`typeIdent`],
           brokerCtx: BrokerContext,
           handle: `listenerHandleIdent`,
-      ) =
+      ): Future[void] {.async: (raises: []).} =
         `dropListenerImplIdent`(brokerCtx, handle)
 
-      proc dropAllListeners*(_: typedesc[`typeIdent`]) =
+      proc dropAllListeners*(
+          _: typedesc[`typeIdent`]
+      ): Future[void] {.async: (raises: []).} =
         `dropAllListenersImplIdent`(DefaultBrokerContext)
 
-      proc dropAllListeners*(_: typedesc[`typeIdent`], brokerCtx: BrokerContext) =
+      proc dropAllListeners*(
+          _: typedesc[`typeIdent`], brokerCtx: BrokerContext
+      ): Future[void] {.async: (raises: []).} =
         `dropAllListenersImplIdent`(brokerCtx)
 
       proc `setDropAllHookIdent`*(
@@ -846,7 +870,8 @@ proc generateMtEventBroker*(
       ) {.async: (raises: []).} =
         let myThreadId = currentMtThreadId()
         let myThreadGen = currentMtThreadGen()
-        var ringsToShutdown: seq[(ptr VyukovMpscRing[uint32], ThreadSignalPtr)] = @[]
+        var ringsToShutdown: seq[(ptr VyukovMpscRing[uint32], ptr BrokerSignalShared)] =
+          @[]
         withLock(`globalLockIdent`):
           var i = 0
           while i < `globalBucketCountIdent`:
@@ -928,6 +953,23 @@ proc generateMtEventBroker*(
         await `shutdownProcessLoopsForCtxIdent`(brokerCtx)
 
   )
+
+  # ── bind listener sugar (issue #42) ───────────────────────────────
+  # `bindListener` = sugar for `listen`. The MT listener proc type always takes
+  # the event value (`proc(event: T): Future[void] {.async: (raises: []),
+  # gcsafe.}`), so the trampoline forwards it unconditionally.
+  block:
+    let listenerProcTy = quote:
+      proc(event: `typeIdent`): Future[void] {.async: (raises: []), gcsafe.}
+    let slot = BindSlot(
+      params:
+        @[newTree(nnkIdentDefs, ident("event"), copyNimTree(typeIdent), newEmptyNode())],
+      returnType: futureVoidTy(),
+      pragma: procTyPragma(listenerProcTy),
+    )
+    result.add(
+      buildBindTemplates(typeIdent, "listen", "bindListener", @[slot], awaitCall = true)
+    )
 
   when defined(brokerDebug):
     writeBrokerDebug("EventBrokerMt", typeDisplayName, result)

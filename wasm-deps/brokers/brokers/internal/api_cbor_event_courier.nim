@@ -34,7 +34,7 @@
 
 {.push raises: [].}
 
-import std/locks
+import std/[locks, monotimes]
 
 const CborEventNameMax* = 256
   ## Inline fixed-size buffer for the ASCII event name carried in a
@@ -69,12 +69,92 @@ type
     count: int ## guarded by `lock`
     lock: Lock
 
+  CborEventDropAccount* = object
+    ## Throttle state for the "events dropped on a full ring" warn log.
+    ## Touched ONLY by the producer (the single processing thread that runs
+    ## the generated emit handler) — both when a drop is recorded and when the
+    ## courier is constructed. That single-thread invariant (the same one the
+    ## emit path already relies on) is why no lock guards these fields.
+    totalDropped*: int64 ## cumulative dropped since courier creation
+    sinceLastLog*: int64 ## dropped since the last emitted log line
+    nextCountThreshold*: int64 ## count that triggers the next count-based line
+    lastLogMonoMs*: int64 ## monotonic ms of the last emitted line (0 = never)
+    everLogged*: bool ## has any line been emitted yet (first-drop guard)
+
   CborEventCourier* = object
     ## One per library context. Lives in shared heap; created in
     ## `_createContext`, freed in `_shutdown` **after both threads have
     ## joined**. The teardown sequence drains any messages still in the
     ## ring (freeing their `buf`s) before deallocating the ring storage.
     ring*: CborEventRing
+    dropAccount*: CborEventDropAccount ## producer-thread-only; see above
+
+# ---------------------------------------------------------------------------
+# Drop diagnostics — throttled accounting for events dropped on a full ring.
+#
+# The decision of WHETHER to log lives here (pure, single-threaded, testable);
+# the actual `warn` is emitted by the generated caller in `api_library.nim`,
+# which owns the chronicles topic and the event name. The cadence is:
+#   * the FIRST drop ever always logs, then
+#   * a geometric count backoff (1, 10, 100, 1000 … drops since the last line),
+#   * plus a periodic floor so a steady stall keeps reporting on a timer.
+# ---------------------------------------------------------------------------
+
+const
+  CborEventDropLogPeriodMs* = 5000'i64
+    ## Once a drop episode is underway, emit at most one line per this period…
+  CborEventDropFirstThreshold* = 10'i64
+    ## …or sooner, once this many drops accrue since the last line…
+  CborEventDropThresholdGrow* = 10'i64
+    ## …with the count threshold multiplied by this each time it fires.
+  CborEventDropMaxThreshold* = 1_000_000'i64
+    ## Ceiling so the geometric backoff can't outgrow int64-sane spacing.
+
+proc initCborEventDropAccount*(): CborEventDropAccount =
+  ## A fresh account. `allocShared0` zeroes the courier, so the only field that
+  ## must start non-zero is the first count threshold.
+  CborEventDropAccount(nextCountThreshold: CborEventDropFirstThreshold)
+
+proc monoNowMs*(): int64 {.gcsafe.} =
+  ## Monotonic clock in milliseconds; used only to space out drop logs, so the
+  ## epoch is irrelevant — only differences matter. `ticks` is nanoseconds.
+  getMonoTime().ticks div 1_000_000
+
+proc recordDrop*(
+    acct: var CborEventDropAccount,
+    nowMonoMs: int64,
+    totalOut: var int64,
+    sinceOut: var int64,
+): bool =
+  ## Record one dropped event and decide whether the caller should emit a warn
+  ## line now. Returns true on: the first drop ever, every time the growing
+  ## count threshold is crossed, or once `CborEventDropLogPeriodMs` has elapsed
+  ## since the last line. On a true result `totalOut`/`sinceOut` carry the
+  ## numbers to print and the throttle state is advanced.
+  inc acct.totalDropped
+  inc acct.sinceLastLog
+  let firstEver = not acct.everLogged
+  let countHit = acct.sinceLastLog >= acct.nextCountThreshold
+  let timeHit =
+    acct.everLogged and (nowMonoMs - acct.lastLogMonoMs) >= CborEventDropLogPeriodMs
+  if not (firstEver or countHit or timeHit):
+    return false
+  totalOut = acct.totalDropped
+  sinceOut = acct.sinceLastLog
+  acct.everLogged = true
+  acct.lastLogMonoMs = nowMonoMs
+  acct.sinceLastLog = 0
+  if countHit:
+    acct.nextCountThreshold = min(
+      acct.nextCountThreshold * CborEventDropThresholdGrow, CborEventDropMaxThreshold
+    )
+  true
+
+func ringCap*(c: ptr CborEventCourier): int =
+  ## Current ring capacity — exposed for the drop-diagnostic log (the ring's
+  ## fields are otherwise private). Read-only; not a thread-safe snapshot, but
+  ## `cap` only ever grows and the value is for human-readable context.
+  c.ring.cap
 
 # ---------------------------------------------------------------------------
 # Lifecycle
@@ -94,6 +174,7 @@ proc newCborEventCourier*(ringCap: int): ptr CborEventCourier =
   c.ring.tail = 0
   c.ring.count = 0
   initLock(c.ring.lock)
+  c.dropAccount = initCborEventDropAccount()
   c
 
 proc drainAndFree*(c: ptr CborEventCourier) =

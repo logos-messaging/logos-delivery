@@ -33,6 +33,9 @@ type
     isArray*: bool ## true when nimType is "array[N, T]"
     arraySize*: int ## e.g. 3 for array[3, int32]
     arrayElementType*: string ## e.g. "int32" for array[3, int32]
+    isTable*: bool ## true when nimType is "Table[K, V]"
+    tableKeyType*: string ## e.g. "int32" for Table[int32, DeviceInfo]
+    tableValueType*: string ## e.g. "DeviceInfo" for Table[int32, DeviceInfo]
     isCustomObject*: bool ## true when type resolves to an object (not primitive)
 
   ApiTypeEntry* = object ## A registered type in the FFI schema.
@@ -133,6 +136,28 @@ proc resolveUnderlyingType*(name: string): string {.compileTime.} =
     inc depth
   current
 
+proc effectiveResponsePayload*(name: string): string {.compileTime.} =
+  ## The Nim type a request RESPONSE should actually surface. A proc-sugar broker
+  ## registers its verb name as a `distinct` alias of the payload (`Send =
+  ## distinct RequestId`, `StartDiscv5 = distinct bool`, `ConnectedPeers =
+  ## distinct seq[string]`). That synthetic name is noise — unwrap it to the
+  ## meaningful payload:
+  ##   - a registered named type (alias / distinct / object / enum): the payload
+  ##     the user wrote — `RequestId`, `RowData`, `StoreQueryResponse`. So
+  ##     `send(): Result[RequestId]` surfaces `Result<RequestId>`, reusing the
+  ##     emitted `RequestId` alias instead of a duplicate `Send` one.
+  ##   - a bare Nim primitive: `bool`, `int32` — `Result<bool>`.
+  ##   - an ANONYMOUS container (`seq[string]`, not a registered name): keep the
+  ##     synthetic name (`ConnectedPeers`), the only handle for that type.
+  ## Returns `name` unchanged when there is nothing better to use. Applied only to
+  ## response-type names — field aliases (`ContentTopic`) keep their own alias.
+  if isTypeRegistered(name):
+    let e = lookupTypeEntry(name)
+    if e.kind in {atkAlias, atkDistinct} and
+        (isTypeRegistered(e.underlyingType) or isNimPrimitive(e.underlyingType)):
+      return e.underlyingType
+  name
+
 # ---------------------------------------------------------------------------
 # Type node inspection helpers
 # ---------------------------------------------------------------------------
@@ -149,6 +174,21 @@ proc isArrayType*(nimType: NimNode): bool {.compileTime.} =
   ## Returns true if the type node represents `array[N, T]`.
   nimType.kind == nnkBracketExpr and nimType.len == 3 and
     ($nimType[0]).toLowerAscii() == "array"
+
+proc isTableType*(nimType: NimNode): bool {.compileTime.} =
+  ## Returns true if the type node represents `Table[K, V]`.
+  nimType.kind == nnkBracketExpr and nimType.len == 3 and
+    ($nimType[0]).toLowerAscii() == "table"
+
+const allowedTableKeyPrimitives* = ["string", "int8", "int16", "int32", "int64", "char"]
+  ## Primitive key types that round-trip across the FFI text-key wire format.
+  ## Deliberately excludes platform-width `int`/`uint`, `bool`, and `float`
+  ## (see doc/design/ASSOC_CONTAINERS_PLAN.md). Enum and distinct-of-scalar keys are
+  ## validated against the registry by api_type_resolver.
+
+proc isAllowedTableKeyPrimitive*(typeName: string): bool {.compileTime.} =
+  ## True if `typeName` is a primitive permitted as a Table key.
+  typeName.toLowerAscii() in allowedTableKeyPrimitives
 
 proc arraySize*(nimType: NimNode): int {.compileTime.} =
   ## Extracts N from `array[N, T]`. Expects an int literal.
@@ -186,7 +226,28 @@ proc makeFieldDef*(name, nimType: string): ApiFieldDef {.compileTime.} =
       except ValueError:
         result.arraySize = 0
       result.arrayElementType = inner[commaPos + 1 .. ^1].strip()
-  if not isNimPrimitive(nimType) and not result.isSeq and not result.isArray:
+  elif lower.startsWith("table[") and lower.endsWith("]"):
+    # Parse "Table[K, V]". K is always a scalar (no nested commas), so the
+    # first top-level comma separates key from value. The value may itself be
+    # a composite (seq[..], array[N, T], Table[..]) carrying its own commas.
+    let inner = nimType[6 ..^ 2] # strip "Table[" and "]"
+    var depth = 0
+    for i in 0 ..< inner.len:
+      case inner[i]
+      of '[', '(':
+        inc depth
+      of ']', ')':
+        dec depth
+      of ',':
+        if depth == 0:
+          result.isTable = true
+          result.tableKeyType = inner[0 ..< i].strip()
+          result.tableValueType = inner[i + 1 .. ^1].strip()
+          break
+      else:
+        discard
+  if not isNimPrimitive(nimType) and not result.isSeq and not result.isArray and
+      not result.isTable:
     result.isCustomObject = true
 
 proc makeTypeEntry*(

@@ -549,6 +549,34 @@ proc fmtReqCfgSummary*(typeName: string, cfg: MtReqCfg): string =
     ", slab≈" & fmtBytes(est.slab) & ", respPool≈" & fmtBytes(est.respPool) &
     ", total≈" & fmtBytes(est.total)
 
+# ---------------------------------------------------------------------------
+# SignalBroker(mt) config — identical shape to MtEvtCfg (a signal is
+# fire-and-forget with no response path, exactly like an event on the wire).
+# The capacity knobs, presets, and type-driven sizing are shared with the
+# EventBroker machinery; only the diagnostic label differs.
+# ---------------------------------------------------------------------------
+
+type MtSigCfg* = MtEvtCfg ## Resolved SignalBroker(mt) capacity config.
+
+proc defaultMtSigCfg*(): MtSigCfg =
+  defaultMtEvtCfg()
+
+const ValidSigKwargs* = ValidEvtKwargs
+
+proc parseMtSigKwargs*(kwargs: openArray[NimNode]): MtSigCfg =
+  ## SignalBroker(mt) accepts the same capacity kwargs / presets as
+  ## EventBroker(mt). See `parseMtEvtKwargs` for order-of-application rules.
+  parseMtEvtKwargs(kwargs)
+
+proc fmtSigCfgSummary*(typeName: string, cfg: MtSigCfg): string =
+  let est = estEvtIdleBytes(cfg)
+  "[brokers] SignalBroker(" & typeName & "): " & "queueDepth=" & $cfg.queueDepth & " [" &
+    cfg.queueDepthOrigin & "], " & "slabCapacity=" & $cfg.slabCapacity & " [" &
+    cfg.slabCapacityOrigin & "], " & "maxPayloadBytes=" & $cfg.maxPayloadBytes & " [" &
+    cfg.maxPayloadBytesOrigin & "], freeListShards=" & $cfg.freeListShards & " [" &
+    cfg.freeListShardsOrigin & "] — idle RAM: ring≈" & fmtBytes(est.ring) &
+    ", slab≈" & fmtBytes(est.slab) & ", total≈" & fmtBytes(est.total)
+
 proc parseMtReqKwargs*(kwargs: openArray[NimNode]): MtReqCfg =
   ## See `parseMtEvtKwargs` for order-of-application rules.
   result = defaultMtReqCfg()

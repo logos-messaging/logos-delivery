@@ -30,8 +30,9 @@ import results
 import cbor_serialization
 import cbor_serialization/[reader_impl, writer]
 import cbor_serialization/std/options as cbor_options
+import ./api_cbor_tables as cbor_tables
 
-export results, cbor_serialization, cbor_options
+export results, cbor_serialization, cbor_options, cbor_tables
 
 # ---------------------------------------------------------------------------
 # Flavor

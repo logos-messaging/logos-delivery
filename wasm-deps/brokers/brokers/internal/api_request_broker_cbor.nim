@@ -83,20 +83,48 @@ proc registerCborObjectType*(
 proc registerCborPrimitiveType*(
     typeName: string, parsed: ParsedBrokerType
 ) {.compileTime.} =
-  ## Register a primitive (non-object) broker type — `type X = int32` — as a
-  ## distinct alias of its underlying primitive. Wrapper codegen then emits a
-  ## `using X = <prim>` alias and treats X as an emittable scalar payload (the
-  ## CBOR wire value is a bare scalar, not a map). A no-op for non-primitive
-  ## non-object types, which stay TODO-stubbed in the wrappers.
+  ## Register a scalar (non-object) broker type — `type X = int32`, or a
+  ## proc-sugar `proc f(): Result[RequestId]` whose payload is a registered
+  ## alias/distinct — as a distinct alias of its underlying type. Wrapper
+  ## codegen then emits a `using X = <prim>` alias and treats X as an emittable
+  ## scalar payload (the CBOR wire value is a bare scalar, not a map). A no-op
+  ## for payloads that don't resolve to a primitive, which stay TODO-stubbed.
   if isTypeRegistered(typeName):
     return
   if parsed.objectDef.kind == nnkDistinctTy and parsed.objectDef.len == 1 and
-      parsed.objectDef[0].kind == nnkIdent and isNimPrimitive($parsed.objectDef[0]) and
+      parsed.objectDef[0].kind == nnkIdent and
       ($parsed.objectDef[0]).toLowerAscii() notin ["cstring"]:
-    # `string` is allowed (maps to the wrapper's native string type) so a POD /
-    # option-B `string`-payload request is emittable; `cstring` stays excluded
+    let base = $parsed.objectDef[0]
+    # Register when the payload is a Nim primitive OR a registered alias/distinct
+    # that resolves to one. The proc-sugar case (`proc send(): Result[RequestId]`,
+    # `RequestId = distinct string`) is the second arm: `RequestId` is already in
+    # the registry (autoRegisterApiType ran in the typed phase for the response
+    # type), so `resolveUnderlyingType` chains `X -> RequestId -> string` at
+    # codegen and `isScalarPayload` accepts it. A base that resolves to a
+    # non-primitive (object / seq / unmapped) stays TODO-stubbed — no regression.
+    # `string` is allowed (native string in every wrapper); `cstring` is excluded
     # (unsafe to marshal across the FFI/CBOR boundary).
-    registerTypeEntry(makeAliasEntry(typeName, $parsed.objectDef[0], atkDistinct))
+    #
+    # `isTypeRegistered(base)` is the third arm: a proc-sugar broker returning a
+    # registered OBJECT / enum (`proc storeQuery(): Result[StoreQueryResponse]`).
+    # The response object is registered in the typed phase (now that the return
+    # type is scanned), so alias the broker name to it — codegen emits
+    # `using StoreQuery = StoreQueryResponse;` and isScalarPayload (full mapper)
+    # accepts it.
+    if isNimPrimitive(base) or isAliasOrDistinctRegistered(base) or
+        isTypeRegistered(base):
+      registerTypeEntry(makeAliasEntry(typeName, base, atkDistinct))
+  elif parsed.objectDef.kind == nnkDistinctTy and parsed.objectDef.len == 1 and
+      parsed.objectDef[0].kind == nnkBracketExpr:
+    # Container payload — proc-sugar `proc connectedPeers(): Result[seq[string]]`
+    # (`seq[T]`, `array[N, T]`, …). Store the bracket type verbatim as the
+    # underlying; the per-language mapper resolves `seq[string]` /
+    # `seq[ContentTopic]` to `std::vector<...>` / `list[...]` / `Vec<...>` /
+    # `[]...` at codegen. A container whose element doesn't map stays
+    # TODO-stubbed (the mapper returns "").
+    registerTypeEntry(
+      makeAliasEntry(typeName, parsed.objectDef[0].repr.strip(), atkDistinct)
+    )
 
 # ---------------------------------------------------------------------------
 # Adapter proc type — exposed so registerBrokerLibrary (CBOR mode) can

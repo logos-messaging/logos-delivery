@@ -23,8 +23,14 @@
 
 import std/strutils
 import chronos, results
-import brokers/[event_broker, request_broker, broker_context]
+import brokers/broker_context
 import brokers/internal/mt_codec
+when compileOption("threads"):
+  # Import-time fatal, not call-time: both macros carry a
+  # `when not compileOption("threads"): {.error.}` inside their own body, so
+  # these modules cannot even be semchecked threads-off. Gating the macro calls
+  # below is therefore not enough — the imports have to go too.
+  import brokers/[event_broker, request_broker]
 import ./types
 
 export broker_context
@@ -131,47 +137,75 @@ proc mtUnmarshalValue*(
     value = TxOp(category: category, key: key, kind: txDeletePrefix)
   return true
 
-EventBroker(mt):
-  type PersistEvent* = object
-    ops*: seq[TxOp]
+when compileOption("threads"):
+  # Native: cross-thread persistency brokers.
+  EventBroker(mt):
+    type PersistEvent* = object
+      ops*: seq[TxOp]
 
-RequestBroker(mt):
-  type KvGet* = object
-    value*: Opt[seq[byte]]
+  RequestBroker(mt):
+    type KvGet* = object
+      value*: Opt[seq[byte]]
 
-  proc signature*(category: string, key: Key): Future[Result[KvGet, string]] {.async.}
+    proc signature*(category: string, key: Key): Future[Result[KvGet, string]] {.async.}
 
-RequestBroker(mt):
-  type KvExists* = object
-    value*: bool
+  RequestBroker(mt):
+    type KvExists* = object
+      value*: bool
 
-  proc signature*(
-    category: string, key: Key
-  ): Future[Result[KvExists, string]] {.async.}
+    proc signature*(
+      category: string, key: Key
+    ): Future[Result[KvExists, string]] {.async.}
 
-RequestBroker(mt):
-  type KvScan* = object
-    rows*: seq[KvRow]
+  RequestBroker(mt):
+    type KvScan* = object
+      rows*: seq[KvRow]
 
-  proc signature*(
-    category: string, range: KeyRange, reverse: bool
-  ): Future[Result[KvScan, string]] {.async.}
+    proc signature*(
+      category: string, range: KeyRange, reverse: bool
+    ): Future[Result[KvScan, string]] {.async.}
 
-RequestBroker(mt):
-  type KvCount* = object
-    n*: int
+  RequestBroker(mt):
+    type KvCount* = object
+      n*: int
 
-  proc signature*(
-    category: string, range: KeyRange
-  ): Future[Result[KvCount, string]] {.async.}
+    proc signature*(
+      category: string, range: KeyRange
+    ): Future[Result[KvCount, string]] {.async.}
 
-RequestBroker(mt):
-  type KvDelete* = object
-    existed*: bool
+  RequestBroker(mt):
+    type KvDelete* = object
+      existed*: bool
 
-  proc signature*(
-    category: string, key: Key
-  ): Future[Result[KvDelete, string]] {.async.}
+    proc signature*(
+      category: string, key: Key
+    ): Future[Result[KvDelete, string]] {.async.}
+
+else:
+  # Browser/wasm (no persistence): brokers' RequestBroker/EventBroker macros do
+  # NOT compile threads-off — their mt-branch `{.error.}` breaks the macro's
+  # case-expression even when `async` mode is requested. So omit the broker
+  # machinery entirely and define just the response TYPES the persistency facade
+  # references. They are never driven; the facade's threads-off path must
+  # short-circuit before touching any broker provider/request.
+  type
+    PersistEvent* = object
+      ops*: seq[TxOp]
+
+    KvGet* = object
+      value*: Opt[seq[byte]]
+
+    KvExists* = object
+      value*: bool
+
+    KvScan* = object
+      rows*: seq[KvRow]
+
+    KvCount* = object
+      n*: int
+
+    KvDelete* = object
+      existed*: bool
 
 # ── string<->PersistencyError boundary helpers ──────────────────────────
 

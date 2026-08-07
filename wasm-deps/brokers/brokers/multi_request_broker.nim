@@ -107,6 +107,9 @@ import ./broker_context
 import ./internal/broker_debug
 
 export results, chronos, broker_context
+# The generated provideIt templates expand `providerBody` at the user's call
+# site, so the checker macro must be visible there.
+export providerBody
 
 proc isReturnTypeValid(returnType, typeIdent: NimNode): bool =
   ## Accept Future[Result[TypeIdent, string]] as the contract.
@@ -739,6 +742,59 @@ macro MultiRequestBroker*(body: untyped): untyped =
             removeProvider(`typeIdent`, DefaultBrokerContext, `removeHandleDefaultSym`)
 
       )
+
+  # ── bind provider sugar (issue #42) ───────────────────────────────
+  # Additive `bindProvider` = sugar for the additive `setProvider`. No rebind
+  # (MultiRequestBroker providers are additive — there is no replace verb).
+  # Always async; the trampoline carries the provider proc type's pragma.
+  block:
+    let providerPragma = procTyPragma(makeProcType(returnType, @[]))
+    var slots: seq[BindSlot] = @[]
+    if not argSig.isNil():
+      slots.add(
+        BindSlot(
+          params: cloneParams(argParams),
+          returnType: copyNimTree(returnType),
+          pragma: providerPragma,
+        )
+      )
+    if not zeroArgSig.isNil():
+      slots.add(
+        BindSlot(
+          params: @[], returnType: copyNimTree(returnType), pragma: providerPragma
+        )
+      )
+    result.add(
+      buildBindTemplates(
+        typeIdent, "setProvider", "bindProvider", slots, awaitCall = true
+      )
+    )
+
+  # ── provideIt body sugar ──────────────────────────────────────────
+  # `provideIt` = body sugar for the additive `setProvider`: the block is the
+  # provider's real proc body with the declared signature arg names injected,
+  # and returns `setProvider`'s `Result[<T>ProviderHandle, string]` (keep the
+  # handle to `removeProvider` later). No `reprovideIt` — providers are
+  # additive, there is no replace verb; each `provideIt` ADDS a provider (the
+  # generated closure is always a fresh reference, so it never dedups). Dual-
+  # slot brokers get `provideItNoArgs` for the zero-arg slot. `providerBody`
+  # rejects a body that could silently fall through to err("").
+  block:
+    let providerPragma = procTyPragma(makeProcType(returnType, @[]))
+    let dualSlot = (not argSig.isNil()) and (not zeroArgSig.isNil())
+    if not argSig.isNil():
+      let slot = BindSlot(
+        params: cloneParams(argParams),
+        returnType: copyNimTree(returnType),
+        pragma: providerPragma,
+      )
+      result.add(buildProvideTemplates(typeIdent, "setProvider", "provideIt", slot))
+    if not zeroArgSig.isNil():
+      let slot = BindSlot(
+        params: @[], returnType: copyNimTree(returnType), pragma: providerPragma
+      )
+      let provideName = if dualSlot: "provideItNoArgs" else: "provideIt"
+      result.add(buildProvideTemplates(typeIdent, "setProvider", provideName, slot))
 
   when defined(brokerDebug):
     writeBrokerDebug("MultiRequestBroker", sanitized, result)

@@ -25,6 +25,33 @@ export api_schema
 export api_outdir
 
 # ---------------------------------------------------------------------------
+# FFI response status codes — single source of truth
+# ---------------------------------------------------------------------------
+#
+# The `status` field delivered on every `_call` / `_callAsync` response, plus
+# the `-6` EAGAIN return of `_callAsync`, is one wire-level code space decoded
+# identically by every generated wrapper. Define it ONCE here: the Nim runtime
+# uses these consts directly, and each codegen interpolates the numeric value
+# into the wrapper it emits, so a code can never drift between languages.
+#
+# The per-function argument-validation returns (-1/-2/-3/-5/-7) are deliberately
+# NOT part of this space — they are function-local (e.g. the same -1 flags a
+# different NULL argument in different entry points), so a shared name would
+# misrepresent them.
+const
+  ApiStatusOk* = 0'i32 ## success
+  ApiStatusUnknownApi* = -4'i32 ## apiName not registered; payload is a UTF-8 message
+  ApiStatusAgain* = -6'i32 ## async window full (EAGAIN backpressure) — retry later
+  ApiStatusProviderErr* = -10'i32
+    ## provider/dispatch or internal failure (e.g. serialization)
+  ApiStatusShutdown* = -11'i32 ## context shut down before the response was delivered
+  ApiStatusTimeout* = -12'i32 ## async dispatch exceeded its timeoutMs
+  ApiStatusOneWay* = -13'i32
+    ## `<lib>_callAsync` was invoked on a one-way signal name — signals carry no
+    ## response, so a completion callback would deliver nothing not already known
+    ## synchronously. Use the (slot-free) `<lib>_call` for signals.
+
+# ---------------------------------------------------------------------------
 # Library name accumulator
 # ---------------------------------------------------------------------------
 
@@ -120,6 +147,42 @@ proc registerCborEventEntry*(apiName, typeName: string) {.compileTime.} =
           "Each EventBroker(API) must have a unique event type name."
       )
   gApiCborEventEntries.add(CborEventEntry(apiName: apiName, typeName: typeName))
+
+type CborSignalEntry* = object
+  ## A `SignalBroker(API)` entry. A signal is one-way: `<lib>_call` enqueues
+  ## the payload and returns immediately (no response slot, no round trip);
+  ## `<lib>_callAsync` rejects it. A DISTINCT accumulator from
+  ## `CborRequestEntry` — the empty-responseTypeName sentinel already means
+  ## "skip" in hpp codegen, so signals must not reuse that shape.
+  apiName*: string ## Wire name foreign callers pass to `<lib>_call`.
+  adapterProc*: string ## Identifier of the generated signal adapter proc.
+  typeName*: string ## Nim type identifier for the signal payload.
+
+var gApiCborSignalEntries* {.compileTime.}: seq[CborSignalEntry] = @[]
+  ## Accumulated by `SignalBroker(API)` expansions. `registerBrokerLibrary`
+  ## reads this list to wire the slot-free `<lib>_call` signal path and the
+  ## per-language `signal_<name>()` wrapper methods.
+
+proc registerCborSignalEntry*(apiName, adapterProc, typeName: string) {.compileTime.} =
+  ## Register a CBOR signal adapter for the next library. Signal apiNames share
+  ## the same wire namespace as requests (both are dispatched by `<lib>_call`),
+  ## so a duplicate against either list is a collision.
+  for entry in gApiCborSignalEntries:
+    if entry.apiName == apiName:
+      error(
+        "CBOR FFI: duplicate signal apiName '" & apiName & "' (already registered by '" &
+          entry.adapterProc & "'). Each SignalBroker(API) must have a unique type name."
+      )
+  for entry in gApiCborRequestEntries:
+    if entry.apiName == apiName:
+      error(
+        "CBOR FFI: signal apiName '" & apiName &
+          "' collides with a request of the same name. `<lib>_call` dispatches " &
+          "both, so their wire names must be distinct."
+      )
+  gApiCborSignalEntries.add(
+    CborSignalEntry(apiName: apiName, adapterProc: adapterProc, typeName: typeName)
+  )
 
 proc registerCborRequestEntry*(
     apiName, adapterProc: string,

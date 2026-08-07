@@ -22,14 +22,18 @@
 
 {.push raises: [].}
 
-import std/[macros, strutils, locks, os, atomics]
+import std/[macros, strutils, locks, os, atomics, options]
 import chronos, chronicles
 import results
 import ./helper/broker_utils, ../broker_context
 
 import ./mt_broker_common, ./mt_queue, ./mt_codec, ./mt_config
 import ./broker_debug
-export results, chronos, chronicles, broker_context, mt_broker_common, mt_config
+export
+  results, chronos, chronicles, broker_context, mt_broker_common, mt_config, options
+# The generated provideIt/reprovideIt templates expand `providerBody` at the
+# user's call site, so the checker macro must be visible there.
+export providerBody
 
 # Capacity defaults moved to `mt_config.nim` and re-exported via the
 # `mt_config` module so existing references to `DefaultMtReq*` constants
@@ -290,7 +294,10 @@ proc generateMtRequestBroker*(
   )
   msgRecList.add(
     newTree(
-      nnkIdentDefs, ident("requesterSignal"), ident("ThreadSignalPtr"), newEmptyNode()
+      nnkIdentDefs,
+      ident("requesterSignal"),
+      newTree(nnkPtrTy, ident("BrokerSignalShared")),
+      newEmptyNode(),
     )
   )
   typeSection.add(
@@ -327,7 +334,10 @@ proc generateMtRequestBroker*(
   )
   bucketRecList.add(
     newTree(
-      nnkIdentDefs, ident("providerSignal"), ident("ThreadSignalPtr"), newEmptyNode()
+      nnkIdentDefs,
+      ident("providerSignal"),
+      newTree(nnkPtrTy, ident("BrokerSignalShared")),
+      newEmptyNode(),
     )
   )
   bucketRecList.add(
@@ -507,7 +517,7 @@ proc generateMtRequestBroker*(
       proc `sendReplyIdent`(
           pool: ptr ResponseSlotPool,
           slotIdx: uint32,
-          requesterSignal: ThreadSignalPtr,
+          requesterSignal: ptr BrokerSignalShared,
           resp: Result[`payloadType`, string],
       ) {.gcsafe, raises: [].} =
         if pool.isNil or slotIdx == EmptyIdx:
@@ -920,7 +930,7 @@ proc generateMtRequestBroker*(
           ring: ptr VyukovMpscRing[uint32],
           slab: ptr PayloadSlab,
           pool: ptr ResponseSlotPool,
-          providerSignal: ThreadSignalPtr,
+          providerSignal: ptr BrokerSignalShared,
           msg: sink `requestMsgName`,
       ): Future[Result[`payloadType`, string]] {.async: (raises: []).} =
         ensureBrokerDispatchStarted()
@@ -1051,7 +1061,7 @@ proc generateMtRequestBroker*(
           ring: ptr VyukovMpscRing[uint32],
           slab: ptr PayloadSlab,
           pool: ptr ResponseSlotPool,
-          providerSignal: ThreadSignalPtr,
+          providerSignal: ptr BrokerSignalShared,
           msg: sink `requestMsgName`,
       ): Result[`payloadType`, string] {.gcsafe, raises: [].} =
         let slotIdx = pool[].claim(`shardHintIdent`())
@@ -1150,7 +1160,7 @@ proc generateMtRequestBroker*(
           var ring: ptr VyukovMpscRing[uint32]
           var slab: ptr PayloadSlab
           var pool: ptr ResponseSlotPool
-          var providerSignal: ThreadSignalPtr
+          var providerSignal: ptr BrokerSignalShared
           var sameThread = false
           let myThreadGen = currentMtThreadGen()
           withLock(`globalLockIdent`):
@@ -1219,7 +1229,7 @@ proc generateMtRequestBroker*(
           var ring: ptr VyukovMpscRing[uint32]
           var slab: ptr PayloadSlab
           var pool: ptr ResponseSlotPool
-          var providerSignal: ThreadSignalPtr
+          var providerSignal: ptr BrokerSignalShared
           var sameThread = false
           let myThreadGen = currentMtThreadGen()
           withLock(`globalLockIdent`):
@@ -1314,7 +1324,7 @@ proc generateMtRequestBroker*(
       var ring: ptr VyukovMpscRing[uint32]
       var slab: ptr PayloadSlab
       var pool: ptr ResponseSlotPool
-      var providerSignal: ThreadSignalPtr
+      var providerSignal: ptr BrokerSignalShared
       var sameThread = false
       let myThreadGen = currentMtThreadGen()
       withLock(`globalLockIdent`):
@@ -1436,7 +1446,7 @@ proc generateMtRequestBroker*(
       var ring: ptr VyukovMpscRing[uint32]
       var slab: ptr PayloadSlab
       var pool: ptr ResponseSlotPool
-      var providerSignal: ThreadSignalPtr
+      var providerSignal: ptr BrokerSignalShared
       var sameThread = false
       let myThreadGen = currentMtThreadGen()
       withLock(`globalLockIdent`):
@@ -1548,7 +1558,7 @@ proc generateMtRequestBroker*(
   let clearBody = quote:
     `initProcIdent`()
     var ring: ptr VyukovMpscRing[uint32]
-    var providerSignal: ThreadSignalPtr
+    var providerSignal: ptr BrokerSignalShared
     var isProviderThread = false
     let myThreadGen = currentMtThreadGen()
     withLock(`globalLockIdent`):
@@ -1649,6 +1659,177 @@ proc generateMtRequestBroker*(
         isProvided(`typeIdent`, DefaultBrokerContext)
 
   )
+
+  # ── getCurrentProvider / replaceProvider (owning thread only) ───────
+  # MT introspection reads the per-thread threadvar slot, so it MUST be called
+  # on the provider's owning thread (the one that ran setProvider). Cross-thread
+  # introspection is not supported (the shared bucket holds a ring, not the
+  # closure). Distinct zero-arg getter name avoids return-type-only overloads;
+  # replaceProvider overloads on the handler proc type.
+  if not zeroArgSig.isNil():
+    result.add(
+      quote do:
+        proc getCurrentProviderNoArgs*(
+            _: typedesc[`typeIdent`], brokerCtx: BrokerContext
+        ): Option[`zeroArgProviderName`] =
+          for i in 0 ..< `tvNoArgCtxIdent`.len:
+            if `tvNoArgCtxIdent`[i] == brokerCtx:
+              return some(`tvNoArgHandlerIdent`[i])
+          none(`zeroArgProviderName`)
+
+        proc replaceProvider*(
+            _: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            handler: `zeroArgProviderName`,
+        ): Result[void, string] =
+          ## Replace-or-insert on the owning thread; never errors on an existing
+          ## entry (unlike setProvider). A new ctx also sets up its bucket.
+          `initProcIdent`()
+          for i in 0 ..< `tvNoArgCtxIdent`.len:
+            if `tvNoArgCtxIdent`[i] == brokerCtx:
+              `tvNoArgHandlerIdent`[i] = handler
+              return ok()
+          `tvNoArgCtxIdent`.add(brokerCtx)
+          `tvNoArgHandlerIdent`.add(handler)
+          let r = `setupBucketIdent`(brokerCtx)
+          if r.isErr():
+            `tvNoArgCtxIdent`.setLen(`tvNoArgCtxIdent`.len - 1)
+            `tvNoArgHandlerIdent`.setLen(`tvNoArgHandlerIdent`.len - 1)
+            return r
+          ok()
+
+        template withMockProvider*(
+            t: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            mock: `zeroArgProviderName`,
+            body: untyped,
+        ): untyped =
+          ## Owning-thread only. Install `mock` for the duration of `body`, then
+          ## restore the captured provider (or clear it if none was set).
+          let savedMockProvider = getCurrentProviderNoArgs(t, brokerCtx)
+          discard replaceProvider(t, brokerCtx, mock)
+          try:
+            body
+          finally:
+            if savedMockProvider.isSome:
+              discard replaceProvider(t, brokerCtx, savedMockProvider.get)
+            else:
+              clearProvider(t, brokerCtx)
+
+    )
+  if not argSig.isNil():
+    result.add(
+      quote do:
+        proc getCurrentProvider*(
+            _: typedesc[`typeIdent`], brokerCtx: BrokerContext
+        ): Option[`argProviderName`] =
+          for i in 0 ..< `tvWithArgCtxIdent`.len:
+            if `tvWithArgCtxIdent`[i] == brokerCtx:
+              return some(`tvWithArgHandlerIdent`[i])
+          none(`argProviderName`)
+
+        proc replaceProvider*(
+            _: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            handler: `argProviderName`,
+        ): Result[void, string] =
+          ## Replace-or-insert on the owning thread; never errors on an existing
+          ## entry (unlike setProvider). A new ctx also sets up its bucket.
+          `initProcIdent`()
+          for i in 0 ..< `tvWithArgCtxIdent`.len:
+            if `tvWithArgCtxIdent`[i] == brokerCtx:
+              `tvWithArgHandlerIdent`[i] = handler
+              return ok()
+          `tvWithArgCtxIdent`.add(brokerCtx)
+          `tvWithArgHandlerIdent`.add(handler)
+          let r = `setupBucketIdent`(brokerCtx)
+          if r.isErr():
+            `tvWithArgCtxIdent`.setLen(`tvWithArgCtxIdent`.len - 1)
+            `tvWithArgHandlerIdent`.setLen(`tvWithArgHandlerIdent`.len - 1)
+            return r
+          ok()
+
+        template withMockProvider*(
+            t: typedesc[`typeIdent`],
+            brokerCtx: BrokerContext,
+            mock: `argProviderName`,
+            body: untyped,
+        ): untyped =
+          ## Owning-thread only. Install `mock` for the duration of `body`, then
+          ## restore the captured provider (or clear it if none was set).
+          let savedMockProvider = getCurrentProvider(t, brokerCtx)
+          discard replaceProvider(t, brokerCtx, mock)
+          try:
+            body
+          finally:
+            if savedMockProvider.isSome:
+              discard replaceProvider(t, brokerCtx, savedMockProvider.get)
+            else:
+              clearProvider(t, brokerCtx)
+
+    )
+
+  # ── bind / rebind provider sugar (issue #42) ──────────────────────
+  # Sugar over setProvider / replaceProvider for class-method providers. MT is
+  # always async; the trampoline carries the provider proc type's `{.async.}`
+  # pragma. Owning-thread semantics of setProvider/replaceProvider are unchanged
+  # (the sugar only synthesises the closure the user would write by hand).
+  block:
+    let providerPragma = procTyPragma(makeProcType(returnType, @[]))
+    var slots: seq[BindSlot] = @[]
+    if not argSig.isNil():
+      slots.add(
+        BindSlot(
+          params: cloneParams(argParams),
+          returnType: copyNimTree(returnType),
+          pragma: providerPragma,
+        )
+      )
+    if not zeroArgSig.isNil():
+      slots.add(
+        BindSlot(
+          params: @[], returnType: copyNimTree(returnType), pragma: providerPragma
+        )
+      )
+    result.add(
+      buildBindTemplates(
+        typeIdent, "setProvider", "bindProvider", slots, awaitCall = true
+      )
+    )
+    result.add(
+      buildBindTemplates(
+        typeIdent, "replaceProvider", "rebindProvider", slots, awaitCall = true
+      )
+    )
+
+  # ── provideIt / reprovideIt body sugar ─────────────────────────────
+  # Same surface as the single-thread lane (see request_broker.nim). Owning-
+  # thread semantics of setProvider/replaceProvider are unchanged — the sugar
+  # only synthesises the closure the user would write by hand, and
+  # `providerBody` rejects bodies that could silently fall through to err("").
+  block:
+    let providerPragma = procTyPragma(makeProcType(returnType, @[]))
+    let dualSlot = (not argSig.isNil()) and (not zeroArgSig.isNil())
+    if not argSig.isNil():
+      let slot = BindSlot(
+        params: cloneParams(argParams),
+        returnType: copyNimTree(returnType),
+        pragma: providerPragma,
+      )
+      result.add(buildProvideTemplates(typeIdent, "setProvider", "provideIt", slot))
+      result.add(
+        buildProvideTemplates(typeIdent, "replaceProvider", "reprovideIt", slot)
+      )
+    if not zeroArgSig.isNil():
+      let slot = BindSlot(
+        params: @[], returnType: copyNimTree(returnType), pragma: providerPragma
+      )
+      let provideName = if dualSlot: "provideItNoArgs" else: "provideIt"
+      let reprovideName = if dualSlot: "reprovideItNoArgs" else: "reprovideIt"
+      result.add(buildProvideTemplates(typeIdent, "setProvider", provideName, slot))
+      result.add(
+        buildProvideTemplates(typeIdent, "replaceProvider", reprovideName, slot)
+      )
 
   when defined(brokerDebug):
     writeBrokerDebug("RequestBrokerMt", typeDisplayName, result)

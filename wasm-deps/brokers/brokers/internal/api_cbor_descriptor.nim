@@ -43,16 +43,25 @@ type
     apiName*: string
     payloadType*: string
 
+  ApiSignalInfo* = object
+    ## A one-way signal the library is ready to *consume* — the inverse of an
+    ## event (which the library *emits*). Same shape as `ApiEventInfo`; kept a
+    ## distinct type so consumers can tell direction from the descriptor.
+    apiName*: string
+    payloadType*: string
+
   ApiList* = object ## Lightweight payload returned by `<lib>_listApis`.
     libName*: string
     requests*: seq[string]
     events*: seq[string]
+    signals*: seq[string]
 
   LibraryDescriptor* = object ## Full payload returned by `<lib>_getSchema`.
     libName*: string
     cddl*: string ## Verbatim contents of the generated `<lib>.cddl`.
     requests*: seq[ApiRequestInfo]
     events*: seq[ApiEventInfo]
+    signals*: seq[ApiSignalInfo]
     types*: seq[ApiTypeInfo]
 
 {.pop.}
@@ -92,8 +101,16 @@ proc toJson*(r: ApiRequestInfo): JsonNode =
 proc toJson*(e: ApiEventInfo): JsonNode =
   %*{"apiName": e.apiName, "payloadType": e.payloadType}
 
+proc toJson*(s: ApiSignalInfo): JsonNode =
+  %*{"apiName": s.apiName, "payloadType": s.payloadType}
+
 proc toJson*(a: ApiList): JsonNode =
-  %*{"libName": a.libName, "requests": a.requests, "events": a.events}
+  %*{
+    "libName": a.libName,
+    "requests": a.requests,
+    "events": a.events,
+    "signals": a.signals,
+  }
 
 proc toJson*(d: LibraryDescriptor): JsonNode =
   result = %*{
@@ -101,12 +118,15 @@ proc toJson*(d: LibraryDescriptor): JsonNode =
     "cddl": d.cddl,
     "requests": newJArray(),
     "events": newJArray(),
+    "signals": newJArray(),
     "types": newJArray(),
   }
   for r in d.requests:
     result["requests"].add(r.toJson())
   for e in d.events:
     result["events"].add(e.toJson())
+  for s in d.signals:
+    result["signals"].add(s.toJson())
   for t in d.types:
     result["types"].add(t.toJson())
 

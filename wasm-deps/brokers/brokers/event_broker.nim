@@ -558,6 +558,22 @@ proc generateEventBroker(body: NimNode): NimNode =
     )
     result.add(typedescEmitProcCtx)
 
+  # ── bind listener sugar (issue #42) ───────────────────────────────
+  # `bindListener` = sugar for `listen`; returns the same listener handle. No
+  # rebind (events are additive — mock = dropAllListeners + listen). The
+  # trampoline carries the listener proc type's `{.async: (raises: []), gcsafe.}`
+  # pragma and forwards the whole event value (or nothing, for a void event).
+  block:
+    var slot = BindSlot(returnType: futureVoidTy(), pragma: procTyPragma(handlerProcTy))
+    if isVoid:
+      slot.params = @[]
+    else:
+      slot.params =
+        @[newTree(nnkIdentDefs, ident("event"), copyNimTree(typeIdent), newEmptyNode())]
+    result.add(
+      buildBindTemplates(typeIdent, "listen", "bindListener", @[slot], awaitCall = true)
+    )
+
   when defined(brokerDebug):
     writeBrokerDebug("EventBroker", sanitized, result)
     when defined(brokerDebugStdout):
@@ -598,15 +614,19 @@ macro EventBroker*(args: varargs[untyped]): untyped =
   case m
   of ebMultiThread:
     when not compileOption("threads"):
-      macros.error("EventBroker(mt) requires --threads:on. " &
-          "Compile with `--threads:on` to use multi-thread EventBroker.")
+      macros.error(
+          "EventBroker(mt) requires --threads:on. " &
+          "Compile with `--threads:on` to use multi-thread EventBroker."
+      )
     else:
       let cfg = parseMtEvtKwargs(split.kwargs)
       generateMtEventBroker(body, cfg)
   of ebApi:
     when not compileOption("threads"):
-      macros.error("EventBroker(API) requires --threads:on. " &
-          "Compile with `--threads:on` to use API EventBroker.")
+      macros.error(
+          "EventBroker(API) requires --threads:on. " &
+          "Compile with `--threads:on` to use API EventBroker."
+      )
     else:
       when defined(BrokerFfiApi):
         # Validate kwargs at the outer macro so errors point at the
@@ -626,3 +646,45 @@ macro EventBroker*(args: varargs[untyped]): untyped =
         split.kwargs[0],
       )
     generateEventBroker(body)
+
+# ── listenIt body sugar ──────────────────────────────────────────────
+# Generic over every EventBroker lane (single-thread / mt / API): the template
+# simply forwards to whatever `listen` overload is in scope at the call site.
+# Purely syntactic — identical codegen to the hand-written listener lambda, no
+# new refc/ORC exposure. The extra params stay `untyped` for the same
+# overload-resolution reason documented at `bindTemplateDef`.
+
+template listenIt*(T: typedesc, brokerCtx: untyped, body: untyped): untyped =
+  ## Sugar over `listen(T, brokerCtx, handler)`: the block is the listener's
+  ## real proc body with the event value injected as `it` (nothing is injected
+  ## for `void` event types). `await` is allowed; `raises: []` is enforced
+  ## exactly as for a hand-written listener. Returns `listen`'s Result.
+  mixin listen
+  when compiles(
+    listen(
+      T,
+      brokerCtx,
+      proc(): Future[void] {.async: (raises: []), gcsafe.} =
+        discard,
+    )
+  ):
+    listen(
+      T,
+      brokerCtx,
+      proc(): Future[void] {.async: (raises: []), gcsafe.} =
+        body,
+    )
+  else:
+    listen(
+      T,
+      brokerCtx,
+      proc(brokerEvent: T): Future[void] {.async: (raises: []), gcsafe.} =
+        template it(): T {.inject, used.} =
+          brokerEvent
+
+        body,
+    )
+
+template listenIt*(T: typedesc, body: untyped): untyped =
+  ## `listenIt` on the default broker context.
+  listenIt(T, DefaultBrokerContext, body)
