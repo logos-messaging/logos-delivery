@@ -131,7 +131,7 @@ proc periodicRegistration(self: WakuRendezVous) {.async.} =
     await sleepAsync(self.registrationInterval)
 
     (await self.advertiseAll()).isOkOr:
-      info "waku rendezvous advertisements failed", error = error
+      debug "Waku rendezvous advertisements failed", error = error
 
       if self.registrationInterval > MaxRegistrationInterval:
         self.registrationInterval = MaxRegistrationInterval

@@ -148,6 +148,9 @@ make install-nph
 The nph formatter handles all formatting details automatically, especially with the pre-commit hook installed. Focus on semantic correctness.
 
 ### Logging
+Choosing a log level: follow [docs/contributors/logging-policy.md](docs/contributors/logging-policy.md).
+The overriding rule is that a healthy node logs nothing at `WARN` or above.
+
 Uses `chronicles` library with compile-time configuration:
 ```nim
 import chronicles

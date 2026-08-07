@@ -589,7 +589,7 @@ proc validateMessage*(
     let validatorRes = await validator(pubsubTopic, msg)
     if validatorRes != ValidationResult.Accept:
       if message.len > 0:
-        error "invalid Waku message", msg_hash = msgHash, error = message
+        debug "Invalid Waku message", msg_hash = msgHash, error = message
         return err(message)
       else:
         ## This should never happen

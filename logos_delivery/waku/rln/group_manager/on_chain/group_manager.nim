@@ -626,7 +626,7 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
 
   # Set the chain id
   if g.chainId == 0:
-    warn "Chain ID not set in config, using RPC Provider's Chain ID",
+    info "Chain ID not set in config, using RPC Provider's Chain ID",
       providerChainId = fetchedChainId
 
   if g.chainId != 0 and g.chainId != fetchedChainId:
@@ -687,7 +687,7 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
   g.rlnRelayMaxMessageLimit = cast[uint64](maxMembershipRateLimit)
 
   proc onDisconnect() {.async.} =
-    error "Ethereum client disconnected"
+    info "Ethereum client disconnected, reconnecting"
 
     let newEthRpc: Web3 = (await g.establishConnection()).valueOr:
       error "Fatal: failed to reconnect to Ethereum clients after disconnect",

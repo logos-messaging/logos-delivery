@@ -255,7 +255,7 @@ proc handleMessage*(
     let subscribedPeers =
       wf.subscriptions.findSubscribedPeers(pubsubTopic, message.contentTopic)
     if subscribedPeers.len == 0:
-      error "no subscribed peers found",
+      debug "No subscribed peers found",
         pubsubTopic = pubsubTopic,
         contentTopic = message.contentTopic,
         msg_hash = msgHash

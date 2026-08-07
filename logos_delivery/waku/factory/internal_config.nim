@@ -44,7 +44,7 @@ proc enrConfiguration*(
     let multiaddrs = netConfig.enrMultiaddrs[0 ..< retained]
     let record = tryBuildEnrRecord(conf, netConfig, multiaddrs).valueOr:
       if retained > 0:
-        warn "failed to create enr record, retrying with fewer multiaddrs",
+        debug "Failed to create enr record, retrying with fewer multiaddrs",
           error = error,
           totalMultiaddrs = netConfig.enrMultiaddrs.len,
           retainedMultiaddrs = retained - 1,
@@ -55,7 +55,7 @@ proc enrConfiguration*(
       return err($error)
 
     if retained < netConfig.enrMultiaddrs.len:
-      warn "created enr record after trimming multiaddrs",
+      debug "Created enr record after trimming multiaddrs",
         totalMultiaddrs = netConfig.enrMultiaddrs.len, retainedMultiaddrs = retained
 
     return ok(record)

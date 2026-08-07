@@ -331,7 +331,7 @@ proc nodeKey(
   if builder.nodeKey.isSome():
     return ok(builder.nodeKey.get())
   else:
-    warn "missing node key, generating new set"
+    notice "No node key provided, generated a new one; identity will not persist across restarts"
     let nodeKey = crypto.PrivateKey.random(Secp256k1, rng).valueOr:
       error "Failed to generate key", error = error
       return err("Failed to generate key: " & $error)
@@ -422,8 +422,17 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
   of mmskNone:
     builder.withMaxMessageSize(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
   of mmskStr, mmskInt:
-    warn "Max Message Size was provided alongside a network conf",
-      used = $builder.maxMessageSize, discarded = networkPresetConf.maxMessageSize
+    let usedBytes =
+      case builder.maxMessageSize.kind
+      of mmskInt:
+        builder.maxMessageSize.bytes
+      of mmskStr:
+        parseCorrectMsgSize(builder.maxMessageSize.str)
+      of mmskNone:
+        0'u64
+    if usedBytes != parseCorrectMsgSize(networkPresetConf.maxMessageSize):
+      warn "Max Message Size was provided alongside a network conf",
+        used = $builder.maxMessageSize, discarded = networkPresetConf.maxMessageSize
 
   checkSetPresetValueToField(
     builder.shardingConf, networkPresetConf.shardingConf.kind,
@@ -549,42 +558,42 @@ proc build*(
     if builder.relay.isSome():
       builder.relay.get()
     else:
-      warn "whether to mount relay is not specified, defaulting to not mounting"
+      debug "Whether to mount relay is not specified, defaulting to not mounting"
       DefaultRelay
 
   let lightPush =
     if builder.lightPush.isSome():
       builder.lightPush.get()
     else:
-      warn "whether to mount lightPush is not specified, defaulting to not mounting"
+      debug "Whether to mount lightPush is not specified, defaulting to not mounting"
       DefaultLightPush
 
   let peerExchange =
     if builder.peerExchange.isSome():
       builder.peerExchange.get()
     else:
-      warn "whether to mount peerExchange is not specified, defaulting to not mounting"
+      debug "Whether to mount peerExchange is not specified, defaulting to not mounting"
       DefaultPeerExchange
 
   let storeSync =
     if builder.storeSync.isSome():
       builder.storeSync.get()
     else:
-      warn "whether to mount storeSync is not specified, defaulting to not mounting"
+      debug "Whether to mount storeSync is not specified, defaulting to not mounting"
       DefaultStoreSyncMount
 
   let rendezvous =
     if builder.rendezvous.isSome():
       builder.rendezvous.get()
     else:
-      warn "whether to mount rendezvous is not specified, defaulting to not mounting"
+      debug "Whether to mount rendezvous is not specified, defaulting to not mounting"
       DefaultRendezvous
 
   let mix =
     if builder.mix.isSome():
       builder.mix.get()
     else:
-      warn "whether to mount mix is not specified, defaulting to not mounting"
+      debug "Whether to mount mix is not specified, defaulting to not mounting"
       DefaultMix
 
   let relayPeerExchange = builder.relayPeerExchange.get(DefaultRelayPeerExchange)
@@ -595,7 +604,7 @@ proc build*(
     if builder.clusterId.isNone():
       # TODO: ClusterId should never be defaulted, instead, presets
       # should be defined and used
-      warn("Cluster Id was not specified, defaulting to 0")
+      info "Cluster Id was not specified, defaulting to 0"
       DefaultClusterId
     else:
       builder.clusterId.get().uint16
@@ -615,7 +624,7 @@ proc build*(
     of mmskStr:
       ?parseMsgSize(builder.maxMessageSize.str)
     else:
-      warn "Max Message Size not specified, defaulting to DefaultMaxWakuMessageSize",
+      debug "Max Message Size not specified, defaulting to DefaultMaxWakuMessageSize",
         default = DefaultMaxWakuMessageSizeStr
       DefaultMaxWakuMessageSize
 
@@ -664,21 +673,21 @@ proc build*(
     if builder.logLevel.isSome():
       builder.logLevel.get()
     else:
-      warn "Log Level not specified, defaulting to INFO"
+      debug "Log Level not specified, defaulting to INFO"
       DefaultLogLevel
 
   let logFormat =
     if builder.logFormat.isSome():
       builder.logFormat.get()
     else:
-      warn "Log Format not specified, defaulting to TEXT"
+      debug "Log Format not specified, defaulting to TEXT"
       DefaultLogFormat
 
   let natStrategy =
     if builder.natStrategy.isSome():
       builder.natStrategy.get()
     else:
-      warn "Nat Strategy is not specified, defaulting to none"
+      debug "Nat Strategy is not specified, defaulting to none"
       DefaultNatStrategy
 
   var p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
@@ -687,14 +696,14 @@ proc build*(
     if builder.p2pListenAddress.isSome():
       builder.p2pListenAddress.get()
     else:
-      warn "P2P listening address not specified, listening on 0.0.0.0"
+      debug "P2P listening address not specified, listening on 0.0.0.0"
       DefaultP2pListenAddress
 
   let portsShift =
     if builder.portsShift.isSome():
       builder.portsShift.get()
     else:
-      warn "Ports Shift is not specified, defaulting to 0"
+      debug "Ports Shift is not specified, defaulting to 0"
       DefaultPortsShift
 
   let dns4DomainName =
@@ -717,28 +726,28 @@ proc build*(
     if builder.extMultiAddrsOnly.isSome():
       builder.extMultiAddrsOnly.get()
     else:
-      warn "Whether to only announce external multiaddresses is not specified, defaulting to false"
+      debug "Whether to only announce external multiaddresses is not specified, defaulting to false"
       DefaultExtMultiAddrsOnly
 
   let dnsAddrsNameServers =
     if builder.dnsAddrsNameServers.len != 0:
       builder.dnsAddrsNameServers
     else:
-      warn "DNS name servers IPs not provided, defaulting to Cloudflare's."
+      debug "DNS name servers IPs not provided, defaulting to Cloudflare's."
       DefaultDnsAddrsNameServers
 
   let peerPersistence =
     if builder.peerPersistence.isSome():
       builder.peerPersistence.get()
     else:
-      warn "Peer persistence not specified, defaulting to false"
+      debug "Peer persistence not specified, defaulting to false"
       DefaultPeerPersistence
 
   let maxConnections =
     if builder.maxConnections.isSome():
       builder.maxConnections.get()
     else:
-      warn "Max connections not specified, defaulting to DefaultMaxConnections",
+      debug "Max connections not specified, defaulting to DefaultMaxConnections",
         default = DefaultMaxConnections
       DefaultMaxConnections
 

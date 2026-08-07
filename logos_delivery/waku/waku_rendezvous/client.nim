@@ -83,7 +83,7 @@ proc periodicRequests(self: WakuRendezVousClient) {.async.} =
     await sleepAsync(self.requestInterval)
 
     (await self.requestAll()).isOkOr:
-      error "waku rendezvous requests failed", error = error
+      debug "Waku rendezvous requests failed", error = error
 
     # Exponential backoff
 
