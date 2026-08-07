@@ -26,10 +26,8 @@
 ##     the former singleton refused the second rootDir.
 ##
 ##   case destroy-stops-node
-##     destroy without stop must tear the node down (issue #4108). nim-ffi
-##     0.3.0-rc.3 runs the `{.ffiDtor.}` body on the recycle path, and
-##     `logosdelivery_destroy` stops the node there. The case also calls the
-##     context-free `logosdelivery_version` export before any node exists.
+##     destroy without stop must tear the node down (issue #4108), and the
+##     context-free `logosdelivery_version` export must answer with no node.
 ##
 ## Each case runs in a child process (the second one can fault) with its
 ## output captured to a file, so a crash is an exit code rather than a dead
@@ -230,9 +228,8 @@ proc destroyCtx(api: Api, label: string, ctx: pointer) =
   expectOk(label, (ok: true, ret: int(api.destroy(ctx)), msg: ""))
 
 proc expectVersion(api: Api) =
-  ## `{.ffiExport.}` procs never reach the generated header, so `loadApi`'s
-  ## symbol lookup plus this call are the only check that one is still exported.
-  ## Runs before any create_node: a context-free call is the point of the export.
+  ## `{.ffiExport.}` procs never reach the generated header, so nothing but
+  ## `loadApi` and this call checks that one is still exported.
   let version = $api.version()
   echo "  [ctx-free logosdelivery_version] ", version
   if not version.startsWith("version / git commit hash:"):
@@ -285,9 +282,8 @@ proc runStopSteals(api: Api, s: ptr Slot) =
   api.destroyCtx("ctx2 destroy", ctx2)
 
 proc runDestroyOnly(api: Api, s: ptr Slot) =
-  ## Same, but ctx1 is destroyed without stop_node. The dtor now reaches
-  ## reset() on that path too; the case stays as the guard for the era when it
-  ## did not, and the global kept pointing into ctx1's released FFI-thread heap.
+  ## Same, but ctx1 is destroyed without stop_node. The dtor reaches reset() on
+  ## that path too now; the case guards the era when it did not.
   let root = caseRoot("shared")
   let ctx1 = createCtx(api, s, "ctx1", root, 60030, 60031)
   let ctx2 = createCtx(api, s, "ctx2", root, 60040, 60041)
@@ -328,12 +324,8 @@ proc runTwoPaths(api: Api, s: ptr Slot) =
   api.destroyCtx("ctx2 destroy", ctx2)
 
 proc runDestroyStopsNode(api: Api, s: ptr Slot) =
-  ## destroy without stop must tear the node down. The listening ports are the
-  ## observable: a node that still runs holds them, so the second bind fails.
-  ## ctx1 had to bind those same ports before the destroy, so a failure of the
-  ## second bind means ctx1 never let go, not that a stranger holds the port.
-  ## ctx2 also reuses the pooled worker thread ctx1 released, which is where a
-  ## surviving loop of ctx1's node would still be scheduled.
+  ## The ports are the observable: ctx1 bound them before the destroy, so a
+  ## failed second bind means ctx1 never let go, not that a stranger holds them.
   api.expectVersion()
 
   let ctx1 = createCtx(api, s, "ctx1", caseRoot("dtor_a"), 60070, 60071)

@@ -3,9 +3,8 @@
 // The call surface is generated from the {.ffi.} annotations in library/*.nim
 // and written to generated/logosdelivery.h by `make liblogosdelivery`. That file
 // is a build artifact, not checked in, so build the library before you compile
-// against this header. This file adds the entry points nim-ffi exports but does
-// not emit into the `abi = c` header: the event-listener ABI from
-// declareLibrary, and the synchronous `{.ffiExport.}` procs.
+// against this header. This file adds what nim-ffi exports but leaves out of the
+// `abi = c` header: the event-listener ABI, and the `{.ffiExport.}` procs.
 #pragma once
 #ifndef __liblogosdelivery__
 #define __liblogosdelivery__
@@ -33,10 +32,8 @@ extern "C"
 {
 #endif
 
-  // Version and git commit hash. Needs no ctx, so it is callable before
-  // logosdelivery_create_node, but the first call into the library starts the
-  // Nim runtime. The buffer belongs to the calling thread and lasts until that
-  // thread calls this again, so copy it before you hand it on.
+  // Version and git commit hash. Needs no ctx. The buffer belongs to the calling
+  // thread and lasts until that thread calls this again, so copy it.
   const char *logosdelivery_version(void);
 
   // Raw result-delivery callback used by the event API. `msg` is a byte run of

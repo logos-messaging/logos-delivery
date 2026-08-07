@@ -217,9 +217,8 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   return ok()
 
 func isRunning*(self: LogosDelivery): bool =
-  ## True while a layer still holds what `stop` releases. The channel manager
-  ## needs no test: its `stop` empties the channel table, so a second call is
-  ## a no-op.
+  ## True while a layer still holds what `stop` releases; the channel manager
+  ## needs no test, its `stop` is already a no-op when empty.
   let transportUp =
     not self.waku.isNil() and not self.waku.node.isNil() and self.waku.node.started
   let messagingUp = not self.messagingClient.isNil() and self.messagingClient.started

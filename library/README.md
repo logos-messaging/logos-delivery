@@ -108,8 +108,8 @@ int logosdelivery_start_node(void *ctx, LogosDeliveryScalarRawFn callback, void 
 ```
 
 #### `logosdelivery_stop_node`
-Stops the node. It always removes the event listeners, and it stops the node
-only while one still runs, so a second call is a no-op that reports `RET_OK`.
+Stops the node and removes the event listeners. A second call is a no-op that
+reports `RET_OK`.
 
 ```c
 int logosdelivery_stop_node(void *ctx, LogosDeliveryScalarRawFn callback, void *userData);
@@ -123,38 +123,29 @@ use `ctx` afterwards.
 int logosdelivery_destroy(void *ctx);
 ```
 
-If the node still runs, `logosdelivery_destroy` stops it first, so a host that
-skips `logosdelivery_stop_node` no longer leaves a live node behind. The call
-blocks its caller while the worker drains its in-flight handlers and stops the
-node. The bound is `2 * ffiRecycleTimeoutMs + ffiTeardownTimeoutMs + 2 s`, which
-is 15 s at the nim-ffi defaults.
+Stops the node first if it still runs, so skipping `logosdelivery_stop_node` no
+longer leaves a live node behind. It blocks for up to 15 s at the nim-ffi
+defaults (`2 * ffiRecycleTimeoutMs + ffiTeardownTimeoutMs + 2 s`).
 
-Still call `logosdelivery_stop_node` first in normal operation. Two limits apply
-to the stop that `logosdelivery_destroy` runs:
-
-- The return code does not cover it. `logosdelivery_destroy` returns `RET_ERR`
-  for an invalid `ctx` or a failed context teardown; a failed node stop is only
-  logged, and you get `RET_OK`.
-- nim-ffi cancels the stop after `ffiTeardownTimeoutMs` (10 s) and frees the
-  library anyway, which leaves the node half stopped. Only an explicit
-  `logosdelivery_stop_node` runs to completion and reports its result.
+Prefer an explicit `logosdelivery_stop_node`: a failed stop here is only logged
+(`RET_ERR` covers an invalid `ctx` and a failed context teardown, nothing else),
+and nim-ffi cancels the stop at `ffiTeardownTimeoutMs` (10 s), leaving the node
+half stopped.
 
 ### Context-free calls
 
-These take no `ctx` and no callback. The host `dlsym`s the symbol and reads the
-return value straight across the C ABI.
+No `ctx` and no callback: `dlsym` the symbol and read the return value.
 
 #### `logosdelivery_version`
-Returns the version and git commit hash of the library. You can call it before
-`logosdelivery_create_node`. The first call into the library starts the Nim
-runtime, so it is cheap only after that.
+Version and git commit hash. Callable before `logosdelivery_create_node`, though
+the first call into the library starts the Nim runtime.
 
 ```c
 const char *logosdelivery_version(void);
 ```
 
 The buffer belongs to the calling thread and stays valid until that thread calls
-`logosdelivery_version` again. Copy the bytes before you hand them on.
+`logosdelivery_version` again, so copy the bytes.
 
 ### Messaging
 
