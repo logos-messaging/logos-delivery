@@ -89,6 +89,9 @@ proc toWakuNodeConf*(
   # `LogosDelivery.new(WakuNodeConf)` re-application is idempotent instead of
   # clobbering these flags with the field's default (`Core`).
   conf.mode = mode
+  # Derived from a `MessagingClientConf`, so never kernel-only: don't inherit the
+  # CLI default. `LogosDeliveryConf.init` overwrites this with the caller's layer.
+  conf.entryLayer = EntryLayer.channels
 
   if self.store.isSome():
     conf.store = self.store.get()
