@@ -1,0 +1,9 @@
+auth_modules:
+  mypostgres:
+    type: userpass
+    userpass:
+      username: postgres
+      password: ${POSTGRES_PASSWORD}
+    options:
+      # options become key=value parameters of the DSN
+      sslmode: disable

@@ -1,0 +1,154 @@
+version: "3.7"
+# Environment variable definitions
+x-pg-pass: &pg_pass ${POSTGRES_PASSWORD:-test123}
+x-pg-user: &pg_user ${POSTGRES_USER:-postgres}
+
+x-pg-environment: &pg_env
+  POSTGRES_USER: *pg_user
+  POSTGRES_PASSWORD: *pg_pass
+
+x-pg-exporter-env: &pg_exp_env
+  environment:
+    POSTGRES_PASSWORD: *pg_pass
+    DATA_SOURCE_URI: postgres?sslmode=disable
+    DATA_SOURCE_USER: *pg_user
+    DATA_SOURCE_PASS: *pg_pass
+    PG_EXPORTER_EXTEND_QUERY_PATH: /etc/pgexporter/queries.yml
+
+# Services definitions
+services:
+  logos-messaging-node:
+    # Build the logosdeliverynode binary from the repo root Dockerfile.
+    # Override with a prebuilt image by setting LOGOS_IMAGE in .env.
+    image: ${LOGOS_IMAGE:-logos-messaging/logosdeliverynode:latest}
+    build:
+      context: ../../..
+      dockerfile: Dockerfile
+      # Build the `prod` stage; without this compose builds the Dockerfile's
+      # last stage (debug-with-heaptrack), shipping gdb/heaptrack needlessly.
+      target: prod
+      args:
+        MAKE_TARGET: logosdeliverynode
+        POSTGRES: "1"
+        NIMFLAGS: "-d:chronicles_colors:none -d:insecure -d:postgres"
+    restart: on-failure
+    ports:
+      - 30304:30304/tcp
+      - 30304:30304/udp
+      - 9005:9005/udp
+      - 127.0.0.1:8003:8003
+      - 8000:8000/tcp #WSS
+      - 127.0.0.1:8645:8645
+    logging:
+      driver: json-file
+      options:
+        max-size: "100m"
+        max-file: "10"
+        compress: "true"
+        tag: "logos-messaging-{{.ID}}"
+    environment:
+      # Network preset and entry layer (defaults applied here; run_node.sh honours them).
+      # `-` (not `:-`) so an explicit empty PRESET in .env disables the preset.
+      PRESET: ${PRESET-logos.dev}
+      ENTRY_LAYER: ${ENTRY_LAYER:-kernel}
+      DOMAIN: ${DOMAIN}
+      NODEKEY: ${NODEKEY}
+      EXTRA_ARGS: ${EXTRA_ARGS}
+      STORAGE_SIZE: ${STORAGE_SIZE}
+      <<: *pg_env
+    volumes:
+      - ./run_node.sh:/opt/run_node.sh:Z
+      - ${CERTS_DIR:-./certs}:/etc/letsencrypt/:Z
+    entrypoint: sh
+    command:
+      - /opt/run_node.sh
+    depends_on:
+      # Wait for Postgres to be accepting connections; otherwise the node
+      # crash-loops on store setup until the DB is ready (restart: on-failure).
+      postgres:
+        condition: service_healthy
+      certbot:
+        condition: service_started
+
+  certbot:
+    image: certbot/certbot
+    restart: on-failure
+    ports:
+      - 80:80 # Let's Encrypt
+    environment:
+      DOMAIN: ${DOMAIN}
+    volumes:
+      - ./run_certbot.sh:/opt/run_certbot.sh:Z
+      - ${CERTS_DIR:-./certs}:/etc/letsencrypt/:Z
+      - ./certbot-challenges:/var/www/certbot
+    entrypoint: sh
+    command:
+      - /opt/run_certbot.sh
+
+  prometheus:
+    image: docker.io/prom/prometheus:latest
+    volumes:
+      - ./monitoring/prometheus-config.yml:/etc/prometheus/prometheus.yml:Z
+    command:
+      - --config.file=/etc/prometheus/prometheus.yml
+      - --storage.tsdb.retention.size=${PROMETHEUS_RETENTION_SIZE:-5GB}
+    # ports:
+    #   - 127.0.0.1:9090:9090
+    restart: on-failure:5
+    depends_on:
+      - postgres-exporter
+      - logos-messaging-node
+
+  grafana:
+    image: docker.io/grafana/grafana:latest
+    env_file:
+      - ./monitoring/configuration/grafana-plugins.env
+    volumes:
+      - ./monitoring/configuration/grafana.ini:/etc/grafana/grafana.ini:Z
+      - ./monitoring/configuration/dashboards.yaml:/etc/grafana/provisioning/dashboards/dashboards.yaml:Z
+      - ./monitoring/configuration/datasources.yaml:/etc/grafana/provisioning/datasources/datasources.yaml:Z
+      - ./monitoring/configuration/dashboards:/var/lib/grafana/dashboards/:Z
+      - ./monitoring/configuration/customizations/custom-logo.svg:/usr/share/grafana/public/img/grafana_icon.svg:Z
+      - ./monitoring/configuration/customizations/custom-logo.svg:/usr/share/grafana/public/img/grafana_typelogo.svg:Z
+      - ./monitoring/configuration/customizations/custom-logo.png:/usr/share/grafana/public/img/fav32.png:Z
+    ports:
+      - 0.0.0.0:3000:3000
+    restart: on-failure:5
+    depends_on:
+      - prometheus
+
+  postgres:
+    # This service is used when the node has the 'store' protocol enabled
+    # and the store-message-db-url is set to use Postgres
+    image: postgres:15.4-alpine3.18
+    restart: on-failure:5
+    shm_size: "${POSTGRES_SHM:-1g}"  # Set default shared memory size to 1 GB
+    environment:
+      <<: *pg_env
+    volumes:
+      - ./postgres_cfg/postgresql.conf:/etc/postgresql/postgresql.conf:Z
+      - ./postgres_cfg/db.sql:/docker-entrypoint-initdb.d/db.sql:Z
+      - ${PG_DATA_DIR:-./postgresql}:/var/lib/postgresql/data:Z
+    command: postgres -c config_file=/etc/postgresql/postgresql.conf
+    ports:
+      - 127.0.0.1:5432:5432
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d postgres"]
+      interval: 30s
+      timeout: 60s
+      retries: 5
+      start_period: 80s
+
+  postgres-exporter:
+    # Service aimed to scrape information from Postgres and post it to Prometheus
+    image: quay.io/prometheuscommunity/postgres-exporter:v0.12.0
+    restart: on-failure:5
+    <<: *pg_exp_env
+    volumes:
+      - ./monitoring/configuration/postgres-exporter.yml:/etc/pgexporter/postgres-exporter.yml:Z
+      - ./monitoring/configuration/pg-exporter-queries.yml:/etc/pgexporter/queries.yml:Z
+    command:
+      # Both the config file and 'DATA_SOURCE_NAME' should contain valid connection info
+      - --config.file=/etc/pgexporter/postgres-exporter.yml
+    depends_on:
+      - postgres
