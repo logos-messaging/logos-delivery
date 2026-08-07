@@ -86,7 +86,7 @@ proc lightpushPublish*(
     except CatchableError as e:
       return err("lightpush stream dial failed: " & e.msg)
   let res =
-    await node.wakuLightpushClient.publish(some(PubsubTopic(pubsubTopic)), msg, conn)
+    await node.wakuLightpushClient.publish(Opt.some(PubsubTopic(pubsubTopic)), msg, conn)
   if res.isErr():
     return err($res.error)
   return ok("published to " & $res.get() & " relay peer(s)")

@@ -23,7 +23,7 @@ import ./ws_browser_transport
 import ./edge_name_resolver
 
 proc newEdgeSwitch*(
-    rng: ref HmacDrbgContext, privKey: crypto.PrivateKey
+    rng: crypto.Rng, privKey: crypto.PrivateKey
 ): Switch {.raises: [LPError].} =
   ## A dial-only switch: browser-WebSocket transport + noise + yamux/mplex.
   ## No listen transport (TCP can't run in a browser); the edge node only dials.
@@ -33,8 +33,8 @@ proc newEdgeSwitch*(
   .withPrivateKey(privKey)
   .withAddress(MultiAddress.init("/ip4/127.0.0.1/tcp/0").get())
   .withTransport(
-    proc(upgr: Upgrade, privateKey: crypto.PrivateKey): Transport =
-      WsBrowserTransport.new(upgr)
+    proc(config: TransportConfig): Transport =
+      WsBrowserTransport.new(config.upgr)
   )
   .withYamux()
   .withMplex()

@@ -29,7 +29,7 @@ const
 type EdgeNode* = ref object
   switch*: Switch
   peerManager*: PeerManager
-  rng*: ref HmacDrbgContext
+  rng*: crypto.Rng
   wakuFilterClient*: filter_client.WakuFilterClient
   wakuLightpushClient*: lightpush_client.WakuLightPushClient
   wakuStoreClient*: store_client.WakuStoreClient
@@ -44,7 +44,7 @@ type EdgeNode* = ref object
   storeNode*: Option[RemotePeerInfo]
 
 proc newEdgeNode*(
-    rng: ref HmacDrbgContext,
+    rng: crypto.Rng,
     privKey: crypto.PrivateKey,
     clusterId: uint32 = DefaultEdgeClusterId,
     shards: seq[uint16] = DefaultEdgeShards,

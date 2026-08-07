@@ -13,7 +13,7 @@
 import std/[json, options, strutils, locks, base64]
 import chronos, chronicles, results
 import stew/byteutils
-import ffi
+import ffi # under -d:emscripten this resolves to wasm-deps/ffi, see config.nims
 import ./wasm_shims
 import libp2p/crypto/crypto
 import libp2p/switch  # for Switch.stop in edge_stop — without it `stop` binds to chronos'
@@ -51,7 +51,7 @@ registerReqFFI(CreateEdgeNodeRequest, ctx: ptr FFIContext[EdgeNode]):
   proc(serviceNode: cstring): Future[Result[string, string]] {.async.} =
     echo "[edge] creating edge node…"
     let rng = crypto.newRng()
-    let privKey = crypto.PrivateKey.random(PKScheme.Secp256k1, rng[]).valueOr:
+    let privKey = crypto.PrivateKey.random(PKScheme.Secp256k1, rng).valueOr:
       return err("keygen failed: " & $error)
     let node =
       try:
@@ -190,8 +190,8 @@ proc edge_store_query(
   ## `forward` is "true"/"false". Returns
   ##   {"messages":[{hash,contentTopic,payload,meta,timestamp}], "cursor":"…"}
   ## with `timestamp` as a decimal string and `cursor` "" when the page is last.
-  # NOTE: `some` must be qualified — `results` is imported here too and its Opt.some
-  # would otherwise win over std/options for these Option[T] fields.
+  # NOTE: `Opt.some`, not std/options' `some` — StoreQueryRequest's optional
+  # fields are `Opt[T]` (results), and std/options is imported here too.
   var limit =
     try: uint64(parseBiggestUInt($pageSize))
     except ValueError: DefaultPageSize
@@ -200,23 +200,23 @@ proc edge_store_query(
 
   var storeReq = StoreQueryRequest(
     includeData: true,
-    pubsubTopic: options.some(PubsubTopic($pubsubTopic)),
+    pubsubTopic: Opt.some(PubsubTopic($pubsubTopic)),
     contentTopics: ($contentTopics).split(","),
     paginationForward: ($forward).into(),
-    paginationLimit: options.some(limit),
+    paginationLimit: Opt.some(limit),
   )
   if ($startNs).len > 0:
     storeReq.startTime =
-      try: options.some(Timestamp(parseBiggestInt($startNs)))
+      try: Opt.some(Timestamp(parseBiggestInt($startNs)))
       except ValueError: return err("bad startNs: " & $startNs)
   if ($endNs).len > 0:
     storeReq.endTime =
-      try: options.some(Timestamp(parseBiggestInt($endNs)))
+      try: Opt.some(Timestamp(parseBiggestInt($endNs)))
       except ValueError: return err("bad endNs: " & $endNs)
   if ($cursorHex).len > 0:
     let cursor = hexToHash($cursorHex).valueOr:
       return err("bad cursor: " & error)
-    storeReq.paginationCursor = options.some(cursor)
+    storeReq.paginationCursor = Opt.some(cursor)
 
   echo "[edge] store query → ", $contentTopics, " (limit ", limit, ") on ", $pubsubTopic
   let resp = (await ctx.myLib[].storeQuery(storeReq)).valueOr:
