@@ -20,12 +20,16 @@
 ##     destroying ctx1 without stop must not corrupt ctx2's persistency.
 ##     Historically a UB probe (stale global into a released heap ->
 ##     SIGSEGV on Linux, zombie singleton on macOS/arm64); kept as a guard.
-##     The destroy-without-stop teardown gap itself is tracked separately
-##     (issue #4108).
 ##
 ##   case different-storage-paths
 ##     two contexts with different local-storage-paths must both start;
 ##     the former singleton refused the second rootDir.
+##
+##   case destroy-stops-node
+##     destroy without stop must tear the node down (issue #4108). nim-ffi
+##     0.3.0-rc.3 runs the `{.ffiDtor.}` body on the recycle path, and
+##     `logosdelivery_destroy` stops the node there. The case also calls the
+##     context-free `logosdelivery_version` export before any node exists.
 ##
 ## Each case runs in a child process (the second one can fault) with its
 ## output captured to a file, so a crash is an exit code rather than a dead
@@ -53,6 +57,7 @@ const
   CaseStopSteals = "--case-stop-steals-persistence"
   CaseDestroyOnly = "--case-destroy-without-stop"
   CaseTwoPaths = "--case-different-storage-paths"
+  CaseDestroyStops = "--case-destroy-stops-node"
 
   DisabledMarker = "SDS persistence disabled"
     ## Logged by `sdsPersistence()` when the singleton is unusable.
@@ -79,6 +84,9 @@ type
     cdecl, gcsafe
   .}
   CtxFn = proc(ctx: pointer, cb: FfiCallback, userData: pointer): cint {.cdecl, gcsafe.}
+  DestroyFn = proc(ctx: pointer): cint {.cdecl, gcsafe.}
+    ## The `{.ffiDtor.}` export takes no callback: it blocks until teardown ends.
+  VersionFn = proc(): cstring {.cdecl, gcsafe.}
   ChannelCreateFn = proc(
     ctx: pointer,
     cb: FfiCallback,
@@ -93,7 +101,8 @@ type
     createNode: CreateNodeFn
     startNode: CtxFn
     stopNode: CtxFn
-    destroy: CtxFn
+    destroy: DestroyFn
+    version: VersionFn
     channelCreate: ChannelCreateFn
     channelExists: ChannelExistsFn
 
@@ -165,7 +174,8 @@ proc loadApi(): Api =
     createNode: cast[CreateNodeFn](lib.need("logosdelivery_create_node")),
     startNode: cast[CtxFn](lib.need("logosdelivery_start_node")),
     stopNode: cast[CtxFn](lib.need("logosdelivery_stop_node")),
-    destroy: cast[CtxFn](lib.need("logosdelivery_destroy")),
+    destroy: cast[DestroyFn](lib.need("logosdelivery_destroy")),
+    version: cast[VersionFn](lib.need("logosdelivery_version")),
     channelCreate: cast[ChannelCreateFn](lib.need("logosdelivery_channel_create")),
     channelExists: cast[ChannelExistsFn](lib.need("logosdelivery_channel_exists")),
   )
@@ -215,6 +225,20 @@ proc call(api: Api, s: ptr Slot, label: string, fn: CtxFn, ctx: pointer) =
   discard fn(ctx, onDone, s)
   expectOk(label, awaitSlot(s))
 
+proc destroyCtx(api: Api, label: string, ctx: pointer) =
+  ## `destroy` answers with its return code, not through the slot.
+  expectOk(label, (ok: true, ret: int(api.destroy(ctx)), msg: ""))
+
+proc expectVersion(api: Api) =
+  ## `{.ffiExport.}` procs never reach the generated header, so `loadApi`'s
+  ## symbol lookup plus this call are the only check that one is still exported.
+  ## Runs before any create_node: a context-free call is the point of the export.
+  let version = $api.version()
+  echo "  [ctx-free logosdelivery_version] ", version
+  if not version.startsWith("version / git commit hash:"):
+    echo "  FAIL: logosdelivery_version returned an unexpected string"
+    failed = true
+
 proc createChannel(api: Api, s: ptr Slot, label: string, ctx: pointer, id: string) =
   armSlot(s)
   discard api.channelCreate(
@@ -253,16 +277,17 @@ proc runStopSteals(api: Api, s: ptr Slot) =
   api.createChannel(s, "ctx2 channel_create (before ctx1 stop)", ctx2, "before")
 
   api.call(s, "ctx1 stop_node", api.stopNode, ctx1)
-  api.call(s, "ctx1 destroy", api.destroy, ctx1)
+  api.destroyCtx("ctx1 destroy", ctx1)
 
   api.createChannel(s, "ctx2 channel_create (after ctx1 stop)", ctx2, "after")
 
   api.call(s, "ctx2 stop_node", api.stopNode, ctx2)
-  api.call(s, "ctx2 destroy", api.destroy, ctx2)
+  api.destroyCtx("ctx2 destroy", ctx2)
 
 proc runDestroyOnly(api: Api, s: ptr Slot) =
-  ## Same, but ctx1 is destroyed without stop_node -- reset() never runs, so
-  ## the global keeps pointing into ctx1's released FFI-thread heap.
+  ## Same, but ctx1 is destroyed without stop_node. The dtor now reaches
+  ## reset() on that path too; the case stays as the guard for the era when it
+  ## did not, and the global kept pointing into ctx1's released FFI-thread heap.
   let root = caseRoot("shared")
   let ctx1 = createCtx(api, s, "ctx1", root, 60030, 60031)
   let ctx2 = createCtx(api, s, "ctx2", root, 60040, 60041)
@@ -277,13 +302,13 @@ proc runDestroyOnly(api: Api, s: ptr Slot) =
   ## against released memory.
   api.createChannel(s, "ctx1 channel_create (opens the sds job)", ctx1, "owned-by-ctx1")
 
-  api.call(s, "ctx1 destroy (no stop_node)", api.destroy, ctx1)
+  api.destroyCtx("ctx1 destroy (no stop_node)", ctx1)
 
   api.churn(s, ctx2)
   api.createChannel(s, "ctx2 channel_create (after ctx1 destroy)", ctx2, "after")
 
   api.call(s, "ctx2 stop_node", api.stopNode, ctx2)
-  api.call(s, "ctx2 destroy", api.destroy, ctx2)
+  api.destroyCtx("ctx2 destroy", ctx2)
 
 proc runTwoPaths(api: Api, s: ptr Slot) =
   ## Two contexts, two storage paths. The singleton refuses to be re-targeted,
@@ -299,8 +324,32 @@ proc runTwoPaths(api: Api, s: ptr Slot) =
   api.call(s, "ctx2 start_node (different local-storage-path)", api.startNode, ctx2)
 
   api.call(s, "ctx1 stop_node", api.stopNode, ctx1)
-  api.call(s, "ctx1 destroy", api.destroy, ctx1)
-  api.call(s, "ctx2 destroy", api.destroy, ctx2)
+  api.destroyCtx("ctx1 destroy", ctx1)
+  api.destroyCtx("ctx2 destroy", ctx2)
+
+proc runDestroyStopsNode(api: Api, s: ptr Slot) =
+  ## destroy without stop must tear the node down. The listening ports are the
+  ## observable: a node that still runs holds them, so the second bind fails.
+  ## ctx1 had to bind those same ports before the destroy, so a failure of the
+  ## second bind means ctx1 never let go, not that a stranger holds the port.
+  ## ctx2 also reuses the pooled worker thread ctx1 released, which is where a
+  ## surviving loop of ctx1's node would still be scheduled.
+  api.expectVersion()
+
+  let ctx1 = createCtx(api, s, "ctx1", caseRoot("dtor_a"), 60070, 60071)
+  if failed:
+    return
+
+  api.call(s, "ctx1 start_node", api.startNode, ctx1)
+  api.destroyCtx("ctx1 destroy (no stop_node)", ctx1)
+
+  let ctx2 = createCtx(api, s, "ctx2 (same ports)", caseRoot("dtor_b"), 60070, 60071)
+  if failed:
+    return
+
+  api.call(s, "ctx2 start_node (ports must be free)", api.startNode, ctx2)
+  api.call(s, "ctx2 stop_node", api.stopNode, ctx2)
+  api.destroyCtx("ctx2 destroy", ctx2)
 
 proc runChild(which: string) =
   let api = loadApi()
@@ -313,6 +362,8 @@ proc runChild(which: string) =
     runDestroyOnly(api, s)
   of CaseTwoPaths:
     runTwoPaths(api, s)
+  of CaseDestroyStops:
+    runDestroyStopsNode(api, s)
   else:
     quit("unknown case " & which, 2)
 
@@ -385,5 +436,19 @@ suite "FFI - persistency lifecycle across library contexts":
       report(CaseTwoPaths, r)
       removeDir(caseRoot("path_a"))
       removeDir(caseRoot("path_b"))
+
+      check r.code == 0
+
+  test "destroy without stop_node must stop the node and free its ports":
+    if not fileExists(libPath()):
+      echo "skipped: no ", libPath()
+      skip()
+    else:
+      removeDir(caseRoot("dtor_a"))
+      removeDir(caseRoot("dtor_b"))
+      let r = runCase(CaseDestroyStops)
+      report(CaseDestroyStops, r)
+      removeDir(caseRoot("dtor_a"))
+      removeDir(caseRoot("dtor_b"))
 
       check r.code == 0
