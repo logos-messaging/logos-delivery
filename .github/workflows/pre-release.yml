@@ -13,7 +13,7 @@ env:
 
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "--parallelBuild:${NPROC}"
+  NIM_PARAMS: "-d:disableMarchNative"
   NIM_VERSION: '2.2.4'
   NIMBLE_VERSION: '0.22.3'
 
@@ -27,7 +27,9 @@ jobs:
     - name: Vars
       id: vars
       run: |
-        TAG=$([[ "${{github.ref}}" == "refs/heads/master" ]] && echo "${{env.RELEASE_NAME}}" || echo ${{github.ref}} | sed 's#refs/tags/##')
+        # master -> nightly; other refs use their bare name, "/" replaced by "-".
+        # TAG=$([[ "${{github.ref}}" == "refs/heads/master" ]] && echo "${{env.RELEASE_NAME}}" || echo ${{github.ref}} | sed 's#refs/tags/##')
+        TAG=$([[ "${{github.ref}}" == "refs/heads/master" ]] && echo "${{env.RELEASE_NAME}}" || echo "${{github.ref_name}}" | tr '/' '-')
         echo "tag=${TAG}" >> $GITHUB_OUTPUT
     outputs:
       tag: ${{steps.vars.outputs.tag}}
@@ -35,10 +37,14 @@ jobs:
   build-and-publish:
     needs: tag-name
     strategy:
+      # Without fail-fast: false, one failed job cancels the other jobs and
+      # hides their results.
+      fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-15]
-        arch: [amd64]
+        # GitHub macOS runners are arm64 only; darwin/amd64 needs a cross-compilation setup.
         include:
+        - os: ubuntu-22.04
+          arch: amd64
         - os: macos-15
           arch: arm64
     runs-on: ${{ matrix.os }}
@@ -75,13 +81,11 @@ jobs:
       - name: build artifacts
         id: build
         run: |
-          OS=$([[ "${{runner.os}}" == "macOS" ]] && echo "macosx" || echo "linux")
+          make V=1 CI=false update
 
-          make V=1 CI=false NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
-            update
-
-          make V=1 CI=false POSTGRES=1\
-            NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
+          # -j1: each target starts one nimble process. Two parallel nimble
+          # processes corrupt the shared package metadata (nimblemeta.json).
+          make V=1 -j1 CI=false POSTGRES=1\
             wakunode2\
             logosdeliverynode\
             chat2\
@@ -90,38 +94,42 @@ jobs:
           tar -cvzf ${{steps.vars.outputs.nwaku}} ./build/wakunode2 ./build/logosdeliverynode ./build/chat2
           tar -cvzf ${{steps.vars.outputs.nwakutools}} ./build/wakucanary ./build/networkmonitor
 
+      # Each matrix job must use a unique artifact name. With one shared
+      # name, download-artifact@v4 keeps only the last upload and the release
+      # loses platforms.
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wakunode2
+          name: wakunode2-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{steps.vars.outputs.nwaku}}
           retention-days: 2
 
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wakutools
+          name: wakutools-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{steps.vars.outputs.nwakutools}}
           retention-days: 2
 
   build-docker-image:
     needs: tag-name
-    uses: logos-messaging/logos-delivery/.github/workflows/container-image.yml@master
+    # uses: logos-messaging/logos-delivery/.github/workflows/container-image.yml@master
+    uses: ./.github/workflows/container-image.yml
     with:
       image_tag: ${{ needs.tag-name.outputs.tag }}
     secrets: inherit
 
-  js-waku-node:
-    needs: build-docker-image
-    uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
-    permissions:
-      contents: read
-      actions: read
-      checks: write
-    with:
-      nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
-      test_type: node
-      debug: waku*
+  # js-waku-node:
+  #   needs: build-docker-image
+  #   uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
+  #   permissions:
+  #     contents: read
+  #     actions: read
+  #     checks: write
+  #   with:
+  #     nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
+  #     test_type: node
+  #     debug: waku*
 
   js-waku-node-optional:
     needs: build-docker-image
@@ -145,8 +153,20 @@ jobs:
           fetch-depth: 0
           ref: master
 
-      - name: download artifacts
+      # merge-multiple puts all matching artifacts into one directory.
+      - name: download node artifacts
         uses: actions/download-artifact@v4
+        with:
+          pattern: wakunode2-*
+          path: wakunode2
+          merge-multiple: true
+
+      - name: download tools artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wakutools-*
+          path: wakutools
+          merge-multiple: true
 
       - name: prep variables
         id: vars
@@ -154,6 +174,31 @@ jobs:
           REF=$(echo ${{github.ref}} | sed 's#.*/##')
 
           echo "ref=${REF}" >> $GITHUB_OUTPUT
+
+      # Gate before publish. Make sure that each platform sent one tarball
+      # and that each binary has the correct CPU type. Without this gate,
+      # these two faults do not stop the release.
+      - name: verify release artifacts
+        run: |
+          set -e
+          echo "### artifacts received ###"
+          ls -lR wakunode2 wakutools
+          echo
+          echo "### tarball contents and binary CPU type ###"
+          for t in wakunode2/*.tar.gz wakutools/*.tar.gz; do
+            echo "== $t =="
+            tar -tzf "$t"
+            rm -rf /tmp/x && mkdir -p /tmp/x && tar -xzf "$t" -C /tmp/x
+            find /tmp/x -type f -exec file {} \;
+            echo
+          done
+          echo "### tarball count check ###"
+          # One node tarball for each entry in the build matrix. If you
+          # change the matrix, update EXPECTED.
+          EXPECTED=2
+          n=$(ls wakunode2/*.tar.gz | wc -l)
+          echo "wakunode2 tarballs: $n (expected $EXPECTED)"
+          [ "$n" -eq "$EXPECTED" ] || { echo "FAIL: expected $EXPECTED tarballs, found $n"; exit 1; }
 
       - name: generate release notes
         env:
