@@ -6,10 +6,17 @@ import
   chronos,
   chronicles,
   eth/p2p/discoveryv5/enr,
-  libp2p/builders,
   libp2p/peerstore,
   libp2p/crypto/curve25519,
   libp2p_mix/pool
+
+# `libp2p/builders` pulls QUIC + WS transports → lsquic/boringssl, which can't
+# build for wasm. The wasm/edge build uses the QUIC/autotls-free standalone copy
+# (same SwitchBuilder surface); native is unaffected.
+when defined(emscripten):
+  import "../../../../wasm-deps/edge_builders" as builders
+else:
+  import libp2p/builders
 
 import
   ../../waku_core,
