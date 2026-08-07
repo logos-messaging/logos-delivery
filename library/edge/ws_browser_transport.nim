@@ -122,8 +122,14 @@ method readOnce*(
   return n
 
 method write*(
-    s: WsBrowserConnection, msg: seq[byte]
+    s: WsBrowserConnection, msg: sink seq[byte]
 ): Future[void] {.async: (raises: [CancelledError, LPStreamError]).} =
+  ## `sink` is load-bearing: LPStream.write declares `msg: sink seq[byte]` as of
+  ## libp2p 2.0.0. Declaring plain `seq[byte]` here compiles fine but is a
+  ## DIFFERENT signature, so this stops overriding and every write dispatches to
+  ## the base method -- `raiseAssert("[LPStream.write] abstract method not
+  ## implemented!")`. The symptom is silent: the WebSocket opens, no byte is ever
+  ## written, and the dial hangs forever with nothing logged on either side.
   if s.isEof:
     raise newLPStreamEOFError()
   if msg.len > 0:
