@@ -1,0 +1,51 @@
+{
+  "version": 1,
+  "metaData": {
+    "url": "https://github.com/NagyZoltanPeter/nim-brokers.git",
+    "downloadMethod": "git",
+    "vcsRevision": "a7316a35f1b62e3497ae8ee0fc1aace74df0beb2",
+    "files": [
+      "/brokers/internal/mt_broker_common.nim",
+      "/brokers.nim",
+      "/brokers/event_broker.nim",
+      "/brokers/internal/mt_queue.nim",
+      "/brokers/internal/api_cbor_descriptor.nim",
+      "/brokers/internal/api_codegen_cbor_hpp.nim",
+      "/brokers/api_library.nim",
+      "/brokers/internal/api_codegen_cmake.nim",
+      "/brokers/internal/api_cbor_tuple.nim",
+      "/brokers/internal/mt_codec.nim",
+      "/brokers/broker_context.nim",
+      "/brokers/internal/api_type_resolver.nim",
+      "/brokers/multi_request_broker.nim",
+      "/brokers/internal/api_request_broker_cbor.nim",
+      "/brokers/internal/api_outdir.nim",
+      "/brokers/internal/api_codegen_cbor_h.nim",
+      "/brokers/broker_interface.nim",
+      "/brokers/internal/api_codegen_cbor_go.nim",
+      "/brokers/internal/api_event_broker_cbor.nim",
+      "/brokers/broker_implement.nim",
+      "/brokers/internal/api_schema.nim",
+      "/brokers/internal/api_codegen_cbor_py.nim",
+      "/brokers/internal/api_codegen_cbor_cddl.nim",
+      "/brokers/internal/helper/broker_utils.nim",
+      "/brokers/internal/mt_config.nim",
+      "/brokers/internal/api_common.nim",
+      "/brokers/internal/mt_event_broker.nim",
+      "/brokers/internal/api_cbor_codec.nim",
+      "/brokers/request_broker.nim",
+      "/brokers/internal/api_cbor_subs_registry.nim",
+      "/brokers/internal/api_cbor_event_courier.nim",
+      "/brokers/internal/broker_debug.nim",
+      "/brokers.nimble",
+      "/brokers/internal/api_codegen_cbor_rust.nim",
+      "/brokers/internal/api_cbor_courier.nim",
+      "/brokers/internal/mt_request_broker.nim"
+    ],
+    "binaries": [],
+    "specialVersions": [
+      "3.1.1",
+      "#v3.1.1"
+    ]
+  }
+}
