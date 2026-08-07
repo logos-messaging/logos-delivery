@@ -1,7 +1,7 @@
 import
   content_script_version_1, content_script_version_2, content_script_version_3,
   content_script_version_4, content_script_version_5, content_script_version_6,
-  content_script_version_7
+  content_script_version_7, content_script_version_8
 
 type MigrationScript* = object
   version*: int
@@ -18,6 +18,7 @@ const PgMigrationScripts* = @[
   MigrationScript(version: 5, scriptContent: ContentScriptVersion_5),
   MigrationScript(version: 6, scriptContent: ContentScriptVersion_6),
   MigrationScript(version: 7, scriptContent: ContentScriptVersion_7),
+  MigrationScript(version: 8, scriptContent: ContentScriptVersion_8),
 ]
 
 proc getMigrationScripts*(currentVersion: int64, targetVersion: int64): seq[string] =

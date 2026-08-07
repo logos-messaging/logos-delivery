@@ -367,12 +367,11 @@ method getAllMessages*(
 
   return ok(rows)
 
-proc getPartitionsList(
-    s: PostgresDriver
+proc getPartitionsList*(
+    s: PostgresDriver, parentTable: string = "messages"
 ): Future[ArchiveDriverResult[seq[string]]] {.async.} =
-  ## Retrieves the seq of partition table names.
+  ## Retrieves the seq of partition table names attached to `parentTable`.
   ## e.g: @["messages_1708534333_1708534393", "messages_1708534273_1708534333"]
-  ## This returns the partitions that are attached to the main messages table.
   var partitions: seq[string]
   proc rowCallback(pqResult: ptr PGresult) =
     for iRow in 0 ..< pqResult.pqNtuples():
@@ -388,7 +387,8 @@ proc getPartitionsList(
                           JOIN pg_class child             ON pg_inherits.inhrelid   = child.oid
                           JOIN pg_namespace nmsp_parent   ON nmsp_parent.oid  = parent.relnamespace
                           JOIN pg_namespace nmsp_child    ON nmsp_child.oid   = child.relnamespace
-                          WHERE parent.relname='messages'
+                          WHERE parent.relname='""" &
+        parentTable & """'
                           ORDER BY partition_name ASC
                           """,
       newSeq[string](0),
@@ -1230,6 +1230,17 @@ proc addPartition(
 
   let partitionName = "messages_" & fromInSec & "_" & untilInSec
 
+  ## Lookup sibling first: if interrupted here, the missing messages partition
+  ## makes the factory loop retry both.
+  let lookupPartitionName = "lookup_" & fromInSec & "_" & untilInSec
+  let createLookupQuery =
+    "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
+    " PARTITION OF messages_lookup FOR VALUES FROM (" & fromInNanoSec & ") TO (" &
+    untilInNanoSec & ");"
+
+  (await self.performWriteQueryWithLock(createLookupQuery)).isOkOr:
+    return err(fmt"error adding lookup partition [{lookupPartitionName}]: " & $error)
+
   ## Create the partition table but not attach it yet to the main table
   let createPartitionQuery =
     "CREATE TABLE IF NOT EXISTS " & partitionName &
@@ -1301,6 +1312,45 @@ proc refreshPartitionsInfo(
 
   return ok()
 
+proc ensureLookupPartitions*(
+    self: PostgresDriver
+): Future[ArchiveDriverResult[void]] {.async.} =
+  ## Creates and backfills the lookup sibling of any messages partition that
+  ## lacks one. No-op in steady state; does real work right after migration
+  ## v8, or when messages_lookup partitions were dropped by hand.
+  let messagesPartitions = (await self.getPartitionsList()).valueOr:
+    return err("ensureLookupPartitions could not list messages partitions: " & $error)
+  let lookupPartitions = (await self.getPartitionsList("messages_lookup")).valueOr:
+    return err("ensureLookupPartitions could not list lookup partitions: " & $error)
+
+  for partitionName in messagesPartitions:
+    let suffix = partitionName.replace("messages_", "") ## "<start>_<end>" in seconds
+    let lookupPartitionName = "lookup_" & suffix
+    if lookupPartitionName in lookupPartitions:
+      continue
+
+    let times = suffix.split("_")
+    if times.len != 2:
+      return err(fmt"ensureLookupPartitions wrong partition name {partitionName}")
+
+    let createQuery =
+      "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
+      " PARTITION OF messages_lookup FOR VALUES FROM (" & times[0] & "000000000) TO (" &
+      times[1] & "000000000);"
+    (await self.performWriteQueryWithLock(createQuery)).isOkOr:
+      return
+        err(fmt"error creating lookup partition [{lookupPartitionName}]: " & $error)
+
+    let backfillQuery =
+      "INSERT INTO messages_lookup (messageHash, timestamp) SELECT messageHash, timestamp FROM " &
+      partitionName & " ON CONFLICT DO NOTHING;"
+    (await self.performWriteQuery(backfillQuery)).isOkOr:
+      return err(fmt"error backfilling [{lookupPartitionName}]: " & $error)
+
+    info "created and backfilled lookup partition", lookupPartitionName
+
+  return ok()
+
 const DefaultDatabasePartitionCheckTimeInterval = timer.minutes(10)
 
 proc loopPartitionFactory(
@@ -1313,6 +1363,11 @@ proc loopPartitionFactory(
   ## new partitions when needed.
 
   info "starting loopPartitionFactory"
+
+  ## Non-fatal: hash queries for unbackfilled ranges degrade until the next
+  ## restart, while current-partition pairs are still created by the loop.
+  (await self.ensureLookupPartitions()).isOkOr:
+    error "failed to ensure lookup partitions", error = $error
 
   while true:
     trace "loopPartitionFactory iteration started"
@@ -1395,6 +1450,13 @@ proc detachAndDropPartition(
   let partitionName = partition.getName()
   info "beginning of detachAndDropPartition", partitionName
 
+  ## Drop the lookup sibling first: if interrupted below, the surviving
+  ## messages partition makes the next retention pass retry both.
+  let timeRange = partition.getTimeRange()
+  let lookupPartitionName = "lookup_" & $timeRange.beginning & "_" & $timeRange.`end`
+  (await self.performWriteQuery("DROP TABLE IF EXISTS " & lookupPartitionName)).isOkOr:
+    return err(fmt"error dropping lookup partition [{lookupPartitionName}]: " & $error)
+
   let partSize = (await self.getTableSize(partitionName)).valueOr("")
 
   ## Detach and remove the partition concurrently to not block the parent table (messages)
@@ -1423,13 +1485,6 @@ proc detachAndDropPartition(
 
   info "removed partition", partition_name = partitionName, partition_size = partSize
   self.partitionMngr.removeOldestPartitionName()
-
-  ## Now delete rows from the messages_lookup table
-  let timeRange = partition.getTimeRange()
-  let `end` = timeRange.`end` * 1_000_000_000
-  let deleteRowsQuery = "DELETE FROM messages_lookup WHERE timestamp < " & $`end`
-  (await self.performWriteQuery(deleteRowsQuery)).isOkOr:
-    return err(fmt"error in {deleteRowsQuery}: " & $error)
 
   return ok()
 
