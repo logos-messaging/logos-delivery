@@ -9,6 +9,8 @@ on:
 
 env:
   NPROC: 2
+  NIM_VERSION: '2.2.4'
+  NIMBLE_VERSION: '0.22.3'
 
 jobs:
   # Release gate: the pushed tag MUST exactly match logos_delivery.nimble's version,
@@ -54,7 +56,18 @@ jobs:
 
     steps:
       - name: Checkout code
-        uses: actions/checkout@v2
+        uses: actions/checkout@v4
+
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: |
+          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
       - name: Get submodules hash
         id: submodules
@@ -74,6 +87,9 @@ jobs:
         run: |
           # Use full tag, e.g., v0.37.0
           echo "version=${GITHUB_REF_NAME}" >> $GITHUB_OUTPUT
+          # Same strip as verify-version's TAG_VERSION; dpkg rejects a version
+          # that does not start with a digit.
+          echo "deb_version=${GITHUB_REF_NAME#v}" >> $GITHUB_OUTPUT
 
       - name: Prep variables
         id: vars
@@ -82,16 +98,6 @@ jobs:
 
           NWAKU_ARTIFACT_NAME=$(echo "waku-${{matrix.arch}}-${{runner.os}}.tar.gz" | tr "[:upper:]" "[:lower:]")
           echo "waku=${NWAKU_ARTIFACT_NAME}" >> $GITHUB_OUTPUT
-
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            LIBWAKU_ARTIFACT_NAME=$(echo "libwaku-${VERSION}-${{matrix.arch}}-${{runner.os}}-linux.deb" | tr "[:upper:]" "[:lower:]")
-          fi
-
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            LIBWAKU_ARTIFACT_NAME=$(echo "libwaku-${VERSION}-${{matrix.arch}}-macos.tar.gz" | tr "[:upper:]" "[:lower:]")
-          fi
-
-          echo "libwaku=${LIBWAKU_ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
           if [[ "${{ runner.os }}" == "Linux" ]]; then
             LIBLOGOSDELIVERY_ARTIFACT_NAME=$(echo "liblogosdelivery-${VERSION}-${{matrix.arch}}-${{runner.os}}-linux.deb" | tr "[:upper:]" "[:lower:]")
@@ -119,37 +125,8 @@ jobs:
           make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false logosdeliverynode
           tar -cvzf ${{steps.vars.outputs.waku}} ./build/
 
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false libwaku
-          make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false STATIC=1 libwaku
-
           make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false liblogosdelivery
           make -j${NPROC} NIMFLAGS="--parallelBuild:${NPROC} -d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" POSTGRES=1 CI=false STATIC=1 liblogosdelivery
-
-      - name: Create distributable libwaku package
-        run: |
-          VERSION=${{ steps.version.outputs.version }}
-
-          if [[ "${{ runner.os }}" == "Linux" ]]; then
-            rm -rf pkg
-            mkdir -p pkg/DEBIAN pkg/usr/local/lib pkg/usr/local/include
-            cp build/libwaku.so pkg/usr/local/lib/
-            cp build/libwaku.a pkg/usr/local/lib/
-            cp library/libwaku.h pkg/usr/local/include/
-
-            echo "Package: waku" >> pkg/DEBIAN/control
-            echo "Version: ${VERSION}" >> pkg/DEBIAN/control
-            echo "Priority: optional" >> pkg/DEBIAN/control
-            echo "Section: libs" >> pkg/DEBIAN/control
-            echo "Architecture: ${{matrix.arch}}" >> pkg/DEBIAN/control
-            echo "Maintainer: Waku Team <ivansete@status.im>" >> pkg/DEBIAN/control
-            echo "Description: Waku library" >> pkg/DEBIAN/control
-
-            dpkg-deb --build pkg ${{steps.vars.outputs.libwaku}}
-          fi
-
-          if [[ "${{ runner.os }}" == "macOS" ]]; then
-            tar -cvzf ${{steps.vars.outputs.libwaku}} ./build/libwaku.dylib ./build/libwaku.a ./library/libwaku.h
-          fi
 
       - name: Create distributable liblogosdelivery package
         run: |
@@ -164,7 +141,7 @@ jobs:
             cp library/liblogosdelivery_kernel.h pkg/usr/local/include/
 
             echo "Package: logosdelivery" >> pkg/DEBIAN/control
-            echo "Version: ${VERSION}" >> pkg/DEBIAN/control
+            echo "Version: ${{ steps.version.outputs.deb_version }}" >> pkg/DEBIAN/control
             echo "Priority: optional" >> pkg/DEBIAN/control
             echo "Section: libs" >> pkg/DEBIAN/control
             echo "Architecture: ${{matrix.arch}}" >> pkg/DEBIAN/control
@@ -175,7 +152,7 @@ jobs:
           fi
 
           if [[ "${{ runner.os }}" == "macOS" ]]; then
-            tar -cvzf ${{steps.vars.outputs.liblogosdelivery}} ./build/liblogosdelivery.dylib ./build/liblogosdelivery.a ./liblogosdelivery/liblogosdelivery.h
+            tar -cvzf ${{steps.vars.outputs.liblogosdelivery}} ./build/liblogosdelivery.dylib ./build/liblogosdelivery.a ./library/liblogosdelivery.h ./library/liblogosdelivery_kernel.h
           fi
 
       - name: Upload waku artifact
@@ -183,13 +160,6 @@ jobs:
         with:
           name: waku-${{ steps.version.outputs.version }}-${{ matrix.arch }}-${{ runner.os }}
           path: ${{ steps.vars.outputs.waku }}
-          if-no-files-found: error
-
-      - name: Upload libwaku artifact
-        uses: actions/upload-artifact@v4.4.0
-        with:
-          name: libwaku-${{ steps.version.outputs.version }}-${{ matrix.arch }}-${{ runner.os }}
-          path: ${{ steps.vars.outputs.libwaku }}
           if-no-files-found: error
 
       - name: Upload liblogosdelivery artifact
