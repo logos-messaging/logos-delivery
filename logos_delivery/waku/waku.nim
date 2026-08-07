@@ -35,6 +35,7 @@ import
     node/peer_manager,
     node/health_monitor,
     net/net_config,
+    net/nat_config,
     node/waku_metrics,
     node/subscription_manager,
     rest_api/message_cache,
@@ -76,6 +77,8 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   wakuDiscv5*: WakuDiscoveryV5
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
+
+  discv5NatRenewLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
 
   node*: WakuNode
@@ -107,28 +110,36 @@ proc setupSwitchServices(
         error "failed to update announced multiaddress", error = $error
 
   let autonatService = getAutonatService(rng)
-  if conf.circuitRelayClient:
-    ## The node is considered to be behind a NAT or firewall and then it
-    ## should struggle to be reachable and establish connections to other nodes
-    const MaxNumRelayServers = 2
-    let autoRelayService = AutoRelayService.new(
-      MaxNumRelayServers, RelayClient(circuitRelay), onReservation, rng
-    )
-    let holePunchService = HPService.new(autonatService, autoRelayService)
-    waku.node.switch.services = @[Service(holePunchService)]
-  else:
-    waku.node.switch.services = @[Service(autonatService)]
+  let newService =
+    if conf.circuitRelayClient:
+      ## The node is considered to be behind a NAT or firewall and then it
+      ## should struggle to be reachable and establish connections to other nodes
+      const MaxNumRelayServers = 2
+      let autoRelayService = AutoRelayService.new(
+        MaxNumRelayServers, RelayClient(circuitRelay), onReservation, rng
+      )
+      Service(HPService.new(autonatService, autoRelayService))
+    else:
+      Service(autonatService)
+
+  # The builder-attached NATService (port mapping) must survive, but the
+  # rest of the build-time service list (wildcard address resolver) is
+  # dropped, as it always was before the NATService existed: running the
+  # wildcard resolver's start/stop alongside these services mutates
+  # peerInfo.addressMappers while libp2p iterates it across awaits
+  # (AssertionDefect: seq changed while iterating).
+  waku.node.switch.services.keepItIf(it of NATService)
+  waku.node.switch.services.add(newService)
 
   # libp2p 2.0.0 split Service.setup out of Service.start: the switch runs setup
   # only at build time (SwitchBuilder.setupServices), while switch.start calls
-  # just start. These services are created and attached post-build, so setup must
+  # just start. This service is created and attached post-build, so setup must
   # be invoked explicitly here -- otherwise AutonatService.addressMapper stays nil
   # and the peerInfo.update() inside start dereferences it (SIGSEGV).
-  for service in waku.node.switch.services:
-    try:
-      service.setup(waku.node.switch)
-    except ServiceSetupError as e:
-      error "failed to set up libp2p switch service", error = e.msg
+  try:
+    newService.setup(waku.node.switch)
+  except ServiceSetupError as e:
+    error "failed to set up libp2p switch service", error = e.msg
 
 ## Initialisation
 
@@ -267,11 +278,24 @@ proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.
   if quicPort.isSome() and conf.quicConf.isSome():
     conf.quicConf.get().port = quicPort.get()
 
+  # NATService results feed the recomputed NetConfig and the ENR. The
+  # external IP is used only when a mapping is actually in place: a
+  # discovered IP without one is not reachable.
+  let natMappedAddresses = waku.node.natMappedExternalAddresses()
+  let natMappedPorts = getPorts(natMappedAddresses).valueOr:
+    return err("Could not retrieve NAT-mapped ports: " & error)
+  let natExtIp =
+    if natMappedAddresses.len > 0:
+      waku.node.natExternalIp()
+    else:
+      Opt.none(IpAddress)
+
   # Rebuild NetConfig from the bound ports already read back into `conf`.
   let netConf = (
     await networkConfiguration(
       conf.clusterId, conf.endpointConf, conf.discv5Conf, conf.webSocketConf,
-      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, clientId,
+      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, natExtIp,
+      natMappedPorts.tcpPort, natMappedPorts.quicPort, natMappedPorts.websocketPort,
     )
   ).valueOr:
     return err("Could not update NetConfig: " & error)
@@ -290,8 +314,13 @@ proc updateEnr(waku: Waku): Future[Result[void, string]] {.async.} =
   waku.node.enr = record
 
   # If TCP/WS was configured with port 0, node.announcedAddresses was built
-  # pre-bind with a port value of 0. In any case, the resync is harmless.
+  # pre-bind with a port value of 0, so resync from the recomputed config.
+  # That config is scalar (one external IP, one port per transport, as the
+  # ENR slots hold), while the mapped set can carry one entry per interface,
+  # so the fold re-derives the announced set instead of the base replacing it.
+  waku.node.setBaseAnnouncedAddresses(netConf.announcedAddresses)
   waku.node.announcedAddresses = netConf.announcedAddresses
+  waku.node.foldNatMappedAddresses(notify = false)
 
   return ok()
 
@@ -332,6 +361,48 @@ proc updateWaku(waku: Waku): Future[Result[void, string]] {.async.} =
   ?updateAddressInENR(waku)
 
   return ok()
+
+proc mapDiscv5Port(
+    waku: Waku, externalPort: Port
+): Future[Result[tuple[externalIp: IpAddress, externalPort: Port], string]] {.
+    async: (raises: [CancelledError])
+.} =
+  await mapUdpPort(
+    waku.conf.endpointConf.natStrategy, waku.wakuDiscV5.udpPort, externalPort,
+    waku.conf.endpointConf.natDiscoveryTimeoutMs.int64.milliseconds,
+  )
+
+const Discv5NatRenewInterval = chronos.seconds(int64(NatUdpLeaseSeconds div 2))
+  ## Half the lease, so a missed renewal still leaves a full cycle of slack.
+  ## Derived rather than fixed: the lease is libp2p's default and may change.
+
+proc discv5NatRenewLoop(
+    waku: Waku, grantedPort: Port
+): Future[void] {.async: (raises: []).} =
+  ## Re-request the discv5 mapping before its lease expires, asking for the
+  ## port the gateway granted. If the gateway hands back a different port the
+  ## ENR is rebuilt, since the advertised one no longer forwards.
+  var granted = grantedPort
+  try:
+    while true:
+      await sleepAsync(Discv5NatRenewInterval)
+      let mapped = await waku.mapDiscv5Port(granted)
+      if mapped.isErr():
+        debug "discv5 NAT mapping renewal failed", err = mapped.error
+      elif mapped.get().externalPort != granted:
+        warn "discv5 NAT mapping renewed on a different external port; " &
+          "refreshing the ENR",
+          previous = granted, newGranted = mapped.get().externalPort
+        granted = mapped.get().externalPort
+        if waku.conf.discv5Conf.isSome():
+          waku.conf.discv5Conf.get().udpPort = granted
+        try:
+          (await updateWaku(waku)).isOkOr:
+            error "failed to refresh ENR after discv5 NAT port change", error = error
+        except CatchableError as e:
+          error "failed to refresh ENR after discv5 NAT port change", error = e.msg
+  except CancelledError:
+    discard
 
 proc startDnsDiscoveryRetryLoop(waku: Waku): Future[void] {.async.} =
   while true:
@@ -444,12 +515,42 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     waku.node.ports.discv5Udp = waku.wakuDiscV5.udpPort.uint16
     waku.conf.discv5Conf.get().udpPort = waku.wakuDiscV5.udpPort
 
+    ## The discv5 socket is outside the switch, so the NATService does not
+    ## map it. Map it here and renew it, so the ENR carries the granted
+    ## external port.
+    if conf.endpointConf.natStrategy.kind in {NatAny, NatUpnp, NatPmp}:
+      try:
+        let mapped = await waku.mapDiscv5Port(waku.wakuDiscV5.udpPort)
+        if mapped.isOk():
+          ## From here this conf field holds the external port, which is
+          ## what the ENR rebuild below needs. The bind port stays in
+          ## waku.node.ports.discv5Udp and waku.wakuDiscV5.udpPort.
+          ## Only projected when the switch also has an external address:
+          ## otherwise the ENR would pair a mapped udp port with a local ip,
+          ## advertising an endpoint that does not exist.
+          if waku.node.natExternalIp().isSome():
+            waku.conf.discv5Conf.get().udpPort = mapped.get().externalPort
+          else:
+            debug "discv5 mapped but the switch has no external address; " &
+              "keeping the bind port in the ENR"
+          waku.discv5NatRenewLoopHandle =
+            waku.discv5NatRenewLoop(mapped.get().externalPort)
+        else:
+          debug "discv5 NAT port mapping not available", err = mapped.error
+      except CancelledError:
+        debug "discv5 NAT port mapping cancelled"
+
   ## Update waku data that is set dynamically on node start
   try:
     (await updateWaku(waku)).isOkOr:
       return err("Error in start: " & $error)
   except CatchableError:
     return err("Caught exception in start: " & getCurrentExceptionMsg())
+
+  ## Keep the ENR matching the announced addresses as mappings change.
+  waku.node.onAnnouncedAddressesChange = proc() {.gcsafe, raises: [].} =
+    updateAddressInENR(waku).isOkOr:
+      error "failed to refresh ENR after announced address change", error = error
 
   waku.node.subscriptionManager.subscribeAllAutoshards().isOkOr:
     return err("failed to auto-subscribe autosharding shards: " & $error)
@@ -554,6 +655,9 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
     if not waku.dnsRetryLoopHandle.isNil():
       await waku.dnsRetryLoopHandle.cancelAndWait()
+
+    if not waku.discv5NatRenewLoopHandle.isNil():
+      await waku.discv5NatRenewLoopHandle.cancelAndWait()
 
     if not waku.healthMonitor.isNil():
       await waku.healthMonitor.stopHealthMonitor()

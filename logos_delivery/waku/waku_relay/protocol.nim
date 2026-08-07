@@ -17,6 +17,7 @@ import
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/stream/connection,
   libp2p/switch,
+  libp2p/utils/opt,
   brokers/broker_context
 
 import
@@ -273,7 +274,11 @@ proc initRelayObservers(w: WakuRelay) =
 
     let msg_id_short = shortLog(msg_id)
 
-    let wakuMessage = WakuMessage.decode(msg.data).valueOr:
+    ## Bound once: `Opt.get` materializes the payload, so reading it twice
+    ## would copy up to a full message per relayed message.
+    let data = msg.data.get(@[])
+
+    let wakuMessage = WakuMessage.decode(data).valueOr:
       warn "Error decoding to Waku Message",
         my_peer_id = w.switch.peerInfo.peerId,
         msg_id = msg_id_short,
@@ -282,7 +287,7 @@ proc initRelayObservers(w: WakuRelay) =
         error = $error
       return err()
 
-    let msgSize = msg.data.len + msg.topic.len
+    let msgSize = data.len + msg.topic.len
     return ok((msg_id_short, msg.topic, wakuMessage, msgSize))
 
   proc updateMetrics(
@@ -309,12 +314,14 @@ proc initRelayObservers(w: WakuRelay) =
       var topicsChanged = false
 
       for graft in ctrl.graft:
-        w.topicHealthDirty.incl(graft.topicID)
-        topicsChanged = true
+        graft.topicID.withValue(topic):
+          w.topicHealthDirty.incl(topic)
+          topicsChanged = true
 
       for prune in ctrl.prune:
-        w.topicHealthDirty.incl(prune.topicID)
-        topicsChanged = true
+        prune.topicID.withValue(topic):
+          w.topicHealthDirty.incl(topic)
+          topicsChanged = true
 
       if topicsChanged:
         w.topicHealthUpdateEvent.fire()
@@ -328,7 +335,7 @@ proc initRelayObservers(w: WakuRelay) =
 
   proc onValidated(peer: PubSubPeer, msg: Message, msgId: MessageId) =
     let msg_id_short = shortLog(msgId)
-    let wakuMessage = WakuMessage.decode(msg.data).valueOr:
+    let wakuMessage = WakuMessage.decode(msg.data.get(@[])).valueOr:
       warn "onValidated: failed decoding to Waku Message",
         my_peer_id = w.switch.peerInfo.peerId,
         msg_id = msg_id_short,
@@ -545,7 +552,7 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
   ): Future[ValidationResult] {.async.} =
     # can be optimized by checking if the message is a WakuMessage without allocating memory
     # see nim-libp2p protobuf library
-    let msg = WakuMessage.decode(message.data).valueOr:
+    let msg = WakuMessage.decode(message.data.get(@[])).valueOr:
       error "protocol generateOrderedValidator reject decode error",
         pubsubTopic = pubsubTopic, error = $error
       return ValidationResult.Reject

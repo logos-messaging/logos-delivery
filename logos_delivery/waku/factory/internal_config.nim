@@ -8,9 +8,7 @@ import
   std/[sequtils, net],
   results
 
-import
-  logos_delivery/waku/[common/utils/nat, net/net_config, waku_enr, waku_core],
-  ./waku_conf
+import logos_delivery/waku/[net/net_config, waku_enr, waku_core], ./waku_conf
 
 proc tryBuildEnrRecord(
     conf: WakuConf, netConfig: NetConfig, multiaddrs: seq[MultiAddress]
@@ -89,7 +87,10 @@ proc networkConfiguration*(
     quicConf: Opt[QuicConf],
     wakuFlags: CapabilitiesBitfield,
     dnsAddrsNameServers: seq[IpAddress],
-    clientId: string,
+    natExtIp = Opt.none(IpAddress),
+    extTcpPort = Opt.none(Port),
+    extUdpPort = Opt.none(Port),
+    extWsPort = Opt.none(Port),
 ): Future[NetConfigResult] {.async.} =
   let tcpBindPort = conf.p2pTcpPort
 
@@ -100,11 +101,14 @@ proc networkConfiguration*(
     else:
       (false, Opt.none(Port))
 
-  # NAT-map the QUIC UDP port (placeholder when QUIC off)
-  var (extIp, extTcpPort, extUdpPort) = setupNat(
-    conf.natStrategy.string, clientId, tcpBindPort, quicBindPort.get(tcpBindPort)
-  ).valueOr:
-    return err("failed to setup NAT: " & $error)
+  ## External IP/ports as far as they can be known at this point: `extip:` is
+  ## static configuration, while UPnP/NAT-PMP mappings are performed by the
+  ## switch's NATService at startup; the caller passes their results in
+  ## (`natExtIp`/`extTcpPort`/`extUdpPort`) when recomputing the config on a
+  ## running node.
+  var extIp = natExtIp
+  if extIp.isNone() and conf.natStrategy.kind == NatExtIp:
+    extIp = Opt.some(conf.natStrategy.extIp)
 
   let
     discv5UdpPort =
@@ -113,21 +117,37 @@ proc networkConfiguration*(
       else:
         Opt.none(Port)
 
-    ## TODO: the NAT setup assumes a manual port mapping configuration if extIp
-    ## config is set. This probably implies adding manual config item for
-    ## extPort as well. The following heuristic assumes that, in absence of
-    ## manual config, the external port is the same as the bind port.
+    ## The bind-port fallback below assumes the operator vouches for the
+    ## external endpoint (`extip:` implies a manual port mapping, dns4 a name
+    ## that resolves to this node). For a NAT-discovered external IP the
+    ## mapped ports are authoritative instead: a transport without a mapping
+    ## in place has no external endpoint and must not announce a guessed one.
+    natDiscovered = natExtIp.isSome()
+
     extPort =
-      if (extIp.isSome() or conf.dns4DomainName.isSome()) and extTcpPort.isNone():
+      if natDiscovered:
+        extTcpPort
+      elif (extIp.isSome() or conf.dns4DomainName.isSome()) and extTcpPort.isNone():
         Opt.some(tcpBindPort)
       else:
         extTcpPort
 
     extQuicPort =
-      if (extIp.isSome() or conf.dns4DomainName.isSome()) and extUdpPort.isNone():
+      if natDiscovered:
+        extUdpPort
+      elif (extIp.isSome() or conf.dns4DomainName.isSome()) and extUdpPort.isNone():
         quicBindPort
       else:
         extUdpPort
+
+    wsExtPort =
+      if natDiscovered:
+        extWsPort
+      elif (extIp.isSome() or conf.dns4DomainName.isSome()) and extWsPort.isNone() and
+        webSocketConf.isSome():
+        Opt.some(webSocketConf.get().port)
+      else:
+        extWsPort
 
   # Resolve and use DNS domain IP
   if conf.dns4DomainName.isSome() and extIp.isNone():
@@ -164,6 +184,8 @@ proc networkConfiguration*(
     quicBindPort = quicBindPort,
     quicEnabled = quicEnabled,
     extQuicPort = extQuicPort,
+    extWsPort = wsExtPort,
+    natDiscovered = natDiscovered,
     dns4DomainName = conf.dns4DomainName,
     discv5UdpPort = discv5UdpPort,
     wakuFlags = Opt.some(wakuFlags),

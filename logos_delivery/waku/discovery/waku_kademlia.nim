@@ -54,14 +54,13 @@ proc extractMixPubKey*(service: ServiceInfo): Opt[Curve25519Key] =
   if service.id != MixProtocolID:
     return Opt.none(Curve25519Key)
 
-  if service.data.len != Curve25519KeySize:
+  let data = service.data.get(@[])
+  if data.len != Curve25519KeySize:
     trace "invalid mix pub key length",
-      expected = Curve25519KeySize,
-      actual = service.data.len,
-      dataHex = byteutils.toHex(service.data)
+      expected = Curve25519KeySize, actual = data.len, dataHex = byteutils.toHex(data)
     return Opt.none(Curve25519Key)
 
-  let key = intoCurve25519Key(service.data)
+  let key = intoCurve25519Key(data)
 
   return Opt.some(key)
 

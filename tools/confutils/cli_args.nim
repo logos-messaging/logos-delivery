@@ -1053,7 +1053,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withP2pListenAddress(n.listenAddress)
   b.withP2pTcpPort(n.tcpPort)
   b.withPortsShift(n.portsShift)
-  b.withNatStrategy(n.nat)
+  if n.nat != "":
+    b.withNatStrategy(n.nat)
   b.withExtMultiAddrs(n.extMultiAddrs)
   b.withExtMultiAddrsOnly(n.extMultiAddrsOnly)
   b.withMaxConnections(n.maxConnections)

@@ -12,8 +12,12 @@ skipDirs = @["tests", "examples", "tools", "apps", "simulations", "metrics"]
 
 const RequiredNimVersion = "2.2.4"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
-const RequiredNimbleVersion = "0.22.3"
-  ## Enforced nimble version to ensure a reproducible flow
+const RequiredNimbleVersion = "0.24.1"
+  ## Enforced nimble version to ensure a reproducible flow.
+  ## 0.24.x is required for the libp2p v2.2.0 dependency graph: 0.22.3's
+  ## lock-file solver cannot reconcile the name-based `libp2p == 2.2.0`
+  ## requirement with transitive range constraints (nim-sds, libp2p_mix)
+  ## and fails `nimble lock` / `nimble setup` on this graph.
 
 ### Dependencies
 requires "nim >= 2.2.4",
@@ -28,9 +32,14 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#v2.0.0",
+  # Name-based (registry) requirement: transitive constraints on the name
+  # `libp2p` (nim-sds `>= 1.15.2`, libp2p_mix) do not unify with a special
+  # `url#tag` pin in nimble 0.22's solver, so pin the exact version by name.
+  "libp2p == 2.2.0",
   "eth",
-  "nat_traversal",
+  # nat_traversal is not a direct dependency but stays in the graph
+  # transitively: libp2p's NATService links the miniupnpc/libnatpmp static
+  # libs, so Nat.mk and the iOS vendor-lib build steps below must stay.
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
@@ -67,9 +76,12 @@ requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
-requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
+# Exact lsquic pin: libp2p only floors it (>= 0.5.4); without this anchor a
+# re-solve (e.g. `nimble setup` after a manifest edit) floats to the newest
+# lsquic release and silently rewrites the lock.
+requires "lsquic == 0.5.6"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
-requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
+requires "https://github.com/logos-co/nim-libp2p-mix#395b65aadf0a4ad273e544647b7e06f1ca77cf67"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
