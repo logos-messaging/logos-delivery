@@ -125,6 +125,6 @@ class TestWrapperAutoPortAllocation(StepsCommon):
             discv5_port = get_node_bound_ports(node)["discv5Udp"]
             assert discv5_port != 0, "discv5 enabled with port 0 but nothing bound"
 
-            enr_result = node.get_node_info_raw("MyENR")
+            enr_result = node.get_node_info("MyENR")
             assert enr_result.is_ok(), f"MyENR query failed: {enr_result.err()}"
             assert enr_udp_port(enr_result.ok_value.strip()) == discv5_port, "ENR was not rebuilt after discv5 startup"

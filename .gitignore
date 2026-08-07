@@ -92,3 +92,6 @@ nimbledeps
 __pycache__/
 *.pyc
 .venv*/
+
+# Emitted by genBindings() during the liblogosdelivery build.
+library/generated/

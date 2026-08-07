@@ -10,22 +10,18 @@ import
   library/declare_lib
 
 proc waku_filter_subscribe(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    pubSubTopic: cstring,
-    contentTopics: cstring,
-) {.ffiRaw.} =
-  proc onReceivedMessage(ctx: ptr FFIContext[LogosDelivery]): FilterPushHandler =
+    self: LogosDelivery, pubSubTopic: string, contentTopics: string
+): Future[Result[string, string]] {.ffi.} =
+  proc onReceivedMessage(): FilterPushHandler =
     return proc(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async.} =
       emitEvent("onReceivedMessage"):
         $JsonMessageEvent.new(pubsubTopic, msg)
 
   (
-    await ctx.myLib[].waku.filterSubscribe(
-      PubsubTopic($pubSubTopic),
-      ($contentTopics).split(",").mapIt(ContentTopic(it)),
-      FilterPushHandler(onReceivedMessage(ctx)),
+    await self.waku.filterSubscribe(
+      PubsubTopic(pubSubTopic),
+      contentTopics.split(",").mapIt(ContentTopic(it)),
+      FilterPushHandler(onReceivedMessage()),
     )
   ).isOkOr:
     error "fail filter subscribe", error = error
@@ -33,15 +29,11 @@ proc waku_filter_subscribe(
   return ok("")
 
 proc waku_filter_unsubscribe(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    pubSubTopic: cstring,
-    contentTopics: cstring,
-) {.ffiRaw.} =
+    self: LogosDelivery, pubSubTopic: string, contentTopics: string
+): Future[Result[string, string]] {.ffi.} =
   (
-    await ctx.myLib[].waku.filterUnsubscribe(
-      PubsubTopic($pubSubTopic), ($contentTopics).split(",").mapIt(ContentTopic(it))
+    await self.waku.filterUnsubscribe(
+      PubsubTopic(pubSubTopic), contentTopics.split(",").mapIt(ContentTopic(it))
     )
   ).isOkOr:
     error "fail filter unsubscribe", error = error
@@ -49,9 +41,9 @@ proc waku_filter_unsubscribe(
   return ok("")
 
 proc waku_filter_unsubscribe_all(
-    ctx: ptr FFIContext[LogosDelivery], callback: FFICallBack, userData: pointer
-) {.ffiRaw.} =
-  (await ctx.myLib[].waku.filterUnsubscribeAll()).isOkOr:
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  (await self.waku.filterUnsubscribeAll()).isOkOr:
     error "fail filter unsubscribe all", error = error
     return err(error)
   return ok("")

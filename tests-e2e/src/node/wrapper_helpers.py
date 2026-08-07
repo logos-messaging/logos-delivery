@@ -183,9 +183,9 @@ def get_node_multiaddr(node) -> str:
     list), this fails loudly instead of silently passing a malformed string
     downstream to staticnodes / add_peers.
     """
-    result = node.get_node_info_raw("MyMultiaddresses")
+    result = node.get_node_info("MyMultiaddresses")
     if result.is_err():
-        raise RuntimeError(f"get_node_info_raw failed: {result.err()}")
+        raise RuntimeError(f"get_node_info failed: {result.err()}")
 
     addr = result.ok_value.strip()
     if not addr or not addr.startswith("/"):
@@ -213,10 +213,10 @@ def get_node_tcp_port(node) -> int:
 def get_node_bound_ports(node) -> dict:
     """Return the MyBoundPorts debug info .
 
-    Keys: tcp, webSocket, rest, discv5Udp, metrics. A value of 0 means the
+    Keys: tcp, webSocket, quic, rest, discv5Udp, metrics. A value of 0 means the
     service is disabled or did not bind.
     """
-    result = node.get_node_info_raw("MyBoundPorts")
+    result = node.get_node_info("MyBoundPorts")
     if result.is_err():
         raise RuntimeError(f"MyBoundPorts query failed: {result.err()}")
     return json.loads(result.ok_value)

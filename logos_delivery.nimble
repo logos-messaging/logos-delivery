@@ -17,7 +17,7 @@ const RequiredNimbleVersion = "0.22.3"
 
 ### Dependencies
 requires "nim >= 2.2.4",
-  "chronos >= 4.2.0",
+  "chronos >= 4.2.0 & < 4.4.0",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -61,7 +61,7 @@ requires "nim >= 2.2.4",
 
 # Packages not on nimble (use git URLs)
 
-requires "https://github.com/logos-messaging/nim-ffi#aad9374354a5e3d98964a9adf80766a12f8f200d" # v0.3.0-rc.1
+requires "https://github.com/logos-messaging/nim-ffi#53515de17af0ef3e88b2aec9675b8163dddc14ae" # v0.3.0-rc.2
 
 requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb948b32a4ade1de3b5"
 
@@ -106,14 +106,25 @@ proc buildBinary(name: string, srcDir = "./", params = "") =
   exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
     srcDir & name & ".nim"
 
+## Emitted by `genBindings()` during the library build, so the header can never
+## drift from the Nim signatures. Not checked in: it is a build artifact.
+const cBindingsDir = "library/generated"
+
+## `-d:ffiSrcPath` is required: without it nim-ffi derives the path with
+## `relativePath`, which needs `getcwd` at compile time and fails to build.
+const cBindingsFlags =
+  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=" & cBindingsDir &
+  " -d:ffiSrcPath=../liblogosdelivery.nim "
+
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
   if not dirExists "build":
     mkDir "build"
+  mkDir cBindingsDir
 
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:on -d:discv5_protocol_id=d5waku " &
-      getMyCPU() & getNimParams() & srcDir & "/" & srcFile
+      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      cBindingsFlags & getMyCPU() & getNimParams() & srcDir & "/" & srcFile
   else:
     # -Bsymbolic binds the library's references to its own symbols at link
     # time. Without it, a host process that already loads OpenSSL (e.g.
@@ -123,7 +134,7 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
     let elfFlags = when defined(linux): "--passL:-Wl,-Bsymbolic " else: ""
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      elfFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
+      elfFlags & cBindingsFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,

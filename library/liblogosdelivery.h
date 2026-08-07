@@ -1,6 +1,10 @@
-
-// Generated manually and inspired by libwaku.h
-// Header file for Logos Messaging API (LMAPI) library
+// Public C header for the Logos Messaging API (LMAPI) library.
+//
+// The call surface is generated from the {.ffi.} annotations in library/*.nim
+// and written to generated/logosdelivery.h by `make liblogosdelivery`. That file
+// is a build artifact, not checked in, so build the library before you compile
+// against this header. This file adds the event-listener ABI, which nim-ffi
+// exports from declareLibrary but does not emit into the `abi = c` header.
 #pragma once
 #ifndef __liblogosdelivery__
 #define __liblogosdelivery__
@@ -8,145 +12,50 @@
 #include <stddef.h>
 #include <stdint.h>
 
-// The possible returned values for the functions that return int
-#define RET_OK 0
-#define RET_ERR 1
-#define RET_MISSING_CALLBACK 2
+#include "generated/logosdelivery.h"
+
+// Kept as aliases of the generated NIMFFI_RET_* codes so existing callers that
+// use the short names keep compiling. Guarded because the legacy libwaku header
+// defines the same names with the same values.
+#ifndef RET_OK
+#define RET_OK NIMFFI_RET_OK
+#endif
+#ifndef RET_ERR
+#define RET_ERR NIMFFI_RET_ERR
+#endif
+#ifndef RET_MISSING_CALLBACK
+#define RET_MISSING_CALLBACK NIMFFI_RET_MISSING_CALLBACK
+#endif
 
 #ifdef __cplusplus
 extern "C"
 {
 #endif
 
+  // Raw result-delivery callback used by the event API. `msg` is a byte run of
+  // `len` bytes, not NUL-terminated, and is valid only for the duration of the
+  // call.
   typedef void (*FFICallBack)(int callerRet, const char *msg, size_t len, void *userData);
 
-  // Creates a new instance of the node from the given configuration JSON.
-  // Returns a pointer to the Context needed by the rest of the API functions.
-  // The configuration is a JSON object with these optional keys:
-  //   "mode": "Core" | "Edge"        (messaging role; defaults to "Core")
-  //   "preset": "<network preset>"   (e.g. "twn")
-  //   "messagingOverrides": { ... }  (per-field messaging config overrides)
-  //   "channelsOverrides": { ... }   (per-field reliable-channel overrides)
-  // Override keys accept the config field name or its CLI switch name (e.g.
-  // "clusterId" or "cluster-id"). Unknown keys are rejected.
-  // Example: {"mode":"Core","messagingOverrides":{"cluster-id":42,"log-level":"INFO"}}
-  void *logosdelivery_create_node(
-      const char *configJson,
-      FFICallBack callback,
-      void *userData);
-
-  // Starts the node.
-  int logosdelivery_start_node(void *ctx,
-                       FFICallBack callback,
-                       void *userData);
-
-  // Stops the node.
-  int logosdelivery_stop_node(void *ctx,
-                      FFICallBack callback,
-                      void *userData);
-
-  // Destroys an instance of a node created with logosdelivery_create_node
-  int logosdelivery_destroy(void *ctx,
-                    FFICallBack callback,
-                    void *userData);
-
-  // Subscribe to a content topic.
-  // contentTopic: string representing the content topic (e.g., "/myapp/1/chat/proto")
-  int logosdelivery_subscribe(void *ctx,
-                      FFICallBack callback,
-                      void *userData,
-                      const char *contentTopic);
-
-  // Unsubscribe from a content topic.
-  int logosdelivery_unsubscribe(void *ctx,
-                        FFICallBack callback,
-                        void *userData,
-                        const char *contentTopic);
-
-  // Send a message.
-  // messageJson: JSON string with the following structure:
-  // {
-  //   "contentTopic": "/myapp/1/chat/proto",
-  //   "payload": "base64-encoded-payload",
-  //   "ephemeral": false
-  // }
-  // Returns a request ID that can be used to track the message delivery.
-  int logosdelivery_send(void *ctx,
-                 FFICallBack callback,
-                 void *userData,
-                 const char *messageJson);
-
-  // --- Reliable Channels API (stable surface) ---
-
-  // Create a reliable channel. Returns the channel id.
-  int logosdelivery_channel_create(void *ctx,
-                           FFICallBack callback,
-                           void *userData,
-                           const char *channelId,
-                           const char *contentTopic,
-                           const char *senderId);
-
-  // Check whether a reliable channel is currently open. Returns "true" or
-  // "false"; an unknown channel id is not an error.
-  int logosdelivery_channel_exists(void *ctx,
-                           FFICallBack callback,
-                           void *userData,
-                           const char *channelId);
-
-  // Send a message on a reliable channel.
-  // messageJson: { "payload": "base64-encoded-payload", "ephemeral": false }
-  // Returns a request ID that can be used to track delivery.
-  int logosdelivery_channel_send(void *ctx,
-                         FFICallBack callback,
-                         void *userData,
-                         const char *channelId,
-                         const char *messageJson);
-
-  // Close a reliable channel: stops its SDS loops; persisted state survives, so
-  // re-creating the channel restores it.
-  int logosdelivery_channel_close(void *ctx,
-                          FFICallBack callback,
-                          void *userData,
-                          const char *channelId);
-
-  // Channel lifecycle events are delivered through a per-event listener,
-  // registered by name: "onChannelMessageReceived" (payload base64-encoded),
-  // "onChannelMessageSent", "onChannelMessageError".
+  // Events are delivered through a per-event listener registry. Register one
+  // callback per event name of interest; see the README for the full list.
+  // Channel lifecycle events are "onChannelMessageReceived" (payload
+  // base64-encoded), "onChannelMessageSent" and "onChannelMessageError".
 
   // Registers a callback for the named event and returns a non-zero listener id
-  // (0 on an invalid context). Register one listener per event name of interest;
-  // see the README for the full list of event names.
+  // (0 on an invalid context). `ctx` is the context handle returned by
+  // logosdelivery_create_node.
   // The callback runs on a dedicated event thread and must be fast,
   // non-blocking and thread-safe.
   uint64_t logosdelivery_add_event_listener(void *ctx,
-                                 const char *eventName,
-                                 FFICallBack callback,
-                                 void *userData);
+                                            const char *eventName,
+                                            FFICallBack callback,
+                                            void *userData);
 
   // Removes a previously registered listener. Returns 0 on success, 1 if the
   // listener id was not found or the context is invalid.
   int logosdelivery_remove_event_listener(void *ctx,
-                                 uint64_t listenerId);
-
-  // Retrieves the list of available node info IDs.
-  int logosdelivery_get_available_node_info_ids(void *ctx,
-                                 FFICallBack callback,
-                                 void *userData);
-
-  // Given a node info ID, retrieves the corresponding info.
-  int logosdelivery_get_node_info(void *ctx,
-                                  FFICallBack callback,
-                                  void *userData,
-                                  const char *nodeInfoId);
-
-  // Retrieves the list of available configurations.
-  int logosdelivery_get_available_configs(void *ctx,
-                                    FFICallBack callback,
-                                    void *userData);
-
-  // NOTE: the low-level kernel API (waku_*) lives in the separate, advanced
-  // header liblogosdelivery_kernel.h. It is intentionally not declared here so
-  // this header only promises the stable Messaging / Reliable Channels surface.
+                                          uint64_t listenerId);
 
 #ifdef __cplusplus
 }

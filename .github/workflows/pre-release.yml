@@ -14,6 +14,8 @@ env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC}"
+  NIM_VERSION: '2.2.4'
+  NIMBLE_VERSION: '0.22.3'
 
 jobs:
   tag-name:
@@ -43,6 +45,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # macos images ship no nim/nimble; make dies at "nimble: No such file or directory".
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: |
+          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
       - name: prep variables
         id: vars
@@ -100,6 +114,10 @@ jobs:
   js-waku-node:
     needs: build-docker-image
     uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
+    permissions:
+      contents: read
+      actions: read
+      checks: write
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node
@@ -108,6 +126,10 @@ jobs:
   js-waku-node-optional:
     needs: build-docker-image
     uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
+    permissions:
+      contents: read
+      actions: read
+      checks: write
     with:
       nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
       test_type: node-optional

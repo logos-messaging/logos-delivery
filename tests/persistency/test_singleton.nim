@@ -3,77 +3,109 @@
 import std/[os, strutils, times]
 import chronos, results
 import testutils/unittests
-import brokers/multi_request_broker
+import brokers/[request_broker, broker_context]
 import logos_delivery/waku/persistency/persistency
 
 proc tmpRoot(label: string): string =
-  let p = getTempDir() / ("persistency_singleton_" & label & "_" & $epochTime().int)
+  let p = getTempDir() / ("persistency_instance_" & label & "_" & $epochTime().int)
   removeDir(p)
   p
 
-suite "Persistency singleton":
-  test "instance(rootDir) is idempotent with the same rootDir":
-    let root = tmpRoot("idem")
-    defer:
-      removeDir(root)
-    defer:
-      Persistency.reset()
-
-    let p1 = Persistency.instance(root).get()
-    let p2 = Persistency.instance(root).get()
-    check p1 == p2
-
-  test "instance(rootDir) refuses re-init with a different rootDir":
+suite "Persistency instances":
+  test "new(rootDir) builds independent instances":
     let rootA = tmpRoot("a")
     let rootB = tmpRoot("b")
     defer:
       removeDir(rootA)
     defer:
       removeDir(rootB)
+
+    let pA = Persistency.new(rootA).get()
+    let pB = Persistency.new(rootB).get()
     defer:
-      Persistency.reset()
+      pA.close()
+    defer:
+      pB.close()
 
-    discard Persistency.instance(rootA).get()
-    let r = Persistency.instance(rootB)
-    check r.isErr
-    check r.error.kind == peInvalidArgument
+    check pA.rootDir == rootA
+    check pB.rootDir == rootB
+    check pA != pB
 
-  test "no-arg instance() fails before init, succeeds after":
-    let root = tmpRoot("noarg")
+  test "new(rootDir) with the same rootDir yields distinct instances":
+    let root = tmpRoot("same")
     defer:
       removeDir(root)
+
+    let p1 = Persistency.new(root).get()
+    let p2 = Persistency.new(root).get()
     defer:
-      Persistency.reset()
+      p1.close()
+    defer:
+      p2.close()
 
-    let before = Persistency.instance()
-    check before.isErr
-    check before.error.kind == peClosed
+    check p1 != p2
 
-    discard Persistency.instance(root).get()
-    let after = Persistency.instance()
-    check after.isOk
+  test "close() is idempotent":
+    let root = tmpRoot("close")
+    defer:
+      removeDir(root)
 
-  test "reset() makes the next instance() target a different rootDir":
-    let rootA = tmpRoot("rs-a")
-    let rootB = tmpRoot("rs-b")
+    let p = Persistency.new(root).get()
+    discard p.openJob("j").get()
+    p.close()
+    p.close()
+    check not p.hasJob("j")
+
+suite "GetPersistency broker":
+  test "request fails when no provider is installed":
+    let ctx = NewBrokerContext()
+    check GetPersistency.request(ctx).isErr
+
+  test "request returns the provided instance, clearProvider removes it":
+    let root = tmpRoot("broker")
+    defer:
+      removeDir(root)
+
+    let ctx = NewBrokerContext()
+    let p = Persistency.new(root).get()
+    defer:
+      p.close()
+
+    discard GetPersistency.reprovideIt(ctx):
+      ok(p)
+
+    let got = GetPersistency.request(ctx)
+    check got.isOk
+    check got.get() == p
+
+    GetPersistency.clearProvider(ctx)
+    check GetPersistency.request(ctx).isErr
+
+  test "providers on different contexts resolve different instances":
+    let rootA = tmpRoot("ctx-a")
+    let rootB = tmpRoot("ctx-b")
     defer:
       removeDir(rootA)
     defer:
       removeDir(rootB)
+
+    let ctxA = NewBrokerContext()
+    let ctxB = NewBrokerContext()
+    let pA = Persistency.new(rootA).get()
+    let pB = Persistency.new(rootB).get()
     defer:
-      Persistency.reset()
-
-    let pA = Persistency.instance(rootA).get()
-    check pA.rootDir == rootA
-    Persistency.reset()
-
-    let pB = Persistency.instance(rootB).get()
-    check pB.rootDir == rootB
-    check pA != pB
-
-  test "reset() is idempotent":
+      pA.close()
     defer:
-      Persistency.reset()
-    Persistency.reset()
-    Persistency.reset()
-    check Persistency.instance().isErr
+      pB.close()
+
+    discard GetPersistency.reprovideIt(ctxA):
+      ok(pA)
+    discard GetPersistency.reprovideIt(ctxB):
+      ok(pB)
+    defer:
+      GetPersistency.clearProvider(ctxA)
+    defer:
+      GetPersistency.clearProvider(ctxB)
+
+    check GetPersistency.request(ctxA).get() == pA
+    check GetPersistency.request(ctxB).get() == pB

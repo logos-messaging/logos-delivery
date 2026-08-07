@@ -10,6 +10,8 @@ env:
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none -d:disableMarchNative"
   NIM_PARAMS: "-d:disableMarchNative"
+  NIM_VERSION: '2.2.4'
+  NIMBLE_VERSION: '0.22.3'
 
 jobs:
   build:
@@ -24,6 +26,18 @@ jobs:
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # macos images ship no nim/nimble; make dies at "nimble: No such file or directory".
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: |
+          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
 
       - name: Get submodules hash
         id: submodules

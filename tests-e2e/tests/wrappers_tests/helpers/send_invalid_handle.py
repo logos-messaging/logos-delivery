@@ -1,8 +1,8 @@
 """S01 helpers: invoke send() against an invalid handle in an isolated process.
 
 Run via:
-    python -m tests.wrappers_tests.helpers.send_on_invalid_handle nil       <marker>
-    python -m tests.wrappers_tests.helpers.send_on_invalid_handle destroyed <marker>
+    python -m tests.wrappers_tests.helpers.send_invalid_handle nil       <marker>
+    python -m tests.wrappers_tests.helpers.send_invalid_handle destroyed <marker>
 
 Prints a single line to stdout starting with <marker>, followed by a JSON
 payload describing the outcome. Runs in its own process so that a missing
@@ -134,7 +134,7 @@ CASES = {
 def main() -> int:
     if len(sys.argv) != 3 or sys.argv[1] not in CASES:
         cases = "|".join(CASES)
-        print(f"usage: send_on_invalid_handle <{cases}> <result_marker>", file=sys.stderr)
+        print(f"usage: send_invalid_handle <{cases}> <result_marker>", file=sys.stderr)
         return 2
 
     case, marker = sys.argv[1], sys.argv[2]

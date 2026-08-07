@@ -8,26 +8,20 @@ import
   library/declare_lib
 
 proc waku_lightpush_publish(
-    ctx: ptr FFIContext[LogosDelivery],
-    callback: FFICallBack,
-    userData: pointer,
-    pubSubTopic: cstring,
-    jsonWakuMessage: cstring,
-) {.ffiRaw.} =
+    self: LogosDelivery, pubSubTopic: string, jsonWakuMessage: string
+): Future[Result[string, string]] {.ffi.} =
   var jsonMessage: JsonMessage
   try:
-    let jsonContent = parseJson($jsonWakuMessage)
+    let jsonContent = parseJson(jsonWakuMessage)
     jsonMessage = JsonMessage.fromJsonNode(jsonContent).valueOr:
       raise newException(JsonParsingError, $error)
-  except JsonParsingError as exc:
-    return err(fmt"Error parsing json message: {exc.msg}")
+  except JsonParsingError as e:
+    return err(fmt"Error parsing json message: {e.msg}")
 
   let msg = json_message_event.toWakuMessage(jsonMessage).valueOr:
     return err("Problem building the WakuMessage: " & $error)
 
-  let msgHashHex = (
-    await ctx.myLib[].waku.lightpushPublish(PubsubTopic($pubSubTopic), msg)
-  ).valueOr:
+  let msgHashHex = (await self.waku.lightpushPublish(PubsubTopic(pubSubTopic), msg)).valueOr:
     error "PUBLISH failed", error = error
     return err(error)
 

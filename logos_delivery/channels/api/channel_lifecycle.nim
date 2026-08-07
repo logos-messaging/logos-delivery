@@ -16,10 +16,11 @@ const SdsJobId = "sds"
   ## One persistency job shared by every channel's SDS state; rows are
   ## keyed by channelId.
 
-proc sdsPersistence(): Opt[Persistence] =
-  ## SDS backend from the Persistency singleton; memory-only fallback when
-  ## it is unavailable (e.g. unit tests).
-  let p = Persistency.instance().valueOr:
+proc sdsPersistence(brokerCtx: BrokerContext): Opt[Persistence] =
+  ## SDS backend from the node's Persistency instance, resolved via the
+  ## context-scoped GetPersistency broker; memory-only fallback when no
+  ## provider is installed (e.g. unit tests).
+  let p = GetPersistency.request(brokerCtx).valueOr:
     info "SDS persistence disabled, running memory-only", reason = $error
     return Opt.none(Persistence)
   let job = p.openJob(SdsJobId).valueOr:
@@ -60,7 +61,7 @@ proc createReliableChannel*(
       cc.sdsAcknowledgementTimeoutMs.get(DefaultAcknowledgementTimeoutMs),
     maxRetransmissions: cc.sdsMaxRetransmissions.get(DefaultMaxRetransmissions),
     causalHistorySize: cc.sdsCausalHistorySize.get(DefaultCausalHistorySize),
-    persistence: sdsPersistence(),
+    persistence: sdsPersistence(self.brokerCtx),
   )
 
   let chn = ReliableChannel.new(
