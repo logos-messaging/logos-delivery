@@ -28,7 +28,10 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#v2.0.0",
+  # Pin by version, not by git URL + tag: libp2p_mix requires `libp2p == 2.0.0`,
+  # and the URL form makes the solver model this as the special version #v2.0.0,
+  # which never satisfies an exact ==. Same revision either way (lock pins it).
+  "libp2p == 2.0.0",
   "eth",
   "nat_traversal",
   "dnsdisc",
