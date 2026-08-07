@@ -31,9 +31,6 @@ proc logosdelivery_create_node(
 
   return ok(lib)
 
-proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
-  discard
-
 proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ## Bridges every broker event the library re-publishes onto the FFI event
   ## registry. Keep in step with `dropFFIEventListeners`.
@@ -168,18 +165,33 @@ proc logosdelivery_start_node(
     return err(error)
 
   (await self.start()).isOkOr:
+    ## A retry would stack a second set.
+    await self.dropFFIEventListeners()
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
     return err("failed to start: " & errMsg)
   return ok("")
 
+proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
+  ## Listeners come off unconditionally: a failed start registers them anyway.
+  await self.dropFFIEventListeners()
+
+  if not self.isRunning():
+    return ok()
+
+  await self.stop()
+
 proc logosdelivery_stop_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
-  await self.dropFFIEventListeners()
-
-  (await self.stop()).isOkOr:
+  (await self.stopNode()).isOkOr:
     let errMsg = $error
     chronicles.error "STOP_NODE failed", err = errMsg
     return err("failed to stop: " & errMsg)
   return ok("")
+
+proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
+  ## Safety net for a host that skips `stop_node` (#4108): nim-ffi recycles the
+  ## worker rather than joining it, so an unstopped node keeps running.
+  (await self.stopNode()).isOkOr:
+    chronicles.error "DESTROY failed", err = error

@@ -216,6 +216,14 @@ proc stop*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
 
   return ok()
 
+func isRunning*(self: LogosDelivery): bool =
+  ## True while a layer still holds what `stop` releases; the channel manager
+  ## needs no test, its `stop` is already a no-op when empty.
+  let transportUp =
+    not self.waku.isNil() and not self.waku.node.isNil() and self.waku.node.started
+  let messagingUp = not self.messagingClient.isNil() and self.messagingClient.started
+  transportUp or messagingUp
+
 proc isOnline*(self: LogosDelivery): Future[Result[bool, string]] {.async.} =
   if self.waku.isNil():
     return err("Waku node is not initialized")
