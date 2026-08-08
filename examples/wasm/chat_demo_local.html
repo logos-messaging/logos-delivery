@@ -152,6 +152,11 @@
         let resolve; const p = new Promise((r) => (resolve = r));
         pump.enter();
         const fn = M.addFunction((ret, msg, len) => {
+          // ret 3 = RET_STALE_WARN: a NON-terminal progress ping nim-ffi 0.3.0
+          // fires while a handler is still running. Removing the function on it
+          // frees the table slot, and the real reply then calls a removed slot,
+          // trapping the whole module ("RuntimeError: null function").
+          if (ret === 3) return;
           M.removeFunction(fn); pump.leave(); resolve({ ret, msg: decodeReply(msg, len) });
         }, "viiii");
         return { fn, p };
