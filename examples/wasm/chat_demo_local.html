@@ -1,0 +1,197 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>wasm edge chat — over Waku, via a Status fleet node</title>
+  <style>
+    :root { color-scheme: dark; }
+    body { font: 14px/1.5 ui-monospace, SFMono-Regular, Menlo, monospace; max-width: 720px; margin: 1.5rem auto; padding: 0 1rem; color: #ddd; background: #111; }
+    h1 { font-size: 1.05rem; margin-bottom: .2rem; }
+    .sub { color: #888; margin-top: 0; }
+    .bar { display: flex; gap: .5rem; align-items: center; margin: .75rem 0; flex-wrap: wrap; }
+    input, button { font: inherit; padding: .45rem .6rem; background: #1b1b1b; color: #eee; border: 1px solid #333; border-radius: 6px; }
+    button { cursor: pointer; }
+    button:disabled { opacity: .5; cursor: default; }
+    #nick { width: 9rem; }
+    #text { flex: 1; min-width: 12rem; }
+    #status { font-size: .85rem; }
+    .ok { color: #6f6; } .warn { color: #fc6; } .err { color: #f66; }
+    #messages { list-style: none; padding: 0; margin: 1rem 0 0; border: 1px solid #2a2a2a; border-radius: 8px; min-height: 18rem; max-height: 60vh; overflow-y: auto; background: #000; }
+    #messages li { padding: .35rem .7rem; border-bottom: 1px solid #161616; }
+    #messages li:last-child { border-bottom: 0; }
+    .who { color: #6cf; } .me .who { color: #6f6; }
+    .when { color: #555; font-size: .8rem; float: right; }
+    .sys { color: #888; font-style: italic; }
+  </style>
+</head>
+<body>
+  <h1>wasm edge chat</h1>
+  <p class="sub">Messages go out via <b>lightpush</b> and arrive via a <b>filter</b> subscription — both running in WebAssembly, relayed by a real Status fleet node. Open this page in two tabs (or share the URL) to chat.</p>
+
+  <div class="bar">
+    <span id="status" class="warn">loading…</span>
+  </div>
+  <div class="bar">
+    <input id="nick" placeholder="nickname" />
+    <input id="text" placeholder="type a message and press Enter…" disabled autocomplete="off" />
+    <button id="send" disabled>Send</button>
+  </div>
+
+  <ul id="messages"></ul>
+
+  <!-- edge.js/edge.wasm are build outputs (build/ is gitignored). Override with
+       ?base=<dir> when serving this page from somewhere other than build/wasm. -->
+  <script>
+    (() => {
+      const base = new URLSearchParams(location.search).get("base") || ".";
+      document.write('<scr' + 'ipt src="' + base.replace(/\/$/, "") + '/edge.js"></scr' + 'ipt>');
+    })();
+  </script>
+  <script>
+    // ---- waku params: a Status staging fleet node (cluster 16) over wss --------
+    // Multiaddr of the node to dial. Override with ?node=/ip4/.../ws/p2p/...
+    // (take it from the `Listening on` line the node logs at startup).
+    const SERVICE = new URLSearchParams(location.search).get("node") ||
+      "/ip4/127.0.0.1/tcp/8401/ws/p2p/16Uiu2HAmHzBkRq62mG95vsjKMuYQBezZCtjPXYWUoyVxMxi71aB3";
+    const PUBSUB = "/waku/2/rs/16/32";            // cluster 16, shard 32
+    const CONTENT = "/edge-chat/1/lobby/proto";   // the shared chat "room"
+
+    // ---- UI helpers -----------------------------------------------------------
+    const $ = (id) => document.getElementById(id);
+    const statusEl = $("status"), nickEl = $("nick"), textEl = $("text"), sendBtn = $("send"), msgs = $("messages");
+    const setStatus = (msg, cls) => { statusEl.textContent = msg; statusEl.className = cls || ""; };
+    nickEl.value = "guest-" + Math.floor(Math.random() * 9000 + 1000);
+
+    const seen = new Set(); // message ids we've already rendered (for self-dedup)
+    function render({ id, nick, text, mine }) {
+      if (id && seen.has(id)) return;
+      if (id) seen.add(id);
+      const li = document.createElement("li");
+      if (mine) li.className = "me";
+      const t = new Date().toLocaleTimeString();
+      li.innerHTML = `<span class="when"></span><span class="who"></span>: <span class="body"></span>`;
+      li.querySelector(".when").textContent = t;
+      li.querySelector(".who").textContent = nick;
+      li.querySelector(".body").textContent = text;
+      msgs.appendChild(li);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+    function system(text) {
+      const li = document.createElement("li");
+      li.className = "sys";
+      li.textContent = text;
+      msgs.appendChild(li);
+      msgs.scrollTop = msgs.scrollHeight;
+    }
+
+    // ---- wasm wiring ----------------------------------------------------------
+    (async () => {
+      const M = await createEdgeModule();
+      // ---- cooperative pump of the in-wasm chronos loop -----------------------
+      //
+      // One ffi_poll() advances chronos by a SINGLE iteration, so the pump's rate
+      // is a hard ceiling on how fast libp2p can finish anything. `setInterval(fn, 1)`
+      // is clamped by the browser to ~4ms AND runs the body once, i.e. ~250 polls/s.
+      // That is far too slow: identify alone took ~13s against a node on localhost,
+      // and the node then dropped us ("waku metatdata request failed") before the
+      // filter subscribe could complete. Bursting instead takes the same handshake
+      // to ~1s and filter subscribe succeeds.
+      //
+      // Burst only while a request is in flight (MessageChannel, which is not
+      // clamped); idle on a throttled timer so an idle node is not a CPU spinner
+      // while still servicing timers and inbound filter pushes.
+      const pump = (() => {
+        const BURST_MS = 4, IDLE_BATCH = 64, IDLE_TICK_MS = 4;
+        const chan = new MessageChannel();
+        let inFlight = 0, queued = false;
+        const schedule = () => {
+          if (queued) return;
+          queued = true;
+          if (inFlight > 0) chan.port2.postMessage(0); else setTimeout(tick, IDLE_TICK_MS);
+        };
+        const tick = () => {
+          queued = false;
+          if (inFlight > 0) {
+            const t0 = performance.now();
+            do { M._ffi_poll(); } while (performance.now() - t0 < BURST_MS);
+          } else {
+            for (let i = 0; i < IDLE_BATCH; i++) M._ffi_poll();
+          }
+          schedule();
+        };
+        chan.port1.onmessage = tick;
+        schedule();
+        return { enter: () => { inFlight++; schedule(); }, leave: () => { inFlight--; } };
+      })();
+
+      const enc = new TextEncoder(), dec = new TextDecoder();
+      const cstr = (s) => { const b = enc.encode(s + "\0"); const p = M._malloc(b.length); M.HEAPU8.set(b, p); return p; };
+      const decode = (ptr, len) => dec.decode(M.HEAPU8.slice(ptr, ptr + len));
+      // Every FFI request goes through here, so it is also where the pump learns
+      // that there is work outstanding.
+      const reqCb = () => {
+        let resolve; const p = new Promise((r) => (resolve = r));
+        pump.enter();
+        const fn = M.addFunction((ret, msg, len) => {
+          M.removeFunction(fn); pump.leave(); resolve({ ret, msg: decode(msg, len) });
+        }, "viiii");
+        return { fn, p };
+      };
+
+      // incoming filter pushes → chat messages
+      const evFn = M.addFunction((ret, msg, len) => {
+        try {
+          const ev = JSON.parse(decode(msg, len));      // { pubsubTopic, contentTopic, payload }
+          const m = JSON.parse(ev.payload);             // { id, nick, text }
+          render({ id: m.id, nick: m.nick, text: m.text, mine: false });
+        } catch (e) { /* ignore non-chat payloads on the topic */ }
+      }, "viiii");
+
+      // 1) connect
+      setStatus("connecting to the Status node…", "warn");
+      let c = reqCb();
+      const ctx = M.ccall("edge_new", "number", ["number", "number", "number"], [cstr(SERVICE), c.fn, 0]);
+      const cr = await c.p;
+      if (cr.ret !== 0) { setStatus("connect failed: " + cr.msg, "err"); return; }
+
+      // 2) register push callback + 3) subscribe to the room
+      M.ccall("logosdeliveryedge_set_event_callback", null, ["number", "number", "number"], [ctx, evFn, 0]);
+      let s = reqCb();
+      M.ccall("edge_filter_subscribe", "number", ["number", "number", "number", "number", "number"],
+        [ctx, s.fn, 0, cstr(PUBSUB), cstr(CONTENT)]);
+      const sr = await s.p;
+      if (sr.ret !== 0) { setStatus("subscribe failed: " + sr.msg, "err"); return; }
+
+      setStatus("connected — subscribed to " + CONTENT, "ok");
+      system("Connected. Say hi 👋");
+      textEl.disabled = false; sendBtn.disabled = false; textEl.focus();
+
+      // ---- sending ------------------------------------------------------------
+      let sending = false;
+      async function sendMessage() {
+        const text = textEl.value.trim();
+        if (!text || sending) return;
+        const nick = nickEl.value.trim() || "guest";
+        const id = (crypto.randomUUID && crypto.randomUUID()) || String(Date.now() + Math.random());
+        const payload = JSON.stringify({ id, nick, text });
+
+        // optimistic local echo (the network copy will be deduped by id)
+        render({ id, nick, text, mine: true });
+        textEl.value = "";
+
+        sending = true; sendBtn.disabled = true;
+        let l = reqCb();
+        M.ccall("edge_lightpush_publish", "number", ["number", "number", "number", "number", "number", "number"],
+          [ctx, l.fn, 0, cstr(PUBSUB), cstr(CONTENT), cstr(payload)]);
+        const lr = await l.p;
+        if (lr.ret !== 0) system("⚠️ send failed: " + lr.msg);
+        sending = false; sendBtn.disabled = false; textEl.focus();
+      }
+
+      sendBtn.onclick = sendMessage;
+      textEl.addEventListener("keydown", (e) => { if (e.key === "Enter") { e.preventDefault(); sendMessage(); } });
+    })().catch((e) => setStatus("load failed: " + e, "err"));
+  </script>
+</body>
+</html>
