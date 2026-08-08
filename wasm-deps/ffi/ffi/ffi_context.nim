@@ -1,302 +1,273 @@
-{.pragma: exported, exportc, cdecl, raises: [].}
-{.pragma: callback, cdecl, raises: [], gcsafe.}
+## FFIContext type plus lifecycle (init / signal-stop / join / destroy).
+
 {.passc: "-fPIC".}
 
-import std/[options, atomics, os, net, locks, json, tables]
+import std/[atomics, locks, options, sequtils, tables]
 import chronicles, chronos, results
 import ./ffi_config
-when not singleThreaded:
-  # ThreadSignalPtr requires threads enabled; the SPSC channel only carries
-  # requests across the worker-thread boundary. Neither exists inline.
-  import chronos/threadsync, taskpools/channels_spsc_single
-import ./ffi_types, ./ffi_thread_request, ./internal/ffi_macro, ./logging
+when singleThreaded:
+  # chronos/threadsync is a {.fatal.} under --threads:off, and so is
+  # system.Thread. ffi_singlethread supplies API-compatible no-ops so the
+  # lifecycle code below compiles unchanged. See ffi_config.nim.
+  import ./ffi_singlethread
+else:
+  import chronos/threadsync
+import
+  ./ffi_types,
+  ./ffi_events,
+  ./ffi_handles,
+  ./ffi_thread_request,
+  ./ffi_request_queue,
+  ./logging,
+  ./cbor_serial
+
+export ffi_events, ffi_handles
+
+type CtxLifecycle* {.pure.} = enum
+  ## State machine guarding a pooled FFI context (Atomic on FFIContext).
+  ##   Active         -> RecyclePending   when the ffiDtor requests recycle
+  ##   RecyclePending -> Recycling        FFI loop claimed it, draining handlers
+  ##   Recycling      -> Active           createFFIContext reuses the slot
+  Active
+  RecyclePending
+  Recycling
 
 type FFIContext*[T] = object
-  myLib*: ptr T
-    # main library object (e.g., Waku, LibP2P, SDS,  the one to be exposed as a library)
-  when not singleThreaded:
-    ffiThread: Thread[(ptr FFIContext[T])]
-      # represents the main FFI thread in charge of attending API consumer actions
-    watchdogThread: Thread[(ptr FFIContext[T])]
-      # monitors the FFI thread and notifies the FFI API consumer if it hangs
-    reqChannel: ChannelSPSCSingle[ptr FFIThreadRequest]
-    reqSignal: ThreadSignalPtr # to notify the FFI Thread that a new request is sent
-    reqReceivedSignal: ThreadSignalPtr
-      # to signal main thread, interfacing with the FFI thread, that FFI thread received the request
-  else:
-    myLibStorage: T
-      # Threaded mode roots the library object on the FFI worker thread's stack
-      # (`ffiReqHandler`). With no worker thread we keep that backing store in
-      # the context instead, GC-rooted via the holder in createFFIContext.
-  lock: Lock
+  myLib*: ptr T # main library object (Waku, LibP2P, SDS, …)
+  myLibRefd*: bool
+    # refc only: true once myLib[] (a ref) has been GC_ref'd to root it against
+    # the cycle collector. Balanced by GC_unref in freeLib.
+  myLibOwned*: bool
+    # true once a ctor stored a createShared'd lib into myLib (vs the worker's
+    # stack fallback). freeLib only frees/destroys owned libs.
+  inUse*: Atomic[bool]
+    # Whether this pooled context is claimed. The recycle handler clears it on
+    # the FFI thread so the slot returns to the pool without recreating threads.
+  lifecycle*: Atomic[CtxLifecycle]
+  recycleDoneSignal: ThreadSignalPtr
+    # fired by the recycle handler once the lib is freed, just before it releases
+    # the slot; the synchronous recycleFFIContext caller waits on it.
+  libReady*: Atomic[bool]
+    # False until a {.ffiCtor.} stores the library. Before that, `myLib` points
+    # at the default fallback of the FFI thread. For a `ref` type that fallback
+    # is nil.
+  ffiThread: Thread[(ptr FFIContext[T])]
+  eventThread: Thread[(ptr FFIContext[T])]
+  reqQueueBank: RequestQueueBank
+  reqSignal: ThreadSignalPtr
+  stopSignal: ThreadSignalPtr
+  threadExitSignal: ThreadSignalPtr
+  eventQueueSignal: ThreadSignalPtr
+  eventThreadExitSignal: ThreadSignalPtr
   userData*: pointer
-  eventCallback*: pointer
-  eventUserdata*: pointer
-  running: Atomic[bool] # To control when the threads are running
+  eventRegistry*: FFIEventRegistry
+  handles*: FFIHandleRegistry
+  eventQueue*: EventQueue
+  ffiHeartbeat*: Atomic[int64]
+  eventQueueStuck*: Atomic[bool]
+  ffiThreadExited*: Atomic[bool]
+    # set once FFI thread (incl. async {.ffiDtor.}) is done; event thread drains until then
+  running: Atomic[bool]
   registeredRequests: ptr Table[cstring, FFIRequestProc]
-    # Pointer to with the registered requests at compile time
+  staleWarnInterval*: Duration
+
+var onFFIThread* {.threadvar.}: bool
 
 const git_version* {.strdefine.} = "n/a"
 
-template callEventCallback*(ctx: ptr FFIContext, eventName: string, body: untyped) =
-  if isNil(ctx[].eventCallback):
-    chronicles.error eventName & " - eventCallback is nil"
-    return
+const RecycleTimeoutMs* {.intdefine: "ffiRecycleTimeoutMs".} = 1500
+  ## Bounds one drain round of the recycle handler. The handler runs at most two
+  ## rounds: it waits for the in-flight handlers, then cancels them and waits
+  ## again. Override with `-d:ffiRecycleTimeoutMs=<ms>`.
+const RecycleTimeout* = RecycleTimeoutMs.milliseconds
 
-  foreignThreadGc:
-    try:
-      let event = body
-      cast[FFICallBack](ctx[].eventCallback)(
-        RET_OK, unsafeAddr event[0], cast[csize_t](len(event)), ctx[].eventUserData
-      )
-    except Exception, CatchableError:
-      let msg =
-        "Exception " & eventName & " when calling 'eventCallBack': " &
-        getCurrentExceptionMsg()
-      cast[FFICallBack](ctx[].eventCallback)(
-        RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), ctx[].eventUserData
-      )
+const
+  RecycleWaitTimeout* = 2 * RecycleTimeout + 2.seconds
+    ## Caller-side bound for synchronous recycle. It covers both drain rounds
+    ## plus slack, so it only fires when the worker itself is wedged.
+  EventThreadTickInterval* = 1.seconds
+  FFIHeartbeatStartDelay* = 10.seconds
+  FFIHeartbeatStaleThreshold* = 1.seconds
 
-when not singleThreaded:
-  proc sendRequestToFFIThread*(
-      ctx: ptr FFIContext, ffiRequest: ptr FFIThreadRequest, timeout = InfiniteDuration
-  ): Result[void, string] =
-    ctx.lock.acquire()
-    # This lock is only necessary while we use a SP Channel and while the signalling
-    # between threads assumes that there aren't concurrent requests.
-    # Rearchitecting the signaling + migrating to a MP Channel will allow us to receive
-    # requests concurrently and spare us the need of locks
-    defer:
-      ctx.lock.release()
+const StaleWarnIntervalMs* {.intdefine: "ffiStaleWarnIntervalMs".} = 5000
+  ## `RET_STALE_WARN` cadence; handlers are never timed out.
+const StaleWarnInterval* = StaleWarnIntervalMs.milliseconds
 
-    ## Sending the request
-    let sentOk = ctx.reqChannel.trySend(ffiRequest)
-    if not sentOk:
-      return err("Couldn't send a request to the ffi thread")
+type FFITeardownProc*[T] = proc(lib: ptr T): Future[void] {.async.}
 
-    let fireSyncRes = ctx.reqSignal.fireSync()
-    if fireSyncRes.isErr():
-      return err("failed fireSync: " & $fireSyncRes.error)
+proc ffiTeardownHook*[T](): var FFITeardownProc[T] =
+  ## Per-library teardown slot (one `{.global.}` per `T`), awaited by the FFI thread before exit.
+  ## Runtime slot not an overload: an overload would bind the no-op default before the dtor is visible.
+  var hook {.global.}: FFITeardownProc[T]
+  hook
 
-    if fireSyncRes.get() == false:
-      return err("Couldn't fireSync in time")
+include ./event_thread
+include ./ffi_thread
 
-    ## wait until the FFI working thread properly received the request
-    let res = ctx.reqReceivedSignal.waitSync(timeout)
-    if res.isErr():
-      return err("Couldn't receive reqReceivedSignal signal")
+template closeAndNil(field: untyped) =
+  if not field.isNil():
+    ?field.close()
+    field = nil
 
-    ## Notice that in case of "ok", the deallocShared(req) is performed by the FFI Thread in the
-    ## process proc.
-    return ok()
+proc deinitContextResources*[T](ctx: ptr FFIContext[T]): Result[void, string] =
+  ## Mirror of `initContextResources`. Threads MUST be joined first; fields nil'd after close.
+  deinitRequestQueue(ctx[].reqQueueBank)
+  deinitEventRegistry(ctx[].eventRegistry)
+  deinitHandleRegistry(ctx[].handles)
+  deinitEventQueue(ctx[].eventQueue)
+  when defined(gcRefc):
+    # ThreadSignalPtr.close() under refc hangs via signal-handler re-entry; the
+    # recycle pool makes full destroy rare, so the leaked fd stays bounded.
+    discard
+  else:
+    closeAndNil(ctx.reqSignal)
+    closeAndNil(ctx.stopSignal)
+    closeAndNil(ctx.threadExitSignal)
+    closeAndNil(ctx.eventQueueSignal)
+    closeAndNil(ctx.eventThreadExitSignal)
+    closeAndNil(ctx.recycleDoneSignal)
+  ok()
 
-type Foo = object
-registerReqFFI(WatchdogReq, foo: ptr Foo):
-  proc(): Future[Result[string, string]] {.async.} =
-    return ok("FFI thread is not blocked")
+template newSignalOrErr(field: untyped, name: string) =
+  field = ThreadSignalPtr.new().valueOr:
+    return err("couldn't create ThreadSignalPtr: " & name & ": " & $error)
 
-type JsonNotRespondingEvent = object
-  eventType: string
+proc initContextResources*[T](ctx: ptr FFIContext[T]): Result[void, string] =
+  ## On failure, deferred cleanup closes partial state; caller releases the slot.
+  # Nil first so deferred cleanup can't double-close a reused pool slot.
+  ctx.reqSignal = nil
+  ctx.stopSignal = nil
+  ctx.threadExitSignal = nil
+  ctx.eventQueueSignal = nil
+  ctx.eventThreadExitSignal = nil
+  ctx.recycleDoneSignal = nil
+  ctx.myLibOwned = false
+  ctx.myLibRefd = false
+  ctx.lifecycle.store(CtxLifecycle.Active)
+  initRequestQueue(ctx[].reqQueueBank)
+  initEventRegistry(ctx[].eventRegistry)
+  initHandleRegistry(ctx[].handles)
+  initEventQueue(ctx[].eventQueue)
+  ctx.ffiHeartbeat.store(0)
+  ctx.libReady.store(false)
+  ctx.eventQueueStuck.store(false)
+  ctx.ffiThreadExited.store(false)
+  ctx.staleWarnInterval = StaleWarnInterval
 
-proc init(T: type JsonNotRespondingEvent): T =
-  return JsonNotRespondingEvent(eventType: "not_responding")
+  var success = false
+  defer:
+    if not success:
+      # `ctx` is a pool slot the caller owns; close what was opened, never free it.
+      ctx.deinitContextResources().isOkOr:
+        error "failed to clean up resources after createFFIContext failure",
+          error = error
 
-proc `$`(event: JsonNotRespondingEvent): string =
-  $(%*event)
+  newSignalOrErr(ctx.reqSignal, "reqSignal")
+  newSignalOrErr(ctx.stopSignal, "stopSignal")
+  newSignalOrErr(ctx.threadExitSignal, "threadExitSignal")
+  newSignalOrErr(ctx.eventQueueSignal, "eventQueueSignal")
+  newSignalOrErr(ctx.eventThreadExitSignal, "eventThreadExitSignal")
+  newSignalOrErr(ctx.recycleDoneSignal, "recycleDoneSignal")
 
-proc onNotResponding*(ctx: ptr FFIContext) =
-  callEventCallback(ctx, "onNotResponding"):
-    $JsonNotRespondingEvent.init()
+  ctx.registeredRequests = addr ffi_types.registeredRequests
 
-when not singleThreaded:
-  proc watchdogThreadBody(ctx: ptr FFIContext) {.thread.} =
-    ## Watchdog thread that monitors the FFI thread and notifies the library user if it hangs.
-    ## This thread never blocks.
+  ctx.running.store(true)
 
-    let watchdogRun = proc(ctx: ptr FFIContext) {.async.} =
-      const WatchdogStartDelay = 10.seconds
-      const WatchdogTimeinterval = 1.seconds
-      const WatchdogTimeout = 20.seconds
+  try:
+    createThread(ctx.ffiThread, ffiThreadBody[T], ctx)
+  except ValueError, ResourceExhaustedError:
+    return err("failed to create the FFI thread: " & getCurrentExceptionMsg())
 
-      # Give time for the node to be created and up before sending watchdog requests
-      await sleepAsync(WatchdogStartDelay)
-      while true:
-        await sleepAsync(WatchdogTimeinterval)
-
-        if ctx.running.load == false:
-          debug "Watchdog thread exiting because FFIContext is not running"
-          break
-
-        let callback = proc(
-            callerRet: cint, msg: ptr cchar, len: csize_t, userData: pointer
-        ) {.cdecl, gcsafe, raises: [].} =
-          discard ## Don't do anything. Just respecting the callback signature.
-        const nilUserData = nil
-
-        trace "Sending watchdog request to FFI thread"
-
-        sendRequestToFFIThread(ctx, WatchdogReq.ffiNewReq(callback, nilUserData), WatchdogTimeout).isOkOr:
-          error "Failed to send watchdog request to FFI thread", error = $error
-          onNotResponding(ctx)
-
-    waitFor watchdogRun(ctx)
-
-proc processRequest[T](
-    request: ptr FFIThreadRequest, ctx: ptr FFIContext[T]
-) {.async.} =
-  ## Invoked within the FFI thread to process a request coming from the FFI API consumer thread.
-
-  let reqId = $request[].reqId
-    ## The reqId determines which proc will handle the request.
-    ## The registeredRequests represents a table defined at compile time.
-    ## Then, registeredRequests == Table[reqId, proc-handling-the-request-asynchronously]
-
-  let retFut =
-    if not ctx[].registeredRequests[].contains(reqId):
-      ## That shouldn't happen because only registered requests should be sent to the FFI thread.
-      nilProcess(request[].reqId)
-    else:
-      ctx[].registeredRequests[][reqId](request[].reqContent, ctx)
-  handleRes(await retFut, request)
-
-when not singleThreaded:
-  proc ffiThreadBody[T](ctx: ptr FFIContext[T]) {.thread.} =
-    ## FFI thread body that attends library user API requests
-
-    logging.setupLog(logging.LogLevel.DEBUG, logging.LogFormat.TEXT)
-
-    let ffiRun = proc(ctx: ptr FFIContext[T]) {.async.} =
-      var ffiReqHandler: T
-        ## Holds the main library object, i.e., in charge of handling the ffi requests.
-        ## e.g., Waku, LibP2P, SDS, etc.
-
-      while true:
-        await ctx.reqSignal.wait()
-
-        if ctx.running.load == false:
-          break
-
-        ## Wait for a request from the ffi consumer thread
-        var request: ptr FFIThreadRequest
-        let recvOk = ctx.reqChannel.tryRecv(request)
-        if not recvOk:
-          chronicles.error "ffi thread could not receive a request"
-          continue
-
-        ctx.myLib = addr ffiReqHandler
-
-        ## Handle the request
-        asyncSpawn processRequest(request, ctx)
-
-        let fireRes = ctx.reqReceivedSignal.fireSync()
-        if fireRes.isErr():
-          error "could not fireSync back to requester thread", error = fireRes.error
-
-    waitFor ffiRun(ctx)
-
-when singleThreaded:
-  type SingleThreadedHolder[T] = ref object of RootObj
-    ## GC-traced cell so the library object stored in `ctx.myLibStorage` (a `ref`
-    ## for e.g. Waku) stays scanned. Kept alive in `gSingleThreadedRoots`.
-    ## `of RootObj` so holders can be stored uniformly as `RootRef`.
-    ctx: FFIContext[T]
-
-  var gSingleThreadedRoots {.threadvar.}: seq[RootRef]
-
-  proc sendRequestToFFIThread*(
-      ctx: ptr FFIContext, ffiRequest: ptr FFIThreadRequest, timeout = InfiniteDuration
-  ): Result[void, string] =
-    ## Single-threaded transport. `processRequest` fires the callback and frees
-    ## the request via `handleRes`.
-    when defined(emscripten):
-      # Browser: handlers await the network (WebSocket). Blocking with `waitFor`
-      # would starve the JS event loop and deadlock. Fire-and-forget instead; the
-      # host drives chronos via `ffi_poll()` and the callback fires on completion.
-      asyncSpawn processRequest(ffiRequest, ctx)
-      poll() # kick the handler up to its first await
-    else:
-      try:
-        waitFor processRequest(ffiRequest, ctx)
-      except CatchableError as e:
-        return err("processRequest failed: " & e.msg)
-    return ok()
-
-  proc ffiPoll*() {.exportc: "ffi_poll", cdecl.} =
-    ## Advance chronos one step. The browser host calls this from its event loop
-    ## (setTimeout / requestAnimationFrame) so async handlers progress without
-    ## blocking the JS thread; callbacks fire as work completes.
-    poll()
-
-  proc createFFIContext*[T](): Result[ptr FFIContext[T], string] =
-    ## No worker/watchdog threads. The context lives inside a GC-rooted holder so
-    ## `myLibStorage` (the library `ref`) is scanned; `myLib` points at it.
-    let holder = SingleThreadedHolder[T]()
-    gSingleThreadedRoots.add(holder)
-    let ctx = addr holder.ctx
-    ctx.lock.initLock()
-    ctx.registeredRequests = addr ffi_types.registeredRequests
-    ctx.running.store(true)
-    ctx.myLib = addr ctx.myLibStorage
-    return ok(ctx)
-
-  proc destroyFFIContext*[T](ctx: ptr FFIContext[T]): Result[void, string] =
+  try:
+    createThread(ctx.eventThread, eventThreadBody[T], ctx)
+  except ValueError, ResourceExhaustedError:
+    # Join ffiThread before deferred cleanup closes signals it's waiting on.
     ctx.running.store(false)
-    ctx.lock.deinitLock()
-    # Drop the GC root so the holder (and its library object) can be collected.
-    for i in 0 ..< gSingleThreadedRoots.len:
-      let h = cast[SingleThreadedHolder[T]](gSingleThreadedRoots[i])
-      if cast[pointer](addr h.ctx) == cast[pointer](ctx):
-        gSingleThreadedRoots.del(i)
-        break
-    return ok()
-else:
-  proc createFFIContext*[T](): Result[ptr FFIContext[T], string] =
-    ## This proc is called from the main thread and it creates
-    ## the FFI working thread.
-    var ctx = createShared(FFIContext[T], 1)
-    ctx.reqSignal = ThreadSignalPtr.new().valueOr:
-      return err("couldn't create reqSignal ThreadSignalPtr")
-    ctx.reqReceivedSignal = ThreadSignalPtr.new().valueOr:
-      return err("couldn't create reqReceivedSignal ThreadSignalPtr")
-    ctx.lock.initLock()
-    ctx.registeredRequests = addr ffi_types.registeredRequests
-
-    ctx.running.store(true)
-
-    try:
-      createThread(ctx.ffiThread, ffiThreadBody[T], ctx)
-    except ValueError, ResourceExhaustedError:
-      freeShared(ctx)
-      return err("failed to create the FFI thread: " & getCurrentExceptionMsg())
-
-    try:
-      createThread(ctx.watchdogThread, watchdogThreadBody, ctx)
-    except ValueError, ResourceExhaustedError:
-      freeShared(ctx)
-      return err("failed to create the watchdog thread: " & getCurrentExceptionMsg())
-
-    return ok(ctx)
-
-  proc destroyFFIContext*[T](ctx: ptr FFIContext[T]): Result[void, string] =
-    ctx.running.store(false)
-
-    let signaledOnTime = ctx.reqSignal.fireSync().valueOr:
-      return err("error in destroyFFIContext: " & $error)
-    if not signaledOnTime:
-      return err("failed to signal reqSignal on time in destroyFFIContext")
-
+    let fireRes = ctx.reqSignal.fireSync()
+    if fireRes.isErr():
+      error "failed to signal ffiThread during event-thread cleanup",
+        error = fireRes.error
     joinThread(ctx.ffiThread)
-    joinThread(ctx.watchdogThread)
-    ctx.lock.deinitLock()
-    ?ctx.reqSignal.close()
-    ?ctx.reqReceivedSignal.close()
-    freeShared(ctx)
+    return err("failed to create the event thread: " & getCurrentExceptionMsg())
 
-    return ok()
+  success = true
+  ok()
 
-template checkParams*(ctx: ptr FFIContext, callback: FFICallBack, userData: pointer) =
-  if not isNil(ctx):
-    ctx[].userData = userData
+proc fireOrErr(sig: ThreadSignalPtr, name: string): Result[void, string] =
+  let fired = sig.fireSync().valueOr:
+    return err("error signaling: " & name & ": " & $error)
+  if not fired:
+    return err("failed to signal: " & name & " on time")
+  ok()
 
-  if isNil(callback):
-    return RET_MISSING_CALLBACK
+proc waitExitOrErr(
+    sig: ThreadSignalPtr, name: string, timeout: Duration
+): Result[void, string] =
+  let exited = sig.waitSync(timeout).valueOr:
+    return err("error waiting for exit: " & name & ": " & $error)
+  if not exited:
+    return err("did not exit in time: " & name & " (leaking ctx to avoid hang)")
+  ok()
+
+proc signalStop*[T](ctx: ptr FFIContext[T]): Result[void, string] =
+  # Skip onNotResponding on error: it takes reg.lock a stuck listener may hold (deadlock risk).
+  ctx.running.store(false)
+  ?ctx.reqSignal.fireOrErr("reqSignal")
+  ?ctx.stopSignal.fireOrErr("stopSignal")
+  ctx.eventQueueSignal.fireOrErr("eventQueueSignal").isOkOr:
+    error "failed to signal eventQueueSignal in signalStop", error = error
+  ok()
+
+proc tryClaim*[T](ctx: ptr FFIContext[T]): bool =
+  ## Atomically claim a free pooled context (false -> true).
+  var expected = false
+  ctx.inUse.compareExchange(expected, true)
+
+proc releaseClaim*[T](ctx: ptr FFIContext[T]) =
+  ctx.inUse.store(false)
+
+proc isInUse*[T](ctx: ptr FFIContext[T]): bool =
+  ctx.inUse.load()
+
+proc markAsActive*[T](ctx: ptr FFIContext[T]) =
+  ## Reused context: its worker threads are still alive; re-arm for requests.
+  ctx.lifecycle.store(CtxLifecycle.Active)
+
+proc requestRecycle*[T](ctx: ptr FFIContext[T]): Result[void, string] =
+  ## Ask the FFI thread to drain, free the lib and release the slot, WITHOUT
+  ## stopping its worker/event threads, so the next createFFIContext reuses them.
+  ## Synchronous: waits on recycleDoneSignal. No fd churn -> no select() limit.
+  var expected = CtxLifecycle.Active
+  if not ctx.lifecycle.compareExchange(expected, CtxLifecycle.RecyclePending):
+    return err("requestRecycle: context is not Active (already recycling)")
+
+  # A recycle that timed out can fire late. The CAS makes this the only recycle
+  # in flight, so drop that stale fire before the wait below can answer to it.
+  discard ctx.recycleDoneSignal.waitSync(ZeroDuration)
+
+  let fired = ctx.reqSignal.fireSync().valueOr:
+    return err("requestRecycle: failed to signal the FFI thread: " & $error)
+  if not fired:
+    return err("requestRecycle: failed to signal the FFI thread in time")
+
+  let done = ctx.recycleDoneSignal.waitSync(RecycleWaitTimeout).valueOr:
+    return err("requestRecycle: failed waiting for recycle: " & $error)
+  if not done:
+    return err("requestRecycle: recycle did not complete in time")
+  ok()
+
+## Per-thread exit wait before stopAndJoinThreads leaks ctx rather than hanging; async
+## `{.ffiDtor.}` teardown can outlast the default. Override `-d:ffiThreadExitTimeoutMs=<ms>`.
+const ThreadExitTimeoutMs* {.intdefine: "ffiThreadExitTimeoutMs".} = 1500
+const ThreadExitTimeout* = ThreadExitTimeoutMs.milliseconds
+
+proc stopAndJoinThreads*[T](ctx: ptr FFIContext[T]): Result[void, string] =
+  ## On timeout, returns err and skips remaining joins (leaves threads live); caller cleans up.
+  ctx.signalStop().isOkOr:
+    return err("signalStop failed: " & $error)
+
+  ?ctx.threadExitSignal.waitExitOrErr("FFI thread", ThreadExitTimeout)
+  joinThread(ctx.ffiThread)
+  ?ctx.eventThreadExitSignal.waitExitOrErr("event thread", ThreadExitTimeout)
+  joinThread(ctx.eventThread)
+  ok()

@@ -1,6 +1,4 @@
-## This code has been copied and addapted from `status-im/nimbu-eth2` project.
-## Link: https://github.com/status-im/nimbus-eth2/blob/c585b0a5b1ae4d55af38ad7f4715ad455e791552/beacon_chain/nimbus_binary_common.nim
-## This is also copied in logos-messaging-nim repository (2025-12-10)
+## Adapted from status-im/nimbus-eth2 nimbus_binary_common.nim.
 import
   std/[typetraits, os, strutils, syncio],
   chronicles,
@@ -15,11 +13,8 @@ type LogFormat* = enum
   TEXT
   JSON
 
-## Utils
-
 proc stripAnsi(v: string): string =
-  ## Copied from: https://github.com/status-im/nimbus-eth2/blob/stable/beacon_chain/nimbus_binary_common.nim#L41
-  ## Silly chronicles, colors is a compile-time property
+  ## chronicles colors are a compile-time property, so strip ANSI at runtime.
   var
     res = newStringOfCap(v.len)
     i: int
@@ -31,14 +26,14 @@ proc stripAnsi(v: string): string =
         x = i + 1
         found = false
 
-      while x < v.len: # look for [..m
+      while x < v.len:
         let c2 = v[x]
         if x == i + 1:
           if c2 != '[':
             break
         else:
           if c2 in {'0' .. '9'} + {';'}:
-            discard # keep looking
+            discard
           elif c2 == 'm':
             i = x + 1
             found = true
@@ -47,7 +42,7 @@ proc stripAnsi(v: string): string =
             break
         inc x
 
-      if found: # skip adding c
+      if found:
         continue
     res.add c
     inc i
@@ -58,13 +53,11 @@ proc writeAndFlush(f: syncio.File, s: LogOutputStr) =
   try:
     f.write(s)
     f.flushFile()
-  except CatchableError:
+  except IOError:
     logLoggingFailure(cstring(s), getCurrentException())
 
-## Setup
-
 proc setupLogLevel(level: LogLevel) =
-  # TODO: Support per topic level configuratio
+  # TODO: Support per topic level configuration
   topics_registry.setLogLevel(level)
 
 proc setupLogFormat(format: LogFormat, color = true) =
@@ -94,12 +87,11 @@ proc setupLogFormat(format: LogFormat, color = true) =
     .}
 
 proc setupLog*(level: LogLevel, format: LogFormat) =
-  ## Logging setup
   # Adhere to NO_COLOR initiative: https://no-color.org/
   let color =
     try:
       not parseBool(os.getEnv("NO_COLOR", "false"))
-    except CatchableError:
+    except ValueError:
       true
 
   setupLogLevel(level)

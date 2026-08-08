@@ -128,13 +128,31 @@
       const enc = new TextEncoder(), dec = new TextDecoder();
       const cstr = (s) => { const b = enc.encode(s + "\0"); const p = M._malloc(b.length); M.HEAPU8.set(b, p); return p; };
       const decode = (ptr, len) => dec.decode(M.HEAPU8.slice(ptr, ptr + len));
+      // nim-ffi 0.3.0 frames request replies as a CBOR text string (major type
+      // 3), even under `abi = c` — the ffiRaw macro expands to registerReqFFI,
+      // which pins the codec to CBOR. Strip the 1-5 byte header. Anything that
+      // isn't a well-formed text string (e.g. a raw 0.1.x reply, or an event,
+      // which the library sends unframed) passes through untouched.
+      const decodeReply = (ptr, len) => {
+        if (!ptr || !len) return "";
+        const b = M.HEAPU8.slice(ptr, ptr + len), ib = b[0], ai = ib & 0x1f;
+        if ((ib >> 5) !== 3) return dec.decode(b);
+        let head, size;
+        if (ai < 24) { head = 1; size = ai; }
+        else if (ai === 24) { head = 2; size = b[1]; }
+        else if (ai === 25) { head = 3; size = (b[1] << 8) | b[2]; }
+        else if (ai === 26) { head = 5; size = ((b[1] << 24) | (b[2] << 16) | (b[3] << 8) | b[4]) >>> 0; }
+        else return dec.decode(b);
+        if (head + size !== b.length) return dec.decode(b);
+        return dec.decode(b.subarray(head, head + size));
+      };
       // Every FFI request goes through here, so it is also where the pump learns
       // that there is work outstanding.
       const reqCb = () => {
         let resolve; const p = new Promise((r) => (resolve = r));
         pump.enter();
         const fn = M.addFunction((ret, msg, len) => {
-          M.removeFunction(fn); pump.leave(); resolve({ ret, msg: decode(msg, len) });
+          M.removeFunction(fn); pump.leave(); resolve({ ret, msg: decodeReply(msg, len) });
         }, "viiii");
         return { fn, p };
       };

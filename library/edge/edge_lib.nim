@@ -28,27 +28,59 @@ import
   logos_delivery/waku/waku_store/common,
   logos_delivery/waku/common/paging
 
-declareLibrary("logosdeliveryedge")
+declareLibrary("logosdeliveryedge", EdgeNode, defaultABIFormat = "c")
 
 # --- event callback wiring (filter push messages) ----------------------------
-var eventCallbackLock: Lock
+#
+# nim-ffi 0.3.0 dropped `eventCallback` / `eventUserData` from FFIContext in
+# favour of a listener registry reached through `<lib>_add_event_listener`. We
+# keep the single-callback surface instead: it is the ABI ld-edge.js already
+# speaks, and a browser edge node has exactly one context, so a module-level
+# slot is equivalent to a per-context one.
+var
+  eventCallbackLock: Lock
+  gEventCallback: FFICallBack
+  gEventUserData: pointer
 initLock(eventCallbackLock)
 
 proc logosdeliveryedge_set_event_callback(
     ctx: ptr FFIContext[EdgeNode], callback: FFICallBack, userData: pointer
 ) {.exportc, cdecl.} =
-  if isNil(ctx):
-    echo "error: invalid context in logosdeliveryedge_set_event_callback"
-    return
+  ## `ctx` is unused — kept in the signature so the exported C symbol is
+  ## unchanged for existing callers.
   eventCallbackLock.acquire()
   defer:
     eventCallbackLock.release()
-  ctx[].eventCallback = cast[pointer](callback)
-  ctx[].eventUserData = userData
+  gEventCallback = callback
+  gEventUserData = userData
+
+proc emitEdgeEvent(eventName: string, payload: string) =
+  ## Hands `payload` to the registered callback verbatim, matching what
+  ## nim-ffi 0.1.x's `callEventCallback` put on the wire: RET_OK plus the raw
+  ## JSON bytes (NOT NUL-terminated), which is what ld-edge.js parses.
+  eventCallbackLock.acquire()
+  let
+    cb = gEventCallback
+    ud = gEventUserData
+  eventCallbackLock.release()
+  if cb.isNil:
+    chronicles.error "no event callback registered", event = eventName
+    return
+  try:
+    if payload.len == 0:
+      cb(RET_OK, nil, 0.csize_t, ud)
+    else:
+      cb(RET_OK, unsafeAddr payload[0], payload.len.csize_t, ud)
+  except Exception, CatchableError:
+    chronicles.error "event callback raised",
+      event = eventName, error = getCurrentExceptionMsg()
 
 # --- create node -------------------------------------------------------------
 registerReqFFI(CreateEdgeNodeRequest, ctx: ptr FFIContext[EdgeNode]):
-  proc(serviceNode: cstring): Future[Result[string, string]] {.async.} =
+  # `string`, not `cstring`: 0.3.0 packs the request into a CBOR blob, and a
+  # cstring field would encode the pointer rather than the text (the multiaddr
+  # then arrives empty). The C entry point converts at the boundary.
+  proc(serviceNode: string): Future[Result[string, string]] {.async.} =
     echo "[edge] creating edge node…"
     let rng = crypto.newRng()
     let privKey = crypto.PrivateKey.random(PKScheme.Secp256k1, rng).valueOr:
@@ -78,13 +110,15 @@ proc edge_new(
   if isNil(callback):
     echo "error: missing callback in edge_new"
     return nil
-  var ctx = ffi.createFFIContext[EdgeNode]().valueOr:
+  # 0.3.0 acquires from a fixed per-library pool that declareLibrary emits as
+  # <LibType>FFIPool, rather than allocating a fresh context per call.
+  var ctx = ffi.createFFIContext(EdgeNodeFFIPool).valueOr:
     let msg = "Error in createFFIContext: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
     return nil
   ctx.userData = userData
   ffi.sendRequestToFFIThread(
-    ctx, CreateEdgeNodeRequest.ffiNewReq(callback, userData, serviceNode)
+    ctx, CreateEdgeNodeRequest.ffiNewReq(callback, userData, $serviceNode)
   ).isOkOr:
     let msg = "error in sendRequestToFFIThread: " & $error
     callback(RET_ERR, unsafeAddr msg[0], cast[csize_t](len(msg)), userData)
@@ -100,7 +134,7 @@ proc edge_lightpush_publish(
     contentTopic: cstring,
     payload: cstring,
     metaB64: cstring,
-) {.ffi.} =
+) {.ffiRaw: "abi = c".} =
   ## Build a WakuMessage from a content topic + UTF-8 payload and lightpush it. `metaB64` is
   ## an optional base64 app-defined `meta` field (<=64 bytes) — e.g. a message signature.
   let metaBytes =
@@ -128,11 +162,12 @@ proc edge_filter_subscribe(
     userData: pointer,
     pubsubTopic: cstring,
     contentTopics: cstring,
-) {.ffi.} =
+) {.ffiRaw: "abi = c".} =
   proc onPush(pubsubTopic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
     echo "[edge] filter push received on ", msg.contentTopic, " (",
       msg.payload.len, " bytes)"
-    callEventCallback(ctx, "onReceivedMessage"):
+    emitEdgeEvent(
+      "onReceivedMessage",
       $(
         %*{
           "pubsubTopic": string(pubsubTopic),
@@ -140,7 +175,8 @@ proc edge_filter_subscribe(
           "payload": string.fromBytes(msg.payload),
           "meta": base64.encode(msg.meta),
         }
-      )
+      ),
+    )
 
   echo "[edge] filter subscribe → ", $contentTopics, " on ", $pubsubTopic
   (
@@ -164,7 +200,7 @@ proc edge_store_connect(
     callback: FFICallBack,
     userData: pointer,
     storeNode: cstring,
-) {.ffi.} =
+) {.ffiRaw: "abi = c".} =
   ## Dial a dedicated store peer. Only needed when the service node doesn't serve
   ## store itself (a bootstrap node typically doesn't).
   echo "[edge] dialing store node ", $storeNode
@@ -185,7 +221,7 @@ proc edge_store_query(
     pageSize: cstring,
     forward: cstring,
     cursorHex: cstring,
-) {.ffi.} =
+) {.ffiRaw: "abi = c".} =
   ## One page of history. `startNs`/`endNs`/`cursorHex` are optional ("" = unset);
   ## `forward` is "true"/"false". Returns
   ##   {"messages":[{hash,contentTopic,payload,meta,timestamp}], "cursor":"…"}
@@ -252,7 +288,7 @@ proc edge_store_query(
 # --- teardown ----------------------------------------------------------------
 proc edge_stop(
     ctx: ptr FFIContext[EdgeNode], callback: FFICallBack, userData: pointer
-) {.ffi.} =
+) {.ffiRaw: "abi = c".} =
   ## Stop the libp2p switch. Without this, "disconnect" in an app leaves the
   ## WebSocket to the service node open and the server still pushing filter
   ## messages into a dead callback, and a later reconnect builds a SECOND node.
@@ -263,6 +299,9 @@ proc edge_stop(
     return err("switch stop failed: " & e.msg)
   echo "[edge] switch stopped"
   return ok("")
+
+# Emits nim-ffi's dispatch wrappers; must follow every {.ffiRaw.} above.
+genBindings()
 
 # Build as a wasm MAIN module (not a -shared SIDE module): drop --nimMainPrefix
 # (which made Nim treat this as a dynamic lib) and alias the NimMain symbol that
