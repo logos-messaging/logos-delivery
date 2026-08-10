@@ -29,6 +29,10 @@
 ##     destroy without stop must tear the node down (issue #4108), and the
 ##     context-free `logosdelivery_version` export must answer with no node.
 ##
+##   case call-after-failed-ctor
+##     a context whose constructor failed must reject a later call with an
+##     error instead of faulting on its nil library.
+##
 ## Each case runs in a child process (the second one can fault) with its
 ## output captured to a file, so a crash is an exit code rather than a dead
 ## test binary.
@@ -56,6 +60,7 @@ const
   CaseDestroyOnly = "--case-destroy-without-stop"
   CaseTwoPaths = "--case-different-storage-paths"
   CaseDestroyStops = "--case-destroy-stops-node"
+  CaseFailedCtor = "--case-call-after-failed-ctor"
 
   DisabledMarker = "SDS persistence disabled"
     ## Logged by `sdsPersistence()` when the singleton is unusable.
@@ -189,6 +194,14 @@ proc expectOk(step: string, r: tuple[ok: bool, ret: int, msg: string]) =
   note(step, r)
   if not r.ok or r.ret != RetOk:
     echo "  FAIL: ", step, " expected RET_OK"
+    failed = true
+
+proc expectErr(
+    step: string, r: tuple[ok: bool, ret: int, msg: string], needle: string
+) =
+  note(step, r)
+  if not r.ok or r.ret == RetOk or not r.msg.contains(needle):
+    echo "  FAIL: ", step, " expected an error carrying '", needle, "'"
     failed = true
 
 proc nodeConfig(storagePath: string, tcpPort, discv5Port: int): string =
@@ -343,6 +356,24 @@ proc runDestroyStopsNode(api: Api, s: ptr Slot) =
   api.call(s, "ctx2 stop_node", api.stopNode, ctx2)
   api.destroyCtx("ctx2 destroy", ctx2)
 
+proc runCallAfterFailedCtor(api: Api, s: ptr Slot) =
+  ## `create_node` hands back a live context before the constructor runs, so a
+  ## host holds one even when the constructor fails. `LogosDelivery` is a `ref`,
+  ## and a call against it used to read the fields of a nil library.
+  armSlot(s)
+  let ctx = api.createNode("{ not a config }".cstring, onDone, s)
+  if ctx.isNil():
+    echo "  FAIL: create_node returned nil, the case needs a live context"
+    failed = true
+    return
+  expectErr("ctx create_node (invalid config)", awaitSlot(s), "parseLogosDeliveryConf")
+
+  armSlot(s)
+  discard api.startNode(ctx, onDone, s)
+  expectErr("ctx start_node (constructor failed)", awaitSlot(s), "not initialized")
+
+  api.destroyCtx("ctx destroy (constructor failed)", ctx)
+
 proc runChild(which: string) =
   let api = loadApi()
   let s = createShared(Slot)
@@ -356,6 +387,8 @@ proc runChild(which: string) =
     runTwoPaths(api, s)
   of CaseDestroyStops:
     runDestroyStopsNode(api, s)
+  of CaseFailedCtor:
+    runCallAfterFailedCtor(api, s)
   else:
     quit("unknown case " & which, 2)
 
@@ -442,5 +475,15 @@ suite "FFI - persistency lifecycle across library contexts":
       report(CaseDestroyStops, r)
       removeDir(caseRoot("dtor_a"))
       removeDir(caseRoot("dtor_b"))
+
+      check r.code == 0
+
+  test "a call against a context whose constructor failed must not fault":
+    if not fileExists(libPath()):
+      echo "skipped: no ", libPath()
+      skip()
+    else:
+      let r = runCase(CaseFailedCtor)
+      report(CaseFailedCtor, r)
 
       check r.code == 0

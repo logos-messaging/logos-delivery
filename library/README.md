@@ -69,6 +69,11 @@ void *logosdelivery_create_node(
 **Returns:** the context handle, or `NULL` on failure. Creation is asynchronous:
 wait for `onCreated` before you make any other call.
 
+A context whose `onCreated` reported `RET_ERR` stays live but holds no node.
+Every later call on it answers `RET_ERR` with `library is not initialized: the
+constructor failed or has not run yet`, and `logosdelivery_destroy` still
+releases it.
+
 **Example configuration JSON:**
 ```json
 {
