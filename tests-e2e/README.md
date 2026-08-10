@@ -21,8 +21,8 @@ pip install -r tests-e2e/requirements.txt
 
 # 3. Run (from tests-e2e/)
 cd tests-e2e
-pytest tests/wrappers_tests -m "not docker_required"   # 18 pure-binding tests
-pytest tests/wrappers_tests -m docker_required          # 3 tests that also need a Docker nwaku peer (S19/S20/S31)
+pytest tests/wrappers_tests -m "not docker_required"   # 48 pure-binding tests
+pytest tests/wrappers_tests -m docker_required          # 5 tests that also need a Docker nwaku peer (S11/S19/S20/S25/S31)
 ```
 
 ## CI

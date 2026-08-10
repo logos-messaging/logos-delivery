@@ -91,6 +91,7 @@ nimbledeps
 # Python bytecode from tests/simulator
 __pycache__/
 *.pyc
+.venv*/
 
 # Emitted by genBindings() during the liblogosdelivery build.
 library/generated/
