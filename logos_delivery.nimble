@@ -17,14 +17,37 @@ const RequiredNimbleVersion = "0.22.3"
 
 ### Dependencies
 requires "nim >= 2.2.4",
-  # chronos + httputils pinned to the versions the last green docker image
-  # (PR #3807, Jun 2026) resolved. Floating deps broke both directions:
-  # chronos 4.4.0 rejects the waitFor in rest_api relay handlers.nim:191
-  # (NestedPoll effect), while httputils 0.5.0 changes HttpCode so that
-  # chronos <= 4.2.x no longer compiles (case selector not ordinal).
-  # Unpin together once the relay handler is fixed for chronos >= 4.4.
+  # Pinned to the full dependency manifest the last green docker image
+  # (PR #3807, Jun 2026) resolved. Since the lockfile removal, floating
+  # requirements keep breaking the build as upstreams release (chronos
+  # 4.4.0 NestedPoll strictness, httputils 0.5.0 HttpCode change, and
+  # further template-expansion breakage in transitive deps). This block is
+  # a stand-in lockfile: remove it when a real lockfile returns or the
+  # code is updated for current upstream versions.
   "chronos == 4.2.2",
   "httputils == 0.4.1",
+  "bearssl == 0.2.10",
+  "chronicles == 0.12.2",
+  "confutils == 0.1.0",
+  "dnsclient == 0.3.4",
+  "dnsdisc == 0.1.1",
+  "eth == 0.9.0",
+  "faststreams == 0.5.1",
+  "json_rpc == 0.6.1",
+  "json_serialization == 0.4.4",
+  "minilru == 0.1.0",
+  "presto == 0.1.1",
+  "protobuf_serialization == 0.5.3",
+  "results == 0.5.1",
+  "secp256k1 == 0.6.0.3.2",
+  "serialization == 0.5.3",
+  "sqlite3_abi == 3.53.2.0",
+  "stew == 0.5.0",
+  "stint == 0.8.2",
+  "toml_serialization == 0.2.18",
+  "web3 == 0.8.0",
+  "websock == 0.4.0",
+  "zlib == 0.2.0",
   "taskpools",
   # Logging & Configuration
   "chronicles",
