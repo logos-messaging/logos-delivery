@@ -36,6 +36,31 @@ suite "Waku Kademlia service discovery":
     await wk.stop()
     await switch.stop()
 
+  asyncTest "clientMode starts without mounting (lookup-only)":
+    ## ServiceDiscovery client=true omits the inbound handler; mount would raise.
+    ## Client nodes must still construct + start the protocol for outbound lookups.
+    let
+      switch = newTestSwitch()
+      wk = kad_utils.newTestKademlia(
+        switch,
+        servicesToDiscover = @["/mix/1.0.0"],
+        clientMode = true,
+        xprPublishing = false,
+      )
+    await switch.start()
+    await wk.start()
+
+    await sleepAsync(FUTURE_TIMEOUT)
+
+    check:
+      not wk.protocol.isNil()
+      wk.protocol.clientMode
+      # Codec must not be advertised — peers should not dial us for kad.
+      wk.protocol.codec notin switch.peerInfo.protocols
+
+    await wk.stop()
+    await switch.stop()
+
   suite "extractMixPubKey":
     proc validKeyBytes(): seq[byte] =
       var b = newSeq[byte](Curve25519KeySize)

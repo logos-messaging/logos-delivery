@@ -391,6 +391,14 @@ proc mountKademlia*(
 
   node.wakuKademlia = wk
 
+  # ServiceDiscovery.new(client=true) intentionally installs no inbound stream
+  # handler so this node is not dialable as a DHT peer. switch.mount requires a
+  # handler, so skip mount in clientMode. Outbound lookups still work: dial +
+  # GET_ADS use the codec string without advertising it in peerInfo.protocols.
+  if config.clientMode:
+    info "Kademlia service discovery ready (clientMode, lookup-only, not mounted)"
+    return ok()
+
   let mountRes = catch:
     node.switch.mount(wk.protocol)
   mountRes.isOkOr:

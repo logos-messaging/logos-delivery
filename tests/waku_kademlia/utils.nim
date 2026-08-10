@@ -41,7 +41,9 @@ proc newTestKademlia*(
     )
     .tryGet()
 
-  switch.mount(wk.protocol)
+  # clientMode has no inbound stream handler; mount would fail (see mountKademlia).
+  if not clientMode:
+    switch.mount(wk.protocol)
   wk
 
 proc buildExtendedPeerRecord*(

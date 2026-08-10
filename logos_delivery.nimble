@@ -17,7 +17,37 @@ const RequiredNimbleVersion = "0.22.3"
 
 ### Dependencies
 requires "nim >= 2.2.4",
-  "chronos >= 4.2.0",
+  # Pinned to the full dependency manifest the last green docker image
+  # (PR #3807, Jun 2026) resolved. Since the lockfile removal, floating
+  # requirements keep breaking the build as upstreams release (chronos
+  # 4.4.0 NestedPoll strictness, httputils 0.5.0 HttpCode change, and
+  # further template-expansion breakage in transitive deps). This block is
+  # a stand-in lockfile: remove it when a real lockfile returns or the
+  # code is updated for current upstream versions.
+  "chronos == 4.2.2",
+  "httputils == 0.4.1",
+  "bearssl == 0.2.10",
+  "chronicles == 0.12.2",
+  "confutils == 0.1.0",
+  "dnsclient == 0.3.4",
+  "dnsdisc == 0.1.1",
+  "eth == 0.9.0",
+  "faststreams == 0.5.1",
+  "json_rpc == 0.6.1",
+  "json_serialization == 0.4.4",
+  "minilru == 0.1.0",
+  "presto == 0.1.1",
+  "protobuf_serialization == 0.5.3",
+  "results == 0.5.1",
+  "secp256k1 == 0.6.0.3.2",
+  "serialization == 0.5.3",
+  "sqlite3_abi == 3.53.2.0",
+  "stew == 0.5.0",
+  "stint == 0.8.2",
+  "toml_serialization == 0.2.18",
+  "web3 == 0.8.0",
+  "websock == 0.4.0",
+  "zlib == 0.2.0",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -62,7 +92,11 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 
 requires "https://github.com/logos-messaging/nim-ffi#v0.1.3"
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin.git#61ee3e5aacb6b224b70e164ef7d0a5714fe66b26"
+# feat/proof-gen-metrics-testnet tip: Prometheus metrics for the RLN proof
+# lifecycle (generation/verification histograms, rejection reasons, cache
+# hit/miss, group size), cherry-picked onto the libp2p v2.0.0-compatible
+# line (same nim-libp2p-mix 50c4ab4 pin as below).
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin.git#a5cb0d64890d8f55f8527013418b784b799624ba"
 
 # nim-libp2p-mix: extracted mix protocol used by the plugin and by waku's
 # mix integration layer. Tip of experiment/drop-nimble-lock (PR #14, stacked
