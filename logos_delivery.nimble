@@ -17,7 +17,11 @@ const RequiredNimbleVersion = "0.22.3"
 
 ### Dependencies
 requires "nim >= 2.2.4",
-  "chronos >= 4.2.0",
+  # chronos pinned: 4.4.0's stricter effect checking rejects the waitFor in
+  # rest_api/endpoint/relay/handlers.nim:191 (NestedPoll). 4.2.2 is what the
+  # last green docker image (PR #3807, Jun 2026) was built with. Unpin once
+  # the handler is fixed for chronos >= 4.4.
+  "chronos == 4.2.2",
   "taskpools",
   # Logging & Configuration
   "chronicles",
