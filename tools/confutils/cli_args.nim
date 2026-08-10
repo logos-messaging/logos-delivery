@@ -164,7 +164,7 @@ type WakuNodeConf* = object
     ## General node config
     preset* {.
       desc:
-        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 2). 'logos.test' is the Logos Test Network (cluster 2). 'status.prod' is the Status Production Network (cluster 16, RLN off, auto-sharding with 1 shard). Overrides other values.",
+        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 3). 'logos.test' is the Logos Test Network (cluster 2). 'status.prod' is the Status Production Network (cluster 16, RLN off, auto-sharding with 1 shard). Overrides other values.",
       defaultValue: "",
       name: "preset"
     .}: string
@@ -983,9 +983,9 @@ proc toNetworkPresetConf*(
       "TWN - The Waku Network configuration will not be applied when `--cluster-id=1` is passed in future releases. Use `--preset=twn` instead."
     )
     lcPreset = "twn"
-  if clusterId.isSome() and clusterId.get() == 2:
+  if clusterId.isSome() and clusterId.get() == 3:
     warn(
-      "Logos.dev - Logos.dev configuration will not be applied when `--cluster-id=2` is passed in future releases. Use `--preset=logos.dev` instead."
+      "Logos.dev - Logos.dev configuration will not be applied when `--cluster-id=3` is passed in future releases. Use `--preset=logos.dev` instead."
     )
     lcPreset = "logos.dev"
 
