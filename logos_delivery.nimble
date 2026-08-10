@@ -62,7 +62,11 @@ requires "nim >= 2.2.4",
 # Packages not on nimble (use git URLs)
 
 requires "https://github.com/logos-messaging/nim-ffi#v0.1.3"
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin.git#61ee3e5aacb6b224b70e164ef7d0a5714fe66b26"
+# feat/proof-gen-metrics-testnet tip: Prometheus metrics for the RLN proof
+# lifecycle (generation/verification histograms, rejection reasons, cache
+# hit/miss, group size), cherry-picked onto the libp2p v2.0.0-compatible
+# line (same nim-libp2p-mix 50c4ab4 pin as below).
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin.git#a5cb0d64890d8f55f8527013418b784b799624ba"
 
 # nim-libp2p-mix: extracted mix protocol used by the plugin and by waku's
 # mix integration layer. Tip of experiment/drop-nimble-lock (PR #14, stacked
