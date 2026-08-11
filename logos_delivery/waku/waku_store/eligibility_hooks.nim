@@ -7,7 +7,7 @@ const EligibilityOutDescMinLen* = 512
 
 type
   EligibilityVerifierCb* = proc (
-      proof_hex, canonical_hex, requester_peer_id: cstring,
+      proof_hex, canonical_hex, user_peer_id: cstring,
       out_desc: cstring, out_desc_len: csize_t, user_data: pointer
   ): cint {.cdecl, gcsafe, raises: [].}
 
@@ -63,7 +63,7 @@ proc makeEligibilityWrappedHandler*(
       else:
         nil
 
-    let requesterPeerId =
+    let userPeerId =
       if store.inboundRequestPeerId.isSome(): $store.inboundRequestPeerId.get()
       else: ""
 
@@ -72,7 +72,7 @@ proc makeEligibilityWrappedHandler*(
     let verdictRaw = verifierCb(
       proofHexPtr,
       cstring(canonicalHex),
-      cstring(requesterPeerId),
+      cstring(userPeerId),
       cstring(outDescBuf),
       csize_t(EligibilityOutDescMinLen),
       verifierUserData,
