@@ -65,13 +65,13 @@ proc TheWakuNetworkConf*(T: type NetworkPresetConf): NetworkPresetConf =
     ],
   )
 
-# cluster-id=2 (Logos Dev Network)
+# cluster-id=3 (Logos Dev Network)
 # Cluster configuration for the Logos Dev Network.
 proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
   const ZeroChainId = 0'u256
   return NetworkPresetConf(
     maxMessageSize: DefaultMaxWakuMessageSizeStr,
-    clusterId: 2,
+    clusterId: 3,
     rlnRelay: false,
     rlnRelayEthContractAddress: "",
     rlnRelayDynamic: false,
