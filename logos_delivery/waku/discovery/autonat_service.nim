@@ -28,7 +28,7 @@ proc getAutonatService*(rng: crypto.Rng): AutonatService =
       networkReachability: NetworkReachability, confidence: Opt[float]
   ): Future[void] {.gcsafe, async: (raises: [CancelledError]).} =
     if confidence.isSome():
-      info "Peer reachability status",
+      debug "Peer reachability status",
         networkReachability = networkReachability, confidence = confidence.get()
 
   autonatService.statusAndConfidenceHandler(statusAndConfidenceHandler)

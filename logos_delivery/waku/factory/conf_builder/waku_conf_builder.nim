@@ -361,7 +361,7 @@ template checkSetPresetValueToField[T](
 
   if field.isSome():
     if field.get() != presetVal:
-      warn msg, used = field.get(), discarded = presetVal
+      debug msg, used = field.get(), discarded = presetVal
   else:
     field = Opt.some(presetVal)
 

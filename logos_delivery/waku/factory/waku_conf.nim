@@ -170,11 +170,11 @@ proc logConf*(conf: WakuConf) =
   info "Configuration. Network", cluster = conf.clusterId
 
   for shard in conf.subscribeShards:
-    info "Configuration. Active Relay Shards", shard = shard
+    debug "Configuration. Active Relay Shards", shard = shard
 
   if conf.discv5Conf.isSome():
     for i in conf.discv5Conf.get().bootstrapNodes:
-      info "Configuration. Bootstrap nodes", node = i.string
+      debug "Configuration. Bootstrap nodes", node = i.string
 
   if conf.rlnRelayConf.isSome():
     var rlnRelayConf = conf.rlnRelayConf.get()

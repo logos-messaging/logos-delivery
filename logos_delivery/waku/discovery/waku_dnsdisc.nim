@@ -38,7 +38,7 @@ type WakuDnsDiscovery* = object
 #####################
 
 proc emptyResolver*(domain: string): Future[string] {.async, gcsafe.} =
-  info "Empty resolver called", domain = domain
+  debug "Empty resolver called", domain = domain
   return ""
 
 proc findPeers*(
@@ -46,21 +46,21 @@ proc findPeers*(
 ): Future[Result[seq[RemotePeerInfo], cstring]] {.async.} =
   ## Find peers to connect to using DNS based discovery
 
-  info "Finding peers using Waku DNS discovery"
+  debug "Finding peers using Waku DNS discovery"
 
   # Synchronise client tree using configured resolver
   var tree: Tree
   try:
     tree = (await syncTree(wdd.resolver, wdd.client.loc)).tryGet()
   except Exception:
-    error "Failed to synchronise client tree"
+    debug "Failed to synchronise client tree"
     logos_delivery_dnsdisc_errors.inc(labelValues = ["tree_sync_failure"])
     return err("Node discovery failed")
 
   let discoveredEnr = tree.getNodes().mapIt(it.record)
 
   if discoveredEnr.len > 0:
-    info "Successfully discovered ENR", count = discoveredEnr.len
+    debug "Successfully discovered ENR", count = discoveredEnr.len
   else:
     trace "No ENR retrieved from client tree"
 
@@ -69,12 +69,12 @@ proc findPeers*(
   for enr in discoveredEnr:
     # Convert discovered ENR to RemotePeerInfo and add to discovered nodes
     let peerInfo = enr.toRemotePeerInfo().valueOr:
-      error "Failed to convert ENR to peer info", enr = $enr, error = error
+      debug "Failed to convert ENR to peer info", enr = $enr, error = error
       logos_delivery_dnsdisc_errors.inc(labelValues = ["peer_info_failure"])
       continue
     discoveredNodes.add(peerInfo)
   if discoveredNodes.len > 0:
-    info "Successfully discovered nodes", count = discoveredNodes.len
+    debug "Successfully discovered nodes", count = discoveredNodes.len
     logos_delivery_dnsdisc_discovered.inc(discoveredNodes.len.int64)
 
   return ok(discoveredNodes)
@@ -84,13 +84,13 @@ proc init*(
 ): Result[T, cstring] =
   ## Initialise Waku peer discovery via DNS
 
-  info "init WakuDnsDiscovery", locationUrl = locationUrl
+  debug "init WakuDnsDiscovery", locationUrl = locationUrl
 
   let
     client = ?Client.init(locationUrl)
     wakuDnsDisc = WakuDnsDiscovery(client: client, resolver: resolver)
 
-  info "init success"
+  debug "init success"
 
   return ok(wakuDnsDisc)
 
@@ -101,7 +101,7 @@ proc retrieveDynamicBootstrapNodes*(
 
   if dnsDiscoveryUrl != "":
     # DNS discovery
-    info "Discovering nodes using Waku DNS discovery", url = dnsDiscoveryUrl
+    debug "Discovering nodes using Waku DNS discovery", url = dnsDiscoveryUrl
 
     var nameServers: seq[TransportAddress]
     for ip in dnsAddrsNameServers:
@@ -117,7 +117,7 @@ proc retrieveDynamicBootstrapNodes*(
 
     var wakuDnsDiscovery = WakuDnsDiscovery.init(dnsDiscoveryUrl, resolver).errorOr:
       return (await value.findPeers()).mapErr(e => $e)
-    warn "Failed to init Waku DNS discovery"
+    debug "Failed to init Waku DNS discovery"
 
-  info "No method for retrieving dynamic bootstrap nodes specified."
+  debug "No method for retrieving dynamic bootstrap nodes specified."
   ok(newSeq[RemotePeerInfo]()) # Return an empty seq by default

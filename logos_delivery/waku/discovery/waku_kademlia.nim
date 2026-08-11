@@ -153,7 +153,7 @@ proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError])
       (await self.protocol.lookupRandom())
 
     let records = recordsRes.valueOr:
-      error "random lookup failed", error
+      debug "random lookup failed", error
       continue
 
     let discovered = self.processRecords(records, "random walk")
@@ -180,11 +180,11 @@ proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]
         fut.read()
 
       let res = catchRes.valueOr:
-        error "service lookup failed", error
+        debug "service lookup failed", error
         continue
 
       let peerInfos = res.valueOr:
-        error "service lookup failed", error
+        debug "service lookup failed", error
         continue
 
       for peerInfo in peerInfos:
