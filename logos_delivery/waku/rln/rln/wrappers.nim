@@ -138,7 +138,7 @@ proc createRLNInstanceLocal(): Result[ptr RlnRaw, string] =
   let res = ffi_rln_new()
   if res.ok.isNil():
     let msg = consumeError("error in parameters generation: ", res.err)
-    info "error in parameters generation", err = msg
+    debug "error in parameters generation", err = msg
     return err(msg)
   ok(res.ok)
 

@@ -171,7 +171,7 @@ proc monitorEpochs(rln: Rln) {.async.} =
           rln.groupManager.userMessageLimit.get().float64
         )
       else:
-        error "userMessageLimit is not set in monitorEpochs"
+        debug "userMessageLimit is not set in monitorEpochs"
     except CatchableError:
       error "Error in epoch monitoring", error = getCurrentExceptionMsg()
 
@@ -251,7 +251,7 @@ proc isReady*(rlnPeer: Rln): Future[bool] {.async.} =
   try:
     return await rlnPeer.groupManager.isReady()
   except CatchableError:
-    error "could not check if the rln-relay protocol is ready",
+    debug "could not check if the rln-relay protocol is ready",
       err = getCurrentExceptionMsg()
     return false
 

@@ -195,7 +195,7 @@ proc initProtocolHandler(w: WakuRelay) =
     except CancelledError:
       # This is top-level procedure which will work as separate task, so it
       # do not need to propogate CancelledError.
-      error "Unexpected cancellation in relay handler",
+      debug "Unexpected cancellation in relay handler",
         conn = conn, error = getCurrentExceptionMsg()
     except CatchableError:
       error "WakuRelay handler leaks an error",
@@ -264,7 +264,7 @@ proc initRelayObservers(w: WakuRelay) =
       tuple[msgId: string, topic: string, wakuMessage: WakuMessage, msgSize: int], void
   ] =
     let msg_id = w.msgIdProvider(msg).valueOr:
-      warn "Error generating message id",
+      debug "Error generating message id",
         my_peer_id = w.switch.peerInfo.peerId,
         from_peer_id = peer.peerId,
         pubsub_topic = msg.topic,
@@ -274,7 +274,7 @@ proc initRelayObservers(w: WakuRelay) =
     let msg_id_short = shortLog(msg_id)
 
     let wakuMessage = WakuMessage.decode(msg.data).valueOr:
-      warn "Error decoding to Waku Message",
+      debug "Error decoding to Waku Message",
         my_peer_id = w.switch.peerInfo.peerId,
         msg_id = msg_id_short,
         from_peer_id = peer.peerId,
@@ -329,7 +329,7 @@ proc initRelayObservers(w: WakuRelay) =
   proc onValidated(peer: PubSubPeer, msg: Message, msgId: MessageId) =
     let msg_id_short = shortLog(msgId)
     let wakuMessage = WakuMessage.decode(msg.data).valueOr:
-      warn "onValidated: failed decoding to Waku Message",
+      debug "onValidated: failed decoding to Waku Message",
         my_peer_id = w.switch.peerInfo.peerId,
         msg_id = msg_id_short,
         from_peer_id = peer.peerId,
@@ -344,7 +344,7 @@ proc initRelayObservers(w: WakuRelay) =
   proc onSend(peer: PubSubPeer, msgs: var RPCMsg) =
     for msg in msgs.messages:
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
-        warn "onSend: failed decoding RPC info",
+        debug "onSend: failed decoding RPC info",
           my_peer_id = w.switch.peerInfo.peerId, to_peer_id = peer.peerId
         continue
       logMessageInfo(
@@ -461,7 +461,7 @@ proc getNumPeersInMesh*(w: WakuRelay, pubsubTopic: PubsubTopic): Result[int, str
 
 proc calculateTopicHealth(wakuRelay: WakuRelay, topic: string): TopicHealth =
   let numPeersInMesh = wakuRelay.getNumPeersInMesh(topic).valueOr:
-    error "Could not calculate topic health", topic = topic, error = error
+    debug "Could not calculate topic health", topic = topic, error = error
     return TopicHealth.UNHEALTHY
 
   if numPeersInMesh < 1:
@@ -518,7 +518,7 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
       except CancelledError:
         break
       except CatchableError as e:
-        warn "Error in topic health callback", error = e.msg
+        debug "Error in topic health callback", error = e.msg
 
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
@@ -545,7 +545,7 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
     # can be optimized by checking if the message is a WakuMessage without allocating memory
     # see nim-libp2p protobuf library
     let msg = WakuMessage.decode(message.data).valueOr:
-      error "protocol generateOrderedValidator reject decode error",
+      debug "Rejecting relay message, decode error",
         pubsubTopic = pubsubTopic, error = $error
       return ValidationResult.Reject
 
@@ -555,7 +555,7 @@ proc generateOrderedValidator(w: WakuRelay): ValidatorHandler {.gcsafe.} =
 
       if validatorRes != ValidationResult.Accept:
         let msgHash = computeMessageHash(pubsubTopic, msg).to0xHex()
-        error "protocol generateOrderedValidator reject waku validator",
+        debug "Rejecting relay message, waku validator rejected",
           msg_hash = msgHash,
           pubsubTopic = pubsubTopic,
           contentTopic = msg.contentTopic,
@@ -576,7 +576,7 @@ proc validateMessage*(
 
   if messageSizeBytes > w.maxMessageSize:
     let message = fmt"Message size exceeded maximum of {w.maxMessageSize} bytes"
-    error "too large Waku message",
+    debug "Too large Waku message",
       msg_hash = msgHash,
       error = message,
       messageSizeBytes = messageSizeBytes,
@@ -598,7 +598,7 @@ proc validateMessage*(
   return ok()
 
 proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandler) =
-  info "subscribe", pubsubTopic = pubsubTopic
+  debug "Subscribing to pubsub topic", pubsubTopic = pubsubTopic
 
   # We need to wrap the handler since gossipsub doesnt understand WakuMessage
   let topicHandler = proc(
@@ -606,7 +606,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
   ): Future[void] {.gcsafe, raises: [].} =
     let decMsg = WakuMessage.decode(data).valueOr:
       # fine if triggerSelf enabled, since validators are bypassed
-      error "failed to decode WakuMessage, validator passed a wrong message",
+      debug "Failed to decode WakuMessage, validator passed a wrong message",
         pubsubTopic = pubsubTopic, error = error
       let fut = newFuture[void]()
       fut.complete()
@@ -640,7 +640,7 @@ proc subscribe*(w: WakuRelay, pubsubTopic: PubsubTopic, handler: WakuRelayHandle
 proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   ## Unsubscribe all handlers on this pubsub topic
 
-  info "unsubscribe all", pubsubTopic = pubsubTopic
+  debug "Unsubscribe all", pubsubTopic = pubsubTopic
 
   procCall GossipSub(w).unsubscribeAll(pubsubTopic)
   w.topicValidator.del(pubsubTopic)
@@ -650,11 +650,11 @@ proc unsubscribeAll*(w: WakuRelay, pubsubTopic: PubsubTopic) =
 
 proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
   if not w.topicValidator.hasKey(pubsubTopic):
-    error "unsubscribe no validator for this topic", pubsubTopic
+    debug "Unsubscribe: no validator for this topic", pubsubTopic
     return
 
   if not w.topicHandlers.hasKey(pubsubTopic):
-    error "not subscribed to the given topic", pubsubTopic
+    debug "Not subscribed to the given topic", pubsubTopic
     return
 
   var topicHandler: TopicHandler
@@ -666,7 +666,7 @@ proc unsubscribe*(w: WakuRelay, pubsubTopic: PubsubTopic) =
     error "exception in unsubscribe", pubsubTopic, error = getCurrentExceptionMsg()
     return
 
-  info "unsubscribe", pubsubTopic
+  debug "Unsubscribe", pubsubTopic
   procCall GossipSub(w).unsubscribe(pubsubTopic, topicHandler)
   procCall GossipSub(w).removeValidator(pubsubTopic, topicValidator)
 
@@ -688,7 +688,7 @@ proc publish*(
   let data = message.encode().buffer
 
   let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
-  notice "start publish Waku message",
+  trace "Start publish Waku message",
     msg_hash = msgHash, pubsubTopic = pubsubTopic, contentTopic = message.contentTopic
 
   let relayedPeerCount = await procCall GossipSub(w).publish(pubsubTopic, data)

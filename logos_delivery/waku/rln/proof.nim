@@ -106,7 +106,7 @@ proc generateRLNProofWithRootRefresh*(
   if await rln.groupManager.validateRoot(rlnProof.merkleRoot):
     return ok(proofBytes)
 
-  info "RLN: stale merkle root detected; refreshing merkle path and regenerating proof"
+  debug "RLN: stale merkle root detected; refreshing merkle path and regenerating proof"
   rln.groupManager.invalidateMerkleProofCache()
   return await rln.generateRLNProofWithNonce(input, senderEpochTime, nonce)
 
@@ -132,7 +132,7 @@ proc checkAndGenerateRLNProof*(
     return ok(message)
 
   if rln.isNone():
-    notice "Publishing message without RLN proof"
+    debug "Publishing message without RLN proof"
     return ok(message)
 
   return await attachRLNProof(rln.get(), message)
