@@ -43,7 +43,7 @@ proc setupNat*(
       try:
         extIp = getExternalIP(strategy)
       except Exception:
-        warn "exception in setupNat", error = getCurrentExceptionMsg()
+        debug "exception in setupNat", error = getCurrentExceptionMsg()
 
       if extIP.isSome():
         endpoint.ip = Opt.some(extIp.get())
@@ -59,7 +59,7 @@ proc setupNat*(
           )
         except CatchableError:
           # TODO: nat.nim Error: can raise an unlisted exception: Exception. Isolate here for now.
-          error "unable to determine external ports"
+          debug "unable to determine external ports"
           extPorts = Opt.none((Port, Port))
 
         if extPorts.isSome():

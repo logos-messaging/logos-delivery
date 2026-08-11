@@ -299,7 +299,7 @@ proc toRemotePeerInfo*(enrRec: enr.Record): Result[RemotePeerInfo, cstring] =
   if not protocolsRes.isErr():
     protocols = protocolsRes.get()
   else:
-    error "Could not retrieve supported protocols from enr",
+    debug "Could not retrieve supported protocols from enr",
       peerId = peerId, msg = protocolsRes.error.msg
 
   return ok(RemotePeerInfo.init(peerId, addrs, Opt.some(enrRec), protocols))
