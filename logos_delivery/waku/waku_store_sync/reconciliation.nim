@@ -322,7 +322,7 @@ proc storeSynchronization*(
   let conn: Connection = connOpt.valueOr:
     return err("fail to dial remote " & $peer.peerId)
 
-  info "sync session initialized",
+  debug "Sync session initialized",
     local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
 
   (
@@ -330,12 +330,12 @@ proc storeSynchronization*(
       conn, offset, syncRange, pubsubTopics.toSeq(), contentTopics.toSeq()
     )
   ).isOkOr:
-    error "sync session failed",
+    debug "Sync session failed",
       local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId, err = error
 
     return err("sync request error: " & error)
 
-  info "sync session ended gracefully",
+  debug "Sync session ended gracefully",
     local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
 
   return ok()
@@ -358,7 +358,7 @@ proc initFillStorage(
     direction: PagingDirection.FORWARD,
   )
 
-  info "initial storage filling started"
+  debug "Initial storage filling started"
 
   var storage = SeqStorage.new(DefaultStorageCap)
 
@@ -380,7 +380,7 @@ proc initFillStorage(
 
     query.cursor = response.cursor
 
-  info "initial storage filling done", elements = storage.length()
+  debug "Initial storage filling done", elements = storage.length()
 
   return ok(storage)
 
@@ -421,7 +421,7 @@ proc new*(
   proc handler(conn: Connection, proto: string) {.async: (raises: [CancelledError]).} =
     try:
       (await sync.processRequest(conn)).isOkOr:
-        error "request processing error", error = error
+        debug "Request processing error", error = error
     except CatchableError:
       error "exception in reconciliation handler", error = getCurrentExceptionMsg()
 
@@ -434,21 +434,21 @@ proc new*(
   return ok(sync)
 
 proc periodicSync(self: SyncReconciliation) {.async.} =
-  info "periodic sync initialized", interval = $self.syncInterval
+  debug "Periodic sync initialized", interval = $self.syncInterval
 
   while true: # infinite loop
     await sleepAsync(self.syncInterval)
 
-    info "periodic sync started"
+    debug "Periodic sync started"
 
     (await self.storeSynchronization()).isOkOr:
-      error "periodic sync failed", err = error
+      debug "Periodic sync failed", err = error
       continue
 
-    info "periodic sync done"
+    debug "Periodic sync done"
 
 proc periodicPrune(self: SyncReconciliation) {.async.} =
-  info "periodic prune initialized", interval = $self.syncInterval
+  debug "Periodic prune initialized", interval = $self.syncInterval
 
   # preventing sync and prune loops of happening at the same time.
   await sleepAsync((self.syncInterval div 2))
@@ -456,7 +456,7 @@ proc periodicPrune(self: SyncReconciliation) {.async.} =
   while true: # infinite loop
     await sleepAsync(self.syncInterval)
 
-    info "periodic prune started"
+    debug "Periodic prune started"
 
     let time = getNowInNanosecondTime() - self.syncRange.nanos
 
@@ -464,7 +464,7 @@ proc periodicPrune(self: SyncReconciliation) {.async.} =
 
     logos_delivery_total_messages_cached.set(self.storage.length())
 
-    info "periodic prune done", elements_pruned = count
+    debug "Periodic prune done", elements_pruned = count
 
 proc idsReceiverLoop(self: SyncReconciliation) {.async.} =
   while true: # infinite loop

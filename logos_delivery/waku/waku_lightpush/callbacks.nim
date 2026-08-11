@@ -21,7 +21,7 @@ proc getRelayPushHandler*(wakuRelay: WakuRelay): PushMessageHandler =
 
     let publishedResult = (await wakuRelay.publish(pubsubTopic, message)).valueOr:
       let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
-      notice "Lightpush request has not been published to any peers",
+      debug "Lightpush request has not been published to any peers",
         msg_hash = msgHash, reason = $error
       return mapPubishingErrorToPushResult(error)
 

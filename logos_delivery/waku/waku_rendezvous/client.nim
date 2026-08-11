@@ -76,7 +76,7 @@ proc requestAll*(
   return ok()
 
 proc periodicRequests(self: WakuRendezVousClient) {.async.} =
-  info "waku rendezvous periodic requests started", interval = self.requestInterval
+  debug "Waku rendezvous periodic requests started", interval = self.requestInterval
 
   # infinite loop
   while true:

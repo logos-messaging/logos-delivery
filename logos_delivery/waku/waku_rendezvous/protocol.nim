@@ -83,7 +83,7 @@ proc advertise*(
         fut.read()
 
       if catchable.isErr():
-        warn "a rendezvous dial failed", cause = catchable.error.msg
+        debug "Rendezvous dial failed", cause = catchable.error.msg
         continue
 
       let connOpt = catchable.get()
@@ -123,7 +123,7 @@ proc advertiseAll*(
   return res
 
 proc periodicRegistration(self: WakuRendezVous) {.async.} =
-  info "waku rendezvous periodic registration started",
+  debug "Waku rendezvous periodic registration started",
     interval = self.registrationInterval
 
   # infinite loop
@@ -215,7 +215,7 @@ proc new*(
 method start*(self: WakuRendezVous) {.async: (raises: [CancelledError]).} =
   # Start the parent GenericRendezVous (starts the register deletion loop)
   if self.started:
-    warn "waku rendezvous already started"
+    debug "Waku rendezvous already started"
     return
   await procCall GenericRendezVous[WakuPeerRecord](self).start()
   # start registering forever

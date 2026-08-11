@@ -106,7 +106,7 @@ proc initTransferHandler(
             await wakuArchive.handleMessage(kv.pubsubTopic.get(), kv.message.get())
 
           handleRes.isOkOr:
-            error "message transfer failed", error = error.msg
+            debug "Message transfer failed", error = error.msg
             continue
 
         if req.paginationCursor.isNone():

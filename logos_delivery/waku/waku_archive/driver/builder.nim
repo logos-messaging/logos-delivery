@@ -50,7 +50,7 @@ proc new*(
     let (pageSize, pageCount, freelistCount) = db.gatherSqlitePageStats().valueOr:
       return err("error while gathering sqlite stats: " & $error)
 
-    info "sqlite database page stats",
+    debug "sqlite database page stats",
       pageSize = pageSize, pages = pageCount, freePages = freelistCount
 
     if vacuum and (pageCount > 0 and freelistCount > 0):
@@ -62,7 +62,7 @@ proc new*(
       archive_driver_sqlite_migrations.migrate(db).isOkOr:
         return err("error in migrate sqlite: " & $error)
 
-    info "setting up sqlite waku archive driver"
+    debug "Setting up sqlite waku archive driver"
     let res = SqliteDriver.new(db).valueOr:
       return err("failed to init sqlite archive driver: " & error)
 
@@ -87,7 +87,7 @@ proc new*(
 
       driver.startAnalyzeTableLoop()
 
-      info "waiting for a partition to be created"
+      debug "Waiting for a partition to be created"
       for i in 0 ..< 100:
         if driver.containsAnyPartition():
           break
@@ -102,6 +102,6 @@ proc new*(
         "Postgres has been configured but not been compiled. Check compiler definitions."
       )
   else:
-    info "setting up in-memory waku archive driver"
+    debug "Setting up in-memory waku archive driver"
     let driver = QueueDriver.new() # Defaults to a capacity of 25.000 messages
     return ok(driver)

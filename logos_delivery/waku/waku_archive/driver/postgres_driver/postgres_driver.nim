@@ -434,9 +434,9 @@ proc dropOrphanPartitions(
     return err("dropOrphanPartitions failed in query: " & $error)
 
   for partition in partitions:
-    info "orphan partition found", partitionName = partition
+    debug "Orphan partition found", partitionName = partition
     (await s.dropPartition(partition)).isOkOr:
-      error "failed to drop orphan partition", partitionName = partition, error = $error
+      debug "Failed to drop orphan partition", partitionName = partition, error = $error
       continue
 
   return ok()
@@ -1187,31 +1187,31 @@ proc performWriteQueryWithLock(
   (await self.performWriteQuery(query)).isOkOr:
     if error.contains(COULD_NOT_ACQUIRE_ADVISORY_LOCK):
       ## We don't consider this as an error. Just someone else acquired the advisory lock
-      info "skip performWriteQuery because the advisory lock is acquired by other"
+      debug "Skip performWriteQuery because the advisory lock is acquired by other"
       return ok()
 
     if error.contains("already exists"):
       ## expected to happen when trying to add a partition table constraint that already exists
       ## e.g., constraint "constraint_name" for relation "messages_1720364735_1720364740" already exists
-      info "skip already exists error", error = error
+      debug "Skip already exists error", error = error
       return ok()
 
     if error.contains("is already a partition"):
       ## expected to happen when a node tries to add a partition that is already attached,
       ## e.g., "messages_1720364735_1720364740" is already a partition
-      info "skip is already a partition error", error = error
+      debug "Skip is already a partition error", error = error
       return ok()
 
     if error.contains("does not exist"):
       ## expected to happen when trying to drop a constraint that has already been dropped by other
       ## constraint "constraint_name" of relation "messages_1720364735_1720364740" does not exist
-      info "skip does not exist error", error = error
+      debug "Skip does not exist error", error = error
       return ok()
 
-    info "protected query ended with error", error = $error
+    debug "Protected query ended with error", error = $error
     return err("protected query ended with error:" & $error)
 
-  info "protected query ended correctly"
+  debug "Protected query ended correctly"
   return ok()
 
 proc addPartition(
@@ -1277,7 +1277,7 @@ proc addPartition(
   (await self.performWriteQueryWithLock(dropConstraint)).isOkOr:
     return err(fmt"error dropping constraint [{partitionName}]: " & $error)
 
-  info "new partition added", query = createPartitionQuery
+  debug "New partition added", query = createPartitionQuery
 
   self.partitionMngr.addPartitionInfo(partitionName, beginning, `end`)
   return ok()
@@ -1285,7 +1285,7 @@ proc addPartition(
 proc refreshPartitionsInfo(
     self: PostgresDriver
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  info "refreshPartitionsInfo"
+  debug "refreshPartitionsInfo"
   self.partitionMngr.clearPartitionInfo()
 
   let partitionNames = (await self.getPartitionsList()).valueOr:
@@ -1437,7 +1437,7 @@ proc loopPartitionFactory(
   ## retention policy module due to some error. However, the main task of this loop is to create
   ## new partitions when needed.
 
-  info "starting loopPartitionFactory"
+  debug "Starting loopPartitionFactory"
 
   while true:
     trace "loopPartitionFactory iteration started"
@@ -1458,7 +1458,7 @@ proc loopPartitionFactory(
     let now = times.now().toTime().toUnix()
 
     if self.partitionMngr.isEmpty():
-      info "adding partition because now there aren't more partitions"
+      debug "Adding partition because now there aren't more partitions"
       (await self.addPartition(now)).isOkOr:
         onFatalError("error when creating a new partition from empty state: " & $error)
     else:
@@ -1468,14 +1468,14 @@ proc loopPartitionFactory(
 
       let newestPartition = newestPartitionRes.get()
       if newestPartition.containsMoment(now):
-        info "creating a new partition for the future"
+        debug "Creating a new partition for the future"
         ## The current used partition is the last one that was created.
         ## Thus, let's create another partition for the future.
 
         (await self.addPartition(newestPartition.getLastMoment())).isOkOr:
           onFatalError("could not add the next partition for 'now': " & $error)
       elif now >= newestPartition.getLastMoment():
-        info "creating a new partition to contain current messages"
+        debug "Creating a new partition to contain current messages"
         ## There is no partition to contain the current time.
         ## This happens if the node has been stopped for quite a long time.
         ## Then, let's create the needed partition to contain 'now'.
@@ -1515,7 +1515,7 @@ proc dropPartition(
     self: PostgresDriver, partitionName: string
 ): Future[ArchiveDriverResult[void]] {.async.} =
   let dropPartitionQuery = "DROP TABLE " & partitionName
-  info "drop partition", query = dropPartitionQuery
+  debug "Drop partition", query = dropPartitionQuery
   (await self.performWriteQuery(dropPartitionQuery)).isOkOr:
     return err(fmt"error in dropPartition: {dropPartitionQuery}: " & $error)
 
@@ -1527,7 +1527,7 @@ proc detachAndDropPartition(
   ## Detaches and drops the messages partition together with its lookup sibling.
 
   let partitionName = partition.getName()
-  info "beginning of detachAndDropPartition", partitionName
+  debug "Beginning of detachAndDropPartition", partitionName
 
   ## Sibling first: a crash below leaves the messages partition, so the next
   ## retention pass retries both.
@@ -1541,9 +1541,9 @@ proc detachAndDropPartition(
   ## Detach and remove the partition concurrently to not block the parent table (messages)
   let detachPartitionQuery =
     "ALTER TABLE messages DETACH PARTITION " & partitionName & " CONCURRENTLY;"
-  info "removeOldestPartition", query = detachPartitionQuery
+  debug "Removing oldest partition", query = detachPartitionQuery
   (await self.performWriteQuery(detachPartitionQuery)).isOkOr:
-    info "detected error when trying to detach partition", error
+    debug "Detected error when trying to detach partition", error
 
     if ($error).contains("FINALIZE") or ($error).contains("already pending"):
       ## We assume "already pending detach in partitioned table ..." as possible error
@@ -1552,7 +1552,7 @@ proc detachAndDropPartition(
       ## We assume the database is suggesting to use FINALIZE when detaching a partition
       let detachPartitionFinalizeQuery =
         "ALTER TABLE messages DETACH PARTITION " & partitionName & " FINALIZE;"
-      info "removeOldestPartition detaching with FINALIZE",
+      debug "Detaching oldest partition with FINALIZE",
         query = detachPartitionFinalizeQuery
       (await self.performWriteQuery(detachPartitionFinalizeQuery)).isOkOr:
         return err(fmt"error in FINALIZE {detachPartitionFinalizeQuery}: " & $error)
@@ -1562,7 +1562,7 @@ proc detachAndDropPartition(
   ## Drop partition
   ?(await self.dropPartition(partitionName))
 
-  info "removed partition", partition_name = partitionName, partition_size = partSize
+  debug "Removed partition", partition_name = partitionName, partition_size = partSize
   self.partitionMngr.removeOldestPartitionName()
 
   return ok()
@@ -1573,7 +1573,7 @@ proc removePartitionsOlderThan(
   ## Removes old partitions that don't contain the specified timestamp
 
   let tsInSec = Timestamp(float(tsInNanoSec) / 1_000_000_000)
-  info "beginning of removePartitionsOlderThan", tsInSec
+  debug "Beginning of removePartitionsOlderThan", tsInSec
 
   var oldestPartition = self.partitionMngr.getOldestPartition().valueOr:
     return err("could not get oldest partition in removePartitionOlderThan: " & $error)
@@ -1584,7 +1584,7 @@ proc removePartitionsOlderThan(
     tsInSec
 
   while oldestPartition.getLastMoment() < tsInSec:
-    info "start removing partition whose first record is older than the specified timestamp",
+    debug "Start removing partition whose first record is older than the specified timestamp",
       partitionName = oldestPartition.getName(),
       partitionFirstMoment = oldestPartition.getLastMoment(),
       tsInSec
@@ -1614,7 +1614,7 @@ proc removeOldestPartition(
       ## The database contains a partition that would store current messages.
 
       if currentPartitionRes.get() == oldestPartition:
-        info "Skipping to remove the current partition"
+        debug "Skipping to remove the current partition"
         return ok()
 
   return await self.detachAndDropPartition(oldestPartition)
@@ -1634,7 +1634,7 @@ method decreaseDatabaseSize*(
   if totalSizeOfDB <= targetSizeInBytes:
     return ok()
 
-  info "start reducing database size",
+  debug "Start reducing database size",
     targetSize = $targetSizeInBytes, currentSize = $totalSizeOfDB
 
   while totalSizeOfDB > targetSizeInBytes and driver.containsAnyPartition():
@@ -1653,7 +1653,7 @@ method decreaseDatabaseSize*(
 
     totalSizeOfDB = newCurrentSize
 
-    info "reducing database size",
+    debug "Reducing database size",
       targetSize = $targetSizeInBytes, newCurrentSize = $totalSizeOfDB
 
   return ok()
@@ -1730,22 +1730,22 @@ proc analyzeTableLoop(self: PostgresDriver) {.async.} =
   ## The database stats should be calculated regularly so that the planner
   ## picks up the proper indexes and we have better query performance.
   while true:
-    info "analyzeTableLoop lock db"
+    debug "analyzeTableLoop lock db"
     (await self.acquireDatabaseLock(AnalyzeTableLockId)).isOkOr:
       if error != EXPECTED_LOCK_ERROR:
         error "failed to acquire lock in analyzeTableLoop", error = error
       await sleepAsync(RunAnalyzeInterval)
       continue
 
-    info "analyzeTableLoop start analysis"
+    debug "analyzeTableLoop start analysis"
     (await self.performWriteQuery(AnalyzeQuery)).isOkOr:
       error "failed to run ANALYZE messages", error = error
 
-    info "analyzeTableLoop unlock db"
+    debug "analyzeTableLoop unlock db"
     (await self.releaseDatabaseLock(AnalyzeTableLockId)).isOkOr:
       error "failed to release lock analyzeTableLoop", error = error
 
-    info "analyzeTableLoop analysis completed"
+    debug "analyzeTableLoop analysis completed"
 
     await sleepAsync(RunAnalyzeInterval)
 

@@ -37,7 +37,7 @@ proc request*(
     await conn.writeLP(rpc.encode().buffer)
     buffer = await conn.readLp(DefaultMaxRpcSize.int)
   except CatchableError as exc:
-    error "exception when handling peer exchange request", error = exc.msg
+    debug "Exception when handling peer exchange request", error = exc.msg
     logos_delivery_px_client_errors.inc(
       labelValues = ["error_sending_or_receiving_px_req"]
     )
@@ -50,11 +50,11 @@ proc request*(
     await conn.closeWithEof()
 
   if callResult.status_code != PeerExchangeResponseStatusCode.SUCCESS:
-    error "peer exchange request failed", status_code = callResult.status_code
+    debug "Peer exchange request failed", status_code = callResult.status_code
     return err(callResult)
 
   let decoded = PeerExchangeRpc.decode(buffer).valueOr:
-    error "peer exchange request error decoding buffer", error = $error
+    debug "Peer exchange request error decoding buffer", error = $error
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.BAD_RESPONSE,
@@ -62,7 +62,7 @@ proc request*(
       )
     )
   if decoded.response.status_code != PeerExchangeResponseStatusCode.SUCCESS:
-    error "peer exchange request error", status_code = decoded.response.status_code
+    debug "Peer exchange request error", status_code = decoded.response.status_code
     return err(
       (
         status_code: decoded.response.status_code,
@@ -78,7 +78,7 @@ proc request*(
   try:
     let connOpt = await wpx.peerManager.dialPeer(peer, WakuPeerExchangeCodec)
     if connOpt.isNone():
-      error "error in request connOpt is none"
+      debug "Peer exchange request dial failed, no connection"
       return err(
         (
           status_code: PeerExchangeResponseStatusCode.DIAL_FAILURE,
@@ -87,7 +87,7 @@ proc request*(
       )
     return await wpx.request(numPeers, connOpt.get())
   except CatchableError:
-    error "peer exchange request exception", error = getCurrentExceptionMsg()
+    debug "Peer exchange request exception", error = getCurrentExceptionMsg()
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.BAD_RESPONSE,
@@ -101,7 +101,7 @@ proc request*(
   let peerOpt = wpx.peerManager.selectPeer(WakuPeerExchangeCodec)
   if peerOpt.isNone():
     logos_delivery_px_client_errors.inc(labelValues = [peerNotFoundFailure])
-    info "peer exchange request could not be made as no peer exchange peers found"
+    debug "Peer exchange request could not be made as no peer exchange peers found"
     return err(
       (
         status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,

@@ -47,7 +47,7 @@ proc sendPushRequest(
     return err("Exception reading: " & getCurrentExceptionMsg())
 
   let pushResponseRes = PushRPC.decode(buffer).valueOr:
-    error "failed to decode response"
+    debug "Failed to decode response"
     logos_delivery_lightpush_errors.inc(labelValues = [decodeRpcFailure])
     return err(decodeRpcFailure)
 
@@ -78,7 +78,7 @@ proc publish*(
   let pushRequest = PushRequest(pubSubTopic: pubSubTopic, message: message)
   ?await wl.sendPushRequest(pushRequest, peer)
 
-  notice "publishing message with lightpush",
+  debug "Publishing message with lightpush",
     pubsubTopic = pubsubTopic,
     contentTopic = message.contentTopic,
     target_peer_id = peer.peerId,
@@ -92,7 +92,8 @@ proc publishToAny*(
   ## This proc is similar to the publish one but in this case
   ## we don't specify a particular peer and instead we get it from peer manager
 
-  info "publishToAny", msg_hash = computeMessageHash(pubsubTopic, message).to0xHex
+  debug "Publishing message to any peer",
+    msg_hash = computeMessageHash(pubsubTopic, message).to0xHex
 
   let peer = wl.peerManager.selectPeer(WakuLegacyLightPushCodec).valueOr:
     return err("could not retrieve a peer supporting WakuLegacyLightPushCodec")

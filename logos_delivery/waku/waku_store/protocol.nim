@@ -44,7 +44,7 @@ proc handleQueryRequest(
   var res = StoreQueryResponse()
 
   let req = StoreQueryRequest.decode(raw_request).valueOr:
-    error "failed to decode rpc", peerId = requestor, error = $error
+    debug "Failed to decode rpc", peerId = requestor, error = $error
     logos_delivery_store_errors.inc(labelValues = [DecodeRpcFailure])
 
     res.statusCode = uint32(ErrorCode.BAD_REQUEST)
@@ -61,7 +61,7 @@ proc handleQueryRequest(
   let queryResult = await self.requestHandler(req)
 
   res = queryResult.valueOr:
-    error "store query failed",
+    debug "Store query failed",
       peerId = requestor, requestId = requestId, error = $error
 
     res.statusCode = uint32(error.kind)
@@ -103,7 +103,7 @@ proc initProtocolHandler(self: WakuStore) =
         await conn.readLp(DefaultMaxRpcSize.int)
 
       let reqBuf = readRes.valueOr:
-        error "Connection read error", error = error.msg
+        debug "Connection read error", error = error.msg
         return
 
       logos_delivery_service_network_bytes.inc(
@@ -125,7 +125,7 @@ proc initProtocolHandler(self: WakuStore) =
       logos_delivery_store_time_seconds.set(queryDuration, ["query-db-time"])
       successfulQuery = true
     do:
-      info "store query request rejected due rate limit exceeded",
+      debug "Store query request rejected due rate limit exceeded",
         peerId = conn.peerId, limit = $self.requestRateLimiter.setting
       resBuf = (rejectReposnseBuffer, "rejected")
 
@@ -135,13 +135,13 @@ proc initProtocolHandler(self: WakuStore) =
       await conn.writeLp(resBuf.resp)
 
     writeRes.isOkOr:
-      error "Connection write error", error = error.msg
+      debug "Connection write error", error = error.msg
       return
 
     if successfulQuery:
       let writeDuration = getTime().toUnixFloat() - writeRespStartTime
       logos_delivery_store_time_seconds.set(writeDuration, ["send-store-resp-time"])
-      info "after sending response",
+      debug "After sending response",
         requestId = resBuf.requestId,
         queryDurationSecs = queryDuration,
         writeStreamDurationSecs = writeDuration

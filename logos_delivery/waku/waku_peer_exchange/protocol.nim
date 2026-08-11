@@ -95,7 +95,7 @@ proc poolFilter*(
 
 proc poolFilter*(cluster: Opt[uint16], peer: RemotePeerInfo): Result[void, string] =
   if peer.enr.isNone():
-    info "peer has no ENR", peer = $peer
+    debug "Peer has no ENR", peer = $peer
     return err("peer has no ENR: " & $peer)
   return poolFilter(cluster, peer.origin, peer.enr.get())
 
@@ -143,19 +143,19 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
 
       let decBuf = PeerExchangeRpc.decode(buffer).valueOr:
         logos_delivery_px_errors.inc(labelValues = [decodeRpcFailure])
-        error "Failed to decode PeerExchange request", error = $error
+        debug "Failed to decode PeerExchange request", error = $error
 
         (
           await wpx.respondError(
             PeerExchangeResponseStatusCode.BAD_REQUEST, Opt.some($error), conn
           )
         ).isOkOr:
-          error "Failed to respond with BAD_REQUEST", error = $error
+          debug "Failed to respond with BAD_REQUEST", error = $error
         return
 
       let enrs = wpx.getEnrsFromStore(decBuf.request.numPeers)
 
-      info "peer exchange request received"
+      debug "Peer exchange request received"
       trace "px enrs to respond", enrs = $enrs
       (await wpx.respond(enrs, conn)).isErrOr:
         logos_delivery_px_peers_sent.inc(enrs.len().int64())
@@ -169,7 +169,7 @@ proc initProtocolHandler(wpx: WakuPeerExchange) =
           PeerExchangeResponseStatusCode.TOO_MANY_REQUESTS, Opt.none(string), conn
         )
       ).isOkOr:
-        error "Failed to respond with TOO_MANY_REQUESTS", error = $error
+        debug "Failed to respond with TOO_MANY_REQUESTS", error = $error
 
   wpx.handler = handler
   wpx.codec = WakuPeerExchangeCodec

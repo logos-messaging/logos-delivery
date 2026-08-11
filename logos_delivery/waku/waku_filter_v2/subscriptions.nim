@@ -94,24 +94,24 @@ proc findSubscribedPeers*(
 
 proc removePeer*(s: FilterSubscriptions, peerId: PeerID) {.async.} =
   ## Remove all subscriptions for a given peer
-  info "removePeer",
+  debug "Removing peer",
     currentPeerIds = toSeq(s.peersSubscribed.keys).mapIt(shortLog(it)), peerId = peerId
 
   s.peersSubscribed.del(peerId)
 
-  info "removePeer after deletion",
+  debug "Removed peer",
     currentPeerIds = toSeq(s.peersSubscribed.keys).mapIt(shortLog(it)), peerId = peerId
 
 proc removePeers*(s: FilterSubscriptions, peerIds: seq[PeerID]) {.async.} =
   ## Remove all subscriptions for a given list of peers
-  info "removePeers",
+  debug "Removing peers",
     currentPeerIds = toSeq(s.peersSubscribed.keys).mapIt(shortLog(it)),
     peerIds = peerIds.mapIt(shortLog(it))
 
   for peer in peerIds:
     await s.removePeer(peer)
 
-  info "removePeers after deletion",
+  debug "Removed peers",
     currentPeerIds = toSeq(s.peersSubscribed.keys).mapIt(shortLog(it)),
     peerIds = peerIds.mapIt(shortLog(it))
 
@@ -162,7 +162,7 @@ proc addSubscription*(
       peersOfSub[].incl(peerId)
       peerData.criteriaCount += 1
 
-  info "subscription added correctly",
+  debug "Subscription added correctly",
     new_peer = shortLog(peerId), subscr_set = s.subscriptions
 
   return ok()
