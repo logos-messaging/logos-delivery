@@ -39,7 +39,7 @@ procSuite "Store eligibility verifier wrapper":
 
   asyncTest "verifier reject skips inner handler":
     let verifierCb = proc (
-        proof_hex, canonical_hex, requester_peer_id: cstring,
+        proof_hex, canonical_hex, user_peer_id: cstring,
         out_desc: cstring, out_desc_len: csize_t, user_data: pointer
     ): cint {.cdecl, gcsafe, raises: [].} =
       verifierCalled.inc()
@@ -71,7 +71,7 @@ procSuite "Store eligibility verifier wrapper":
     innerCalled = 0
     verifierCalled = 0
     let verifierCb = proc (
-        proof_hex, canonical_hex, requester_peer_id: cstring,
+        proof_hex, canonical_hex, user_peer_id: cstring,
         out_desc: cstring, out_desc_len: csize_t, user_data: pointer
     ): cint {.cdecl, gcsafe, raises: [].} =
       verifierCalled.inc()
@@ -95,7 +95,7 @@ procSuite "Store eligibility verifier wrapper":
     verifierCalled = 0
     lastProofHex = "unset"
     let verifierCb = proc (
-        proof_hex, canonical_hex, requester_peer_id: cstring,
+        proof_hex, canonical_hex, user_peer_id: cstring,
         out_desc: cstring, out_desc_len: csize_t, user_data: pointer
     ): cint {.cdecl, gcsafe, raises: [].} =
       verifierCalled.inc()
