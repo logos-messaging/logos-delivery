@@ -125,7 +125,6 @@ jobs:
         run: |
           # One make target for each line. Two parallel nimble processes
           # corrupt the shared package metadata.
-          make -j${NPROC} V=1 update
           make -j${NPROC} POSTGRES=1 CI=false wakunode2
           make -j${NPROC} CI=false chat2
           make -j${NPROC} POSTGRES=1 CI=false logosdeliverynode
