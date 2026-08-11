@@ -54,7 +54,7 @@ proc handleQueryRequest(
 
   let requestId = req.requestId
 
-  info "received store query request",
+  debug "Received store query request",
     peerId = requestor, requestId = requestId, request = req
   logos_delivery_store_queries.inc()
 
@@ -73,7 +73,7 @@ proc handleQueryRequest(
   res.statusCode = 200
   res.statusDesc = "OK"
 
-  info "sending store query response",
+  debug "Sending store query response",
     peerId = requestor, requestId = requestId, messages = res.messages.len
 
   return (res.encode().buffer, requestId)

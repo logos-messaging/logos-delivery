@@ -24,7 +24,7 @@ method sendImpl*(
     self: LightpushSendProcessor, task: DeliveryTask
 ): Future[void] {.async.} =
   task.tryCount.inc()
-  info "Trying message delivery via Lightpush",
+  debug "Trying message delivery via Lightpush",
     requestId = task.requestId,
     msgHash = task.msgHash.to0xHex(),
     tryCount = task.tryCount
@@ -51,7 +51,7 @@ method sendImpl*(
     return
 
   if numLightpushServers > 0:
-    info "Message propagated via Lightpush",
+    debug "Message propagated via Lightpush",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.SuccessfullyPropagated
     task.deliveryTime = Moment.now()

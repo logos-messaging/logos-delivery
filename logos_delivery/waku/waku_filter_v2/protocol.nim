@@ -129,7 +129,7 @@ proc unsubscribeAll(
 proc handleSubscribeRequest*(
     wf: WakuFilter, peerId: PeerId, request: FilterSubscribeRequest
 ): Future[FilterSubscribeResponse] {.async.} =
-  info "received filter subscribe request", peerId = peerId, request = request
+  debug "Received filter subscribe request", peerId = peerId, request = request
   logos_delivery_filter_requests.inc(labelValues = [$request.filterSubscribeType])
 
   var subscribeResult: FilterSubscribeResult
@@ -170,7 +170,7 @@ proc handleSubscribeRequest*(
 proc pushToPeer(
     wf: WakuFilter, peerId: PeerId, buffer: seq[byte]
 ): Future[Result[void, string]] {.async.} =
-  info "pushing message to subscribed peer", peerId = shortLog(peerId)
+  debug "Pushing message to subscribed peer", peerId = shortLog(peerId)
 
   let stream = (
     await wf.peerManager.getStreamByPeerIdAndProtocol(peerId, WakuFilterPushCodec)
@@ -180,7 +180,7 @@ proc pushToPeer(
 
   await stream.writeLp(buffer)
 
-  info "published successful", peerId = shortLog(peerId), stream
+  debug "Published successful", peerId = shortLog(peerId), stream
   logos_delivery_service_network_bytes.inc(
     amount = buffer.len().int64, labelValues = [WakuFilterPushCodec, "out"]
   )
@@ -220,7 +220,7 @@ proc pushToPeers(
     await allFutures(pushFuts)
 
 proc maintainSubscriptions*(wf: WakuFilter) {.async.} =
-  info "maintaining subscriptions"
+  debug "Maintaining subscriptions"
 
   ## Remove subscriptions for peers that have been removed from peer store
   var peersToRemove: seq[PeerId]
@@ -245,7 +245,7 @@ proc handleMessage*(
 ) {.async.} =
   let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
 
-  info "handling message",
+  debug "Handling message",
     pubsubTopic = pubsubTopic, contentTopic = message.contentTopic, msg_hash = msgHash
 
   let handleMessageStartTime = Moment.now()

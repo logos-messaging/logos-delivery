@@ -85,7 +85,7 @@ proc findSubscribedPeers*(
       if s.isSubscribed(peer):
         foundPeers.add(peer)
 
-  info "findSubscribedPeers result",
+  trace "Found subscribed peers",
     filter_criterion = filterCriterion,
     subscr_set = s.subscriptions,
     found_peers = foundPeers
@@ -116,7 +116,7 @@ proc removePeers*(s: FilterSubscriptions, peerIds: seq[PeerID]) {.async.} =
     peerIds = peerIds.mapIt(shortLog(it))
 
 proc cleanUp*(fs: FilterSubscriptions) =
-  info "cleanUp", currentPeerIds = toSeq(fs.peersSubscribed.keys).mapIt(shortLog(it))
+  debug "Cleanup", currentPeerIds = toSeq(fs.peersSubscribed.keys).mapIt(shortLog(it))
 
   ## Remove all subscriptions for peers that have not been seen for a while
   let now = Moment.now()
@@ -128,7 +128,7 @@ proc cleanUp*(fs: FilterSubscriptions) =
 
   fs.subscriptions.keepItIf(val.len > 0)
 
-  info "after cleanUp",
+  debug "After cleanup",
     currentPeerIds = toSeq(fs.peersSubscribed.keys).mapIt(shortLog(it))
 
 proc refreshSubscription*(s: var FilterSubscriptions, peerId: PeerID) =

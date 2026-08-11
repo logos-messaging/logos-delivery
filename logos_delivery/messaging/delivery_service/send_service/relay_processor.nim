@@ -55,7 +55,7 @@ method isValidProcessor*(
 
 method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
   task.tryCount.inc()
-  info "Trying message delivery via Relay",
+  debug "Trying message delivery via Relay",
     requestId = task.requestId,
     msgHash = task.msgHash.to0xHex(),
     tryCount = task.tryCount
@@ -77,7 +77,7 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
     return
 
   if noOfPublishedPeers > 0:
-    info "Message propagated via Relay",
+    debug "Message propagated via Relay",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       noOfPeers = noOfPublishedPeers

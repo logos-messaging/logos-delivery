@@ -789,7 +789,7 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
     WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventMetadataUpdated)
     return
 
-  info "disconnecting from peer", peerId = peerId, reason = reason
+  debug "Disconnecting from peer", peerId = peerId, reason = reason
   asyncSpawn(pm.switch.disconnect(peerId))
   pm.switch.peerStore.delete(peerId)
 
@@ -827,7 +827,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
       # pm.colocationLimit == 0 disables the ip colocation limit
       if pm.colocationLimit != 0 and peersBehindIp.len > pm.colocationLimit:
         for peerId in peersBehindIp[0 ..< (peersBehindIp.len - pm.colocationLimit)]:
-          info "Pruning connection due to ip colocation", peerId = peerId, ip = ip
+          debug "Pruning connection due to ip colocation", peerId = peerId, ip = ip
           asyncSpawn(pm.evictPeer(peerId))
           peerStore.delete(peerId)
 
@@ -854,7 +854,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
       # we don't want to await for the callback to finish
       asyncSpawn pm.onConnectionChange(peerId, Left)
   of PeerEventKind.Identified:
-    info "event identified", peerId = peerId
+    debug "Event identified", peerId = peerId
 
     WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventIdentified)
 

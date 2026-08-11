@@ -188,7 +188,7 @@ proc initProtocolHandler(w: WakuRelay) =
     ## main protocol handler that gets triggered on every
     ## connection for a protocol string
     ## e.g. ``/wakusub/0.0.1``, etc...
-    info "Incoming WakuRelay connection", connection = conn, protocol = proto
+    debug "Incoming WakuRelay connection", connection = conn, protocol = proto
 
     try:
       await w.handleConn(conn, proto)
@@ -217,7 +217,7 @@ proc logMessageInfo*(
   let payloadSize = float64(msg.payload.len)
 
   if onRecv:
-    debug "received relay message",
+    trace "Received relay message",
       my_peer_id = w.switch.peerInfo.peerId,
       msg_hash = msg_hash,
       msg_id = msg_id_short,
@@ -227,7 +227,7 @@ proc logMessageInfo*(
       receivedTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
   else:
-    debug "sent relay message",
+    trace "Sent relay message",
       my_peer_id = w.switch.peerInfo.peerId,
       msg_hash = msg_hash,
       msg_id = msg_id_short,
@@ -425,8 +425,7 @@ proc getPubSubPeersInMesh*(
     return ok(allPeers)
 
   if not w.mesh.hasKey(pubsubTopic):
-    info "getPubSubPeersInMesh - there is no mesh peer for the given pubsub topic",
-      pubsubTopic = pubsubTopic
+    debug "No mesh peer for the given pubsub topic", pubsubTopic = pubsubTopic
     return ok(initHashSet[PubSubPeer]())
 
   let peersRes = catch:

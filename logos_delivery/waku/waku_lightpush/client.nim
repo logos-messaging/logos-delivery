@@ -87,7 +87,7 @@ proc publish*(
     else:
       shortPeerId(dest)
 
-  info "publish",
+  debug "Publish",
     myPeerId = wl.peerManager.switch.peerInfo.peerId,
     peerId = peerIdStr,
     msgHash = msgHash,

@@ -308,7 +308,7 @@ proc stopSendService*(self: SendService) {.async.} =
 proc send*(self: SendService, task: DeliveryTask) {.async.} =
   assert(not task.isNil(), "task for send must not be nil")
 
-  info "SendService.send: processing delivery task",
+  debug "SendService.send: processing delivery task",
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
 
   self.waku.subscribe(task.msg.contentTopic).isOkOr:
@@ -316,7 +316,7 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
       contentTopic = task.msg.contentTopic, error = error
 
   if not (await self.admitAndProve(task)):
-    info "SendService.send: parking task for a later round",
+    debug "SendService.send: parking task for a later round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.NextRoundRetry
     self.addTask(task)
