@@ -70,7 +70,7 @@ proc filterHandleMessage*(
     node: WakuNode, pubsubTopic: PubsubTopic, message: WakuMessage
 ) {.async.} =
   if node.wakuFilter.isNil():
-    error "cannot handle filter message", error = "waku filter is required"
+    debug "Cannot handle filter message", error = "waku filter is required"
     return
 
   await node.wakuFilter.handleMessage(pubsubTopic, message)
@@ -105,16 +105,16 @@ proc filterSubscribe*(
 ): Future[FilterSubscribeResult] {.async: (raises: []).} =
   ## Registers for messages that match a specific filter. Triggers the handler whenever a message is received.
   if node.wakuFilterClient.isNil():
-    error "cannot register filter subscription to topic",
+    debug "Cannot register filter subscription to topic",
       error = "waku filter client is not set up"
     return err(FilterSubscribeError.serviceUnavailable())
 
   let remotePeer = parsePeerInfo(peer).valueOr:
-    error "Couldn't parse the peer info properly", error = error
+    debug "Couldn't parse the peer info properly", error = error
     return err(FilterSubscribeError.serviceUnavailable("No peers available"))
 
   if pubsubTopic.isSome():
-    info "registering filter subscription to content",
+    debug "Registering filter subscription to content",
       pubsubTopic = pubsubTopic.get(),
       contentTopics = contentTopics,
       peer = remotePeer.peerId
@@ -125,18 +125,18 @@ proc filterSubscribe*(
       remotePeer, pubsubTopic.get(), contentTopics
     )
     if subRes.isOk():
-      info "v2 subscribed to topic",
+      debug "v2 subscribed to topic",
         pubsubTopic = pubsubTopic, contentTopics = contentTopics
 
       # Purpose is to update Waku Metadata
       node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: pubsubTopic.get()))
     else:
-      error "failed filter v2 subscription", error = subRes.error
+      debug "Failed filter v2 subscription", error = subRes.error
       logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
 
     return subRes
   elif node.wakuAutoSharding.isNone():
-    error "Failed filter subscription, pubsub topic must be specified with static sharding"
+    debug "Failed filter subscription, pubsub topic must be specified with static sharding"
     logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
   else:
     # No pubsub topic, autosharding is used to deduce it
@@ -144,12 +144,12 @@ proc filterSubscribe*(
     let topicMap = node.wakuAutoSharding
       .get()
       .getShardsFromContentTopics(contentTopics).valueOr:
-        error "can't get shard", error = error
+        debug "Can't get shard", error = error
         return err(FilterSubscribeError.badResponse("can't get shard"))
 
     var futures = collect(newSeq):
       for shard, topics in topicMap.pairs:
-        info "registering filter subscription to content",
+        debug "Registering filter subscription to content",
           shard = shard, contentTopics = topics, peer = remotePeer.peerId
         let content = topics.mapIt($it)
         node.wakuFilterClient.subscribe(remotePeer, $shard, content)
@@ -162,7 +162,7 @@ proc filterSubscribe*(
         let res = fut.read()
 
         if res.isErr():
-          error "failed filter subscription", error = res.error
+          debug "Failed filter subscription", error = res.error
           logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
           subRes = FilterSubscribeResult.err(res.error)
 
@@ -173,7 +173,7 @@ proc filterSubscribe*(
         node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: $pubsub))
     except CatchableError:
       let errMsg = "exception in filterSubscribe: " & getCurrentExceptionMsg()
-      error "exception in filterSubscribe", error = getCurrentExceptionMsg()
+      debug "Exception in filterSubscribe", error = getCurrentExceptionMsg()
       logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
       subRes =
         FilterSubscribeResult.err(FilterSubscribeError.serviceUnavailable(errMsg))
@@ -190,11 +190,11 @@ proc filterUnsubscribe*(
   ## Unsubscribe from a content filter V2".
 
   let remotePeer = parsePeerInfo(peer).valueOr:
-    error "couldn't parse remotePeerInfo", error = error
+    debug "Couldn't parse remotePeerInfo", error = error
     return err(FilterSubscribeError.serviceUnavailable("No peers available"))
 
   if pubsubTopic.isSome():
-    info "deregistering filter subscription to content",
+    debug "Deregistering filter subscription to content",
       pubsubTopic = pubsubTopic.get(),
       contentTopics = contentTopics,
       peer = remotePeer.peerId
@@ -203,29 +203,29 @@ proc filterUnsubscribe*(
       remotePeer, pubsubTopic.get(), contentTopics
     )
     if unsubRes.isOk():
-      info "unsubscribed from topic",
+      debug "Unsubscribed from topic",
         pubsubTopic = pubsubTopic.get(), contentTopics = contentTopics
 
       # Purpose is to update Waku Metadata
       node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: pubsubTopic.get()))
     else:
-      error "failed filter unsubscription", error = unsubRes.error
+      debug "Failed filter unsubscription", error = unsubRes.error
       logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
 
     return unsubRes
   elif node.wakuAutoSharding.isNone():
-    error "Failed filter un-subscription, pubsub topic must be specified with static sharding"
+    debug "Failed filter un-subscription, pubsub topic must be specified with static sharding"
     logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
   else: # pubsubTopic.isNone
     let topicMap = node.wakuAutoSharding
       .get()
       .getShardsFromContentTopics(contentTopics).valueOr:
-        error "can't get shard", error = error
+        debug "Can't get shard", error = error
         return err(FilterSubscribeError.badResponse("can't get shard"))
 
     var futures = collect(newSeq):
       for shard, topics in topicMap.pairs:
-        info "deregistering filter subscription to content",
+        debug "Deregistering filter subscription to content",
           shard = shard, contentTopics = topics, peer = remotePeer.peerId
         let content = topics.mapIt($it)
         node.wakuFilterClient.unsubscribe(remotePeer, $shard, content)
@@ -238,18 +238,18 @@ proc filterUnsubscribe*(
         let res = fut.read()
 
         if res.isErr():
-          error "failed filter unsubscription", error = res.error
+          debug "Failed filter unsubscription", error = res.error
           logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
           unsubRes = FilterSubscribeResult.err(res.error)
 
       for pubsub, topics in topicMap.pairs:
-        info "unsubscribed from topic", pubsubTopic = pubsub, contentTopics = topics
+        debug "Unsubscribed from topic", pubsubTopic = pubsub, contentTopics = topics
 
         # Purpose is to update Waku Metadata
         node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: $pubsub))
     except CatchableError:
       let errMsg = "exception in filterUnsubscribe: " & getCurrentExceptionMsg()
-      error "exception in filterUnsubscribe", error = getCurrentExceptionMsg()
+      debug "Exception in filterUnsubscribe", error = getCurrentExceptionMsg()
       logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
       unsubRes =
         FilterSubscribeResult.err(FilterSubscribeError.serviceUnavailable(errMsg))
@@ -263,16 +263,16 @@ proc filterUnsubscribeAll*(
   ## Unsubscribe from a content filter V2".
 
   let remotePeer = parsePeerInfo(peer).valueOr:
-    error "couldn't parse remotePeerInfo", error = error
+    debug "Couldn't parse remotePeerInfo", error = error
     return err(FilterSubscribeError.serviceUnavailable("No peers available"))
 
-  info "deregistering all filter subscription to content", peer = remotePeer.peerId
+  debug "Deregistering all filter subscription to content", peer = remotePeer.peerId
 
   let unsubRes = await node.wakuFilterClient.unsubscribeAll(remotePeer)
   if unsubRes.isOk():
-    info "unsubscribed from all content-topic", peerId = remotePeer.peerId
+    debug "Unsubscribed from all content-topic", peerId = remotePeer.peerId
   else:
-    error "failed filter unsubscription from all content-topic", error = unsubRes.error
+    debug "Failed filter unsubscription from all content-topic", error = unsubRes.error
     logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
 
   return unsubRes

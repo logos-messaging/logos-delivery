@@ -34,7 +34,7 @@ proc getSecureKey(path: string): TLSPrivateKey {.raises: [Defect, IOError].} =
     let key = TLSPrivateKey.init(stringkey)
     return key
   except TLSStreamProtocolError as exc:
-    info "exception raised from getSecureKey", err = exc.msg
+    debug "exception raised from getSecureKey", err = exc.msg
 
 proc getSecureCert(path: string): TLSCertificate {.raises: [Defect, IOError].} =
   trace "Certificate path is.", path = path
@@ -43,7 +43,7 @@ proc getSecureCert(path: string): TLSCertificate {.raises: [Defect, IOError].} =
     let cert = TLSCertificate.init(stringCert)
     return cert
   except TLSStreamProtocolError as exc:
-    info "exception raised from getSecureCert", err = exc.msg
+    debug "exception raised from getSecureCert", err = exc.msg
 
 proc withWssTransport*(
     b: SwitchBuilder, secureKeyPath: string, secureCertPath: string

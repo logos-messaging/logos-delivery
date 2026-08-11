@@ -434,7 +434,7 @@ proc edgeFilterConnectionLoop(self: SubscriptionManager) {.async.} =
     await sleepAsync(EdgeFilterLoopInterval)
 
     if self.node.wakuFilterClient.isNil():
-      warn "filter client is nil within edge filter connection loop"
+      debug "filter client is nil within edge filter connection loop"
       continue
 
     var connected = initTable[PeerId, RemotePeerInfo]()

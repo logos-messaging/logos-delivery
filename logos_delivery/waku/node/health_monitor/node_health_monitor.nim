@@ -214,7 +214,7 @@ proc getFilterClientHealth(hm: NodeHealthMonitor): ProtocolHealth =
         hm.strength[WakuProtocol.FilterClientProtocol] = peerCount
         return p.ready()
     else:
-      error "Failed to request edge filter peer count", error = edgeRes.error
+      debug "Failed to request edge filter peer count", error = edgeRes.error
       return p.notReady("Failed to request edge filter peer count: " & edgeRes.error)
 
   let peerCount = countCapablePeers(hm, WakuFilterSubscribeCodec)
@@ -522,7 +522,7 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
     except CancelledError:
       break
     except Exception as e:
-      error "HealthMonitor: error in update loop", error = e.msg
+      debug "HealthMonitor: error in update loop", error = e.msg
 
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
@@ -538,7 +538,7 @@ proc selectRandomPeersForKeepalive(
     return selectRandomPeers(outPeers, numRandomPeers)
 
   let meshPeers = node.wakuRelay.getPeersInMesh().valueOr:
-    error "Failed getting peers in mesh for ping", error = error
+    debug "Failed getting peers in mesh for ping", error = error
     # Fallback to random selection from all outgoing peers
     return selectRandomPeers(outPeers, numRandomPeers)
 

@@ -181,7 +181,7 @@ proc getShardsGetter(node: WakuNode, configuredShards: seq[uint16]): GetShards =
       return configuredShards
 
     let relayShards = topicsToRelayShards(subscribedTopics).valueOr:
-      error "could not convert relay topics to shards",
+      debug "could not convert relay topics to shards",
         error = $error, topics = subscribedTopics
       # Fall back to configured shards on error
       return configuredShards
@@ -482,7 +482,7 @@ proc updateAnnouncedAddrWithPrimaryIpAddr*(node: WakuNode): Result[void, string]
   try:
     localIp = $getPrimaryIPAddr()
   except Exception as e:
-    warn "Could not retrieve localIp", msg = e.msg
+    debug "Could not retrieve localIp", msg = e.msg
 
   info "PeerInfo", peerId = peerInfo.peerId, addrs = peerInfo.addrs
 
