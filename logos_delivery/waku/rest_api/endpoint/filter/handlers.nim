@@ -193,7 +193,7 @@ proc filterPostPutSubscriptionRequestHandler(
   let subFut = node.filterSubscribe(req.pubsubTopic, req.contentFilters, peer)
 
   if not await subFut.withTimeout(futTimeoutForSubscriptionProcessing):
-    debug "Failed to subscribe to contentFilters do to timeout!"
+    debug "Failed to subscribe to contentFilters due to timeout!"
     return makeRestResponse(
       req.requestId,
       FilterSubscribeError.serviceUnavailable("Subscription request timed out"),

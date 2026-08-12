@@ -52,7 +52,7 @@ proc advertise*(
     peers: seq[PeerId],
     ttl: timer.Duration = self.config.minDuration,
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  trace "advertising via waku rendezvous",
+  trace "Advertising via waku rendezvous",
     namespace = namespace, ttl = ttl, peers = $peers, peerRecord = $self.getPeerRecord()
   let se = SignedPayload[WakuPeerRecord].init(
     self.switch.peerInfo.privateKey, self.getPeerRecord()
@@ -108,7 +108,7 @@ proc advertise*(
 proc advertiseAll*(
     self: WakuRendezVous
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  trace "waku rendezvous advertisements started"
+  trace "Waku rendezvous advertisements started"
 
   let rpi = self.peerManager.selectPeer(self.codec).valueOr:
     return err("could not get a peer supporting RendezVousCodec")
@@ -118,7 +118,7 @@ proc advertiseAll*(
   # Advertise yourself on that peer
   let res = await self.advertise(namespace, @[rpi.peerId])
 
-  trace "waku rendezvous advertisements finished"
+  trace "Waku rendezvous advertisements finished"
 
   return res
 
@@ -204,7 +204,7 @@ proc new*(
 
   wrv.handler = handleStream
 
-  info "waku rendezvous initialized",
+  info "Waku rendezvous initialized",
     clusterId = clusterId,
     shards = getShards(),
     capabilities = getCapabilities(),
@@ -221,7 +221,7 @@ method start*(self: WakuRendezVous) {.async: (raises: [CancelledError]).} =
   # start registering forever
   self.periodicRegistrationFut = self.periodicRegistration()
 
-  info "waku rendezvous discovery started"
+  info "Waku rendezvous discovery started"
 
 method stop*(self: WakuRendezVous) {.async: (raises: []).} =
   if not self.periodicRegistrationFut.isNil():
@@ -230,4 +230,4 @@ method stop*(self: WakuRendezVous) {.async: (raises: []).} =
   # Stop the parent GenericRendezVous (stops the register deletion loop)
   await procCall GenericRendezVous[WakuPeerRecord](self).stop()
 
-  info "waku rendezvous discovery stopped"
+  info "Waku rendezvous discovery stopped"

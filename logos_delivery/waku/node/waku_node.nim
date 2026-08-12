@@ -299,7 +299,7 @@ proc mountMetadata*(
 proc mountAutoSharding*(
     node: WakuNode, clusterId: uint16, shardCount: uint32
 ): Result[void, string] =
-  info "mounting auto sharding", clusterId = clusterId, shardCount = shardCount
+  info "Mounting auto sharding", clusterId = clusterId, shardCount = shardCount
   node.wakuAutoSharding =
     Opt.some(Sharding(clusterId: clusterId, shardCountGenZero: shardCount))
 
@@ -314,7 +314,7 @@ proc mountMix*(
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
 ): Future[Result[void, string]] {.async.} =
-  info "mounting mix protocol", nodeId = node.info #TODO log the config used
+  info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
   if node.announcedAddresses.len == 0:
     return err("Trying to mount mix without having announced addresses")
@@ -421,12 +421,12 @@ proc selectRandomPeers*(peers: seq[PeerId], numRandomPeers: int): seq[PeerId] =
   return randomPeers[0 ..< min(len(randomPeers), numRandomPeers)]
 
 proc mountRendezvousClient*(node: WakuNode, clusterId: uint16) {.async: (raises: []).} =
-  info "mounting rendezvous client"
+  info "Mounting rendezvous client"
 
   node.wakuRendezvousClient = rendezvous_client.WakuRendezVousClient.new(
     node.switch, node.peerManager, clusterId
   ).valueOr:
-    error "initializing waku rendezvous client failed", error = error
+    error "Initializing waku rendezvous client failed", error = error
     return
 
   if node.started:
@@ -435,7 +435,7 @@ proc mountRendezvousClient*(node: WakuNode, clusterId: uint16) {.async: (raises:
 proc mountRendezvous*(
     node: WakuNode, clusterId: uint16, shards: seq[RelayShard] = @[]
 ) {.async: (raises: []).} =
-  info "mounting rendezvous discovery protocol"
+  info "Mounting rendezvous discovery protocol"
 
   let configuredShards = shards.mapIt(it.shardId)
 
@@ -447,19 +447,19 @@ proc mountRendezvous*(
     node.getCapabilitiesGetter(),
     node.getWakuPeerRecordGetter(),
   ).valueOr:
-    error "initializing waku rendezvous failed", error = error
+    error "Initializing waku rendezvous failed", error = error
     return
 
   if node.started:
     try:
       await node.wakuRendezvous.start()
     except CancelledError as exc:
-      error "failed to start wakuRendezvous", error = exc.msg
+      error "Failed to start wakuRendezvous", error = exc.msg
 
   try:
     node.switch.mount(node.wakuRendezvous, protocolMatcher(WakuRendezVousCodec))
   except LPError:
-    error "failed to mount wakuRendezvous", error = getCurrentExceptionMsg()
+    error "Failed to mount wakuRendezvous", error = getCurrentExceptionMsg()
 
 proc isBindIpWithZeroPort(inputMultiAdd: MultiAddress): bool =
   let inputStr = $inputMultiAdd
@@ -642,7 +642,7 @@ proc start*(node: WakuNode) {.async.} =
 
   if not zeroPortPresent:
     updateAnnouncedAddrWithPrimaryIpAddr(node).isOkOr:
-      error "failed update announced addr", error = $error
+      error "Failed update announced addr", error = $error
   else:
     info "Listening port is dynamically allocated, address and ENR generation postponed"
 

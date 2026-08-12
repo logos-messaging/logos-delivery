@@ -244,7 +244,7 @@ proc handleMessage*(
 ) {.async.} =
   let msgHash = computeMessageHash(pubsubTopic, message).to0xHex()
 
-  debug "Handling message",
+  trace "Handling message",
     pubsubTopic = pubsubTopic, contentTopic = message.contentTopic, msg_hash = msgHash
 
   let handleMessageStartTime = Moment.now()
@@ -254,7 +254,7 @@ proc handleMessage*(
     let subscribedPeers =
       wf.subscriptions.findSubscribedPeers(pubsubTopic, message.contentTopic)
     if subscribedPeers.len == 0:
-      debug "No subscribed peers found",
+      trace "No subscribed peers found",
         pubsubTopic = pubsubTopic,
         contentTopic = message.contentTopic,
         msg_hash = msgHash
