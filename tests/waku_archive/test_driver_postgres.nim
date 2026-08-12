@@ -13,8 +13,6 @@ import
   ../testlib/testasync,
   ../testlib/postgres
 
-const TestDbUrl = "postgres://postgres:test123@localhost:5432/postgres"
-
 suite "Postgres driver":
   ## Unique driver instance
   var driver {.threadvar.}: PostgresDriver
@@ -207,7 +205,7 @@ suite "Postgres driver":
     check (await driver.getMessages(hashes = @[hash])).expect("hash query").len == 1
 
     ## drop every lookup partition behind the driver's back
-    let rawPool = PgAsyncPool.new(TestDbUrl, 1).expect("raw pool")
+    let rawPool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("raw pool")
     let lookupPartitions =
       (await driver.getPartitionsList("messages_lookup")).expect("lookup list")
     require lookupPartitions.len > 0
@@ -220,3 +218,26 @@ suite "Postgres driver":
     (await driver.ensureLookupPartitions()).expect("ensureLookupPartitions")
 
     check (await driver.getMessages(hashes = @[hash])).expect("healed query").len == 1
+
+  asyncTest "ensureLookupPartitions drops stray lookup partitions":
+    ## A crash between sibling creations can leave a lookup partition with no
+    ## messages sibling; unremoved, its range could overlap a future sibling
+    ## and make addPartition fail. The reconcile pass must drop it.
+    const strayName = "lookup_4102444800_4102448400" ## far future: year 2100
+
+    let rawPool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("raw pool")
+    (
+      await rawPool.pgQuery(
+        "CREATE TABLE IF NOT EXISTS " & strayName &
+          " PARTITION OF messages_lookup FOR VALUES FROM (4102444800000000000) TO (4102448400000000000);"
+      )
+    ).expect("create stray")
+    (await rawPool.close()).expect("close raw pool")
+
+    check strayName in
+      (await driver.getPartitionsList("messages_lookup")).expect("lookup list")
+
+    (await driver.ensureLookupPartitions()).expect("ensureLookupPartitions")
+
+    check strayName notin
+      (await driver.getPartitionsList("messages_lookup")).expect("lookup list")

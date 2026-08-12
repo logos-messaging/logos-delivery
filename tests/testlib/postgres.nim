@@ -7,7 +7,7 @@ import
     waku_archive/driver/postgres_driver,
   ]
 
-const storeMessageDbUrl = "postgres://postgres:test123@localhost:5432/postgres"
+const storeMessageDbUrl* = "postgres://postgres:test123@localhost:5432/postgres"
 
 proc newTestPostgresDriver*(): Future[Result[ArchiveDriver, string]] {.async.} =
   proc onErr(errMsg: string) {.gcsafe, closure.} =

@@ -6,6 +6,8 @@ const ContentScriptVersion_8* = """
 -- Rows are rebuilt from the messages partitions by ensureLookupPartitions at
 -- driver startup. The redundant idx_messages_lookup_messagehash is not
 -- recreated: the primary key already covers messagehash as leading column.
+-- idx_messages_lookup_timestamp is likewise gone: retention no longer deletes
+-- by timestamp, and partition pruning plus the per-partition PK cover reads.
 DROP TABLE IF EXISTS messages_lookup;
 
 CREATE TABLE messages_lookup (

@@ -387,11 +387,10 @@ proc getPartitionsList*(
                           JOIN pg_class child             ON pg_inherits.inhrelid   = child.oid
                           JOIN pg_namespace nmsp_parent   ON nmsp_parent.oid  = parent.relnamespace
                           JOIN pg_namespace nmsp_child    ON nmsp_child.oid   = child.relnamespace
-                          WHERE parent.relname='""" &
-        parentTable & """'
+                          WHERE parent.relname = ?
                           ORDER BY partition_name ASC
                           """,
-      newSeq[string](0),
+      @[parentTable],
       rowCallback,
     )
   ).isOkOr:
@@ -1231,7 +1230,10 @@ proc addPartition(
   let partitionName = "messages_" & fromInSec & "_" & untilInSec
 
   ## Lookup sibling first: if interrupted here, the missing messages partition
-  ## makes the factory loop retry both.
+  ## makes the factory loop retry both (ensureLookupPartitions drops the stray).
+  ## PARTITION OF takes a brief ACCESS EXCLUSIVE lock on the small
+  ## messages_lookup parent — acceptable hourly; messages avoids it below via
+  ## the detached-create + ATTACH dance because its parent sees heavy reads.
   let lookupPartitionName = "lookup_" & fromInSec & "_" & untilInSec
   let createLookupQuery =
     "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
@@ -1315,16 +1317,31 @@ proc refreshPartitionsInfo(
 proc ensureLookupPartitions*(
     self: PostgresDriver
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Creates and backfills the lookup sibling of any messages partition that
-  ## lacks one. No-op in steady state; does real work right after migration
-  ## v8, or when messages_lookup partitions were dropped by hand.
+  ## Reconciles the messages_lookup partitions with the messages partitions:
+  ## drops stray lookup partitions left by an interrupted addPartition (their
+  ## range could overlap the next aligned sibling and fail its creation), and
+  ## creates+backfills missing siblings. Runs every factory loop iteration, so
+  ## it also heals gaps opened by old-binary writers sharing the database.
   let messagesPartitions = (await self.getPartitionsList()).valueOr:
     return err("ensureLookupPartitions could not list messages partitions: " & $error)
   let lookupPartitions = (await self.getPartitionsList("messages_lookup")).valueOr:
     return err("ensureLookupPartitions could not list lookup partitions: " & $error)
 
-  for partitionName in messagesPartitions:
-    let suffix = partitionName.replace("messages_", "") ## "<start>_<end>" in seconds
+  ## Partition suffixes ("<startSec>_<endSec>") pair a lookup with its sibling.
+  let messagesSuffixes = messagesPartitions.mapIt(it.replace("messages_", ""))
+
+  ## Drop strays first: a stray's range can overlap a sibling about to be created.
+  for lookupPartitionName in lookupPartitions:
+    if lookupPartitionName.replace("lookup_", "") in messagesSuffixes:
+      continue
+    info "dropping stray lookup partition", lookupPartitionName
+    (await self.performWriteQuery("DROP TABLE IF EXISTS " & lookupPartitionName)).isOkOr:
+      return err(fmt"error dropping stray [{lookupPartitionName}]: " & $error)
+
+  ## Newest-first, so the partition receiving current writes heals first.
+  for i in countdown(messagesPartitions.high, 0):
+    let partitionName = messagesPartitions[i]
+    let suffix = partitionName.replace("messages_", "") ## "<startSec>_<endSec>"
     let lookupPartitionName = "lookup_" & suffix
     if lookupPartitionName in lookupPartitions:
       continue
@@ -1333,19 +1350,18 @@ proc ensureLookupPartitions*(
     if times.len != 2:
       return err(fmt"ensureLookupPartitions wrong partition name {partitionName}")
 
-    let createQuery =
+    ## Create and backfill in one protected DO block (a single transaction):
+    ## an interruption can never leave an empty partition behind, which the
+    ## existence check above would then skip forever.
+    let createAndBackfill =
       "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
       " PARTITION OF messages_lookup FOR VALUES FROM (" & times[0] & "000000000) TO (" &
-      times[1] & "000000000);"
-    (await self.performWriteQueryWithLock(createQuery)).isOkOr:
+      times[1] & "000000000);" &
+      " INSERT INTO messages_lookup (messageHash, timestamp) SELECT messageHash, timestamp FROM " &
+      partitionName & " ON CONFLICT DO NOTHING;"
+    (await self.performWriteQueryWithLock(createAndBackfill)).isOkOr:
       return
         err(fmt"error creating lookup partition [{lookupPartitionName}]: " & $error)
-
-    let backfillQuery =
-      "INSERT INTO messages_lookup (messageHash, timestamp) SELECT messageHash, timestamp FROM " &
-      partitionName & " ON CONFLICT DO NOTHING;"
-    (await self.performWriteQuery(backfillQuery)).isOkOr:
-      return err(fmt"error backfilling [{lookupPartitionName}]: " & $error)
 
     info "created and backfilled lookup partition", lookupPartitionName
 
@@ -1363,11 +1379,6 @@ proc loopPartitionFactory(
   ## new partitions when needed.
 
   info "starting loopPartitionFactory"
-
-  ## Non-fatal: hash queries for unbackfilled ranges degrade until the next
-  ## restart, while current-partition pairs are still created by the loop.
-  (await self.ensureLookupPartitions()).isOkOr:
-    error "failed to ensure lookup partitions", error = $error
 
   while true:
     trace "loopPartitionFactory iteration started"
@@ -1406,6 +1417,12 @@ proc loopPartitionFactory(
         ## Then, let's create the needed partition to contain 'now'.
         (await self.addPartition(now)).isOkOr:
           onFatalError("could not add the next partition: " & $error)
+
+    ## Reconcile lookup siblings every pass. Runs after the partition checks
+    ## so a potentially long backfill never gates the startup partition wait
+    ## in builder.nim. Non-fatal: the next iteration retries.
+    (await self.ensureLookupPartitions()).isOkOr:
+      error "failed to ensure lookup partitions", error = $error
 
     await sleepAsync(DefaultDatabasePartitionCheckTimeInterval)
 
@@ -1450,6 +1467,8 @@ proc detachAndDropPartition(
   let partitionName = partition.getName()
   info "beginning of detachAndDropPartition", partitionName
 
+  ## DROP takes a brief ACCESS EXCLUSIVE lock on the messages_lookup parent
+  ## (queues behind in-flight readers); fine for this small hourly table.
   ## Drop the lookup sibling first: if interrupted below, the surviving
   ## messages partition makes the next retention pass retry both.
   let timeRange = partition.getTimeRange()
