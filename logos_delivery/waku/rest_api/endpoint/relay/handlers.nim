@@ -45,7 +45,7 @@ const ROUTE_RELAY_AUTO_MESSAGESV1_NO_TOPIC* = "/relay/v1/auto/messages"
 proc validatePubSubTopics(topics: seq[PubsubTopic]): Result[void, RestApiResponse] =
   let badPubSubTopics = topics.filterIt(RelayShard.parseStaticSharding(it).isErr())
   if badPubSubTopics.len > 0:
-    error "Invalid pubsub topic(s)", PubSubTopics = $badPubSubTopics
+    debug "Invalid pubsub topic(s)", PubSubTopics = $badPubSubTopics
     return
       err(RestApiResponse.badRequest("Invalid pubsub topic(s): " & $badPubSubTopics))
 
@@ -85,7 +85,7 @@ proc attachRlnProofAndValidate(
   if not validateResult.error.contains(RlnValidatorErrorMsg):
     return err(RlnPublishError(kind: ValidationRejected, desc: validateResult.error))
 
-  info "relay publish rejected as RLN-invalid; scheduling merkle proof refresh"
+  debug "relay publish rejected as RLN-invalid; scheduling merkle proof refresh"
   rln.groupManager.scheduleMerkleProofRefresh()
   return err(
     RlnPublishError(
@@ -105,7 +105,7 @@ proc installRelayApiHandlers*(
   ) -> RestApiResponse:
     ## Subscribes a node to a list of PubSub topics
 
-    info "post_waku_v2_relay_v1_subscriptions"
+    debug "post_waku_v2_relay_v1_subscriptions"
 
     # Check the request body
     if contentBody.isNone():
@@ -125,7 +125,7 @@ proc installRelayApiHandlers*(
 
       node.subscribe((kind: PubsubSub, topic: pubsubTopic), messageCacheHandler(cache)).isOkOr:
         let errorMsg = "Subscribe failed:" & $error
-        error "SUBSCRIBE failed", error = errorMsg
+        debug "SUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -151,7 +151,7 @@ proc installRelayApiHandlers*(
       cache.pubsubUnsubscribe(pubsubTopic)
       node.unsubscribe((kind: PubsubUnsub, topic: pubsubTopic)).isOkOr:
         let errorMsg = "Unsubscribe failed:" & $error
-        error "UNSUBSCRIBE failed", error = errorMsg
+        debug "UNSUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     # Successfully unsubscribed from all requested topics
@@ -174,12 +174,12 @@ proc installRelayApiHandlers*(
       return RestApiResponse.badRequest()
 
     let messages = cache.getMessages(pubSubTopic, clear = true).valueOr:
-      info "Not subscribed to topic", topic = pubSubTopic
+      debug "Not subscribed to topic", topic = pubSubTopic
       return RestApiResponse.notFound()
 
     let data = RelayGetMessagesResponse(messages.map(toRelayWakuMessage))
     let resp = RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      info "An error ocurred while building the json respose", error = error
+      debug "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError()
 
     return resp
@@ -228,11 +228,11 @@ proc installRelayApiHandlers*(
     logMessageInfo(node.wakuRelay, "rest", pubsubTopic, "none", message, onRecv = true)
 
     # if we reach here its either a non-RLN message or a RLN message with a valid proof
-    info "Publishing message", pubSubTopic = pubSubTopic, rln = not node.rln.isNil()
+    debug "Publishing message", pubSubTopic = pubSubTopic, rln = not node.rln.isNil()
     if not (
       waitFor node.publish(Opt.some(pubSubTopic), message).withTimeout(futTimeout)
     ):
-      error "Failed to publish message to topic", pubSubTopic = pubSubTopic
+      debug "Failed to publish message to topic", pubSubTopic = pubSubTopic
       return RestApiResponse.internalServerError("Failed to publish: timedout")
 
     return RestApiResponse.ok()
@@ -247,7 +247,7 @@ proc installRelayApiHandlers*(
   ) -> RestApiResponse:
     ## Subscribes a node to a list of content topics.
 
-    info "post_waku_v2_relay_v1_auto_subscriptions"
+    debug "post_waku_v2_relay_v1_auto_subscriptions"
 
     let req: seq[ContentTopic] = decodeRequestBody[seq[ContentTopic]](contentBody).valueOr:
       return error
@@ -262,7 +262,7 @@ proc installRelayApiHandlers*(
         (kind: ContentSub, topic: contentTopic), messageCacheHandler(cache)
       ).isOkOr:
         let errorMsg = "Subscribe failed:" & $error
-        error "SUBSCRIBE failed", error = errorMsg
+        debug "SUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -272,7 +272,7 @@ proc installRelayApiHandlers*(
   ) -> RestApiResponse:
     ## Unsubscribes a node from a list of content topics.
 
-    info "delete_waku_v2_relay_v1_auto_subscriptions"
+    debug "delete_waku_v2_relay_v1_auto_subscriptions"
 
     let req: seq[ContentTopic] = decodeRequestBody[seq[ContentTopic]](contentBody).valueOr:
       return error
@@ -281,7 +281,7 @@ proc installRelayApiHandlers*(
       cache.contentUnsubscribe(contentTopic)
       node.unsubscribe((kind: ContentUnsub, topic: contentTopic)).isOkOr:
         let errorMsg = "Unsubscribe failed:" & $error
-        error "UNSUBSCRIBE failed", error = errorMsg
+        debug "UNSUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -297,19 +297,19 @@ proc installRelayApiHandlers*(
     ## Returns all WakuMessages received on a content topic since the
     ## last time this method was called.
 
-    info "get_waku_v2_relay_v1_auto_messages", contentTopic = contentTopic
+    debug "get_waku_v2_relay_v1_auto_messages", contentTopic = contentTopic
 
     let contentTopic = contentTopic.valueOr:
       return RestApiResponse.badRequest($error)
 
     let messages = cache.getAutoMessages(contentTopic, clear = true).valueOr:
-      info "Not subscribed to topic", topic = contentTopic
+      debug "Not subscribed to topic", topic = contentTopic
       return RestApiResponse.notFound(contentTopic)
 
     let data = RelayGetMessagesResponse(messages.map(toRelayWakuMessage))
 
     return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      info "An error ocurred while building the json respose", error = error
+      debug "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
   router.api(MethodOptions, ROUTE_RELAY_AUTO_MESSAGESV1_NO_TOPIC) do() -> RestApiResponse:
@@ -333,12 +333,12 @@ proc installRelayApiHandlers*(
 
     if node.wakuAutoSharding.isNone():
       let msg = "Autosharding is disabled"
-      error "publish error", err = msg
+      debug "publish error", err = msg
       return RestApiResponse.badRequest("Failed to publish. " & msg)
 
     let pubsubTopic = node.wakuAutoSharding.get().getShard(message.contentTopic).valueOr:
         let msg = "Autosharding error: " & error
-        error "publish error", err = msg
+        debug "publish error", err = msg
         return RestApiResponse.badRequest("Failed to publish. " & msg)
 
     if not node.rln.isNil():
@@ -360,7 +360,7 @@ proc installRelayApiHandlers*(
     logMessageInfo(node.wakuRelay, "rest", pubsubTopic, "none", message, onRecv = true)
 
     # if we reach here its either a non-RLN message or a RLN message with a valid proof
-    info "Publishing message",
+    debug "Publishing message",
       contentTopic = message.contentTopic, rln = not node.rln.isNil()
 
     var publishFut = node.publish(Opt.some($pubsubTopic), message)

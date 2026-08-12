@@ -22,7 +22,7 @@ proc encodeBytesOf*[T](value: T, contentType: string): RestResult[seq[byte]] =
   let reqContentType = MediaType.init(contentType)
 
   if reqContentType != MIMETYPE_JSON:
-    error "Unsupported contentType value",
+    debug "Unsupported contentType value",
       contentType = contentType, typ = value.type.name
     return err("Unsupported contentType")
 
@@ -57,7 +57,7 @@ proc decodeBytes*(
     t: typedesc[string], value: openarray[byte], contentType: Opt[ContentTypeData]
 ): RestResult[string] =
   if MediaType.init($contentType) != MIMETYPE_TEXT:
-    error "Unsupported contentType value", contentType = contentType
+    debug "Unsupported contentType value", contentType = contentType
     return err("Unsupported contentType")
 
   var res: string
@@ -70,12 +70,12 @@ proc decodeBytes*[T](
     t: typedesc[T], data: openArray[byte], contentType: Opt[ContentTypeData]
 ): RestResult[T] =
   let reqContentType = contentType.valueOr:
-    error "Unsupported response, missing contentType value"
+    debug "Unsupported response, missing contentType value"
     return err("Unsupported response, missing contentType")
 
   if reqContentType.mediaType != MIMETYPE_JSON and
       reqContentType.mediaType != MIMETYPE_TEXT:
-    error "Unsupported response contentType value", contentType = contentType
+    debug "Unsupported response contentType value", contentType = contentType
     return err("Unsupported response contentType")
 
   let decoded = ?decodeFromJsonBytes(T, data)

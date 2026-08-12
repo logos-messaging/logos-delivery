@@ -52,7 +52,7 @@ proc installLightPushRequestHandler*(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
     ## Send a request to push a waku message
-    info "post", ROUTE_LIGHTPUSH, contentBody
+    debug "post", ROUTE_LIGHTPUSH, contentBody
 
     let req: PushRequest = decodeRequestBody[PushRequest](contentBody).valueOr:
       return error
@@ -77,7 +77,7 @@ proc installLightPushRequestHandler*(
     var pushFut = node.legacyLightpushPublish(req.pubsubTopic, msg, peer)
 
     if not await pushFut.withTimeout(FutTimeoutForPushRequestProcessing):
-      error "Failed to request a message push due to timeout!"
+      debug "Failed to request a message push due to timeout!"
       return RestApiResponse.serviceUnavailable("Push request timed out")
 
     var pushResult = pushFut.value()
@@ -90,7 +90,7 @@ proc installLightPushRequestHandler*(
     if pushResult.isErr() and pushResult.error.contains(RlnProofRefreshScheduledMsg):
       pushFut = node.legacyLightpushPublish(req.pubsubTopic, msg, peer)
       if not await pushFut.withTimeout(FutTimeoutForPushRequestProcessing):
-        error "Failed to request a message push due to timeout!"
+        debug "Failed to request a message push due to timeout!"
         return RestApiResponse.serviceUnavailable("Push request timed out")
       pushResult = pushFut.value()
 

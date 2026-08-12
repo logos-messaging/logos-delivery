@@ -74,7 +74,7 @@ proc startRestServerEssentials*(
       of RestRequestError.Unexpected:
         return defaultResponse()
     except HttpWriteError:
-      error "Failed to write response to client", error = getCurrentExceptionMsg()
+      debug "Failed to write response to client", error = getCurrentExceptionMsg()
       discard
 
     return defaultResponse()
@@ -150,7 +150,7 @@ proc startRestServerProtocolSupport*(
       cache.pubsubSubscribe(pubsubTopic)
 
       node.subscribe((kind: PubsubSub, topic: pubsubTopic), handler).isOkOr:
-        error "Could not subscribe", pubsubTopic, error
+        debug "Could not subscribe", pubsubTopic, error
         continue
 
     if node.wakuAutoSharding.isSome():
@@ -159,12 +159,12 @@ proc startRestServerProtocolSupport*(
         cache.contentSubscribe(contentTopic)
 
         let shard = node.wakuAutoSharding.get().getShard(contentTopic).valueOr:
-            error "Autosharding error in REST", error = error
+            debug "Autosharding error in REST", error = error
             continue
         let pubsubTopic = $shard
 
         node.subscribe((kind: PubsubSub, topic: pubsubTopic), handler).isOkOr:
-          error "Could not subscribe", pubsubTopic, error
+          debug "Could not subscribe", pubsubTopic, error
           continue
 
     installRelayApiHandlers(router, node, cache)

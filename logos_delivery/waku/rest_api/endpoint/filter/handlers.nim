@@ -131,9 +131,9 @@ proc makeRestResponse(
   let resp = RestApiResponse.jsonResponse(
     filterSubscriptionResponse, status = httpStatus
   ).valueOr:
-    error "An error ocurred while building the json respose: ", error = error
+    debug "An error occurred while building the json response: ", error = error
     return RestApiResponse.internalServerError(
-      fmt("An error ocurred while building the json respose: {error}")
+      fmt("An error occurred while building the json response: {error}")
     )
 
   return resp
@@ -150,9 +150,9 @@ proc makeRestResponse(
   let resp = RestApiResponse.jsonResponse(
     filterSubscriptionResponse, status = httpStatus
   ).valueOr:
-    error "An error ocurred while building the json respose: ", error = error
+    debug "An error occurred while building the json response: ", error = error
     return RestApiResponse.internalServerError(
-      fmt("An error ocurred while building the json respose: {error}")
+      fmt("An error occurred while building the json response: {error}")
     )
 
   return resp
@@ -193,7 +193,7 @@ proc filterPostPutSubscriptionRequestHandler(
   let subFut = node.filterSubscribe(req.pubsubTopic, req.contentFilters, peer)
 
   if not await subFut.withTimeout(futTimeoutForSubscriptionProcessing):
-    error "Failed to subscribe to contentFilters do to timeout!"
+    debug "Failed to subscribe to contentFilters do to timeout!"
     return makeRestResponse(
       req.requestId,
       FilterSubscribeError.serviceUnavailable("Subscription request timed out"),
@@ -215,7 +215,7 @@ proc installFilterPostSubscriptionsHandler(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
     ## Subscribes a node to a list of contentTopics of a pubsubTopic
-    info "post", ROUTE_FILTER_SUBSCRIPTIONS, contentBody
+    debug "post", ROUTE_FILTER_SUBSCRIPTIONS, contentBody
 
     return await filterPostPutSubscriptionRequestHandler(
       node, contentBody, cache, discHandler
@@ -231,7 +231,7 @@ proc installFilterPutSubscriptionsHandler(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
     ## Modifies a subscribtion of a node to a list of contentTopics of a pubsubTopic
-    info "put", ROUTE_FILTER_SUBSCRIPTIONS, contentBody
+    debug "put", ROUTE_FILTER_SUBSCRIPTIONS, contentBody
 
     return await filterPostPutSubscriptionRequestHandler(
       node, contentBody, cache, discHandler
@@ -247,7 +247,7 @@ proc installFilterDeleteSubscriptionsHandler(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
     ## Subscribes a node to a list of contentTopics of a PubSub topic
-    info "delete", ROUTE_FILTER_SUBSCRIPTIONS, contentBody
+    debug "delete", ROUTE_FILTER_SUBSCRIPTIONS, contentBody
 
     let req: FilterUnsubscribeRequest = decodeRequestBody[FilterUnsubscribeRequest](
       contentBody
@@ -270,7 +270,7 @@ proc installFilterDeleteSubscriptionsHandler(
     let unsubFut = node.filterUnsubscribe(req.pubsubTopic, req.contentFilters, peer)
 
     if not await unsubFut.withTimeout(futTimeoutForSubscriptionProcessing):
-      error "Failed to unsubscribe from contentFilters due to timeout!"
+      debug "Failed to unsubscribe from contentFilters due to timeout!"
       return makeRestResponse(
         req.requestId,
         FilterSubscribeError.serviceUnavailable(
@@ -295,7 +295,7 @@ proc installFilterDeleteAllSubscriptionsHandler(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
     ## Subscribes a node to a list of contentTopics of a PubSub topic
-    info "delete", ROUTE_FILTER_ALL_SUBSCRIPTIONS, contentBody
+    debug "delete", ROUTE_FILTER_ALL_SUBSCRIPTIONS, contentBody
 
     let req: FilterUnsubscribeAllRequest = decodeRequestBody[
       FilterUnsubscribeAllRequest
@@ -318,7 +318,7 @@ proc installFilterDeleteAllSubscriptionsHandler(
     let unsubFut = node.filterUnsubscribeAll(peer)
 
     if not await unsubFut.withTimeout(futTimeoutForSubscriptionProcessing):
-      error "Failed to unsubscribe from contentFilters due to timeout!"
+      debug "Failed to unsubscribe from contentFilters due to timeout!"
       return makeRestResponse(
         req.requestId,
         FilterSubscribeError.serviceUnavailable(
@@ -342,7 +342,7 @@ proc installFilterPingSubscriberHandler(
     requestId: string
   ) -> RestApiResponse:
     ## Checks if a node has valid subscription or not.
-    info "get", ROUTE_FILTER_SUBSCRIBER_PING, requestId
+    debug "get", ROUTE_FILTER_SUBSCRIBER_PING, requestId
 
     let peer = node.peerManager.selectPeer(WakuFilterSubscribeCodec).valueOr:
       let handler = discHandler.valueOr:
@@ -357,7 +357,7 @@ proc installFilterPingSubscriberHandler(
     let pingFutRes = node.wakuFilterClient.ping(peer)
 
     if not await pingFutRes.withTimeout(futTimeoutForSubscriptionProcessing):
-      error "Failed to ping filter service peer due to timeout!"
+      debug "Failed to ping filter service peer due to timeout!"
       return makeRestResponse(
         requestId.get(), FilterSubscribeError.serviceUnavailable("Ping timed out")
       )
@@ -382,7 +382,7 @@ proc installFilterGetMessagesHandler(
     ## Returns all WakuMessages received on a specified content topic since the
     ## last time this method was called
     ## TODO: ability to specify a return message limit, maybe use cursor to control paging response.
-    info "get", ROUTE_FILTER_MESSAGES, contentTopic = contentTopic
+    debug "get", ROUTE_FILTER_MESSAGES, contentTopic = contentTopic
 
     let contentTopic = contentTopic.valueOr:
       return RestApiResponse.badRequest("Missing contentTopic")
@@ -392,9 +392,9 @@ proc installFilterGetMessagesHandler(
 
     let data = FilterGetMessagesResponse(msg.map(toFilterWakuMessage))
     let resp = RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      error "An error ocurred while building the json respose: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
-        "An error ocurred while building the json respose"
+        "An error occurred while building the json response"
       )
 
     return resp

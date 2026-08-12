@@ -106,7 +106,7 @@ proc getRelayPeers(node: WakuNode): PeersOfShards =
   if not node.wakuRelay.isNil():
     for topic in node.wakuRelay.getSubscribedTopics():
       let relayShard = RelayShard.parse(topic).valueOr:
-        error "Invalid subscribed topic", error = error, topic = topic
+        debug "Invalid subscribed topic", error = error, topic = topic
         continue
       let pubsubPeers =
         node.wakuRelay.getConnectedPubSubPeers(topic).get(initHashSet[PubSubPeer](0))
@@ -123,7 +123,7 @@ proc getMeshPeers(node: WakuNode): PeersOfShards =
   if not node.wakuRelay.isNil():
     for topic in node.wakuRelay.getSubscribedTopics():
       let relayShard = RelayShard.parse(topic).valueOr:
-        error "Invalid subscribed topic", error = error, topic = topic
+        debug "Invalid subscribed topic", error = error, topic = topic
         continue
       let peers =
         node.wakuRelay.getPubSubPeersInMesh(topic).get(initHashSet[PubSubPeer](0))
@@ -140,7 +140,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     let peers = populateAdminPeerInfoForAll(node)
 
     let resp = RestApiResponse.jsonResponse(peers, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -160,7 +160,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
       let peerInfo = node.peerManager.switch.peerStore.getPeer(peerIdVal)
       let peer = WakuPeer.init(peerInfo)
       let resp = RestApiResponse.jsonResponse(peer, status = Http200).valueOr:
-        error "An error occurred while building the json response: ", error = error
+        debug "An error occurred while building the json response: ", error = error
         return RestApiResponse.internalServerError(
           fmt("An error occurred while building the json response: {error}")
         )
@@ -180,7 +180,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     )
 
     let resp = RestApiResponse.jsonResponse(peers, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -193,7 +193,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     let connectedPeers = allPeers.filterIt(it.connected == Connectedness.Connected)
 
     let resp = RestApiResponse.jsonResponse(connectedPeers, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -213,7 +213,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     )
 
     let resp = RestApiResponse.jsonResponse(connectedPeers, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -229,7 +229,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     var relayPeers: PeersOfShards = getRelayPeers(node)
 
     let resp = RestApiResponse.jsonResponse(relayPeers, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -263,7 +263,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     )
 
     let resp = RestApiResponse.jsonResponse(relayPeer, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -279,7 +279,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     var meshPeers: PeersOfShards = getMeshPeers(node)
 
     let resp = RestApiResponse.jsonResponse(meshPeers, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -312,7 +312,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     )
 
     let resp = RestApiResponse.jsonResponse(relayPeer, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -379,7 +379,7 @@ proc installAdminV1GetPeersHandler(router: var RestRouter, node: WakuNode) =
     stats["By Protocols"] = protoStats
 
     let resp = RestApiResponse.jsonResponse(stats, status = Http200).valueOr:
-      error "An error occurred while building the json response: ", error = error
+      debug "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         fmt("An error occurred while building the json response: {error}")
       )
@@ -426,9 +426,9 @@ proc installAdminV1GetFilterSubsHandler(router: var RestRouter, node: WakuNode) 
       )
 
     let resp = RestApiResponse.jsonResponse(subscriptions, status = Http200).valueOr:
-      error "An error ocurred while building the json respose", error = error
+      debug "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError(
-        fmt("An error ocurred while building the json respose: {error}")
+        fmt("An error occurred while building the json response: {error}")
       )
 
     return resp
