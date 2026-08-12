@@ -3,12 +3,13 @@
 import results, std/[sequtils, tempfiles], testutils/unittests, chronos, chronicles
 
 import
-  std/[sequtils, tempfiles],
+  std/[sequtils, sets, tables, tempfiles],
   stew/byteutils,
   testutils/unittests,
   chronos,
   libp2p/switch,
-  libp2p/protocols/pubsub/pubsub
+  libp2p/protocols/pubsub/pubsub,
+  libp2p/protocols/pubsub/gossipsub
 
 import
   logos_delivery/waku/[
@@ -18,6 +19,7 @@ import
     common/paging,
     waku_core,
     waku_store/common,
+    waku_lightpush_legacy/protocol_metrics,
     node/peer_manager,
     waku_filter_v2/client,
   ],
@@ -25,11 +27,25 @@ import
   ../waku_archive/archive_utils,
   ../testlib/[assertions, common, wakucore, wakunode, testasync, futures, testutils]
 
-import waku_relay/protocol
+import logos_delivery/waku/waku_relay/protocol
 
 const
   listenIp = parseIpAddress("0.0.0.0")
   listenPort = Port(0)
+  # every shard id hardcoded below is the gen-zero derivation over 65536 shards
+  autoShardCount = 65536'u32
+
+proc waitForTopicPeer(
+    node: WakuNode, topic: PubsubTopic, peer: PeerId, timeout = 5.seconds
+) {.async.} =
+  ## Waits until node's gossipsub has learnt that peer subscribes to topic.
+  let deadline = Moment.now() + timeout
+  while Moment.now() < deadline:
+    for p in GossipSub(node.wakuRelay).gossipsub.getOrDefault(topic):
+      if p.peerId == peer:
+        return
+    await sleepAsync(10.milliseconds)
+  raiseAssert $peer & " never announced a subscription to " & topic
 
 suite "Sharding":
   var
@@ -45,6 +61,9 @@ suite "Sharding":
     client = newTestWakuNode(clientKey, listenIp, listenPort)
 
     await allFutures(server.mountRelay(), client.mountRelay())
+    for node in [server, client]:
+      node.mountAutoSharding(DefaultClusterId, autoShardCount).isOkOr:
+        raiseAssert "mountAutoSharding failed: " & error
     await allFutures(server.start(), client.start())
 
   asyncTeardown:
@@ -59,6 +78,8 @@ suite "Sharding":
         clientHandler = client.subscribeCompletionHandler(topic)
 
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await client.waitForTopicPeer(topic, server.switch.peerInfo.peerId)
+      await server.waitForTopicPeer(topic, client.switch.peerInfo.peerId)
 
       # When the client publishes a message in the subscribed topic
       discard await client.publish(
@@ -101,9 +122,9 @@ suite "Sharding":
         serverHandler = server.subscribeCompletionHandler(topic1)
         clientHandler = client.subscribeCompletionHandler(topic2)
 
-      # await sleepAsync(FUTURE_TIMEOUT)
-
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await client.waitForTopicPeer(topic1, server.switch.peerInfo.peerId)
+      await server.waitForTopicPeer(topic2, client.switch.peerInfo.peerId)
 
       # When a message is published in the server's subscribed topic
       discard await client.publish(
@@ -146,6 +167,8 @@ suite "Sharding":
         clientHandler = client.subscribeToContentTopicWithHandler(contentTopicFull)
 
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await client.waitForTopicPeer(pubsubTopic, server.switch.peerInfo.peerId)
+      await server.waitForTopicPeer(pubsubTopic, client.switch.peerInfo.peerId)
 
       # When the client publishes a message
       discard await client.publish(
@@ -180,7 +203,6 @@ suite "Sharding":
       let
         contentTopic1 = "/toychat/2/huilong/proto"
         shard1 = "/waku/2/rs/0/58355"
-        shard12 = RelayShard.parse(contentTopic1)
           # Automatically generated from the contentTopic above
         contentTopic2 = "/0/toychat2/2/huilong/proto"
         shard2 = "/waku/2/rs/0/23286"
@@ -191,6 +213,8 @@ suite "Sharding":
         clientHandler = client.subscribeToContentTopicWithHandler(contentTopic2)
 
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await client.waitForTopicPeer(shard1, server.switch.peerInfo.peerId)
+      await server.waitForTopicPeer(shard2, client.switch.peerInfo.peerId)
 
       # When the server publishes a message in the server's subscribed topic
       discard await server.publish(
@@ -229,8 +253,8 @@ suite "Sharding":
           serverHandler = server.subscribeCompletionHandler(pubsubTopic)
           clientHandler = client.subscribeCompletionHandler(pubsubTopic)
 
-        await sleepAsync(FUTURE_TIMEOUT)
         await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+        await client.waitForTopicPeer(pubsubTopic, server.switch.peerInfo.peerId)
 
         # When the client publishes a message
         discard await client.publish(
@@ -280,13 +304,14 @@ suite "Sharding":
       asyncTest "lightpush":
         # Given a connected server and client subscribed to the same pubsub topic
         client.mountLegacyLightPushClient()
-        check (await server.mountLightpush()).isOk()
+        check (await server.mountLegacyLightPush()).isOk()
 
         let
           topic = "/waku/2/rs/0/1"
           clientHandler = client.subscribeCompletionHandler(topic)
 
         await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+        await server.waitForTopicPeer(topic, client.switch.peerInfo.peerId)
 
         # When a peer publishes a message (the client, for testing easeness)
         let
@@ -310,8 +335,9 @@ suite "Sharding":
           serverHandler = server.subscribeToContentTopicWithHandler(contentTopicShort)
           clientHandler = client.subscribeToContentTopicWithHandler(contentTopicFull)
 
-        await sleepAsync(FUTURE_TIMEOUT)
         await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+        await client.waitForTopicPeer(pubsubTopic, server.switch.peerInfo.peerId)
+        await server.waitForTopicPeer(pubsubTopic, client.switch.peerInfo.peerId)
 
         # When the client publishes a message
         discard await client.publish(
@@ -400,10 +426,43 @@ suite "Sharding":
         assertResultOk(pushHandlerResult2)
         check pushHandlerResult2.get() == (pubsubTopic, msg2)
 
+      asyncTest "filter (shard deduced from content topic)":
+        # Given a connected server and client, and a subscription without a pubsub topic
+        await client.mountFilterClient()
+        await server.mountFilter()
+
+        let pushHandlerFuture = newFuture[(string, WakuMessage)]()
+        proc messagePushHandler(
+            pubsubTopic: PubsubTopic, message: WakuMessage
+        ): Future[void] {.async, closure, gcsafe.} =
+          pushHandlerFuture.complete((pubsubTopic, message))
+
+        client.wakuFilterClient.registerPushHandler(messagePushHandler)
+        let
+          contentTopic = "/toychat/2/huilong/proto"
+          pubsubTopic = "/waku/2/rs/0/58355"
+          subscribeResponse = await client.filterSubscribe(
+            Opt.none(PubsubTopic),
+            @[contentTopic],
+            server.switch.peerInfo.toRemotePeerInfo(),
+          )
+
+        assertResultOk(subscribeResponse)
+        await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+
+        # When the server pushes a message on the shard that content topic maps to
+        let msg = WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic)
+        await server.filterHandleMessage(pubsubTopic, msg)
+
+        # Then the client receives it, so the subscription landed on that shard
+        let pushHandlerResult = await pushHandlerFuture.waitForResult(FUTURE_TIMEOUT)
+        assertResultOk(pushHandlerResult)
+        check pushHandlerResult.get() == (pubsubTopic, msg)
+
       asyncTest "lightpush (automatic sharding filtering)":
         # Given a connected server and client using the same content topic (with two different formats)
         client.mountLegacyLightPushClient()
-        check (await server.mountLightpush()).isOk()
+        check (await server.mountLegacyLightPush()).isOk()
 
         let
           contentTopicShort = "/toychat/2/huilong/proto"
@@ -412,6 +471,7 @@ suite "Sharding":
           clientHandler = client.subscribeToContentTopicWithHandler(contentTopicShort)
 
         await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+        await server.waitForTopicPeer(pubsubTopic, client.switch.peerInfo.peerId)
 
         # When a peer publishes a message (the client, for testing easeness)
         let
@@ -425,6 +485,7 @@ suite "Sharding":
         let clientResult = await clientHandler.waitForResult(FUTURE_TIMEOUT)
         assertResultOk(clientResult)
 
+      # store matches content topics as literal strings, so the two forms never meet
       xasyncTest "store (automatic sharding filtering)":
         # Given one archive with two sets of messages using the same content topic (with two different formats)
         let
@@ -447,7 +508,7 @@ suite "Sharding":
         let mountArchiveResult = server.mountArchive(archiveDriver)
         assertResultOk(mountArchiveResult)
 
-        waitFor server.mountStore()
+        await server.mountStore()
         client.mountStoreClient()
 
         # Given one query for each content topic format
@@ -492,8 +553,9 @@ suite "Sharding":
           serverHandler = server.subscribeToContentTopicWithHandler(contentTopic1)
           clientHandler = client.subscribeToContentTopicWithHandler(contentTopic2)
 
-        await sleepAsync(FUTURE_TIMEOUT)
         await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+        await client.waitForTopicPeer(pubsubTopic1, server.switch.peerInfo.peerId)
+        await server.waitForTopicPeer(pubsubTopic2, client.switch.peerInfo.peerId)
 
         # When the client publishes a message in the client's subscribed topic
         discard await client.publish(
@@ -563,7 +625,7 @@ suite "Sharding":
       asyncTest "lightpush - exclusion (automatic sharding filtering)":
         # Given a connected server and client using different content topics
         client.mountLegacyLightPushClient()
-        check (await server.mountLightpush()).isOk()
+        check (await server.mountLegacyLightPush()).isOk()
 
         let
           contentTopic1 = "/toychat/2/huilong/proto"
@@ -575,6 +637,7 @@ suite "Sharding":
           clientHandler = client.subscribeToContentTopicWithHandler(contentTopic1)
 
         await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+        await server.waitForTopicPeer(pubsubTopic1, client.switch.peerInfo.peerId)
 
         # When a peer publishes a message in the server's subscribed topic (the client, for testing easeness)
         let
@@ -583,9 +646,11 @@ suite "Sharding":
             Opt.some(pubsubTopic2), msg, server.switch.peerInfo.toRemotePeerInfo()
           )
 
-        # Then the client does not receive the message
+        # Then the server finds no peer on that shard and the client gets nothing
         let clientResult = await clientHandler.waitForResult(FUTURE_TIMEOUT)
-        check clientResult.isErr()
+        check:
+          lightpublishRespnse.error == protocol_metrics.notPublishedAnyPeer
+          clientResult.isErr()
 
       asyncTest "store - exclusion (automatic sharding filtering)":
         # Given one archive with two sets of messages using different content topics
@@ -612,7 +677,7 @@ suite "Sharding":
         let mountArchiveResult = server.mountArchive(archiveDriver)
         assertResultOk(mountArchiveResult)
 
-        waitFor server.mountStore()
+        await server.mountStore()
         client.mountStoreClient()
 
         # Given one query for each content topic
@@ -656,6 +721,8 @@ suite "Sharding":
         clientHandler2 = client.subscribeCompletionHandler(topic2)
 
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await client.waitForTopicPeer(topic1, server.switch.peerInfo.peerId)
+      await client.waitForTopicPeer(topic2, server.switch.peerInfo.peerId)
 
       # When the client publishes a message in the topic1
       discard await client.publish(
@@ -702,6 +769,8 @@ suite "Sharding":
         clientHandler2 = client.subscribeToContentTopicWithHandler(contentTopic2)
 
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await client.waitForTopicPeer(pubsubTopic1, server.switch.peerInfo.peerId)
+      await client.waitForTopicPeer(pubsubTopic2, server.switch.peerInfo.peerId)
 
       # When the client publishes a message in contentTopic1
       discard await client.publish(
@@ -755,6 +824,8 @@ suite "Sharding":
         clientHandler4 = client.subscribeToContentTopicWithHandler(contentTopic4)
 
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      for topic in [pubsubTopic1, pubsubTopic2, pubsubTopic3, pubsubTopic4]:
+        await client.waitForTopicPeer(topic, server.switch.peerInfo.peerId)
 
       # When the client publishes a message in the topic1
       discard await client.publish(
@@ -859,22 +930,24 @@ suite "Sharding":
         clientHandler = client.subscribeCompletionHandler("/waku/2/rs/0/0")
 
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await client.waitForTopicPeer("/waku/2/rs/0/0", server.switch.peerInfo.peerId)
 
       # When the client publishes a message in the topic
-      discard await client.publish(
+      let publishResult = await client.publish(
         Opt.some(topic),
         WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic),
       )
 
-      # Then the server and client don't receive the message
+      # Then the publish is rejected, and neither node receives the message
       check:
+        publishResult.isErr()
         (await serverHandler.waitForResult(FUTURE_TIMEOUT)).isErr()
         (await clientHandler.waitForResult(FUTURE_TIMEOUT)).isErr()
 
     asyncTest "Waku LightPush Sharding (Static Sharding)":
       # Given a connected server and client using two different pubsub topics
       client.mountLegacyLightPushClient()
-      check (await server.mountLightpush()).isOk()
+      check (await server.mountLegacyLightPush()).isOk()
 
       # Given a connected server and client subscribed to multiple pubsub topics
       let
@@ -886,9 +959,9 @@ suite "Sharding":
         clientHandler1 = client.subscribeCompletionHandler(topic1)
         clientHandler2 = client.subscribeCompletionHandler(topic2)
 
-      await sleepAsync(FUTURE_TIMEOUT)
-
       await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await server.waitForTopicPeer(topic1, client.switch.peerInfo.peerId)
+      await server.waitForTopicPeer(topic2, client.switch.peerInfo.peerId)
 
       # When a peer publishes a message (the client, for testing easeness) in topic1
       let
@@ -1002,7 +1075,7 @@ suite "Sharding":
       let mountArchiveResult = server.mountArchive(archiveDriver)
       assertResultOk(mountArchiveResult)
 
-      waitFor server.mountStore()
+      await server.mountStore()
       client.mountStoreClient()
 
       # Given one query for each pubsub topic

@@ -43,12 +43,10 @@ proc subscribeToContentTopicWithHandler*(
   proc relayHandler(
       topic: PubsubTopic, msg: WakuMessage
   ): Future[void] {.async, gcsafe.} =
-    if topic == topic:
-      completionFut.complete(true)
+    completionFut.complete(true)
 
   (node.subscribe((kind: ContentSub, topic: contentTopic), relayHandler)).isOkOr:
-    error "Failed to subscribe to content topic", error
-    completionFut.complete(true)
+    raiseAssert "Failed to subscribe to content topic " & contentTopic & ": " & error
   return completionFut
 
 proc subscribeCompletionHandler*(node: WakuNode, pubsubTopic: string): Future[bool] =

@@ -3,12 +3,7 @@
 import ./test_waku
 
 # Waku core test suite
-import
-  ./waku_core/test_namespaced_topics,
-  ./waku_core/test_time,
-  ./waku_core/test_message_digest,
-  ./waku_core/test_peers,
-  ./waku_core/test_published_address
+import ./waku_core/test_all
 
 # Waku archive test suite
 import
@@ -46,6 +41,7 @@ import ./waku_store_sync/test_all
 
 import
   ./node/test_all,
+  ./waku_enr/test_all,
   ./waku_filter_v2/test_all,
   ./waku_peer_exchange/test_all,
   ./waku_lightpush_legacy/test_all,
