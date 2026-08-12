@@ -37,7 +37,7 @@ suite "WakuNodeConf - preset integration":
     let wakuConf = wakuConfRes.get()
     require wakuConf.validate().isOk()
     check:
-      wakuConf.clusterId == 2
+      wakuConf.clusterId == 3
 
   test "LogosTest preset applies LogosTestConf":
     ## Given

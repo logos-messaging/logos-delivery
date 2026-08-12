@@ -96,7 +96,7 @@ Available presets:
 | Preset | Cluster ID | RLN | Sharding | Network |
 | --- | --- | --- | --- | --- |
 | `twn` | 1 | on | auto (8 shards) | The Waku Network |
-| `logos.dev` | 2 | off | auto (8 shards) | Logos Dev Network |
+| `logos.dev` | 3 | off | auto (8 shards) | Logos Dev Network |
 | `logos.test` | 2 | off | auto (8 shards) | Logos Test Network |
 | `status.prod` | 16 | off | auto (1 shard) | Status Production Network |
 

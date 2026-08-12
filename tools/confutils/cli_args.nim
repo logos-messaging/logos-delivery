@@ -164,7 +164,7 @@ type WakuNodeConf* = object
     ## General node config
     preset* {.
       desc:
-        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 2). 'logos.test' is the Logos Test Network (cluster 2). 'status.prod' is the Status Production Network (cluster 16, RLN off, auto-sharding with 1 shard). Overrides other values.",
+        "Network preset to use. 'twn' is The RLN-protected Waku Network (cluster 1). 'logos.dev' is the Logos Dev Network (cluster 3). 'logos.test' is the Logos Test Network (cluster 2). 'status.prod' is the Status Production Network (cluster 16, RLN off, auto-sharding with 1 shard). Overrides other values.",
       defaultValue: "",
       name: "preset"
     .}: string
