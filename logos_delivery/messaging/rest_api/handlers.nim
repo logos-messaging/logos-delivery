@@ -78,7 +78,7 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     for contentTopic in req:
       (await client.subscribe(contentTopic)).isOkOr:
         let errorMsg = "Subscribe failed: " & error
-        error "messaging SUBSCRIBE failed", error = errorMsg
+        debug "Messaging SUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -93,7 +93,7 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     for contentTopic in req:
       client.unsubscribe(contentTopic).isOkOr:
         let errorMsg = "Unsubscribe failed: " & error
-        error "messaging UNSUBSCRIBE failed", error = errorMsg
+        debug "Messaging UNSUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -114,12 +114,12 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
       return RestApiResponse.badRequest("Invalid message: " & error)
 
     let requestId = (await client.send(envelope)).valueOr:
-      error "messaging SEND failed", error = error
+      debug "Messaging SEND failed", error = error
       return RestApiResponse.internalServerError("Send failed: " & error)
 
     let data = MessagingSendResponse(requestId: $requestId)
     return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      error "An error occurred while building the json response", error = error
+      debug "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
   #### Event observability endpoints (poll-based, evict-after-poll)
@@ -131,7 +131,7 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     ## Returns all buffered send events grouped by request id, then clears them.
     let data = eventCache.pollAllSend()
     return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      error "An error occurred while building the json response", error = error
+      debug "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
   router.api(MethodOptions, ROUTE_MESSAGING_EVENTS_SEND_BY_IDV1) do(
@@ -150,7 +150,7 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
       return RestApiResponse.notFound("No send events for requestId: " & reqId)
 
     return RestApiResponse.jsonResponse(status, status = Http200).valueOr:
-      error "An error occurred while building the json response", error = error
+      debug "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
   router.api(MethodOptions, ROUTE_MESSAGING_EVENTS_RECEIVEDV1) do() -> RestApiResponse:
@@ -161,7 +161,7 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     ## first), then clears them — optimized for polling.
     let data = eventCache.pollReceived()
     return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      error "An error occurred while building the json response", error = error
+      debug "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
 proc mountRestApi*(client: MessagingClient) =

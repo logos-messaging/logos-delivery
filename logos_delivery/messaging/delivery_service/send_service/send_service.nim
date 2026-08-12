@@ -129,7 +129,7 @@ proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.a
     return
 
   if not isStorePeerAvailable(self):
-    warn "Skipping store validation for ",
+    debug "Skipping store validation for ",
       messageCount = tasksToValidate.len(), error = "no store peer available"
     return
 
@@ -141,7 +141,7 @@ proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.a
       StoreQueryRequest(includeData: false, messageHashes: hashesToValidate)
     )
   ).valueOr:
-    error "Failed to get store validation for messages",
+    debug "Failed to get store validation for messages",
       hashes = hashesToValidate.mapIt(shortLog(it)), error = $error
     return
 
@@ -194,7 +194,7 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     MessageSentEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
     return
   of DeliveryState.FailedToDeliver:
-    error "Failed to send message",
+    info "Failed to send message",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       error = task.errorDesc
@@ -209,7 +209,7 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
   # Hard-fail a task admitted but never propagated within MaxTimeInCache.
   # Propagated-but-unvalidated tasks are dropped in evaluateAndCleanUp instead.
   if task.isDeliveryTimedOut(MaxTimeInCache):
-    error "Failed to send message",
+    info "Failed to send message",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       error = "Message too old",
@@ -244,7 +244,7 @@ proc evaluateAndCleanUp(self: SendService) =
     if task.firstPropagatedTime.isSome() and
         task.state != DeliveryState.SuccessfullyValidated and
         task.propagationAge() > MaxTimeInCache:
-      warn "Message propagated but not validated by a store node within time window; stop trying.",
+      debug "Message propagated but not validated by a store node within time window; stop trying.",
         requestId = task.requestId,
         msgHash = task.msgHash.to0xHex(),
         propagationAge = task.propagationAge()
@@ -273,7 +273,7 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
   ## A no-op when RLN is not mounted, or when a prior round already attached a
   ## proof; otherwise draws the nonce and attaches.
   task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
-    error "failed to attach RLN proof, retrying next round",
+    debug "Failed to attach RLN proof, retrying next round",
       requestId = task.requestId, error = error
     return false
 
@@ -312,7 +312,7 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
 
   self.waku.subscribe(task.msg.contentTopic).isOkOr:
-    error "SendService.send: failed to subscribe to content topic",
+    debug "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 
   if not (await self.admitAndProve(task)):

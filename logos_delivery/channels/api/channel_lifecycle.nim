@@ -21,7 +21,7 @@ proc sdsPersistence(brokerCtx: BrokerContext): Opt[Persistence] =
   ## context-scoped GetPersistency broker; memory-only fallback when no
   ## provider is installed (e.g. unit tests).
   let p = GetPersistency.request(brokerCtx).valueOr:
-    info "SDS persistence disabled, running memory-only", reason = $error
+    debug "SDS persistence disabled, running memory-only", reason = $error
     return Opt.none(Persistence)
   let job = p.openJob(SdsJobId).valueOr:
     warn "SDS persistence disabled, could not open persistency job",
@@ -103,7 +103,7 @@ proc closeChannel*(
       break
   if not topicStillUsed and MessagingUnsubscribe.isProvided(self.brokerCtx):
     MessagingUnsubscribe.request(self.brokerCtx, contentTopic).isOkOr:
-      warn "failed to unsubscribe closed channel's content topic",
+      debug "failed to unsubscribe closed channel's content topic",
         channelId = channelId, contentTopic = contentTopic, error = error
 
   return ok()

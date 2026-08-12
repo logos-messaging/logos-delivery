@@ -36,11 +36,11 @@ proc new*(
 
 proc isTopicHealthy(self: RelaySendProcessor, topic: PubsubTopic): bool {.gcsafe.} =
   let healthReport = RequestShardTopicsHealth.request(self.brokerCtx, @[topic]).valueOr:
-    error "isTopicHealthy: failed to get health report", topic = topic, error = error
+    debug "isTopicHealthy: failed to get health report", topic = topic, error = error
     return false
 
   if healthReport.topicHealth.len() < 1:
-    warn "isTopicHealthy: no topic health entries", topic = topic
+    debug "isTopicHealthy: no topic health entries", topic = topic
     return false
   let health = healthReport.topicHealth[0].health
   debug "isTopicHealthy: topic health is ", topic = topic, health = health
@@ -62,7 +62,7 @@ method sendImpl*(self: RelaySendProcessor, task: DeliveryTask) {.async.} =
 
   let noOfPublishedPeers = (await self.publishProc(task.pubsubTopic, task.msg)).valueOr:
     let errorMessage = error.desc.get($error.code)
-    error "Failed to publish message with relay",
+    debug "Failed to publish message with relay",
       request = task.requestId, msgHash = task.msgHash.to0xHex(), error = errorMessage
 
     if error.isRlnRejection():

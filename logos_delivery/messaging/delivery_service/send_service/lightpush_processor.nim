@@ -32,7 +32,7 @@ method sendImpl*(
   let numLightpushServers = (
     await self.waku.lightpushPublishToAny(task.pubsubTopic, task.msg)
   ).valueOr:
-    error "LightpushSendProcessor.sendImpl failed", error = error.desc.get($error.code)
+    debug "LightpushSendProcessor.sendImpl failed", error = error.desc.get($error.code)
 
     if error.isRlnRejection():
       task.parkForRlnProofRefresh(self.waku)
