@@ -1,5 +1,6 @@
 import std/json
 import chronos, chronicles, results, ffi
+import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
 import logos_delivery/waku/common/base64
 import
@@ -16,27 +17,11 @@ import
 proc `%`*(id: RequestId): JsonNode =
   %($id)
 
-proc logosdelivery_create_node(
-    configJson: string
-): Future[Result[LogosDelivery, string]] {.ffiCtor.} =
-  let conf = parseLogosDeliveryConf(configJson).valueOr:
-    error "Failed to parse Logos Delivery configuration JSON",
-      error = error, configJson = configJson
-    return err("failed parseLogosDeliveryConf " & error)
-
-  let lib = (await LogosDelivery.new(conf)).valueOr:
-    let errMsg = $error
-    chronicles.error "CreateNodeRequest failed", err = errMsg
-    return err(errMsg)
-
-  return ok(lib)
-
-proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
-  discard
-
 proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
   ## Bridges every broker event the library re-publishes onto the FFI event
-  ## registry. Keep in step with `dropFFIEventListeners`.
+  ## registry. Registered once per node, at creation: the forwarders feed
+  ## the context-scoped C listener registry, so they share its create-to-
+  ## destroy lifetime. `teardownFFIEventScope` is the other end.
   MessageSentEvent.listen(
     self.waku.brokerCtx,
     proc(event: MessageSentEvent) {.async: (raises: []).} =
@@ -148,10 +133,12 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
 
   return ok()
 
-proc dropFFIEventListeners(self: LogosDelivery) {.async.} =
-  ## Reverse of `registerFFIEventListeners`.
-  await MessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
+proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
+  ## The node's broker scope dies with the node. Dropping all listeners of
+  ## an instance context also deletes its per-event buckets, so an FFI
+  ## thread reused for a later node starts with clean broker state.
   await MessageSentEvent.dropAllListeners(self.waku.brokerCtx)
+  await MessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
   await MessagePropagatedEvent.dropAllListeners(self.waku.brokerCtx)
   await MessageReceivedEvent.dropAllListeners(self.waku.brokerCtx)
   await EventConnectionStatusChange.dropAllListeners(self.waku.brokerCtx)
@@ -161,12 +148,47 @@ proc dropFFIEventListeners(self: LogosDelivery) {.async.} =
   await ChannelMessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
 
+proc logosdelivery_create_node(
+    configJson: string
+): Future[Result[LogosDelivery, string]] {.ffiCtor.} =
+  let conf = parseLogosDeliveryConf(configJson).valueOr:
+    error "Failed to parse Logos Delivery configuration JSON",
+      error = error, configJson = configJson
+    return err("failed parseLogosDeliveryConf " & error)
+
+  ## Give each node its own broker scope. This runs on the FFI thread the
+  ## node will live on: the first node built on that thread mints the
+  ## thread's class context, and every node gets a fresh instance context
+  ## under it. The layers read the thread's context as they are built, so
+  ## all of the node's listeners land under its scope. nim-ffi reuses FFI
+  ## threads across create/destroy cycles; a destroyed node's listeners
+  ## exist only under its scope, so a later node on the same thread cannot
+  ## reach them, and `teardownFFIEventScope` deletes exactly this node's.
+  if threadGlobalBrokerContext() == DefaultBrokerContext:
+    discard initThreadBrokerContext()
+  setThreadBrokerContext(newInstanceCtx(threadGlobalBrokerContext()))
+
+  let lib = (await LogosDelivery.new(conf)).valueOr:
+    let errMsg = $error
+    chronicles.error "CreateNodeRequest failed", err = errMsg
+    return err(errMsg)
+
+  lib.registerFFIEventListeners().isOkOr:
+    await lib.teardownFFIEventScope()
+    return err(error)
+
+  return ok(lib)
+
+proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
+  ## nim-ffi runs this when the host destroys the node, before the FFI
+  ## thread can serve a later create. The forwarders registered at create
+  ## feed the C listener registry, which lives from create to destroy; the
+  ## node's broker scope carries them and dies with the node, here.
+  await self.teardownFFIEventScope()
+
 proc logosdelivery_start_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
-  self.registerFFIEventListeners().isOkOr:
-    return err(error)
-
   (await self.start()).isOkOr:
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
@@ -176,8 +198,6 @@ proc logosdelivery_start_node(
 proc logosdelivery_stop_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
-  await self.dropFFIEventListeners()
-
   (await self.stop()).isOkOr:
     let errMsg = $error
     chronicles.error "STOP_NODE failed", err = errMsg
