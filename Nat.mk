@@ -28,6 +28,10 @@ else
   PORTABLE_NAT_MARCH :=
 endif
 
+# The vendored sub-makes are mtime-only and do not track the compiler, so a
+# CC change (host <-> Android NDK clang) must clean before rebuilding.
+NAT_CC_STAMP := $(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/.nat-libs-cc
+
 .PHONY: rebuild-nat-libs-nimbledeps
 
 rebuild-nat-libs-nimbledeps:
@@ -44,6 +48,10 @@ ifeq ($(OS), Windows_NT)
 		CFLAGS="-Wall -Wno-cpp -Os -fPIC -DWIN32 -DNATPMP_STATICLIB -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4 $(CFLAGS)" \
 		libnatpmp.a $(HANDLE_OUTPUT)
 else
+	@if [ "`cat '$(NAT_CC_STAMP)' 2>/dev/null`" != "$(CC)" ]; then \
+		echo "nat-libs were built with a different CC — cleaning for rebuild"; \
+		find "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor" \( -name '*.o' -o -name '*.a' \) -delete; \
+	fi
 # Delete the archives that the nimble install hook of nat_traversal already
 # built before nimble copied the package into nimbledeps/pkgs2/.
 #
@@ -63,4 +71,5 @@ else
 	+ "$(MAKE)" CFLAGS="-Wall -Wno-cpp -Os -fPIC $(PORTABLE_NAT_MARCH) -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4 $(CFLAGS)" \
 		-C "$(NAT_TRAVERSAL_NIMBLEDEPS_DIR)/vendor/libnatpmp-upstream" \
 		CC=$(CC) libnatpmp.a $(HANDLE_OUTPUT)
+	@echo '$(CC)' > '$(NAT_CC_STAMP)'
 endif
