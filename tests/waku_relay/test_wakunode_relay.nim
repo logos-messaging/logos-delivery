@@ -605,6 +605,18 @@ suite "WakuNode - Relay":
       check:
         nodes[i].wakuRelay.peerStats[nodes[0].switch.peerInfo.peerId].score == -249999.9
 
+    proc badPeerIsolated(): bool =
+      nodes[0].peerManager.switch.connManager.getConnections().len == 0 and
+        toSeq(1 ..< 5).allIt(
+          nodes[it].peerManager.switch.connManager.getConnections().len == 3
+        )
+
+    ## The disconnect trails the score drop, and the delay grows on a loaded
+    ## runner, so poll instead of reading the counts once.
+    let deadline = Moment.now() + 30.seconds
+    while Moment.now() < deadline and not badPeerIsolated():
+      await sleepAsync(500.millis)
+
     # nodes[0] was blacklisted from all other peers, no connections
     check:
       nodes[0].peerManager.switch.connManager.getConnections().len == 0
