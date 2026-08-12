@@ -265,7 +265,7 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
   ## ships bare. Returns false while the task must stay parked for a later round.
   if task.firstAdmittedTime.isNone():
     (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-      debug "over rate-limit budget, task waits for the epoch to roll",
+      debug "Over rate-limit budget, task waits for the epoch to roll",
         requestId = task.requestId, msgHash = task.msgHash.to0xHex()
       return false
     task.firstAdmittedTime = Opt.some(Moment.now())

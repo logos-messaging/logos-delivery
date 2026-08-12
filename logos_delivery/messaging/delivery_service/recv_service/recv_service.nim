@@ -93,6 +93,10 @@ proc processIncomingMessage(
 
   let rxMsg = RecvMessage(msgHash: msgHash, rxTime: message.timestamp)
   self.recentReceivedMsgs.add(rxMsg)
+  info "Message received",
+    msg_hash = msgHash.to0xHex(),
+    contentTopic = message.contentTopic,
+    pubsubTopic = pubsubTopic
   MessageReceivedEvent.emit(self.brokerCtx, msgHash.to0xHex(), message)
   return true
 
@@ -140,7 +144,7 @@ proc checkStore*(self: RecvService) {.async.} =
             debug "recv service store-recovered message",
               msg_hash = shortLog(msgTuple.hash), pubsubTopic = msgTuple.pubsubTopic
       else:
-        debug "failed to retrieve missing messages: ", error = $missingMsgsRet.error
+        debug "Failed to retrieve missing messages: ", error = $missingMsgsRet.error
 
   ## update next check times
   self.startTimeToCheck = self.endTimeToCheck

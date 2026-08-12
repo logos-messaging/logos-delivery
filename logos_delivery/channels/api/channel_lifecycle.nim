@@ -47,7 +47,7 @@ proc createReliableChannel*(
     MessagingSubscribe.request(self.brokerCtx, contentTopic).isOkOr:
       return err("failed to subscribe to content topic: " & error)
   else:
-    debug "no MessagingSubscribe provider, deferring content topic subscription",
+    debug "No MessagingSubscribe provider, deferring content topic subscription",
       channelId = channelId, contentTopic = contentTopic
 
   let cc = self.conf
@@ -103,7 +103,7 @@ proc closeChannel*(
       break
   if not topicStillUsed and MessagingUnsubscribe.isProvided(self.brokerCtx):
     MessagingUnsubscribe.request(self.brokerCtx, contentTopic).isOkOr:
-      debug "failed to unsubscribe closed channel's content topic",
+      debug "Failed to unsubscribe closed channel's content topic",
         channelId = channelId, contentTopic = contentTopic, error = error
 
   return ok()
