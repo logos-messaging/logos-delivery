@@ -139,9 +139,9 @@ proc decode*(
 
   var proofBytes: seq[byte]
   if not ?pb.getField(30, proofBytes):
-    req.eligibilityProof = none(seq[byte])
+    req.eligibilityProof = Opt.none(seq[byte])
   else:
-    req.eligibilityProof = some(proofBytes)
+    req.eligibilityProof = Opt.some(proofBytes)
 
   return ok(req)
 
@@ -245,9 +245,9 @@ proc decode*(
 
   var statusBuf: seq[byte]
   if not ?pb.getField(30, statusBuf):
-    res.eligibilityStatus = none(EligibilityStatus)
+    res.eligibilityStatus = Opt.none(EligibilityStatus)
   else:
     let status = ?EligibilityStatus.decode(statusBuf)
-    res.eligibilityStatus = some(status)
+    res.eligibilityStatus = Opt.some(status)
 
   return ok(res)

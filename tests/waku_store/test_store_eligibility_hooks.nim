@@ -1,3 +1,4 @@
+import results
 {.used.}
 
 import std/options, testutils/unittests, chronos, libp2p/crypto/crypto
@@ -55,7 +56,7 @@ procSuite "Store eligibility verifier wrapper":
     let req = StoreQueryRequest(
       requestId: "r1",
       paginationForward: PagingDirection.FORWARD,
-      eligibilityProof: some(@[byte(0xAB)]),
+      eligibilityProof: Opt.some(@[byte(0xAB)]),
     )
     let res = (await server.handleSelfStoreRequest(req)).get()
 

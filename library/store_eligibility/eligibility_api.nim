@@ -154,7 +154,7 @@ proc logosdelivery_store_query(
         proofHex.hexToSeqByte()
       except ValueError:
         return err("eligibility provider returned invalid proof hex")
-    storeQueryRequest.eligibilityProof = some(proofBytes)
+    storeQueryRequest.eligibilityProof = Opt.some(proofBytes)
 
   let queryResponse = (
     await ctx.myLib[].waku.node.wakuStoreClient.query(storeQueryRequest, peer)

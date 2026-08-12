@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[options, strutils], chronos
+import std/[options, strutils], chronos, results
 import ./[common, protocol, eligibility_canonical]
 
 const EligibilityOutDescMinLen* = 512
@@ -52,7 +52,7 @@ proc makeEligibilityWrappedHandler*(
     var reqClean = req
     let proofBytes =
       if req.eligibilityProof.isSome(): req.eligibilityProof.get() else: @[]
-    reqClean.eligibilityProof = none(seq[byte])
+    reqClean.eligibilityProof = Opt.none(seq[byte])
 
     let canonicalHex = storeEligibilityCanonicalHex(reqClean)
     var proofHexStorage = ""
@@ -87,7 +87,7 @@ proc makeEligibilityWrappedHandler*(
         requestId: req.requestId,
         statusCode: uint32(StatusCode.BAD_REQUEST),
         statusDesc: "BAD_REQUEST",
-        eligibilityStatus: some(EligibilityStatus(code: code, desc: desc)),
+        eligibilityStatus: Opt.some(EligibilityStatus(code: code, desc: desc)),
       )
       return ok(res)
 

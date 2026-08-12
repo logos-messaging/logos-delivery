@@ -1,4 +1,4 @@
-import std/[json, options, strutils, sugar]
+import std/[json, sugar]
 import results, stew/byteutils
 import
   logos_delivery/waku/waku_core/message/digest,
@@ -24,17 +24,17 @@ func storeQueryRequestFromJson*(
 
   let pubsubTopic =
     if jsonContent.contains("pubsubTopic"):
-      some(jsonContent["pubsubTopic"].getStr())
+      Opt.some(jsonContent["pubsubTopic"].getStr())
     else:
-      none(string)
+      Opt.none(string)
 
   let paginationCursor =
     if jsonContent.contains("paginationCursor"):
       let hash = jsonContent["paginationCursor"].getStr().hexToHash().valueOr:
           return err("Failed converting paginationCursor hex string to bytes: " & error)
-      some(hash)
+      Opt.some(hash)
     else:
-      none(WakuMessageHash)
+      Opt.none(WakuMessageHash)
 
   let paginationForwardBool = jsonContent["paginationForward"].getBool()
   let paginationForward =
@@ -42,15 +42,15 @@ func storeQueryRequestFromJson*(
 
   let paginationLimit =
     if jsonContent.contains("paginationLimit"):
-      some(uint64(jsonContent["paginationLimit"].getInt()))
+      Opt.some(uint64(jsonContent["paginationLimit"].getInt()))
     else:
-      none(uint64)
+      Opt.none(uint64)
 
-  var eligibilityProof = none(seq[byte])
+  var eligibilityProof = Opt.none(seq[byte])
   if jsonContent.contains("eligibilityProofHex"):
     let proofHex = jsonContent["eligibilityProofHex"].getStr()
     try:
-      eligibilityProof = some(proofHex.hexToSeqByte())
+      eligibilityProof = Opt.some(proofHex.hexToSeqByte())
     except ValueError as e:
       return err("Failed converting eligibilityProofHex to bytes: " & e.msg)
 

@@ -43,7 +43,7 @@ type
     paginationForward*: PagingDirection
     paginationLimit*: Opt[uint64]
 
-    eligibilityProof*: Option[seq[byte]]
+    eligibilityProof*: Opt[seq[byte]]
 
   WakuMessageKeyValue* = object
     messageHash*: WakuMessageHash
@@ -60,7 +60,7 @@ type
 
     paginationCursor*: Opt[WakuMessageHash]
 
-    eligibilityStatus*: Option[EligibilityStatus]
+    eligibilityStatus*: Opt[EligibilityStatus]
 
   # Types to be used by clients that use the hash in hex
   WakuMessageKeyValueHex* = object

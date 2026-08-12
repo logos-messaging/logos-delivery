@@ -100,7 +100,7 @@ procSuite "Waku Store - RPC codec":
     ## Given
     let proof = @[byte(0x01), 0x02, 0x03]
     let query = StoreQueryRequest(
-      requestId: "proof-req", includeData: false, eligibilityProof: some(proof)
+      requestId: "proof-req", includeData: false, eligibilityProof: Opt.some(proof)
     )
 
     ## When
@@ -120,7 +120,7 @@ procSuite "Waku Store - RPC codec":
       statusDesc: "bad",
       messages: @[],
       eligibilityStatus:
-        some(EligibilityStatus(code: PROOF_INVALID, desc: "proof invalid")),
+        Opt.some(EligibilityStatus(code: PROOF_INVALID, desc: "proof invalid")),
     )
 
     ## When

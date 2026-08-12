@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[options, strutils], stew/[endians2, byteutils]
+import std/[options, strutils], stew/[endians2, byteutils], results
 import ../common/paging
 import ./common
 
@@ -74,12 +74,14 @@ proc storeEligibilityCanonicalBody*(req: StoreQueryRequest): seq[byte] =
   else:
     buf.add byte(0)
   buf.add byte(if req.paginationForward.into(): 1 else: 0)
-  buf.appendOptionalUint64(req.paginationLimit)
+  buf.appendOptionalUint64(
+    if req.paginationLimit.isSome(): some(req.paginationLimit.get()) else: none(uint64)
+  )
   buf
 
 proc storeEligibilityCanonicalPayload*(req: StoreQueryRequest): seq[byte] =
   var req = req
-  req.eligibilityProof = none(seq[byte])
+  req.eligibilityProof = Opt.none(seq[byte])
   result = newSeqOfCap[byte](32 + 256)
   result.add storeEligibilityDomainPrefixBytes()
   result.add storeEligibilityCanonicalBody(req)

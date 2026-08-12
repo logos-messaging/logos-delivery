@@ -4,7 +4,7 @@
 {.push raises: [].}
 
 import
-  std/times,
+  std/[options, times],
   results,
   chronicles,
   chronos,

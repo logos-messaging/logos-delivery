@@ -35,7 +35,7 @@ procSuite "Waku Store - store query JSON (N8)":
     let reqRes = storeQueryRequestFromJson(parsed)
     check reqRes.isOk()
     var req = reqRes.get()
-    req.eligibilityProof = some(@[byte(0xAB)])
+    req.eligibilityProof = Opt.some(@[byte(0xAB)])
     let buf = req.encode().buffer
     let decoded = StoreQueryRequest.decode(buf).get()
     check storeEligibilityCanonicalHex(decoded) == N8ReferenceWireHex
