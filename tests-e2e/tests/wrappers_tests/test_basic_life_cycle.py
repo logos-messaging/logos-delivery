@@ -24,3 +24,25 @@ class TestLogosDeliveryLifecycle:
         finally:
             destroy_result = node.destroy()
             assert destroy_result.is_ok(), f"Failed to destroy node: {destroy_result.err()}"
+
+    def test_restart_node(self, node_config):
+        node = self._create_start_node(node_config)
+
+        try:
+            stop_result = node.stop_node()
+            assert stop_result.is_ok(), f"Failed to stop node: {stop_result.err()}"
+
+            start_result = node.start_node()
+            assert start_result.is_ok(), f"Failed to restart node: {start_result.err()}"
+        finally:
+            stop_result = node.stop_and_destroy()
+            assert stop_result.is_ok(), f"Failed to stop and destroy node: {stop_result.err()}"
+
+    def test_recreate_node_after_destroy(self, node_config):
+        node = self._create_start_node(node_config)
+        stop_result = node.stop_and_destroy()
+        assert stop_result.is_ok(), f"Failed to stop and destroy node: {stop_result.err()}"
+
+        node = self._create_start_node(node_config)
+        stop_result = node.stop_and_destroy()
+        assert stop_result.is_ok(), f"Failed to stop and destroy node: {stop_result.err()}"

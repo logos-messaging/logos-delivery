@@ -11,9 +11,12 @@ on:
 env:
   RELEASE_NAME: nightly
 
+  NODE_BINARIES: "wakunode2 logosdeliverynode chat2"
+  TOOLS_BINARIES: "wakucanary networkmonitor"
+
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "--parallelBuild:${NPROC}"
+  NIM_PARAMS: "-d:disableMarchNative"
   NIM_VERSION: '2.2.4'
   NIMBLE_VERSION: '0.22.3'
 
@@ -27,18 +30,26 @@ jobs:
     - name: Vars
       id: vars
       run: |
-        TAG=$([[ "${{github.ref}}" == "refs/heads/master" ]] && echo "${{env.RELEASE_NAME}}" || echo ${{github.ref}} | sed 's#refs/tags/##')
+        # master -> nightly; other refs use their bare name, "/" replaced by "-".
+        # TAG=$([[ "${{github.ref}}" == "refs/heads/master" ]] && echo "${{env.RELEASE_NAME}}" || echo ${{github.ref}} | sed 's#refs/tags/##')
+        TAG=$([[ "${{github.ref}}" == "refs/heads/master" ]] && echo "${{env.RELEASE_NAME}}" || echo "${{github.ref_name}}" | tr '/' '-')
         echo "tag=${TAG}" >> $GITHUB_OUTPUT
     outputs:
       tag: ${{steps.vars.outputs.tag}}
 
   build-and-publish:
     needs: tag-name
+    # Matrix job count for the verify step; every matrix job writes the same value.
+    outputs:
+      platform-count: ${{ strategy.job-total }}
     strategy:
+      # Keep the other jobs running when one fails.
+      fail-fast: false
       matrix:
-        os: [ubuntu-22.04, macos-15]
-        arch: [amd64]
+        # GitHub macOS runners are arm64 only; darwin/amd64 needs a cross-compilation setup.
         include:
+        - os: ubuntu-22.04
+          arch: amd64
         - os: macos-15
           arch: arm64
     runs-on: ${{ matrix.os }}
@@ -75,53 +86,49 @@ jobs:
       - name: build artifacts
         id: build
         run: |
-          OS=$([[ "${{runner.os}}" == "macOS" ]] && echo "macosx" || echo "linux")
+          # -j1: each target starts one nimble process. Two parallel nimble
+          # processes corrupt the shared package metadata (nimblemeta.json).
+          make V=1 -j1 CI=false POSTGRES=1 $NODE_BINARIES tools
 
-          make V=1 CI=false NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
-            update
+          tar -cvzf ${{steps.vars.outputs.nwaku}} $(printf './build/%s ' $NODE_BINARIES)
+          tar -cvzf ${{steps.vars.outputs.nwakutools}} $(printf './build/%s ' $TOOLS_BINARIES)
 
-          make V=1 CI=false POSTGRES=1\
-            NIMFLAGS="-d:disableMarchNative --os:${OS} --cpu:${{matrix.arch}}" \
-            wakunode2\
-            logosdeliverynode\
-            chat2\
-            tools
-
-          tar -cvzf ${{steps.vars.outputs.nwaku}} ./build/wakunode2 ./build/logosdeliverynode ./build/chat2
-          tar -cvzf ${{steps.vars.outputs.nwakutools}} ./build/wakucanary ./build/networkmonitor
-
+      # Each matrix job must use a unique artifact name. With one shared
+      # name, download-artifact@v4 keeps only the last upload and the release
+      # loses platforms.
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wakunode2
+          name: wakunode2-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{steps.vars.outputs.nwaku}}
           retention-days: 2
 
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wakutools
+          name: wakutools-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{steps.vars.outputs.nwakutools}}
           retention-days: 2
 
   build-docker-image:
     needs: tag-name
-    uses: logos-messaging/logos-delivery/.github/workflows/container-image.yml@master
+    # uses: logos-messaging/logos-delivery/.github/workflows/container-image.yml@master
+    uses: ./.github/workflows/container-image.yml
     with:
       image_tag: ${{ needs.tag-name.outputs.tag }}
     secrets: inherit
 
-  js-waku-node:
-    needs: build-docker-image
-    uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
-    permissions:
-      contents: read
-      actions: read
-      checks: write
-    with:
-      nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
-      test_type: node
-      debug: waku*
+  # js-waku-node:
+  #   needs: build-docker-image
+  #   uses: logos-messaging/logos-delivery-js/.github/workflows/test-node.yml@master
+  #   permissions:
+  #     contents: read
+  #     actions: read
+  #     checks: write
+  #   with:
+  #     nim_wakunode_image: ${{ needs.build-docker-image.outputs.image }}
+  #     test_type: node
+  #     debug: waku*
 
   js-waku-node-optional:
     needs: build-docker-image
@@ -138,6 +145,9 @@ jobs:
   create-release-candidate:
     runs-on: ubuntu-22.04
     needs: [ tag-name, build-and-publish ]
+    permissions:
+      contents: write
+      actions: read
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -145,8 +155,20 @@ jobs:
           fetch-depth: 0
           ref: master
 
-      - name: download artifacts
+      # merge-multiple puts all matching artifacts into one directory.
+      - name: download node artifacts
         uses: actions/download-artifact@v4
+        with:
+          pattern: wakunode2-*
+          path: wakunode2
+          merge-multiple: true
+
+      - name: download tools artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: wakutools-*
+          path: wakutools
+          merge-multiple: true
 
       - name: prep variables
         id: vars
@@ -155,16 +177,83 @@ jobs:
 
           echo "ref=${REF}" >> $GITHUB_OUTPUT
 
+      # A fault in the release artifacts stops the release here.
+      - name: verify release artifacts
+        run: |
+          set -e
+          # One node tarball and one tools tarball for each matrix job. The count
+          # comes from the build job's own matrix at run time, thus a matrix
+          # change needs no edit here.
+          EXPECTED=${{ needs.build-and-publish.outputs.platform-count }}
+          echo "expected platform count: $EXPECTED"
+
+          # check_dir <dir> <binaries>
+          # e.g. check_dir wakunode2 "wakunode2 logosdeliverynode chat2"
+          # Every tarball in <dir> must extract and must contain each named
+          # binary with the CPU type that the tarball name shows.
+          check_dir() {
+            local dir="$1"       # artifact directory, e.g. wakunode2
+            local binaries="$2"  # in each tarball, e.g. "wakunode2 logosdeliverynode chat2"
+
+            echo "== $dir (binaries: $binaries) =="
+            ls -l "$dir"
+
+            local count
+            count=$(ls "$dir"/*.tar.gz | wc -l)
+            [ "$count" -eq "$EXPECTED" ] || { echo "FAIL: $dir: expected $EXPECTED tarballs, found $count"; exit 1; }
+
+            for tarball in "$dir"/*.tar.gz; do
+              echo "-- $tarball --"
+
+              # A truncated tarball stops the step here.
+              tar -tzf "$tarball"
+              local unpacked
+              unpacked=$(mktemp -d)
+              tar -xzf "$tarball" -C "$unpacked"
+
+              # The tarball name shows the correct CPU type,
+              # e.g. nwaku-amd64-linux-nightly.tar.gz -> binaries must be x86-64.
+              case "$tarball" in
+                *-amd64-*) want='x86-64' ;;
+                *-arm64-*) want='arm64|aarch64' ;;  # macOS says arm64, Linux says aarch64
+                *) echo "FAIL: unknown arch in name: $tarball"; exit 1 ;;
+              esac
+
+              # file reads the bytes of each binary,
+              # e.g. "build/wakunode2: ELF 64-bit LSB pie executable, x86-64, ...".
+              # A missing, zero-size, truncated, or wrong-arch binary fails here.
+              for binary in $binaries; do
+                line=$(file "$unpacked/build/$binary" 2>/dev/null || true)
+                echo "$line"
+                echo "$line" | grep -E "executable|shared object|shared library" | grep -Eq ": .*($want)" \
+                  || { echo "FAIL: $binary (want: $want)"; exit 1; }
+              done
+            done
+          }
+
+          check_dir wakunode2 "$NODE_BINARIES"
+          check_dir wakutools "$TOOLS_BINARIES"
+
       - name: generate release notes
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           set -x
-          gh release view ${{ needs.tag-name.outputs.tag }} &>/dev/null &&\
-            gh release delete -y ${{ needs.tag-name.outputs.tag }} &&\
-            [[ "${{ needs.tag-name.outputs.tag }}" == "nightly" ]] && git tag -d ${{ needs.tag-name.outputs.tag }}
+          TAG="${{ needs.tag-name.outputs.tag }}"
 
-          RELEASE_NOTES_TAG=$([[ "${{ needs.tag-name.outputs.tag }}" != "nightly" ]] && echo "-t ${{steps.vars.outputs.ref}}" || echo "")
+          # NOTE: gh release create refuses to create over an existing release.
+          if [[ "$TAG" == "nightly" ]]; then
+            # Each run replaces the nightly release and its tag. gh release
+            # create reuses an existing tag and ignores --target.
+            gh release delete -y "$TAG" || true
+            # --exit-code: nonzero exit when the tag is absent.
+            if git ls-remote --exit-code origin "refs/tags/$TAG" >/dev/null; then
+              git push origin ":refs/tags/$TAG"
+            fi
+            git tag -d "$TAG" || true
+          fi
+
+          RELEASE_NOTES_TAG=$([[ "$TAG" != "nightly" ]] && echo "-t ${{steps.vars.outputs.ref}}" || echo "")
 
           docker run \
               -t \
@@ -179,8 +268,8 @@ jobs:
 
           cat release_notes.md
 
-          TARGET=$([[ "${{ needs.tag-name.outputs.tag }}" == "nightly" ]] && echo "--target ${{steps.vars.outputs.ref}}" || echo "")
+          TARGET=$([[ "$TAG" == "nightly" ]] && echo "--target ${{steps.vars.outputs.ref}}" || echo "")
 
-          gh release create ${{ needs.tag-name.outputs.tag }} --prerelease ${TARGET} \
-            --title ${{ needs.tag-name.outputs.tag }} --notes-file release_notes.md \
+          gh release create "$TAG" --prerelease ${TARGET} \
+            --title "$TAG" --notes-file release_notes.md \
             wakunode2/* wakutools/*
