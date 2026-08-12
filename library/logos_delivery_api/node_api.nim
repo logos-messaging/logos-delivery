@@ -152,7 +152,7 @@ proc logosdelivery_create_node(
     configJson: string
 ): Future[Result[LogosDelivery, string]] {.ffiCtor.} =
   let conf = parseLogosDeliveryConf(configJson).valueOr:
-    error "Failed to parse Logos Delivery configuration JSON",
+    debug "Failed to parse Logos Delivery configuration JSON",
       error = error, configJson = configJson
     return err("failed parseLogosDeliveryConf " & error)
 
@@ -170,7 +170,7 @@ proc logosdelivery_create_node(
 
   let lib = (await LogosDelivery.new(conf)).valueOr:
     let errMsg = $error
-    chronicles.error "CreateNodeRequest failed", err = errMsg
+    chronicles.debug "CreateNodeRequest failed", err = errMsg
     return err(errMsg)
 
   lib.registerFFIEventListeners().isOkOr:

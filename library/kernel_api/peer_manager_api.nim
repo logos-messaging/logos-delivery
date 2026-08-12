@@ -26,7 +26,7 @@ proc waku_disconnect_peer_by_id(
     self: LogosDelivery, peerId: string
 ): Future[Result[string, string]] {.ffi.} =
   (await self.waku.disconnectPeerById(peerId)).isOkOr:
-    error "DISCONNECT_PEER_BY_ID failed", error = error
+    debug "DISCONNECT_PEER_BY_ID failed", error = error
     return err(error)
   return ok("")
 
@@ -41,7 +41,7 @@ proc waku_dial_peer(
     self: LogosDelivery, peerMultiAddr: string, protocol: string, timeoutMs: uint32
 ): Future[Result[string, string]] {.ffi.} =
   (await self.waku.dialPeer(peerMultiAddr, protocol, int(timeoutMs))).isOkOr:
-    error "DIAL_PEER failed", error = error
+    debug "DIAL_PEER failed", error = error
     return err(error)
   return ok("")
 
@@ -49,7 +49,7 @@ proc waku_dial_peer_by_id(
     self: LogosDelivery, peerId: string, protocol: string, timeoutMs: uint32
 ): Future[Result[string, string]] {.ffi.} =
   (await self.waku.dialPeerById(peerId, protocol, int(timeoutMs))).isOkOr:
-    error "DIAL_PEER_BY_ID failed", error = error
+    debug "DIAL_PEER_BY_ID failed", error = error
     return err(error)
   return ok("")
 

@@ -340,7 +340,7 @@ proc start*(wd: WakuDiscoveryV5): Future[Result[void, string]] {.async: (raises:
 
   info "Starting discovery v5 service"
 
-  info "start listening on udp port", address = $wd.conf.address, port = $wd.conf.port
+  info "Start listening on udp port", address = $wd.conf.address, port = $wd.conf.port
   try:
     wd.protocol.open()
   except CatchableError:
@@ -348,7 +348,7 @@ proc start*(wd: WakuDiscoveryV5): Future[Result[void, string]] {.async: (raises:
 
   wd.listening = true
 
-  trace "start discv5 service"
+  trace "Start discv5 service"
   wd.protocol.start()
 
   asyncSpawn wd.searchLoop()
