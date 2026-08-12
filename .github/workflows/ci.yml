@@ -129,6 +129,65 @@ jobs:
     with:
       branch: ${{ github.ref }}
 
+  # macos-15 runners ship full Xcode with the iOS SDKs preinstalled.
+  build-ios:
+    needs: changes
+    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [device, simulator]
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    name: build-ios-${{ matrix.sdk }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: |
+          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+
+      # Shared with the desktop macOS jobs: iOS never writes into nimbledeps/.
+      - name: Cache nimble deps
+        id: cache-nimbledeps
+        uses: actions/cache@v3
+        with:
+          path: |
+            nimbledeps/
+            nimble.paths
+          key: ${{ runner.os }}-nimbledeps-v2-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+
+      - name: Install nimble deps
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        run: |
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
+          nimble setup --localdeps -y --useSystemNim
+          make rebuild-nat-libs-nimbledeps
+          make rebuild-bearssl-nimbledeps
+          touch nimbledeps/.nimble-setup
+
+      - name: Build liblogosdelivery for ios-${{ matrix.sdk }}
+        # -j1: see the build job.
+        run: make V=1 -j1 liblogosdelivery-ios-${{ matrix.sdk }}
+
+      - name: Upload iOS library
+        uses: actions/upload-artifact@v4
+        with:
+          name: liblogosdelivery-ios-${{ matrix.sdk }}
+          path: build/ios/
+          retention-days: 1
+
   test:
     needs: changes
     if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}

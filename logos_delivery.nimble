@@ -202,7 +202,7 @@ task libLogosDeliveryAndroid, "Build the mobile bindings for Android":
 
 ### Mobile iOS
 
-import std/sequtils
+import std/[json, sequtils]
 
 proc buildMobileIOS(srcDir = ".", params = "") =
   echo "Building iOS liblogosdelivery library"
@@ -214,24 +214,29 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   if sdkPath.len == 0:
     quit "Error: IOS_SDK_PATH not set. Set it to the path of the iOS SDK"
 
-  # Get nimble package paths
-  let bearsslPath = gorge("nimble path bearssl").strip()
-  let secp256k1Path = gorge("nimble path secp256k1").strip()
-  let natTraversalPath = gorge("nimble path nat_traversal").strip()
+  # Package roots from nimble.paths — `nimble path` is unusable inside a
+  # task (it mixes Info and lock-validation noise into stdout).
+  proc nimblePkgPath(pkg: string): string =
+    for rawLine in readFile("nimble.paths").splitLines():
+      let line = rawLine.strip()
+      if line.startsWith("--path:\"") and ("/pkgs2/" & pkg & "-") in line:
+        return line[8 ..< line.high]
+    quit "Package " & pkg & " not found in nimble.paths — run 'make build-deps' first"
 
-  # Get Nim standard library path
-  let nimPath = gorge("nim --fullhelp 2>&1 | head -1 | sed 's/.*\\[//' | sed 's/\\].*//'").strip()
-  let nimLibPath = nimPath.parentDir.parentDir / "lib"
+  let bearsslPath = nimblePkgPath("bearssl")
+  let secp256k1Path = nimblePkgPath("secp256k1")
+  let natTraversalPath = nimblePkgPath("nat_traversal")
+
+  # Nim stdlib location (for nimbase.h when compiling the generated C)
+  let nimDump = gorge("nim dump --dump.format:json --hints:off " & srcDir & "/liblogosdelivery.nim 2>/dev/null")
+  let nimLibPath = nimDump.parseJson()["libpath"].getStr()
 
   # Use SDK name in path to differentiate device vs simulator
   let outDir = "build/ios/" & iosSdk & "-" & iosArch
   if not dirExists outDir:
     mkDir outDir
 
-  var extra_params = params
-  let args = commandLineParams()
-  for arg in args:
-    extra_params &= " " & arg
+  let extra_params = params & getNimParams()
 
   let cpu = if iosArch == "arm64": "arm64" else: "amd64"
 
@@ -246,8 +251,12 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   if not dirExists vendorObjDir:
     mkDir vendorObjDir
 
+  # Simulator objects need the simulator flag, or Xcode refuses to link them.
+  let minVersionFlag =
+    if iosSdk == "iphonesimulator": "-mios-simulator-version-min=18.0"
+    else: "-mios-version-min=18.0"
   let clangBase = "clang -arch " & iosArch & " -isysroot " & sdkPath &
-      " -mios-version-min=18.0 -fembed-bitcode -fPIC -O2"
+      " " & minVersionFlag & " -fPIC -O2 -Wno-error=incompatible-function-pointer-types"
 
   # Generate C sources from Nim (no linking)
   exec "nim c" &
@@ -257,7 +266,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
       " --noMain --mm:refc" &
       " --threads:on --opt:size --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" &
-      " --nimMainPrefix:liblogosdelivery --skipParentCfg:on" &
+      " --nimMainPrefix:liblogosdelivery --skipParentCfg:off" &
       " --cc:clang" &
       " " & extra_params &
       " " & srcDir & "/liblogosdelivery.nim"
