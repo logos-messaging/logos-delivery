@@ -36,6 +36,9 @@ jobs:
           - 'nimble.lock'
           - 'logos_delivery.nimble'
           - 'Makefile'
+          - 'BearSSL.mk'
+          - 'Nat.mk'
+          - 'vendor/zerokit'
           - 'scripts/**'
           - 'flake.nix'
           - 'flake.lock'
@@ -128,6 +131,80 @@ jobs:
     uses: ./.github/workflows/windows-build.yml
     with:
       branch: ${{ github.ref }}
+
+  build-android:
+    needs: changes
+    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        # arm64 only: amd64 is blocked by a nim-lsquic android type mismatch,
+        # 32-bit ABIs by int overflows in nim-brokers and waku_store_sync.
+        target: [arm64]
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+
+    name: build-android-${{ matrix.target }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
+        run: |
+          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+
+      - name: Setup Android NDK
+        id: setup-ndk
+        uses: nttld/setup-ndk@v1
+        with:
+          ndk-version: r27c
+
+      # Keyed on the rev scripts/build_rln_android.sh pins.
+      - name: Cache cross
+        uses: actions/cache@v3
+        with:
+          path: ~/.cargo/bin/cross
+          key: ${{ runner.os }}-cross-55f84725
+
+      - name: Cache nimble deps
+        id: cache-nimbledeps
+        uses: actions/cache@v3
+        with:
+          path: |
+            nimbledeps/
+            nimble.paths
+          # Separate key: the android build rewrites the nimbledeps archives
+          # with the NDK compiler, so never share the host jobs' cache.
+          key: ${{ runner.os }}-nimbledeps-android-${{ matrix.target }}-v2-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+
+      - name: Install nimble deps
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        run: |
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
+          nimble setup --localdeps -y --useSystemNim
+          touch nimbledeps/.nimble-setup
+
+      - name: Build liblogosdelivery for android-${{ matrix.target }}
+        # -j1: see the build job.
+        env:
+          ANDROID_NDK_HOME: ${{ steps.setup-ndk.outputs.ndk-path }}
+        run: make V=1 -j1 liblogosdelivery-android-${{ matrix.target }}
+
+      - name: Upload android libraries
+        uses: actions/upload-artifact@v4
+        with:
+          name: liblogosdelivery-android-${{ matrix.target }}
+          path: build/android/
+          retention-days: 1
 
   test:
     needs: changes
