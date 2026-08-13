@@ -43,13 +43,14 @@ proc startMetricsLog*() =
       let lightpushPeers = collectorAsF64(logos_delivery_lightpush_peers)
       let filterPeers = collectorAsF64(logos_delivery_filter_peers)
 
-      debug "Total connections initiated", count = $freshConnCount
-      debug "Total messages", count = totalMessages
-      debug "Total store peers", count = storePeers
-      debug "Total peer exchange peers", count = pxPeers
-      debug "Total lightpush peers", count = lightpushPeers
-      debug "Total filter peers", count = filterPeers
-      debug "Total errors", count = $freshErrorCount
+      info "Node metrics",
+        connectionsInitiated = $freshConnCount,
+        messages = totalMessages,
+        storePeers = storePeers,
+        peerExchangePeers = pxPeers,
+        lightpushPeers = lightpushPeers,
+        filterPeers = filterPeers,
+        errors = $freshErrorCount
 
       # Start protocol specific metrics logging
       logRlnMetrics()
