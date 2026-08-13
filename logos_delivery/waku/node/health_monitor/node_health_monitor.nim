@@ -522,7 +522,7 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
     except CancelledError:
       break
     except Exception as e:
-      debug "HealthMonitor: error in update loop", error = e.msg
+      error "HealthMonitor: error in update loop", error = e.msg
 
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
