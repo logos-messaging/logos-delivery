@@ -28,13 +28,24 @@
 
   outputs = { self, nixpkgs, rust-overlay, zerokit }:
     let
-      systems = [
+      # x86_64-windows is a PSEUDO-SYSTEM. nixpkgs has no native Windows stdenv
+      # -- `import nixpkgs { system = "x86_64-windows"; }` dies in cc-wrapper
+      # ("called without required argument 'runtimeShell'") -- so this key means
+      # "cross-compiled to x86_64-w64-mingw32". The derivations under it carry
+      # system = x86_64-linux (a cross derivation's `system` is its BUILD
+      # platform), which is exactly why `nix build .#packages.x86_64-windows.…`
+      # runs on an ordinary Linux builder.
+      windowsSystem = "x86_64-windows";
+      windowsBuildSystem = "x86_64-linux";
+
+      nativeSystems = [
         "x86_64-linux" "aarch64-linux"
         "x86_64-darwin" "aarch64-darwin"
-        "x86_64-windows"
       ];
+      systems = nativeSystems ++ [ windowsSystem ];
 
       forAllSystems = nixpkgs.lib.genAttrs systems;
+      forNativeSystems = nixpkgs.lib.genAttrs nativeSystems;
 
       lib = nixpkgs.lib;
 
@@ -62,16 +73,58 @@
         });
       };
 
-      pkgsFor = system: import nixpkgs {
-        inherit system;
-        overlays = [ (import rust-overlay) nimbleOverlay ];
-      };
+      pkgsFor = system:
+        if system != windowsSystem then
+          import nixpkgs {
+            inherit system;
+            overlays = [ (import rust-overlay) nimbleOverlay ];
+          }
+        else
+          import nixpkgs {
+            localSystem = windowsBuildSystem;
+            crossSystem = {
+              config = "x86_64-w64-mingw32";
+              # msvcrt, matching MSYS2's MINGW64 environment -- so a DLL built
+              # here and one built by the MSYS2 CI job share a C runtime.
+              libc = "msvcrt";
+            };
+            # nimbleOverlay is deliberately absent: nimble is a devShell tool and
+            # a mingw-hosted nimble neither builds nor is ever run.
+            overlays = [ (import rust-overlay) ];
+          };
+
+      # libpq is NOT a link-time dependency: Nim's db_connector reaches libpq
+      # through dynlib/dlopen, which is why the Linux and macOS builds carry no
+      # libpq in buildInputs either. It is exposed as its own package so that
+      # consumers can bundle libpq.dll beside the plugin -- on Windows, "next to
+      # the image" is the first place the loader looks.
+      libpqFor = system:
+        let pkgs = pkgsFor system; in
+        if system != windowsSystem then pkgs.libpq
+        else (pkgs.libpq.override {
+          # postgres 18 links libcurl for OAuth; curl cross to mingw drags in
+          # ngtcp2 -> nghttp3, whose EXAMPLES include <arpa/inet.h> and fail.
+          curlSupport = false;
+        }).overrideAttrs (o: {
+          # makeWrapper wants a HOST-platform bash (mingw bash does not build)
+          # and nothing in libpq actually calls wrapProgram.
+          nativeBuildInputs = builtins.filter
+            (d: !(builtins.isAttrs d && (d.name or "") == "make-shell-wrapper-hook"))
+            o.nativeBuildInputs;
+          # src/port/pthread_barrier_wait.c includes <pthread.h> unconditionally
+          # via pg_pthread.h. nixpkgs builds mingw-w64 against mcfgthread, which
+          # ships no pthread.h, so winpthreads has to be supplied explicitly.
+          buildInputs = o.buildInputs ++ [ pkgs.windows.pthreads ];
+          # objcopy --only-keep-debug on a PE is not the ELF split this assumes.
+          separateDebugInfo = false;
+          meta = o.meta // { platforms = o.meta.platforms ++ [ windowsSystem ]; };
+        });
     in {
       packages = forAllSystems (system:
         let
           pkgs = pkgsFor system;
 
-          zerokitRln = import ./nix/zerokit.nix { inherit zerokit system; };
+          zerokitRln = import ./nix/zerokit.nix { inherit pkgs zerokit system; };
 
           liblogosdelivery = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
@@ -98,11 +151,13 @@
           inherit liblogosdelivery wakucanary logosdeliverynode;
           # Expose librln so downstream consumers link the exact same build.
           rln = zerokitRln;
+          # Runtime-only; see libpqFor.
+          libpq = libpqFor system;
           default = liblogosdelivery;
         }
       );
 
-      devShells = forAllSystems (system:
+      devShells = forNativeSystems (system:
         let
           pkgs = pkgsFor system;
         in {
