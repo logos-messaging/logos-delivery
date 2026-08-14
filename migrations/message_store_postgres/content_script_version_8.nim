@@ -1,13 +1,10 @@
 const ContentScriptVersion_8* = """
 
--- Recreate messages_lookup as a partitioned table (issue #3790): retention now
--- drops hourly lookup partitions in lockstep with the messages partitions,
--- instead of bulk-DELETEs whose dead index space was never reclaimed.
--- Rows are rebuilt from the messages partitions by the partition factory's
--- reconcile pass (ensureLookupPartitions, every iteration). The redundant idx_messages_lookup_messagehash is not
--- recreated: the primary key already covers messagehash as leading column.
--- idx_messages_lookup_timestamp is likewise gone: retention no longer deletes
--- by timestamp, and partition pruning plus the per-partition PK cover reads.
+-- Recreate messages_lookup as a partitioned table (#3790): retention drops
+-- hourly lookup partitions with their messages siblings instead of running
+-- bulk DELETEs that bloat the indexes. Rows are rebuilt from the messages
+-- partitions by ensureLookupPartitions. The old secondary indexes are not
+-- recreated: the PK covers hash lookups, partition pruning covers time.
 DROP TABLE IF EXISTS messages_lookup;
 
 CREATE TABLE messages_lookup (

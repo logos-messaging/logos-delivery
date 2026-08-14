@@ -172,8 +172,7 @@ suite "Postgres driver":
       "wrong number of messages: " & $newNumMsgs
 
   asyncTest "messages_lookup partitions are created and dropped with messages partitions":
-    ## Issue #3790: lookup rows are pruned by dropping hourly partitions in
-    ## lockstep with the messages partitions, never by bulk DELETEs.
+    ## Lookup partitions are created and dropped in lockstep — no row deletes.
     let msg = fakeWakuMessage(ts = now())
     require (
       await driver.put(
@@ -196,8 +195,7 @@ suite "Postgres driver":
       0
 
   asyncTest "ensureLookupPartitions rebuilds dropped lookup partitions":
-    ## Simulates a hand-dropped messages_lookup: hash queries degrade, and
-    ## ensureLookupPartitions recreates and backfills from messages partitions.
+    ## Dropped lookup partitions degrade hash queries; ensure heals them.
     let msg = fakeWakuMessage(ts = now())
     let hash = computeMessageHash(DefaultPubsubTopic, msg)
     require (await driver.put(hash, DefaultPubsubTopic, msg)).isOk()
@@ -220,10 +218,8 @@ suite "Postgres driver":
     check (await driver.getMessages(hashes = @[hash])).expect("healed query").len == 1
 
   asyncTest "dropStrayLookupPartitions removes attached and detached strays":
-    ## A crash can leave a lookup partition with no messages sibling — either
-    ## attached (addPartition interrupted) or detached (reconcile interrupted).
-    ## Unremoved, an attached stray's range could overlap a future sibling and
-    ## make addPartition fatal on boot; the cleanup must drop both kinds.
+    ## Crash leftovers: lookup tables with no messages sibling, attached or
+    ## detached — the cleanup must drop both kinds.
     const attachedStray = "lookup_4102444800_4102448400" ## far future: year 2100
     const detachedStray = "lookup_4102448400_4102452000"
 

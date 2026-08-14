@@ -1032,11 +1032,8 @@ method getNewestMessageTimestamp*(
 method deleteOldestMessagesNotWithinLimit*(
     s: PostgresDriver, limit: int
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Capacity retention (`capacity:N`) — known gap: still row-deletes from
-  ## messages and messages_lookup, so heavy use regrows the index bloat that
-  ## #3790 removed for time/size retention. Row-count semantics cannot be
-  ## expressed as partition drops without becoming approximate; converting
-  ## this policy to hourly-drop granularity is left to a follow-up.
+  ## Known gap: capacity retention still row-deletes both tables, regrowing
+  ## index bloat under heavy use. Converting it to partition drops is a follow-up.
   (
     await s.writeConnPool.pgQuery(
       """DELETE FROM messages WHERE messageHash NOT IN
@@ -1234,12 +1231,8 @@ proc addPartition(
 
   let partitionName = "messages_" & fromInSec & "_" & untilInSec
 
-  ## Lookup sibling first: if interrupted here, the missing messages partition
-  ## makes the factory loop retry both (dropStrayLookupPartitions removes the
-  ## stray before the next attempt).
-  ## PARTITION OF takes a brief ACCESS EXCLUSIVE lock on the small
-  ## messages_lookup parent — acceptable hourly; messages avoids it below via
-  ## the detached-create + ATTACH dance because its parent sees heavy reads.
+  ## Sibling first: a crash here leaves a stray that dropStrayLookupPartitions
+  ## removes; the brief ACCESS EXCLUSIVE on the small parent is acceptable.
   let lookupPartitionName = "lookup_" & fromInSec & "_" & untilInSec
   let createLookupQuery =
     "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
@@ -1323,8 +1316,7 @@ proc refreshPartitionsInfo(
 proc getAllLookupTableNames(
     s: PostgresDriver
 ): Future[ArchiveDriverResult[seq[string]]] {.async.} =
-  ## Every table named like a lookup partition — attached to messages_lookup
-  ## or left detached by an interrupted reconcile pass.
+  ## Lookup-named tables, attached or left detached by an interrupted reconcile.
   var names: seq[string]
   proc rowCallback(pqResult: ptr PGresult) =
     for iRow in 0 ..< pqResult.pqNtuples():
@@ -1347,17 +1339,15 @@ proc getAllLookupTableNames(
 proc dropStrayLookupPartitions*(
     self: PostgresDriver
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Drops lookup tables (attached or detached) that have no messages sibling:
-  ## crash leftovers whose range could overlap the next sibling to be created
-  ## and make addPartition fail. Must run before the factory's partition
-  ## checks, else that overlap fatals the boot before the cleanup can act.
+  ## Drops lookup tables with no messages sibling (crash leftovers). Must run
+  ## before the factory's partition checks: a stray can overlap the next
+  ## sibling's range and make addPartition fail.
   let messagesPartitions = (await self.getPartitionsList()).valueOr:
     return
       err("dropStrayLookupPartitions could not list messages partitions: " & $error)
   let lookupTables = (await self.getAllLookupTableNames()).valueOr:
     return err("dropStrayLookupPartitions could not list lookup tables: " & $error)
 
-  ## Partition suffixes ("<startSec>_<endSec>") pair a lookup with its sibling.
   let messagesSuffixes = messagesPartitions.mapIt(it.replace("messages_", ""))
 
   for lookupTableName in lookupTables:
@@ -1372,15 +1362,9 @@ proc dropStrayLookupPartitions*(
 proc ensureLookupPartitions*(
     self: PostgresDriver
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Creates and backfills the lookup sibling of any messages partition that
-  ## lacks one. Runs every factory loop iteration, so it also heals gaps
-  ## opened by old-binary writers sharing the database.
-  ##
-  ## Mirrors the messages-side detached-create + CHECK + ATTACH dance so that
-  ## neither the parent's ACCESS EXCLUSIVE lock nor the advisory lock is held
-  ## for the backfill's duration. Every step is idempotent, and a sibling only
-  ## becomes attached after its backfill committed — an interruption can never
-  ## leave an empty attached partition that the existence check would skip.
+  ## Creates and backfills missing lookup siblings, newest-first, every loop
+  ## iteration. Detached create + backfill + brief ATTACH keeps parent locks
+  ## short; every step is idempotent and attach implies a completed backfill.
   let messagesPartitions = (await self.getPartitionsList()).valueOr:
     return err("ensureLookupPartitions could not list messages partitions: " & $error)
   let lookupPartitions = (await self.getPartitionsList("messages_lookup")).valueOr:
@@ -1402,8 +1386,7 @@ proc ensureLookupPartitions*(
     let untilInNanoSec = times[1] & "000000000"
     let constraintName = lookupPartitionName & "_by_range_check"
 
-    ## Detached create: no lock on the parent. INCLUDING INDEXES brings the
-    ## PK along, which the backfill's ON CONFLICT and the ATTACH both need.
+    ## INCLUDING INDEXES brings the PK, needed by ON CONFLICT and ATTACH.
     let createQuery =
       "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
       " (LIKE messages_lookup INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES);"
@@ -1411,9 +1394,8 @@ proc ensureLookupPartitions*(
       return
         err(fmt"error creating lookup partition [{lookupPartitionName}]: " & $error)
 
-    ## Deliberately NOT the lock wrapper: a failure here must abort the pass
-    ## (retried next iteration) rather than be skip-tolerated, so that a
-    ## sibling can only reach the ATTACH below with a completed backfill.
+    ## Plain query on purpose: a failure must abort the pass, never be
+    ## skip-tolerated — the ATTACH below must imply a completed backfill.
     let backfillQuery =
       "INSERT INTO " & lookupPartitionName &
       " (messageHash, timestamp) SELECT messageHash, timestamp FROM " & partitionName &
@@ -1460,9 +1442,7 @@ proc loopPartitionFactory(
   while true:
     trace "loopPartitionFactory iteration started"
 
-    ## Before the partition checks: a crash-leftover stray lookup partition
-    ## could overlap the range addPartition is about to create and fatal the
-    ## boot otherwise. Non-fatal so a transient DB error doesn't kill the node.
+    ## Must precede the partition checks (see dropStrayLookupPartitions).
     (await self.dropStrayLookupPartitions()).isOkOr:
       error "failed to drop stray lookup partitions", error = $error
 
@@ -1502,9 +1482,8 @@ proc loopPartitionFactory(
         (await self.addPartition(now)).isOkOr:
           onFatalError("could not add the next partition: " & $error)
 
-    ## Reconcile lookup siblings every pass. Runs after the partition checks
-    ## so a potentially long backfill never gates the startup partition wait
-    ## in builder.nim. Non-fatal: the next iteration retries.
+    ## After the partition checks, so a long backfill never gates builder.nim's
+    ## startup partition wait; non-fatal, the next pass retries.
     (await self.ensureLookupPartitions()).isOkOr:
       error "failed to ensure lookup partitions", error = $error
 
@@ -1545,16 +1524,13 @@ proc dropPartition(
 proc detachAndDropPartition(
     self: PostgresDriver, partition: Partition
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Detaches and drops the desired messages partition together with its
-  ## messages_lookup sibling partition (no row deletes involved).
+  ## Detaches and drops the messages partition together with its lookup sibling.
 
   let partitionName = partition.getName()
   info "beginning of detachAndDropPartition", partitionName
 
-  ## DROP takes a brief ACCESS EXCLUSIVE lock on the messages_lookup parent
-  ## (queues behind in-flight readers); fine for this small hourly table.
-  ## Drop the lookup sibling first: if interrupted below, the surviving
-  ## messages partition makes the next retention pass retry both.
+  ## Sibling first: a crash below leaves the messages partition, so the next
+  ## retention pass retries both.
   let timeRange = partition.getTimeRange()
   let lookupPartitionName = "lookup_" & $timeRange.beginning & "_" & $timeRange.`end`
   (await self.performWriteQuery("DROP TABLE IF EXISTS " & lookupPartitionName)).isOkOr:
