@@ -1230,7 +1230,8 @@ proc addPartition(
   let partitionName = "messages_" & fromInSec & "_" & untilInSec
 
   ## Lookup sibling first: if interrupted here, the missing messages partition
-  ## makes the factory loop retry both (ensureLookupPartitions drops the stray).
+  ## makes the factory loop retry both (dropStrayLookupPartitions removes the
+  ## stray before the next attempt).
   ## PARTITION OF takes a brief ACCESS EXCLUSIVE lock on the small
   ## messages_lookup parent — acceptable hourly; messages avoids it below via
   ## the detached-create + ATTACH dance because its parent sees heavy reads.
@@ -1314,29 +1315,71 @@ proc refreshPartitionsInfo(
 
   return ok()
 
-proc ensureLookupPartitions*(
+proc getAllLookupTableNames(
+    s: PostgresDriver
+): Future[ArchiveDriverResult[seq[string]]] {.async.} =
+  ## Every table named like a lookup partition — attached to messages_lookup
+  ## or left detached by an interrupted reconcile pass.
+  var names: seq[string]
+  proc rowCallback(pqResult: ptr PGresult) =
+    for iRow in 0 ..< pqResult.pqNtuples():
+      names.add($(pqgetvalue(pqResult, iRow, 0)))
+
+  (
+    await s.readConnPool.pgQuery(
+      """SELECT c.relname FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE c.relname LIKE 'lookup\_%' AND c.relkind = 'r' AND n.nspname = 'public'
+           ORDER BY c.relname ASC""",
+      newSeq[string](0),
+      rowCallback,
+    )
+  ).isOkOr:
+    return err("getAllLookupTableNames failed in query: " & $error)
+
+  return ok(names)
+
+proc dropStrayLookupPartitions*(
     self: PostgresDriver
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Reconciles the messages_lookup partitions with the messages partitions:
-  ## drops stray lookup partitions left by an interrupted addPartition (their
-  ## range could overlap the next aligned sibling and fail its creation), and
-  ## creates+backfills missing siblings. Runs every factory loop iteration, so
-  ## it also heals gaps opened by old-binary writers sharing the database.
+  ## Drops lookup tables (attached or detached) that have no messages sibling:
+  ## crash leftovers whose range could overlap the next sibling to be created
+  ## and make addPartition fail. Must run before the factory's partition
+  ## checks, else that overlap fatals the boot before the cleanup can act.
   let messagesPartitions = (await self.getPartitionsList()).valueOr:
-    return err("ensureLookupPartitions could not list messages partitions: " & $error)
-  let lookupPartitions = (await self.getPartitionsList("messages_lookup")).valueOr:
-    return err("ensureLookupPartitions could not list lookup partitions: " & $error)
+    return
+      err("dropStrayLookupPartitions could not list messages partitions: " & $error)
+  let lookupTables = (await self.getAllLookupTableNames()).valueOr:
+    return err("dropStrayLookupPartitions could not list lookup tables: " & $error)
 
   ## Partition suffixes ("<startSec>_<endSec>") pair a lookup with its sibling.
   let messagesSuffixes = messagesPartitions.mapIt(it.replace("messages_", ""))
 
-  ## Drop strays first: a stray's range can overlap a sibling about to be created.
-  for lookupPartitionName in lookupPartitions:
-    if lookupPartitionName.replace("lookup_", "") in messagesSuffixes:
+  for lookupTableName in lookupTables:
+    if lookupTableName.replace("lookup_", "") in messagesSuffixes:
       continue
-    info "dropping stray lookup partition", lookupPartitionName
-    (await self.performWriteQuery("DROP TABLE IF EXISTS " & lookupPartitionName)).isOkOr:
-      return err(fmt"error dropping stray [{lookupPartitionName}]: " & $error)
+    info "dropping stray lookup partition", lookupTableName
+    (await self.performWriteQuery("DROP TABLE IF EXISTS " & lookupTableName)).isOkOr:
+      return err(fmt"error dropping stray [{lookupTableName}]: " & $error)
+
+  return ok()
+
+proc ensureLookupPartitions*(
+    self: PostgresDriver
+): Future[ArchiveDriverResult[void]] {.async.} =
+  ## Creates and backfills the lookup sibling of any messages partition that
+  ## lacks one. Runs every factory loop iteration, so it also heals gaps
+  ## opened by old-binary writers sharing the database.
+  ##
+  ## Mirrors the messages-side detached-create + CHECK + ATTACH dance so that
+  ## neither the parent's ACCESS EXCLUSIVE lock nor the advisory lock is held
+  ## for the backfill's duration. Every step is idempotent, and a sibling only
+  ## becomes attached after its backfill committed — an interruption can never
+  ## leave an empty attached partition that the existence check would skip.
+  let messagesPartitions = (await self.getPartitionsList()).valueOr:
+    return err("ensureLookupPartitions could not list messages partitions: " & $error)
+  let lookupPartitions = (await self.getPartitionsList("messages_lookup")).valueOr:
+    return err("ensureLookupPartitions could not list lookup partitions: " & $error)
 
   ## Newest-first, so the partition receiving current writes heals first.
   for i in countdown(messagesPartitions.high, 0):
@@ -1350,18 +1393,47 @@ proc ensureLookupPartitions*(
     if times.len != 2:
       return err(fmt"ensureLookupPartitions wrong partition name {partitionName}")
 
-    ## Create and backfill in one protected DO block (a single transaction):
-    ## an interruption can never leave an empty partition behind, which the
-    ## existence check above would then skip forever.
-    let createAndBackfill =
+    let fromInNanoSec = times[0] & "000000000"
+    let untilInNanoSec = times[1] & "000000000"
+    let constraintName = lookupPartitionName & "_by_range_check"
+
+    ## Detached create: no lock on the parent. INCLUDING INDEXES brings the
+    ## PK along, which the backfill's ON CONFLICT and the ATTACH both need.
+    let createQuery =
       "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
-      " PARTITION OF messages_lookup FOR VALUES FROM (" & times[0] & "000000000) TO (" &
-      times[1] & "000000000);" &
-      " INSERT INTO messages_lookup (messageHash, timestamp) SELECT messageHash, timestamp FROM " &
-      partitionName & " ON CONFLICT DO NOTHING;"
-    (await self.performWriteQueryWithLock(createAndBackfill)).isOkOr:
+      " (LIKE messages_lookup INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES);"
+    (await self.performWriteQueryWithLock(createQuery)).isOkOr:
       return
         err(fmt"error creating lookup partition [{lookupPartitionName}]: " & $error)
+
+    ## Deliberately NOT the lock wrapper: a failure here must abort the pass
+    ## (retried next iteration) rather than be skip-tolerated, so that a
+    ## sibling can only reach the ATTACH below with a completed backfill.
+    let backfillQuery =
+      "INSERT INTO " & lookupPartitionName &
+      " (messageHash, timestamp) SELECT messageHash, timestamp FROM " & partitionName &
+      " ON CONFLICT DO NOTHING;"
+    (await self.performWriteQuery(backfillQuery)).isOkOr:
+      return err(fmt"error backfilling [{lookupPartitionName}]: " & $error)
+
+    ## The CHECK lets ATTACH validate without a scan, so its lock is brief.
+    let addConstraintQuery =
+      "ALTER TABLE " & lookupPartitionName & " ADD CONSTRAINT " & constraintName &
+      " CHECK ( timestamp >= " & fromInNanoSec & " AND timestamp < " & untilInNanoSec &
+      " );"
+    (await self.performWriteQueryWithLock(addConstraintQuery)).isOkOr:
+      return err(fmt"error adding constraint [{lookupPartitionName}]: " & $error)
+
+    let attachQuery =
+      "ALTER TABLE messages_lookup ATTACH PARTITION " & lookupPartitionName &
+      " FOR VALUES FROM (" & fromInNanoSec & ") TO (" & untilInNanoSec & ");"
+    (await self.performWriteQueryWithLock(attachQuery)).isOkOr:
+      return err(fmt"error attaching [{lookupPartitionName}]: " & $error)
+
+    let dropConstraintQuery =
+      "ALTER TABLE " & lookupPartitionName & " DROP CONSTRAINT " & constraintName & ";"
+    (await self.performWriteQueryWithLock(dropConstraintQuery)).isOkOr:
+      return err(fmt"error dropping constraint [{lookupPartitionName}]: " & $error)
 
     info "created and backfilled lookup partition", lookupPartitionName
 
@@ -1382,6 +1454,13 @@ proc loopPartitionFactory(
 
   while true:
     trace "loopPartitionFactory iteration started"
+
+    ## Before the partition checks: a crash-leftover stray lookup partition
+    ## could overlap the range addPartition is about to create and fatal the
+    ## boot otherwise. Non-fatal so a transient DB error doesn't kill the node.
+    (await self.dropStrayLookupPartitions()).isOkOr:
+      error "failed to drop stray lookup partitions", error = $error
+
     (await self.dropOrphanPartitions()).isOkOr:
       onFatalError("error when dropping orphan partitions: " & $error)
 

@@ -219,25 +219,35 @@ suite "Postgres driver":
 
     check (await driver.getMessages(hashes = @[hash])).expect("healed query").len == 1
 
-  asyncTest "ensureLookupPartitions drops stray lookup partitions":
-    ## A crash between sibling creations can leave a lookup partition with no
-    ## messages sibling; unremoved, its range could overlap a future sibling
-    ## and make addPartition fail. The reconcile pass must drop it.
-    const strayName = "lookup_4102444800_4102448400" ## far future: year 2100
+  asyncTest "dropStrayLookupPartitions removes attached and detached strays":
+    ## A crash can leave a lookup partition with no messages sibling — either
+    ## attached (addPartition interrupted) or detached (reconcile interrupted).
+    ## Unremoved, an attached stray's range could overlap a future sibling and
+    ## make addPartition fatal on boot; the cleanup must drop both kinds.
+    const attachedStray = "lookup_4102444800_4102448400" ## far future: year 2100
+    const detachedStray = "lookup_4102448400_4102452000"
 
     let rawPool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("raw pool")
     (
       await rawPool.pgQuery(
-        "CREATE TABLE IF NOT EXISTS " & strayName &
+        "CREATE TABLE IF NOT EXISTS " & attachedStray &
           " PARTITION OF messages_lookup FOR VALUES FROM (4102444800000000000) TO (4102448400000000000);"
       )
-    ).expect("create stray")
+    ).expect("create attached stray")
+    (
+      await rawPool.pgQuery(
+        "CREATE TABLE IF NOT EXISTS " & detachedStray &
+          " (timestamp BIGINT NOT NULL, messageHash VARCHAR NOT NULL);"
+      )
+    ).expect("create detached stray")
     (await rawPool.close()).expect("close raw pool")
 
-    check strayName in
+    check attachedStray in
       (await driver.getPartitionsList("messages_lookup")).expect("lookup list")
+    check (await driver.existsTable(detachedStray)).expect("existsTable")
 
-    (await driver.ensureLookupPartitions()).expect("ensureLookupPartitions")
+    (await driver.dropStrayLookupPartitions()).expect("dropStrayLookupPartitions")
 
-    check strayName notin
+    check attachedStray notin
       (await driver.getPartitionsList("messages_lookup")).expect("lookup list")
+    check not (await driver.existsTable(detachedStray)).expect("existsTable")
