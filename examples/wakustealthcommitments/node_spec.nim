@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import tools/confutils/cli_args
+import tools/confutils/kernel_cli_args
 import logos_delivery/waku/[common/logging, waku, factory/networks_config]
 import
   results,

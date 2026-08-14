@@ -6,6 +6,7 @@ import logos_delivery
 import logos_delivery/api/conf/logos_delivery_conf_json
 import logos_delivery/waku/factory/[waku_conf, networks_config]
 import logos_delivery/waku/common/logging
+import tools/confutils/cli_args
 
 suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
   test "Core mode enables relay + service protocols":
@@ -301,8 +302,20 @@ suite "parseLogosDeliveryConf - JSON parsing":
     # surface as an unknown key.
     check parseLogosDeliveryConf("""{"mode": "core", "kernelConf": {}}""").isErr()
 
+  test "mode with the kernel entry layer is rejected":
+    check parseLogosDeliveryConf(
+      """{"entrylayer": "kernel", "mode": "edge", "kernelConf": {}}"""
+    )
+      .isErr()
+
+  test "channelsOverrides with the messaging entry layer is rejected":
+    check parseLogosDeliveryConf(
+      """{"entrylayer": "messaging", "channelsOverrides": {}}"""
+    )
+      .isErr()
+
 suite "LogosDelivery.new - construction (the app-dev entry)":
-  asyncTest "builds the full messaging stack from mode + overrides":
+  asyncTest "builds the messaging stack from mode + overrides":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (
@@ -315,6 +328,25 @@ suite "LogosDelivery.new - construction (the app-dev entry)":
             listenIpv4: Opt.some(parseIpAddress("0.0.0.0")),
             reliabilityEnabled: Opt.some(true),
           ),
+        )
+      ).valueOr:
+        raiseAssert error
+    check:
+      not node.waku.isNil()
+      not node.messagingClient.isNil()
+      node.reliableChannelManager.isNil() # no channels config: layer stays unmounted
+    (await node.stop()).expect("stop")
+
+  asyncTest "builds the full channels stack when a channels config is passed":
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          mode = LogosDeliveryMode.Core,
+          preset = "",
+          messagingOverrides =
+            MessagingClientConf(listenIpv4: Opt.some(parseIpAddress("0.0.0.0"))),
+          channelsOverrides = ReliableChannelManagerConf(),
         )
       ).valueOr:
         raiseAssert error
@@ -347,7 +379,9 @@ suite "MessagingClientConf - store override":
       raiseAssert error
     check:
       kc.store == true # Edge defaults store off; the explicit opt-in wins
-      kc.relay == false # protocols are owned by the mode, not overridable
+      kc.relay == false
+        # MessagingClientConf has no relay field (per spec); only the mode
+        # sets relay on the library API path
 
 suite "LogosDelivery.new - raw kernel construction":
   asyncTest "a kernel-only node mounts the kernel only; start/stop tolerate the nil layers":
@@ -446,3 +480,78 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     # not flip to flat; the leftover bare field (relay) then has no structured home and
     # is rejected. Guards against the discriminator silently splitting a mixed object.
     check parseLogosDeliveryConf("""{"messagingOverrides": {}, "relay": true}""").isErr()
+
+suite "LogosDeliveryConf - mount height from config presence":
+  test "library API init without channels config mounts no channels layer":
+    let res = LogosDeliveryConf.init(
+      mode = LogosDeliveryMode.Core,
+      preset = "",
+      messagingOverrides = MessagingClientConf(),
+    )
+    check:
+      res.isOk()
+      res.get().messagingConf.isSome()
+      res.get().channelsConf.isNone()
+
+  test "library API init with channels config mounts the channels layer":
+    let res = LogosDeliveryConf.init(
+      mode = LogosDeliveryMode.Core,
+      preset = "",
+      messagingOverrides = MessagingClientConf(),
+      channelsOverrides = Opt.some(ReliableChannelManagerConf()),
+    )
+    check:
+      res.isOk()
+      res.get().messagingConf.isSome()
+      res.get().channelsConf.isSome()
+
+suite "LogosDeliveryNodeConf - CLI frontend translation (resolveCliConf)":
+  proc cliConf(
+      entryLayer: EntryLayer, mode = Opt.none(LogosDeliveryMode)
+  ): LogosDeliveryNodeConf =
+    var conf = defaultLogosDeliveryNodeConf().expect("defaults")
+    conf.entryLayer = entryLayer
+    conf.mode = mode
+    return conf
+
+  test "kernel entry: no upper layers; no mode is applied":
+    let plan = resolveCliConf(cliConf(EntryLayer.kernel)).expect("translate")
+    check:
+      plan.messagingConf.isNone()
+      plan.channelsConf.isNone()
+      plan.wakuConf.relay == false # no mode ran; the builder default applies
+
+  test "kernel entry rejects an explicit mode":
+    check resolveCliConf(cliConf(EntryLayer.kernel, Opt.some(LogosDeliveryMode.Edge)))
+      .isErr()
+
+  test "channels entry: both layer configs present; the mode runs":
+    let plan = resolveCliConf(
+        cliConf(EntryLayer.channels, Opt.some(LogosDeliveryMode.Edge))
+      )
+      .expect("translate")
+    check:
+      plan.messagingConf.isSome()
+      plan.channelsConf.isSome()
+      plan.wakuConf.relay == false # set by the Edge mode
+
+  test "an unset mode resolves to Core":
+    let plan = resolveCliConf(cliConf(EntryLayer.messaging)).expect("translate")
+    check:
+      plan.channelsConf.isNone()
+      plan.wakuConf.relay == true # set by the Core mode
+
+  test "an explicit flag has priority over the mode":
+    var conf = cliConf(EntryLayer.channels)
+    conf.relay = Opt.some(false)
+    let plan = resolveCliConf(conf).expect("translate")
+    check plan.wakuConf.relay == false # explicit wins over Core
+
+  test "the preset's messaging fields reach the messaging layer":
+    var conf = cliConf(EntryLayer.messaging)
+    conf.preset = "twn"
+    let plan = resolveCliConf(conf).expect("translate")
+    check:
+      # TWN sets p2pReliability off; the hard default is on. The flat-JSON and
+      # library API paths resolve this too, so all doors agree.
+      plan.messagingConf.get().reliabilityEnabled == Opt.some(false)

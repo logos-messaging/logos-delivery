@@ -26,11 +26,11 @@ import ../testlib/[wakucore, testasync]
 ## the same context the send/recv services emit on — so we do not depend on real
 ## network delivery.
 
-proc restNodeConf(): WakuNodeConf =
-  var conf = defaultWakuNodeConf().valueOr:
+proc restNodeConf(): LogosDeliveryNodeConf =
+  var conf = defaultLogosDeliveryNodeConf().valueOr:
     raiseAssert error
   conf.entryLayer = EntryLayer.messaging
-  conf.mode = LogosDeliveryMode.Core
+  conf.mode = Opt.some(LogosDeliveryMode.Core)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

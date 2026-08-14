@@ -82,10 +82,10 @@ proc waitForConnectionStatus(
   finally:
     await EventConnectionStatusChange.dropListener(brokerCtx, handle)
 
-proc createApiNodeConf(numShards: uint16 = 1): WakuNodeConf =
-  var conf = MessagingClientConf()
-    .toWakuNodeConf(messaging_conf.LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
+proc createApiNodeConf(numShards: uint16 = 1): LogosDeliveryNodeConf =
+  var conf = defaultLogosDeliveryNodeConf().valueOr:
+    raiseAssert error
+  conf.mode = Opt.some(messaging_conf.LogosDeliveryMode.Core)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

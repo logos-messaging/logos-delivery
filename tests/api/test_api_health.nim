@@ -91,8 +91,9 @@ suite "LM API health checking":
     serviceNode.wakuRelay.subscribe(DefaultShard, dummyHandler)
 
     lockNewGlobalBrokerContext:
-      var conf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
-          raiseAssert error
+      var conf = defaultLogosDeliveryNodeConf().valueOr:
+        raiseAssert error
+      conf.mode = Opt.some(Core)
       conf.listenAddress = parseIpAddress("0.0.0.0")
       conf.tcpPort = Port(0)
       conf.discv5UdpPort = Port(0)
@@ -271,8 +272,9 @@ suite "LM API health checking":
     var edgeWaku: LogosDelivery
 
     lockNewGlobalBrokerContext:
-      var edgeConf = MessagingClientConf().toWakuNodeConf(Edge).valueOr:
-          raiseAssert error
+      var edgeConf = defaultLogosDeliveryNodeConf().valueOr:
+        raiseAssert error
+      edgeConf.mode = Opt.some(Edge)
       edgeConf.listenAddress = parseIpAddress("0.0.0.0")
       edgeConf.tcpPort = Port(0)
       edgeConf.discv5UdpPort = Port(0)

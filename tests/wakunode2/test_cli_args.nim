@@ -11,7 +11,7 @@ import
   confutils,
   stint
 
-import tools/confutils/cli_args
+import tools/confutils/kernel_cli_args
 
 import
   ../../logos_delivery/waku/factory/networks_config,

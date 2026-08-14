@@ -2,7 +2,7 @@
 
 import results, testutils/unittests
 import
-  tools/confutils/cli_args,
+  tools/confutils/kernel_cli_args,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/factory/networks_config
 

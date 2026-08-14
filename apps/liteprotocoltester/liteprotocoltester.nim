@@ -11,7 +11,7 @@ import
   confutils
 
 import
-  tools/confutils/cli_args,
+  tools/confutils/kernel_cli_args,
   logos_delivery/waku/[
     common/enr,
     common/logging,

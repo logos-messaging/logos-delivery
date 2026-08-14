@@ -61,34 +61,12 @@ type MessagingClientConf* = object
     ## pragma or `parseCmdArg`, it is not reachable from the JSON config or a
     ## CLI flag.
 
-proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
-  ## Sets the protocol flags implied by the mode.
-  case mode
-  of LogosDeliveryMode.Core:
-    conf.relay = true
-    conf.filter = true
-    conf.lightpush = true
-    conf.discv5Discovery = Opt.some(true)
-    conf.peerExchange = true
-    conf.rendezvous = true
-  of LogosDeliveryMode.Edge:
-    conf.peerExchange = true
-    conf.relay = false
-    conf.filter = false
-    conf.lightpush = false
-    conf.store = false
-  return ok()
-
 proc toWakuNodeConf*(
     self: MessagingClientConf, mode: LogosDeliveryMode
 ): ConfResult[WakuNodeConf] =
   ## Mode sets the protocol flags; set fields map to their kernel counterpart.
   var conf = ?defaultWakuNodeConf()
-  ?applyMode(conf, mode)
-  # Keep the `mode` field consistent with the applied flags so a later
-  # `LogosDelivery.new(WakuNodeConf)` re-application is idempotent instead of
-  # clobbering these flags with the field's default (`Core`).
-  conf.mode = mode
+  applyMode(conf, mode)
 
   if self.store.isSome():
     conf.store = self.store.get()

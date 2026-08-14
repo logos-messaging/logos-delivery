@@ -19,11 +19,10 @@ import ../testlib/testasync
 ##   messaging -> waku + messagingClient
 ##   channels  -> waku + messagingClient + reliableChannelManager
 
-proc nodeConf(entryLayer: EntryLayer, rest = false): WakuNodeConf =
-  var conf = defaultWakuNodeConf().valueOr:
+proc nodeConf(entryLayer: EntryLayer, rest = false): LogosDeliveryNodeConf =
+  var conf = defaultLogosDeliveryNodeConf().valueOr:
     raiseAssert error
   conf.entryLayer = entryLayer
-  conf.mode = LogosDeliveryMode.Core
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

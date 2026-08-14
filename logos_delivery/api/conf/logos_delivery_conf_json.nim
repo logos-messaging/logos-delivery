@@ -79,7 +79,7 @@ proc parseFlatConf(
   # the mode's protocol flags (the kernel no longer owns `mode`, so we expand it here,
   # like the old kernel builder did), then let explicit fields override.
   var kernel = ?defaultWakuNodeConf()
-  ?applyMode(kernel, mode)
+  applyMode(kernel, mode)
   ?applyJsonFieldsToConf(
     kernel, topJsonNode, "Failed to parse config field",
     "Unrecognized configuration option(s) found",
@@ -111,12 +111,14 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
   var top = ?collectJsonFields(node)
 
   var mode = LogosDeliveryMode.Core
+  var hasMode = false
   if top.hasKey(KeyMode):
     let (_, v) = top.getOrDefault(KeyMode)
     if v.kind != JString:
       return err("mode must be a string")
     mode = ?parseMode(v.getStr())
     top.del(KeyMode)
+    hasMode = true
 
   var entryLayer = EntryLayer.channels
   if top.hasKey(KeyEntryLayer):
@@ -127,7 +129,11 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
     top.del(KeyEntryLayer)
 
   if entryLayer == EntryLayer.kernel:
-    # Kernel-only: a raw kernelConf and no upper layers; mode is ignored.
+    # User has given a mode but the kernel entry layer takes no mode.
+    # That's inconsistent, so fail.
+    if hasMode:
+      return err("mode requires the 'messaging' or 'channels' entry layer")
+    # Kernel-only: a raw kernelConf and no upper layers.
     if not top.hasKey(KeyKernelConf):
       return err("kernel entry layer requires a 'kernelConf' object")
     let (_, v) = top.getOrDefault(KeyKernelConf)
@@ -170,21 +176,34 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
     messagingOverrides = ?parseOverrides(MessagingClientConf(), v, "messagingOverrides")
     top.del(KeyMessagingOverrides)
 
+  var hasChannelsOverrides = false
   if top.hasKey(KeyChannelsOverrides):
     let (_, v) = top.getOrDefault(KeyChannelsOverrides)
     channelsOverrides =
       ?parseOverrides(ReliableChannelManagerConf(), v, "channelsOverrides")
     top.del(KeyChannelsOverrides)
+    hasChannelsOverrides = true
 
   if top.len > 0:
     return err(unknownKeysError(top, "Unrecognized configuration option(s) found"))
 
+  # If channels are being requested, give whatever channelsOverrides we have
+  # at this point (either the defaults or parsed from user-given channels config).
+  if entryLayer == EntryLayer.channels:
+    return LogosDeliveryConf.init(
+      mode = mode,
+      preset = preset,
+      messagingOverrides = messagingOverrides,
+      channelsOverrides = Opt.some(channelsOverrides),
+    )
+
+  # User has given channelsOverrides but has requested a lower mount height.
+  # That's inconsistent, so fail.
+  if hasChannelsOverrides:
+    return err("channelsOverrides requires the 'channels' entry layer")
+
   return LogosDeliveryConf.init(
-    entryLayer = entryLayer,
-    mode = mode,
-    preset = preset,
-    messagingOverrides = messagingOverrides,
-    channelsOverrides = channelsOverrides,
+    mode = mode, preset = preset, messagingOverrides = messagingOverrides
   )
 
 {.pop.}
