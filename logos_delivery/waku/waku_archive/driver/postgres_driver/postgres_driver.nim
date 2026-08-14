@@ -1032,6 +1032,11 @@ method getNewestMessageTimestamp*(
 method deleteOldestMessagesNotWithinLimit*(
     s: PostgresDriver, limit: int
 ): Future[ArchiveDriverResult[void]] {.async.} =
+  ## Capacity retention (`capacity:N`) — known gap: still row-deletes from
+  ## messages and messages_lookup, so heavy use regrows the index bloat that
+  ## #3790 removed for time/size retention. Row-count semantics cannot be
+  ## expressed as partition drops without becoming approximate; converting
+  ## this policy to hourly-drop granularity is left to a follow-up.
   (
     await s.writeConnPool.pgQuery(
       """DELETE FROM messages WHERE messageHash NOT IN
@@ -1540,8 +1545,8 @@ proc dropPartition(
 proc detachAndDropPartition(
     self: PostgresDriver, partition: Partition
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Detaches and drops the desired partition and also removes the rows from messages_lookup table
-  ## whose rows belong to the partition time range
+  ## Detaches and drops the desired messages partition together with its
+  ## messages_lookup sibling partition (no row deletes involved).
 
   let partitionName = partition.getName()
   info "beginning of detachAndDropPartition", partitionName
