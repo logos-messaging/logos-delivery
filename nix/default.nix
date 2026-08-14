@@ -305,6 +305,40 @@ pkgs.stdenv.mkDerivation {
         "--nimMainPrefix:liblogosdelivery"
       ] ++ cBindingsArgs;
     }}
+
+    # nim-ffi emits its generated binding with `outputDir / name`, and Nim's `/`
+    # normalises to the TARGET's separator. Building for Windows from a Linux
+    # host makes that a BACKSLASH, and it converts the WHOLE path, not just the
+    # final join -- so an absolute -d:ffiOutputDir=/build/.../library/generated
+    # becomes the single relative filename
+    #
+    #     \build\...\library\generated\logosdelivery.h
+    #
+    # which the compile-time writeFile then creates in the CURRENT directory.
+    # The requested output directory is left empty and the header appears at the
+    # source root under a name nothing looks for.
+    #
+    # Reduced to a 7-line program rather than inferred. The same file built
+    # natively and with --os:windows:
+    #
+    #     native : out/mylib.h, out/CMakeLists.txt
+    #     windows: ./\tmp\ffi2\out\mylib.h, ./\tmp\ffi2\out\CMakeLists.txt
+    #
+    # That is why liblogosdelivery.h -- which #includes generated/logosdelivery.h
+    # -- could never be compiled against on Windows. Convert the separators back
+    # and move each file where it was meant to go. Inert on a native target,
+    # where the name never contains a backslash and this loop matches nothing.
+    #
+    # The root cause belongs upstream in nim-ffi: its emitter runs on the HOST at
+    # compile time, so it must use host path semantics, not the target's.
+    while IFS= read -r bs; do
+      [ -e "$bs" ] || continue
+      target=$(printf '%s' "''${bs#./}" | tr '\\' '/')
+      case "$target" in /*) ;; *) target="$PWD/$target" ;; esac
+      mkdir -p "$(dirname "$target")"
+      mv -f "$bs" "$target"
+      echo "normalised cross-DirSep artifact -> $target"
+    done < <(find . -maxdepth 1 -type f -name '*\\*' 2>/dev/null)
     ''}
   '';
 
@@ -330,28 +364,32 @@ ${lib.optionalString isWindows ''
     cp library/liblogosdelivery.h        $out/include/ 2>/dev/null || true
     cp library/liblogosdelivery_kernel.h $out/include/ 2>/dev/null || true
 
-    # liblogosdelivery.h is unusable without this one; ship it at the relative
-    # path the #include expects, and fail loudly rather than install a header
-    # that cannot be compiled against.
-    # The generated C binding. nim-ffi emits it only when the ffiGenBindings
-    # defines above are set AND Nim's VM is allowed to touch the filesystem
-    # (--experimental:vmopsDanger) -- without the latter its compile-time
-    # createDir/writeFile silently do nothing, which is why this header has
-    # never been produced. That is sufficient on a native target; on a Windows
-    # target nothing is written even so, so install it best-effort rather than
-    # fail the build over the remaining half of a pre-existing bug (#4121).
+    # The generated C binding. liblogosdelivery.h #includes it, so an include/
+    # without it cannot be compiled against at all -- which is how this surfaced:
+    # every consumer died on "fatal error: generated/logosdelivery.h: No such
+    # file or directory".
+    #
+    # Two things had to be true for it to appear, and both are handled above:
+    # nim-ffi emits via compile-time createDir/writeFile, which Nim gates behind
+    # --experimental:vmopsDanger (without it both calls silently do nothing), and
+    # on a cross-to-Windows build the path it writes to is joined with the
+    # TARGET's backslash, which the normalisation in buildPhase puts back.
+    #
+    # Now that both halves are fixed, a missing header is a real regression, so
+    # fail instead of shipping an include/ that cannot compile.
     if [ -f ${cBindingsDir}/logosdelivery.h ]; then
       mkdir -p $out/include/generated
       cp ${cBindingsDir}/logosdelivery.h $out/include/generated/
     elif grep -q 'generated/logosdelivery.h' library/liblogosdelivery.h 2>/dev/null; then
-      # Pre-existing and NOT introduced here: liblogosdelivery.h #includes
-      # generated/logosdelivery.h, but genBindings() emits nothing, so the
-      # installed include/ cannot be compiled against. The defines above are
-      # enough on a native target; on a Windows target nothing is written at
-      # all. Tracked upstream -- warn rather than fail, so this does not turn a
-      # pre-existing bug into a build break.
-      echo "warning: genBindings() produced no generated/logosdelivery.h;" >&2
-      echo "         the installed include/ is incomplete (see logos-delivery#4121)." >&2
+      echo "error: genBindings() produced no ${cBindingsDir}/logosdelivery.h," >&2
+      echo "       but library/liblogosdelivery.h #includes generated/logosdelivery.h." >&2
+      echo "       The installed include/ would not compile. See logos-delivery#4121." >&2
+      echo "       Contents of ${cBindingsDir}:" >&2
+      ls -la ${cBindingsDir} >&2 || true
+      echo "       Any files still carrying a target-separator name (the" >&2
+      echo "       normalisation above should have moved these):" >&2
+      find . -maxdepth 1 -type f -name '*\\*' >&2 2>/dev/null || true
+      exit 1
     fi
     runHook postInstall
   '';
