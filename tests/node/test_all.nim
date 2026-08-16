@@ -9,4 +9,5 @@ import
   ./test_wakunode_peer_manager,
   ./test_wakunode_health_monitor,
   ./test_wakunode_restart,
-  ./test_wakunode_sharding
+  ./test_wakunode_sharding,
+  ./peer_manager/test_all

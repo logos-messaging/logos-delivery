@@ -1,5 +1,7 @@
-import unittest, nimcrypto, std/sequtils, results
-import ../../logos_delivery/waku/waku_store_sync/[reconciliation, common]
+{.used.}
+
+import testutils/unittests, nimcrypto, std/sequtils, results
+import ../../logos_delivery/waku/waku_store_sync/common
 import ../../logos_delivery/waku/waku_store_sync/storage/seq_storage
 import ../../logos_delivery/waku/waku_core/message/digest
 import ../../logos_delivery/waku/waku_core/topics/pubsub_topic
@@ -15,7 +17,7 @@ proc toDigest(s: string): WakuMessageHash =
 proc `..`(a, b: SyncID): Slice[SyncID] =
   Slice[SyncID](a: a, b: b)
 
-suite "Waku Sync – reconciliation":
+suite "Waku Sync: range splitting":
   test "fan-out: eight fingerprint sub-ranges for large slice":
     const N = 2_048
     const mismatchI = 70

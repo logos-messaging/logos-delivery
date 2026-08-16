@@ -30,11 +30,7 @@ when os == "Linux" and
     ./wakunode_rest/test_all
 
 # Waku store test suite
-import
-  ./waku_store/test_client,
-  ./waku_store/test_rpc_codec,
-  ./waku_store/test_waku_store,
-  ./waku_store/test_wakunode_store
+import ./waku_store/test_all
 
 # Waku store sync suite
 import ./waku_store_sync/test_all
@@ -54,6 +50,8 @@ import
   ./test_wakunode,
   ./test_peer_store_extended,
   ./test_message_cache,
+  ./test_utils_compat,
+  ./test_waku_protobufs,
   ./test_peer_manager,
   ./test_peer_storage,
   ./test_waku_keepalive,
