@@ -5,7 +5,7 @@ import std/net, testutils/unittests, chronos, results
 import
   logos_delivery/waku/[
     node/peer_manager,
-    node/waku_node,
+    waku_node,
     waku_core,
     waku_store/resume,
     waku_store/common,

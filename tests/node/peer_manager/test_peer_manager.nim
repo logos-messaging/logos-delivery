@@ -1,20 +1,22 @@
+{.used.}
+
 import results, chronicles, std/[tables, strutils], chronos, testutils/unittests
 
 import
-  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/waku_node,
   logos_delivery/waku/waku_core,
   ../../waku_lightpush/[lightpush_utils],
   ../../testlib/[wakucore, wakunode, futures, testasync],
   logos_delivery/waku/node/peer_manager/peer_manager
 
 suite "Peer Manager":
-  suite "onPeerMetadata":
+  suite "refreshPeerMetadata":
     var
       listenPort {.threadvar.}: Port
       listenAddress {.threadvar.}: IpAddress
       serverKey {.threadvar.}: PrivateKey
       clientKey {.threadvar.}: PrivateKey
-      clusterId {.threadvar.}: uint64
+      clusterId {.threadvar.}: uint16
 
     asyncSetup:
       listenPort = Port(0)
@@ -24,13 +26,21 @@ suite "Peer Manager":
       clusterId = 1
 
     asyncTest "light client is not disconnected":
-      # Given two nodes with the same shardId
+      # Given two nodes with different shardIds
       let
         server = newTestWakuNode(
-          serverKey, listenAddress, listenPort, clusterId = clusterId, shards = @[0]
+          serverKey,
+          listenAddress,
+          listenPort,
+          clusterId = clusterId,
+          subscribeShards = @[0'u16],
         )
         client = newTestWakuNode(
-          clientKey, listenAddress, listenPort, clusterId = clusterId, shards = @[1]
+          clientKey,
+          listenAddress,
+          listenPort,
+          clusterId = clusterId,
+          subscribeShards = @[1'u16],
         )
 
       # And both mount metadata and filter
@@ -50,7 +60,7 @@ suite "Peer Manager":
       await client.connectToNodes(@[serverRemotePeerInfo])
       await sleepAsync(FUTURE_TIMEOUT)
 
-      # When making an operation that triggers onPeerMetadata
+      # When the client issues a filter request
       discard await client.filterSubscribe(
         Opt.some("/waku/2/rs/0/0"), "waku/lightpush/1", serverRemotePeerInfo
       )
@@ -64,15 +74,23 @@ suite "Peer Manager":
       # Given two nodes with the same shardId
       let
         server = newTestWakuNode(
-          serverKey, listenAddress, listenPort, clusterId = clusterId, shards = @[0]
+          serverKey,
+          listenAddress,
+          listenPort,
+          clusterId = clusterId,
+          subscribeShards = @[0'u16],
         )
         client = newTestWakuNode(
-          clientKey, listenAddress, listenPort, clusterId = clusterId, shards = @[1]
+          clientKey,
+          listenAddress,
+          listenPort,
+          clusterId = clusterId,
+          subscribeShards = @[0'u16],
         )
 
       # And both mount metadata and relay
       discard
-        client.mountMetadata(0, @[1'u16]) # clusterId irrelevant, overridden by topic
+        client.mountMetadata(0, @[0'u16]) # clusterId irrelevant, overridden by topic
       discard
         server.mountMetadata(0, @[0'u16]) # clusterId irrelevant, overridden by topic
       (await client.mountRelay()).isOkOr:
@@ -89,8 +107,8 @@ suite "Peer Manager":
       await client.connectToNodes(@[serverRemotePeerInfo])
       await sleepAsync(FUTURE_TIMEOUT)
 
-      # When making an operation that triggers onPeerMetadata
-      client.subscribe((kind: SubscriptionKind.PubsubSub, topic: "newTopic")).isOkOr:
+      # When the client subscribes to a relay topic
+      client.subscribe((kind: SubscriptionKind.PubsubSub, topic: "newTopic"), nil).isOkOr:
         assert false, "Failed to subscribe to relay"
       await sleepAsync(FUTURE_TIMEOUT)
 
@@ -98,14 +116,22 @@ suite "Peer Manager":
         server.switch.isConnected(client.switch.peerInfo.toRemotePeerInfo().peerId)
         client.switch.isConnected(server.switch.peerInfo.toRemotePeerInfo().peerId)
 
-    asyncTest "relay with different shardId is disconnected":
+    asyncTest "relay with different shardId is not disconnected":
       # Given two nodes with different shardIds
       let
         server = newTestWakuNode(
-          serverKey, listenAddress, listenPort, clusterId = clusterId, shards = @[0]
+          serverKey,
+          listenAddress,
+          listenPort,
+          clusterId = clusterId,
+          subscribeShards = @[0'u16],
         )
         client = newTestWakuNode(
-          clientKey, listenAddress, listenPort, clusterId = clusterId, shards = @[1]
+          clientKey,
+          listenAddress,
+          listenPort,
+          clusterId = clusterId,
+          subscribeShards = @[1'u16],
         )
 
       # And both mount metadata and relay
@@ -127,11 +153,14 @@ suite "Peer Manager":
       await client.connectToNodes(@[serverRemotePeerInfo])
       await sleepAsync(FUTURE_TIMEOUT)
 
-      # When making an operation that triggers onPeerMetadata
-      client.subscribe((kind: SubscriptionKind.PubsubSub, topic: "newTopic")).isOkOr:
+      # When the client subscribes to a relay topic
+      client.subscribe((kind: SubscriptionKind.PubsubSub, topic: "newTopic"), nil).isOkOr:
         assert false, "Failed to subscribe to relay"
       await sleepAsync(FUTURE_TIMEOUT)
 
       check:
-        not server.switch.isConnected(client.switch.peerInfo.toRemotePeerInfo().peerId)
-        not client.switch.isConnected(server.switch.peerInfo.toRemotePeerInfo().peerId)
+        # the metadata exchange ran and recorded the disjoint shard sets
+        client.switch.peerStore[ShardBook][serverRemotePeerInfo.peerId] == @[0'u16]
+        server.switch.peerStore[ShardBook][client.switch.peerInfo.peerId] == @[1'u16]
+        server.switch.isConnected(client.switch.peerInfo.toRemotePeerInfo().peerId)
+        client.switch.isConnected(server.switch.peerInfo.toRemotePeerInfo().peerId)

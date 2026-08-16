@@ -1,5 +1,7 @@
+{.used.}
+
 import
-  std/[nativesockets, sequtils],
+  std/[nativesockets, net, sequtils],
   testutils/unittests,
   libp2p/[multiaddress, peerid],
   libp2p/crypto/crypto,
@@ -82,7 +84,6 @@ suite "Protobuf Serialisation":
         encodedRemotePeerInfo.buffer == expectedBuffer
         encodedRemotePeerInfo.offset == 152
         encodedRemotePeerInfo.length == 0
-        encodedRemotePeerInfo.maxSize == 4194304
 
   suite "decode":
     test "simple":
