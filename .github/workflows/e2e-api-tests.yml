@@ -20,6 +20,7 @@ jobs:
     timeout-minutes: 45
     name: api-e2e
     env:
+      NODE_1: ${{ inputs.node_image }}
       NODE_2: ${{ inputs.node_image }}
     steps:
       - name: Checkout code
