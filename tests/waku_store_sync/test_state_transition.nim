@@ -1,11 +1,13 @@
-import unittest, nimcrypto, std/sequtils
-import ../../logos_delivery/waku/waku_store_sync/[reconciliation, common]
+{.used.}
+
+import testutils/unittests, nimcrypto, std/sequtils
+import ../../logos_delivery/waku/waku_store_sync/common
 import ../../logos_delivery/waku/waku_store_sync/storage/seq_storage
 import ../../logos_delivery/waku/waku_core/message/digest
 import ../../logos_delivery/waku/waku_core/topics/pubsub_topic
 import ../../logos_delivery/waku/waku_core/topics/content_topic
 
-proc toDigest*(s: string): WakuMessageHash =
+proc toDigest(s: string): WakuMessageHash =
   let d = nimcrypto.keccak256.digest((s & "").toOpenArrayByte(0, s.high))
   for i in 0 .. 31:
     result[i] = d.data[i]
@@ -13,7 +15,7 @@ proc toDigest*(s: string): WakuMessageHash =
 proc `..`(a, b: SyncID): Slice[SyncID] =
   Slice[SyncID](a: a, b: b)
 
-suite "Waku Sync – reconciliation":
+suite "Waku Sync: state transition":
   test "Fingerprint → ItemSet → zero  (default thresholds)":
     const N = 2_000
     const idx = 137
