@@ -8,10 +8,11 @@ from src.node.wrapper_helpers import (
     EventCollector,
     create_message_bindings,
     get_node_multiaddr,
+    unique_channel_id,
     wait_for_connected,
 )
 
-CHANNEL_ID = "rc05-channel"
+RC05_CHANNEL_PREFIX = "rc05-channel"
 CONTENT_TOPIC = "/test/1/rc05-channel/proto"
 SENDER_A = "rc05-sender-a"
 SENDER_B = "rc05-sender-b"
@@ -19,10 +20,10 @@ SENDER_B = "rc05-sender-b"
 CHANNEL_RECEIVED_EVENT = "channel_message_received"
 MESSAGE_RECEIVED_EVENT = "message_received"
 
-RC06_CHANNEL_ID = "rc06-channel"
+RC06_CHANNEL_PREFIX = "rc06-channel"
 RC06_CONTENT_TOPIC = "/test/1/rc06-channel/proto"
 
-CLOSED_CHANNEL_ID = "rc-closed-channel"
+CLOSED_CHANNEL_PREFIX = "rc-closed-channel"
 CLOSED_CONTENT_TOPIC = "/test/1/rc-closed-channel/proto"
 
 MESH_SETTLE_S = 10
@@ -70,6 +71,7 @@ class TestChannelDelivery:
         A runs in a separate, storage-isolated process: nodes sharing a storage path
         make B drop A's message as a duplicate. See src/node/subprocess_node.py.
         """
+        channel_id = unique_channel_id(RC05_CHANNEL_PREFIX)
         payload_b64 = to_base64("rc05 hello from A")
 
         node_config.update(
@@ -95,20 +97,20 @@ class TestChannelDelivery:
             subscribe_result = receiver.subscribe_content_topic(CONTENT_TOPIC)
             assert subscribe_result.is_ok(), f"receiver subscribe_content_topic failed: {subscribe_result.err()}"
 
-            receiver_create = receiver.channel_create(CHANNEL_ID, CONTENT_TOPIC, SENDER_B)
+            receiver_create = receiver.channel_create(channel_id, CONTENT_TOPIC, SENDER_B)
             assert receiver_create.is_ok(), f"receiver channel_create failed: {receiver_create.err()}"
 
             with ChannelSenderProcess(
                 sender_config,
                 content_topic=CONTENT_TOPIC,
-                channel_id=CHANNEL_ID,
+                channel_id=channel_id,
                 sender_id=SENDER_A,
                 payload_b64=payload_b64,
                 settle_s=MESH_SETTLE_S,
             ):
-                received = wait_for_channel_received(receiver_collector, CHANNEL_ID, DELIVERY_TIMEOUT_S)
+                received = wait_for_channel_received(receiver_collector, channel_id, DELIVERY_TIMEOUT_S)
                 assert received is not None, (
-                    f"No {CHANNEL_RECEIVED_EVENT} on B for {CHANNEL_ID} within {DELIVERY_TIMEOUT_S}s. "
+                    f"No {CHANNEL_RECEIVED_EVENT} on B for {channel_id} within {DELIVERY_TIMEOUT_S}s. "
                     f"Collected events: {receiver_collector.snapshot()}"
                 )
                 assert base64.b64decode(received["payload"]) == base64.b64decode(
@@ -127,6 +129,7 @@ class TestChannelDelivery:
         proving the message arrived, but the channel ingress filter drops it: no
         channel_message_received fires for the channel.
         """
+        channel_id = unique_channel_id(RC06_CHANNEL_PREFIX)
         payload_b64 = to_base64("rc06 unmarked message")
 
         node_config.update(
@@ -161,7 +164,7 @@ class TestChannelDelivery:
                 assert subscribe_result.is_ok(), f"sender subscribe_content_topic failed: {subscribe_result.err()}"
 
                 # Only B runs a channel; A never marks its traffic.
-                receiver_create = receiver.channel_create(RC06_CHANNEL_ID, RC06_CONTENT_TOPIC, SENDER_B)
+                receiver_create = receiver.channel_create(channel_id, RC06_CONTENT_TOPIC, SENDER_B)
                 assert receiver_create.is_ok(), f"receiver channel_create failed: {receiver_create.err()}"
 
                 delay(MESH_SETTLE_S)
@@ -180,7 +183,7 @@ class TestChannelDelivery:
                 )
 
                 # The channel ingress filter drops the unmarked message: no channel event.
-                leaked = wait_for_channel_received(receiver_collector, RC06_CHANNEL_ID, NO_CHANNEL_DELIVERY_WINDOW_S)
+                leaked = wait_for_channel_received(receiver_collector, channel_id, NO_CHANNEL_DELIVERY_WINDOW_S)
                 assert leaked is None, f"an unmarked message must not surface as a {CHANNEL_RECEIVED_EVENT}; got: {leaked!r}"
 
     def test_receive_after_close_emits_no_channel_event(self, node_config):
@@ -194,6 +197,7 @@ class TestChannelDelivery:
         channel_close unsubscribes the content topic (logos-delivery#4081), so B
         re-subscribes to keep message_received as the witness.
         """
+        channel_id = unique_channel_id(CLOSED_CHANNEL_PREFIX)
         payload_b64 = to_base64("message for a closed channel")
 
         node_config.update(
@@ -219,10 +223,10 @@ class TestChannelDelivery:
             subscribe_result = receiver.subscribe_content_topic(CLOSED_CONTENT_TOPIC)
             assert subscribe_result.is_ok(), f"receiver subscribe_content_topic failed: {subscribe_result.err()}"
 
-            receiver_create = receiver.channel_create(CLOSED_CHANNEL_ID, CLOSED_CONTENT_TOPIC, SENDER_B)
+            receiver_create = receiver.channel_create(channel_id, CLOSED_CONTENT_TOPIC, SENDER_B)
             assert receiver_create.is_ok(), f"receiver channel_create failed: {receiver_create.err()}"
 
-            receiver_close = receiver.channel_close(CLOSED_CHANNEL_ID)
+            receiver_close = receiver.channel_close(channel_id)
             assert receiver_close.is_ok(), f"receiver channel_close failed: {receiver_close.err()}"
 
             resubscribe_result = receiver.subscribe_content_topic(CLOSED_CONTENT_TOPIC)
@@ -231,7 +235,7 @@ class TestChannelDelivery:
             with ChannelSenderProcess(
                 sender_config,
                 content_topic=CLOSED_CONTENT_TOPIC,
-                channel_id=CLOSED_CHANNEL_ID,
+                channel_id=channel_id,
                 sender_id=SENDER_A,
                 payload_b64=payload_b64,
                 settle_s=MESH_SETTLE_S,
@@ -242,5 +246,5 @@ class TestChannelDelivery:
                     f"cannot conclude the closed channel stayed silent. Collected events: {receiver_collector.snapshot()}"
                 )
 
-                leaked = wait_for_channel_received(receiver_collector, CLOSED_CHANNEL_ID, NO_CHANNEL_DELIVERY_WINDOW_S)
+                leaked = wait_for_channel_received(receiver_collector, channel_id, NO_CHANNEL_DELIVERY_WINDOW_S)
                 assert leaked is None, f"a closed channel must not emit {CHANNEL_RECEIVED_EVENT}; got: {leaked!r}"
