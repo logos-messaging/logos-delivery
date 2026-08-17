@@ -36,7 +36,7 @@ if [ ! -d "${LETSENCRYPT_PATH}" ]; then
         --agree-tos\
         --no-eff-email\
         --no-redirect\
-        --email admin@${DOMAIN}\
+        --email "${EMAIL}"\
         -d ${DOMAIN}\
         --standalone
 

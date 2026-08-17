@@ -47,7 +47,7 @@ fi
 
 # Check we are in right folder
 if ! [ -f "./run_node.sh" ]; then
-  >&2 echo "This script must be run from inside the compose folder"
+  >&2 echo "This script must be run from inside the docker folder"
   exit 1
 fi
 
@@ -64,8 +64,9 @@ fi
 SUDO=""
 PGSQL_SIZE_MB=0
 if [ -d "./postgresql" ]; then
-    # Check if we need to use SUDO moving forward
-    if [ "$(ls postgresql/* 2>&1 | grep -c "Permission denied")" ]; then
+    # Check if we need to use SUDO moving forward: the data directory is
+    # created by the postgres container and may not be readable by this user.
+    if ! ls ./postgresql >/dev/null 2>&1; then
         SUDO="sudo"
     fi
 

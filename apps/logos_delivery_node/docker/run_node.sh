@@ -25,6 +25,7 @@ if [ -n "${DOMAIN}" ]; then
     while true; do
         if [ ! -f "${CERT}" ] || [ ! -f "${KEY}" ]; then
             echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] Certificate files not found yet. Waiting..."
+            echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] If no certbot container is running, set COMPOSE_PROFILES=wss in .env and re-run docker compose up -d."
         elif ! openssl x509 -checkend 0 -noout -in "${CERT}" >/dev/null 2>&1; then
             echo "$(date '+%Y-%m-%d %H:%M:%S') [WARN] Certificate exists but is expired. Waiting for renewal..."
             echo "$(date '+%Y-%m-%d %H:%M:%S') [INFO] If that takes more than 15 minutes, please remove --quiet attr in run_certbot.sh so that you can see the reason why renewal is not working."

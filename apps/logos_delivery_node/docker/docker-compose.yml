@@ -67,16 +67,22 @@ services:
       # crash-loops on store setup until the DB is ready (restart: on-failure).
       postgres:
         condition: service_healthy
-      certbot:
-        condition: service_started
 
   certbot:
+    # Only started when the `wss` profile is enabled (COMPOSE_PROFILES=wss in
+    # .env, alongside DOMAIN). It binds host port 80 for the ACME HTTP-01
+    # challenge, which would otherwise be occupied even on deployments that do
+    # not use WSS. run_node.sh polls for the certificate on disk, so the node
+    # needs no depends_on ordering against it.
+    profiles: ["wss"]
     image: certbot/certbot
     restart: on-failure
     ports:
       - 80:80 # Let's Encrypt
     environment:
       DOMAIN: ${DOMAIN}
+      # Empty falls back to admin@$DOMAIN inside run_certbot.sh.
+      EMAIL: ${EMAIL}
     volumes:
       - ./run_certbot.sh:/opt/run_certbot.sh:Z
       - ${CERTS_DIR:-./certs}:/etc/letsencrypt/:Z

@@ -1,4 +1,4 @@
-# logosdeliverynode compose
+# logosdeliverynode docker compose stack
 
 A `docker compose` project that runs a **logosdeliverynode** as a full service
 node on the **Logos Dev** network (`--preset=logos.dev`), backed by Postgres
@@ -17,12 +17,12 @@ RLN keystore tooling are intentionally omitted for now.
 | `postgres-exporter`    | Exposes Postgres metrics to Prometheus                        |
 | `prometheus`           | Scrapes node (`:8003`) and postgres-exporter                  |
 | `grafana`              | Dashboards (`http://localhost:3000`, anonymous admin)         |
-| `certbot`              | Optional Let's Encrypt certs for WebSocket-Secure (needs DOMAIN) |
+| `certbot`              | Let's Encrypt certs for WebSocket-Secure; only with the `wss` profile |
 
 ## Quick start
 
 ```bash
-cd apps/logos_delivery_node/compose
+cd apps/logos_delivery_node/docker
 cp .env.example .env          # edit POSTGRES_PASSWORD etc.
 
 # Build the logosdeliverynode image from the repo Dockerfile
@@ -57,6 +57,8 @@ Key `.env` values:
 | `POSTGRES_USER` / `_PASSWORD` | postgres / test123 | Store DB credentials                     |
 | `NODEKEY`                   | *(random)* | Stable P2P identity (64 char hex)                  |
 | `DOMAIN`                    | *(empty)* | Public domain for WebSocket-Secure; empty disables WSS |
+| `COMPOSE_PROFILES`          | *(empty)* | Set to `wss` together with `DOMAIN` to run `certbot`   |
+| `EMAIL`                     | `admin@$DOMAIN` | Let's Encrypt registration address            |
 | `STORAGE_SIZE`              | `1GB`     | Store retention size                               |
 | `EXTRA_ARGS`                | *(empty)* | Extra CLI flags appended to the node               |
 
@@ -73,4 +75,19 @@ tuned `POSTGRES_SHM` / `STORAGE_SIZE` values to `.env` based on the host.
 | 8645         | node REST  | bound to 127.0.0.1             |
 | 8003         | node metrics | bound to 127.0.0.1           |
 | 3000         | grafana    |                                |
-| 80           | certbot    | ACME HTTP-01                   |
+| 80           | certbot    | ACME HTTP-01, only with the `wss` profile |
+
+## WebSocket-Secure
+
+WSS is off by default. To enable it, set both values in `.env` and bring the
+stack back up:
+
+```bash
+DOMAIN=node.example.com
+COMPOSE_PROFILES=wss
+```
+
+`certbot` publishes host port 80 for the ACME HTTP-01 challenge, which is why
+it is kept behind a profile rather than started unconditionally. With `DOMAIN`
+set but the profile off, no certificate is ever issued and the node stays in
+its certificate-wait loop.

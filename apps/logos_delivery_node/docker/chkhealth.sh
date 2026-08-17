@@ -38,7 +38,7 @@ then
     exit 1
 fi
 
-response=$(curl --connect-timeout 6 -s GET http://${ip_address}/health)
+response=$(curl --connect-timeout 6 -s http://${ip_address}/health)
 
 if [[ $? -ne 0 ]]; then
   echo -e "$(date +'%H:%M:%S') - Node may not be running or not reachable at http://${ip_address}\n"
