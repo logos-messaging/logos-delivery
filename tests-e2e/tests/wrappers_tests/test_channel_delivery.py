@@ -1,4 +1,5 @@
 import base64
+import re
 import time
 
 from src.libs.common import delay, to_base64
@@ -29,9 +30,9 @@ RC07_OTHER_CONTENT_TOPIC = "/test/1/rc07-other/proto"
 
 RC08_CHANNEL_PREFIX = "rc08-channel"
 RC08_CONTENT_TOPIC = "/test/1/rc08-channel/proto"
-# A reply references what it answers only once that landed in the sender's SDS
-# history; replying immediately races that write and asserts nothing.
-RC08_CAUSAL_SETTLE_S = 5
+# Let the delivery settle before replying, so the exchange is interleaved rather
+# than two sends racing each other.
+RC08_INTERLEAVE_SETTLE_S = 5
 
 RC09_CHANNEL_PREFIX = "rc09-channel"
 RC09_CONTENT_TOPIC = "/test/1/rc09-channel/proto"
@@ -112,6 +113,20 @@ def wait_for_message_received(collector, content_topic, timeout_s, poll_interval
 def wire_payload(event):
     """The SDS envelope an event carried; the FFI sends it as an array of bytes."""
     return bytes((event.get("message") or {}).get("payload") or ())
+
+
+SDS_MESSAGE_ID_RE = re.compile(rb"[0-9a-f]{64}")
+
+
+def envelope_message_ids(envelope):
+    """SDS message ids in an envelope: its own first, then its causal history.
+
+    Ids are 64-char hex strings the minprotobuf embeds verbatim, and no other
+    field can produce that run — the bloom filter stores hashed bits, not ids.
+    Channel encryption is a noop (`setNoopEncryption`), so the envelope reaches
+    a message_received event in the clear.
+    """
+    return SDS_MESSAGE_ID_RE.findall(envelope)
 
 
 def wait_for_distinct_message_received(collector, content_topic, count, timeout_s, poll_interval_s=0.5):
@@ -312,13 +327,17 @@ class TestChannelDelivery:
                 leaked = wait_for_channel_received(receiver_collector, channel_id, NO_CHANNEL_DELIVERY_WINDOW_S)
                 assert leaked is None, f"a message on a foreign content topic must not surface as a {CHANNEL_RECEIVED_EVENT}; got: {leaked!r}"
 
-    def test_rc08_bidirectional_exchange_preserves_causal_order(self, node_config):
-        """RC08: A and B exchange interleaved messages on one channel, and each
-        side delivers the other's in causal order.
+    def test_rc08_bidirectional_exchange_delivers_both_ways(self, node_config):
+        """RC08: A and B exchange interleaved messages on one channel, both
+        directions deliver, and m3 carries m1 in its causal history.
 
-        Each reply is sent only after the message it answers has landed, so m2
-        references m1 and m3 references m2. B must deliver m1 then m3, A must
-        deliver m2.
+        Arrival order alone proves nothing here — each send waits for the
+        previous message to land, so [m1, m3] would hold with causal history
+        switched off entirely. The causal claim is therefore checked against the
+        wire: when A sends m3 its SDS history holds m1 (sent) and m2 (received),
+        so m3's envelope must reference m1's message id. Parking and release of
+        an out-of-order dependency are covered by
+        test_rc10_missing_dependency_is_parked and test_channel_repair.py.
         """
         channel_id = unique_channel_id(RC08_CHANNEL_PREFIX)
         m1, m2, m3 = "rc08 from A", "rc08 reply from B", "rc08 follow-up from A"
@@ -363,8 +382,8 @@ class TestChannelDelivery:
                     f"nothing to reply to. Collected events: {receiver_collector.snapshot()}"
                 )
 
-                # B replies only now, so m2 carries m1 in its causal history.
-                delay(RC08_CAUSAL_SETTLE_S)
+                # B replies only now, so the exchange is genuinely interleaved.
+                delay(RC08_INTERLEAVE_SETTLE_S)
                 reply_result = receiver.channel_send(channel_id, create_message_bindings(payload=to_base64(m2)))
                 assert reply_result.is_ok(), f"receiver channel_send failed: {reply_result.err()}"
 
@@ -372,13 +391,26 @@ class TestChannelDelivery:
                 assert channel_payloads(delivered_to_a) == [m2.encode()], f"A must deliver B's reply; got {channel_payloads(delivered_to_a)!r}"
 
                 # Same race on A's side.
-                delay(RC08_CAUSAL_SETTLE_S)
+                delay(RC08_INTERLEAVE_SETTLE_S)
                 sender.send(to_base64(m3))
 
                 delivered_to_b = wait_for_channel_received_count(receiver_collector, channel_id, 2, DELIVERY_TIMEOUT_S)
                 assert channel_payloads(delivered_to_b) == [m1.encode(), m3.encode()], (
-                    f"B must deliver A's messages in causal order; got {channel_payloads(delivered_to_b)!r}. "
+                    f"B must deliver both of A's messages, in send order; got {channel_payloads(delivered_to_b)!r}. "
                     f"Collected events: {receiver_collector.snapshot()}"
+                )
+
+                envelopes = [wire_payload(e) for e in wait_for_distinct_message_received(receiver_collector, RC08_CONTENT_TOPIC, 2, DELIVERY_TIMEOUT_S)]
+                m1_envelope = next((e for e in envelopes if m1.encode() in e), None)
+                m3_envelope = next((e for e in envelopes if m3.encode() in e), None)
+                assert m1_envelope and m3_envelope, f"B must have seen both envelopes on the wire; got {envelopes!r}"
+
+                m1_ids = envelope_message_ids(m1_envelope)
+                assert m1_ids, f"no SDS message id in m1's envelope: {m1_envelope!r}"
+                m3_ids = envelope_message_ids(m3_envelope)
+                assert m1_ids[0] in m3_ids[1:], (
+                    f"m3 must carry m1 in its causal history; m1 is {m1_ids[0]!r}, "
+                    f"m3's envelope references {m3_ids[1:]!r}"
                 )
 
     def test_rc09_late_joining_receiver_still_receives(self, node_config):
@@ -582,9 +614,9 @@ class TestChannelDelivery:
         """RC13: A closes and re-creates its channel, then sends again.
 
         A sends m1, cycles the channel under the same id, then sends m2. B must
-        deliver m2 exactly once and ordered after m1, and must not replay m1 —
-        the re-created channel picks up the restored SDS history rather than
-        starting a fresh one.
+        deliver m2 exactly once, after m1, and must not replay m1. Whether the
+        re-created channel restored A's SDS history or started a fresh one is
+        not distinguishable here — both satisfy these assertions.
 
         Distinct from the nim in-process test, which cycles the *receiver's*
         channel and asserts a replayed m1 is suppressed on ingress; here the
@@ -644,7 +676,7 @@ class TestChannelDelivery:
                 assert channel_payloads(received) == [
                     m1.encode(),
                     m2.encode(),
-                ], f"expected [m1, m2] in causal order, got: {channel_payloads(received)!r}"
+                ], f"expected [m1, m2] in send order, got: {channel_payloads(received)!r}"
 
                 # A third event could only be a replayed m1 from the re-created channel.
                 settled = wait_for_channel_received_count(receiver_collector, channel_id, 3, NO_CHANNEL_DELIVERY_WINDOW_S)
