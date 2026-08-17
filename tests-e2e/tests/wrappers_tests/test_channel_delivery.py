@@ -36,6 +36,11 @@ RC08_CAUSAL_SETTLE_S = 5
 RC09_CHANNEL_PREFIX = "rc09-channel"
 RC09_CONTENT_TOPIC = "/test/1/rc09-channel/proto"
 
+RC10_CHANNEL_PREFIX = "rc10-channel"
+RC10_CONTENT_TOPIC = "/test/1/rc10-channel/proto"
+# B's channel must exist before A's second send, or m2 lands with nothing to park it.
+RC10_CHANNEL_SETTLE_S = 5
+
 RC12_CHANNEL_PREFIX = "rc12-channel"
 RC12_CONTENT_TOPIC = "/test/1/rc12-channel/proto"
 SENDER_C = "rc12-sender-c"
@@ -101,6 +106,28 @@ def wait_for_message_received(collector, content_topic, timeout_s, poll_interval
                 return event
         if time.monotonic() >= deadline:
             return None
+        time.sleep(poll_interval_s)
+
+
+def wire_payload(event):
+    """The SDS envelope an event carried; the FFI sends it as an array of bytes."""
+    return bytes((event.get("message") or {}).get("payload") or ())
+
+
+def wait_for_distinct_message_received(collector, content_topic, count, timeout_s, poll_interval_s=0.5):
+    """Distinct-envelope events on `content_topic`, oldest first; waits for `count`.
+
+    Keyed on the envelope so a rebroadcast, which is a fresh message_received
+    carrying the same bytes, cannot pass for a second message.
+    """
+    deadline = time.monotonic() + timeout_s
+    while True:
+        received = {}
+        for event in collector.snapshot():
+            if event.get("eventType") == MESSAGE_RECEIVED_EVENT and (event.get("message") or {}).get("contentTopic") == content_topic:
+                received.setdefault(wire_payload(event), event)
+        if len(received) >= count or time.monotonic() >= deadline:
+            return list(received.values())
         time.sleep(poll_interval_s)
 
 
@@ -411,6 +438,82 @@ class TestChannelDelivery:
                     f"B must end up with the message sent before it joined, then the one after; "
                     f"got {channel_payloads(recovered)!r}. Collected events: {receiver_collector.snapshot()}"
                 )
+
+    def test_rc10_missing_dependency_is_parked(self, node_config):
+        """RC10 setup: a message whose causal dependency B never saw is parked,
+        not delivered.
+
+        B is connected and subscribed throughout but has no channel when A sends
+        m1, so m1 stops at B's messaging layer. B then creates the channel and A
+        sends m2, which carries m1 in its causal history: message_received proves
+        m2 arrived, and the absence of a channel event proves SDS parked it.
+
+        Recovery from here is SDS-R repair, in test_channel_repair.py.
+        """
+        channel_id = unique_channel_id(RC10_CHANNEL_PREFIX)
+        m1, m2 = "rc10 sent before B has a channel", "rc10 depends on m1"
+
+        node_config.update(
+            {
+                "relay": True,
+                "store": False,
+                "reliabilityEnabled": False,
+                "numShardsInNetwork": 1,
+            }
+        )
+
+        receiver_collector = EventCollector()
+        receiver_result = WrapperManager.create_and_start(config=node_config, event_cb=receiver_collector.event_callback)
+        assert receiver_result.is_ok(), f"Failed to start receiver: {receiver_result.err()}"
+
+        with receiver_result.ok_value as receiver:
+            sender_config = {
+                **node_config,
+                "staticnodes": [get_node_multiaddr(receiver)],
+                "portsShift": 1,
+            }
+
+            subscribe_result = receiver.subscribe_content_topic(RC10_CONTENT_TOPIC)
+            assert subscribe_result.is_ok(), f"receiver subscribe_content_topic failed: {subscribe_result.err()}"
+
+            with ChannelSenderProcess(
+                sender_config,
+                content_topic=RC10_CONTENT_TOPIC,
+                channel_id=channel_id,
+                sender_id=SENDER_A,
+                payload_b64=to_base64(m1),
+                settle_s=MESH_SETTLE_S,
+            ) as sender:
+                arrived = wait_for_message_received(receiver_collector, RC10_CONTENT_TOPIC, DELIVERY_TIMEOUT_S)
+                assert arrived is not None, (
+                    f"receiver never saw a {MESSAGE_RECEIVED_EVENT} for m1 within {DELIVERY_TIMEOUT_S}s; "
+                    f"the dependency was never established. Collected events: {receiver_collector.snapshot()}"
+                )
+
+                leaked = wait_for_channel_received(receiver_collector, channel_id, NO_CHANNEL_DELIVERY_WINDOW_S)
+                assert leaked is None, f"a node with no channel must not emit {CHANNEL_RECEIVED_EVENT}; got: {leaked!r}"
+
+                receiver_create = receiver.channel_create(channel_id, RC10_CONTENT_TOPIC, SENDER_B)
+                assert receiver_create.is_ok(), f"receiver channel_create failed: {receiver_create.err()}"
+
+                delay(RC10_CHANNEL_SETTLE_S)
+
+                sender.send(to_base64(m2))
+
+                both = wait_for_distinct_message_received(receiver_collector, RC10_CONTENT_TOPIC, 2, DELIVERY_TIMEOUT_S)
+                assert len(both) == 2, (
+                    f"receiver must see m2 at the messaging layer within {DELIVERY_TIMEOUT_S}s; "
+                    f"got {len(both)} distinct {MESSAGE_RECEIVED_EVENT} envelopes. "
+                    f"Collected events: {receiver_collector.snapshot()}"
+                )
+                # Channel encryption is a noop here, so m2's content is on the wire verbatim.
+                assert m2.encode() in wire_payload(both[1]), (
+                    f"the second envelope must carry m2, not repeat m1; got {wire_payload(both[1])!r}. "
+                    f"Collected events: {receiver_collector.snapshot()}"
+                )
+
+                parked = wait_for_channel_received(receiver_collector, channel_id, NO_CHANNEL_DELIVERY_WINDOW_S)
+                assert parked is None, f"m2 must stay parked while m1 is missing, not surface as {CHANNEL_RECEIVED_EVENT}; got: {parked!r}"
 
     def test_rc12_three_participants_all_receive(self, node_config):
         """RC12: A, B and C share one channel; A's send reaches both B and C.
