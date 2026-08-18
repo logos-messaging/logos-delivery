@@ -133,11 +133,16 @@
             gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
 
+          # libpqPackage: `-d:postgres` is on by default, and Nim binds libpq
+          # with a module-level {.dynlib.} that the runtime resolves before
+          # main(). On Windows that has to be satisfied from the exe's own
+          # directory, so the app targets -- and only they -- carry it.
           wakucanary = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
             targets = ["wakucanary"];
             inherit zerokitRln;
+            libpqPackage = if system == windowsSystem then libpqFor system else null;
           };
 
           logosdeliverynode = pkgs.callPackage ./nix/default.nix {
@@ -146,6 +151,7 @@
             targets = ["logosdeliverynode"];
             inherit zerokitRln;
             gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
+            libpqPackage = if system == windowsSystem then libpqFor system else null;
           };
         in {
           inherit liblogosdelivery wakucanary logosdeliverynode;
