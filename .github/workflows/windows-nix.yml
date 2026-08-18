@@ -1,0 +1,60 @@
+name: ci / windows (nix cross)
+
+# The SECOND Windows job in this repo, and deliberately not a replacement for
+# the first. `windows-build.yml` builds natively in MSYS2 and is what the
+# release artifacts come from; this one cross-compiles the `x86_64-windows`
+# flake target on an ordinary Linux runner and then RUNS the result on a real
+# windows-latest runner. They cover different things:
+#
+#   * MSYS2 proves the Makefile still works in the environment maintainers use.
+#   * This one proves the *nix* cross target still builds -- the one every
+#     downstream Logos repo consumes, and the only one that produces a
+#     `liblogosdelivery.dll` a module can be packaged with -- and that the PEs
+#     start on Windows with the DLLs the build actually shipped beside them.
+#
+# Everything except the two `with:` blocks below lives once in
+# logos-co/logos-windows-ci: the Nix install and cache, the target-existence
+# guard, the cold-cache refusal, the PE-format and import-closure gates, the
+# artifact hand-off and its round-trip check, the wine pre-filter and the real
+# Windows execution. See its docs/windows-ci.md before changing anything here.
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  windows:
+    uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@v1
+    secrets: inherit
+    with:
+      # vendor/ is where nwaku, nim-libp2p and the nat-traversal C sources live;
+      # the flake cannot evaluate, let alone build, without them.
+      submodules: recursive
+
+      # liblogosdelivery is what downstream consumes. logosdeliverynode is here
+      # because it is the only EXECUTABLE this repo cross-builds, and without an
+      # exe the whole Windows leg degrades to compile-only -- which the harness
+      # reports as a coverage gap rather than a pass, correctly.
+      targets: liblogosdelivery logosdeliverynode
+
+      smoke-file: .github/smoke/logos-delivery.sh
+
+      # `objdump`-level assertion that the DLL's public C ABI is still there.
+      # A committed file rather than an inline block: an inline `extra-gates:`
+      # is invisible to shellcheck and cannot be run by hand.
+      extra-gates: bash .github/gates/exported-c-abi.sh
+
+      # Measured on 2026-08-18, x86_64-linux, into an empty chroot store with
+      # cache.nixos.org + cache.nix.logos.co configured: 33 derivations to
+      # build for these two targets. The 30 default exists to refuse an
+      # unprimed mingw *Qt* closure, which this repo does not have -- 33 is the
+      # Nim/Rust work itself, and nothing upstream will ever cache it. 60 keeps
+      # the guard meaningful (a Qt-scale blowup is hundreds) without failing on
+      # the work this job is for.
+      cold-derivation-budget: 60
+
+      # A cold Nim + zerokit cross build on a 4-core GitHub runner. The MSYS2
+      # job next door is the same order of magnitude.
+      timeout-minutes: 120
