@@ -51,7 +51,7 @@ proc makeRestResponse(response: WakuLightPushResult): RestApiResponse =
     apiResponse.statusDesc = response.error().desc
 
   let restResp = RestApiResponse.jsonResponse(apiResponse, status = httpStatus).valueOr:
-    debug "An error occurred while building the json response: ", error = error
+    error "An error occurred while building the json response: ", error = error
     return RestApiResponse.internalServerError(
       fmt("An error occurred while building the json response: {error}")
     )
@@ -101,7 +101,7 @@ proc installLightPushRequestHandler*(
     var pushFut = node.lightpushPublish(req.pubsubTopic, msg, toPeer)
 
     if not await pushFut.withTimeout(FutTimeoutForPushRequestProcessing):
-      debug "Failed to request a message push due to timeout!"
+      error "Failed to request a message push due to timeout!"
       return
         makeRestResponse(lightpushResultServiceUnavailable("Push request timed out"))
 
@@ -116,7 +116,7 @@ proc installLightPushRequestHandler*(
         pushResult.error.desc.get("").contains(RlnProofRefreshScheduledMsg):
       pushFut = node.lightpushPublish(req.pubsubTopic, msg, toPeer)
       if not await pushFut.withTimeout(FutTimeoutForPushRequestProcessing):
-        debug "Failed to request a message push due to timeout!"
+        error "Failed to request a message push due to timeout!"
         return
           makeRestResponse(lightpushResultServiceUnavailable("Push request timed out"))
       pushResult = pushFut.value()

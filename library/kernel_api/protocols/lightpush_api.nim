@@ -22,7 +22,7 @@ proc waku_lightpush_publish(
     return err("Problem building the WakuMessage: " & $error)
 
   let msgHashHex = (await self.waku.lightpushPublish(PubsubTopic(pubSubTopic), msg)).valueOr:
-    debug "PUBLISH failed", error = error
+    error "PUBLISH failed", error = error
     return err(error)
 
   return ok(msgHashHex)

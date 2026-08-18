@@ -36,12 +36,12 @@ proc performStoreQuery(
 
   if not await queryFut.withTimeout(futTimeout):
     const msg = "No history response received (timeout)"
-    debug msg
+    error msg
     return RestApiResponse.internalServerError(msg)
 
   let res = queryFut.read().map(val => val.toHex()).valueOr:
       const msg = "Error occurred in queryFut.read()"
-      debug msg, error = error
+      error msg, error = error
       return RestApiResponse.internalServerError(fmt("{msg} [{error}]"))
 
   if res.statusCode == uint32(ErrorCode.TOO_MANY_REQUESTS):
@@ -51,7 +51,7 @@ proc performStoreQuery(
   let resp = RestApiResponse.jsonResponse(res, status = Http200).valueOr:
     const msg = "Error building the json response"
     let e = $error
-    debug msg, error = e
+    error msg, error = e
     return RestApiResponse.internalServerError(fmt("{msg} [{e}]"))
 
   return resp
@@ -174,7 +174,7 @@ proc retrieveMsgsFromSelfNode(
   let resp = RestApiResponse.jsonResponse(storeResp.toHex(), status = Http200).valueOr:
     const msg = "Error building the json response"
     let e = $error
-    debug msg, error = e
+    error msg, error = e
     return RestApiResponse.internalServerError(fmt("{msg} [{e}]"))
 
   return resp

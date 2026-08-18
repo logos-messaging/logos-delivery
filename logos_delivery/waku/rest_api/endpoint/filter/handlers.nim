@@ -131,7 +131,7 @@ proc makeRestResponse(
   let resp = RestApiResponse.jsonResponse(
     filterSubscriptionResponse, status = httpStatus
   ).valueOr:
-    debug "An error occurred while building the json response: ", error = error
+    error "An error occurred while building the json response: ", error = error
     return RestApiResponse.internalServerError(
       fmt("An error occurred while building the json response: {error}")
     )
@@ -150,7 +150,7 @@ proc makeRestResponse(
   let resp = RestApiResponse.jsonResponse(
     filterSubscriptionResponse, status = httpStatus
   ).valueOr:
-    debug "An error occurred while building the json response: ", error = error
+    error "An error occurred while building the json response: ", error = error
     return RestApiResponse.internalServerError(
       fmt("An error occurred while building the json response: {error}")
     )
@@ -193,7 +193,7 @@ proc filterPostPutSubscriptionRequestHandler(
   let subFut = node.filterSubscribe(req.pubsubTopic, req.contentFilters, peer)
 
   if not await subFut.withTimeout(futTimeoutForSubscriptionProcessing):
-    debug "Failed to subscribe to contentFilters due to timeout!"
+    error "Failed to subscribe to contentFilters due to timeout!"
     return makeRestResponse(
       req.requestId,
       FilterSubscribeError.serviceUnavailable("Subscription request timed out"),
@@ -270,7 +270,7 @@ proc installFilterDeleteSubscriptionsHandler(
     let unsubFut = node.filterUnsubscribe(req.pubsubTopic, req.contentFilters, peer)
 
     if not await unsubFut.withTimeout(futTimeoutForSubscriptionProcessing):
-      debug "Failed to unsubscribe from contentFilters due to timeout!"
+      error "Failed to unsubscribe from contentFilters due to timeout!"
       return makeRestResponse(
         req.requestId,
         FilterSubscribeError.serviceUnavailable(
@@ -318,7 +318,7 @@ proc installFilterDeleteAllSubscriptionsHandler(
     let unsubFut = node.filterUnsubscribeAll(peer)
 
     if not await unsubFut.withTimeout(futTimeoutForSubscriptionProcessing):
-      debug "Failed to unsubscribe from contentFilters due to timeout!"
+      error "Failed to unsubscribe from contentFilters due to timeout!"
       return makeRestResponse(
         req.requestId,
         FilterSubscribeError.serviceUnavailable(
@@ -357,7 +357,7 @@ proc installFilterPingSubscriberHandler(
     let pingFutRes = node.wakuFilterClient.ping(peer)
 
     if not await pingFutRes.withTimeout(futTimeoutForSubscriptionProcessing):
-      debug "Failed to ping filter service peer due to timeout!"
+      error "Failed to ping filter service peer due to timeout!"
       return makeRestResponse(
         requestId.get(), FilterSubscribeError.serviceUnavailable("Ping timed out")
       )
@@ -392,7 +392,7 @@ proc installFilterGetMessagesHandler(
 
     let data = FilterGetMessagesResponse(msg.map(toFilterWakuMessage))
     let resp = RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      debug "An error occurred while building the json response: ", error = error
+      error "An error occurred while building the json response: ", error = error
       return RestApiResponse.internalServerError(
         "An error occurred while building the json response"
       )

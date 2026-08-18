@@ -45,7 +45,7 @@ const ROUTE_RELAY_AUTO_MESSAGESV1_NO_TOPIC* = "/relay/v1/auto/messages"
 proc validatePubSubTopics(topics: seq[PubsubTopic]): Result[void, RestApiResponse] =
   let badPubSubTopics = topics.filterIt(RelayShard.parseStaticSharding(it).isErr())
   if badPubSubTopics.len > 0:
-    debug "Invalid pubsub topic(s)", PubSubTopics = $badPubSubTopics
+    error "Invalid pubsub topic(s)", PubSubTopics = $badPubSubTopics
     return
       err(RestApiResponse.badRequest("Invalid pubsub topic(s): " & $badPubSubTopics))
 
@@ -125,7 +125,7 @@ proc installRelayApiHandlers*(
 
       node.subscribe((kind: PubsubSub, topic: pubsubTopic), messageCacheHandler(cache)).isOkOr:
         let errorMsg = "Subscribe failed:" & $error
-        debug "SUBSCRIBE failed", error = errorMsg
+        error "SUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -151,7 +151,7 @@ proc installRelayApiHandlers*(
       cache.pubsubUnsubscribe(pubsubTopic)
       node.unsubscribe((kind: PubsubUnsub, topic: pubsubTopic)).isOkOr:
         let errorMsg = "Unsubscribe failed:" & $error
-        debug "UNSUBSCRIBE failed", error = errorMsg
+        error "UNSUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     # Successfully unsubscribed from all requested topics
@@ -179,7 +179,7 @@ proc installRelayApiHandlers*(
 
     let data = RelayGetMessagesResponse(messages.map(toRelayWakuMessage))
     let resp = RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      debug "An error occurred while building the json response", error = error
+      error "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError()
 
     return resp
@@ -232,7 +232,7 @@ proc installRelayApiHandlers*(
     if not (
       waitFor node.publish(Opt.some(pubSubTopic), message).withTimeout(futTimeout)
     ):
-      debug "Failed to publish message to topic", pubSubTopic = pubSubTopic
+      error "Failed to publish message to topic", pubSubTopic = pubSubTopic
       return RestApiResponse.internalServerError("Failed to publish: timedout")
 
     return RestApiResponse.ok()
@@ -262,7 +262,7 @@ proc installRelayApiHandlers*(
         (kind: ContentSub, topic: contentTopic), messageCacheHandler(cache)
       ).isOkOr:
         let errorMsg = "Subscribe failed:" & $error
-        debug "SUBSCRIBE failed", error = errorMsg
+        error "SUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -281,7 +281,7 @@ proc installRelayApiHandlers*(
       cache.contentUnsubscribe(contentTopic)
       node.unsubscribe((kind: ContentUnsub, topic: contentTopic)).isOkOr:
         let errorMsg = "Unsubscribe failed:" & $error
-        debug "UNSUBSCRIBE failed", error = errorMsg
+        error "UNSUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -309,7 +309,7 @@ proc installRelayApiHandlers*(
     let data = RelayGetMessagesResponse(messages.map(toRelayWakuMessage))
 
     return RestApiResponse.jsonResponse(data, status = Http200).valueOr:
-      debug "An error occurred while building the json response", error = error
+      error "An error occurred while building the json response", error = error
       return RestApiResponse.internalServerError($error)
 
   router.api(MethodOptions, ROUTE_RELAY_AUTO_MESSAGESV1_NO_TOPIC) do() -> RestApiResponse:
@@ -333,12 +333,12 @@ proc installRelayApiHandlers*(
 
     if node.wakuAutoSharding.isNone():
       let msg = "Autosharding is disabled"
-      debug "publish error", err = msg
+      error "publish error", err = msg
       return RestApiResponse.badRequest("Failed to publish. " & msg)
 
     let pubsubTopic = node.wakuAutoSharding.get().getShard(message.contentTopic).valueOr:
         let msg = "Autosharding error: " & error
-        debug "publish error", err = msg
+        error "publish error", err = msg
         return RestApiResponse.badRequest("Failed to publish. " & msg)
 
     if not node.rln.isNil():

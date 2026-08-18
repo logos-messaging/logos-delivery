@@ -13,7 +13,7 @@ proc waku_relay_get_peers_in_mesh(
 ): Future[Result[string, string]] {.ffi.} =
   ## returns a comma-separated string of peerIDs
   let peers = (await self.waku.relayPeersInMesh(PubsubTopic(pubSubTopic))).valueOr:
-    debug "LIST_MESH_PEERS failed", error = error
+    error "LIST_MESH_PEERS failed", error = error
     return err(error)
   return ok(peers.join(","))
 
@@ -21,7 +21,7 @@ proc waku_relay_get_num_peers_in_mesh(
     self: LogosDelivery, pubSubTopic: string
 ): Future[Result[string, string]] {.ffi.} =
   let n = (await self.waku.relayNumPeersInMesh(PubsubTopic(pubSubTopic))).valueOr:
-    debug "NUM_MESH_PEERS failed", error = error
+    error "NUM_MESH_PEERS failed", error = error
     return err(error)
   return ok($n)
 
@@ -30,7 +30,7 @@ proc waku_relay_get_connected_peers(
 ): Future[Result[string, string]] {.ffi.} =
   ## Returns the list of all connected peers to an specific pubsub topic
   let peers = (await self.waku.relayConnectedPeers(PubsubTopic(pubSubTopic))).valueOr:
-    debug "LIST_CONNECTED_PEERS failed", error = error
+    error "LIST_CONNECTED_PEERS failed", error = error
     return err(error)
   return ok(peers.join(","))
 
@@ -38,7 +38,7 @@ proc waku_relay_get_num_connected_peers(
     self: LogosDelivery, pubSubTopic: string
 ): Future[Result[string, string]] {.ffi.} =
   let n = (await self.waku.relayNumConnectedPeers(PubsubTopic(pubSubTopic))).valueOr:
-    debug "NUM_CONNECTED_PEERS failed", error = error
+    error "NUM_CONNECTED_PEERS failed", error = error
     return err(error)
   return ok($n)
 
@@ -63,7 +63,7 @@ proc waku_relay_subscribe(
       PubsubTopic(pubSubTopic), WakuRelayHandler(onReceivedMessage())
     )
   ).isOkOr:
-    debug "SUBSCRIBE failed", error = error
+    error "SUBSCRIBE failed", error = error
     return err(error)
   return ok("")
 
@@ -71,7 +71,7 @@ proc waku_relay_unsubscribe(
     self: LogosDelivery, pubSubTopic: string
 ): Future[Result[string, string]] {.ffi.} =
   (await self.waku.relayUnsubscribe(PubsubTopic(pubSubTopic))).isOkOr:
-    debug "UNSUBSCRIBE failed", error = error
+    error "UNSUBSCRIBE failed", error = error
     return err(error)
   return ok("")
 
@@ -90,7 +90,7 @@ proc waku_relay_publish(
     return err("Problem building the WakuMessage: " & $error)
 
   let msgHash = (await self.waku.relayPublish(PubsubTopic(pubSubTopic), msg, timeoutMs)).valueOr:
-    debug "PUBLISH failed", error = error
+    error "PUBLISH failed", error = error
     return err(error)
   return ok(msgHash)
 
