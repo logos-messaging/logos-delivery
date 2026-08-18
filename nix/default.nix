@@ -4,6 +4,11 @@
 , targets              ? []
 , gitVersion           ? "n/a"
 , enablePostgres       ? true
+  # The libpq to ship beside an app target on Windows. NOT named `libpq`:
+  # callPackage auto-fills an argument by that name from `pkgs`, and in the
+  # cross package set `pkgs.libpq` is the un-overridden one that does not build
+  # for mingw -- so a default would be silently replaced by a broken value.
+, libpqPackage         ? null
 , enableNimDebugDlOpen ? true
 , chroniclesLogLevel   ? null
 }:
@@ -346,6 +351,23 @@ pkgs.stdenv.mkDerivation {
     runHook preInstall
     mkdir -p $out/bin $out/lib
     cp build/${appTarget}${exeSuffix} $out/bin/
+${lib.optionalString (isWindows && libpqPackage != null) ''
+    # `-d:postgres` makes Nim's db_connector bind libpq through a module-level
+    # {.dynlib.}, which the runtime resolves EAGERLY at process start -- so the
+    # app cannot reach main() without it. On Windows a bare-name load searches
+    # the image's own directory first and never the caller's, so "beside the
+    # exe" is the only placement that works for a relocatable output.
+    #
+    # This is invisible to every static check: a dlopen leaves no entry in the
+    # PE import table, so an import-closure gate passes on a binary that cannot
+    # start. It was found by running --version on a real Windows box, where it
+    # failed with `could not load: libpq.dll` before printing anything.
+    #
+    # bin/*.dll rather than libpq.dll alone: libpq imports libssl-3-x64.dll and
+    # libcrypto-3-x64.dll, and those are subject to the same search order.
+    cp -L ${libpqPackage}/bin/*.dll $out/bin/
+    chmod u+w $out/bin/*.dll
+''}
     runHook postInstall
   '' else ''
     runHook preInstall
