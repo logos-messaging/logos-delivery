@@ -20,9 +20,6 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.os }}
-    # The full examples+tools matrix compiles the whole stack once per
-    # binary (~10 min each at -j2); a cold-cache run needs ~55 min on the
-    # ubuntu runners, so 45 was killing the job mid-compile.
     timeout-minutes: 90
 
     name: build-${{ matrix.os }}
