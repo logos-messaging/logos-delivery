@@ -18,6 +18,10 @@
 
 import results, ../protocol_types
 
+when defined(disable_rln):
+  # Only for nodes that never enable RLN: the stubs abort if called.
+  {.compile: "rln_stubs.c".}
+
 {.push raises: [], gcsafe.}
 
 # --- Types ------------------------------------------------------------------
