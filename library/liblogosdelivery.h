@@ -4,7 +4,7 @@
 // and written to generated/logosdelivery.h by `make liblogosdelivery`. That file
 // is a build artifact, not checked in, so build the library before you compile
 // against this header. This file adds what nim-ffi exports but leaves out of the
-// `abi = c` header: the event-listener ABI, and the `{.ffiExport.}` procs.
+// `abi = c` header: the event-listener ABI, and the synchronous exports.
 #pragma once
 #ifndef __liblogosdelivery__
 #define __liblogosdelivery__

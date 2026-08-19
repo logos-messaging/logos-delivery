@@ -241,7 +241,7 @@ proc destroyCtx(api: Api, label: string, ctx: pointer) =
   expectOk(label, (ok: true, ret: int(api.destroy(ctx)), msg: ""))
 
 proc expectVersion(api: Api) =
-  ## `{.ffiExport.}` procs never reach the generated header, so nothing but
+  ## Synchronous exports never reach the generated header, so nothing but
   ## `loadApi` and this call checks that one is still exported.
   let version = $api.version()
   echo "  [ctx-free logosdelivery_version] ", version
