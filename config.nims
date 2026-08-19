@@ -6,7 +6,8 @@ else:
   switch("nimcache", "nimcache/debug/$projectName")
 
 if defined(windows):
-  switch("passL", "rln.lib")
+  if not defined(disable_rln):
+    switch("passL", "rln.lib")
   switch("define", "postgres=false")
 
   # disable timestamps in Windows PE headers - https://wiki.debian.org/ReproducibleBuilds/TimestampsInPEBinaries
