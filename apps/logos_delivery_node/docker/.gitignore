@@ -1,0 +1,4 @@
+.env
+certs/
+certbot-challenges/
+postgresql/

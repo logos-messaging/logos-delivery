@@ -88,7 +88,7 @@ proc fetchMerkleRoot*(
     )
     return merkleRoot
   except CatchableError:
-    error "Failed to fetch Merkle root", error = getCurrentExceptionMsg()
+    debug "Failed to fetch Merkle root", error = getCurrentExceptionMsg()
     return err("Failed to fetch merkle root: " & getCurrentExceptionMsg())
 
 proc fetchMerkleRootsCache*(
@@ -175,16 +175,16 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
   ## Fetch recent roots from the contract roots cache and update the validRoots deque, ensuring we maintain a window of unique acceptable roots.
   ## Contract returns array of uint256 roots, newest first, zero-padded to the cache size (e.g. 5).
   let bytes = (await g.fetchMerkleRootsCache()).valueOr:
-    error "Failed to fetch current Merkle root", error = error
+    debug "Failed to fetch current Merkle root", error = error
     return false
 
   if (bytes.len mod 32) != 0:
-    error "Invalid recent roots payload length", length = bytes.len
+    debug "Invalid recent roots payload length", length = bytes.len
     return false
 
   let chunkCount = bytes.len div 32
   if chunkCount != RlnContractRootCacheSize:
-    warn "Unexpected number of recent roots returned; proceeding anyway",
+    debug "Unexpected number of recent roots returned; proceeding anyway",
       count = chunkCount
 
   # Parse 32-byte chunks (contract returns newest-first) into MerkleNode values,
@@ -284,7 +284,7 @@ proc ensureFreshMerkleProofPath*(
     for _ in 0 ..< MerkleProofRefetchMaxAttempts:
       let generation = g.merkleProofCacheGeneration
       pathBytes = (await g.fetchMerkleProofElements()).valueOr:
-        error "Failed to refresh merkle proof path", error = error
+        debug "Failed to refresh merkle proof path", error = error
         return @[]
       if g.merkleProofCacheGeneration == generation:
         g.merkleProofCache = pathBytes
@@ -325,7 +325,7 @@ method scheduleMerkleProofRefresh*(g: OnchainGroupManager) {.gcsafe, raises: [].
   proc refresh() {.async.} =
     let res = await g.ensureFreshMerkleProofPath()
     if res.isErr():
-      warn "merkle proof refresh failed", error = res.error
+      debug "merkle proof refresh failed", error = res.error
 
   asyncSpawn refresh()
 
@@ -338,7 +338,7 @@ method register*(
     let leaf = rateCommitment.toLeaf().get()
     if g.registerCb.isSome():
       let idx = g.latestIndex
-      info "registering member via callback", rateCommitment = leaf, index = idx
+      debug "registering member via callback", rateCommitment = leaf, index = idx
       await g.registerCb.get()(@[Membership(rateCommitment: leaf, index: idx)])
     g.latestIndex.inc()
   except Exception as e:
@@ -555,7 +555,7 @@ method generateProof*(
     ).valueOr:
       return err("Failed to generate proof: " & error)
 
-  info "Proof generated successfully", proof = output
+  trace "Proof generated successfully", proof = output
 
   logos_delivery_rln_remaining_proofs_per_epoch.dec()
   logos_delivery_rln_total_generated_proofs.inc()
@@ -569,7 +569,7 @@ method verifyProof*(
   ).valueOr:
     return err("could not verify the proof: " & error)
 
-  info "Proof verified", isValid = validProof
+  trace "Proof verified", isValid = validProof
   return ok(validProof)
 
 method onRegister*(g: OnchainGroupManager, cb: OnRegisterCallback) {.gcsafe.} =
@@ -596,7 +596,7 @@ proc establishConnection(
             connected = true
             break
           except CatchableError:
-            error "failed connect Eth client", error = getCurrentExceptionMsg()
+            debug "failed connect Eth client", error = getCurrentExceptionMsg()
 
         ## this exception is handled by the retrywrapper
         if not connected:
@@ -626,7 +626,7 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
 
   # Set the chain id
   if g.chainId == 0:
-    warn "Chain ID not set in config, using RPC Provider's Chain ID",
+    info "Chain ID not set in config, using RPC Provider's Chain ID",
       providerChainId = fetchedChainId
 
   if g.chainId != 0 and g.chainId != fetchedChainId:
@@ -687,7 +687,7 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
   g.rlnRelayMaxMessageLimit = cast[uint64](maxMembershipRateLimit)
 
   proc onDisconnect() {.async.} =
-    error "Ethereum client disconnected"
+    info "Ethereum client disconnected, reconnecting"
 
     let newEthRpc: Web3 = (await g.establishConnection()).valueOr:
       error "Fatal: failed to reconnect to Ethereum clients after disconnect",
@@ -720,10 +720,10 @@ method isReady*(g: OnchainGroupManager): Future[bool] {.async.} =
     return false
 
   if g.ethRpc.isNone():
-    error "Ethereum RPC client is not configured"
+    debug "Ethereum RPC client is not configured"
     return false
 
   if g.wakuRlnContract.isNone():
-    error "Waku RLN contract is not configured"
+    debug "Waku RLN contract is not configured"
     return false
   return true

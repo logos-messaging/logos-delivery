@@ -52,7 +52,7 @@ proc advertise*(
     peers: seq[PeerId],
     ttl: timer.Duration = self.config.minDuration,
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  trace "advertising via waku rendezvous",
+  trace "Advertising via waku rendezvous",
     namespace = namespace, ttl = ttl, peers = $peers, peerRecord = $self.getPeerRecord()
   let se = SignedPayload[WakuPeerRecord].init(
     self.switch.peerInfo.privateKey, self.getPeerRecord()
@@ -83,7 +83,7 @@ proc advertise*(
         fut.read()
 
       if catchable.isErr():
-        warn "a rendezvous dial failed", cause = catchable.error.msg
+        debug "Rendezvous dial failed", cause = catchable.error.msg
         continue
 
       let connOpt = catchable.get()
@@ -108,7 +108,7 @@ proc advertise*(
 proc advertiseAll*(
     self: WakuRendezVous
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  trace "waku rendezvous advertisements started"
+  trace "Waku rendezvous advertisements started"
 
   let rpi = self.peerManager.selectPeer(self.codec).valueOr:
     return err("could not get a peer supporting RendezVousCodec")
@@ -118,12 +118,12 @@ proc advertiseAll*(
   # Advertise yourself on that peer
   let res = await self.advertise(namespace, @[rpi.peerId])
 
-  trace "waku rendezvous advertisements finished"
+  trace "Waku rendezvous advertisements finished"
 
   return res
 
 proc periodicRegistration(self: WakuRendezVous) {.async.} =
-  info "waku rendezvous periodic registration started",
+  debug "Waku rendezvous periodic registration started",
     interval = self.registrationInterval
 
   # infinite loop
@@ -131,7 +131,7 @@ proc periodicRegistration(self: WakuRendezVous) {.async.} =
     await sleepAsync(self.registrationInterval)
 
     (await self.advertiseAll()).isOkOr:
-      info "waku rendezvous advertisements failed", error = error
+      debug "Waku rendezvous advertisements failed", error = error
 
       if self.registrationInterval > MaxRegistrationInterval:
         self.registrationInterval = MaxRegistrationInterval
@@ -204,7 +204,7 @@ proc new*(
 
   wrv.handler = handleStream
 
-  info "waku rendezvous initialized",
+  info "Waku rendezvous initialized",
     clusterId = clusterId,
     shards = getShards(),
     capabilities = getCapabilities(),
@@ -215,13 +215,13 @@ proc new*(
 method start*(self: WakuRendezVous) {.async: (raises: [CancelledError]).} =
   # Start the parent GenericRendezVous (starts the register deletion loop)
   if self.started:
-    warn "waku rendezvous already started"
+    debug "Waku rendezvous already started"
     return
   await procCall GenericRendezVous[WakuPeerRecord](self).start()
   # start registering forever
   self.periodicRegistrationFut = self.periodicRegistration()
 
-  info "waku rendezvous discovery started"
+  info "Waku rendezvous discovery started"
 
 method stop*(self: WakuRendezVous) {.async: (raises: []).} =
   if not self.periodicRegistrationFut.isNil():
@@ -230,4 +230,4 @@ method stop*(self: WakuRendezVous) {.async: (raises: []).} =
   # Stop the parent GenericRendezVous (stops the register deletion loop)
   await procCall GenericRendezVous[WakuPeerRecord](self).stop()
 
-  info "waku rendezvous discovery stopped"
+  info "Waku rendezvous discovery stopped"

@@ -62,7 +62,7 @@ proc validate*(msg: WakuMessage): Result[void, string] =
     upperBound = now + MaxMessageTimestampVariance
 
   if msg.timestamp < lowerBound:
-    warn "rejecting message with old timestamp",
+    debug "Rejecting message with old timestamp",
       msgTimestamp = msg.timestamp,
       lowerBound = lowerBound,
       now = now,
@@ -70,7 +70,7 @@ proc validate*(msg: WakuMessage): Result[void, string] =
     return err(invalidMessageOld)
 
   if upperBound < msg.timestamp:
-    warn "rejecting message with future timestamp",
+    debug "Rejecting message with future timestamp",
       msgTimestamp = msg.timestamp,
       upperBound = upperBound,
       now = now,
@@ -267,7 +267,7 @@ proc findMessages*(
 proc periodicRetentionPolicy(self: WakuArchive) {.async.} =
   while true:
     for policy in self.retentionPolicies:
-      info "executing message retention policy", policy = $policy
+      debug "Executing message retention policy", policy = $policy
       (await policy.execute(self.driver)).isOkOr:
         logos_delivery_archive_errors.inc(labelValues = [retPolicyFailure])
         error "failed execution of retention policy", policy = $policy, error = error
@@ -281,8 +281,7 @@ proc periodicMetricReport(self: WakuArchive) {.async.} =
   while true:
     let countRes = (await self.driver.getMessagesCount())
     if countRes.isErr():
-      error "loopReportStoredMessagesMetric failed to get messages count",
-        error = countRes.error
+      debug "Failed to get messages count for metric", error = countRes.error
     else:
       let count = countRes.get()
       logos_delivery_archive_messages.set(count, labelValues = ["stored"])

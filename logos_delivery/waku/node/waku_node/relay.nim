@@ -69,11 +69,11 @@ proc subscribe*(
   ## another call to this proc for the same gossipsub topic).
 
   if isNil(node.wakuRelay):
-    error "Invalid API call to `subscribe`. WakuRelay not mounted."
+    debug "Invalid API call to `subscribe`. WakuRelay not mounted."
     return err("Invalid API call to `subscribe`. WakuRelay not mounted.")
 
   let (pubsubTopic, _) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
-    error "Failed to decode subscription event", error = error
+    debug "Failed to decode subscription event", error = error
     return err("Failed to decode subscription event: " & error)
 
   # strict version
@@ -90,11 +90,11 @@ proc unsubscribe*(
   ## NOTE: This works because using MAPI and Kernel API at the same time is unsupported.
 
   if isNil(node.wakuRelay):
-    error "Invalid API call to `unsubscribe`. WakuRelay not mounted."
+    debug "Invalid API call to `unsubscribe`. WakuRelay not mounted."
     return err("Invalid API call to `unsubscribe`. WakuRelay not mounted.")
 
   let (pubsubTopic, _) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
-    error "Failed to decode unsubscribe event", error = error
+    debug "Failed to decode unsubscribe event", error = error
     return err("Failed to decode unsubscribe event: " & error)
 
   # strict version
@@ -106,11 +106,11 @@ proc isSubscribed*(
     node: WakuNode, subscription: SubscriptionEvent
 ): Result[bool, string] =
   if node.wakuRelay.isNil():
-    error "Invalid API call to `isSubscribed`. WakuRelay not mounted."
+    debug "Invalid API call to `isSubscribed`. WakuRelay not mounted."
     return err("Invalid API call to `isSubscribed`. WakuRelay not mounted.")
 
   let (pubsubTopic, contentTopicOp) = getTopicOfSubscriptionEvent(node, subscription).valueOr:
-    error "Failed to decode subscription event", error = error
+    debug "Failed to decode subscription event", error = error
     return err("Failed to decode subscription event: " & error)
 
   return ok(node.wakuRelay.isSubscribed(pubsubTopic))
@@ -125,7 +125,7 @@ proc publish*(
   if node.wakuRelay.isNil():
     let msg =
       "Invalid API call to `publish`. WakuRelay not mounted. Try `lightpush` instead."
-    error "publish error", err = msg
+    debug "Publish error", err = msg
     # TODO: Improve error handling
     return err(msg)
 
@@ -137,11 +137,11 @@ proc publish*(
       return err(msg)
 
   let numPeers = (await node.wakuRelay.publish(pubsubTopic, message)).valueOr:
-    warn "waku.relay did not publish", error = error
+    debug "waku.relay did not publish", error = error
     # Todo: If NoPeersToPublish, we might want to return ok(0) instead!!!
     return err("publish failed in relay: " & $error)
 
-  notice "waku.relay published",
+  debug "waku.relay published",
     peerId = node.peerId,
     pubsubTopic = pubsubTopic,
     msg_hash = pubsubTopic.computeMessageHash(message).to0xHex(),
@@ -157,7 +157,7 @@ proc mountRelay*(
     maxMessageSize = int(DefaultMaxWakuMessageSize),
 ): Future[Result[void, string]] {.async.} =
   if not node.wakuRelay.isNil():
-    error "wakuRelay already mounted, skipping"
+    debug "wakuRelay already mounted, skipping"
     return err("wakuRelay already mounted, skipping")
 
   ## The default relay topics is the union of all configured topics plus default PubsubTopic(s)
@@ -179,7 +179,7 @@ proc mountRelay*(
 
   node.switch.mount(node.wakuRelay, protocolMatcher(WakuRelayCodec))
 
-  info "relay mounted successfully"
+  debug "relay mounted successfully"
   return ok()
 
   ## Waku RLN Relay
@@ -259,5 +259,5 @@ proc setRlnValidator*(
       return pubsub.ValidationResult.Reject
 
   # register rln validator as default validator
-  info "Registering RLN validator"
+  debug "Registering RLN validator"
   node.wakuRelay.addValidator(validator, RlnValidatorErrorMsg)

@@ -34,9 +34,9 @@ Increasing severity: `TRACE`, `DEBUG`, `INFO`, `NOTICE`, `WARN`, `ERROR`,
 - **WARN** — degraded but recoverable, or config needing attention: exhausted
   retries for an optional capability, suspicious-but-valid config, deprecated
   options.
-- **ERROR** — local malfunction: a broken internal assumption or a
-  node-initiated operation that failed and impairs this node. Never caused
-  solely by remote-peer input.
+- **ERROR** — local malfunction: a broken internal assumption, a
+  node-initiated operation that failed and impairs this node, or a request the
+  node could not serve on its own API. Never caused solely by remote-peer input.
 - **FATAL** — node cannot continue; process exit follows.
 
 ## Decision rules
@@ -48,7 +48,10 @@ Increasing severity: `TRACE`, `DEBUG`, `INFO`, `NOTICE`, `WARN`, `ERROR`,
    lost.
 3. **Persistent conditions** — log the transition, not every tick. Repeats go
    to `DEBUG`.
-4. **API and idempotent guards** ("not mounted", "already started") — `DEBUG`.
+4. **API request failures** — when the node cannot serve a request made through
+   its own API (REST, FFI, library, protocol client) and returns an error to the
+   caller, `ERROR`: the requested operation definitively failed. Idempotent
+   no-ops on that path ("already started", "already subscribed") stay `DEBUG`.
 5. **Deprecated options** — config to be removed in future versions; `WARN`
    once, at config-parse time.
 6. **Periodic status** — one consolidated `INFO` line per tick; detail to

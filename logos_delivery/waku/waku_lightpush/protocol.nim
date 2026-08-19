@@ -28,21 +28,21 @@ proc handleRequest(
   let pubsubTopic = pushRequest.pubSubTopic.valueOr:
     if wl.autoSharding.isNone():
       let msg = "Pubsub topic must be specified when static sharding is enabled"
-      error "lightpush request handling error", error = msg
+      debug "Lightpush request handling error", error = msg
       return WakuLightPushResult.err(
         (code: LightPushErrorCode.INVALID_MESSAGE, desc: Opt.some(msg))
       )
 
     let parsedTopic = NsContentTopic.parse(pushRequest.message.contentTopic).valueOr:
       let msg = "Invalid content-topic:" & $error
-      error "lightpush request handling error", error = msg
+      debug "Lightpush request handling error", error = msg
       return WakuLightPushResult.err(
         (code: LightPushErrorCode.INVALID_MESSAGE, desc: Opt.some(msg))
       )
 
     wl.autoSharding.get().getShard(parsedTopic).valueOr:
       let msg = "Auto-sharding error: " & error
-      error "lightpush request handling error", error = msg
+      debug "Lightpush request handling error", error = msg
       return WakuLightPushResult.err(
         (code: LightPushErrorCode.INTERNAL_SERVER_ERROR, desc: Opt.some(msg))
       )
@@ -50,7 +50,7 @@ proc handleRequest(
   # ensure checking topic will not cause error at gossipsub level
   if pubsubTopic.isEmptyOrWhitespace():
     let msg = "topic must not be empty"
-    error "lightpush request handling error", error = msg
+    debug "Lightpush request handling error", error = msg
     return WakuLightPushResult.err(
       (code: LightPushErrorCode.BAD_REQUEST, desc: Opt.some(msg))
     )
@@ -58,7 +58,7 @@ proc handleRequest(
   logos_delivery_lightpush_v3_messages.inc(labelValues = ["PushRequest"])
 
   let msg_hash = pubsubTopic.computeMessageHash(pushRequest.message).to0xHex()
-  notice "handling lightpush request",
+  debug "Handling lightpush request",
     my_peer_id = wl.peerManager.switch.peerInfo.peerId,
     peer_id = peerId,
     requestId = pushRequest.requestId,
@@ -76,7 +76,7 @@ proc handleRequest*(
 ): Future[LightPushResponse] {.async.} =
   let request = LightPushRequest.decode(buffer).valueOr:
     let desc = decodeRpcFailure & ": " & $error
-    error "failed to decode Lightpush request", error = desc
+    debug "Failed to decode Lightpush request", error = desc
     let errorCode = LightPushErrorCode.BAD_REQUEST
     logos_delivery_lightpush_v3_errors.inc(labelValues = [$errorCode])
     return LightPushResponse(
@@ -88,7 +88,7 @@ proc handleRequest*(
   let relayPeerCount = (await wl.handleRequest(peerId, request)).valueOr:
     let desc = error.desc
     logos_delivery_lightpush_v3_errors.inc(labelValues = [$error.code])
-    error "failed to push message", error = desc.get("")
+    debug "Failed to push message", error = desc.get("")
     return LightPushResponse(
       requestId: request.requestId, statusCode: error.code, statusDesc: desc
     )
@@ -111,7 +111,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
       try:
         buffer = await conn.readLp(DefaultMaxRpcSize)
       except LPStreamError:
-        error "lightpush read stream failed", error = getCurrentExceptionMsg()
+        debug "Lightpush read stream failed", error = getCurrentExceptionMsg()
         return
 
       logos_delivery_service_network_bytes.inc(
@@ -123,7 +123,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
       except CatchableError:
         error "lightpush failed handleRequest", error = getCurrentExceptionMsg()
     do:
-      info "lightpush request rejected due rate limit exceeded",
+      debug "Lightpush request rejected due rate limit exceeded",
         peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
 
       rpc = static(
@@ -140,7 +140,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
     try:
       await conn.writeLp(rpc.encode().buffer)
     except LPStreamError:
-      error "lightpush write stream failed", error = getCurrentExceptionMsg()
+      debug "Lightpush write stream failed", error = getCurrentExceptionMsg()
 
     ## For lightpush might not worth to measure outgoing traffic as it is only
     ## small response about success/failure

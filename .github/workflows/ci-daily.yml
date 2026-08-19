@@ -20,7 +20,7 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 45
+    timeout-minutes: 90
 
     name: build-${{ matrix.os }}
     steps:
@@ -52,8 +52,25 @@ jobs:
             .git/modules
           key: ${{ runner.os }}-vendor-modules-${{ steps.submodules.outputs.hash }}
 
-      - name: Make update
-        run: make update
+      - name: Cache nimble deps
+        id: cache-nimbledeps
+        uses: actions/cache@v3
+        with:
+          path: |
+            nimbledeps/
+            nimble.paths
+          key: ${{ runner.os }}-nimbledeps-v2-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
+
+      - name: Install nimble deps
+        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
+        run: |
+          # nim's source tree checksums differently across platforms, so its
+          # locked checksum is unreliable. --useSystemNim uses the CI nim and
+          # skips that check, while still verifying every other locked dep.
+          nimble setup --localdeps -y --useSystemNim
+          make rebuild-nat-libs-nimbledeps
+          make rebuild-bearssl-nimbledeps
+          touch nimbledeps/.nimble-setup
 
       - name: Build binaries
         run: make V=1 examples tools

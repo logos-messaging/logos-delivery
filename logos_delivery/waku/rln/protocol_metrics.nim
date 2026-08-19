@@ -123,14 +123,15 @@ proc getRlnMetricsLogger*(): RLNMetricsLogger =
           logos_delivery_rln_number_registered_memberships, cumulativeRegisteredMember
         )
 
-        info "Total messages", count = freshMsgCount
-        info "Total spam messages", count = freshSpamCount
-        info "Total invalid messages", count = freshInvalidMsgCount
-        info "Total valid messages", count = freshValidMsgCount
-        info "Total errors", count = freshErrorCount
-        info "Total proofs verified", count = freshProofsVerifiedCount
-        info "Total proofs generated", count = freshProofsGeneratedCount
-        info "Total proofs remaining", count = freshProofsRemainingCount
-        info "Total registered members", count = freshRegisteredMemberCount
+        info "RLN relay metrics",
+          messages = freshMsgCount,
+          spamMessages = freshSpamCount,
+          invalidMessages = freshInvalidMsgCount,
+          validMessages = freshValidMsgCount,
+          errors = freshErrorCount,
+          proofsVerified = freshProofsVerifiedCount,
+          proofsGenerated = freshProofsGeneratedCount,
+          proofsRemaining = freshProofsRemainingCount,
+          registeredMembers = freshRegisteredMemberCount
 
   return logMetrics

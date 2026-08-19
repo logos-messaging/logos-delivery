@@ -20,9 +20,9 @@ proc send*(
 
   let isSubbed = self.waku.isSubscribed(envelope.contentTopic).valueOr(false)
   if not isSubbed:
-    info "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
+    debug "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
     self.waku.subscribe(envelope.contentTopic).isOkOr:
-      warn "Failed to auto-subscribe", error = error
+      error "Failed to auto-subscribe", error = error
       return err("Failed to auto-subscribe before sending: " & error)
 
   let requestId = RequestId.new(self.waku.rng)

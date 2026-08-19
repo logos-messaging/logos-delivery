@@ -343,7 +343,7 @@ proc startDnsDiscoveryRetryLoop(waku: Waku): Future[void] {.async.} =
           dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
         )
       ).valueOr:
-        error "Retrieving dynamic bootstrap nodes failed", error = error
+        debug "Retrieving dynamic bootstrap nodes failed", error = error
         continue
 
     if not waku.wakuDiscv5.isNil():
@@ -362,7 +362,8 @@ proc startDnsDiscoveryRetryLoop(waku: Waku): Future[void] {.async.} =
     try:
       await connectToNodes(waku.node, waku.dynamicBootstrapNodes, "dynamic bootstrap")
     except CatchableError:
-      error "failed to connect to dynamic bootstrap nodes: " & getCurrentExceptionMsg()
+      debug "Failed to connect to dynamic bootstrap nodes",
+        error = getCurrentExceptionMsg()
     return
 
 proc closePersistency(waku: Waku) =
@@ -375,7 +376,7 @@ proc closePersistency(waku: Waku) =
 
 proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if waku.node.started:
-    warn "start: waku node already started"
+    debug "start: waku node already started"
     return ok()
 
   info "Retrieve dynamic bootstrap nodes"
@@ -409,9 +410,8 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
         )
 
     if dynamicBootstrapNodesRes.isErr():
-      error "Retrieving dynamic bootstrap nodes failed",
+      info "Retrieving dynamic bootstrap nodes failed, starting retry loop",
         error = dynamicBootstrapNodesRes.error
-      # Start Dns Discovery retry loop
       waku.dnsRetryLoopHandle = waku.startDnsDiscoveryRetryLoop()
     else:
       waku.dynamicBootstrapNodes = dynamicBootstrapNodesRes.get()
@@ -536,7 +536,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if not waku.node.started:
-    warn "stop: attempting to stop node that isn't running"
+    debug "stop: attempting to stop node that isn't running"
 
   try:
     waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
@@ -566,7 +566,7 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     if not waku.restServer.isNil():
       await waku.restServer.stop()
   except Exception:
-    error "waku stop failed: " & getCurrentExceptionMsg()
+    error "Waku stop failed", error = getCurrentExceptionMsg()
     return err("waku stop failed: " & getCurrentExceptionMsg())
 
   return ok()

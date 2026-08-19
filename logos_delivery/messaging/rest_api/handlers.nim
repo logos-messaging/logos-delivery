@@ -78,7 +78,7 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     for contentTopic in req:
       (await client.subscribe(contentTopic)).isOkOr:
         let errorMsg = "Subscribe failed: " & error
-        error "messaging SUBSCRIBE failed", error = errorMsg
+        error "Messaging SUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -93,7 +93,7 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     for contentTopic in req:
       client.unsubscribe(contentTopic).isOkOr:
         let errorMsg = "Unsubscribe failed: " & error
-        error "messaging UNSUBSCRIBE failed", error = errorMsg
+        error "Messaging UNSUBSCRIBE failed", error = errorMsg
         return RestApiResponse.internalServerError(errorMsg)
 
     return RestApiResponse.ok()
@@ -114,7 +114,7 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
       return RestApiResponse.badRequest("Invalid message: " & error)
 
     let requestId = (await client.send(envelope)).valueOr:
-      error "messaging SEND failed", error = error
+      error "Messaging SEND failed", error = error
       return RestApiResponse.internalServerError("Send failed: " & error)
 
     let data = MessagingSendResponse(requestId: $requestId)

@@ -24,7 +24,7 @@ proc waku_filter_subscribe(
       FilterPushHandler(onReceivedMessage()),
     )
   ).isOkOr:
-    error "fail filter subscribe", error = error
+    error "Fail filter subscribe", error = error
     return err(error)
   return ok("")
 
@@ -36,7 +36,7 @@ proc waku_filter_unsubscribe(
       PubsubTopic(pubSubTopic), contentTopics.split(",").mapIt(ContentTopic(it))
     )
   ).isOkOr:
-    error "fail filter unsubscribe", error = error
+    error "Fail filter unsubscribe", error = error
     return err(error)
   return ok("")
 
@@ -44,6 +44,6 @@ proc waku_filter_unsubscribe_all(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
   (await self.waku.filterUnsubscribeAll()).isOkOr:
-    error "fail filter unsubscribe all", error = error
+    error "Fail filter unsubscribe all", error = error
     return err(error)
   return ok("")

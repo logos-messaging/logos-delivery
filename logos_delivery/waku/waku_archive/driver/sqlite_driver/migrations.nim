@@ -42,7 +42,7 @@ proc isSchemaVersion7*(db: SqliteDatabase): DatabaseResult[bool] =
   if pkColumns == @["pubsubTopic", "id", "storedAt"]:
     return ok(true)
   else:
-    info "Not considered schema version 7"
+    debug "Not considered schema version 7"
     return ok(false)
 
 proc migrate*(db: SqliteDatabase, targetVersion = SchemaVersion): DatabaseResult[void] =
@@ -60,7 +60,7 @@ proc migrate*(db: SqliteDatabase, targetVersion = SchemaVersion): DatabaseResult
   let isSchemaVersion7 = ?db.isSchemaVersion7()
 
   if userVersion == 0'i64 and isSchemaVersion7:
-    info "We found user_version 0 but the database schema reflects the user_version 7"
+    debug "We found user_version 0 but the database schema reflects the user_version 7"
     ## Force the correct schema version
     ?db.setUserVersion(7)
 

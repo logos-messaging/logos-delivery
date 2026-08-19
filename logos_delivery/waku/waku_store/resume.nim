@@ -66,15 +66,15 @@ proc initTransferHandler(
 ) =
   # guard clauses to prevent faulty callback
   if self.peerManager.isNil():
-    error "peer manager unavailable for store resume"
+    debug "Peer manager unavailable for store resume"
     return
 
   if wakuArchive.isNil():
-    error "waku archive unavailable for store resume"
+    debug "Waku archive unavailable for store resume"
     return
 
   if wakuStoreClient.isNil():
-    error "waku store client unavailable for store resume"
+    debug "Waku store client unavailable for store resume"
     return
 
   # tying archive, store client and resume into one callback and saving it for later
@@ -106,7 +106,7 @@ proc initTransferHandler(
             await wakuArchive.handleMessage(kv.pubsubTopic.get(), kv.message.get())
 
           handleRes.isOkOr:
-            error "message transfer failed", error = error.msg
+            debug "Message transfer failed", error = error.msg
             continue
 
         if req.paginationCursor.isNone():
@@ -203,7 +203,7 @@ proc start*(self: StoreResume) {.async.} =
   while tries > 0:
     (await self.autoStoreResume()).isOkOr:
       tries -= 1
-      error "store resume failed", triesLeft = tries, error = $error
+      debug "Store resume attempt failed", triesLeft = tries, error = $error
       await sleepAsync(30.seconds)
       continue
 

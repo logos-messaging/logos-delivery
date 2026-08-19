@@ -2,7 +2,7 @@
 ##
 
 import std/[sequtils, tables, typetraits]
-import chronos, chronicles, libp2p/utility
+import chronos, chronicles, metrics, libp2p/utility
 import brokers/broker_context
 import
   ./[send_processor, relay_processor, lightpush_processor, delivery_task],
@@ -14,6 +14,9 @@ import logos_delivery/api/events/messaging_client_events
 
 logScope:
   topics = "send service"
+
+declarePublicCounter logos_delivery_send_store_validation_timeout_total,
+  "messages propagated but dropped without store-node validation within the retry window"
 
 # This useful util is missing from sequtils, this extends applyIt with predicate...
 template applyItIf*(varSeq, pred, op: untyped) =
@@ -129,7 +132,7 @@ proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.a
     return
 
   if not isStorePeerAvailable(self):
-    warn "Skipping store validation for ",
+    debug "Skipping store validation for ",
       messageCount = tasksToValidate.len(), error = "no store peer available"
     return
 
@@ -141,7 +144,7 @@ proc checkMsgsInStore(self: SendService, tasksToValidate: seq[DeliveryTask]) {.a
       StoreQueryRequest(includeData: false, messageHashes: hashesToValidate)
     )
   ).valueOr:
-    error "Failed to get store validation for messages",
+    debug "Failed to get store validation for messages",
       hashes = hashesToValidate.mapIt(shortLog(it)), error = $error
     return
 
@@ -238,16 +241,17 @@ proc evaluateAndCleanUp(self: SendService) =
   )
 
   # Store validation timed out: the message was propagated but never confirmed in a
-  # store node within MaxTimeInCache (measured from first propagation). Warn and drop
-  # without emitting an app event.
+  # store node within MaxTimeInCache (measured from first propagation). This path emits
+  # no app event, so the metric counter below is its only durable signal; drop and count.
   for task in self.taskCache:
     if task.firstPropagatedTime.isSome() and
         task.state != DeliveryState.SuccessfullyValidated and
         task.propagationAge() > MaxTimeInCache:
-      warn "Message propagated but not validated by a store node within time window; stop trying.",
+      debug "Message propagated but not validated by a store node within time window; stop trying.",
         requestId = task.requestId,
         msgHash = task.msgHash.to0xHex(),
         propagationAge = task.propagationAge()
+      logos_delivery_send_store_validation_timeout_total.inc()
 
   self.taskCache.keepItIf(
     not (
@@ -265,7 +269,7 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
   ## ships bare. Returns false while the task must stay parked for a later round.
   if task.firstAdmittedTime.isNone():
     (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
-      debug "over rate-limit budget, task waits for the epoch to roll",
+      debug "Over rate-limit budget, task waits for the epoch to roll",
         requestId = task.requestId, msgHash = task.msgHash.to0xHex()
       return false
     task.firstAdmittedTime = Opt.some(Moment.now())
@@ -273,7 +277,7 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
   ## A no-op when RLN is not mounted, or when a prior round already attached a
   ## proof; otherwise draws the nonce and attaches.
   task.msg = (await self.waku.attachRlnProof(task.msg)).valueOr:
-    error "failed to attach RLN proof, retrying next round",
+    debug "Failed to attach RLN proof, retrying next round",
       requestId = task.requestId, error = error
     return false
 
@@ -308,15 +312,15 @@ proc stopSendService*(self: SendService) {.async.} =
 proc send*(self: SendService, task: DeliveryTask) {.async.} =
   assert(not task.isNil(), "task for send must not be nil")
 
-  info "SendService.send: processing delivery task",
+  debug "SendService.send: processing delivery task",
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
 
   self.waku.subscribe(task.msg.contentTopic).isOkOr:
-    error "SendService.send: failed to subscribe to content topic",
+    debug "SendService.send: failed to subscribe to content topic",
       contentTopic = task.msg.contentTopic, error = error
 
   if not (await self.admitAndProve(task)):
-    info "SendService.send: parking task for a later round",
+    debug "SendService.send: parking task for a later round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.NextRoundRetry
     self.addTask(task)

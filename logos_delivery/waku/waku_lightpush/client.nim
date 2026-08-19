@@ -53,19 +53,19 @@ proc sendPushRequest(
   try:
     buffer = await connection.readLp(DefaultMaxRpcSize.int)
   except LPStreamRemoteClosedError:
-    error "Failed to read response from peer", error = getCurrentExceptionMsg()
+    debug "Failed to read response from peer", error = getCurrentExceptionMsg()
     return lightpushResultInternalError(
       "Failed to read response from peer: " & getCurrentExceptionMsg()
     )
 
   let response = LightpushResponse.decode(buffer).valueOr:
-    error "failed to decode response"
+    debug "Failed to decode response"
     logos_delivery_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
     return lightpushResultInternalError(decodeRpcFailure)
 
   if response.requestId != req.requestId and
       response.statusCode != LightPushErrorCode.TOO_MANY_REQUESTS:
-    error "response failure, requestId mismatch",
+    debug "Response failure, requestId mismatch",
       requestId = req.requestId, responseRequestId = response.requestId
     return lightpushResultInternalError("response failure, requestId mismatch")
 
@@ -87,7 +87,7 @@ proc publish*(
     else:
       shortPeerId(dest)
 
-  info "publish",
+  debug "Publish",
     myPeerId = wl.peerManager.switch.peerInfo.peerId,
     peerId = peerIdStr,
     msgHash = msgHash,

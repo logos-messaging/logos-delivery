@@ -85,7 +85,7 @@ proc findSubscribedPeers*(
       if s.isSubscribed(peer):
         foundPeers.add(peer)
 
-  info "findSubscribedPeers result",
+  trace "Found subscribed peers",
     filter_criterion = filterCriterion,
     subscr_set = s.subscriptions,
     found_peers = foundPeers
@@ -94,29 +94,29 @@ proc findSubscribedPeers*(
 
 proc removePeer*(s: FilterSubscriptions, peerId: PeerID) {.async.} =
   ## Remove all subscriptions for a given peer
-  info "removePeer",
+  debug "Removing peer",
     currentPeerIds = toSeq(s.peersSubscribed.keys).mapIt(shortLog(it)), peerId = peerId
 
   s.peersSubscribed.del(peerId)
 
-  info "removePeer after deletion",
+  debug "Removed peer",
     currentPeerIds = toSeq(s.peersSubscribed.keys).mapIt(shortLog(it)), peerId = peerId
 
 proc removePeers*(s: FilterSubscriptions, peerIds: seq[PeerID]) {.async.} =
   ## Remove all subscriptions for a given list of peers
-  info "removePeers",
+  debug "Removing peers",
     currentPeerIds = toSeq(s.peersSubscribed.keys).mapIt(shortLog(it)),
     peerIds = peerIds.mapIt(shortLog(it))
 
   for peer in peerIds:
     await s.removePeer(peer)
 
-  info "removePeers after deletion",
+  debug "Removed peers",
     currentPeerIds = toSeq(s.peersSubscribed.keys).mapIt(shortLog(it)),
     peerIds = peerIds.mapIt(shortLog(it))
 
 proc cleanUp*(fs: FilterSubscriptions) =
-  info "cleanUp", currentPeerIds = toSeq(fs.peersSubscribed.keys).mapIt(shortLog(it))
+  debug "Cleanup", currentPeerIds = toSeq(fs.peersSubscribed.keys).mapIt(shortLog(it))
 
   ## Remove all subscriptions for peers that have not been seen for a while
   let now = Moment.now()
@@ -128,7 +128,7 @@ proc cleanUp*(fs: FilterSubscriptions) =
 
   fs.subscriptions.keepItIf(val.len > 0)
 
-  info "after cleanUp",
+  debug "After cleanup",
     currentPeerIds = toSeq(fs.peersSubscribed.keys).mapIt(shortLog(it))
 
 proc refreshSubscription*(s: var FilterSubscriptions, peerId: PeerID) =
@@ -162,7 +162,7 @@ proc addSubscription*(
       peersOfSub[].incl(peerId)
       peerData.criteriaCount += 1
 
-  info "subscription added correctly",
+  debug "Subscription added correctly",
     new_peer = shortLog(peerId), subscr_set = s.subscriptions
 
   return ok()

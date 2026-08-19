@@ -39,7 +39,7 @@ const RendezVousLookupInterval = 10.seconds
 proc requestAll*(
     self: WakuRendezVousClient
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  trace "waku rendezvous client requests started"
+  trace "Waku rendezvous client requests started"
 
   let namespace = computeMixNamespace(self.clusterId)
 
@@ -56,7 +56,7 @@ proc requestAll*(
   except CatchableError as e:
     return err("rendezvous request failed: " & e.msg)
 
-  trace "waku rendezvous client request got peers", count = records.len
+  trace "Waku rendezvous client request got peers", count = records.len
   for record in records:
     if not self.switch.peerStore.peerExists(record.peerId):
       logos_delivery_rendezvous_peer_found.inc()
@@ -71,19 +71,19 @@ proc requestAll*(
     )
     self.peerManager.addPeer(rInfo)
 
-  trace "waku rendezvous client request finished"
+  trace "Waku rendezvous client request finished"
 
   return ok()
 
 proc periodicRequests(self: WakuRendezVousClient) {.async.} =
-  info "waku rendezvous periodic requests started", interval = self.requestInterval
+  debug "Waku rendezvous periodic requests started", interval = self.requestInterval
 
   # infinite loop
   while true:
     await sleepAsync(self.requestInterval)
 
     (await self.requestAll()).isOkOr:
-      error "waku rendezvous requests failed", error = error
+      debug "Waku rendezvous requests failed", error = error
 
     # Exponential backoff
 
@@ -128,16 +128,16 @@ proc new*(
     rdv: rdv,
   )
 
-  info "waku rendezvous client initialized", clusterId = clusterId
+  info "Waku rendezvous client initialized", clusterId = clusterId
 
   return ok(client)
 
 proc start*(self: WakuRendezVousClient) {.async: (raises: []).} =
   self.periodicRequestFut = self.periodicRequests()
-  info "waku rendezvous client started"
+  info "Waku rendezvous client started"
 
 proc stopWait*(self: WakuRendezVousClient) {.async: (raises: []).} =
   if not self.periodicRequestFut.isNil():
     await self.periodicRequestFut.cancelAndWait()
 
-  info "waku rendezvous client stopped"
+  info "Waku rendezvous client stopped"

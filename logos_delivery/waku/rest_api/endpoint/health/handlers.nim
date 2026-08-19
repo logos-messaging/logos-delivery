@@ -26,7 +26,7 @@ proc installHealthApiHandler*(
       if healthReportFut.completed():
         let healthReport = healthReportFut.read()
         return RestApiResponse.jsonResponse(healthReport, Http200).valueOr:
-          info "An error ocurred while building the json healthReport response",
+          error "An error occurred while building the json healthReport response",
             error = error
           return
             RestApiResponse.internalServerError("Failed to serialize health report")

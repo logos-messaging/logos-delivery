@@ -53,7 +53,7 @@ proc withinTimeWindow*(msg: WakuMessage): bool =
 proc addSignedShardsValidator*(
     w: WakuRelay, protectedShards: seq[ProtectedShard], clusterId: uint16
 ) =
-  info "adding validator to signed shards", protectedShards, clusterId
+  debug "Adding validator to signed shards", protectedShards, clusterId
 
   proc validator(
       topic: string, msg: WakuMessage
@@ -72,7 +72,7 @@ proc addSignedShardsValidator*(
                 outcome = errors.ValidationResult.Accept
 
         if outcome != errors.ValidationResult.Accept:
-          info "signed topic validation failed",
+          debug "Signed topic validation failed",
             topic = topic, publicShardKey = protectedShard.key
         logos_delivery_msg_validator_signed_outcome.inc(labelValues = [$outcome])
         return outcome

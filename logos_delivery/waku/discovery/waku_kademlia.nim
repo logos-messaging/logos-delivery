@@ -55,7 +55,7 @@ proc extractMixPubKey*(service: ServiceInfo): Opt[Curve25519Key] =
     return Opt.none(Curve25519Key)
 
   if service.data.len != Curve25519KeySize:
-    trace "invalid mix pub key length",
+    trace "Invalid mix pub key length",
       expected = Curve25519KeySize,
       actual = service.data.len,
       dataHex = byteutils.toHex(service.data)
@@ -67,12 +67,12 @@ proc extractMixPubKey*(service: ServiceInfo): Opt[Curve25519Key] =
 
 proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
   if record.addresses.len == 0:
-    trace "missing addresses", peerId = record.peerId
+    trace "Missing addresses", peerId = record.peerId
     return Opt.none(RemotePeerInfo)
 
   let addrs = record.addresses.mapIt(it.address)
   if addrs.len == 0:
-    trace "no dialable addresses", peerId = record.peerId
+    trace "No dialable addresses", peerId = record.peerId
     return Opt.none(RemotePeerInfo)
 
   let protocols = record.services.mapIt(it.id)
@@ -83,7 +83,7 @@ proc remotePeerInfoFrom*(record: ExtendedPeerRecord): Opt[RemotePeerInfo] =
       continue
     mixPubKey = Opt.some(key)
 
-    trace "successfully extracted mix pub key",
+    trace "Successfully extracted mix pub key",
       peerId = record.peerId, keyHex = byteutils.toHex(mixPubKey.get())
 
     break
@@ -108,7 +108,7 @@ proc processRecords(
 
     self.peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
 
-    debug "peer added via service discovery",
+    debug "Peer added via service discovery",
       source,
       peerId = $peerInfo.peerId,
       addresses = peerInfo.addrs.mapIt($it),
@@ -139,12 +139,12 @@ proc lookupServicePeers*(
 
   let discovered = self.processRecords(records, "service lookup")
 
-  debug "service lookup complete", service, found = discovered.len
+  debug "Service lookup complete", service, found = discovered.len
 
   return ok(discovered)
 
 proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]).} =
-  debug "periodic random lookup started", interval = $self.randomLookupInterval
+  debug "Periodic random lookup started", interval = $self.randomLookupInterval
 
   while true:
     await sleepAsync(self.randomLookupInterval)
@@ -153,7 +153,7 @@ proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError])
       (await self.protocol.lookupRandom())
 
     let records = recordsRes.valueOr:
-      error "random lookup failed", error
+      debug "Random lookup failed", error
       continue
 
     let discovered = self.processRecords(records, "random walk")
@@ -161,10 +161,10 @@ proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError])
     if discovered.len > 0:
       PeersDiscoveredEvent.emit(peers = discovered)
 
-    debug "random lookup complete", found = discovered.len
+    debug "Random lookup complete", found = discovered.len
 
 proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]).} =
-  debug "periodic service lookup started",
+  debug "Periodic service lookup started",
     interval = $self.serviceLookupInterval, services = self.servicesToDiscover
 
   while true:
@@ -180,11 +180,11 @@ proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]
         fut.read()
 
       let res = catchRes.valueOr:
-        error "service lookup failed", error
+        debug "Service lookup failed", error
         continue
 
       let peerInfos = res.valueOr:
-        error "service lookup failed", error
+        debug "Service lookup failed", error
         continue
 
       for peerInfo in peerInfos:
@@ -209,7 +209,7 @@ proc new*(
     xprPublishing: bool = true,
 ): Result[T, string] =
   if bootstrapNodes.len == 0:
-    debug "creating service discovery as seed node (no bootstrap nodes)"
+    debug "Creating service discovery as seed node (no bootstrap nodes)"
 
   let protocol = ServiceDiscovery.new(
     switch,
@@ -243,7 +243,7 @@ proc start*(self: WakuKademlia) {.async: (raises: []).} =
   if self.serviceLookupLoop.isNil():
     self.serviceLookupLoop = self.runServiceLookupLoop()
 
-  info "kademlia discovery started"
+  info "Kademlia discovery started"
 
 proc stop*(self: WakuKademlia) {.async: (raises: []).} =
   if not self.serviceLookupLoop.isNil():
@@ -254,26 +254,26 @@ proc stop*(self: WakuKademlia) {.async: (raises: []).} =
     await self.randomLookupLoop.cancelAndWait()
     self.randomLookupLoop = nil
 
-  info "kademlia discovery stopped"
+  info "Kademlia discovery stopped"
 
 proc addServiceToDiscover*(self: WakuKademlia, service: string) =
   if not self.servicesToDiscover.containsOrIncl(service):
     discard self.protocol.registerInterest(service)
-    debug "added service to discover", service
+    debug "Added service to discover", service
 
 proc addServiceToAdvertise*(self: WakuKademlia, service: ServiceInfo) =
   if not self.servicesToAdvertise.containsOrIncl(service):
     self.protocol.startAdvertising(service)
-    debug "added service to advertise", service = service.id
+    debug "Added service to advertise", service = service.id
 
 proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
   if not self.servicesToDiscover.missingOrExcl(service):
     self.protocol.unregisterInterest(service)
-    debug "removed service to discover", service
+    debug "Removed service to discover", service
 
 proc removeServiceToAdvertise*(
     self: WakuKademlia, service: ServiceInfo
 ) {.async: (raises: [CancelledError]).} =
   if not self.servicesToAdvertise.missingOrExcl(service):
     await self.protocol.stopAdvertising(service.id)
-    debug "removed service to advertise", service = service.id
+    debug "Removed service to advertise", service = service.id

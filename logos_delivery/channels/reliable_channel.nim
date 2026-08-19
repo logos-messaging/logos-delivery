@@ -264,6 +264,8 @@ proc reportReceived(self: ReliableChannel, deliverable: SdsDeliverable) =
     ## Emit on the captured `brokerCtx` (the manager's), so the
     ## application listener that the manager has set up on that same
     ## context picks the event up.
+    info "Message received on reliable channel",
+      channelId = self.channelId, senderId = deliverable.senderId
     ChannelMessageReceivedEvent.emit(
       self.brokerCtx,
       ChannelMessageReceivedEvent(

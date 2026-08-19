@@ -48,7 +48,7 @@ proc handleSelfLightPushRequest*(
 
     let msg_hash_hex_str = computeMessageHash(pubSubTopic, message).to0xHex()
 
-    notice "publishing message with self hosted lightpush",
+    debug "Publishing message with self hosted lightpush",
       pubsubTopic = pubsubTopic,
       contentTopic = message.contentTopic,
       self_peer_id = selfPeerId,

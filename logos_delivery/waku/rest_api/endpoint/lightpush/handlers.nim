@@ -51,9 +51,9 @@ proc makeRestResponse(response: WakuLightPushResult): RestApiResponse =
     apiResponse.statusDesc = response.error().desc
 
   let restResp = RestApiResponse.jsonResponse(apiResponse, status = httpStatus).valueOr:
-    error "An error ocurred while building the json respose: ", error = error
+    error "An error occurred while building the json response: ", error = error
     return RestApiResponse.internalServerError(
-      fmt("An error ocurred while building the json respose: {error}")
+      fmt("An error occurred while building the json response: {error}")
     )
 
   return restResp
@@ -70,7 +70,7 @@ proc installLightPushRequestHandler*(
     contentBody: Option[ContentBody]
   ) -> RestApiResponse:
     ## Send a request to push a waku message
-    info "post received", ROUTE_LIGHTPUSH
+    debug "post received", ROUTE_LIGHTPUSH
     trace "content body", ROUTE_LIGHTPUSH, contentBody
 
     let req: PushRequest = decodeRequestBody[PushRequest](contentBody).valueOr:

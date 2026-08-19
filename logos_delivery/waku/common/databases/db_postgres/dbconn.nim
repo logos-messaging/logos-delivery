@@ -278,7 +278,7 @@ proc dbConnQuery*(
   logos_delivery_query_count.inc(labelValues = [metricLabel])
 
   if "insert" notin ($query).toLower():
-    info "dbConnQuery",
+    debug "dbConnQuery",
       requestId,
       query = $query,
       args,
@@ -319,7 +319,7 @@ proc dbConnQueryPrepared*(
   logos_delivery_query_count.inc(labelValues = [stmtName])
 
   if "insert" notin stmtName.toLower():
-    info "dbConnQueryPrepared",
+    debug "dbConnQueryPrepared",
       requestId,
       stmtName,
       paramValues,

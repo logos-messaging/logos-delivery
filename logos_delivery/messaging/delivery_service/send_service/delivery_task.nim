@@ -45,7 +45,7 @@ proc new*(
   let relayShardRes = (
     RequestRelayShard.request(brokerCtx, Opt.none(PubsubTopic), envelop.contentTopic)
   ).valueOr:
-    error "RequestRelayShard.request failed", error = error
+    debug "RequestRelayShard.request failed", error = error
     return err("Failed create DeliveryTask: " & $error)
 
   let pubsubTopic = relayShardRes.relayShard.toPubsubTopic()

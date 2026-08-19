@@ -41,14 +41,14 @@ proc pingPeer(node: WakuNode, peerId: PeerId): Future[Result[void, string]] {.as
   try:
     # Establish a stream
     let stream = (await node.peerManager.dialPeer(peerId, PingCodec)).valueOr:
-      error "pingPeer: failed dialing peer", peerId = peerId
+      debug "pingPeer: failed dialing peer", peerId = peerId
       return err("pingPeer failed dialing peer peerId: " & $peerId)
     defer:
       # Always close the stream
       try:
         await stream.close()
       except CatchableError as e:
-        info "Error closing ping connection", peerId = peerId, error = e.msg
+        debug "Error closing ping connection", peerId = peerId, error = e.msg
 
     # Perform ping
     let pingDuration = await node.libp2pPing.ping(stream)
@@ -56,7 +56,7 @@ proc pingPeer(node: WakuNode, peerId: PeerId): Future[Result[void, string]] {.as
     trace "Ping successful", peerId = peerId, duration = pingDuration
     return ok()
   except CatchableError as e:
-    error "pingPeer: exception raised pinging peer", peerId = peerId, error = e.msg
+    debug "pingPeer: exception raised pinging peer", peerId = peerId, error = e.msg
     return err("pingPeer: exception raised pinging peer: " & e.msg)
 
 # Returns the number of succesful pings performed

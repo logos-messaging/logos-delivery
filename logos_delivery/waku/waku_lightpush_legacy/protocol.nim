@@ -46,7 +46,7 @@ proc handleRequest*(
     let msg_hash = pubsubTopic.computeMessageHash(message).to0xHex()
     logos_delivery_lightpush_messages.inc(labelValues = ["PushRequest"])
 
-    notice "handling legacy lightpush request",
+    debug "Handling legacy lightpush request",
       my_peer_id = wl.peerManager.switch.peerInfo.peerId,
       peer_id = peerId,
       requestId = requestId,
@@ -61,7 +61,7 @@ proc handleRequest*(
 
   if not isSuccess:
     logos_delivery_lightpush_errors.inc(labelValues = [pushResponseInfo])
-    error "failed to push message", error = pushResponseInfo
+    debug "Failed to push message", error = pushResponseInfo
   let response = PushResponse(isSuccess: isSuccess, info: Opt.some(pushResponseInfo))
   let rpc = PushRPC(requestId: requestId, response: Opt.some(response))
   return rpc
@@ -77,7 +77,7 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
       try:
         buffer = await conn.readLp(DefaultMaxRpcSize)
       except LPStreamError:
-        error "lightpush legacy read stream failed", error = getCurrentExceptionMsg()
+        debug "Lightpush legacy read stream failed", error = getCurrentExceptionMsg()
         return
 
       logos_delivery_service_network_bytes.inc(
@@ -89,7 +89,7 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
       except CatchableError:
         error "lightpush legacy handleRequest failed", error = getCurrentExceptionMsg()
     do:
-      info "lightpush request rejected due rate limit exceeded",
+      debug "Lightpush request rejected due rate limit exceeded",
         peerId = conn.peerId, limit = $wl.requestRateLimiter.setting
 
       rpc = static(
@@ -107,7 +107,7 @@ proc initProtocolHandler(wl: WakuLegacyLightPush) =
     try:
       await conn.writeLp(rpc.encode().buffer)
     except LPStreamError:
-      error "lightpush legacy write stream failed", error = getCurrentExceptionMsg()
+      debug "Lightpush legacy write stream failed", error = getCurrentExceptionMsg()
 
     ## For lightpush might not worth to measure outgoing trafic as it is only
     ## small respones about success/failure

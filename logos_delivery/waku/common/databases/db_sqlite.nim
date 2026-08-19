@@ -377,7 +377,7 @@ proc listSqlScripts(path: string): DatabaseResult[seq[string]] =
       if isSqlScript(scriptPath):
         scripts.add(scriptPath)
       else:
-        info "invalid migration script", file = scriptPath
+        debug "invalid migration script", file = scriptPath
   except OSError:
     return err("failed to list migration scripts: " & getCurrentExceptionMsg())
 
@@ -440,7 +440,7 @@ proc migrate*(
   let userVersion = ?db.getUserVersion()
 
   if userVersion == targetVersion:
-    info "database schema is up to date",
+    debug "database schema is up to date",
       userVersion = userVersion, targetVersion = targetVersion
     return ok()
 
@@ -458,7 +458,7 @@ proc migrate*(
   migrationScriptsPaths = sortMigrationScripts(migrationScriptsPaths)
 
   if migrationScriptsPaths.len <= 0:
-    info "no scripts to be run"
+    debug "no scripts to be run"
     return ok()
 
   let scripts = ?loadMigrationScripts(migrationScriptsPaths)
@@ -466,19 +466,19 @@ proc migrate*(
   # Run the migration scripts
   for script in scripts:
     for statement in script.breakIntoStatements():
-      info "executing migration statement", statement = statement
+      debug "executing migration statement", statement = statement
 
       db.query(statement, NoopRowHandler).isOkOr:
         error "failed to execute migration statement",
           statement = statement, error = error
         return err("failed to execute migration statement")
 
-      info "migration statement executed succesfully", statement = statement
+      debug "migration statement executed successfully", statement = statement
 
   # Update user_version
   ?db.setUserVersion(targetVersion)
 
-  info "database user_version updated", userVersion = targetVersion
+  debug "database user_version updated", userVersion = targetVersion
   ok()
 
 proc performSqliteVacuum*(db: SqliteDatabase): DatabaseResult[void] =

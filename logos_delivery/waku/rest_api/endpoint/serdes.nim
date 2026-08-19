@@ -24,7 +24,7 @@ template unrecognizedFieldWarning*(field: typed) =
   # TODO: There should be a different notification mechanism for informing the
   #       caller of a deserialization routine for unexpected fields.
   #       The chonicles import in this module should be removed.
-  info "JSON field not recognized by the current version of nwaku. Consider upgrading",
+  warn "JSON field not recognized by the current version of nwaku. Consider upgrading",
     fieldName, typeName = typetraits.name(typeof field)
 
 type SerdesResult*[T] = Result[T, cstring]

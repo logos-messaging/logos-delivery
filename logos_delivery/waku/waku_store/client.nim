@@ -109,12 +109,12 @@ proc queryToAny*(
   for peer in peersToTry:
     let connection = (await self.peerManager.dialPeer(peer, WakuStoreCodec)).valueOr:
       logos_delivery_store_errors.inc(labelValues = [DialFailure])
-      warn "failed to dial store peer, trying next"
+      debug "Failed to dial store peer, trying next"
       lastError = StoreError(kind: ErrorCode.PEER_DIAL_FAILURE, address: $peer)
       continue
 
     let response = (await self.sendStoreRequest(request, connection)).valueOr:
-      warn "store query failed, trying next peer", peerId = peer.peerId, error = $error
+      debug "Store query failed, trying next peer", peerId = peer.peerId, error = $error
       lastError = error
       continue
 

@@ -104,7 +104,7 @@ proc sendSubscribeRequest(
 proc ping*(
     wfc: WakuFilterClient, servicePeer: RemotePeerInfo, timeout = chronos.seconds(0)
 ): Future[FilterSubscribeResult] {.async.} =
-  info "sending ping", servicePeer = shortLog($servicePeer)
+  debug "Sending ping", servicePeer = shortLog($servicePeer)
   let requestId = generateRequestId(wfc.rng)
   let filterSubscribeRequest = FilterSubscribeRequest.ping(requestId)
 
@@ -184,17 +184,17 @@ proc initProtocolHandler(wfc: WakuFilterClient) =
       try:
         buf = await conn.readLp(int(DefaultMaxPushSize))
       except CancelledError, LPStreamError:
-        error "error while reading conn", error = getCurrentExceptionMsg()
+        debug "Error while reading conn", error = getCurrentExceptionMsg()
 
       let msgPush = MessagePush.decode(buf).valueOr:
-        error "Failed to decode message push", peerId = conn.peerId, error = $error
+        debug "Failed to decode message push", peerId = conn.peerId, error = $error
         logos_delivery_filter_errors.inc(labelValues = [decodeRpcFailure])
         return
 
       let msg_hash =
         computeMessageHash(msgPush.pubsubTopic, msgPush.wakuMessage).to0xHex()
 
-      info "Received message push",
+      trace "Received message push",
         peerId = conn.peerId,
         msg_hash,
         payload = shortLog(msgPush.wakuMessage.payload),

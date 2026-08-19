@@ -116,7 +116,8 @@ proc initNode(
       relayServiceRatio = $relayRatio & ":" & $serviceRatio,
       shardAware = conf.relayShardedPeerManagement,
     )
-    error "maxRelayPeers is deprecated. It is recommended to use relayServiceRatio instead. If relayServiceRatio is not set, it will be automatically calculated based on maxConnections and maxRelayPeers."
+    warn "maxRelayPeers is deprecated, use relayServiceRatio instead",
+      relayServiceRatio = $relayRatio & ":" & $serviceRatio
   else:
     builder.withPeerManagerConfig(
       maxConnections = conf.maxConnections,
@@ -249,7 +250,7 @@ proc setupProtocols(
     node.mountAutoSharding(conf.clusterId, conf.shardingConf.numShardsInCluster).isOkOr:
       return err("failed to mount waku auto sharding: " & error)
   else:
-    warn("Auto sharding is disabled")
+    info "Auto sharding is disabled"
 
   # Mount relay on all nodes
   var peerExchangeHandler = Opt.none(RoutingRecordsHandler)
@@ -263,7 +264,7 @@ proc setupProtocols(
         # only peers with populated records
         .mapIt(toRemotePeerInfo(it.record.get()))
 
-      info "adding exchanged peers",
+      debug "adding exchanged peers",
         src = peer, topic = topic, numPeers = exchangedPeers.len
 
       for peer in exchangedPeers:
@@ -282,7 +283,7 @@ proc setupProtocols(
     else:
       @[]
 
-  info "Shards created from content topics",
+  debug "Shards created from content topics",
     contentTopics = conf.contentTopics, shards = autoShards
 
   let confShards = conf.subscribeShards.mapIt(
@@ -291,7 +292,7 @@ proc setupProtocols(
   let shards = confShards & autoShards
 
   if conf.relay:
-    info "Setting max message size", num_bytes = conf.maxMessageSizeBytes
+    debug "Setting max message size", num_bytes = conf.maxMessageSizeBytes
 
     (
       await mountRelay(
@@ -440,7 +441,7 @@ proc startNode*(
     if not node.wakuRelay.isNil() and node.wakuRelay.parameters.d.uint64() > 0:
       desiredOutDegree = node.wakuRelay.parameters.d.uint64()
     (await node.fetchPeerExchangePeers(desiredOutDegree)).isOkOr:
-      error "error while fetching peers from peer exchange", error = error
+      debug "error while fetching peers from peer exchange", error = error
 
   # TODO: behavior described by comment is undesired. PX as client should be used in tandem with discv5.
   #

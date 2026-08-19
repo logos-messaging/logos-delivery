@@ -9,7 +9,7 @@ import
 logScope:
   topics = "waku archive migration"
 
-const SchemaVersion* = 7 # increase this when there is an update in the database schema
+const SchemaVersion* = 8 # increase this when there is an update in the database schema
 
 proc breakIntoStatements*(script: string): seq[string] =
   ## Given a full migration script, that can potentially contain a list
@@ -62,7 +62,7 @@ proc migrate*(
     return err("migrate error could not retrieve current version: " & $error)
 
   if currentVersion == targetVersion:
-    info "database schema is up to date",
+    debug "Database schema is up to date",
       currentVersion = currentVersion, targetVersion = targetVersion
     return ok()
 
@@ -85,14 +85,14 @@ proc migrate*(
   # Run the migration scripts
   for script in scripts:
     for statement in script.breakIntoStatements():
-      info "executing migration statement", statement = statement
+      debug "Executing migration statement", statement = statement
 
       (await driver.performWriteQuery(statement)).isOkOr:
         error "failed to execute migration statement",
           statement = statement, error = error
         return err("failed to execute migration statement")
 
-      info "migration statement executed succesfully", statement = statement
+      debug "Migration statement executed successfully", statement = statement
 
   info "finished message store's postgres database migration"
 

@@ -36,14 +36,14 @@ proc setupNat*(
     ## redirectPorts cannot be called twice in a program lifetime.
     ## We can do it as same happens if getExternalIP fails and returns None
     if singletonNat:
-      warn "NAT already initialized, skipping as cannot be done multiple times"
+      debug "NAT already initialized, skipping as cannot be done multiple times"
     else:
       singletonNat = true
       var extIp = Opt.none(IpAddress)
       try:
         extIp = getExternalIP(strategy)
       except Exception:
-        warn "exception in setupNat", error = getCurrentExceptionMsg()
+        debug "exception in setupNat", error = getCurrentExceptionMsg()
 
       if extIP.isSome():
         endpoint.ip = Opt.some(extIp.get())
@@ -59,7 +59,7 @@ proc setupNat*(
           )
         except CatchableError:
           # TODO: nat.nim Error: can raise an unlisted exception: Exception. Isolate here for now.
-          error "unable to determine external ports"
+          debug "unable to determine external ports"
           extPorts = Opt.none((Port, Port))
 
         if extPorts.isSome():

@@ -141,7 +141,7 @@ proc protocolMatcher*(codec: string): Matcher =
 proc insertOrReplace(ps: PeerStorage, remotePeerInfo: RemotePeerInfo) {.gcsafe.} =
   ## Insert peer entry into persistent storage, or replace existing entry with updated info
   ps.put(remotePeerInfo).isOkOr:
-    warn "failed to store peers", err = error
+    debug "failed to store peers", err = error
     logos_delivery_peers_errors.inc(labelValues = ["storage_failure"])
     return
 
@@ -234,7 +234,7 @@ proc loadFromStorage(pm: PeerManager) {.gcsafe.} =
     amount.inc()
 
   pm.storage.getAll(onData).isOkOr:
-    warn "loading peers from storage failed", err = error
+    debug "loading peers from storage failed", err = error
     logos_delivery_peers_errors.inc(labelValues = ["storage_load_failure"])
     return
 
@@ -297,16 +297,16 @@ proc selectPeer*(
 proc addServicePeer*(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: string) =
   # Do not add relay peers
   if proto == WakuRelayCodec:
-    warn "Can't add relay peer to service peers slots"
+    debug "Can't add relay peer to service peers slots"
     return
 
   # Check if the number of service peers has reached the maximum limit
   if pm.serviceSlots.len >= pm.maxServicePeers:
-    warn "Maximum number of service peers reached. Cannot add more.",
+    debug "Maximum number of service peers reached. Cannot add more.",
       peerId = remotePeerInfo.peerId, service = proto
     return
 
-  info "Adding peer to service slots",
+  debug "Adding peer to service slots",
     peerId = remotePeerInfo.peerId, addr = remotePeerInfo.addrs[0], service = proto
   logos_delivery_service_peers.set(1, labelValues = [$proto, $remotePeerInfo.addrs[0]])
 
@@ -392,7 +392,7 @@ proc connectToNodes*(
   if nodes.len == 0:
     return
 
-  info "Dialing multiple peers", numOfPeers = nodes.len, nodes = $nodes
+  debug "Dialing multiple peers", numOfPeers = nodes.len, nodes = $nodes
 
   var futConns: seq[Future[bool]]
   var connectedPeers: seq[RemotePeerInfo]
@@ -402,7 +402,7 @@ proc connectToNodes*(
       futConns.add(pm.connectPeer(node.value))
       connectedPeers.add(node.value)
     else:
-      error "Couldn't parse node info", error = node.error
+      debug "Couldn't parse node info", error = node.error
 
   await allFutures(futConns)
 
@@ -414,12 +414,12 @@ proc connectToNodes*(
     let peerIds = connectedPeers.mapIt(it.peerId)
     let origin = connectedPeers.mapIt(it.origin)
     if peerIds.len > 0:
-      notice "established connections with found peers",
+      debug "established connections with found peers",
         peerIds = peerIds.mapIt(shortLog(it)), origin = origin
     else:
-      notice "could not connect to new peers", attempted = nodes.len
+      debug "could not connect to new peers", attempted = nodes.len
 
-  info "Finished dialing multiple peers",
+  debug "Finished dialing multiple peers",
     successfulConns = connectedPeers.len, attempted = nodes.len
 
 proc disconnectNode*(pm: PeerManager, peerId: PeerId) {.async.} =
@@ -658,7 +658,7 @@ proc getStreamByPeerIdAndProtocol*(
 proc connectToRelayPeers*(pm: PeerManager) {.async.} =
   # only attempt if current node is online
   if not pm.online:
-    error "connectToRelayPeers: won't attempt new connections - node is offline"
+    debug "connectToRelayPeers: won't attempt new connections - node is offline"
     return
 
   var (inRelayPeers, outRelayPeers) = pm.connectedPeers(WakuRelayCodec)
@@ -696,7 +696,7 @@ proc reconnectPeers*(
   ## Reconnect to peers registered for this protocol. This will update connectedness.
   ## Especially useful to resume connections from persistent storage after a restart.
 
-  info "Reconnecting peers", proto = proto
+  debug "Reconnecting peers", proto = proto
 
   # Only reconnect peers that come from persistent storage (Cache). Freshly
   # discovered peers must not be delayed by the reconnect backoff: they are
@@ -714,7 +714,7 @@ proc reconnectPeers*(
   # per peer, so reconnection can't stall behind a slow/unreachable peer and
   # keep the node from taking on freshly discovered ones.
   if backoffTime > ZeroDuration:
-    info "Backing off before reconnect", backoffTime = backoffTime
+    debug "Backing off before reconnect", backoffTime = backoffTime
     await sleepAsync(backoffTime)
 
   # Dial all reconnectable peers in parallel; a single slow dial must not delay
@@ -789,7 +789,7 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
     WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventMetadataUpdated)
     return
 
-  info "disconnecting from peer", peerId = peerId, reason = reason
+  debug "Disconnecting from peer", peerId = peerId, reason = reason
   asyncSpawn(pm.switch.disconnect(peerId))
   pm.switch.peerStore.delete(peerId)
 
@@ -811,7 +811,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
     let inRelayPeers = pm.connectedPeers(WakuRelayCodec)[0]
     if inRelayPeers.len > pm.inRelayPeersTarget and
         peerStore.hasPeer(peerId, WakuRelayCodec):
-      info "relay peer limit reached, evicting peer",
+      debug "relay peer limit reached, evicting peer",
         peerId = peerId,
         inRelayPeers = inRelayPeers.len,
         inRelayPeersTarget = pm.inRelayPeersTarget
@@ -827,7 +827,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
       # pm.colocationLimit == 0 disables the ip colocation limit
       if pm.colocationLimit != 0 and peersBehindIp.len > pm.colocationLimit:
         for peerId in peersBehindIp[0 ..< (peersBehindIp.len - pm.colocationLimit)]:
-          info "Pruning connection due to ip colocation", peerId = peerId, ip = ip
+          debug "Pruning connection due to ip colocation", peerId = peerId, ip = ip
           asyncSpawn(pm.evictPeer(peerId))
           peerStore.delete(peerId)
 
@@ -854,7 +854,7 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
       # we don't want to await for the callback to finish
       asyncSpawn pm.onConnectionChange(peerId, Left)
   of PeerEventKind.Identified:
-    info "event identified", peerId = peerId
+    debug "Event identified", peerId = peerId
 
     WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventIdentified)
 
@@ -947,7 +947,7 @@ proc manageRelayPeers*(pm: PeerManager) {.async.} =
     return
 
   if not pm.online:
-    error "manageRelayPeers: won't attempt new connections - node is offline"
+    debug "manageRelayPeers: won't attempt new connections - node is offline"
     return
 
   var peersToConnect: HashSet[PeerId] # Can't use RemotePeerInfo as they are ref objects
@@ -997,7 +997,7 @@ proc manageRelayPeers*(pm: PeerManager) {.async.} =
 
     let relayCount = connectablePeers.len
 
-    info "Sharded Peer Management",
+    debug "Sharded Peer Management",
       shard = shard,
       connectable = $connectableCount & "/" & $shardCount,
       relayConnectable = $relayCount & "/" & $shardCount,

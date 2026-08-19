@@ -367,12 +367,11 @@ method getAllMessages*(
 
   return ok(rows)
 
-proc getPartitionsList(
-    s: PostgresDriver
+proc getPartitionsList*(
+    s: PostgresDriver, parentTable: string = "messages"
 ): Future[ArchiveDriverResult[seq[string]]] {.async.} =
-  ## Retrieves the seq of partition table names.
+  ## Retrieves the seq of partition table names attached to `parentTable`.
   ## e.g: @["messages_1708534333_1708534393", "messages_1708534273_1708534333"]
-  ## This returns the partitions that are attached to the main messages table.
   var partitions: seq[string]
   proc rowCallback(pqResult: ptr PGresult) =
     for iRow in 0 ..< pqResult.pqNtuples():
@@ -388,10 +387,10 @@ proc getPartitionsList(
                           JOIN pg_class child             ON pg_inherits.inhrelid   = child.oid
                           JOIN pg_namespace nmsp_parent   ON nmsp_parent.oid  = parent.relnamespace
                           JOIN pg_namespace nmsp_child    ON nmsp_child.oid   = child.relnamespace
-                          WHERE parent.relname='messages'
+                          WHERE parent.relname = ?
                           ORDER BY partition_name ASC
                           """,
-      newSeq[string](0),
+      @[parentTable],
       rowCallback,
     )
   ).isOkOr:
@@ -435,9 +434,9 @@ proc dropOrphanPartitions(
     return err("dropOrphanPartitions failed in query: " & $error)
 
   for partition in partitions:
-    info "orphan partition found", partitionName = partition
+    debug "Orphan partition found", partitionName = partition
     (await s.dropPartition(partition)).isOkOr:
-      error "failed to drop orphan partition", partitionName = partition, error = $error
+      debug "Failed to drop orphan partition", partitionName = partition, error = $error
       continue
 
   return ok()
@@ -1033,6 +1032,8 @@ method getNewestMessageTimestamp*(
 method deleteOldestMessagesNotWithinLimit*(
     s: PostgresDriver, limit: int
 ): Future[ArchiveDriverResult[void]] {.async.} =
+  ## Known gap: capacity retention still row-deletes both tables, regrowing
+  ## index bloat under heavy use. Converting it to partition drops is a follow-up.
   (
     await s.writeConnPool.pgQuery(
       """DELETE FROM messages WHERE messageHash NOT IN
@@ -1186,31 +1187,31 @@ proc performWriteQueryWithLock(
   (await self.performWriteQuery(query)).isOkOr:
     if error.contains(COULD_NOT_ACQUIRE_ADVISORY_LOCK):
       ## We don't consider this as an error. Just someone else acquired the advisory lock
-      info "skip performWriteQuery because the advisory lock is acquired by other"
+      debug "Skip performWriteQuery because the advisory lock is acquired by other"
       return ok()
 
     if error.contains("already exists"):
       ## expected to happen when trying to add a partition table constraint that already exists
       ## e.g., constraint "constraint_name" for relation "messages_1720364735_1720364740" already exists
-      info "skip already exists error", error = error
+      debug "Skip already exists error", error = error
       return ok()
 
     if error.contains("is already a partition"):
       ## expected to happen when a node tries to add a partition that is already attached,
       ## e.g., "messages_1720364735_1720364740" is already a partition
-      info "skip is already a partition error", error = error
+      debug "Skip is already a partition error", error = error
       return ok()
 
     if error.contains("does not exist"):
       ## expected to happen when trying to drop a constraint that has already been dropped by other
       ## constraint "constraint_name" of relation "messages_1720364735_1720364740" does not exist
-      info "skip does not exist error", error = error
+      debug "Skip does not exist error", error = error
       return ok()
 
-    info "protected query ended with error", error = $error
+    debug "Protected query ended with error", error = $error
     return err("protected query ended with error:" & $error)
 
-  info "protected query ended correctly"
+  debug "Protected query ended correctly"
   return ok()
 
 proc addPartition(
@@ -1229,6 +1230,17 @@ proc addPartition(
   let untilInNanoSec: string = untilInSec & "000000000"
 
   let partitionName = "messages_" & fromInSec & "_" & untilInSec
+
+  ## Sibling first: a crash here leaves a stray that dropStrayLookupPartitions
+  ## removes; the brief ACCESS EXCLUSIVE on the small parent is acceptable.
+  let lookupPartitionName = "lookup_" & fromInSec & "_" & untilInSec
+  let createLookupQuery =
+    "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
+    " PARTITION OF messages_lookup FOR VALUES FROM (" & fromInNanoSec & ") TO (" &
+    untilInNanoSec & ");"
+
+  (await self.performWriteQueryWithLock(createLookupQuery)).isOkOr:
+    return err(fmt"error adding lookup partition [{lookupPartitionName}]: " & $error)
 
   ## Create the partition table but not attach it yet to the main table
   let createPartitionQuery =
@@ -1265,7 +1277,7 @@ proc addPartition(
   (await self.performWriteQueryWithLock(dropConstraint)).isOkOr:
     return err(fmt"error dropping constraint [{partitionName}]: " & $error)
 
-  info "new partition added", query = createPartitionQuery
+  debug "New partition added", query = createPartitionQuery
 
   self.partitionMngr.addPartitionInfo(partitionName, beginning, `end`)
   return ok()
@@ -1273,7 +1285,7 @@ proc addPartition(
 proc refreshPartitionsInfo(
     self: PostgresDriver
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  info "refreshPartitionsInfo"
+  debug "refreshPartitionsInfo"
   self.partitionMngr.clearPartitionInfo()
 
   let partitionNames = (await self.getPartitionsList()).valueOr:
@@ -1301,6 +1313,119 @@ proc refreshPartitionsInfo(
 
   return ok()
 
+proc getAllLookupTableNames(
+    s: PostgresDriver
+): Future[ArchiveDriverResult[seq[string]]] {.async.} =
+  ## Lookup-named tables, attached or left detached by an interrupted reconcile.
+  var names: seq[string]
+  proc rowCallback(pqResult: ptr PGresult) =
+    for iRow in 0 ..< pqResult.pqNtuples():
+      names.add($(pqgetvalue(pqResult, iRow, 0)))
+
+  (
+    await s.readConnPool.pgQuery(
+      """SELECT c.relname FROM pg_class c
+           JOIN pg_namespace n ON n.oid = c.relnamespace
+           WHERE c.relname LIKE 'lookup\_%' AND c.relkind = 'r' AND n.nspname = 'public'
+           ORDER BY c.relname ASC""",
+      newSeq[string](0),
+      rowCallback,
+    )
+  ).isOkOr:
+    return err("getAllLookupTableNames failed in query: " & $error)
+
+  return ok(names)
+
+proc dropStrayLookupPartitions*(
+    self: PostgresDriver
+): Future[ArchiveDriverResult[void]] {.async.} =
+  ## Drops lookup tables with no messages sibling (crash leftovers). Must run
+  ## before the factory's partition checks: a stray can overlap the next
+  ## sibling's range and make addPartition fail.
+  let messagesPartitions = (await self.getPartitionsList()).valueOr:
+    return
+      err("dropStrayLookupPartitions could not list messages partitions: " & $error)
+  let lookupTables = (await self.getAllLookupTableNames()).valueOr:
+    return err("dropStrayLookupPartitions could not list lookup tables: " & $error)
+
+  let messagesSuffixes = messagesPartitions.mapIt(it.replace("messages_", ""))
+
+  for lookupTableName in lookupTables:
+    if lookupTableName.replace("lookup_", "") in messagesSuffixes:
+      continue
+    info "dropping stray lookup partition", lookupTableName
+    (await self.performWriteQuery("DROP TABLE IF EXISTS " & lookupTableName)).isOkOr:
+      return err(fmt"error dropping stray [{lookupTableName}]: " & $error)
+
+  return ok()
+
+proc ensureLookupPartitions*(
+    self: PostgresDriver
+): Future[ArchiveDriverResult[void]] {.async.} =
+  ## Creates and backfills missing lookup siblings, newest-first, every loop
+  ## iteration. Detached create + backfill + brief ATTACH keeps parent locks
+  ## short; every step is idempotent and attach implies a completed backfill.
+  let messagesPartitions = (await self.getPartitionsList()).valueOr:
+    return err("ensureLookupPartitions could not list messages partitions: " & $error)
+  let lookupPartitions = (await self.getPartitionsList("messages_lookup")).valueOr:
+    return err("ensureLookupPartitions could not list lookup partitions: " & $error)
+
+  ## Newest-first, so the partition receiving current writes heals first.
+  for i in countdown(messagesPartitions.high, 0):
+    let partitionName = messagesPartitions[i]
+    let suffix = partitionName.replace("messages_", "") ## "<startSec>_<endSec>"
+    let lookupPartitionName = "lookup_" & suffix
+    if lookupPartitionName in lookupPartitions:
+      continue
+
+    let times = suffix.split("_")
+    if times.len != 2:
+      return err(fmt"ensureLookupPartitions wrong partition name {partitionName}")
+
+    let fromInNanoSec = times[0] & "000000000"
+    let untilInNanoSec = times[1] & "000000000"
+    let constraintName = lookupPartitionName & "_by_range_check"
+
+    ## INCLUDING INDEXES brings the PK, needed by ON CONFLICT and ATTACH.
+    let createQuery =
+      "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
+      " (LIKE messages_lookup INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES);"
+    (await self.performWriteQueryWithLock(createQuery)).isOkOr:
+      return
+        err(fmt"error creating lookup partition [{lookupPartitionName}]: " & $error)
+
+    ## Plain query on purpose: a failure must abort the pass, never be
+    ## skip-tolerated — the ATTACH below must imply a completed backfill.
+    let backfillQuery =
+      "INSERT INTO " & lookupPartitionName &
+      " (messageHash, timestamp) SELECT messageHash, timestamp FROM " & partitionName &
+      " ON CONFLICT DO NOTHING;"
+    (await self.performWriteQuery(backfillQuery)).isOkOr:
+      return err(fmt"error backfilling [{lookupPartitionName}]: " & $error)
+
+    ## The CHECK lets ATTACH validate without a scan, so its lock is brief.
+    let addConstraintQuery =
+      "ALTER TABLE " & lookupPartitionName & " ADD CONSTRAINT " & constraintName &
+      " CHECK ( timestamp >= " & fromInNanoSec & " AND timestamp < " & untilInNanoSec &
+      " );"
+    (await self.performWriteQueryWithLock(addConstraintQuery)).isOkOr:
+      return err(fmt"error adding constraint [{lookupPartitionName}]: " & $error)
+
+    let attachQuery =
+      "ALTER TABLE messages_lookup ATTACH PARTITION " & lookupPartitionName &
+      " FOR VALUES FROM (" & fromInNanoSec & ") TO (" & untilInNanoSec & ");"
+    (await self.performWriteQueryWithLock(attachQuery)).isOkOr:
+      return err(fmt"error attaching [{lookupPartitionName}]: " & $error)
+
+    let dropConstraintQuery =
+      "ALTER TABLE " & lookupPartitionName & " DROP CONSTRAINT " & constraintName & ";"
+    (await self.performWriteQueryWithLock(dropConstraintQuery)).isOkOr:
+      return err(fmt"error dropping constraint [{lookupPartitionName}]: " & $error)
+
+    info "created and backfilled lookup partition", lookupPartitionName
+
+  return ok()
+
 const DefaultDatabasePartitionCheckTimeInterval = timer.minutes(10)
 
 proc loopPartitionFactory(
@@ -1312,10 +1437,15 @@ proc loopPartitionFactory(
   ## retention policy module due to some error. However, the main task of this loop is to create
   ## new partitions when needed.
 
-  info "starting loopPartitionFactory"
+  debug "Starting loopPartitionFactory"
 
   while true:
     trace "loopPartitionFactory iteration started"
+
+    ## Must precede the partition checks (see dropStrayLookupPartitions).
+    (await self.dropStrayLookupPartitions()).isOkOr:
+      error "failed to drop stray lookup partitions", error = $error
+
     (await self.dropOrphanPartitions()).isOkOr:
       onFatalError("error when dropping orphan partitions: " & $error)
 
@@ -1328,7 +1458,7 @@ proc loopPartitionFactory(
     let now = times.now().toTime().toUnix()
 
     if self.partitionMngr.isEmpty():
-      info "adding partition because now there aren't more partitions"
+      debug "Adding partition because now there aren't more partitions"
       (await self.addPartition(now)).isOkOr:
         onFatalError("error when creating a new partition from empty state: " & $error)
     else:
@@ -1338,19 +1468,24 @@ proc loopPartitionFactory(
 
       let newestPartition = newestPartitionRes.get()
       if newestPartition.containsMoment(now):
-        info "creating a new partition for the future"
+        debug "Creating a new partition for the future"
         ## The current used partition is the last one that was created.
         ## Thus, let's create another partition for the future.
 
         (await self.addPartition(newestPartition.getLastMoment())).isOkOr:
           onFatalError("could not add the next partition for 'now': " & $error)
       elif now >= newestPartition.getLastMoment():
-        info "creating a new partition to contain current messages"
+        debug "Creating a new partition to contain current messages"
         ## There is no partition to contain the current time.
         ## This happens if the node has been stopped for quite a long time.
         ## Then, let's create the needed partition to contain 'now'.
         (await self.addPartition(now)).isOkOr:
           onFatalError("could not add the next partition: " & $error)
+
+    ## After the partition checks, so a long backfill never gates builder.nim's
+    ## startup partition wait; non-fatal, the next pass retries.
+    (await self.ensureLookupPartitions()).isOkOr:
+      error "failed to ensure lookup partitions", error = $error
 
     await sleepAsync(DefaultDatabasePartitionCheckTimeInterval)
 
@@ -1380,7 +1515,7 @@ proc dropPartition(
     self: PostgresDriver, partitionName: string
 ): Future[ArchiveDriverResult[void]] {.async.} =
   let dropPartitionQuery = "DROP TABLE " & partitionName
-  info "drop partition", query = dropPartitionQuery
+  debug "Drop partition", query = dropPartitionQuery
   (await self.performWriteQuery(dropPartitionQuery)).isOkOr:
     return err(fmt"error in dropPartition: {dropPartitionQuery}: " & $error)
 
@@ -1389,20 +1524,26 @@ proc dropPartition(
 proc detachAndDropPartition(
     self: PostgresDriver, partition: Partition
 ): Future[ArchiveDriverResult[void]] {.async.} =
-  ## Detaches and drops the desired partition and also removes the rows from messages_lookup table
-  ## whose rows belong to the partition time range
+  ## Detaches and drops the messages partition together with its lookup sibling.
 
   let partitionName = partition.getName()
-  info "beginning of detachAndDropPartition", partitionName
+  debug "Beginning of detachAndDropPartition", partitionName
+
+  ## Sibling first: a crash below leaves the messages partition, so the next
+  ## retention pass retries both.
+  let timeRange = partition.getTimeRange()
+  let lookupPartitionName = "lookup_" & $timeRange.beginning & "_" & $timeRange.`end`
+  (await self.performWriteQuery("DROP TABLE IF EXISTS " & lookupPartitionName)).isOkOr:
+    return err(fmt"error dropping lookup partition [{lookupPartitionName}]: " & $error)
 
   let partSize = (await self.getTableSize(partitionName)).valueOr("")
 
   ## Detach and remove the partition concurrently to not block the parent table (messages)
   let detachPartitionQuery =
     "ALTER TABLE messages DETACH PARTITION " & partitionName & " CONCURRENTLY;"
-  info "removeOldestPartition", query = detachPartitionQuery
+  debug "Removing oldest partition", query = detachPartitionQuery
   (await self.performWriteQuery(detachPartitionQuery)).isOkOr:
-    info "detected error when trying to detach partition", error
+    debug "Detected error when trying to detach partition", error
 
     if ($error).contains("FINALIZE") or ($error).contains("already pending"):
       ## We assume "already pending detach in partitioned table ..." as possible error
@@ -1411,7 +1552,7 @@ proc detachAndDropPartition(
       ## We assume the database is suggesting to use FINALIZE when detaching a partition
       let detachPartitionFinalizeQuery =
         "ALTER TABLE messages DETACH PARTITION " & partitionName & " FINALIZE;"
-      info "removeOldestPartition detaching with FINALIZE",
+      debug "Detaching oldest partition with FINALIZE",
         query = detachPartitionFinalizeQuery
       (await self.performWriteQuery(detachPartitionFinalizeQuery)).isOkOr:
         return err(fmt"error in FINALIZE {detachPartitionFinalizeQuery}: " & $error)
@@ -1421,15 +1562,8 @@ proc detachAndDropPartition(
   ## Drop partition
   ?(await self.dropPartition(partitionName))
 
-  info "removed partition", partition_name = partitionName, partition_size = partSize
+  debug "Removed partition", partition_name = partitionName, partition_size = partSize
   self.partitionMngr.removeOldestPartitionName()
-
-  ## Now delete rows from the messages_lookup table
-  let timeRange = partition.getTimeRange()
-  let `end` = timeRange.`end` * 1_000_000_000
-  let deleteRowsQuery = "DELETE FROM messages_lookup WHERE timestamp < " & $`end`
-  (await self.performWriteQuery(deleteRowsQuery)).isOkOr:
-    return err(fmt"error in {deleteRowsQuery}: " & $error)
 
   return ok()
 
@@ -1439,7 +1573,7 @@ proc removePartitionsOlderThan(
   ## Removes old partitions that don't contain the specified timestamp
 
   let tsInSec = Timestamp(float(tsInNanoSec) / 1_000_000_000)
-  info "beginning of removePartitionsOlderThan", tsInSec
+  debug "Beginning of removePartitionsOlderThan", tsInSec
 
   var oldestPartition = self.partitionMngr.getOldestPartition().valueOr:
     return err("could not get oldest partition in removePartitionOlderThan: " & $error)
@@ -1450,7 +1584,7 @@ proc removePartitionsOlderThan(
     tsInSec
 
   while oldestPartition.getLastMoment() < tsInSec:
-    info "start removing partition whose first record is older than the specified timestamp",
+    debug "Start removing partition whose first record is older than the specified timestamp",
       partitionName = oldestPartition.getName(),
       partitionFirstMoment = oldestPartition.getLastMoment(),
       tsInSec
@@ -1480,7 +1614,7 @@ proc removeOldestPartition(
       ## The database contains a partition that would store current messages.
 
       if currentPartitionRes.get() == oldestPartition:
-        info "Skipping to remove the current partition"
+        debug "Skipping to remove the current partition"
         return ok()
 
   return await self.detachAndDropPartition(oldestPartition)
@@ -1500,7 +1634,7 @@ method decreaseDatabaseSize*(
   if totalSizeOfDB <= targetSizeInBytes:
     return ok()
 
-  info "start reducing database size",
+  debug "Start reducing database size",
     targetSize = $targetSizeInBytes, currentSize = $totalSizeOfDB
 
   while totalSizeOfDB > targetSizeInBytes and driver.containsAnyPartition():
@@ -1519,7 +1653,7 @@ method decreaseDatabaseSize*(
 
     totalSizeOfDB = newCurrentSize
 
-    info "reducing database size",
+    debug "Reducing database size",
       targetSize = $targetSizeInBytes, newCurrentSize = $totalSizeOfDB
 
   return ok()
@@ -1596,22 +1730,22 @@ proc analyzeTableLoop(self: PostgresDriver) {.async.} =
   ## The database stats should be calculated regularly so that the planner
   ## picks up the proper indexes and we have better query performance.
   while true:
-    info "analyzeTableLoop lock db"
+    debug "analyzeTableLoop lock db"
     (await self.acquireDatabaseLock(AnalyzeTableLockId)).isOkOr:
       if error != EXPECTED_LOCK_ERROR:
         error "failed to acquire lock in analyzeTableLoop", error = error
       await sleepAsync(RunAnalyzeInterval)
       continue
 
-    info "analyzeTableLoop start analysis"
+    debug "analyzeTableLoop start analysis"
     (await self.performWriteQuery(AnalyzeQuery)).isOkOr:
       error "failed to run ANALYZE messages", error = error
 
-    info "analyzeTableLoop unlock db"
+    debug "analyzeTableLoop unlock db"
     (await self.releaseDatabaseLock(AnalyzeTableLockId)).isOkOr:
       error "failed to release lock analyzeTableLoop", error = error
 
-    info "analyzeTableLoop analysis completed"
+    debug "analyzeTableLoop analysis completed"
 
     await sleepAsync(RunAnalyzeInterval)
 

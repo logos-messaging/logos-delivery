@@ -45,11 +45,11 @@ proc performStoreQuery(
       return RestApiResponse.internalServerError(fmt("{msg} [{error}]"))
 
   if res.statusCode == uint32(ErrorCode.TOO_MANY_REQUESTS):
-    info "Request rate limit reached on peer ", storePeer
+    debug "Request rate limit reached on peer ", storePeer
     return RestApiResponse.tooManyRequests("Request rate limit reached")
 
   let resp = RestApiResponse.jsonResponse(res, status = Http200).valueOr:
-    const msg = "Error building the json respose"
+    const msg = "Error building the json response"
     let e = $error
     error msg, error = e
     return RestApiResponse.internalServerError(fmt("{msg} [{e}]"))
@@ -172,7 +172,7 @@ proc retrieveMsgsFromSelfNode(
     return RestApiResponse.internalServerError($error)
 
   let resp = RestApiResponse.jsonResponse(storeResp.toHex(), status = Http200).valueOr:
-    const msg = "Error building the json respose"
+    const msg = "Error building the json response"
     let e = $error
     error msg, error = e
     return RestApiResponse.internalServerError(fmt("{msg} [{e}]"))
@@ -200,7 +200,7 @@ proc installStoreApiHandlers*(
   ) -> RestApiResponse:
     let peer = peerAddr.toOpt()
 
-    info "REST-GET /store/v3/messages ", peer_addr = $peer
+    debug "REST-GET /store/v3/messages ", peer_addr = $peer
 
     # All the GET parameters are URL-encoded (https://en.wikipedia.org/wiki/URL_encoding)
     # Example:

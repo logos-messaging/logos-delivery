@@ -93,6 +93,10 @@ proc processIncomingMessage(
 
   let rxMsg = RecvMessage(msgHash: msgHash, rxTime: message.timestamp)
   self.recentReceivedMsgs.add(rxMsg)
+  info "Message received",
+    msg_hash = msgHash.to0xHex(),
+    contentTopic = message.contentTopic,
+    pubsubTopic = pubsubTopic
   MessageReceivedEvent.emit(self.brokerCtx, msgHash.to0xHex(), message)
   return true
 
@@ -100,7 +104,7 @@ proc checkStore*(self: RecvService) {.async.} =
   ## Checks the store for messages that were not received directly and
   ## delivers them via MessageReceivedEvent.
   if not self.waku.isStoreMounted():
-    error "recv service has no store client mounted, skipping store check"
+    debug "recv service has no store client mounted, skipping store check"
     return
 
   self.endTimeToCheck = getNowInNanosecondTime()
@@ -118,7 +122,7 @@ proc checkStore*(self: RecvService) {.async.} =
         )
       )
     ).valueOr:
-      error "checkStore failed to get remote msgHashes",
+      debug "checkStore failed to get remote msgHashes",
         pubsubTopic = pubsubTopic, cTopics = toSeq(contentTopics), error = $error
       continue
 
@@ -137,10 +141,10 @@ proc checkStore*(self: RecvService) {.async.} =
       if missingMsgsRet.isOk():
         for msgTuple in missingMsgsRet.get():
           if self.processIncomingMessage(msgTuple.pubsubTopic, msgTuple.msg):
-            info "recv service store-recovered message",
+            debug "recv service store-recovered message",
               msg_hash = shortLog(msgTuple.hash), pubsubTopic = msgTuple.pubsubTopic
       else:
-        error "failed to retrieve missing messages: ", error = $missingMsgsRet.error
+        debug "Failed to retrieve missing messages: ", error = $missingMsgsRet.error
 
   ## update next check times
   self.startTimeToCheck = self.endTimeToCheck

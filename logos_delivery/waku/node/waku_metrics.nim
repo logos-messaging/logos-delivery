@@ -43,13 +43,14 @@ proc startMetricsLog*() =
       let lightpushPeers = collectorAsF64(logos_delivery_lightpush_peers)
       let filterPeers = collectorAsF64(logos_delivery_filter_peers)
 
-      info "Total connections initiated", count = $freshConnCount
-      info "Total messages", count = totalMessages
-      info "Total store peers", count = storePeers
-      info "Total peer exchange peers", count = pxPeers
-      info "Total lightpush peers", count = lightpushPeers
-      info "Total filter peers", count = filterPeers
-      info "Total errors", count = $freshErrorCount
+      info "Node metrics",
+        connectionsInitiated = $freshConnCount,
+        messages = totalMessages,
+        storePeers = storePeers,
+        peerExchangePeers = pxPeers,
+        lightpushPeers = lightpushPeers,
+        filterPeers = filterPeers,
+        errors = $freshErrorCount
 
       # Start protocol specific metrics logging
       logRlnMetrics()
@@ -78,7 +79,7 @@ proc startMetricsServer(
       return
         err("exception while startMetricsServer, attempt: " & getCurrentExceptionMsg())
 
-    info "Metrics HTTP server started", serverIp = $serverIp, serverPort = $port
+    debug "Metrics HTTP server started", serverIp = $serverIp, serverPort = $port
     return ok((server: server, port: port))
 
   let started = (await tryWithAutoPort[StartedMetricsServer](serverPort, attempt)).valueOr:

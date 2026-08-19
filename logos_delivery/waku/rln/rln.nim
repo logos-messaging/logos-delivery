@@ -69,11 +69,11 @@ proc validateMessage*(
 
   let timeDiff = uint64(abs(currentTime - messageTime))
 
-  info "time info",
+  trace "Time info",
     currentTime = currentTime, messageTime = messageTime, msgHash = msg.hash
 
   if timeDiff > rlnPeer.rlnMaxTimestampGap:
-    warn "invalid message: timestamp difference exceeds threshold",
+    debug "Invalid message: timestamp difference exceeds threshold",
       timeDiff = timeDiff,
       maxTimestampGap = rlnPeer.rlnMaxTimestampGap,
       contentTopic = msg.contentTopic
@@ -82,7 +82,7 @@ proc validateMessage*(
 
   let computedEpoch = rlnPeer.calcEpoch(messageTime)
   if proof.epoch != computedEpoch:
-    warn "invalid message: timestamp mismatches epoch",
+    debug "Invalid message: timestamp mismatches epoch",
       proofEpoch = fromEpoch(proof.epoch),
       computedEpoch = fromEpoch(computedEpoch),
       contentTopic = msg.contentTopic
@@ -91,7 +91,7 @@ proc validateMessage*(
 
   let rootValidationRes = await rlnPeer.groupManager.validateRoot(proof.merkleRoot)
   if not rootValidationRes:
-    warn "invalid message: provided root does not belong to acceptable window of roots",
+    debug "Invalid message: provided root does not belong to acceptable window of roots",
       provided = proof.merkleRoot.inHex(),
       validRoots = rlnPeer.groupManager.validRoots.mapIt(it.inHex()),
       contentTopic = msg.contentTopic
@@ -111,13 +111,13 @@ proc validateMessage*(
 
   proofVerificationRes.isOkOr:
     logos_delivery_rln_errors_total.inc(labelValues = ["proof_verification"])
-    warn "invalid message: proof verification failed",
+    debug "Invalid message: proof verification failed",
       payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     return MessageValidationResult.Invalid
 
   if not proofVerificationRes.value():
     # invalid proof
-    warn "invalid message: invalid proof",
+    debug "Invalid message: invalid proof",
       payloadLen = msg.payload.len, contentTopic = msg.contentTopic
     logos_delivery_rln_invalid_messages_total.inc(labelValues = ["invalid_proof"])
     return MessageValidationResult.Invalid
@@ -171,7 +171,7 @@ proc monitorEpochs(rln: Rln) {.async.} =
           rln.groupManager.userMessageLimit.get().float64
         )
       else:
-        error "userMessageLimit is not set in monitorEpochs"
+        debug "userMessageLimit is not set in monitorEpochs"
     except CatchableError:
       error "Error in epoch monitoring", error = getCurrentExceptionMsg()
 
@@ -251,7 +251,7 @@ proc isReady*(rlnPeer: Rln): Future[bool] {.async.} =
   try:
     return await rlnPeer.groupManager.isReady()
   except CatchableError:
-    error "could not check if the rln-relay protocol is ready",
+    debug "could not check if the rln-relay protocol is ready",
       err = getCurrentExceptionMsg()
     return false
 

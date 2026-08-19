@@ -75,7 +75,7 @@ proc openConnection(
   let conn: Connection = connOpt.valueOr:
     return err("fail to dial remote " & $peerId)
 
-  info "transfer session initialized",
+  debug "Transfer session initialized",
     local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
 
   return ok(conn)
@@ -104,11 +104,11 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
       ## sanity check, should not be possible
     self.outSessions[peerId].isClosedRemotely:
       ## quite possibly remote end has closed the connection, believing transfer to be done
-      info "opening transfer connection to remote peer",
+      debug "Opening transfer connection to remote peer",
         my_peer_id = self.peerManager.switch.peerInfo.peerId, remote_peer_id = peerId
 
       let connection = (await self.openConnection(peerId)).valueOr:
-        error "failed to establish transfer connection", error = error
+        debug "Failed to establish transfer connection", error = error
         continue
 
       self.outSessions[peerid] = connection
@@ -124,7 +124,7 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
       continue
 
     if response.messages.len < 1:
-      error "failed to fetch message from db"
+      debug "Message not found in db"
       continue
 
     let msg =
@@ -138,7 +138,7 @@ proc needsReceiverLoop(self: SyncTransfer) {.async.} =
     (await sendMessage(connection, msg)).isOkOr:
       self.outSessions.del(peerId)
       await connection.close()
-      error "failed to send message", error = error
+      debug "Failed to send message", error = error
       continue
 
   return
@@ -163,7 +163,7 @@ proc initProtocolHandler(self: SyncTransfer) =
       )
 
       let payload = WakuMessageAndTopic.decode(buffer).valueOr:
-        error "decoding error", error = $error
+        debug "Decoding error", error = $error
         continue
 
       logos_delivery_total_transfer_messages_exchanged.inc(labelValues = [Receiving])
@@ -191,7 +191,7 @@ proc initProtocolHandler(self: SyncTransfer) =
 
     await conn.close()
 
-    info "transfer session ended",
+    debug "Transfer session ended",
       local = self.peerManager.switch.peerInfo.peerId, remote = conn.peerId
 
     return

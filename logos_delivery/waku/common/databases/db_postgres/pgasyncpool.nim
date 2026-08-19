@@ -57,9 +57,9 @@ proc close*(pool: PgAsyncPool): Future[Result[void, string]] {.async.} =
   # wait for the connections to be released and close them, without
   # blocking the async runtime
 
-  info "close PgAsyncPool"
+  debug "close PgAsyncPool"
   await allFutures(pool.conns.mapIt(it.futBecomeFree))
-  info "closing all connection PgAsyncPool"
+  debug "closing all connection PgAsyncPool"
 
   for i in 0 ..< pool.conns.len:
     if pool.conns[i].isPgDbConnOpen():
@@ -128,7 +128,7 @@ proc pgQuery*(
   defer:
     let queryDuration = getNowInNanosecondTime() - queryStartTime
     if queryDuration > SlowQueryThreshold.nanos:
-      info "pgQuery slow query",
+      debug "pgQuery slow query",
         query_duration_secs = (queryDuration / 1_000_000_000), query, requestId
 
   (await dbConnWrapper.dbConnQuery(sql(query), args, rowCallback, requestId)).isOkOr:
@@ -162,7 +162,7 @@ proc runStmt*(
   defer:
     let queryDuration = getNowInNanosecondTime() - queryStartTime
     if queryDuration > SlowQueryThreshold.nanos:
-      info "runStmt slow query",
+      debug "runStmt slow query",
         query_duration = queryDuration / 1_000_000_000,
         query = stmtDefinition,
         requestId
