@@ -46,6 +46,18 @@ let
     else if pkgs.stdenv.hostPlatform.isDarwin then "dylib"
     else "so";
 
+  # Must match the nimble task: library/liblogosdelivery.h includes this path.
+  cBindingsDir = "library/generated";
+
+  # -d:ffiSrcPath is required: without it nim-ffi derives the path via
+  # relativePath, which needs getcwd at compile time and fails to build.
+  cBindingsArgs = [
+    "--define:ffiGenBindings"
+    "--define:targetLang=c"
+    "--define:ffiOutputDir=${cBindingsDir}"
+    "--define:ffiSrcPath=../liblogosdelivery.nim"
+  ];
+
   # Shared `nim c` invocation. Callers vary the output, the source file and a
   # few mode-specific flags (e.g. --app:lib, --noMain, --header); everything
   # else (paths, defines, threading, gc, nimcache, rln linkage) is constant.
@@ -88,7 +100,7 @@ pkgs.stdenv.mkDerivation {
     export NIMBLE_DIR=$TMPDIR/.nimble
     export NIMCACHE=$TMPDIR/nimcache
 
-    mkdir -p build $NIMCACHE
+    mkdir -p build $NIMCACHE ${cBindingsDir}
 
     # nat_traversal bundles C sub-libraries that must be compiled before linking.
     # Copy the fetchgit store path to a writable tmpdir, build, then pass to nim.
@@ -120,7 +132,7 @@ pkgs.stdenv.mkDerivation {
         "--noMain"
         "--header"
         "--nimMainPrefix:liblogosdelivery"
-      ];
+      ] ++ cBindingsArgs;
     }}
 
     echo "== Building liblogosdelivery (static) =="
@@ -144,11 +156,12 @@ pkgs.stdenv.mkDerivation {
     runHook postInstall
   '' else ''
     runHook preInstall
-    mkdir -p $out/lib $out/include
-    cp build/liblogosdelivery.${libExt} $out/lib/ 2>/dev/null || true
-    cp build/liblogosdelivery.a         $out/lib/ 2>/dev/null || true
-    cp library/liblogosdelivery.h        $out/include/ 2>/dev/null || true
-    cp library/liblogosdelivery_kernel.h $out/include/ 2>/dev/null || true
+    mkdir -p $out/lib $out/include/generated
+    cp build/liblogosdelivery.${libExt} $out/lib/
+    cp build/liblogosdelivery.a         $out/lib/
+    cp library/liblogosdelivery.h        $out/include/
+    cp library/liblogosdelivery_kernel.h $out/include/
+    cp ${cBindingsDir}/logosdelivery.h   $out/include/generated/
     runHook postInstall
   '';
 
