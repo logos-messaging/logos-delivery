@@ -441,11 +441,11 @@ proc dialPeer(
     source = "api",
 ): Future[Opt[Connection]] {.async.} =
   if peerId == pm.switch.peerInfo.peerId:
-    debug "could not dial self"
+    error "could not dial self"
     return Opt.none(Connection)
 
   if proto == WakuRelayCodec:
-    debug "dial shall not be used to connect to relays"
+    error "dial shall not be used to connect to relays"
     return Opt.none(Connection)
 
   trace "Dialing peer", wireAddr = addrs, peerId = peerId, proto = proto
@@ -934,11 +934,6 @@ proc logAndMetrics(pm: PeerManager) {.async.} =
 
 proc getOnlineStateObserver*(pm: PeerManager): OnOnlineStateChange =
   return proc(online: bool) {.gcsafe, raises: [].} =
-    if online != pm.online:
-      if online:
-        info "Node is online"
-      else:
-        warn "Node is offline"
     pm.online = online
 
 #~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~~#

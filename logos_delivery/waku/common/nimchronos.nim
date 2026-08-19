@@ -21,7 +21,7 @@ template heartbeat*(name: string, interval: Duration, body: untyped): untyped =
         itv = interval
 
       if delay > itv:
-        debug "Missed multiple heartbeats",
+        warn "Missed multiple heartbeats",
           heartbeat = name, delay = delay, hinterval = itv
       else:
         debug "Missed heartbeat", heartbeat = name, delay = delay, hinterval = itv

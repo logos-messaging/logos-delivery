@@ -197,7 +197,7 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     MessageSentEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
     return
   of DeliveryState.FailedToDeliver:
-    info "Failed to send message",
+    error "Failed to send message",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       error = task.errorDesc
@@ -212,7 +212,7 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
   # Hard-fail a task admitted but never propagated within MaxTimeInCache.
   # Propagated-but-unvalidated tasks are dropped in evaluateAndCleanUp instead.
   if task.isDeliveryTimedOut(MaxTimeInCache):
-    info "Failed to send message",
+    error "Failed to send message",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       error = "Message too old",

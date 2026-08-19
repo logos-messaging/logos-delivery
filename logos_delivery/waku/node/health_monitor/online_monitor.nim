@@ -3,6 +3,9 @@ import chronos, chronicles, libp2p/nameresolving/dnsresolver, libp2p/peerstore
 
 import ../peer_manager/waku_peer_store, logos_delivery/waku/waku_core/peers
 
+logScope:
+  topics = "waku online monitor"
+
 type
   OnOnlineStateChange* = proc(online: bool) {.gcsafe, raises: [].}
 
@@ -39,11 +42,18 @@ proc updateOnlineState(self: OnlineMonitor) {.async.} =
     else:
       self.peerStore.peers().countIt(it.connectedness == Connected)
 
-  self.online =
+  let online =
     if numConnectedPeers > 0:
       true
     else:
       await checkInternetConnectivity(self.dnsNameServers)
+
+  if online != self.online:
+    if online:
+      info "Node is online"
+    else:
+      warn "Node is offline"
+  self.online = online
 
   for onlineStateObserver in self.onlineStateObservers:
     onlineStateObserver(self.online)
