@@ -446,7 +446,6 @@ ifeq ($(detected_OS),Windows)
 	BUILD_COMMAND := $(BUILD_COMMAND)Windows
 else ifeq ($(detected_OS),Darwin)
 	BUILD_COMMAND := $(BUILD_COMMAND)Mac
-	export IOS_SDK_PATH := $(shell xcrun --sdk iphoneos --show-sdk-path)
 else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
@@ -596,13 +595,13 @@ build-liblogosdelivery-for-ios-arch:
 liblogosdelivery-ios-device: IOS_ARCH=arm64
 liblogosdelivery-ios-device: IOS_SDK=iphoneos
 liblogosdelivery-ios-device: IOS_SDK_PATH=$(call get_ios_sdk_path,iphoneos)
-liblogosdelivery-ios-device: | liblogosdelivery-ios-precheck build deps
+liblogosdelivery-ios-device: | liblogosdelivery-ios-precheck build deps build-deps
 	$(MAKE) build-liblogosdelivery-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
 
 liblogosdelivery-ios-simulator: IOS_ARCH=arm64
 liblogosdelivery-ios-simulator: IOS_SDK=iphonesimulator
 liblogosdelivery-ios-simulator: IOS_SDK_PATH=$(call get_ios_sdk_path,iphonesimulator)
-liblogosdelivery-ios-simulator: | liblogosdelivery-ios-precheck build deps
+liblogosdelivery-ios-simulator: | liblogosdelivery-ios-precheck build deps build-deps
 	$(MAKE) build-liblogosdelivery-for-ios-arch IOS_ARCH=$(IOS_ARCH) IOS_SDK=$(IOS_SDK) IOS_SDK_PATH=$(IOS_SDK_PATH)
 
 liblogosdelivery-ios:
