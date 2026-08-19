@@ -1,5 +1,3 @@
-## CLI configuration of logosdeliverynode.
-
 import
   std/[strutils, strformat, sequtils],
   results,
@@ -33,33 +31,37 @@ import
     waku_core/message/default_values,
     waku_mix,
   ],
+  ../../tools/rln_keystore_generator/rln_keystore_generator,
   ./entry_nodes
 
 import ./envvar as confEnvvarDefs, ./envvar_net as confEnvvarNet
-import ./kernel_cli_args
 
-export modes, kernel_cli_args
+export
+  confTomlDefs, confTomlNet, confEnvvarDefs, confEnvvarNet, ProtectedShard,
+  DefaultMaxWakuMessageSizeStr, DefaultAgentString, modes
 
 logScope:
-  topics = "delivery cli args"
+  topics = "waku cli args"
 
-proc `$`*(u: EthRpcUrl): string =
-  ## `load` and `defaultLogosDeliveryNodeConf` are generic over the conf type,
-  ## so confutils expands its default-value printing in the caller's scope;
-  ## this `$` must be exported for those expansions to resolve.
-  string(u)
+# Git version in git describe format (defined at compile time)
+const git_version* {.strdefine.} = "n/a"
 
-type LogosDeliveryNodeConf* = object
-  ## LogosDeliveryNodeConf is the kernel configuration with two additional
-  ## fields.
-  ##
-  ## `entryLayer` lets logosdeliverynode users specify the layer-mount height,
-  ## which is never guessed from given CLI parameters.
-  ##
-  ## `mode` is a messaging-only option. The kernel layer has no mode: its
-  ## entire configuration must be given explicitly and it has its own
-  ## per-config-option defaults which add up to what you'd expect for
-  ## fleet-node use.
+# CLI defaults that differ from confbuilder defaults
+const
+  DefaultCLIRelay* = true
+  DefaultCLIPeerExchange* = true
+  DefaultCLIRendezvous* = true
+  DefaultCLINat* = "any"
+
+type ConfResult*[T] = Result[T, string]
+
+type EthRpcUrl* = distinct string
+
+type StartUpCommand* = enum
+  noCommand # default, runs waku
+  generateRlnKeystore # generates a new RLN keystore
+
+type WakuNodeConf* = object
   configFile* {.
     desc: "Loads configuration from a TOML file (cmd-line parameters take precedence)",
     name: "config-file"
@@ -166,20 +168,6 @@ type LogosDeliveryNodeConf* = object
       defaultValue: "",
       name: "preset"
     .}: string
-
-    entryLayer* {.
-      desc:
-        "Top API layer to run: kernel (transport only), messaging, or channels (messaging + reliable channels).",
-      defaultValue: EntryLayer.channels,
-      name: "entry-layer"
-    .}: EntryLayer
-
-    mode* {.
-      desc:
-        "Node operating mode: Edge (client-only) or Core (full service node). Applies to --entry-layer=messaging|channels; rejected for --entry-layer=kernel. Default is Core.",
-      defaultValue: Opt.none(LogosDeliveryMode),
-      name: "mode"
-    .}: Opt[LogosDeliveryMode]
 
     # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
     clusterId* {.
@@ -290,10 +278,10 @@ hence would have reachability issues.""",
 
     ## Relay config
     relay* {.
-      desc: "Enable relay protocol: true|false. Default is true.",
-      defaultValue: Opt.none(bool),
+      desc: "Enable relay protocol: true|false",
+      defaultValue: DefaultCLIRelay,
       name: "relay"
-    .}: Opt[bool]
+    .}: bool
 
     relayPeerExchange* {.
       desc: "Enable gossipsub peer exchange in relay protocol: true|false",
@@ -368,10 +356,8 @@ hence would have reachability issues.""",
 
     ## Store and message store config
     store* {.
-      desc: "Enable/disable waku store protocol. Default is false.",
-      defaultValue: Opt.none(bool),
-      name: "store"
-    .}: Opt[bool]
+      desc: "Enable/disable waku store protocol", defaultValue: false, name: "store"
+    .}: bool
 
     storenode* {.
       desc: "Peer multiaddress to query for storage",
@@ -445,10 +431,8 @@ hence would have reachability issues.""",
 
     ## Filter config
     filter* {.
-      desc: "Enable filter protocol: true|false. Default is true.",
-      defaultValue: Opt.none(bool),
-      name: "filter"
-    .}: Opt[bool]
+      desc: "Enable filter protocol: true|false", defaultValue: true, name: "filter"
+    .}: bool
 
     filternode* {.
       desc: "Peer multiaddr to request content filtering of messages.",
@@ -478,10 +462,10 @@ hence would have reachability issues.""",
 
     ## Lightpush config
     lightpush* {.
-      desc: "Enable lightpush protocol: true|false. Default is true.",
-      defaultValue: Opt.none(bool),
+      desc: "Enable lightpush protocol: true|false",
+      defaultValue: true,
       name: "lightpush"
-    .}: Opt[bool]
+    .}: bool
 
     lightpushnode* {.
       desc: "Peer multiaddr to request lightpush of published messages.",
@@ -574,7 +558,8 @@ hence would have reachability issues.""",
     ## Discovery v5 config
     discv5Discovery* {.
       desc: "Enable discovering nodes via Node Discovery v5. Default is true.",
-      defaultValue: Opt.none(bool),
+      defaultValue: Opt.some(true),
+      defaultValueDesc: "true",
       name: "discv5-discovery"
     .}: Opt[bool]
 
@@ -622,11 +607,10 @@ hence would have reachability issues.""",
 
     ## waku peer exchange config
     peerExchange* {.
-      desc:
-        "Enable waku peer exchange protocol (responder side): true|false. Default is true.",
-      defaultValue: Opt.none(bool),
+      desc: "Enable waku peer exchange protocol (responder side): true|false",
+      defaultValue: DefaultCLIPeerExchange,
       name: "peer-exchange"
-    .}: Opt[bool]
+    .}: bool
 
     peerExchangeNode* {.
       desc:
@@ -637,10 +621,10 @@ hence would have reachability issues.""",
 
     ## Rendez vous
     rendezvous* {.
-      desc: "Enable waku rendezvous discovery server. Default is true.",
-      defaultValue: Opt.none(bool),
+      desc: "Enable waku rendezvous discovery server",
+      defaultValue: DefaultCLIRendezvous,
       name: "rendezvous"
-    .}: Opt[bool]
+    .}: bool
 
     #Mix config
     # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
@@ -749,28 +733,202 @@ hence would have reachability issues.""",
       name: "local-storage-path"
     .}: string
 
-proc parseCmdArg*(T: type LogosDeliveryMode, s: string): T {.raises: [ValueError].} =
-  ## The generic `Opt[T]` flag parser dispatches to `parseCmdArg(T, ...)` for
-  ## the inner type, so `Opt[LogosDeliveryMode]` needs this overload (bare enum
-  ## fields parse through confutils' internal enum support instead).
-  case s.strip().toLowerAscii()
-  of "edge":
-    LogosDeliveryMode.Edge
-  of "core":
-    LogosDeliveryMode.Core
-  else:
-    raise
-      newException(ValueError, "Invalid mode: '" & s & "' (expected 'Edge' or 'Core')")
+## Parsing
 
-proc completeCmdArg*(T: type LogosDeliveryMode, val: string): seq[string] =
+# NOTE: Keys are different in nim-libp2p
+proc parseCmdArg*(T: type crypto.PrivateKey, p: string): T =
+  try:
+    let key = SkPrivateKey.init(utils.fromHex(p)).tryGet()
+    crypto.PrivateKey(scheme: Secp256k1, skkey: key)
+  except CatchableError:
+    raise newException(ValueError, "Invalid private key")
+
+proc parseCmdArg*[T](_: type seq[T], s: string): seq[T] {.raises: [ValueError].} =
+  var
+    inputSeq: JsonNode
+    res: seq[T] = @[]
+
+  try:
+    inputSeq = s.parseJson()
+  except Exception:
+    raise newException(ValueError, fmt"Could not parse sequence: {s}")
+
+  for entry in inputSeq:
+    let formattedString = ($entry).strip(chars = {'\"'})
+    res.add(parseCmdArg(T, formattedString))
+
+  return res
+
+proc completeCmdArg*(T: type crypto.PrivateKey, val: string): seq[string] =
   return @[]
 
-proc load*(T: type LogosDeliveryNodeConf, version = ""): ConfResult[T] =
+# TODO: Remove when removing protected-topic configuration
+proc isNumber(x: string): bool =
   try:
-    let conf = LogosDeliveryNodeConf.load(
+    discard parseInt(x)
+    result = true
+  except ValueError:
+    result = false
+
+proc parseCmdArg*(T: type MixNodePubInfo, p: string): T =
+  let elements = p.split(":")
+  if elements.len != 2:
+    raise newException(
+      ValueError, "Invalid format for mix node expected multiaddr:mixPublicKey"
+    )
+  let multiaddr = MultiAddress.init(elements[0]).valueOr:
+    raise newException(ValueError, "Invalid multiaddress format")
+  if not multiaddr.contains(multiCodec("ip4")).get():
+    raise newException(
+      ValueError, "Invalid format for ip address, expected a ipv4 multiaddress"
+    )
+  return MixNodePubInfo(
+    multiaddr: elements[0], pubKey: intoCurve25519Key(ncrutils.fromHex(elements[1]))
+  )
+
+proc parseCmdArg*(T: type ProtectedShard, p: string): T =
+  let elements = p.split(":")
+  if elements.len != 2:
+    raise newException(
+      ValueError, "Invalid format for protected shard expected shard:publickey"
+    )
+  let publicKey = secp256k1.SkPublicKey.fromHex(elements[1]).valueOr:
+    raise newException(ValueError, "Invalid public key")
+
+  if isNumber(elements[0]):
+    return ProtectedShard(shard: uint16.parseCmdArg(elements[0]), key: publicKey)
+
+  # TODO: Remove when removing protected-topic configuration
+  let shard = RelayShard.parse(elements[0]).valueOr:
+    raise newException(
+      ValueError,
+      "Invalid pubsub topic. Pubsub topics must be in the format /waku/2/rs/<cluster-id>/<shard-id>",
+    )
+  return ProtectedShard(shard: shard.shardId, key: publicKey)
+
+proc completeCmdArg*(T: type ProtectedShard, val: string): seq[string] =
+  return @[]
+
+proc completeCmdArg*(T: type IpAddress, val: string): seq[string] =
+  return @[]
+
+proc defaultListenAddress*(): IpAddress =
+  # TODO: Should probably listen on both ipv4 and ipv6 by default.
+  (static IpAddress(family: IpAddressFamily.IPv4, address_v4: [0'u8, 0, 0, 0]))
+
+proc defaultColocationLimit*(): int =
+  return DefaultColocationLimit
+
+proc completeCmdArg*(T: type Port, val: string): seq[string] =
+  return @[]
+
+proc completeCmdArg*(T: type EthRpcUrl, val: string): seq[string] =
+  return @[]
+
+proc parseCmdArg*(T: type EthRpcUrl, s: string): T =
+  ## allowed patterns:
+  ## http://url:port
+  ## https://url:port
+  ## http://url:port/path
+  ## https://url:port/path
+  ## http://url/with/path
+  ## http://url:port/path?query
+  ## https://url:port/path?query
+  ## https://username:password@url:port/path
+  ## https://username:password@url:port/path?query
+  ## supports IPv4, IPv6, URL-encoded credentials
+  ## disallowed patterns:
+  ## any valid/invalid ws or wss url
+  var httpPattern =
+    re2"^(https?):\/\/(([^\s:@]*(?:%[0-9A-Fa-f]{2})*):([^\s:@]*(?:%[0-9A-Fa-f]{2})*)@)?((?:[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?\.)*[a-zA-Z0-9](?:[a-zA-Z0-9-]{0,61}[a-zA-Z0-9])?|(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)|\[[0-9a-fA-F:]+\])(?::([0-9]{1,5}))?(\/[^\s?#]*)?(\?[^\s#]*)?(#[^\s]*)?$"
+  var wsPattern =
+    re2"^(wss?):\/\/([\w-]+(\.[\w-]+)+)(:[0-9]{1,5})?(\/[\w.,@?^=%&:\/~+#-]*)?$"
+  if regex.match(s, wsPattern):
+    raise newException(
+      ValueError, "Websocket RPC URL is not supported, Please use an HTTP URL"
+    )
+  if not regex.match(s, httpPattern):
+    raise newException(ValueError, "Invalid HTTP RPC URL")
+  return EthRpcUrl(s)
+
+## Load
+
+proc readValue*(
+    r: var TomlReader, value: var crypto.PrivateKey
+) {.raises: [SerializationError].} =
+  try:
+    value = parseCmdArg(crypto.PrivateKey, r.readValue(string))
+  except CatchableError:
+    raise newException(SerializationError, getCurrentExceptionMsg())
+
+proc readValue*(
+    r: var EnvvarReader, value: var crypto.PrivateKey
+) {.raises: [SerializationError].} =
+  try:
+    value = parseCmdArg(crypto.PrivateKey, r.readValue(string))
+  except CatchableError:
+    raise newException(SerializationError, getCurrentExceptionMsg())
+
+proc readValue*(
+    r: var TomlReader, value: var MixNodePubInfo
+) {.raises: [SerializationError].} =
+  try:
+    value = parseCmdArg(MixNodePubInfo, r.readValue(string))
+  except CatchableError:
+    raise newException(SerializationError, getCurrentExceptionMsg())
+
+proc readValue*(
+    r: var EnvvarReader, value: var MixNodePubInfo
+) {.raises: [SerializationError].} =
+  try:
+    value = parseCmdArg(MixNodePubInfo, r.readValue(string))
+  except CatchableError:
+    raise newException(SerializationError, getCurrentExceptionMsg())
+
+proc readValue*(
+    r: var TomlReader, value: var ProtectedShard
+) {.raises: [SerializationError].} =
+  try:
+    value = parseCmdArg(ProtectedShard, r.readValue(string))
+  except CatchableError:
+    raise newException(SerializationError, getCurrentExceptionMsg())
+
+proc readValue*(
+    r: var EnvvarReader, value: var ProtectedShard
+) {.raises: [SerializationError].} =
+  try:
+    value = parseCmdArg(ProtectedShard, r.readValue(string))
+  except CatchableError:
+    raise newException(SerializationError, getCurrentExceptionMsg())
+
+proc readValue*(
+    r: var TomlReader, value: var EthRpcUrl
+) {.raises: [SerializationError].} =
+  try:
+    value = parseCmdArg(EthRpcUrl, r.readValue(string))
+  except CatchableError:
+    raise newException(SerializationError, getCurrentExceptionMsg())
+
+proc readValue*(
+    r: var EnvvarReader, value: var EthRpcUrl
+) {.raises: [SerializationError].} =
+  try:
+    value = parseCmdArg(EthRpcUrl, r.readValue(string))
+  except CatchableError:
+    raise newException(SerializationError, getCurrentExceptionMsg())
+
+proc readValue*[T](
+    r: var TomlReader, value: var Opt[T]
+) {.gcsafe, raises: [SerializationError, IOError].} =
+  mixin readValue
+  value = Opt.some(r.readValue(T))
+
+proc load*(T: type WakuNodeConf, version = ""): ConfResult[T] =
+  try:
+    let conf = WakuNodeConf.load(
       version = version,
       secondarySources = proc(
-          conf: LogosDeliveryNodeConf, sources: auto
+          conf: WakuNodeConf, sources: auto
       ) {.gcsafe, raises: [ConfigurationError].} =
         sources.addConfigFile(Envvar, InputFile("wakunode2"))
 
@@ -783,14 +941,55 @@ proc load*(T: type LogosDeliveryNodeConf, version = ""): ConfResult[T] =
   except CatchableError:
     err(getCurrentExceptionMsg())
 
-proc defaultLogosDeliveryNodeConf*(): ConfResult[LogosDeliveryNodeConf] =
+proc defaultWakuNodeConf*(): ConfResult[WakuNodeConf] =
   try:
-    let conf = LogosDeliveryNodeConf.load(version = "", cmdLine = @[])
+    let conf = WakuNodeConf.load(version = "", cmdLine = @[])
     return ok(conf)
   except CatchableError:
-    return err("exception in defaultLogosDeliveryNodeConf: " & getCurrentExceptionMsg())
+    return err("exception in defaultWakuNodeConf: " & getCurrentExceptionMsg())
 
-proc toWakuConf*(n: LogosDeliveryNodeConf): ConfResult[WakuConf] =
+proc toKeystoreGeneratorConf*(n: WakuNodeConf): RlnKeystoreGeneratorConf =
+  RlnKeystoreGeneratorConf(
+    execute: n.execute,
+    chainId: UInt256.fromBytesBE(n.rlnRelayChainId.toBytesBE()),
+    ethClientUrls: n.ethClientUrls.mapIt(string(it)),
+    ethContractAddress: n.rlnRelayEthContractAddress,
+    userMessageLimit: n.rlnRelayUserMessageLimit.get(DefaultRlnRelayUserMessageLimit),
+    ethPrivateKey: n.rlnRelayEthPrivateKey,
+    credPath: n.rlnRelayCredPath,
+    credPassword: n.rlnRelayCredPassword,
+  )
+
+proc toNetworkPresetConf*(
+    preset: string, clusterId: Opt[uint16]
+): ConfResult[Opt[NetworkPresetConf]] =
+  var lcPreset = toLowerAscii(preset)
+  if clusterId.isSome() and clusterId.get() == 1:
+    warn(
+      "TWN - The Waku Network configuration will not be applied when `--cluster-id=1` is passed in future releases. Use `--preset=twn` instead."
+    )
+    lcPreset = "twn"
+  if clusterId.isSome() and clusterId.get() == 2:
+    warn(
+      "Logos.dev - Logos.dev configuration will not be applied when `--cluster-id=2` is passed in future releases. Use `--preset=logos.dev` instead."
+    )
+    lcPreset = "logos.dev"
+
+  case lcPreset
+  of "":
+    ok(Opt.none(NetworkPresetConf))
+  of "twn":
+    ok(Opt.some(NetworkPresetConf.TheWakuNetworkConf()))
+  of "logos.dev", "logosdev":
+    ok(Opt.some(NetworkPresetConf.LogosDevConf()))
+  of "logos.test", "logostest":
+    ok(Opt.some(NetworkPresetConf.LogosTestConf()))
+  of "status.prod", "statusprod":
+    ok(Opt.some(NetworkPresetConf.StatusProdConf()))
+  else:
+    err("Invalid --preset value passed: " & lcPreset)
+
+proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   var b = WakuConfBuilder.init()
 
   let networkPresetConf = toNetworkPresetConf(n.preset, n.clusterId).valueOr:
@@ -856,8 +1055,7 @@ proc toWakuConf*(n: LogosDeliveryNodeConf): ConfResult[WakuConf] =
   b.withDnsAddrsNameServers(n.dnsAddrsNameServers)
   b.withDns4DomainName(n.dns4DomainName)
   b.withCircuitRelayClient(n.isRelayClient)
-  if n.relay.isSome():
-    b.withRelay(n.relay.get())
+  b.withRelay(n.relay)
   b.withRelayPeerExchange(n.relayPeerExchange)
   b.withRelayShardedPeerManagement(n.relayShardedPeerManagement)
   b.withStaticNodes(n.staticNodes)
@@ -895,8 +1093,7 @@ proc toWakuConf*(n: LogosDeliveryNodeConf): ConfResult[WakuConf] =
 
   b.withContentTopics(n.contentTopics)
 
-  if n.store.isSome():
-    b.storeServiceConf.withEnabled(n.store.get())
+  b.storeServiceConf.withEnabled(n.store)
   b.storeServiceConf.withRetentionPolicies(n.storeMessageRetentionPolicy)
   b.storeServiceConf.withDbUrl(n.storeMessageDbUrl)
   b.storeServiceConf.withDbVacuum(n.storeMessageDbVacuum)
@@ -926,14 +1123,12 @@ proc toWakuConf*(n: LogosDeliveryNodeConf): ConfResult[WakuConf] =
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())
 
-  if n.filter.isSome():
-    b.filterServiceConf.withEnabled(n.filter.get())
+  b.filterServiceConf.withEnabled(n.filter)
   b.filterServiceConf.withSubscriptionTimeout(n.filterSubscriptionTimeout)
   b.filterServiceConf.withMaxPeersToServe(n.filterMaxPeersToServe)
   b.filterServiceConf.withMaxCriteria(n.filterMaxCriteria)
 
-  if n.lightpush.isSome():
-    b.withLightPush(n.lightpush.get())
+  b.withLightPush(n.lightpush)
 
   b.restServerConf.withEnabled(n.rest)
   b.restServerConf.withListenAddress(n.restAddress)
@@ -961,11 +1156,9 @@ proc toWakuConf*(n: LogosDeliveryNodeConf): ConfResult[WakuConf] =
   b.discv5Conf.withBucketIpLimit(n.discv5BucketIpLimit)
   b.discv5Conf.withBitsPerHop(n.discv5BitsPerHop)
 
-  if n.peerExchange.isSome():
-    b.withPeerExchange(n.peerExchange.get())
+  b.withPeerExchange(n.peerExchange)
 
-  if n.rendezvous.isSome():
-    b.withRendezvous(n.rendezvous.get())
+  b.withRendezvous(n.rendezvous)
 
   b.webSocketConf.withEnabled(n.websocketSupport)
   b.webSocketConf.withWebSocketPort(n.websocketPort)

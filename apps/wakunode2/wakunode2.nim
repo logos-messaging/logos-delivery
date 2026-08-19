@@ -8,7 +8,7 @@ import
   system/ansi_c,
   libp2p/crypto/crypto
 import
-  ../../tools/[rln_keystore_generator/rln_keystore_generator, confutils/cli_args],
+  ../../tools/[rln_keystore_generator/rln_keystore_generator, confutils/kernel_cli_args],
   logos_delivery/waku/[
     common/logging,
     waku,

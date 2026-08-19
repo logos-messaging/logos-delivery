@@ -58,22 +58,26 @@ when isMainModule:
 
   echo "Starting Waku node..."
 
-  # Use WakuNodeConf (the CLI configuration type) for node setup
-  var conf = defaultWakuNodeConf().valueOr:
-    echo "Failed to create default config: ", error
-    quit(QuitFailure)
-
+  var preset: string
+  var messagingOverrides = MessagingClientConf()
   if args.ethRpcEndpoint == "":
     # Create a basic configuration for the Waku node
     # No RLN as we don't have an ETH RPC Endpoint
-    conf.preset = "logos.dev"
+    preset = "logos.dev"
   else:
     # Connect to TWN, use ETH RPC Endpoint for RLN
-    conf.preset = "twn"
-    conf.ethClientUrls = @[EthRpcUrl(args.ethRpcEndpoint)]
+    preset = "twn"
+    messagingOverrides.ethRpcEndpoints = Opt.some(@[EthRpcUrl(args.ethRpcEndpoint)])
 
   # Create the full Logos Messaging stack (Waku + messaging + channels)
-  let node = (waitFor LogosDelivery.new(conf)).valueOr:
+  let node = (
+    waitFor LogosDelivery.new(
+      mode = LogosDeliveryMode.Core,
+      preset = preset,
+      messagingOverrides = messagingOverrides,
+      channelsOverrides = ReliableChannelManagerConf(),
+    )
+  ).valueOr:
     echo "Failed to create node: ", error
     quit(QuitFailure)
 

@@ -71,9 +71,10 @@ type TestNetwork = ref object
 proc createApiNodeConf(
     mode: messaging_conf.LogosDeliveryMode = messaging_conf.LogosDeliveryMode.Core,
     numShards: uint16 = 1,
-): WakuNodeConf =
-  var conf = MessagingClientConf().toWakuNodeConf(mode).valueOr:
-      raiseAssert error
+): LogosDeliveryNodeConf =
+  var conf = defaultLogosDeliveryNodeConf().valueOr:
+    raiseAssert error
+  conf.mode = Opt.some(mode)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
@@ -82,7 +83,7 @@ proc createApiNodeConf(
   conf.rest = false
   result = conf
 
-proc setupSubscriberNode(conf: WakuNodeConf): Future[LogosDelivery] {.async.} =
+proc setupSubscriberNode(conf: LogosDeliveryNodeConf): Future[LogosDelivery] {.async.} =
   var node: LogosDelivery
   lockNewGlobalBrokerContext:
     node = (await LogosDelivery.new(conf)).expect("Failed to create subscriber node")

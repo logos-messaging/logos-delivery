@@ -122,9 +122,10 @@ proc validate(
 
 proc createApiNodeConf(
     mode: messaging_conf.LogosDeliveryMode = messaging_conf.LogosDeliveryMode.Core
-): WakuNodeConf =
-  var conf = MessagingClientConf().toWakuNodeConf(mode).valueOr:
-      raiseAssert error
+): LogosDeliveryNodeConf =
+  var conf = defaultLogosDeliveryNodeConf().valueOr:
+    raiseAssert error
+  conf.mode = Opt.some(mode)
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)

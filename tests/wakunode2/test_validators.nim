@@ -15,7 +15,7 @@ import
 import
   logos_delivery/waku/
     [waku_core, node/peer_manager, waku_node, factory/validator_signed],
-  tools/confutils/cli_args,
+  tools/confutils/kernel_cli_args,
   ../testlib/wakucore,
   ../testlib/wakunode
 

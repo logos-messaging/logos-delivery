@@ -20,14 +20,12 @@ proc init*(T: type LogosDeliveryConf, kernelConf: KernelConf): LogosDeliveryConf
 
 proc init*(
     T: type LogosDeliveryConf,
-    entryLayer: EntryLayer = EntryLayer.channels,
     mode: LogosDeliveryMode,
     preset: string,
     messagingOverrides: MessagingClientConf,
-    channelsOverrides: ReliableChannelManagerConf,
+    channelsOverrides = Opt.none(ReliableChannelManagerConf),
 ): ConfResult[LogosDeliveryConf] =
-  ## Structured (preset + overrides) entry. Only `messaging` / `channels` layers
-  ## reach here; the `kernel` layer uses `init(kernelConf)` (raw, mode ignored).
+  ## Resolves the library config from given settings and per-layer config objects.
   let merged = merge(?resolvePreset(preset), messagingOverrides)
   var kernelConf = ?toWakuNodeConf(merged, mode)
   kernelConf.preset = preset
@@ -35,11 +33,7 @@ proc init*(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernelConf),
       messagingConf: Opt.some(merged),
-      channelsConf:
-        if entryLayer == EntryLayer.channels:
-          Opt.some(channelsOverrides)
-        else:
-          Opt.none(ReliableChannelManagerConf),
+      channelsConf: channelsOverrides,
     )
   )
 
