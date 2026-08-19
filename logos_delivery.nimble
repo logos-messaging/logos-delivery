@@ -8,7 +8,12 @@ version = "0.38.1"
 author = "Status Research & Development GmbH"
 description = "Logos-delivery, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
-skipDirs = @["tests", "examples", "tools", "apps", "simulations", "metrics"]
+skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
+
+# Nimble installs only the namesake directory. library/ holds the FFI entry
+# point; migrations/ is reached by a relative import from the postgres driver;
+# logos_delivery imports tools/confutils.
+installDirs = @["library", "migrations", "tools"]
 
 const RequiredNimVersion = "2.2.4"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
@@ -72,19 +77,7 @@ requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
 
-proc getMyCPU(): string =
-  ## Need to set cpu more explicit manner to avoid arch issues between dependencies
-  when defined(macosx) and defined(arm64):
-    return " --cpu:arm64 --passC:\"-arch arm64\" --passL:\"-arch arm64\" "
-  elif defined(macosx) and defined(amd64):
-    return " --cpu:amd64 --passC:\"-arch x86_64\" --passL:\"-arch x86_64\" "
-  elif defined(arm64):
-    return " --cpu:arm64 "
-  elif defined(amd64):
-    return " --cpu:amd64 "
-
-proc getNimParams(): string =
-  return " " & getEnv("NIM_PARAMS") & " "
+include "library/build_lib.nims"
 
 ### Helper functions
 proc buildModule(filePath, params = ""): bool =
@@ -107,35 +100,9 @@ proc buildBinary(name: string, srcDir = "./", params = "") =
   exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
     srcDir & name & ".nim"
 
-## Emitted by `genBindings()` during the library build, so the header can never
-## drift from the Nim signatures. Not checked in: it is a build artifact.
-const cBindingsDir = "library/generated"
-
-## `-d:ffiSrcPath` is required: without it nim-ffi derives the path with
-## `relativePath`, which needs `getcwd` at compile time and fails to build.
-const cBindingsFlags =
-  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=" & cBindingsDir &
-  " -d:ffiSrcPath=../liblogosdelivery.nim "
-
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
-  if not dirExists "build":
-    mkDir "build"
-  mkDir cBindingsDir
-
-  if `type` == "static":
-    exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      cBindingsFlags & getMyCPU() & getNimParams() & srcDir & "/" & srcFile
-  else:
-    # -Bsymbolic binds the library's references to its own symbols at link
-    # time. Without it, a host process that already loads OpenSSL (e.g.
-    # Node.js) interposes our statically linked BoringSSL functions and data
-    # (ASN1_ITEM tables), and QUIC startup crashes in lsquic setupSSLContext
-    # (issue #4085).
-    let elfFlags = when defined(linux): "--passL:-Wl,-Bsymbolic " else: ""
-    exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      elfFlags & cBindingsFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
+  buildLogosDeliveryLib(packageDir = ".", libSubDir = srcDir, outFile = "build/" & lib_name,
+    kind = `type`, srcFile = srcFile, mainPrefix = mainPrefix)
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
