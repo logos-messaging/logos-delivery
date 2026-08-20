@@ -10,13 +10,13 @@ suite "Waku Incentivization Eligibility Codec":
     let txHashAsBytes = @(txHash.bytes())
     let eligibilityProof = EligibilityProof(proofOfPayment: Opt.some(txHashAsBytes))
     let encoded = encode(eligibilityProof)
-    let decoded = EligibilityProof.decode(encoded.buffer).get()
+    let decoded = EligibilityProof.decode(encoded).get()
     check:
       eligibilityProof == decoded
 
   asyncTest "encode eligibility status":
     let eligibilityStatus = init(EligibilityStatus, true)
     let encoded = encode(eligibilityStatus)
-    let decoded = EligibilityStatus.decode(encoded.buffer).get()
+    let decoded = EligibilityStatus.decode(encoded).get()
     check:
       eligibilityStatus == decoded

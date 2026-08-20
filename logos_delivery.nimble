@@ -26,6 +26,7 @@ requires "nim >= 2.2.4",
   "serialization",
   "json_serialization",
   "toml_serialization",
+  "protobuf_serialization",
   "faststreams",
   # Networking & P2P
   "https://github.com/vacp2p/nim-libp2p.git#v2.0.0",

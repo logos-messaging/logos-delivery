@@ -33,7 +33,7 @@ proc handleSelfLightPushRequest*(
     let req = PushRequest(pubSubTopic: pubSubTopic, message: message)
     let rpc = PushRPC(requestId: generateRequestId(self.rng), request: Opt.some(req))
 
-    let respRpc = await self.handleRequest(selfPeerId, rpc.encode().buffer)
+    let respRpc = await self.handleRequest(selfPeerId, rpc.encode())
 
     if respRpc.response.isNone():
       logos_delivery_lightpush_errors.inc(labelValues = [emptyResponseBodyFailure])

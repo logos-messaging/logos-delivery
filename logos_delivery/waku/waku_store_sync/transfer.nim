@@ -51,7 +51,7 @@ type SyncTransfer* = ref object of LPProtocol
 proc sendMessage(
     conn: Connection, payload: WakuMessageAndTopic
 ): Future[Result[void, string]] {.async.} =
-  let rawPayload = payload.encode().buffer
+  let rawPayload = payload.encode()
 
   logos_delivery_total_bytes_exchanged.inc(
     rawPayload.len, labelValues = [Transfer, Sending]

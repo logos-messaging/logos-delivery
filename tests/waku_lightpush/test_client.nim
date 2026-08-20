@@ -36,7 +36,7 @@ suite "Waku Lightpush Client":
     handler = proc(
         pubsubTopic: PubsubTopic, message: WakuMessage
     ): Future[WakuLightPushResult] {.async.} =
-      let msgLen = message.encode().buffer.len
+      let msgLen = message.encode().len
       if msgLen > int(DefaultMaxWakuMessageSize) + 64 * 1024:
         return lighpushErrorResult(
           LightPushErrorCode.PAYLOAD_TOO_LARGE, "length greater than maxMessageSize"

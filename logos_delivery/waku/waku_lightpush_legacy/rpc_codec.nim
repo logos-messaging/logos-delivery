@@ -1,95 +1,43 @@
 {.push raises: [].}
 
-import results, ../common/protobuf, ../waku_core, ./rpc
+import protobuf_serialization, protobuf_serialization/pkg/results
+import ../common/protobuf, ../waku_core, ./rpc
 
 const DefaultMaxRpcSize* = -1
 
-proc encode*(rpc: PushRequest): ProtoBuffer =
-  var pb = initProtoBuffer()
+proc encode*(rpc: PushRequest): seq[byte] =
+  Protobuf.encode(rpc)
 
-  pb.write3(1, rpc.pubSubTopic)
-  pb.write3(2, rpc.message.encode())
-  pb.finish3()
+proc encode*(rpc: PushResponse): seq[byte] =
+  Protobuf.encode(rpc)
 
-  pb
+proc encode*(rpc: PushRPC): seq[byte] =
+  Protobuf.encode(rpc)
+
+# non-generic: mixin Reader must resolve here
+proc decodePushRequest(buffer: seq[byte]): ProtobufResult[PushRequest] =
+  try:
+    ok(Protobuf.decode(buffer, PushRequest))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+proc decodePushResponse(buffer: seq[byte]): ProtobufResult[PushResponse] =
+  try:
+    ok(Protobuf.decode(buffer, PushResponse))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+proc decodePushRPC(buffer: seq[byte]): ProtobufResult[PushRPC] =
+  try:
+    ok(Protobuf.decode(buffer, PushRPC))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
 
 proc decode*(T: type PushRequest, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = PushRequest()
-
-  var pubSubTopic: PubsubTopic
-  if not ?pb.getField(1, pubSubTopic):
-    return err(ProtobufError.missingRequiredField("pubsub_topic"))
-  else:
-    rpc.pubSubTopic = pubSubTopic
-
-  var messageBuf: seq[byte]
-  if not ?pb.getField(2, messageBuf):
-    return err(ProtobufError.missingRequiredField("message"))
-  else:
-    rpc.message = ?WakuMessage.decode(messageBuf)
-
-  ok(rpc)
-
-proc encode*(rpc: PushResponse): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, uint64(rpc.isSuccess))
-  pb.write3(2, rpc.info)
-  pb.finish3()
-
-  pb
+  decodePushRequest(buffer)
 
 proc decode*(T: type PushResponse, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = PushResponse()
-
-  var isSuccess: uint64
-  if not ?pb.getField(1, isSuccess):
-    return err(ProtobufError.missingRequiredField("is_success"))
-  else:
-    rpc.isSuccess = bool(isSuccess)
-
-  var info: string
-  if not ?pb.getField(2, info):
-    rpc.info = Opt.none(string)
-  else:
-    rpc.info = Opt.some(info)
-
-  ok(rpc)
-
-proc encode*(rpc: PushRPC): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, rpc.requestId)
-  pb.write3(2, rpc.request.map(encode))
-  pb.write3(3, rpc.response.map(encode))
-  pb.finish3()
-
-  pb
+  decodePushResponse(buffer)
 
 proc decode*(T: type PushRPC, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-  var rpc = PushRPC()
-
-  var requestId: string
-  if not ?pb.getField(1, requestId):
-    return err(ProtobufError.missingRequiredField("request_id"))
-  else:
-    rpc.requestId = requestId
-
-  var requestBuffer: seq[byte]
-  if not ?pb.getField(2, requestBuffer):
-    rpc.request = Opt.none(PushRequest)
-  else:
-    let request = ?PushRequest.decode(requestBuffer)
-    rpc.request = Opt.some(request)
-
-  var responseBuffer: seq[byte]
-  if not ?pb.getField(3, responseBuffer):
-    rpc.response = Opt.none(PushResponse)
-  else:
-    let response = ?PushResponse.decode(responseBuffer)
-    rpc.response = Opt.some(response)
-
-  ok(rpc)
+  decodePushRPC(buffer)

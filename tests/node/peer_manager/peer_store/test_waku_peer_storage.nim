@@ -1,5 +1,5 @@
 import
-  std/[nativesockets, sequtils],
+  std/[nativesockets, net, sequtils],
   testutils/unittests,
   libp2p/[multiaddress, peerid],
   libp2p/crypto/crypto,
@@ -79,10 +79,7 @@ suite "Protobuf Serialisation":
 
       # Then the encoded RemotePeerInfo should be equal to the expected bytes
       check:
-        encodedRemotePeerInfo.buffer == expectedBuffer
-        encodedRemotePeerInfo.offset == 152
-        encodedRemotePeerInfo.length == 0
-        encodedRemotePeerInfo.maxSize == 4194304
+        encodedRemotePeerInfo == expectedBuffer
 
   suite "decode":
     test "simple":

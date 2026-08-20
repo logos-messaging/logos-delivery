@@ -27,7 +27,7 @@ proc handleSelfLightPushRequest*(
       requestId: generateRequestId(self.rng), pubSubTopic: pubSubTopic, message: message
     )
 
-    let response = await self.handleRequest(selfPeerId, req.encode().buffer)
+    let response = await self.handleRequest(selfPeerId, req.encode())
 
     return response.toPushResult()
   except Exception:

@@ -1,14 +1,8 @@
 import std/times, sugar
 
-import
-  libp2p/[
-    protocols/rendezvous,
-    signed_envelope,
-    multicodec,
-    multiaddress,
-    protobuf/minprotobuf,
-    peerid,
-  ]
+import protobuf_serialization, protobuf_serialization/pkg/results
+import libp2p/[protocols/rendezvous, signed_envelope, multicodec, multiaddress, peerid]
+import ../common/protobuf
 
 type WakuPeerRecord* = object
   # Considering only mix as of now, but we can keep extending this to include all capabilities part of Waku ENR
@@ -16,6 +10,12 @@ type WakuPeerRecord* = object
   seqNo*: uint64
   addresses*: seq[MultiAddress]
   mixKey*: string
+
+type WakuPeerRecordPB {.proto2.} = object
+  peerId {.fieldNumber: 1, ext, required.}: PeerId
+  seqNo {.fieldNumber: 2, pint, required.}: uint64
+  addresses {.fieldNumber: 3, ext.}: seq[MultiAddress]
+  mixKey {.fieldNumber: 4, required.}: string
 
 proc payloadDomain*(T: typedesc[WakuPeerRecord]): string =
   $multiCodec("libp2p-custom-peer-record")
@@ -32,36 +32,36 @@ proc init*(
 ): T =
   WakuPeerRecord(peerId: peerId, seqNo: seqNo, addresses: addresses, mixKey: mixKey)
 
+proc decodeWakuPeerRecord(buffer: seq[byte]): ProtobufResult[WakuPeerRecord] =
+  var pb: WakuPeerRecordPB
+  try:
+    pb = Protobuf.decode(buffer, WakuPeerRecordPB)
+  except SerializationError:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+  if pb.addresses.len == 0:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+  ok(
+    WakuPeerRecord(
+      peerId: pb.peerId, seqNo: pb.seqNo, addresses: pb.addresses, mixKey: pb.mixKey
+    )
+  )
+
 proc decode*(
     T: typedesc[WakuPeerRecord], buffer: seq[byte]
-): Result[WakuPeerRecord, ProtoError] =
-  let pb = initProtoBuffer(buffer)
-  var record = WakuPeerRecord()
-
-  ?pb.getRequiredField(1, record.peerId)
-  ?pb.getRequiredField(2, record.seqNo)
-  discard ?pb.getRepeatedField(3, record.addresses)
-
-  if record.addresses.len == 0:
-    return err(ProtoError.RequiredFieldMissing)
-
-  ?pb.getRequiredField(4, record.mixKey)
-
-  return ok(record)
+): ProtobufResult[WakuPeerRecord] =
+  decodeWakuPeerRecord(buffer)
 
 proc encode*(record: WakuPeerRecord): seq[byte] =
-  var pb = initProtoBuffer()
-
-  pb.write(1, record.peerId)
-  pb.write(2, record.seqNo)
-
-  for address in record.addresses:
-    pb.write(3, address)
-
-  pb.write(4, record.mixKey)
-
-  pb.finish()
-  return pb.buffer
+  Protobuf.encode(
+    WakuPeerRecordPB(
+      peerId: record.peerId,
+      seqNo: record.seqNo,
+      addresses: record.addresses,
+      mixKey: record.mixKey,
+    )
+  )
 
 proc checkWakuPeerRecord*(
     _: WakuPeerRecord, spr: seq[byte], peerId: PeerId

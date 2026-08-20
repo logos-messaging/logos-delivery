@@ -143,8 +143,8 @@ suite "Waku Message - Deterministic hashing":
       meta = toSeq(0.byte .. 66.byte), # 67 bytes
     )
 
-    let encodedInvalidMsg = message.encode
-    let decoded = WakuMessage.decode(encodedInvalidMsg.buffer)
+    let encodedInvalidMsg = message.encode()
+    let decoded = WakuMessage.decode(encodedInvalidMsg)
 
     check:
       decoded.isErr == true

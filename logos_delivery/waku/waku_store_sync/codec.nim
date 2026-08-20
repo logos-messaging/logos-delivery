@@ -2,6 +2,7 @@
 
 import std/sequtils, stew/[leb128, byteutils]
 
+import protobuf_serialization
 import ../common/protobuf, ../waku_core/message, ../waku_core/time, ./common
 
 const
@@ -9,13 +10,8 @@ const
   VarIntLen = 9
   AvgCapacity = 1000
 
-proc encode*(value: WakuMessageAndTopic): ProtoBuffer =
-  var pb = initProtoBuffer()
-
-  pb.write3(1, value.pubsub)
-  pb.write3(2, value.message.encode())
-
-  return pb
+proc encode*(value: WakuMessageAndTopic): seq[byte] =
+  Protobuf.encode(value)
 
 proc deltaEncode*(itemSet: ItemSet): seq[byte] =
   # 1 byte for resolved bool and 32 bytes hash plus 9 bytes varint per elements 
@@ -335,17 +331,11 @@ proc deltaDecode*(T: type RangesData, buffer: seq[byte]): Result[T, string] =
 
   return ok(payload)
 
+proc decodeWakuMessageAndTopic(buffer: seq[byte]): ProtobufResult[WakuMessageAndTopic] =
+  try:
+    ok(Protobuf.decode(buffer, WakuMessageAndTopic))
+  except SerializationError:
+    err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
 proc decode*(T: type WakuMessageAndTopic, buffer: seq[byte]): ProtobufResult[T] =
-  let pb = initProtoBuffer(buffer)
-
-  var pubsub: string
-  if not ?pb.getField(1, pubsub):
-    return err(ProtobufError.missingRequiredField("pubsub"))
-
-  var proto: ProtoBuffer
-  if not ?pb.getField(2, proto):
-    return err(ProtobufError.missingRequiredField("msg"))
-
-  let message = ?WakuMessage.decode(proto.buffer)
-
-  return ok(WakuMessageAndTopic(pubsub: pubsub, message: message))
+  decodeWakuMessageAndTopic(buffer)

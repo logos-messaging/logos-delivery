@@ -4,70 +4,93 @@
 # - Proto definition: https://github.com/vacp2p/waku/blob/main/waku/message/v1/message.proto
 {.push raises: [].}
 
-import ../../common/protobuf, ../topics, ../time, ./message
+import ../../common/protobuf_ext
+import ../../common/protobuf
 
-proc encode*(message: WakuMessage): ProtoBuffer =
-  var buf = initProtoBuffer()
+import ../time, ./message
 
-  buf.write3(1, message.payload)
-  buf.write3(2, message.contentTopic)
-  buf.write3(3, message.version)
-  buf.write3(10, zint64(message.timestamp))
-  buf.write3(11, message.meta)
-  buf.write3(21, message.proof)
-  buf.write3(31, uint32(message.ephemeral))
-  buf.finish3()
+type WakuMessagePB {.proto2.} = object
+  payload {.fieldNumber: 1, required.}: seq[byte]
+  contentTopic {.fieldNumber: 2, required.}: string
+  version {.fieldNumber: 3, pint.}: Opt[uint32]
+  timestamp {.fieldNumber: 10, sint.}: Opt[int64]
+  meta {.fieldNumber: 11.}: Opt[seq[byte]]
+  proof {.fieldNumber: 21.}: Opt[seq[byte]]
+  ephemeral {.fieldNumber: 31.}: Opt[bool]
 
-  buf
+proc encode*(message: WakuMessage): seq[byte] =
+  Protobuf.encode(
+    WakuMessagePB(
+      payload: message.payload,
+      contentTopic: message.contentTopic,
+      version: Opt.some(message.version),
+      timestamp: Opt.some(int64(message.timestamp)),
+      meta: Opt.some(message.meta),
+      proof: Opt.some(message.proof),
+      ephemeral: Opt.some(message.ephemeral),
+    )
+  )
+
+proc decodeWakuMessage(buffer: seq[byte]): ProtobufResult[WakuMessage] =
+  var pb: WakuMessagePB
+  try:
+    pb = Protobuf.decode(buffer, WakuMessagePB)
+  except SerializationError:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+
+  let meta = pb.meta.get(@[])
+  if meta.len > MaxMetaAttrLength:
+    return err(protobuf.ProtobufError.invalidLengthField("meta"))
+
+  ok(
+    WakuMessage(
+      payload: pb.payload,
+      contentTopic: pb.contentTopic,
+      meta: meta,
+      version: pb.version.get(0'u32),
+      timestamp: Timestamp(pb.timestamp.get(0'i64)),
+      ephemeral: pb.ephemeral.get(false),
+      proof: pb.proof.get(@[]),
+    )
+  )
 
 proc decode*(T: type WakuMessage, buffer: seq[byte]): ProtobufResult[T] =
-  var msg = WakuMessage()
-  let pb = initProtoBuffer(buffer)
+  decodeWakuMessage(buffer)
 
-  var payload: seq[byte]
-  if not ?pb.getField(1, payload):
-    return err(ProtobufError.missingRequiredField("payload"))
+# WakuMessage as a nested length-delimited field.
+func supportsPacked*(T: type WakuMessage, ProtoType: type ProtobufExt): bool =
+  false
+
+func computeFieldSize*(
+    field: int,
+    value: WakuMessage,
+    ProtoType: type ProtobufExt,
+    skipDefault: static bool,
+): int =
+  computeFieldSize(field, encode(value), pbytes, skipDefault)
+
+proc writeField*(
+    stream: OutputStream,
+    field: int,
+    value: WakuMessage,
+    ProtoType: type ProtobufExt,
+    skipDefault: static bool = false,
+) {.raises: [IOError].} =
+  writeField(stream, field, encode(value), pbytes, skipDefault)
+
+proc readFieldInto*(
+    stream: InputStream,
+    value: var WakuMessage,
+    header: FieldHeader,
+    ProtoType: type ProtobufExt,
+): bool {.raises: [SerializationError, IOError].} =
+  var s: seq[byte]
+  if readFieldInto(stream, s, header, pbytes):
+    let decoded = WakuMessage.decode(s)
+    if decoded.isOk():
+      value = decoded.get()
+      true
+    else:
+      raise (ref ProtobufValueError)(msg: "Invalid nested WakuMessage")
   else:
-    msg.payload = payload
-
-  var topic: ContentTopic
-  if not ?pb.getField(2, topic):
-    return err(ProtobufError.missingRequiredField("content_topic"))
-  else:
-    msg.contentTopic = topic
-
-  var version: uint32
-  if not ?pb.getField(3, version):
-    msg.version = 0
-  else:
-    msg.version = version
-
-  var timestamp: zint64
-  if not ?pb.getField(10, timestamp):
-    msg.timestamp = Timestamp(0)
-  else:
-    msg.timestamp = Timestamp(timestamp)
-
-  var meta: seq[byte]
-  if not ?pb.getField(11, meta):
-    msg.meta = @[]
-  else:
-    if meta.len > MaxMetaAttrLength:
-      return err(ProtobufError.invalidLengthField("meta"))
-
-    msg.meta = meta
-
-  # this is part of https://rfc.vac.dev/spec/17/ spec
-  var proof: seq[byte]
-  if not ?pb.getField(21, proof):
-    msg.proof = @[]
-  else:
-    msg.proof = proof
-
-  var ephemeral: uint32
-  if not ?pb.getField(31, ephemeral):
-    msg.ephemeral = false
-  else:
-    msg.ephemeral = bool(ephemeral)
-
-  ok(msg)
+    false

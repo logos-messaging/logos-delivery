@@ -32,7 +32,7 @@ proc respond(
   )
 
   let res = catch:
-    await conn.writeLP(response.encode().buffer)
+    await conn.writeLP(response.encode())
   res.isOkOr:
     return err(error.msg)
 
@@ -46,7 +46,7 @@ proc request*(
   )
 
   let writeRes = catch:
-    await conn.writeLP(request.encode().buffer)
+    await conn.writeLP(request.encode())
   let readRes = catch:
     await conn.readLp(RpcResponseMaxBytes)
 

@@ -27,14 +27,15 @@ import
     peerinfo,
       # manage the information of a peer, such as peer ID and public / private key
     peerid, # Implement how peers interact
-    protobuf/minprotobuf, # message serialisation/deserialisation from and to protobufs
     protocols/kademlia/types,
     protocols/service_discovery/types as sd_types,
     nameresolving/dnsresolver,
   ] # define DNS resolution
 import libp2p_mix/[curve25519, mix_protocol]
+import protobuf_serialization, protobuf_serialization/pkg/results
 import
   logos_delivery/waku/[
+    common/protobuf,
     waku_core,
     waku_core/peers,
     waku_lightpush/common,
@@ -108,27 +109,36 @@ proc getPubsubTopic*(
       return "" #TODO: fix this.
   return $RelayShard(clusterId: conf.clusterId, shardId: shard.shardId)
 
-proc init*(T: type Chat2Message, buffer: seq[byte]): ProtoResult[T] =
-  var msg = Chat2Message()
-  let pb = initProtoBuffer(buffer)
+type Chat2MessagePB {.proto2.} = object
+  timestamp {.fieldNumber: 1, pint.}: Opt[uint64]
+  nick {.fieldNumber: 2.}: Opt[string]
+  payload {.fieldNumber: 3.}: Opt[seq[byte]]
 
-  var timestamp: uint64
-  discard ?pb.getField(1, timestamp)
-  msg.timestamp = int64(timestamp)
+proc decodeChat2Message(buffer: seq[byte]): ProtobufResult[Chat2Message] =
+  var pb: Chat2MessagePB
+  try:
+    pb = Protobuf.decode(buffer, Chat2MessagePB)
+  except SerializationError:
+    return err(protobuf.ProtobufError(kind: ProtobufErrorKind.DecodeFailure))
+  ok(
+    Chat2Message(
+      timestamp: int64(pb.timestamp.get(0'u64)),
+      nick: pb.nick.get(""),
+      payload: pb.payload.get(@[]),
+    )
+  )
 
-  discard ?pb.getField(2, msg.nick)
-  discard ?pb.getField(3, msg.payload)
+proc init*(T: type Chat2Message, buffer: seq[byte]): ProtobufResult[T] =
+  decodeChat2Message(buffer)
 
-  ok(msg)
-
-proc encode*(message: Chat2Message): ProtoBuffer =
-  var serialised = initProtoBuffer()
-
-  serialised.write(1, uint64(message.timestamp))
-  serialised.write(2, message.nick)
-  serialised.write(3, message.payload)
-
-  return serialised
+proc encode*(message: Chat2Message): seq[byte] =
+  Protobuf.encode(
+    Chat2MessagePB(
+      timestamp: Opt.some(uint64(message.timestamp)),
+      nick: Opt.some(message.nick),
+      payload: Opt.some(message.payload),
+    )
+  )
 
 proc `$`*(message: Chat2Message): string =
   # Get message date and timestamp in local time
@@ -203,7 +213,7 @@ proc publish(c: Chat, line: string) {.async.} =
     trace "lightpush response received", response = response
 
   var message = WakuMessage(
-    payload: chat2pb.buffer,
+    payload: chat2pb,
     contentTopic: c.contentTopic,
     version: 0,
     timestamp: getNanosecondTime(time),

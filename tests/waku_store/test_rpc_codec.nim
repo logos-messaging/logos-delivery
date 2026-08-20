@@ -24,7 +24,7 @@ procSuite "Waku Store - RPC codec":
 
     ## When
     let pb = query.encode()
-    let decodedQuery = StoreQueryRequest.decode(pb.buffer)
+    let decodedQuery = StoreQueryRequest.decode(pb)
 
     ## Then
     check:
@@ -40,7 +40,7 @@ procSuite "Waku Store - RPC codec":
 
     ## When
     let pb = emptyQuery.encode()
-    let decodedEmptyQuery = StoreQueryRequest.decode(pb.buffer)
+    let decodedEmptyQuery = StoreQueryRequest.decode(pb)
 
     ## Then
     check:
@@ -70,7 +70,7 @@ procSuite "Waku Store - RPC codec":
 
     ## When
     let pb = res.encode()
-    let decodedRes = StoreQueryResponse.decode(pb.buffer)
+    let decodedRes = StoreQueryResponse.decode(pb)
 
     ## Then
     check:
@@ -86,7 +86,7 @@ procSuite "Waku Store - RPC codec":
 
     ## When
     let pb = emptyRes.encode()
-    let decodedEmptyRes = StoreQueryResponse.decode(pb.buffer)
+    let decodedEmptyRes = StoreQueryResponse.decode(pb)
 
     ## Then
     check:

@@ -1053,7 +1053,7 @@ suite "Waku Relay":
       let
         msgWithoutPayload =
           fakeWakuMessage(contentTopic = contentTopic, payload = getByteSequence(0))
-        sizeEmptyMsg = uint64(msgWithoutPayload.encode().buffer.len)
+        sizeEmptyMsg = uint64(msgWithoutPayload.encode().len)
 
       let
         msg1 =

@@ -138,7 +138,7 @@ proc initProtocolHandler(wl: WakuLightPush) =
       )
 
     try:
-      await conn.writeLp(rpc.encode().buffer)
+      await conn.writeLp(rpc.encode())
     except LPStreamError:
       debug "Lightpush write stream failed", error = getCurrentExceptionMsg()
 

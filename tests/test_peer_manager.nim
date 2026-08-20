@@ -11,7 +11,6 @@ import
   eth/p2p/discoveryv5/enr,
   eth/common/eth_types,
   libp2p/[builders, switch, multiaddress],
-  libp2p/protobuf/minprotobuf,
   libp2p/stream/[bufferstream, connection],
   libp2p/crypto/crypto,
   libp2p/protocols/pubsub/pubsub,

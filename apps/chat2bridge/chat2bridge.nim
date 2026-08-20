@@ -90,7 +90,7 @@ proc toWakuMessage(
     payload: msgFields["text"].getStr().toBytes(),
   ).encode()
 
-  WakuMessage(payload: chat2pb.buffer, contentTopic: cmb.contentTopic, version: 0)
+  WakuMessage(payload: chat2pb, contentTopic: cmb.contentTopic, version: 0)
 
 proc toChat2(cmb: Chat2MatterBridge, jsonNode: JsonNode) {.async.} =
   let msg = cmb.toWakuMessage(jsonNode)

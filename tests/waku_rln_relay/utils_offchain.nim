@@ -77,7 +77,7 @@ proc sendRlnMessageWithInvalidProof*(
     client.rln.getCurrentEpoch(),
   )
   let
-    rateLimitProof = rateLimitProofRes.get().encode().buffer
+    rateLimitProof = rateLimitProofRes.get().encode()
     message =
       WakuMessage(payload: @payload, contentTopic: contentTopic, proof: rateLimitProof)
 
