@@ -54,6 +54,13 @@ suite "Waku external config - default values":
     let conf = res.get()
     check conf.subscribeShards == defaultSubscribeShards
 
+  test "Default entry layer is kernel":
+    ## Given
+    let preConfig = defaultWakuNodeConf().get()
+
+    ## Then
+    check preConfig.entryLayer == EntryLayer.kernel
+
 suite "Waku external config - apply preset":
   test "Preset is TWN":
     ## Setup
