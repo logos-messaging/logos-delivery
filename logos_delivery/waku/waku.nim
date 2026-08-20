@@ -107,28 +107,28 @@ proc setupSwitchServices(
         error "failed to update announced multiaddress", error = $error
 
   let autonatService = getAutonatService(rng)
-  if conf.circuitRelayClient:
-    ## The node is considered to be behind a NAT or firewall and then it
-    ## should struggle to be reachable and establish connections to other nodes
-    const MaxNumRelayServers = 2
-    let autoRelayService = AutoRelayService.new(
-      MaxNumRelayServers, RelayClient(circuitRelay), onReservation, rng
-    )
-    let holePunchService = HPService.new(autonatService, autoRelayService)
-    waku.node.switch.services = @[Service(holePunchService)]
-  else:
-    waku.node.switch.services = @[Service(autonatService)]
+  let newService =
+    if conf.circuitRelayClient:
+      ## The node assumes it is behind NAT.
+      ## It requests circuit-relay reservations to stay reachable.
+      const MaxNumRelayServers = 2
+      let autoRelayService = AutoRelayService.new(
+        MaxNumRelayServers, RelayClient(circuitRelay), onReservation, rng
+      )
+      Service(HPService.new(autonatService, autoRelayService))
+    else:
+      Service(autonatService)
 
-  # libp2p 2.0.0 split Service.setup out of Service.start: the switch runs setup
-  # only at build time (SwitchBuilder.setupServices), while switch.start calls
-  # just start. These services are created and attached post-build, so setup must
-  # be invoked explicitly here -- otherwise AutonatService.addressMapper stays nil
-  # and the peerInfo.update() inside start dereferences it (SIGSEGV).
-  for service in waku.node.switch.services:
-    try:
-      service.setup(waku.node.switch)
-    except ServiceSetupError as e:
-      error "failed to set up libp2p switch service", error = e.msg
+  ## Keep the builder services (NATService, IdentifyPusher).
+  ## Removing IdentifyPusher leaves its protocol mounted but dead.
+  waku.node.switch.services.add(newService)
+
+  # libp2p runs Service.setup only at build time.
+  # This service attaches after build, so run its setup here.
+  try:
+    newService.setup(waku.node.switch)
+  except ServiceSetupError as e:
+    error "failed to set up libp2p switch service", error = e.msg
 
 ## Initialisation
 
@@ -271,7 +271,7 @@ proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.
   let netConf = (
     await networkConfiguration(
       conf.clusterId, conf.endpointConf, conf.discv5Conf, conf.webSocketConf,
-      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers, clientId,
+      conf.quicConf, conf.wakuFlags, conf.dnsAddrsNameServers,
     )
   ).valueOr:
     return err("Could not update NetConfig: " & error)
