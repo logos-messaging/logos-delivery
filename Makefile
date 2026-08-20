@@ -454,7 +454,19 @@ endif
 # Windows: build with nim directly (see wakunode2) — `nimble <task>` re-clones
 # git deps every build and they intermittently hang on the MSYS2 runner. Flags
 # mirror logos_delivery.nimble's dynamic-windows task.
-liblogosdelivery: | build-deps librln
+# DISABLE_RLN=true links liblogosdelivery without zerokit: no librln, no Rust,
+# no submodule. A node whose config enables RLN then fails to start.
+DISABLE_RLN ?= false
+ifeq ($(DISABLE_RLN),true)
+    LIBLOGOSDELIVERY_RLN_DEP :=
+    # Target-specific, so `make DISABLE_RLN=true all` cannot compile the stubs
+    # into wakunode2, which still links the real librln.
+    liblogosdelivery: NIM_PARAMS += -d:disable_rln
+else
+    LIBLOGOSDELIVERY_RLN_DEP := librln
+endif
+
+liblogosdelivery: | build-deps $(LIBLOGOSDELIVERY_RLN_DEP)
 ifeq ($(detected_OS),Windows)
 	nim c --out:build/liblogosdelivery.dll --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:liblogosdelivery --skipParentCfg:off -d:discv5_protocol_id=d5waku --cpu:amd64 $(NIM_PARAMS) library/liblogosdelivery.nim
 else

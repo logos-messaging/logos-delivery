@@ -324,6 +324,10 @@ proc setupProtocols(
     return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
 
   if conf.rlnRelayConf.isSome():
+    when defined(disable_rln):
+      return
+        err("the configuration enables RLN relay, but this build has -d:disable_rln")
+
     let rlnRelayConf = conf.rlnRelayConf.get()
     let rlnConf = WakuRlnConfig(
       dynamic: rlnRelayConf.dynamic,
