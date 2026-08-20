@@ -1,6 +1,7 @@
 {.used.}
 
 import
+  std/sequtils,
   results,
   chronos,
   testutils/unittests,
@@ -8,7 +9,8 @@ import
   eth/keys as eth_keys
 
 import
-  logos_delivery/waku/[waku_enr, discovery/waku_discv5, waku_core, common/enr],
+  logos_delivery/waku/
+    [waku_enr, discovery/waku_discv5, waku_core, common/enr, net/auto_port],
   ../testlib/wakucore,
   ../waku_discv5/utils,
   ./utils
@@ -41,8 +43,7 @@ suite "Sharding":
       assert shardedRes.isOk(), shardedRes.error
       assert shardedRes.value.isSome()
       assert shardedRes.value.get() == shardsTopics, $shardedRes.value.get()
-      assert namedRes.isOk(), namedRes.error
-      assert namedRes.value.isNone(), $namedRes.value
+      assert namedRes.isErr(), $namedRes.value
       assert gibberishRes.isErr(), $gibberishRes.value
       assert emptyRes.isOk(), emptyRes.error
       assert emptyRes.value.isNone(), $emptyRes.value
@@ -58,43 +59,73 @@ suite "Sharding":
         bindIp = "0.0.0.0"
         extIp = "127.0.0.1"
         tcpPort = 61500u16
-        udpPort = 9000u16
-
-      let record = newTestEnrRecord(
-        privKey = privKey, extIp = extIp, tcpPort = tcpPort, udpPort = udpPort
-      )
 
       let queue = newAsyncEventQueue[SubscriptionEvent](30)
 
-      let node = newTestDiscv5(
-        privKey = privKey,
-        bindIp = bindIp,
-        tcpPort = tcpPort,
-        udpPort = udpPort,
-        record = record,
-        queue = queue,
-      )
+      proc attempt(
+          p: Port
+      ): Future[Result[WakuDiscoveryV5, string]] {.async: (raises: []).} =
+        let node =
+          try:
+            let record = newTestEnrRecord(
+              privKey = privKey, extIp = extIp, tcpPort = tcpPort, udpPort = uint16(p)
+            )
+            newTestDiscv5(
+              privKey = privKey,
+              bindIp = bindIp,
+              tcpPort = tcpPort,
+              udpPort = uint16(p),
+              record = record,
+              queue = queue,
+            )
+          except CatchableError as e:
+            return err("could not build discv5 node: " & e.msg)
+        (await node.start()).isOkOr:
+          return err(error)
+        ok(node)
 
-      let res = await node.start()
-      assert res.isOk(), res.error
+      let node = (await tryWithAutoPort[WakuDiscoveryV5](Port(0), attempt)).valueOr:
+        raiseAssert "could not start discv5 node: " & error
+
+      proc waitForShards(
+          shards: seq[string], present: bool, timeout = 5.seconds
+      ) {.async.} =
+        ## Waits until the ENR agrees with the emitted subscription events.
+        let deadline = Moment.now() + timeout
+        while Moment.now() < deadline:
+          if shards.allIt(node.protocol.localNode.record.containsShard(it) == present):
+            return
+          await sleepAsync(10.milliseconds)
+        raiseAssert "ENR never reached containsShard == " & $present & " for " & $shards
+
+      proc waitForEnrUpdate(previous: uint64, timeout = 5.seconds) {.async.} =
+        ## Waits for the next ENR revision, for events that leave the shards alone.
+        let deadline = Moment.now() + timeout
+        while Moment.now() < deadline:
+          if node.protocol.localNode.record.seqNum > previous:
+            return
+          await sleepAsync(10.milliseconds)
+        raiseAssert "ENR was never revised past seqNum " & $previous
 
       ## Then
       queue.emit((kind: PubsubSub, topic: shard1))
       queue.emit((kind: PubsubSub, topic: shard2))
       queue.emit((kind: PubsubSub, topic: shard3))
 
-      await sleepAsync(1.seconds)
+      await waitForShards(@[shard1, shard2, shard3], true)
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == true
         node.protocol.localNode.record.containsShard(shard2) == true
         node.protocol.localNode.record.containsShard(shard3) == true
 
+      let seqNumBeforeResubscribe = node.protocol.localNode.record.seqNum
+
       queue.emit((kind: PubsubSub, topic: shard1))
       queue.emit((kind: PubsubSub, topic: shard2))
       queue.emit((kind: PubsubSub, topic: shard3))
 
-      await sleepAsync(1.seconds)
+      await waitForEnrUpdate(seqNumBeforeResubscribe)
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == true
@@ -104,7 +135,7 @@ suite "Sharding":
       queue.emit((kind: PubsubUnsub, topic: shard1))
       queue.emit((kind: PubsubUnsub, topic: shard2))
 
-      await sleepAsync(1.seconds)
+      await waitForShards(@[shard1, shard2], false)
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == false
