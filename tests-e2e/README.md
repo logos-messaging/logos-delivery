@@ -21,8 +21,9 @@ pip install -r tests-e2e/requirements.txt
 
 # 3. Run (from tests-e2e/)
 cd tests-e2e
-pytest tests/wrappers_tests -m "not docker_required"   # 51 pure-binding tests
-pytest tests/wrappers_tests -m docker_required          # 5 tests that also need a Docker nwaku peer (S11/S19/S20/S25/S31)
+pytest tests/wrappers_tests -m "not docker_required and not slow"   # 60 pure-binding tests, the CI selection
+pytest tests/wrappers_tests -m docker_required                      # 5 tests that also need a Docker nwaku peer (S11/S19/S20/S25/S31)
+pytest tests/wrappers_tests -m slow                                 # 1 SDS-R repair test, minutes long
 ```
 
 ## CI
@@ -30,3 +31,6 @@ pytest tests/wrappers_tests -m docker_required          # 5 tests that also need
 `.github/workflows/e2e-api-tests.yml` (called from `ci.yml`, `needs: build`) downloads the
 `liblogosdelivery` artifact produced by the `build` job and runs the non-docker subset on every PR —
 so a protocol change and its e2e test land in the same PR.
+
+The `slow` test is deselected there and there is no scheduled e2e job, so nothing runs it
+automatically; run it by hand when touching SDS-R.
