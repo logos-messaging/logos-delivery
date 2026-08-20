@@ -61,11 +61,7 @@ suite "Waku NetConfig":
     check:
       netConfig.announcedAddresses.len == 1 # Only bind address should be present
       netConfig.announcedAddresses[0] ==
-        formatListenAddress(
-          ip4TcpEndPoint(
-            conf.endpointConf.p2pListenAddress, conf.endpointConf.p2pTcpPort
-          )
-        )
+        ip4TcpEndPoint(conf.endpointConf.p2pListenAddress, conf.endpointConf.p2pTcpPort)
 
   asyncTest "AnnouncedAddresses contains external address if extIp/Port are provided":
     let
