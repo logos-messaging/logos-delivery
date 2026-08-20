@@ -13,7 +13,7 @@ import
   eth/p2p/discoveryv5/enr,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
-  libp2p/[multiaddress, multicodec, wire],
+  libp2p/[multiaddress, multicodec, peerinfo, wire],
   libp2p/protocols/ping,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/protocols/pubsub/rpc/messages,
@@ -124,6 +124,7 @@ type
     wakuRendezvous*: WakuRendezVous
     wakuRendezvousClient*: rendezvous_client.WakuRendezVousClient
     announcedAddresses*: seq[MultiAddress]
+      ## Copy of the committed peerInfo addresses once start resolves them.
     configuredAnnounced: seq[MultiAddress]
       ## Operator-configured addresses, set at construction.
       ## Every recomputation of the announced addresses starts from this field.
@@ -131,7 +132,11 @@ type
       ## The configured addresses made concrete at start: bound ports
       ## substituted, wildcard hosts rewritten to the primary IP.
       ## The first mapper in the chain answers with this set.
-    extMultiAddrsOnly*: bool # When true, skip automatic IP address replacement
+    onCommittedAddresses*: proc() {.gcsafe, raises: [].}
+      ## Runs after every copy of the committed addresses.
+      ## waku.nim uses it to refresh the ENR.
+    extMultiAddrsOnly: bool
+      ## Announce only the configured addresses. Set at construction.
     started*: bool # Indicates that node has started listening
     topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
     rateLimitSettings*: ProtocolRateLimitSettings
@@ -213,6 +218,15 @@ proc getWakuPeerRecordGetter(node: WakuNode): GetWakuPeerRecord =
       mixKey = mixKey,
     )
 
+proc copyCommittedAddresses*(node: WakuNode) =
+  ## Copy the committed peerInfo addresses into announcedAddresses
+  ## and run the ENR refresh callback, once start has resolved the addresses.
+  if node.baseAnnounced.isNone():
+    return
+  node.announcedAddresses = node.switch.peerInfo.addrs
+  if not node.onCommittedAddresses.isNil():
+    node.onCommittedAddresses()
+
 proc new*(
     T: type WakuNode,
     netConfig: NetConfig,
@@ -238,10 +252,16 @@ proc new*(
     enr: enr,
     announcedAddresses: netConfig.announcedAddresses,
     configuredAnnounced: netConfig.announcedAddresses,
+    extMultiAddrsOnly: netConfig.extMultiAddrsOnly,
     topicSubscriptionQueue: queue,
     rateLimitSettings: rateLimitSettings,
     ports: BoundPorts.init(),
   )
+
+  if node.extMultiAddrsOnly:
+    ## Set before start. libp2p skips the mapper chain when this is non-empty.
+    ## NetConfig.init guarantees non-empty entries with concrete ports.
+    switch.peerInfo.announcedAddrs = netConfig.announcedAddresses
 
   ## The base mapper answers with the resolved addresses.
   ## NAT and relay mappers run after it. Until then it drops zero-port entries.
@@ -252,6 +272,10 @@ proc new*(
       return listenAddrs.filterIt(not it.hasZeroPort())
     return base
   switch.peerInfo.addressMappers.add(baseMapper)
+  switch.peerInfo.addObserver(
+    proc(p: PeerInfo) {.gcsafe, raises: [].} =
+      node.copyCommittedAddresses()
+  )
 
   peerManager.setShardGetter(node.getShardsGetter(@[]))
 
@@ -537,6 +561,12 @@ proc resolveAnnouncedBaseAddresses(node: WakuNode) =
   ## Here the configured addresses become real: port 0 becomes
   ## the bound port, and a wildcard host becomes the primary IP.
   ## Everything the node announces builds on this set.
+  if node.extMultiAddrsOnly:
+    ## announcedAddrs bypasses the mappers. The configured set is final.
+    node.baseAnnounced = Opt.some(node.configuredAnnounced)
+    node.announcedAddresses = node.configuredAnnounced
+    return
+
   let substituted =
     substituteBoundPorts(node.configuredAnnounced, node.switch.peerInfo.listenAddrs)
 
@@ -661,9 +691,11 @@ proc start*(node: WakuNode) {.async.} =
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
 
-  ## The sockets are bound now. Resolve the announced addresses and commit them.
+  ## The sockets are bound now. Resolve the announced addresses, commit
+  ## them, and copy once. The observer fires only on a changed commit.
   resolveAnnouncedBaseAddresses(node)
   await node.switch.peerInfo.update()
+  node.copyCommittedAddresses()
 
   # Reconnect to known relay peers in the background; it waits a prune backoff
   # and must not block startup.

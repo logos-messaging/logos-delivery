@@ -14,6 +14,7 @@ import
 
 import
   ../net/nat_strategy,
+  ../net/net_config,
   ../rln/rln,
   ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
@@ -246,8 +247,23 @@ proc validateNoEmptyStrings(wakuConf: WakuConf): Result[void, string] =
 
   return ok()
 
+proc validateExtMultiAddrsOnly(wakuConf: WakuConf): Result[void, string] =
+  ## --ext-multiaddr-only announces only the --ext-multiaddr list.
+  ## The list must exist and every entry needs a real port. For example,
+  ## --ext-multiaddr-only alone, or --ext-multiaddr=/ip4/1.2.3.4/tcp/0,
+  ## fails here. NetConfig.init repeats the check without the flag names.
+  if not wakuConf.endpointConf.extMultiAddrsOnly:
+    return ok()
+  if wakuConf.endpointConf.extMultiAddrs.len == 0:
+    return err("ext-multiaddr-only requires at least one ext-multiaddr")
+  for ma in wakuConf.endpointConf.extMultiAddrs:
+    if ma.hasZeroPort():
+      return err("ext-multiaddr-only requires concrete ports, got: " & $ma)
+  return ok()
+
 proc validate*(wakuConf: WakuConf): Result[void, string] =
   ?wakuConf.validateNodeKey()
   ?wakuConf.shardingConf.validateShards(wakuConf.subscribeShards)
   ?wakuConf.validateNoEmptyStrings()
+  ?wakuConf.validateExtMultiAddrsOnly()
   return ok()
