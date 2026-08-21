@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[sequtils, strutils, strformat, times, sugar],
+  std/[sequtils, strutils, strformat, times, sugar, random],
   stew/[byteutils, arrayops],
   results,
   chronos,
@@ -1485,6 +1485,8 @@ const DefaultDatabasePartitionCheckTimeInterval = timer.minutes(10)
 
 const MaxConsecutivePartitionMaintenanceFailures = 6
 
+const MaxPartitionCheckJitterSecs = 120
+
 proc runPartitionMaintenance(
     self: PostgresDriver
 ): Future[ArchiveDriverResult[void]] {.async.} =
@@ -1550,6 +1552,11 @@ proc loopPartitionFactory(
 
   var consecutiveFailures = 0
 
+  ## The instances sharing a database are typically (re)started together, and a
+  ## fixed interval then keeps their maintenance passes locked to the very same
+  ## tick for as long as they run, so that they contend on every iteration.
+  var rng = initRand()
+
   while true:
     trace "loopPartitionFactory iteration started"
 
@@ -1572,7 +1579,10 @@ proc loopPartitionFactory(
             passRes.error
         )
 
-    await sleepAsync(DefaultDatabasePartitionCheckTimeInterval)
+    await sleepAsync(
+      DefaultDatabasePartitionCheckTimeInterval +
+        timer.seconds(rng.rand(MaxPartitionCheckJitterSecs))
+    )
 
 proc startPartitionFactory*(
     self: PostgresDriver, onFatalError: OnFatalErrorHandler
