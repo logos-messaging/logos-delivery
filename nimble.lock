@@ -659,15 +659,15 @@
       }
     },
     "boringssl": {
-      "version": "0.0.8",
-      "vcsRevision": "e77caabae78fbc9aa5b78a0a521181b077c82571",
+      "version": "0.0.11",
+      "vcsRevision": "346429e4cda48e775f2d1eb3ccb8757edf4f3648",
       "url": "https://github.com/vacp2p/nim-boringssl",
       "downloadMethod": "git",
       "dependencies": [
         "nim"
       ],
       "checksums": {
-        "sha1": "2f603bb6d70683393bbb091bf6bd325d9c52be9f"
+        "sha1": "49acb43d56a26b30587c9758edb34e3c44b63d8f"
       }
     },
     "protobuf_serialization": {

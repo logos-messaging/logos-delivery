@@ -72,6 +72,10 @@ requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
 requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
+# v0.0.11: pins nim-lsquic's floating "nim-boringssl >= 0.0.4" range. Earlier
+# releases export the bundled BoringSSL symbols from shared libraries, letting
+# a host-process OpenSSL interpose them (issue #4085).
+requires "https://github.com/vacp2p/nim-boringssl#346429e4cda48e775f2d1eb3ccb8757edf4f3648"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
 
