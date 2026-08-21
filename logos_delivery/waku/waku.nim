@@ -327,8 +327,6 @@ proc updateWaku(waku: Waku): Future[Result[void, string]] {.async.} =
   (await updateEnr(waku)).isOkOr:
     return err("error calling updateEnr: " & $error)
 
-  ?updateAnnouncedAddrWithPrimaryIpAddr(waku.node)
-
   ?updateAddressInENR(waku)
 
   return ok()
