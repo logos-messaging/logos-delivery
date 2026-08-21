@@ -44,9 +44,6 @@ proc isPgDbConnBusy*(dbConnWrapper: DbConnWrapper): bool =
 proc isPgDbConnOpen*(dbConnWrapper: DbConnWrapper): bool =
   return dbConnWrapper.open
 
-proc setPgDbConnOpen*(dbConnWrapper: DbConnWrapper, newOpenState: bool) =
-  dbConnWrapper.open = newOpenState
-
 const MaxDbErrorLen = 512
   ## libpq can answer with very long messages -- the DETAIL and CONTEXT lines
   ## carry row data -- and this string reaches both the logs and the error chain,
