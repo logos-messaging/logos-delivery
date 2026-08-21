@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import chronos, results
+import chronos, chronicles, results
 import ../../../common/databases/db_postgres, ../../../common/error_handling
 
 ## Simple query to validate that the postgres is working and attending requests
@@ -20,7 +20,9 @@ proc checkConnectivity*(
       block errorBlock:
         ## Force close all the opened connections. No need to close gracefully.
         (await connPool.resetConnPool()).isOkOr:
-          onFatalErrorAction("checkConnectivity resetConnPool error: " & error)
+          ## Not fatal on its own. The trials below are the ones that tell
+          ## whether the database is really unreachable.
+          error "checkConnectivity resetConnPool error", error = error
 
         var numTrial = 0
         while numTrial < MaxNumTrials:
