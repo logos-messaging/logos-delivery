@@ -247,3 +247,129 @@ suite "Postgres driver":
     check attachedStray notin
       (await driver.getPartitionsList("messages_lookup")).expect("lookup list")
     check not (await driver.existsTable(detachedStray)).expect("existsTable")
+
+  ## The partition maintenance runs on every instance sharing the database, so
+  ## these check that a sequence meeting another one in flight ends well. The
+  ## window is well in the past, so that it never collides with the partition
+  ## the factory keeps creating for the present time.
+  const partitionStart = Timestamp(1_700_000_000) ## 2023-11-14 22:13:20 UTC
+  const partitionName = "messages_1700000000_1700002800"
+  const partitionConstraint = partitionName & "_by_range_check"
+  const partitionFromNanos = "1700000000000000000"
+  const partitionUntilNanos = "1700002800000000000"
+
+  proc createPartitionTableQuery(): string =
+    return
+      "CREATE TABLE IF NOT EXISTS " & partitionName &
+      " (LIKE messages INCLUDING DEFAULTS INCLUDING CONSTRAINTS);"
+
+  proc addConstraintQuery(): string =
+    return
+      "ALTER TABLE " & partitionName & " ADD CONSTRAINT " & partitionConstraint &
+      " CHECK ( timestamp >= " & partitionFromNanos & " AND timestamp < " &
+      partitionUntilNanos & " );"
+
+  asyncTest "A long database error reaches the caller in one piece":
+    ## The words telling a concurrent-DDL outcome apart from a real failure sit
+    ## past the 80th character of these messages, so the guards in the partition
+    ## maintenance only work as long as the whole message is propagated.
+    (await driver.performWriteQuery(createPartitionTableQuery())).expect(
+      "create the partition table"
+    )
+    (await driver.performWriteQuery(addConstraintQuery())).expect("add the constraint")
+
+    let repeatedRes = await driver.performWriteQuery(addConstraintQuery())
+
+    ## constraint "<45 chars>" for relation "<30 chars>" already exists
+    ## is 127 characters long, and the deciding words start at the 113th
+    check repeatedRes.isErr()
+    check repeatedRes.error.contains("already exists")
+
+  asyncTest "Complete a partition another instance left half built":
+    ## The other instance created the partition table and added its range
+    ## constraint, and went away before attaching it. Our sequence has to take
+    ## the steps it finds already done and complete the rest.
+    (await driver.performWriteQuery(createPartitionTableQuery())).expect(
+      "create the partition table"
+    )
+    (await driver.performWriteQuery(addConstraintQuery())).expect("add the constraint")
+
+    (await driver.addPartition(partitionStart)).expect("addPartition")
+
+    check partitionName in (await driver.getPartitionsList()).expect("partitions list")
+
+  asyncTest "Defer the partition creation to the instance holding the lock":
+    ## A pool of one connection, so that the session-level advisory lock stays
+    ## held across the queries below, like an instance midway through its own
+    ## sequence.
+    let lockHolder = PgAsyncPool.new(storeMessageDbUrl, 1).expect("raw pool")
+    (
+      await lockHolder.pgQuery(
+        "SELECT pg_advisory_lock(" & $PartitionAdvisoryLockId & ");"
+      )
+    ).expect("take the advisory lock")
+
+    ## Built without the builder on purpose: no partition factory runs on it, so
+    ## its partition tracking is empty and says whether the sequence below ran
+    ## to the end -- the tracking is only updated by its very last line.
+    let ourInstance =
+      PostgresDriver.new(storeMessageDbUrl, maxConnections = 4).expect("second driver")
+
+    ## Deferring is not a failure, but nothing may be created either: the steps
+    ## belong to the sequence of whoever holds the lock.
+    (await ourInstance.addPartition(partitionStart)).expect("deferred addPartition")
+
+    check not (await driver.existsTable(partitionName)).expect("existsTable")
+    check not ourInstance.containsAnyPartition()
+
+    (
+      await lockHolder.pgQuery(
+        "SELECT pg_advisory_unlock(" & $PartitionAdvisoryLockId & ");"
+      )
+    ).expect("release the advisory lock")
+    (await lockHolder.close()).expect("close the raw pool")
+
+    ## The work was postponed, not lost: the next attempt goes through
+    (await ourInstance.addPartition(partitionStart)).expect("addPartition")
+
+    check partitionName in (await driver.getPartitionsList()).expect("partitions list")
+    check ourInstance.containsAnyPartition()
+
+    (await ourInstance.close()).expect("close the second driver")
+
+suite "Postgres driver - concurrent DDL outcomes":
+  ## The messages below are the ones the fleets produced while two instances
+  ## maintained the same partitions. Every one of them means "another instance
+  ## already did this", and none of them may be treated as a failure.
+  const constraintAlreadyExists =
+    "ERROR:  constraint \"messages_1720364735_1720364740_by_range_check\" " &
+    "for relation \"messages_1720364735_1720364740\" already exists"
+
+  const constraintDoesNotExist =
+    "ERROR:  constraint \"messages_1720364735_1720364740_by_range_check\" " &
+    "of relation \"messages_1720364735_1720364740\" does not exist"
+
+  const alreadyAPartition =
+    "ERROR:  \"messages_1720364735_1720364740\" is already a partition"
+
+  ## CREATE TABLE IF NOT EXISTS is not atomic, so the instance losing that race
+  ## gets a catalogue unique violation instead of the "skipping" notice
+  const typeCatalogueCollision =
+    "ERROR:  duplicate key value violates unique constraint " &
+    "\"pg_type_typname_nsp_index\""
+
+  const classCatalogueCollision =
+    "ERROR:  duplicate key value violates unique constraint " &
+    "\"pg_class_relname_nsp_index\""
+
+  test "Classify the outcomes of a concurrent partition maintenance":
+    check constraintAlreadyExists.isConcurrentDdlOutcome()
+    check constraintDoesNotExist.isConcurrentDdlOutcome()
+    check alreadyAPartition.isConcurrentDdlOutcome()
+    check typeCatalogueCollision.isConcurrentDdlOutcome()
+    check classCatalogueCollision.isConcurrentDdlOutcome()
+
+  test "Do not classify a genuine failure as a concurrent outcome":
+    check not "ERROR:  could not acquire advisory lock".isConcurrentDdlOutcome()
+    check not "ERROR:  no space left on device".isConcurrentDdlOutcome()
+    check not "ERROR:  deadlock detected".isConcurrentDdlOutcome()

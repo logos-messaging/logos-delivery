@@ -1060,7 +1060,8 @@ method deleteOldestMessagesNotWithinLimit*(
 
 method close*(s: PostgresDriver): Future[ArchiveDriverResult[void]] {.async.} =
   ## Cancel the partition factory loop
-  s.futLoopPartitionFactory.cancelSoon()
+  if not s.futLoopPartitionFactory.isNil():
+    s.futLoopPartitionFactory.cancelSoon()
 
   ## Cancel analyze table loop
   if not s.futLoopAnalyzeTable.isNil():
@@ -1154,6 +1155,9 @@ proc performWriteQuery*(
 
 const COULD_NOT_ACQUIRE_ADVISORY_LOCK* = "could not acquire advisory lock"
 
+const PartitionAdvisoryLockId* = 123456789
+  ## Serializes the partition maintenance among the instances sharing a database
+
 const ConcurrentDdlOutcomes = [
   # trying to add a partition constraint that another instance already added,
   # e.g. constraint "messages_..._by_range_check" for relation "messages_..." already exists
@@ -1171,7 +1175,7 @@ const ConcurrentDdlOutcomes = [
   "pg_class_relname_nsp_index",
 ]
 
-func isConcurrentDdlOutcome(error: string): bool =
+func isConcurrentDdlOutcome*(error: string): bool =
   ## Tells the outcomes that merely mean "another instance got there first"
   ## apart from genuine failures. Both nodes of a shared-database deployment
   ## run the partition maintenance, so these are expected, not exceptional.
@@ -1197,7 +1201,7 @@ proc performWriteQueryWithLock(
               lock_acquired boolean;
           BEGIN
               -- Try to acquire the advisory lock
-              lock_acquired := pg_try_advisory_lock(123456789);
+              lock_acquired := pg_try_advisory_lock({PartitionAdvisoryLockId});
 
               IF NOT lock_acquired THEN
                   RAISE EXCEPTION '{COULD_NOT_ACQUIRE_ADVISORY_LOCK}';
@@ -1208,12 +1212,12 @@ proc performWriteQueryWithLock(
                   {queryToProtect}
               EXCEPTION WHEN OTHERS THEN
                   -- Ensure the lock is released if an error occurs
-                  PERFORM pg_advisory_unlock(123456789);
+                  PERFORM pg_advisory_unlock({PartitionAdvisoryLockId});
                   RAISE;
               END;
 
               -- Release the advisory lock after the query completes successfully
-              PERFORM pg_advisory_unlock(123456789);
+              PERFORM pg_advisory_unlock({PartitionAdvisoryLockId});
           END $$;
 """
   (await self.performWriteQuery(query)).isOkOr:
@@ -1251,7 +1255,7 @@ proc performPartitionDdlSteps(
 
   return ok(true)
 
-proc addPartition(
+proc addPartition*(
     self: PostgresDriver, startTime: Timestamp
 ): Future[ArchiveDriverResult[void]] {.async.} =
   ## Creates a partition table that will store the messages that fall in the range
