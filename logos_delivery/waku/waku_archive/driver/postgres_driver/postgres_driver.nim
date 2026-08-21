@@ -1154,6 +1154,33 @@ proc performWriteQuery*(
 
 const COULD_NOT_ACQUIRE_ADVISORY_LOCK* = "could not acquire advisory lock"
 
+const ConcurrentDdlOutcomes = [
+  # trying to add a partition constraint that another instance already added,
+  # e.g. constraint "messages_..._by_range_check" for relation "messages_..." already exists
+  "already exists",
+  # attaching a partition that another instance already attached,
+  # e.g. "messages_1720364735_1720364740" is already a partition
+  "is already a partition",
+  # dropping a constraint that another instance already dropped,
+  # e.g. constraint "..." of relation "messages_1720364735_1720364740" does not exist
+  "does not exist",
+  # CREATE TABLE IF NOT EXISTS is not atomic: when another instance creates the
+  # same partition concurrently, the loser gets a catalogue unique violation
+  # instead of the "already exists, skipping" notice
+  "pg_type_typname_nsp_index",
+  "pg_class_relname_nsp_index",
+]
+
+func isConcurrentDdlOutcome(error: string): bool =
+  ## Tells the outcomes that merely mean "another instance got there first"
+  ## apart from genuine failures. Both nodes of a shared-database deployment
+  ## run the partition maintenance, so these are expected, not exceptional.
+  for signature in ConcurrentDdlOutcomes:
+    if error.contains(signature):
+      return true
+
+  return false
+
 proc performWriteQueryWithLock(
     self: PostgresDriver, queryToProtect: string
 ): Future[ArchiveDriverResult[void]] {.async.} =
@@ -1190,22 +1217,8 @@ proc performWriteQueryWithLock(
       debug "Skip performWriteQuery because the advisory lock is acquired by other"
       return ok()
 
-    if error.contains("already exists"):
-      ## expected to happen when trying to add a partition table constraint that already exists
-      ## e.g., constraint "constraint_name" for relation "messages_1720364735_1720364740" already exists
-      debug "Skip already exists error", error = error
-      return ok()
-
-    if error.contains("is already a partition"):
-      ## expected to happen when a node tries to add a partition that is already attached,
-      ## e.g., "messages_1720364735_1720364740" is already a partition
-      debug "Skip is already a partition error", error = error
-      return ok()
-
-    if error.contains("does not exist"):
-      ## expected to happen when trying to drop a constraint that has already been dropped by other
-      ## constraint "constraint_name" of relation "messages_1720364735_1720364740" does not exist
-      debug "Skip does not exist error", error = error
+    if error.isConcurrentDdlOutcome():
+      debug "Skip error already handled by another instance", error = error
       return ok()
 
     debug "Protected query ended with error", error = $error
