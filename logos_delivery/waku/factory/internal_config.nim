@@ -8,9 +8,7 @@ import
   std/[sequtils, net],
   results
 
-import
-  logos_delivery/waku/[common/utils/nat, net/net_config, waku_enr, waku_core],
-  ./waku_conf
+import logos_delivery/waku/[net/net_config, waku_enr, waku_core], ./waku_conf
 
 proc tryBuildEnrRecord(
     conf: WakuConf, netConfig: NetConfig, multiaddrs: seq[MultiAddress]
@@ -89,7 +87,6 @@ proc networkConfiguration*(
     quicConf: Opt[QuicConf],
     wakuFlags: CapabilitiesBitfield,
     dnsAddrsNameServers: seq[IpAddress],
-    clientId: string,
 ): Future[NetConfigResult] {.async.} =
   let tcpBindPort = conf.p2pTcpPort
 
@@ -100,11 +97,13 @@ proc networkConfiguration*(
     else:
       (false, Opt.none(Port))
 
-  # NAT-map the QUIC UDP port (placeholder when QUIC off)
-  var (extIp, extTcpPort, extUdpPort) = setupNat(
-    conf.natStrategy.string, clientId, tcpBindPort, quicBindPort.get(tcpBindPort)
-  ).valueOr:
-    return err("failed to setup NAT: " & $error)
+  ## Only extip and the dns4 name vouch for an external IP here.
+  ## NATService mappings arrive later through the mapper chain.
+  var extIp =
+    if conf.natStrategy.kind == NatExtIp:
+      Opt.some(conf.natStrategy.extIp)
+    else:
+      Opt.none(IpAddress)
 
   let
     discv5UdpPort =
@@ -113,21 +112,19 @@ proc networkConfiguration*(
       else:
         Opt.none(Port)
 
-    ## TODO: the NAT setup assumes a manual port mapping configuration if extIp
-    ## config is set. This probably implies adding manual config item for
-    ## extPort as well. The following heuristic assumes that, in absence of
-    ## manual config, the external port is the same as the bind port.
+    ## With extip or dns4 the operator vouches for the endpoint.
+    ## Without a manual port config the external ports are the bind ports.
     extPort =
-      if (extIp.isSome() or conf.dns4DomainName.isSome()) and extTcpPort.isNone():
+      if extIp.isSome() or conf.dns4DomainName.isSome():
         Opt.some(tcpBindPort)
       else:
-        extTcpPort
+        Opt.none(Port)
 
     extQuicPort =
-      if (extIp.isSome() or conf.dns4DomainName.isSome()) and extUdpPort.isNone():
+      if extIp.isSome() or conf.dns4DomainName.isSome():
         quicBindPort
       else:
-        extUdpPort
+        Opt.none(Port)
 
   # Resolve and use DNS domain IP
   if conf.dns4DomainName.isSome() and extIp.isNone():

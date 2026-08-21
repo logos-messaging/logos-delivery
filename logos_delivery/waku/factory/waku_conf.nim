@@ -13,6 +13,7 @@ import
   results
 
 import
+  ../net/nat_strategy,
   ../rln/rln,
   ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
@@ -26,6 +27,9 @@ import
   ./conf_builder/kademlia_discovery_conf_builder
 
 export RlnConf, RlnCreds, RestServerConf, Discv5Conf, MetricsServerConf
+# Export only the NatStrategy type and its parse and render procs.
+# The mapper machinery stays in net/nat_config.
+export nat_strategy
 
 logScope:
   topics = "waku conf"
@@ -75,8 +79,9 @@ type FilterServiceConf* {.requiresInit.} = object
   subscriptionTimeout*: uint16
   maxCriteria*: uint32
 
-type EndpointConf* = object # TODO: make enum
-  natStrategy*: string
+type EndpointConf* = object
+  natStrategy*: NatStrategy
+  natDiscoveryTimeoutMs*: uint32
   p2pTcpPort*: Port
   dns4DomainName*: Opt[string]
   p2pListenAddress*: IpAddress
