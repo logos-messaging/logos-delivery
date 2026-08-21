@@ -5,7 +5,7 @@ import
   testutils/unittests,
   chronicles,
   chronos,
-  libp2p/[crypto/crypto, crypto/secp, multiaddress, switch],
+  libp2p/[crypto/crypto, crypto/secp, multiaddress, peerinfo, switch],
   libp2p/services/[natservice, identify_pusher],
   tests/testlib/[wakucore, wakunode],
   logos_delivery/waku/factory/conf_builder/conf_builder
@@ -89,6 +89,34 @@ suite "Wakunode2 - Waku initialization":
     check:
       services.filterIt(it of NATService).len == 1
       services.filterIt(it of IdentifyPusher).len == 1
+
+  test "a post-start commit reaches the ENR through the production hook":
+    ## Deleting the onCommittedAddresses callback fails this.
+    ## So does setting it after the first refresh.
+    var conf = defaultTestWakuConf()
+    var waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+    (waitFor waku.start()).isOkOr:
+      raiseAssert error
+
+    let extra = MultiAddress.init("/ip4/203.0.113.55/tcp/60555").get()
+    waku.node.switch.peerInfo.addressMappers.add(
+      proc(
+          addrs: seq[MultiAddress]
+      ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
+        return addrs & @[extra]
+    )
+    let fieldBefore = waku.node.enr.tryGet(MultiaddrEnrField, seq[byte])
+    waitFor waku.node.switch.peerInfo.update()
+
+    let fieldAfter = waku.node.enr.tryGet(MultiaddrEnrField, seq[byte])
+    check:
+      extra in waku.node.announcedAddresses
+      fieldAfter.isSome()
+      fieldAfter != fieldBefore
+
+    (waitFor waku.stop()).isOkOr:
+      raiseAssert error
 
   test "app properly handles dynamic port configuration":
     ## Given
