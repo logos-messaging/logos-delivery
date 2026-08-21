@@ -76,9 +76,9 @@ type KernelApi* = concept w
   # --- rln ---
   rlnRegister(w, scope = MembershipScope, options = RegistryOptions) is
     Future[Result[MembershipState, string]]
-  rlnMembershipState(w, scope = MembershipScope) is
+  rlnGetMembershipState(w, scope = MembershipScope) is
     Future[Result[MembershipState, string]]
-  rlnEpochQuota(w, scope = MembershipScope, timestamp = uint64) is
+  rlnGetEpochQuota(w, scope = MembershipScope, timestamp = uint64) is
     Future[Result[EpochQuota, string]]
   rlnGenerateProof(w, scope = MembershipScope, signal = seq[byte], timestamp = uint64) is
     Future[Result[seq[byte], string]]
