@@ -1314,7 +1314,7 @@ proc addPartition*(
       ]
     )
   ).valueOr:
-    return err($error)
+    return err("failed calling performPartitionDdlSteps: " & $error)
 
   if not completed:
     ## Another instance is midway through this very sequence. Nothing to track
@@ -1439,7 +1439,7 @@ proc ensureLookupPartitions*(
         @[(createQuery, "error creating lookup partition: " & lookupPartitionName)]
       )
     ).valueOr:
-      return err($error)
+      return err("failed calling performPartitionDdlSteps: " & $error)
 
     if not created:
       ## Another instance is building this sibling, backfill included. Let it
@@ -1476,7 +1476,7 @@ proc ensureLookupPartitions*(
         ]
       )
     ).valueOr:
-      return err($error)
+      return err("failed calling performPartitionDdlSteps: " & $error)
 
     if not attached:
       return ok()
