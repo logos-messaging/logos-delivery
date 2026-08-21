@@ -2,7 +2,7 @@
 
 {.push raises: [].}
 
-import results, chronos/timer, libp2p/stream/connection, libp2p/utility
+import results, chronos/timer, libp2p/stream/connection
 
 import std/times except TimeInterval, Duration
 

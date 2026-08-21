@@ -16,7 +16,12 @@
 {.push raises: [].}
 
 import
-  results, std/math, chronicles, chronos/timer, libp2p/stream/connection, libp2p/utility
+  results,
+  std/math,
+  chronicles,
+  chronos/timer,
+  libp2p/stream/connection,
+  libp2p/utils/opt
 
 import std/times except TimeInterval, Duration, seconds, minutes
 

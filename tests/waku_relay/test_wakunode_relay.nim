@@ -559,8 +559,10 @@ suite "WakuNode - Relay":
     await node2.stop()
 
   asyncTest "Bad peers with low reputation are disconnected":
-    # Create 5 nodes
-    let nodes = toSeq(0 ..< 5).mapIt(newTestWakuNode(generateSecp256k1Key()))
+    # The bad-peer scoring under test is transport agnostic.
+    # TCP teardown is deterministic enough to assert on connection counts.
+    let nodes =
+      toSeq(0 ..< 5).mapIt(newTestWakuNode(generateSecp256k1Key(), quicEnabled = false))
     await allFutures(nodes.mapIt(it.start()))
     await allFutures(nodes.mapIt(it.mountRelay()))
 

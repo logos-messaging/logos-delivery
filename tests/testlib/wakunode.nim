@@ -87,8 +87,6 @@ proc newTestWakuNode*(
   let quicBindPort =
     if quicEnabled and quicBindPort == Port(0): bindPort else: quicBindPort
 
-  var resolvedExtIp = extIp
-
   # Update extPort to default value if it's missing and there's an extIp or a DNS domain
   let extPort =
     if (extIp.isSome() or dns4DomainName.isSome()) and extPort.isNone():
@@ -101,18 +99,13 @@ proc newTestWakuNode*(
   conf.clusterId = clusterId
   conf.subscribeShards = subscribeShards
 
-  if dns4DomainName.isSome() and extIp.isNone():
-    # If there's an error resolving the IP, an exception is thrown and test fails
-    let dns = (waitFor dnsResolve(dns4DomainName.get(), conf.dnsAddrsNameServers)).valueOr:
-      raise newException(Defect, error)
-
-    resolvedExtIp = Opt.some(parseIpAddress(dns))
-
+  # A dns4 name is announced as-is. A caller that needs the resolved IP
+  # in the ENR resolves the name and passes it as extIp.
   let netConf = NetConfig.init(
     clusterId = conf.clusterId,
     bindIp = bindIp,
     bindPort = bindPort,
-    extIp = resolvedExtIp,
+    extIp = extIp,
     extPort = extPort,
     extMultiAddrs = extMultiAddrs,
     wsBindPort = Opt.some(wsBindPort),
