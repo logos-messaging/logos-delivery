@@ -34,7 +34,8 @@ requires "nim >= 2.2.4",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
-  "nat_traversal",
+  # nat_traversal stays in the graph through libp2p, which links
+  # the miniupnpc and libnatpmp static libs. Nat.mk and the iOS steps stay.
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
@@ -67,8 +68,8 @@ requires "nim >= 2.2.4",
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
 
-# v2.0.0: https://github.com/vacp2p/nim-libp2p/releases/tag/v2.0.0
-requires "https://github.com/vacp2p/nim-libp2p.git#c43199378f46d0aaf61be1cad1ee1d63e8f665d6"
+# v2.2.1: https://github.com/vacp2p/nim-libp2p/releases/tag/v2.2.1
+requires "https://github.com/vacp2p/nim-libp2p.git#95d3925db8a3d093dd86647165650472a5342b81"
 
 # v0.6.1: https://github.com/status-im/nim-json-rpc/releases/tag/v0.6.1
 requires "https://github.com/status-im/nim-json-rpc.git#6f1fff8ba685c9192fab153a9d66484ad9066e78"
@@ -81,11 +82,11 @@ requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
-# v0.5.1: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.5.1
-# libp2p requires "lsquic >= 0.4.1" by name. With Nimble 0.24.1, a
-# `#commit` constraint can be discarded while merging these requirements;
-# the exact numeric constraint was observed to select 0.5.1.
-requires "https://github.com/vacp2p/nim-lsquic.git == 0.5.1"
+# v0.8.1: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.8.1
+# libp2p requires "lsquic >= 0.5.4" by name. The exact numeric constraint
+# keeps the resolution at the validated release instead of floating to
+# the newest one.
+requires "https://github.com/vacp2p/nim-lsquic.git == 0.8.1"
 
 # v0.0.11: https://github.com/vacp2p/nim-boringssl/releases/tag/v0.0.11
 # nim-lsquic requires "nim-boringssl >= 0.0.4". Releases before 0.0.11
@@ -98,8 +99,8 @@ requires "https://github.com/vacp2p/nim-boringssl == 0.0.11"
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
-# No tag was recorded for this revision at pinning time.
-requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
+# No tag at pinning time; mix master's nim-libp2p 2.2.1 bump (nim-libp2p-mix#54).
+requires "https://github.com/logos-co/nim-libp2p-mix#e7b0c4e6a026b2aa1144fd7945464502d82632da"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
