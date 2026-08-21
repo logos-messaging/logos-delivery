@@ -40,6 +40,13 @@ proc isPgDbConnOpen*(dbConnWrapper: DbConnWrapper): bool =
 proc setPgDbConnOpen*(dbConnWrapper: DbConnWrapper, newOpenState: bool) =
   dbConnWrapper.open = newOpenState
 
+const MaxDbErrorLen = 512
+  ## libpq can answer with very long messages -- the DETAIL and CONTEXT lines
+  ## carry row data -- and this string reaches both the logs and the error chain,
+  ## so it has to stay bounded. 512 keeps whole every message the callers must
+  ## classify: the longest of them, the constraint ones naming a partition twice,
+  ## are around 130 characters.
+
 proc check(db: DbConn): Result[void, string] =
   var message: string
   try:
@@ -48,7 +55,7 @@ proc check(db: DbConn): Result[void, string] =
     return err("exception in check: " & getCurrentExceptionMsg())
 
   if message.len > 0:
-    let truncatedErr = message[0 ..< min(80, message.len)]
+    let truncatedErr = message[0 ..< min(MaxDbErrorLen, message.len)]
     error "postgres check issue. see truncated db error.", error = truncatedErr
     return err(truncatedErr)
 
