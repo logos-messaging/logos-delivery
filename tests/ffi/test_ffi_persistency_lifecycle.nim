@@ -42,8 +42,6 @@
 ##     --out:build/liblogosdelivery.dylib --app:lib --noMain --threads:on \
 ##     --mm:refc --opt:speed --passL:librln_v2.0.2.a --passL:-lm \
 ##     -d:chronicles_log_level=INFO library/liblogosdelivery.nim
-## On Linux add `--passL:-Wl,-Bsymbolic` (as the repo's own Linux target
-## does) so the driver's Nim runtime does not interpose the library's.
 ## Override the location with LIBLOGOSDELIVERY=<path>.
 ##
 ## Not registered in an aggregate -- it needs the shared library built
