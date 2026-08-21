@@ -166,31 +166,46 @@ proc sendQueryPrepared(
 
   return ok()
 
+proc waitForData(
+    dbConnWrapper: DbConnWrapper, asyncFd: asyncengine.AsyncFD
+): Future[Result[void, string]] {.async.} =
+  ## Waits until the socket has something to read and gives the reader back
+  ## before returning. The caller must not touch libpq while the reader is
+  ## installed: libpq closes the socket as soon as it notices the backend is
+  ## gone, and removing a reader from an already closed descriptor fails,
+  ## leaving the selector entry behind forever.
+
+  when defined(windows):
+    return err("Postgres not supported on Windows")
+  else:
+    let futDataAvailable = newFuture[void]("futDataAvailable")
+
+    proc onDataAvailable(udata: pointer) {.gcsafe, raises: [].} =
+      if not futDataAvailable.completed():
+        futDataAvailable.complete()
+
+    asyncengine.addReader2(asyncFd, onDataAvailable).isOkOr:
+      dbConnWrapper.futBecomeFree.fail(newException(ValueError, $error))
+      return err("failed to add event reader in waitForData: " & $error)
+
+    defer:
+      asyncengine.removeReader2(asyncFd).isOkOr:
+        error "failed to remove event reader in waitForData", error = $error
+
+    await futDataAvailable
+
+    return ok()
+
 proc waitQueryToFinish(
     dbConnWrapper: DbConnWrapper, rowCallback: DataProc = nil
 ): Future[Result[void, string]] {.async.} =
   ## The 'rowCallback' param is != nil when the underlying query wants to retrieve results (SELECT.)
   ## For other queries, like "INSERT", 'rowCallback' should be nil.
 
-  let futDataAvailable = newFuture[void]("futDataAvailable")
-
-  proc onDataAvailable(udata: pointer) {.gcsafe, raises: [].} =
-    if not futDataAvailable.completed():
-      futDataAvailable.complete()
-
   let asyncFd = cast[asyncengine.AsyncFD](pqsocket(dbConnWrapper.dbConn))
 
-  when not defined(windows):
-    asyncengine.addReader2(asyncFd, onDataAvailable).isOkOr:
-      dbConnWrapper.futBecomeFree.fail(newException(ValueError, $error))
-      return err("failed to add event reader in waitQueryToFinish: " & $error)
-    defer:
-      asyncengine.removeReader2(asyncFd).isOkOr:
-        return err("failed to remove event reader in waitQueryToFinish: " & $error)
-  else:
-    return err("Postgres not supported on Windows")
-
-  await futDataAvailable
+  (await dbConnWrapper.waitForData(asyncFd)).isOkOr:
+    return err($error)
 
   ## Now retrieve the result from the database
   while true:
