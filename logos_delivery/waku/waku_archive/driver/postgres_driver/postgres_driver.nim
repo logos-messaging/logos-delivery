@@ -1486,6 +1486,60 @@ proc ensureLookupPartitions*(
 
 const DefaultDatabasePartitionCheckTimeInterval = timer.minutes(10)
 
+const MaxConsecutivePartitionMaintenanceFailures = 6
+
+proc runPartitionMaintenance(
+    self: PostgresDriver
+): Future[ArchiveDriverResult[void]] {.async.} =
+  ## One pass of the partition factory: cleanup of what previous passes left
+  ## behind, refresh of the tracked partitions and, when needed, creation of the
+  ## partition that will hold the messages to come.
+
+  ## Must precede the partition checks (see dropStrayLookupPartitions).
+  (await self.dropStrayLookupPartitions()).isOkOr:
+    error "failed to drop stray lookup partitions", error = $error
+
+  (await self.dropOrphanPartitions()).isOkOr:
+    return err("error when dropping orphan partitions: " & $error)
+
+  trace "Check if a new partition is needed"
+
+  ## Let's make the 'partition_manager' aware of the current partitions
+  (await self.refreshPartitionsInfo()).isOkOr:
+    return err("issue refreshing the partitions info: " & $error)
+
+  let now = times.now().toTime().toUnix()
+
+  if self.partitionMngr.isEmpty():
+    debug "Adding partition because now there aren't more partitions"
+    (await self.addPartition(now)).isOkOr:
+      return err("error when creating a new partition from empty state: " & $error)
+  else:
+    let newestPartition = self.partitionMngr.getNewestPartition().valueOr:
+      return err("could not get newest partition: " & $error)
+
+    if newestPartition.containsMoment(now):
+      debug "Creating a new partition for the future"
+      ## The current used partition is the last one that was created.
+      ## Thus, let's create another partition for the future.
+
+      (await self.addPartition(newestPartition.getLastMoment())).isOkOr:
+        return err("could not add the next partition for 'now': " & $error)
+    elif now >= newestPartition.getLastMoment():
+      debug "Creating a new partition to contain current messages"
+      ## There is no partition to contain the current time.
+      ## This happens if the node has been stopped for quite a long time.
+      ## Then, let's create the needed partition to contain 'now'.
+      (await self.addPartition(now)).isOkOr:
+        return err("could not add the next partition: " & $error)
+
+  ## After the partition checks, so a long backfill never gates builder.nim's
+  ## startup partition wait; non-fatal, the next pass retries.
+  (await self.ensureLookupPartitions()).isOkOr:
+    error "failed to ensure lookup partitions", error = $error
+
+  return ok()
+
 proc loopPartitionFactory(
     self: PostgresDriver, onFatalError: OnFatalErrorHandler
 ) {.async.} =
@@ -1497,53 +1551,29 @@ proc loopPartitionFactory(
 
   debug "Starting loopPartitionFactory"
 
+  var consecutiveFailures = 0
+
   while true:
     trace "loopPartitionFactory iteration started"
 
-    ## Must precede the partition checks (see dropStrayLookupPartitions).
-    (await self.dropStrayLookupPartitions()).isOkOr:
-      error "failed to drop stray lookup partitions", error = $error
-
-    (await self.dropOrphanPartitions()).isOkOr:
-      onFatalError("error when dropping orphan partitions: " & $error)
-
-    trace "Check if a new partition is needed"
-
-    ## Let's make the 'partition_manager' aware of the current partitions
-    (await self.refreshPartitionsInfo()).isOkOr:
-      onFatalError("issue in loopPartitionFactory: " & $error)
-
-    let now = times.now().toTime().toUnix()
-
-    if self.partitionMngr.isEmpty():
-      debug "Adding partition because now there aren't more partitions"
-      (await self.addPartition(now)).isOkOr:
-        onFatalError("error when creating a new partition from empty state: " & $error)
+    let passRes = await self.runPartitionMaintenance()
+    if passRes.isOk():
+      consecutiveFailures = 0
     else:
-      let newestPartitionRes = self.partitionMngr.getNewestPartition()
-      if newestPartitionRes.isErr():
-        onFatalError("could not get newest partition: " & $newestPartitionRes.error)
+      ## Partitions are created an hour ahead of time and this loop runs every
+      ## ten minutes, so about six passes can fail before the messages arriving
+      ## have nowhere to land. A single failed pass is usually a race with the
+      ## other instances maintaining the same database, which is transient by
+      ## nature; only a persistent failure is worth bringing the node down for.
+      consecutiveFailures.inc()
+      error "partition maintenance pass failed, will retry",
+        error = passRes.error, consecutiveFailures
 
-      let newestPartition = newestPartitionRes.get()
-      if newestPartition.containsMoment(now):
-        debug "Creating a new partition for the future"
-        ## The current used partition is the last one that was created.
-        ## Thus, let's create another partition for the future.
-
-        (await self.addPartition(newestPartition.getLastMoment())).isOkOr:
-          onFatalError("could not add the next partition for 'now': " & $error)
-      elif now >= newestPartition.getLastMoment():
-        debug "Creating a new partition to contain current messages"
-        ## There is no partition to contain the current time.
-        ## This happens if the node has been stopped for quite a long time.
-        ## Then, let's create the needed partition to contain 'now'.
-        (await self.addPartition(now)).isOkOr:
-          onFatalError("could not add the next partition: " & $error)
-
-    ## After the partition checks, so a long backfill never gates builder.nim's
-    ## startup partition wait; non-fatal, the next pass retries.
-    (await self.ensureLookupPartitions()).isOkOr:
-      error "failed to ensure lookup partitions", error = $error
+      if consecutiveFailures >= MaxConsecutivePartitionMaintenanceFailures:
+        onFatalError(
+          "partition maintenance failed " & $consecutiveFailures &
+            " consecutive times: " & passRes.error
+        )
 
     await sleepAsync(DefaultDatabasePartitionCheckTimeInterval)
 
