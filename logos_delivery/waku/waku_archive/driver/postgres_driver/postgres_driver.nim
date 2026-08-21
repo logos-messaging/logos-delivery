@@ -1181,9 +1181,14 @@ func isConcurrentDdlOutcome(error: string): bool =
 
   return false
 
+type ProtectedQueryOutcome = enum
+  Executed ## this instance ran the statement
+  AlreadyDone ## another instance had already applied it
+  Deferred ## another instance holds the lock, so nothing was done
+
 proc performWriteQueryWithLock(
     self: PostgresDriver, queryToProtect: string
-): Future[ArchiveDriverResult[void]] {.async.} =
+): Future[ArchiveDriverResult[ProtectedQueryOutcome]] {.async.} =
   ## This wraps the original query in a script so that we make sure a pg_advisory lock protects it
   let query =
     fmt"""
@@ -1215,17 +1220,36 @@ proc performWriteQueryWithLock(
     if error.contains(COULD_NOT_ACQUIRE_ADVISORY_LOCK):
       ## We don't consider this as an error. Just someone else acquired the advisory lock
       debug "Skip performWriteQuery because the advisory lock is acquired by other"
-      return ok()
+      return ok(Deferred)
 
     if error.isConcurrentDdlOutcome():
       debug "Skip error already handled by another instance", error = error
-      return ok()
+      return ok(AlreadyDone)
 
     debug "Protected query ended with error", error = $error
     return err("protected query ended with error:" & $error)
 
   debug "Protected query ended correctly"
-  return ok()
+  return ok(Executed)
+
+proc performPartitionDdlSteps(
+    self: PostgresDriver, steps: seq[(string, string)]
+): Future[ArchiveDriverResult[bool]] {.async.} =
+  ## Runs the given (query, error context) steps in order, each one protected by
+  ## the advisory lock. Returns false as soon as one of them is deferred because
+  ## another instance holds the lock: the rest of that instance's sequence is not
+  ## ours to repeat -- carrying on would, for example, drop a constraint that we
+  ## never created, which is a fatal error for this node. The next maintenance
+  ## pass re-checks what is missing.
+  for (query, errContext) in steps:
+    let outcome = (await self.performWriteQueryWithLock(query)).valueOr:
+      return err(errContext & ": " & $error)
+
+    if outcome == Deferred:
+      debug "partition maintenance deferred to another instance", query
+      return ok(false)
+
+  return ok(true)
 
 proc addPartition(
     self: PostgresDriver, startTime: Timestamp
@@ -1252,16 +1276,10 @@ proc addPartition(
     " PARTITION OF messages_lookup FOR VALUES FROM (" & fromInNanoSec & ") TO (" &
     untilInNanoSec & ");"
 
-  (await self.performWriteQueryWithLock(createLookupQuery)).isOkOr:
-    return err(fmt"error adding lookup partition [{lookupPartitionName}]: " & $error)
-
   ## Create the partition table but not attach it yet to the main table
   let createPartitionQuery =
     "CREATE TABLE IF NOT EXISTS " & partitionName &
     " (LIKE messages INCLUDING DEFAULTS INCLUDING CONSTRAINTS);"
-
-  (await self.performWriteQueryWithLock(createPartitionQuery)).isOkOr:
-    return err(fmt"error adding partition [{partitionName}]: " & $error)
 
   ## Add constraint to the partition table so that EXCLUSIVE ACCESS is not performed when
   ## the partition is attached to the main table.
@@ -1271,24 +1289,33 @@ proc addPartition(
     " CHECK ( timestamp >= " & fromInNanoSec & " AND timestamp < " & untilInNanoSec &
     " );"
 
-  (await self.performWriteQueryWithLock(addTimeConstraintQuery)).isOkOr:
-    return err(fmt"error creating constraint [{partitionName}]: " & $error)
-
   ## Attaching the new created table as a new partition. That does not require EXCLUSIVE ACCESS.
   let attachPartitionQuery =
     "ALTER TABLE messages ATTACH PARTITION " & partitionName & " FOR VALUES FROM (" &
     fromInNanoSec & ") TO (" & untilInNanoSec & ");"
-
-  (await self.performWriteQueryWithLock(attachPartitionQuery)).isOkOr:
-    return err(fmt"error attaching partition [{partitionName}]: " & $error)
 
   ## Dropping the check constraint as it was only necessary to prevent full scan,
   ## and EXCLUSIVE ACCESS, to the whole messages table, when the new partition was attached.
   let dropConstraint =
     "ALTER TABLE " & partitionName & " DROP CONSTRAINT " & constraintName & ";"
 
-  (await self.performWriteQueryWithLock(dropConstraint)).isOkOr:
-    return err(fmt"error dropping constraint [{partitionName}]: " & $error)
+  let completed = (
+    await self.performPartitionDdlSteps(
+      @[
+        (createLookupQuery, fmt"error adding lookup partition [{lookupPartitionName}]"),
+        (createPartitionQuery, fmt"error adding partition [{partitionName}]"),
+        (addTimeConstraintQuery, fmt"error creating constraint [{partitionName}]"),
+        (attachPartitionQuery, fmt"error attaching partition [{partitionName}]"),
+        (dropConstraint, fmt"error dropping constraint [{partitionName}]"),
+      ]
+    )
+  ).valueOr:
+    return err($error)
+
+  if not completed:
+    ## Another instance is midway through this very sequence. Nothing to track
+    ## yet, the next factory iteration will see the partition it created.
+    return ok()
 
   debug "New partition added", query = createPartitionQuery
 
@@ -1403,9 +1430,17 @@ proc ensureLookupPartitions*(
     let createQuery =
       "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
       " (LIKE messages_lookup INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES);"
-    (await self.performWriteQueryWithLock(createQuery)).isOkOr:
-      return
-        err(fmt"error creating lookup partition [{lookupPartitionName}]: " & $error)
+    let created = (
+      await self.performPartitionDdlSteps(
+        @[(createQuery, fmt"error creating lookup partition [{lookupPartitionName}]")]
+      )
+    ).valueOr:
+      return err($error)
+
+    if not created:
+      ## Another instance is building this sibling, backfill included. Let it
+      ## finish; the next pass checks whether anything is still missing.
+      return ok()
 
     ## Plain query on purpose: a failure must abort the pass, never be
     ## skip-tolerated — the ATTACH below must imply a completed backfill.
@@ -1421,19 +1456,29 @@ proc ensureLookupPartitions*(
       "ALTER TABLE " & lookupPartitionName & " ADD CONSTRAINT " & constraintName &
       " CHECK ( timestamp >= " & fromInNanoSec & " AND timestamp < " & untilInNanoSec &
       " );"
-    (await self.performWriteQueryWithLock(addConstraintQuery)).isOkOr:
-      return err(fmt"error adding constraint [{lookupPartitionName}]: " & $error)
-
     let attachQuery =
       "ALTER TABLE messages_lookup ATTACH PARTITION " & lookupPartitionName &
       " FOR VALUES FROM (" & fromInNanoSec & ") TO (" & untilInNanoSec & ");"
-    (await self.performWriteQueryWithLock(attachQuery)).isOkOr:
-      return err(fmt"error attaching [{lookupPartitionName}]: " & $error)
 
     let dropConstraintQuery =
       "ALTER TABLE " & lookupPartitionName & " DROP CONSTRAINT " & constraintName & ";"
-    (await self.performWriteQueryWithLock(dropConstraintQuery)).isOkOr:
-      return err(fmt"error dropping constraint [{lookupPartitionName}]: " & $error)
+
+    let attached = (
+      await self.performPartitionDdlSteps(
+        @[
+          (addConstraintQuery, fmt"error adding constraint [{lookupPartitionName}]"),
+          (attachQuery, fmt"error attaching [{lookupPartitionName}]"),
+          (
+            dropConstraintQuery,
+            fmt"error dropping constraint [{lookupPartitionName}]",
+          ),
+        ]
+      )
+    ).valueOr:
+      return err($error)
+
+    if not attached:
+      return ok()
 
     info "created and backfilled lookup partition", lookupPartitionName
 
