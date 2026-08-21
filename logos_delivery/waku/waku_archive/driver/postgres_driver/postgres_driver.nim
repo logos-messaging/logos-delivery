@@ -1439,7 +1439,8 @@ proc ensureLookupPartitions*(
         @[(createQuery, "error creating lookup partition: " & lookupPartitionName)]
       )
     ).valueOr:
-      return err("failed ensureLookupPartitions calling performPartitionDdlSteps: " & $error)
+      return
+        err("failed ensureLookupPartitions calling performPartitionDdlSteps: " & $error)
 
     if not created:
       ## Another instance is building this sibling, backfill included. Let it
@@ -1476,7 +1477,8 @@ proc ensureLookupPartitions*(
         ]
       )
     ).valueOr:
-      return err("failed ensureLookupPartitions calling performPartitionDdlSteps: " & $error)
+      return
+        err("failed ensureLookupPartitions calling performPartitionDdlSteps: " & $error)
 
     if not attached:
       return ok()
