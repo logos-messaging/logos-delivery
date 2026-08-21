@@ -13,6 +13,9 @@ type DataProc* = proc(result: ptr PGresult) {.closure, gcsafe, raises: [].}
 
 type DbConnWrapper* = ref object
   dbConn: DbConn
+  registeredFd: Opt[asyncengine.AsyncFD]
+    ## the descriptor handed to chronos when the connection was opened. It has
+    ## to be remembered because libpq no longer knows it once the backend dies.
   open: bool
   preparedStmts: HashSet[string] ## [stmtName's]
   futBecomeFree*: Future[void]
@@ -28,6 +31,10 @@ proc inclPreparedStmt*(dbConnWrapper: DbConnWrapper, preparedStmt: string) =
 
 proc getDbConn*(dbConnWrapper: DbConnWrapper): DbConn =
   return dbConnWrapper.dbConn
+
+proc getRegisteredFd*(dbConnWrapper: DbConnWrapper): Opt[asyncengine.AsyncFD] =
+  ## Exposed so that the tests can assert the selector entry is given back.
+  return dbConnWrapper.registeredFd
 
 proc isPgDbConnBusy*(dbConnWrapper: DbConnWrapper): bool =
   if isNil(dbConnWrapper.futBecomeFree):
@@ -54,7 +61,7 @@ proc check(db: DbConn): Result[void, string] =
 
   return ok()
 
-proc openDbConn(connString: string): Result[DbConn, string] =
+proc openDbConn(connString: string): Result[DbConnWrapper, string] =
   ## Opens a new connection.
   var conn: DbConn = nil
   try:
@@ -68,28 +75,48 @@ proc openDbConn(connString: string): Result[DbConn, string] =
 
     return err("unknown reason")
 
-  ## registering the socket fd in chronos for better wait for data
+  ## registering the socket fd in chronos for better wait for data.
+  ## The wrapper is built here so that the registered descriptor and the
+  ## remembered one cannot drift apart.
   let asyncFd = cast[asyncengine.AsyncFD](pqsocket(conn))
-  asyncengine.register(asyncFd)
+  asyncengine.register2(asyncFd).isOkOr:
+    conn.close()
+    return err("failed to register the connection socket: " & $error)
 
-  return ok(conn)
+  return ok(DbConnWrapper(dbConn: conn, registeredFd: Opt.some(asyncFd), open: true))
 
 proc new*(T: type DbConnWrapper, connString: string): Result[T, string] =
-  let dbConn = openDbConn(connString).valueOr:
+  let dbConnWrapper = openDbConn(connString).valueOr:
     return err("failed to establish a new connection: " & $error)
 
-  return ok(DbConnWrapper(dbConn: dbConn, open: true))
+  return ok(dbConnWrapper)
 
-proc closeDbConn*(
-    dbConnWrapper: DbConnWrapper
-): Result[void, string] {.raises: [OSError].} =
-  let fd = dbConnWrapper.dbConn.pqsocket()
-  if fd == -1:
-    return err("error file descriptor -1 in closeDbConn")
+proc closeDbConn*(dbConnWrapper: DbConnWrapper): Result[void, string] {.raises: [].} =
+  ## Closing must always reach pqfinish, even when giving the selector entry
+  ## back fails. Asking libpq for the descriptor here is useless: it answers -1
+  ## as soon as the backend is gone.
+  if not dbConnWrapper.open:
+    return ok()
 
-  asyncengine.unregister(cast[asyncengine.AsyncFD](fd))
+  var unregisterError = ""
+  if dbConnWrapper.registeredFd.isSome():
+    let asyncFd = dbConnWrapper.registeredFd.get()
+    ## unregister2 asserts when the descriptor is unknown to the dispatcher
+    if asyncFd in asyncengine.getThreadDispatcher():
+      when defined(windows):
+        ## chronos exposes no Result-returning unregister on Windows, where
+        ## unregistering only drops the handle from the dispatcher and cannot
+        ## fail
+        asyncengine.unregister(asyncFd)
+      else:
+        asyncengine.unregister2(asyncFd).isOkOr:
+          unregisterError = "failed to unregister the connection socket: " & $error
 
   dbConnWrapper.dbConn.close()
+  dbConnWrapper.open = false
+
+  if unregisterError.len > 0:
+    return err(unregisterError)
 
   return ok()
 
@@ -202,7 +229,8 @@ proc waitQueryToFinish(
   ## The 'rowCallback' param is != nil when the underlying query wants to retrieve results (SELECT.)
   ## For other queries, like "INSERT", 'rowCallback' should be nil.
 
-  let asyncFd = cast[asyncengine.AsyncFD](pqsocket(dbConnWrapper.dbConn))
+  let asyncFd = dbConnWrapper.registeredFd.valueOr:
+    return err("the connection socket is not registered in waitQueryToFinish")
 
   (await dbConnWrapper.waitForData(asyncFd)).isOkOr:
     return err($error)
