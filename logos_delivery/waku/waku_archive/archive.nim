@@ -92,6 +92,11 @@ proc new*(
     driver: driver, validator: validator, retentionPolicies: retentionPolicies
   )
 
+  ## Publish both series right away, so that a node that has not written yet is
+  ## reported as writing nothing instead of not being reported at all.
+  logos_delivery_archive_inserts.inc(0, labelValues = [relayIngress])
+  logos_delivery_archive_inserts.inc(0, labelValues = [syncIngress])
+
   return ok(archive)
 
 proc handleMessage*(
@@ -120,7 +125,7 @@ proc handleMessage*(
 
   (await self.driver.put(msgHash, pubsubTopic, msg)).isOkOr:
     logos_delivery_archive_errors.inc(labelValues = [insertFailure])
-    trace "failed to insert message",
+    debug "failed to insert message",
       msg_hash = msgHashHex,
       pubsubTopic = pubsubTopic,
       contentTopic = msg.contentTopic,
@@ -135,6 +140,7 @@ proc handleMessage*(
     DefaultRelayShard
 
   logos_delivery_archive_messages_per_shard.inc(labelValues = [$shard.shardId])
+  logos_delivery_archive_inserts.inc(labelValues = [relayIngress])
 
   trace "message archived",
     msg_hash = msgHashHex,
@@ -163,7 +169,7 @@ proc syncMessageIngress*(
   let insertStartTime = getTime().toUnixFloat()
   (await self.driver.put(msgHash, pubsubTopic, msg)).isOkOr:
     logos_delivery_archive_errors.inc(labelValues = [insertFailure])
-    trace "failed to insert message in in syncMessageIngress",
+    debug "failed to insert message in in syncMessageIngress",
       msg_hash = msgHashHex,
       pubsubTopic = pubsubTopic,
       contentTopic = msg.contentTopic,
@@ -173,6 +179,7 @@ proc syncMessageIngress*(
 
   let insertDuration = getTime().toUnixFloat() - insertStartTime
   logos_delivery_archive_insert_duration_seconds.observe(insertDuration)
+  logos_delivery_archive_inserts.inc(labelValues = [syncIngress])
 
   trace "message archived in syncMessageIngress",
     msg_hash = msgHashHex,

@@ -8,6 +8,8 @@ declarePublicGauge logos_delivery_archive_messages_per_shard,
   "number of historical messages per shard ", ["shard"]
 declarePublicCounter logos_delivery_archive_errors,
   "number of store protocol errors", ["type"]
+declarePublicCounter logos_delivery_archive_inserts,
+  "number of messages written to the archive", ["source"]
 declarePublicHistogram logos_delivery_archive_insert_duration_seconds,
   "message insertion duration"
 declarePublicHistogram logos_delivery_archive_query_duration_seconds,
@@ -19,3 +21,8 @@ const
   invalidMessageFuture* = "invalid_message_future_timestamp"
   insertFailure* = "insert_failure"
   retPolicyFailure* = "retpolicy_failure"
+
+# Ingress that wrote the message (metric label values)
+const
+  relayIngress* = "relay"
+  syncIngress* = "sync"
