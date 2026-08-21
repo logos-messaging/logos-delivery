@@ -5,7 +5,9 @@ import logos_delivery/waku/waku_core/topics/pubsub_topic
 import logos_delivery/waku/waku_core/message
 import logos_delivery/waku/waku_core/subscription/push_handler
 import logos_delivery/waku/waku_store/common as store_types
+import logos_delivery/waku/rln/api/types as rln_api_types
 
+# no rln_api_types re-export: its EpochQuota clashes with the rate limit manager's
 export api_types, pubsub_topic, store_types
 
 # Structural API contract for the Kernel surface, implemented by `Waku`
@@ -70,6 +72,23 @@ type KernelApi* = concept w
   startDiscv5(w) is Future[Result[bool, string]]
   stopDiscv5(w) is Future[Result[bool, string]]
   peerExchangeRequest(w, numPeers = uint64) is Future[Result[int, string]]
+
+  # --- rln ---
+  rlnRegister(w, scope = MembershipScope, options = RegistryOptions) is
+    Future[Result[MembershipState, string]]
+  rlnGetMembershipState(w, scope = MembershipScope) is
+    Future[Result[MembershipState, string]]
+  rlnGetEpochQuota(w, scope = MembershipScope, timestamp = uint64) is
+    Future[Result[EpochQuota, string]]
+  rlnGenerateProof(w, scope = MembershipScope, signal = seq[byte], timestamp = uint64) is
+    Future[Result[seq[byte], string]]
+  rlnValidateProof(
+    w,
+    scope = MembershipScope,
+    signal = seq[byte],
+    timestamp = uint64,
+    proof = seq[byte],
+  ) is Future[Result[ValidationResult, string]]
 
   # --- debug / info ---
   version(w) is Future[Result[string, string]]
