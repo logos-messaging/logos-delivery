@@ -28,9 +28,12 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#v2.0.0",
+  # Pin by name: nimble treats a url requirement as a different package,
+  # and nim-sds and libp2p_mix require libp2p by name.
+  "libp2p == 2.2.1",
   "eth",
-  "nat_traversal",
+  # nat_traversal stays in the graph through libp2p, which links
+  # the miniupnpc and libnatpmp static libs. Nat.mk and the iOS steps stay.
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
@@ -56,7 +59,9 @@ requires "nim >= 2.2.4",
   "minilru",
   "zlib",
   # Debug & Testing
-  "testutils",
+  # testutils 0.8.2's fuzzing tool imports the results package and
+  # breaks the Windows --localdeps install.
+  "testutils == 0.8.1",
   "unittest2"
 
 # Packages not on nimble (use git URLs)
@@ -68,9 +73,13 @@ requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
-requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
+# Exact pin: libp2p only sets a floor, and a re-solve floats to
+# the newest lsquic release and rewrites the lock.
+requires "lsquic == 0.8.1"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
-requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
+# Temporary pin to an unmerged mix commit that widens
+# mix's libp2p requirement. Mix master still requires libp2p 2.2.0 exactly.
+requires "https://github.com/logos-co/nim-libp2p-mix#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies

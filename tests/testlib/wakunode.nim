@@ -33,7 +33,8 @@ proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   builder.withDnsAddrsNameServers(
     @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
   )
-  builder.withNatStrategy("any")
+  # The "none" strategy keeps tests off real UPnP/NAT-PMP gateway discovery.
+  builder.withNatStrategy("none")
   builder.withMaxConnections(150)
   builder.withRelayServiceRatio("50:50")
   builder.withMaxMessageSize("1024 KiB")
@@ -55,6 +56,7 @@ proc newTestWakuNode*(
     extIp = Opt.none(IpAddress),
     extPort = Opt.none(Port),
     extMultiAddrs = newSeq[MultiAddress](),
+    extMultiAddrsOnly = false,
     peerStorage: PeerStorage = nil,
     maxConnections = MaxConnections,
     wsBindPort: Port = (Port) 8000,
@@ -87,8 +89,6 @@ proc newTestWakuNode*(
   let quicBindPort =
     if quicEnabled and quicBindPort == Port(0): bindPort else: quicBindPort
 
-  var resolvedExtIp = extIp
-
   # Update extPort to default value if it's missing and there's an extIp or a DNS domain
   let extPort =
     if (extIp.isSome() or dns4DomainName.isSome()) and extPort.isNone():
@@ -101,20 +101,16 @@ proc newTestWakuNode*(
   conf.clusterId = clusterId
   conf.subscribeShards = subscribeShards
 
-  if dns4DomainName.isSome() and extIp.isNone():
-    # If there's an error resolving the IP, an exception is thrown and test fails
-    let dns = (waitFor dnsResolve(dns4DomainName.get(), conf.dnsAddrsNameServers)).valueOr:
-      raise newException(Defect, error)
-
-    resolvedExtIp = Opt.some(parseIpAddress(dns))
-
+  # A dns4 name is announced as-is. A caller that needs the resolved IP
+  # in the ENR resolves the name and passes it as extIp.
   let netConf = NetConfig.init(
     clusterId = conf.clusterId,
     bindIp = bindIp,
     bindPort = bindPort,
-    extIp = resolvedExtIp,
+    extIp = extIp,
     extPort = extPort,
     extMultiAddrs = extMultiAddrs,
+    extMultiAddrsOnly = extMultiAddrsOnly,
     wsBindPort = Opt.some(wsBindPort),
     wsEnabled = wsEnabled,
     wssEnabled = wssEnabled,

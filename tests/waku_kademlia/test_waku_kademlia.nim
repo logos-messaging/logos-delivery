@@ -23,7 +23,9 @@ suite "Waku Kademlia service discovery":
     let
       switch = newTestSwitch()
       wk = kad_utils.newTestKademlia(
-        switch, servicesToAdvertise = @[ServiceInfo(id: "/seed/svc/1.0.0", data: @[])]
+        switch,
+        servicesToAdvertise =
+          @[ServiceInfo(id: "/seed/svc/1.0.0", data: Opt.some(newSeq[byte]()))],
       )
     await switch.start()
     await wk.start()
@@ -44,18 +46,18 @@ suite "Waku Kademlia service discovery":
       b
 
     test "non-mix service returns none":
-      let svc = ServiceInfo(id: "/foo/1.0.0", data: validKeyBytes())
+      let svc = ServiceInfo(id: "/foo/1.0.0", data: Opt.some(validKeyBytes()))
       check:
         extractMixPubKey(svc).isNone()
 
     test "mix service with wrong data length returns none":
-      let svc = ServiceInfo(id: MixProtocolID, data: @[0u8, 1u8, 2u8])
+      let svc = ServiceInfo(id: MixProtocolID, data: Opt.some(@[0u8, 1u8, 2u8]))
       check:
         extractMixPubKey(svc).isNone()
 
     test "mix service with correct length returns some":
       let bytes = validKeyBytes()
-      let svc = ServiceInfo(id: MixProtocolID, data: bytes)
+      let svc = ServiceInfo(id: MixProtocolID, data: Opt.some(bytes))
       let res = extractMixPubKey(svc)
       require:
         res.isSome()
@@ -65,7 +67,7 @@ suite "Waku Kademlia service discovery":
 
     test "round-trip matches intoCurve25519Key on raw bytes":
       let bytes = validKeyBytes()
-      let svc = ServiceInfo(id: MixProtocolID, data: bytes)
+      let svc = ServiceInfo(id: MixProtocolID, data: Opt.some(bytes))
       let extracted = extractMixPubKey(svc).get()
       let direct = intoCurve25519Key(bytes)
       check:
@@ -79,7 +81,7 @@ suite "Waku Kademlia service discovery":
       MultiAddress.init("/ip4/127.0.0.1/tcp/" & $port).tryGet()
 
     proc mixService(data: seq[byte]): ServiceInfo =
-      ServiceInfo(id: MixProtocolID, data: data)
+      ServiceInfo(id: MixProtocolID, data: Opt.some(data))
 
     proc validMixService(): ServiceInfo =
       var b = newSeq[byte](Curve25519KeySize)
@@ -115,12 +117,12 @@ suite "Waku Kademlia service discovery":
       let peerInfo = res.get()
       check:
         peerInfo.mixPubKey.isSome()
-        peerInfo.mixPubKey.get().getBytes() == svc.data
+        peerInfo.mixPubKey.get().getBytes() == svc.data.get(@[])
 
     test "mixPubKey stays none when no mix service present":
       let
         pid = randomPeerId()
-        svc = ServiceInfo(id: "/other/1.0.0", data: @[1u8])
+        svc = ServiceInfo(id: "/other/1.0.0", data: Opt.some(@[1u8]))
         record = buildExtendedPeerRecord(pid, @[testAddr(61600)], @[svc])
         res = remotePeerInfoFrom(record)
       require:

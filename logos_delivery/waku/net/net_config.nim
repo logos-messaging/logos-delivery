@@ -1,6 +1,7 @@
 {.push raises: [].}
 
-import std/[sequtils, strutils, net], results, libp2p/[multiaddress, multicodec, wire]
+import std/[sequtils, strutils, net], results, stew/endians2
+import libp2p/[multiaddress, multicodec, wire]
 import ../../waku/waku_core/peers
 import ../waku_enr
 
@@ -17,6 +18,7 @@ type NetConfig* = object
   dns4DomainName*: Opt[string]
   dnsNameServers*: seq[IpAddress]
   announcedAddresses*: seq[MultiAddress]
+  extMultiAddrsOnly*: bool
   extMultiAddrs*: seq[MultiAddress]
   enrMultiAddrs*: seq[MultiAddress]
   enrIp*: Opt[IpAddress]
@@ -58,10 +60,18 @@ template ipQuicEndPoint(address: IpAddress, port: Port): MultiAddress =
 template dns4QuicEndPoint(dns4DomainName: string, port: Port): MultiAddress =
   dns4Ma(dns4DomainName) & udpPortMa(port) & quicFlag()
 
-proc formatListenAddress(inputMultiAdd: MultiAddress): MultiAddress =
-  let inputStr = $inputMultiAdd
-  # If MultiAddress contains "0.0.0.0", replace it for "127.0.0.1"
-  return MultiAddress.init(inputStr.replace("0.0.0.0", "127.0.0.1")).get()
+func hasZeroPort*(ma: MultiAddress): bool =
+  ## Port 0 means "the kernel picks a port at bind time".
+  ## initTAddress cannot parse dns-hosted entries, so read the port
+  ## bytes from the tcp or udp component directly.
+  for code in [multiCodec("tcp"), multiCodec("udp")]:
+    let part = ma[code].valueOr:
+      continue
+    let portBytes = part.protoArgument().valueOr:
+      continue
+    if portBytes.len == 2 and uint16.fromBytesBE(portBytes) == 0:
+      return true
+  false
 
 proc isWsAddress*(ma: MultiAddress): bool =
   let
@@ -129,6 +139,15 @@ proc init*(
 ): NetConfigResult =
   ## Initialize and validate waku node network configuration
 
+  if extMultiAddrsOnly:
+    ## libp2p applies `announcedAddrs` only when non-empty, and the override
+    ## skips port resolution. So require concrete addresses here.
+    if extMultiAddrs.len == 0:
+      return err("extMultiAddrsOnly requires at least one ext multiaddr")
+    for ma in extMultiAddrs:
+      if ma.hasZeroPort():
+        return err("extMultiAddrsOnly requires concrete ports, got: " & $ma)
+
   # Bind addresses
   let hostAddress = ip4TcpEndPoint(bindIp, bindPort)
 
@@ -165,7 +184,8 @@ proc init*(
   if dns4DomainName.isSome():
     # Use dns4 for externally announced addresses
     try:
-      hostExtAddress = Opt.some(dns4TcpEndPoint(dns4DomainName.get(), extPort.get()))
+      hostExtAddress =
+        Opt.some(dns4TcpEndPoint(dns4DomainName.get(), extPort.get(bindPort)))
     except CatchableError:
       return err(getCurrentExceptionMsg())
 
@@ -215,7 +235,7 @@ proc init*(
     if hostExtAddress.isSome():
       announcedAddresses.add(hostExtAddress.get())
     else:
-      announcedAddresses.add(formatListenAddress(hostAddress))
+      announcedAddresses.add(hostAddress)
         # We always have at least a bind address for the host
 
     if wsExtAddress.isSome():
@@ -227,7 +247,7 @@ proc init*(
     if quicExtAddress.isSome():
       announcedAddresses.add(quicExtAddress.get())
     elif quicHostAddress.isSome() and not containsQuicAddress(extMultiAddrs):
-      announcedAddresses.add(formatListenAddress(quicHostAddress.get()))
+      announcedAddresses.add(quicHostAddress.get())
 
   # External multiaddrs that the operator may have configured
   if extMultiAddrs.len > 0:
@@ -259,6 +279,7 @@ proc init*(
       dns4DomainName: dns4DomainName,
       dnsNameServers: dnsNameServers,
       announcedAddresses: announcedAddresses,
+      extMultiAddrsOnly: extMultiAddrsOnly,
       extMultiAddrs: extMultiAddrs,
       enrMultiaddrs: enrMultiaddrs,
       enrIp: enrIp,

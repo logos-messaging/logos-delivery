@@ -121,19 +121,6 @@ proc new*(
     topicSubscriptionQueue: queue,
   )
 
-proc updateAnnouncedMultiAddress*(
-    wd: WakuDiscoveryV5, addresses: seq[MultiAddress]
-): Result[void, string] =
-  let encodedAddrs = multiaddr.encodeMultiaddrs(addresses)
-
-  wd.protocol.updateRecord([(MultiaddrEnrField, encodedAddrs)]).isOkOr:
-    return err("failed to update multiaddress in ENR: " & $error)
-
-  debug "ENR updated successfully with new multiaddress",
-    enrUri = wd.protocol.localNode.record.toUri(), enr = $(wd.protocol.localNode.record)
-
-  return ok()
-
 proc updateENRShards(
     wd: WakuDiscoveryV5, newTopics: seq[PubsubTopic], add: bool
 ): Result[void, string] =
