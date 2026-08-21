@@ -1306,11 +1306,11 @@ proc addPartition*(
   let completed = (
     await self.performPartitionDdlSteps(
       @[
-        (createLookupQuery, fmt"error adding lookup partition [{lookupPartitionName}]"),
-        (createPartitionQuery, fmt"error adding partition [{partitionName}]"),
-        (addTimeConstraintQuery, fmt"error creating constraint [{partitionName}]"),
-        (attachPartitionQuery, fmt"error attaching partition [{partitionName}]"),
-        (dropConstraint, fmt"error dropping constraint [{partitionName}]"),
+        (createLookupQuery, "error adding lookup partition: " & lookupPartitionName),
+        (createPartitionQuery, "error adding partition: " & partitionName),
+        (addTimeConstraintQuery, "error creating constraint: " & partitionName),
+        (attachPartitionQuery, "error attaching partition: " & partitionName),
+        (dropConstraint, "error dropping constraint: " & partitionName),
       ]
     )
   ).valueOr:
@@ -1436,7 +1436,7 @@ proc ensureLookupPartitions*(
       " (LIKE messages_lookup INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES);"
     let created = (
       await self.performPartitionDdlSteps(
-        @[(createQuery, fmt"error creating lookup partition [{lookupPartitionName}]")]
+        @[(createQuery, "error creating lookup partition: " & lookupPartitionName)]
       )
     ).valueOr:
       return err($error)
@@ -1470,9 +1470,9 @@ proc ensureLookupPartitions*(
     let attached = (
       await self.performPartitionDdlSteps(
         @[
-          (addConstraintQuery, fmt"error adding constraint [{lookupPartitionName}]"),
-          (attachQuery, fmt"error attaching [{lookupPartitionName}]"),
-          (dropConstraintQuery, fmt"error dropping constraint [{lookupPartitionName}]"),
+          (addConstraintQuery, "error adding constraint: " & lookupPartitionName),
+          (attachQuery, "error attaching: " & lookupPartitionName),
+          (dropConstraintQuery, "error dropping constraint: " & lookupPartitionName),
         ]
       )
     ).valueOr:
