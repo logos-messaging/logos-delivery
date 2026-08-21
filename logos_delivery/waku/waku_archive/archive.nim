@@ -125,7 +125,7 @@ proc handleMessage*(
 
   (await self.driver.put(msgHash, pubsubTopic, msg)).isOkOr:
     logos_delivery_archive_errors.inc(labelValues = [insertFailure])
-    trace "failed to insert message",
+    debug "failed to insert message",
       msg_hash = msgHashHex,
       pubsubTopic = pubsubTopic,
       contentTopic = msg.contentTopic,
@@ -169,7 +169,7 @@ proc syncMessageIngress*(
   let insertStartTime = getTime().toUnixFloat()
   (await self.driver.put(msgHash, pubsubTopic, msg)).isOkOr:
     logos_delivery_archive_errors.inc(labelValues = [insertFailure])
-    trace "failed to insert message in in syncMessageIngress",
+    debug "failed to insert message in in syncMessageIngress",
       msg_hash = msgHashHex,
       pubsubTopic = pubsubTopic,
       contentTopic = msg.contentTopic,
