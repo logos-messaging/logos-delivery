@@ -73,9 +73,23 @@ proc addPartitionInfo*(
 proc clearPartitionInfo*(self: PartitionManager) =
   self.partitions.clear()
 
-proc removeOldestPartitionName*(self: PartitionManager) =
-  ## Simply removed the partition from the tracked/known partitions queue.
-  ## Just remove it and ignore it.
+proc removeOldestPartitionName*(self: PartitionManager, expectedName: string) =
+  ## Removes the oldest partition from the tracked/known partitions queue, but
+  ## only when it is still the partition the caller decided to drop. Callers peek
+  ## at it and then await several slow queries before getting here, and the
+  ## factory loop may have refreshed the whole queue in between: popping blindly
+  ## then raises an IndexDefect if the queue ended up empty -- a Defect, so it
+  ## escapes `{.raises: [].}` and kills the node -- or forgets a partition that
+  ## is still attached.
+  if self.partitions.len == 0:
+    debug "no partition to remove", expectedName
+    return
+
+  if self.partitions.peekFirst().name != expectedName:
+    debug "oldest partition changed since it was chosen, not removing it",
+      expectedName, oldestName = self.partitions.peekFirst().name
+    return
+
   discard self.partitions.popFirst()
 
 proc isEmpty*(self: PartitionManager): bool =

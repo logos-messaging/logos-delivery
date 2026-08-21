@@ -1468,10 +1468,7 @@ proc ensureLookupPartitions*(
         @[
           (addConstraintQuery, fmt"error adding constraint [{lookupPartitionName}]"),
           (attachQuery, fmt"error attaching [{lookupPartitionName}]"),
-          (
-            dropConstraintQuery,
-            fmt"error dropping constraint [{lookupPartitionName}]",
-          ),
+          (dropConstraintQuery, fmt"error dropping constraint [{lookupPartitionName}]"),
         ]
       )
     ).valueOr:
@@ -1571,8 +1568,8 @@ proc loopPartitionFactory(
 
       if consecutiveFailures >= MaxConsecutivePartitionMaintenanceFailures:
         onFatalError(
-          "partition maintenance failed " & $consecutiveFailures &
-            " consecutive times: " & passRes.error
+          "partition maintenance failed " & $consecutiveFailures & " consecutive times: " &
+            passRes.error
         )
 
     await sleepAsync(DefaultDatabasePartitionCheckTimeInterval)
@@ -1651,7 +1648,7 @@ proc detachAndDropPartition(
   ?(await self.dropPartition(partitionName))
 
   debug "Removed partition", partition_name = partitionName, partition_size = partSize
-  self.partitionMngr.removeOldestPartitionName()
+  self.partitionMngr.removeOldestPartitionName(partitionName)
 
   return ok()
 
