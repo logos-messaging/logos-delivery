@@ -1,12 +1,14 @@
 {.used.}
 
-import results, std/[sequtils, strutils], testutils/unittests, chronos
+import
+  results, std/[sequtils, strutils], testutils/unittests, chronos, db_connector/postgres
 import
   logos_delivery/waku/[
     waku_archive,
     waku_archive/driver/postgres_driver,
     waku_core,
     waku_core/message/digest,
+    common/databases/db_postgres/dbconn,
     common/databases/db_postgres/pgasyncpool,
   ],
   ../testlib/wakucore,
@@ -373,3 +375,154 @@ suite "Postgres driver - concurrent DDL outcomes":
     check not "ERROR:  could not acquire advisory lock".isConcurrentDdlOutcome()
     check not "ERROR:  no space left on device".isConcurrentDdlOutcome()
     check not "ERROR:  deadlock detected".isConcurrentDdlOutcome()
+
+suite "Postgres connection lifecycle":
+  ## A database restart used to take the node down: closing a connection whose
+  ## backend was gone failed, which left the remaining connections open and
+  ## their descriptors registered in the chronos dispatcher.
+
+  const RawConnString =
+    "user=postgres host=localhost port=5432 dbname=postgres password=test123"
+
+  proc backendPidsAlive(
+      pool: PgAsyncPool, pids: seq[string]
+  ): Future[Result[int, string]] {.async.} =
+    var alive = 0
+
+    proc onRow(res: ptr PGresult) {.closure, gcsafe, raises: [].} =
+      if pqntuples(res) > 0:
+        try:
+          alive = parseInt($pqgetvalue(res, 0, 0))
+        except ValueError:
+          discard
+
+    (
+      await pool.pgQuery(
+        "SELECT count(*) FROM pg_stat_activity WHERE pid IN (" & pids.join(",") & ")",
+        @[],
+        onRow,
+      )
+    ).isOkOr:
+      return err($error)
+
+    return ok(alive)
+
+  asyncTest "A connection whose backend died gives its selector entry back":
+    let wrapper = DbConnWrapper.new(RawConnString).expect("new connection")
+
+    let asyncFd = wrapper.getRegisteredFd().expect("registered fd")
+    check asyncFd in getThreadDispatcher()
+
+    ## the backend kills itself, so libpq closes the socket while the results
+    ## of this very query are being read
+    let killRes = await wrapper.dbConnQuery(
+      sql("SELECT pg_terminate_backend(pg_backend_pid())"), @[], nil, ""
+    )
+    check killRes.isErr()
+
+    ## precondition: libpq cannot tell the descriptor anymore
+    check pqsocket(wrapper.getDbConn()) == -1
+
+    check wrapper.closeDbConn().isOk()
+    check asyncFd notin getThreadDispatcher()
+
+  asyncTest "A pool closes every connection even when one is dead":
+    let pool = PgAsyncPool.new(storeMessageDbUrl, 3).expect("pool")
+    let observer = PgAsyncPool.new(storeMessageDbUrl, 1).expect("observer pool")
+
+    var pids = newSeq[string](3)
+
+    proc collectPid(index: int): DataProc =
+      return proc(res: ptr PGresult) {.closure, gcsafe, raises: [].} =
+        if pqntuples(res) > 0:
+          pids[index] = $pqgetvalue(res, 0, 0)
+
+    ## three overlapping queries force the pool to open three connections
+    var queries = newSeq[Future[Result[void, string]]](0)
+    for i in 0 ..< 3:
+      queries.add(
+        pool.pgQuery("SELECT pg_backend_pid(), pg_sleep(0.5)", @[], collectPid(i))
+      )
+
+    for queryFut in queries:
+      (await queryFut).expect("concurrent pid query")
+
+    check pids.deduplicate().len == 3
+
+    ## an idle pool always hands out its first connection, so this tells which
+    ## backend has to die for the close loop to fail on its first iteration
+    var firstConnPid: string
+    proc onFirstPid(res: ptr PGresult) {.closure, gcsafe, raises: [].} =
+      if pqntuples(res) > 0:
+        firstConnPid = $pqgetvalue(res, 0, 0)
+
+    (await pool.pgQuery("SELECT pg_backend_pid()", @[], onFirstPid)).expect(
+      "first conn pid"
+    )
+
+    let survivorPids = pids.filterIt(it != firstConnPid)
+    check survivorPids.len == 2
+
+    (await observer.pgQuery("SELECT pg_terminate_backend(" & firstConnPid & ")")).expect(
+      "terminate backend"
+    )
+
+    ## the pool only learns about the dead backend when it uses it again
+    check (await pool.pgQuery("SELECT 1")).isErr()
+
+    (await pool.close()).expect("pool close")
+
+    var stillAlive = -1
+    for _ in 0 ..< 50:
+      stillAlive = (await observer.backendPidsAlive(survivorPids)).expect("alive count")
+      if stillAlive == 0:
+        break
+      await sleepAsync(100.milliseconds)
+
+    check stillAlive == 0
+
+    (await observer.close()).expect("observer close")
+
+  asyncTest "A pool holding a never used connection can still be closed":
+    ## A failing prepare leaves behind a connection that never ran a query, so
+    ## it has no futBecomeFree for the close barrier to wait on.
+    let pool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("pool")
+
+    check (
+      await pool.runStmt(
+        "stmtOverMissingTable",
+        "SELECT * FROM a_table_that_does_not_exist",
+        newSeq[string](0),
+        newSeq[int32](0),
+        newSeq[int32](0),
+      )
+    ).isErr()
+
+    (await pool.close()).expect("pool close")
+
+  asyncTest "The pool comes back after its connection died":
+    let pool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("pool")
+
+    check (await pool.pgQuery("SELECT pg_terminate_backend(pg_backend_pid())")).isErr()
+
+    (await pool.resetConnPool()).expect("resetConnPool")
+    (await pool.pgQuery("SELECT 1")).expect("query after reset")
+
+    (await pool.close()).expect("pool close")
+
+  asyncTest "A pool that cannot be closed does not bring the node down":
+    let pool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("pool")
+
+    check (await pool.pgQuery("SELECT pg_terminate_backend(pg_backend_pid())")).isErr()
+
+    var fatalErrors = newSeq[string](0)
+    proc onFatalError(errMsg: string) {.gcsafe, closure, raises: [].} =
+      fatalErrors.add(errMsg)
+
+    let healthFut = checkConnectivity(pool, onFatalError)
+    await sleepAsync(1.seconds)
+
+    check fatalErrors.len == 0
+
+    await healthFut.cancelAndWait()
+    (await pool.close()).expect("pool close")
