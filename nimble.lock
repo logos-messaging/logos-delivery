@@ -476,8 +476,8 @@
       }
     },
     "lsquic": {
-      "version": "0.5.1",
-      "vcsRevision": "2f01046bf1d513de8b5f8296c3d8bec819ab0cb9",
+      "version": "0.5.6",
+      "vcsRevision": "b778d16d6f00b47249e2674c23f21aa26b711eb7",
       "url": "https://github.com/vacp2p/nim-lsquic",
       "downloadMethod": "git",
       "dependencies": [
@@ -491,7 +491,7 @@
         "boringssl"
       ],
       "checksums": {
-        "sha1": "959df1a9ac2a574d6fe30a4faf37c37b443e1cfb"
+        "sha1": "2676f1facb400ad3cfa1b338149d9c20fc5967c4"
       }
     },
     "secp256k1": {
