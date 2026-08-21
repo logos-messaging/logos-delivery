@@ -58,16 +58,23 @@ proc close*(pool: PgAsyncPool): Future[Result[void, string]] {.async.} =
   # blocking the async runtime
 
   debug "close PgAsyncPool"
-  await allFutures(pool.conns.mapIt(it.futBecomeFree))
+  ## a connection that never ran a query has no futBecomeFree to wait for
+  await allFutures(
+    pool.conns.filterIt(not it.futBecomeFree.isNil()).mapIt(it.futBecomeFree)
+  )
   debug "closing all connection PgAsyncPool"
 
+  var closeErrors = newSeq[string](0)
   for i in 0 ..< pool.conns.len:
-    if pool.conns[i].isPgDbConnOpen():
-      pool.conns[i].closeDbConn().isOkOr:
-        return err("error in close PgAsyncPool: " & $error)
-      pool.conns[i].setPgDbConnOpen(false)
+    ## one connection that cannot be closed must not keep the others open
+    ## and registered in the dispatcher
+    pool.conns[i].closeDbConn().isOkOr:
+      closeErrors.add($error)
 
   pool.conns.setLen(0)
+
+  if closeErrors.len > 0:
+    return err("error in close PgAsyncPool: " & closeErrors.join("; "))
 
   return ok()
 

@@ -44,9 +44,6 @@ proc isPgDbConnBusy*(dbConnWrapper: DbConnWrapper): bool =
 proc isPgDbConnOpen*(dbConnWrapper: DbConnWrapper): bool =
   return dbConnWrapper.open
 
-proc setPgDbConnOpen*(dbConnWrapper: DbConnWrapper, newOpenState: bool) =
-  dbConnWrapper.open = newOpenState
-
 proc check(db: DbConn): Result[void, string] =
   var message: string
   try:
