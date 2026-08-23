@@ -1,6 +1,8 @@
 # -*- coding: utf-8 -*-
 import inspect
 import glob
+import logging
+import sys
 from src.libs.custom_logger import get_custom_logger
 import os
 import pytest
@@ -13,6 +15,26 @@ from src.data_storage import DS
 from src.postgres_setup import start_postgres, stop_postgres
 
 logger = get_custom_logger(__name__)
+
+
+_session_exit_status = None
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_sessionfinish(session, exitstatus):
+    global _session_exit_status
+    _session_exit_status = int(exitstatus)
+
+
+@pytest.hookimpl(trylast=True)
+def pytest_unconfigure(config):
+    # liblogosdelivery threads outlive destroy; finalizing the interpreter under them segfaults.
+    if _session_exit_status is None:
+        return
+    sys.stdout.flush()
+    sys.stderr.flush()
+    logging.shutdown()
+    os._exit(_session_exit_status)
 
 
 # See https://docs.pytest.org/en/latest/example/simple.html#making-test-result-information-available-in-fixtures
