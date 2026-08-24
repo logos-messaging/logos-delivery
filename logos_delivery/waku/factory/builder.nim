@@ -33,6 +33,7 @@ type
     peerStorageCapacity: Opt[int]
 
     # Peer manager config
+    netBackend: NetBackend
     maxRelayPeers: int
     maxServicePeers: int
     colocationLimit: int
@@ -56,6 +57,9 @@ type
 
 proc init*(T: type WakuNodeBuilder): WakuNodeBuilder =
   WakuNodeBuilder()
+
+proc withNetBackend*(builder: var WakuNodeBuilder, netBackend: NetBackend) =
+  builder.netBackend = netBackend
 
 ## General
 
@@ -208,6 +212,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
 
   let peerManager = PeerManager.new(
     switch = switch,
+    netBackend = builder.netBackend,
     storage = builder.peerStorage.get(nil),
     maxRelayPeers = Opt.some(builder.maxRelayPeers),
     maxServicePeers = Opt.some(builder.maxServicePeers),
