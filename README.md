@@ -82,8 +82,9 @@ Open MSYS2 mingw64 terminal and run the following one-by-one :
 ```bash
 pacman -Syu --noconfirm  
 pacman -S --noconfirm --needed mingw-w64-x86_64-toolchain  
-pacman -S --noconfirm --needed base-devel make cmake upx  
+pacman -S --noconfirm --needed base-devel make cmake upx unzip curl  
 pacman -S --noconfirm --needed mingw-w64-x86_64-rust  
+pacman -S --noconfirm --needed mingw-w64-x86_64-nasm  
 pacman -S --noconfirm --needed mingw-w64-x86_64-postgresql  
 pacman -S --noconfirm --needed mingw-w64-x86_64-gcc  
 pacman -S --noconfirm --needed mingw-w64-x86_64-gcc-libs  
@@ -95,15 +96,42 @@ pacman -S --noconfirm --needed mingw-w64-x86_64-python
 
 #### 3. Build Wakunode
 - Open Git Bash as administrator  
-- clone nwaku and cd nwaku
+- clone logos-delivery and cd logos-delivery
 - Execute: `./scripts/build_windows.sh`
+
+The script installs the pinned Nim and Nimble versions (into `~/.nim` and
+`~/.nimble`), resolves the locked dependencies, and produces
+`build/wakunode2.exe`, `build/logosdeliverynode.exe` and
+`build/liblogosdelivery.dll`.
 
 #### 4. Troubleshooting
 If `wakunode2.exe` isn't generated:  
 - **Missing Dependencies**: Verify with:  
-  `which make cmake gcc g++ rustc cargo python3 upx`  
+  `which make cmake gcc g++ rustc cargo python upx unzip curl nasm`  
   If missing, revisit Step 2 or ensure MSYS2 is at `C:\`  
 - **Installation Conflicts**: Remove existing MinGW/MSYS2/Git Bash installations and perform fresh install
+- **HTTPS downloads fail** — `curl: (60) ... unable to get local issuer certificate`, or `git ... SSL certificate problem`:
+  TLS-inspecting antivirus (AVG, Avast, ESET, Kaspersky) or a corporate proxy is re-signing every
+  certificate with a root that only the Windows certificate store trusts. MSYS2's `curl`, `openssl`
+  and `git` read their own CA bundle instead, so downloads and nimble's dependency clones all fail.
+  The build script detects this at step 3 and stops. Teach MSYS2 to trust what Windows trusts
+  (Git Bash as administrator):
+
+```bash
+# 1. Export the roots Windows trusts, the interceptor's among them
+powershell -NoProfile -Command 'Get-ChildItem Cert:\LocalMachine\Root, Cert:\CurrentUser\Root | ForEach-Object { "-----BEGIN CERTIFICATE-----"; [Convert]::ToBase64String($_.RawData, "InsertLineBreaks"); "-----END CERTIFICATE-----" }' \
+  > /c/msys64/etc/pki/ca-trust/source/anchors/windows-roots.pem
+
+# 2. Rebuild the bundle curl and openssl read
+update-ca-trust
+
+# 3. git keeps its own CA file, so point it at the rebuilt bundle
+git config --global http.sslCAInfo "C:/msys64/etc/pki/ca-trust/extracted/pem/tls-ca-bundle.pem"
+```
+
+  To undo: delete `windows-roots.pem`, re-run `update-ca-trust`, and
+  `git config --global --unset http.sslCAInfo`. Turning off HTTPS scanning in the antivirus
+  works too, and needs no certificate changes at all.
 
 ### Developing
 

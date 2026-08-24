@@ -429,12 +429,11 @@ docker-liteprotocoltester-push:
 ################
 .PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example
 
-detected_OS ?= Linux
-ifeq ($(OS),Windows_NT)
-detected_OS := Windows
-else
-detected_OS := $(shell uname -s)
-endif
+# detected_OS is determined once at the top of this file. Do not re-detect it
+# here: $(OS) is only visible to make when the shell was started from cmd.exe
+# (as CI does), so under Git Bash it is empty and the fallback would leave
+# detected_OS as the raw "MINGW64_NT-..." string, sending Windows builds down
+# the Linux branch below.
 
 BUILD_COMMAND ?= Dynamic
 STATIC ?= 0
