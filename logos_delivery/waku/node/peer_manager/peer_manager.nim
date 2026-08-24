@@ -25,11 +25,12 @@ import
     common/utils/parse_size_units,
     node/health_monitor/online_monitor,
     node/waku_switch,
+    net/net_backend,
   ],
   ./peer_store/peer_storage,
   ./waku_peer_store
 
-export waku_peer_store, peer_storage, peers
+export waku_peer_store, peer_storage, peers, net_backend
 
 declareCounter logos_delivery_peers_dials, "Number of peer dials", ["outcome"]
 # TODO: Populate from PeerStore.Source when ready
@@ -92,6 +93,7 @@ type ConnectionChangeHandler* = proc(
 type PeerManager* = ref object of RootObj
   brokerCtx: BrokerContext
   switch*: Switch
+  netBackend*: NetBackend
   wakuMetadata*: WakuMetadata
   initialBackoffInSec*: int
   backoffFactor*: int
@@ -450,20 +452,7 @@ proc dialPeer(
 
   trace "Dialing peer", wireAddr = addrs, peerId = peerId, proto = proto
 
-  # Dial Peer
-  let dialFut = pm.switch.dial(peerId, addrs, proto)
-
-  let res = catch:
-    if await dialFut.withTimeout(dialTimeout):
-      return Opt.some(dialFut.read())
-    else:
-      await cancelAndWait(dialFut)
-
-  let reasonFailed = if res.isOk: "timed out" else: res.error.msg
-
-  trace "Dialing peer failed", peerId = peerId, reason = reasonFailed, proto = proto
-
-  return Opt.none(Connection)
+  return await pm.netBackend.dial(peerId, addrs, proto, dialTimeout)
 
 proc dialPeer*(
     pm: PeerManager,
@@ -1180,6 +1169,7 @@ proc new*(
     colocationLimit = DefaultColocationLimit,
     shardedPeerManagement = false,
     maxConnections: int = MaxConnections,
+    netBackend: NetBackend = nil,
 ): PeerManager {.gcsafe.} =
   let capacity = switch.peerStore.capacity
   if maxConnections > capacity:
@@ -1220,6 +1210,11 @@ proc new*(
 
   let pm = PeerManager(
     switch: switch,
+    netBackend:
+      if netBackend.isNil():
+        SwitchNetBackend.new(switch)
+      else:
+        netBackend,
     brokerCtx: brokerCtx,
     wakuMetadata: wakuMetadata,
     storage: storage,
