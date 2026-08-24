@@ -143,7 +143,7 @@ suite "Waku Filter - End to End":
     check:
       not await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT)
 
-  asyncTest "Client Node can't receive Push from Server Node, via Relay":
+  asyncTest "Client Node receives no Push when the Server Node is not subscribed to the pubsub topic":
     # Given the server node has Relay enabled
     (await server.mountRelay()).isOkOr:
       assert false, "error mounting relay: " & $error
@@ -280,7 +280,7 @@ suite "Waku Filter - End to End":
       pushedMsgPubsubTopic == pubsubTopic
       pushedMsg == msg
 
-  asyncTest "Filter Client Node can't receive messages after subscribing and restarting, via Relay":
+  asyncTest "Filter Client Node receives no Push after restarting when the Server Node is not subscribed to the pubsub topic":
     (await server.mountRelay()).isOkOr:
       assert false, "error mounting relay: " & $error
 
