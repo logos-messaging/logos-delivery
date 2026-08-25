@@ -60,7 +60,7 @@ randomize()
 
 const
   # TODO: Make configurable
-  DefaultDialTimeout* = chronos.seconds(10)
+  DefaultDialTimeout* = DefaultNetDialTimeout
 
   # Max attempts before removing the peer
   MaxFailedAttempts = 5
@@ -348,29 +348,17 @@ proc connectPeer*(
   trace "Connecting to peer",
     wireAddr = peer.addrs, peerId = peerId, failedAttempts = failedAttempts
 
-  var deadline = sleepAsync(dialTimeout)
-  let workfut = pm.switch.connect(peerId, peer.addrs)
+  let connected = await pm.netBackend.connect(peerId, peer.addrs, dialTimeout)
 
-  # Can't use catch: with .withTimeout() in this case
-  let res = catch:
-    await workfut or deadline
+  if connected.isOk():
+    logos_delivery_peers_dials.inc(labelValues = ["successful"])
+    logos_delivery_node_conns_initiated.inc(labelValues = [source])
 
-  let reasonFailed =
-    if not workfut.finished():
-      await workfut.cancelAndWait()
-      "timed out"
-    elif res.isErr():
-      res.error.msg
-    else:
-      if not deadline.finished():
-        await deadline.cancelAndWait()
+    peerStore[NumberFailedConnBook][peerId] = 0
 
-      logos_delivery_peers_dials.inc(labelValues = ["successful"])
-      logos_delivery_node_conns_initiated.inc(labelValues = [source])
+    return true
 
-      peerStore[NumberFailedConnBook][peerId] = 0
-
-      return true
+  let reasonFailed = connected.error
 
   # Dial failed
   peerStore[NumberFailedConnBook][peerId] = peerStore[NumberFailedConnBook][peerId] + 1
@@ -381,7 +369,7 @@ proc connectPeer*(
     peerId = peerId,
     reason = reasonFailed,
     failedAttempts = peerStore[NumberFailedConnBook][peerId]
-  logos_delivery_peers_dials.inc(labelValues = [reasonFailed])
+  logos_delivery_peers_dials.inc(labelValues = ["failed"])
 
   return false
 
@@ -431,9 +419,26 @@ proc disconnectNode*(pm: PeerManager, peer: RemotePeerInfo) {.async.} =
   let peerId = peer.peerId
   await pm.disconnectNode(peerId)
 
-# Dialing should be used for just protocols that require a stream to write and read
-# This shall not be used to dial Relay protocols, since that would create
-# unneccesary unused streams.
+func checkStreamTarget(
+    pm: PeerManager, peerId: PeerId, proto: string
+): Result[void, string] =
+  if peerId == pm.switch.peerInfo.peerId:
+    return err("could not open a stream to self")
+
+  # A relay stream would sit there unused, so relay codecs never get one.
+  if proto == WakuRelayCodec:
+    return err("streams shall not be used to connect to relays")
+
+  ok()
+
+proc rememberPeer(pm: PeerManager, remotePeerInfo: RemotePeerInfo, proto: string) =
+  if pm.switch.peerStore.hasPeer(remotePeerInfo.peerId, proto):
+    return
+
+  trace "Adding newly dialed peer to manager",
+    peerId = $remotePeerInfo.peerId, addrs = remotePeerInfo.addrs, proto = proto
+  pm.addPeer(remotePeerInfo)
+
 proc dialPeer(
     pm: PeerManager,
     peerId: PeerID,
@@ -442,12 +447,8 @@ proc dialPeer(
     dialTimeout = DefaultDialTimeout,
     source = "api",
 ): Future[Opt[Connection]] {.async.} =
-  if peerId == pm.switch.peerInfo.peerId:
-    error "could not dial self"
-    return Opt.none(Connection)
-
-  if proto == WakuRelayCodec:
-    error "dial shall not be used to connect to relays"
+  pm.checkStreamTarget(peerId, proto).isOkOr:
+    error "dial refused", peerId = peerId, proto = proto, reason = error
     return Opt.none(Connection)
 
   trace "Dialing peer", wireAddr = addrs, peerId = peerId, proto = proto
@@ -464,12 +465,7 @@ proc dialPeer*(
   # Dial a given peer and add it to the list of known peers
   # TODO: check peer validity and score before continuing. Limit number of peers to be managed.
 
-  # First add dialed peer info to peer store, if it does not exist yet..
-  # TODO: nim libp2p peerstore already adds them
-  if not pm.switch.peerStore.hasPeer(remotePeerInfo.peerId, proto):
-    trace "Adding newly dialed peer to manager",
-      peerId = $remotePeerInfo.peerId, address = $remotePeerInfo.addrs[0], proto = proto
-    pm.addPeer(remotePeerInfo)
+  pm.rememberPeer(remotePeerInfo, proto)
 
   return await pm.dialPeer(
     remotePeerInfo.peerId, remotePeerInfo.addrs, proto, dialTimeout, source
@@ -487,6 +483,43 @@ proc dialPeer*(
 
   let addrs = pm.switch.peerStore[AddressBook][peerId]
   return await pm.dialPeer(peerId, addrs, proto, dialTimeout, source)
+
+proc request*(
+    pm: PeerManager,
+    remotePeerInfo: RemotePeerInfo,
+    proto: string,
+    payload: seq[byte],
+    maxSize = DefaultNetMaxResponseSize,
+    timeout = DefaultDialTimeout,
+): Future[Result[seq[byte], NetError]] {.async: (raises: []).} =
+  ## Sends one length-prefixed frame to `proto` on `peer` and reads the answer.
+  pm.checkStreamTarget(remotePeerInfo.peerId, proto).isOkOr:
+    return err(dialError(error))
+
+  pm.rememberPeer(remotePeerInfo, proto)
+
+  return await pm.netBackend.request(
+    NetRequest.init(
+      peerId = remotePeerInfo.peerId,
+      addrs = remotePeerInfo.addrs,
+      proto = proto,
+      payload = payload,
+      maxSize = maxSize,
+      timeout = timeout,
+    )
+  )
+
+proc request*(
+    pm: PeerManager,
+    peerId: PeerId,
+    proto: string,
+    payload: seq[byte],
+    maxSize = DefaultNetMaxResponseSize,
+    timeout = DefaultDialTimeout,
+): Future[Result[seq[byte], NetError]] {.async: (raises: []).} =
+  let peer = RemotePeerInfo.init(peerId, pm.switch.peerStore[AddressBook][peerId])
+
+  return await pm.request(peer, proto, payload, maxSize, timeout)
 
 proc canBeConnected*(pm: PeerManager, peerId: PeerId): bool =
   # Returns if we can try to connect to this peer, based on past failed attempts
