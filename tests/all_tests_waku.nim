@@ -41,7 +41,6 @@ import
   ./waku_store/test_waku_store,
   ./waku_store/test_wakunode_store
 
-# Net backend test suite
 import ./waku_net/test_net_backend
 
 # Waku store sync suite
