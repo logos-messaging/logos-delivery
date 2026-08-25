@@ -349,28 +349,37 @@ proc connectPeer*(
     wireAddr = peer.addrs, peerId = peerId, failedAttempts = failedAttempts
 
   var deadline = sleepAsync(dialTimeout)
-  let workfut = pm.switch.connect(peerId, peer.addrs)
+  let workfut = pm.netBackend.connect(peerId, peer.addrs, dialTimeout)
 
   # Can't use catch: with .withTimeout() in this case
   let res = catch:
     await workfut or deadline
 
+  let timedOut = not workfut.finished()
+
+  # The race is over either way, so the losing half must not outlive it. A
+  # backend that reports a refusal instead of raising now takes the common
+  # failure path, and every one of them used to leave this timer pending.
+  if not deadline.finished():
+    await deadline.cancelAndWait()
+
   let reasonFailed =
-    if not workfut.finished():
+    if timedOut:
       await workfut.cancelAndWait()
       "timed out"
     elif res.isErr():
       res.error.msg
     else:
-      if not deadline.finished():
-        await deadline.cancelAndWait()
+      let connected = workfut.read()
+      if connected.isErr():
+        connected.error
+      else:
+        logos_delivery_peers_dials.inc(labelValues = ["successful"])
+        logos_delivery_node_conns_initiated.inc(labelValues = [source])
 
-      logos_delivery_peers_dials.inc(labelValues = ["successful"])
-      logos_delivery_node_conns_initiated.inc(labelValues = [source])
+        peerStore[NumberFailedConnBook][peerId] = 0
 
-      peerStore[NumberFailedConnBook][peerId] = 0
-
-      return true
+        return true
 
   # Dial failed
   peerStore[NumberFailedConnBook][peerId] = peerStore[NumberFailedConnBook][peerId] + 1
@@ -487,6 +496,50 @@ proc dialPeer*(
 
   let addrs = pm.switch.peerStore[AddressBook][peerId]
   return await pm.dialPeer(peerId, addrs, proto, dialTimeout, source)
+
+proc request*(
+    pm: PeerManager,
+    remotePeerInfo: RemotePeerInfo,
+    proto: string,
+    payload: seq[byte],
+    maxSize = DefaultNetMaxResponseSize,
+    timeout = DefaultDialTimeout,
+    expectResponse = true,
+): Future[Result[seq[byte], NetError]] {.async: (raises: []).} =
+  ## Sends one length-prefixed frame to `proto` on `peer` and reads the answer.
+  if remotePeerInfo.peerId == pm.switch.peerInfo.peerId:
+    return err(dialError("could not dial self"))
+
+  if proto == WakuRelayCodec:
+    return err(dialError("request shall not be used to reach relays"))
+
+  if not pm.switch.peerStore.hasPeer(remotePeerInfo.peerId, proto):
+    pm.addPeer(remotePeerInfo)
+
+  return await pm.netBackend.request(
+    NetRequest.init(
+      peerId = remotePeerInfo.peerId,
+      addrs = remotePeerInfo.addrs,
+      proto = proto,
+      payload = payload,
+      maxSize = maxSize,
+      timeout = timeout,
+      expectResponse = expectResponse,
+    )
+  )
+
+proc request*(
+    pm: PeerManager,
+    peerId: PeerId,
+    proto: string,
+    payload: seq[byte],
+    maxSize = DefaultNetMaxResponseSize,
+    timeout = DefaultDialTimeout,
+    expectResponse = true,
+): Future[Result[seq[byte], NetError]] {.async: (raises: []).} =
+  let peer = RemotePeerInfo.init(peerId, pm.switch.peerStore[AddressBook][peerId])
+
+  return await pm.request(peer, proto, payload, maxSize, timeout, expectResponse)
 
 proc canBeConnected*(pm: PeerManager, peerId: PeerId): bool =
   # Returns if we can try to connect to this peer, based on past failed attempts

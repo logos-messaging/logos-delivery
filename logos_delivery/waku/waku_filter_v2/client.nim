@@ -40,42 +40,22 @@ proc sendSubscribeRequest(
   trace "Sending filter subscribe request",
     peerId = servicePeer.peerId, filterSubscribeRequest
 
-  var connOpt: Opt[Connection]
-  try:
-    connOpt = await wfc.peerManager.dialPeer(servicePeer, WakuFilterSubscribeCodec)
-    if connOpt.isNone():
+  let respBuf = (
+    await wfc.peerManager.request(
+      servicePeer,
+      WakuFilterSubscribeCodec,
+      filterSubscribeRequest.encode().buffer,
+      DefaultMaxSubscribeResponseSize,
+    )
+  ).valueOr:
+    if error.kind == NetErrorKind.Dial:
       trace "Failed to dial filter service peer", servicePeer
       logos_delivery_filter_errors.inc(labelValues = [dialFailure])
       return err(FilterSubscribeError.peerDialFailure($servicePeer))
-  except CatchableError:
-    let errMsg = "failed to dialPeer: " & getCurrentExceptionMsg()
-    trace "failed to dialPeer", error = getCurrentExceptionMsg()
-    logos_delivery_filter_errors.inc(labelValues = [errMsg])
-    return err(FilterSubscribeError.badResponse(errMsg))
 
-  let connection = connOpt.get()
-
-  defer:
-    await connection.closeWithEOF()
-
-  try:
-    await connection.writeLP(filterSubscribeRequest.encode().buffer)
-  except CatchableError:
-    let errMsg =
-      "exception in waku_filter_v2 client writeLP: " & getCurrentExceptionMsg()
-    trace "exception in waku_filter_v2 client writeLP", error = getCurrentExceptionMsg()
-    logos_delivery_filter_errors.inc(labelValues = [errMsg])
-    return err(FilterSubscribeError.badResponse(errMsg))
-
-  var respBuf: seq[byte]
-  try:
-    respBuf = await connection.readLp(DefaultMaxSubscribeResponseSize)
-  except CatchableError:
-    let errMsg =
-      "exception in waku_filter_v2 client readLp: " & getCurrentExceptionMsg()
-    trace "exception in waku_filter_v2 client readLp", error = getCurrentExceptionMsg()
-    logos_delivery_filter_errors.inc(labelValues = [errMsg])
-    return err(FilterSubscribeError.badResponse(errMsg))
+    trace "filter subscribe request failed", error = $error
+    logos_delivery_filter_errors.inc(labelValues = [requestFailure])
+    return err(FilterSubscribeError.badResponse(error.cause))
 
   let response = FilterSubscribeResponse.decode(respBuf).valueOr:
     trace "Failed to decode filter subscribe response", servicePeer
