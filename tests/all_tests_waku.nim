@@ -22,12 +22,9 @@ when os == "Linux" and
     # GitHub only supports container actions on Linux
     # and we need to start a postgres database in a docker container
     defined(postgres):
-  import
-    ./waku_archive/test_driver_postgres_query,
-    ./waku_archive/test_driver_postgres,
-    ./factory/test_node_factory,
-    ./wakunode_rest/test_rest_store,
-    ./wakunode_rest/test_all
+  import ./waku_archive/test_driver_postgres_query, ./waku_archive/test_driver_postgres
+
+import ./wakunode_rest/test_rest_store
 
 # Waku store test suite
 import ./waku_store/test_all

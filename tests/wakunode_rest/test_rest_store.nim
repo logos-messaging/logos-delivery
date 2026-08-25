@@ -28,7 +28,6 @@ import
     waku_archive/driver/queue_driver,
     waku_archive/driver/sqlite_driver,
     common/databases/db_sqlite,
-    waku_archive/driver/postgres_driver,
     waku_store as waku_store,
   ],
   ../testlib/wakucore,
