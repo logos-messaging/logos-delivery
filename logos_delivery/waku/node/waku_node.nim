@@ -635,7 +635,10 @@ proc start*(node: WakuNode) {.async.} =
     await node.wakuRendezvousClient.start()
 
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
-  await node.switch.start()
+  if node.peerManager.netBackend.usesLocalSwitch():
+    await node.switch.start()
+  else:
+    info "net backend owns the libp2p node, the local switch stays idle"
 
   ## The sockets are bound now. Resolve the announced addresses, commit
   ## them, and copy once. The observer fires only on a changed commit.
@@ -682,7 +685,8 @@ proc stop*(node: WakuNode) {.async.} =
     await node.wakuKademlia.stop()
 
   ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
-  await node.switch.stop()
+  if node.peerManager.netBackend.usesLocalSwitch():
+    await node.switch.stop()
 
   await node.peerManager.netBackend.stop()
   node.peerManager.stop()

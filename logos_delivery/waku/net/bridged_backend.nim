@@ -176,6 +176,9 @@ method closeImpl*(conn: BridgedConnection): Future[void] {.async: (raises: []).}
 
   await procCall Connection(conn).closeImpl()
 
+method usesLocalSwitch*(backend: BridgedNetBackend): bool {.gcsafe.} =
+  false
+
 method dial*(
     backend: BridgedNetBackend,
     peerId: PeerId,
