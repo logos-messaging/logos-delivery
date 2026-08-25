@@ -13,8 +13,13 @@ import
   eth/p2p/discoveryv5/node,
   eth/p2p/discoveryv5/protocol
 import
-  logos_delivery/waku/
-    [net/auto_port, node/peer_manager/peer_manager, waku_core, waku_enr]
+  logos_delivery/waku/[
+    net/auto_port,
+    node/peer_manager/peer_manager,
+    waku_core,
+    waku_enr,
+    api/events/discovery_events,
+  ]
 
 export protocol, waku_enr
 
@@ -287,9 +292,13 @@ proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
       wrong_records =
         wrongRecordsReasons.mapIt("(" & it.record & "," & it.errorDescription & ")")
 
-    for peer in discoveredPeers:
+    for peer in discoveredPeers.mitems():
+      peer.origin = PeerOrigin.Discv5
       # Peers added are filtered by the peer manager
       peerManager.addPeer(peer, PeerOrigin.Discv5)
+
+    if discoveredPeers.len > 0:
+      PeersDiscoveredEvent.emit(peers = discoveredPeers)
 
     # Discovery `queryRandom` can have a synchronous fast path for example
     # when no peers are in the routing table. Don't run it in continuous loop.
