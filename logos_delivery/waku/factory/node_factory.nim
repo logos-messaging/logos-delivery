@@ -21,6 +21,9 @@ import
   ../waku_enr/sharding,
   ../waku_node,
   ../net/net_config,
+  ../net/net_backend,
+  ../net/bridged_backend,
+  ../net/net_bridge,
   ../waku_core,
   ../waku_core/codecs,
   ../rln,
@@ -55,6 +58,18 @@ proc setupPeerStorage(): Result[Opt[WakuPeerStorage], string] =
   return ok(Opt.some(res))
 
 ## Init waku node instance
+
+proc netBackendFor(conf: WakuConf): Result[NetBackend, string] =
+  ## Nil unless the config names a backend that owns the libp2p node.
+  let provider = conf.libp2pProvider.valueOr:
+    return ok(nil)
+
+  if conf.relay:
+    return err("libp2pProvider serves the Edge protocols only, so relay must be off")
+
+  let transport = ?getNetTransport(provider)
+
+  return ok(BridgedNetBackend.new(transport))
 
 proc initNode(
     conf: WakuConf,
@@ -126,6 +141,14 @@ proc initNode(
     )
   builder.withRateLimit(conf.rateLimit)
   builder.withCircuitRelay(relay)
+
+  let netBackend = ?netBackendFor(conf)
+  if not netBackend.isNil():
+    builder.withNetBackend(netBackend)
+    if conf.discv5Conf.isSome():
+      info "the net backend owns the node key and the sockets, so discv5 stays off",
+        provider = conf.libp2pProvider.get()
+      conf.discv5Conf = Opt.none(Discv5Conf)
 
   let node = ?builder.build().mapErr(
     proc(err: string): string =

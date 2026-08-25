@@ -83,6 +83,11 @@ method mountInbound*(
   ## A switch dispatches an inbound stream to the mounted protocol on its own.
   discard
 
+method usesLocalSwitch*(backend: NetBackend): bool {.base, gcsafe.} =
+  ## False when another process owns the libp2p node, so the local switch
+  ## keeps the peer store alone and never listens.
+  true
+
 method start*(backend: NetBackend) {.base, async: (raises: []).} =
   discard
 

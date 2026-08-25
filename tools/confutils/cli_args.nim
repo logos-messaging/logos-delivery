@@ -202,6 +202,13 @@ type WakuNodeConf* = object
     nodekey* {.desc: "P2P node private key as 64 char hex string.", name: "nodekey".}:
       Opt[PrivateKey]
 
+    libp2pProvider* {.
+      desc:
+        "Name of a registered net backend that owns the libp2p node. Empty runs the node's own libp2p stack.",
+      defaultValue: "",
+      name: "libp2p-provider"
+    .}: string
+
     listenAddress* {.
       defaultValue: defaultListenAddress(),
       desc: "Listening address for LibP2P (and Discovery v5, if enabled) traffic.",
@@ -1046,6 +1053,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.withClusterId(n.clusterId.get())
 
   b.withAgentString(n.agentString)
+  b.withLibp2pProvider(n.libp2pProvider)
 
   if n.nodeKey.isSome():
     b.withNodeKey(n.nodeKey.get())
