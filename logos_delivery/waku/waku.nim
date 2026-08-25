@@ -42,6 +42,7 @@ import
     rest_api/endpoint/builder as rest_server_builder,
     discovery/waku_dnsdisc,
     discovery/waku_discv5,
+    discovery/discv5_peer_discovery,
     discovery/autonat_service,
     requests/health_requests,
     requests/node_state_requests,
@@ -76,6 +77,9 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   key: crypto.PrivateKey
 
   wakuDiscv5*: WakuDiscoveryV5
+    ## Set by discv5Discovery on start; kept for direct consumers
+    ## (REST builder, ENR/address updates, FFI ops).
+  discv5Discovery*: Discv5PeerDiscovery
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
@@ -250,6 +254,15 @@ proc new*(
   )
 
   waku.setupSwitchServices(wakuConf, relay, rng)
+
+  if wakuConf.discv5Conf.isSome():
+    waku.discv5Discovery = Discv5PeerDiscovery.create(
+      wakuConf.discv5Conf.get(),
+      wakuConf.endpointConf.p2pListenAddress,
+      rng,
+      waku.brokerCtx,
+    )
+    node.attachDiscovery(waku.discv5Discovery)
 
   ## Node-state getters for loosely-coupled components (discovery backends).
   ## reprovideIt so a recreated Waku instance replaces stale providers.
@@ -451,23 +464,20 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   waku.node.ports.quic = bound.quicPort.get(Port(0)).uint16
 
   ## Discv5
-  if conf.discv5Conf.isSome():
-    waku.wakuDiscV5 = (
-      await waku_discv5.setupAndStartDiscv5(
-        waku.node.enr,
-        waku.node.peerManager,
-        waku.node.topicSubscriptionQueue,
-        conf.discv5Conf.get(),
-        waku.dynamicBootstrapNodes,
-        waku.rng,
-        conf.nodeKey,
-        conf.endpointConf.p2pListenAddress,
-      )
-    ).valueOr:
+  if not waku.discv5Discovery.isNil():
+    ## Normally already started by node.start() through the attached
+    ## discovery backends; startDiscovery is idempotent and surfaces a
+    ## start failure that the node start path only logged.
+    (await waku.discv5Discovery.startDiscovery()).isOkOr:
       return err("failed to start waku discovery v5: " & error)
 
-    waku.node.ports.discv5Udp = waku.wakuDiscV5.udpPort.uint16
-    waku.conf.discv5Conf.get().udpPort = waku.wakuDiscV5.udpPort
+    waku.wakuDiscv5 = waku.discv5Discovery.inner
+
+    let discoveryInfo = (await waku.discv5Discovery.backendInfo()).valueOr:
+      return err("failed to read discv5 backend info: " & error)
+    if discoveryInfo.boundPorts.len > 0:
+      waku.node.ports.discv5Udp = discoveryInfo.boundPorts[0]
+      waku.conf.discv5Conf.get().udpPort = Port(discoveryInfo.boundPorts[0])
 
   ## Update waku data that is set dynamically on node start
   try:
@@ -579,8 +589,7 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     if not waku.metricsServer.isNil():
       await waku.metricsServer.stop()
 
-    if not waku.wakuDiscv5.isNil():
-      await waku.wakuDiscv5.stop()
+    # discv5 (as attached IPeerDiscovery backend) is stopped by node.stop()
 
     if not waku.node.isNil():
       await waku.node.stop()
