@@ -42,7 +42,10 @@ import
   ./waku_store/test_wakunode_store
 
 # Net backend test suite
-import ./waku_net/test_net_backend, ./waku_net/test_net_bridge
+import
+  ./waku_net/test_net_backend,
+  ./waku_net/test_net_bridge,
+  ./waku_net/test_bridged_backend
 
 # Waku store sync suite
 import ./waku_store_sync/test_all

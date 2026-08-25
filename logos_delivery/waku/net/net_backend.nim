@@ -4,6 +4,7 @@
 {.push raises: [].}
 
 import results, chronicles, chronos, libp2p/[multiaddress, peerid, switch]
+import libp2p/protocols/protocol
 
 logScope:
   topics = "waku net backend"
@@ -75,6 +76,18 @@ method connect*(
     backend: NetBackend, peerId: PeerId, addrs: seq[MultiAddress], timeout: Duration
 ): Future[Result[void, string]] {.base, async: (raises: []).} =
   raiseAssert "[NetBackend.connect] abstract method not implemented"
+
+method mountInbound*(
+    backend: NetBackend, proto: string, handler: LPProtoHandler
+) {.base, gcsafe.} =
+  ## A switch dispatches an inbound stream to the mounted protocol on its own.
+  discard
+
+method start*(backend: NetBackend) {.base, async: (raises: []).} =
+  discard
+
+method stop*(backend: NetBackend) {.base, async: (raises: []).} =
+  discard
 
 method request*(
     backend: NetBackend, req: NetRequest
