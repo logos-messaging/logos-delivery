@@ -2,7 +2,7 @@
 
 import
   results,
-  std/sugar,
+  std/[sequtils, strutils, sugar],
   chronicles,
   chronos/timer,
   testutils/unittests,
@@ -52,6 +52,52 @@ proc testWakuNode(): WakuNode =
     port = Port(0)
 
   return newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
+
+type RestStoreTest = object
+  node: WakuNode
+  driver: ArchiveDriver
+  restServer: WakuRestServerRef
+  client: RestClientRef
+  hashes: seq[WakuMessageHash]
+
+proc defaultSeed(): seq[WakuMessage] =
+  @[
+    fakeWakuMessage(@[byte 1], ts = 1),
+    fakeWakuMessage(@[byte 2], ts = 2),
+    fakeWakuMessage(@[byte 3], ts = 3),
+  ]
+
+proc init(
+    T: type RestStoreTest, msgs: seq[WakuMessage] = defaultSeed()
+): Future[RestStoreTest] {.async.} =
+  var t = RestStoreTest(node: testWakuNode(), driver: QueueDriver.new())
+  await t.node.start()
+
+  t.node.mountArchive(t.driver).isOkOr:
+    assert false, "failed to mount archive: " & error
+
+  await t.node.mountStore()
+
+  let restAddress = parseIpAddress("0.0.0.0")
+  t.restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+  installStoreApiHandlers(t.restServer.router, t.node)
+  t.restServer.start()
+
+  t.client =
+    newRestHttpClient(initTAddress(restAddress, t.restServer.httpServer.address.port))
+
+  for msg in msgs:
+    let hash = computeMessageHash(DefaultPubsubTopic, msg)
+    let putRes = await t.driver.put(hash, DefaultPubsubTopic, msg)
+    assert putRes.isOk(), "failed to seed the archive: " & putRes.error
+    t.hashes.add(hash)
+
+  return t
+
+proc shutdown(t: RestStoreTest) {.async.} =
+  await t.restServer.stop()
+  await t.restServer.closeWait()
+  await t.node.stop()
 
 ################################################################################
 # Beginning of the tests
@@ -863,3 +909,172 @@ procSuite "Waku Rest API - Store v3":
     await restServer.stop()
     await restServer.closeWait()
     await node.stop()
+
+  asyncTest "hashes filter: matching, duplicated and absent hashes each return exactly their messages":
+    let t = await RestStoreTest.init()
+    let secondHash = t.hashes[1].toRestStringWakuMessageHash()
+
+    var response = await t.client.getStoreMessagesV3(hashes = secondHash)
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 200
+      response.data.statusDesc == "OK"
+      response.data.messages.len == 1
+      response.data.messages[0].messageHash == secondHash
+
+    response = await t.client.getStoreMessagesV3(hashes = secondHash & "," & secondHash)
+    check:
+      response.status == 200
+      response.data.messages.len == 1
+      response.data.messages[0].messageHash == secondHash
+
+    let absentHash = computeMessageHash(
+        DefaultPubsubTopic, fakeWakuMessage(@[byte 42], ts = 42)
+      )
+      .toRestStringWakuMessageHash()
+
+    response = await t.client.getStoreMessagesV3(hashes = absentHash)
+    check:
+      response.status == 200
+      response.data.messages.len == 0
+
+    await t.shutdown()
+
+  asyncTest "hashes filter: comma-separated hashes return exactly those messages in chronological order":
+    let t = await RestStoreTest.init()
+    let requested =
+      t.hashes[2].toRestStringWakuMessageHash() & "," &
+      t.hashes[0].toRestStringWakuMessageHash()
+
+    let response = await t.client.getStoreMessagesV3(hashes = requested)
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.messages.len == 2
+      response.data.messages.mapIt(it.messageHash) ==
+        @[
+          t.hashes[0].toRestStringWakuMessageHash(),
+          t.hashes[2].toRestStringWakuMessageHash(),
+        ]
+
+    await t.shutdown()
+
+  asyncTest "hashes filter: non-hex and wrong-length hashes are rejected with 400":
+    let t = await RestStoreTest.init()
+
+    var response = await t.client.getStoreMessagesV3(hashes = "zzzz")
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_TEXT
+      response.data.statusDesc.contains("Exception converting hex string to bytes")
+
+    response = await t.client.getStoreMessagesV3(hashes = "0xabcd")
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_TEXT
+      response.data.statusDesc.contains("invalid hash length")
+
+    await t.shutdown()
+
+  asyncTest "ascending=false returns the tail page in chronological order":
+    let t = await RestStoreTest.init(
+      @[
+        fakeWakuMessage(@[byte 1], ts = 1),
+        fakeWakuMessage(@[byte 2], ts = 2),
+        fakeWakuMessage(@[byte 3], ts = 3),
+        fakeWakuMessage(@[byte 4], ts = 4),
+        fakeWakuMessage(@[byte 5], ts = 5),
+      ]
+    )
+
+    let response =
+      await t.client.getStoreMessagesV3(ascending = "false", pageSize = "2")
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.messages.mapIt(it.messageHash) ==
+        @[
+          t.hashes[3].toRestStringWakuMessageHash(),
+          t.hashes[4].toRestStringWakuMessageHash(),
+        ]
+
+    await t.shutdown()
+
+  asyncTest "includeData toggles message and pubsubTopic in the response":
+    let t = await RestStoreTest.init()
+
+    var response = await t.client.getStoreMessagesV3(includeData = "true")
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.messages.len == 3
+      response.data.messages.allIt(it.message.isSome())
+      response.data.messages.allIt(it.pubsubTopic.isSome())
+
+    response = await t.client.getStoreMessagesV3(includeData = "false")
+    check:
+      response.status == 200
+      response.data.messages.allIt(it.message.isNone())
+      response.data.messages.allIt(it.pubsubTopic.isNone())
+      response.data.messages.mapIt(it.messageHash) ==
+        t.hashes.mapIt(it.toRestStringWakuMessageHash())
+
+    await t.shutdown()
+
+  asyncTest "malformed pageSize, startTime, includeData and cursor are each rejected with 400":
+    let t = await RestStoreTest.init()
+
+    var response = await t.client.getStoreMessagesV3(pageSize = "$2")
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_TEXT
+      response.data.statusDesc.contains("page size parsing error")
+
+    response = await t.client.getStoreMessagesV3(startTime = "abc")
+    check:
+      response.status == 400
+      response.data.statusDesc.contains("time parsing error")
+
+    response = await t.client.getStoreMessagesV3(includeData = "banana")
+    check:
+      response.status == 400
+      response.data.statusDesc.contains("include data parsing error")
+
+    response = await t.client.getStoreMessagesV3(cursor = "zzzz")
+    check:
+      response.status == 400
+      response.data.statusDesc.contains("Exception converting hex string to bytes")
+
+    response = await t.client.getStoreMessagesV3(cursor = "0xabcd")
+    check:
+      response.status == 400
+      response.data.statusDesc.contains("invalid hash length")
+
+    await t.shutdown()
+
+  asyncTest "peerAddr without a transport is rejected with 400":
+    let t = await RestStoreTest.init()
+    let peerAddr = "/ip4/127.0.0.1/p2p/" & $t.node.peerInfo.peerId
+
+    let response = await t.client.getStoreMessagesV3(peerAddr = encodeUrl(peerAddr))
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_TEXT
+      response.data.statusDesc.contains("no supported transport found")
+
+    await t.shutdown()
+
+  asyncTest "peerAddr with a corrupt peer id is rejected with 400":
+    let t = await RestStoreTest.init()
+    let corruptPeerId = ($t.node.peerInfo.peerId)[0 ..^ 2] & "0"
+    let peerAddr = "/ip4/127.0.0.1/tcp/60000/p2p/" & corruptPeerId
+
+    let response = await t.client.getStoreMessagesV3(peerAddr = encodeUrl(peerAddr))
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_TEXT
+      response.data.statusDesc.contains("Failed parsing remote peer info")
+      response.data.statusDesc.contains("Error encoding `p2p/")
+
+    await t.shutdown()
