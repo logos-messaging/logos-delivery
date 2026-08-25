@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[json, strutils, tables]
+import std/[json, sequtils, strutils, tables]
 import results
 
 import tools/confutils/conf_from_json
@@ -14,6 +14,7 @@ const
   KeyKernelConf = "kernelconf"
   KeyMessagingOverrides = "messagingoverrides"
   KeyChannelsOverrides = "channelsoverrides"
+  KeyLibp2pProvider = "libp2pprovider"
   # [Legacy flat JSON config] Keys that left the kernel and so must be lifted out of
   # a flat blob before the WakuNodeConf walker sees them (it would reject them).
   KeyReliabilityEnabled = "reliabilityenabled"
@@ -99,15 +100,38 @@ proc parseFlatConf(
     )
   )
 
-proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
-  var node: JsonNode
-  try:
-    node = parseJson(jsonStr)
-  except CatchableError as e:
-    return err("invalid JSON: " & e.msg)
-  if node.kind != JObject:
-    return err("configuration JSON must be an object")
+proc takeLibp2pProvider(node: JsonNode): Result[string, string] =
+  ## The key names a net backend the library owns, so it never reaches the
+  ## kernel field walker under its JSON name. Every spelling of it goes, or the
+  ## one left behind would be rejected as an unknown kernel field.
+  var provider = Opt.none(string)
 
+  for key in toSeq(node.keys):
+    if key.toLowerAscii() != KeyLibp2pProvider:
+      continue
+
+    let value = node.getOrDefault(key)
+    if value.isNil() or value.kind != JString:
+      return err("libp2pProvider must be a string")
+
+    try:
+      node.delete(key)
+    except KeyError:
+      return err("failed to read libp2pProvider")
+
+    provider = Opt.some(value.getStr().strip())
+
+  let name = provider.valueOr:
+    return ok("")
+
+  ## Asking for a backend by no name is a mistake, not a request for the
+  ## node's own libp2p stack. Leave the key out for that.
+  if name.len == 0:
+    return err("libp2pProvider must name a registered net backend")
+
+  return ok(name)
+
+proc parseConfNode(node: JsonNode): ConfResult[LogosDeliveryConf] =
   var top = ?collectJsonFields(node)
 
   var mode = LogosDeliveryMode.Core
@@ -186,5 +210,24 @@ proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
     messagingOverrides = messagingOverrides,
     channelsOverrides = channelsOverrides,
   )
+
+proc parseLogosDeliveryConf*(jsonStr: string): ConfResult[LogosDeliveryConf] =
+  var node: JsonNode
+  try:
+    node = parseJson(jsonStr)
+  except CatchableError as e:
+    return err("invalid JSON: " & e.msg)
+  if node.kind != JObject:
+    return err("configuration JSON must be an object")
+
+  let libp2pProvider = ?takeLibp2pProvider(node)
+
+  var conf = ?parseConfNode(node)
+  if libp2pProvider.len > 0:
+    var kernel = WakuNodeConf(conf.kernelConf)
+    kernel.libp2pProvider = libp2pProvider
+    conf.kernelConf = KernelConf(kernel)
+
+  return ok(conf)
 
 {.pop.}

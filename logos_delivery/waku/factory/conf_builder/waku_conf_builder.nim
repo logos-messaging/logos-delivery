@@ -164,6 +164,7 @@ type WakuConfBuilder* = object
   colocationLimit: Opt[int]
 
   agentString: Opt[string]
+  libp2pProvider: Opt[string]
 
   maxRelayPeers: Opt[int]
   relayShardedPeerManagement: Opt[bool]
@@ -293,6 +294,10 @@ proc withNatStrategy*(b: var WakuConfBuilder, natStrategy: string) =
 
 proc withAgentString*(b: var WakuConfBuilder, agentString: string) =
   b.agentString = Opt.some(agentString)
+
+proc withLibp2pProvider*(b: var WakuConfBuilder, libp2pProvider: string) =
+  if libp2pProvider.len > 0:
+    b.libp2pProvider = Opt.some(libp2pProvider)
 
 proc withColocationLimit*(b: var WakuConfBuilder, colocationLimit: int) =
   b.colocationLimit = Opt.some(colocationLimit)
@@ -834,6 +839,7 @@ proc build*(
     peerStoreCapacity: builder.peerStoreCapacity,
     maxConnections: maxConnections,
     agentString: agentString,
+    libp2pProvider: builder.libp2pProvider,
     colocationLimit: colocationLimit,
     maxRelayPeers: builder.maxRelayPeers,
     relayServiceRatio: builder.relayServiceRatio.get(DefaultRelayServiceRatio),
