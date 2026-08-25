@@ -149,6 +149,7 @@ pkgs.stdenv.mkDerivation {
     cp build/liblogosdelivery.a         $out/lib/ 2>/dev/null || true
     cp library/liblogosdelivery.h        $out/include/ 2>/dev/null || true
     cp library/liblogosdelivery_kernel.h $out/include/ 2>/dev/null || true
+    cp library/liblogosdelivery_rln.h    $out/include/ 2>/dev/null || true
     runHook postInstall
   '';
 
