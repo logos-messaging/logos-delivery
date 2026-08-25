@@ -7,6 +7,8 @@
 ## not depend on initialization order. Providers are installed by the `Waku`
 ## factory object as each piece of state becomes available.
 ##
+## Sync brokers: these are plain state reads, no suspension needed.
+##
 ## In-process, single-thread lane only — several getters return `ref` types
 ## (Switch, PeerManager); this pattern is deliberately NOT extended to the
 ## FFI/MT lanes.
@@ -21,28 +23,26 @@ import
 
 export request_broker
 
-RequestBroker:
-  proc getNodeSwitch(): Future[Result[Switch, string]] {.async.}
+RequestBroker(sync):
+  proc getNodeSwitch(): Result[Switch, string]
 
-RequestBroker:
-  proc getNodePeerManager(): Future[Result[PeerManager, string]] {.async.}
+RequestBroker(sync):
+  proc getNodePeerManager(): Result[PeerManager, string]
 
-RequestBroker:
+RequestBroker(sync):
   # The node's current ENR (final after setupNode; refreshed on updateEnr).
-  proc getNodeEnr(): Future[Result[enr.Record, string]] {.async.}
+  proc getNodeEnr(): Result[enr.Record, string]
 
-RequestBroker:
+RequestBroker(sync):
   # The node's libp2p private key (discv5 signs its ENR with it).
-  proc getNodeKey(): Future[Result[crypto.PrivateKey, string]] {.async.}
+  proc getNodeKey(): Result[crypto.PrivateKey, string]
 
-RequestBroker:
+RequestBroker(sync):
   # DNS-discovery (or otherwise dynamically obtained) bootstrap peers;
   # empty until retrieval succeeded.
-  proc getDynamicBootstrapNodes(): Future[Result[seq[RemotePeerInfo], string]] {.async.}
+  proc getDynamicBootstrapNodes(): Result[seq[RemotePeerInfo], string]
 
-RequestBroker:
+RequestBroker(sync):
   # Relay/filter shard subscription change feed (consumed by discv5 for
   # ENR shard updates).
-  proc getTopicSubscriptionQueue(): Future[
-    Result[AsyncEventQueue[SubscriptionEvent], string]
-  ] {.async.}
+  proc getTopicSubscriptionQueue(): Result[AsyncEventQueue[SubscriptionEvent], string]

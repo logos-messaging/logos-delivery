@@ -124,11 +124,11 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
 
     ## Node state is resolved through the getter brokers; by the time the
     ## node start sequence reaches discovery the providers are installed.
-    let enrRecord = ?await GetNodeEnr.request(self.nodeCtx)
-    let peerManager = ?await GetNodePeerManager.request(self.nodeCtx)
-    let subscriptionQueue = ?await GetTopicSubscriptionQueue.request(self.nodeCtx)
-    let dynamicBootstrapNodes = ?await GetDynamicBootstrapNodes.request(self.nodeCtx)
-    let nodeKey = ?await GetNodeKey.request(self.nodeCtx)
+    let enrRecord = ?GetNodeEnr.request(self.nodeCtx)
+    let peerManager = ?GetNodePeerManager.request(self.nodeCtx)
+    let subscriptionQueue = ?GetTopicSubscriptionQueue.request(self.nodeCtx)
+    let dynamicBootstrapNodes = ?GetDynamicBootstrapNodes.request(self.nodeCtx)
+    let nodeKey = ?GetNodeKey.request(self.nodeCtx)
 
     self.inner = ?await setupAndStartDiscv5(
       enrRecord, peerManager, subscriptionQueue, self.conf, dynamicBootstrapNodes,
