@@ -74,9 +74,9 @@ requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
 # v0.0.11: pins nim-lsquic's floating "nim-boringssl >= 0.0.4" range. Earlier
 # releases export the bundled BoringSSL symbols from shared libraries, letting
-# a host-process OpenSSL interpose them (issue #4085). By name, not by URL: a URL
-# makes a second package the solver cannot reconcile with lsquic's "boringssl".
-requires "boringssl >= 0.0.11"
+# a host-process OpenSSL interpose them (issue #4085). Spelled exactly as
+# nim-lsquic spells it: a different spelling makes a second package for the solver.
+requires "https://github.com/vacp2p/nim-boringssl >= 0.0.11"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
 
