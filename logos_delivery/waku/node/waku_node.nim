@@ -620,6 +620,8 @@ proc start*(node: WakuNode) {.async.} =
   ## NOTE: This will dispatch gossipsub start to the WakuRelay.start method override
   await node.switch.start()
 
+  await node.peerManager.netBackend.start()
+
   # Reconnect to known relay peers in the background; it waits a prune backoff
   # and must not block startup.
   node.relayReconnectFut = node.reconnectRelayPeers()
@@ -665,6 +667,7 @@ proc stop*(node: WakuNode) {.async.} =
   ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()
 
+  await node.peerManager.netBackend.stop()
   node.peerManager.stop()
 
   if not node.rln.isNil():
