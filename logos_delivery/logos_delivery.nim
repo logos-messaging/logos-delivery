@@ -170,8 +170,8 @@ proc new*(
     appCallbacks: AppCallbacks = nil,
 ): Future[Result[LogosDelivery, string]] {.async.} =
   ## Messaging entry point (app dev). Builds the stack from preset, mode and
-  ## overrides; `entryLayer` selects messaging vs channels (use `new(kernelConf)`
-  ## for a kernel-only node).
+  ## overrides; `entryLayer` selects how far up the stack to go. `kernel` mounts
+  ## no upper layers but still applies mode/preset.
   let conf = LogosDeliveryConf.init(
     entryLayer = entryLayer,
     mode = mode,

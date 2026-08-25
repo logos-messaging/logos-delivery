@@ -63,6 +63,9 @@ when isMainModule:
     echo "Failed to create default config: ", error
     quit(QuitFailure)
 
+  # The CLI default is kernel-only; this example drives the messaging API.
+  conf.entryLayer = EntryLayer.channels
+
   if args.ethRpcEndpoint == "":
     # Create a basic configuration for the Waku node
     # No RLN as we don't have an ETH RPC Endpoint
