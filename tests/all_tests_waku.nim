@@ -29,7 +29,7 @@ import ./wakunode_rest/test_rest_store
 # Waku store test suite
 import ./waku_store/test_all
 
-import ./waku_net/test_net_backend
+import ./waku_net/test_net_backend, ./waku_net/test_net_bridge
 
 # Waku store sync suite
 import ./waku_store_sync/test_all

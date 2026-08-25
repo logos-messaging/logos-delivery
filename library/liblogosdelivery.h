@@ -61,6 +61,40 @@ extern "C"
   int logosdelivery_remove_event_listener(void *ctx,
                                           uint64_t listenerId);
 
+// Net backend ABI. A module that owns a libp2p node registers a backend under a
+// name, and a node created with "libp2pProvider": "<name>" runs its Edge
+// protocols over that node instead of its own libp2p stack.
+#define LOGOSDELIVERY_NET_BACKEND_ABI_VERSION 1
+
+  // Called on the library thread with {"op": "<name>", "args": {...}} and must
+  // return at once. Every request gets exactly one
+  // logosdelivery_net_backend_respond, from any thread.
+  typedef void (*LogosDeliveryNetSubmitFn)(uint64_t requestId,
+                                           const char *opJson,
+                                           size_t opLen,
+                                           void *userData);
+
+  typedef struct
+  {
+    uint32_t version;
+    LogosDeliveryNetSubmitFn submit;
+  } LogosDeliveryNetBackendTable;
+
+  // Registers (or replaces) the backend named `name`. Returns 0 on success, and
+  // non-zero for a null argument, an unsupported version, a name longer than 63
+  // characters, or a full backend registry.
+  int logosdelivery_register_net_backend(const char *name,
+                                         const LogosDeliveryNetBackendTable *table,
+                                         void *userData);
+
+  // Answers one submitted op. `ok != 0` carries the result JSON in `data`, and
+  // `ok == 0` carries the error text. The library copies `data` before
+  // returning. Returns 0 when the answer reaches the library thread.
+  int logosdelivery_net_backend_respond(uint64_t requestId,
+                                        int ok,
+                                        const char *data,
+                                        size_t len);
+
 #ifdef __cplusplus
 }
 #endif
