@@ -72,8 +72,6 @@ requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
 requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
-# boringssl (v0.0.11, issue #4085) is pinned in nimble.lock only: a requires
-# here, in any spelling, leaves the solver unable to reconcile it with lsquic's.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
 
@@ -132,9 +130,15 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       cBindingsFlags & getMyCPU() & getNimParams() & srcDir & "/" & srcFile
   else:
+    # -Bsymbolic binds the library's references to its own symbols at link
+    # time. Without it, a host process that already loads OpenSSL (e.g.
+    # Node.js) interposes our statically linked BoringSSL functions and data
+    # (ASN1_ITEM tables), and QUIC startup crashes in lsquic setupSSLContext
+    # (issue #4085).
+    let elfFlags = when defined(linux): "--passL:-Wl,-Bsymbolic " else: ""
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      cBindingsFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
+      elfFlags & cBindingsFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
@@ -190,8 +194,9 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   if not dirExists outDir:
     mkDir outDir
 
+  # -Bsymbolic: see buildLibrary's dynamic branch (issue #4085).
   exec "nim c" & " --out:" & outDir &
-    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
+    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-Wl,-Bsymbolic --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
