@@ -643,6 +643,8 @@ proc start*(node: WakuNode) {.async.} =
   await node.switch.peerInfo.update()
   node.copyCommittedAddresses()
 
+  await node.peerManager.netBackend.start()
+
   # Reconnect to known relay peers in the background; it waits a prune backoff
   # and must not block startup.
   node.relayReconnectFut = node.reconnectRelayPeers()
@@ -682,6 +684,7 @@ proc stop*(node: WakuNode) {.async.} =
   ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()
 
+  await node.peerManager.netBackend.stop()
   node.peerManager.stop()
 
   if not node.rln.isNil():
