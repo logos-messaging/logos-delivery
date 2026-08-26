@@ -180,6 +180,15 @@ proc logosdelivery_create_node(
 
   return ok(lib)
 
+# Minimal RLN bring-up values. Placeholders: no config field carries the RLN
+# module's registry / identifier yet, so they are hardcoded here for now.
+const
+  RlnBringupRegistryId =
+    "logos:testnet:0000000000000000000000000000000000000000000000000000000000000000"
+  RlnBringupIdentifier =
+    "0000000000000000000000000000000000000000000000000000000000000001"
+  RlnBringupOptions = """[{"key":"rate_limit","value":"100"}]"""
+
 proc logosdelivery_start_node(
     self: LogosDelivery
 ): Future[Result[string, string]] {.ffi.} =
@@ -187,6 +196,24 @@ proc logosdelivery_start_node(
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
     return err("failed to start: " & errMsg)
+
+  # If this node is configured for RLN, drive the external RLN module: start it,
+  # then register a membership. Gated on the RLN config (the decision point), but
+  # run here rather than at config-load because the host registers its RLN
+  # callbacks only after `create_node` returns. Best-effort — never fails start.
+  if self.waku.conf.rlnRelayConf.isSome():
+    let rlnStartRes = await rlnStart()
+    if rlnStartRes.isErr():
+      notice "RLN module start failed", reason = rlnStartRes.error()
+    else:
+      info "RLN module started", response = rlnStartRes.get()
+      let rlnRegRes =
+        await rlnRegister(RlnBringupRegistryId, RlnBringupIdentifier, RlnBringupOptions)
+      if rlnRegRes.isErr():
+        notice "RLN register_membership failed", reason = rlnRegRes.error()
+      else:
+        info "RLN membership registered", response = rlnRegRes.get()
+
   return ok("")
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =
