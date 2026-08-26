@@ -335,23 +335,12 @@ proc setupProtocols(
       return
         err("the configuration enables RLN relay, but this build has -d:disable_rln")
 
-    let rlnRelayConf = conf.rlnRelayConf.get()
-    let rlnConf = WakuRlnConfig(
-      dynamic: rlnRelayConf.dynamic,
-      credIndex: rlnRelayConf.credIndex,
-      ethContractAddress: rlnRelayConf.ethContractAddress,
-      chainId: rlnRelayConf.chainId,
-      ethClientUrls: rlnRelayConf.ethClientUrls,
-      creds: rlnRelayConf.creds,
-      userMessageLimit: rlnRelayConf.userMessageLimit,
-      epochSizeSec: rlnRelayConf.epochSizeSec,
-      onFatalErrorAction: onFatalErrorAction,
-    )
-
-    try:
-      await node.setRlnValidator(rlnConf)
-    except CatchableError:
-      return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+    # PoC: RLN is served by the external RLN module, driven from
+    # logosdelivery_start_node. The native on-node RLN relay is not mounted here
+    # (setRlnValidator builds a local zerokit instance / talks to the eth RPC and
+    # crashes the in-process bring-up). rlnRelayConf stays the signal that RLN is
+    # wanted; the external module is the only RLN path.
+    notice "skipping native RLN relay mount; external RLN module in use"
 
   # NOTE Must be mounted after relay
   if conf.lightPush:
