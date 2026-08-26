@@ -15,11 +15,13 @@ import
 ## Include different APIs, i.e. all procs with {.ffi.} pragma
 
 include
+  # rln_api first: node_api's start hook calls its `rln*` procs, so they must be
+  # defined before node_api is included.
+  ./logos_delivery_api/rln_api,
   ./logos_delivery_api/node_api,
   ./logos_delivery_api/messaging_api,
   ./logos_delivery_api/debug_api,
   ./logos_delivery_api/sync_exports,
-  ./logos_delivery_api/rln_api,
   ./kernel_api/peer_manager_api,
   ./kernel_api/discovery_api,
   ./kernel_api/debug_node_api,
