@@ -6,7 +6,7 @@ import libp2p/[multiaddress, switch, wire]
 import libp2p/services/natservice
 import libp2p/services/wildcardresolverservice
 import libp2p/protocols/connectivity/relay/relay
-import libp2p/services/nat/[portmapper, upnp_mapper, natpmp_mapper]
+import libp2p/services/nat/[portmapper, plum_mapper]
 import ../logos_delivery/waku/net/nat_config
 import ../logos_delivery/waku/node/waku_switch
 import ./testlib/[common, wakucore]
@@ -45,48 +45,26 @@ suite "NAT config - strategy parsing":
       $parseNatStrategy("extip:203.0.113.7").get() == "extip:203.0.113.7"
 
 type StubMapper = ref object of PortMapper
-  ## A scripted port mapper. mapRejections fails that many leading map calls.
-  ## grantedPort overrides the granted external port.
+  ## A scripted port mapper. grantedPort overrides the requested external port.
   ip: Opt[IpAddress]
-  hangDiscover: bool
-  mapRejections: int
   grantedPort: Opt[Port]
-  discoverCalls: int
   mapCalls: int
   unmapCalls: int
   lastUnmapPort: Port
   closeCalls: int
   lastMapProto: MapProto
-  lastMapLease: uint32
-
-method discover(
-    self: StubMapper, timeout: Duration
-): Future[Result[IpAddress, string]] {.async: (raises: [CancelledError]), gcsafe.} =
-  inc self.discoverCalls
-  if self.hangDiscover:
-    await sleepAsync(10.minutes)
-  let ip = self.ip.valueOr:
-    return err("stub discovery failure")
-  return ok(ip)
 
 method map(
-    self: StubMapper,
-    internalPort: Port,
-    externalPort: Port,
-    proto: MapProto,
-    lease: uint32,
-): Future[Result[Port, string]] {.async: (raises: [CancelledError]), gcsafe.} =
+    self: StubMapper, internalPort: Port, externalPort: Port, proto: MapProto
+): Future[Result[MappedPort, string]] {.async: (raises: [CancelledError]), gcsafe.} =
+  discard internalPort
   inc self.mapCalls
   self.lastMapProto = proto
-  self.lastMapLease = lease
-  # Lease 0 is invalid input, as in libp2p's NAT-PMP mapper.
-  # RFC 6886 uses a zero lifetime to delete a mapping.
-  if lease == 0:
-    return err("stub: lease 0 rejected (RFC 6886 delete semantics)")
-  if self.mapRejections > 0:
-    dec self.mapRejections
-    return err("stub mapping rejection")
-  return ok(self.grantedPort.get(externalPort))
+  let externalIp = self.ip.valueOr:
+    return err("stub mapping failure")
+  return ok(
+    MappedPort(externalIp: externalIp, externalPort: self.grantedPort.get(externalPort))
+  )
 
 method unmap(
     self: StubMapper, externalPort: Port, proto: MapProto
@@ -107,102 +85,35 @@ proc stub(ip = ""): StubMapper =
   StubMapper(ip: address)
 
 suite "NAT config - resolveNatStrategy":
-  asyncTest "every strategy but any passes through unchanged":
-    for s in ["upnp", "pmp", "none", "extip:203.0.113.7"]:
+  asyncTest "strategy selection is deferred to libplum":
+    for s in ["any", "upnp", "pmp", "none", "extip:203.0.113.7"]:
       let strategy = parseNatStrategy(s).get()
       check $(await resolveNatStrategy(strategy)) == $strategy
 
-  asyncTest "any resolves to upnp when its discovery answers first":
-    var probed: seq[NatStrategyKind]
-    let answering = stub("203.0.113.1")
-    let silent = PortMapper(stub())
-    let resolved = await resolveNatStrategy(
-      NatStrategy(kind: NatStrategyKind.NatAny),
-      mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
-        probed.add(s.kind)
-        if s.kind == NatStrategyKind.NatUpnp:
-          Opt.some(PortMapper(answering))
-        else:
-          Opt.some(silent),
-    )
-    check:
-      resolved.kind == NatStrategyKind.NatUpnp
-      probed == @[NatStrategyKind.NatUpnp]
-      answering.closeCalls == 1
-
-  asyncTest "any falls back to pmp when upnp discovery fails":
-    let answering = PortMapper(stub("203.0.113.1"))
-    let silent = PortMapper(stub())
-    let resolved = await resolveNatStrategy(
-      NatStrategy(kind: NatStrategyKind.NatAny),
-      mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
-        if s.kind == NatStrategyKind.NatPmp:
-          Opt.some(answering)
-        else:
-          Opt.some(silent),
-    )
-    check resolved.kind == NatStrategyKind.NatPmp
-
-  asyncTest "any resolves to none when no gateway answers":
-    let silent = PortMapper(stub())
-    let resolved = await resolveNatStrategy(
-      NatStrategy(kind: NatStrategyKind.NatAny),
-      mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
-        Opt.some(silent),
-    )
-    check resolved.kind == NatStrategyKind.NatNone
-
-  asyncTest "every probe mapper is closed before the probe returns":
-    let silent = stub()
-    discard await resolveNatStrategy(
-      NatStrategy(kind: NatStrategyKind.NatAny),
-      discoveryTimeout = 10.millis,
-      mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
-        Opt.some(PortMapper(silent)),
-    )
-    check silent.closeCalls == 2
-
-  asyncTest "a cancelled probe still closes its mapper":
-    let hanging = stub()
-    hanging.hangDiscover = true
-    let probe = resolveNatStrategy(
-      NatStrategy(kind: NatStrategyKind.NatAny),
-      discoveryTimeout = 10.millis,
-      mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
-        Opt.some(PortMapper(hanging)),
-    )
-    await sleepAsync(50.millis)
-    await probe.cancelAndWait()
-    check hanging.closeCalls == 1
-
 suite "NAT config - natConfig":
-  test "upnp and pmp turn port mapping on in their protocol's mode":
+  test "mapping strategies select their libplum protocol mode":
     let
+      any = natConfig(parseNatStrategy("any").get())
       upnp = natConfig(parseNatStrategy("upnp").get())
       pmp = natConfig(parseNatStrategy("pmp").get())
     check:
+      any.get().portMapping.get().mode == PortMappingMode.Auto
       upnp.get().portMapping.get().mode == PortMappingMode.Upnp
       pmp.get().portMapping.get().mode == PortMappingMode.NatPmp
 
-  test "any, none and extip get no config":
-    for s in ["any", "none", "extip:203.0.113.7"]:
+  test "none and extip get no config":
+    for s in ["none", "extip:203.0.113.7"]:
       check natConfig(parseNatStrategy(s).get()).isNone()
 
 suite "NAT config - natPortMapper":
-  test "upnp and pmp name their protocol's mapper":
-    let
-      upnp = natPortMapper(parseNatStrategy("upnp").get())
-      pmp = natPortMapper(parseNatStrategy("pmp").get())
-    check:
-      upnp.get() of UpnpMapper
-      pmp.get() of NatPmpMapper
-    ## Constructors spawn a worker thread.
-    ## Unclosed mappers crashed later suites when the GC reclaimed them.
-    waitFor upnp.get().close()
-    waitFor pmp.get().close()
+  test "mapping strategies use libplum":
+    for s in ["any", "upnp", "pmp"]:
+      let mapper = natPortMapper(parseNatStrategy(s).get())
+      check mapper.get() of PlumMapper
+      waitFor mapper.get().close()
 
-  test "any, none and extip have no mapper":
-    for s in ["any", "none", "extip:203.0.113.7"]:
+  test "none and extip have no mapper":
+    for s in ["none", "extip:203.0.113.7"]:
       check natPortMapper(parseNatStrategy(s).get()).isNone()
 
 suite "NAT config - NATService pipeline":
@@ -238,7 +149,6 @@ suite "NAT config - NATService pipeline":
     await switch.start()
 
     check:
-      inner.discoverCalls >= 1
       inner.mapCalls >= 1
       switch.peerInfo.addrs.anyIt(($it).contains("203.0.113.9"))
       not switch.peerInfo.addrs.anyIt(($it).contains("0.0.0.0"))

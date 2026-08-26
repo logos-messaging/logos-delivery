@@ -20,11 +20,9 @@ type MessageIdProvider* = pubsub.MsgIdProvider
 # Waku Relay (Gossipsub) protocol's message cache and the gossiping process, and
 # as a consequence the network.
 
-const EmptyPayload: seq[byte] = @[]
-
 template payloadBytes*(message: messages.Message): untyped =
-  ## `data[]` borrows the payload on the per-message hot path.
-  if message.data.isSome: message.data[] else: EmptyPayload
+  ## Borrow the payload on the per-message hot path.
+  message.data
 
 proc defaultMessageIdProvider*(
     message: messages.Message
