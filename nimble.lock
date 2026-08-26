@@ -613,6 +613,21 @@
         "sha1": "9c0bfc6ee9e01bab0f46b9e1fd559de0f29f9724"
       }
     },
+    "libplum": {
+      "version": "#acefbe424cf9d1f05f2d93533790c9ac4e034df8",
+      "vcsRevision": "acefbe424cf9d1f05f2d93533790c9ac4e034df8",
+      "url": "https://github.com/logos-storage/nim-libplum",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim",
+        "results",
+        "chronos",
+        "unittest2"
+      ],
+      "checksums": {
+        "sha1": "d644699c7edbd11fd4e1b204acf3c2a4f5959db4"
+      }
+    },
     "sds": {
       "version": "#b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
       "vcsRevision": "b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
