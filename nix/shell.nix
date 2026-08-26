@@ -2,12 +2,12 @@
 
 let
   nimble = pkgs.nimble.overrideAttrs (_: {
-    version = "0.22.3";
+    version = "0.24.1";
     src = pkgs.fetchFromGitHub {
       owner  = "nim-lang";
       repo   = "nimble";
-      rev    = "v0.22.3";
-      sha256 = "sha256-f7DYpRGVUeSi6basK1lfu5AxZpMFOSJ3oYsy+urYErg=";
+      rev    = "v0.24.1";
+      sha256 = "sha256-A3TR0LNV7hvbMWBClLOxJB2fF4ayM25fm1bBMISHPpE=";
     };
   });
 in
@@ -27,5 +27,5 @@ pkgs.mkShell {
     rustc
     cmake
     nim-2_2
-  ]) ++ [ nimble ]; # nimble pinned to 0.22.3 via let binding above
+  ]) ++ [ nimble ]; # nimble pinned to 0.24.1 via let binding above
 }

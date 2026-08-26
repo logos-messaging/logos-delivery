@@ -310,13 +310,13 @@ proc initRelayObservers(w: WakuRelay) =
       var topicsChanged = false
 
       for graft in ctrl.graft:
-        graft.topicID.withValue(topic):
-          w.topicHealthDirty.incl(topic)
+        if graft.topicID.len > 0:
+          w.topicHealthDirty.incl(graft.topicID)
           topicsChanged = true
 
       for prune in ctrl.prune:
-        prune.topicID.withValue(topic):
-          w.topicHealthDirty.incl(topic)
+        if prune.topicID.len > 0:
+          w.topicHealthDirty.incl(prune.topicID)
           topicsChanged = true
 
       if topicsChanged:

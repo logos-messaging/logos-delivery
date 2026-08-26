@@ -11,18 +11,6 @@
         "sha1": "b3179cffd77e51d16ea343b5493d895e8bc8c085"
       }
     },
-    "boringssl": {
-      "version": "0.0.11",
-      "vcsRevision": "346429e4cda48e775f2d1eb3ccb8757edf4f3648",
-      "url": "https://github.com/vacp2p/nim-boringssl",
-      "downloadMethod": "git",
-      "dependencies": [
-        "nim"
-      ],
-      "checksums": {
-        "sha1": "49acb43d56a26b30587c9758edb34e3c44b63d8f"
-      }
-    },
     "npeg": {
       "version": "1.3.0",
       "vcsRevision": "409f6796d0e880b3f0222c964d1da7de6e450811",
@@ -83,6 +71,18 @@
       ],
       "checksums": {
         "sha1": "4d24e7d7441137cd202e16f2359a5807ddbdc31f"
+      }
+    },
+    "boringssl": {
+      "version": "0.0.11",
+      "vcsRevision": "346429e4cda48e775f2d1eb3ccb8757edf4f3648",
+      "url": "https://github.com/vacp2p/nim-boringssl",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim"
+      ],
+      "checksums": {
+        "sha1": "49acb43d56a26b30587c9758edb34e3c44b63d8f"
       }
     },
     "unittest2": {
@@ -546,7 +546,7 @@
         "nimcrypto",
         "unittest2",
         "chronicles",
-        "https://github.com/vacp2p/nim-boringssl"
+        "boringssl"
       ],
       "checksums": {
         "sha1": "94e84841563554409861fbe7dd3047c6ce05f1a6"
@@ -575,7 +575,7 @@
     "json_rpc": {
       "version": "0.6.1",
       "vcsRevision": "6f1fff8ba685c9192fab153a9d66484ad9066e78",
-      "url": "https://github.com/status-im/nim-json-rpc.git",
+      "url": "https://github.com/status-im/nim-json-rpc",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
@@ -618,7 +618,7 @@
         "nim",
         "nimcrypto",
         "bearssl",
-        "https://github.com/vacp2p/nim-boringssl",
+        "boringssl",
         "chronicles",
         "chronos",
         "metrics",
@@ -638,7 +638,7 @@
     },
     "sds": {
       "version": "#b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
-      "vcsRevision": "",
+      "vcsRevision": "b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
       "url": "https://github.com/logos-messaging/nim-sds.git",
       "downloadMethod": "git",
       "dependencies": [
@@ -677,8 +677,8 @@
       }
     },
     "eth": {
-      "version": "0.9.0",
-      "vcsRevision": "c3d1ad4f570f4529cb71e73095a44f0504e581a3",
+      "version": "#d9135e6c3c5d6d819afdfb566aa8d958756b73a8",
+      "vcsRevision": "d9135e6c3c5d6d819afdfb566aa8d958756b73a8",
       "url": "https://github.com/status-im/nim-eth",
       "downloadMethod": "git",
       "dependencies": [
@@ -700,7 +700,7 @@
         "snappy"
       ],
       "checksums": {
-        "sha1": "7d9040ae12099bb719c6f1e1fc9a05bdf782c5a6"
+        "sha1": "2e01b0cfff9523d110562af70d19948280f8013e"
       }
     },
     "web3": {

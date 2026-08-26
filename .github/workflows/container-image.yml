@@ -20,7 +20,7 @@ env:
   # secp256k1 fails to compile.
   NIM_PARAMS: "-d:disableMarchNative"
   NIM_VERSION: '2.2.6'
-  NIMBLE_VERSION: '0.22.3'
+  NIMBLE_VERSION: '0.24.1'
 
 # This workflow should not run for outside contributors
 # If org secrets are not available, we'll avoid building and publishing the docker image and we'll pass the workflow

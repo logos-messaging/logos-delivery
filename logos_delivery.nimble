@@ -12,7 +12,7 @@ skipDirs = @["tests", "examples", "tools", "apps", "simulations", "metrics"]
 
 const RequiredNimVersion = "2.2.6"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
-const RequiredNimbleVersion = "0.22.3"
+const RequiredNimbleVersion = "0.24.1"
   ## Enforced nimble version to ensure a reproducible flow
 
 ### Dependencies
@@ -31,7 +31,7 @@ requires "nim == 2.2.6",
   # Pin by name: nimble treats a url requirement as a different package,
   # and nim-sds and libp2p_mix require libp2p by name.
   "libp2p == 2.3.0",
-  "eth",
+  "https://github.com/status-im/nim-eth#d9135e6c3c5d6d819afdfb566aa8d958756b73a8",
   # nat_traversal stays in the graph through libp2p, which links
   # the miniupnpc and libnatpmp static libs. Nat.mk and the iOS steps stay.
   "dnsdisc",
