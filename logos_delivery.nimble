@@ -45,7 +45,7 @@ requires "nim == 2.2.6",
   # RPC & APIs
   "json_rpc == 0.6.1",
   "presto",
-  "web3 == 0.8.0",
+  "web3",
   # Database
   "db_connector",
   "sqlite3_abi",
