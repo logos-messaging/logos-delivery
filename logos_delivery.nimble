@@ -10,13 +10,13 @@ description = "Logos-delivery, Private P2P Messaging for Resource-Restricted Dev
 license = "MIT or Apache License 2.0"
 skipDirs = @["tests", "examples", "tools", "apps", "simulations", "metrics"]
 
-const RequiredNimVersion = "2.2.4"
+const RequiredNimVersion = "2.2.6"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
 const RequiredNimbleVersion = "0.22.3"
   ## Enforced nimble version to ensure a reproducible flow
 
 ### Dependencies
-requires "nim >= 2.2.4",
+requires "nim >= 2.2.6",
   "chronos >= 4.2.0 & < 4.4.0",
   "taskpools",
   # Logging & Configuration
@@ -37,15 +37,15 @@ requires "nim >= 2.2.4",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "websock >= 0.3.0",
+  "https://github.com/status-im/nim-websock#v0.4.0",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "secp256k1",
   "bearssl",
   # RPC & APIs
-  "https://github.com/status-im/nim-json-rpc.git#v0.6.1",
+  "json_rpc == 0.6.1",
   "presto",
-  "web3",
+  "web3 == 0.8.0",
   # Database
   "db_connector",
   "sqlite3_abi",
