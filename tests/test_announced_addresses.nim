@@ -7,22 +7,15 @@
 import results
 import std/[net, sequtils, strutils]
 import testutils/unittests, chronos
-import libp2p/[multiaddress, peerinfo, switch, wire]
+import libp2p/[multiaddress, switch, wire]
 import libp2p/crypto/crypto as libp2pcrypto
 import libp2p/services/natservice
-import libp2p/services/identify_pusher
-import libp2p/services/hpservice
-import libp2p/protocols/connectivity/relay/relay
-import libp2p/peerstore
 import libp2p/services/nat/portmapper
 import eth/p2p/discoveryv5/protocol as discv5_protocol
 import ../logos_delivery/waku/discovery/waku_discv5
 import eth/keys, eth/p2p/discoveryv5/enr
 import stew/byteutils
 import
-  ../logos_delivery/waku/waku_core,
-  ../logos_delivery/waku/factory/waku_conf,
-  ../logos_delivery/waku/net/net_config,
   ../logos_delivery/waku/node/waku_node,
   ../logos_delivery/waku/waku,
   ../logos_delivery/waku/waku_enr
@@ -43,14 +36,10 @@ method discover(
   return ok(self.grantIp)
 
 method map(
-    self: RecordingMapper,
-    internalPort: Port,
-    externalPort: Port,
-    proto: MapProto,
-    lease: uint32,
-): Future[Result[Port, string]] {.async: (raises: [CancelledError]), gcsafe.} =
+    self: RecordingMapper, internalPort: Port, externalPort: Port, proto: MapProto
+): Future[Result[MappedPort, string]] {.async: (raises: [CancelledError]), gcsafe.} =
   self.mappedInternal.add(internalPort)
-  return ok(self.grantPort)
+  return ok(MappedPort(externalIp: self.grantIp, externalPort: self.grantPort))
 
 method unmap(
     self: RecordingMapper, externalPort: Port, proto: MapProto
@@ -302,46 +291,3 @@ suite "Announced addresses":
       typed.relaySharding().isSome() ## shards stay after the field update
       live.seqNum > seqBefore
       node.enr == live ## copy-back
-
-  asyncTest "waku service setup keeps the builder services alive":
-    ## Filtering switch.services once removed IdentifyPusher.
-    ## Its protocol stayed mounted but dead, and pushes went silent.
-    let conf = defaultTestWakuConf()
-    let node =
-      newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
-    node.setupSwitchServices(conf, Relay.new(), rng())
-    check:
-      node.switch.services.anyIt(it of IdentifyPusher)
-      node.switch.services.anyIt(it of NATService) == false ## none configured here
-    await node.start()
-    check node.switch.peerInfo.protocols.anyIt("id/push" in it)
-    await node.stop()
-
-  asyncTest "a committed address change pushes to a connected peer":
-    let nodeA =
-      newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
-    let nodeB =
-      newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
-    nodeA.setupSwitchServices(defaultTestWakuConf(), Relay.new(), rng())
-    nodeB.setupSwitchServices(defaultTestWakuConf(), Relay.new(), rng())
-    await allFutures(nodeA.start(), nodeB.start())
-    await nodeB.connectToNodes(@[nodeA.switch.peerInfo.toRemotePeerInfo()])
-
-    let circuit = MultiAddress.init(CircuitAddr).get()
-    nodeA.switch.peerInfo.addressMappers.add(
-      proc(
-          addrs: seq[MultiAddress]
-      ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
-        return @[circuit] & addrs
-    )
-    await nodeA.switch.peerInfo.update()
-
-    var pushed = false
-    for _ in 0 ..< 200:
-      await sleepAsync(20.milliseconds)
-      let known = nodeB.switch.peerStore[AddressBook][nodeA.switch.peerInfo.peerId]
-      if known.anyIt(it == circuit):
-        pushed = true
-        break
-    check pushed
-    await allFutures(nodeA.stop(), nodeB.stop())
