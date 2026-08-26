@@ -28,7 +28,6 @@ import
   ../waku_discv5/utils,
   ./peer_manager/peer_store/utils
 
-# IdentifyPush is opt-in in nim-libp2p 2.3 and Delivery leaves it disabled.
 const DEFAULT_PROTOCOLS: seq[string] =
   @["/ipfs/id/1.0.0", "/libp2p/autonat/1.0.0", "/libp2p/circuit/relay/0.2.0/hop"]
 

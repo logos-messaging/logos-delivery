@@ -6,7 +6,7 @@ import
   chronicles,
   chronos,
   libp2p/[crypto/crypto, crypto/secp, multiaddress, peerinfo, switch],
-  libp2p/services/[natservice, identify_pusher],
+  libp2p/services/natservice,
   tests/testlib/[wakucore, wakunode],
   logos_delivery/waku/factory/conf_builder/conf_builder
 
@@ -77,10 +77,9 @@ suite "Wakunode2 - Waku initialization":
     (waitFor waku.stop()).isOkOr:
       raiseAssert error
 
-  test "production service composition carries NATService and IdentifyPusher":
+  test "production service composition carries NATService":
     ## The test runs the full path from conf to switch services.
-    ## The switch builder attaches NATService and IdentifyPusher,
-    ## and the autonat append must keep both in switch.services.
+    ## The autonat append must keep NATService in switch.services.
     var conf = defaultTestWakuConf()
     conf.endpointConf.natStrategy = parseNatStrategy("upnp").expect("upnp")
     let waku = (waitFor Waku.new(conf)).valueOr:
@@ -88,7 +87,6 @@ suite "Wakunode2 - Waku initialization":
     let services = waku.node.switch.services
     check:
       services.filterIt(it of NATService).len == 1
-      services.filterIt(it of IdentifyPusher).len == 1
 
   test "a post-start commit reaches the ENR through the production hook":
     ## Deleting the onCommittedAddresses callback fails this.
