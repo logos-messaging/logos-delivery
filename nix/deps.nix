@@ -297,6 +297,13 @@
     fetchSubmodules = true;
   };
 
+  libplum = pkgs.fetchgit {
+    url = "https://github.com/logos-storage/nim-libplum";
+    rev = "acefbe424cf9d1f05f2d93533790c9ac4e034df8";
+    sha256 = "0j6rc96cznsh90pvs27i1qgpby3ib04a2xqihps3jwlnlng2nrkb";
+    fetchSubmodules = true;
+  };
+
   sds = pkgs.fetchgit {
     url = "https://github.com/logos-messaging/nim-sds.git";
     rev = "b12f5ee07c5b764303b51fb948b32a4ade1de3b5";
