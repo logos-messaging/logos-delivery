@@ -607,13 +607,12 @@
       }
     },
     "libp2p": {
-      "version": "2.2.1",
-      "vcsRevision": "95d3925db8a3d093dd86647165650472a5342b81",
+      "version": "2.3.0",
+      "vcsRevision": "fc4169749ea685e2dca93e5845292eb229978012",
       "url": "https://github.com/vacp2p/nim-libp2p",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
-        "libbacktrace",
         "nimcrypto",
         "bearssl",
         "boringssl",
@@ -622,16 +621,16 @@
         "metrics",
         "secp256k1",
         "stew",
-        "unittest2",
         "results",
         "serialization",
+        "json_serialization",
         "lsquic",
         "protobuf_serialization",
         "websock",
-        "nat_traversal"
+        "libplum"
       ],
       "checksums": {
-        "sha1": "9c0bfc6ee9e01bab0f46b9e1fd559de0f29f9724"
+        "sha1": "ea96fa8a6191464eb2ce9b8bbbaeafde413b75c7"
       }
     },
     "sds": {

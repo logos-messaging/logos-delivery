@@ -30,7 +30,7 @@ requires "nim >= 2.2.4",
   # Networking & P2P
   # Pin by name: nimble treats a url requirement as a different package,
   # and nim-sds and libp2p_mix require libp2p by name.
-  "libp2p == 2.2.1",
+  "libp2p == 2.3.0",
   "eth",
   # nat_traversal stays in the graph through libp2p, which links
   # the miniupnpc and libnatpmp static libs. Nat.mk and the iOS steps stay.
