@@ -482,7 +482,6 @@ ifeq ($(detected_OS),Windows)
 	BUILD_COMMAND := $(BUILD_COMMAND)Windows
 else ifeq ($(detected_OS),Darwin)
 	BUILD_COMMAND := $(BUILD_COMMAND)Mac
-	export IOS_SDK_PATH := $(shell xcrun --sdk iphoneos --show-sdk-path)
 else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
@@ -639,7 +638,7 @@ else
 endif
 
 build-liblogosdelivery-for-ios-arch:
-	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) $(NIMBLE) libLogosDeliveryIOS $(NIMBLE_TASK_FLAGS)
+	IOS_SDK=$(IOS_SDK) IOS_ARCH=$(IOS_ARCH) IOS_SDK_PATH=$(IOS_SDK_PATH) IOS_DEPLOYMENT_TARGET=$(IOS_DEPLOYMENT_TARGET) $(NIMBLE) libLogosDeliveryIOS $(NIMBLE_TASK_FLAGS)
 
 liblogosdelivery-ios-device: IOS_ARCH=arm64
 liblogosdelivery-ios-device: IOS_SDK=iphoneos

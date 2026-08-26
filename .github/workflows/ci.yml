@@ -179,6 +179,51 @@ jobs:
           path: build/android/
           retention-days: 1
 
+  # macos-15 runners ship full Xcode with the iOS SDKs preinstalled.
+  build-ios:
+    needs: changes
+    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        sdk: [device, simulator]
+    runs-on: macos-15
+    timeout-minutes: 60
+
+    name: build-ios-${{ matrix.sdk }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      # Shares the host macOS cache: the iOS build never writes into nimbledeps/.
+      - name: Install nimble deps
+        uses: ./.github/actions/nimble-deps
+        with:
+          nimble-version: ${{ env.NIMBLE_VERSION }}
+          nim-version: ${{ env.NIM_VERSION }}
+
+      - name: Build liblogosdelivery for ios-${{ matrix.sdk }}
+        # -j1: see the build job.
+        run: make V=1 -j1 liblogosdelivery-ios-${{ matrix.sdk }}
+
+      - name: Audit installed deps
+        run: make audit-deps
+
+      - name: Upload iOS library
+        uses: actions/upload-artifact@v4
+        with:
+          name: liblogosdelivery-ios-${{ matrix.sdk }}
+          path: |
+            build/ios/*/liblogosdelivery.a
+            build/ios/*/liblogosdelivery.h
+          retention-days: 1
+
   test:
     needs: changes
     if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
