@@ -32,9 +32,9 @@ requires "nim >= 2.2.4",
   "faststreams",
   # Networking & P2P
   "https://github.com/vacp2p/nim-libp2p.git#v2.0.0",
-  # pinned to the locked commit: a fresh resolve of "eth" takes nim-eth HEAD,
+  # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
-  "https://github.com/status-im/nim-eth#d9135e6c3c5d6d819afdfb566aa8d958756b73a8",
+  "eth == 0.9.0",
   "nat_traversal",
   "dnsdisc",
   "dnsclient",
