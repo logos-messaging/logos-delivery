@@ -784,6 +784,7 @@ procSuite "Waku Rest API - Store v3":
     let mountArchiveRes = node.mountArchive(driver)
     assert mountArchiveRes.isOk(), mountArchiveRes.error
 
+    # bucket refills 4 tokens/s: the 429 below needs all 3 requests within 250ms
     await node.mountStore((2, 500.millis))
     node.mountStoreClient()
 
