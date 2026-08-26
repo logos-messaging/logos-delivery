@@ -547,12 +547,8 @@ endif
 # them. PORTABLE_NAT_MARCH is host-derived and invalid for the arm targets.
 build-liblogosdelivery-for-android-arch:
 	mkdir -p $(CURDIR)/build/android/$(ABIDIR)/
-ifneq ($(findstring /nix/store,$(LIBRLN_FILE)),)
-	cp -f $(LIBRLN_FILE) $(CURDIR)/build/android/$(ABIDIR)/
-else
 	git submodule update --init vendor/zerokit
 	./scripts/build_rln_android.sh $(CURDIR)/build $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(CROSS_TARGET) $(ABIDIR)
-endif
 	$(MAKE) rebuild-nat-libs-nimbledeps CC=$(ANDROID_TOOLCHAIN_DIR)/bin/$(ANDROID_COMPILER) PORTABLE_NAT_MARCH=
 	CPU=$(CPU) ABIDIR=$(ABIDIR) ANDROID_ARCH=$(ANDROID_ARCH) ANDROID_COMPILER=$(ANDROID_COMPILER) ANDROID_TOOLCHAIN_DIR=$(ANDROID_TOOLCHAIN_DIR) $(NIMBLE) libLogosDeliveryAndroid
 

@@ -39,6 +39,7 @@ jobs:
           - 'BearSSL.mk'
           - 'Nat.mk'
           - 'vendor/zerokit'
+          - 'config.nims'
           - 'scripts/**'
           - 'flake.nix'
           - 'flake.lock'
@@ -166,12 +167,12 @@ jobs:
         with:
           ndk-version: r27c
 
-      # Keyed on the rev scripts/build_rln_android.sh pins.
+      # Keyed on the script so a change of the pinned cross rev invalidates it.
       - name: Cache cross
         uses: actions/cache@v3
         with:
           path: ~/.cargo/bin/cross
-          key: ${{ runner.os }}-cross-55f84725
+          key: ${{ runner.os }}-cross-${{ hashFiles('scripts/build_rln_android.sh') }}
 
       - name: Cache nimble deps
         id: cache-nimbledeps
