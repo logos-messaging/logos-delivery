@@ -16,7 +16,7 @@ const RequiredNimbleVersion = "0.22.3"
   ## Enforced nimble version to ensure a reproducible flow
 
 ### Dependencies
-requires "nim >= 2.2.6",
+requires "nim == 2.2.6",
   "chronos >= 4.2.0 & < 4.4.0",
   "taskpools",
   # Logging & Configuration
