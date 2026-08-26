@@ -112,8 +112,6 @@ proc setupSwitchServices*(
     else:
       Service(autonatService)
 
-  ## Keep the builder services (NATService, IdentifyPusher).
-  ## Removing IdentifyPusher leaves its protocol mounted but dead.
   node.switch.services.add(newService)
 
   # libp2p runs Service.setup only at build time.
