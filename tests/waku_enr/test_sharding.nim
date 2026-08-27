@@ -48,7 +48,7 @@ suite "Sharding":
       assert emptyRes.value.isNone(), $emptyRes.value
 
   suite "containsShard":
-    asyncTest "update ENR from subscriptions":
+    asyncTest "update ENR shards via updateShards":
       ## Given
       let
         shard1 = "/waku/2/rs/0/1"
@@ -64,56 +64,48 @@ suite "Sharding":
         privKey = privKey, extIp = extIp, tcpPort = tcpPort, udpPort = udpPort
       )
 
-      let queue = newAsyncEventQueue[SubscriptionEvent](30)
-
       let node = newTestDiscv5(
         privKey = privKey,
         bindIp = bindIp,
         tcpPort = tcpPort,
         udpPort = udpPort,
         record = record,
-        queue = queue,
       )
 
       let res = await node.start()
       assert res.isOk(), res.error
 
       ## Then
-      queue.emit((kind: PubsubSub, topic: shard1))
-      queue.emit((kind: PubsubSub, topic: shard2))
-      queue.emit((kind: PubsubSub, topic: shard3))
-
-      await sleepAsync(1.seconds)
+      node.updateShards(@[shard1, shard2, shard3], add = true).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == true
         node.protocol.localNode.record.containsShard(shard2) == true
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      queue.emit((kind: PubsubSub, topic: shard1))
-      queue.emit((kind: PubsubSub, topic: shard2))
-      queue.emit((kind: PubsubSub, topic: shard3))
-
-      await sleepAsync(1.seconds)
+      # re-adding already present shards keeps them
+      node.updateShards(@[shard1, shard2, shard3], add = true).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == true
         node.protocol.localNode.record.containsShard(shard2) == true
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      queue.emit((kind: PubsubUnsub, topic: shard1))
-      queue.emit((kind: PubsubUnsub, topic: shard2))
-
-      await sleepAsync(1.seconds)
+      node.updateShards(@[shard1, shard2], add = false).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == false
         node.protocol.localNode.record.containsShard(shard2) == false
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      ## Cleanup
-      await node.stop()
+      # removing the last remaining shard is refused
+      check node.updateShards(@[shard3], add = false).isErr()
+      check node.protocol.localNode.record.containsShard(shard3) == true
 
+      await node.stop()
 suite "Discovery Mechanisms for Shards":
   test "Index List Representation":
     # Given a valid index list and its representation

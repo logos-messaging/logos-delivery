@@ -199,7 +199,6 @@ suite "Auto-port retry":
     let failRes = await setupAndStartDiscv5(
       node.enr,
       node.peerManager,
-      node.topicSubscriptionQueue,
       buildDiscv5Conf(takenPort),
       @[],
       node.rng,
@@ -211,7 +210,6 @@ suite "Auto-port retry":
     let okRes = await setupAndStartDiscv5(
       node.enr,
       node.peerManager,
-      node.topicSubscriptionQueue,
       buildDiscv5Conf(freePort),
       @[],
       node.rng,
