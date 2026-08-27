@@ -9,7 +9,7 @@ import std/[sequtils, strutils]
 import chronos, chronicles, results
 import libp2p/protocols/service_discovery
 import brokers/broker_implement
-import logos_delivery/api/peer_discovery_interface
+import logos_delivery/waku/discovery/peer_discovery_interface
 import
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/discovery/peer_discovery_conversion,

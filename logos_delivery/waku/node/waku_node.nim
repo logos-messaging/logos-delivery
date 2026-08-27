@@ -62,7 +62,7 @@ import
     api/events/peer_events,
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
-  logos_delivery/api/peer_discovery_interface,
+  logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./peer_manager,
