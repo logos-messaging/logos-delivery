@@ -31,7 +31,7 @@ requires "nim == 2.2.6",
   # Pin by name: nimble treats a url requirement as a different package,
   # and nim-sds and libp2p_mix require libp2p by name.
   "libp2p == 2.3.0",
-  "https://github.com/status-im/nim-eth#v0.9.1",
+  "https://github.com/status-im/nim-eth#3cda9027f83ac03643dd15a383d67139eec9df6f",
   # nat_traversal stays in the graph through libp2p, which links
   # the miniupnpc and libnatpmp static libs. Nat.mk and the iOS steps stay.
   "dnsdisc",
@@ -39,9 +39,7 @@ requires "nim == 2.2.6",
   "httputils >= 0.4.1",
   "https://github.com/status-im/nim-websock#v0.4.0",
   # Cryptography
-  # nim-eth v0.9.1 floors this at 0.7.0. Held below 0.7.3, which makes
-  # tests crash on Ubuntu.
-  "nimcrypto == 0.7.2",
+  "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "secp256k1",
   "bearssl",
   # RPC & APIs
@@ -61,9 +59,9 @@ requires "nim == 2.2.6",
   "minilru",
   "zlib",
   # Debug & Testing
-  # nim-eth v0.9.1 floors this at 0.8.3. From 0.8.2 the fuzzing tool pulls
-  # in stew, which broke the Windows --localdeps install.
-  "testutils == 0.8.3",
+  # testutils 0.8.2's fuzzing tool imports the results package and
+  # breaks the Windows --localdeps install.
+  "testutils == 0.8.1",
   "unittest2"
 
 # Packages not on nimble (use git URLs)
