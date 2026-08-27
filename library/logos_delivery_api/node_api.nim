@@ -152,21 +152,38 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
 
 proc parseRlnVerdict(s: string): Result[ProofVerdict, string] =
+  ## Verdicts are the module's wire strings, crossing verbatim inside `ok`
+  ## (the responder passes the module reply through untouched): lowercase
+  ## snake_case, matching how the LIP's PROOF_* constants serialize.
   case s
-  of "VALID":
+  of "valid":
     ok(ProofVerdict.Valid)
-  of "INVALID":
+  of "invalid":
     ok(ProofVerdict.Invalid)
-  of "DUPLICATE":
+  of "duplicate":
     ok(ProofVerdict.Duplicate)
-  of "RATE_LIMIT_VIOLATION":
+  of "rate_limit_violation":
     ok(ProofVerdict.RateLimitViolation)
   else:
     err("unknown verdict: " & s)
 
+proc parseRlnErrorKind(s: string): RlnErrorKind =
+  ## Envelope error kinds are the seam's UPPER_SNAKE spellings (docs/rln.md);
+  ## tolerate the module's lowercase kinds for responders that pass them
+  ## through. Anything unrecognized degrades to Transient — retry permitted.
+  case s
+  of "NOT_READY", "not_ready":
+    RlnErrorKind.NotReady
+  of "BUDGET_EXHAUSTED", "budget_exhausted":
+    RlnErrorKind.BudgetExhausted
+  of "PERMANENT", "permanent":
+    RlnErrorKind.Permanent
+  else:
+    RlnErrorKind.Transient
+
 proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, string] =
   ## Parses the module's reply envelope for `validate_proof`: exactly one of
-  ## `ok`/`err`; an invalid proof is an `ok` with an INVALID verdict, `err`
+  ## `ok`/`err`; an invalid proof is an `ok` with an `invalid` verdict, `err`
   ## means the module failed to answer.
   let node =
     try:
@@ -177,7 +194,8 @@ proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, stri
     return err("module reply is not a JSON object")
   if node.hasKey("err"):
     let e = node["err"]
-    return err(e{"kind"}.getStr("TRANSIENT") & ": " & e{"message"}.getStr(""))
+    let kind = parseRlnErrorKind(e{"kind"}.getStr(""))
+    return err($kind & ": " & e{"message"}.getStr(""))
   if not node.hasKey("ok"):
     return err("module reply has neither ok nor err")
 
