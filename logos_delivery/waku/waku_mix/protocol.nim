@@ -23,6 +23,9 @@ logScope:
   topics = "waku mix"
 
 const MinMixPoolSize* = 4
+  ## Smallest pool mix can build a path from. `PathLength` is 3, and under
+  ## `exit_is_dest` the destination is itself a pool member that mix excludes
+  ## from the path it picks, so three hops need a fourth entry to choose from.
 
 type
   WakuMix* = ref object of MixProtocol
@@ -60,13 +63,18 @@ proc processBootNodes(
       error "Failed to parse multiaddress", multiAddr = node.multiAddr, error = error
       continue
 
+    ## `addPeer` before `nodePool.add`, not after: it writes the address book at
+    ## default confidence, which would undo the `Infinite` confidence the pool
+    ## sets to keep libp2p's hourly address pruning off our configured mix nodes.
+    peermgr.addPeer(
+      RemotePeerInfo.init(
+        peerId, @[multiAddr], publicKey = peerPubKey, mixPubKey = Opt.some(node.pubKey)
+      )
+    )
+
     let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
     mix.nodePool.add(mixPubInfo)
     count.inc()
-
-    peermgr.addPeer(
-      RemotePeerInfo.init(peerId, @[multiAddr], mixPubKey = Opt.some(node.pubKey))
-    )
   mix_pool_size.set(count)
   info "using mix bootstrap nodes ", count = count
 
@@ -101,7 +109,11 @@ proc new*(
   processBootNodes(bootnodes, peermgr, m)
 
   if m.nodePool.len < MinMixPoolSize:
-    warn "publishing with mix won't work until atleast 3 mix nodes in node pool"
+    ## Not a warning: the pool is the peer store's mix book, so discovery
+    ## (kademlia, rendezvous) keeps filling it after mount. Starting short of a
+    ## full path is the normal boot state, not a misconfigured node.
+    info "mix cannot publish yet, waiting for more mix nodes",
+      poolSize = m.nodePool.len, required = MinMixPoolSize
   return ok(m)
 
 proc poolSize*(mix: WakuMix): int =
