@@ -21,6 +21,7 @@ import
   ../waku_enr/sharding,
   ../waku_node,
   ../net/net_config,
+  ../net/nat_config,
   ../waku_core,
   ../waku_core/codecs,
   ../rln,
@@ -102,6 +103,12 @@ proc initNode(
     agentString = Opt.some(conf.agentString),
   )
   builder.withColocationLimit(conf.colocationLimit)
+  builder.withNatConfig(
+    natConfig(
+      conf.endpointConf.natStrategy,
+      conf.endpointConf.natDiscoveryTimeoutMs.int64.milliseconds,
+    )
+  )
 
   if conf.maxRelayPeers.isSome():
     let
@@ -177,7 +184,7 @@ proc setupProtocols(
 
     if conf.mixConf.isSome():
       let mixService =
-        ServiceInfo(id: MixProtocolID, data: @(conf.mixConf.get().mixPubKey))
+        ServiceInfo(id: MixProtocolID, data: Opt.some(@(conf.mixConf.get().mixPubKey)))
       kadConf.servicesToAdvertise.incl(mixService)
       kadConf.servicesToDiscover.incl(mixService.id)
 
@@ -463,11 +470,18 @@ proc startNode*(
 proc setupNode*(
     wakuConf: WakuConf, rng: crypto.Rng = crypto.newRng(), relay: Relay
 ): Future[Result[WakuNode, string]] {.async.} =
+  ## Resolve an any strategy once and write the winning strategy back.
+  ## The switch's NATService reads it. The discv5 socket stays unmapped.
+  wakuConf.endpointConf.natStrategy = await resolveNatStrategy(
+    wakuConf.endpointConf.natStrategy,
+    wakuConf.endpointConf.natDiscoveryTimeoutMs.int64.milliseconds,
+  )
+
   let netConfig = (
     await networkConfiguration(
       wakuConf.clusterId, wakuConf.endpointConf, wakuConf.discv5Conf,
       wakuConf.webSocketConf, wakuConf.quicConf, wakuConf.wakuFlags,
-      wakuConf.dnsAddrsNameServers, clientId,
+      wakuConf.dnsAddrsNameServers,
     )
   ).valueOr:
     error "failed to create internal config", error = error

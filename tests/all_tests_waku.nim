@@ -44,6 +44,8 @@ import
 
 import
   # Waku v2 tests
+  ./test_nat_config,
+  ./test_announced_addresses,
   ./test_wakunode,
   ./test_peer_store_extended,
   ./test_message_cache,

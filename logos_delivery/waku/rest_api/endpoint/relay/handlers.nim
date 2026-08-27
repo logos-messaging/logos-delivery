@@ -229,9 +229,7 @@ proc installRelayApiHandlers*(
 
     # if we reach here its either a non-RLN message or a RLN message with a valid proof
     debug "Publishing message", pubSubTopic = pubSubTopic, rln = not node.rln.isNil()
-    if not (
-      waitFor node.publish(Opt.some(pubSubTopic), message).withTimeout(futTimeout)
-    ):
+    if not (await node.publish(Opt.some(pubSubTopic), message).withTimeout(futTimeout)):
       error "Failed to publish message to topic", pubSubTopic = pubSubTopic
       return RestApiResponse.internalServerError("Failed to publish: timedout")
 

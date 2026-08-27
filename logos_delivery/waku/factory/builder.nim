@@ -45,6 +45,7 @@ type
     switchSslSecureKey: Opt[string]
     switchSslSecureCert: Opt[string]
     switchSendSignedPeerRecord: Opt[bool]
+    switchNatConfig: Opt[NATConfig]
     circuitRelay: Relay
 
     # Rate limit configs for non-relay req-resp protocols
@@ -156,6 +157,9 @@ proc withSwitchConfiguration*(
   if not nameResolver.isNil():
     builder.switchNameResolver = Opt.some(nameResolver)
 
+proc withNatConfig*(builder: var WakuNodeBuilder, natConfig: Opt[NATConfig]) =
+  builder.switchNatConfig = natConfig
+
 ## Build
 
 proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
@@ -202,6 +206,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
       agentString = builder.switchAgentString,
       peerStoreCapacity = builder.peerStorageCapacity,
       circuitRelay = circuitRelay,
+      natConfig = builder.switchNatConfig,
     )
   except CatchableError:
     return err("failed to create switch: " & getCurrentExceptionMsg())

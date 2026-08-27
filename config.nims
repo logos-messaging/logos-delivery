@@ -50,6 +50,9 @@ if defined(disableMarchNative):
       else:
         switch("passC", "-mssse3")
         switch("passL", "-mssse3")
+elif defined(ios):
+  # Cross build: the target flags come from the build task.
+  discard
 elif defined(macosx) and defined(arm64):
   # Apple's Clang can't handle "-march=native" on M1: https://github.com/status-im/nimbus-eth2/issues/2758
   switch("passC", "-mcpu=apple-m1")

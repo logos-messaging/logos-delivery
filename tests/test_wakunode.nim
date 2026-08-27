@@ -21,6 +21,7 @@ import
   eth/net/utils
 import
   logos_delivery/waku/[waku_core, waku_node, node/peer_manager],
+  logos_delivery/waku/factory/internal_config,
   ./testlib/wakucore,
   ./testlib/wakunode
 
@@ -291,9 +292,18 @@ suite "WakuNode":
       bindPort = Port(0)
 
       domainName = "status.im"
-      node = newTestWakuNode(
-        nodeKey, bindIp, bindPort, dns4DomainName = Opt.some(domainName)
-      )
+
+    let resolvedIp = (
+      await dnsResolve(domainName, defaultTestWakuConf().dnsAddrsNameServers)
+    ).valueOr:
+      raiseAssert "DNS resolution failed: " & error
+    let node = newTestWakuNode(
+      nodeKey,
+      bindIp,
+      bindPort,
+      extIp = Opt.some(parseIpAddress(resolvedIp)),
+      dns4DomainName = Opt.some(domainName),
+    )
 
     var ipStr = ""
     var enrIp = node.enr.tryGet("ip", array[4, byte])
@@ -308,38 +318,21 @@ suite "WakuNode":
       not ipStr.contains("0.0.0.0")
       not ipStr.contains("127.0.0.1")
 
-  asyncTest "Node creation fails when invalid dns4 address is provided":
+  asyncTest "dns4 resolution fails for inexistent and invalid domains":
     let
-      nodeKey = generateSecp256k1Key()
-      bindIp = parseIpAddress("0.0.0.0")
-      bindPort = Port(0)
-
       inexistentDomain = "thisdomain.doesnot.exist"
       invalidDomain = ""
       expectedError = "Could not resolve IP from DNS: empty response"
+      nameServers = defaultTestWakuConf().dnsAddrsNameServers
 
-    var inexistentDomainErr, invalidDomainErr: string = ""
+    let inexistentRes = await dnsResolve(inexistentDomain, nameServers)
+    let invalidRes = await dnsResolve(invalidDomain, nameServers)
 
-    # Create node with inexistent domain
-    try:
-      let node = newTestWakuNode(
-        nodeKey, bindIp, bindPort, dns4DomainName = Opt.some(inexistentDomain)
-      )
-    except Exception as e:
-      inexistentDomainErr = e.msg
-
-    # Create node with invalid domain
-    try:
-      let node = newTestWakuNode(
-        nodeKey, bindIp, bindPort, dns4DomainName = Opt.some(invalidDomain)
-      )
-    except Exception as e:
-      invalidDomainErr = e.msg
-
-    # Check that exceptions were raised in both cases
     check:
-      inexistentDomainErr == expectedError
-      invalidDomainErr == expectedError
+      inexistentRes.isErr()
+      inexistentRes.error == expectedError
+      invalidRes.isErr()
+      invalidRes.error == expectedError
 
   asyncTest "Agent string is set and advertised correctly":
     let

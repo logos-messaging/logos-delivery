@@ -22,6 +22,7 @@ import
 
 import
   logos_delivery/api/conf/modes,
+  logos_delivery/waku/net/nat_strategy,
   logos_delivery/waku/factory/[waku_conf, conf_builder/conf_builder, networks_config],
   logos_delivery/waku/common/[logging],
   logos_delivery/waku/[
@@ -222,6 +223,12 @@ type WakuNodeConf* = object
       defaultValue: DefaultCLINat,
       name: "nat"
     .}: string
+
+    natDiscoveryTimeoutMs* {.
+      desc: "Time limit in milliseconds for NAT gateway discovery.",
+      defaultValue: defaultNatDiscoveryTimeoutMs(),
+      name: "nat-discovery-timeout-ms"
+    .}: uint32
 
     extMultiAddrs* {.
       desc:
@@ -826,6 +833,9 @@ proc completeCmdArg*(T: type ProtectedShard, val: string): seq[string] =
 proc completeCmdArg*(T: type IpAddress, val: string): seq[string] =
   return @[]
 
+proc defaultNatDiscoveryTimeoutMs*(): uint32 =
+  DefaultNatDiscoveryTimeoutMs
+
 proc defaultListenAddress*(): IpAddress =
   # TODO: Should probably listen on both ipv4 and ipv6 by default.
   (static IpAddress(family: IpAddressFamily.IPv4, address_v4: [0'u8, 0, 0, 0]))
@@ -1053,7 +1063,12 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withP2pListenAddress(n.listenAddress)
   b.withP2pTcpPort(n.tcpPort)
   b.withPortsShift(n.portsShift)
-  b.withNatStrategy(n.nat)
+  ## Library code builds WakuNodeConf directly and zero means unset there.
+  ## An explicit --nat-discovery-timeout-ms=0 selects the default.
+  if n.nat.strip() != "":
+    b.withNatStrategy(n.nat)
+  if n.natDiscoveryTimeoutMs != 0:
+    b.withNatDiscoveryTimeoutMs(n.natDiscoveryTimeoutMs)
   b.withExtMultiAddrs(n.extMultiAddrs)
   b.withExtMultiAddrsOnly(n.extMultiAddrsOnly)
   b.withMaxConnections(n.maxConnections)

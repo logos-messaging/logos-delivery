@@ -13,13 +13,13 @@ skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 # Nimble installs only the namesake directory; dependents need these too.
 installDirs = @["library", "migrations", "tools"]
 
-const RequiredNimVersion = "2.2.4"
+const RequiredNimVersion = "2.2.6"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
 const RequiredNimbleVersion = "0.24.1"
   ## Enforced nimble version to ensure a reproducible flow
 
 ### Dependencies
-requires "nim >= 2.2.4",
+requires "nim >= 2.2.6",
   "chronos >= 4.2.0 & < 4.4.0",
   "taskpools",
   # Logging & Configuration
@@ -34,7 +34,8 @@ requires "nim >= 2.2.4",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
-  "nat_traversal",
+  # nat_traversal stays in the graph through libp2p, which links
+  # the miniupnpc and libnatpmp static libs. Nat.mk and the iOS steps stay.
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
@@ -67,8 +68,8 @@ requires "nim >= 2.2.4",
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
 
-# v2.0.0: https://github.com/vacp2p/nim-libp2p/releases/tag/v2.0.0
-requires "https://github.com/vacp2p/nim-libp2p.git#c43199378f46d0aaf61be1cad1ee1d63e8f665d6"
+# v2.2.1: https://github.com/vacp2p/nim-libp2p/releases/tag/v2.2.1
+requires "https://github.com/vacp2p/nim-libp2p.git#95d3925db8a3d093dd86647165650472a5342b81"
 
 # v0.6.1: https://github.com/status-im/nim-json-rpc/releases/tag/v0.6.1
 requires "https://github.com/status-im/nim-json-rpc.git#6f1fff8ba685c9192fab153a9d66484ad9066e78"
@@ -81,11 +82,11 @@ requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
-# v0.5.1: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.5.1
-# libp2p requires "lsquic >= 0.4.1" by name. With Nimble 0.24.1, a
-# `#commit` constraint can be discarded while merging these requirements;
-# the exact numeric constraint was observed to select 0.5.1.
-requires "https://github.com/vacp2p/nim-lsquic.git == 0.5.1"
+# v0.8.1: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.8.1
+# libp2p requires "lsquic >= 0.5.4" by name. The exact numeric constraint
+# keeps the resolution at the validated release instead of floating to
+# the newest one.
+requires "https://github.com/vacp2p/nim-lsquic.git == 0.8.1"
 
 # v0.0.11: https://github.com/vacp2p/nim-boringssl/releases/tag/v0.0.11
 # nim-lsquic requires "nim-boringssl >= 0.0.4". Releases before 0.0.11
@@ -98,8 +99,8 @@ requires "https://github.com/vacp2p/nim-boringssl == 0.0.11"
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
-# No tag was recorded for this revision at pinning time.
-requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
+# No tag at pinning time; mix master's nim-libp2p 2.2.1 bump (nim-libp2p-mix#54).
+requires "https://github.com/logos-co/nim-libp2p-mix#e7b0c4e6a026b2aa1144fd7945464502d82632da"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
@@ -233,98 +234,58 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   let iosArch = getEnv("IOS_ARCH")
   let iosSdk = getEnv("IOS_SDK")
   let sdkPath = getEnv("IOS_SDK_PATH")
+  let minVersion = getEnv("IOS_DEPLOYMENT_TARGET", "18.0")
 
   if sdkPath.len == 0:
     quit "Error: IOS_SDK_PATH not set. Set it to the path of the iOS SDK"
 
-  # Get nimble package paths
-  let bearsslPath = gorge("nimble path bearssl").strip()
-  let secp256k1Path = gorge("nimble path secp256k1").strip()
-  let natTraversalPath = gorge("nimble path nat_traversal").strip()
+  # Package roots from nimble.paths — `nimble path` is unusable inside a
+  # task (it mixes Info and lock-validation noise into stdout).
+  proc nimblePkgPath(pkg: string): string =
+    for rawLine in readFile("nimble.paths").splitLines():
+      let line = rawLine.strip()
+      if line.startsWith("--path:\"") and ("/pkgs2/" & pkg & "-") in line:
+        return line[8 ..< line.high]
+    quit "Package " & pkg & " not found in nimble.paths — run 'make build-deps' first"
 
-  # Get Nim standard library path
-  let nimPath = gorge("nim --fullhelp 2>&1 | head -1 | sed 's/.*\\[//' | sed 's/\\].*//'").strip()
-  let nimLibPath = nimPath.parentDir.parentDir / "lib"
+  let natTraversalPath = nimblePkgPath("nat_traversal")
 
   # Use SDK name in path to differentiate device vs simulator
   let outDir = "build/ios/" & iosSdk & "-" & iosArch
-  if not dirExists outDir:
-    mkDir outDir
-
-  var extra_params = params
-  let args = commandLineParams()
-  for arg in args:
-    extra_params &= " " & arg
-
-  let cpu = if iosArch == "arm64": "arm64" else: "amd64"
-
-  # The output static library
   let nimcacheDir = outDir & "/nimcache"
-  let objDir = outDir & "/obj"
   let vendorObjDir = outDir & "/vendor_obj"
+  let nimLib = outDir & "/liblogosdelivery_nim.a"
   let aFile = outDir & "/liblogosdelivery.a"
-
-  if not dirExists objDir:
-    mkDir objDir
   if not dirExists vendorObjDir:
     mkDir vendorObjDir
 
-  let clangBase = "clang -arch " & iosArch & " -isysroot " & sdkPath &
-      " -mios-version-min=18.0 -fembed-bitcode -fPIC -O2"
+  let cpu = if iosArch == "arm64": "arm64" else: "amd64"
 
-  # Generate C sources from Nim (no linking)
+  # Simulator objects need the simulator flag, or Xcode refuses to link them.
+  let minVersionFlag =
+    if iosSdk == "iphonesimulator": "-mios-simulator-version-min=" & minVersion
+    else: "-mios-version-min=" & minVersion
+  let targetFlags = "-arch " & iosArch & " -isysroot " & sdkPath & " " & minVersionFlag
+
+  # nim compiles and archives every C source it owns (generated code and the
+  # {.compile.}-pragma'd dependency sources) with the iOS toolchain.
   exec "nim c" &
       " --nimcache:" & nimcacheDir &
       " --os:ios --cpu:" & cpu &
-      " --compileOnly:on" &
+      " --app:staticlib --out:" & nimLib &
       " --noMain --mm:refc" &
       " --threads:on --opt:size --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" &
-      " --nimMainPrefix:liblogosdelivery --skipParentCfg:on" &
+      " --nimMainPrefix:liblogosdelivery --skipParentCfg:off" &
       " --cc:clang" &
-      " " & extra_params &
+      " --passC:\"" & targetFlags & "\" --passL:\"" & targetFlags & "\"" &
+      " " & params & getNimParams() &
       " " & srcDir & "/liblogosdelivery.nim"
 
-  # Compile vendor C libraries for iOS
+  # nat_traversal links prebuilt archives instead of compiling its sources
+  # through nim, so miniupnpc and libnatpmp are compiled here.
+  let vendorClang = "clang " & targetFlags & " -fPIC -O2"
 
-  # --- BearSSL ---
-  echo "Compiling BearSSL for iOS..."
-  let bearSslSrcDir = bearsslPath / "bearssl/csources/src"
-  let bearSslIncDir = bearsslPath / "bearssl/csources/inc"
-  for path in walkDirRec(bearSslSrcDir):
-    if path.endsWith(".c"):
-      let relPath = path.replace(bearSslSrcDir & "/", "").replace("/", "_")
-      let baseName = relPath.changeFileExt("o")
-      let oFile = vendorObjDir / ("bearssl_" & baseName)
-      if not fileExists(oFile):
-        exec clangBase & " -I" & bearSslIncDir & " -I" & bearSslSrcDir & " -c " & path & " -o " & oFile
-
-  # --- secp256k1 ---
-  echo "Compiling secp256k1 for iOS..."
-  let secp256k1Dir = secp256k1Path / "vendor/secp256k1"
-  let secp256k1Flags = " -I" & secp256k1Dir & "/include" &
-        " -I" & secp256k1Dir & "/src" &
-        " -I" & secp256k1Dir &
-        " -DENABLE_MODULE_RECOVERY=1" &
-        " -DENABLE_MODULE_ECDH=1" &
-        " -DECMULT_WINDOW_SIZE=15" &
-        " -DECMULT_GEN_PREC_BITS=4"
-
-  # Main secp256k1 source
-  let secp256k1Obj = vendorObjDir / "secp256k1.o"
-  if not fileExists(secp256k1Obj):
-    exec clangBase & secp256k1Flags & " -c " & secp256k1Dir & "/src/secp256k1.c -o " & secp256k1Obj
-
-  # Precomputed tables (required for ecmult operations)
-  let secp256k1PreEcmultObj = vendorObjDir / "secp256k1_precomputed_ecmult.o"
-  if not fileExists(secp256k1PreEcmultObj):
-    exec clangBase & secp256k1Flags & " -c " & secp256k1Dir & "/src/precomputed_ecmult.c -o " & secp256k1PreEcmultObj
-
-  let secp256k1PreEcmultGenObj = vendorObjDir / "secp256k1_precomputed_ecmult_gen.o"
-  if not fileExists(secp256k1PreEcmultGenObj):
-    exec clangBase & secp256k1Flags & " -c " & secp256k1Dir & "/src/precomputed_ecmult_gen.c -o " & secp256k1PreEcmultGenObj
-
-  # --- miniupnpc ---
   echo "Compiling miniupnpc for iOS..."
   let miniupnpcSrcDir = natTraversalPath / "vendor/miniupnp/miniupnpc/src"
   let miniupnpcIncDir = natTraversalPath / "vendor/miniupnp/miniupnpc/include"
@@ -339,7 +300,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
     let srcPath = miniupnpcSrcDir / fileName
     let oFile = vendorObjDir / ("miniupnpc_" & fileName.changeFileExt("o"))
     if fileExists(srcPath) and not fileExists(oFile):
-      exec clangBase &
+      exec vendorClang &
           " -I" & miniupnpcIncDir &
           " -I" & miniupnpcSrcDir &
           " -I" & miniupnpcBuildDir &
@@ -347,64 +308,32 @@ proc buildMobileIOS(srcDir = ".", params = "") =
           " -D_BSD_SOURCE -D_DEFAULT_SOURCE" &
           " -c " & srcPath & " -o " & oFile
 
-  # --- libnatpmp ---
   echo "Compiling libnatpmp for iOS..."
   let natpmpSrcDir = natTraversalPath / "vendor/libnatpmp-upstream"
   # Only compile natpmp.c - getgateway.c uses net/route.h which is not available on iOS
   let natpmpObj = vendorObjDir / "natpmp_natpmp.o"
   if not fileExists(natpmpObj):
-    exec clangBase &
+    exec vendorClang &
         " -I" & natpmpSrcDir &
         " -DENABLE_STRNATPMPERR" &
         " -c " & natpmpSrcDir & "/natpmp.c -o " & natpmpObj
 
- # Use iOS-specific stub for getgateway
+  # Use iOS-specific stub for getgateway
   let getgatewayStubSrc = "./library/ios_natpmp_stubs.c"
   let getgatewayStubObj = vendorObjDir / "natpmp_getgateway_stub.o"
   if fileExists(getgatewayStubSrc) and not fileExists(getgatewayStubObj):
-    exec clangBase & " -c " & getgatewayStubSrc & " -o " & getgatewayStubObj
+    exec vendorClang & " -c " & getgatewayStubSrc & " -o " & getgatewayStubObj
 
-  # --- BearSSL stubs (for tools functions not in main library) ---
-  echo "Compiling BearSSL stubs for iOS..."
-  let bearSslStubsSrc = "./library/ios_bearssl_stubs.c"
-  let bearSslStubsObj = vendorObjDir / "bearssl_stubs.o"
-  if fileExists(bearSslStubsSrc) and not fileExists(bearSslStubsObj):
-    exec clangBase & " -c " & bearSslStubsSrc & " -o " & bearSslStubsObj
-
-  # Compile all Nim-generated C files to object files
-  echo "Compiling Nim-generated C files for iOS..."
-  var cFiles: seq[string] = @[]
-  for kind, path in walkDir(nimcacheDir):
-    if kind == pcFile and path.endsWith(".c"):
-      cFiles.add(path)
-
-  for cFile in cFiles:
-    let baseName = extractFilename(cFile).changeFileExt("o")
-    let oFile = objDir / baseName
-    exec clangBase &
-        " -DENABLE_STRNATPMPERR" &
-        " -I" & nimLibPath &
-        " -I" & bearsslPath & "/bearssl/csources/inc/" &
-        " -I" & bearsslPath & "/bearssl/csources/tools/" &
-        " -I" & bearsslPath & "/bearssl/abi/" &
-        " -I" & secp256k1Path & "/vendor/secp256k1/include/" &
-        " -I" & natTraversalPath & "/vendor/miniupnp/miniupnpc/include/" &
-        " -I" & natTraversalPath & "/vendor/libnatpmp-upstream/" &
-        " -I" & nimcacheDir &
-        " -c " & cFile &
-        " -o " & oFile
-
-  # Create static library from all object files
   echo "Creating static library..."
-  var objFiles: seq[string] = @[]
-  for kind, path in walkDir(objDir):
-    if kind == pcFile and path.endsWith(".o"):
-      objFiles.add(path)
+  var inputs = @[nimLib]
   for kind, path in walkDir(vendorObjDir):
     if kind == pcFile and path.endsWith(".o"):
-      objFiles.add(path)
+      inputs.add(path)
+  exec "libtool -static -o " & aFile & " " & inputs.join(" ")
 
-  exec "libtool -static -o " & aFile & " " & objFiles.join(" ")
+  let header = nimcacheDir & "/liblogosdelivery.h"
+  if fileExists(header):
+    cpFile(header, outDir & "/liblogosdelivery.h")
 
   echo "iOS library created: " & aFile
 

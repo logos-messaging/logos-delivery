@@ -1,6 +1,6 @@
 {.used.}
 
-import std/sequtils, results, testutils/unittests
+import std/[sequtils, strutils], results, testutils/unittests
 import logos_delivery/waku/waku_core, logos_delivery/waku/waku_enr, ./testlib/wakucore
 
 suite "Waku ENR -  Capabilities bitfield":
@@ -484,3 +484,21 @@ suite "Waku ENR - Relay static sharding":
     check:
       shardsOpt.isSome()
       shardsOpt.get() == relayShardsIndicesList
+
+  test "ENR multiaddr encoding keeps the relay identity":
+    let circuit = MultiAddress
+      .init(
+        "/ip4/93.184.216.34/tcp/4001/p2p/" &
+          "16Uiu2HAm7YEh2wwbYNvayrSQe2bdm1aL4FnhCLkvSNaScMxcgt4n/p2p-circuit"
+      )
+      .get()
+    let key = generateSecp256k1Key()
+    var builder = EnrBuilder.init(key)
+    builder.withMultiaddrs(@[circuit])
+    let record = builder.build().expect("record")
+    let typed = record.toTyped().expect("typed")
+    let decoded = typed.multiaddrs.expect("multiaddrs field")
+    check:
+      decoded.len == 1
+      "/p2p/" in $decoded[0]
+      "/p2p-circuit" in $decoded[0]
