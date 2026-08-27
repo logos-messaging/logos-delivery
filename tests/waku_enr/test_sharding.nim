@@ -49,7 +49,7 @@ suite "Sharding":
       assert emptyRes.value.isNone(), $emptyRes.value
 
   suite "containsShard":
-    asyncTest "update ENR from subscriptions":
+    asyncTest "update ENR shards via updateShards":
       ## Given
       let
         shard1 = "/waku/2/rs/0/1"
@@ -59,8 +59,6 @@ suite "Sharding":
         bindIp = "0.0.0.0"
         extIp = "127.0.0.1"
         tcpPort = 61500u16
-
-      let queue = newAsyncEventQueue[SubscriptionEvent](30)
 
       proc attempt(
           p: Port
@@ -76,7 +74,6 @@ suite "Sharding":
               tcpPort = tcpPort,
               udpPort = uint16(p),
               record = record,
-              queue = queue,
             )
           except CatchableError as e:
             return err("could not build discv5 node: " & e.msg)
@@ -87,64 +84,37 @@ suite "Sharding":
       let node = (await tryWithAutoPort[WakuDiscoveryV5](Port(0), attempt)).valueOr:
         raiseAssert "could not start discv5 node: " & error
 
-      proc waitForShards(
-          shards: seq[string], present: bool, timeout = 5.seconds
-      ) {.async.} =
-        ## Waits until the ENR agrees with the emitted subscription events.
-        let deadline = Moment.now() + timeout
-        while Moment.now() < deadline:
-          if shards.allIt(node.protocol.localNode.record.containsShard(it) == present):
-            return
-          await sleepAsync(10.milliseconds)
-        raiseAssert "ENR never reached containsShard == " & $present & " for " & $shards
-
-      proc waitForEnrUpdate(previous: uint64, timeout = 5.seconds) {.async.} =
-        ## Waits for the next ENR revision, for events that leave the shards alone.
-        let deadline = Moment.now() + timeout
-        while Moment.now() < deadline:
-          if node.protocol.localNode.record.seqNum > previous:
-            return
-          await sleepAsync(10.milliseconds)
-        raiseAssert "ENR was never revised past seqNum " & $previous
-
       ## Then
-      queue.emit((kind: PubsubSub, topic: shard1))
-      queue.emit((kind: PubsubSub, topic: shard2))
-      queue.emit((kind: PubsubSub, topic: shard3))
-
-      await waitForShards(@[shard1, shard2, shard3], true)
+      node.updateShards(@[shard1, shard2, shard3], add = true).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == true
         node.protocol.localNode.record.containsShard(shard2) == true
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      let seqNumBeforeResubscribe = node.protocol.localNode.record.seqNum
-
-      queue.emit((kind: PubsubSub, topic: shard1))
-      queue.emit((kind: PubsubSub, topic: shard2))
-      queue.emit((kind: PubsubSub, topic: shard3))
-
-      await waitForEnrUpdate(seqNumBeforeResubscribe)
+      # re-adding already present shards keeps them
+      node.updateShards(@[shard1, shard2, shard3], add = true).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == true
         node.protocol.localNode.record.containsShard(shard2) == true
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      queue.emit((kind: PubsubUnsub, topic: shard1))
-      queue.emit((kind: PubsubUnsub, topic: shard2))
-
-      await waitForShards(@[shard1, shard2], false)
+      node.updateShards(@[shard1, shard2], add = false).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == false
         node.protocol.localNode.record.containsShard(shard2) == false
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      ## Cleanup
-      await node.stop()
+      # removing the last remaining shard is refused
+      check node.updateShards(@[shard3], add = false).isErr()
+      check node.protocol.localNode.record.containsShard(shard3) == true
 
+      await node.stop()
 suite "Discovery Mechanisms for Shards":
   test "Index List Representation":
     # Given a valid index list and its representation
