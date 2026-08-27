@@ -57,9 +57,7 @@ proc requestAll*(
   var records: seq[WakuPeerRecord]
   try:
     # Use the libp2p rendezvous request method
-    records = await requestRecords(
-      self.rdv, namespace, PeersRequestedCount, rpi.peerId
-    )
+    records = await requestRecords(self.rdv, namespace, PeersRequestedCount, rpi.peerId)
   except CatchableError as e:
     return err("rendezvous request failed: " & e.msg)
 
