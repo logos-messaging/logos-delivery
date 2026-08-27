@@ -221,7 +221,6 @@ suite "Mix send path - exit peer selection":
     check:
       waku.lightpushPeerAvailable(shard) # usable for a plain send
       waku.selectMixLightpushPeer(shard).isNone() # but not as a mix exit
-      not waku.mixReady(shard)
 
   asyncTest "a mix key alone does not make a peer a usable exit":
     ## Mix routes over IPv4 TCP or QUIC-v1 only. A peer advertising anything

@@ -136,14 +136,18 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
       return Opt.some(peer)
   return Opt.none(RemotePeerInfo)
 
-proc mixReady*(self: Waku, shard: PubsubTopic): bool =
-  ## True if mix can carry a publish for `shard` right now: mounted, enough
-  ## nodes in the pool to build a path, and a mix-capable exit to send to.
+proc mixReady*(self: Waku): bool =
+  ## True if mix could carry a publish at all: mounted, and holding enough nodes
+  ## to build a path. Both checks are O(1) reads.
+  ##
+  ## Deliberately does not look for an exit peer. `lightpushPublishToAny` selects
+  ## one itself, and answers SERVICE_NOT_AVAILABLE when it finds none, which the
+  ## send processors already turn into the same `NextRoundRetry` this guard would
+  ## have produced. Checking here too only bought a second peer scan per task per
+  ## round, and that scan is the expensive part: it walks the whole peer store.
   if self.node.wakuMix.isNil():
     return false
-  if self.node.getMixNodePoolSize() < MinMixPoolSize:
-    return false
-  return self.selectMixLightpushPeer(shard).isSome()
+  return self.node.getMixNodePoolSize() >= MinMixPoolSize
 
 proc lightpushPublishToAny*(
     self: Waku, shard: PubsubTopic, message: WakuMessage, mixify: bool = false

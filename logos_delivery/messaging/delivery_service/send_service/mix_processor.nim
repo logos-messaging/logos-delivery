@@ -49,8 +49,8 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
     task.state = DeliveryState.FallbackRetry
     return
 
-  if not self.waku.mixReady(task.pubsubTopic):
-    debug "Mix cannot publish yet (no path or no mix-capable exit), retrying next round",
+  if not self.waku.mixReady():
+    debug "Mix cannot publish yet (not enough nodes for a path), retrying next round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.NextRoundRetry
     return
