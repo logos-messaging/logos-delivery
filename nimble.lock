@@ -98,16 +98,17 @@
       }
     },
     "testutils": {
-      "version": "0.8.1",
-      "vcsRevision": "6ce5e5e2301ccbc04b09d27ff78741ff4d352b4d",
+      "version": "0.8.3",
+      "vcsRevision": "3feb84e206660d5289caefbe7b0f66f97d9ec084",
       "url": "https://github.com/status-im/nim-testutils",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
+        "stew",
         "unittest2"
       ],
       "checksums": {
-        "sha1": "96a11cf8b84fa9bd12d4a553afa1cc4b7f9df4e3"
+        "sha1": "2aeb2136828691761eb16c73a050938f53477458"
       }
     },
     "intops": {
@@ -522,15 +523,15 @@
       }
     },
     "nimcrypto": {
-      "version": "0.6.4",
-      "vcsRevision": "721fb99ee099b632eb86dfad1f0d96ee87583774",
+      "version": "0.7.2",
+      "vcsRevision": "8085515e717b07e29de1ef50d5e9f15a3f6004c0",
       "url": "https://github.com/cheatfate/nimcrypto",
       "downloadMethod": "git",
       "dependencies": [
         "nim"
       ],
       "checksums": {
-        "sha1": "f9ab24fa940ed03d0fb09729a7303feb50b7eaec"
+        "sha1": "8ed2a20f2efaa08782bb871284cbcc3100ca1dea"
       }
     },
     "lsquic": {
@@ -677,8 +678,8 @@
       }
     },
     "eth": {
-      "version": "#3cda9027f83ac03643dd15a383d67139eec9df6f",
-      "vcsRevision": "3cda9027f83ac03643dd15a383d67139eec9df6f",
+      "version": "#v0.9.1",
+      "vcsRevision": "c3d1ad4f570f4529cb71e73095a44f0504e581a3",
       "url": "https://github.com/status-im/nim-eth",
       "downloadMethod": "git",
       "dependencies": [
@@ -700,7 +701,7 @@
         "snappy"
       ],
       "checksums": {
-        "sha1": "c444adac10fb0e1b8eec3db0a0b4a567db3b7fad"
+        "sha1": "7d9040ae12099bb719c6f1e1fc9a05bdf782c5a6"
       }
     },
     "web3": {
