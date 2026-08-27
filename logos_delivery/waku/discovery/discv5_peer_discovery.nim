@@ -10,7 +10,7 @@ import std/[sequtils, strutils]
 import chronos, chronicles, results
 import libp2p/crypto/crypto
 import brokers/broker_implement
-import logos_delivery/api/peer_discovery_interface
+import logos_delivery/waku/discovery/peer_discovery_interface
 import
   logos_delivery/waku/discovery/waku_discv5,
   logos_delivery/waku/discovery/peer_discovery_conversion,

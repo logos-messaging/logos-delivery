@@ -2,7 +2,7 @@
 
 import chronos, results, testutils/unittests
 import brokers/broker_implement
-import logos_delivery/api/peer_discovery_interface
+import logos_delivery/waku/discovery/peer_discovery_interface
 
 type MockDiscovery = ref object of IPeerDiscovery
   started: bool
