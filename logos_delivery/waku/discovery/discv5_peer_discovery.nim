@@ -17,6 +17,7 @@ import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_enr,
   logos_delivery/waku/api/events/discovery_events,
+  logos_delivery/waku/api/events/subscription_events,
   logos_delivery/waku/requests/node_state_requests
 
 export peer_discovery_interface
@@ -39,29 +40,6 @@ type Discv5PeerDiscovery* = ref object of IPeerDiscovery
     ## own brokerCtx scopes the interface brokers).
   inner*: WakuDiscoveryV5
   running: bool
-  subscriptionLoop: Future[void]
-
-proc runSubscriptionListener(
-    self: Discv5PeerDiscovery, queue: AsyncEventQueue[SubscriptionEvent]
-) {.async.} =
-  ## Consumes relay/filter shard subscription changes and mirrors them into
-  ## the discv5 ENR (moved here from WakuDiscoveryV5's internal listener).
-  let key = queue.register()
-  defer:
-    queue.unregister(key)
-
-  while self.running:
-    let events = await queue.waitEvents(key)
-
-    let subs = events.filterIt(it.kind == PubsubSub).mapIt(it.topic)
-    let unsubs = events.filterIt(it.kind == PubsubUnsub).mapIt(it.topic)
-
-    if unsubs.len > 0:
-      self.inner.updateShards(unsubs, add = false).isOkOr:
-        debug "ENR shard removal failed", reason = error
-    if subs.len > 0:
-      self.inner.updateShards(subs, add = true).isOkOr:
-        debug "ENR shard addition failed", reason = error
 
 proc keyPredicate(key: string): Result[Opt[WakuDiscv5Predicate], string] =
   ## Maps a criteria key onto an ENR record predicate.
@@ -123,6 +101,27 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
       conf: conf, listenAddress: listenAddress, rng: rng, nodeCtx: globalBrokerContext()
     )
 
+    # Mirror the node's shard subscriptions into the ENR. The handler body
+    # must stay suspension-free: listeners are spawned per emit, so an await
+    # here could invert a subscribe/unsubscribe pair for the same shard.
+    let onShardSubscribed = proc(
+        ev: ShardSubscribedEvent
+    ): Future[void] {.async: (raises: []), gcsafe.} =
+      if not self.running:
+        return
+      self.inner.updateShards(@[ev.topic], add = true).isOkOr:
+        debug "ENR shard addition failed", topic = ev.topic, reason = error
+    discard ShardSubscribedEvent.listen(self.nodeCtx, onShardSubscribed)
+
+    let onShardUnsubscribed = proc(
+        ev: ShardUnsubscribedEvent
+    ): Future[void] {.async: (raises: []), gcsafe.} =
+      if not self.running:
+        return
+      self.inner.updateShards(@[ev.topic], add = false).isOkOr:
+        debug "ENR shard removal failed", topic = ev.topic, reason = error
+    discard ShardUnsubscribedEvent.listen(self.nodeCtx, onShardUnsubscribed)
+
     # Bridge the node-level event onto the instance-scoped interface event.
     # The wrapper lives as long as the node, so the listener is never dropped.
     discard PeersDiscoveredEvent.listen(
@@ -165,7 +164,6 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     ## node start sequence reaches discovery the providers are installed.
     let enrRecord = ?GetNodeEnr.request(self.nodeCtx)
     let peerManager = ?GetNodePeerManager.request(self.nodeCtx)
-    let subscriptionQueue = ?GetTopicSubscriptionQueue.request(self.nodeCtx)
     let dynamicBootstrapNodes = ?GetDynamicBootstrapNodes.request(self.nodeCtx)
     let nodeKey = ?GetNodeKey.request(self.nodeCtx)
 
@@ -174,7 +172,6 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
       self.listenAddress,
     )
     self.running = true
-    self.subscriptionLoop = self.runSubscriptionListener(subscriptionQueue)
     ok()
 
   method stopDiscovery(
@@ -183,9 +180,6 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     if not self.running:
       return ok()
     self.running = false
-    if not self.subscriptionLoop.isNil():
-      await self.subscriptionLoop.cancelAndWait()
-      self.subscriptionLoop = nil
     try:
       await self.inner.stop()
     except CatchableError:
