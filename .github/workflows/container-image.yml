@@ -19,7 +19,7 @@ env:
   # -d:disableMarchNative here, config.nims applies -march=native and
   # secp256k1 fails to compile.
   NIM_PARAMS: "-d:disableMarchNative"
-  NIM_VERSION: '2.2.4'
+  NIM_VERSION: '2.2.6'
   NIMBLE_VERSION: '0.24.1'
 
 # This workflow should not run for outside contributors

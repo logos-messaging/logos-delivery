@@ -18,8 +18,8 @@ For more details see the [source code](logos_delivery/waku/README.md)
 These instructions are generic. For more detailed instructions, see the source code above.
 
 Recommended and tested toolchain versions (these are installed when you follow the build instructions below):
-- Nim 2.2.4
-- Nimble 0.22.3
+- Nim 2.2.6
+- Nimble 0.24.1
 
 ### Prerequisites
 
