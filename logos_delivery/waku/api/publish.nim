@@ -7,8 +7,8 @@
 ## so the messaging layer never inspects `waku.node` directly.
 {.push raises: [].}
 
-import std/[tables, times, strutils]
-import results, chronos
+import std/[random, tables, times, strutils]
+import results, chronos, libp2p_mix/pool
 
 import logos_delivery/waku/waku
 import
@@ -111,29 +111,41 @@ proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
 proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo] =
   ## Picks a lightpush service peer for `shard` that mix can route to. With
   ## `exit_is_dest` the lightpush server terminates the sphinx path, so it has
-  ## to be a member of mix's node pool: a peer that serves lightpush but is not
-  ## in the pool is unusable here.
+  ## to be one mix can build a `MixPubInfo` for: a peer carrying a mix key but
+  ## no mix-routable address passes mix's own destination gate and only fails
+  ## deep inside path construction, which evicts it from the pool on the way out.
   ##
-  ## Membership is asked of the peer store, because that is where the pool
-  ## lives: `MixNodePool` is a view over `MixPubKeyBook`, which discovery
-  ## (kademlia, rendezvous) and the static `--mixnode` list both write to. So
-  ## the pool needs no separate feeding, and this needs no separate bookkeeping.
+  ## Walks the mix pool rather than the lightpush peers. Both orders answer the
+  ## same question, but `selectPeers` reaches it through `peerStore.peers`, which
+  ## materialises a full `RemotePeerInfo` - addresses, protocols, shards, raw ENR
+  ## - for every peer in the store before filtering. The pool is a handful of
+  ## entries and the filters here are direct book reads, so the work scales with
+  ## the mix pool instead of the peer store. Shuffled for the same reason
+  ## `selectPeers` shuffles: without it every message leaves by the same exit.
   ##
-  ## Follows `selectPeer`'s service-slot-first order on purpose. A statically
-  ## configured `--lightpushnode` lives in the slot and is invisible to
-  ## `selectPeers`: it enters the peer store from a bare multiaddr, with no
-  ## protocols and no shards, so both of that proc's filters drop it until
-  ## identify and waku-metadata have filled those books. Selecting only from
-  ## `selectPeers` would leave `mixReady` false on exactly the setup a mix
-  ## deployment uses.
+  ## Service slot first, following `selectPeer`. A statically configured
+  ## `--lightpushnode` lives in the slot and carries no protocols and no shards
+  ## until identify and waku-metadata have filled those books, so the two filters
+  ## below would drop it on exactly the setup a mix deployment uses.
   let peerStore = self.node.peerManager.switch.peerStore
+  let pool = MixNodePool.new(peerStore)
+
   let slotted = self.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
-  if not slotted.isNil() and peerStore.isUsableMixNode(slotted.peerId):
+  if not slotted.isNil() and pool.get(slotted.peerId).isSome():
     return Opt.some(peerStore.getPeer(slotted.peerId))
 
-  for peer in self.node.peerManager.selectPeers(WakuLightPushCodec, Opt.some(shard)):
-    if peerStore.isUsableMixNode(peer.peerId):
-      return Opt.some(peer)
+  let shardInfo = RelayShard.parse(shard).valueOr:
+    return Opt.none(RemotePeerInfo)
+
+  var mixPeers = pool.peerIds()
+  shuffle(mixPeers)
+  for peerId in mixPeers:
+    if not peerStore[ProtoBook][peerId].contains(WakuLightPushCodec):
+      continue
+    if not peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
+      continue
+    if pool.get(peerId).isSome():
+      return Opt.some(peerStore.getPeer(peerId))
   return Opt.none(RemotePeerInfo)
 
 proc mixReady*(self: Waku): bool =

@@ -181,14 +181,6 @@ proc hasShard*(peerStore: PeerStore, peerId: PeerID, cluster, shard: uint16): bo
 proc hasCapability*(peerStore: PeerStore, peerId: PeerID, cap: Capabilities): bool =
   peerStore[ENRBook].book.getOrDefault(peerId).supportsCapability(cap)
 
-proc isUsableMixNode*(peerStore: PeerStore, peerId: PeerId): bool =
-  ## True when the store holds everything mix needs to route to `peerId`: a mix
-  ## public key, a mix-supported multiaddr (IPv4 over TCP or QUIC-v1) and the
-  ## peer's libp2p key. Asks `MixNodePool`, which is a stateless view over this
-  ## store, rather than re-deriving the rule: a peer that only carries a mix key
-  ## still fails inside mix's path construction.
-  return MixNodePool.new(peerStore).get(peerId).isSome()
-
 proc peerExists*(peerStore: PeerStore, peerId: PeerId): bool =
   peerStore[AddressBook].contains(peerId)
 
