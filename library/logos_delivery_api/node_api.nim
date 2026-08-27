@@ -182,10 +182,11 @@ proc parseRlnErrorKind(s: string): RlnErrorKind =
   else:
     RlnErrorKind.Transient
 
-proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, string] =
-  ## Parses the module's reply envelope for `validate_proof`: exactly one of
-  ## `ok`/`err`; an invalid proof is an `ok` with an `invalid` verdict, `err`
-  ## means the module failed to answer.
+proc parseRlnOk(resultJson: string): Result[JsonNode, string] =
+  ## Unwraps the reply envelope EVERY RLN response speaks (delivery-module
+  ## docs/rln.md): exactly one of `ok`/`err`. Returns the ok payload; maps
+  ## `err` through its kind, so a responder-reported failure is a failed
+  ## Result — never a "success" carrying an error body.
   let node =
     try:
       parseJson(resultJson)
@@ -199,8 +200,12 @@ proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, stri
     return err($kind & ": " & e{"message"}.getStr(""))
   if not node.hasKey("ok"):
     return err("module reply has neither ok nor err")
+  return ok(node["ok"])
 
-  let okNode = node["ok"]
+proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, string] =
+  ## An invalid proof is an `ok` with an `invalid` verdict; `err` means the
+  ## module failed to answer.
+  let okNode = ?parseRlnOk(resultJson)
   let verdict = ?parseRlnVerdict(okNode{"verdict"}.getStr(""))
   var validation = ValidationResult(verdict: verdict)
   let recovered = okNode{"recovered_secret"}
@@ -214,25 +219,12 @@ proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, stri
   return ok(validation)
 
 proc parseRlnGeneratedProof(resultJson: string): Result[seq[byte], string] =
-  ## Parses the module's `generate_proof` reply envelope. The reply's
-  ## `proof_canonical` — the full canonical zerokit serialization — is what
-  ## the message wire carries: the validator ships those bytes back as a
-  ## single `{"proof": <hex>}` field and the module recovers every public
-  ## value from them.
-  let node =
-    try:
-      parseJson(resultJson)
-    except CatchableError as e:
-      return err("invalid module reply JSON: " & e.msg)
-  if node.kind != JObject:
-    return err("module reply is not a JSON object")
-  if node.hasKey("err"):
-    let e = node["err"]
-    let kind = parseRlnErrorKind(e{"kind"}.getStr(""))
-    return err($kind & ": " & e{"message"}.getStr(""))
-  if not node.hasKey("ok"):
-    return err("module reply has neither ok nor err")
-  let hexStr = node["ok"]{"proof_canonical"}.getStr("")
+  ## The `generate_proof` reply's `proof_canonical` — the full canonical
+  ## zerokit serialization — is what the message wire carries: the validator
+  ## ships those bytes back as a single `{"proof": <hex>}` field and the
+  ## module recovers every public value from them.
+  let okNode = ?parseRlnOk(resultJson)
+  let hexStr = okNode{"proof_canonical"}.getStr("")
   if hexStr.len == 0:
     return err("generate_proof reply carries no proof_canonical")
   try:
@@ -248,7 +240,8 @@ proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, str
     ctx,
     proc(): Future[Result[RequestStartRlnModule, string]] {.async.} =
       let response = ?await rlnStart()
-      return ok(RequestStartRlnModule(response: response)),
+      let okNode = ?parseRlnOk(response)
+      return ok(RequestStartRlnModule(response: $okNode)),
   ).isOkOr:
     return err("failed to set RequestStartRlnModule provider: " & error)
 
@@ -261,7 +254,8 @@ proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, str
       for opt in options:
         optionsJson.add(%*{"key": opt.key, "value": opt.value})
       let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
-      return ok(RequestRegisterRlnMembership(response: response)),
+      let okNode = ?parseRlnOk(response)
+      return ok(RequestRegisterRlnMembership(response: $okNode)),
   ).isOkOr:
     return err("failed to set RequestRegisterRlnMembership provider: " & error)
 
