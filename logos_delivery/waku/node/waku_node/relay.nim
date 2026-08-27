@@ -215,6 +215,11 @@ proc setRlnValidator*(
       if message.timestamp < 0:
         trace "rln-lez validator reject", error = "negative message timestamp"
         return pubsub.ValidationResult.Reject
+      if message.proof.len == 0:
+        ## A missing proof is the sender's protocol violation — a verdict we
+        ## can reach without the module, so it stays a Reject.
+        trace "rln-lez validator reject", error = "message has no RLN proof"
+        return pubsub.ValidationResult.Reject
       let timestamp = uint64(message.timestamp div 1_000_000_000)
 
       let res = (
@@ -222,8 +227,15 @@ proc setRlnValidator*(
           node.brokerCtx, message, registryId, rlnIdentifier, timestamp
         )
       ).valueOr:
-        trace "rln-lez validator reject", error = error
-        return pubsub.ValidationResult.Reject
+        ## An error is the absence of a verdict, never evidence of spam:
+        ## the module may not be started yet (the validator mounts at node
+        ## create, the module starts in startNode), the call may have timed
+        ## out, or the reply failed to parse. Punishing the peer for OUR
+        ## inability to evaluate would tear down healthy mesh links, so the
+        ## message is Ignored — dropped without scoring. Reject stays
+        ## reserved for actual verdicts.
+        trace "rln-lez validator ignore", error = error
+        return pubsub.ValidationResult.Ignore
 
       let proof = byteutils.toHex(message.proof)
       case res.validation.verdict
