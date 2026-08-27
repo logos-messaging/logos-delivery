@@ -245,10 +245,7 @@ proc new*(
 
   if wakuConf.discv5Conf.isSome():
     waku.discv5Discovery = Discv5PeerDiscovery.create(
-      wakuConf.discv5Conf.get(),
-      wakuConf.endpointConf.p2pListenAddress,
-      rng,
-      waku.brokerCtx,
+      wakuConf.discv5Conf.get(), wakuConf.endpointConf.p2pListenAddress, rng
     )
     node.attachDiscovery(waku.discv5Discovery)
 
