@@ -109,10 +109,15 @@ proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   return self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).isSome()
 
 proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo] =
-  ## Picks a lightpush service peer for `shard` that is itself a mix node.
-  ## With `exit_is_dest` the lightpush server terminates the sphinx path, so
-  ## mix refuses any destination missing from the pool: a peer without a mix
-  ## public key can serve lightpush and still be unusable here.
+  ## Picks a lightpush service peer for `shard` that mix can route to. With
+  ## `exit_is_dest` the lightpush server terminates the sphinx path, so it has
+  ## to be a member of mix's node pool: a peer that serves lightpush but is not
+  ## in the pool is unusable here.
+  ##
+  ## Membership is asked of the peer store, because that is where the pool
+  ## lives: `MixNodePool` is a view over `MixPubKeyBook`, which discovery
+  ## (kademlia, rendezvous) and the static `--mixnode` list both write to. So
+  ## the pool needs no separate feeding, and this needs no separate bookkeeping.
   ##
   ## Follows `selectPeer`'s service-slot-first order on purpose. A statically
   ## configured `--lightpushnode` lives in the slot and is invisible to
@@ -120,17 +125,14 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   ## protocols and no shards, so both of that proc's filters drop it until
   ## identify and waku-metadata have filled those books. Selecting only from
   ## `selectPeers` would leave `mixReady` false on exactly the setup a mix
-  ## deployment uses. The slot's mix key is read back from the peer store,
-  ## since the slot itself holds a snapshot taken before discovery learned one.
-  let peerManager = self.node.peerManager
-  let slotted = peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
-  if not slotted.isNil():
-    let peer = peerManager.getPeer(slotted.peerId)
-    if peer.mixPubKey.isSome():
-      return Opt.some(peer)
+  ## deployment uses.
+  let peerStore = self.node.peerManager.switch.peerStore
+  let slotted = self.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
+  if not slotted.isNil() and peerStore.isUsableMixNode(slotted.peerId):
+    return Opt.some(peerStore.getPeer(slotted.peerId))
 
-  for peer in peerManager.selectPeers(WakuLightPushCodec, Opt.some(shard)):
-    if peer.mixPubKey.isSome():
+  for peer in self.node.peerManager.selectPeers(WakuLightPushCodec, Opt.some(shard)):
+    if peerStore.isUsableMixNode(peer.peerId):
       return Opt.some(peer)
   return Opt.none(RemotePeerInfo)
 

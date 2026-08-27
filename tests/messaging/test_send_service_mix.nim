@@ -193,7 +193,9 @@ suite "Mix send path - exit peer selection":
 
   const shard = PubsubTopic("/waku/2/rs/3/0")
 
-  proc addLightpushPeer(mixCapable: bool): PeerId =
+  proc addLightpushPeer(
+      mixCapable: bool, address = "/ip4/127.0.0.1/tcp/60000"
+  ): PeerId =
     let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
     let keyPair = generateKeyPair().expect("mix key pair")
     let mixPubKey =
@@ -204,7 +206,7 @@ suite "Mix send path - exit peer selection":
     waku.node.peerManager.addPeer(
       RemotePeerInfo.init(
         peerId,
-        @[MultiAddress.init("/ip4/127.0.0.1/tcp/60000").tryGet()],
+        @[MultiAddress.init(address).tryGet()],
         protocols = @[WakuLightPushCodec],
         shards = @[0'u16],
         mixPubKey = mixPubKey,
@@ -220,6 +222,16 @@ suite "Mix send path - exit peer selection":
       waku.lightpushPeerAvailable(shard) # usable for a plain send
       waku.selectMixLightpushPeer(shard).isNone() # but not as a mix exit
       not waku.mixReady(shard)
+
+  asyncTest "a mix key alone does not make a peer a usable exit":
+    ## Mix routes over IPv4 TCP or QUIC-v1 only. A peer advertising anything
+    ## else is not in the pool however good its mix key is, and handing it over
+    ## as a destination costs a delivery round and evicts it from the pool.
+    discard addLightpushPeer(mixCapable = true, address = "/dns4/node.test/tcp/60000")
+
+    check:
+      waku.lightpushPeerAvailable(shard)
+      waku.selectMixLightpushPeer(shard).isNone()
 
   asyncTest "the mix-capable peer is picked out of a mixed set":
     discard addLightpushPeer(mixCapable = false)
