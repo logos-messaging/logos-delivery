@@ -41,8 +41,3 @@ RequestBroker(sync):
   # DNS-discovery (or otherwise dynamically obtained) bootstrap peers;
   # empty until retrieval succeeded.
   proc getDynamicBootstrapNodes(): Result[seq[RemotePeerInfo], string]
-
-RequestBroker(sync):
-  # Relay/filter shard subscription change feed (consumed by discv5 for
-  # ENR shard updates).
-  proc getTopicSubscriptionQueue(): Result[AsyncEventQueue[SubscriptionEvent], string]
