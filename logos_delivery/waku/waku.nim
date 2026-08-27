@@ -261,8 +261,6 @@ proc new*(
     ok(waku.key)
   discard GetDynamicBootstrapNodes.reprovideIt(waku.brokerCtx):
     ok(waku.dynamicBootstrapNodes)
-  discard GetTopicSubscriptionQueue.reprovideIt(waku.brokerCtx):
-    ok(waku.node.topicSubscriptionQueue)
 
   NodeLifecycleEvent.emit(
     waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Initialized)
