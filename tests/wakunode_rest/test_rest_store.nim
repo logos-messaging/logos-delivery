@@ -15,7 +15,6 @@ import
     waku_core/message,
     waku_core/message/digest,
     waku_core/topics,
-    waku_core/time,
     waku_node,
     node/peer_manager,
     rest_api/endpoint/server,
@@ -913,6 +912,8 @@ procSuite "Waku Rest API - Store v3":
 
   asyncTest "hashes filter: matching, duplicated and absent hashes each return exactly their messages":
     let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
     let secondHash = t.hashes[1].toRestStringWakuMessageHash()
 
     var response = await t.client.getStoreMessagesV3(hashes = secondHash)
@@ -940,10 +941,10 @@ procSuite "Waku Rest API - Store v3":
       response.status == 200
       response.data.messages.len == 0
 
-    await t.shutdown()
-
   asyncTest "hashes filter: comma-separated hashes return exactly those messages in chronological order":
     let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
     let requested =
       t.hashes[2].toRestStringWakuMessageHash() & "," &
       t.hashes[0].toRestStringWakuMessageHash()
@@ -959,10 +960,10 @@ procSuite "Waku Rest API - Store v3":
           t.hashes[2].toRestStringWakuMessageHash(),
         ]
 
-    await t.shutdown()
-
   asyncTest "hashes filter: non-hex and wrong-length hashes are rejected with 400":
     let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
 
     var response = await t.client.getStoreMessagesV3(hashes = "zzzz")
     check:
@@ -976,8 +977,6 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_TEXT
       response.data.statusDesc.contains("invalid hash length")
 
-    await t.shutdown()
-
   asyncTest "ascending=false returns the tail page in chronological order":
     let t = await RestStoreTest.init(
       @[
@@ -988,6 +987,8 @@ procSuite "Waku Rest API - Store v3":
         fakeWakuMessage(@[byte 5], ts = 5),
       ]
     )
+    defer:
+      await t.shutdown()
 
     let response =
       await t.client.getStoreMessagesV3(ascending = "false", pageSize = "2")
@@ -1000,10 +1001,10 @@ procSuite "Waku Rest API - Store v3":
           t.hashes[4].toRestStringWakuMessageHash(),
         ]
 
-    await t.shutdown()
-
   asyncTest "includeData toggles message and pubsubTopic in the response":
     let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
 
     var response = await t.client.getStoreMessagesV3(includeData = "true")
     check:
@@ -1021,10 +1022,10 @@ procSuite "Waku Rest API - Store v3":
       response.data.messages.mapIt(it.messageHash) ==
         t.hashes.mapIt(it.toRestStringWakuMessageHash())
 
-    await t.shutdown()
-
   asyncTest "malformed pageSize, startTime, includeData and cursor are each rejected with 400":
     let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
 
     var response = await t.client.getStoreMessagesV3(pageSize = "$2")
     check:
@@ -1052,10 +1053,10 @@ procSuite "Waku Rest API - Store v3":
       response.status == 400
       response.data.statusDesc.contains("invalid hash length")
 
-    await t.shutdown()
-
   asyncTest "peerAddr without a transport is rejected with 400":
     let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
     let peerAddr = "/ip4/127.0.0.1/p2p/" & $t.node.peerInfo.peerId
 
     let response = await t.client.getStoreMessagesV3(peerAddr = encodeUrl(peerAddr))
@@ -1064,10 +1065,10 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_TEXT
       response.data.statusDesc.contains("no supported transport found")
 
-    await t.shutdown()
-
   asyncTest "peerAddr with a corrupt peer id is rejected with 400":
     let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
     let corruptPeerId = ($t.node.peerInfo.peerId)[0 ..^ 2] & "0"
     let peerAddr = "/ip4/127.0.0.1/tcp/60000/p2p/" & corruptPeerId
 
@@ -1077,5 +1078,3 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_TEXT
       response.data.statusDesc.contains("Failed parsing remote peer info")
       response.data.statusDesc.contains("Error encoding `p2p/")
-
-    await t.shutdown()
