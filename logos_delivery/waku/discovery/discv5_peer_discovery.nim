@@ -34,8 +34,9 @@ type Discv5PeerDiscovery* = ref object of IPeerDiscovery
   listenAddress: IpAddress
   rng: crypto.Rng
   nodeCtx: BrokerContext
-    ## The node's broker context, where the node-state getter providers
-    ## live (the instance's own brokerCtx scopes the interface brokers).
+    ## Captured from globalBrokerContext() at construction — the node's
+    ## context, where the node-state getter providers live (the instance's
+    ## own brokerCtx scopes the interface brokers).
   inner*: WakuDiscoveryV5
   running: bool
 
@@ -78,10 +79,9 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
       conf: Discv5Conf,
       listenAddress: IpAddress,
       rng: crypto.Rng,
-      nodeCtx: BrokerContext,
   ): Discv5PeerDiscovery =
     let self = Discv5PeerDiscovery(
-      conf: conf, listenAddress: listenAddress, rng: rng, nodeCtx: nodeCtx
+      conf: conf, listenAddress: listenAddress, rng: rng, nodeCtx: globalBrokerContext()
     )
 
     # Bridge the node-level event onto the instance-scoped interface event.
