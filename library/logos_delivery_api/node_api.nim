@@ -166,7 +166,7 @@ proc parseRlnVerdict(s: string): Result[ProofVerdict, string] =
     err("unknown verdict: " & s)
 
 proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, string] =
-  ## Parses the module's reply envelope for `verify_proof`: exactly one of
+  ## Parses the RLN module's reply envelope for `verify_proof`: exactly one of
   ## `ok`/`err`; an invalid proof is an `ok` with an INVALID verdict, `err`
   ## means the module failed to answer.
   let node =
@@ -210,7 +210,9 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
   RequestRegisterRlnMembership.setProvider(
     ctx,
     proc(
-        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
+        registryId: RegistryId,
+        rlnIdentifier: types.RlnIdentifier,
+        options: RegistryOptions,
     ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
       var optionsJson = newJArray()
       for opt in options:
