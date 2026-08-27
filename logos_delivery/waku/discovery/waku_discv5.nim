@@ -306,6 +306,18 @@ proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
     # Also, give some time to dial the discovered nodes and update stats, etc.
     await sleepAsync(5.seconds)
 
+proc updateShards*(
+    wd: WakuDiscoveryV5, topics: seq[PubsubTopic], add: bool
+): Result[void, string] =
+  ## Add/remove the shards carried by `topics` in the ENR and refresh the
+  ## sharding predicate accordingly.
+  ?wd.updateENRShards(topics, add)
+  wd.predicate =
+    shardingPredicate(wd.protocol.localNode.record, wd.protocol.bootstrapRecords)
+  debug "ENR shards updated",
+    enrUri = wd.protocol.localNode.record.toUri(), add = add, topics = topics
+  ok()
+
 proc subscriptionsListener(wd: WakuDiscoveryV5) {.async.} =
   ## Listen for pubsub topics subscriptions changes
 
