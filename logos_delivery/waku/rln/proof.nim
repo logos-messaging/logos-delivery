@@ -61,7 +61,7 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
   return output
 
 proc generateRLNProofWithNonce(
-    rln: Rln, input: seq[byte], senderEpochTime: float64, nonce: Nonce
+    rln: Rln, input: seq[byte], senderEpochTime: float64, nonce: nonce_manager.Nonce
 ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
   ## Generates a proof against an already drawn `nonce`. Regenerating for an
   ## unchanged (input, epoch, nonce) is safe: the revealed share is a function
