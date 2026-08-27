@@ -262,9 +262,8 @@ proc addServiceToDiscover*(self: WakuKademlia, service: string) =
 
 proc addServiceToAdvertise*(self: WakuKademlia, service: ServiceInfo) =
   if service notin self.servicesToAdvertise:
-    let startRes = self.protocol.startAdvertising(service)
-    if startRes.isErr():
-      warn "Failed to advertise service", service = service.id, error = startRes.error()
+    self.protocol.startAdvertising(service).isOkOr:
+      warn "Failed to advertise service", service = service.id, error = error
       return
     self.servicesToAdvertise.incl(service)
     debug "Added service to advertise", service = service.id
