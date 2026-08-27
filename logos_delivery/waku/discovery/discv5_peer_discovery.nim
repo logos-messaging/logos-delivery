@@ -39,6 +39,29 @@ type Discv5PeerDiscovery* = ref object of IPeerDiscovery
     ## own brokerCtx scopes the interface brokers).
   inner*: WakuDiscoveryV5
   running: bool
+  subscriptionLoop: Future[void]
+
+proc runSubscriptionListener(
+    self: Discv5PeerDiscovery, queue: AsyncEventQueue[SubscriptionEvent]
+) {.async.} =
+  ## Consumes relay/filter shard subscription changes and mirrors them into
+  ## the discv5 ENR (moved here from WakuDiscoveryV5's internal listener).
+  let key = queue.register()
+  defer:
+    queue.unregister(key)
+
+  while self.running:
+    let events = await queue.waitEvents(key)
+
+    let subs = events.filterIt(it.kind == PubsubSub).mapIt(it.topic)
+    let unsubs = events.filterIt(it.kind == PubsubUnsub).mapIt(it.topic)
+
+    if unsubs.len > 0:
+      self.inner.updateShards(unsubs, add = false).isOkOr:
+        debug "ENR shard removal failed", reason = error
+    if subs.len > 0:
+      self.inner.updateShards(subs, add = true).isOkOr:
+        debug "ENR shard addition failed", reason = error
 
 proc keyPredicate(key: string): Result[Opt[WakuDiscv5Predicate], string] =
   ## Maps a criteria key onto an ENR record predicate.
@@ -147,10 +170,11 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     let nodeKey = ?GetNodeKey.request(self.nodeCtx)
 
     self.inner = ?await setupAndStartDiscv5(
-      enrRecord, peerManager, subscriptionQueue, self.conf, dynamicBootstrapNodes,
-      self.rng, nodeKey, self.listenAddress,
+      enrRecord, peerManager, self.conf, dynamicBootstrapNodes, self.rng, nodeKey,
+      self.listenAddress,
     )
     self.running = true
+    self.subscriptionLoop = self.runSubscriptionListener(subscriptionQueue)
     ok()
 
   method stopDiscovery(
@@ -158,11 +182,14 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if not self.running:
       return ok()
+    self.running = false
+    if not self.subscriptionLoop.isNil():
+      await self.subscriptionLoop.cancelAndWait()
+      self.subscriptionLoop = nil
     try:
       await self.inner.stop()
     except CatchableError:
       return err("discv5 backend: stop failed: " & getCurrentExceptionMsg())
-    self.running = false
     ok()
 
   method lookupServicePeers(
