@@ -6,6 +6,10 @@
 ## Threading: host callbacks may complete on a foreign thread, so the crossing
 ## uses `ThreadSignalPtr` + `allocShared` (no GC memory shared across threads).
 ## One `Lock` guards the callback table and the in-flight `ptr Pending` list.
+##
+## Membership is keyed by two identifiers carried on nearly every call:
+## `registryId` is a CAIP-10 account identifier (`namespace:reference:account_address`)
+## and `rlnIdentifier` is a 32-byte per-application identifier.
 
 import std/locks
 import chronos, chronos/threadsync, results
