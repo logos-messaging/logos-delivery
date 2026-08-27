@@ -5,6 +5,7 @@ import libp2p/peerid # pull PeerId pretty string formatting
 import stew/byteutils
 import logos_delivery/waku/common/base64
 import logos_delivery/waku/requests/rln_requests
+import logos_delivery/waku/rln/api/types as rln_api_types
 import logos_delivery/waku/rln # toRLNSignal
 import
   logos_delivery,
@@ -212,7 +213,34 @@ proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, stri
     validation.recoveredSecret = some(secret)
   return ok(validation)
 
-proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
+proc parseRlnGeneratedProof(resultJson: string): Result[seq[byte], string] =
+  ## Parses the module's `generate_proof` reply envelope. The reply's
+  ## `proof_canonical` — the full canonical zerokit serialization — is what
+  ## the message wire carries: the validator ships those bytes back as a
+  ## single `{"proof": <hex>}` field and the module recovers every public
+  ## value from them.
+  let node =
+    try:
+      parseJson(resultJson)
+    except CatchableError as e:
+      return err("invalid module reply JSON: " & e.msg)
+  if node.kind != JObject:
+    return err("module reply is not a JSON object")
+  if node.hasKey("err"):
+    let e = node["err"]
+    let kind = parseRlnErrorKind(e{"kind"}.getStr(""))
+    return err($kind & ": " & e{"message"}.getStr(""))
+  if not node.hasKey("ok"):
+    return err("module reply has neither ok nor err")
+  let hexStr = node["ok"]{"proof_canonical"}.getStr("")
+  if hexStr.len == 0:
+    return err("generate_proof reply carries no proof_canonical")
+  try:
+    return ok(hexToSeqByte(hexStr))
+  except ValueError as e:
+    return err("proof_canonical is not valid hex: " & e.msg)
+
+proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, string] =
   ## Bridges the waku layer's RLN module requests onto the FFI callback
   ## surface. Providers are registered at create time; the underlying calls
   ## only succeed once the host has installed its RLN callbacks.
@@ -227,7 +255,7 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
   RequestRegisterRlnMembership.setProvider(
     ctx,
     proc(
-        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
+        registryId: RegistryId, rlnIdentifier: rln_api_types.RlnIdentifier, options: RegistryOptions
     ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
       var optionsJson = newJArray()
       for opt in options:
@@ -242,7 +270,7 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
     proc(
         message: WakuMessage,
         registryId: RegistryId,
-        rlnIdentifier: RlnIdentifier,
+        rlnIdentifier: rln_api_types.RlnIdentifier,
         timestamp: uint64,
     ): Future[Result[RequestValidateRlnProof, string]] {.async.} =
       ## `message.proof` carries the module's canonical zerokit proof bytes;
@@ -259,6 +287,29 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
       return ok(RequestValidateRlnProof(validation: validation)),
   ).isOkOr:
     return err("failed to set RequestValidateRlnProof provider: " & error)
+
+  ## Gated on lez: this request type is shared with the legacy zerokit path,
+  ## whose own provider registers when the group manager mounts.
+  if lez:
+    RequestGenerateRlnProof.setProvider(
+      ctx,
+      proc(
+          message: WakuMessage,
+          registryId: RegistryId,
+          rlnIdentifier: rln_api_types.RlnIdentifier,
+          timestamp: uint64,
+      ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
+        ## One-timestamp rule: the caller derives `timestamp` (Unix seconds)
+        ## from the message's own stamp — the same value every validator
+        ## re-derives — so the proof's epoch always agrees with the message.
+        let signalHex = message.toRLNSignal().toHex()
+        let response = ?await rlnGenerateProof(
+          registryId, rlnIdentifier.toHex(), signalHex, timestamp
+        )
+        let proofBytes = ?parseRlnGeneratedProof(response)
+        return ok(RequestGenerateRlnProof(proof: proofBytes)),
+    ).isOkOr:
+      return err("failed to set RequestGenerateRlnProof provider: " & error)
 
   ok()
 
@@ -291,7 +342,9 @@ proc logosdelivery_create_node(
     await lib.teardownFFIEventScope()
     return err(error)
 
-  registerRlnModuleProviders(lib.waku.brokerCtx).isOkOr:
+  let lez =
+    lib.waku.conf.rlnRelayConf.isSome() and lib.waku.conf.rlnRelayConf.get().lez
+  registerRlnModuleProviders(lib.waku.brokerCtx, lez).isOkOr:
     await lib.teardownFFIEventScope()
     return err(error)
 

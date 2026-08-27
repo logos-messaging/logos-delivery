@@ -9,7 +9,10 @@ RequestBroker:
     proof*: seq[byte]
 
   proc signature(
-    message: WakuMessage, senderEpoch: float64
+    message: WakuMessage,
+    registryId: RegistryId,
+    rlnIdentifier: RlnIdentifier,
+    timestamp: uint64,
   ): Future[Result[RequestGenerateRlnProof, string]] {.async.}
 
 RequestBroker:

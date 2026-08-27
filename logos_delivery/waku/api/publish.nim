@@ -11,6 +11,7 @@ import std/[times, strutils]
 import results, chronos
 
 import logos_delivery/waku/waku
+import logos_delivery/waku/requests/rln_requests
 import
   logos_delivery/waku/[
     waku_core,
@@ -65,7 +66,30 @@ proc attachRlnProof*(
   ## service's task cache while the group root moves on chain, so the proof is
   ## validated against the acceptable-root window and regenerated once against a
   ## refetched merkle path if it went stale.
-  if self.node.rln.isNil() or message.proof.len > 0:
+  if message.proof.len > 0:
+    return ok(message)
+
+  # LEZ path: the external RLN module proves. Scope comes from the node conf;
+  # the timestamp is the message's own stamp in Unix seconds — the same value
+  # every validator re-derives, so the proof's epoch always agrees with the
+  # message. The proof bytes are the module's `proof_canonical` blob, which a
+  # validator hands back whole.
+  if self.conf.rlnRelayConf.isSome() and self.conf.rlnRelayConf.get().lez:
+    let rlnConf = self.conf.rlnRelayConf.get()
+    if message.timestamp <= 0:
+      return err("cannot attach an RLN proof to an unstamped message")
+    let timestamp = uint64(message.timestamp div 1_000_000_000)
+    let generated = (
+      await RequestGenerateRlnProof.request(
+        self.brokerCtx, message, rlnConf.registryId, rlnConf.identifier, timestamp
+      )
+    ).valueOr:
+      return err("failed to attach RLN proof: " & error)
+    var msgWithProof = message
+    msgWithProof.proof = generated.proof
+    return ok(msgWithProof)
+
+  if self.node.rln.isNil():
     return ok(message)
 
   var msgWithProof = message

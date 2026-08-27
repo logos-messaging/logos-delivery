@@ -29,6 +29,9 @@ import
 import
   logos_delivery/waku/
     [common/error_handling, waku_core, requests/rln_requests, waku_keystore]
+# Qualified-only: the api types share names (RateLimitProof, RlnIdentifier)
+# with this directory's legacy modules.
+from logos_delivery/waku/rln/api/types as rln_api_types import nil
 
 # Re-export the submodules so existing `import rln`
 # (and `import rln/rln`) callers see the moved symbols
@@ -229,10 +232,15 @@ proc mount(
   RequestGenerateRlnProof.setProvider(
     rln.brokerCtx,
     proc(
-        msg: WakuMessage, senderEpochTime: float64
+        msg: WakuMessage,
+        registryId: RegistryId,
+        rlnIdentifier: rln_api_types.RlnIdentifier,
+        timestamp: uint64,
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
+      # Legacy zerokit path: scope is implicit in the mounted group manager;
+      # only the timestamp is consumed, as the float sender epoch.
       let proofBytes = (
-        await rln.generateRLNProofWithRootRefresh(msg.toRLNSignal(), senderEpochTime)
+        await rln.generateRLNProofWithRootRefresh(msg.toRLNSignal(), float64(timestamp))
       ).valueOr:
         return err("Could not create RLN proof: " & error)
       return ok(RequestGenerateRlnProof(proof: proofBytes)),
