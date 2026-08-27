@@ -98,7 +98,6 @@ jobs:
         nimble-version: ${{ env.NIMBLE_VERSION }}
         nim-version: ${{ env.NIM_VERSION }}
         cache: 'false'
-        extra-path: ${{ github.workspace }}/.nim_runtime/bin
         make-args: CC=gcc
 
     - name: Creating tmp directory
