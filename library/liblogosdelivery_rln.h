@@ -34,7 +34,7 @@ typedef void (*LogosDeliveryRlnGenerateProofFn)(uint64_t req_id, const char* reg
                                                 const char* signal_hex,
                                                 uint64_t timestamp, void* user_data);
 
-typedef void (*LogosDeliveryRlnVerifyProofFn)(uint64_t req_id, const char* registry_id,
+typedef void (*LogosDeliveryRlnValidateProofFn)(uint64_t req_id, const char* registry_id,
                                               const char* rln_identifier,
                                               const char* signal_hex, uint64_t timestamp,
                                               const char* proof_json, void* user_data);
@@ -46,7 +46,7 @@ typedef struct {
   LogosDeliveryRlnGetMembershipStateFn get_membership_state;
   LogosDeliveryRlnGetEpochQuotaFn get_epoch_quota;
   LogosDeliveryRlnGenerateProofFn generate_proof;
-  LogosDeliveryRlnVerifyProofFn verify_proof;
+  LogosDeliveryRlnValidateProofFn validate_proof;
 } LogosDeliveryRlnCallbacks;
 
 /* library ← shell: register once, before node start. NULL clears and fails

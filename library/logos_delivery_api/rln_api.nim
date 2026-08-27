@@ -43,7 +43,7 @@ type
     userData: pointer,
   ) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnVerifyProofFn = proc(
+  LogosDeliveryRlnValidateProofFn = proc(
     reqId: uint64,
     registryId, rlnIdentifier, signalHex: cstring,
     timestamp: uint64,
@@ -58,7 +58,7 @@ type
     get_membership_state: LogosDeliveryRlnGetMembershipStateFn
     get_epoch_quota: LogosDeliveryRlnGetEpochQuotaFn
     generate_proof: LogosDeliveryRlnGenerateProofFn
-    verify_proof: LogosDeliveryRlnVerifyProofFn
+    validate_proof: LogosDeliveryRlnValidateProofFn
 
   Pending = object
     reqId: uint64
@@ -240,16 +240,16 @@ proc rlnGenerateProof*(
   )
   return await awaitResult(pending)
 
-proc rlnVerifyProof*(
+proc rlnValidateProof*(
     registryId, rlnIdentifier, signalHex: string, timestamp: uint64, proofJson: string
 ): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
   let pending = newPending()
   if pending.isNil:
     return err("signal alloc failed")
-  var cb: LogosDeliveryRlnVerifyProofFn
+  var cb: LogosDeliveryRlnValidateProofFn
   var ud: pointer
   withLock gLock:
-    cb = gCallbacks.verify_proof
+    cb = gCallbacks.validate_proof
     if cb.isNil:
       discard pending.signal.close()
       deallocShared(pending)

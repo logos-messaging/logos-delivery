@@ -165,7 +165,7 @@ proc parseRlnVerdict(s: string): Result[ProofVerdict, string] =
     err("unknown verdict: " & s)
 
 proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, string] =
-  ## Parses the module's reply envelope for `verify_proof`: exactly one of
+  ## Parses the module's reply envelope for `validate_proof`: exactly one of
   ## `ok`/`err`; an invalid proof is an `ok` with an INVALID verdict, `err`
   ## means the module failed to answer.
   let node =
@@ -234,7 +234,7 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
         return err("message has no RLN proof")
       let signalHex = message.toRLNSignal().toHex()
       let proofJson = $(%*{"proof": message.proof.toHex()})
-      let response = ?await rlnVerifyProof(
+      let response = ?await rlnValidateProof(
         registryId, rlnIdentifier.toHex(), signalHex, timestamp, proofJson
       )
       let validation = ?parseRlnValidationResult(response)
