@@ -5,7 +5,7 @@
 ## accessible through the debug API.
 
 import std/[tables, sequtils, strutils]
-import metrics, eth/p2p/discoveryv5/enr, libp2p/peerid, stew/byteutils
+import metrics, eth/enr/enr, libp2p/peerid, stew/byteutils
 import logos_delivery/waku/[waku_node, net/bound_ports]
 import logos_delivery/waku/factory/waku_conf
 

@@ -2,7 +2,7 @@
 {.push raises: [].}
 
 import results, chronos, chronicles, metrics
-import eth/p2p/discoveryv5/enr
+import eth/enr/enr
 import libp2p/peerid # pull PeerId pretty string formatting
 
 import logos_delivery/waku/waku

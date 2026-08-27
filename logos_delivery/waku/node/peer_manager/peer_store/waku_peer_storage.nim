@@ -1,7 +1,6 @@
 {.push raises: [].}
 
-import
-  std/sets, results, sqlite3_abi, eth/p2p/discoveryv5/enr, libp2p/protobuf/minprotobuf
+import std/sets, results, sqlite3_abi, eth/enr/enr, libp2p/protobuf/minprotobuf
 import
   ../../../common/databases/db_sqlite,
   ../../../waku_core,

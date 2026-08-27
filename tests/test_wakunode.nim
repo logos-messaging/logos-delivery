@@ -17,7 +17,7 @@ import
   libp2p/protocols/pubsub/pubsub,
   libp2p/protocols/pubsub/gossipsub,
   libp2p/nameresolving/mockresolver,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   eth/net/utils
 import
   logos_delivery/waku/[waku_core, waku_node, node/peer_manager],

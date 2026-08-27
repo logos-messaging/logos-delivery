@@ -8,7 +8,7 @@ import
   json_rpc/rpcserver,
   json_rpc/rpcclient,
   eth/keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   eth/common/eth_types,
   libp2p/[builders, switch, multiaddress],
   libp2p/protobuf/minprotobuf,

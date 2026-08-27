@@ -313,8 +313,8 @@
 
   eth = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-eth";
-    rev = "d9135e6c3c5d6d819afdfb566aa8d958756b73a8";
-    sha256 = "15r6aszalnbk6mkyfbv5rnz5vcf1mmgj6yg332wry53xsd2ipg7r";
+    rev = "3cda9027f83ac03643dd15a383d67139eec9df6f";
+    sha256 = "15m1zlsz1ca3i5z8gk5sarqjh6ldhyhb7b7w8wf8vvvzl79nj9z1";
     fetchSubmodules = true;
   };
 

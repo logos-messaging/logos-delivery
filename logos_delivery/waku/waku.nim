@@ -15,7 +15,7 @@ import
   libp2p/peerid,
   libp2p/wire,
   eth/keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   presto,
   metrics,
   metrics/chronos_httpserver,

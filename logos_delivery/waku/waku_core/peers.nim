@@ -6,7 +6,7 @@ import
   chronos,
   chronicles,
   eth/keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   eth/net/utils,
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,

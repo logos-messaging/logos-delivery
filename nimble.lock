@@ -677,8 +677,8 @@
       }
     },
     "eth": {
-      "version": "#d9135e6c3c5d6d819afdfb566aa8d958756b73a8",
-      "vcsRevision": "d9135e6c3c5d6d819afdfb566aa8d958756b73a8",
+      "version": "#3cda9027f83ac03643dd15a383d67139eec9df6f",
+      "vcsRevision": "3cda9027f83ac03643dd15a383d67139eec9df6f",
       "url": "https://github.com/status-im/nim-eth",
       "downloadMethod": "git",
       "dependencies": [
@@ -700,7 +700,7 @@
         "snappy"
       ],
       "checksums": {
-        "sha1": "2e01b0cfff9523d110562af70d19948280f8013e"
+        "sha1": "c444adac10fb0e1b8eec3db0a0b4a567db3b7fad"
       }
     },
     "web3": {

@@ -1,6 +1,6 @@
 ## An extension wrapper around nim-eth's ENR module
 
-import eth/p2p/discoveryv5/enr
+import eth/enr/enr
 import ./enr/builder, ./enr/typed_record
 
 export

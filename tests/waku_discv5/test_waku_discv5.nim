@@ -9,7 +9,7 @@ import
   testutils/unittests,
   libp2p/crypto/crypto as libp2p_keys,
   eth/keys as eth_keys,
-  eth/p2p/discoveryv5/enr as ethEnr,
+  eth/enr/enr as ethEnr,
   libp2p/crypto/secp,
   libp2p/protocols/rendezvous
 
@@ -369,8 +369,7 @@ suite "Waku Discovery v5":
 
       # When adding a valid enr
       addBootstrapNode(validEnr, enrs)
-      var r: Record
-      echo r.fromURI(validEnr)
+      let r = Record.fromURI(validEnr).expect("valid ENR")
       echo r
 
       # Then the enr is added to the list

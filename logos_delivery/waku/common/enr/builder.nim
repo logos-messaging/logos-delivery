@@ -4,7 +4,7 @@ import
   std/net,
   results,
   eth/keys as eth_keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/crypto/crypto as libp2p_crypto
 
 import ./typed_record

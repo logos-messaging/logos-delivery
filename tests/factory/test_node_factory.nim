@@ -8,7 +8,7 @@ import
   chronos/transports/[stream, datagram, common],
   metrics/chronos_httpserver,
   libp2p/[crypto/crypto, multiaddress, protocols/connectivity/relay/relay],
-  eth/p2p/discoveryv5/enr
+  eth/enr/enr
 
 import
   tests/testlib/[wakunode, wakucore],

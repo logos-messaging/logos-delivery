@@ -96,7 +96,7 @@ proc new*(
     rng = rng.bearSslDrbgRef,
     config = conf.discv5Config.get(protocol.defaultDiscoveryConfig),
     bindPort = conf.port,
-    bindIp = conf.address,
+    bindIp = Opt.some(conf.address),
     privKey = conf.privateKey,
     bootstrapRecords = conf.bootstrapRecords,
     enrAutoUpdate = conf.autoupdateRecord,
@@ -104,6 +104,7 @@ proc new*(
     enrIp = Opt.none(IpAddress),
     enrTcpPort = Opt.none(Port),
     enrUdpPort = Opt.none(Port),
+    enrQuicPort = Opt.none(Port),
   )
 
   let shardPredOp =
@@ -370,8 +371,7 @@ proc parseBootstrapAddress(address: string): Result[enr.Record, cstring] =
 
   let lowerCaseAddress = toLowerAscii(address)
   if lowerCaseAddress.startsWith("enr:"):
-    var enrRec: enr.Record
-    if not enrRec.fromURI(address):
+    let enrRec = enr.Record.fromURI(address).valueOr:
       return err("Invalid ENR bootstrap record")
 
     return ok(enrRec)
@@ -501,8 +501,7 @@ proc updateBootstrapRecords*(
 
   for enr in jsonNode:
     let enrWithoutQuotes = ($enr).replace("\"", "")
-    var bootstrapNodeEnr: waku_enr.Record
-    if not bootstrapNodeEnr.fromURI(enrWithoutQuotes):
+    waku_enr.Record.fromURI(enrWithoutQuotes).isOkOr:
       return err("wrong enr given: " & enrWithoutQuotes)
 
   self.protocol.bootstrapRecords = newRecords

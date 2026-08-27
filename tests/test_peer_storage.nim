@@ -1,6 +1,6 @@
 {.used.}
 
-import results, testutils/unittests, eth/p2p/discoveryv5/enr, libp2p/crypto/crypto
+import results, testutils/unittests, eth/enr/enr, libp2p/crypto/crypto
 import
   logos_delivery/waku/[
     common/databases/db_sqlite,

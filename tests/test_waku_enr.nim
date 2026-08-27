@@ -128,8 +128,9 @@ suite "Waku ENR -  Capabilities bitfield":
       "Y3AyNTZrMaEDhpehBDbZjM_L9ek699Y7vhUJ-eAdMyQW_Fil522Y0fODdGNwgiMog3VkcIIjKA"
 
     ## When
-    var record: Record
-    require waku_enr.fromURI(record, nonWakuEnr)
+    let recordRes = waku_enr.Record.fromURI(nonWakuEnr)
+    require recordRes.isOk()
+    let record = recordRes.value
 
     ## Then
     let typedRecordRes = record.toTyped()
@@ -156,8 +157,9 @@ suite "Waku ENR - Multiaddresses":
       "QACAAQCJc2VjcDI1NmsxoQLfoaQH3oSYW59yxEBfeAZbltmUnC4BzYkHqer2VQMTyoN0" &
       "Y3CCdl-DdWRwgiMohXdha3UyAw"
 
-    var record: Record
-    require record.fromURI(enrUri)
+    let recordRes = Record.fromURI(enrUri)
+    require recordRes.isOk()
+    let record = recordRes.value
 
     # TODO: get rid of wakuv2 here too. Needt to generate a ne ENR record
     let

@@ -7,7 +7,7 @@ import
   confutils,
   libp2p/crypto/crypto,
   eth/keys,
-  eth/p2p/discoveryv5/enr
+  eth/enr/enr
 
 import
   logos_delivery/waku/[
@@ -58,8 +58,7 @@ proc setupAndSubscribe(rng: crypto.Rng) {.async.} =
   builder.withNetworkConfigurationDetails(ip, Port(wakuPort)).tryGet()
   let node = builder.build().tryGet()
 
-  var bootstrapNodeEnr: enr.Record
-  discard bootstrapNodeEnr.fromURI(bootstrapNode)
+  let bootstrapNodeEnr = enr.Record.fromURI(bootstrapNode).expect("valid bootstrap ENR")
 
   let discv5Conf = WakuDiscoveryV5Config(
     discv5Config: Opt.none(DiscoveryConfig),

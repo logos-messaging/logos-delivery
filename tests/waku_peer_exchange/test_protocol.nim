@@ -6,7 +6,7 @@ import
   testutils/unittests,
   chronos,
   libp2p/[switch, peerId, crypto/crypto],
-  eth/[keys, p2p/discoveryv5/enr],
+  eth/[keys, enr/enr],
   brokers/broker_context
 
 import

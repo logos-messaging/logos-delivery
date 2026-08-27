@@ -8,7 +8,7 @@ import
   results,
   stew/byteutils,
   eth/keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/crypto/crypto,
   libp2p/protocols/ping,
   libp2p/protocols/pubsub/gossipsub,

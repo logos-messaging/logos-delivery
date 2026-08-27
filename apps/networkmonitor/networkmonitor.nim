@@ -9,7 +9,7 @@ import
   chronos/timer as ctime,
   confutils,
   eth/keys,
-  eth/p2p/discoveryv5/enr,
+  eth/enr/enr,
   libp2p/crypto/crypto,
   libp2p/nameresolving/dnsresolver,
   libp2p/protocols/ping,

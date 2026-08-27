@@ -36,8 +36,9 @@ randomize()
 
 proc translateToRemotePeerInfo*(peerAddress: string): Result[RemotePeerInfo, void] =
   var peerInfo: RemotePeerInfo
-  var enrRec: enr.Record
-  if enrRec.fromURI(peerAddress):
+  let enrRes = enr.Record.fromURI(peerAddress)
+  if enrRes.isOk():
+    let enrRec = enrRes.value
     trace "Parsed ENR", enrRec = $enrRec
     peerInfo = enrRec.toRemotePeerInfo().valueOr:
       error "failed to convert ENR to RemotePeerInfo", error = error
