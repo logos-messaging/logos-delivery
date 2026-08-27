@@ -1,5 +1,6 @@
 {.used.}
 
+import std/sequtils
 import chronos, results, testutils/unittests
 import brokers/broker_implement
 import logos_delivery/waku/discovery/peer_discovery_interface
@@ -7,6 +8,9 @@ import logos_delivery/waku/discovery/peer_discovery_interface
 type MockDiscovery = ref object of IPeerDiscovery
   started: bool
   lastLookup: string
+  advertised: seq[string]
+  interests: seq[string]
+  bootstrap: seq[string]
 
 BrokerImplement MockDiscovery of IPeerDiscovery:
   proc new(T: typedesc[MockDiscovery]): MockDiscovery =
@@ -41,6 +45,38 @@ BrokerImplement MockDiscovery of IPeerDiscovery:
       self: MockDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     ok(@[DiscoveredPeer(peerId: "random-peer")])
+
+  method startAdvertising(
+      self: MockDiscovery, key: string, data: seq[byte], record: seq[byte]
+  ): Future[Result[void, string]] {.async.} =
+    if record.len > 0:
+      return err("mock: no pre-signed records")
+    self.advertised.add(key)
+    ok()
+
+  method stopAdvertising(
+      self: MockDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    self.advertised.keepItIf(it != key)
+    ok()
+
+  method registerInterest(
+      self: MockDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    self.interests.add(key)
+    ok()
+
+  method unregisterInterest(
+      self: MockDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    self.interests.keepItIf(it != key)
+    ok()
+
+  method addBootstrapEntries(
+      self: MockDiscovery, entries: seq[string]
+  ): Future[Result[void, string]] {.async.} =
+    self.bootstrap.add(entries)
+    ok()
 
 suite "IPeerDiscovery interface":
   asyncTest "lifecycle and lookups through the interface type":
@@ -109,3 +145,22 @@ suite "IPeerDiscovery interface":
     discard (await a.startDiscovery())
     check (await b.backendInfo()).get().running == false
     check (await a.backendInfo()).get().running == true
+
+  asyncTest "advertise, interest and bootstrap verbs":
+    let mock = MockDiscovery.create()
+    let iface: IPeerDiscovery = mock
+
+    check (await iface.startAdvertising("svc:/mix/1.0.0", @[1'u8, 2], @[])).isOk()
+    check (await iface.startAdvertising("svc:x", @[], @[9'u8])).isErr()
+    check mock.advertised == @["svc:/mix/1.0.0"]
+
+    check (await iface.registerInterest("svc:/mix/1.0.0")).isOk()
+    check (await iface.registerInterest("cap:store")).isOk()
+    check (await iface.unregisterInterest("cap:store")).isOk()
+    check mock.interests == @["svc:/mix/1.0.0"]
+
+    check (await iface.stopAdvertising("svc:/mix/1.0.0")).isOk()
+    check mock.advertised.len == 0
+
+    check (await iface.addBootstrapEntries(@["/ip4/1.2.3.4/tcp/1/p2p/16Uxx"])).isOk()
+    check mock.bootstrap.len == 1

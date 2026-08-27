@@ -175,3 +175,35 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
       self: Discv5PeerDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     await self.lookupServicePeers("", 0)
+
+  method startAdvertising(
+      self: Discv5PeerDiscovery, key: string, data: seq[byte], record: seq[byte]
+  ): Future[Result[void, string]] {.async.} =
+    err("discv5 backend: advertising not supported for key: " & key)
+
+  method stopAdvertising(
+      self: Discv5PeerDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    err("discv5 backend: advertising not supported for key: " & key)
+
+  method registerInterest(
+      self: Discv5PeerDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    err("discv5 backend: interest registration not supported for key: " & key)
+
+  method unregisterInterest(
+      self: Discv5PeerDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    err("discv5 backend: interest registration not supported for key: " & key)
+
+  method addBootstrapEntries(
+      self: Discv5PeerDiscovery, entries: seq[string]
+  ): Future[Result[void, string]] {.async.} =
+    if not self.running:
+      return err("discv5 backend: not running")
+    var records: seq[waku_enr.Record]
+    for entry in entries:
+      addBootstrapNode(entry, records) # logs and skips invalid entries
+    if records.len > 0:
+      self.inner.updateBootstrapRecords(self.inner.protocol.bootstrapRecords & records)
+    ok()

@@ -7,6 +7,8 @@
 
 import std/[sequtils, strutils]
 import chronos, chronicles, results
+import libp2p/[peerid, multiaddress, peerinfo, extended_peer_record]
+import libp2p/protocols/kademlia # updatePeers
 import libp2p/protocols/service_discovery
 import brokers/broker_implement
 import logos_delivery/waku/discovery/peer_discovery_interface
@@ -98,6 +100,61 @@ BrokerImplement KadPeerDiscovery of IPeerDiscovery:
     if limit > 0 and found.len > limit:
       found.setLen(limit)
     ok(found)
+
+  method startAdvertising(
+      self: KadPeerDiscovery, key: string, data: seq[byte], record: seq[byte]
+  ): Future[Result[void, string]] {.async.} =
+    if self.inner.isNil():
+      return err("kad backend: not mounted")
+    if record.len > 0:
+      return err("kad backend: pre-signed advertisements not supported")
+    let serviceId = ?serviceIdOf(key)
+    self.inner.addServiceToAdvertise(ServiceInfo(id: serviceId, data: data))
+    ok()
+
+  method stopAdvertising(
+      self: KadPeerDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    if self.inner.isNil():
+      return err("kad backend: not mounted")
+    let serviceId = ?serviceIdOf(key)
+    let res = catch:
+      await self.inner.removeServiceToAdvertise(serviceId)
+    res.isOkOr:
+      return err("kad backend: stop advertising failed: " & error.msg)
+    ok()
+
+  method registerInterest(
+      self: KadPeerDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    if self.inner.isNil():
+      return err("kad backend: not mounted")
+    let serviceId = ?serviceIdOf(key)
+    self.inner.addServiceToDiscover(serviceId)
+    ok()
+
+  method unregisterInterest(
+      self: KadPeerDiscovery, key: string
+  ): Future[Result[void, string]] {.async.} =
+    if self.inner.isNil():
+      return err("kad backend: not mounted")
+    let serviceId = ?serviceIdOf(key)
+    self.inner.removeServiceToDiscover(serviceId)
+    ok()
+
+  method addBootstrapEntries(
+      self: KadPeerDiscovery, entries: seq[string]
+  ): Future[Result[void, string]] {.async.} =
+    if self.inner.isNil():
+      return err("kad backend: not mounted")
+    var parsed: seq[(PeerId, seq[MultiAddress])]
+    for entry in entries:
+      let (peerId, ma) = parseFullAddress(entry).valueOr:
+        return err("kad backend: invalid bootstrap entry '" & entry & "': " & $error)
+      parsed.add((peerId, @[ma]))
+    if parsed.len > 0:
+      self.inner.protocol.updatePeers(parsed)
+    ok()
 
   method lookupRandom(
       self: KadPeerDiscovery

@@ -277,3 +277,14 @@ proc removeServiceToAdvertise*(
   if not self.servicesToAdvertise.missingOrExcl(service):
     await self.protocol.stopAdvertising(service.id)
     debug "Removed service to advertise", service = service.id
+
+proc removeServiceToAdvertise*(
+    self: WakuKademlia, serviceId: string
+) {.async: (raises: [CancelledError]).} =
+  ## Id-based variant: looks up the stored ServiceInfo (set equality includes
+  ## the advertised payload, which the caller may not have at hand).
+  for service in self.servicesToAdvertise:
+    if service.id == serviceId:
+      await self.removeServiceToAdvertise(service)
+      return
+  debug "Service to remove not advertised", service = serviceId
