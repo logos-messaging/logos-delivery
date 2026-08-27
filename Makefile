@@ -19,12 +19,13 @@ ifneq (,$(findstring MINGW,$(detected_OS)))
 endif
 
 REQUIRED_NIMBLE_VERSION := $(shell grep -E '^const RequiredNimbleVersion\s*=' logos_delivery.nimble | grep -oE '"[0-9]+\.[0-9]+\.[0-9]+"' | tr -d '"')
+REQUIRED_NIMBLE_REVISION := $(shell grep -E '^const RequiredNimbleRevision\s*=' logos_delivery.nimble | grep -oE '"[0-9a-f]{40}"' | tr -d '"')
 
-# Put the version-specific Nimble directory before ~/.nimble/bin.
+# Put the revision-specific Nimble directory before ~/.nimble/bin.
 # `nimble setup` may update package links under ~/.nimble/bin, including
-# the `nimble` link. The version-specific directory is outside that update
+# the `nimble` link. The revision-specific directory is outside that update
 # path. Keep ~/.nimble/bin later on PATH for tools such as nph.
-NIMBLE_TOOLDIR := $(HOME)/.local/nimble-$(REQUIRED_NIMBLE_VERSION)/bin
+NIMBLE_TOOLDIR := $(HOME)/.local/nimble-$(REQUIRED_NIMBLE_REVISION)/bin
 export PATH := $(NIMBLE_TOOLDIR):$(HOME)/.nimble/bin:$(PATH)
 
 # NIM binary location
@@ -141,9 +142,7 @@ ifneq ($(detected_OS),Windows)
 endif
 
 install-nimble: install-nim
-ifneq ($(detected_OS),Windows)
-	scripts/install_nimble.sh $(REQUIRED_NIMBLE_VERSION)
-endif
+	scripts/install_nimble.sh $(REQUIRED_NIMBLE_VERSION) $(REQUIRED_NIMBLE_REVISION)
 
 build:
 	mkdir -p build
@@ -329,8 +328,8 @@ build/%: | build-deps build deps librln
 
 compile-test: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "$(TEST_FILE)" "\"$(TEST_NAME)\"" && \
-		$(NIMBLE) buildTest $(TEST_FILE) $(NIMBLE_TASK_FLAGS) && \
-		$(NIMBLE) execTest $(TEST_FILE) "\"$(TEST_NAME)\"" $(NIMBLE_TASK_FLAGS)
+		$(NIMBLE) buildTest $(NIMBLE_TASK_FLAGS) $(TEST_FILE) && \
+		$(NIMBLE) execTest $(NIMBLE_TASK_FLAGS) $(TEST_FILE) "\"$(TEST_NAME)\""
 
 ################
 ## Waku tools ##

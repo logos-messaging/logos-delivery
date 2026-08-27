@@ -69,9 +69,10 @@ jobs:
 
       - name: Install Nimble ${{ env.NIMBLE_VERSION }}
         run: |
-          scripts/install_nimble.sh "${{ env.NIMBLE_VERSION }}"
+          NIMBLE_REVISION=$(sed -n 's/^const RequiredNimbleRevision = "\([0-9a-f]*\)"/\1/p' logos_delivery.nimble)
+          scripts/install_nimble.sh "${{ env.NIMBLE_VERSION }}" "${NIMBLE_REVISION}"
           echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-          echo "$HOME/.local/nimble-${{ env.NIMBLE_VERSION }}/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/nimble-${NIMBLE_REVISION}/bin" >> $GITHUB_PATH
 
       - name: Get submodules hash
         id: submodules

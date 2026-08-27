@@ -33,9 +33,9 @@ proc natPortMapper*(strategy: NatStrategy): Opt[PortMapper] =
     return Opt.none(PortMapper)
   Opt.some(PortMapper(mapper))
 
-proc resolveNatStrategy*(strategy: NatStrategy): Future[NatStrategy] {.
-    async: (raises: []).
-.} =
+proc resolveNatStrategy*(
+    strategy: NatStrategy
+): Future[NatStrategy] {.async: (raises: []).} =
   ## Libplum selects the available gateway protocol when NatAny is configured.
   return strategy
 

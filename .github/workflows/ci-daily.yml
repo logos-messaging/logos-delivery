@@ -118,4 +118,3 @@ jobs:
   rln-simulator:
     uses: ./.github/workflows/ci-rln-simulator.yml
     secrets: inherit
-

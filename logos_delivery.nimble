@@ -17,9 +17,10 @@ const RequiredNimVersion = "2.2.6"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
 const RequiredNimbleVersion = "0.24.1"
   ## Enforced nimble version to ensure a reproducible flow
+const RequiredNimbleRevision = "bc789ee6bcbfe315f81984a29318f6f8d4dcafa5"
 
 ### Dependencies
-requires "nim >= 2.2.6",
+requires "nim == 2.2.6",
   "chronos >= 4.2.0 & < 4.4.0",
   "taskpools",
   # Logging & Configuration
@@ -31,6 +32,7 @@ requires "nim >= 2.2.6",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
+  "libp2p == 2.3.0",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -39,40 +41,34 @@ requires "nim >= 2.2.6",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  # < 0.4.2: websock 0.4.2 requires chronos >= 4.4.0 (chronos is pinned < 4.4.0).
-  "websock >= 0.3.0 & < 0.4.2",
+  "https://github.com/status-im/nim-websock#v0.4.0",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "secp256k1",
   "bearssl",
   # RPC & APIs
+  "json_rpc == 0.6.1",
   "presto",
-  "web3",
+  "https://github.com/status-im/nim-web3#cdfe5601d2812a58e54faf53ee634452d01e5918",
   # Database
   "db_connector",
   "sqlite3_abi",
   # Utilities
   "stew",
   "stint",
-  "metrics",
+  "metrics >= 0.2.2",
   "regex",
   "unicodedb",
   "results",
   "minilru",
   "zlib",
   # Debug & Testing
-  "testutils",
+  "testutils == 0.8.1",
   "unittest2"
 
 # URL requirements described above.
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
-
-# v2.2.1: https://github.com/vacp2p/nim-libp2p/releases/tag/v2.2.1
-requires "https://github.com/vacp2p/nim-libp2p.git#95d3925db8a3d093dd86647165650472a5342b81"
-
-# v0.6.1: https://github.com/status-im/nim-json-rpc/releases/tag/v0.6.1
-requires "https://github.com/status-im/nim-json-rpc.git#6f1fff8ba685c9192fab153a9d66484ad9066e78"
 
 # v0.3.1-rc.0: https://github.com/logos-messaging/nim-ffi/releases/tag/v0.3.1-rc.0
 requires "https://github.com/logos-messaging/nim-ffi#07ee8e1d6500762bab290465457a8d23559de546"
@@ -86,21 +82,15 @@ requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 # libp2p requires "lsquic >= 0.5.4" by name. The exact numeric constraint
 # keeps the resolution at the validated release instead of floating to
 # the newest one.
-requires "https://github.com/vacp2p/nim-lsquic.git == 0.8.1"
+requires "https://github.com/vacp2p/nim-lsquic#07783b55fb0ee7e9dc2dd9ced11548f84174306e"
 
-# v0.0.11: https://github.com/vacp2p/nim-boringssl/releases/tag/v0.0.11
-# nim-lsquic requires "nim-boringssl >= 0.0.4". Releases before 0.0.11
-# export bundled BoringSSL symbols from shared libraries, permitting symbol
-# interposition by a host-process OpenSSL (issue #4085). In the tested
-# Nimble 0.24.1 resolution, combining a special `#commit` constraint with
-# lsquic's range selected v0.0.4; the numeric constraint selects 0.0.11.
-requires "https://github.com/vacp2p/nim-boringssl == 0.0.11"
+requires "https://github.com/vacp2p/nim-boringssl#v0.0.11"
 
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
-# No tag at pinning time; mix master's nim-libp2p 2.2.1 bump (nim-libp2p-mix#54).
-requires "https://github.com/logos-co/nim-libp2p-mix#e7b0c4e6a026b2aa1144fd7945464502d82632da"
+# Temporary pin to the mix commit that widens its libp2p requirement.
+requires "https://github.com/logos-co/nim-libp2p-mix#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies

@@ -30,9 +30,10 @@ runs:
         if [ -n "${{ inputs.extra-path }}" ]; then
           export PATH="${{ inputs.extra-path }}:$PATH"
         fi
-        scripts/install_nimble.sh "${{ inputs.nimble-version }}"
+        NIMBLE_REVISION=$(sed -n 's/^const RequiredNimbleRevision = "\([0-9a-f]*\)"/\1/p' logos_delivery.nimble)
+        scripts/install_nimble.sh "${{ inputs.nimble-version }}" "${NIMBLE_REVISION}"
         echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-        echo "$HOME/.local/nimble-${{ inputs.nimble-version }}/bin" >> $GITHUB_PATH
+        echo "$HOME/.local/nimble-${NIMBLE_REVISION}/bin" >> $GITHUB_PATH
 
     - name: Generate requires string
       shell: bash

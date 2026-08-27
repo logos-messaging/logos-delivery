@@ -3,7 +3,7 @@
 #
 # Install the selected executable under:
 #
-#   ~/.local/nimble-<version>/bin
+#   ~/.local/nimble-<version-or-revision>/bin
 #
 # The Makefile places this directory before ~/.nimble/bin on PATH. Nimble
 # may update package links under ~/.nimble/bin during setup, including the
@@ -12,29 +12,32 @@
 # link.
 #
 # Procedure:
-#   1. Reuse an executable already reporting the requested version.
-#   2. On a recognized platform, try the version-specific GitHub release
-#      asset.
-#   3. If download, extraction, or execution fails, build the requested
-#      tag from source with the Nim compiler on PATH.
+#   1. Reuse an executable already reporting the requested version/revision.
+#   2. For a release, try the version-specific GitHub asset.
+#   3. Otherwise, build the requested tag or revision from source.
 
 set -e
 
 NIMBLE_VERSION="${1:-}"
+NIMBLE_REVISION="${2:-}"
 if [ -z "${NIMBLE_VERSION}" ]; then
-  echo "Usage: $0 <nimble-version>" >&2
+  echo "Usage: $0 <nimble-version> [nimble-revision]" >&2
   exit 1
 fi
 
-NIMBLE_DIR="${HOME}/.local/nimble-${NIMBLE_VERSION}/bin"
+NIMBLE_ID="${NIMBLE_REVISION:-${NIMBLE_VERSION}}"
+NIMBLE_DIR="${HOME}/.local/nimble-${NIMBLE_ID}/bin"
 NIMBLE_BIN="${NIMBLE_DIR}/nimble"
 
 # Step 1: reuse the executable if it reports the requested version.
 if [ -x "${NIMBLE_BIN}" ]; then
   nimble_ver=$("${NIMBLE_BIN}" --version 2>/dev/null \
     | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
-  if [ "${nimble_ver}" = "${NIMBLE_VERSION}" ]; then
-    echo "Nimble ${NIMBLE_VERSION} already installed, skipping."
+  nimble_rev=$("${NIMBLE_BIN}" --version 2>/dev/null \
+    | grep -oE '[0-9a-f]{40}' | head -1 || true)
+  if [ "${nimble_ver}" = "${NIMBLE_VERSION}" ] &&
+      { [ -z "${NIMBLE_REVISION}" ] || [ "${nimble_rev}" = "${NIMBLE_REVISION}" ]; }; then
+    echo "Nimble ${NIMBLE_ID} already installed, skipping."
     exit 0
   fi
 fi
@@ -55,7 +58,7 @@ case "$(uname -s)-$(uname -m)" in
   MINGW*-x86_64|MSYS*-x86_64) ASSET="windows_x64" ;;
   *)             ASSET="" ;;
 esac
-if [ -n "${ASSET}" ]; then
+if [ -z "${NIMBLE_REVISION}" ] && [ -n "${ASSET}" ]; then
   URL="https://github.com/nim-lang/nimble/releases/download/v${NIMBLE_VERSION}/nimble-${ASSET}.tar.gz"
   echo "Downloading prebuilt nimble ${NIMBLE_VERSION} (${ASSET})..."
   if curl -fsSL "${URL}" | tar -xz -C "${NIMBLE_DIR}"; then
@@ -77,11 +80,20 @@ NIM_BIN="$(command -v nim)"
 WORK_DIR="$(mktemp -d)"
 trap 'rm -rf "${WORK_DIR}"' EXIT
 
-echo "Cloning nimble v${NIMBLE_VERSION} with submodules..."
-git clone --depth=1 --branch "v${NIMBLE_VERSION}" \
-  --recurse-submodules --shallow-submodules \
-  https://github.com/nim-lang/nimble.git \
-  "${WORK_DIR}/nimble"
+if [ -n "${NIMBLE_REVISION}" ]; then
+  echo "Cloning nimble ${NIMBLE_REVISION} with submodules..."
+  git clone --depth=1 --no-checkout https://github.com/nim-lang/nimble.git \
+    "${WORK_DIR}/nimble"
+  git -C "${WORK_DIR}/nimble" fetch --depth=1 origin "${NIMBLE_REVISION}"
+  git -C "${WORK_DIR}/nimble" checkout --detach FETCH_HEAD
+  git -C "${WORK_DIR}/nimble" submodule update --init --recursive --depth=1
+else
+  echo "Cloning nimble v${NIMBLE_VERSION} with submodules..."
+  git clone --depth=1 --branch "v${NIMBLE_VERSION}" \
+    --recurse-submodules --shallow-submodules \
+    https://github.com/nim-lang/nimble.git \
+    "${WORK_DIR}/nimble"
+fi
 
 echo "Building nimble ${NIMBLE_VERSION} with $("${NIM_BIN}" --version | head -1)..."
 cd "${WORK_DIR}/nimble"
