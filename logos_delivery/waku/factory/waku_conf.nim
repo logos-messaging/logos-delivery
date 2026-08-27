@@ -178,7 +178,14 @@ proc logConf*(conf: WakuConf) =
 
   if conf.rlnRelayConf.isSome():
     var rlnRelayConf = conf.rlnRelayConf.get()
-    if rlnRelayConf.dynamic:
+    if rlnRelayConf.lez:
+      info "Configuration. Validation",
+        mechanism = "lez rln",
+        registryId = rlnRelayConf.registryId,
+        maxMessageSize = conf.maxMessageSizeBytes,
+        rlnEpochSizeSec = rlnRelayConf.epochSizeSec,
+        rlnRelayUserMessageLimit = rlnRelayConf.userMessageLimit
+    elif rlnRelayConf.dynamic:
       info "Configuration. Validation",
         mechanism = "onchain rln",
         contract = rlnRelayConf.ethContractAddress.string,
@@ -227,10 +234,14 @@ proc validateNoEmptyStrings(wakuConf: WakuConf): Result[void, string] =
   if wakuConf.rlnRelayConf.isSome():
     let rlnRelayConf = wakuConf.rlnRelayConf.get()
 
-    if rlnRelayConf.ethClientUrls.len == 0:
-      return err("rln-relay-eth-client-address is empty")
-    if isEmptyOrWhiteSpace(rlnRelayConf.ethContractAddress):
-      return err("rln-relay-eth-contract-address is an empty string")
+    if rlnRelayConf.lez:
+      if isEmptyOrWhiteSpace(rlnRelayConf.registryId):
+        return err("rln-relay-registry-id is an empty string")
+    else:
+      if rlnRelayConf.ethClientUrls.len == 0:
+        return err("rln-relay-eth-client-address is empty")
+      if isEmptyOrWhiteSpace(rlnRelayConf.ethContractAddress):
+        return err("rln-relay-eth-contract-address is an empty string")
 
     if rlnRelayConf.creds.isSome():
       let creds = rlnRelayConf.creds.get()

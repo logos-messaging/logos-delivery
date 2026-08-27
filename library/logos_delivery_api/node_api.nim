@@ -2,7 +2,10 @@ import std/json
 import chronos, chronicles, results, ffi
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
+import stew/byteutils
 import logos_delivery/waku/common/base64
+import logos_delivery/waku/requests/rln_requests
+import logos_delivery/waku/rln # toRLNSignal
 import
   logos_delivery,
   logos_delivery/waku/node/waku_node,
@@ -148,6 +151,99 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
 
+proc parseRlnVerdict(s: string): Result[ProofVerdict, string] =
+  case s
+  of "VALID":
+    ok(ProofVerdict.Valid)
+  of "INVALID":
+    ok(ProofVerdict.Invalid)
+  of "DUPLICATE":
+    ok(ProofVerdict.Duplicate)
+  of "RATE_LIMIT_VIOLATION":
+    ok(ProofVerdict.RateLimitViolation)
+  else:
+    err("unknown verdict: " & s)
+
+proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, string] =
+  ## Parses the module's reply envelope for `verify_proof`: exactly one of
+  ## `ok`/`err`; an invalid proof is an `ok` with an INVALID verdict, `err`
+  ## means the module failed to answer.
+  let node =
+    try:
+      parseJson(resultJson)
+    except CatchableError as e:
+      return err("invalid module reply JSON: " & e.msg)
+  if node.kind != JObject:
+    return err("module reply is not a JSON object")
+  if node.hasKey("err"):
+    let e = node["err"]
+    return err(e{"kind"}.getStr("TRANSIENT") & ": " & e{"message"}.getStr(""))
+  if not node.hasKey("ok"):
+    return err("module reply has neither ok nor err")
+
+  let okNode = node["ok"]
+  let verdict = ?parseRlnVerdict(okNode{"verdict"}.getStr(""))
+  var validation = ValidationResult(verdict: verdict)
+  let recovered = okNode{"recovered_secret"}
+  if not recovered.isNil() and recovered.kind == JString:
+    var secret: array[RlnFieldElementSize, byte]
+    try:
+      hexToByteArray(recovered.getStr(), secret)
+    except ValueError:
+      return err("recovered_secret is not a 32-byte hex string")
+    validation.recoveredSecret = some(secret)
+  return ok(validation)
+
+proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
+  ## Bridges the waku layer's RLN module requests onto the FFI callback
+  ## surface. Providers are registered at create time; the underlying calls
+  ## only succeed once the host has installed its RLN callbacks.
+  RequestStartRlnModule.setProvider(
+    ctx,
+    proc(): Future[Result[RequestStartRlnModule, string]] {.async.} =
+      let response = ?await rlnStart()
+      return ok(RequestStartRlnModule(response: response)),
+  ).isOkOr:
+    return err("failed to set RequestStartRlnModule provider: " & error)
+
+  RequestRegisterRlnMembership.setProvider(
+    ctx,
+    proc(
+        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
+    ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
+      var optionsJson = newJArray()
+      for opt in options:
+        optionsJson.add(%*{"key": opt.key, "value": opt.value})
+      let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
+      return ok(RequestRegisterRlnMembership(response: response)),
+  ).isOkOr:
+    return err("failed to set RequestRegisterRlnMembership provider: " & error)
+
+  RequestValidateRlnProof.setProvider(
+    ctx,
+    proc(
+        message: WakuMessage,
+        registryId: RegistryId,
+        rlnIdentifier: RlnIdentifier,
+        timestamp: uint64,
+    ): Future[Result[RequestValidateRlnProof, string]] {.async.} =
+      ## `message.proof` carries the module's canonical zerokit proof bytes;
+      ## the module recomputes the public values from it, so the proof crosses
+      ## as a single canonical hex field.
+      if message.proof.len == 0:
+        return err("message has no RLN proof")
+      let signalHex = message.toRLNSignal().toHex()
+      let proofJson = $(%*{"proof": message.proof.toHex()})
+      let response = ?await rlnVerifyProof(
+        registryId, rlnIdentifier.toHex(), signalHex, timestamp, proofJson
+      )
+      let validation = ?parseRlnValidationResult(response)
+      return ok(RequestValidateRlnProof(validation: validation)),
+  ).isOkOr:
+    return err("failed to set RequestValidateRlnProof provider: " & error)
+
+  ok()
+
 proc logosdelivery_create_node(
     configJson: string
 ): Future[Result[LogosDelivery, string]] {.ffiCtor.} =
@@ -177,16 +273,11 @@ proc logosdelivery_create_node(
     await lib.teardownFFIEventScope()
     return err(error)
 
-  return ok(lib)
+  registerRlnModuleProviders(lib.waku.brokerCtx).isOkOr:
+    await lib.teardownFFIEventScope()
+    return err(error)
 
-# Minimal RLN bring-up values. Placeholders: no config field carries the RLN
-# module's registry / identifier yet, so they are hardcoded here for now.
-const
-  RlnBringupRegistryId =
-    "logos:testnet:0000000000000000000000000000000000000000000000000000000000000000"
-  RlnBringupIdentifier =
-    "0000000000000000000000000000000000000000000000000000000000000001"
-  RlnBringupOptions = """[{"key":"rate_limit","value":"100"}]"""
+  return ok(lib)
 
 proc logosdelivery_start_node(
     self: LogosDelivery
@@ -195,23 +286,6 @@ proc logosdelivery_start_node(
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
     return err("failed to start: " & errMsg)
-
-  # If this node is configured for RLN, drive the external RLN module: start it,
-  # then register a membership. Gated on the RLN config (the decision point), but
-  # run here rather than at config-load because the host registers its RLN
-  # callbacks only after `create_node` returns. Best-effort — never fails start.
-  if self.waku.conf.rlnRelayConf.isSome():
-    let rlnStartRes = await rlnStart()
-    if rlnStartRes.isErr():
-      notice "RLN module start failed", reason = rlnStartRes.error()
-    else:
-      info "RLN module started", response = rlnStartRes.get()
-      let rlnRegRes =
-        await rlnRegister(RlnBringupRegistryId, RlnBringupIdentifier, RlnBringupOptions)
-      if rlnRegRes.isErr():
-        notice "RLN register_membership failed", reason = rlnRegRes.error()
-      else:
-        info "RLN membership registered", response = rlnRegRes.get()
 
   return ok("")
 

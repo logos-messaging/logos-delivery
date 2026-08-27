@@ -114,6 +114,27 @@ type WakuNodeConf* = object
     name: "rln-relay-cred-password"
   .}: string
 
+  # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
+  rlnRelayLez* {.
+    desc:
+      "Use the LEZ registry backed RLN module instead of on-chain group management: true|false. Default is false.",
+    defaultValue: Opt.none(bool),
+    name: "rln-relay-lez"
+  .}: Opt[bool]
+
+  rlnRelayRegistryId* {.
+    desc:
+      "CAIP-10 account identifier of the LEZ RLN registry deployment, e.g. logos:<network>:<64-hex>",
+    defaultValue: "",
+    name: "rln-relay-registry-id"
+  .}: string
+
+  rlnRelayIdentifier* {.
+    desc: "32-byte hex per-application RLN identifier for the LEZ registry",
+    defaultValue: "",
+    name: "rln-relay-identifier"
+  .}: string
+
   rlnRelayEthPrivateKey* {.
     desc: "Private key for broadcasting transactions",
     defaultValue: "",
@@ -1037,6 +1058,12 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.rlnRelayConf.withCredIndex(n.rlnRelayCredIndex.get())
   if n.rlnRelayDynamic.isSome():
     b.rlnRelayConf.withDynamic(n.rlnRelayDynamic.get())
+  if n.rlnRelayLez.isSome():
+    b.rlnRelayConf.withLez(n.rlnRelayLez.get())
+  if n.rlnRelayRegistryId != "":
+    b.rlnRelayConf.withRegistryId(n.rlnRelayRegistryId)
+  if n.rlnRelayIdentifier != "":
+    b.rlnRelayConf.withIdentifier(n.rlnRelayIdentifier)
 
   if n.maxMessageSize != "":
     b.withMaxMessageSize(n.maxMessageSize)

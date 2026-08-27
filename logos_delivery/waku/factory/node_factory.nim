@@ -39,7 +39,8 @@ import
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
   ../common/rate_limit/setting,
-  ../api/events/discovery_events
+  ../api/events/discovery_events,
+  ../requests/rln_requests
 
 ## Peer persistence
 
@@ -328,12 +329,38 @@ proc setupProtocols(
       return
         err("the configuration enables RLN relay, but this build has -d:disable_rln")
 
-    # PoC: RLN is served by the external RLN module, driven from
-    # logosdelivery_start_node. The native on-node RLN relay is not mounted here
-    # (setRlnValidator builds a local zerokit instance / talks to the eth RPC and
-    # crashes the in-process bring-up). rlnRelayConf stays the signal that RLN is
-    # wanted; the external module is the only RLN path.
-    notice "skipping native RLN relay mount; external RLN module in use"
+    let rlnRelayConf = conf.rlnRelayConf.get()
+    if rlnRelayConf.lez:
+      let rlnLezConf = WakuRlnLezConfig(
+        registryId: rlnRelayConf.registryId,
+        identifier: rlnRelayConf.identifier,
+        userMessageLimit: rlnRelayConf.userMessageLimit,
+        epochSizeSec: rlnRelayConf.epochSizeSec,
+        creds: rlnRelayConf.creds,
+        onFatalErrorAction: onFatalErrorAction,
+      )
+      try:
+        await node.setRlnValidator(rlnLezConf)
+      except CatchableError:
+        return
+          err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+    else:
+      let rlnConf = WakuRlnConfig(
+        dynamic: rlnRelayConf.dynamic,
+        credIndex: rlnRelayConf.credIndex,
+        ethContractAddress: rlnRelayConf.ethContractAddress,
+        chainId: rlnRelayConf.chainId,
+        ethClientUrls: rlnRelayConf.ethClientUrls,
+        creds: rlnRelayConf.creds,
+        userMessageLimit: rlnRelayConf.userMessageLimit,
+        epochSizeSec: rlnRelayConf.epochSizeSec,
+        onFatalErrorAction: onFatalErrorAction,
+      )
+      try:
+        await node.setRlnValidator(rlnConf)
+      except CatchableError:
+        return
+          err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
 
   # NOTE Must be mounted after relay
   if conf.lightPush:
@@ -412,6 +439,29 @@ proc startNode*(
     await node.start()
   except CatchableError:
     return err("failed to start waku node: " & getCurrentExceptionMsg())
+
+  # Drive the external RLN module for the LEZ path. Runs at start rather than
+  # at mount: the host installs its RLN callbacks only after node creation
+  # returns. Best-effort: a missing module degrades RLN, not node startup.
+  if conf.rlnRelayConf.isSome() and conf.rlnRelayConf.get().lez:
+    let rlnRelayConf = conf.rlnRelayConf.get()
+    try:
+      let startRes = await RequestStartRlnModule.request(node.brokerCtx)
+      if startRes.isErr():
+        notice "RLN module start failed", reason = startRes.error()
+      else:
+        info "RLN module started", response = startRes.get().response
+        let options =
+          @[RegistryOption(key: "rate_limit", value: $rlnRelayConf.userMessageLimit)]
+        let regRes = await RequestRegisterRlnMembership.request(
+          node.brokerCtx, rlnRelayConf.registryId, rlnRelayConf.identifier, options
+        )
+        if regRes.isErr():
+          notice "RLN membership registration failed", reason = regRes.error()
+        else:
+          info "RLN membership registered", response = regRes.get().response
+    except CatchableError:
+      notice "RLN module bring-up failed", reason = getCurrentExceptionMsg()
 
   # Connect to configured static nodes
   if conf.staticNodes.len > 0:

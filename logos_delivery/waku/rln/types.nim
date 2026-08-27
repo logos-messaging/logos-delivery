@@ -1,11 +1,13 @@
 {.push raises: [].}
 
-import std/tables, chronos, results
+import std/[options, tables], chronos, results
 import brokers/broker_context
 
 import ./group_manager, ./nonce_manager, ./protocol_types
 
 import logos_delivery/waku/common/error_handling
+
+export options, results
 
 type Rln* = ref object of RootObj
   # the log of nullifiers and Shamir shares of the past messages grouped per epoch
@@ -20,3 +22,5 @@ type Rln* = ref object of RootObj
   epochMonitorFuture*: Future[void]
   rootChangesFuture*: Future[Result[void, string]]
   brokerCtx*: BrokerContext
+
+{.pop.}
