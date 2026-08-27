@@ -1,4 +1,4 @@
-import chronicles, results, stint, stew/endians2
+import chronicles, results, stint, stew/[byteutils, endians2]
 import ../waku_conf
 
 logScope:
@@ -23,6 +23,9 @@ type RlnConfBuilder* = object
   dynamic*: Opt[bool]
   epochSizeSec*: Opt[uint64]
   userMessageLimit*: Opt[uint64]
+  lez*: Opt[bool]
+  registryId*: Opt[string]
+  identifier*: Opt[string] ## 32-byte hex string, decoded and validated in build()
 
 proc init*(T: type RlnConfBuilder): RlnConfBuilder =
   RlnConfBuilder()
@@ -60,12 +63,18 @@ proc withEpochSizeSec*(b: var RlnConfBuilder, epochSizeSec: uint64) =
 proc withUserMessageLimit*(b: var RlnConfBuilder, userMessageLimit: uint64) =
   b.userMessageLimit = Opt.some(userMessageLimit)
 
+proc withLez*(b: var RlnConfBuilder, lez: bool) =
+  b.lez = Opt.some(lez)
+
+proc withRegistryId*(b: var RlnConfBuilder, registryId: string) =
+  b.registryId = Opt.some(registryId)
+
+proc withIdentifier*(b: var RlnConfBuilder, identifier: string) =
+  b.identifier = Opt.some(identifier)
+
 proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
   if not b.enabled.get(DefaultRlnRelayEnabled):
     return ok(Opt.none(RlnConf))
-
-  if b.chainId.isNone():
-    return err("RLN Relay Chain Id is not specified")
 
   let creds =
     if b.credPath.isSome() and b.credPassword.isSome():
@@ -77,6 +86,31 @@ proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
     else:
       Opt.none(RlnCreds)
 
+  if b.lez.get(false):
+    if b.registryId.get("") == "":
+      return err("rlnRelay.registryId is not specified")
+    if b.identifier.get("") == "":
+      return err("rlnRelay.identifier is not specified")
+    var identifier: array[32, byte]
+    try:
+      hexToByteArray(b.identifier.get(), identifier)
+    except ValueError:
+      return err("rlnRelay.identifier is not a 32-byte hex string")
+    return ok(
+      Opt.some(
+        RlnConf(
+          lez: true,
+          registryId: b.registryId.get(),
+          identifier: identifier,
+          creds: creds,
+          epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
+          userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
+        )
+      )
+    )
+
+  if b.chainId.isNone():
+    return err("RLN Relay Chain Id is not specified")
   if b.dynamic.isNone():
     return err("rlnRelay.dynamic is not specified")
   if b.ethClientUrls.get(newSeq[string](0)).len == 0:
