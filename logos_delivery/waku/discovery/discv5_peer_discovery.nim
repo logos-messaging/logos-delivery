@@ -73,6 +73,22 @@ proc keyPredicate(key: string): Result[Opt[WakuDiscv5Predicate], string] =
 
   err("discv5 backend: unsupported criteria key: " & key)
 
+proc shardKeyToPubsubTopic(key: string): Result[PubsubTopic, string] =
+  ## "shard:<cluster>/<shard>" -> "/waku/2/rs/<cluster>/<shard>"
+  if not key.startsWith(ShardKeyPrefix):
+    return err("discv5 backend: only shard: keys can be advertised, got: " & key)
+  let parts = key[ShardKeyPrefix.len ..^ 1].split('/')
+  if parts.len != 2:
+    return err("discv5 backend: expected shard:<cluster>/<shard>: " & key)
+  try:
+    ok(
+      $RelayShard(
+        clusterId: uint16(parseUInt(parts[0])), shardId: uint16(parseUInt(parts[1]))
+      )
+    )
+  except ValueError:
+    err("discv5 backend: invalid shard key: " & key)
+
 BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
   proc new(
       T: typedesc[Discv5PeerDiscovery],
@@ -179,12 +195,22 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
   method startAdvertising(
       self: Discv5PeerDiscovery, key: string, data: seq[byte], record: seq[byte]
   ): Future[Result[void, string]] {.async.} =
-    err("discv5 backend: advertising not supported for key: " & key)
+    ## Advertising for discv5 = mutating our own ENR; only shard: keys map.
+    if record.len > 0:
+      return err("discv5 backend: pre-signed records not supported")
+    if not self.running:
+      return err("discv5 backend: not running")
+    let topic = ?shardKeyToPubsubTopic(key)
+    self.inner.updateShards(@[topic], add = true)
 
   method stopAdvertising(
       self: Discv5PeerDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    err("discv5 backend: advertising not supported for key: " & key)
+    if not self.running:
+      return err("discv5 backend: not running")
+    let topic = ?shardKeyToPubsubTopic(key)
+    # updateShards refuses to remove the last remaining shard.
+    self.inner.updateShards(@[topic], add = false)
 
   method registerInterest(
       self: Discv5PeerDiscovery, key: string
