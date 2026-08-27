@@ -1,6 +1,7 @@
 {.used.}
 
-import results, std/sequtils, testutils/unittests, chronos, libp2p/crypto/crypto
+import
+  results, std/sequtils, testutils/unittests, chronos, metrics, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -9,9 +10,21 @@ import
     waku_core,
     waku_core/message/digest,
     waku_archive,
+    waku_archive/archive_metrics,
   ],
   ../waku_archive/archive_utils,
   ../testlib/wakucore
+
+proc insertCount(source: string): float64 =
+  ## `value(labelValues = ...)` ignores the label selector in metrics 0.2.1 and
+  ## answers with whichever child was created first, so the series has to be
+  ## read by name. Counters are registered with the '_total' suffix.
+  try:
+    return logos_delivery_archive_inserts.valueByName(
+      "logos_delivery_archive_inserts_total", [source]
+    )
+  except ValueError:
+    return 0.0
 
 suite "Waku Archive - message handling":
   test "it should archive a valid and non-ephemeral message":
@@ -539,3 +552,34 @@ procSuite "Waku Archive - find messages":
     let response = res.tryGet()
     check:
       response.messages.len == 0
+
+suite "Waku Archive - insert metrics":
+  ## The collectors are process-global and shared with every other test in this
+  ## binary, hence the baseline taken inside each test.
+  test "the insert counter only moves when the relay ingress wrote":
+    let baseline = insertCount(relayIngress)
+
+    let failing = newWakuArchive(newFailingArchiveDriver())
+    waitFor failing.handleMessage(DefaultPubSubTopic, fakeWakuMessage())
+
+    check insertCount(relayIngress) == baseline
+
+    let stored = newWakuArchive(newSqliteArchiveDriver())
+    waitFor stored.handleMessage(DefaultPubSubTopic, fakeWakuMessage())
+
+    check insertCount(relayIngress) == baseline + 1
+
+  test "the insert counter only moves when the sync ingress wrote":
+    let baseline = insertCount(syncIngress)
+    let message = fakeWakuMessage()
+    let messageHash = computeMessageHash(DefaultPubSubTopic, message)
+
+    let failing = newWakuArchive(newFailingArchiveDriver())
+    check (waitFor failing.syncMessageIngress(messageHash, DefaultPubSubTopic, message)).isErr()
+
+    check insertCount(syncIngress) == baseline
+
+    let stored = newWakuArchive(newSqliteArchiveDriver())
+    check (waitFor stored.syncMessageIngress(messageHash, DefaultPubSubTopic, message)).isOk()
+
+    check insertCount(syncIngress) == baseline + 1

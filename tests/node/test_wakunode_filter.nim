@@ -22,6 +22,18 @@ import
   ../testlib/[common, wakucore, wakunode, testasync, futures, testutils],
   ../waku_filter_v2/waku_filter_utils
 
+proc waitForTopicPeer(
+    node: WakuNode, topic: PubsubTopic, peer: PeerId, timeout = FUTURE_TIMEOUT_LONG
+) {.async.} =
+  ## Waits until node's gossipsub has learnt that peer subscribes to topic.
+  let deadline = Moment.now() + timeout
+  while Moment.now() < deadline:
+    for p in node.wakuRelay.gossipsub.getOrDefault(topic):
+      if p.peerId == peer:
+        return
+    await sleepAsync(10.milliseconds)
+  raiseAssert $peer & " never announced a subscription to " & topic
+
 proc generateRequestId(rng: crypto.Rng): string =
   var bytes: array[10, byte]
   rng.generate(bytes)
@@ -131,7 +143,7 @@ suite "Waku Filter - End to End":
     check:
       not await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT)
 
-  asyncTest "Client Node can't receive Push from Server Node, via Relay":
+  asyncTest "Client Node receives no Push when the Server Node is not subscribed to the pubsub topic":
     # Given the server node has Relay enabled
     (await server.mountRelay()).isOkOr:
       assert false, "error mounting relay: " & $error
@@ -150,6 +162,53 @@ suite "Waku Filter - End to End":
 
     # Then the message is not sent to the client's filter push handler
     check (not await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT))
+
+  asyncTest "Client Node receives Push for a message the Server Node got via Relay":
+    # Given the server node relays and is subscribed to the pubsub topic
+    (await server.mountRelay()).isOkOr:
+      assert false, "error mounting relay: " & $error
+
+    proc dummyHandler(
+        topic: PubsubTopic, msg: WakuMessage
+    ): Future[void] {.async, gcsafe.} =
+      discard
+
+    server.subscribe((kind: PubsubSub, topic: pubsubTopic), dummyHandler).isOkOr:
+      assert false, "error subscribing to relay: " & $error
+
+    # And a separate publisher node with Relay mounted
+    let
+      publisherKey = generateSecp256k1Key()
+      publisher = newTestWakuNode(publisherKey)
+    await publisher.start()
+    defer:
+      await publisher.stop()
+
+    (await publisher.mountRelay()).isOkOr:
+      assert false, "error mounting relay: " & $error
+
+    # And a valid filter subscription
+    let subscribeResponse = await client.filterSubscribe(
+      Opt.some(pubsubTopic), contentTopicSeq, serverRemotePeerInfo
+    )
+    require:
+      subscribeResponse.isOk()
+      server.wakuFilter.subscriptions.subscribedPeerCount() == 1
+
+    await publisher.connectToNodes(@[serverRemotePeerInfo])
+    await publisher.waitForTopicPeer(pubsubTopic, serverRemotePeerInfo.peerId)
+
+    # When the publisher relays a message to the server
+    let msg = fakeWakuMessage(contentTopic = contentTopic)
+    let publishRes = await publisher.publish(Opt.some(pubsubTopic), msg)
+    assert publishRes.isOk(), $publishRes.error
+    assert publishRes.get() == 1, "publish selected no relay peer"
+
+    # Then the server pushes it to the filter client
+    let pushed = await pushHandlerFuture.waitForResult(FUTURE_TIMEOUT_MEDIUM)
+    check:
+      pushed.isOk()
+      pushed.value() == (pubsubTopic, msg)
 
   asyncTest "Client Node can't subscribe to Server Node without Filter":
     # Given a server node with Relay without Filter
@@ -221,7 +280,7 @@ suite "Waku Filter - End to End":
       pushedMsgPubsubTopic == pubsubTopic
       pushedMsg == msg
 
-  asyncTest "Filter Client Node can't receive messages after subscribing and restarting, via Relay":
+  asyncTest "Filter Client Node receives no Push after restarting when the Server Node is not subscribed to the pubsub topic":
     (await server.mountRelay()).isOkOr:
       assert false, "error mounting relay: " & $error
 

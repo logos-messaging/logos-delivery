@@ -8,7 +8,10 @@ version = "0.38.1"
 author = "Status Research & Development GmbH"
 description = "Logos-delivery, Private P2P Messaging for Resource-Restricted Devices"
 license = "MIT or Apache License 2.0"
-skipDirs = @["tests", "examples", "tools", "apps", "simulations", "metrics"]
+skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
+
+# Nimble installs only the namesake directory; dependents need these too.
+installDirs = @["library", "migrations", "tools"]
 
 const RequiredNimVersion = "2.2.4"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
@@ -76,6 +79,10 @@ requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 # Exact pin: libp2p only sets a floor, and a re-solve floats to
 # the newest lsquic release and rewrites the lock.
 requires "lsquic == 0.8.1"
+# v0.0.11: pins nim-lsquic's floating "nim-boringssl >= 0.0.4" range. Earlier
+# releases export the bundled BoringSSL symbols from shared libraries, letting
+# a host-process OpenSSL interpose them (issue #4085).
+requires "https://github.com/vacp2p/nim-boringssl#346429e4cda48e775f2d1eb3ccb8757edf4f3648"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 # Temporary pin to an unmerged mix commit that widens
 # mix's libp2p requirement. Mix master still requires libp2p 2.2.0 exactly.
@@ -136,15 +143,9 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       cBindingsFlags & getMyCPU() & getNimParams() & srcDir & "/" & srcFile
   else:
-    # -Bsymbolic binds the library's references to its own symbols at link
-    # time. Without it, a host process that already loads OpenSSL (e.g.
-    # Node.js) interposes our statically linked BoringSSL functions and data
-    # (ASN1_ITEM tables), and QUIC startup crashes in lsquic setupSSLContext
-    # (issue #4085).
-    let elfFlags = when defined(linux): "--passL:-Wl,-Bsymbolic " else: ""
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      elfFlags & cBindingsFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
+      cBindingsFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
@@ -200,9 +201,8 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   if not dirExists outDir:
     mkDir outDir
 
-  # -Bsymbolic: see buildLibrary's dynamic branch (issue #4085).
   exec "nim c" & " --out:" & outDir &
-    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-Wl,-Bsymbolic --passL:-L" &
+    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
@@ -517,6 +517,14 @@ let chroniclesParams =
   "--warning:UnusedImport:on " & "-d:chronicles_log_level=TRACE"
 
 ## Liblogosdelivery build tasks
+
+task liblogosdelivery, "Build liblogosdelivery for the host platform":
+  when defined(windows):
+    buildLibDynamicWindows("liblogosdelivery", "library")
+  elif defined(macosx):
+    buildLibDynamicMac("liblogosdelivery", "library")
+  else:
+    buildLibDynamicLinux("liblogosdelivery", "library")
 
 task liblogosdeliveryDynamicWindows, "Generate bindings":
   buildLibDynamicWindows("liblogosdelivery", "library")

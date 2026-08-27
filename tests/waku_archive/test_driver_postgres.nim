@@ -1,12 +1,14 @@
 {.used.}
 
-import results, std/[sequtils, strutils], testutils/unittests, chronos
+import
+  results, std/[sequtils, strutils], testutils/unittests, chronos, db_connector/postgres
 import
   logos_delivery/waku/[
     waku_archive,
     waku_archive/driver/postgres_driver,
     waku_core,
     waku_core/message/digest,
+    common/databases/db_postgres/dbconn,
     common/databases/db_postgres/pgasyncpool,
   ],
   ../testlib/wakucore,
@@ -247,3 +249,280 @@ suite "Postgres driver":
     check attachedStray notin
       (await driver.getPartitionsList("messages_lookup")).expect("lookup list")
     check not (await driver.existsTable(detachedStray)).expect("existsTable")
+
+  ## The partition maintenance runs on every instance sharing the database, so
+  ## these check that a sequence meeting another one in flight ends well. The
+  ## window is well in the past, so that it never collides with the partition
+  ## the factory keeps creating for the present time.
+  const partitionStart = Timestamp(1_700_000_000) ## 2023-11-14 22:13:20 UTC
+  const partitionName = "messages_1700000000_1700002800"
+  const partitionConstraint = partitionName & "_by_range_check"
+  const partitionFromNanos = "1700000000000000000"
+  const partitionUntilNanos = "1700002800000000000"
+
+  proc createPartitionTableQuery(): string =
+    return
+      "CREATE TABLE IF NOT EXISTS " & partitionName &
+      " (LIKE messages INCLUDING DEFAULTS INCLUDING CONSTRAINTS);"
+
+  proc addConstraintQuery(): string =
+    return
+      "ALTER TABLE " & partitionName & " ADD CONSTRAINT " & partitionConstraint &
+      " CHECK ( timestamp >= " & partitionFromNanos & " AND timestamp < " &
+      partitionUntilNanos & " );"
+
+  asyncTest "A long database error reaches the caller in one piece":
+    ## The words telling a concurrent-DDL outcome apart from a real failure sit
+    ## past the 80th character of these messages, so the guards in the partition
+    ## maintenance only work as long as the whole message is propagated.
+    (await driver.performWriteQuery(createPartitionTableQuery())).expect(
+      "create the partition table"
+    )
+    (await driver.performWriteQuery(addConstraintQuery())).expect("add the constraint")
+
+    let repeatedRes = await driver.performWriteQuery(addConstraintQuery())
+
+    ## constraint "<45 chars>" for relation "<30 chars>" already exists
+    ## is 127 characters long, and the deciding words start at the 113th
+    check repeatedRes.isErr()
+    check repeatedRes.error.contains("already exists")
+
+  asyncTest "Complete a partition another instance left half built":
+    ## The other instance created the partition table and added its range
+    ## constraint, and went away before attaching it. Our sequence has to take
+    ## the steps it finds already done and complete the rest.
+    (await driver.performWriteQuery(createPartitionTableQuery())).expect(
+      "create the partition table"
+    )
+    (await driver.performWriteQuery(addConstraintQuery())).expect("add the constraint")
+
+    (await driver.addPartition(partitionStart)).expect("addPartition")
+
+    check partitionName in (await driver.getPartitionsList()).expect("partitions list")
+
+  asyncTest "Defer the partition creation to the instance holding the lock":
+    ## A pool of one connection, so that the session-level advisory lock stays
+    ## held across the queries below, like an instance midway through its own
+    ## sequence.
+    let lockHolder = PgAsyncPool.new(storeMessageDbUrl, 1).expect("raw pool")
+    (
+      await lockHolder.pgQuery(
+        "SELECT pg_advisory_lock(" & $PartitionAdvisoryLockId & ");"
+      )
+    ).expect("take the advisory lock")
+
+    ## Built without the builder on purpose: no partition factory runs on it, so
+    ## its partition tracking is empty and says whether the sequence below ran
+    ## to the end -- the tracking is only updated by its very last line.
+    let ourInstance =
+      PostgresDriver.new(storeMessageDbUrl, maxConnections = 4).expect("second driver")
+
+    ## Deferring is not a failure, but nothing may be created either: the steps
+    ## belong to the sequence of whoever holds the lock.
+    (await ourInstance.addPartition(partitionStart)).expect("deferred addPartition")
+
+    check not (await driver.existsTable(partitionName)).expect("existsTable")
+    check not ourInstance.containsAnyPartition()
+
+    (
+      await lockHolder.pgQuery(
+        "SELECT pg_advisory_unlock(" & $PartitionAdvisoryLockId & ");"
+      )
+    ).expect("release the advisory lock")
+    (await lockHolder.close()).expect("close the raw pool")
+
+    ## The work was postponed, not lost: the next attempt goes through
+    (await ourInstance.addPartition(partitionStart)).expect("addPartition")
+
+    check partitionName in (await driver.getPartitionsList()).expect("partitions list")
+    check ourInstance.containsAnyPartition()
+
+    (await ourInstance.close()).expect("close the second driver")
+
+suite "Postgres driver - concurrent DDL outcomes":
+  ## The messages below are the ones the fleets produced while two instances
+  ## maintained the same partitions. Every one of them means "another instance
+  ## already did this", and none of them may be treated as a failure.
+  const constraintAlreadyExists =
+    "ERROR:  constraint \"messages_1720364735_1720364740_by_range_check\" " &
+    "for relation \"messages_1720364735_1720364740\" already exists"
+
+  const constraintDoesNotExist =
+    "ERROR:  constraint \"messages_1720364735_1720364740_by_range_check\" " &
+    "of relation \"messages_1720364735_1720364740\" does not exist"
+
+  const alreadyAPartition =
+    "ERROR:  \"messages_1720364735_1720364740\" is already a partition"
+
+  ## CREATE TABLE IF NOT EXISTS is not atomic, so the instance losing that race
+  ## gets a catalogue unique violation instead of the "skipping" notice
+  const typeCatalogueCollision =
+    "ERROR:  duplicate key value violates unique constraint " &
+    "\"pg_type_typname_nsp_index\""
+
+  const classCatalogueCollision =
+    "ERROR:  duplicate key value violates unique constraint " &
+    "\"pg_class_relname_nsp_index\""
+
+  test "Classify the outcomes of a concurrent partition maintenance":
+    check constraintAlreadyExists.isConcurrentDdlOutcome()
+    check constraintDoesNotExist.isConcurrentDdlOutcome()
+    check alreadyAPartition.isConcurrentDdlOutcome()
+    check typeCatalogueCollision.isConcurrentDdlOutcome()
+    check classCatalogueCollision.isConcurrentDdlOutcome()
+
+  test "Do not classify a genuine failure as a concurrent outcome":
+    check not "ERROR:  could not acquire advisory lock".isConcurrentDdlOutcome()
+    check not "ERROR:  no space left on device".isConcurrentDdlOutcome()
+    check not "ERROR:  deadlock detected".isConcurrentDdlOutcome()
+
+suite "Postgres connection lifecycle":
+  ## A database restart used to take the node down: closing a connection whose
+  ## backend was gone failed, which left the remaining connections open and
+  ## their descriptors registered in the chronos dispatcher.
+
+  const RawConnString =
+    "user=postgres host=localhost port=5432 dbname=postgres password=test123"
+
+  proc backendPidsAlive(
+      pool: PgAsyncPool, pids: seq[string]
+  ): Future[Result[int, string]] {.async.} =
+    var alive = 0
+
+    proc onRow(res: ptr PGresult) {.closure, gcsafe, raises: [].} =
+      if pqntuples(res) > 0:
+        try:
+          alive = parseInt($pqgetvalue(res, 0, 0))
+        except ValueError:
+          discard
+
+    (
+      await pool.pgQuery(
+        "SELECT count(*) FROM pg_stat_activity WHERE pid IN (" & pids.join(",") & ")",
+        @[],
+        onRow,
+      )
+    ).isOkOr:
+      return err($error)
+
+    return ok(alive)
+
+  asyncTest "A connection whose backend died gives its selector entry back":
+    let wrapper = DbConnWrapper.new(RawConnString).expect("new connection")
+
+    let asyncFd = wrapper.getRegisteredFd().expect("registered fd")
+    check asyncFd in getThreadDispatcher()
+
+    ## the backend kills itself, so libpq closes the socket while the results
+    ## of this very query are being read
+    let killRes = await wrapper.dbConnQuery(
+      sql("SELECT pg_terminate_backend(pg_backend_pid())"), @[], nil, ""
+    )
+    check killRes.isErr()
+
+    ## precondition: libpq cannot tell the descriptor anymore
+    check pqsocket(wrapper.getDbConn()) == -1
+
+    check wrapper.closeDbConn().isOk()
+    check asyncFd notin getThreadDispatcher()
+
+  asyncTest "A pool closes every connection even when one is dead":
+    let pool = PgAsyncPool.new(storeMessageDbUrl, 3).expect("pool")
+    let observer = PgAsyncPool.new(storeMessageDbUrl, 1).expect("observer pool")
+
+    var pids = newSeq[string](3)
+
+    proc collectPid(index: int): DataProc =
+      return proc(res: ptr PGresult) {.closure, gcsafe, raises: [].} =
+        if pqntuples(res) > 0:
+          pids[index] = $pqgetvalue(res, 0, 0)
+
+    ## three overlapping queries force the pool to open three connections
+    var queries = newSeq[Future[Result[void, string]]](0)
+    for i in 0 ..< 3:
+      queries.add(
+        pool.pgQuery("SELECT pg_backend_pid(), pg_sleep(0.5)", @[], collectPid(i))
+      )
+
+    for queryFut in queries:
+      (await queryFut).expect("concurrent pid query")
+
+    check pids.deduplicate().len == 3
+
+    ## an idle pool always hands out its first connection, so this tells which
+    ## backend has to die for the close loop to fail on its first iteration
+    var firstConnPid: string
+    proc onFirstPid(res: ptr PGresult) {.closure, gcsafe, raises: [].} =
+      if pqntuples(res) > 0:
+        firstConnPid = $pqgetvalue(res, 0, 0)
+
+    (await pool.pgQuery("SELECT pg_backend_pid()", @[], onFirstPid)).expect(
+      "first conn pid"
+    )
+
+    let survivorPids = pids.filterIt(it != firstConnPid)
+    check survivorPids.len == 2
+
+    (await observer.pgQuery("SELECT pg_terminate_backend(" & firstConnPid & ")")).expect(
+      "terminate backend"
+    )
+
+    ## the pool only learns about the dead backend when it uses it again
+    check (await pool.pgQuery("SELECT 1")).isErr()
+
+    (await pool.close()).expect("pool close")
+
+    var stillAlive = -1
+    for _ in 0 ..< 50:
+      stillAlive = (await observer.backendPidsAlive(survivorPids)).expect("alive count")
+      if stillAlive == 0:
+        break
+      await sleepAsync(100.milliseconds)
+
+    check stillAlive == 0
+
+    (await observer.close()).expect("observer close")
+
+  asyncTest "A pool holding a never used connection can still be closed":
+    ## A failing prepare leaves behind a connection that never ran a query, so
+    ## it has no futBecomeFree for the close barrier to wait on.
+    let pool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("pool")
+
+    check (
+      await pool.runStmt(
+        "stmtOverMissingTable",
+        "SELECT * FROM a_table_that_does_not_exist",
+        newSeq[string](0),
+        newSeq[int32](0),
+        newSeq[int32](0),
+      )
+    ).isErr()
+
+    (await pool.close()).expect("pool close")
+
+  asyncTest "The pool comes back after its connection died":
+    let pool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("pool")
+
+    check (await pool.pgQuery("SELECT pg_terminate_backend(pg_backend_pid())")).isErr()
+
+    (await pool.resetConnPool()).expect("resetConnPool")
+    (await pool.pgQuery("SELECT 1")).expect("query after reset")
+
+    (await pool.close()).expect("pool close")
+
+  asyncTest "A pool that cannot be closed does not bring the node down":
+    let pool = PgAsyncPool.new(storeMessageDbUrl, 1).expect("pool")
+
+    check (await pool.pgQuery("SELECT pg_terminate_backend(pg_backend_pid())")).isErr()
+
+    var fatalErrors = newSeq[string](0)
+    proc onFatalError(errMsg: string) {.gcsafe, closure, raises: [].} =
+      fatalErrors.add(errMsg)
+
+    let healthFut = checkConnectivity(pool, onFatalError)
+    await sleepAsync(1.seconds)
+
+    check fatalErrors.len == 0
+
+    await healthFut.cancelAndWait()
+    (await pool.close()).expect("pool close")

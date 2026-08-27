@@ -24,6 +24,20 @@ proc newSqliteArchiveDriver*(): ArchiveDriver =
 proc newWakuArchive*(driver: ArchiveDriver): WakuArchive =
   WakuArchive.new(driver).get()
 
+type FailingArchiveDriver* = ref object of ArchiveDriver
+  ## Refuses every write, which is what a node with a broken database does.
+
+method put*(
+    driver: FailingArchiveDriver,
+    messageHash: WakuMessageHash,
+    pubsubTopic: PubsubTopic,
+    message: WakuMessage,
+): Future[ArchiveDriverResult[void]] {.async.} =
+  return err("failing archive driver stub")
+
+proc newFailingArchiveDriver*(): ArchiveDriver =
+  return FailingArchiveDriver()
+
 proc put*(
     driver: ArchiveDriver, pubsubTopic: PubSubTopic, msgList: seq[WakuMessage]
 ): ArchiveDriver =

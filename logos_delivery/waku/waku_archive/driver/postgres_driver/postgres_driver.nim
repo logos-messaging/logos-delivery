@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import
-  std/[sequtils, strutils, strformat, times, sugar],
+  std/[sequtils, strutils, strformat, times, sugar, random],
   stew/[byteutils, arrayops],
   results,
   chronos,
@@ -1060,7 +1060,8 @@ method deleteOldestMessagesNotWithinLimit*(
 
 method close*(s: PostgresDriver): Future[ArchiveDriverResult[void]] {.async.} =
   ## Cancel the partition factory loop
-  s.futLoopPartitionFactory.cancelSoon()
+  if not s.futLoopPartitionFactory.isNil():
+    s.futLoopPartitionFactory.cancelSoon()
 
   ## Cancel analyze table loop
   if not s.futLoopAnalyzeTable.isNil():
@@ -1154,9 +1155,44 @@ proc performWriteQuery*(
 
 const COULD_NOT_ACQUIRE_ADVISORY_LOCK* = "could not acquire advisory lock"
 
+const PartitionAdvisoryLockId* = 123456789
+  ## Serializes the partition maintenance among the instances sharing a database
+
+const ConcurrentDdlOutcomes = [
+  # trying to add a partition constraint that another instance already added,
+  # e.g. constraint "messages_..._by_range_check" for relation "messages_..." already exists
+  "already exists",
+  # attaching a partition that another instance already attached,
+  # e.g. "messages_1720364735_1720364740" is already a partition
+  "is already a partition",
+  # dropping a constraint that another instance already dropped,
+  # e.g. constraint "..." of relation "messages_1720364735_1720364740" does not exist
+  "does not exist",
+  # CREATE TABLE IF NOT EXISTS is not atomic: when another instance creates the
+  # same partition concurrently, the loser gets a catalogue unique violation
+  # instead of the "already exists, skipping" notice
+  "pg_type_typname_nsp_index",
+  "pg_class_relname_nsp_index",
+]
+
+func isConcurrentDdlOutcome*(error: string): bool =
+  ## Tells the outcomes that merely mean "another instance got there first"
+  ## apart from genuine failures. Both nodes of a shared-database deployment
+  ## run the partition maintenance, so these are expected, not exceptional.
+  for signature in ConcurrentDdlOutcomes:
+    if error.contains(signature):
+      return true
+
+  return false
+
+type ProtectedQueryOutcome = enum
+  Executed ## this instance ran the statement
+  AlreadyDone ## another instance had already applied it
+  Deferred ## another instance holds the lock, so nothing was done
+
 proc performWriteQueryWithLock(
     self: PostgresDriver, queryToProtect: string
-): Future[ArchiveDriverResult[void]] {.async.} =
+): Future[ArchiveDriverResult[ProtectedQueryOutcome]] {.async.} =
   ## This wraps the original query in a script so that we make sure a pg_advisory lock protects it
   let query =
     fmt"""
@@ -1165,7 +1201,7 @@ proc performWriteQueryWithLock(
               lock_acquired boolean;
           BEGIN
               -- Try to acquire the advisory lock
-              lock_acquired := pg_try_advisory_lock(123456789);
+              lock_acquired := pg_try_advisory_lock({PartitionAdvisoryLockId});
 
               IF NOT lock_acquired THEN
                   RAISE EXCEPTION '{COULD_NOT_ACQUIRE_ADVISORY_LOCK}';
@@ -1176,45 +1212,50 @@ proc performWriteQueryWithLock(
                   {queryToProtect}
               EXCEPTION WHEN OTHERS THEN
                   -- Ensure the lock is released if an error occurs
-                  PERFORM pg_advisory_unlock(123456789);
+                  PERFORM pg_advisory_unlock({PartitionAdvisoryLockId});
                   RAISE;
               END;
 
               -- Release the advisory lock after the query completes successfully
-              PERFORM pg_advisory_unlock(123456789);
+              PERFORM pg_advisory_unlock({PartitionAdvisoryLockId});
           END $$;
 """
   (await self.performWriteQuery(query)).isOkOr:
     if error.contains(COULD_NOT_ACQUIRE_ADVISORY_LOCK):
       ## We don't consider this as an error. Just someone else acquired the advisory lock
       debug "Skip performWriteQuery because the advisory lock is acquired by other"
-      return ok()
+      return ok(Deferred)
 
-    if error.contains("already exists"):
-      ## expected to happen when trying to add a partition table constraint that already exists
-      ## e.g., constraint "constraint_name" for relation "messages_1720364735_1720364740" already exists
-      debug "Skip already exists error", error = error
-      return ok()
-
-    if error.contains("is already a partition"):
-      ## expected to happen when a node tries to add a partition that is already attached,
-      ## e.g., "messages_1720364735_1720364740" is already a partition
-      debug "Skip is already a partition error", error = error
-      return ok()
-
-    if error.contains("does not exist"):
-      ## expected to happen when trying to drop a constraint that has already been dropped by other
-      ## constraint "constraint_name" of relation "messages_1720364735_1720364740" does not exist
-      debug "Skip does not exist error", error = error
-      return ok()
+    if error.isConcurrentDdlOutcome():
+      debug "Skip error already handled by another instance", error = error
+      return ok(AlreadyDone)
 
     debug "Protected query ended with error", error = $error
     return err("protected query ended with error:" & $error)
 
   debug "Protected query ended correctly"
-  return ok()
+  return ok(Executed)
 
-proc addPartition(
+proc performPartitionDdlSteps(
+    self: PostgresDriver, steps: seq[(string, string)]
+): Future[ArchiveDriverResult[bool]] {.async.} =
+  ## Runs the given (query, error context) steps in order, each one protected by
+  ## the advisory lock. Returns false as soon as one of them is deferred because
+  ## another instance holds the lock: the rest of that instance's sequence is not
+  ## ours to repeat -- carrying on would, for example, drop a constraint that we
+  ## never created, which is a fatal error for this node. The next maintenance
+  ## pass re-checks what is missing.
+  for (query, errContext) in steps:
+    let outcome = (await self.performWriteQueryWithLock(query)).valueOr:
+      return err(errContext & ": " & $error)
+
+    if outcome == Deferred:
+      debug "partition maintenance deferred to another instance", query
+      return ok(false)
+
+  return ok(true)
+
+proc addPartition*(
     self: PostgresDriver, startTime: Timestamp
 ): Future[ArchiveDriverResult[void]] {.async.} =
   ## Creates a partition table that will store the messages that fall in the range
@@ -1239,16 +1280,10 @@ proc addPartition(
     " PARTITION OF messages_lookup FOR VALUES FROM (" & fromInNanoSec & ") TO (" &
     untilInNanoSec & ");"
 
-  (await self.performWriteQueryWithLock(createLookupQuery)).isOkOr:
-    return err(fmt"error adding lookup partition [{lookupPartitionName}]: " & $error)
-
   ## Create the partition table but not attach it yet to the main table
   let createPartitionQuery =
     "CREATE TABLE IF NOT EXISTS " & partitionName &
     " (LIKE messages INCLUDING DEFAULTS INCLUDING CONSTRAINTS);"
-
-  (await self.performWriteQueryWithLock(createPartitionQuery)).isOkOr:
-    return err(fmt"error adding partition [{partitionName}]: " & $error)
 
   ## Add constraint to the partition table so that EXCLUSIVE ACCESS is not performed when
   ## the partition is attached to the main table.
@@ -1258,24 +1293,33 @@ proc addPartition(
     " CHECK ( timestamp >= " & fromInNanoSec & " AND timestamp < " & untilInNanoSec &
     " );"
 
-  (await self.performWriteQueryWithLock(addTimeConstraintQuery)).isOkOr:
-    return err(fmt"error creating constraint [{partitionName}]: " & $error)
-
   ## Attaching the new created table as a new partition. That does not require EXCLUSIVE ACCESS.
   let attachPartitionQuery =
     "ALTER TABLE messages ATTACH PARTITION " & partitionName & " FOR VALUES FROM (" &
     fromInNanoSec & ") TO (" & untilInNanoSec & ");"
-
-  (await self.performWriteQueryWithLock(attachPartitionQuery)).isOkOr:
-    return err(fmt"error attaching partition [{partitionName}]: " & $error)
 
   ## Dropping the check constraint as it was only necessary to prevent full scan,
   ## and EXCLUSIVE ACCESS, to the whole messages table, when the new partition was attached.
   let dropConstraint =
     "ALTER TABLE " & partitionName & " DROP CONSTRAINT " & constraintName & ";"
 
-  (await self.performWriteQueryWithLock(dropConstraint)).isOkOr:
-    return err(fmt"error dropping constraint [{partitionName}]: " & $error)
+  let completed = (
+    await self.performPartitionDdlSteps(
+      @[
+        (createLookupQuery, "error adding lookup partition: " & lookupPartitionName),
+        (createPartitionQuery, "error adding partition: " & partitionName),
+        (addTimeConstraintQuery, "error creating constraint: " & partitionName),
+        (attachPartitionQuery, "error attaching partition: " & partitionName),
+        (dropConstraint, "error dropping constraint: " & partitionName),
+      ]
+    )
+  ).valueOr:
+    return err("failed addPartition calling performPartitionDdlSteps: " & $error)
+
+  if not completed:
+    ## Another instance is midway through this very sequence. Nothing to track
+    ## yet, the next factory iteration will see the partition it created.
+    return ok()
 
   debug "New partition added", query = createPartitionQuery
 
@@ -1390,9 +1434,18 @@ proc ensureLookupPartitions*(
     let createQuery =
       "CREATE TABLE IF NOT EXISTS " & lookupPartitionName &
       " (LIKE messages_lookup INCLUDING DEFAULTS INCLUDING CONSTRAINTS INCLUDING INDEXES);"
-    (await self.performWriteQueryWithLock(createQuery)).isOkOr:
+    let created = (
+      await self.performPartitionDdlSteps(
+        @[(createQuery, "error creating lookup partition: " & lookupPartitionName)]
+      )
+    ).valueOr:
       return
-        err(fmt"error creating lookup partition [{lookupPartitionName}]: " & $error)
+        err("failed ensureLookupPartitions calling performPartitionDdlSteps: " & $error)
+
+    if not created:
+      ## Another instance is building this sibling, backfill included. Let it
+      ## finish; the next pass checks whether anything is still missing.
+      return ok()
 
     ## Plain query on purpose: a failure must abort the pass, never be
     ## skip-tolerated — the ATTACH below must imply a completed backfill.
@@ -1408,25 +1461,89 @@ proc ensureLookupPartitions*(
       "ALTER TABLE " & lookupPartitionName & " ADD CONSTRAINT " & constraintName &
       " CHECK ( timestamp >= " & fromInNanoSec & " AND timestamp < " & untilInNanoSec &
       " );"
-    (await self.performWriteQueryWithLock(addConstraintQuery)).isOkOr:
-      return err(fmt"error adding constraint [{lookupPartitionName}]: " & $error)
-
     let attachQuery =
       "ALTER TABLE messages_lookup ATTACH PARTITION " & lookupPartitionName &
       " FOR VALUES FROM (" & fromInNanoSec & ") TO (" & untilInNanoSec & ");"
-    (await self.performWriteQueryWithLock(attachQuery)).isOkOr:
-      return err(fmt"error attaching [{lookupPartitionName}]: " & $error)
 
     let dropConstraintQuery =
       "ALTER TABLE " & lookupPartitionName & " DROP CONSTRAINT " & constraintName & ";"
-    (await self.performWriteQueryWithLock(dropConstraintQuery)).isOkOr:
-      return err(fmt"error dropping constraint [{lookupPartitionName}]: " & $error)
+
+    let attached = (
+      await self.performPartitionDdlSteps(
+        @[
+          (addConstraintQuery, "error adding constraint: " & lookupPartitionName),
+          (attachQuery, "error attaching: " & lookupPartitionName),
+          (dropConstraintQuery, "error dropping constraint: " & lookupPartitionName),
+        ]
+      )
+    ).valueOr:
+      return
+        err("failed ensureLookupPartitions calling performPartitionDdlSteps: " & $error)
+
+    if not attached:
+      return ok()
 
     info "created and backfilled lookup partition", lookupPartitionName
 
   return ok()
 
 const DefaultDatabasePartitionCheckTimeInterval = timer.minutes(10)
+
+const MaxConsecutivePartitionMaintenanceFailures = 6
+
+const MaxPartitionCheckJitterSecs = 120
+
+proc runPartitionMaintenance(
+    self: PostgresDriver
+): Future[ArchiveDriverResult[void]] {.async.} =
+  ## One pass of the partition factory: cleanup of what previous passes left
+  ## behind, refresh of the tracked partitions and, when needed, creation of the
+  ## partition that will hold the messages to come.
+
+  ## Must precede the partition checks (see dropStrayLookupPartitions).
+  (await self.dropStrayLookupPartitions()).isOkOr:
+    error "failed to drop stray lookup partitions", error = $error
+
+  (await self.dropOrphanPartitions()).isOkOr:
+    return err("error when dropping orphan partitions: " & $error)
+
+  trace "Check if a new partition is needed"
+
+  ## Let's make the 'partition_manager' aware of the current partitions
+  (await self.refreshPartitionsInfo()).isOkOr:
+    return err("issue refreshing the partitions info: " & $error)
+
+  let now = times.now().toTime().toUnix()
+
+  if self.partitionMngr.isEmpty():
+    debug "Adding partition because now there aren't more partitions"
+    (await self.addPartition(now)).isOkOr:
+      return err("error when creating a new partition from empty state: " & $error)
+  else:
+    let newestPartition = self.partitionMngr.getNewestPartition().valueOr:
+      return err("could not get newest partition: " & $error)
+
+    if newestPartition.containsMoment(now):
+      debug "Creating a new partition for the future"
+      ## The current used partition is the last one that was created.
+      ## Thus, let's create another partition for the future.
+
+      (await self.addPartition(newestPartition.getLastMoment())).isOkOr:
+        return err("could not add the next partition for 'now': " & $error)
+    elif now >= newestPartition.getLastMoment():
+      debug "Creating a new partition to contain current messages"
+      ## There is no partition to contain the current time.
+      ## This happens if the node has been stopped for quite a long time.
+      ## Then, let's create the needed partition to contain 'now'.
+      (await self.addPartition(now)).isOkOr:
+        return err("could not add the next partition: " & $error)
+
+  ## After the partition checks, so a long backfill never gates builder.nim's
+  ## startup partition wait; non-fatal, the next pass retries.
+  (await self.ensureLookupPartitions()).isOkOr:
+    error "failed to ensure lookup partitions", error = $error
+
+  return ok()
 
 proc loopPartitionFactory(
     self: PostgresDriver, onFatalError: OnFatalErrorHandler
@@ -1439,55 +1556,39 @@ proc loopPartitionFactory(
 
   debug "Starting loopPartitionFactory"
 
+  var consecutiveFailures = 0
+
+  ## The instances sharing a database are typically (re)started together, and a
+  ## fixed interval then keeps their maintenance passes locked to the very same
+  ## tick for as long as they run, so that they contend on every iteration.
+  var rng = initRand()
+
   while true:
     trace "loopPartitionFactory iteration started"
 
-    ## Must precede the partition checks (see dropStrayLookupPartitions).
-    (await self.dropStrayLookupPartitions()).isOkOr:
-      error "failed to drop stray lookup partitions", error = $error
-
-    (await self.dropOrphanPartitions()).isOkOr:
-      onFatalError("error when dropping orphan partitions: " & $error)
-
-    trace "Check if a new partition is needed"
-
-    ## Let's make the 'partition_manager' aware of the current partitions
-    (await self.refreshPartitionsInfo()).isOkOr:
-      onFatalError("issue in loopPartitionFactory: " & $error)
-
-    let now = times.now().toTime().toUnix()
-
-    if self.partitionMngr.isEmpty():
-      debug "Adding partition because now there aren't more partitions"
-      (await self.addPartition(now)).isOkOr:
-        onFatalError("error when creating a new partition from empty state: " & $error)
+    let passRes = await self.runPartitionMaintenance()
+    if passRes.isOk():
+      consecutiveFailures = 0
     else:
-      let newestPartitionRes = self.partitionMngr.getNewestPartition()
-      if newestPartitionRes.isErr():
-        onFatalError("could not get newest partition: " & $newestPartitionRes.error)
+      ## Partitions are created an hour ahead of time and this loop runs every
+      ## ten minutes, so about six passes can fail before the messages arriving
+      ## have nowhere to land. A single failed pass is usually a race with the
+      ## other instances maintaining the same database, which is transient by
+      ## nature; only a persistent failure is worth bringing the node down for.
+      consecutiveFailures.inc()
+      error "partition maintenance pass failed, will retry",
+        error = passRes.error, consecutiveFailures
 
-      let newestPartition = newestPartitionRes.get()
-      if newestPartition.containsMoment(now):
-        debug "Creating a new partition for the future"
-        ## The current used partition is the last one that was created.
-        ## Thus, let's create another partition for the future.
+      if consecutiveFailures >= MaxConsecutivePartitionMaintenanceFailures:
+        onFatalError(
+          "partition maintenance failed " & $consecutiveFailures & " consecutive times: " &
+            passRes.error
+        )
 
-        (await self.addPartition(newestPartition.getLastMoment())).isOkOr:
-          onFatalError("could not add the next partition for 'now': " & $error)
-      elif now >= newestPartition.getLastMoment():
-        debug "Creating a new partition to contain current messages"
-        ## There is no partition to contain the current time.
-        ## This happens if the node has been stopped for quite a long time.
-        ## Then, let's create the needed partition to contain 'now'.
-        (await self.addPartition(now)).isOkOr:
-          onFatalError("could not add the next partition: " & $error)
-
-    ## After the partition checks, so a long backfill never gates builder.nim's
-    ## startup partition wait; non-fatal, the next pass retries.
-    (await self.ensureLookupPartitions()).isOkOr:
-      error "failed to ensure lookup partitions", error = $error
-
-    await sleepAsync(DefaultDatabasePartitionCheckTimeInterval)
+    await sleepAsync(
+      DefaultDatabasePartitionCheckTimeInterval +
+        timer.seconds(rng.rand(MaxPartitionCheckJitterSecs))
+    )
 
 proc startPartitionFactory*(
     self: PostgresDriver, onFatalError: OnFatalErrorHandler
@@ -1563,7 +1664,7 @@ proc detachAndDropPartition(
   ?(await self.dropPartition(partitionName))
 
   debug "Removed partition", partition_name = partitionName, partition_size = partSize
-  self.partitionMngr.removeOldestPartitionName()
+  self.partitionMngr.removeOldestPartitionName(partitionName)
 
   return ok()
 

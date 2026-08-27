@@ -44,8 +44,9 @@ when isMainModule:
     quit(QuitFailure)
   of noCommand:
     # `LogosDelivery` derives the per-layer config from `WakuNodeConf` itself
-    # (it runs `toWakuConf` internally), then builds the full stack bottom-up:
+    # (it runs `toWakuConf` internally), then builds the layers bottom-up:
     #   Waku <- MessagingClient <- ReliableChannelManager
+    # How far up it goes is set by `--entry-layer` (default `kernel`: Waku only).
     var node = (waitFor LogosDelivery.new(wakuNodeConf)).valueOr:
       error "LogosDelivery initialization failed", error = error
       quit(QuitFailure)

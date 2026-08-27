@@ -47,4 +47,4 @@ jobs:
         working-directory: tests-e2e
         run: |
           echo "docker peer image: ${NODE_2:-public default (DEFAULT_NWAKU)}"
-          pytest tests/wrappers_tests -m "${{ inputs.subset == 'docker' && 'docker_required' || 'not docker_required' }}" --reruns 2
+          pytest tests/wrappers_tests -m "${{ inputs.subset == 'docker' && 'docker_required' || 'not docker_required and not slow' }}" --reruns 2

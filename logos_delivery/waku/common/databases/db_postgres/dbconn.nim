@@ -13,6 +13,9 @@ type DataProc* = proc(result: ptr PGresult) {.closure, gcsafe, raises: [].}
 
 type DbConnWrapper* = ref object
   dbConn: DbConn
+  registeredFd: Opt[asyncengine.AsyncFD]
+    ## the descriptor handed to chronos when the connection was opened. It has
+    ## to be remembered because libpq no longer knows it once the backend dies.
   open: bool
   preparedStmts: HashSet[string] ## [stmtName's]
   futBecomeFree*: Future[void]
@@ -29,6 +32,10 @@ proc inclPreparedStmt*(dbConnWrapper: DbConnWrapper, preparedStmt: string) =
 proc getDbConn*(dbConnWrapper: DbConnWrapper): DbConn =
   return dbConnWrapper.dbConn
 
+proc getRegisteredFd*(dbConnWrapper: DbConnWrapper): Opt[asyncengine.AsyncFD] =
+  ## Exposed so that the tests can assert the selector entry is given back.
+  return dbConnWrapper.registeredFd
+
 proc isPgDbConnBusy*(dbConnWrapper: DbConnWrapper): bool =
   if isNil(dbConnWrapper.futBecomeFree):
     return false
@@ -37,8 +44,12 @@ proc isPgDbConnBusy*(dbConnWrapper: DbConnWrapper): bool =
 proc isPgDbConnOpen*(dbConnWrapper: DbConnWrapper): bool =
   return dbConnWrapper.open
 
-proc setPgDbConnOpen*(dbConnWrapper: DbConnWrapper, newOpenState: bool) =
-  dbConnWrapper.open = newOpenState
+const MaxDbErrorLen = 512
+  ## libpq can answer with very long messages -- the DETAIL and CONTEXT lines
+  ## carry row data -- and this string reaches both the logs and the error chain,
+  ## so it has to stay bounded. 512 keeps whole every message the callers must
+  ## classify: the longest of them, the constraint ones naming a partition twice,
+  ## are around 130 characters.
 
 proc check(db: DbConn): Result[void, string] =
   var message: string
@@ -48,13 +59,13 @@ proc check(db: DbConn): Result[void, string] =
     return err("exception in check: " & getCurrentExceptionMsg())
 
   if message.len > 0:
-    let truncatedErr = message[0 ..< min(80, message.len)]
+    let truncatedErr = message[0 ..< min(MaxDbErrorLen, message.len)]
     error "postgres check issue. see truncated db error.", error = truncatedErr
     return err(truncatedErr)
 
   return ok()
 
-proc openDbConn(connString: string): Result[DbConn, string] =
+proc openDbConn(connString: string): Result[DbConnWrapper, string] =
   ## Opens a new connection.
   var conn: DbConn = nil
   try:
@@ -68,28 +79,48 @@ proc openDbConn(connString: string): Result[DbConn, string] =
 
     return err("unknown reason")
 
-  ## registering the socket fd in chronos for better wait for data
+  ## registering the socket fd in chronos for better wait for data.
+  ## The wrapper is built here so that the registered descriptor and the
+  ## remembered one cannot drift apart.
   let asyncFd = cast[asyncengine.AsyncFD](pqsocket(conn))
-  asyncengine.register(asyncFd)
+  asyncengine.register2(asyncFd).isOkOr:
+    conn.close()
+    return err("failed to register the connection socket: " & $error)
 
-  return ok(conn)
+  return ok(DbConnWrapper(dbConn: conn, registeredFd: Opt.some(asyncFd), open: true))
 
 proc new*(T: type DbConnWrapper, connString: string): Result[T, string] =
-  let dbConn = openDbConn(connString).valueOr:
+  let dbConnWrapper = openDbConn(connString).valueOr:
     return err("failed to establish a new connection: " & $error)
 
-  return ok(DbConnWrapper(dbConn: dbConn, open: true))
+  return ok(dbConnWrapper)
 
-proc closeDbConn*(
-    dbConnWrapper: DbConnWrapper
-): Result[void, string] {.raises: [OSError].} =
-  let fd = dbConnWrapper.dbConn.pqsocket()
-  if fd == -1:
-    return err("error file descriptor -1 in closeDbConn")
+proc closeDbConn*(dbConnWrapper: DbConnWrapper): Result[void, string] {.raises: [].} =
+  ## Closing must always reach pqfinish, even when giving the selector entry
+  ## back fails. Asking libpq for the descriptor here is useless: it answers -1
+  ## as soon as the backend is gone.
+  if not dbConnWrapper.open:
+    return ok()
 
-  asyncengine.unregister(cast[asyncengine.AsyncFD](fd))
+  var unregisterError = ""
+  if dbConnWrapper.registeredFd.isSome():
+    let asyncFd = dbConnWrapper.registeredFd.get()
+    ## unregister2 asserts when the descriptor is unknown to the dispatcher
+    if asyncFd in asyncengine.getThreadDispatcher():
+      when defined(windows):
+        ## chronos exposes no Result-returning unregister on Windows, where
+        ## unregistering only drops the handle from the dispatcher and cannot
+        ## fail
+        asyncengine.unregister(asyncFd)
+      else:
+        asyncengine.unregister2(asyncFd).isOkOr:
+          unregisterError = "failed to unregister the connection socket: " & $error
 
   dbConnWrapper.dbConn.close()
+  dbConnWrapper.open = false
+
+  if unregisterError.len > 0:
+    return err(unregisterError)
 
   return ok()
 
@@ -166,31 +197,47 @@ proc sendQueryPrepared(
 
   return ok()
 
+proc waitForData(
+    dbConnWrapper: DbConnWrapper, asyncFd: asyncengine.AsyncFD
+): Future[Result[void, string]] {.async.} =
+  ## Waits until the socket has something to read and gives the reader back
+  ## before returning. The caller must not touch libpq while the reader is
+  ## installed: libpq closes the socket as soon as it notices the backend is
+  ## gone, and removing a reader from an already closed descriptor fails,
+  ## leaving the selector entry behind forever.
+
+  when defined(windows):
+    return err("Postgres not supported on Windows")
+  else:
+    let futDataAvailable = newFuture[void]("futDataAvailable")
+
+    proc onDataAvailable(udata: pointer) {.gcsafe, raises: [].} =
+      if not futDataAvailable.completed():
+        futDataAvailable.complete()
+
+    asyncengine.addReader2(asyncFd, onDataAvailable).isOkOr:
+      dbConnWrapper.futBecomeFree.fail(newException(ValueError, $error))
+      return err("failed to add event reader in waitForData: " & $error)
+
+    defer:
+      asyncengine.removeReader2(asyncFd).isOkOr:
+        error "failed to remove event reader in waitForData", error = $error
+
+    await futDataAvailable
+
+    return ok()
+
 proc waitQueryToFinish(
     dbConnWrapper: DbConnWrapper, rowCallback: DataProc = nil
 ): Future[Result[void, string]] {.async.} =
   ## The 'rowCallback' param is != nil when the underlying query wants to retrieve results (SELECT.)
   ## For other queries, like "INSERT", 'rowCallback' should be nil.
 
-  let futDataAvailable = newFuture[void]("futDataAvailable")
+  let asyncFd = dbConnWrapper.registeredFd.valueOr:
+    return err("the connection socket is not registered in waitQueryToFinish")
 
-  proc onDataAvailable(udata: pointer) {.gcsafe, raises: [].} =
-    if not futDataAvailable.completed():
-      futDataAvailable.complete()
-
-  let asyncFd = cast[asyncengine.AsyncFD](pqsocket(dbConnWrapper.dbConn))
-
-  when not defined(windows):
-    asyncengine.addReader2(asyncFd, onDataAvailable).isOkOr:
-      dbConnWrapper.futBecomeFree.fail(newException(ValueError, $error))
-      return err("failed to add event reader in waitQueryToFinish: " & $error)
-    defer:
-      asyncengine.removeReader2(asyncFd).isOkOr:
-        return err("failed to remove event reader in waitQueryToFinish: " & $error)
-  else:
-    return err("Postgres not supported on Windows")
-
-  await futDataAvailable
+  (await dbConnWrapper.waitForData(asyncFd)).isOkOr:
+    return err($error)
 
   ## Now retrieve the result from the database
   while true:
