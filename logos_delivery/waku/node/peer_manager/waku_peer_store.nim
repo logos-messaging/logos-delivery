@@ -8,6 +8,8 @@ import
   eth/p2p/discoveryv5/enr,
   libp2p/builders,
   libp2p/peerstore,
+  libp2p/peerid,
+  libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p_mix/pool
 
@@ -102,6 +104,17 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
       peer_id = $peer.peerId, mix_pub_key = $peer.mixPubKey.get()
     peerStore[MixPubKeyBook].book[peer.peerId] = peer.mixPubKey.get()
 
+    ## `MixNodePool` is a view over this very store, so a mix key written here
+    ## is all it takes to enter mix's node pool. But the pool also needs the
+    ## peer's libp2p key, and discovery learns the mix key long before identify
+    ## fills the key book: until then `pool.get` fails and mix does not merely
+    ## skip the node, it evicts it from the pool. Recover the key from the peer
+    ## id, which inlines it for the secp256k1 peers mix supports.
+    if peerStore[KeyBook][peer.peerId].scheme != Secp256k1:
+      var libp2pPubKey: crypto.PublicKey
+      if peer.peerId.extractPublicKey(libp2pPubKey) and libp2pPubKey.scheme == Secp256k1:
+        peerStore[KeyBook][peer.peerId] = libp2pPubKey
+
   ## Notice that the origin parameter is used to manually override the given peer origin.
   ## At the time of writing, this is used in waku_discv5 or waku_node (peer exchange.)
   if peerStore[AddressBook][peer.peerId] == peer.addrs and
@@ -167,6 +180,14 @@ proc hasShard*(peerStore: PeerStore, peerId: PeerID, cluster, shard: uint16): bo
 
 proc hasCapability*(peerStore: PeerStore, peerId: PeerID, cap: Capabilities): bool =
   peerStore[ENRBook].book.getOrDefault(peerId).supportsCapability(cap)
+
+proc isUsableMixNode*(peerStore: PeerStore, peerId: PeerId): bool =
+  ## True when the store holds everything mix needs to route to `peerId`: a mix
+  ## public key, a mix-supported multiaddr (IPv4 over TCP or QUIC-v1) and the
+  ## peer's libp2p key. Asks `MixNodePool`, which is a stateless view over this
+  ## store, rather than re-deriving the rule: a peer that only carries a mix key
+  ## still fails inside mix's path construction.
+  return MixNodePool.new(peerStore).get(peerId).isSome()
 
 proc peerExists*(peerStore: PeerStore, peerId: PeerId): bool =
   peerStore[AddressBook].contains(peerId)
