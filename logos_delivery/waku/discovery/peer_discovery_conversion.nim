@@ -5,7 +5,7 @@
 
 import std/sequtils
 import results
-import logos_delivery/api/peer_discovery_interface
+import logos_delivery/waku/discovery/peer_discovery_interface
 import logos_delivery/waku/waku_core, logos_delivery/waku/waku_enr
 
 proc toDiscoveredPeer*(rpi: RemotePeerInfo): DiscoveredPeer =
