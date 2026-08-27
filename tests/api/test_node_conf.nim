@@ -39,6 +39,23 @@ suite "WakuNodeConf - preset integration":
     check:
       wakuConf.clusterId == 3
 
+  test "LogosDev preset routes multiaddr entry nodes into kad bootstrap":
+    ## Given
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.preset = "logosdev"
+
+    ## When
+    let wakuConfRes = conf.toWakuConf()
+
+    ## Then
+    require wakuConfRes.isOk()
+    let wakuConf = wakuConfRes.get()
+    require wakuConf.kademliaDiscoveryConf.isSome()
+    let presetEntryNodes = NetworkPresetConf.LogosDevConf().entryNodes
+    check:
+      wakuConf.kademliaDiscoveryConf.get().bootstrapNodes.len == presetEntryNodes.len
+
   test "LogosTest preset applies LogosTestConf":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
