@@ -502,60 +502,6 @@ proc mountRendezvous*(
   except LPError:
     error "Failed to mount wakuRendezvous", error = getCurrentExceptionMsg()
 
-func replacePort(ma: MultiAddress, port: Port): Opt[MultiAddress] =
-  ## Rebuild `ma` with its tcp or udp component set to `port`.
-  let
-    tcp = multiCodec("tcp")
-    udp = multiCodec("udp")
-  var res = MultiAddress.init()
-  for item in ma.items:
-    let part = item.valueOr:
-      return Opt.none(MultiAddress)
-    let code = part.protoCode.valueOr:
-      return Opt.none(MultiAddress)
-    if code == tcp or code == udp:
-      let portMa = MultiAddress.init(code, int(port)).valueOr:
-        return Opt.none(MultiAddress)
-      res.append(portMa).isOkOr:
-        return Opt.none(MultiAddress)
-    else:
-      res.append(part).isOkOr:
-        return Opt.none(MultiAddress)
-  Opt.some(res)
-
-proc substituteBoundPorts(
-    addrs: seq[MultiAddress], listenAddrs: seq[MultiAddress]
-): seq[MultiAddress] =
-  ## Replace port 0 with the port the entry's transport bound.
-  ## Drop a port-0 entry whose transport did not bind.
-  ## Entries with concrete ports pass through unchanged.
-  if not addrs.anyIt(it.hasZeroPort()):
-    return addrs
-
-  let bound = getPorts(listenAddrs).valueOr:
-    ## If getPorts fails, drop the zero-port entries.
-    error "failed to read bound ports; dropping zero-port entries", error = error
-    return addrs.filterIt(not it.hasZeroPort())
-
-  var resolved: seq[MultiAddress]
-  for ma in addrs:
-    if not ma.hasZeroPort():
-      resolved.add(ma)
-      continue
-    let port = (
-      if ma.isWsAddress():
-        bound.websocketPort
-      elif ma.isQuicAddress():
-        bound.quicPort
-      else:
-        bound.tcpPort
-    ).valueOr:
-      continue
-    let substituted = ma.replacePort(port).valueOr:
-      continue
-    resolved.add(substituted)
-  resolved
-
 proc resolveAnnouncedBaseAddresses(node: WakuNode) =
   ## Runs once per start, after the sockets bind.
   ## Here the configured addresses become real: port 0 becomes

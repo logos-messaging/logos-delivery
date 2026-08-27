@@ -7,7 +7,7 @@ import std/[net, strutils]
 import results
 
 type
-  NatStrategyKind* = enum
+  NatStrategyKind* {.pure.} = enum
     NatNone
     NatAny
     NatUpnp
@@ -24,27 +24,27 @@ type
 func `$`*(strategy: NatStrategy): string =
   case strategy.kind
   of NatNone:
-    "none"
+    return "none"
   of NatAny:
-    "any"
+    return "any"
   of NatUpnp:
-    "upnp"
+    return "upnp"
   of NatPmp:
-    "pmp"
+    return "pmp"
   of NatExtIp:
-    "extip:" & $strategy.extIp
+    return "extip:" & $strategy.extIp
 
 func parseNatStrategy*(value: string): Result[NatStrategy, string] =
-  let normalized = value.toLowerAscii()
+  let normalized = value.strip().toLowerAscii()
   case normalized
   of "any":
-    ok(NatStrategy(kind: NatAny))
+    return ok(NatStrategy(kind: NatAny))
   of "none":
-    ok(NatStrategy(kind: NatNone))
+    return ok(NatStrategy(kind: NatNone))
   of "upnp":
-    ok(NatStrategy(kind: NatUpnp))
+    return ok(NatStrategy(kind: NatUpnp))
   of "pmp":
-    ok(NatStrategy(kind: NatPmp))
+    return ok(NatStrategy(kind: NatPmp))
   else:
     const ExtIpPrefix = "extip:"
     if not normalized.startsWith(ExtIpPrefix):

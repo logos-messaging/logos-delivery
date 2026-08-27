@@ -92,6 +92,9 @@ proc toWakuNodeConf*(
   # Derived from a `MessagingClientConf`, so never kernel-only: don't inherit the
   # CLI default. `LogosDeliveryConf.init` overwrites this with the caller's layer.
   conf.entryLayer = EntryLayer.channels
+  # The CLI defaults to "any"; the embedded default stays "none" so library
+  # nodes probe gateways only when configured to.
+  conf.nat = "none"
 
   if self.store.isSome():
     conf.store = self.store.get()

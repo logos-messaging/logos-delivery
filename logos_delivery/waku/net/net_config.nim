@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[sequtils, strutils, net], results, stew/endians2
+import std/[sequtils, strutils, net], results, stew/endians2, chronicles
 import libp2p/[multiaddress, multicodec, wire]
 import ../../waku/waku_core/peers
 import ../waku_enr
@@ -71,7 +71,7 @@ func hasZeroPort*(ma: MultiAddress): bool =
       continue
     if portBytes.len == 2 and uint16.fromBytesBE(portBytes) == 0:
       return true
-  false
+  return false
 
 proc isWsAddress*(ma: MultiAddress): bool =
   let
@@ -108,6 +108,60 @@ proc getPorts*(
       tcpPort = Opt.some(tcpAddress.port)
 
   return ok((tcpPort: tcpPort, websocketPort: websocketPort, quicPort: quicPort))
+
+func replacePort*(ma: MultiAddress, port: Port): Opt[MultiAddress] =
+  ## Rebuild `ma` with its tcp or udp component set to `port`.
+  let
+    tcp = multiCodec("tcp")
+    udp = multiCodec("udp")
+  var res = MultiAddress.init()
+  for item in ma.items:
+    let part = item.valueOr:
+      return Opt.none(MultiAddress)
+    let code = part.protoCode.valueOr:
+      return Opt.none(MultiAddress)
+    if code == tcp or code == udp:
+      let portMa = MultiAddress.init(code, int(port)).valueOr:
+        return Opt.none(MultiAddress)
+      res.append(portMa).isOkOr:
+        return Opt.none(MultiAddress)
+    else:
+      res.append(part).isOkOr:
+        return Opt.none(MultiAddress)
+  return Opt.some(res)
+
+proc substituteBoundPorts*(
+    addrs: seq[MultiAddress], listenAddrs: seq[MultiAddress]
+): seq[MultiAddress] =
+  ## Replace port 0 with the port the entry's transport bound.
+  ## Drop a port-0 entry whose transport did not bind.
+  ## Entries with concrete ports pass through unchanged.
+  if not addrs.anyIt(it.hasZeroPort()):
+    return addrs
+
+  let bound = getPorts(listenAddrs).valueOr:
+    ## If getPorts fails, drop the zero-port entries.
+    error "failed to read bound ports; dropping zero-port entries", error = error
+    return addrs.filterIt(not it.hasZeroPort())
+
+  var resolved: seq[MultiAddress]
+  for ma in addrs:
+    if not ma.hasZeroPort():
+      resolved.add(ma)
+      continue
+    let port = (
+      if ma.isWsAddress():
+        bound.websocketPort
+      elif ma.isQuicAddress():
+        bound.quicPort
+      else:
+        bound.tcpPort
+    ).valueOr:
+      continue
+    let substituted = ma.replacePort(port).valueOr:
+      continue
+    resolved.add(substituted)
+  return resolved
 
 proc containsWsAddress(extMultiAddrs: seq[MultiAddress]): bool =
   return extMultiAddrs.filterIt(it.isWsAddress()).len > 0

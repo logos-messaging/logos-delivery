@@ -69,18 +69,18 @@ func stripPeerId(multiaddr: MultiAddress): MultiAddress =
   ## /ip4/9.9.9.9/tcp/4001/p2p/<relay-id>/p2p-circuit
   ## An interior p2p names a relay hop and stays: stripping it leaves a
   ## route with no relay to dial.
-  var parts: seq[MultiAddress]
-  for item in multiaddr.items:
-    let part = item.valueOr:
-      return multiaddr
-    parts.add(part)
-  if parts.len == 0 or parts[^1].protoName().get("") != "p2p":
+  let maLen = multiaddr.len().valueOr:
+    return multiaddr
+  if maLen < 2:
     return multiaddr
 
-  var cleanAddr = MultiAddress.init()
-  for part in parts[0 ..< parts.len - 1]:
-    discard cleanAddr.append(part)
-  return cleanAddr
+  let last = multiaddr[^1].valueOr:
+    return multiaddr
+  if last.protoName().get("") != "p2p":
+    return multiaddr
+
+  return multiaddr[0 .. ^2].valueOr:
+    return multiaddr
 
 func withMultiaddrs*(builder: var EnrBuilder, multiaddrs: seq[MultiAddress]) =
   let multiaddrs = deduplicate(multiaddrs.map(stripPeerId))

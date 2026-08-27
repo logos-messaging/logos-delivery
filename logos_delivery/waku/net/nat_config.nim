@@ -23,15 +23,15 @@ proc natPortMapper*(strategy: NatStrategy): Opt[PortMapper] =
   ## Resolve NatAny first with resolveNatStrategy.
   try:
     case strategy.kind
-    of NatUpnp:
-      Opt.some(PortMapper(UpnpMapper.new()))
-    of NatPmp:
-      Opt.some(PortMapper(NatPmpMapper.new()))
-    of NatAny, NatNone, NatExtIp:
-      Opt.none(PortMapper)
+    of NatStrategyKind.NatUpnp:
+      return Opt.some(PortMapper(UpnpMapper.new()))
+    of NatStrategyKind.NatPmp:
+      return Opt.some(PortMapper(NatPmpMapper.new()))
+    of NatStrategyKind.NatAny, NatStrategyKind.NatNone, NatStrategyKind.NatExtIp:
+      return Opt.none(PortMapper)
   except ResourceExhaustedError as e:
     error "Failed to construct NAT port mapper", err = e.msg
-    Opt.none(PortMapper)
+    return Opt.none(PortMapper)
 
 type ProbeMapperFactory* =
   proc(strategy: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].}
@@ -56,13 +56,16 @@ proc resolveNatStrategy*(
     discoveryTimeout = NatDiscoveryTimeout,
     mapperFor: ProbeMapperFactory = nil,
 ): Future[NatStrategy] {.async: (raises: [CancelledError]).} =
-  ## Resolve NatAny with one startup probe: UPnP first, then NAT-PMP.
-  ## No answer resolves to NatNone. Every other kind passes through.
+  ## Resolve NatAny with one startup probe: UPnP first, then
+  ## NAT-PMP. No answer resolves to NatNone. Every other kind passes through.
   ## Every constructed probe mapper is closed before this returns.
-  if strategy.kind != NatAny:
+  if strategy.kind != NatStrategyKind.NatAny:
     return strategy
 
-  for candidate in [NatStrategy(kind: NatUpnp), NatStrategy(kind: NatPmp)]:
+  for candidate in [
+    NatStrategy(kind: NatStrategyKind.NatUpnp),
+    NatStrategy(kind: NatStrategyKind.NatPmp),
+  ]:
     let mapper = (
       if mapperFor.isNil():
         natPortMapper(candidate)
@@ -77,7 +80,7 @@ proc resolveNatStrategy*(
     info "NAT gateway probe failed", strategy = $candidate, err = found.error
 
   warn "--nat any: no gateway answered discovery; continuing without port mapping"
-  NatStrategy(kind: NatNone)
+  return NatStrategy(kind: NatStrategyKind.NatNone)
 
 proc natConfig*(
     strategy: NatStrategy, discoveryTimeout = NatDiscoveryTimeout
@@ -85,9 +88,9 @@ proc natConfig*(
   ## The libp2p NATConfig for NatUpnp or NatPmp.
   ## The NatExtIp address is static state in NetConfig.
   case strategy.kind
-  of NatUpnp:
-    Opt.some(upnpConfig(discoveryTimeout = discoveryTimeout))
-  of NatPmp:
-    Opt.some(natPmpConfig(discoveryTimeout = discoveryTimeout))
-  of NatAny, NatNone, NatExtIp:
-    Opt.none(NATConfig)
+  of NatStrategyKind.NatUpnp:
+    return Opt.some(upnpConfig(discoveryTimeout = discoveryTimeout))
+  of NatStrategyKind.NatPmp:
+    return Opt.some(natPmpConfig(discoveryTimeout = discoveryTimeout))
+  of NatStrategyKind.NatAny, NatStrategyKind.NatNone, NatStrategyKind.NatExtIp:
+    return Opt.none(NATConfig)

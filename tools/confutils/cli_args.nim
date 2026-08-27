@@ -1065,7 +1065,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.withPortsShift(n.portsShift)
   ## Library code builds WakuNodeConf directly and zero means unset there.
   ## An explicit --nat-discovery-timeout-ms=0 selects the default.
-  if n.nat != "":
+  if n.nat.strip() != "":
     b.withNatStrategy(n.nat)
   if n.natDiscoveryTimeoutMs != 0:
     b.withNatDiscoveryTimeoutMs(n.natDiscoveryTimeoutMs)

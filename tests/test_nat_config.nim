@@ -14,20 +14,20 @@ import ./testlib/[common, wakucore]
 suite "NAT config - strategy parsing":
   test "valid strategies parse":
     check:
-      parseNatStrategy("any").get().kind == NatAny
-      parseNatStrategy("none").get().kind == NatNone
-      parseNatStrategy("upnp").get().kind == NatUpnp
-      parseNatStrategy("pmp").get().kind == NatPmp
+      parseNatStrategy("any").get().kind == NatStrategyKind.NatAny
+      parseNatStrategy("none").get().kind == NatStrategyKind.NatNone
+      parseNatStrategy("upnp").get().kind == NatStrategyKind.NatUpnp
+      parseNatStrategy("pmp").get().kind == NatStrategyKind.NatPmp
 
   test "parsing is case-insensitive":
     check:
-      parseNatStrategy("UPnP").get().kind == NatUpnp
-      parseNatStrategy("NONE").get().kind == NatNone
+      parseNatStrategy("UPnP").get().kind == NatStrategyKind.NatUpnp
+      parseNatStrategy("NONE").get().kind == NatStrategyKind.NatNone
 
   test "extip carries the address":
     let strategy = parseNatStrategy("extip:203.0.113.7").get()
     check:
-      strategy.kind == NatExtIp
+      strategy.kind == NatStrategyKind.NatExtIp
       $strategy.extIp == "203.0.113.7"
 
   test "invalid mechanism is rejected":
@@ -117,45 +117,45 @@ suite "NAT config - resolveNatStrategy":
     let answering = stub("203.0.113.1")
     let silent = PortMapper(stub())
     let resolved = await resolveNatStrategy(
-      NatStrategy(kind: NatAny),
+      NatStrategy(kind: NatStrategyKind.NatAny),
       mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
         probed.add(s.kind)
-        if s.kind == NatUpnp:
+        if s.kind == NatStrategyKind.NatUpnp:
           Opt.some(PortMapper(answering))
         else:
           Opt.some(silent),
     )
     check:
-      resolved.kind == NatUpnp
-      probed == @[NatUpnp]
+      resolved.kind == NatStrategyKind.NatUpnp
+      probed == @[NatStrategyKind.NatUpnp]
       answering.closeCalls == 1
 
   asyncTest "any falls back to pmp when upnp discovery fails":
     let answering = PortMapper(stub("203.0.113.1"))
     let silent = PortMapper(stub())
     let resolved = await resolveNatStrategy(
-      NatStrategy(kind: NatAny),
+      NatStrategy(kind: NatStrategyKind.NatAny),
       mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
-        if s.kind == NatPmp:
+        if s.kind == NatStrategyKind.NatPmp:
           Opt.some(answering)
         else:
           Opt.some(silent),
     )
-    check resolved.kind == NatPmp
+    check resolved.kind == NatStrategyKind.NatPmp
 
   asyncTest "any resolves to none when no gateway answers":
     let silent = PortMapper(stub())
     let resolved = await resolveNatStrategy(
-      NatStrategy(kind: NatAny),
+      NatStrategy(kind: NatStrategyKind.NatAny),
       mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
         Opt.some(silent),
     )
-    check resolved.kind == NatNone
+    check resolved.kind == NatStrategyKind.NatNone
 
   asyncTest "every probe mapper is closed before the probe returns":
     let silent = stub()
     discard await resolveNatStrategy(
-      NatStrategy(kind: NatAny),
+      NatStrategy(kind: NatStrategyKind.NatAny),
       discoveryTimeout = 10.millis,
       mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
         Opt.some(PortMapper(silent)),
@@ -166,7 +166,7 @@ suite "NAT config - resolveNatStrategy":
     let hanging = stub()
     hanging.hangDiscover = true
     let probe = resolveNatStrategy(
-      NatStrategy(kind: NatAny),
+      NatStrategy(kind: NatStrategyKind.NatAny),
       discoveryTimeout = 10.millis,
       mapperFor = proc(s: NatStrategy): Opt[PortMapper] {.gcsafe, raises: [].} =
         Opt.some(PortMapper(hanging)),
