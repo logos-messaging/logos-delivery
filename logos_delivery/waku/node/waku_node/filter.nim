@@ -28,6 +28,7 @@ import
   ../../waku_filter_v2/client as filter_client,
   ../../waku_filter_v2/subscriptions as filter_subscriptions,
   ../../common/rate_limit/setting,
+  ../../api/events/subscription_events,
   ../peer_manager
 
 logScope:
@@ -129,7 +130,9 @@ proc filterSubscribe*(
         pubsubTopic = pubsubTopic, contentTopics = contentTopics
 
       # Purpose is to update Waku Metadata
-      node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: pubsubTopic.get()))
+      ShardSubscribedEvent.emit(
+        node.brokerCtx, ShardSubscribedEvent(topic: pubsubTopic.get())
+      )
     else:
       debug "Failed filter v2 subscription", error = subRes.error
       logos_delivery_node_errors.inc(labelValues = ["subscribe_filter_failure"])
@@ -170,7 +173,7 @@ proc filterSubscribe*(
         info "subscribed to topic", pubsubTopic = pubsub, contentTopics = topics
 
         # Purpose is to update Waku Metadata
-        node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: $pubsub))
+        ShardSubscribedEvent.emit(node.brokerCtx, ShardSubscribedEvent(topic: $pubsub))
     except CatchableError:
       let errMsg = "exception in filterSubscribe: " & getCurrentExceptionMsg()
       debug "Exception in filterSubscribe", error = getCurrentExceptionMsg()
@@ -207,7 +210,9 @@ proc filterUnsubscribe*(
         pubsubTopic = pubsubTopic.get(), contentTopics = contentTopics
 
       # Purpose is to update Waku Metadata
-      node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: pubsubTopic.get()))
+      ShardUnsubscribedEvent.emit(
+        node.brokerCtx, ShardUnsubscribedEvent(topic: pubsubTopic.get())
+      )
     else:
       debug "Failed filter unsubscription", error = unsubRes.error
       logos_delivery_node_errors.inc(labelValues = ["unsubscribe_filter_failure"])
@@ -246,7 +251,9 @@ proc filterUnsubscribe*(
         debug "Unsubscribed from topic", pubsubTopic = pubsub, contentTopics = topics
 
         # Purpose is to update Waku Metadata
-        node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: $pubsub))
+        ShardUnsubscribedEvent.emit(
+          node.brokerCtx, ShardUnsubscribedEvent(topic: $pubsub)
+        )
     except CatchableError:
       let errMsg = "exception in filterUnsubscribe: " & getCurrentExceptionMsg()
       debug "Exception in filterUnsubscribe", error = getCurrentExceptionMsg()
