@@ -204,8 +204,34 @@ Caveats to verify in Phase 1 (compile-time/runtime):
 - getter brokers returning `ref` types: single-thread in-process only —
   agreed decision: this pattern will NOT be extended to the FFI/MT lanes.
 
-## Phase 2 — config-driven instantiation
+## Phase 2 — verbs + decoupling (branch poc-discovery-plugin-2, PR train #2)
 
+As built:
+- **Verbs added**: `startAdvertising(key, data, record)`, `stopAdvertising`,
+  `registerInterest`/`unregisterInterest`, `addBootstrapEntries`.
+  - kad maps 1:1 (`addServiceToAdvertise`, new id-based
+    `removeServiceToAdvertise` overload, `addServiceToDiscover`/`remove…`,
+    `protocol.updatePeers` for bootstrap).
+  - discv5: `startAdvertising`/`stopAdvertising` for `shard:` keys via the new
+    public `WakuDiscoveryV5.updateShards` (ENR mutation + predicate refresh);
+    `addBootstrapEntries` via `updateBootstrapRecords`. **Decisions:** `cap:`
+    advertising is rejected (capabilities are set at ENR build time from
+    wakuFlags; runtime toggling is out of scope), and explicit
+    `registerInterest` is rejected (discv5 interest is implicit — the sharding
+    predicate derives from the node's own ENR).
+- **Queue decoupling done**: `WakuDiscoveryV5` no longer knows the
+  `topicSubscriptionQueue` (field, ctor/setup params, internal listener all
+  removed); `Discv5PeerDiscovery` consumes the queue via the getter broker and
+  mirrors changes through `updateShards`.
+- **Preset gap fixed**: multiaddr `entryNodes` now also feed
+  `kademliaDiscoveryConf.bootstrapNodes` when the preset enables kad
+  (waku_conf_builder).
+- **Deferred from the original phase-2 sketch**: removing the direct
+  `wakuDiscv5`/`wakuKademlia` fields (REST/FFI/provider consumers still use
+  them) and lifecycle-event-driven start/stop (ordering redesign; lifecycle
+  events remain observability-only). Both move to phase 3+.
+
+Original sketch (for reference):
 - Factory derives from conf which impls to construct/attach
   (`discv5Conf.isSome` → `Discv5PeerDiscovery`, `kademliaDiscoveryConf.isSome`
   → `KadPeerDiscovery`); direct fields removed; start/stop fully
