@@ -27,7 +27,7 @@ drops async) — consistent with the poc/structured-api-interface decision.
 
 ### 1.1 Minimal interface
 
-`logos_delivery/api/peer_discovery_interface.nim`:
+`logos_delivery/waku/discovery/peer_discovery_interface.nim`:
 
 ```nim
 {.push raises: [].}
