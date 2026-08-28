@@ -4,7 +4,7 @@ import chronicles, eth/keys
 
 import
   logos_delivery/waku/[
-    rln/rln/rln_interface,
+    rln/rln_evm_backend/rln_interface,
     rln/conversion_utils,
     rln/protocol_types,
     rln/protocol_metrics,
