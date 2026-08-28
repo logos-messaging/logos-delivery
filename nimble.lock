@@ -214,8 +214,8 @@
       }
     },
     "libplum": {
-      "version": "#acefbe424cf9d1f05f2d93533790c9ac4e034df8",
-      "vcsRevision": "acefbe424cf9d1f05f2d93533790c9ac4e034df8",
+      "version": "#v0.6.3",
+      "vcsRevision": "189a4984d15f0c60780d6ea5a2ab46bbf6a350f8",
       "url": "https://github.com/logos-storage/nim-libplum",
       "downloadMethod": "git",
       "dependencies": [
@@ -225,7 +225,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "d644699c7edbd11fd4e1b204acf3c2a4f5959db4"
+        "sha1": "300d388808ed6e737bf9c3de857d32698d88727a"
       }
     },
     "metrics": {
@@ -600,8 +600,8 @@
       }
     },
     "libp2p": {
-      "version": "2.3.0",
-      "vcsRevision": "fc4169749ea685e2dca93e5845292eb229978012",
+      "version": "2.3.1",
+      "vcsRevision": "391e403cc274ab8623fb1106f2c2827e09c6c89f",
       "url": "https://github.com/vacp2p/nim-libp2p",
       "downloadMethod": "git",
       "dependencies": [
@@ -623,7 +623,7 @@
         "libplum"
       ],
       "checksums": {
-        "sha1": "ea96fa8a6191464eb2ce9b8bbbaeafde413b75c7"
+        "sha1": "b2b3d114f529613911880098b303f38ce9fff15f"
       }
     },
     "sds": {

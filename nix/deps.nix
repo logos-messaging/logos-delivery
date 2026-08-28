@@ -117,8 +117,8 @@
 
   libplum = pkgs.fetchgit {
     url = "https://github.com/logos-storage/nim-libplum";
-    rev = "acefbe424cf9d1f05f2d93533790c9ac4e034df8";
-    sha256 = "0j6rc96cznsh90pvs27i1qgpby3ib04a2xqihps3jwlnlng2nrkb";
+    rev = "189a4984d15f0c60780d6ea5a2ab46bbf6a350f8";
+    sha256 = "0nllnpl4mdi58hla0hmx35bkbjmvz4q79wbdmz01vg3qwdnq1r50";
     fetchSubmodules = true;
   };
 
@@ -292,8 +292,8 @@
 
   libp2p = pkgs.fetchgit {
     url = "https://github.com/vacp2p/nim-libp2p";
-    rev = "fc4169749ea685e2dca93e5845292eb229978012";
-    sha256 = "1jskllfw0znzzbaaqm8hvmmdg7xiqfal6qz5bwg2pnjmnbxsm9js";
+    rev = "391e403cc274ab8623fb1106f2c2827e09c6c89f";
+    sha256 = "04hn4q73c598hh8hxs9y1s3zq6zhijb74776z23q4adlymy15x5q";
     fetchSubmodules = true;
   };
 
