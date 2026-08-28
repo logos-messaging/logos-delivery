@@ -111,8 +111,8 @@ def wait_for_message_received(collector, content_topic, timeout_s, poll_interval
 
 
 def wire_payload(event):
-    """The SDS envelope an event carried; the FFI sends it as an array of bytes."""
-    return bytes((event.get("message") or {}).get("payload") or ())
+    """The SDS envelope an event carried; the FFI sends it base64-encoded."""
+    return base64.b64decode((event.get("message") or {}).get("payload") or "")
 
 
 SDS_MESSAGE_ID_RE = re.compile(rb"[0-9a-f]{64}")
