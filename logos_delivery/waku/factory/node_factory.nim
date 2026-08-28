@@ -1,6 +1,6 @@
 import
   results,
-  std/sequtils,
+  std/[json, sequtils],
   chronicles,
   chronos,
   libp2p/peerid,
@@ -453,15 +453,28 @@ proc startNode*(
   if conf.rlnRelayConf.isSome() and conf.rlnRelayConf.get().lez:
     let rlnRelayConf = conf.rlnRelayConf.get()
     try:
-      let startRes = await RequestStartRlnModule.request(node.brokerCtx)
+      # start() config for the external module: epoch_size_sec is REQUIRED and
+      # must equal this node's epoch size, so generators and validators derive
+      # the same epoch from a message timestamp; the registry is listed so its
+      # valid-root window is warmed immediately.
+      let configJson =
+        $(
+          %*{
+            "epoch_size_sec": rlnRelayConf.epochSizeSec,
+            "registries": [rlnRelayConf.registryId],
+          }
+        )
+      let startRes = await RequestStartRlnModule.request(node.brokerCtx, configJson)
       if startRes.isErr():
         notice "RLN module start failed", reason = startRes.error()
       else:
         info "RLN module started", response = startRes.get().response
-        let options =
-          @[RegistryOption(key: "rate_limit", value: $rlnRelayConf.userMessageLimit)]
         let regRes = await RequestRegisterRlnMembership.request(
-          node.brokerCtx, rlnRelayConf.registryId, rlnRelayConf.identifier, options
+          node.brokerCtx,
+          rlnRelayConf.registryId,
+          rlnRelayConf.identifier,
+          rlnRelayConf.userMessageLimit,
+          rlnRelayConf.registryOptionsJson,
         )
         if regRes.isErr():
           notice "RLN membership registration failed", reason = regRes.error()

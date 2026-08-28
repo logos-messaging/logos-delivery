@@ -152,57 +152,17 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
 
-proc parseRlnVerdict(s: string): Result[ProofVerdict, string] =
-  case s
-  of "VALID":
-    ok(ProofVerdict.Valid)
-  of "INVALID":
-    ok(ProofVerdict.Invalid)
-  of "DUPLICATE":
-    ok(ProofVerdict.Duplicate)
-  of "RATE_LIMIT_VIOLATION":
-    ok(ProofVerdict.RateLimitViolation)
-  else:
-    err("unknown verdict: " & s)
-
-proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, string] =
-  ## Parses the RLN module's reply envelope for `verify_proof`: exactly one of
-  ## `ok`/`err`; an invalid proof is an `ok` with an INVALID verdict, `err`
-  ## means the module failed to answer.
-  let node =
-    try:
-      parseJson(resultJson)
-    except CatchableError as e:
-      return err("invalid module reply JSON: " & e.msg)
-  if node.kind != JObject:
-    return err("module reply is not a JSON object")
-  if node.hasKey("err"):
-    let e = node["err"]
-    return err(e{"kind"}.getStr("TRANSIENT") & ": " & e{"message"}.getStr(""))
-  if not node.hasKey("ok"):
-    return err("module reply has neither ok nor err")
-
-  let okNode = node["ok"]
-  let verdict = ?parseRlnVerdict(okNode{"verdict"}.getStr(""))
-  var validation = ValidationResult(verdict: verdict)
-  let recovered = okNode{"recovered_secret"}
-  if not recovered.isNil() and recovered.kind == JString:
-    var secret: array[RlnFieldElementSize, byte]
-    try:
-      hexToByteArray(recovered.getStr(), secret)
-    except ValueError:
-      return err("recovered_secret is not a 32-byte hex string")
-    validation.recoveredSecret = some(secret)
-  return ok(validation)
-
 proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
   ## Bridges the waku layer's RLN module requests onto the FFI callback
   ## surface. Providers are registered at create time; the underlying calls
   ## only succeed once the host has installed its RLN callbacks.
   RequestStartRlnModule.setProvider(
     ctx,
-    proc(): Future[Result[RequestStartRlnModule, string]] {.async.} =
-      let response = ?await rlnStart()
+    proc(configJson: string): Future[Result[RequestStartRlnModule, string]] {.async.} =
+      let response = ?await rlnStart(configJson)
+      # result-dialect call: surface a module-side failure as err so the
+      # caller does not proceed to registration on a dead module.
+      discard ?parseRlnResultEnvelope(response)
       return ok(RequestStartRlnModule(response: response)),
   ).isOkOr:
     return err("failed to set RequestStartRlnModule provider: " & error)
@@ -210,12 +170,15 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
   RequestRegisterRlnMembership.setProvider(
     ctx,
     proc(
-        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
+        registryId: RegistryId,
+        rlnIdentifier: RlnIdentifier,
+        rateLimit: uint64,
+        optionsJson: string,
     ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
-      var optionsJson = newJArray()
-      for opt in options:
-        optionsJson.add(%*{"key": opt.key, "value": opt.value})
-      let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
+      let response =
+        ?await rlnRegister(registryId, rlnIdentifier.toHex(), rateLimit, optionsJson)
+      # tstr-dialect call: failures arrive in-band under "error".
+      discard ?parseRlnTstrReply(response)
       return ok(RequestRegisterRlnMembership(response: response)),
   ).isOkOr:
     return err("failed to set RequestRegisterRlnMembership provider: " & error)
@@ -235,7 +198,7 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
         return err("message has no RLN proof")
       let signalHex = message.toRLNSignal().toHex()
       let proofJson = $(%*{"proof": message.proof.toHex()})
-      let response = ?await rlnVerifyProof(
+      let response = ?await rlnValidateProof(
         registryId, rlnIdentifier.toHex(), signalHex, timestamp, proofJson
       )
       let validation = ?parseRlnValidationResult(response)
