@@ -1,44 +1,162 @@
 {.used.}
 
-import std/[tables, sequtils, strutils]
+import std/strutils
 import chronos, results, testutils/unittests
+import brokers/broker_context
 import logos_delivery/waku/discovery/external_service_discovery
 
-## A fake host: records the commands it receives and answers them on demand,
-## standing in for the logos-delivery-module glue.
-type FakeHost = ref object
-  received: seq[DiscoveryBackendCommand]
-  autoAnswer: bool
-  backend: ExternalServiceDiscovery
+## A fake plugin written the way a real one would be: plain C entry points
+## over a plugin context. Counters let the tests assert what was invoked.
+## State is threadvar so the `{.cdecl, gcsafe.}` entry points may touch it.
+type FakePluginState = object
+  started: bool
+  lastKey: string
+  lastLimit: int64
+  lastData: seq[byte]
+  lastRecord: seq[byte]
+  bootstrapCount: int
+  freed: int
+  failNext: bool
 
-proc newFakeHost(autoAnswer = true): FakeHost =
-  FakeHost(autoAnswer: autoAnswer)
+var fakeState {.threadvar.}: FakePluginState
+var fakePeerId {.threadvar.}: string
+var fakeAddr {.threadvar.}: string
+var fakePeers {.threadvar.}: seq[LdDiscoPeer]
+var fakeAddrs {.threadvar.}: seq[cstring]
 
-proc answer(
-    host: FakeHost, cmd: DiscoveryBackendCommand, peers: seq[DiscoveredPeer] = @[]
-) =
-  host.backend.onHostReply(
-    DiscoveryBackendReply(requestId: cmd.requestId, success: true, peers: peers)
+proc setErr(errBuf: cstring, errBufLen: csize_t, msg: string) =
+  let buf = cast[ptr UncheckedArray[char]](errBuf)
+  let n = min(msg.len, errBufLen.int - 1)
+  for i in 0 ..< n:
+    buf[i] = msg[i]
+  buf[n] = '\0'
+
+proc fakeStart(
+    ctx: pointer, errBuf: cstring, errBufLen: csize_t
+): cint {.cdecl, gcsafe, raises: [].} =
+  if fakeState.failNext:
+    setErr(errBuf, errBufLen, "plugin refused to start")
+    return LdDiscoError
+  fakeState.started = true
+  LdDiscoOk
+
+proc fakeStop(
+    ctx: pointer, errBuf: cstring, errBufLen: csize_t
+): cint {.cdecl, gcsafe, raises: [].} =
+  fakeState.started = false
+  LdDiscoOk
+
+proc fillPeers(outPeers: ptr LdDiscoPeerList) =
+  fakePeerId = "peer-from-plugin"
+  fakeAddr = "/ip4/1.2.3.4/tcp/60000"
+  fakeAddrs = @[fakeAddr.cstring]
+  fakePeers = @[
+    LdDiscoPeer(
+      peerId: fakePeerId.cstring,
+      addrs: cast[ptr UncheckedArray[cstring]](addr fakeAddrs[0]),
+      addrsLen: 1,
+      enr: nil,
+      seqNo: 7,
+      services: nil,
+      servicesLen: 0,
+    )
+  ]
+  outPeers[] = LdDiscoPeerList(
+    peers: cast[ptr UncheckedArray[LdDiscoPeer]](addr fakePeers[0]),
+    peersLen: 1,
+    owner: nil,
   )
 
-proc install(host: FakeHost, peers: seq[DiscoveredPeer] = @[]) =
-  let sink = proc(cmd: DiscoveryBackendCommand) {.gcsafe, raises: [].} =
-    host.received.add(cmd)
-    if host.autoAnswer:
-      host.answer(cmd, peers)
-  host.backend = ExternalServiceDiscovery.create(sink)
+proc fakeLookup(
+    ctx: pointer,
+    key: cstring,
+    limit: int64,
+    outPeers: ptr LdDiscoPeerList,
+    errBuf: cstring,
+    errBufLen: csize_t,
+): cint {.cdecl, gcsafe, raises: [].} =
+  if fakeState.failNext:
+    setErr(errBuf, errBufLen, "lookup exploded")
+    return LdDiscoError
+  fakeState.lastKey = $key
+  fakeState.lastLimit = limit
+  fillPeers(outPeers)
+  LdDiscoOk
 
-proc lastOp(host: FakeHost): DiscoveryBackendOp =
-  host.received[^1].op
+proc fakeRandomLookup(
+    ctx: pointer, outPeers: ptr LdDiscoPeerList, errBuf: cstring, errBufLen: csize_t
+): cint {.cdecl, gcsafe, raises: [].} =
+  fillPeers(outPeers)
+  LdDiscoOk
+
+proc fakeFreePeerList(
+    ctx: pointer, list: ptr LdDiscoPeerList
+) {.cdecl, gcsafe, raises: [].} =
+  inc fakeState.freed
+
+proc fakeStartAdvertising(
+    ctx: pointer,
+    key: cstring,
+    data: ptr UncheckedArray[uint8],
+    dataLen: csize_t,
+    record: ptr UncheckedArray[uint8],
+    recordLen: csize_t,
+    errBuf: cstring,
+    errBufLen: csize_t,
+): cint {.cdecl, gcsafe, raises: [].} =
+  fakeState.lastKey = $key
+  fakeState.lastData = @[]
+  for i in 0 ..< dataLen.int:
+    fakeState.lastData.add(data[i])
+  fakeState.lastRecord = @[]
+  for i in 0 ..< recordLen.int:
+    fakeState.lastRecord.add(record[i])
+  LdDiscoOk
+
+proc fakeKeyOp(
+    ctx: pointer, key: cstring, errBuf: cstring, errBufLen: csize_t
+): cint {.cdecl, gcsafe, raises: [].} =
+  fakeState.lastKey = $key
+  LdDiscoOk
+
+proc fakeAddBootstrap(
+    ctx: pointer,
+    entries: ptr UncheckedArray[cstring],
+    entriesLen: csize_t,
+    errBuf: cstring,
+    errBufLen: csize_t,
+): cint {.cdecl, gcsafe, raises: [].} =
+  fakeState.bootstrapCount = entriesLen.int
+  LdDiscoOk
+
+proc fakePlugin(): ServiceDiscoveryPlugin =
+  ServiceDiscoveryPlugin(
+    abiVersion: LdDiscoAbiVersion,
+    pluginCtx: nil,
+    start: fakeStart,
+    stop: fakeStop,
+    lookup: fakeLookup,
+    randomLookup: fakeRandomLookup,
+    freePeerList: fakeFreePeerList,
+    startAdvertising: fakeStartAdvertising,
+    stopAdvertising: fakeKeyOp,
+    registerInterest: fakeKeyOp,
+    unregisterInterest: fakeKeyOp,
+    addBootstrapEntries: fakeAddBootstrap,
+  )
 
 suite "ExternalServiceDiscovery":
-  asyncTest "verbs round-trip through the host sink":
-    let host = newFakeHost()
-    host.install(@[DiscoveredPeer(peerId: "p1")])
-    let iface: IPeerDiscovery = host.backend
+  setup:
+    fakeState = FakePluginState()
 
+  asyncTest "verbs call through to the installed plugin":
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+
+    let iface: IPeerDiscovery = backend
     check (await iface.startDiscovery()).isOk()
-    check host.lastOp == DiscoStart
+    check fakeState.started
 
     let info = (await iface.backendInfo()).valueOr:
       raiseAssert error
@@ -50,113 +168,75 @@ suite "ExternalServiceDiscovery":
       raiseAssert error
     check:
       peers.len == 1
-      peers[0].peerId == "p1"
-      host.lastOp == DiscoLookup
-      host.received[^1].key == "svc:/mix/1.0.0"
-      host.received[^1].limit == 5
+      peers[0].peerId == "peer-from-plugin"
+      peers[0].addrs == @["/ip4/1.2.3.4/tcp/60000"]
+      peers[0].seqNo == 7
+      fakeState.lastKey == "svc:/mix/1.0.0"
+      fakeState.lastLimit == 5
+      fakeState.freed == 1 # the plugin-owned list was handed back
 
     check (await iface.lookupRandom()).isOk()
-    check host.lastOp == DiscoRandomLookup
+    check fakeState.freed == 2
 
-    check (await iface.startAdvertising("svc:/mix/1.0.0", @[1'u8], @[9'u8])).isOk()
+    check (await iface.startAdvertising("svc:x", @[1'u8, 2], @[9'u8])).isOk()
     check:
-      host.lastOp == DiscoStartAdvertising
-      host.received[^1].data == @[1'u8]
-      host.received[^1].record == @[9'u8] # proxy-XPR passthrough
+      fakeState.lastData == @[1'u8, 2]
+      fakeState.lastRecord == @[9'u8]
 
-    check (await iface.stopAdvertising("svc:/mix/1.0.0")).isOk()
-    check host.lastOp == DiscoStopAdvertising
-
-    check (await iface.registerInterest("svc:x")).isOk()
-    check host.lastOp == DiscoRegisterInterest
-    check (await iface.unregisterInterest("svc:x")).isOk()
-    check host.lastOp == DiscoUnregisterInterest
+    check (await iface.registerInterest("svc:y")).isOk()
+    check fakeState.lastKey == "svc:y"
 
     check (await iface.addBootstrapEntries(@["/ip4/1.2.3.4/tcp/1/p2p/16Uxx"])).isOk()
-    check:
-      host.lastOp == ConnectPeer
-      host.received[^1].entries.len == 1
+    check fakeState.bootstrapCount == 1
 
     check (await iface.stopDiscovery()).isOk()
-    check host.lastOp == DiscoStop
-    check not (await iface.backendInfo()).get().running
+    check not fakeState.started
 
-  asyncTest "request ids are unique and correlate replies":
-    let host = newFakeHost()
-    host.install()
-    discard await host.backend.startDiscovery()
+  asyncTest "verbs fail cleanly with no plugin installed":
+    let backend = ExternalServiceDiscovery.create()
+    discard await ClearServiceDiscoveryPlugin.request(globalBrokerContext())
 
-    discard await host.backend.lookupRandom()
-    discard await host.backend.lookupRandom()
-
-    let ids = host.received.mapIt(it.requestId)
-    check:
-      ids.len == 3
-      ids.deduplicate().len == 3
-
-  asyncTest "empty bootstrap list does not reach the host":
-    let host = newFakeHost()
-    host.install()
-    check (await host.backend.addBootstrapEntries(@[])).isOk()
-    check host.received.len == 0
-
-  asyncTest "host failure is surfaced as an error":
-    let host = newFakeHost(autoAnswer = false)
-    host.install()
-    let sinkFut = host.backend.startDiscovery()
-
-    await sleepAsync(chronos.milliseconds(10))
-    host.backend.onHostReply(
-      DiscoveryBackendReply(
-        requestId: host.received[^1].requestId, success: false, error: "boom"
-      )
-    )
-
-    let res = await sinkFut
+    let res = await backend.startDiscovery()
     check:
       res.isErr()
-      "boom" in res.error
+      "no service discovery plugin" in res.error
 
-  asyncTest "unanswered request times out":
-    let host = newFakeHost(autoAnswer = false)
-    let sink = proc(cmd: DiscoveryBackendCommand) {.gcsafe, raises: [].} =
-      host.received.add(cmd)
-    host.backend = ExternalServiceDiscovery.create(sink, chronos.milliseconds(30))
+  asyncTest "plugin error text is surfaced":
+    let backend = ExternalServiceDiscovery.create()
+    check (await SetServiceDiscoveryPlugin.request(globalBrokerContext(), fakePlugin())).isOk()
 
-    let res = await host.backend.startDiscovery()
+    fakeState.failNext = true
+    let res = await backend.startDiscovery()
     check:
       res.isErr()
-      "did not answer" in res.error
+      "plugin refused to start" in res.error
 
-  asyncTest "pushed peers reach the interface event":
-    let host = newFakeHost()
-    host.install()
-
-    var received: seq[DiscoveredPeer]
-    let onPeers = proc(
-        ev: PeersDiscovered
-    ): Future[void] {.async: (raises: []), gcsafe.} =
-      received = ev.peers
-    discard host.backend.listen(PeersDiscovered, onPeers)
-
-    host.backend.onHostPush("svc:/mix/1.0.0", @[DiscoveredPeer(peerId: "pushed")])
-    await sleepAsync(chronos.milliseconds(10))
-
+  asyncTest "a plugin with a bad ABI version is rejected":
+    let backend = ExternalServiceDiscovery.create()
+    var bad = fakePlugin()
+    bad.abiVersion = 999
+    let res = await SetServiceDiscoveryPlugin.request(globalBrokerContext(), bad)
     check:
-      received.len == 1
-      received[0].peerId == "pushed"
+      res.isErr()
+      "ABI version mismatch" in res.error
 
-  asyncTest "a late reply for a timed-out request is dropped":
-    let host = newFakeHost(autoAnswer = false)
-    let sink = proc(cmd: DiscoveryBackendCommand) {.gcsafe, raises: [].} =
-      host.received.add(cmd)
-    host.backend = ExternalServiceDiscovery.create(sink, chronos.milliseconds(20))
+  asyncTest "a plugin with a missing entry point is rejected":
+    let backend = ExternalServiceDiscovery.create()
+    var bad = fakePlugin()
+    bad.lookup = nil
+    let res = await SetServiceDiscoveryPlugin.request(globalBrokerContext(), bad)
+    check:
+      res.isErr()
+      "missing entry point" in res.error
 
-    check (await host.backend.startDiscovery()).isErr()
+  asyncTest "clearing the plugin disables the verbs again":
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+    check (await backend.startDiscovery()).isOk()
 
-    # The host answers anyway; must not raise or resurrect the request.
-    host.backend.onHostReply(
-      DiscoveryBackendReply(requestId: host.received[^1].requestId, success: true)
-    )
-    await sleepAsync(chronos.milliseconds(10))
-    check not (await host.backend.backendInfo()).get().running
+    check (await ClearServiceDiscoveryPlugin.request(ctx)).isOk()
+    let res = await backend.lookupRandom()
+    check:
+      res.isErr()
+      "no service discovery plugin" in res.error
