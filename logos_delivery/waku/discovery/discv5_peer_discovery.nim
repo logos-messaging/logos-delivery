@@ -17,7 +17,6 @@ import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_enr,
   logos_delivery/waku/api/events/discovery_events,
-  logos_delivery/waku/api/events/subscription_events,
   logos_delivery/waku/requests/node_state_requests
 
 export peer_discovery_interface
@@ -100,27 +99,6 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     let self = Discv5PeerDiscovery(
       conf: conf, listenAddress: listenAddress, rng: rng, nodeCtx: globalBrokerContext()
     )
-
-    # Mirror the node's shard subscriptions into the ENR. The handler body
-    # must stay suspension-free: listeners are spawned per emit, so an await
-    # here could invert a subscribe/unsubscribe pair for the same shard.
-    let onShardSubscribed = proc(
-        ev: ShardSubscribedEvent
-    ): Future[void] {.async: (raises: []), gcsafe.} =
-      if not self.running:
-        return
-      self.inner.updateShards(@[ev.topic], add = true).isOkOr:
-        debug "ENR shard addition failed", topic = ev.topic, reason = error
-    discard ShardSubscribedEvent.listen(self.nodeCtx, onShardSubscribed)
-
-    let onShardUnsubscribed = proc(
-        ev: ShardUnsubscribedEvent
-    ): Future[void] {.async: (raises: []), gcsafe.} =
-      if not self.running:
-        return
-      self.inner.updateShards(@[ev.topic], add = false).isOkOr:
-        debug "ENR shard removal failed", topic = ev.topic, reason = error
-    discard ShardUnsubscribedEvent.listen(self.nodeCtx, onShardUnsubscribed)
 
     # Bridge the node-level event onto the instance-scoped interface event.
     # The wrapper lives as long as the node, so the listener is never dropped.
