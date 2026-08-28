@@ -23,11 +23,11 @@ export waku
 import
   logos_delivery/waku/api/[
     topics, relay, subscriptions, filter, lightpush, store, peer_manager, discovery,
-    debug, health, ping, rln,
+    debug, health, ping,
   ]
 export
   topics, relay, subscriptions, filter, lightpush, store, peer_manager, discovery,
-  debug, health, ping, rln
+  debug, health, ping
 # Kernel event surface (`MessageSeenEvent`) plus the remaining waku health events.
 import logos_delivery/api/events/kernel_events
 export kernel_events

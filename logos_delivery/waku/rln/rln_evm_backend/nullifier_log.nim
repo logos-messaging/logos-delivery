@@ -4,10 +4,10 @@ import std/tables
 import chronicles, results
 
 import
-  ./rln_evm_backend/types,
-  ./rln_evm_backend/protocol_types,
+  ./types,
+  ./protocol_types,
   ./conversion_utils,
-  ./rln_evm_backend/proof
+  ./proof
 
 logScope:
   topics = "waku rln nullifier_log"

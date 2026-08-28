@@ -18,7 +18,7 @@ import
     waku_node,
     common/error_handling,
     rln,
-    rln/bindings,
+    rln/rln_evm_backend/bindings,
     rln/rln_evm_backend/protocol_types,
     waku_keystore/keystore,
   ],

@@ -7,7 +7,10 @@ import chronicles, results, std/[tempfiles, sequtils]
 
 import
   logos_delivery/waku/
-    [waku_keystore, rln/bindings, rln/conversion_utils, rln/rln_evm_backend]
+    [
+      waku_keystore, rln/rln_evm_backend/bindings,
+      rln/rln_evm_backend/conversion_utils, rln/rln_evm_backend/rln_evm_backend,
+    ]
 
 logScope:
   topics = "rln_keystore_generator"

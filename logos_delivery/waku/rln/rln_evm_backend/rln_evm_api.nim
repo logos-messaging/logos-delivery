@@ -14,15 +14,15 @@ import
   brokers/broker_context
 
 import
-  ../rln_evm_backend,
-  ../bindings,
-  ../conversion_utils,
-  ../constants,
+  ./rln_evm_backend,
+  ./bindings,
+  ./conversion_utils,
+  ./constants,
   ./protocol_types,
   ./protocol_metrics,
   ./nonce_manager,
   ./types,
-  ../config,
+  ./config,
   ./proof,
   ./nullifier_log
 

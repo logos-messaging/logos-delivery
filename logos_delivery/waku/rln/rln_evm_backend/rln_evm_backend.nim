@@ -17,9 +17,9 @@ import
 
 import
   ../../waku_keystore,
-  ../bindings,
+  ./bindings,
   ./librln_interface,
-  ../conversion_utils,
+  ./conversion_utils,
   ./rln_evm_backend_base,
   ./retry_wrapper,
   ./rpc_wrapper

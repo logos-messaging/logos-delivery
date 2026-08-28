@@ -1,7 +1,7 @@
 import testutils/unittests, results
 
 import
-  logos_delivery/waku/rln/bindings,
+  logos_delivery/waku/rln/rln_evm_backend/bindings,
   logos_delivery/waku/rln/rln_evm_backend/wrappers,
   ./waku_rln_relay_utils
 

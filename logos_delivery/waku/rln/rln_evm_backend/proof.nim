@@ -7,8 +7,8 @@ import
   logos_delivery/waku/[
     rln/rln_evm_backend/types,
     rln/rln_evm_backend/protocol_types,
-    rln/conversion_utils,
-    rln/rln_evm_backend,
+    rln/rln_evm_backend/conversion_utils,
+    rln/rln_evm_backend/rln_evm_backend,
     rln/rln_evm_backend/nonce_manager,
     waku_core,
   ]

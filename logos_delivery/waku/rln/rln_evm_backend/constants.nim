@@ -1,8 +1,8 @@
 import stint, chronos
 
-import ./rln_evm_backend/protocol_types
+import ./protocol_types
 
-import ../waku_keystore
+import ../../waku_keystore
 
 # Acceptable roots for merkle root validation of incoming messages
 const AcceptableRootWindowSize* = 50

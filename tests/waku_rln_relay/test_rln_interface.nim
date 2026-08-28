@@ -2,10 +2,7 @@
 
 import testutils/unittests, chronos
 
-import
-  logos_delivery/waku/api/rln as logos_delivery_api_rln
-    # imported so the build type-checks it, TODO: use in later tests
-import logos_delivery/waku/rln/api/rln_interface
+import logos_delivery/waku/rln/rln
 
 type StubRlnModule = ref object
   quota: EpochQuota

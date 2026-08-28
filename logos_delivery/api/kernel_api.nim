@@ -5,7 +5,7 @@ import logos_delivery/waku/waku_core/topics/pubsub_topic
 import logos_delivery/waku/waku_core/message
 import logos_delivery/waku/waku_core/subscription/push_handler
 import logos_delivery/waku/waku_store/common as store_types
-import logos_delivery/waku/rln/api/types as rln_api_types
+import logos_delivery/waku/rln/types as rln_api_types
 
 # no rln_api_types re-export: its EpochQuota clashes with the rate limit manager's
 export api_types, pubsub_topic, store_types

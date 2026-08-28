@@ -6,7 +6,7 @@ import std/os, results, testutils/unittests, chronos, web3
 
 import
   logos_delivery/waku/
-    [rln, rln/conversion_utils, rln/rln_evm_backend/rln_evm_backend],
+    [rln, rln/rln_evm_backend/conversion_utils, rln/rln_evm_backend/rln_evm_backend],
   ./utils_onchain
 
 suite "Token and RLN Contract Deployment":

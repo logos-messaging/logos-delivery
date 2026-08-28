@@ -14,7 +14,7 @@ import
 
 import
   ../../waku_keystore,
-  ../conversion_utils,
+  ./conversion_utils,
   ./protocol_types,
   ./rln_evm_backend_base
 

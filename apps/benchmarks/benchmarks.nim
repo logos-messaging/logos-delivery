@@ -3,9 +3,9 @@ import std/[strutils, times, sequtils, osproc], math, results, testutils/unittes
 import
   logos_delivery/waku/[
     rln/rln_evm_backend/protocol_types,
-    rln/bindings,
+    rln/rln_evm_backend/bindings,
     rln,
-    rln/conversion_utils,
+    rln/rln_evm_backend/conversion_utils,
     rln/rln_evm_backend/rln_evm_backend,
   ],
   tests/waku_rln_relay/utils_onchain

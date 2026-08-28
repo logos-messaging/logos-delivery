@@ -21,7 +21,8 @@ import
 
 import
   logos_delivery/waku/[
-    rln, rln/rln_evm_backend/protocol_types, rln/constants, rln/bindings
+    rln, rln/rln_evm_backend/protocol_types, rln/rln_evm_backend/constants,
+    rln/rln_evm_backend/bindings,
   ],
   ../testlib/common
 
