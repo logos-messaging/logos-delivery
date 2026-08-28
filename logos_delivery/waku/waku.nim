@@ -43,6 +43,7 @@ import
     discovery/waku_dnsdisc,
     discovery/waku_discv5,
     discovery/discv5_peer_discovery,
+    discovery/external_service_discovery,
     discovery/autonat_service,
     requests/health_requests,
     requests/node_state_requests,
@@ -80,6 +81,9 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
     ## Set by discv5Discovery on start; kept for direct consumers
     ## (REST builder, ENR/address updates, FFI ops).
   discv5Discovery*: Discv5PeerDiscovery
+  externalDiscovery*: ExternalServiceDiscovery
+    ## Present when discovery is delegated to an external provider; the
+    ## library layer installs its host transport.
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
@@ -260,6 +264,13 @@ proc new*(
       wakuConf.discv5Conf.get(), wakuConf.endpointConf.p2pListenAddress, rng
     )
     node.attachDiscovery(waku.discv5Discovery)
+
+  if wakuConf.externalDiscoveryConf.isSome():
+    let extConf = wakuConf.externalDiscoveryConf.get()
+    waku.externalDiscovery = ExternalServiceDiscovery.create(
+      nil, chronos.milliseconds(extConf.requestTimeoutMs.int)
+    )
+    node.attachDiscovery(waku.externalDiscovery)
 
   ## Node-state getters for loosely-coupled components (discovery backends).
   ## reprovideIt so a recreated Waku instance replaces stale providers.
