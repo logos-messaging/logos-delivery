@@ -7,8 +7,15 @@ import
   libp2p/crypto/crypto as libp2p_keys,
   eth/keys as eth_keys
 
+import brokers/broker_context
 import
-  logos_delivery/waku/[waku_enr, discovery/waku_discv5, waku_core, common/enr],
+  logos_delivery/waku/[
+    waku_enr,
+    discovery/waku_discv5,
+    waku_core,
+    common/enr,
+    api/events/subscription_events,
+  ],
   ../testlib/wakucore,
   ../waku_discv5/utils,
   ./utils
@@ -48,6 +55,55 @@ suite "Sharding":
       assert emptyRes.value.isNone(), $emptyRes.value
 
   suite "containsShard":
+    asyncTest "update ENR shards from shard subscription events":
+      ## Given a started discv5 node
+      let
+        shard1 = "/waku/2/rs/0/1"
+        shard2 = "/waku/2/rs/0/2"
+        privKey = generateSecp256k1Key()
+        extIp = "127.0.0.1"
+        tcpPort = 61502u16
+        udpPort = 9002u16
+
+      let record = newTestEnrRecord(
+        privKey = privKey, extIp = extIp, tcpPort = tcpPort, udpPort = udpPort
+      )
+      let node = newTestDiscv5(
+        privKey = privKey,
+        bindIp = "0.0.0.0",
+        tcpPort = tcpPort,
+        udpPort = udpPort,
+        record = record,
+      )
+
+      let res = await node.start()
+      assert res.isOk(), res.error
+
+      ## When the node reports shard subscriptions
+      let ctx = globalBrokerContext()
+      ShardSubscribedEvent.emit(ctx, ShardSubscribedEvent(topic: shard1))
+      ShardSubscribedEvent.emit(ctx, ShardSubscribedEvent(topic: shard2))
+      await sleepAsync(chronos.milliseconds(50))
+
+      ## Then they are mirrored into the ENR
+      check:
+        node.protocol.localNode.record.containsShard(shard1) == true
+        node.protocol.localNode.record.containsShard(shard2) == true
+
+      ShardUnsubscribedEvent.emit(ctx, ShardUnsubscribedEvent(topic: shard1))
+      await sleepAsync(chronos.milliseconds(50))
+
+      check:
+        node.protocol.localNode.record.containsShard(shard1) == false
+        node.protocol.localNode.record.containsShard(shard2) == true
+
+      ## And once stopped, further events are ignored
+      await node.stop()
+      ShardSubscribedEvent.emit(ctx, ShardSubscribedEvent(topic: shard1))
+      await sleepAsync(chronos.milliseconds(50))
+
+      check node.protocol.localNode.record.containsShard(shard1) == false
+
     asyncTest "update ENR shards via updateShards":
       ## Given
       let

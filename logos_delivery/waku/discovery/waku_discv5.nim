@@ -12,6 +12,7 @@ import
   eth/keys as eth_keys,
   eth/p2p/discoveryv5/node,
   eth/p2p/discoveryv5/protocol
+import brokers/[event_broker, broker_context]
 import
   logos_delivery/waku/[
     net/auto_port,
@@ -19,6 +20,7 @@ import
     waku_core,
     waku_enr,
     api/events/discovery_events,
+    api/events/subscription_events,
   ]
 
 export protocol, waku_enr
@@ -63,6 +65,11 @@ type WakuDiscoveryV5* = ref object
   listening*: bool
   predicate: Opt[WakuDiscv5Predicate]
   peerManager: Opt[PeerManager]
+  brokerCtx: BrokerContext
+    ## Captured at construction; the context the node emits shard
+    ## subscription changes on.
+  shardSubListener: Opt[ShardSubscribedEventListener]
+  shardUnsubListener: Opt[ShardUnsubscribedEventListener]
 
 proc shardingPredicate*(
     record: Record, bootnodes: seq[Record] = @[]
@@ -120,6 +127,7 @@ proc new*(
     listening: false,
     predicate: shardPredOp,
     peerManager: peerManager,
+    brokerCtx: globalBrokerContext(),
   )
 
 proc updateAnnouncedMultiAddress*(
@@ -333,6 +341,31 @@ proc start*(wd: WakuDiscoveryV5): Future[Result[void, string]] {.async: (raises:
 
   asyncSpawn wd.searchLoop()
 
+  ## Mirror the node's shard subscriptions into our ENR. Handler bodies must
+  ## stay suspension-free: listeners are spawned per emit, so an await here
+  ## could invert a subscribe/unsubscribe pair for the same shard.
+  let onShardSubscribed = proc(
+      ev: ShardSubscribedEvent
+  ): Future[void] {.async: (raises: []), gcsafe.} =
+    wd.updateShards(@[ev.topic], add = true).isOkOr:
+      debug "ENR shard addition failed", topic = ev.topic, reason = error
+  let subRes = ShardSubscribedEvent.listen(wd.brokerCtx, onShardSubscribed)
+  if subRes.isOk():
+    wd.shardSubListener = Opt.some(subRes.get())
+  else:
+    debug "could not listen for shard subscriptions", reason = subRes.error
+
+  let onShardUnsubscribed = proc(
+      ev: ShardUnsubscribedEvent
+  ): Future[void] {.async: (raises: []), gcsafe.} =
+    wd.updateShards(@[ev.topic], add = false).isOkOr:
+      debug "ENR shard removal failed", topic = ev.topic, reason = error
+  let unsubRes = ShardUnsubscribedEvent.listen(wd.brokerCtx, onShardUnsubscribed)
+  if unsubRes.isOk():
+    wd.shardUnsubListener = Opt.some(unsubRes.get())
+  else:
+    debug "could not listen for shard unsubscriptions", reason = unsubRes.error
+
   debug "Successfully started discovery v5 service"
   info "Discv5: discoverable ENR ",
     enrUri = wd.protocol.localNode.record.toUri(), enr = $(wd.protocol.localNode.record)
@@ -346,6 +379,15 @@ proc stop*(wd: WakuDiscoveryV5): Future[void] {.async.} =
   info "Stopping discovery v5 service"
 
   wd.listening = false
+
+  wd.shardSubListener.withValue(handle):
+    await ShardSubscribedEvent.dropListener(wd.brokerCtx, handle)
+  wd.shardSubListener = Opt.none(ShardSubscribedEventListener)
+
+  wd.shardUnsubListener.withValue(handle):
+    await ShardUnsubscribedEvent.dropListener(wd.brokerCtx, handle)
+  wd.shardUnsubListener = Opt.none(ShardUnsubscribedEventListener)
+
   trace "Stop listening on discv5 port"
   await wd.protocol.closeWait()
 
