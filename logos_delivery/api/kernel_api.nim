@@ -73,23 +73,6 @@ type KernelApi* = concept w
   stopDiscv5(w) is Future[Result[bool, string]]
   peerExchangeRequest(w, numPeers = uint64) is Future[Result[int, string]]
 
-  # --- rln ---
-  rlnRegister(w, scope = MembershipScope, options = RegistryOptions) is
-    Future[Result[MembershipState, string]]
-  rlnGetMembershipState(w, scope = MembershipScope) is
-    Future[Result[MembershipState, string]]
-  rlnGetEpochQuota(w, scope = MembershipScope, timestamp = uint64) is
-    Future[Result[EpochQuota, string]]
-  rlnGenerateProof(w, scope = MembershipScope, signal = seq[byte], timestamp = uint64) is
-    Future[Result[seq[byte], string]]
-  rlnValidateProof(
-    w,
-    scope = MembershipScope,
-    signal = seq[byte],
-    timestamp = uint64,
-    proof = seq[byte],
-  ) is Future[Result[ValidationResult, string]]
-
   # --- debug / info ---
   version(w) is Future[Result[string, string]]
   listenAddresses(w) is Future[Result[seq[string], string]]
