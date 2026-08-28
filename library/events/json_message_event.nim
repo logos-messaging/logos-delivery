@@ -76,8 +76,8 @@ proc new*(T: type JsonMessage, msg: WakuMessage): T =
 proc `%`*(value: Base64String): JsonNode =
   %(value.string)
 
-proc toJsonNode*(msg: WakuMessage): JsonNode =
-  ## RFC 36 JSON for a WakuMessage, for callers assembling an event by hand.
+proc `%`*(msg: WakuMessage): JsonNode =
+  ## Serializes a WakuMessage in the RFC 36 shape, with byte fields base64-encoded.
   %JsonMessage.new(msg)
 
 type JsonMessageEvent* = ref object of JsonEvent

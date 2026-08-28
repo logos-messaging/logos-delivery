@@ -3,7 +3,7 @@ import chronos, chronicles, results, ffi
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
 import logos_delivery/waku/common/base64
-from ../events/json_message_event import toJsonNode
+from ../events/json_message_event import `%` # base64 rendering for WakuMessage
 import
   logos_delivery,
   logos_delivery/waku/node/waku_node,
@@ -54,13 +54,7 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
     self.waku.brokerCtx,
     proc(event: MessageReceivedEvent) {.async: (raises: []).} =
       emitEvent("onMessageReceived"):
-        $(
-          %*{
-            "eventType": "message_received",
-            "messageHash": event.messageHash,
-            "message": event.message.toJsonNode(),
-          }
-        ),
+        $newJsonEvent("message_received", event),
   ).isOkOr:
     chronicles.error "MessageReceivedEvent.listen failed", err = $error
     return err("MessageReceivedEvent.listen failed: " & $error)
