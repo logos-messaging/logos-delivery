@@ -136,6 +136,14 @@ type WakuNodeConf* = object
     name: "rln-relay-identifier"
   .}: string
 
+  rlnRelayRegistryOptions* {.
+    desc:
+      "Flat JSON object of registry-specific registration options passed verbatim " &
+      "to the external RLN module's register(), e.g. funding or delegation options",
+    defaultValue: "",
+    name: "rln-relay-registry-options"
+  .}: string
+
   rlnRelayEthPrivateKey* {.
     desc: "Private key for broadcasting transactions",
     defaultValue: "",
@@ -1074,6 +1082,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.rlnRelayConf.withRegistryId(n.rlnRelayRegistryId)
   if n.rlnRelayIdentifier != "":
     b.rlnRelayConf.withIdentifier(n.rlnRelayIdentifier)
+  if n.rlnRelayRegistryOptions != "":
+    b.rlnRelayConf.withRegistryOptions(n.rlnRelayRegistryOptions)
 
   if n.maxMessageSize != "":
     b.withMaxMessageSize(n.maxMessageSize)
