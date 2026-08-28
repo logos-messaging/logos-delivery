@@ -26,6 +26,7 @@ type RlnConfBuilder* = object
   lez*: Opt[bool]
   registryId*: Opt[string]
   identifier*: Opt[string] ## 32-byte hex string, decoded and validated in build()
+  registryOptions*: Opt[string] ## flat JSON object, passed verbatim to register()
 
 proc init*(T: type RlnConfBuilder): RlnConfBuilder =
   RlnConfBuilder()
@@ -72,6 +73,9 @@ proc withRegistryId*(b: var RlnConfBuilder, registryId: string) =
 proc withIdentifier*(b: var RlnConfBuilder, identifier: string) =
   b.identifier = Opt.some(identifier)
 
+proc withRegistryOptions*(b: var RlnConfBuilder, registryOptions: string) =
+  b.registryOptions = Opt.some(registryOptions)
+
 proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
   if not b.enabled.get(DefaultRlnRelayEnabled):
     return ok(Opt.none(RlnConf))
@@ -105,6 +109,7 @@ proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
           creds: creds,
           epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
           userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
+          registryOptionsJson: b.registryOptions.get("{}"),
         )
       )
     )
