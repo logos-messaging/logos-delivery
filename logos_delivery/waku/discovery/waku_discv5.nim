@@ -344,23 +344,17 @@ proc start*(wd: WakuDiscoveryV5): Future[Result[void, string]] {.async: (raises:
   ## Mirror the node's shard subscriptions into our ENR. Handler bodies must
   ## stay suspension-free: listeners are spawned per emit, so an await here
   ## could invert a subscribe/unsubscribe pair for the same shard.
-  let onShardSubscribed = proc(
-      ev: ShardSubscribedEvent
-  ): Future[void] {.async: (raises: []), gcsafe.} =
-    wd.updateShards(@[ev.topic], add = true).isOkOr:
-      debug "ENR shard addition failed", topic = ev.topic, reason = error
-  let subRes = ShardSubscribedEvent.listen(wd.brokerCtx, onShardSubscribed)
+  let subRes = ShardSubscribedEvent.listenIt(wd.brokerCtx):
+    wd.updateShards(@[it.topic], add = true).isOkOr:
+      debug "ENR shard addition failed", topic = it.topic, reason = error
   if subRes.isOk():
     wd.shardSubListener = Opt.some(subRes.get())
   else:
     debug "could not listen for shard subscriptions", reason = subRes.error
 
-  let onShardUnsubscribed = proc(
-      ev: ShardUnsubscribedEvent
-  ): Future[void] {.async: (raises: []), gcsafe.} =
-    wd.updateShards(@[ev.topic], add = false).isOkOr:
-      debug "ENR shard removal failed", topic = ev.topic, reason = error
-  let unsubRes = ShardUnsubscribedEvent.listen(wd.brokerCtx, onShardUnsubscribed)
+  let unsubRes = ShardUnsubscribedEvent.listenIt(wd.brokerCtx):
+    wd.updateShards(@[it.topic], add = false).isOkOr:
+      debug "ENR shard removal failed", topic = it.topic, reason = error
   if unsubRes.isOk():
     wd.shardUnsubListener = Opt.some(unsubRes.get())
   else:
