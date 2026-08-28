@@ -54,6 +54,12 @@ type ProtectedShard* {.requiresInit.} = object
 type DnsDiscoveryConf* {.requiresInit.} = object
   enrTreeUrl*: string
 
+type ExternalDiscoveryConf* {.requiresInit.} = object
+  ## Discovery delegated to an external provider (logos-libp2p-module via
+  ## glue in logos-delivery-module). The host transport is installed at
+  ## runtime with `installHostSink`; without it every verb errors cleanly.
+  requestTimeoutMs*: uint32
+
 type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32
   intervalSec*: uint32
@@ -124,6 +130,7 @@ type WakuConf* {.requiresInit.} = ref object
   quicConf*: Opt[QuicConf]
   mixConf*: Opt[MixConf]
   kademliaDiscoveryConf*: Opt[KademliaDiscoveryConf]
+  externalDiscoveryConf*: Opt[ExternalDiscoveryConf]
 
   dnsAddrsNameServers*: seq[IpAddress]
   endpointConf*: EndpointConf

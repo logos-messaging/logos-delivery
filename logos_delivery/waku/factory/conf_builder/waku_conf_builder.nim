@@ -820,6 +820,7 @@ proc build*(
     dnsDiscoveryConf: dnsDiscoveryConf,
     mixConf: mixConf,
     kademliaDiscoveryConf: kademliaDiscoveryConf,
+    externalDiscoveryConf: Opt.none(ExternalDiscoveryConf),
     # end confs
     nodeKey: nodeKey,
     clusterId: clusterId,
