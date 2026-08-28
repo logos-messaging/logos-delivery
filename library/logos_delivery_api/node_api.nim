@@ -6,7 +6,7 @@ import stew/byteutils
 import logos_delivery/waku/common/base64
 from ../events/json_message_event import `%` # base64 rendering for WakuMessage
 import logos_delivery/waku/requests/rln_requests
-import logos_delivery/waku/rln # toRLNSignal
+from logos_delivery/waku/rln import toRLNSignal
 import
   logos_delivery,
   logos_delivery/waku/node/waku_node,
@@ -210,9 +210,7 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
   RequestRegisterRlnMembership.setProvider(
     ctx,
     proc(
-        registryId: RegistryId,
-        rlnIdentifier: types.RlnIdentifier,
-        options: RegistryOptions,
+        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
     ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
       var optionsJson = newJArray()
       for opt in options:
