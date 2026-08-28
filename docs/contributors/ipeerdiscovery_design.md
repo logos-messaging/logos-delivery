@@ -245,6 +245,16 @@ Original sketch (for reference):
   (`addServiceToAdvertise`/`addServiceToDiscover` etc.); discv5 maps shard/cap
   keys to ENR updates, replacing the `topicSubscriptionQueue` coupling.
 
+## Phase 4 — put advertising / interest to work (PR train #4)
+
+The verbs landed in phase 2, but nothing calls them yet: the only advertised
+service is still `/mix/1.0.0`, injected at conf time in `node_factory` and only
+when mix is enabled (`servicesToAdvertise`/`servicesToDiscover` are otherwise
+empty, so the advertiser and the service-lookup loop are dormant). Phase 4
+moves that wiring onto the interface — runtime `startAdvertising` /
+`registerInterest` calls driven by what the node actually mounts (relay shards,
+store/lightpush/filter capabilities), replacing the conf-time mix special case.
+
 ## Phase 3 — external ServiceDiscovery skeleton
 
 - `ExternalServiceDiscovery` impl of the same interface: requestId-correlated
