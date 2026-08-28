@@ -47,7 +47,7 @@ type DiscoveredPeer* = object
   services*: seq[DiscoveredService]
 
 type DiscoveryBackendInfo* = object
-  id*: string                 # "discv5" | "kad" | "kad-ext"
+  id*: string                 # "discv5" | "service" | "service-ext"
   running*: bool
   keyKinds*: seq[string]      # e.g. @["svc", "shard", "cap", ""]
   boundPorts*: seq[uint16]    # e.g. discv5 UDP port after auto-port; empty if n/a
@@ -166,7 +166,7 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     (await self.inner.findRandomPeers()).mapIt(it.toDiscoveredPeer())
 ```
 
-`logos_delivery/waku/discovery/kad_peer_discovery.nim`: same shape around
+`logos_delivery/waku/discovery/service_discovery.nim`: same shape around
 `WakuKademlia` (`new` needs Switch + PeerManager via getters + `switch.mount`;
 `startDiscovery` = `wakuKademlia.start()`; `lookupServicePeers("svc:" & id)` →
 `wakuKademlia.lookupServicePeers(id)`).
@@ -234,7 +234,7 @@ As built:
 Original sketch (for reference):
 - Factory derives from conf which impls to construct/attach
   (`discv5Conf.isSome` → `Discv5PeerDiscovery`, `kademliaDiscoveryConf.isSome`
-  → `KadPeerDiscovery`); direct fields removed; start/stop fully
+  → `ServiceDiscovery`); direct fields removed; start/stop fully
   lifecycle-event driven.
 - Preset gap fix rides along: route preset `entryNodes` into backends that can
   take them (kad accepts peerId+multiaddr bootstrap; today presets leave both
@@ -259,7 +259,7 @@ Original sketch (for reference):
 
 ## Per-backend verb mapping (full target state)
 
-| Verb | discv5 (`WakuDiscoveryV5`) | kad internal (`WakuKademlia`/`ServiceDiscovery`) | kad-ext (module via glue) |
+| Verb | discv5 (`WakuDiscoveryV5`) | kad internal (`WakuKademlia`/`ServiceDiscovery`) | service-ext (module via glue) |
 |---|---|---|---|
 | `startDiscovery` | `setupAndStartDiscv5` (open UDP + loops) | `WakuKademlia.start` (interest + loops) | roundtrip `discoStart` |
 | `stopDiscovery` | `stop()` | `WakuKademlia.stop` | roundtrip `discoStop` |
