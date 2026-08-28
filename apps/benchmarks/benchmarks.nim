@@ -6,12 +6,12 @@ import
     rln/bindings,
     rln,
     rln/conversion_utils,
-    rln/group_manager/on_chain/group_manager,
+    rln/rln_evm_backend/rln_evm_backend,
   ],
   tests/waku_rln_relay/utils_onchain
 
 proc benchmark(
-    manager: OnChainGroupManager, registerCount: int, messageLimit: int
+    manager: RlnEvmBackend, registerCount: int, messageLimit: int
 ): Future[string] {.async, gcsafe.} =
   # Register a new member so that we can later generate proofs
   let idCredentials = generateCredentials(registerCount)
@@ -67,7 +67,7 @@ proc main() =
     stopAnvil(anvilProc)
 
   # Set up an On-chain group manager (includes contract deployment)
-  let manager = waitFor setupOnchainGroupManager()
+  let manager = waitFor setupRlnEvmBackend()
   (waitFor manager.init()).isOkOr:
     raiseAssert $error
 

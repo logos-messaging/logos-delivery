@@ -7,7 +7,7 @@ import chronicles, results, std/[tempfiles, sequtils]
 
 import
   logos_delivery/waku/
-    [waku_keystore, rln/bindings, rln/conversion_utils, rln/group_manager/on_chain]
+    [waku_keystore, rln/bindings, rln/conversion_utils, rln/rln_evm_backend]
 
 logScope:
   topics = "rln_keystore_generator"
@@ -47,8 +47,8 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
     error "Unrecoverable error occurred", error = msg
     quit(QuitFailure)
 
-  # 3. initialize OnchainGroupManager
-  let groupManager = OnchainGroupManager(
+  # 3. initialize RlnEvmBackend
+  let rlnEvmBackend = RlnEvmBackend(
     ethClientUrls: conf.ethClientUrls,
     chainId: conf.chainId,
     ethContractAddress: conf.ethContractAddress,
@@ -58,18 +58,18 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
     onFatalErrorAction: onFatalErrorAction,
   )
   try:
-    (waitFor groupManager.init()).isOkOr:
-      error "failure while initializing OnchainGroupManager", error = $error
+    (waitFor rlnEvmBackend.init()).isOkOr:
+      error "failure while initializing RlnEvmBackend", error = $error
       quit(QuitFailure)
   # handling the exception is required since waitFor raises an exception
   except Exception, CatchableError:
-    error "failure while initializing OnchainGroupManager",
+    error "failure while initializing RlnEvmBackend",
       error = getCurrentExceptionMsg()
     quit(QuitFailure)
 
   # 4. register on-chain
   try:
-    (waitFor groupManager.register(credential, conf.userMessageLimit)).isOkOr:
+    (waitFor rlnEvmBackend.register(credential, conf.userMessageLimit)).isOkOr:
       error "Failed to register on-chain", error = error
       quit(QuitFailure)
   except Exception, CatchableError:
@@ -77,20 +77,20 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
       error = getCurrentExceptionMsg()
     quit(QuitFailure)
 
-  info "Transaction hash", txHash = groupManager.registrationTxHash.get()
+  info "Transaction hash", txHash = rlnEvmBackend.registrationTxHash.get()
 
   info "Your membership has been registered on-chain.",
-    chainId = $groupManager.chainId,
+    chainId = $rlnEvmBackend.chainId,
     contractAddress = conf.ethContractAddress,
-    membershipIndex = groupManager.membershipIndex.get()
+    membershipIndex = rlnEvmBackend.membershipIndex.get()
   info "Your user message limit is", userMessageLimit = conf.userMessageLimit
 
   # 5. write to keystore
   let keystoreCred = KeystoreMembership(
     membershipContract: MembershipContract(
-      chainId: $groupManager.chainId, address: conf.ethContractAddress
+      chainId: $rlnEvmBackend.chainId, address: conf.ethContractAddress
     ),
-    treeIndex: groupManager.membershipIndex.get(),
+    treeIndex: rlnEvmBackend.membershipIndex.get(),
     identityCredential: credential,
     userMessageLimit: conf.userMessageLimit,
   )
@@ -102,8 +102,8 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
   info "credentials persisted", path = conf.credPath
 
   try:
-    waitFor groupManager.stop()
+    waitFor rlnEvmBackend.stop()
   except CatchableError:
-    error "failure while stopping OnchainGroupManager", error = getCurrentExceptionMsg()
+    error "failure while stopping RlnEvmBackend", error = getCurrentExceptionMsg()
     quit(QuitSuccess) # 0 because we already registered on-chain
   quit(QuitSuccess)

@@ -13,13 +13,13 @@ import
   sequtils
 
 import
-  ../../../waku_keystore,
-  ../../conversion_utils,
-  ../../protocol_types,
-  ../group_manager_base
+  ../../waku_keystore,
+  ../conversion_utils,
+  ../protocol_types,
+  ./rln_evm_backend_base
 
 logScope:
-  topics = "waku rln onchain rpc_wrapper"
+  topics = "waku rln evm_backend rpc_wrapper"
 
 # using the when predicate does not work within the contract macro, hence need to dupe
 contract(WakuRlnContract):

@@ -148,7 +148,7 @@ proc legacyLightpushPublish*(
       return publishResult
 
     debug "legacy lightpush send rejected as RLN-invalid; scheduling merkle proof refresh"
-    rln.get().groupManager.scheduleMerkleProofRefresh()
+    rln.get().rlnEvmBackend.scheduleMerkleProofRefresh()
     return err(RlnProofRefreshScheduledMsg & ": " & publishResult.error)
   except CatchableError:
     return err(getCurrentExceptionMsg())
@@ -337,7 +337,7 @@ proc lightpushPublish*(
   # permanent rejection. A retry regenerates against the refreshed cache.
   debug "lightpush send rejected as RLN-invalid; scheduling merkle proof refresh",
     statusCode = $firstResult.error.code
-  rln.get().groupManager.scheduleMerkleProofRefresh()
+  rln.get().rlnEvmBackend.scheduleMerkleProofRefresh()
   return lighpushErrorResult(
     LightPushErrorCode.OUT_OF_RLN_PROOF,
     RlnProofRefreshScheduledMsg & ": " &

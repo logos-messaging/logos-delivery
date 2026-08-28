@@ -3,7 +3,7 @@
 import std/tables, chronos, results
 import brokers/broker_context
 
-import ./group_manager, ./nonce_manager, ./protocol_types
+import ./rln_evm_backend, ./nonce_manager, ./protocol_types
 
 import logos_delivery/waku/common/error_handling
 
@@ -14,7 +14,7 @@ type Rln* = ref object of RootObj
   rlnEpochSizeSec*: uint64
   rlnMaxTimestampGap*: uint64
   rlnMaxEpochGap*: uint64
-  groupManager*: GroupManager
+  rlnEvmBackend*: RlnEvmBackendBase
   onFatalErrorAction*: OnFatalErrorHandler
   nonceManager*: NonceManager
   epochMonitorFuture*: Future[void]

@@ -71,7 +71,7 @@ proc sendRlnMessageWithInvalidProof*(
     payload: seq[byte] = "Hello".toBytes(),
 ): Future[bool] {.async.} =
   let extraBytes: seq[byte] = @[byte(1), 2, 3]
-  let rateLimitProofRes = await client.rln.groupManager.generateProof(
+  let rateLimitProofRes = await client.rln.rlnEvmBackend.generateProof(
     concat(payload, extraBytes),
       # we add extra bytes to invalidate proof verification against original payload
     client.rln.getCurrentEpoch(),

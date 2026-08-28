@@ -4,7 +4,7 @@ import results
 import
   logos_delivery/waku/rln,
   logos_delivery/waku/rln/[
-    group_manager, bindings, conversion_utils, constants, protocol_types,
+    rln_evm_backend, bindings, conversion_utils, constants, protocol_types,
     protocol_metrics, nonce_manager,
   ]
 
@@ -20,7 +20,7 @@ proc unsafeAppendRLNProof*(
   ##   proof elements, updating `merkleProofCache` (bypasses `trackRootsChanges`).
   ## WARNING: For testing only
 
-  let manager = cast[OnchainGroupManager](rlnPeer.groupManager)
+  let manager = cast[RlnEvmBackend](rlnPeer.rlnEvmBackend)
   let rootUpdated = waitFor manager.updateRoots()
 
   # Fetch Merkle proof either when a new root was detected *or* when the cache is empty.
@@ -37,7 +37,7 @@ proc unsafeAppendRLNProof*(
   return ok()
 
 proc getWakuRlnConfig*(
-    manager: OnchainGroupManager,
+    manager: RlnEvmBackend,
     userMessageLimit: uint64 = 1,
     epochSizeSec: uint64 = 1,
     index: MembershipIndex = MembershipIndex(0),

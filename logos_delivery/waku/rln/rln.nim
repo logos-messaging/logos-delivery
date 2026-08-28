@@ -14,7 +14,7 @@ import
   brokers/broker_context
 
 import
-  ./group_manager,
+  ./rln_evm_backend,
   ./bindings,
   ./conversion_utils,
   ./constants,
@@ -48,7 +48,7 @@ proc stop*(rlnPeer: Rln) {.async: (raises: [Exception]).} =
   # stop the group sync, and flush data to tree db
   info "stopping rln"
   RequestGenerateRlnProof.clearProvider(rlnPeer.brokerCtx)
-  await rlnPeer.groupManager.stop()
+  await rlnPeer.rlnEvmBackend.stop()
 
 proc validateMessage*(
     rlnPeer: Rln, msg: WakuMessage
@@ -92,11 +92,11 @@ proc validateMessage*(
     logos_delivery_rln_invalid_messages_total.inc(labelValues = ["timestamp_mismatch"])
     return MessageValidationResult.Invalid
 
-  let rootValidationRes = await rlnPeer.groupManager.validateRoot(proof.merkleRoot)
+  let rootValidationRes = await rlnPeer.rlnEvmBackend.validateRoot(proof.merkleRoot)
   if not rootValidationRes:
     debug "Invalid message: provided root does not belong to acceptable window of roots",
       provided = proof.merkleRoot.inHex(),
-      validRoots = rlnPeer.groupManager.validRoots.mapIt(it.inHex()),
+      validRoots = rlnPeer.rlnEvmBackend.validRoots.mapIt(it.inHex()),
       contentTopic = msg.contentTopic
     logos_delivery_rln_invalid_messages_total.inc(labelValues = ["invalid_root"])
     return MessageValidationResult.Invalid
@@ -110,7 +110,7 @@ proc validateMessage*(
   logos_delivery_rln_proof_verification_total.inc()
   logos_delivery_rln_proof_verification_duration_seconds.nanosecondTime:
     let proofVerificationRes =
-      rlnPeer.groupManager.verifyProof(msg.toRLNSignal(), proof)
+      rlnPeer.rlnEvmBackend.verifyProof(msg.toRLNSignal(), proof)
 
   proofVerificationRes.isOkOr:
     logos_delivery_rln_errors_total.inc(labelValues = ["proof_verification"])
@@ -169,9 +169,9 @@ proc validateMessageAndUpdateLog*(
 proc monitorEpochs(rln: Rln) {.async.} =
   while true:
     try:
-      if rln.groupManager.userMessageLimit.isSome():
+      if rln.rlnEvmBackend.userMessageLimit.isSome():
         logos_delivery_rln_remaining_proofs_per_epoch.set(
-          rln.groupManager.userMessageLimit.get().float64
+          rln.rlnEvmBackend.userMessageLimit.get().float64
         )
       else:
         debug "userMessageLimit is not set in monitorEpochs"
@@ -186,7 +186,7 @@ proc mount(
     conf: WakuRlnConfig, registrationHandler = Opt.none(RegistrationHandler)
 ): Future[Result[Rln, string]] {.async.} =
   var
-    groupManager: GroupManager
+    rlnEvmBackend: RlnEvmBackendBase
     rln: Rln
   # create an RLN instance
   let rlnInstance = createRLNInstance().valueOr:
@@ -198,7 +198,7 @@ proc mount(
     else:
       (Opt.none(string), Opt.none(string))
 
-  groupManager = OnchainGroupManager(
+  rlnEvmBackend = RlnEvmBackend(
     userMessageLimit: Opt.some(conf.userMessageLimit),
     ethClientUrls: conf.ethClientUrls,
     ethContractAddress: $conf.ethContractAddress,
@@ -212,12 +212,12 @@ proc mount(
     onFatalErrorAction: conf.onFatalErrorAction,
   )
 
-  # Initialize the groupManager
-  (await groupManager.init()).isOkOr:
+  # Initialize the rlnEvmBackend
+  (await rlnEvmBackend.init()).isOkOr:
     return err("could not initialize the group manager: " & $error)
 
   rln = Rln(
-    groupManager: groupManager,
+    rlnEvmBackend: rlnEvmBackend,
     nonceManager: NonceManager.init(conf.userMessageLimit, conf.epochSizeSec.float),
     rlnEpochSizeSec: conf.epochSizeSec,
     rlnMaxEpochGap: max(uint64(MaxClockGapSeconds / float64(conf.epochSizeSec)), 1),
@@ -249,10 +249,10 @@ proc isReady*(rlnPeer: Rln): Future[bool] {.async.} =
   ## returns false otherwise
 
   # could be nil during startup
-  if rlnPeer.groupManager == nil:
+  if rlnPeer.rlnEvmBackend == nil:
     return false
   try:
-    return await rlnPeer.groupManager.isReady()
+    return await rlnPeer.rlnEvmBackend.isReady()
   except CatchableError:
     debug "could not check if the rln-relay protocol is ready",
       err = getCurrentExceptionMsg()

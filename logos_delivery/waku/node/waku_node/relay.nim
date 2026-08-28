@@ -193,7 +193,7 @@ proc setRlnValidator*(
 
   let rln = (await Rln.new(rlnConf, registrationHandler)).valueOr:
     raise newException(CatchableError, "failed to set rln validator: " & error)
-  if (rlnConf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit):
+  if (rlnConf.userMessageLimit > rln.rlnEvmBackend.rlnRelayMaxMessageLimit):
     error "rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
 
   node.rln = rln

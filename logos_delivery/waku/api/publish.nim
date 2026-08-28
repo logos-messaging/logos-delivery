@@ -49,7 +49,7 @@ proc currentRlnEpochQuota*(self: Waku): Opt[tuple[epochIndex, messageLimit: uint
   if self.node.rln.isNil():
     return Opt.none(tuple[epochIndex, messageLimit: uint64])
 
-  let limit = self.node.rln.groupManager.userMessageLimit.valueOr:
+  let limit = self.node.rln.rlnEvmBackend.userMessageLimit.valueOr:
     return Opt.none(tuple[epochIndex, messageLimit: uint64])
 
   return Opt.some((fromEpoch(self.node.rln.getCurrentEpoch()), uint64(limit)))
@@ -101,7 +101,7 @@ proc onRlnProofRejected*(self: Waku) =
   if self.node.rln.isNil():
     return
 
-  self.node.rln.groupManager.scheduleMerkleProofRefresh()
+  self.node.rln.rlnEvmBackend.scheduleMerkleProofRefresh()
 
 proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   ## True if a lightpush service peer is available for `shard`.

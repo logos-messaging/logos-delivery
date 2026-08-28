@@ -100,7 +100,7 @@ suite "RLN Proofs as a Lightpush Service":
     server {.threadvar.}: WakuNode
     client {.threadvar.}: WakuNode
     anvilProc {.threadvar.}: Process
-    manager {.threadvar.}: OnchainGroupManager
+    manager {.threadvar.}: RlnEvmBackend
     wakuRlnConfig {.threadvar.}: WakuRlnConfig
 
     serverRemotePeerInfo {.threadvar.}: RemotePeerInfo
@@ -117,7 +117,7 @@ suite "RLN Proofs as a Lightpush Service":
     client = newTestWakuNode(clientKey)
 
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupOnchainGroupManager(deployContracts = false)
+    manager = waitFor setupRlnEvmBackend(deployContracts = false)
 
     # mount rln-relay
     # match prod epoch window to reduce test flake
@@ -137,7 +137,7 @@ suite "RLN Proofs as a Lightpush Service":
     check (await server.mountLegacyLightPush()).isOk()
     client.mountLegacyLightPushClient()
 
-    let manager1 = cast[OnchainGroupManager](server.rln.groupManager)
+    let manager1 = cast[RlnEvmBackend](server.rln.rlnEvmBackend)
     let idCredentials1 = generateCredentials()
 
     (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:

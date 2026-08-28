@@ -8,7 +8,7 @@ import
     rln/types,
     rln/protocol_types,
     rln/conversion_utils,
-    rln/group_manager,
+    rln/rln_evm_backend,
     rln/nonce_manager,
     waku_core,
   ]
@@ -69,7 +69,7 @@ proc generateRLNProofWithNonce(
   ## read as double-signalling.
   let epoch = rln.calcEpoch(senderEpochTime)
   try:
-    let proof = (await rln.groupManager.generateProof(input, epoch, nonce)).valueOr:
+    let proof = (await rln.rlnEvmBackend.generateProof(input, epoch, nonce)).valueOr:
       return err("could not generate rln-v2 proof: " & $error)
     return ok(proof.encode().buffer)
   except CatchableError as e:
@@ -103,11 +103,11 @@ proc generateRLNProofWithRootRefresh*(
   let rlnProof = RateLimitProof.init(proofBytes).valueOr:
     return err("could not decode proof for root check: " & $error)
 
-  if await rln.groupManager.validateRoot(rlnProof.merkleRoot):
+  if await rln.rlnEvmBackend.validateRoot(rlnProof.merkleRoot):
     return ok(proofBytes)
 
   debug "RLN: stale merkle root detected; refreshing merkle path and regenerating proof"
-  rln.groupManager.invalidateMerkleProofCache()
+  rln.rlnEvmBackend.invalidateMerkleProofCache()
   return await rln.generateRLNProofWithNonce(input, senderEpochTime, nonce)
 
 proc attachRLNProof*(

@@ -23,11 +23,11 @@ from std/times import epochTime
 
 suite "Waku rln relay":
   var anvilProc {.threadVar.}: Process
-  var manager {.threadVar.}: OnchainGroupManager
+  var manager {.threadVar.}: RlnEvmBackend
 
   setup:
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupOnchainGroupManager(deployContracts = false)
+    manager = waitFor setupRlnEvmBackend(deployContracts = false)
 
   teardown:
     stopAnvil(anvilProc)
@@ -231,7 +231,7 @@ suite "Waku rln relay":
       rln = (await Rln.new(wakuRlnConfig)).valueOr:
         raiseAssert $error
 
-    let manager = cast[OnchainGroupManager](rln.groupManager)
+    let manager = cast[RlnEvmBackend](rln.rlnEvmBackend)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -287,7 +287,7 @@ suite "Waku rln relay":
       rln = (await Rln.new(wakuRlnConfig)).valueOr:
         raiseAssert $error
 
-    let manager = cast[OnchainGroupManager](rln.groupManager)
+    let manager = cast[RlnEvmBackend](rln.rlnEvmBackend)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -336,7 +336,7 @@ suite "Waku rln relay":
       wakuRlnRelay1 = (await Rln.new(rlnConf1)).valueOr:
         raiseAssert "failed to create waku rln relay: " & $error
 
-    let manager1 = cast[OnchainGroupManager](wakuRlnRelay1.groupManager)
+    let manager1 = cast[RlnEvmBackend](wakuRlnRelay1.rlnEvmBackend)
     let idCredentials1 = generateCredentials()
 
     (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -349,7 +349,7 @@ suite "Waku rln relay":
       wakuRlnRelay2 = (await Rln.new(rlnConf2)).valueOr:
         raiseAssert "failed to create waku rln relay: " & $error
 
-    let manager2 = cast[OnchainGroupManager](wakuRlnRelay2.groupManager)
+    let manager2 = cast[RlnEvmBackend](wakuRlnRelay2.rlnEvmBackend)
     let idCredentials2 = generateCredentials()
 
     (waitFor manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:

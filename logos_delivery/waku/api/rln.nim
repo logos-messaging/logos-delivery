@@ -38,7 +38,7 @@ proc rlnEpochQuota*(
     return err("rlnEpochQuota: RLN not mounted")
 
   let rlnPeer = self.node.rln
-  let limit = rlnPeer.groupManager.userMessageLimit.valueOr:
+  let limit = rlnPeer.rlnEvmBackend.userMessageLimit.valueOr:
     return err("rlnEpochQuota: user message limit is not set")
 
   let rateLimit = uint64(limit)
@@ -90,10 +90,10 @@ proc rlnValidateProof*(
   if decoded.epoch != self.node.rln.calcEpoch(timestamp.float64):
     return ok(ValidationResult(verdict: ProofVerdict.Invalid))
 
-  if not await self.node.rln.groupManager.validateRoot(decoded.merkleRoot):
+  if not await self.node.rln.rlnEvmBackend.validateRoot(decoded.merkleRoot):
     return ok(ValidationResult(verdict: ProofVerdict.Invalid))
 
-  let valid = self.node.rln.groupManager.verifyProof(signal, decoded).valueOr:
+  let valid = self.node.rln.rlnEvmBackend.verifyProof(signal, decoded).valueOr:
     return err("rlnValidateProof: proof validation failed: " & $error)
 
   let verdict = if valid: ProofVerdict.Valid else: ProofVerdict.Invalid

@@ -16,22 +16,22 @@ import
   sequtils
 
 import
-  ../../../waku_keystore,
-  ../../bindings,
-  ../../rln/rln_interface,
-  ../../conversion_utils,
-  ../group_manager_base,
+  ../../waku_keystore,
+  ../bindings,
+  ../rln/rln_interface,
+  ../conversion_utils,
+  ./rln_evm_backend_base,
   ./retry_wrapper,
   ./rpc_wrapper
 
-export group_manager_base
+export rln_evm_backend_base
 
 logScope:
-  topics = "waku rln onchain_group_manager"
+  topics = "waku rln evm_backend"
 
 type
   WakuRlnContractWithSender = Sender[WakuRlnContract]
-  OnchainGroupManager* = ref object of GroupManager
+  RlnEvmBackend* = ref object of RlnEvmBackendBase
     ethClientUrls*: seq[string]
     ethPrivateKey*: Opt[string]
     ethContractAddress*: string
@@ -53,7 +53,7 @@ type
 # TODO: find better solution than this custom sendEthCallWithoutParams call
 
 proc fetchMerkleProofElements*(
-    g: OnchainGroupManager
+    g: RlnEvmBackend
 ): Future[Result[seq[byte], string]] {.async.} =
   let membershipIndex = g.membershipIndex.get()
   let index40 = stuint(membershipIndex, 40)
@@ -76,7 +76,7 @@ proc fetchMerkleProofElements*(
   return response
 
 proc fetchMerkleRoot*(
-    g: OnchainGroupManager
+    g: RlnEvmBackend
 ): Future[Result[UInt256, string]] {.async.} =
   try:
     let merkleRoot = await sendEthCallWithoutParams(
@@ -92,7 +92,7 @@ proc fetchMerkleRoot*(
     return err("Failed to fetch merkle root: " & getCurrentExceptionMsg())
 
 proc fetchMerkleRootsCache*(
-    g: OnchainGroupManager
+    g: RlnEvmBackend
 ): Future[Result[seq[byte], string]] {.async.} =
   let
     # using sendEthCallWithParams to get return type of seq[bytes] for getRecentRoots() function which returns an array of bytes32
@@ -106,7 +106,7 @@ proc fetchMerkleRootsCache*(
   return merkleRoots
 
 proc fetchNextFreeIndex*(
-    g: OnchainGroupManager
+    g: RlnEvmBackend
 ): Future[Result[UInt256, string]] {.async.} =
   let nextFreeIndex = await sendEthCallWithoutParams(
     ethRpc = g.ethRpc.get(),
@@ -118,7 +118,7 @@ proc fetchNextFreeIndex*(
   return nextFreeIndex
 
 proc fetchMembershipStatus*(
-    g: OnchainGroupManager, idCommitment: IDCommitment
+    g: RlnEvmBackend, idCommitment: IDCommitment
 ): Future[Result[bool, string]] {.async.} =
   let params = idCommitment.reversed()
   let responseBytes = (
@@ -136,7 +136,7 @@ proc fetchMembershipStatus*(
   return ok(responseBytes.len == 32 and responseBytes[^1] == 1'u8)
 
 proc fetchMaxMembershipRateLimit*(
-    g: OnchainGroupManager
+    g: RlnEvmBackend
 ): Future[Result[UInt256, string]] {.async.} =
   let maxMembershipRateLimit = await sendEthCallWithoutParams(
     ethRpc = g.ethRpc.get(),
@@ -148,12 +148,12 @@ proc fetchMaxMembershipRateLimit*(
 
   return maxMembershipRateLimit
 
-proc checkInitialized(g: OnchainGroupManager): Result[void, string] =
+proc checkInitialized(g: RlnEvmBackend): Result[void, string] =
   if not g.initialized:
-    return err("OnchainGroupManager is not initialized")
+    return err("RlnEvmBackend is not initialized")
   return ok()
 
-proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
+proc updateRoots*(g: RlnEvmBackend): Future[bool] {.async.} =
   let rootRes = (await g.fetchMerkleRoot()).valueOr:
     return false
 
@@ -171,7 +171,7 @@ proc updateRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
 
   return false
 
-proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
+proc updateRecentRoots*(g: RlnEvmBackend): Future[bool] {.async.} =
   ## Fetch recent roots from the contract roots cache and update the validRoots deque, ensuring we maintain a window of unique acceptable roots.
   ## Contract returns array of uint256 roots, newest first, zero-padded to the cache size (e.g. 5).
   let bytes = (await g.fetchMerkleRootsCache()).valueOr:
@@ -223,7 +223,7 @@ proc updateRecentRoots*(g: OnchainGroupManager): Future[bool] {.async.} =
   return true
 
 proc updateMemberCount*(
-    g: OnchainGroupManager
+    g: RlnEvmBackend
 ): Future[Result[void, string]] {.async.} =
   ## Refreshes the registered-memberships metric from on-chain `nextFreeIndex`.
   ## Called whenever a root change is observed.
@@ -233,7 +233,7 @@ proc updateMemberCount*(
   logos_delivery_rln_number_registered_memberships.set(float64(memberCount))
   return ok()
 
-proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
+proc refreshRoots(g: RlnEvmBackend): Future[void] {.async.} =
   ## On-demand refresh of validRoots from the on-chain root cache.
   ## Throttled to at most one refresh per RootsRefreshMinInterval; concurrent
   ## callers outside the throttle window coalesce onto a single in-flight
@@ -254,7 +254,7 @@ proc refreshRoots(g: OnchainGroupManager): Future[void] {.async.} =
   g.rootsRefreshInFlightFut = doRefresh()
   await g.rootsRefreshInFlightFut.join()
 
-method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.async.} =
+method validateRoot*(g: RlnEvmBackend, root: MerkleNode): Future[bool] {.async.} =
   if g.indexOfRoot(root) >= 0:
     return true
 
@@ -266,7 +266,7 @@ method validateRoot*(g: OnchainGroupManager, root: MerkleNode): Future[bool] {.a
 const MerkleProofRefetchMaxAttempts = 3
 
 proc ensureFreshMerkleProofPath*(
-    g: OnchainGroupManager
+    g: RlnEvmBackend
 ): Future[Result[seq[byte], string]] {.async.} =
   ## Returns the merkle proof path, refetching from chain when the cache is
   ## empty; suspected-stale callers invalidate first. Concurrent callers
@@ -310,14 +310,14 @@ proc ensureFreshMerkleProofPath*(
     return err("merkle proof path refresh failed")
   return ok(pathBytes)
 
-method invalidateMerkleProofCache*(g: OnchainGroupManager) {.gcsafe, raises: [].} =
+method invalidateMerkleProofCache*(g: RlnEvmBackend) {.gcsafe, raises: [].} =
   ## Empties the cache so the next `ensureFreshMerkleProofPath` refetches. The
   ## generation bump makes a refetch already in flight fetch again rather than
   ## serve a path that may predate this invalidate.
   g.merkleProofCache = @[]
   g.merkleProofCacheGeneration.inc()
 
-method scheduleMerkleProofRefresh*(g: OnchainGroupManager) {.gcsafe, raises: [].} =
+method scheduleMerkleProofRefresh*(g: RlnEvmBackend) {.gcsafe, raises: [].} =
   ## Invalidates the cache and spawns a detached refetch; a failed refetch is
   ## logged and repaired by the next `ensureFreshMerkleProofPath`.
   g.invalidateMerkleProofCache()
@@ -330,7 +330,7 @@ method scheduleMerkleProofRefresh*(g: OnchainGroupManager) {.gcsafe, raises: [].
   asyncSpawn refresh()
 
 method register*(
-    g: OnchainGroupManager, rateCommitment: RateCommitment
+    g: RlnEvmBackend, rateCommitment: RateCommitment
 ): Future[Result[void, string]] {.async.} =
   ?checkInitialized(g)
 
@@ -347,7 +347,7 @@ method register*(
   return ok()
 
 method register*(
-    g: OnchainGroupManager,
+    g: RlnEvmBackend,
     identityCredential: IdentityCredential,
     userMessageLimit: UserMessageLimit,
 ): Future[Result[void, string]] {.async.} =
@@ -459,14 +459,14 @@ method register*(
   return ok()
 
 method withdraw*(
-    g: OnchainGroupManager, idCommitment: IDCommitment
+    g: RlnEvmBackend, idCommitment: IDCommitment
 ): Future[Result[void, string]] {.async.} =
   checkInitialized(g).isOkOr:
     return err(error)
   return ok()
 
 method withdrawBatch*(
-    g: OnchainGroupManager, idCommitments: seq[IDCommitment]
+    g: RlnEvmBackend, idCommitments: seq[IDCommitment]
 ): Future[Result[void, string]] {.async.} =
   checkInitialized(g).isOkOr:
     return err(error)
@@ -474,8 +474,8 @@ method withdrawBatch*(
   return ok()
 
 proc getRootFromProofAndIndex(
-    g: OnchainGroupManager, elements: seq[byte], bits: seq[byte]
-): GroupManagerResult[array[32, byte]] =
+    g: RlnEvmBackend, elements: seq[byte], bits: seq[byte]
+): RlnEvmBackendResult[array[32, byte]] =
   # this is a helper function to get root from merkle proof elements and index
   # it's currently not used anywhere, but can be used to verify the root from the proof and index
   # Compute leaf hash from idCommitment and messageLimit
@@ -498,12 +498,12 @@ proc getRootFromProofAndIndex(
   return ok(hash)
 
 method generateProof*(
-    g: OnchainGroupManager,
+    g: RlnEvmBackend,
     data: seq[byte],
     epoch: Epoch,
     messageId: MessageId,
     rlnIdentifier = DefaultRlnIdentifier,
-): Future[GroupManagerResult[RateLimitProof]] {.async.} =
+): Future[RlnEvmBackendResult[RateLimitProof]] {.async.} =
   ## Generates an RLN proof using the cached Merkle proof and custom witness
   # Ensure identity credentials and membership index are set
   if g.idCredentials.isNone():
@@ -562,8 +562,8 @@ method generateProof*(
   return ok(output)
 
 method verifyProof*(
-    g: OnchainGroupManager, input: seq[byte], proof: RateLimitProof
-): GroupManagerResult[bool] {.gcsafe.} =
+    g: RlnEvmBackend, input: seq[byte], proof: RateLimitProof
+): RlnEvmBackendResult[bool] {.gcsafe.} =
   let validProof = verifyRlnProof(
     g.rlnInstance, proof, input, g.validRoots.items().toSeq()
   ).valueOr:
@@ -572,15 +572,15 @@ method verifyProof*(
   trace "Proof verified", isValid = validProof
   return ok(validProof)
 
-method onRegister*(g: OnchainGroupManager, cb: OnRegisterCallback) {.gcsafe.} =
+method onRegister*(g: RlnEvmBackend, cb: OnRegisterCallback) {.gcsafe.} =
   g.registerCb = Opt.some(cb)
 
-method onWithdraw*(g: OnchainGroupManager, cb: OnWithdrawCallback) {.gcsafe.} =
+method onWithdraw*(g: RlnEvmBackend, cb: OnWithdrawCallback) {.gcsafe.} =
   g.withdrawCb = Opt.some(cb)
 
 proc establishConnection(
-    g: OnchainGroupManager
-): Future[GroupManagerResult[Web3]] {.async.} =
+    g: RlnEvmBackend
+): Future[RlnEvmBackendResult[Web3]] {.async.} =
   let ethRpc = (
     await retryWrapper(
       RetryStrategy.new(),
@@ -609,7 +609,7 @@ proc establishConnection(
 
   return ok(ethRpc)
 
-method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.} =
+method init*(g: RlnEvmBackend): Future[RlnEvmBackendResult[void]] {.async.} =
   # check if the Ethereum client is reachable
   let ethRpc: Web3 = (await establishConnection(g)).valueOr:
     return err("failed to connect to Ethereum clients: " & $error)
@@ -704,7 +704,7 @@ method init*(g: OnchainGroupManager): Future[GroupManagerResult[void]] {.async.}
   g.initialized = true
   return ok()
 
-method stop*(g: OnchainGroupManager): Future[void] {.async, gcsafe.} =
+method stop*(g: RlnEvmBackend): Future[void] {.async, gcsafe.} =
   if g.ethRpc.isSome():
     g.ethRpc.get().ondisconnect = nil
     await g.ethRpc.get().close()
@@ -715,7 +715,7 @@ method stop*(g: OnchainGroupManager): Future[void] {.async, gcsafe.} =
 
   g.initialized = false
 
-method isReady*(g: OnchainGroupManager): Future[bool] {.async.} =
+method isReady*(g: RlnEvmBackend): Future[bool] {.async.} =
   checkInitialized(g).isOkOr:
     return false
 

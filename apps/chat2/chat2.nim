@@ -554,8 +554,8 @@ proc processInput(rfd: AsyncFD, rng: crypto.Rng) {.async.} =
 
       waitFor node.setRlnValidator(rlnConf, spamHandler = Opt.some(spamHandler))
 
-      let membershipIndex = node.rln.groupManager.membershipIndex.get()
-      let identityCredential = node.rln.groupManager.idCredentials.get()
+      let membershipIndex = node.rln.rlnEvmBackend.membershipIndex.get()
+      let identityCredential = node.rln.rlnEvmBackend.idCredentials.get()
       echo "your membership index is: ", membershipIndex
       echo "your rln identity commitment key is: ",
         identityCredential.idCommitment.inHex()

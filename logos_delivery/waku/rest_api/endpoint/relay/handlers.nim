@@ -86,7 +86,7 @@ proc attachRlnProofAndValidate(
     return err(RlnPublishError(kind: ValidationRejected, desc: validateResult.error))
 
   debug "relay publish rejected as RLN-invalid; scheduling merkle proof refresh"
-  rln.groupManager.scheduleMerkleProofRefresh()
+  rln.rlnEvmBackend.scheduleMerkleProofRefresh()
   return err(
     RlnPublishError(
       kind: StaleProofSuspected,
