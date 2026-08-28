@@ -1173,7 +1173,6 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   if n.dnsDiscoveryUrl != "":
     b.dnsDiscoveryConf.withEnrTreeUrl(n.dnsDiscoveryUrl)
-  b.dnsDiscoveryConf.withNameServers(n.dnsAddrsNameServers)
 
   if n.discv5Discovery.isSome():
     b.discv5Conf.withEnabled(n.discv5Discovery.get())

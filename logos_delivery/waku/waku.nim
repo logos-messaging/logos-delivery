@@ -334,7 +334,7 @@ proc startDnsDiscoveryRetryLoop(waku: Waku): Future[void] {.async.} =
       let dnsDiscoveryConf = waku.conf.dnsDiscoveryConf.get()
       waku.dynamicBootstrapNodes = (
         await waku_dnsdisc.retrieveDynamicBootstrapNodes(
-          dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
+          dnsDiscoveryConf.enrTreeUrl, waku.conf.dnsAddrsNameServers
         )
       ).valueOr:
         debug "Retrieving dynamic bootstrap nodes failed", error = error
@@ -396,7 +396,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     let dynamicBootstrapNodesRes =
       try:
         await waku_dnsdisc.retrieveDynamicBootstrapNodes(
-          dnsDiscoveryConf.enrTreeUrl, dnsDiscoveryConf.nameServers
+          dnsDiscoveryConf.enrTreeUrl, waku.conf.dnsAddrsNameServers
         )
       except CatchableError as exc:
         Result[seq[RemotePeerInfo], string].err(

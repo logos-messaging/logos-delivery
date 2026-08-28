@@ -53,8 +53,6 @@ type ProtectedShard* {.requiresInit.} = object
 
 type DnsDiscoveryConf* {.requiresInit.} = object
   enrTreeUrl*: string
-  # TODO: should probably only have one set of name servers (see dnsaddrs)
-  nameServers*: seq[IpAddress]
 
 type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32
