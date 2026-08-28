@@ -19,8 +19,8 @@ import
 import
   logos_delivery/waku/[
     rln,
-    rln/protocol_types,
-    rln/protocol_metrics,
+    rln/rln_evm_backend/protocol_types,
+    rln/rln_evm_backend/protocol_metrics,
     rln/constants,
     rln/bindings,
     rln/conversion_utils,

@@ -1,6 +1,6 @@
 import stint, chronos
 
-import ./protocol_types
+import ./rln_evm_backend/protocol_types
 
 import ../waku_keystore
 

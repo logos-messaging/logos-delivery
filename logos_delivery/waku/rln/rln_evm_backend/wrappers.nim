@@ -4,10 +4,10 @@ import chronicles, eth/keys
 
 import
   logos_delivery/waku/[
-    rln/rln_evm_backend/rln_interface,
+    rln/rln_evm_backend/librln_interface,
     rln/conversion_utils,
-    rln/protocol_types,
-    rln/protocol_metrics,
+    rln/rln_evm_backend/protocol_types,
+    rln/rln_evm_backend/protocol_metrics,
   ]
 import logos_delivery/waku/[waku_core, waku_keystore]
 

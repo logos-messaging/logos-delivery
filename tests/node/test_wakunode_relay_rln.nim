@@ -19,7 +19,7 @@ import
     common/error_handling,
     rln,
     rln/bindings,
-    rln/protocol_types,
+    rln/rln_evm_backend/protocol_types,
     waku_keystore/keystore,
   ],
   ../waku_store/store_utils,

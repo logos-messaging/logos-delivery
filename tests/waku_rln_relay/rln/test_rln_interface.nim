@@ -1,6 +1,6 @@
 import testutils/unittests, results
 
-import logos_delivery/waku/rln/rln_evm_backend/rln_interface
+import logos_delivery/waku/rln/rln_evm_backend/librln_interface
 import logos_delivery/waku/rln/rln_evm_backend/wrappers
 
 suite "Vec_uint8":

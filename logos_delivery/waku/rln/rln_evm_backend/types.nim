@@ -3,7 +3,7 @@
 import std/tables, chronos, results
 import brokers/broker_context
 
-import ./rln_evm_backend, ./nonce_manager, ./protocol_types
+import ../rln_evm_backend, ./nonce_manager, ./protocol_types
 
 import logos_delivery/waku/common/error_handling
 

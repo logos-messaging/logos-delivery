@@ -3,7 +3,10 @@
 
 import stint
 
-import logos_delivery/waku/[waku_keystore/protocol_types, rln, rln/protocol_types]
+import
+  logos_delivery/waku/[
+    waku_keystore/protocol_types, rln, rln/rln_evm_backend/protocol_types
+  ]
 
 func fromStrToBytesLe*(v: string): seq[byte] =
   try:

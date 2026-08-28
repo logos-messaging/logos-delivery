@@ -4,8 +4,8 @@ import results
 import
   logos_delivery/waku/rln,
   logos_delivery/waku/rln/[
-    rln_evm_backend, bindings, conversion_utils, constants, protocol_types,
-    protocol_metrics, nonce_manager,
+    rln_evm_backend, bindings, conversion_utils, constants,
+    rln_evm_backend/protocol_types, rln_evm_backend/protocol_metrics, rln_evm_backend/nonce_manager,
   ]
 
 proc createRLNInstanceWrapper*(): Result[ptr RlnRaw, string] =

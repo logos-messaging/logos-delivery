@@ -1,3 +1,0 @@
-import rln_evm_backend/rln_evm_backend
-
-export rln_evm_backend

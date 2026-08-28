@@ -14,15 +14,15 @@ import
   brokers/broker_context
 
 import
-  ./rln_evm_backend,
-  ./bindings,
-  ./conversion_utils,
-  ./constants,
+  ../rln_evm_backend,
+  ../bindings,
+  ../conversion_utils,
+  ../constants,
   ./protocol_types,
   ./protocol_metrics,
   ./nonce_manager,
   ./types,
-  ./config,
+  ../config,
   ./proof,
   ./nullifier_log
 
@@ -31,7 +31,7 @@ import
     [common/error_handling, waku_core, requests/rln_requests, waku_keystore]
 
 # Re-export the submodules so existing `import rln`
-# (and `import rln/rln`) callers see the moved symbols
+# (and `import rln/rln_evm_api`) callers see the moved symbols
 # (Rln, WakuRlnConfig, generateRLNProof, etc.).
 export types, config, proof, nullifier_log
 

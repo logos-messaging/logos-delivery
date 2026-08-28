@@ -15,7 +15,7 @@ import
 import
   ../../waku_keystore,
   ../conversion_utils,
-  ../protocol_types,
+  ./protocol_types,
   ./rln_evm_backend_base
 
 logScope:

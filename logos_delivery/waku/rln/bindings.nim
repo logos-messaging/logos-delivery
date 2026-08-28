@@ -1,3 +1,3 @@
-import rln_evm_backend/rln_interface, rln_evm_backend/wrappers
+import rln_evm_backend/librln_interface, rln_evm_backend/wrappers
 
-export rln_interface, wrappers
+export librln_interface, wrappers

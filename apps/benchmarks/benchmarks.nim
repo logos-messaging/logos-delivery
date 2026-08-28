@@ -2,7 +2,7 @@ import std/[strutils, times, sequtils, osproc], math, results, testutils/unittes
 
 import
   logos_delivery/waku/[
-    rln/protocol_types,
+    rln/rln_evm_backend/protocol_types,
     rln/bindings,
     rln,
     rln/conversion_utils,
