@@ -1,146 +1,98 @@
 {.push raises: [].}
 
-## IPeerDiscovery backed by an external service-discovery provider (today:
-## logos-libp2p-module, driven by glue code in logos-delivery-module).
+## IPeerDiscovery backed by an external service-discovery plugin (today:
+## logos-libp2p-module, driven by glue in logos-delivery-module).
 ##
 ## This implementation deliberately has no libp2p dependency: every verb is a
-## request-id correlated round trip to a host that owns the actual discovery
-## node. Outbound commands are handed to an injected sink; the host answers
-## with `onHostReply` and may push spontaneous results with `onHostPush`.
-##
-## The transport is *not* part of this module — the library layer marshals
-## `DiscoveryBackendCommand` out (as a JSON event) and feeds replies back in.
+## blocking call into the plugin vtable installed through the
+## `SetServiceDiscoveryPlugin` request broker. Calls run on the node's
+## processing thread and return their result directly — no completion
+## callbacks, no events from the plugin back into us.
 
-import std/tables
+import std/sequtils
 import chronos, chronicles, results
 import brokers/broker_implement
-import logos_delivery/waku/discovery/peer_discovery_interface
+import
+  logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/service_discovery_plugin
 
-export peer_discovery_interface
+export peer_discovery_interface, service_discovery_plugin
 
 logScope:
   topics = "waku discovery external"
 
-const
-  ExternalBackendId* = "service-ext"
-  DefaultHostRequestTimeout* = chronos.seconds(10)
-
-type DiscoveryBackendOp* {.pure.} = enum
-  ## Mirrors the libp2p-module RPC surface.
-  DiscoStart = "discoStart"
-  DiscoStop = "discoStop"
-  DiscoLookup = "discoLookup"
-  DiscoRandomLookup = "discoRandomLookup"
-  DiscoStartAdvertising = "discoStartAdvertising"
-  DiscoStopAdvertising = "discoStopAdvertising"
-  DiscoRegisterInterest = "discoRegisterInterest"
-  DiscoUnregisterInterest = "discoUnregisterInterest"
-  ConnectPeer = "connectPeer"
-
-type DiscoveryBackendCommand* = object
-  requestId*: uint64
-  op*: DiscoveryBackendOp
-  key*: string ## service id / criteria key; "" when not applicable
-  data*: seq[byte] ## advertised payload
-  record*: seq[byte] ## pre-signed advertisement (proxy-XPR path)
-  limit*: int ## lookup cap; <= 0 means backend default
-  entries*: seq[string] ## bootstrap entries
-
-type DiscoveryBackendReply* = object
-  requestId*: uint64
-  success*: bool
-  error*: string ## set when success is false
-  peers*: seq[DiscoveredPeer] ## set for lookup ops
-
-type HostCommandSink* = proc(cmd: DiscoveryBackendCommand) {.gcsafe, raises: [].}
-  ## Hands a command to whoever owns the external discovery node.
-
-type PendingReply = Future[DiscoveryBackendReply]
+const ExternalBackendId* = "service-ext"
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
-  sendToHost: HostCommandSink
-  pending: Table[uint64, PendingReply]
-  nextRequestId: uint64
-  requestTimeout: Duration
+  plugin: Opt[ServiceDiscoveryPlugin]
   running: bool
   nodeCtx: BrokerContext
 
-proc installHostSink*(self: ExternalServiceDiscovery, sink: HostCommandSink) =
-  ## Installs (or replaces) the transport that carries commands to the host.
-  ## Until one is installed every verb fails cleanly rather than hanging.
-  self.sendToHost = sink
+proc toDiscoveredPeer(peer: LdDiscoPeer): DiscoveredPeer =
+  var addrs: seq[string]
+  for i in 0 ..< peer.addrsLen.int:
+    if not peer.addrs[i].isNil():
+      addrs.add($peer.addrs[i])
 
-proc onHostReply*(self: ExternalServiceDiscovery, reply: DiscoveryBackendReply) =
-  ## Completes the round trip the host was answering. Unknown ids are dropped
-  ## (a reply that arrived after its request timed out).
-  let fut = self.pending.getOrDefault(reply.requestId, nil)
-  if fut.isNil():
-    debug "no pending request for reply", requestId = reply.requestId
-    return
-  self.pending.del(reply.requestId)
-  if not fut.finished():
-    fut.complete(reply)
+  var services: seq[DiscoveredService]
+  for i in 0 ..< peer.servicesLen.int:
+    let svc = peer.services[i]
+    var data: seq[byte]
+    for j in 0 ..< svc.dataLen.int:
+      data.add(svc.data[j])
+    services.add(
+      DiscoveredService(id: (if svc.id.isNil(): "" else: $svc.id), data: data)
+    )
 
-proc onHostPush*(
-    self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]
-) =
-  ## Spontaneous results from the host's own discovery cadence.
-  if peers.len == 0:
-    return
-  PeersDiscovered.emit(
-    self.brokerCtx, PeersDiscovered(origin: ExternalBackendId, key: key, peers: peers)
+  DiscoveredPeer(
+    peerId: (if peer.peerId.isNil(): "" else: $peer.peerId),
+    addrs: addrs,
+    enr: (if peer.enr.isNil(): "" else: $peer.enr),
+    seqNo: peer.seqNo,
+    services: services,
   )
 
-proc roundtrip(
-    self: ExternalServiceDiscovery, cmd: sink DiscoveryBackendCommand
-): Future[Result[DiscoveryBackendReply, string]] {.async: (raises: []).} =
-  if self.sendToHost.isNil():
-    return err("external backend: no host sink installed")
+proc errText(errBuf: string, code: cint, op: string): string =
+  ## Reads the plugin's NUL-terminated message out of our buffer.
+  var msg = ""
+  for c in errBuf:
+    if c == '\0':
+      break
+    msg.add(c)
+  if msg.len == 0:
+    msg = "status " & $code
+  "external backend: " & op & " failed: " & msg
 
-  var command = cmd
-  command.requestId = self.nextRequestId
-  inc self.nextRequestId
-
-  let fut = newFuture[DiscoveryBackendReply]("externalDiscovery.roundtrip")
-  self.pending[command.requestId] = fut
-
-  self.sendToHost(command)
-
-  let completed =
-    try:
-      await fut.withTimeout(self.requestTimeout)
-    except CancelledError:
-      self.pending.del(command.requestId)
-      return err("external backend: request cancelled")
-
-  if not completed:
-    self.pending.del(command.requestId)
-    return err("external backend: host did not answer " & $command.op)
-
-  let reply =
-    try:
-      fut.read()
-    except CatchableError:
-      return err("external backend: reply read failed: " & getCurrentExceptionMsg())
-
-  if not reply.success:
-    return err("external backend: " & $command.op & " failed: " & reply.error)
-
-  ok(reply)
+proc collect(
+    plugin: ServiceDiscoveryPlugin, list: var LdDiscoPeerList
+): seq[DiscoveredPeer] =
+  ## Copies the plugin-owned list, then hands it back for release.
+  var found: seq[DiscoveredPeer]
+  for i in 0 ..< list.peersLen.int:
+    found.add(list.peers[i].toDiscoveredPeer())
+  plugin.freePeerList(plugin.pluginCtx, addr list)
+  found
 
 BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
-  proc new(
-      T: typedesc[ExternalServiceDiscovery],
-      sendToHost: HostCommandSink,
-      requestTimeout: Duration = DefaultHostRequestTimeout,
-  ): ExternalServiceDiscovery =
-    ExternalServiceDiscovery(
-      sendToHost: sendToHost,
-      pending: initTable[uint64, PendingReply](),
-      nextRequestId: 1,
-      requestTimeout: requestTimeout,
-      nodeCtx: globalBrokerContext(),
+  proc new(T: typedesc[ExternalServiceDiscovery]): ExternalServiceDiscovery =
+    let self = ExternalServiceDiscovery(
+      plugin: Opt.none(ServiceDiscoveryPlugin), nodeCtx: globalBrokerContext()
     )
+
+    ## Registration rides the brokers, so the FFI layer needs no handle on
+    ## this instance.
+    discard SetServiceDiscoveryPlugin.reprovideIt(self.nodeCtx):
+      ?plugin.validate()
+      self.plugin = Opt.some(plugin)
+      info "service discovery plugin installed", abiVersion = plugin.abiVersion
+      ok()
+
+    discard ClearServiceDiscoveryPlugin.reprovideIt(self.nodeCtx):
+      self.plugin = Opt.none(ServiceDiscoveryPlugin)
+      info "service discovery plugin cleared"
+      ok()
+
+    self
 
   method backendInfo(
       self: ExternalServiceDiscovery
@@ -159,7 +111,14 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if self.running:
       return ok()
-    discard ?await self.roundtrip(DiscoveryBackendCommand(op: DiscoStart))
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.start(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "start"))
+
     self.running = true
     ok()
 
@@ -169,7 +128,13 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if not self.running:
       return ok()
     self.running = false
-    discard ?await self.roundtrip(DiscoveryBackendCommand(op: DiscoStop))
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.stop(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "stop"))
     ok()
 
   method lookupServicePeers(
@@ -177,52 +142,111 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    let reply = ?await self.roundtrip(
-      DiscoveryBackendCommand(op: DiscoLookup, key: key, limit: limit)
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var
+      errBuf = newString(LdDiscoErrBufLen)
+      list = LdDiscoPeerList()
+    let rc = plugin.lookup(
+      plugin.pluginCtx,
+      key.cstring,
+      limit.int64,
+      addr list,
+      errBuf.cstring,
+      errBuf.len.csize_t,
     )
-    ok(reply.peers)
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "lookup"))
+    ok(plugin.collect(list))
 
   method lookupRandom(
       self: ExternalServiceDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    let reply = ?await self.roundtrip(DiscoveryBackendCommand(op: DiscoRandomLookup))
-    ok(reply.peers)
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var
+      errBuf = newString(LdDiscoErrBufLen)
+      list = LdDiscoPeerList()
+    let rc = plugin.randomLookup(
+      plugin.pluginCtx, addr list, errBuf.cstring, errBuf.len.csize_t
+    )
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "randomLookup"))
+    ok(plugin.collect(list))
 
   method startAdvertising(
       self: ExternalServiceDiscovery, key: string, data: seq[byte], record: seq[byte]
   ): Future[Result[void, string]] {.async.} =
-    ## `record` carries a pre-signed advertisement so the host can publish this
-    ## node's identity from its own (different) discovery node.
-    discard ?await self.roundtrip(
-      DiscoveryBackendCommand(
-        op: DiscoStartAdvertising, key: key, data: data, record: record
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var
+      errBuf = newString(LdDiscoErrBufLen)
+      dataCopy = data
+      recordCopy = record
+    let
+      dataPtr =
+        if dataCopy.len == 0:
+          nil
+        else:
+          cast[ptr UncheckedArray[uint8]](addr dataCopy[0])
+      recordPtr =
+        if recordCopy.len == 0:
+          nil
+        else:
+          cast[ptr UncheckedArray[uint8]](addr recordCopy[0])
+      rc = plugin.startAdvertising(
+        plugin.pluginCtx, key.cstring, dataPtr, dataCopy.len.csize_t, recordPtr,
+        recordCopy.len.csize_t, errBuf.cstring, errBuf.len.csize_t,
       )
-    )
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "startAdvertising"))
     ok()
 
   method stopAdvertising(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    discard
-      ?await self.roundtrip(DiscoveryBackendCommand(op: DiscoStopAdvertising, key: key))
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.stopAdvertising(
+      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
+    )
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "stopAdvertising"))
     ok()
 
   method registerInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    discard ?await self.roundtrip(
-      DiscoveryBackendCommand(op: DiscoRegisterInterest, key: key)
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.registerInterest(
+      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
     )
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "registerInterest"))
     ok()
 
   method unregisterInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    discard ?await self.roundtrip(
-      DiscoveryBackendCommand(op: DiscoUnregisterInterest, key: key)
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.unregisterInterest(
+      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
     )
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "unregisterInterest"))
     ok()
 
   method addBootstrapEntries(
@@ -230,6 +254,19 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if entries.len == 0:
       return ok()
-    discard
-      ?await self.roundtrip(DiscoveryBackendCommand(op: ConnectPeer, entries: entries))
+    let plugin = self.plugin.valueOr:
+      return err("external backend: no service discovery plugin installed")
+
+    var
+      errBuf = newString(LdDiscoErrBufLen)
+      cstrs = entries.mapIt(it.cstring)
+    let rc = plugin.addBootstrapEntries(
+      plugin.pluginCtx,
+      cast[ptr UncheckedArray[cstring]](addr cstrs[0]),
+      cstrs.len.csize_t,
+      errBuf.cstring,
+      errBuf.len.csize_t,
+    )
+    if rc != LdDiscoOk:
+      return err(errText(errBuf, rc, "addBootstrapEntries"))
     ok()
