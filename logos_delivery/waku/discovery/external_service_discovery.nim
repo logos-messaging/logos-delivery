@@ -65,6 +65,11 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
   nodeCtx: BrokerContext
 
+proc installHostSink*(self: ExternalServiceDiscovery, sink: HostCommandSink) =
+  ## Installs (or replaces) the transport that carries commands to the host.
+  ## Until one is installed every verb fails cleanly rather than hanging.
+  self.sendToHost = sink
+
 proc onHostReply*(self: ExternalServiceDiscovery, reply: DiscoveryBackendReply) =
   ## Completes the round trip the host was answering. Unknown ids are dropped
   ## (a reply that arrived after its request timed out).
