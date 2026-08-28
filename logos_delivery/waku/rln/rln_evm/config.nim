@@ -26,6 +26,10 @@ type RlnConf* = object of RootObj
   lez*: bool
   registryId*: string
   identifier*: array[32, byte]
+  registryOptionsJson*: string
+    ## Flat JSON object of registry-specific registration options passed
+    ## verbatim to the external RLN module's register() (e.g. funding or
+    ## delegation options for the logos namespace). "{}" when unset.
 
 type WakuRlnConfig* = object of RlnConf
   onFatalErrorAction*: OnFatalErrorHandler
