@@ -38,6 +38,15 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   serviceLookupLoop: Future[void]
   randomLookupLoop: Future[void]
 
+proc readyPlugin(): Result[ServiceDiscoveryPlugin, string] =
+  ## External discovery needs both halves: the node configured for it (which
+  ## is what created this backend) and a registered, fully populated plugin.
+  let plugin = loadPlugin().valueOr:
+    return
+      err("external backend: configured but no service discovery plugin registered")
+  ?plugin.validate()
+  ok(plugin)
+
 proc invoke(
     self: ExternalServiceDiscovery,
     op: string,
@@ -46,13 +55,38 @@ proc invoke(
     record: seq[byte] = @[],
     entries: seq[string] = @[],
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  ## Dispatches a no-result verb to the worker thread.
-  await PluginInvoke.request(self.nodeCtx, op, key, data, record, entries)
+  ## Dispatches a no-result verb to the worker thread, bounded by the timeout
+  ## the plugin declared at registration.
+  let plugin = ?readyPlugin()
+  let fut = PluginInvoke.request(self.nodeCtx, op, key, data, record, entries)
+  let answered =
+    try:
+      await fut.withTimeout(plugin.requestTimeout())
+    except CancelledError:
+      return err("external backend: " & op & " cancelled")
+  if not answered:
+    return err("external backend: plugin did not answer " & op & " in time")
+  try:
+    fut.read()
+  except CatchableError:
+    err("external backend: " & op & " failed: " & getCurrentExceptionMsg())
 
 proc lookup(
     self: ExternalServiceDiscovery, op: string, key: string, limit: int
 ): Future[Result[seq[DiscoveredPeer], string]] {.async: (raises: []).} =
-  await PluginLookup.request(self.nodeCtx, op, key, limit)
+  let plugin = ?readyPlugin()
+  let fut = PluginLookup.request(self.nodeCtx, op, key, limit)
+  let answered =
+    try:
+      await fut.withTimeout(plugin.requestTimeout())
+    except CancelledError:
+      return err("external backend: " & op & " cancelled")
+  if not answered:
+    return err("external backend: plugin did not answer " & op & " in time")
+  try:
+    fut.read()
+  except CatchableError:
+    err("external backend: " & op & " failed: " & getCurrentExceptionMsg())
 
 proc emitPeers(
     self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]

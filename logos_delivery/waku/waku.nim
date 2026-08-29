@@ -266,7 +266,11 @@ proc new*(
     node.attachDiscovery(waku.discv5Discovery)
 
   if wakuConf.externalDiscoveryConf.isSome():
-    waku.externalDiscovery = ExternalServiceDiscovery.create()
+    let extConf = wakuConf.externalDiscoveryConf.get()
+    waku.externalDiscovery = ExternalServiceDiscovery.create(
+      chronos.milliseconds(extConf.serviceLookupIntervalMs.int64),
+      chronos.milliseconds(extConf.randomLookupIntervalMs.int64),
+    )
     node.attachDiscovery(waku.externalDiscovery)
 
   ## Node-state getters for loosely-coupled components (discovery backends).

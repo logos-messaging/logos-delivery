@@ -53,9 +53,12 @@ type DnsDiscoveryConf* {.requiresInit.} = object
 
 type ExternalDiscoveryConf* {.requiresInit.} = object
   ## Discovery delegated to an external provider (logos-libp2p-module via
-  ## glue in logos-delivery-module). The host transport is installed at
-  ## runtime with `installHostSink`; without it every verb errors cleanly.
-  requestTimeoutMs*: uint32
+  ## glue in logos-delivery-module). The plugin is registered at
+  ## runtime by an external entity; until then the backend stays inert.
+  ## The per-request timeout is not configured here -- it belongs to the
+  ## registered plugin.
+  serviceLookupIntervalMs*: uint32
+  randomLookupIntervalMs*: uint32
 
 type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32
