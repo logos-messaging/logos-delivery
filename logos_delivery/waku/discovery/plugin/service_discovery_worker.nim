@@ -21,6 +21,7 @@ logScope:
 type WorkerControl = object
   thread: Thread[BrokerContext]
   running: bool
+  users: int ## backends relying on the worker; it is joined when this hits 0
 
 var workerCtl: WorkerControl
 var workerShutdown: ptr Atomic[bool]
@@ -253,8 +254,10 @@ proc startWorker*(
 ): Future[Result[void, string]] {.async: (raises: []).} =
   ## Spawns the discovery worker and waits until its (mt) providers are
   ## registered — a request issued before that would find no provider.
-  ## Idempotent.
+  ## Idempotent: a second caller joins the running worker rather than spawning
+  ## one, and only adds itself to the user count.
   if workerCtl.running:
+    workerCtl.users.inc()
     return ok()
 
   workerShutdown = createShared(Atomic[bool])
@@ -272,6 +275,7 @@ proc startWorker*(
     return err("could not spawn service discovery worker thread")
 
   workerCtl.running = true
+  workerCtl.users = 1
 
   const ReadyTimeout = 100
   for _ in 0 ..< ReadyTimeout:
@@ -285,12 +289,19 @@ proc startWorker*(
   err("service discovery worker did not become ready")
 
 proc stopWorker*() =
-  ## Process teardown only. Signals the worker and joins it; a plugin call
-  ## already in flight keeps the thread busy until it returns on its own (the
-  ## module side caps its own waits, so this is bounded). Not called per
-  ## start/stop cycle: (mt) dispatch is bound to the registering thread, so a
-  ## joined worker cannot be replaced by a new one.
+  ## Releases this caller's claim on the worker, joining the thread once the
+  ## last one lets go. A plugin call already in flight keeps the thread busy
+  ## until it returns on its own (the module side caps its own waits, so this
+  ## is bounded).
+  ##
+  ## Call it at node teardown, never per start/stop cycle: (mt) dispatch binds
+  ## to the registering thread, so providers re-registered after a join keep
+  ## routing to the dead one. A node that comes back gets a fresh broker
+  ## context, so a later `startWorker` is safe.
   if not workerCtl.running:
+    return
+  workerCtl.users.dec()
+  if workerCtl.users > 0:
     return
   workerShutdown[].store(true)
   joinThread(workerCtl.thread)
@@ -299,3 +310,4 @@ proc stopWorker*() =
   workerShutdown = nil
   workerReady = nil
   workerCtl.running = false
+  workerCtl.users = 0

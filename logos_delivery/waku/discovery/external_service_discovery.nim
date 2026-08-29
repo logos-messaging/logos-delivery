@@ -31,6 +31,7 @@ const
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
+  workerClaimed: bool
   nodeCtx: BrokerContext
   interests: seq[string]
   serviceLookupInterval: Duration
@@ -168,7 +169,12 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if self.running:
       return ok()
 
-    ?await startWorker(self.nodeCtx)
+    ## Claimed once per backend, not once per start: the worker outlives
+    ## stop/start cycles, so claiming again would leave a count that
+    ## `releaseWorker` can never bring back to zero.
+    if not self.workerClaimed:
+      ?await startWorker(self.nodeCtx)
+      self.workerClaimed = true
     ?pluginCall(void, "start", PluginStart.request(self.nodeCtx))
 
     self.running = true
@@ -268,3 +274,13 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       "addBootstrapEntries",
       PluginAddBootstrapEntries.request(self.nodeCtx, entries),
     )
+
+proc releaseWorker*(self: ExternalServiceDiscovery) =
+  ## Lets go of the discovery worker thread. Belongs to node teardown, not to
+  ## `stopDiscovery`: a stopped node can be started again and would need the
+  ## worker back, but (mt) providers cannot be re-registered onto a fresh
+  ## thread for a context that already used a joined one.
+  if not self.workerClaimed:
+    return
+  self.workerClaimed = false
+  stopWorker()
