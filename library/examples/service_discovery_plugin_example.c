@@ -42,7 +42,12 @@ static const char *kPeersJson =
     "\"addrs\":[\"/ip4/1.2.3.4/tcp/60000\"],"
     "\"services\":[{\"id\":\"/mix/1.0.0\",\"data\":\"AQID\"}]}]";
 
-static int p_start(void *c, char *e, size_t n) { (void)c;(void)e;(void)n; g_started = 1; return LD_DISCO_OK; }
+/* Records which plugin context the call carried, so a two-node run can show
+ * that each node drives its own plugin and not its neighbour's. */
+static volatile int g_start_ctx = -1;
+static int p_start(void *c, char *e, size_t n) {
+    (void)e;(void)n; g_started = 1; g_start_ctx = (int)(intptr_t)c; return LD_DISCO_OK;
+}
 static int p_stop(void *c, char *e, size_t n) { (void)c;(void)e;(void)n; g_stopped = 1; return LD_DISCO_OK; }
 static int p_lookup(void *c, const char *k, int64_t l, char **o, char *e, size_t n) {
     (void)c;(void)k;(void)l;(void)e;(void)n;
@@ -199,6 +204,74 @@ int main(void) {
     for (int i = 0; i < 100 && g_stop_ret == -99; i++) usleep(100000);
     expect(g_stop_ret == 0, "stop succeeds with the plugin already cleared");
     logosdelivery_destroy(ctx);
+
+    /* ---- 4. two nodes at once, each with its own plugin ------------------- */
+    /* The plugin slot and the discovery worker are per broker context. Were
+     * they process-wide, the second registration would overwrite the first and
+     * the second node would find no worker provider at all. */
+    printf("\n4. two concurrent nodes, each with its own plugin\n");
+    const char *cfgA =
+        "{\"entryLayer\":\"kernel\",\"kernelConf\":{\"log-level\":\"WARN\","
+        "\"cluster-id\":16,\"tcp-port\":61153,\"discv5-discovery\":false,"
+        "\"enable-external-discovery\":true,"
+        "\"external-discovery-service-lookup-interval-ms\":500,"
+        "\"external-discovery-random-lookup-interval-ms\":500}}";
+    const char *cfgB =
+        "{\"entryLayer\":\"kernel\",\"kernelConf\":{\"log-level\":\"WARN\","
+        "\"cluster-id\":16,\"tcp-port\":61154,\"discv5-discovery\":false,"
+        "\"enable-external-discovery\":true,"
+        "\"external-discovery-service-lookup-interval-ms\":500,"
+        "\"external-discovery-random-lookup-interval-ms\":500}}";
+
+    void *ctxA = make_node(cfgA);
+    if (!ctxA || g_created != 0) { printf("  FAIL could not create node A\n"); return 1; }
+    void *ctxB = make_node(cfgB);
+    if (!ctxB || g_created != 0) { printf("  FAIL could not create node B\n"); return 1; }
+
+    /* Distinct plugin contexts, as a glue layer with per-node state would use. */
+    LdServiceDiscoveryPlugin pluginA = g_plugin; pluginA.pluginCtx = (void *)(intptr_t)1;
+    LdServiceDiscoveryPlugin pluginB = g_plugin; pluginB.pluginCtx = (void *)(intptr_t)2;
+
+    g_install_ret = -99;
+    logosdelivery_install_service_discovery_plugin(ctxA, &pluginA, on_install, NULL);
+    for (int i = 0; i < 50 && g_install_ret == -99; i++) usleep(100000);
+    expect(g_install_ret == 0, "node A registered its plugin");
+
+    g_install_ret = -99;
+    logosdelivery_install_service_discovery_plugin(ctxB, &pluginB, on_install, NULL);
+    for (int i = 0; i < 50 && g_install_ret == -99; i++) usleep(100000);
+    expect(g_install_ret == 0, "node B registered its plugin");
+
+    g_started = 0; g_start_ctx = -1;
+    logosdelivery_start_node(ctxA, on_scalar, (void *)"A start");
+    for (int i = 0; i < 100 && !g_started; i++) usleep(100000);
+    printf("   A drove pluginCtx=%d\n", g_start_ctx);
+    expect(g_start_ctx == 1, "node A drives its own plugin, not node B's");
+
+    g_started = 0; g_start_ctx = -1;
+    logosdelivery_start_node(ctxB, on_scalar, (void *)"B start");
+    for (int i = 0; i < 100 && !g_started; i++) usleep(100000);
+    printf("   B drove pluginCtx=%d\n", g_start_ctx);
+    expect(g_started, "node B has a working backend of its own");
+    expect(g_start_ctx == 2, "node B drives its own plugin");
+
+    /* Tearing one node down must leave the other's worker alone. */
+    g_stop_ret = -99;
+    logosdelivery_stop_node(ctxA, on_stop, NULL);
+    for (int i = 0; i < 100 && g_stop_ret == -99; i++) usleep(100000);
+    logosdelivery_destroy(ctxA);
+
+    g_started = 0; g_start_ctx = -1;
+    g_install_ret = -99;
+    logosdelivery_clear_service_discovery_plugin(ctxB, on_install, NULL);
+    for (int i = 0; i < 50 && g_install_ret == -99; i++) usleep(100000);
+    expect(g_install_ret == 0, "node B still reachable after node A was destroyed");
+
+    g_stop_ret = -99;
+    logosdelivery_stop_node(ctxB, on_stop, NULL);
+    for (int i = 0; i < 100 && g_stop_ret == -99; i++) usleep(100000);
+    expect(g_stop_ret == 0, "node B stops cleanly");
+    logosdelivery_destroy(ctxB);
 
     printf("\n%s (%d failure(s))\n", failures ? "FAILED" : "ALL PASSED", failures);
     return failures ? 1 : 0;

@@ -16,6 +16,7 @@
 ##   onto the caller's heap and the node's event loop only ever awaits.
 
 import std/locks
+import brokers/broker_context
 import chronos, results
 import brokers/request_broker
 import logos_delivery/waku/discovery/peer_discovery_interface
@@ -117,34 +118,69 @@ proc validate*(plugin: ServiceDiscoveryPlugin): Result[void, string] =
     return err("service discovery plugin: missing entry point")
   ok()
 
-## The installed vtable, shared between the registering thread and the
-## discovery worker. Guarded rather than passed through a broker because the
-## (mt) codec forbids pointer/proc payload fields. Safe to share: no GC
-## memory, and every field is written under the lock.
+## The installed vtables, one per node (broker context), shared between the
+## registering thread and that node's discovery worker. Guarded rather than
+## passed through a broker because the (mt) codec forbids pointer/proc payload
+## fields. Safe to share: no GC memory, and every field is written under the
+## lock.
+##
+## A plain array rather than a Table on purpose. Under refc a heap-allocated
+## container belongs to the thread that grew it, and this one is read from the
+## worker threads; a fixed global array is process memory with no allocation
+## and no owner.
+
+const MaxDiscoveryContexts* = 32
+  ## One plugin and one worker per node. Mirrors nim-ffi's `MaxFFIContexts`,
+  ## which caps how many nodes a process can hold in the first place. Not
+  ## imported from there: the node must not pull in the FFI library.
+
+type PluginSlot = object
+  ctx: BrokerContext
+  plugin: ServiceDiscoveryPlugin
+  inUse: bool
+
 var
   pluginLock: Lock
-  installedPlugin {.guard: pluginLock.}: ServiceDiscoveryPlugin
-  pluginInstalled {.guard: pluginLock.}: bool
+  pluginSlots {.guard: pluginLock.}: array[MaxDiscoveryContexts, PluginSlot]
 
 pluginLock.initLock()
 
-proc storePlugin*(plugin: ServiceDiscoveryPlugin) =
+proc storePlugin*(
+    ctx: BrokerContext, plugin: ServiceDiscoveryPlugin
+): Result[void, string] =
+  ## Installs (or replaces) the plugin for one node. Registering for a second
+  ## node cannot disturb the first: each owns its own slot, keyed by context.
   withLock pluginLock:
     {.gcsafe.}:
-      installedPlugin = plugin
-      pluginInstalled = true
+      var free = -1
+      for i in 0 ..< pluginSlots.len:
+        if pluginSlots[i].inUse and pluginSlots[i].ctx == ctx:
+          pluginSlots[i].plugin = plugin
+          return ok()
+        if free < 0 and not pluginSlots[i].inUse:
+          free = i
+      if free < 0:
+        return err(
+          "service discovery plugin: no free slot (max " & $MaxDiscoveryContexts &
+            " nodes)"
+        )
+      pluginSlots[free] = PluginSlot(ctx: ctx, plugin: plugin, inUse: true)
+  ok()
 
-proc dropPlugin*() =
+proc dropPlugin*(ctx: BrokerContext) =
   withLock pluginLock:
     {.gcsafe.}:
-      installedPlugin = ServiceDiscoveryPlugin()
-      pluginInstalled = false
+      for i in 0 ..< pluginSlots.len:
+        if pluginSlots[i].inUse and pluginSlots[i].ctx == ctx:
+          pluginSlots[i] = PluginSlot()
+          return
 
-proc loadPlugin*(): Opt[ServiceDiscoveryPlugin] =
+proc loadPlugin*(ctx: BrokerContext): Opt[ServiceDiscoveryPlugin] =
   withLock pluginLock:
     {.gcsafe.}:
-      if pluginInstalled:
-        return Opt.some(installedPlugin)
+      for i in 0 ..< pluginSlots.len:
+        if pluginSlots[i].inUse and pluginSlots[i].ctx == ctx:
+          return Opt.some(pluginSlots[i].plugin)
   Opt.none(ServiceDiscoveryPlugin)
 
 # --- registration (single-thread lane: the vtable cannot cross threads) ---
