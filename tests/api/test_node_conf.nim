@@ -4,6 +4,7 @@ import results, testutils/unittests
 import
   tools/confutils/cli_args,
   logos_delivery/waku/factory/waku_conf,
+  logos_delivery/waku/factory/conf_builder/external_discovery_conf_builder,
   logos_delivery/waku/factory/networks_config
 
 suite "WakuNodeConf - preset integration":
@@ -121,3 +122,54 @@ suite "WakuNodeConf - preset integration":
 
     ## Then
     check wakuConfRes.isErr()
+
+suite "WakuNodeConf - external discovery":
+  test "off by default":
+    ## Given
+    let conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    ## Nothing can imply intent: the plugin arrives at runtime and carries no
+    ## config, so only the explicit flag builds the backend.
+    check wakuConf.externalDiscoveryConf.isNone()
+
+  test "enabling it builds the conf with the given intervals":
+    ## Given
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.enableExternalDiscovery = Opt.some(true)
+    conf.externalDiscoveryServiceLookupIntervalMs = 1500
+    conf.externalDiscoveryRandomLookupIntervalMs = 2500
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    require wakuConf.externalDiscoveryConf.isSome()
+    let extConf = wakuConf.externalDiscoveryConf.get()
+    check:
+      extConf.serviceLookupIntervalMs == 1500
+      extConf.randomLookupIntervalMs == 2500
+
+  test "enabling it without intervals falls back to the defaults":
+    ## Given
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.enableExternalDiscovery = Opt.some(true)
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then
+    require wakuConf.externalDiscoveryConf.isSome()
+    let extConf = wakuConf.externalDiscoveryConf.get()
+    check:
+      extConf.serviceLookupIntervalMs == DefaultExternalServiceLookupIntervalMs
+      extConf.randomLookupIntervalMs == DefaultExternalRandomLookupIntervalMs
