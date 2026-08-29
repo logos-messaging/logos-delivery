@@ -13,7 +13,7 @@ import chronos, chronicles, results
 import brokers/broker_context
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
-  logos_delivery/waku/discovery/service_discovery_plugin
+  logos_delivery/waku/discovery/plugin/service_discovery_accessor
 
 logScope:
   topics = "waku discovery worker"
