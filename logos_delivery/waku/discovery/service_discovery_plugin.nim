@@ -1,15 +1,23 @@
 {.push raises: [].}
 
 ## Nim mirror of `library/logosdelivery_service_discovery.h` — the service
-## discovery plugin ABI — plus the request broker an external entity uses to
-## install a plugin.
+## discovery plugin ABI — plus the brokers that surround it.
 ##
-## Calling model (POC): every entry point is a plain blocking request invoked
-## on the node's processing thread. No completion callbacks, no events from
-## the plugin back into logos-delivery.
+## Two broker lanes meet here, deliberately:
+##
+## * **Registration** rides a plain single-thread RequestBroker. The vtable is
+##   full of `pointer`/proc fields, which the (mt) codec rejects at compile
+##   time, so it can never travel as an MT payload. Instead the provider
+##   stores it in the lock-guarded global below, which the discovery worker
+##   thread reads. That is safe: the vtable holds no GC memory.
+## * **Calls** ride `(mt)` RequestBrokers whose providers live on the worker
+##   thread. Their payloads are plain Nim types, so results are marshalled
+##   onto the caller's heap and the node's event loop only ever awaits.
 
+import std/locks
 import chronos, results
 import brokers/request_broker
+import logos_delivery/waku/discovery/peer_discovery_interface
 
 export request_broker
 
@@ -18,25 +26,6 @@ const
   LdDiscoOk* = 0.cint
   LdDiscoError* = 1.cint
   LdDiscoErrBufLen* = 512
-
-type LdDiscoService* {.bycopy.} = object
-  id*: cstring
-  data*: ptr UncheckedArray[uint8]
-  dataLen*: csize_t
-
-type LdDiscoPeer* {.bycopy.} = object
-  peerId*: cstring
-  addrs*: ptr UncheckedArray[cstring]
-  addrsLen*: csize_t
-  enr*: cstring
-  seqNo*: uint64
-  services*: ptr UncheckedArray[LdDiscoService]
-  servicesLen*: csize_t
-
-type LdDiscoPeerList* {.bycopy.} = object
-  peers*: ptr UncheckedArray[LdDiscoPeer]
-  peersLen*: csize_t
-  owner*: pointer
 
 type
   LdDiscoStartFn* = proc(pluginCtx: pointer, errBuf: cstring, errBufLen: csize_t): cint {.
@@ -49,20 +38,17 @@ type
     pluginCtx: pointer,
     key: cstring,
     limit: int64,
-    outPeers: ptr LdDiscoPeerList,
+    outJson: ptr cstring,
     errBuf: cstring,
     errBufLen: csize_t,
   ): cint {.cdecl, gcsafe, raises: [].}
 
   LdDiscoRandomLookupFn* = proc(
-    pluginCtx: pointer,
-    outPeers: ptr LdDiscoPeerList,
-    errBuf: cstring,
-    errBufLen: csize_t,
+    pluginCtx: pointer, outJson: ptr cstring, errBuf: cstring, errBufLen: csize_t
   ): cint {.cdecl, gcsafe, raises: [].}
 
-  LdDiscoFreePeerListFn* =
-    proc(pluginCtx: pointer, list: ptr LdDiscoPeerList) {.cdecl, gcsafe, raises: [].}
+  LdDiscoFreeStringFn* =
+    proc(pluginCtx: pointer, s: cstring) {.cdecl, gcsafe, raises: [].}
 
   LdDiscoStartAdvertisingFn* = proc(
     pluginCtx: pointer,
@@ -96,7 +82,7 @@ type ServiceDiscoveryPlugin* {.bycopy.} = object
   stop*: LdDiscoStopFn
   lookup*: LdDiscoLookupFn
   randomLookup*: LdDiscoRandomLookupFn
-  freePeerList*: LdDiscoFreePeerListFn
+  freeString*: LdDiscoFreeStringFn
   startAdvertising*: LdDiscoStartAdvertisingFn
   stopAdvertising*: LdDiscoKeyFn
   registerInterest*: LdDiscoKeyFn
@@ -112,12 +98,44 @@ proc validate*(plugin: ServiceDiscoveryPlugin): Result[void, string] =
         " got " & $plugin.abiVersion
     )
   if plugin.start.isNil() or plugin.stop.isNil() or plugin.lookup.isNil() or
-      plugin.randomLookup.isNil() or plugin.freePeerList.isNil() or
+      plugin.randomLookup.isNil() or plugin.freeString.isNil() or
       plugin.startAdvertising.isNil() or plugin.stopAdvertising.isNil() or
       plugin.registerInterest.isNil() or plugin.unregisterInterest.isNil() or
       plugin.addBootstrapEntries.isNil():
     return err("service discovery plugin: missing entry point")
   ok()
+
+## The installed vtable, shared between the registering thread and the
+## discovery worker. Guarded rather than passed through a broker because the
+## (mt) codec forbids pointer/proc payload fields. Safe to share: no GC
+## memory, and every field is written under the lock.
+var
+  pluginLock: Lock
+  installedPlugin {.guard: pluginLock.}: ServiceDiscoveryPlugin
+  pluginInstalled {.guard: pluginLock.}: bool
+
+pluginLock.initLock()
+
+proc storePlugin*(plugin: ServiceDiscoveryPlugin) =
+  withLock pluginLock:
+    {.gcsafe.}:
+      installedPlugin = plugin
+      pluginInstalled = true
+
+proc dropPlugin*() =
+  withLock pluginLock:
+    {.gcsafe.}:
+      installedPlugin = ServiceDiscoveryPlugin()
+      pluginInstalled = false
+
+proc loadPlugin*(): Opt[ServiceDiscoveryPlugin] =
+  withLock pluginLock:
+    {.gcsafe.}:
+      if pluginInstalled:
+        return Opt.some(installedPlugin)
+  Opt.none(ServiceDiscoveryPlugin)
+
+# --- registration (single-thread lane: the vtable cannot cross threads) ---
 
 # Installs (or replaces) the plugin backing ExternalServiceDiscovery.
 # Provided by the backend instance; requested by the FFI entry point, so the
@@ -129,3 +147,19 @@ RequestBroker:
 
 RequestBroker:
   proc clearServiceDiscoveryPlugin(): Future[Result[void, string]] {.async.}
+
+# --- calls (mt lane: providers live on the discovery worker thread) ---
+
+# Verbs that only report success. `key`, `data` and `record` are empty when
+# the verb does not use them.
+RequestBroker(mt):
+  proc pluginInvoke(
+    op: string, key: string, data: seq[byte], record: seq[byte], entries: seq[string]
+  ): Future[Result[void, string]] {.async.}
+
+# Lookups. `op` selects lookup vs randomLookup; the worker parses the
+# plugin's JSON and returns typed peers.
+RequestBroker(mt):
+  proc pluginLookup(
+    op: string, key: string, limit: int
+  ): Future[Result[seq[DiscoveredPeer], string]] {.async.}
