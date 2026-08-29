@@ -13,21 +13,33 @@
  * discovery operation -- and registers them with
  * logosdelivery_set_service_discovery_plugin.
  *
- * Calling model (POC):
+ * Calling model:
  *   - Every entry point is a plain blocking request: it performs the work and
  *     returns its result. There are no completion callbacks and no events
  *     from the plugin back into logos-delivery.
- *   - Entry points are invoked directly on the node's processing thread, so
- *     they must not block for long: whatever they do is done while the node's
- *     event loop is stalled.
+ *   - Entry points are invoked on a dedicated discovery thread inside
+ *     logos-delivery, never on the node's event loop, so they MAY block for
+ *     as long as the operation genuinely takes (a cold DHT bootstrap can run
+ *     for tens of seconds).
+ *   - Calls are serialized: logos-delivery never invokes two entry points
+ *     concurrently, so a plugin need not be reentrant.
+ *
+ * Results:
+ *   - Lookups return JSON, matching what the libp2p module already produces:
+ *       [ { "peerId": "16Uiu2...",
+ *           "seqNo": 1730000000,
+ *           "addrs": ["/ip4/1.2.3.4/tcp/60000"],
+ *           "services": [ { "id": "/mix/1.0.0", "data": "<base64>" } ] } ]
+ *     `services` is an array (ids may repeat) and each `data` is base64.
+ *     An empty array means "no peers", not an error.
+ *   - The JSON string is owned by the plugin; logos-delivery parses it and
+ *     then hands it back to freeString.
  *
  * Memory:
  *   - Arguments are borrowed for the duration of the call; the plugin copies
  *     what it needs to keep.
- *   - A peer list returned by `lookup`/`randomLookup` is owned by the plugin.
- *     logos-delivery copies it and then hands it back to `freePeerList`.
- *   - Error text is written into the caller-provided `errBuf` (NUL-terminated,
- *     truncated to `errBufLen`); no allocation crosses the boundary.
+ *   - Error text is written into the caller-provided errBuf (NUL-terminated,
+ *     truncated to errBufLen); no allocation crosses the boundary for errors.
  *   - Strings are NUL-terminated UTF-8. Byte runs use an explicit length and
  *     may be NULL when the length is 0.
  */
@@ -43,35 +55,6 @@ extern "C"
 #define LD_DISCO_OK 0
 #define LD_DISCO_ERROR 1
 
-  /* ---------------------------------------------------------------- data -- */
-
-  typedef struct
-  {
-    const char *id;      /* service id, e.g. "/mix/1.0.0" */
-    const uint8_t *data; /* advertised payload, may be NULL */
-    size_t dataLen;
-  } LdDiscoService;
-
-  typedef struct
-  {
-    const char *peerId;       /* base58 peer id */
-    const char *const *addrs; /* multiaddr strings */
-    size_t addrsLen;
-    const char *enr; /* ENR URI, or NULL when not applicable */
-    uint64_t seqNo;
-    const LdDiscoService *services;
-    size_t servicesLen;
-  } LdDiscoPeer;
-
-  /* A peer list produced by the plugin. `owner` is opaque plugin state handed
-   * back to freePeerList; logos-delivery never dereferences it. */
-  typedef struct
-  {
-    const LdDiscoPeer *peers;
-    size_t peersLen;
-    void *owner;
-  } LdDiscoPeerList;
-
   /* ----------------------------------------------- plugin entry points -- */
   /* All implemented by the plugin. Return LD_DISCO_OK or LD_DISCO_ERROR;
    * on error, write a message into errBuf. */
@@ -81,21 +64,22 @@ extern "C"
   typedef int (*LdDiscoStopFn)(void *pluginCtx, char *errBuf, size_t errBufLen);
 
   /* `key` is a criteria key ("svc:<id>", "shard:<cluster>/<shard>",
-   * "cap:<capability>"); `limit` <= 0 means the plugin's own default. */
+   * "cap:<capability>"); `limit` <= 0 means the plugin's own default.
+   * On success *outJson receives a plugin-owned JSON array (see above). */
   typedef int (*LdDiscoLookupFn)(void *pluginCtx,
                                  const char *key,
                                  int64_t limit,
-                                 LdDiscoPeerList *outPeers,
+                                 char **outJson,
                                  char *errBuf,
                                  size_t errBufLen);
 
   typedef int (*LdDiscoRandomLookupFn)(void *pluginCtx,
-                                       LdDiscoPeerList *outPeers,
+                                       char **outJson,
                                        char *errBuf,
                                        size_t errBufLen);
 
-  /* Releases a list previously produced by lookup/randomLookup. */
-  typedef void (*LdDiscoFreePeerListFn)(void *pluginCtx, LdDiscoPeerList *list);
+  /* Releases a string previously produced by lookup/randomLookup. */
+  typedef void (*LdDiscoFreeStringFn)(void *pluginCtx, char *s);
 
   /* `record`, when non-NULL, is a pre-signed advertisement to publish
    * verbatim, so the plugin can advertise this node's identity from its own
@@ -125,7 +109,8 @@ extern "C"
                                              size_t errBufLen);
 
   /* Bootstrap entries are backend-native strings: full multiaddrs including
-   * /p2p/<peerId>. */
+   * /p2p/<peerId>. A partial failure should be reported as LD_DISCO_ERROR
+   * with the failing entry named in errBuf. */
   typedef int (*LdDiscoAddBootstrapEntriesFn)(void *pluginCtx,
                                               const char *const *entries,
                                               size_t entriesLen,
@@ -144,7 +129,7 @@ extern "C"
     LdDiscoStopFn stop;
     LdDiscoLookupFn lookup;
     LdDiscoRandomLookupFn randomLookup;
-    LdDiscoFreePeerListFn freePeerList;
+    LdDiscoFreeStringFn freeString;
     LdDiscoStartAdvertisingFn startAdvertising;
     LdDiscoStopAdvertisingFn stopAdvertising;
     LdDiscoRegisterInterestFn registerInterest;

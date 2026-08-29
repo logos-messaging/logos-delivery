@@ -3,92 +3,120 @@
 ## IPeerDiscovery backed by an external service-discovery plugin (today:
 ## logos-libp2p-module, driven by glue in logos-delivery-module).
 ##
-## This implementation deliberately has no libp2p dependency: every verb is a
-## blocking call into the plugin vtable installed through the
-## `SetServiceDiscoveryPlugin` request broker. Calls run on the node's
-## processing thread and return their result directly — no completion
-## callbacks, no events from the plugin back into us.
+## Shape-wise this is the twin of the internal `ServiceDiscovery` backend:
+## fully async verbs plus periodic lookup loops. The difference is only where
+## the work happens — every plugin call is dispatched to the discovery worker
+## thread through `(mt)` request brokers, so a 30 s DHT bootstrap blocks that
+## thread and never the node's event loop.
+##
+## This module has no libp2p dependency at all.
 
 import std/sequtils
 import chronos, chronicles, results
 import brokers/broker_implement
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
-  logos_delivery/waku/discovery/service_discovery_plugin
+  logos_delivery/waku/discovery/service_discovery_plugin,
+  logos_delivery/waku/discovery/service_discovery_worker
 
 export peer_discovery_interface, service_discovery_plugin
 
 logScope:
   topics = "waku discovery external"
 
-const ExternalBackendId* = "service-ext"
+const
+  ExternalBackendId* = "service-ext"
+  DefaultServiceLookupInterval* = chronos.seconds(60)
+  DefaultRandomLookupInterval* = chronos.seconds(60)
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
-  plugin: Opt[ServiceDiscoveryPlugin]
   running: bool
   nodeCtx: BrokerContext
+  interests: seq[string]
+  serviceLookupInterval: Duration
+  randomLookupInterval: Duration
+  serviceLookupLoop: Future[void]
+  randomLookupLoop: Future[void]
 
-proc toDiscoveredPeer(peer: LdDiscoPeer): DiscoveredPeer =
-  var addrs: seq[string]
-  for i in 0 ..< peer.addrsLen.int:
-    if not peer.addrs[i].isNil():
-      addrs.add($peer.addrs[i])
+proc invoke(
+    self: ExternalServiceDiscovery,
+    op: string,
+    key = "",
+    data: seq[byte] = @[],
+    record: seq[byte] = @[],
+    entries: seq[string] = @[],
+): Future[Result[void, string]] {.async: (raises: []).} =
+  ## Dispatches a no-result verb to the worker thread.
+  await PluginInvoke.request(self.nodeCtx, op, key, data, record, entries)
 
-  var services: seq[DiscoveredService]
-  for i in 0 ..< peer.servicesLen.int:
-    let svc = peer.services[i]
-    var data: seq[byte]
-    for j in 0 ..< svc.dataLen.int:
-      data.add(svc.data[j])
-    services.add(
-      DiscoveredService(id: (if svc.id.isNil(): "" else: $svc.id), data: data)
-    )
+proc lookup(
+    self: ExternalServiceDiscovery, op: string, key: string, limit: int
+): Future[Result[seq[DiscoveredPeer], string]] {.async: (raises: []).} =
+  await PluginLookup.request(self.nodeCtx, op, key, limit)
 
-  DiscoveredPeer(
-    peerId: (if peer.peerId.isNil(): "" else: $peer.peerId),
-    addrs: addrs,
-    enr: (if peer.enr.isNil(): "" else: $peer.enr),
-    seqNo: peer.seqNo,
-    services: services,
+proc emitPeers(
+    self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]
+) =
+  if peers.len == 0:
+    return
+  PeersDiscovered.emit(
+    self.brokerCtx, PeersDiscovered(origin: ExternalBackendId, key: key, peers: peers)
   )
 
-proc errText(errBuf: string, code: cint, op: string): string =
-  ## Reads the plugin's NUL-terminated message out of our buffer.
-  var msg = ""
-  for c in errBuf:
-    if c == '\0':
-      break
-    msg.add(c)
-  if msg.len == 0:
-    msg = "status " & $code
-  "external backend: " & op & " failed: " & msg
+proc runServiceLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
+  ## Mirrors the internal backend: periodically resolves every registered
+  ## interest and publishes what came back.
+  while self.running:
+    try:
+      await sleepAsync(self.serviceLookupInterval)
+    except CancelledError:
+      return
 
-proc collect(
-    plugin: ServiceDiscoveryPlugin, list: var LdDiscoPeerList
-): seq[DiscoveredPeer] =
-  ## Copies the plugin-owned list, then hands it back for release.
-  var found: seq[DiscoveredPeer]
-  for i in 0 ..< list.peersLen.int:
-    found.add(list.peers[i].toDiscoveredPeer())
-  plugin.freePeerList(plugin.pluginCtx, addr list)
-  found
+    for key in self.interests:
+      if not self.running:
+        return
+      let peers = (await self.lookup("lookup", key, 0)).valueOr:
+        debug "service lookup failed", key = key, reason = error
+        continue
+      self.emitPeers(key, peers)
+
+proc runRandomLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
+  while self.running:
+    try:
+      await sleepAsync(self.randomLookupInterval)
+    except CancelledError:
+      return
+
+    if not self.running:
+      return
+    let peers = (await self.lookup("randomLookup", "", 0)).valueOr:
+      debug "random lookup failed", reason = error
+      continue
+    self.emitPeers("", peers)
 
 BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
-  proc new(T: typedesc[ExternalServiceDiscovery]): ExternalServiceDiscovery =
+  proc new(
+      T: typedesc[ExternalServiceDiscovery],
+      serviceLookupInterval = DefaultServiceLookupInterval,
+      randomLookupInterval = DefaultRandomLookupInterval,
+  ): ExternalServiceDiscovery =
     let self = ExternalServiceDiscovery(
-      plugin: Opt.none(ServiceDiscoveryPlugin), nodeCtx: globalBrokerContext()
+      nodeCtx: globalBrokerContext(),
+      serviceLookupInterval: serviceLookupInterval,
+      randomLookupInterval: randomLookupInterval,
     )
 
-    ## Registration rides the brokers, so the FFI layer needs no handle on
-    ## this instance.
+    # Registration stays on the single-thread lane: the vtable is full of
+    # pointer/proc fields, which the (mt) codec rejects, so it is handed to
+    # the worker through the guarded global instead of a broker payload.
     discard SetServiceDiscoveryPlugin.reprovideIt(self.nodeCtx):
       ?plugin.validate()
-      self.plugin = Opt.some(plugin)
+      storePlugin(plugin)
       info "service discovery plugin installed", abiVersion = plugin.abiVersion
       ok()
 
     discard ClearServiceDiscoveryPlugin.reprovideIt(self.nodeCtx):
-      self.plugin = Opt.none(ServiceDiscoveryPlugin)
+      dropPlugin()
       info "service discovery plugin cleared"
       ok()
 
@@ -111,15 +139,15 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if self.running:
       return ok()
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
 
-    var errBuf = newString(LdDiscoErrBufLen)
-    let rc = plugin.start(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "start"))
+    ?await startWorker(self.nodeCtx)
+    ?await self.invoke("start")
 
     self.running = true
+    if self.serviceLookupLoop.isNil():
+      self.serviceLookupLoop = self.runServiceLookupLoop()
+    if self.randomLookupLoop.isNil():
+      self.randomLookupLoop = self.runRandomLookupLoop()
     ok()
 
   method stopDiscovery(
@@ -128,125 +156,57 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if not self.running:
       return ok()
     self.running = false
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
 
-    var errBuf = newString(LdDiscoErrBufLen)
-    let rc = plugin.stop(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "stop"))
-    ok()
+    if not self.serviceLookupLoop.isNil():
+      await self.serviceLookupLoop.cancelAndWait()
+      self.serviceLookupLoop = nil
+    if not self.randomLookupLoop.isNil():
+      await self.randomLookupLoop.cancelAndWait()
+      self.randomLookupLoop = nil
+
+    ## The worker thread is deliberately left running: (mt) dispatch is bound
+    ## to the thread that registered the providers, so tearing it down here
+    ## would break a later restart. It is idle when no verb is in flight and
+    ## is joined at process teardown via `stopWorker`.
+    await self.invoke("stop")
 
   method lookupServicePeers(
       self: ExternalServiceDiscovery, key: string, limit: int
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
-
-    var
-      errBuf = newString(LdDiscoErrBufLen)
-      list = LdDiscoPeerList()
-    let rc = plugin.lookup(
-      plugin.pluginCtx,
-      key.cstring,
-      limit.int64,
-      addr list,
-      errBuf.cstring,
-      errBuf.len.csize_t,
-    )
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "lookup"))
-    ok(plugin.collect(list))
+    await self.lookup("lookup", key, limit)
 
   method lookupRandom(
       self: ExternalServiceDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
-
-    var
-      errBuf = newString(LdDiscoErrBufLen)
-      list = LdDiscoPeerList()
-    let rc = plugin.randomLookup(
-      plugin.pluginCtx, addr list, errBuf.cstring, errBuf.len.csize_t
-    )
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "randomLookup"))
-    ok(plugin.collect(list))
+    await self.lookup("randomLookup", "", 0)
 
   method startAdvertising(
       self: ExternalServiceDiscovery, key: string, data: seq[byte], record: seq[byte]
   ): Future[Result[void, string]] {.async.} =
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
-
-    var
-      errBuf = newString(LdDiscoErrBufLen)
-      dataCopy = data
-      recordCopy = record
-    let
-      dataPtr =
-        if dataCopy.len == 0:
-          nil
-        else:
-          cast[ptr UncheckedArray[uint8]](addr dataCopy[0])
-      recordPtr =
-        if recordCopy.len == 0:
-          nil
-        else:
-          cast[ptr UncheckedArray[uint8]](addr recordCopy[0])
-      rc = plugin.startAdvertising(
-        plugin.pluginCtx, key.cstring, dataPtr, dataCopy.len.csize_t, recordPtr,
-        recordCopy.len.csize_t, errBuf.cstring, errBuf.len.csize_t,
-      )
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "startAdvertising"))
-    ok()
+    await self.invoke("startAdvertising", key, data, record)
 
   method stopAdvertising(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
-
-    var errBuf = newString(LdDiscoErrBufLen)
-    let rc = plugin.stopAdvertising(
-      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
-    )
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "stopAdvertising"))
-    ok()
+    await self.invoke("stopAdvertising", key)
 
   method registerInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
-
-    var errBuf = newString(LdDiscoErrBufLen)
-    let rc = plugin.registerInterest(
-      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
-    )
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "registerInterest"))
+    ?await self.invoke("registerInterest", key)
+    if key notin self.interests:
+      self.interests.add(key)
     ok()
 
   method unregisterInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
-
-    var errBuf = newString(LdDiscoErrBufLen)
-    let rc = plugin.unregisterInterest(
-      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
-    )
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "unregisterInterest"))
+    ?await self.invoke("unregisterInterest", key)
+    self.interests.keepItIf(it != key)
     ok()
 
   method addBootstrapEntries(
@@ -254,19 +214,4 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if entries.len == 0:
       return ok()
-    let plugin = self.plugin.valueOr:
-      return err("external backend: no service discovery plugin installed")
-
-    var
-      errBuf = newString(LdDiscoErrBufLen)
-      cstrs = entries.mapIt(it.cstring)
-    let rc = plugin.addBootstrapEntries(
-      plugin.pluginCtx,
-      cast[ptr UncheckedArray[cstring]](addr cstrs[0]),
-      cstrs.len.csize_t,
-      errBuf.cstring,
-      errBuf.len.csize_t,
-    )
-    if rc != LdDiscoOk:
-      return err(errText(errBuf, rc, "addBootstrapEntries"))
-    ok()
+    await self.invoke("addBootstrapEntries", entries = entries)
