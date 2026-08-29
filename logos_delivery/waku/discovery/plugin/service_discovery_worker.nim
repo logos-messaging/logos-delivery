@@ -18,12 +18,13 @@ import
 logScope:
   topics = "waku discovery worker"
 
-## One worker per node (broker context). The `(mt)` providers a worker
-## registers are bound to the context it was spawned with, so a shared worker
-## could only ever serve the node that started it -- every other node's
-## requests would find no provider. Slots live in a fixed global array: the
-## flags are atomics read across threads, so they must not sit on any one
-## thread's heap.
+## One worker per node (broker context), living exactly as long as that
+## node's discovery is running: spawned by `startDiscovery`, joined by
+## `stopDiscovery`. The `(mt)` providers a worker registers are bound to the
+## context it was spawned with, so a shared worker could only ever serve the
+## node that started it -- every other node's requests would find no provider.
+## Slots live in a fixed global array: the flags are atomics read across
+## threads, so they must not sit on any one thread's heap.
 type
   WorkerArg = tuple[ctx: BrokerContext, idx: int]
 
@@ -117,7 +118,7 @@ proc pluginOrErr(ctx: BrokerContext): Result[ServiceDiscoveryPlugin, string] =
   ok(plugin)
 
 proc workerMain(arg: WorkerArg) {.thread.} =
-  ## Owns a chronos loop for the lifetime of one node; that node's MT brokers
+  ## Owns a chronos loop for one discovery session; that node's MT brokers
   ## dispatch onto it. The slot index travels with the context because the
   ## slot is not marked running until `createThread` has returned, so the
   ## thread cannot look itself up by context.
@@ -271,6 +272,19 @@ proc workerMain(arg: WorkerArg) {.thread.} =
       break
   waitFor ticker.cancelAndWait()
 
+  ## Hand the (mt) buckets back before the thread dies. Without this the
+  ## registry keeps pointing at a thread that has been joined, and the next
+  ## worker for this context could never take over.
+  PluginStart.clearProvider(ctx)
+  PluginStop.clearProvider(ctx)
+  PluginLookup.clearProvider(ctx)
+  PluginRandomLookup.clearProvider(ctx)
+  PluginStartAdvertising.clearProvider(ctx)
+  PluginStopAdvertising.clearProvider(ctx)
+  PluginRegisterInterest.clearProvider(ctx)
+  PluginUnregisterInterest.clearProvider(ctx)
+  PluginAddBootstrapEntries.clearProvider(ctx)
+
   info "service discovery worker stopped", ctx = $ctx
 
 proc startWorker*(
@@ -278,7 +292,8 @@ proc startWorker*(
 ): Future[Result[void, string]] {.async: (raises: []).} =
   ## Spawns this node's discovery worker and waits until its (mt) providers
   ## are registered — a request issued before that would find no provider.
-  ## Idempotent per context.
+  ## Idempotent per context. Paired with `stopWorker`, which joins it again;
+  ## the worker exists only while that node's discovery runs.
   var
     idx = -1
     running = false
@@ -329,11 +344,11 @@ proc stopWorker*(ctx: BrokerContext) =
   ## keeps the thread busy until it returns on its own (the module side caps
   ## its own waits, so this is bounded). Other nodes' workers are untouched.
   ##
-  ## The worker serves one node and must not outlive it, so this belongs to
-  ## that node's teardown -- but never to a start/stop cycle: (mt) dispatch
-  ## binds to the registering thread, so providers re-registered after a join
-  ## keep routing to the dead one. A node that comes back gets a fresh broker
-  ## context, so a later `startWorker` is safe.
+  ## The worker serves one node's discovery and must not outlive it, so this
+  ## runs whenever that discovery stops. Safe to pair with a later
+  ## `startWorker` on the same context: the exiting thread hands its (mt)
+  ## buckets back, so the next worker registers cleanly rather than inheriting
+  ## a registration that points at a joined thread.
   var idx = -1
   withLock workerLock:
     {.gcsafe.}:

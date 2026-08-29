@@ -486,6 +486,16 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       waku.node.ports.discv5Udp = discoveryInfo.boundPorts[0]
       waku.conf.discv5Conf.get().udpPort = Port(discoveryInfo.boundPorts[0])
 
+  ## External service discovery
+  if not waku.externalDiscovery.isNil():
+    ## Configured means required. The plugin is registered at runtime, so a
+    ## node can reach start with none installed -- and it would then run
+    ## believing it has discovery while having none at all. Same idempotent
+    ## re-call as discv5 above, to turn the node start path's logged failure
+    ## into a hard one.
+    (await waku.externalDiscovery.startDiscovery()).isOkOr:
+      return err("failed to start external service discovery: " & error)
+
   ## Update waku data that is set dynamically on node start
   try:
     (await updateWaku(waku)).isOkOr:
@@ -623,13 +633,5 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   )
 
   return ok()
-
-proc teardown*(waku: Waku) =
-  ## Releases what the node owns beyond its own object: today the discovery
-  ## worker thread, which serves this node alone and must not outlive it.
-  ## Separate from `stop` on purpose -- a stopped node can be started again,
-  ## a torn-down one cannot -- so this belongs to destruction only.
-  if not waku.externalDiscovery.isNil():
-    waku.externalDiscovery.releaseWorker()
 
 {.pop.}
