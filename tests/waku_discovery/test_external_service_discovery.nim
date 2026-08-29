@@ -275,6 +275,7 @@ suite "ExternalServiceDiscovery":
       res.isErr()
       "missing entry point" in res.error
 
+    discard await backend.stopDiscovery()
     dropPlugin(ctx)
 
   asyncTest "plugin error text is surfaced":
@@ -305,16 +306,43 @@ suite "ExternalServiceDiscovery":
       res.isErr()
       "missing entry point" in res.error
 
-  asyncTest "clearing the plugin disables the verbs again":
+  asyncTest "registration is refused while discovery is running":
+    ## The worker is calling into the vtable, so swapping or removing it now
+    ## would change which plugin serves calls already in flight.
     let backend = ExternalServiceDiscovery.create()
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
     check (await backend.startDiscovery()).isOk()
 
-    check (await ClearServiceDiscoveryPlugin.request(ctx)).isOk()
-    let res = await backend.lookupRandom()
+    let setRes = await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())
     check:
-      res.isErr()
-      "no service discovery plugin registered" in res.error
+      setRes.isErr()
+      "while discovery is running" in setRes.error
 
-    discard await backend.stopDiscovery()
+    let clearRes = await ClearServiceDiscoveryPlugin.request(ctx)
+    check:
+      clearRes.isErr()
+      "while discovery is running" in clearRes.error
+
+    ## Both become legal again once stopped.
+    check (await backend.stopDiscovery()).isOk()
+    check (await ClearServiceDiscoveryPlugin.request(ctx)).isOk()
+
+  asyncTest "one registration serves many start/stop cycles":
+    ## The plugin is registered once and must survive every cycle; only the
+    ## worker thread comes and goes with it.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+
+    for _ in 0 .. 2:
+      check (await backend.startDiscovery()).isOk()
+      check fake.started.load()
+      check (await backend.lookupRandom()).isOk()
+      check (await backend.stopDiscovery()).isOk()
+      check not fake.started.load()
+      ## Still registered, untouched by the stop.
+      check loadPlugin(ctx).isSome()
+
+    check (await ClearServiceDiscoveryPlugin.request(ctx)).isOk()
+    check loadPlugin(ctx).isNone()
