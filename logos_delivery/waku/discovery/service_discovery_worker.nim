@@ -89,100 +89,11 @@ proc takeJson(plugin: ServiceDiscoveryPlugin, outJson: cstring): string =
   result = $outJson
   plugin.freeString(plugin.pluginCtx, outJson)
 
-proc runInvoke(
-    op, key: string, data, record: seq[byte], entries: seq[string]
-): Result[void, string] =
+proc pluginOrErr(): Result[ServiceDiscoveryPlugin, string] =
   let plugin = loadPlugin().valueOr:
     return err("service discovery plugin: none installed")
-
-  var
-    errBuf = newString(LdDiscoErrBufLen)
-    dataCopy = data
-    recordCopy = record
-    entryCopies = entries
-  let rc =
-    case op
-    of "start":
-      plugin.start(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
-    of "stop":
-      plugin.stop(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
-    of "startAdvertising":
-      let
-        dataPtr =
-          if dataCopy.len == 0:
-            nil
-          else:
-            cast[ptr UncheckedArray[uint8]](addr dataCopy[0])
-        recordPtr =
-          if recordCopy.len == 0:
-            nil
-          else:
-            cast[ptr UncheckedArray[uint8]](addr recordCopy[0])
-      plugin.startAdvertising(
-        plugin.pluginCtx, key.cstring, dataPtr, dataCopy.len.csize_t, recordPtr,
-        recordCopy.len.csize_t, errBuf.cstring, errBuf.len.csize_t,
-      )
-    of "stopAdvertising":
-      plugin.stopAdvertising(
-        plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
-      )
-    of "registerInterest":
-      plugin.registerInterest(
-        plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
-      )
-    of "unregisterInterest":
-      plugin.unregisterInterest(
-        plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
-      )
-    of "addBootstrapEntries":
-      if entryCopies.len == 0:
-        return ok()
-      var cstrs = newSeq[cstring](entryCopies.len)
-      for i in 0 ..< entryCopies.len:
-        cstrs[i] = entryCopies[i].cstring
-      plugin.addBootstrapEntries(
-        plugin.pluginCtx,
-        cast[ptr UncheckedArray[cstring]](addr cstrs[0]),
-        cstrs.len.csize_t,
-        errBuf.cstring,
-        errBuf.len.csize_t,
-      )
-    else:
-      return err("service discovery plugin: unknown op '" & op & "'")
-
-  if rc != LdDiscoOk:
-    return err(readErr(errBuf, rc, op))
-  ok()
-
-proc runLookup(op, key: string, limit: int): Result[seq[DiscoveredPeer], string] =
-  let plugin = loadPlugin().valueOr:
-    return err("service discovery plugin: none installed")
-
-  var
-    errBuf = newString(LdDiscoErrBufLen)
-    outJson: cstring = nil
-  let rc =
-    case op
-    of "lookup":
-      plugin.lookup(
-        plugin.pluginCtx,
-        key.cstring,
-        limit.int64,
-        addr outJson,
-        errBuf.cstring,
-        errBuf.len.csize_t,
-      )
-    of "randomLookup":
-      plugin.randomLookup(
-        plugin.pluginCtx, addr outJson, errBuf.cstring, errBuf.len.csize_t
-      )
-    else:
-      return err("service discovery plugin: unknown lookup op '" & op & "'")
-
-  if rc != LdDiscoOk:
-    return err(readErr(errBuf, rc, op))
-
-  parsePeers(plugin.takeJson(outJson))
+  ?plugin.validate()
+  ok(plugin)
 
 proc workerMain(ctx: BrokerContext) {.thread.} =
   ## Owns a chronos loop for the lifetime of the node; the MT brokers
@@ -191,11 +102,128 @@ proc workerMain(ctx: BrokerContext) {.thread.} =
 
   # reprovide, not provide: a previous worker generation may still hold a
   # registration pointing at a thread that has since been joined.
-  discard PluginInvoke.reprovideIt(ctx):
-    runInvoke(op, key, data, record, entries)
+  # One provider per plugin entry point -- each calls its own vtable slot.
+
+  discard PluginStart.reprovideIt(ctx):
+    let plugin = ?pluginOrErr()
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.start(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "start"))
+    ok()
+
+  discard PluginStop.reprovideIt(ctx):
+    let plugin = ?pluginOrErr()
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.stop(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "stop"))
+    ok()
 
   discard PluginLookup.reprovideIt(ctx):
-    runLookup(op, key, limit)
+    let plugin = ?pluginOrErr()
+    var
+      errBuf = newString(LdDiscoErrBufLen)
+      outJson: cstring = nil
+    let rc = plugin.lookup(
+      plugin.pluginCtx,
+      key.cstring,
+      limit.int64,
+      addr outJson,
+      errBuf.cstring,
+      errBuf.len.csize_t,
+    )
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "lookup"))
+    parsePeers(plugin.takeJson(outJson))
+
+  discard PluginRandomLookup.reprovideIt(ctx):
+    let plugin = ?pluginOrErr()
+    var
+      errBuf = newString(LdDiscoErrBufLen)
+      outJson: cstring = nil
+    let rc = plugin.randomLookup(
+      plugin.pluginCtx, addr outJson, errBuf.cstring, errBuf.len.csize_t
+    )
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "randomLookup"))
+    parsePeers(plugin.takeJson(outJson))
+
+  discard PluginStartAdvertising.reprovideIt(ctx):
+    let plugin = ?pluginOrErr()
+    var
+      errBuf = newString(LdDiscoErrBufLen)
+      dataCopy = data
+      recordCopy = record
+    let
+      dataPtr =
+        if dataCopy.len == 0:
+          nil
+        else:
+          cast[ptr UncheckedArray[uint8]](addr dataCopy[0])
+      recordPtr =
+        if recordCopy.len == 0:
+          nil
+        else:
+          cast[ptr UncheckedArray[uint8]](addr recordCopy[0])
+    let rc = plugin.startAdvertising(
+      plugin.pluginCtx, key.cstring, dataPtr, dataCopy.len.csize_t, recordPtr,
+      recordCopy.len.csize_t, errBuf.cstring, errBuf.len.csize_t,
+    )
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "startAdvertising"))
+    ok()
+
+  discard PluginStopAdvertising.reprovideIt(ctx):
+    let plugin = ?pluginOrErr()
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.stopAdvertising(
+      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
+    )
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "stopAdvertising"))
+    ok()
+
+  discard PluginRegisterInterest.reprovideIt(ctx):
+    let plugin = ?pluginOrErr()
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.registerInterest(
+      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
+    )
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "registerInterest"))
+    ok()
+
+  discard PluginUnregisterInterest.reprovideIt(ctx):
+    let plugin = ?pluginOrErr()
+    var errBuf = newString(LdDiscoErrBufLen)
+    let rc = plugin.unregisterInterest(
+      plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
+    )
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "unregisterInterest"))
+    ok()
+
+  discard PluginAddBootstrapEntries.reprovideIt(ctx):
+    let plugin = ?pluginOrErr()
+    if entries.len == 0:
+      return ok()
+    var
+      errBuf = newString(LdDiscoErrBufLen)
+      entryCopies = entries
+      cstrs = newSeq[cstring](entryCopies.len)
+    for i in 0 ..< entryCopies.len:
+      cstrs[i] = entryCopies[i].cstring
+    let rc = plugin.addBootstrapEntries(
+      plugin.pluginCtx,
+      cast[ptr UncheckedArray[cstring]](addr cstrs[0]),
+      cstrs.len.csize_t,
+      errBuf.cstring,
+      errBuf.len.csize_t,
+    )
+    if rc != LdDiscoOk:
+      return err(readErr(errBuf, rc, "addBootstrapEntries"))
+    ok()
 
   workerReady[].store(true)
   info "service discovery worker started"

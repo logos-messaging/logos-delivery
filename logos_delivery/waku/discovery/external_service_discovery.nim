@@ -47,46 +47,40 @@ proc readyPlugin(): Result[ServiceDiscoveryPlugin, string] =
   ?plugin.validate()
   ok(plugin)
 
-proc invoke(
-    self: ExternalServiceDiscovery,
-    op: string,
-    key = "",
-    data: seq[byte] = @[],
-    record: seq[byte] = @[],
-    entries: seq[string] = @[],
-): Future[Result[void, string]] {.async: (raises: []).} =
-  ## Dispatches a no-result verb to the worker thread, bounded by the timeout
-  ## the plugin declared at registration.
-  let plugin = ?readyPlugin()
-  let fut = PluginInvoke.request(self.nodeCtx, op, key, data, record, entries)
-  let answered =
-    try:
-      await fut.withTimeout(plugin.requestTimeout())
-    except CancelledError:
-      return err("external backend: " & op & " cancelled")
-  if not answered:
-    return err("external backend: plugin did not answer " & op & " in time")
-  try:
-    fut.read()
-  except CatchableError:
-    err("external backend: " & op & " failed: " & getCurrentExceptionMsg())
-
-proc lookup(
-    self: ExternalServiceDiscovery, op: string, key: string, limit: int
-): Future[Result[seq[DiscoveredPeer], string]] {.async: (raises: []).} =
-  let plugin = ?readyPlugin()
-  let fut = PluginLookup.request(self.nodeCtx, op, key, limit)
-  let answered =
-    try:
-      await fut.withTimeout(plugin.requestTimeout())
-    except CancelledError:
-      return err("external backend: " & op & " cancelled")
-  if not answered:
-    return err("external backend: plugin did not answer " & op & " in time")
-  try:
-    fut.read()
-  except CatchableError:
-    err("external backend: " & op & " failed: " & getCurrentExceptionMsg())
+template pluginCall(T: typedesc, op: string, request: untyped): untyped =
+  ## Awaits one (mt) plugin request, bounded by the timeout the plugin
+  ## declared at registration. The worker is not interrupted on timeout —
+  ## the entry point runs to completion there — the caller just stops waiting.
+  ## `T` is the payload type, so every branch stays correctly typed; the
+  ## template yields a value rather than returning, which keeps it usable
+  ## inside the async transform.
+  block:
+    let plugRes = readyPlugin()
+    if plugRes.isErr():
+      Result[T, string].err(plugRes.error())
+    else:
+      let plugin = plugRes.get()
+      let fut = request
+      var cancelled = false
+      let answered =
+        try:
+          await fut.withTimeout(plugin.requestTimeout())
+        except CancelledError:
+          cancelled = true
+          false
+      if cancelled:
+        Result[T, string].err("external backend: " & op & " cancelled")
+      elif not answered:
+        Result[T, string].err(
+          "external backend: plugin did not answer " & op & " in time"
+        )
+      else:
+        try:
+          fut.read()
+        except CatchableError:
+          Result[T, string].err(
+            "external backend: " & op & " failed: " & getCurrentExceptionMsg()
+          )
 
 proc emitPeers(
     self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]
@@ -109,7 +103,7 @@ proc runServiceLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).
     for key in self.interests:
       if not self.running:
         return
-      let peers = (await self.lookup("lookup", key, 0)).valueOr:
+      let peers = (await self.lookupServicePeers(key, 0)).valueOr:
         debug "service lookup failed", key = key, reason = error
         continue
       self.emitPeers(key, peers)
@@ -123,7 +117,7 @@ proc runRandomLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).}
 
     if not self.running:
       return
-    let peers = (await self.lookup("randomLookup", "", 0)).valueOr:
+    let peers = (await self.lookupRandom()).valueOr:
       debug "random lookup failed", reason = error
       continue
     self.emitPeers("", peers)
@@ -175,7 +169,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       return ok()
 
     ?await startWorker(self.nodeCtx)
-    ?await self.invoke("start")
+    ?pluginCall(void, "start", PluginStart.request(self.nodeCtx))
 
     self.running = true
     if self.serviceLookupLoop.isNil():
@@ -202,36 +196,48 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## to the thread that registered the providers, so tearing it down here
     ## would break a later restart. It is idle when no verb is in flight and
     ## is joined at process teardown via `stopWorker`.
-    await self.invoke("stop")
+    pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
 
   method lookupServicePeers(
       self: ExternalServiceDiscovery, key: string, limit: int
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    await self.lookup("lookup", key, limit)
+    pluginCall(
+      seq[DiscoveredPeer], "lookup", PluginLookup.request(self.nodeCtx, key, limit)
+    )
 
   method lookupRandom(
       self: ExternalServiceDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    await self.lookup("randomLookup", "", 0)
+    pluginCall(
+      seq[DiscoveredPeer], "randomLookup", PluginRandomLookup.request(self.nodeCtx)
+    )
 
   method startAdvertising(
       self: ExternalServiceDiscovery, key: string, data: seq[byte], record: seq[byte]
   ): Future[Result[void, string]] {.async.} =
-    await self.invoke("startAdvertising", key, data, record)
+    pluginCall(
+      void,
+      "startAdvertising",
+      PluginStartAdvertising.request(self.nodeCtx, key, data, record),
+    )
 
   method stopAdvertising(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    await self.invoke("stopAdvertising", key)
+    pluginCall(
+      void, "stopAdvertising", PluginStopAdvertising.request(self.nodeCtx, key)
+    )
 
   method registerInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    ?await self.invoke("registerInterest", key)
+    ?pluginCall(
+      void, "registerInterest", PluginRegisterInterest.request(self.nodeCtx, key)
+    )
     if key notin self.interests:
       self.interests.add(key)
     ok()
@@ -239,7 +245,9 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   method unregisterInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    ?await self.invoke("unregisterInterest", key)
+    ?pluginCall(
+      void, "unregisterInterest", PluginUnregisterInterest.request(self.nodeCtx, key)
+    )
     self.interests.keepItIf(it != key)
     ok()
 
@@ -248,4 +256,8 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if entries.len == 0:
       return ok()
-    await self.invoke("addBootstrapEntries", entries = entries)
+    pluginCall(
+      void,
+      "addBootstrapEntries",
+      PluginAddBootstrapEntries.request(self.nodeCtx, entries),
+    )
