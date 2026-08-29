@@ -133,6 +133,12 @@ def _wait_cb_ok(state, op_name: str, timeout_s: float = 20.0) -> Result[int, str
     return Ok(cb_ret)
 
 
+def _immediate_failure(op_name: str, rc: int, state) -> str:
+    """Non-zero return: the callback already ran synchronously with the reason."""
+    reason = state["msg"].decode("utf-8", errors="replace") if state["done"].is_set() else ""
+    return f"{op_name}: immediate call failed (ret={rc})" + (f": {reason}" if reason else "")
+
+
 class NodeWrapper:
     def __init__(self, ctx, config_buffer, event_cb_handler, listener_ids=()):
         self.ctx = ctx
@@ -259,7 +265,7 @@ class NodeWrapper:
 
         rc = lib.logosdelivery_start_node(self.ctx, cb, ffi.NULL)
         if rc != 0:
-            return Err(f"start_node: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("start_node", rc, state))
 
         return _wait_cb_ok(state, "start_node", timeout_s)
 
@@ -269,7 +275,7 @@ class NodeWrapper:
 
         rc = lib.logosdelivery_stop_node(self.ctx, cb, ffi.NULL)
         if rc != 0:
-            return Err(f"stop_node: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("stop_node", rc, state))
 
         return _wait_cb_ok(state, "stop_node", timeout_s)
 
@@ -310,7 +316,7 @@ class NodeWrapper:
         req = ffi.new("SubscribeReq *", {"contentTopicStr": topic_buffer})
         rc = lib.logosdelivery_subscribe(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
-            return Err(f"subscribe_content_topic: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("subscribe_content_topic", rc, state))
 
         return _wait_cb_ok(state, f"subscribe({content_topic})", timeout_s)
 
@@ -322,7 +328,7 @@ class NodeWrapper:
         req = ffi.new("UnsubscribeReq *", {"contentTopicStr": topic_buffer})
         rc = lib.logosdelivery_unsubscribe(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
-            return Err(f"unsubscribe_content_topic: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("unsubscribe_content_topic", rc, state))
 
         return _wait_cb_ok(state, f"unsubscribe({content_topic})", timeout_s)
 
@@ -336,7 +342,7 @@ class NodeWrapper:
         req = ffi.new("SendReq *", {"messageJson": message_buffer})
         rc = lib.logosdelivery_send(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
-            return Err(f"send_message: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("send_message", rc, state))
 
         wait_result = _wait_cb_raw(state, "send_message", timeout_s)
         if wait_result.is_err():
@@ -355,7 +361,7 @@ class NodeWrapper:
 
         rc = lib.logosdelivery_get_available_node_info_ids(self.ctx, cb, ffi.NULL)
         if rc != 0:
-            return Err(f"get_available_node_info_ids: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("get_available_node_info_ids", rc, state))
 
         wait_result = _wait_cb_raw(state, "get_available_node_info_ids", timeout_s)
         if wait_result.is_err():
@@ -380,7 +386,7 @@ class NodeWrapper:
         req = ffi.new("GetNodeInfoReq *", {"nodeInfoId": info_id_buffer})
         rc = lib.logosdelivery_get_node_info(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
-            return Err(f"get_node_info: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("get_node_info", rc, state))
 
         wait_result = _wait_cb_raw(state, "get_node_info", timeout_s)
         if wait_result.is_err():
@@ -401,7 +407,7 @@ class NodeWrapper:
 
         rc = lib.logosdelivery_get_available_configs(self.ctx, cb, ffi.NULL)
         if rc != 0:
-            return Err(f"get_available_configs: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("get_available_configs", rc, state))
 
         wait_result = _wait_cb_raw(state, "get_available_configs", timeout_s)
         if wait_result.is_err():
@@ -458,7 +464,7 @@ class NodeWrapper:
         )
         rc = lib.logosdelivery_channel_create(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
-            return Err(f"channel_create: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("channel_create", rc, state))
 
         wait_result = _wait_cb_raw(state, f"channel_create({channel_id})", timeout_s)
         if wait_result.is_err():
@@ -481,7 +487,7 @@ class NodeWrapper:
         req = ffi.new("ChannelSendReq *", {"channelIdStr": channel_buffer, "messageJson": message_buffer})
         rc = lib.logosdelivery_channel_send(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
-            return Err(f"channel_send: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("channel_send", rc, state))
 
         wait_result = _wait_cb_raw(state, f"channel_send({channel_id})", timeout_s)
         if wait_result.is_err():
@@ -501,7 +507,7 @@ class NodeWrapper:
         req = ffi.new("ChannelCloseReq *", {"channelIdStr": channel_buffer})
         rc = lib.logosdelivery_channel_close(self.ctx, cb, ffi.NULL, req)
         if rc != 0:
-            return Err(f"channel_close: immediate call failed (ret={rc})")
+            return Err(_immediate_failure("channel_close", rc, state))
 
         wait_result = _wait_cb_raw(state, f"channel_close({channel_id})", timeout_s)
         if wait_result.is_err():

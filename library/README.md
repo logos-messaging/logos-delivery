@@ -137,6 +137,12 @@ Prefer an explicit `logosdelivery_stop_node`: a failed stop here is only logged
 and nim-ffi cancels the stop at `ffiTeardownTimeoutMs` (10 s), leaving the node
 half stopped.
 
+### Invalid context handles
+
+A `NULL`, garbage or already destroyed `ctx` is rejected at the entry point: the
+call returns `RET_ERR` and its callback, if any, runs first with
+`ctx is not a valid FFI context`. No event is emitted.
+
 ### Context-free calls
 
 No `ctx` and no callback: `dlsym` the symbol and read the return value.

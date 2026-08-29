@@ -12,7 +12,8 @@ taking the pytest runner down.
 Cases:
 - nil:       send() on a wrapper built with ctx=ffi.NULL.
 - destroyed: send() after destroy_keep_ctx() — self.ctx stays non-nil so the
-             call reaches the C side with the original (now-stale) pointer.
+             call reaches the C side with the original (now-stale) pointer;
+             a second destroy must be rejected too.
 """
 
 import json
@@ -113,6 +114,8 @@ def _run_destroyed_handle(marker: str) -> None:
 
     new_events = collector.events[events_before_send:]
 
+    destroy_again = sender.destroy_keep_ctx()
+
     _emit(
         marker,
         {
@@ -121,6 +124,8 @@ def _run_destroyed_handle(marker: str) -> None:
             "ok": send_result.ok_value if send_result.is_ok() else None,
             "err": send_result.err() if send_result.is_err() else None,
             "events_after_send": [str(e) for e in new_events],
+            "destroy_again_is_ok": destroy_again.is_ok(),
+            "destroy_again_err": destroy_again.err() if destroy_again.is_err() else None,
         },
     )
 
