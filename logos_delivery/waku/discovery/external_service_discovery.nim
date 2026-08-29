@@ -16,10 +16,10 @@ import chronos, chronicles, results
 import brokers/broker_implement
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
-  logos_delivery/waku/discovery/service_discovery_plugin,
-  logos_delivery/waku/discovery/service_discovery_worker
+  logos_delivery/waku/discovery/plugin/service_discovery_accessor,
+  logos_delivery/waku/discovery/plugin/service_discovery_worker
 
-export peer_discovery_interface, service_discovery_plugin
+export peer_discovery_interface, service_discovery_accessor
 
 logScope:
   topics = "waku discovery external"
