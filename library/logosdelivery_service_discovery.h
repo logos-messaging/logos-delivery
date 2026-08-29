@@ -13,6 +13,14 @@
  * discovery operation -- and registers them with
  * logosdelivery_set_service_discovery_plugin.
  *
+ * External service discovery is active only when BOTH hold:
+ *   - the node is configured for it, and
+ *   - a plugin is registered whose ABI version matches and whose every
+ *     entry point is non-NULL.
+ * Configuration alone leaves the backend inert: its verbs fail with a clear
+ * error until a valid plugin arrives. Registration alone is refused, because
+ * without the configuration there is no backend to register with.
+ *
  * Calling model:
  *   - Every entry point is a plain blocking request: it performs the work and
  *     returns its result. There are no completion callbacks and no events
@@ -124,6 +132,13 @@ extern "C"
   {
     uint32_t abiVersion; /* must be LD_DISCO_ABI_VERSION */
     void *pluginCtx;     /* opaque, passed back to every entry point */
+
+    /* How long logos-delivery waits for one verb before giving up on it.
+     * The plugin owns this value because only the plugin knows how slow its
+     * operations can be. 0 selects the built-in default. Note that a verb
+     * that exceeds it is abandoned by the caller, not interrupted: the entry
+     * point keeps running to completion on the discovery thread. */
+    uint32_t requestTimeoutMs;
 
     LdDiscoStartFn start;
     LdDiscoStopFn stop;

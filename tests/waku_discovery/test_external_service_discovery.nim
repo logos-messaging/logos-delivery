@@ -140,6 +140,7 @@ proc fakePlugin(): ServiceDiscoveryPlugin =
   ServiceDiscoveryPlugin(
     abiVersion: LdDiscoAbiVersion,
     pluginCtx: nil,
+    requestTimeoutMs: 2000,
     start: fakeStart,
     stop: fakeStop,
     lookup: fakeLookup,
@@ -209,14 +210,34 @@ suite "ExternalServiceDiscovery":
     check (await iface.stopDiscovery()).isOk()
     check not fake.started.load()
 
-  asyncTest "verbs fail cleanly with no plugin installed":
+  asyncTest "configured but unregistered: verbs refuse to run":
+    ## Config alone is not enough — the plugin half must be there too.
     let backend = ExternalServiceDiscovery.create()
     check (await ClearServiceDiscoveryPlugin.request(globalBrokerContext())).isOk()
 
     let res = await backend.startDiscovery()
     check:
       res.isErr()
-      "none installed" in res.error
+      "no service discovery plugin registered" in res.error
+
+  asyncTest "a plugin that loses an entry point is refused at use time":
+    ## Registration validates, and so does every call: a vtable that went
+    ## partial after the fact can never be invoked.
+    let ctx = globalBrokerContext()
+    let backend = ExternalServiceDiscovery.create()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+    check (await backend.startDiscovery()).isOk()
+
+    var partial = fakePlugin()
+    partial.lookup = nil
+    storePlugin(partial) # bypasses the broker's validation on purpose
+
+    let res = await backend.lookupRandom()
+    check:
+      res.isErr()
+      "missing entry point" in res.error
+
+    dropPlugin()
 
   asyncTest "plugin error text is surfaced":
     let backend = ExternalServiceDiscovery.create()
@@ -256,6 +277,6 @@ suite "ExternalServiceDiscovery":
     let res = await backend.lookupRandom()
     check:
       res.isErr()
-      "none installed" in res.error
+      "no service discovery plugin registered" in res.error
 
     discard await backend.stopDiscovery()

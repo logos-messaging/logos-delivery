@@ -26,6 +26,7 @@ const
   LdDiscoOk* = 0.cint
   LdDiscoError* = 1.cint
   LdDiscoErrBufLen* = 512
+  DefaultPluginRequestTimeout* = chronos.seconds(30)
 
 type
   LdDiscoStartFn* = proc(pluginCtx: pointer, errBuf: cstring, errBufLen: csize_t): cint {.
@@ -78,6 +79,10 @@ type ServiceDiscoveryPlugin* {.bycopy.} = object
   ## Layout-compatible with `LdServiceDiscoveryPlugin`.
   abiVersion*: uint32
   pluginCtx*: pointer
+  requestTimeoutMs*: uint32
+    ## How long a caller waits for one verb; 0 selects
+    ## `DefaultPluginRequestTimeout`. Owned by the plugin because only it
+    ## knows how slow its operations are.
   start*: LdDiscoStartFn
   stop*: LdDiscoStopFn
   lookup*: LdDiscoLookupFn
@@ -88,6 +93,12 @@ type ServiceDiscoveryPlugin* {.bycopy.} = object
   registerInterest*: LdDiscoKeyFn
   unregisterInterest*: LdDiscoKeyFn
   addBootstrapEntries*: LdDiscoAddBootstrapEntriesFn
+
+proc requestTimeout*(plugin: ServiceDiscoveryPlugin): Duration =
+  if plugin.requestTimeoutMs == 0:
+    DefaultPluginRequestTimeout
+  else:
+    chronos.milliseconds(plugin.requestTimeoutMs.int64)
 
 proc validate*(plugin: ServiceDiscoveryPlugin): Result[void, string] =
   ## Every entry point must be present; a plugin that cannot support a verb
