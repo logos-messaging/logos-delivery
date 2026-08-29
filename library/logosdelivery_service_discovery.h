@@ -26,25 +26,25 @@
  * without the configuration there is no backend to register with.
  *
  * Scope:
- *   - A registration belongs to one node. A process may hold several nodes,
- *     and each keeps its own plugin and its own discovery thread; registering
- *     for one node never disturbs another, and tearing one down leaves the
- *     others running. Give each node its own pluginCtx to keep their state
- *     apart.
+ *   - A registration belongs to one node. A process may hold several nodes;
+ *     each keeps its own plugin and its own discovery thread, for as long as
+ *     that node exists. Registering for one node never disturbs another, and
+ *     tearing one down leaves the others running.
  *
  * Calling model:
+ *   - logos-delivery drives the plugin through the lifecycle these entry
+ *     points describe: start, then lookups while the node runs, then stop.
+ *     What the plugin does internally to serve them is its own business.
  *   - Every entry point is a plain blocking request: it performs the work and
  *     returns its result. There are no completion callbacks and no events
  *     from the plugin back into logos-delivery.
- *   - Entry points are invoked on a discovery thread inside logos-delivery,
- *     never on the node's event loop, so they MAY block for as long as the
- *     operation genuinely takes (a cold DHT bootstrap can run for tens of
- *     seconds).
+ *   - Entry points are invoked on that node's discovery thread inside
+ *     logos-delivery, never on the node's event loop, so they MAY block for
+ *     as long as the operation genuinely takes (a cold DHT bootstrap can run
+ *     for tens of seconds).
  *   - Calls from one node are serialized: its discovery thread runs one entry
- *     point at a time, so a plugin serving a single node need not be
- *     reentrant. A vtable registered for SEVERAL nodes is another matter --
- *     each node has its own thread, so such a plugin must tolerate concurrent
- *     calls, or keep per-node state behind distinct pluginCtx values.
+ *     point at a time. A vtable registered for SEVERAL nodes is called from
+ *     each of their threads, so it must tolerate concurrent calls.
  *
  * Results:
  *   - Lookups return JSON, matching what the libp2p module already produces:

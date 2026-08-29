@@ -201,10 +201,10 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       await self.randomLookupLoop.cancelAndWait()
       self.randomLookupLoop = nil
 
-    ## The worker thread is deliberately left running: (mt) dispatch is bound
-    ## to the thread that registered the providers, so tearing it down here
-    ## would break a later restart. It is idle when no verb is in flight and
-    ## is joined at process teardown via `stopWorker`.
+    ## The worker thread stays up across stop/start: (mt) dispatch is bound to
+    ## the thread that registered the providers, so tearing it down here would
+    ## break a later restart. It is idle when no verb is in flight, and it is
+    ## joined when the node itself goes away (`releaseWorker`).
 
     ## Telling the plugin to stop is best-effort. The host is free to clear the
     ## plugin before stopping the node, and a plugin that is gone has nothing
@@ -279,9 +279,10 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     )
 
 proc releaseWorker*(self: ExternalServiceDiscovery) =
-  ## Lets go of the discovery worker thread. Belongs to node teardown, not to
+  ## Joins this node's discovery worker. The worker exists to serve this node
+  ## and must not outlive it, so this belongs to node teardown -- but not to
   ## `stopDiscovery`: a stopped node can be started again and would need the
-  ## worker back, but (mt) providers cannot be re-registered onto a fresh
+  ## worker back, and (mt) providers cannot be re-registered onto a fresh
   ## thread for a context that already used a joined one.
   if not self.workerClaimed:
     return
