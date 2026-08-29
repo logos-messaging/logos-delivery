@@ -4,6 +4,10 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* Registration rides the generated entry points, so their declarations and the
+ * LogosDeliveryCtx helpers must be in scope. */
+#include "generated/logosdelivery.h"
+
 /*
  * Service-discovery plugin interface.
  *
@@ -11,7 +15,7 @@
  * (today: logos-libp2p-module, driven by glue in logos-delivery-module). The
  * provider implements the entry points below -- one per libp2p service
  * discovery operation -- and registers them with
- * logosdelivery_set_service_discovery_plugin.
+ * logosdelivery_set_service_discovery_plugin (see "Registration" below).
  *
  * External service discovery is active only when BOTH hold:
  *   - the node is configured for it, and
@@ -154,16 +158,51 @@ extern "C"
 
   /* ------------------------------------------------------ registration -- */
 
-  /* Installs the plugin for the node identified by `ctx` (the handle returned
-   * by logosdelivery_create_node). Returns 0 on success, non-zero when the
-   * context is invalid, the ABI version does not match, or an entry point is
-   * missing. Replacing an installed plugin is allowed. */
-  int logosdelivery_set_service_discovery_plugin(
-      void *ctx, const LdServiceDiscoveryPlugin *plugin);
+  /*
+   * Registration is asynchronous, like every other logos-delivery entry point.
+   * It has to be: the request is served on the node's own thread, and the host
+   * calls in from its own. The vtable therefore travels as an address rather
+   * than as a value --
+   *   int logosdelivery_set_service_discovery_plugin(
+   *       void *ctx, LogosDeliveryScalarRawFn cb, void *user_data,
+   *       uint64_t pluginPtr);
+   * declared in the generated header. Use the typed wrappers below instead of
+   * casting by hand.
+   *
+   * Lifetime: logos-delivery copies the struct while serving the request, so
+   * `plugin` must stay alive and unmodified until on_reply fires. A static or
+   * heap-allocated struct is the simple choice; a stack one is only safe if the
+   * caller blocks until the reply.
+   *
+   * Outcome arrives on on_reply: err_code == 0 means installed. It fails when
+   * the ABI version does not match, an entry point is NULL, or the node was not
+   * configured for external discovery -- in that last case no backend exists to
+   * serve the request, and err_msg says no provider is registered. Replacing an
+   * installed plugin is allowed.
+   */
+
+  /* Installs (or replaces) the plugin for the node identified by `ctx` (the
+   * handle returned by logosdelivery_create_node). Takes a typed plugin
+   * pointer so the caller never casts. */
+  static inline int logosdelivery_install_service_discovery_plugin(
+      void *ctx,
+      const LdServiceDiscoveryPlugin *plugin,
+      LogosDeliveryScalarRawFn callback,
+      void *user_data)
+  {
+    return logosdelivery_set_service_discovery_plugin(
+        ctx, callback, user_data, (uint64_t)(uintptr_t)plugin);
+  }
 
   /* Removes the installed plugin; subsequent discovery verbs fail until a new
-   * one is installed. Returns 0 on success. */
-  int logosdelivery_clear_service_discovery_plugin(void *ctx);
+   * one is installed. Declared in the generated header as
+   *   int logosdelivery_clear_service_discovery_plugin(
+   *       void *ctx, LogosDeliveryScalarRawFn cb, void *user_data);
+   *
+   * Hosts that hold the LogosDeliveryCtx wrapper rather than a raw handle can
+   * use the generated logosdelivery_ctx_set_service_discovery_plugin /
+   * logosdelivery_ctx_clear_service_discovery_plugin helpers instead; the
+   * former takes the plugin address as a uint64_t. */
 
 #ifdef __cplusplus
 }
