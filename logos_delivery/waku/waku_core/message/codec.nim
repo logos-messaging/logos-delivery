@@ -4,7 +4,7 @@
 # - Proto definition: https://github.com/vacp2p/waku/blob/main/waku/message/v1/message.proto
 {.push raises: [].}
 
-import ../../common/protobuf, ../topics, ../time, ./message
+import ../../common/protobuf, ../topics, ../time, ./message, ./path_counters
 
 proc encode*(message: WakuMessage): ProtoBuffer =
   var buf = initProtoBuffer()
@@ -21,6 +21,7 @@ proc encode*(message: WakuMessage): ProtoBuffer =
   buf
 
 proc decode*(T: type WakuMessage, buffer: seq[byte]): ProtobufResult[T] =
+  countDecode(buffer.len)
   var msg = WakuMessage()
   let pb = initProtoBuffer(buffer)
 
