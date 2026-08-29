@@ -329,9 +329,10 @@ proc stopWorker*(ctx: BrokerContext) =
   ## keeps the thread busy until it returns on its own (the module side caps
   ## its own waits, so this is bounded). Other nodes' workers are untouched.
   ##
-  ## Call it at node teardown, never per start/stop cycle: (mt) dispatch binds
-  ## to the registering thread, so providers re-registered after a join keep
-  ## routing to the dead one. A node that comes back gets a fresh broker
+  ## The worker serves one node and must not outlive it, so this belongs to
+  ## that node's teardown -- but never to a start/stop cycle: (mt) dispatch
+  ## binds to the registering thread, so providers re-registered after a join
+  ## keep routing to the dead one. A node that comes back gets a fresh broker
   ## context, so a later `startWorker` is safe.
   var idx = -1
   withLock workerLock:
