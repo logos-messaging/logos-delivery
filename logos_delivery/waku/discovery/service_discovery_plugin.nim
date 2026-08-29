@@ -160,17 +160,40 @@ RequestBroker:
   proc clearServiceDiscoveryPlugin(): Future[Result[void, string]] {.async.}
 
 # --- calls (mt lane: providers live on the discovery worker thread) ---
+#
+# One broker per plugin entry point: typed arguments, typed results, no op
+# codes. The (mt) codec marshals payloads onto the caller's heap, so the node
+# loop only ever awaits.
 
-# Verbs that only report success. `key`, `data` and `record` are empty when
-# the verb does not use them.
 RequestBroker(mt):
-  proc pluginInvoke(
-    op: string, key: string, data: seq[byte], record: seq[byte], entries: seq[string]
-  ): Future[Result[void, string]] {.async.}
+  proc pluginStart(): Future[Result[void, string]] {.async.}
 
-# Lookups. `op` selects lookup vs randomLookup; the worker parses the
-# plugin's JSON and returns typed peers.
+RequestBroker(mt):
+  proc pluginStop(): Future[Result[void, string]] {.async.}
+
 RequestBroker(mt):
   proc pluginLookup(
-    op: string, key: string, limit: int
+    key: string, limit: int
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.}
+
+RequestBroker(mt):
+  proc pluginRandomLookup(): Future[Result[seq[DiscoveredPeer], string]] {.async.}
+
+RequestBroker(mt):
+  proc pluginStartAdvertising(
+    key: string, data: seq[byte], record: seq[byte]
+  ): Future[Result[void, string]] {.async.}
+
+RequestBroker(mt):
+  proc pluginStopAdvertising(key: string): Future[Result[void, string]] {.async.}
+
+RequestBroker(mt):
+  proc pluginRegisterInterest(key: string): Future[Result[void, string]] {.async.}
+
+RequestBroker(mt):
+  proc pluginUnregisterInterest(key: string): Future[Result[void, string]] {.async.}
+
+RequestBroker(mt):
+  proc pluginAddBootstrapEntries(
+    entries: seq[string]
+  ): Future[Result[void, string]] {.async.}
