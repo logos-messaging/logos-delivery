@@ -184,11 +184,25 @@ extern "C"
    * heap-allocated struct is the simple choice; a stack one is only safe if the
    * caller blocks until the reply.
    *
+   * Register while the node is STOPPED. Both registration calls are refused
+   * once discovery is running, because its discovery thread is calling into
+   * the vtable and swapping it underneath would change which plugin serves
+   * calls already in flight. Register once, before the first start.
+   *
+   * A registration then survives every stop/start cycle -- it belongs to the
+   * node, not to a run of it, and is released when the node is destroyed.
+   * There is no need to re-register on restart.
+   *
+   * Registration is also a precondition for starting: a node configured for
+   * external discovery but holding no valid plugin FAILS to start, rather
+   * than coming up with no discovery at all.
+   *
    * Outcome arrives on on_reply: err_code == 0 means installed. It fails when
-   * the ABI version does not match, an entry point is NULL, or the node was not
-   * configured for external discovery -- in that last case no backend exists to
-   * serve the request, and err_msg says no provider is registered. Replacing
-   * this node's installed plugin is allowed; it never touches another node's.
+   * the ABI version does not match, an entry point is NULL, discovery is
+   * already running, or the node was not configured for external discovery --
+   * in that last case no backend exists to serve the request, and err_msg says
+   * no provider is registered. Replacing this node's stopped plugin is
+   * allowed; it never touches another node's.
    */
 
   /* Installs (or replaces) the plugin for the node identified by `ctx` (the
@@ -204,9 +218,9 @@ extern "C"
         ctx, callback, user_data, (uint64_t)(uintptr_t)plugin);
   }
 
-  /* Removes this node's plugin; its discovery verbs fail until a new one is
-   * installed, and other nodes are unaffected. Declared in the generated
-   * header as
+  /* Removes this node's plugin. Like registration, only while stopped; the
+   * node then cannot start again until a new plugin is installed. Other nodes
+   * are unaffected. Declared in the generated header as
    *   int logosdelivery_clear_service_discovery_plugin(
    *       void *ctx, LogosDeliveryScalarRawFn cb, void *user_data);
    *

@@ -634,4 +634,12 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   return ok()
 
+proc teardown*(waku: Waku) =
+  ## Releases what belongs to the node rather than to a run of it: today the
+  ## external discovery plugin registration, which deliberately survives
+  ## stop/start and so can only be freed once the node is gone. The worker
+  ## thread is not here -- `stopDiscovery` joins that.
+  if not waku.externalDiscovery.isNil():
+    waku.externalDiscovery.releasePlugin()
+
 {.pop.}

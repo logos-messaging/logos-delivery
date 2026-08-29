@@ -211,3 +211,6 @@ proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
   (await self.stopNode()).isOkOr:
     chronicles.error "DESTROY failed", err = error
   await self.teardownFFIEventScope()
+  ## The node is gone for good now, so anything scoped to its lifetime rather
+  ## than to a run of it (the discovery plugin registration) is released here.
+  self.waku.teardown()

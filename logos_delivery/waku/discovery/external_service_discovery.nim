@@ -138,8 +138,19 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     # Registration stays on the single-thread lane: the vtable is full of
     # pointer/proc fields, which the (mt) codec rejects, so it is handed to
     # the worker through the guarded global instead of a broker payload.
+    #
+    # Both verbs are only legal while discovery is stopped. A running backend
+    # has a worker thread calling into the vtable, so swapping or removing it
+    # underneath would change which plugin serves calls already in flight. A
+    # registration outlives stop/start: install once, then start and stop as
+    # often as you like.
     let nodeCtx = self.nodeCtx
     discard SetServiceDiscoveryPlugin.reprovideIt(nodeCtx):
+      if self.running:
+        return err(
+          "service discovery plugin: cannot be registered while discovery is " &
+            "running; stop the node first"
+        )
       ?plugin.validate()
       ?storePlugin(nodeCtx, plugin)
       info "service discovery plugin installed",
@@ -147,6 +158,11 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       ok()
 
     discard ClearServiceDiscoveryPlugin.reprovideIt(nodeCtx):
+      if self.running:
+        return err(
+          "service discovery plugin: cannot be cleared while discovery is " &
+            "running; stop the node first"
+        )
       dropPlugin(nodeCtx)
       info "service discovery plugin cleared", ctx = $nodeCtx
       ok()
@@ -202,15 +218,9 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       await self.randomLookupLoop.cancelAndWait()
       self.randomLookupLoop = nil
 
-    ## Telling the plugin to stop is best-effort. The host is free to clear the
-    ## plugin before stopping the node, and a plugin that is gone has nothing
-    ## left to stop -- the local side is stopped either way. Treating that as a
-    ## failure would put an error in the log of a healthy shutdown.
-    let stopRes =
-      if loadPlugin(self.nodeCtx).isSome():
-        pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
-      else:
-        Result[void, string].ok()
+    ## The plugin is still there: `startDiscovery` required one, and clearing
+    ## is refused while discovery runs, so there is nothing to guard against.
+    let stopRes = pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
 
     ## The worker exists to serve this discovery session, so it goes with it.
     ## Its thread hands the (mt) buckets back on the way out, which is what
@@ -281,3 +291,10 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       "addBootstrapEntries",
       PluginAddBootstrapEntries.request(self.nodeCtx, entries),
     )
+
+proc releasePlugin*(self: ExternalServiceDiscovery) =
+  ## Frees this node's plugin slot. A registration is meant to outlive
+  ## stop/start cycles, so it is released only when the node itself goes away
+  ## -- otherwise a process that creates and destroys nodes would exhaust the
+  ## slot table and never be able to register again.
+  dropPlugin(self.nodeCtx)
