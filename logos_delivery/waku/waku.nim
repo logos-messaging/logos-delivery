@@ -624,4 +624,11 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   return ok()
 
+proc teardown*(waku: Waku) =
+  ## Releases what the node claimed beyond its own lifetime. Separate from
+  ## `stop` on purpose: a stopped node can be started again, a torn-down one
+  ## cannot, so this belongs to destruction only.
+  if not waku.externalDiscovery.isNil():
+    waku.externalDiscovery.releaseWorker()
+
 {.pop.}

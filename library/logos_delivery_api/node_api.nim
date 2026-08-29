@@ -211,3 +211,6 @@ proc logosdelivery_destroy(self: LogosDelivery) {.ffiDtor.} =
   (await self.stopNode()).isOkOr:
     chronicles.error "DESTROY failed", err = error
   await self.teardownFFIEventScope()
+  ## Past this point the node is gone for good, so process-level resources it
+  ## claimed (today: the service discovery worker thread) can be let go.
+  self.waku.teardown()

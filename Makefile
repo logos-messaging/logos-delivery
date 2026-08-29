@@ -427,7 +427,7 @@ docker-liteprotocoltester-push:
 ################
 ## C Bindings ##
 ################
-.PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example
+.PHONY: cbindings cwaku_example liblogosdelivery liblogosdelivery_example service_discovery_plugin_example
 
 detected_OS ?= Linux
 ifeq ($(OS),Windows_NT)
@@ -496,6 +496,34 @@ else ifeq ($(detected_OS),Windows)
 		library/examples/logosdelivery_example.c \
 		library/examples/json_utils.c \
 		-I./library \
+		-L./build \
+		-llogosdelivery \
+		-lws2_32
+endif
+
+service_discovery_plugin_example: | build liblogosdelivery
+	@echo -e $(BUILD_MSG) "build/$@"
+ifeq ($(detected_OS),Darwin)
+	gcc -o build/$@ \
+		library/examples/service_discovery_plugin_example.c \
+		-I./library \
+		-I./library/generated \
+		-L./build \
+		-llogosdelivery \
+		-Wl,-rpath,./build
+else ifeq ($(detected_OS),Linux)
+	gcc -o build/$@ \
+		library/examples/service_discovery_plugin_example.c \
+		-I./library \
+		-I./library/generated \
+		-L./build \
+		-llogosdelivery \
+		-Wl,-rpath,'$$$$ORIGIN'
+else ifeq ($(detected_OS),Windows)
+	gcc -o build/$@.exe \
+		library/examples/service_discovery_plugin_example.c \
+		-I./library \
+		-I./library/generated \
 		-L./build \
 		-llogosdelivery \
 		-lws2_32
