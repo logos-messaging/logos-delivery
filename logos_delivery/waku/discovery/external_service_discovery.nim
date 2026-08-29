@@ -39,10 +39,11 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   serviceLookupLoop: Future[void]
   randomLookupLoop: Future[void]
 
-proc readyPlugin(): Result[ServiceDiscoveryPlugin, string] =
+proc readyPlugin(ctx: BrokerContext): Result[ServiceDiscoveryPlugin, string] =
   ## External discovery needs both halves: the node configured for it (which
   ## is what created this backend) and a registered, fully populated plugin.
-  let plugin = loadPlugin().valueOr:
+  ## Looked up by context, so each node sees only its own plugin.
+  let plugin = loadPlugin(ctx).valueOr:
     return
       err("external backend: configured but no service discovery plugin registered")
   ?plugin.validate()
@@ -56,7 +57,7 @@ template pluginCall(T: typedesc, op: string, request: untyped): untyped =
   ## template yields a value rather than returning, which keeps it usable
   ## inside the async transform.
   block:
-    let plugRes = readyPlugin()
+    let plugRes = readyPlugin(self.nodeCtx)
     if plugRes.isErr():
       Result[T, string].err(plugRes.error())
     else:
@@ -138,15 +139,17 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     # Registration stays on the single-thread lane: the vtable is full of
     # pointer/proc fields, which the (mt) codec rejects, so it is handed to
     # the worker through the guarded global instead of a broker payload.
-    discard SetServiceDiscoveryPlugin.reprovideIt(self.nodeCtx):
+    let nodeCtx = self.nodeCtx
+    discard SetServiceDiscoveryPlugin.reprovideIt(nodeCtx):
       ?plugin.validate()
-      storePlugin(plugin)
-      info "service discovery plugin installed", abiVersion = plugin.abiVersion
+      ?storePlugin(nodeCtx, plugin)
+      info "service discovery plugin installed",
+        abiVersion = plugin.abiVersion, ctx = $nodeCtx
       ok()
 
-    discard ClearServiceDiscoveryPlugin.reprovideIt(self.nodeCtx):
-      dropPlugin()
-      info "service discovery plugin cleared"
+    discard ClearServiceDiscoveryPlugin.reprovideIt(nodeCtx):
+      dropPlugin(nodeCtx)
+      info "service discovery plugin cleared", ctx = $nodeCtx
       ok()
 
     self
@@ -207,7 +210,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## plugin before stopping the node, and a plugin that is gone has nothing
     ## left to stop -- the local side is stopped either way. Treating that as a
     ## failure would put an error in the log of a healthy shutdown.
-    if loadPlugin().isNone():
+    if loadPlugin(self.nodeCtx).isNone():
       return ok()
     pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
 
@@ -283,4 +286,7 @@ proc releaseWorker*(self: ExternalServiceDiscovery) =
   if not self.workerClaimed:
     return
   self.workerClaimed = false
-  stopWorker()
+  stopWorker(self.nodeCtx)
+  ## The node is gone, so its plugin slot goes with it -- otherwise a stale
+  ## entry would hold a slot no one can reach.
+  dropPlugin(self.nodeCtx)

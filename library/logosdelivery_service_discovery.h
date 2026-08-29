@@ -25,16 +25,26 @@
  * error until a valid plugin arrives. Registration alone is refused, because
  * without the configuration there is no backend to register with.
  *
+ * Scope:
+ *   - A registration belongs to one node. A process may hold several nodes,
+ *     and each keeps its own plugin and its own discovery thread; registering
+ *     for one node never disturbs another, and tearing one down leaves the
+ *     others running. Give each node its own pluginCtx to keep their state
+ *     apart.
+ *
  * Calling model:
  *   - Every entry point is a plain blocking request: it performs the work and
  *     returns its result. There are no completion callbacks and no events
  *     from the plugin back into logos-delivery.
- *   - Entry points are invoked on a dedicated discovery thread inside
- *     logos-delivery, never on the node's event loop, so they MAY block for
- *     as long as the operation genuinely takes (a cold DHT bootstrap can run
- *     for tens of seconds).
- *   - Calls are serialized: logos-delivery never invokes two entry points
- *     concurrently, so a plugin need not be reentrant.
+ *   - Entry points are invoked on a discovery thread inside logos-delivery,
+ *     never on the node's event loop, so they MAY block for as long as the
+ *     operation genuinely takes (a cold DHT bootstrap can run for tens of
+ *     seconds).
+ *   - Calls from one node are serialized: its discovery thread runs one entry
+ *     point at a time, so a plugin serving a single node need not be
+ *     reentrant. A vtable registered for SEVERAL nodes is another matter --
+ *     each node has its own thread, so such a plugin must tolerate concurrent
+ *     calls, or keep per-node state behind distinct pluginCtx values.
  *
  * Results:
  *   - Lookups return JSON, matching what the libp2p module already produces:
@@ -177,8 +187,8 @@ extern "C"
    * Outcome arrives on on_reply: err_code == 0 means installed. It fails when
    * the ABI version does not match, an entry point is NULL, or the node was not
    * configured for external discovery -- in that last case no backend exists to
-   * serve the request, and err_msg says no provider is registered. Replacing an
-   * installed plugin is allowed.
+   * serve the request, and err_msg says no provider is registered. Replacing
+   * this node's installed plugin is allowed; it never touches another node's.
    */
 
   /* Installs (or replaces) the plugin for the node identified by `ctx` (the
@@ -194,8 +204,9 @@ extern "C"
         ctx, callback, user_data, (uint64_t)(uintptr_t)plugin);
   }
 
-  /* Removes the installed plugin; subsequent discovery verbs fail until a new
-   * one is installed. Declared in the generated header as
+  /* Removes this node's plugin; its discovery verbs fail until a new one is
+   * installed, and other nodes are unaffected. Declared in the generated
+   * header as
    *   int logosdelivery_clear_service_discovery_plugin(
    *       void *ctx, LogosDeliveryScalarRawFn cb, void *user_data);
    *
