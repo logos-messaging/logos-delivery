@@ -210,6 +210,44 @@ suite "ExternalServiceDiscovery":
     check (await iface.stopDiscovery()).isOk()
     check not fake.started.load()
 
+  asyncTest "discovery can be restarted on the same node":
+    ## The worker is joined when discovery stops, so a restart has to spawn a
+    ## fresh one on the same broker context. That only works because the
+    ## exiting thread hands its (mt) buckets back.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+
+    check (await backend.startDiscovery()).isOk()
+    check fake.started.load()
+    check (await backend.stopDiscovery()).isOk()
+    check not fake.started.load()
+
+    ## Second session: a new worker, same context.
+    check (await backend.startDiscovery()).isOk()
+    check fake.started.load()
+
+    let peers = (await backend.lookupServicePeers("svc:/mix/1.0.0", 3)).valueOr:
+      raiseAssert error
+    check peers.len == 1
+
+    check (await backend.stopDiscovery()).isOk()
+
+  asyncTest "configured without a valid plugin refuses to start":
+    ## A node configured for external discovery but left without a usable
+    ## plugin must fail to start, not come up believing it has discovery.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    var bad = fakePlugin()
+    bad.lookup = nil
+    check storePlugin(ctx, bad).isOk() # bypasses the broker's validation
+
+    let res = await backend.startDiscovery()
+    check:
+      res.isErr()
+      "missing entry point" in res.error
+    dropPlugin(ctx)
+
   asyncTest "configured but unregistered: verbs refuse to run":
     ## Config alone is not enough — the plugin half must be there too.
     let backend = ExternalServiceDiscovery.create()
