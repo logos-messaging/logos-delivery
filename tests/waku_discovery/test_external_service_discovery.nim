@@ -230,14 +230,14 @@ suite "ExternalServiceDiscovery":
 
     var partial = fakePlugin()
     partial.lookup = nil
-    storePlugin(partial) # bypasses the broker's validation on purpose
+    check storePlugin(ctx, partial).isOk() # bypasses the broker's validation
 
     let res = await backend.lookupRandom()
     check:
       res.isErr()
       "missing entry point" in res.error
 
-    dropPlugin()
+    dropPlugin(ctx)
 
   asyncTest "plugin error text is surfaced":
     let backend = ExternalServiceDiscovery.create()
