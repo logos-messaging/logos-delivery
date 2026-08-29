@@ -1,7 +1,8 @@
 {.push raises: [].}
 
-## Nim mirror of `library/logosdelivery_service_discovery.h` — the service
-## discovery plugin ABI — plus the brokers that surround it.
+## Accessor for an external service-discovery plugin: the Nim mirror of
+## `library/logosdelivery_service_discovery.h` (the plugin ABI), the guarded
+## slot the installed vtable lives in, and the brokers that surround it.
 ##
 ## Two broker lanes meet here, deliberately:
 ##
