@@ -34,7 +34,8 @@ import
   ./rate_limit_conf_builder,
   ./rln_relay_conf_builder,
   ./mix_conf_builder,
-  ./kademlia_discovery_conf_builder
+  ./kademlia_discovery_conf_builder,
+  ./external_discovery_conf_builder
 
 logScope:
   topics = "waku conf builder"
@@ -122,6 +123,7 @@ type WakuConfBuilder* = object
   quicConf*: QuicConfBuilder
   rateLimitConf*: RateLimitConfBuilder
   kademliaDiscoveryConf*: KademliaDiscoveryConfBuilder
+  externalDiscoveryConf*: ExternalDiscoveryConfBuilder
   # End conf builders
   relay: Opt[bool]
   lightPush: Opt[bool]
@@ -186,6 +188,7 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     quicConf: QuicConfBuilder.init(),
     rateLimitConf: RateLimitConfBuilder.init(),
     kademliaDiscoveryConf: KademliaDiscoveryConfBuilder.init(),
+    externalDiscoveryConf: ExternalDiscoveryConfBuilder.init(),
   )
 
 proc withNetworkPresetConf*(
@@ -678,6 +681,9 @@ proc build*(
   let kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
     return err("Kademlia Discovery Conf building failed: " & $error)
 
+  let externalDiscoveryConf = builder.externalDiscoveryConf.build().valueOr:
+    return err("External Discovery Conf building failed: " & $error)
+
   # End - Build sub-configs
 
   let logLevel =
@@ -820,7 +826,7 @@ proc build*(
     dnsDiscoveryConf: dnsDiscoveryConf,
     mixConf: mixConf,
     kademliaDiscoveryConf: kademliaDiscoveryConf,
-    externalDiscoveryConf: Opt.none(ExternalDiscoveryConf),
+    externalDiscoveryConf: externalDiscoveryConf,
     # end confs
     nodeKey: nodeKey,
     clusterId: clusterId,

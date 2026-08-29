@@ -196,6 +196,13 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## to the thread that registered the providers, so tearing it down here
     ## would break a later restart. It is idle when no verb is in flight and
     ## is joined at process teardown via `stopWorker`.
+
+    ## Telling the plugin to stop is best-effort. The host is free to clear the
+    ## plugin before stopping the node, and a plugin that is gone has nothing
+    ## left to stop -- the local side is stopped either way. Treating that as a
+    ## failure would put an error in the log of a healthy shutdown.
+    if loadPlugin().isNone():
+      return ok()
     pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
 
   method lookupServicePeers(
