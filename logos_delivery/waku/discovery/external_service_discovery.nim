@@ -31,7 +31,6 @@ const
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
-  workerClaimed: bool
   nodeCtx: BrokerContext
   interests: seq[string]
   serviceLookupInterval: Duration
@@ -172,12 +171,14 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if self.running:
       return ok()
 
-    ## Claimed once per backend, not once per start: the worker outlives
-    ## stop/start cycles, so claiming again would leave a count that
-    ## `releaseWorker` can never bring back to zero.
-    if not self.workerClaimed:
-      ?await startWorker(self.nodeCtx)
-      self.workerClaimed = true
+    ## A valid plugin is a hard requirement, checked before anything is
+    ## spawned: external discovery that is configured but has no usable plugin
+    ## is not a degraded node, it is a node with no discovery at all, so it
+    ## must fail loudly rather than come up quietly.
+    readyPlugin(self.nodeCtx).isOkOr:
+      return err(error)
+
+    ?await startWorker(self.nodeCtx)
     ?pluginCall(void, "start", PluginStart.request(self.nodeCtx))
 
     self.running = true
@@ -201,18 +202,21 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       await self.randomLookupLoop.cancelAndWait()
       self.randomLookupLoop = nil
 
-    ## The worker thread stays up across stop/start: (mt) dispatch is bound to
-    ## the thread that registered the providers, so tearing it down here would
-    ## break a later restart. It is idle when no verb is in flight, and it is
-    ## joined when the node itself goes away (`releaseWorker`).
-
     ## Telling the plugin to stop is best-effort. The host is free to clear the
     ## plugin before stopping the node, and a plugin that is gone has nothing
     ## left to stop -- the local side is stopped either way. Treating that as a
     ## failure would put an error in the log of a healthy shutdown.
-    if loadPlugin(self.nodeCtx).isNone():
-      return ok()
-    pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
+    let stopRes =
+      if loadPlugin(self.nodeCtx).isSome():
+        pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
+      else:
+        Result[void, string].ok()
+
+    ## The worker exists to serve this discovery session, so it goes with it.
+    ## Its thread hands the (mt) buckets back on the way out, which is what
+    ## lets a later `startDiscovery` spawn a fresh one on the same context.
+    stopWorker(self.nodeCtx)
+    stopRes
 
   method lookupServicePeers(
       self: ExternalServiceDiscovery, key: string, limit: int
@@ -277,17 +281,3 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       "addBootstrapEntries",
       PluginAddBootstrapEntries.request(self.nodeCtx, entries),
     )
-
-proc releaseWorker*(self: ExternalServiceDiscovery) =
-  ## Joins this node's discovery worker. The worker exists to serve this node
-  ## and must not outlive it, so this belongs to node teardown -- but not to
-  ## `stopDiscovery`: a stopped node can be started again and would need the
-  ## worker back, and (mt) providers cannot be re-registered onto a fresh
-  ## thread for a context that already used a joined one.
-  if not self.workerClaimed:
-    return
-  self.workerClaimed = false
-  stopWorker(self.nodeCtx)
-  ## The node is gone, so its plugin slot goes with it -- otherwise a stale
-  ## entry would hold a slot no one can reach.
-  dropPlugin(self.nodeCtx)
