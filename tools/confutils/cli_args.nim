@@ -688,6 +688,30 @@ hence would have reachability issues.""",
       name: "kad-service-lookup-interval"
     .}: uint32
 
+    # External Discovery config
+    # Discovery delegated to an external provider, which registers its plugin
+    # at runtime over the FFI surface. Nothing here implies intent, so the
+    # backend is only built when the flag is set explicitly.
+    enableExternalDiscovery* {.
+      desc:
+        "Enable service discovery delegated to an externally registered plugin. Default is " &
+        $DefaultExternalDiscoveryEnabled & ".",
+      defaultValue: Opt.none(bool),
+      name: "enable-external-discovery"
+    .}: Opt[bool]
+
+    externalDiscoveryServiceLookupIntervalMs* {.
+      desc: "Interval milliseconds between service-specific external lookups.",
+      defaultValue: 60_000,
+      name: "external-discovery-service-lookup-interval-ms"
+    .}: uint32
+
+    externalDiscoveryRandomLookupIntervalMs* {.
+      desc: "Interval milliseconds between random external lookups.",
+      defaultValue: 60_000,
+      name: "external-discovery-random-lookup-interval-ms"
+    .}: uint32
+
     ## websocket config
     websocketSupport* {.
       desc: "Enable websocket:  true|false",
@@ -1205,6 +1229,17 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.kadServiceLookupIntervalSec > 0:
     b.kademliaDiscoveryConf.withServiceLookupInterval(
       chronos.seconds(n.kadServiceLookupIntervalSec.int64)
+    )
+
+  if n.enableExternalDiscovery.isSome():
+    b.externalDiscoveryConf.withEnabled(n.enableExternalDiscovery.get())
+  if n.externalDiscoveryServiceLookupIntervalMs > 0:
+    b.externalDiscoveryConf.withServiceLookupIntervalMs(
+      n.externalDiscoveryServiceLookupIntervalMs
+    )
+  if n.externalDiscoveryRandomLookupIntervalMs > 0:
+    b.externalDiscoveryConf.withRandomLookupIntervalMs(
+      n.externalDiscoveryRandomLookupIntervalMs
     )
 
   return b.build()
