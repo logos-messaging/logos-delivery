@@ -34,7 +34,8 @@ import
   ./rate_limit_conf_builder,
   ./rln_relay_conf_builder,
   ./mix_conf_builder,
-  ./kademlia_discovery_conf_builder
+  ./kademlia_discovery_conf_builder,
+  ./external_discovery_conf_builder
 
 logScope:
   topics = "waku conf builder"
@@ -122,6 +123,7 @@ type WakuConfBuilder* = object
   quicConf*: QuicConfBuilder
   rateLimitConf*: RateLimitConfBuilder
   kademliaDiscoveryConf*: KademliaDiscoveryConfBuilder
+  externalDiscoveryConf*: ExternalDiscoveryConfBuilder
   # End conf builders
   relay: Opt[bool]
   lightPush: Opt[bool]
@@ -185,6 +187,7 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     quicConf: QuicConfBuilder.init(),
     rateLimitConf: RateLimitConfBuilder.init(),
     kademliaDiscoveryConf: KademliaDiscoveryConfBuilder.init(),
+    externalDiscoveryConf: ExternalDiscoveryConfBuilder.init(),
   )
 
 proc withNetworkPresetConf*(
@@ -674,6 +677,26 @@ proc build*(
   let kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
     return err("Kademlia Discovery Conf building failed: " & $error)
 
+  let externalDiscoveryConf = builder.externalDiscoveryConf.build().valueOr:
+    return err("External Discovery Conf building failed: " & $error)
+
+  ## Internal and external service discovery are the same libp2p protocol,
+  ## one hosted in-process and one behind the plugin -- and the external
+  ## provider brings its own switch and peer store. Running both would put
+  ## this node into the same DHT twice under two identities, advertising the
+  ## same services from each. Discv5 is unaffected: it is a different protocol
+  ## over a different peer set and stays independent of both.
+  ##
+  ## Refused rather than silently resolved, because a network preset can turn
+  ## kademlia on without the operator naming it, so picking a winner here
+  ## would leave them with discovery they did not ask for.
+  if kademliaDiscoveryConf.isSome() and externalDiscoveryConf.isSome():
+    return err(
+      "Internal and external service discovery are mutually exclusive, but both " &
+        "are enabled. Note a network preset may have enabled kademlia discovery: " &
+        "pass --enable-kad-discovery=false to use the external provider instead."
+    )
+
   # End - Build sub-configs
 
   let logLevel =
@@ -804,6 +827,7 @@ proc build*(
     dnsDiscoveryConf: dnsDiscoveryConf,
     mixConf: mixConf,
     kademliaDiscoveryConf: kademliaDiscoveryConf,
+    externalDiscoveryConf: externalDiscoveryConf,
     # end confs
     nodeKey: nodeKey,
     clusterId: clusterId,

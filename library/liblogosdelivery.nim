@@ -18,6 +18,7 @@ include
   ./logos_delivery_api/node_api,
   ./logos_delivery_api/messaging_api,
   ./logos_delivery_api/debug_api,
+  ./logos_delivery_api/service_discovery_plugin_api,
   ./logos_delivery_api/sync_exports,
   ./kernel_api/peer_manager_api,
   ./kernel_api/discovery_api,
