@@ -14,7 +14,6 @@ type FakeState = object
   started: Atomic[bool]
   failNext: Atomic[bool]
   freed: Atomic[int]
-  bootstrapCount: Atomic[int]
   lastLimit: Atomic[int64]
   lastDataLen: Atomic[int]
   lastRecordLen: Atomic[int]
@@ -126,16 +125,6 @@ proc fakeKeyOp(
   setKey(key)
   LdDiscoOk
 
-proc fakeAddBootstrap(
-    ctx: pointer,
-    entries: ptr UncheckedArray[cstring],
-    entriesLen: csize_t,
-    errBuf: cstring,
-    errBufLen: csize_t,
-): cint {.cdecl, gcsafe, raises: [].} =
-  fake.bootstrapCount.store(entriesLen.int)
-  LdDiscoOk
-
 proc fakePlugin(): ServiceDiscoveryPlugin =
   ServiceDiscoveryPlugin(
     abiVersion: LdDiscoAbiVersion,
@@ -150,7 +139,6 @@ proc fakePlugin(): ServiceDiscoveryPlugin =
     stopAdvertising: fakeKeyOp,
     registerInterest: fakeKeyOp,
     unregisterInterest: fakeKeyOp,
-    addBootstrapEntries: fakeAddBootstrap,
   )
 
 suite "ExternalServiceDiscovery":
@@ -204,8 +192,9 @@ suite "ExternalServiceDiscovery":
     check (await iface.registerInterest("svc:y")).isOk()
     check lastKey() == "svc:y"
 
+    ## A no-op that still succeeds: the provider took its bootstrap entries at
+    ## init and exposes no call to add more.
     check (await iface.addBootstrapEntries(@["/ip4/1.2.3.4/tcp/1/p2p/16Uxx"])).isOk()
-    check fake.bootstrapCount.load() == 1
 
     check (await iface.stopDiscovery()).isOk()
     check not fake.started.load()

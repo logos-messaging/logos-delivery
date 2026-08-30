@@ -25,6 +25,12 @@
  * error until a valid plugin arrives. Registration alone is refused, because
  * without the configuration there is no backend to register with.
  *
+ * Not covered here:
+ *   - Bootstrap entries. The provider takes them at its own initialisation,
+ *     and libp2p exposes no call to add more afterwards, so there is no entry
+ *     point for them and logos-delivery never asks. Configure them wherever
+ *     the provider is set up.
+ *
  * Scope:
  *   - A registration belongs to one node. A process may hold several nodes;
  *     each keeps its own plugin and its own discovery thread, for as long as
@@ -130,15 +136,6 @@ extern "C"
                                              char *errBuf,
                                              size_t errBufLen);
 
-  /* Bootstrap entries are backend-native strings: full multiaddrs including
-   * /p2p/<peerId>. A partial failure should be reported as LD_DISCO_ERROR
-   * with the failing entry named in errBuf. */
-  typedef int (*LdDiscoAddBootstrapEntriesFn)(void *pluginCtx,
-                                              const char *const *entries,
-                                              size_t entriesLen,
-                                              char *errBuf,
-                                              size_t errBufLen);
-
   /* The vtable the plugin registers. Every function pointer must be set; a
    * plugin that cannot support a verb should install an entry that returns
    * LD_DISCO_ERROR. */
@@ -163,7 +160,6 @@ extern "C"
     LdDiscoStopAdvertisingFn stopAdvertising;
     LdDiscoRegisterInterestFn registerInterest;
     LdDiscoUnregisterInterestFn unregisterInterest;
-    LdDiscoAddBootstrapEntriesFn addBootstrapEntries;
   } LdServiceDiscoveryPlugin;
 
   /* ------------------------------------------------------ registration -- */
