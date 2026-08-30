@@ -31,6 +31,10 @@ const
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
+  plugin: Opt[ServiceDiscoveryPlugin]
+    ## Instance state, not a global: registration is served on this node's own
+    ## thread, and the worker gets its own copy at spawn.
+  worker: ServiceDiscoveryWorker
   nodeCtx: BrokerContext
   interests: seq[string]
   serviceLookupInterval: Duration
@@ -38,14 +42,16 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   serviceLookupLoop: Future[void]
   randomLookupLoop: Future[void]
 
-proc readyPlugin(ctx: BrokerContext): Result[ServiceDiscoveryPlugin, string] =
+proc readyPlugin(
+    self: ExternalServiceDiscovery
+): Result[ServiceDiscoveryPlugin, string] =
   ## External discovery needs both halves: the node configured for it (which
   ## is what created this backend) and a registered, fully populated plugin.
-  ## Looked up by context, so each node sees only its own plugin.
-  let plugin = loadPlugin(ctx).valueOr:
+  ## No re-validation: the vtable was validated when it was registered and is
+  ## immutable afterwards, so there is no later moment for it to go partial.
+  let plugin = self.plugin.valueOr:
     return
       err("external backend: configured but no service discovery plugin registered")
-  ?plugin.validate()
   ok(plugin)
 
 template pluginCall(T: typedesc, op: string, request: untyped): untyped =
@@ -56,7 +62,7 @@ template pluginCall(T: typedesc, op: string, request: untyped): untyped =
   ## template yields a value rather than returning, which keeps it usable
   ## inside the async transform.
   block:
-    let plugRes = readyPlugin(self.nodeCtx)
+    let plugRes = readyPlugin(self)
     if plugRes.isErr():
       Result[T, string].err(plugRes.error())
     else:
@@ -131,6 +137,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): ExternalServiceDiscovery =
     let self = ExternalServiceDiscovery(
       nodeCtx: globalBrokerContext(),
+      worker: ServiceDiscoveryWorker.new(),
       serviceLookupInterval: serviceLookupInterval,
       randomLookupInterval: randomLookupInterval,
     )
@@ -152,7 +159,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
             "running; stop the node first"
         )
       ?plugin.validate()
-      ?storePlugin(nodeCtx, plugin)
+      self.plugin = Opt.some(plugin)
       info "service discovery plugin installed",
         abiVersion = plugin.abiVersion, ctx = $nodeCtx
       ok()
@@ -163,7 +170,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
           "service discovery plugin: cannot be cleared while discovery is " &
             "running; stop the node first"
         )
-      dropPlugin(nodeCtx)
+      self.plugin = Opt.none(ServiceDiscoveryPlugin)
       info "service discovery plugin cleared", ctx = $nodeCtx
       ok()
 
@@ -191,10 +198,12 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## spawned: external discovery that is configured but has no usable plugin
     ## is not a degraded node, it is a node with no discovery at all, so it
     ## must fail loudly rather than come up quietly.
-    readyPlugin(self.nodeCtx).isOkOr:
+    let plugin = readyPlugin(self).valueOr:
       return err(error)
 
-    ?await startWorker(self.nodeCtx)
+    ## The worker gets the vtable by value, so nothing is shared and there is
+    ## nothing to look up on the far side.
+    ?await self.worker.start(self.nodeCtx, plugin)
     ?pluginCall(void, "start", PluginStart.request(self.nodeCtx))
 
     self.running = true
@@ -225,7 +234,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## The worker exists to serve this discovery session, so it goes with it.
     ## Its thread hands the (mt) buckets back on the way out, which is what
     ## lets a later `startDiscovery` spawn a fresh one on the same context.
-    stopWorker(self.nodeCtx)
+    self.worker.stop()
     stopRes
 
   method lookupServicePeers(
@@ -291,10 +300,3 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       "addBootstrapEntries",
       PluginAddBootstrapEntries.request(self.nodeCtx, entries),
     )
-
-proc releasePlugin*(self: ExternalServiceDiscovery) =
-  ## Frees this node's plugin slot. A registration is meant to outlive
-  ## stop/start cycles, so it is released only when the node itself goes away
-  ## -- otherwise a process that creates and destroys nodes would exhaust the
-  ## slot table and never be able to register again.
-  dropPlugin(self.nodeCtx)
