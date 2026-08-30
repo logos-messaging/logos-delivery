@@ -44,6 +44,7 @@ import
     discovery/waku_discv5,
     discovery/discv5_peer_discovery,
     discovery/external_service_discovery,
+    discovery/self_advertisement,
     discovery/autonat_service,
     requests/health_requests,
     requests/node_state_requests,
@@ -504,6 +505,15 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   waku.node.subscriptionManager.subscribeAllAutoshards().isOkOr:
     return err("failed to auto-subscribe autosharding shards: " & $error)
+
+  ## Announce ourselves on the delivery network. After the shard subscriptions,
+  ## not before: an advertisement is only useful if the shards it claims are
+  ## the ones we are actually on.
+  await advertiseSelf(
+    waku.node.discoveries,
+    waku.conf,
+    waku.node.getShardsGetter(waku.conf.subscribeShards)(),
+  )
 
   ## Health Monitor
   waku.healthMonitor.startHealthMonitor().isOkOr:

@@ -170,7 +170,7 @@ proc deduceRelayShard(
     return err("Invalid topic:" & pubsubTopic & " " & $error)
   return ok(shard)
 
-proc getShardsGetter(node: WakuNode, configuredShards: seq[uint16]): GetShards =
+proc getShardsGetter*(node: WakuNode, configuredShards: seq[uint16]): GetShards =
   return proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
     # fetch pubsubTopics subscribed to relay and convert them to shards
     if node.wakuRelay.isNil():

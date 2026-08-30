@@ -674,7 +674,7 @@ proc build*(
   let rateLimit = builder.rateLimitConf.build().valueOr:
     return err("Rate limits Conf building failed: " & $error)
 
-  let kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
+  var kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
     return err("Kademlia Discovery Conf building failed: " & $error)
 
   let externalDiscoveryConf = builder.externalDiscoveryConf.build().valueOr:
@@ -802,6 +802,15 @@ proc build*(
     sync = storeServiceConf.isSome() and storeServiceConf.get().storeSyncConf.isSome,
     mix = mix,
   )
+
+  ## A node that serves nothing has no reason to hold routing state for
+  ## others: it consumes discovery rather than providing it. Client mode is a
+  ## mount-time property of the in-process backend; the plugin ABI has no
+  ## equivalent, so a plugin-hosted edge node simply advertises nothing.
+  if kademliaDiscoveryConf.isSome() and not wakuFlags.isServiceNode():
+    var kadConf = kademliaDiscoveryConf.get()
+    kadConf.clientMode = true
+    kademliaDiscoveryConf = Opt.some(kadConf)
 
   # portsShift is consumed here, WakuConf carries final bind ports.
   p2pTcpPort = resolvePortsShift(p2pTcpPort, portsShift)
