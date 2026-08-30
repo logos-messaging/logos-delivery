@@ -336,3 +336,35 @@ suite "MessagingClientConf - discovery overrides":
     )
     require c.kademliaDiscoveryConf.isSome()
     check c.kademliaDiscoveryConf.get().bootstrapNodes.len > 0
+
+suite "WakuNodeConf - edge nodes and kademlia client mode":
+  test "a node that serves nothing runs kademlia in client mode":
+    ## An edge node consumes discovery rather than providing it, so it should
+    ## not hold routing state for others.
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.enableKadDiscovery = Opt.some(true)
+    conf.relay = false
+    conf.filter = false
+    conf.lightpush = false
+    conf.store = false
+
+    let c = conf.toWakuConf().valueOr:
+      raiseAssert error
+    require c.kademliaDiscoveryConf.isSome()
+    check:
+      not c.wakuFlags.isServiceNode()
+      c.kademliaDiscoveryConf.get().clientMode
+
+  test "a serving node stays a full kademlia participant":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.enableKadDiscovery = Opt.some(true)
+    conf.relay = true
+
+    let c = conf.toWakuConf().valueOr:
+      raiseAssert error
+    require c.kademliaDiscoveryConf.isSome()
+    check:
+      c.wakuFlags.isServiceNode()
+      not c.kademliaDiscoveryConf.get().clientMode
