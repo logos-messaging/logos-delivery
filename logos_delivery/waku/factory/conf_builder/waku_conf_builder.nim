@@ -485,6 +485,13 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
       # Add static nodes (multiaddrs and those extracted from ENR entries)
       if staticNodesFromEntry.len > 0:
         builder.withStaticNodes(staticNodesFromEntry)
+
+      # Feed multiaddr entry nodes to the Kademlia bootstrap set as well:
+      # kad accepts peerId+multiaddr entries, and on presets whose entry
+      # nodes are plain multiaddrs it would otherwise start with empty
+      # buckets (nothing bridges static connections into the DHT).
+      if staticNodesFromEntry.len > 0 and networkPresetConf.enableKadDiscovery:
+        builder.kademliaDiscoveryConf.bootstrapNodes.add(staticNodesFromEntry)
     else:
       warn "Failed to process entry nodes from network conf", error = processed.error()
 

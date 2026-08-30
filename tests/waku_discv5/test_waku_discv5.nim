@@ -494,7 +494,6 @@ suite "Waku Discovery v5":
       discard setupDiscoveryV5(
         waku.node.enr,
         waku.node.peerManager,
-        waku.node.topicSubscriptionQueue,
         waku.conf.discv5Conf.get(),
         waku.dynamicBootstrapNodes,
         waku.rng,
@@ -525,7 +524,6 @@ suite "Waku Discovery v5":
       discard setupDiscoveryV5(
         waku.node.enr,
         waku.node.peerManager,
-        waku.node.topicSubscriptionQueue,
         conf.discv5Conf.get(),
         waku.dynamicBootstrapNodes,
         waku.rng,

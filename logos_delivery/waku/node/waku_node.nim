@@ -128,7 +128,6 @@ type
     announcedAddresses*: seq[MultiAddress]
     extMultiAddrsOnly*: bool # When true, skip automatic IP address replacement
     started*: bool # Indicates that node has started listening
-    topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
     rateLimitSettings*: ProtocolRateLimitSettings
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
       ## Kernel API Relay appHandlers (if any)
@@ -227,7 +226,6 @@ proc new*(
 
   let brokerCtx = globalBrokerContext()
 
-  let queue = newAsyncEventQueue[SubscriptionEvent](0)
   let node = WakuNode(
     peerManager: peerManager,
     switch: switch,
@@ -235,7 +233,6 @@ proc new*(
     brokerCtx: brokerCtx,
     enr: enr,
     announcedAddresses: netConfig.announcedAddresses,
-    topicSubscriptionQueue: queue,
     rateLimitSettings: rateLimitSettings,
     ports: BoundPorts.init(),
   )

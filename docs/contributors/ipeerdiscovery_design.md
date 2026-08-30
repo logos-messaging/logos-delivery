@@ -47,7 +47,7 @@ type DiscoveredPeer* = object
   services*: seq[DiscoveredService]
 
 type DiscoveryBackendInfo* = object
-  id*: string                 # "discv5" | "kad" | "kad-ext"
+  id*: string                 # "discv5" | "service" | "service-ext"
   running*: bool
   keyKinds*: seq[string]      # e.g. @["svc", "shard", "cap", ""]
   boundPorts*: seq[uint16]    # e.g. discv5 UDP port after auto-port; empty if n/a
@@ -166,7 +166,7 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     (await self.inner.findRandomPeers()).mapIt(it.toDiscoveredPeer())
 ```
 
-`logos_delivery/waku/discovery/kad_peer_discovery.nim`: same shape around
+`logos_delivery/waku/discovery/service_discovery.nim`: same shape around
 `WakuKademlia` (`new` needs Switch + PeerManager via getters + `switch.mount`;
 `startDiscovery` = `wakuKademlia.start()`; `lookupServicePeers("svc:" & id)` →
 `wakuKademlia.lookupServicePeers(id)`).
@@ -204,11 +204,37 @@ Caveats to verify in Phase 1 (compile-time/runtime):
 - getter brokers returning `ref` types: single-thread in-process only —
   agreed decision: this pattern will NOT be extended to the FFI/MT lanes.
 
-## Phase 2 — config-driven instantiation
+## Phase 2 — verbs + decoupling (branch poc-discovery-plugin-2, PR train #2)
 
+As built:
+- **Verbs added**: `startAdvertising(key, data, record)`, `stopAdvertising`,
+  `registerInterest`/`unregisterInterest`, `addBootstrapEntries`.
+  - kad maps 1:1 (`addServiceToAdvertise`, new id-based
+    `removeServiceToAdvertise` overload, `addServiceToDiscover`/`remove…`,
+    `protocol.updatePeers` for bootstrap).
+  - discv5: `startAdvertising`/`stopAdvertising` for `shard:` keys via the new
+    public `WakuDiscoveryV5.updateShards` (ENR mutation + predicate refresh);
+    `addBootstrapEntries` via `updateBootstrapRecords`. **Decisions:** `cap:`
+    advertising is rejected (capabilities are set at ENR build time from
+    wakuFlags; runtime toggling is out of scope), and explicit
+    `registerInterest` is rejected (discv5 interest is implicit — the sharding
+    predicate derives from the node's own ENR).
+- **Queue decoupling done**: `WakuDiscoveryV5` no longer knows the
+  `topicSubscriptionQueue` (field, ctor/setup params, internal listener all
+  removed); `Discv5PeerDiscovery` consumes the queue via the getter broker and
+  mirrors changes through `updateShards`.
+- **Preset gap fixed**: multiaddr `entryNodes` now also feed
+  `kademliaDiscoveryConf.bootstrapNodes` when the preset enables kad
+  (waku_conf_builder).
+- **Deferred from the original phase-2 sketch**: removing the direct
+  `wakuDiscv5`/`wakuKademlia` fields (REST/FFI/provider consumers still use
+  them) and lifecycle-event-driven start/stop (ordering redesign; lifecycle
+  events remain observability-only). Both move to phase 3+.
+
+Original sketch (for reference):
 - Factory derives from conf which impls to construct/attach
   (`discv5Conf.isSome` → `Discv5PeerDiscovery`, `kademliaDiscoveryConf.isSome`
-  → `KadPeerDiscovery`); direct fields removed; start/stop fully
+  → `ServiceDiscovery`); direct fields removed; start/stop fully
   lifecycle-event driven.
 - Preset gap fix rides along: route preset `entryNodes` into backends that can
   take them (kad accepts peerId+multiaddr bootstrap; today presets leave both
@@ -218,6 +244,16 @@ Caveats to verify in Phase 1 (compile-time/runtime):
   `unregisterInterest` verbs; kad maps 1:1
   (`addServiceToAdvertise`/`addServiceToDiscover` etc.); discv5 maps shard/cap
   keys to ENR updates, replacing the `topicSubscriptionQueue` coupling.
+
+## Phase 4 — put advertising / interest to work (PR train #4)
+
+The verbs landed in phase 2, but nothing calls them yet: the only advertised
+service is still `/mix/1.0.0`, injected at conf time in `node_factory` and only
+when mix is enabled (`servicesToAdvertise`/`servicesToDiscover` are otherwise
+empty, so the advertiser and the service-lookup loop are dormant). Phase 4
+moves that wiring onto the interface — runtime `startAdvertising` /
+`registerInterest` calls driven by what the node actually mounts (relay shards,
+store/lightpush/filter capabilities), replacing the conf-time mix special case.
 
 ## Phase 3 — external ServiceDiscovery skeleton
 
@@ -233,7 +269,7 @@ Caveats to verify in Phase 1 (compile-time/runtime):
 
 ## Per-backend verb mapping (full target state)
 
-| Verb | discv5 (`WakuDiscoveryV5`) | kad internal (`WakuKademlia`/`ServiceDiscovery`) | kad-ext (module via glue) |
+| Verb | discv5 (`WakuDiscoveryV5`) | kad internal (`WakuKademlia`/`ServiceDiscovery`) | service-ext (module via glue) |
 |---|---|---|---|
 | `startDiscovery` | `setupAndStartDiscv5` (open UDP + loops) | `WakuKademlia.start` (interest + loops) | roundtrip `discoStart` |
 | `stopDiscovery` | `stop()` | `WakuKademlia.stop` | roundtrip `discoStop` |

@@ -12,6 +12,7 @@ import
   eth/keys as eth_keys,
   eth/p2p/discoveryv5/node,
   eth/p2p/discoveryv5/protocol
+import brokers/[event_broker, broker_context]
 import
   logos_delivery/waku/[
     net/auto_port,
@@ -19,6 +20,7 @@ import
     waku_core,
     waku_enr,
     api/events/discovery_events,
+    api/events/subscription_events,
   ]
 
 export protocol, waku_enr
@@ -63,7 +65,11 @@ type WakuDiscoveryV5* = ref object
   listening*: bool
   predicate: Opt[WakuDiscv5Predicate]
   peerManager: Opt[PeerManager]
-  topicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent]
+  brokerCtx: BrokerContext
+    ## Captured at construction; the context the node emits shard
+    ## subscription changes on.
+  shardSubListener: Opt[ShardSubscribedEventListener]
+  shardUnsubListener: Opt[ShardUnsubscribedEventListener]
 
 proc shardingPredicate*(
     record: Record, bootnodes: seq[Record] = @[]
@@ -94,8 +100,6 @@ proc new*(
     conf: WakuDiscoveryV5Config,
     record: Opt[waku_enr.Record],
     peerManager: Opt[PeerManager] = Opt.none(PeerManager),
-    queue: AsyncEventQueue[SubscriptionEvent] =
-      newAsyncEventQueue[SubscriptionEvent](30),
 ): T =
   let protocol = newProtocol(
     rng = rng.bearSslDrbgRef,
@@ -123,7 +127,7 @@ proc new*(
     listening: false,
     predicate: shardPredOp,
     peerManager: peerManager,
-    topicSubscriptionQueue: queue,
+    brokerCtx: globalBrokerContext(),
   )
 
 proc updateAnnouncedMultiAddress*(
@@ -306,42 +310,17 @@ proc searchLoop(wd: WakuDiscoveryV5) {.async.} =
     # Also, give some time to dial the discovered nodes and update stats, etc.
     await sleepAsync(5.seconds)
 
-proc subscriptionsListener(wd: WakuDiscoveryV5) {.async.} =
-  ## Listen for pubsub topics subscriptions changes
-
-  let key = wd.topicSubscriptionQueue.register()
-
-  while wd.listening:
-    let events = await wd.topicSubscriptionQueue.waitEvents(key)
-
-    # Since we don't know the events we will receive we have to anticipate.
-
-    let subs = events.filterIt(it.kind == PubsubSub).mapIt(it.topic)
-    let unsubs = events.filterIt(it.kind == PubsubUnsub).mapIt(it.topic)
-
-    if subs.len == 0 and unsubs.len == 0:
-      continue
-
-    let unsubRes = wd.updateENRShards(unsubs, false)
-    let subRes = wd.updateENRShards(subs, true)
-
-    if subRes.isErr():
-      debug "ENR shard addition failed", reason = $subRes.error
-
-    if unsubRes.isErr():
-      debug "ENR shard removal failed", reason = $unsubRes.error
-
-    if subRes.isErr() and unsubRes.isErr():
-      continue
-
-    debug "ENR updated successfully",
-      enrUri = wd.protocol.localNode.record.toUri(),
-      enr = $(wd.protocol.localNode.record)
-
-    wd.predicate =
-      shardingPredicate(wd.protocol.localNode.record, wd.protocol.bootstrapRecords)
-
-  wd.topicSubscriptionQueue.unregister(key)
+proc updateShards*(
+    wd: WakuDiscoveryV5, topics: seq[PubsubTopic], add: bool
+): Result[void, string] =
+  ## Add/remove the shards carried by `topics` in the ENR and refresh the
+  ## sharding predicate accordingly.
+  ?wd.updateENRShards(topics, add)
+  wd.predicate =
+    shardingPredicate(wd.protocol.localNode.record, wd.protocol.bootstrapRecords)
+  debug "ENR shards updated",
+    enrUri = wd.protocol.localNode.record.toUri(), add = add, topics = topics
+  ok()
 
 proc start*(wd: WakuDiscoveryV5): Future[Result[void, string]] {.async: (raises: []).} =
   if wd.listening:
@@ -361,7 +340,25 @@ proc start*(wd: WakuDiscoveryV5): Future[Result[void, string]] {.async: (raises:
   wd.protocol.start()
 
   asyncSpawn wd.searchLoop()
-  asyncSpawn wd.subscriptionsListener()
+
+  ## Mirror the node's shard subscriptions into our ENR. Handler bodies must
+  ## stay suspension-free: listeners are spawned per emit, so an await here
+  ## could invert a subscribe/unsubscribe pair for the same shard.
+  let subRes = ShardSubscribedEvent.listenIt(wd.brokerCtx):
+    wd.updateShards(@[it.topic], add = true).isOkOr:
+      debug "ENR shard addition failed", topic = it.topic, reason = error
+  if subRes.isOk():
+    wd.shardSubListener = Opt.some(subRes.get())
+  else:
+    debug "could not listen for shard subscriptions", reason = subRes.error
+
+  let unsubRes = ShardUnsubscribedEvent.listenIt(wd.brokerCtx):
+    wd.updateShards(@[it.topic], add = false).isOkOr:
+      debug "ENR shard removal failed", topic = it.topic, reason = error
+  if unsubRes.isOk():
+    wd.shardUnsubListener = Opt.some(unsubRes.get())
+  else:
+    debug "could not listen for shard unsubscriptions", reason = unsubRes.error
 
   debug "Successfully started discovery v5 service"
   info "Discv5: discoverable ENR ",
@@ -376,6 +373,15 @@ proc stop*(wd: WakuDiscoveryV5): Future[void] {.async.} =
   info "Stopping discovery v5 service"
 
   wd.listening = false
+
+  wd.shardSubListener.withValue(handle):
+    await ShardSubscribedEvent.dropListener(wd.brokerCtx, handle)
+  wd.shardSubListener = Opt.none(ShardSubscribedEventListener)
+
+  wd.shardUnsubListener.withValue(handle):
+    await ShardUnsubscribedEvent.dropListener(wd.brokerCtx, handle)
+  wd.shardUnsubListener = Opt.none(ShardUnsubscribedEventListener)
+
   trace "Stop listening on discv5 port"
   await wd.protocol.closeWait()
 
@@ -416,7 +422,6 @@ proc addBootstrapNode*(bootstrapAddr: string, bootstrapEnrs: var seq[enr.Record]
 proc setupDiscoveryV5*(
     myENR: enr.Record,
     nodePeerManager: PeerManager,
-    nodeTopicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent],
     conf: Discv5Conf,
     dynamicBootstrapNodes: seq[RemotePeerInfo],
     rng: crypto.Rng,
@@ -462,20 +467,12 @@ proc setupDiscoveryV5*(
     autoupdateRecord: conf.enrAutoUpdate,
   )
 
-  return ok(
-    WakuDiscoveryV5.new(
-      rng,
-      discv5Conf,
-      Opt.some(myENR),
-      Opt.some(nodePeerManager),
-      nodeTopicSubscriptionQueue,
-    )
-  )
+  return
+    ok(WakuDiscoveryV5.new(rng, discv5Conf, Opt.some(myENR), Opt.some(nodePeerManager)))
 
 proc setupAndStartDiscv5*(
     myENR: enr.Record,
     nodePeerManager: PeerManager,
-    nodeTopicSubscriptionQueue: AsyncEventQueue[SubscriptionEvent],
     conf: Discv5Conf,
     dynamicBootstrapNodes: seq[RemotePeerInfo],
     rng: crypto.Rng,
@@ -490,8 +487,7 @@ proc setupAndStartDiscv5*(
     var c = conf
     c.udpPort = port
     let wd = setupDiscoveryV5(
-      myENR, nodePeerManager, nodeTopicSubscriptionQueue, c, dynamicBootstrapNodes, rng,
-      key, p2pListenAddress,
+      myENR, nodePeerManager, c, dynamicBootstrapNodes, rng, key, p2pListenAddress
     ).valueOr:
       return err(error)
     let startRes = await wd.start()
