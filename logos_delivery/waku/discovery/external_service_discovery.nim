@@ -293,10 +293,12 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   method addBootstrapEntries(
       self: ExternalServiceDiscovery, entries: seq[string]
   ): Future[Result[void, string]] {.async.} =
-    if entries.len == 0:
-      return ok()
-    pluginCall(
-      void,
-      "addBootstrapEntries",
-      PluginAddBootstrapEntries.request(self.nodeCtx, entries),
-    )
+    ## No-op by design. The external provider takes its bootstrap entries when
+    ## it initialises, and libp2p offers no call to add more afterwards, so
+    ## there is no plugin entry point to forward these to. Succeeding rather
+    ## than failing keeps the node's bootstrap wiring uniform across backends:
+    ## the caller has nothing to do differently for this one.
+    if entries.len > 0:
+      debug "external backend takes bootstrap entries at provider init, ignoring",
+        count = entries.len
+    ok()
