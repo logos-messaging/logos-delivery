@@ -1,18 +1,19 @@
 import chronicles, results, chronos
 import logos_delivery/waku/factory/waku_conf
+import ./kademlia_discovery_conf_builder
 
 logScope:
   topics = "waku conf builder external discovery"
 
-const
-  DefaultExternalDiscoveryEnabled*: bool = false
-  DefaultExternalRandomLookupIntervalMs*: uint32 = 60_000
-  DefaultExternalServiceLookupIntervalMs*: uint32 = 60_000
+const DefaultPluginKadEnabled*: bool = false
 
 type ExternalDiscoveryConfBuilder* = object
+  ## Kademlia service discovery hosted by a plugin rather than in-process.
+  ## The lookup intervals are the in-process backend's own defaults: the two
+  ## are alternative hosts for one protocol, so they share the knobs.
   enabled*: Opt[bool]
-  serviceLookupIntervalMs*: Opt[uint32]
-  randomLookupIntervalMs*: Opt[uint32]
+  serviceLookupInterval*: Opt[Duration]
+  randomLookupInterval*: Opt[Duration]
 
 proc init*(T: type ExternalDiscoveryConfBuilder): ExternalDiscoveryConfBuilder =
   ExternalDiscoveryConfBuilder()
@@ -20,39 +21,37 @@ proc init*(T: type ExternalDiscoveryConfBuilder): ExternalDiscoveryConfBuilder =
 proc withEnabled*(b: var ExternalDiscoveryConfBuilder, enabled: bool) =
   b.enabled = Opt.some(enabled)
 
-proc withServiceLookupIntervalMs*(
-    b: var ExternalDiscoveryConfBuilder, intervalMs: uint32
+proc withServiceLookupInterval*(
+    b: var ExternalDiscoveryConfBuilder, interval: Duration
 ) =
-  b.serviceLookupIntervalMs = Opt.some(intervalMs)
+  b.serviceLookupInterval = Opt.some(interval)
 
-proc withRandomLookupIntervalMs*(
-    b: var ExternalDiscoveryConfBuilder, intervalMs: uint32
+proc withRandomLookupInterval*(
+    b: var ExternalDiscoveryConfBuilder, interval: Duration
 ) =
-  b.randomLookupIntervalMs = Opt.some(intervalMs)
+  b.randomLookupInterval = Opt.some(interval)
 
 proc build*(
     b: ExternalDiscoveryConfBuilder
 ): Result[Opt[ExternalDiscoveryConf], string] =
-  # Unlike kademlia, nothing here can imply intent: the plugin arrives at
-  # runtime and carries no config, so only the explicit flag enables it.
-  if not b.enabled.get(DefaultExternalDiscoveryEnabled):
+  # Unlike the in-process backend, nothing here can imply intent: the plugin
+  # arrives at runtime and carries no config, and no network preset can name
+  # it. Only the explicit flag enables it.
+  if not b.enabled.get(DefaultPluginKadEnabled):
     return ok(Opt.none(ExternalDiscoveryConf))
 
-  let serviceIntervalMs =
-    b.serviceLookupIntervalMs.get(DefaultExternalServiceLookupIntervalMs)
-  let randomIntervalMs =
-    b.randomLookupIntervalMs.get(DefaultExternalRandomLookupIntervalMs)
+  let serviceInterval = b.serviceLookupInterval.get(DefaultServiceLookupInterval)
+  let randomInterval = b.randomLookupInterval.get(DefaultRandomLookupInterval)
 
-  if serviceIntervalMs == 0:
-    return err("External discovery service lookup interval must be greater than 0")
-  if randomIntervalMs == 0:
-    return err("External discovery random lookup interval must be greater than 0")
+  if serviceInterval <= ZeroDuration:
+    return err("Plugin kad discovery service lookup interval must be greater than 0")
+  if randomInterval <= ZeroDuration:
+    return err("Plugin kad discovery random lookup interval must be greater than 0")
 
   return ok(
     Opt.some(
       ExternalDiscoveryConf(
-        serviceLookupIntervalMs: serviceIntervalMs,
-        randomLookupIntervalMs: randomIntervalMs,
+        serviceLookupInterval: serviceInterval, randomLookupInterval: randomInterval
       )
     )
   )
