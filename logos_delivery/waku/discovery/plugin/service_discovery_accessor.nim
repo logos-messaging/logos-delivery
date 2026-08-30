@@ -68,14 +68,6 @@ type
   ): cint {.cdecl, gcsafe, raises: [].}
     ## stopAdvertising / registerInterest / unregisterInterest
 
-  LdDiscoAddBootstrapEntriesFn* = proc(
-    pluginCtx: pointer,
-    entries: ptr UncheckedArray[cstring],
-    entriesLen: csize_t,
-    errBuf: cstring,
-    errBufLen: csize_t,
-  ): cint {.cdecl, gcsafe, raises: [].}
-
 type ServiceDiscoveryPlugin* = object
   ## Layout-compatible with `LdServiceDiscoveryPlugin`: field-for-field, which
   ## is the whole of what the C boundary needs. It is never passed to or from
@@ -96,7 +88,6 @@ type ServiceDiscoveryPlugin* = object
   stopAdvertising*: LdDiscoKeyFn
   registerInterest*: LdDiscoKeyFn
   unregisterInterest*: LdDiscoKeyFn
-  addBootstrapEntries*: LdDiscoAddBootstrapEntriesFn
 
 proc requestTimeout*(plugin: ServiceDiscoveryPlugin): Duration =
   if plugin.requestTimeoutMs == 0:
@@ -115,8 +106,7 @@ proc validate*(plugin: ServiceDiscoveryPlugin): Result[void, string] =
   if plugin.start.isNil() or plugin.stop.isNil() or plugin.lookup.isNil() or
       plugin.randomLookup.isNil() or plugin.freeString.isNil() or
       plugin.startAdvertising.isNil() or plugin.stopAdvertising.isNil() or
-      plugin.registerInterest.isNil() or plugin.unregisterInterest.isNil() or
-      plugin.addBootstrapEntries.isNil():
+      plugin.registerInterest.isNil() or plugin.unregisterInterest.isNil():
     return err("service discovery plugin: missing entry point")
   ok()
 
@@ -166,8 +156,3 @@ RequestBroker(mt):
 
 RequestBroker(mt):
   proc pluginUnregisterInterest(key: string): Future[Result[void, string]] {.async.}
-
-RequestBroker(mt):
-  proc pluginAddBootstrapEntries(
-    entries: seq[string]
-  ): Future[Result[void, string]] {.async.}
