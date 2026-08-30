@@ -216,26 +216,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
       return err(readErr(errBuf, rc, "unregisterInterest"))
     ok()
 
-  discard PluginAddBootstrapEntries.reprovideIt(ctx):
-    if entries.len == 0:
-      return ok()
-    var
-      errBuf = newString(LdDiscoErrBufLen)
-      entryCopies = entries
-      cstrs = newSeq[cstring](entryCopies.len)
-    for i in 0 ..< entryCopies.len:
-      cstrs[i] = entryCopies[i].cstring
-    let rc = plugin.addBootstrapEntries(
-      plugin.pluginCtx,
-      cast[ptr UncheckedArray[cstring]](addr cstrs[0]),
-      cstrs.len.csize_t,
-      errBuf.cstring,
-      errBuf.len.csize_t,
-    )
-    if rc != LdDiscoOk:
-      return err(readErr(errBuf, rc, "addBootstrapEntries"))
-    ok()
-
   arg.ready[].store(true)
   info "service discovery worker started", ctx = $ctx
 
@@ -268,7 +248,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
   PluginStopAdvertising.clearProvider(ctx)
   PluginRegisterInterest.clearProvider(ctx)
   PluginUnregisterInterest.clearProvider(ctx)
-  PluginAddBootstrapEntries.clearProvider(ctx)
 
   info "service discovery worker stopped", ctx = $ctx
 
