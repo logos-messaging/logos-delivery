@@ -8,7 +8,7 @@
 ## ever awaits an MT request. Calls are serialized: the providers run one at a
 ## time on this single thread, so a plugin need not be reentrant.
 
-import std/[json, base64, locks]
+import std/[json, base64]
 import chronos, chronicles, results
 import brokers/broker_context
 import
@@ -18,35 +18,35 @@ import
 logScope:
   topics = "waku discovery worker"
 
-## One worker per node (broker context), living exactly as long as that
-## node's discovery is running: spawned by `startDiscovery`, joined by
-## `stopDiscovery`. The `(mt)` providers a worker registers are bound to the
-## context it was spawned with, so a shared worker could only ever serve the
-## node that started it -- every other node's requests would find no provider.
-## Slots live in a fixed global array: the flags are atomics read across
-## threads, so they must not sit on any one thread's heap.
+## One worker per discovery session, owned by the `ExternalServiceDiscovery`
+## that spawns it: `startDiscovery` starts it, `stopDiscovery` joins it.
+##
+## The vtable travels as the thread argument. It is plain pointers and
+## scalars, so it copies onto the worker's stack with nothing shared and
+## nothing to guard -- and it cannot change underneath, because registering
+## is refused while discovery runs. That is why no lock or lookup appears
+## anywhere below.
+##
+## The stop/ready flags are the one thing both threads touch, so they live in
+## shared memory rather than on either thread's heap.
+
 type
-  WorkerArg = tuple[ctx: BrokerContext, idx: int]
+  WorkerArg =
+    tuple[
+      ctx: BrokerContext,
+      plugin: ServiceDiscoveryPlugin,
+      shutdown: ptr Atomic[bool],
+      ready: ptr Atomic[bool],
+    ]
 
-  WorkerSlot = object
+  ServiceDiscoveryWorker* = ref object
+    ## Held by the backend that spawns it, so a worker belongs to exactly one
+    ## node by construction rather than by keying a shared table. A ref both
+    ## gives the thread a stable address and lets the async `start` capture it.
     thread: Thread[WorkerArg]
-    ctx: BrokerContext
+    shutdown: ptr Atomic[bool]
+    ready: ptr Atomic[bool]
     running: bool
-    shutdown: Atomic[bool]
-    ready: Atomic[bool]
-
-var
-  workerLock: Lock
-  workerSlots: array[MaxDiscoveryContexts, WorkerSlot]
-
-workerLock.initLock()
-
-proc slotFor(ctx: BrokerContext): int =
-  ## Caller holds `workerLock`.
-  for i in 0 ..< workerSlots.len:
-    if workerSlots[i].running and workerSlots[i].ctx == ctx:
-      return i
-  -1
 
 proc parsePeers(payload: string): Result[seq[DiscoveredPeer], string] =
   ## Parses the plugin's JSON array, shaped like the libp2p module's
@@ -111,19 +111,13 @@ proc takeJson(plugin: ServiceDiscoveryPlugin, outJson: cstring): string =
   result = $outJson
   plugin.freeString(plugin.pluginCtx, outJson)
 
-proc pluginOrErr(ctx: BrokerContext): Result[ServiceDiscoveryPlugin, string] =
-  let plugin = loadPlugin(ctx).valueOr:
-    return err("service discovery plugin: none installed")
-  ?plugin.validate()
-  ok(plugin)
-
 proc workerMain(arg: WorkerArg) {.thread.} =
   ## Owns a chronos loop for one discovery session; that node's MT brokers
-  ## dispatch onto it. The slot index travels with the context because the
-  ## slot is not marked running until `createThread` has returned, so the
-  ## thread cannot look itself up by context.
+  ## dispatch onto it.
   let ctx = arg.ctx
-  let slot = arg.idx
+  ## Our own copy of the vtable, validated by `startDiscovery` before the
+  ## thread was spawned and immutable for as long as it lives.
+  let plugin = arg.plugin
   setThreadBrokerContext(ctx)
 
   # reprovide, not provide: a previous worker generation may still hold a
@@ -131,7 +125,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
   # One provider per plugin entry point -- each calls its own vtable slot.
 
   discard PluginStart.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     var errBuf = newString(LdDiscoErrBufLen)
     let rc = plugin.start(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
     if rc != LdDiscoOk:
@@ -139,7 +132,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
     ok()
 
   discard PluginStop.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     var errBuf = newString(LdDiscoErrBufLen)
     let rc = plugin.stop(plugin.pluginCtx, errBuf.cstring, errBuf.len.csize_t)
     if rc != LdDiscoOk:
@@ -147,7 +139,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
     ok()
 
   discard PluginLookup.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     var
       errBuf = newString(LdDiscoErrBufLen)
       outJson: cstring = nil
@@ -164,7 +155,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
     parsePeers(plugin.takeJson(outJson))
 
   discard PluginRandomLookup.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     var
       errBuf = newString(LdDiscoErrBufLen)
       outJson: cstring = nil
@@ -176,7 +166,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
     parsePeers(plugin.takeJson(outJson))
 
   discard PluginStartAdvertising.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     var
       errBuf = newString(LdDiscoErrBufLen)
       dataCopy = data
@@ -201,7 +190,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
     ok()
 
   discard PluginStopAdvertising.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     var errBuf = newString(LdDiscoErrBufLen)
     let rc = plugin.stopAdvertising(
       plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
@@ -211,7 +199,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
     ok()
 
   discard PluginRegisterInterest.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     var errBuf = newString(LdDiscoErrBufLen)
     let rc = plugin.registerInterest(
       plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
@@ -221,7 +208,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
     ok()
 
   discard PluginUnregisterInterest.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     var errBuf = newString(LdDiscoErrBufLen)
     let rc = plugin.unregisterInterest(
       plugin.pluginCtx, key.cstring, errBuf.cstring, errBuf.len.csize_t
@@ -231,7 +217,6 @@ proc workerMain(arg: WorkerArg) {.thread.} =
     ok()
 
   discard PluginAddBootstrapEntries.reprovideIt(ctx):
-    let plugin = ?pluginOrErr(ctx)
     if entries.len == 0:
       return ok()
     var
@@ -251,20 +236,20 @@ proc workerMain(arg: WorkerArg) {.thread.} =
       return err(readErr(errBuf, rc, "addBootstrapEntries"))
     ok()
 
-  workerSlots[slot].ready.store(true)
+  arg.ready[].store(true)
   info "service discovery worker started", ctx = $ctx
 
   # A timer keeps the loop from parking forever with no pending work, so the
   # shutdown flag is observed promptly.
   proc tick() {.async: (raises: []).} =
-    while not workerSlots[slot].shutdown.load():
+    while not arg.shutdown[].load():
       try:
         await sleepAsync(chronos.milliseconds(50))
       except CancelledError:
         return
 
   let ticker = tick()
-  while not workerSlots[slot].shutdown.load():
+  while not arg.shutdown[].load():
     try:
       poll()
     except CatchableError:
@@ -287,50 +272,40 @@ proc workerMain(arg: WorkerArg) {.thread.} =
 
   info "service discovery worker stopped", ctx = $ctx
 
-proc startWorker*(
-    ctx: BrokerContext
+proc new*(T: type ServiceDiscoveryWorker): ServiceDiscoveryWorker =
+  ServiceDiscoveryWorker()
+
+proc start*(
+    w: ServiceDiscoveryWorker, ctx: BrokerContext, plugin: ServiceDiscoveryPlugin
 ): Future[Result[void, string]] {.async: (raises: []).} =
-  ## Spawns this node's discovery worker and waits until its (mt) providers
-  ## are registered — a request issued before that would find no provider.
-  ## Idempotent per context. Paired with `stopWorker`, which joins it again;
-  ## the worker exists only while that node's discovery runs.
-  var
-    idx = -1
-    running = false
-    spawnErr = ""
-
-  withLock workerLock:
-    {.gcsafe.}:
-      if slotFor(ctx) >= 0:
-        running = true
-      else:
-        for i in 0 ..< workerSlots.len:
-          if not workerSlots[i].running:
-            idx = i
-            break
-        if idx < 0:
-          spawnErr =
-            "no free service discovery worker slot (max " & $MaxDiscoveryContexts &
-            " nodes)"
-        else:
-          workerSlots[idx].ctx = ctx
-          workerSlots[idx].shutdown.store(false)
-          workerSlots[idx].ready.store(false)
-          try:
-            createThread(workerSlots[idx].thread, workerMain, (ctx: ctx, idx: idx))
-            workerSlots[idx].running = true
-          except ResourceExhaustedError:
-            spawnErr = "could not spawn service discovery worker thread"
-            idx = -1
-
-  if running:
+  ## Spawns the worker and waits until its (mt) providers are registered — a
+  ## request issued before that would find no provider.
+  if w.running:
     return ok()
-  if spawnErr.len > 0:
-    return err(spawnErr)
+
+  w.shutdown = createShared(Atomic[bool])
+  w.ready = createShared(Atomic[bool])
+  w.shutdown[].store(false)
+  w.ready[].store(false)
+
+  try:
+    createThread(
+      w.thread,
+      workerMain,
+      (ctx: ctx, plugin: plugin, shutdown: w.shutdown, ready: w.ready),
+    )
+  except ResourceExhaustedError:
+    deallocShared(w.shutdown)
+    deallocShared(w.ready)
+    w.shutdown = nil
+    w.ready = nil
+    return err("could not spawn service discovery worker thread")
+
+  w.running = true
 
   const ReadyTimeout = 100
   for _ in 0 ..< ReadyTimeout:
-    if workerSlots[idx].ready.load():
+    if w.ready[].load():
       return ok()
     try:
       await sleepAsync(chronos.milliseconds(20))
@@ -339,27 +314,22 @@ proc startWorker*(
 
   err("service discovery worker did not become ready")
 
-proc stopWorker*(ctx: BrokerContext) =
-  ## Signals this node's worker and joins it. A plugin call already in flight
-  ## keeps the thread busy until it returns on its own (the module side caps
-  ## its own waits, so this is bounded). Other nodes' workers are untouched.
+proc stop*(w: ServiceDiscoveryWorker) =
+  ## Signals the worker and joins it. A plugin call already in flight keeps
+  ## the thread busy until it returns on its own (the module side caps its own
+  ## waits, so this is bounded).
   ##
-  ## The worker serves one node's discovery and must not outlive it, so this
-  ## runs whenever that discovery stops. Safe to pair with a later
-  ## `startWorker` on the same context: the exiting thread hands its (mt)
-  ## buckets back, so the next worker registers cleanly rather than inheriting
-  ## a registration that points at a joined thread.
-  var idx = -1
-  withLock workerLock:
-    {.gcsafe.}:
-      idx = slotFor(ctx)
-  if idx < 0:
+  ## Safe to pair with a later `start` on the same context: the exiting thread
+  ## hands its (mt) buckets back, so the next worker registers cleanly rather
+  ## than inheriting a registration that points at a joined thread.
+  if not w.running:
     return
 
-  workerSlots[idx].shutdown.store(true)
-  joinThread(workerSlots[idx].thread)
+  w.shutdown[].store(true)
+  joinThread(w.thread)
 
-  withLock workerLock:
-    {.gcsafe.}:
-      workerSlots[idx].running = false
-      workerSlots[idx].ctx = default(BrokerContext)
+  deallocShared(w.shutdown)
+  deallocShared(w.ready)
+  w.shutdown = nil
+  w.ready = nil
+  w.running = false

@@ -233,21 +233,6 @@ suite "ExternalServiceDiscovery":
 
     check (await backend.stopDiscovery()).isOk()
 
-  asyncTest "configured without a valid plugin refuses to start":
-    ## A node configured for external discovery but left without a usable
-    ## plugin must fail to start, not come up believing it has discovery.
-    let backend = ExternalServiceDiscovery.create()
-    let ctx = globalBrokerContext()
-    var bad = fakePlugin()
-    bad.lookup = nil
-    check storePlugin(ctx, bad).isOk() # bypasses the broker's validation
-
-    let res = await backend.startDiscovery()
-    check:
-      res.isErr()
-      "missing entry point" in res.error
-    dropPlugin(ctx)
-
   asyncTest "configured but unregistered: verbs refuse to run":
     ## Config alone is not enough — the plugin half must be there too.
     let backend = ExternalServiceDiscovery.create()
@@ -257,26 +242,6 @@ suite "ExternalServiceDiscovery":
     check:
       res.isErr()
       "no service discovery plugin registered" in res.error
-
-  asyncTest "a plugin that loses an entry point is refused at use time":
-    ## Registration validates, and so does every call: a vtable that went
-    ## partial after the fact can never be invoked.
-    let ctx = globalBrokerContext()
-    let backend = ExternalServiceDiscovery.create()
-    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
-    check (await backend.startDiscovery()).isOk()
-
-    var partial = fakePlugin()
-    partial.lookup = nil
-    check storePlugin(ctx, partial).isOk() # bypasses the broker's validation
-
-    let res = await backend.lookupRandom()
-    check:
-      res.isErr()
-      "missing entry point" in res.error
-
-    discard await backend.stopDiscovery()
-    dropPlugin(ctx)
 
   asyncTest "plugin error text is surfaced":
     let backend = ExternalServiceDiscovery.create()
@@ -341,8 +306,11 @@ suite "ExternalServiceDiscovery":
       check (await backend.lookupRandom()).isOk()
       check (await backend.stopDiscovery()).isOk()
       check not fake.started.load()
-      ## Still registered, untouched by the stop.
-      check loadPlugin(ctx).isSome()
 
+    ## Observable proof the registration survived every cycle: once it is
+    ## finally cleared, starting is refused again.
     check (await ClearServiceDiscoveryPlugin.request(ctx)).isOk()
-    check loadPlugin(ctx).isNone()
+    let res = await backend.startDiscovery()
+    check:
+      res.isErr()
+      "no service discovery plugin registered" in res.error
