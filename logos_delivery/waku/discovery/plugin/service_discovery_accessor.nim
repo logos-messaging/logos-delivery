@@ -76,8 +76,11 @@ type
     errBufLen: csize_t,
   ): cint {.cdecl, gcsafe, raises: [].}
 
-type ServiceDiscoveryPlugin* {.bycopy.} = object
-  ## Layout-compatible with `LdServiceDiscoveryPlugin`.
+type ServiceDiscoveryPlugin* = object
+  ## Layout-compatible with `LdServiceDiscoveryPlugin`: field-for-field, which
+  ## is the whole of what the C boundary needs. It is never passed to or from
+  ## a C function -- the entry point takes the struct's address and derefs it
+  ## -- so no calling-convention pragma applies here.
   abiVersion*: uint32
   pluginCtx*: pointer
   requestTimeoutMs*: uint32
