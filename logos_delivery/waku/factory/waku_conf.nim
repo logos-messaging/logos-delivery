@@ -52,13 +52,16 @@ type DnsDiscoveryConf* {.requiresInit.} = object
   nameServers*: seq[IpAddress]
 
 type ExternalDiscoveryConf* {.requiresInit.} = object
-  ## Discovery delegated to an external provider (logos-libp2p-module via
-  ## glue in logos-delivery-module). The plugin is registered at
-  ## runtime by an external entity; until then the backend stays inert.
-  ## The per-request timeout is not configured here -- it belongs to the
-  ## registered plugin.
-  serviceLookupIntervalMs*: uint32
-  randomLookupIntervalMs*: uint32
+  ## Kademlia service discovery hosted by an external provider
+  ## (logos-libp2p-module via glue in logos-delivery-module) instead of
+  ## in-process. The plugin is registered at runtime by an external entity;
+  ## until then the backend stays inert. The per-request timeout is not
+  ## configured here -- it belongs to the registered plugin.
+  ##
+  ## Lookup intervals are the same knobs the in-process backend uses: the two
+  ## are alternative hosts for one protocol, so they are tuned alike.
+  serviceLookupInterval*: Duration
+  randomLookupInterval*: Duration
 
 type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32
