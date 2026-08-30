@@ -680,6 +680,23 @@ proc build*(
   let externalDiscoveryConf = builder.externalDiscoveryConf.build().valueOr:
     return err("External Discovery Conf building failed: " & $error)
 
+  ## Internal and external service discovery are the same libp2p protocol,
+  ## one hosted in-process and one behind the plugin -- and the external
+  ## provider brings its own switch and peer store. Running both would put
+  ## this node into the same DHT twice under two identities, advertising the
+  ## same services from each. Discv5 is unaffected: it is a different protocol
+  ## over a different peer set and stays independent of both.
+  ##
+  ## Refused rather than silently resolved, because a network preset can turn
+  ## kademlia on without the operator naming it, so picking a winner here
+  ## would leave them with discovery they did not ask for.
+  if kademliaDiscoveryConf.isSome() and externalDiscoveryConf.isSome():
+    return err(
+      "Internal and external service discovery are mutually exclusive, but both " &
+        "are enabled. Note a network preset may have enabled kademlia discovery: " &
+        "pass --enable-kad-discovery=false to use the external provider instead."
+    )
+
   # End - Build sub-configs
 
   let logLevel =

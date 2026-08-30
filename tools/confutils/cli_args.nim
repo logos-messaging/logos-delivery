@@ -694,8 +694,9 @@ hence would have reachability issues.""",
     # backend is only built when the flag is set explicitly.
     enableExternalDiscovery* {.
       desc:
-        "Enable service discovery delegated to an externally registered plugin. Default is " &
-        $DefaultExternalDiscoveryEnabled & ".",
+        "Enable service discovery delegated to an externally registered plugin. " &
+        "Replaces internal kademlia service discovery, which must be off (a network " &
+        "preset may enable it). Default is " & $DefaultExternalDiscoveryEnabled & ".",
       defaultValue: Opt.none(bool),
       name: "enable-external-discovery"
     .}: Opt[bool]
