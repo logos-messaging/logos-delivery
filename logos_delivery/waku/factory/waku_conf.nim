@@ -27,6 +27,19 @@ import
 
 export RlnConf, RlnCreds, RestServerConf, Discv5Conf, MetricsServerConf
 
+const ServingCapabilities* =
+  [Capabilities.Relay, Capabilities.Store, Capabilities.Filter, Capabilities.Lightpush]
+  ## What makes a node worth discovering. Relay counts: relay-only nodes still
+  ## need to find each other, they just serve the mesh rather than clients.
+
+func isServiceNode*(flags: CapabilitiesBitfield): bool =
+  ## A node offering none of these has nothing to advertise -- it is an edge
+  ## node that only consumes discovery.
+  for cap in ServingCapabilities:
+    if flags.supportsCapability(cap):
+      return true
+  false
+
 logScope:
   topics = "waku conf"
 
