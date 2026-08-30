@@ -6,16 +6,15 @@
 ##
 ## Two broker lanes meet here, deliberately:
 ##
-## * **Registration** rides a plain single-thread RequestBroker. The vtable is
-##   full of `pointer`/proc fields, which the (mt) codec rejects at compile
-##   time, so it can never travel as an MT payload. Instead the provider
-##   stores it in the lock-guarded global below, which the discovery worker
-##   thread reads. That is safe: the vtable holds no GC memory.
+## * **Registration** rides a plain single-thread RequestBroker, so it is
+##   served on the node's own thread and the backend can simply keep the
+##   vtable as instance state. It could not travel any other way: the struct
+##   is full of `pointer`/proc fields, which the (mt) codec rejects at compile
+##   time. The worker receives it as its thread argument instead.
 ## * **Calls** ride `(mt)` RequestBrokers whose providers live on the worker
 ##   thread. Their payloads are plain Nim types, so results are marshalled
 ##   onto the caller's heap and the node's event loop only ever awaits.
 
-import std/locks
 import brokers/broker_context
 import chronos, results
 import brokers/request_broker
@@ -118,76 +117,11 @@ proc validate*(plugin: ServiceDiscoveryPlugin): Result[void, string] =
     return err("service discovery plugin: missing entry point")
   ok()
 
-## The installed vtables, one per node (broker context), shared between the
-## registering thread and that node's discovery worker. Guarded rather than
-## passed through a broker because the (mt) codec forbids pointer/proc payload
-## fields. Safe to share: no GC memory, and every field is written under the
-## lock.
-##
-## A plain array rather than a Table on purpose. Under refc a heap-allocated
-## container belongs to the thread that grew it, and this one is read from the
-## worker threads; a fixed global array is process memory with no allocation
-## and no owner.
+# --- registration (single-thread lane) ---
 
-const MaxDiscoveryContexts* = 32
-  ## One plugin and one worker per node. Mirrors nim-ffi's `MaxFFIContexts`,
-  ## which caps how many nodes a process can hold in the first place. Not
-  ## imported from there: the node must not pull in the FFI library.
-
-type PluginSlot = object
-  ctx: BrokerContext
-  plugin: ServiceDiscoveryPlugin
-  inUse: bool
-
-var
-  pluginLock: Lock
-  pluginSlots {.guard: pluginLock.}: array[MaxDiscoveryContexts, PluginSlot]
-
-pluginLock.initLock()
-
-proc storePlugin*(
-    ctx: BrokerContext, plugin: ServiceDiscoveryPlugin
-): Result[void, string] =
-  ## Installs (or replaces) the plugin for one node. Registering for a second
-  ## node cannot disturb the first: each owns its own slot, keyed by context.
-  withLock pluginLock:
-    {.gcsafe.}:
-      var free = -1
-      for i in 0 ..< pluginSlots.len:
-        if pluginSlots[i].inUse and pluginSlots[i].ctx == ctx:
-          pluginSlots[i].plugin = plugin
-          return ok()
-        if free < 0 and not pluginSlots[i].inUse:
-          free = i
-      if free < 0:
-        return err(
-          "service discovery plugin: no free slot (max " & $MaxDiscoveryContexts &
-            " nodes)"
-        )
-      pluginSlots[free] = PluginSlot(ctx: ctx, plugin: plugin, inUse: true)
-  ok()
-
-proc dropPlugin*(ctx: BrokerContext) =
-  withLock pluginLock:
-    {.gcsafe.}:
-      for i in 0 ..< pluginSlots.len:
-        if pluginSlots[i].inUse and pluginSlots[i].ctx == ctx:
-          pluginSlots[i] = PluginSlot()
-          return
-
-proc loadPlugin*(ctx: BrokerContext): Opt[ServiceDiscoveryPlugin] =
-  withLock pluginLock:
-    {.gcsafe.}:
-      for i in 0 ..< pluginSlots.len:
-        if pluginSlots[i].inUse and pluginSlots[i].ctx == ctx:
-          return Opt.some(pluginSlots[i].plugin)
-  Opt.none(ServiceDiscoveryPlugin)
-
-# --- registration (single-thread lane: the vtable cannot cross threads) ---
-
-# Installs (or replaces) the plugin backing ExternalServiceDiscovery.
-# Provided by the backend instance; requested by the FFI entry point, so the
-# library layer needs no handle on the instance.
+# Installs (or replaces) the plugin backing ExternalServiceDiscovery, which
+# keeps it as instance state. Provided by the backend instance; requested by
+# the FFI entry point, so the library layer needs no handle on the instance.
 RequestBroker:
   proc setServiceDiscoveryPlugin(
     plugin: ServiceDiscoveryPlugin
