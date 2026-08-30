@@ -1,11 +1,14 @@
 {.used.}
 
 import std/strutils
-import results, testutils/unittests
+import chronos, results, testutils/unittests
 import
+  logos_delivery/api/conf/logos_delivery_conf_json,
+  logos_delivery/api/conf/logos_delivery_conf,
   tools/confutils/cli_args,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/factory/conf_builder/external_discovery_conf_builder,
+  logos_delivery/waku/factory/conf_builder/kademlia_discovery_conf_builder,
   logos_delivery/waku/factory/networks_config
 
 suite "WakuNodeConf - preset integration":
@@ -143,9 +146,9 @@ suite "WakuNodeConf - external discovery":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    conf.enableExternalDiscovery = Opt.some(true)
-    conf.externalDiscoveryServiceLookupIntervalMs = 1500
-    conf.externalDiscoveryRandomLookupIntervalMs = 2500
+    conf.pluginKadDiscovery = Opt.some(true)
+    conf.kadServiceLookupIntervalSec = 15
+    conf.kadRandomLookupIntervalSec = 25
 
     ## When
     let wakuConf = conf.toWakuConf().valueOr:
@@ -155,14 +158,14 @@ suite "WakuNodeConf - external discovery":
     require wakuConf.externalDiscoveryConf.isSome()
     let extConf = wakuConf.externalDiscoveryConf.get()
     check:
-      extConf.serviceLookupIntervalMs == 1500
-      extConf.randomLookupIntervalMs == 2500
+      extConf.serviceLookupInterval == chronos.seconds(15)
+      extConf.randomLookupInterval == chronos.seconds(25)
 
   test "enabling it without intervals falls back to the defaults":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    conf.enableExternalDiscovery = Opt.some(true)
+    conf.pluginKadDiscovery = Opt.some(true)
 
     ## When
     let wakuConf = conf.toWakuConf().valueOr:
@@ -172,8 +175,8 @@ suite "WakuNodeConf - external discovery":
     require wakuConf.externalDiscoveryConf.isSome()
     let extConf = wakuConf.externalDiscoveryConf.get()
     check:
-      extConf.serviceLookupIntervalMs == DefaultExternalServiceLookupIntervalMs
-      extConf.randomLookupIntervalMs == DefaultExternalRandomLookupIntervalMs
+      extConf.serviceLookupInterval == DefaultServiceLookupInterval
+      extConf.randomLookupInterval == DefaultRandomLookupInterval
 
 suite "WakuNodeConf - service discovery exclusivity":
   test "internal and external together are refused":
@@ -182,7 +185,7 @@ suite "WakuNodeConf - service discovery exclusivity":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.enableKadDiscovery = Opt.some(true)
-    conf.enableExternalDiscovery = Opt.some(true)
+    conf.pluginKadDiscovery = Opt.some(true)
 
     let res = conf.toWakuConf()
     check:
@@ -195,7 +198,7 @@ suite "WakuNodeConf - service discovery exclusivity":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.preset = "logosdev"
-    conf.enableExternalDiscovery = Opt.some(true)
+    conf.pluginKadDiscovery = Opt.some(true)
 
     let res = conf.toWakuConf()
     check:
@@ -206,7 +209,7 @@ suite "WakuNodeConf - service discovery exclusivity":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.preset = "logosdev"
-    conf.enableExternalDiscovery = Opt.some(true)
+    conf.pluginKadDiscovery = Opt.some(true)
     conf.enableKadDiscovery = Opt.some(false)
 
     let wakuConf = conf.toWakuConf().valueOr:
@@ -225,7 +228,7 @@ suite "WakuNodeConf - service discovery exclusivity":
 
     var externalOnly = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    externalOnly.enableExternalDiscovery = Opt.some(true)
+    externalOnly.pluginKadDiscovery = Opt.some(true)
     let b = externalOnly.toWakuConf().valueOr:
       raiseAssert error
 
@@ -243,10 +246,93 @@ suite "WakuNodeConf - service discovery exclusivity":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.discv5Discovery = Opt.some(true)
-    conf.enableExternalDiscovery = Opt.some(true)
+    conf.pluginKadDiscovery = Opt.some(true)
 
     let wakuConf = conf.toWakuConf().valueOr:
       raiseAssert error
     check:
       wakuConf.discv5Conf.isSome()
       wakuConf.externalDiscoveryConf.isSome()
+
+suite "MessagingClientConf - discovery overrides":
+  ## The structured entry layers (messaging / channels) build their kernel conf
+  ## from mode + MessagingClientConf + preset, so a discovery setting is only
+  ## reachable there if it has a field here.
+
+  proc kernelOf(js: string): WakuConf =
+    let parsed = parseLogosDeliveryConf(js).valueOr:
+      raiseAssert error
+    WakuNodeConf(parsed.kernelConf).toWakuConf().valueOr:
+      raiseAssert error
+
+  test "channels layer can enable plugin-hosted kademlia":
+    let c = kernelOf(
+      """{"entryLayer":"channels","messagingOverrides":{"pluginKadDiscovery":true}}"""
+    )
+    check:
+      c.externalDiscoveryConf.isSome()
+      c.kademliaDiscoveryConf.isNone()
+
+  test "choosing the plugin switches the in-process backend off under a preset":
+    ## The preset enables in-process kademlia. Without the switch in `merge`
+    ## this would trip the mutual-exclusion check instead of building.
+    let c = kernelOf(
+      """{"entryLayer":"channels","preset":"logosdev",
+         "messagingOverrides":{"pluginKadDiscovery":true}}"""
+    )
+    check:
+      c.externalDiscoveryConf.isSome()
+      c.kademliaDiscoveryConf.isNone()
+
+  test "channels layer can enable the in-process backend":
+    let c = kernelOf(
+      """{"entryLayer":"channels","messagingOverrides":{"enableKadDiscovery":true}}"""
+    )
+    check:
+      c.kademliaDiscoveryConf.isSome()
+      c.externalDiscoveryConf.isNone()
+
+  test "channels layer can turn discv5 off":
+    ## Discv5 is on by default and was previously unreachable from this layer.
+    let on = kernelOf("""{"entryLayer":"channels"}""")
+    let off = kernelOf(
+      """{"entryLayer":"channels","messagingOverrides":{"discv5Discovery":false}}"""
+    )
+    check:
+      on.discv5Conf.isSome()
+      off.discv5Conf.isNone()
+
+  test "one pair of interval knobs serves whichever kademlia host runs":
+    let overrides =
+      """"kadServiceLookupIntervalSec":11,"kadRandomLookupIntervalSec":22"""
+    let plugin = kernelOf(
+      """{"entryLayer":"channels","messagingOverrides":{"pluginKadDiscovery":true,""" &
+        overrides & "}}"
+    )
+    let inProcess = kernelOf(
+      """{"entryLayer":"channels","messagingOverrides":{"enableKadDiscovery":true,""" &
+        overrides & "}}"
+    )
+    check:
+      plugin.externalDiscoveryConf.get().serviceLookupInterval == chronos.seconds(11)
+      plugin.externalDiscoveryConf.get().randomLookupInterval == chronos.seconds(22)
+      inProcess.kademliaDiscoveryConf.get().serviceLookupInterval == chronos.seconds(11)
+      inProcess.kademliaDiscoveryConf.get().randomLookupInterval == chronos.seconds(22)
+
+  test "kebab-case switch names work alongside field names":
+    let c = kernelOf(
+      """{"entryLayer":"channels","messagingOverrides":{"plugin-kad-discovery":true,
+         "kad-service-lookup-interval":33}}"""
+    )
+    check:
+      c.externalDiscoveryConf.isSome()
+      c.externalDiscoveryConf.get().serviceLookupInterval == chronos.seconds(33)
+
+  test "messaging layer reaches them too, with bootstrap nodes":
+    let c = kernelOf(
+      """{"entryLayer":"messaging","preset":"logosdev",
+         "messagingOverrides":{"enableKadDiscovery":true,
+         "kadBootstrapNodes":["/ip4/1.2.3.4/tcp/60000/p2p/16Uiu2HAm7r91vZXfGsVMLva87nLhEk3Cpnv7VhXqp7mA4MKhC3bu"]}}"""
+    )
+    require c.kademliaDiscoveryConf.isSome()
+    check c.kademliaDiscoveryConf.get().bootstrapNodes.len > 0

@@ -688,30 +688,18 @@ hence would have reachability issues.""",
       name: "kad-service-lookup-interval"
     .}: uint32
 
-    # External Discovery config
-    # Discovery delegated to an external provider, which registers its plugin
-    # at runtime over the FFI surface. Nothing here implies intent, so the
-    # backend is only built when the flag is set explicitly.
-    enableExternalDiscovery* {.
+    # Plugin-hosted Kademlia discovery
+    # The same service discovery as above, hosted by an externally registered
+    # plugin instead of in-process. Mutually exclusive with the in-process
+    # backend; the lookup intervals above apply to whichever is running.
+    pluginKadDiscovery* {.
       desc:
-        "Enable service discovery delegated to an externally registered plugin. " &
-        "Replaces internal kademlia service discovery, which must be off (a network " &
-        "preset may enable it). Default is " & $DefaultExternalDiscoveryEnabled & ".",
+        "Run kademlia service discovery through an externally registered plugin " &
+        "instead of in-process. Turns off in-process kademlia discovery. Default is " &
+        $DefaultPluginKadEnabled & ".",
       defaultValue: Opt.none(bool),
-      name: "enable-external-discovery"
+      name: "plugin-kad-discovery"
     .}: Opt[bool]
-
-    externalDiscoveryServiceLookupIntervalMs* {.
-      desc: "Interval milliseconds between service-specific external lookups.",
-      defaultValue: 60_000,
-      name: "external-discovery-service-lookup-interval-ms"
-    .}: uint32
-
-    externalDiscoveryRandomLookupIntervalMs* {.
-      desc: "Interval milliseconds between random external lookups.",
-      defaultValue: 60_000,
-      name: "external-discovery-random-lookup-interval-ms"
-    .}: uint32
 
     ## websocket config
     websocketSupport* {.
@@ -1232,15 +1220,16 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
       chronos.seconds(n.kadServiceLookupIntervalSec.int64)
     )
 
-  if n.enableExternalDiscovery.isSome():
-    b.externalDiscoveryConf.withEnabled(n.enableExternalDiscovery.get())
-  if n.externalDiscoveryServiceLookupIntervalMs > 0:
-    b.externalDiscoveryConf.withServiceLookupIntervalMs(
-      n.externalDiscoveryServiceLookupIntervalMs
+  if n.pluginKadDiscovery.isSome():
+    b.externalDiscoveryConf.withEnabled(n.pluginKadDiscovery.get())
+  ## One pair of interval knobs for both hosts of the same protocol.
+  if n.kadRandomLookupIntervalSec > 0:
+    b.externalDiscoveryConf.withRandomLookupInterval(
+      chronos.seconds(n.kadRandomLookupIntervalSec.int64)
     )
-  if n.externalDiscoveryRandomLookupIntervalMs > 0:
-    b.externalDiscoveryConf.withRandomLookupIntervalMs(
-      n.externalDiscoveryRandomLookupIntervalMs
+  if n.kadServiceLookupIntervalSec > 0:
+    b.externalDiscoveryConf.withServiceLookupInterval(
+      chronos.seconds(n.kadServiceLookupIntervalSec.int64)
     )
 
   return b.build()

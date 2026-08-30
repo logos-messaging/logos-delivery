@@ -692,9 +692,10 @@ proc build*(
   ## would leave them with discovery they did not ask for.
   if kademliaDiscoveryConf.isSome() and externalDiscoveryConf.isSome():
     return err(
-      "Internal and external service discovery are mutually exclusive, but both " &
-        "are enabled. Note a network preset may have enabled kademlia discovery: " &
-        "pass --enable-kad-discovery=false to use the external provider instead."
+      "In-process and plugin-hosted kademlia discovery are mutually exclusive, " &
+        "but both are enabled. Note a network preset may have enabled the " &
+        "in-process one: pass --enable-kad-discovery=false alongside " &
+        "--plugin-kad-discovery to run the plugin instead."
     )
 
   # End - Build sub-configs
