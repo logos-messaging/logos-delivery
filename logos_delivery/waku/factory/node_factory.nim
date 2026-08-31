@@ -175,7 +175,14 @@ proc setupProtocols(
   #mount mix
   if conf.mixConf.isSome():
     let mixConf = conf.mixConf.get()
-    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
+    (
+      await node.mountMix(
+        conf.clusterId,
+        mixConf.mixKey,
+        mixConf.mixnodes,
+        spamProtection = mixConf.spamProtection,
+      )
+    ).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
 
   # Setup service discovery
