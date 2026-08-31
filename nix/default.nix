@@ -187,6 +187,7 @@ pkgs.stdenv.mkDerivation {
     cp library/liblogosdelivery.h        $out/include/
     cp library/liblogosdelivery_kernel.h $out/include/
     cp library/liblogosdelivery_rln.h    $out/include/
+    cp library/logosdelivery_service_discovery.h $out/include/
 
     # The public header includes the generated binding, which in turn includes
     # nim-ffi's CBOR helpers. Fail rather than ship an incomplete include tree.
