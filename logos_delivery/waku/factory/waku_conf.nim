@@ -15,7 +15,7 @@ import
 import
   ../net/nat_strategy,
   ../net/net_config,
-  ../rln/rln_evm/peer,
+  ../rln/rln_evm/rln_evm,
   ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
   ../discovery/waku_kademlia,

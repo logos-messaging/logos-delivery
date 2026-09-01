@@ -38,20 +38,20 @@ export types, config, proof, nullifier_log
 logScope:
   topics = "waku rln"
 
-proc stop*(rlnPeer: Rln) {.async: (raises: [Exception]).} =
+proc stop*(rlnEvm: RlnEvm) {.async: (raises: [Exception]).} =
   ## stops the rln protocol and epochmonitoring
   ## Throws an error if it cannot stop the rln protocol
 
-  if not rlnPeer.epochMonitorFuture.isNil():
-    await rlnPeer.epochMonitorFuture.cancelAndWait()
+  if not rlnEvm.epochMonitorFuture.isNil():
+    await rlnEvm.epochMonitorFuture.cancelAndWait()
 
   # stop the group sync, and flush data to tree db
   info "stopping rln"
-  RequestGenerateRlnProof.clearProvider(rlnPeer.brokerCtx)
-  await rlnPeer.groupManager.stop()
+  RequestGenerateRlnProof.clearProvider(rlnEvm.brokerCtx)
+  await rlnEvm.groupManager.stop()
 
 proc validateMessage*(
-    rlnPeer: RlnEvm, msg: WakuMessage
+    rlnEvm: RlnEvm, msg: WakuMessage
 ): Future[MessageValidationResult] {.async.} =
   ## validate the supplied `msg` based on the waku-rln-relay routing protocol i.e.,
   ## the `msg`'s epoch is within MaxEpochGap of the current epoch
@@ -75,15 +75,15 @@ proc validateMessage*(
   trace "Time info",
     currentTime = currentTime, messageTime = messageTime, msgHash = msg.hash
 
-  if timeDiff > rlnPeer.rlnMaxTimestampGap:
+  if timeDiff > rlnEvm.rlnMaxTimestampGap:
     debug "Invalid message: timestamp difference exceeds threshold",
       timeDiff = timeDiff,
-      maxTimestampGap = rlnPeer.rlnMaxTimestampGap,
+      maxTimestampGap = rlnEvm.rlnMaxTimestampGap,
       contentTopic = msg.contentTopic
     logos_delivery_rln_invalid_messages_total.inc(labelValues = ["invalid_timestamp"])
     return MessageValidationResult.Invalid
 
-  let computedEpoch = rlnPeer.calcEpoch(messageTime)
+  let computedEpoch = rlnEvm.calcEpoch(messageTime)
   if proof.epoch != computedEpoch:
     debug "Invalid message: timestamp mismatches epoch",
       proofEpoch = fromEpoch(proof.epoch),
@@ -92,11 +92,11 @@ proc validateMessage*(
     logos_delivery_rln_invalid_messages_total.inc(labelValues = ["timestamp_mismatch"])
     return MessageValidationResult.Invalid
 
-  let rootValidationRes = await rlnPeer.groupManager.validateRoot(proof.merkleRoot)
+  let rootValidationRes = await rlnEvm.groupManager.validateRoot(proof.merkleRoot)
   if not rootValidationRes:
     debug "Invalid message: provided root does not belong to acceptable window of roots",
       provided = proof.merkleRoot.inHex(),
-      validRoots = rlnPeer.groupManager.validRoots.mapIt(it.inHex()),
+      validRoots = rlnEvm.groupManager.validRoots.mapIt(it.inHex()),
       contentTopic = msg.contentTopic
     logos_delivery_rln_invalid_messages_total.inc(labelValues = ["invalid_root"])
     return MessageValidationResult.Invalid
@@ -110,7 +110,7 @@ proc validateMessage*(
   logos_delivery_rln_proof_verification_total.inc()
   logos_delivery_rln_proof_verification_duration_seconds.nanosecondTime:
     let proofVerificationRes =
-      rlnPeer.groupManager.verifyProof(msg.toRLNSignal(), proof)
+      rlnEvm.groupManager.verifyProof(msg.toRLNSignal(), proof)
 
   proofVerificationRes.isOkOr:
     logos_delivery_rln_errors_total.inc(labelValues = ["proof_verification"])
@@ -131,7 +131,7 @@ proc validateMessage*(
     return MessageValidationResult.Invalid
 
   let msgEpoch = proof.epoch
-  let hasDup = rlnPeer.hasDuplicate(msgEpoch, proofMetadata)
+  let hasDup = rlnEvm.hasDuplicate(msgEpoch, proofMetadata)
   if hasDup.isErr():
     logos_delivery_rln_errors_total.inc(labelValues = ["duplicate_check"])
   elif hasDup.value == true:
@@ -146,12 +146,12 @@ proc validateMessage*(
   return MessageValidationResult.Valid
 
 proc validateMessageAndUpdateLog*(
-    rlnPeer: RlnEvm, msg: WakuMessage
+    rlnEvm: RlnEvm, msg: WakuMessage
 ): Future[MessageValidationResult] {.async.} =
   ## validates the message and updates the log to prevent double messaging
   ## in future messages
 
-  let isValidMessage = await rlnPeer.validateMessage(msg)
+  let isValidMessage = await rlnEvm.validateMessage(msg)
 
   let msgProof = RateLimitProof.init(msg.proof).valueOr:
     return MessageValidationResult.Invalid
@@ -162,23 +162,23 @@ proc validateMessageAndUpdateLog*(
   # insert the message to the log (never errors) only if the
   # message is valid.
   if isValidMessage == MessageValidationResult.Valid:
-    discard rlnPeer.updateLog(msgProof.epoch, proofMetadata)
+    discard rlnEvm.updateLog(msgProof.epoch, proofMetadata)
 
   return isValidMessage
 
-proc monitorEpochs(rln: RlnEvm) {.async.} =
+proc monitorEpochs(rlnEvm: RlnEvm) {.async.} =
   while true:
     try:
-      if rln.groupManager.userMessageLimit.isSome():
+      if rlnEvm.groupManager.userMessageLimit.isSome():
         logos_delivery_rln_remaining_proofs_per_epoch.set(
-          rln.groupManager.userMessageLimit.get().float64
+          rlnEvm.groupManager.userMessageLimit.get().float64
         )
       else:
         debug "userMessageLimit is not set in monitorEpochs"
     except CatchableError:
       error "Error in epoch monitoring", error = getCurrentExceptionMsg()
 
-    let nextEpochTime = rln.nextEpoch(epochTime())
+    let nextEpochTime = rlnEvm.nextEpoch(epochTime())
     let sleepDuration = int((nextEpochTime - epochTime()) * 1000)
     await sleepAsync(sleepDuration)
 
@@ -187,7 +187,7 @@ proc mount(
 ): Future[Result[RlnEvm, string]] {.async.} =
   var
     groupManager: RlnEvmGroupManagerBase
-    rln: RlnEvm
+    rlnEvm: RlnEvm
   # create an RLN instance
   let rlnInstance = createRLNInstance().valueOr:
     return err("could not create RLN instance: " & $error)
@@ -216,7 +216,7 @@ proc mount(
   (await groupManager.init()).isOkOr:
     return err("could not initialize the group manager: " & $error)
 
-  rln = RlnEvm(
+  rlnEvm = RlnEvm(
     groupManager: groupManager,
     nonceManager: NonceManager.init(conf.userMessageLimit, conf.epochSizeSec.float),
     rlnEpochSizeSec: conf.epochSizeSec,
@@ -226,33 +226,43 @@ proc mount(
     brokerCtx: globalBrokerContext(),
   )
 
+<<<<<<< HEAD:logos_delivery/waku/rln/rln_evm/peer.nim
+=======
+  # Start epoch monitoring in the background
+  rlnEvm.epochMonitorFuture = monitorEpochs(rlnEvm)
+
+>>>>>>> 71c0e061 (Re-rename rln_evm):logos_delivery/waku/rln/rln_evm/rln_evm.nim
   RequestGenerateRlnProof.setProvider(
-    rln.brokerCtx,
+    rlnEvm.brokerCtx,
     proc(
         msg: WakuMessage, senderEpochTime: float64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
       let proofBytes = (
-        await rln.generateRLNProofWithRootRefresh(msg.toRLNSignal(), senderEpochTime)
+        await rlnEvm.generateRLNProofWithRootRefresh(msg.toRLNSignal(), senderEpochTime)
       ).valueOr:
         return err("Could not create RLN proof: " & error)
       return ok(RequestGenerateRlnProof(proof: proofBytes)),
   ).isOkOr:
     return err("Proof generator provider cannot be set: " & $error)
 
+<<<<<<< HEAD:logos_delivery/waku/rln/rln_evm/peer.nim
   # Start epoch monitoring in the background
   rln.epochMonitorFuture = monitorEpochs(rln)
 
   return ok(rln)
+=======
+  return ok(rlnEvm)
+>>>>>>> 71c0e061 (Re-rename rln_evm):logos_delivery/waku/rln/rln_evm/rln_evm.nim
 
-proc isReady*(rlnPeer: RlnEvm): Future[bool] {.async.} =
+proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async.} =
   ## returns true if the rln-relay protocol is ready to relay messages
   ## returns false otherwise
 
   # could be nil during startup
-  if rlnPeer.groupManager == nil:
+  if rlnEvm.groupManager == nil:
     return false
   try:
-    return await rlnPeer.groupManager.isReady()
+    return await rlnEvm.groupManager.isReady()
   except CatchableError:
     debug "could not check if the rln-relay protocol is ready",
       err = getCurrentExceptionMsg()
