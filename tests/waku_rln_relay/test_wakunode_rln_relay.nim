@@ -793,8 +793,9 @@ procSuite "WakuNode - RLN relay":
       rlnManager.merkleProofCache = newSeq[byte](goodCache.len)
 
       let msg = fakeWakuMessage()
-      let proofResult =
-        await RequestGenerateRlnProof.request(node.rln.brokerCtx, msg, epochTime())
+      let proofResult = await RequestGenerateRlnProof.request(
+        node.rln.brokerCtx, msg, "", default(RlnIdentifier), uint64(epochTime())
+      )
 
       check proofResult.isOk()
       # The force-refresh inside the provider restored the correct path
