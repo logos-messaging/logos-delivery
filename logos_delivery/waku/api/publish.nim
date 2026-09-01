@@ -76,7 +76,7 @@ proc attachRlnProof*(
     let timestamp = uint64(message.timestamp div 1_000_000_000)
     let generated = (
       await RequestGenerateRlnProof.request(
-        self.brokerCtx, message, rlnConf.registerId, rlnConf.identifier, timestamp
+        self.brokerCtx, message, rlnConf.registryId, rlnConf.identifier, timestamp
       )
     ).valueOr:
       return err("Failed to attach RLN proof: " & error)

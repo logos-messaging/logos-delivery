@@ -152,16 +152,6 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
 
-proc parseRlnGeneratedProof(resultJson: string): Result[seq[byte], string] =
-  let value = ?parseRlnResultEnvelope(resultJson)
-  let hexStr = value{"proof_canonical"}.getStr("")
-  if hexStr.len == 0:
-    return err("Generate_proof reply carries no proof_canonical")
-  try:
-    return ok(hexToSeqByte(hexStr))
-  except ValueError as e:
-    return err("Proof_canonical is not valid hex: " & e.msg)
-
 proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, string] =
   ## Bridges the waku layer's RLN module requests onto the FFI callback
   ## surface. Providers are registered at create time; the underlying calls
@@ -180,13 +170,12 @@ proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, str
   RequestRegisterRlnMembership.setProvider(
     ctx,
     proc(
-        registryId: RegistryId,
-        rlnIdentifier: RlnIdentifier,
-        rateLimit: uint64,
-        optionsJson: string,
+        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
     ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
-      let response =
-        ?await rlnRegister(registryId, rlnIdentifier.toHex(), rateLimit, optionsJson)
+      var optionsJson = newJArray()
+      for opt in options:
+        optionsJson.add(%*{"key": opt.key, "value": opt.value})
+      let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
       # tstr-dialect call: failures arrive in-band under "error".
       discard ?parseRlnTstrReply(response)
       return ok(RequestRegisterRlnMembership(response: response)),

@@ -41,12 +41,6 @@ RequestBroker:
   type RequestRegisterRlnMembership* = object
     response*: string
 
-  ## `rateLimit` is the module's positional register() argument; `optionsJson`
-  ## is the flat JSON object of registry-specific options (funding/delegation)
-  ## passed verbatim to the module.
   proc signature(
-    registryId: RegistryId,
-    rlnIdentifier: RlnIdentifier,
-    rateLimit: uint64,
-    optionsJson: string,
+    registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
   ): Future[Result[RequestRegisterRlnMembership, string]] {.async.}

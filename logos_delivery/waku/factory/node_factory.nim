@@ -457,24 +457,34 @@ proc startNode*(
       # must equal this node's epoch size, so generators and validators derive
       # the same epoch from a message timestamp; the registry is listed so its
       # valid-root window is warmed immediately.
-      let configJson =
-        $(
-          %*{
-            "epoch_size_sec": rlnRelayConf.epochSizeSec,
-            "registries": [rlnRelayConf.registryId],
-          }
-        )
+      let configJson = $(
+        %*{
+          "epoch_size_sec": rlnRelayConf.epochSizeSec,
+          "registries": [rlnRelayConf.registryId],
+        }
+      )
       let startRes = await RequestStartRlnModule.request(node.brokerCtx, configJson)
       if startRes.isErr():
         notice "RLN module start failed", reason = startRes.error()
       else:
         info "RLN module started", response = startRes.get().response
+        var options =
+          @[RegistryOption(key: "rate_limit", value: $rlnRelayConf.userMessageLimit)]
+        try:
+          let extra = parseJson(rlnRelayConf.registryOptionsJson)
+          if extra.kind == JObject:
+            for key, val in extra:
+              options.add(
+                RegistryOption(
+                  key: key, value: (if val.kind == JString: val.getStr()
+                  else: $val)
+                )
+              )
+        except CatchableError:
+          notice "ignoring unparseable rln registry options",
+            options = rlnRelayConf.registryOptionsJson
         let regRes = await RequestRegisterRlnMembership.request(
-          node.brokerCtx,
-          rlnRelayConf.registryId,
-          rlnRelayConf.identifier,
-          rlnRelayConf.userMessageLimit,
-          rlnRelayConf.registryOptionsJson,
+          node.brokerCtx, rlnRelayConf.registryId, rlnRelayConf.identifier, options
         )
         if regRes.isErr():
           notice "RLN membership registration failed", reason = regRes.error()
