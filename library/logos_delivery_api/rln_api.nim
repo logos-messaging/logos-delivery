@@ -19,9 +19,9 @@ import stew/byteutils
 import logos_delivery/waku/rln/api/types as rln_api_types
 
 type
-  LogosDeliveryRlnStartFn = proc(
-    reqId: uint64, configJson: cstring, userData: pointer
-  ) {.cdecl, gcsafe, raises: [].}
+  LogosDeliveryRlnStartFn = proc(reqId: uint64, configJson: cstring, userData: pointer) {.
+    cdecl, gcsafe, raises: []
+  .}
 
   LogosDeliveryRlnStopFn =
     proc(reqId: uint64, userData: pointer) {.cdecl, gcsafe, raises: [].}
@@ -29,7 +29,6 @@ type
   LogosDeliveryRlnRegisterFn = proc(
     reqId: uint64,
     registryId, rlnIdentifier: cstring,
-    rateLimit: uint64,
     optionsJson: cstring,
     userData: pointer,
   ) {.cdecl, gcsafe, raises: [].}
@@ -181,7 +180,7 @@ proc rlnStop*(): Future[Result[string, string]] {.async: (raises: [CancelledErro
   return await awaitResult(pending, RlnLocalTimeout)
 
 proc rlnRegister*(
-    registryId, rlnIdentifier: string, rateLimit: uint64, optionsJson: string
+    registryId, rlnIdentifier: string, optionsJson: string
 ): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
   let pending = newPending()
   if pending.isNil:
@@ -196,10 +195,7 @@ proc rlnRegister*(
       return err("RLN module not registered")
     ud = gUserData
     linkPending(pending)
-  cb(
-    pending.reqId, registryId.cstring, rlnIdentifier.cstring, rateLimit,
-    optionsJson.cstring, ud,
-  )
+  cb(pending.reqId, registryId.cstring, rlnIdentifier.cstring, optionsJson.cstring, ud)
   return await awaitResult(pending, RlnRegistryReadTimeout)
 
 proc rlnGetMembershipState*(
@@ -367,8 +363,8 @@ proc parseRlnJson(resultJson: string): Result[JsonNode, string] =
   ok(node)
 
 proc formatRlnError(errNode: JsonNode): string =
-  errNode{"class"}.getStr("transient") & ": " & errNode{"message"}.getStr("") & " (kind: " &
-    errNode{"kind"}.getStr("") & ")"
+  errNode{"class"}.getStr("transient") & ": " & errNode{"message"}.getStr("") &
+    " (kind: " & errNode{"kind"}.getStr("") & ")"
 
 proc parseRlnResultEnvelope(resultJson: string): Result[JsonNode, string] =
   ## `result`-dialect reply: returns the envelope's `value` on success.
@@ -420,3 +416,16 @@ proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, stri
       return err("recovered_secret is not a 32-byte hex string")
     validation.recoveredSecret = some(secret)
   return ok(validation)
+
+proc parseRlnGeneratedProof(resultJson: string): Result[seq[byte], string] =
+  ## generate_proof reply: a result envelope whose value carries
+  ## "proof_canonical" — the full zerokit serialization as hex, the one blob
+  ## a message carries and validate_proof accepts alone.
+  let value = ?parseRlnResultEnvelope(resultJson)
+  let hexStr = value{"proof_canonical"}.getStr("")
+  if hexStr.len == 0:
+    return err("Generate_proof reply carries no proof_canonical")
+  try:
+    return ok(hexToSeqByte(hexStr))
+  except ValueError as e:
+    return err("Proof_canonical is not valid hex: " & e.msg)
