@@ -6,7 +6,7 @@ import
   ./common,
   ./protocol_metrics,
   ../rln,
-  ../rln/rln_evm_backend/protocol_types
+  ../rln/rln_evm/protocol_types
 
 import std/times, libp2p/peerid, stew/byteutils
 

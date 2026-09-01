@@ -16,7 +16,7 @@ import
   ../../waku_keystore,
   ./conversion_utils,
   ./protocol_types,
-  ./rln_evm_backend_base
+  ./group_manager_base
 
 logScope:
   topics = "waku rln evm_backend rpc_wrapper"

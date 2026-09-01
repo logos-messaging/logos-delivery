@@ -62,7 +62,7 @@ type
     desc: string
 
 proc attachRlnProofAndValidate(
-    rln: Rln, wakuRelay: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage
+    rln: RlnEvm, wakuRelay: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage
 ): Future[Result[WakuMessage, RlnPublishError]] {.async.} =
   ## Attaches an RLN proof to `message` and validates it via `wakuRelay`.
   ## If the validator rejects it as RLN-invalid (error contains
@@ -86,7 +86,7 @@ proc attachRlnProofAndValidate(
     return err(RlnPublishError(kind: ValidationRejected, desc: validateResult.error))
 
   debug "relay publish rejected as RLN-invalid; scheduling merkle proof refresh"
-  rln.rlnEvmBackend.scheduleMerkleProofRefresh()
+  rln.groupManager.scheduleMerkleProofRefresh()
   return err(
     RlnPublishError(
       kind: StaleProofSuspected,

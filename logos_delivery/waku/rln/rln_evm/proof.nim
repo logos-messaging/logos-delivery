@@ -5,22 +5,22 @@ import chronos, chronicles, results, stew/byteutils
 
 import
   logos_delivery/waku/[
-    rln/rln_evm_backend/types,
-    rln/rln_evm_backend/protocol_types,
-    rln/rln_evm_backend/conversion_utils,
-    rln/rln_evm_backend/rln_evm_backend,
-    rln/rln_evm_backend/nonce_manager,
+    rln/rln_evm/types,
+    rln/rln_evm/protocol_types,
+    rln/rln_evm/conversion_utils,
+    rln/rln_evm/group_manager,
+    rln/rln_evm/nonce_manager,
     waku_core,
   ]
 
-proc calcEpoch*(rln: Rln, t: float64): Epoch =
+proc calcEpoch*(rln: RlnEvm, t: float64): Epoch =
   ## gets time `t` as `flaot64` with subseconds resolution in the fractional part
   ## and returns its corresponding rln `Epoch` value
 
   let e = uint64(t / rln.rlnEpochSizeSec.float64)
   return toEpoch(e)
 
-proc nextEpoch*(rln: Rln, time: float64): float64 =
+proc nextEpoch*(rln: RlnEvm, time: float64): float64 =
   let
     currentEpoch = uint64(time / rln.rlnEpochSizeSec.float64)
     nextEpochTime = float64(currentEpoch + 1) * rln.rlnEpochSizeSec.float64
@@ -32,7 +32,7 @@ proc nextEpoch*(rln: Rln, time: float64): float64 =
   else:
     return epochTime()
 
-proc getCurrentEpoch*(rln: Rln): Epoch =
+proc getCurrentEpoch*(rln: RlnEvm): Epoch =
   return rln.calcEpoch(epochTime())
 
 proc absDiff*(e1, e2: Epoch): uint64 =
@@ -61,7 +61,7 @@ proc toRLNSignal*(wakumessage: WakuMessage): seq[byte] =
   return output
 
 proc generateRLNProofWithNonce(
-    rln: Rln, input: seq[byte], senderEpochTime: float64, nonce: Nonce
+    rln: RlnEvm, input: seq[byte], senderEpochTime: float64, nonce: Nonce
 ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
   ## Generates a proof against an already drawn `nonce`. Regenerating for an
   ## unchanged (input, epoch, nonce) is safe: the revealed share is a function
@@ -69,21 +69,21 @@ proc generateRLNProofWithNonce(
   ## read as double-signalling.
   let epoch = rln.calcEpoch(senderEpochTime)
   try:
-    let proof = (await rln.rlnEvmBackend.generateProof(input, epoch, nonce)).valueOr:
+    let proof = (await rln.groupManager.generateProof(input, epoch, nonce)).valueOr:
       return err("could not generate rln-v2 proof: " & $error)
     return ok(proof.encode().buffer)
   except CatchableError as e:
     return err("exception generating rln proof: " & e.msg)
 
 proc generateRLNProof*(
-    rln: Rln, input: seq[byte], senderEpochTime: float64
+    rln: RlnEvm, input: seq[byte], senderEpochTime: float64
 ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
   let nonce = rln.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
   return await rln.generateRLNProofWithNonce(input, senderEpochTime, nonce)
 
 proc generateRLNProofWithRootRefresh*(
-    rln: Rln, input: seq[byte], senderEpochTime: float64
+    rln: RlnEvm, input: seq[byte], senderEpochTime: float64
 ): Future[Result[seq[byte], string]] {.async.} =
   ## Generates an RLN proof and checks its merkle root against the
   ## acceptable-root window. If the root is stale, invalidates the cache and
@@ -103,15 +103,15 @@ proc generateRLNProofWithRootRefresh*(
   let rlnProof = RateLimitProof.init(proofBytes).valueOr:
     return err("could not decode proof for root check: " & $error)
 
-  if await rln.rlnEvmBackend.validateRoot(rlnProof.merkleRoot):
+  if await rln.groupManager.validateRoot(rlnProof.merkleRoot):
     return ok(proofBytes)
 
   debug "RLN: stale merkle root detected; refreshing merkle path and regenerating proof"
-  rln.rlnEvmBackend.invalidateMerkleProofCache()
+  rln.groupManager.invalidateMerkleProofCache()
   return await rln.generateRLNProofWithNonce(input, senderEpochTime, nonce)
 
 proc attachRLNProof*(
-    r: Rln, message: WakuMessage
+    r: RlnEvm, message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
   ## Returns the message with a freshly generated RLN proof, replacing any
   ## existing one and drawing a new message id. Retry paths suspecting a stale
@@ -124,7 +124,7 @@ proc attachRLNProof*(
   return ok(msgWithProof)
 
 proc checkAndGenerateRLNProof*(
-    rln: Opt[Rln], message: WakuMessage
+    rln: Opt[RlnEvm], message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =
   ## Returns the message with an attached RLN proof, or unchanged when it
   ## already carries a proof or RLN is not configured.

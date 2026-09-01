@@ -13,7 +13,7 @@ import
 
 import
   logos_delivery/waku/[
-    waku_core, waku_node, rln, rln/rln_evm_backend/protocol_types
+    waku_core, waku_node, rln, rln/rln_evm/protocol_types
   ],
   logos_delivery/waku/requests/rln_requests,
   ../testlib/[wakucore, futures, wakunode, testutils],
@@ -33,11 +33,11 @@ proc waitForNullifierLog(node: WakuNode, expectedLen: int): Future[bool] {.async
 procSuite "WakuNode - RLN relay":
   # NOTE: we set the rlnRelayUserMessageLimit to 1 to make the tests easier to reason about
   var anvilProc {.threadVar.}: Process
-  var manager {.threadVar.}: RlnEvmBackend
+  var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupRlnEvmBackend(deployContracts = false)
+    manager = waitFor setupRlnEvm(deployContracts = false)
 
   teardown:
     stopAnvil(anvilProc)
@@ -60,7 +60,7 @@ procSuite "WakuNode - RLN relay":
       await node1.start()
 
       # Registration is mandatory before sending messages with rln-relay
-      let manager1 = cast[RlnEvmBackend](node1.rln.rlnEvmBackend)
+      let manager1 = cast[RlnEvmGroupManager](node1.rln.groupManager)
       let idCredentials1 = generateCredentials()
 
       (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -83,7 +83,7 @@ procSuite "WakuNode - RLN relay":
       await node2.setRlnValidator(wakuRlnConfig2)
       await node2.start()
 
-      let manager2 = cast[RlnEvmBackend](node2.rln.rlnEvmBackend)
+      let manager2 = cast[RlnEvmGroupManager](node2.rln.groupManager)
       let rootUpdated2 = waitFor manager2.updateRoots()
       info "Updated root for node2", rootUpdated2
 
@@ -101,7 +101,7 @@ procSuite "WakuNode - RLN relay":
       await node3.setRlnValidator(wakuRlnConfig3)
       await node3.start()
 
-      let manager3 = cast[RlnEvmBackend](node3.rln.rlnEvmBackend)
+      let manager3 = cast[RlnEvmGroupManager](node3.rln.groupManager)
       let rootUpdated3 = waitFor manager3.updateRoots()
       info "Updated root for node3", rootUpdated3
 
@@ -171,7 +171,7 @@ procSuite "WakuNode - RLN relay":
         getWakuRlnConfig(manager = manager, index = MembershipIndex(1))
       await node1.setRlnValidator(wakuRlnConfig1)
       await node1.start()
-      let manager1 = cast[RlnEvmBackend](node1.rln.rlnEvmBackend)
+      let manager1 = cast[RlnEvmGroupManager](node1.rln.groupManager)
       let idCredentials1 = generateCredentials()
 
       (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -188,7 +188,7 @@ procSuite "WakuNode - RLN relay":
         getWakuRlnConfig(manager = manager, index = MembershipIndex(2))
       await node2.setRlnValidator(wakuRlnConfig2)
       await node2.start()
-      let manager2 = cast[RlnEvmBackend](node2.rln.rlnEvmBackend)
+      let manager2 = cast[RlnEvmGroupManager](node2.rln.groupManager)
       let idCredentials2 = generateCredentials()
 
       (waitFor manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:
@@ -205,7 +205,7 @@ procSuite "WakuNode - RLN relay":
         getWakuRlnConfig(manager = manager, index = MembershipIndex(3))
       await node3.setRlnValidator(wakuRlnConfig3)
       await node3.start()
-      let manager3 = cast[RlnEvmBackend](node3.rln.rlnEvmBackend)
+      let manager3 = cast[RlnEvmGroupManager](node3.rln.groupManager)
       let idCredentials3 = generateCredentials()
 
       (waitFor manager3.register(idCredentials3, UserMessageLimit(20))).isOkOr:
@@ -322,7 +322,7 @@ procSuite "WakuNode - RLN relay":
       await node1.setRlnValidator(wakuRlnConfig1)
       await node1.start()
 
-      let manager1 = cast[RlnEvmBackend](node1.rln.rlnEvmBackend)
+      let manager1 = cast[RlnEvmGroupManager](node1.rln.groupManager)
       let idCredentials1 = generateCredentials()
 
       (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -343,7 +343,7 @@ procSuite "WakuNode - RLN relay":
       await node2.setRlnValidator(wakuRlnConfig2)
       await node2.start()
 
-      let manager2 = cast[RlnEvmBackend](node2.rln.rlnEvmBackend)
+      let manager2 = cast[RlnEvmGroupManager](node2.rln.groupManager)
       let rootUpdated2 = waitFor manager2.updateRoots()
       info "Updated root for node2", rootUpdated2
     lockNewGlobalBrokerContext:
@@ -359,7 +359,7 @@ procSuite "WakuNode - RLN relay":
       await node3.setRlnValidator(wakuRlnConfig3)
       await node3.start()
 
-      let manager3 = cast[RlnEvmBackend](node3.rln.rlnEvmBackend)
+      let manager3 = cast[RlnEvmGroupManager](node3.rln.groupManager)
       let rootUpdated3 = waitFor manager3.updateRoots()
       info "Updated root for node3", rootUpdated3
 
@@ -434,7 +434,7 @@ procSuite "WakuNode - RLN relay":
       await node1.start()
 
       # Registration is mandatory before sending messages with rln-relay
-      let manager1 = cast[RlnEvmBackend](node1.rln.rlnEvmBackend)
+      let manager1 = cast[RlnEvmGroupManager](node1.rln.groupManager)
       let idCredentials1 = generateCredentials()
 
       (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -457,7 +457,7 @@ procSuite "WakuNode - RLN relay":
       await node2.start()
 
       # Registration is mandatory before sending messages with rln-relay
-      let manager2 = cast[RlnEvmBackend](node2.rln.rlnEvmBackend)
+      let manager2 = cast[RlnEvmGroupManager](node2.rln.groupManager)
       let rootUpdated2 = waitFor manager2.updateRoots()
       info "Updated root for node2", rootUpdated2
     lockNewGlobalBrokerContext:
@@ -475,7 +475,7 @@ procSuite "WakuNode - RLN relay":
       await node3.start()
 
       # Registration is mandatory before sending messages with rln-relay
-      let manager3 = cast[RlnEvmBackend](node3.rln.rlnEvmBackend)
+      let manager3 = cast[RlnEvmGroupManager](node3.rln.groupManager)
       let rootUpdated3 = waitFor manager3.updateRoots()
       info "Updated root for node3", rootUpdated3
 
@@ -603,7 +603,7 @@ procSuite "WakuNode - RLN relay":
       await node1.start()
 
       # Registration is mandatory before sending messages with rln-relay
-      let manager1 = cast[RlnEvmBackend](node1.rln.rlnEvmBackend)
+      let manager1 = cast[RlnEvmGroupManager](node1.rln.groupManager)
       let idCredentials1 = generateCredentials()
 
       (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -622,7 +622,7 @@ procSuite "WakuNode - RLN relay":
       await node2.start()
 
       # Registration is mandatory before sending messages with rln-relay
-      let manager2 = cast[RlnEvmBackend](node2.rln.rlnEvmBackend)
+      let manager2 = cast[RlnEvmGroupManager](node2.rln.groupManager)
       let rootUpdated2 = waitFor manager2.updateRoots()
       info "Updated root for node2", rootUpdated2
 
@@ -776,7 +776,7 @@ procSuite "WakuNode - RLN relay":
       await node.setRlnValidator(wakuRlnConfig)
       await node.start()
 
-      let rlnManager = cast[RlnEvmBackend](node.rln.rlnEvmBackend)
+      let rlnManager = cast[RlnEvmGroupManager](node.rln.groupManager)
       let idCredentials = generateCredentials()
       (waitFor rlnManager.register(idCredentials, UserMessageLimit(20))).isOkOr:
         assert false, "Failed to register: " & error
@@ -803,7 +803,7 @@ procSuite "WakuNode - RLN relay":
       check rlnManager.merkleProofCache == goodCache
       # The returned proof carries a Merkle root that is in the valid-roots window
       let rlnProof = RateLimitProof.init(proofResult.get().proof).get()
-      let rootValid = await node.rln.rlnEvmBackend.validateRoot(rlnProof.merkleRoot)
+      let rootValid = await node.rln.groupManager.validateRoot(rlnProof.merkleRoot)
       check rootValid
 
       await node.stop()

@@ -124,7 +124,7 @@ proc legacyLightpushPublish*(
 
   let rln =
     if node.rln.isNil():
-      Opt.none(Rln)
+      Opt.none(RlnEvm)
     else:
       Opt.some(node.rln)
   let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
@@ -148,7 +148,7 @@ proc legacyLightpushPublish*(
       return publishResult
 
     debug "legacy lightpush send rejected as RLN-invalid; scheduling merkle proof refresh"
-    rln.get().rlnEvmBackend.scheduleMerkleProofRefresh()
+    rln.get().groupManager.scheduleMerkleProofRefresh()
     return err(RlnProofRefreshScheduledMsg & ": " & publishResult.error)
   except CatchableError:
     return err(getCurrentExceptionMsg())
@@ -310,7 +310,7 @@ proc lightpushPublish*(
 
   let rln =
     if node.rln.isNil():
-      Opt.none(Rln)
+      Opt.none(RlnEvm)
     else:
       Opt.some(node.rln)
   let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
@@ -337,7 +337,7 @@ proc lightpushPublish*(
   # permanent rejection. A retry regenerates against the refreshed cache.
   debug "lightpush send rejected as RLN-invalid; scheduling merkle proof refresh",
     statusCode = $firstResult.error.code
-  rln.get().rlnEvmBackend.scheduleMerkleProofRefresh()
+  rln.get().groupManager.scheduleMerkleProofRefresh()
   return lighpushErrorResult(
     LightPushErrorCode.OUT_OF_RLN_PROOF,
     RlnProofRefreshScheduledMsg & ": " &

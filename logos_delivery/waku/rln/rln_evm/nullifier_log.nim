@@ -13,7 +13,7 @@ logScope:
   topics = "waku rln nullifier_log"
 
 proc hasDuplicate*(
-    rlnPeer: Rln, epoch: Epoch, proofMetadata: ProofMetadata
+    rlnPeer: RlnEvm, epoch: Epoch, proofMetadata: ProofMetadata
 ): Result[bool, string] =
   ## returns true if there is another message in the  `nullifierLog` of the `rlnPeer` with the same
   ## epoch and nullifier as `proofMetadata`'s epoch and nullifier
@@ -35,7 +35,7 @@ proc hasDuplicate*(
     return err("the epoch was not found: " & getCurrentExceptionMsg())
 
 proc updateLog*(
-    rlnPeer: Rln, epoch: Epoch, proofMetadata: ProofMetadata
+    rlnPeer: RlnEvm, epoch: Epoch, proofMetadata: ProofMetadata
 ): Result[void, string] =
   ## saves supplied proofMetadata `proofMetadata`
   ## in the `nullifierLog` of the `rlnPeer`
@@ -59,7 +59,7 @@ proc updateLog*(
     return
       err("the epoch was not found: " & getCurrentExceptionMsg()) # should never happen
 
-proc clearNullifierLog*(rlnPeer: Rln) =
+proc clearNullifierLog*(rlnPeer: RlnEvm) =
   # clear the first MaxEpochGap epochs of the nullifer log
   # if more than MaxEpochGap epochs are in the log
   let currentEpoch = fromEpoch(rlnPeer.getCurrentEpoch())

@@ -15,8 +15,8 @@ import brokers/broker_context
 import
   logos_delivery/waku/
     [
-      waku_core, rln, rln/rln_evm_backend/bindings,
-      rln/rln_evm_backend/protocol_metrics, waku_keystore,
+      waku_core, rln, rln/rln_evm/bindings,
+      rln/rln_evm/protocol_metrics, waku_keystore,
     ],
   ./rln/waku_rln_relay_utils,
   ./utils_onchain,
@@ -26,11 +26,11 @@ from std/times import epochTime
 
 suite "Waku rln relay":
   var anvilProc {.threadVar.}: Process
-  var manager {.threadVar.}: RlnEvmBackend
+  var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupRlnEvmBackend(deployContracts = false)
+    manager = waitFor setupRlnEvm(deployContracts = false)
 
   teardown:
     stopAnvil(anvilProc)
@@ -158,7 +158,7 @@ suite "Waku rln relay":
 
   test "updateLog and hasDuplicate tests":
     let
-      rln = Rln()
+      rln = RlnEvm()
       epoch = rln.getCurrentEpoch()
 
     #  create some dummy nullifiers and secret shares
@@ -229,12 +229,12 @@ suite "Waku rln relay":
     let index = MembershipIndex(5)
 
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = index)
-    var rln: Rln
+    var rln: RlnEvm
     lockNewGlobalBrokerContext:
-      rln = (await Rln.new(wakuRlnConfig)).valueOr:
+      rln = (await RlnEvm.new(wakuRlnConfig)).valueOr:
         raiseAssert $error
 
-    let manager = cast[RlnEvmBackend](rln.rlnEvmBackend)
+    let manager = cast[RlnEvmGroupManager](rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -285,12 +285,12 @@ suite "Waku rln relay":
 
     let wakuRlnConfig = getWakuRlnConfig(manager = manager, index = index)
 
-    var rln: Rln
+    var rln: RlnEvm
     lockNewGlobalBrokerContext:
-      rln = (await Rln.new(wakuRlnConfig)).valueOr:
+      rln = (await RlnEvm.new(wakuRlnConfig)).valueOr:
         raiseAssert $error
 
-    let manager = cast[RlnEvmBackend](rln.rlnEvmBackend)
+    let manager = cast[RlnEvmGroupManager](rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -334,12 +334,12 @@ suite "Waku rln relay":
   asyncTest "multiple senders with same external nullifier":
     let index1 = MembershipIndex(5)
     let rlnConf1 = getWakuRlnConfig(manager = manager, index = index1)
-    var wakuRlnRelay1: Rln
+    var wakuRlnRelay1: RlnEvm
     lockNewGlobalBrokerContext:
-      wakuRlnRelay1 = (await Rln.new(rlnConf1)).valueOr:
+      wakuRlnRelay1 = (await RlnEvm.new(rlnConf1)).valueOr:
         raiseAssert "failed to create waku rln relay: " & $error
 
-    let manager1 = cast[RlnEvmBackend](wakuRlnRelay1.rlnEvmBackend)
+    let manager1 = cast[RlnEvmGroupManager](wakuRlnRelay1.groupManager)
     let idCredentials1 = generateCredentials()
 
     (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -347,12 +347,12 @@ suite "Waku rln relay":
 
     let index2 = MembershipIndex(6)
     let rlnConf2 = getWakuRlnConfig(manager = manager, index = index2)
-    var wakuRlnRelay2: Rln
+    var wakuRlnRelay2: RlnEvm
     lockNewGlobalBrokerContext:
-      wakuRlnRelay2 = (await Rln.new(rlnConf2)).valueOr:
+      wakuRlnRelay2 = (await RlnEvm.new(rlnConf2)).valueOr:
         raiseAssert "failed to create waku rln relay: " & $error
 
-    let manager2 = cast[RlnEvmBackend](wakuRlnRelay2.rlnEvmBackend)
+    let manager2 = cast[RlnEvmGroupManager](wakuRlnRelay2.groupManager)
     let idCredentials2 = generateCredentials()
 
     (waitFor manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:
@@ -478,9 +478,9 @@ suite "Waku rln relay":
       let wakuRlnConfig = getWakuRlnConfig(
         manager = manager, index = index, epochSizeSec = rlnEpochSizeSec.uint64
       )
-      var rln: Rln
+      var rln: RlnEvm
       lockNewGlobalBrokerContext:
-        rln = (await Rln.new(wakuRlnConfig)).valueOr:
+        rln = (await RlnEvm.new(wakuRlnConfig)).valueOr:
           raiseAssert $error
 
       let rlnMaxEpochGap = rln.rlnMaxEpochGap
