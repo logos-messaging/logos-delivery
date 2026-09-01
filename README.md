@@ -19,7 +19,13 @@ These instructions are generic. For more detailed instructions, see the source c
 
 Recommended and tested toolchain versions (these are installed when you follow the build instructions below):
 - Nim 2.2.6
-- Nimble 0.24.1
+- Nimble: `make nimble` installs the pinned revision. Do not install it by version: the release with the same number is a different build, and only the `git hash:` line of `nimble --version` tells them apart.
+
+`make` puts the pinned Nimble first on its own PATH, so building needs no setup. To use that same Nimble directly in a shell:
+
+```bash
+export PATH="$(make print-nimble-path):$PATH"
+```
 
 ### Prerequisites
 
@@ -91,17 +97,26 @@ pacman -S --noconfirm --needed mingw-w64-x86_64-libwinpthread-git
 pacman -S --noconfirm --needed mingw-w64-x86_64-zlib  
 pacman -S --noconfirm --needed mingw-w64-x86_64-openssl  
 pacman -S --noconfirm --needed mingw-w64-x86_64-python
+pacman -S --noconfirm --needed mingw-w64-x86_64-nasm
+```
+
+`make` does not install Nim on Windows: `install-nim` is skipped there, and dependency setup calls `nim`, so it must already be on PATH. Install the version `logos_delivery.nimble` declares in `RequiredNimVersion` yourself, with `choosenim` or the official Windows build. The `ci / build-windows` job installs the same version with `jiro4989/setup-nim-action`.
+
+Verify before building:
+```bash
+which upx gcc g++ make cmake cargo rustc python nasm nim
+nim --version
 ```
 
 #### 3. Build Wakunode
 - Open Git Bash as administrator  
-- clone nwaku and cd nwaku
+- clone the repository and cd into it
 - Execute: `./scripts/build_windows.sh`
 
 #### 4. Troubleshooting
-If `wakunode2.exe` isn't generated:  
+If `wakunode2.exe`, `logosdeliverynode.exe` or `liblogosdelivery` isn't generated:  
 - **Missing Dependencies**: Verify with:  
-  `which make cmake gcc g++ rustc cargo python3 upx`  
+  `which make cmake gcc g++ rustc cargo python3 upx nasm nim`  
   If missing, revisit Step 2 or ensure MSYS2 is at `C:\`  
 - **Installation Conflicts**: Remove existing MinGW/MSYS2/Git Bash installations and perform fresh install
 
@@ -151,7 +166,7 @@ Refer to [logos-delivery-js repo](https://github.com/logos-messaging/logos-deliv
 
 ## Formatting
 
-Nim files are expected to be formatted using the [`nph`](https://github.com/arnetheduck/nph) version present in `vendor/nph`.
+Nim files are expected to be formatted using [`nph`](https://github.com/arnetheduck/nph). `make build-nph` installs one if it is not already on your PATH.
 
 You can easily format file with the `make nph/<relative path to nim> file` command.
 For example:

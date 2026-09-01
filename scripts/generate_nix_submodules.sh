@@ -8,7 +8,7 @@
 #
 # Run this script after:
 #   - Adding/removing submodules
-#   - Updating submodule commits (e.g. after 'make update')
+#   - Updating submodule commits
 #   - Any change to .gitmodules
 #
 # Compatible with macOS bash 3.x (no associative arrays).

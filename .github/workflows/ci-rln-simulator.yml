@@ -246,7 +246,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          [ -z "$DISCORD_WEBHOOK_URL" ] && exit 0
+          [ -z "$DISCORD_WEBHOOK_URL" ] && { echo "::warning::DISCORD_WEBHOOK_URL is not set; skipping the Discord notification"; exit 0; }
           STATUS="${{ job.status }}"
           BRANCH="${{ steps.cfg.outputs.branch }}"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

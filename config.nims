@@ -79,12 +79,6 @@ when defined(macosx):
   # callback only READS the buffer (copyMem from pbytes), so the missing `const`
   # is benign — we demote the diagnostic back to a warning instead of failing.
   #
-  # Why it appeared now (not a change on our side): the `const` was introduced in
-  # nim-bearssl v0.2.9, published 2026-06-19 11:22 UTC. CI does not honor the
-  # locked bearssl (nimble.lock pins 0.2.8) and fresh-resolves to latest, so any
-  # run after 11:22 UTC picks up 0.2.9 and hits this. Earlier-running PRs that
-  # resolved 0.2.8 are green only by timing; re-running them now reproduces it.
-  #
   # Proper fix: chronos should declare `itemAppend`'s `pbytes` as `const pointer`.
   switch("passC", "-Wno-error=incompatible-function-pointer-types")
 

@@ -6,7 +6,6 @@ ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 LIBDIR="$ROOT/tests-e2e/vendor/logos-delivery-python-bindings/lib"
 
 cd "$ROOT"
-make update
 make V=1 liblogosdelivery
 
 mkdir -p "$LIBDIR"

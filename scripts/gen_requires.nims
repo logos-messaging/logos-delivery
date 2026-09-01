@@ -5,7 +5,7 @@
 # This script writes requires.generated, a supplemental requirements string
 # passed to:
 #
-#   nimble setup --requires "$(cat requires.generated)"
+#   nimble setup --requires:"$(cat requires.generated)"
 #
 # Nimble matches lock entries by package name in solveLockFileDeps
 # (src/nimblepkg/nimblesat.nim:1226). A URL requirement therefore may not

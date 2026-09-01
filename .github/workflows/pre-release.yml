@@ -16,7 +16,7 @@ env:
 
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIM_PARAMS: "-d:disableMarchNative"
+  NIMFLAGS: "-d:disableMarchNative"
   NIM_VERSION: '2.2.6'
   NIMBLE_VERSION: '0.24.1'
 
@@ -90,7 +90,7 @@ jobs:
         run: |
           # -j1: each target starts one nimble process. Two parallel nimble
           # processes corrupt the shared package metadata (nimblemeta.json).
-          make V=1 -j1 CI=false POSTGRES=1 $NODE_BINARIES tools
+          make V=1 -j1 DEBUG=0 CI=false POSTGRES=1 $NODE_BINARIES tools
           tar -cvzf ${{steps.vars.outputs.nwaku}} $(printf './build/%s ' $NODE_BINARIES)
           tar -cvzf ${{steps.vars.outputs.nwakutools}} $(printf './build/%s ' $TOOLS_BINARIES)
 

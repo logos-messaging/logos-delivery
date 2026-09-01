@@ -1,0 +1,11 @@
+name: 'Check build health'
+description: 'Assert that build configuration reaches the compiler'
+
+runs:
+  using: 'composite'
+  steps:
+    # Reads variables with "make -pn". One case runs a Nimble task, which
+    # stops at an invalid flag before it compiles.
+    - name: Check build health
+      shell: bash
+      run: ./scripts/check_build_health.sh

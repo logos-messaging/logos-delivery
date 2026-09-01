@@ -56,7 +56,6 @@ pipeline {
       /* Avoid checking multiple times. */
       v2changed = versionWasChanged('v2')
       /* TODO: Re-add caching of Nim compiler. */
-      nix.shell("make ${params.MAKEFLAGS} V=${params.VERBOSITY} update", pure: false)
       nix.shell("make ${params.MAKEFLAGS} V=${params.VERBOSITY} deps", pure: false)
     } } }
 
@@ -65,7 +64,7 @@ pipeline {
         stage('V2') {
           when { expression { v2changed } }
           steps { script {
-            nix.shell("make ${params.MAKEFLAGS} NIMFLAGS=\"${params.NIMFLAGS}\" V=${params.VERBOSITY} all")
+            nix.shell("make ${params.MAKEFLAGS} NIMFLAGS=\"${params.NIMFLAGS}\" V=${params.VERBOSITY} LOG_LEVEL=${params.LOG_LEVEL} all")
           } }
         }
       }
@@ -76,7 +75,7 @@ pipeline {
         stage('V2') {
           when { expression { v2changed } }
           steps { script {
-            nix.shell("make ${params.MAKEFLAGS} NIMFLAGS=\"${params.NIMFLAGS}\" V=${params.VERBOSITY} test")
+            nix.shell("make ${params.MAKEFLAGS} NIMFLAGS=\"${params.NIMFLAGS}\" V=${params.VERBOSITY} LOG_LEVEL=${params.LOG_LEVEL} test")
           } }
         }
       }

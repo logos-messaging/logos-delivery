@@ -17,7 +17,10 @@ const RequiredNimVersion = "2.2.6"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
 const RequiredNimbleVersion = "0.24.1"
   ## Enforced nimble version to ensure a reproducible flow
-const RequiredNimbleRevision = "bc789ee6bcbfe315f81984a29318f6f8d4dcafa5"
+const RequiredNimbleRevision = "1a2b3ae900a8ccb307a118173e0c3a7cdfcfc121"
+  ## Release 0.24.1 discards the --requires constraints before it applies nimble.lock.
+  ## 5df81e6 fixes that and is unreleased. 1a2b3ae is three commits later, and also
+  ## stops the solver reporting an exhausted search budget as an unsatisfiable graph.
 
 ### Dependencies
 requires "nim == 2.2.6",
@@ -115,7 +118,7 @@ proc buildModule(filePath, params = ""): bool =
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & getNimParams() & " " & params &
+  exec "nim c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -124,7 +127,7 @@ proc buildModule(filePath, params = ""): bool =
 proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
+  exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
 
 ## Emitted by `genBindings()` during the library build, so the header can never
@@ -145,11 +148,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      cBindingsFlags & getMyCPU() & getNimParams() & srcDir & "/" & srcFile
+      cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
   else:
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      cBindingsFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
+      cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
@@ -333,9 +336,6 @@ task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
   buildMobileIOS srcDir, extraParams
 
 proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
-  # XXX: When running `> NIM_PARAMS="-d:chronicles_log_level=INFO" make test2`
-  # I expect compiler flag to be overridden, however it stays with whatever is
-  # specified here.
   buildBinary name, "tests/", params
   exec "build/" & name
 

@@ -9,7 +9,7 @@ on:
 
 env:
   NPROC: 2
-  NIM_PARAMS: "-d:disableMarchNative"
+  NIMFLAGS: "-d:disableMarchNative"
   NIM_VERSION: '2.2.6'
   NIMBLE_VERSION: '0.24.1'
 
@@ -127,13 +127,13 @@ jobs:
         run: |
           # One make target for each line. Two parallel nimble processes
           # corrupt the shared package metadata.
-          make -j${NPROC} POSTGRES=1 CI=false wakunode2
-          make -j${NPROC} CI=false chat2
-          make -j${NPROC} POSTGRES=1 CI=false logosdeliverynode
+          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false wakunode2
+          make -j${NPROC} DEBUG=0 CI=false chat2
+          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false logosdeliverynode
           tar -cvzf ${{steps.vars.outputs.waku}} ./build/
 
-          make -j${NPROC} POSTGRES=1 CI=false liblogosdelivery
-          make -j${NPROC} POSTGRES=1 CI=false STATIC=1 liblogosdelivery
+          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false liblogosdelivery
+          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false STATIC=1 liblogosdelivery
 
       - name: Audit installed deps
         run: make audit-deps

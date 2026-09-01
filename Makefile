@@ -30,16 +30,62 @@ export PATH := $(NIMBLE_TOOLDIR):$(HOME)/.nimble/bin:$(PATH)
 
 # NIM binary location
 NIM_BINARY := $(shell which nim 2>/dev/null)
-NPH := $(HOME)/.nimble/bin/nph
 
 NIMBLE := nimble
 
-NIMBLE_TASK_FLAGS = --useSystemNim --requires "$$(cat requires.generated)"
+# Nimble accepts the generated value only in attached --requires:<value>
+# form; a separate argument leaves the constraints unapplied.
+NIMBLE_TASK_FLAGS = --useSystemNim --requires:"$$(cat requires.generated)"
 
 NIMBLEDEPS_STAMP := nimbledeps/.nimble-setup
 
 # Compilation parameters
-NIM_PARAMS ?=
+#
+# NIM_PARAMS is the flag list the build receives. Make assembles it in this
+# order, and Nim keeps the last definition of a define, so a later entry wins
+# over an earlier one:
+#
+#   1. NIM_PARAMS from the environment, the caller's own contribution.
+#   2. the project's own flags, added through the rest of this file.
+#   3. NIMFLAGS from the caller, added at the end, so the caller wins.
+#
+# This file exports NIM_PARAMS, and several targets recurse: test, audit-deps,
+# the C library rebuilds, Android and iOS. A sub-make inherits the assembled
+# value, so appending to it again would add every project flag a second time.
+#
+# NIM_PARAMS_CALLER records step 1 alone. It is set only when it does not
+# already exist, so the first make captures the caller's value and every
+# sub-make inherits that same value rather than the assembled one. NIM_PARAMS
+# is then rebuilt from it, discarding whatever a sub-make inherited. Assembly
+# is therefore idempotent: a sub-make computes the same list as its parent, at
+# any depth.
+#
+# It is set with := and guarded by origin rather than written ?=, because ?=
+# creates a recursively expanded variable.
+#
+# A NIM_PARAMS on the make command line is unaffected by this. Make gives a
+# command line variable precedence over every assignment in this file, so it
+# replaces the whole list, the project's own flags included.
+ifeq ($(origin NIM_PARAMS_CALLER),undefined)
+  NIM_PARAMS_CALLER := $(NIM_PARAMS)
+endif
+export NIM_PARAMS_CALLER
+NIM_PARAMS := $(NIM_PARAMS_CALLER)
+
+# V selects verbosity. Callers pass V=1. Nat.mk uses HANDLE_OUTPUT to
+# silence the sub-makes.
+V := 0
+NIM_PARAMS := $(NIM_PARAMS) --verbosity:$(V)
+HANDLE_OUTPUT :=
+ifeq ($(V), 0)
+  NIM_PARAMS := $(NIM_PARAMS) --hints:off
+  HANDLE_OUTPUT := >/dev/null
+endif
+
+# The Jenkins jobs expose LOG_LEVEL as a build parameter.
+ifdef LOG_LEVEL
+  NIM_PARAMS := $(NIM_PARAMS) -d:chronicles_log_level="$(LOG_LEVEL)"
+endif
 
 ifeq ($(detected_OS),Windows)
   MINGW_PATH = /mingw64
@@ -55,7 +101,7 @@ endif
 ## Main ##
 ##########
 # The Makefile automatically bootstraps dependency setup when needed for build and test targets.
-.PHONY: all test clean examples deps nimble install-nim install-nimble
+.PHONY: all test clean examples deps nimble install-nim install-nimble print-nimble-path
 
 # default target
 all: | wakunode2 logosdeliverynode liblogosdelivery
@@ -75,9 +121,13 @@ else
 	$(MAKE) compile-test TEST_FILE="$(test_file)" TEST_NAME="$(call test_name)"
 endif
 
-# this prevents make from erroring on unknown targets
+# `make test <file> [name]` passes the file and the name as extra goals. Absorb
+# them here so make does not look for targets by those names. Any other unknown
+# target must still fail, or a stale invocation succeeds while doing nothing.
+ifeq ($(firstword $(MAKECMDGOALS)),test)
 %:
 	@true
+endif
 
 logos_delivery.nims:
 	ln -s logos_delivery.nimble $@
@@ -103,7 +153,7 @@ $(NIMBLEDEPS_STAMP): requires.generated logos_delivery.nimble | install-nimble b
 	# custom tasks as compilation options. --useSystemNim uses the Nim
 	# compiler on PATH and omits Nim from the local dependency installation.
 	# Custom task invocations use the same option through NIMBLE_TASK_FLAGS.
-	$(NIMBLE) setup --localdeps -y --useSystemNim --requires "$$(cat requires.generated)"
+	$(NIMBLE) setup --localdeps -y --useSystemNim --requires:"$$(cat requires.generated)"
 
 	$(MAKE) audit-deps
 
@@ -149,6 +199,11 @@ build:
 
 nimble: install-nimble
 
+# The build system puts NIMBLE_TOOLDIR first on PATH for its own invocations.
+# Print it so a shell can use the same Nimble.
+print-nimble-path:
+	@echo "$(NIMBLE_TOOLDIR)"
+
 ## Possible values: prod; debug
 TARGET ?= prod
 
@@ -172,7 +227,7 @@ endif
 
 # Debug/Release mode
 ifeq ($(DEBUG), 0)
-NIM_PARAMS := $(NIM_PARAMS) -d:release
+NIM_PARAMS := $(NIM_PARAMS) -d:release -d:lto_incremental -d:strip
 else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif
@@ -192,6 +247,12 @@ endif
 ifeq ($(DEBUG_DISCV5), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:debugDiscv5
 endif
+
+# Callers set NIMFLAGS. The README, the workflows, the Jenkinsfiles and the
+# Dockerfiles use it. Only NIM_PARAMS reaches the build, so add NIMFLAGS to it
+# here, after the defines it may conflict with. Nim uses the last
+# definition of a define.
+NIM_PARAMS := $(NIM_PARAMS) $(NIMFLAGS)
 
 # Export NIM_PARAMS so nimble can access it
 export NIM_PARAMS
@@ -265,7 +326,7 @@ testwaku: | build-deps build rln-deps librln
 wakunode2: | build-deps build deps librln
 ifeq ($(detected_OS),Windows)
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nim c --out:build/wakunode2 --mm:refc --cpu:amd64 $(NIM_PARAMS) -d:chronicles_log_level=TRACE apps/wakunode2/wakunode2.nim
+		nim c --out:build/wakunode2 --mm:refc --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/wakunode2/wakunode2.nim
 else
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) wakunode2 $(NIMBLE_TASK_FLAGS)
@@ -276,7 +337,7 @@ endif
 logosdeliverynode: | build-deps build deps librln
 ifeq ($(detected_OS),Windows)
 	echo -e $(BUILD_MSG) "build/$@" && \
-		nim c --out:build/logosdeliverynode --mm:refc --cpu:amd64 $(NIM_PARAMS) -d:chronicles_log_level=TRACE apps/logos_delivery_node/logosdeliverynode.nim
+		nim c --out:build/logosdeliverynode --mm:refc --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/logos_delivery_node/logosdeliverynode.nim
 else
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) logosdeliverynode $(NIMBLE_TASK_FLAGS)
@@ -320,7 +381,7 @@ lightpushwithmix: | build-deps build deps librln
 
 api_example: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(ENV_SCRIPT) nim api_example $(NIM_PARAMS) logos_delivery.nims
+		nim api_example $(NIM_PARAMS) logos_delivery.nims
 
 build/%: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$*" && \
@@ -376,10 +437,10 @@ endif
 
 nph/%: | build-nph
 	echo -e $(FORMAT_MSG) "nph/$*" && \
-		$(NPH) $*
+		"$$(command -v nph)" $*
 
 print-nph-path:
-	@echo "$(NPH)"
+	@command -v nph
 
 clean:
 
@@ -392,23 +453,25 @@ docs: | build-deps build deps
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) doc --run --index:on --project --out:.gh-pages logos-delivery/logos-delivery.nim logos_delivery.nims $(NIMBLE_TASK_FLAGS)
 
-coverage:
+coverage: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		./scripts/run_cov.sh -y
+		LIBRLN_FILE=$(LIBRLN_FILE) ./scripts/run_cov.sh -y
 
 #####################
 ## Container image ##
 #####################
 DOCKER_IMAGE_NIMFLAGS ?= -d:chronicles_colors:none -d:insecure -d:postgres
-DOCKER_IMAGE_NIMFLAGS := $(DOCKER_IMAGE_NIMFLAGS) $(HEAPTRACK_PARAMS)
 
 docker-image: MAKE_TARGET ?= wakunode2
+docker-image: DEBUG ?= 0
 docker-image: DOCKER_IMAGE_TAG ?= $(MAKE_TARGET)-$(GIT_VERSION)
 docker-image: DOCKER_IMAGE_NAME ?= wakuorg/nwaku:$(DOCKER_IMAGE_TAG)
 docker-image:
 	docker build \
 		--build-arg="MAKE_TARGET=$(MAKE_TARGET)" \
 		--build-arg="NIMFLAGS=$(DOCKER_IMAGE_NIMFLAGS)" \
+		--build-arg="DEBUG=$(DEBUG)" \
+		--build-arg="LOG_LEVEL=$(LOG_LEVEL)" \
 		--build-arg="HEAPTRACK_BUILD=$(HEAPTRACKER)" \
 		--label="commit=$(shell git rev-parse HEAD)" \
 		--label="version=$(GIT_VERSION)" \

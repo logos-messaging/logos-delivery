@@ -14,11 +14,7 @@ on:
 env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "--parallelBuild:${NPROC}"
-  # logos_delivery.nimble reads compile flags from NIM_PARAMS, not NIMFLAGS. Without
-  # -d:disableMarchNative here, config.nims applies -march=native and
-  # secp256k1 fails to compile.
-  NIM_PARAMS: "-d:disableMarchNative"
+  NIMFLAGS: "--parallelBuild:${NPROC} -d:disableMarchNative -d:chronicles_colors:none"
   NIM_VERSION: '2.2.6'
   NIMBLE_VERSION: '0.24.1'
 
@@ -76,8 +72,8 @@ jobs:
         # Serializing the targets removes the race; Nim's own --parallelBuild
         # still parallelizes compilation. Mirrors the -j1 fix in ci.yml.
         run: |
-          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" wakunode2
-          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" logosdeliverynode
+          make -j${NPROC} V=1 DEBUG=0 POSTGRES=1 wakunode2
+          make -j${NPROC} V=1 DEBUG=0 POSTGRES=1 logosdeliverynode
 
       - name: Audit installed deps
         if: ${{ steps.secrets.outcome == 'success' }}
