@@ -5,6 +5,7 @@ import
   libp2p/crypto/curve25519,
   libp2p_mix/curve25519
 import libp2p_mix/spam_protection
+import mix_rln_spam_protection/spam_protection as mix_rln
 import ../waku_conf, logos_delivery/waku/waku_mix
 
 logScope:
@@ -20,6 +21,7 @@ type MixConfBuilder* = object
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
   spamProtection: Opt[SpamProtection]
+  mixRlnConfig: Opt[mix_rln.MixRlnConfig]
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -36,10 +38,16 @@ proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
 proc withSpamProtection*(b: var MixConfBuilder, spamProtection: SpamProtection) =
   b.spamProtection = Opt.some(spamProtection)
 
+proc withMixRln*(b: var MixConfBuilder, config: mix_rln.MixRlnConfig) =
+  b.mixRlnConfig = Opt.some(config)
+
 proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):
     return ok(Opt.none(MixConf))
   else:
+    if b.spamProtection.isSome() and b.mixRlnConfig.isSome():
+      return err("Mix spam protection and Mix-RLN cannot both be configured")
+
     if b.mixKey.isSome():
       let mixPrivKey = intoCurve25519Key(ncrutils.fromHex(b.mixKey.get()))
       let mixPubKey = public(mixPrivKey)
@@ -50,6 +58,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
             mixPubKey: mixPubKey,
             mixNodes: b.mixNodes,
             spamProtection: b.spamProtection,
+            mixRlnConfig: b.mixRlnConfig,
           )
         )
       )
@@ -63,6 +72,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
             mixPubKey: mixPubKey,
             mixNodes: b.mixNodes,
             spamProtection: b.spamProtection,
+            mixRlnConfig: b.mixRlnConfig,
           )
         )
       )
