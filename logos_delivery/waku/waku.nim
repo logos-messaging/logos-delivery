@@ -514,6 +514,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     waku.conf,
     waku.node.getShardsGetter(waku.conf.subscribeShards)(),
   )
+  await advertiseMix(waku.node.discoveries, waku.conf)
 
   ## Health Monitor
   waku.healthMonitor.startHealthMonitor().isOkOr:

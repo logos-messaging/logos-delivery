@@ -176,11 +176,8 @@ proc setupProtocols(
   if conf.kademliaDiscoveryConf.isSome():
     var kadConf = conf.kademliaDiscoveryConf.get()
 
-    if conf.mixConf.isSome():
-      let mixService =
-        ServiceInfo(id: MixProtocolID, data: @(conf.mixConf.get().mixPubKey))
-      kadConf.servicesToAdvertise.incl(mixService)
-      kadConf.servicesToDiscover.incl(mixService.id)
+    # Mix is no longer injected here: it is advertised at runtime through
+    # IPeerDiscovery (see advertiseMix), so plugin-hosted kademlia gets it too.
 
     node.mountKademlia(kadConf).isOkOr:
       return err("failed to setup service discovery: " & error)
