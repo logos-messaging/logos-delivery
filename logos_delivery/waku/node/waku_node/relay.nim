@@ -191,7 +191,7 @@ proc setRlnValidator*(
     spamHandler = Opt.none(SpamHandler),
     registrationHandler = Opt.none(RegistrationHandler),
 ) {.async.} =
-  info "setting rln validator"
+  info "Setting rln validator"
 
   when rlnConf is WakuRlnLezConfig:
     if node.wakuRelay.isNil():
@@ -209,10 +209,13 @@ proc setRlnValidator*(
     proc validator(
         topic: string, message: WakuMessage
     ): Future[pubsub.ValidationResult] {.async.} =
-      trace "rln-lez topic validator is called"
+      trace "Rln-lez topic validator is called"
 
       if message.timestamp < 0:
-        trace "rln-lez validator reject", error = "negative message timestamp"
+        trace "Rln-lez validator reject", error = "Negative message timestamp"
+        return pubsub.ValidationResult.Reject
+      if message.proof.len == 0:
+        trace "Rln-lez validator reject", error = "Message has no RLN proof"
         return pubsub.ValidationResult.Reject
       let timestamp = uint64(message.timestamp div 1_000_000_000)
 
@@ -221,23 +224,24 @@ proc setRlnValidator*(
           node.brokerCtx, message, registryId, rlnIdentifier, timestamp
         )
       ).valueOr:
-        trace "rln-lez validator reject", error = error
-        return pubsub.ValidationResult.Reject
+        # no verdict from the module — don't score the peer down for our own failure
+        trace "rln-lez validator ignore", error = error
+        return pubsub.ValidationResult.Ignore
 
       let proof = byteutils.toHex(message.proof)
       case res.validation.verdict
       of ProofVerdict.Valid:
-        trace "message validity is verified, relaying", proof = proof
+        trace "Message validity is verified, relaying", proof = proof
         logos_delivery_rln_valid_messages_total.inc(labelValues = [topic])
         return pubsub.ValidationResult.Accept
       of ProofVerdict.Invalid:
-        trace "message validity could not be verified, discarding", proof = proof
+        trace "Message validity could not be verified, discarding", proof = proof
         return pubsub.ValidationResult.Reject
       of ProofVerdict.Duplicate:
-        trace "duplicate rln proof, discarding", proof = proof
+        trace "Duplicate rln proof, discarding", proof = proof
         return pubsub.ValidationResult.Reject
       of ProofVerdict.RateLimitViolation:
-        trace "rate limit violation found, discarding", proof = proof
+        trace "Rate limit violation found, discarding", proof = proof
         if spamHandler.isSome():
           let handler = spamHandler.get()
           handler(message)
@@ -249,7 +253,7 @@ proc setRlnValidator*(
     let rln = (await RlnEvm.new(rlnConf, registrationHandler)).valueOr:
       raise newException(CatchableError, "failed to set rln validator: " & error)
     if (rlnConf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit):
-      error "rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
+      error "Rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
 
     node.rln = rln
 
@@ -265,11 +269,11 @@ proc setRlnValidator*(
     proc validator(
         topic: string, message: WakuMessage
     ): Future[pubsub.ValidationResult] {.async.} =
-      trace "rln-relay topic validator is called"
+      trace "Rln-relay topic validator is called"
       rln.clearNullifierLog()
 
       let msgProof = protocol_types.RateLimitProof.init(message.proof).valueOr:
-        trace "rln validator reject", error = error
+        trace "Rln validator reject", error = error
         return pubsub.ValidationResult.Reject
 
       # validate the message and update log
@@ -284,7 +288,7 @@ proc setRlnValidator*(
 
       case validationRes
       of Valid:
-        trace "message validity is verified, relaying",
+        trace "Message validity is verified, relaying",
           proof = proof,
           root = root,
           shareX = shareX,
@@ -293,7 +297,7 @@ proc setRlnValidator*(
         logos_delivery_rln_valid_messages_total.inc(labelValues = [topic])
         return pubsub.ValidationResult.Accept
       of Invalid:
-        trace "message validity could not be verified, discarding",
+        trace "Message validity could not be verified, discarding",
           proof = proof,
           root = root,
           shareX = shareX,
