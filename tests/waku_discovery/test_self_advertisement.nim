@@ -131,14 +131,29 @@ suite "Self advertisement":
       discv5.advertised.len == 0
       discv5.interests.len == 0
 
-  test "the payload carries version, cluster, shards and protocol ids":
+  test "the payload carries version, cluster, capabilities and shards":
     let data = selfAdvertisementData(confWith(CoreFlags), TestShards)
-    let js = parseJson(cast[string](data))
     check:
-      js["cluster"].getInt() == 16
-      js["shards"].getElems().mapIt(it.getInt()) == @[0, 3]
-      js["version"].getStr().len > 0
-      WakuRelayCodec in js["protocols"].getElems().mapIt(it.getStr())
-      WakuStoreCodec in js["protocols"].getElems().mapIt(it.getStr())
-      WakuLightPushCodec in js["protocols"].getElems().mapIt(it.getStr())
-      WakuFilterSubscribeCodec notin js["protocols"].getElems().mapIt(it.getStr())
+      data.len == 5 # 4-byte header + one bitmap byte covering shards 0 and 3
+      data[0] == AdvertFormatVersion
+      (uint16(data[1]) shl 8 or uint16(data[2])) == 16'u16
+      CapabilitiesBitfield(data[3]).supportsCapability(Capabilities.Relay)
+      CapabilitiesBitfield(data[3]).supportsCapability(Capabilities.Store)
+      CapabilitiesBitfield(data[3]).supportsCapability(Capabilities.Lightpush)
+      not CapabilitiesBitfield(data[3]).supportsCapability(Capabilities.Filter)
+      data[4] == 0b0000_1001'u8 # shards 0 and 3
+
+  test "the payload stays within the size libp2p will accept":
+    ## The JSON shape this replaced ran to ~188 bytes and could never be
+    ## advertised. Checked with a deliberately wide shard set, not just the
+    ## two-shard fixture.
+    var manyShards: seq[uint16]
+    for i in 0'u16 ..< 200'u16:
+      manyShards.add(i)
+    check selfAdvertisementData(confWith(CoreFlags), manyShards).len <= MaxAdvertLen
+
+  test "a shard index beyond the bitmap is dropped, not aliased":
+    let data = selfAdvertisementData(confWith(CoreFlags), @[0'u16, 9999'u16])
+    check:
+      data.len <= MaxAdvertLen
+      data[4] == 0b0000_0001'u8 # shard 0 only; 9999 did not fold onto a low bit
