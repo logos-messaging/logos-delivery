@@ -16,6 +16,7 @@
 
 import std/[algorithm, json, sequtils, strutils]
 import chronos, chronicles, results
+import libp2p_mix/mix_protocol
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/factory/waku_conf,
@@ -85,3 +86,43 @@ proc advertiseSelf*(
 
     info "advertising this node on the delivery network",
       backend = info.id, protocols = conf.wakuFlags.toCodecs()
+
+proc advertiseMix*(
+    discoveries: seq[IPeerDiscovery], conf: WakuConf
+): Future[void] {.async: (raises: []).} =
+  ## Advertises this node's mix public key, and registers interest in other mix
+  ## nodes, on every service-capable backend.
+  ##
+  ## This goes through the interface rather than through
+  ## `KademliaDiscoveryConf.servicesToAdvertise`, which is where it used to be
+  ## injected at conf time. That reached only the in-process backend -- the conf
+  ## object belongs to it, and the two kademlia hosts are mutually exclusive --
+  ## so a node running mix with plugin-hosted discovery advertised nothing and
+  ## found no mix peers. Same route as `advertiseSelf`, so both hosts get it.
+  ##
+  ## No signed record is passed, here or anywhere: every backend rejects one
+  ## (`pre-signed advertisements not supported`) because libp2p builds and signs
+  ## the advertisement from its own identity.
+  if conf.mixConf.isNone():
+    return
+
+  let key = SvcKeyPrefix & MixProtocolID
+  let data = @(conf.mixConf.get().mixPubKey)
+
+  for discovery in discoveries:
+    let info = (await discovery.backendInfo()).valueOr:
+      debug "skipping backend with unreadable info", reason = error
+      continue
+
+    if SvcKind notin info.keyKinds:
+      continue
+
+    (await discovery.registerInterest(key)).isOkOr:
+      warn "could not register interest in mix peers", backend = info.id, reason = error
+
+    (await discovery.startAdvertising(key, data, @[])).isOkOr:
+      warn "could not advertise this node as a mix node",
+        backend = info.id, reason = error
+      continue
+
+    info "advertising this node as a mix node", backend = info.id
