@@ -138,8 +138,8 @@
 
   snappy = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-snappy";
-    rev = "da2f0c7b6ce9053106e9bb098204fe5319038387";
-    sha256 = "1jmjh1b70wkhzmyzvp46y50x3i1f0hkdrpy6msvqix60xwkxf1zy";
+    rev = "a99d113197e81bf764a3b005b0ade3f9f3758069";
+    sha256 = "0fbr352m01psi3f25c3gi95yimrjmvsh10wckywscn0603iqzpjl";
     fetchSubmodules = true;
   };
 

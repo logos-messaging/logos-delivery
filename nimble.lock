@@ -258,8 +258,8 @@
       }
     },
     "snappy": {
-      "version": "0.1.0",
-      "vcsRevision": "da2f0c7b6ce9053106e9bb098204fe5319038387",
+      "version": "#a99d113197e81bf764a3b005b0ade3f9f3758069",
+      "vcsRevision": "a99d113197e81bf764a3b005b0ade3f9f3758069",
       "url": "https://github.com/status-im/nim-snappy",
       "downloadMethod": "git",
       "dependencies": [
@@ -271,7 +271,7 @@
         "testutils"
       ],
       "checksums": {
-        "sha1": "d02c6657cc4df57c03ec8b84d0dd74007f6ebd07"
+        "sha1": "72fb32f879c2d0f4296e18e946d15daae993e32b"
       }
     },
     "serialization": {

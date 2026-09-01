@@ -21,7 +21,7 @@ const RequiredNimbleRevision = "bc789ee6bcbfe315f81984a29318f6f8d4dcafa5"
 
 ### Dependencies
 requires "nim == 2.2.6",
-  "chronos >= 4.2.0 & < 4.4.0",
+  "chronos == 4.2.5",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -69,6 +69,10 @@ requires "nim == 2.2.6",
 # URL requirements described above.
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
+
+# nim-snappy's 0.1.0 package tracks master; pin the validated revision so
+# dependency setup remains reproducible.
+requires "https://github.com/status-im/nim-snappy#a99d113197e81bf764a3b005b0ade3f9f3758069"
 
 # v0.3.1-rc.0: https://github.com/logos-messaging/nim-ffi/releases/tag/v0.3.1-rc.0
 requires "https://github.com/logos-messaging/nim-ffi#07ee8e1d6500762bab290465457a8d23559de546"

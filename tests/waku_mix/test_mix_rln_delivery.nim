@@ -19,7 +19,6 @@ const
 
 proc newMixRlnNode(): Future[Result[WakuNode, string]] {.async.} =
   let node = newTestWakuNode(generateSecp256k1Key(), quicEnabled = false)
-  await node.start()
 
   node.mountAutoSharding(DefaultClusterId, TestShardCount).isOkOr:
     await node.stop()
@@ -53,11 +52,11 @@ proc newMixRlnNode(): Future[Result[WakuNode, string]] {.async.} =
     await node.stop()
     return err("failed to mount Mix: " & error)
 
-  await node.wakuMix.start()
-
   node.mountMixRlnCoordination().isOkOr:
     await node.stop()
     return err("failed to mount Mix-RLN coordination: " & error)
+
+  await node.start()
 
   (await mixRln.start()).isOkOr:
     await node.stop()
@@ -129,8 +128,7 @@ suite "WakuNode - Mix-RLN Delivery integration":
 
       let invalidResult =
         node2.wakuMixRln.verifyProof(proof, "different-binding".toBytes())
-      require invalidResult.isOk()
-      check invalidResult.get() == false
+      check invalidResult.isErr()
 
       let validResult = node2.wakuMixRln.verifyProof(proof, bindingData)
       require validResult.isOk()
