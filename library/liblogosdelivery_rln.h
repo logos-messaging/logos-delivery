@@ -28,9 +28,11 @@ typedef void (*LogosDeliveryRlnStartFn)(uint64_t req_id, const char* config_json
 
 typedef void (*LogosDeliveryRlnStopFn)(uint64_t req_id, void* user_data);
 
+/* options_json is the module's RegistryOptions array, ready to send:
+   [{"key":"<str>","value":"<str>"}, …] — every value a string; the key
+   "rate_limit" (decimal string) carries the per-epoch rate. */
 typedef void (*LogosDeliveryRlnRegisterFn)(uint64_t req_id, const char* registry_id,
                                            const char* rln_identifier,
-                                           uint64_t rate_limit,
                                            const char* options_json, void* user_data);
 
 typedef void (*LogosDeliveryRlnGetMembershipStateFn)(uint64_t req_id,
@@ -55,7 +57,7 @@ typedef void (*LogosDeliveryRlnValidateProofFn)(uint64_t req_id, const char* reg
 typedef struct {
   LogosDeliveryRlnStartFn start;
   LogosDeliveryRlnStopFn stop;
-  LogosDeliveryRlnRegisterFn register_membership; /* module method "register" — a C/C++ keyword */
+  LogosDeliveryRlnRegisterFn register_membership;
   LogosDeliveryRlnGetMembershipStateFn get_membership_state;
   LogosDeliveryRlnGetEpochQuotaFn get_epoch_quota;
   LogosDeliveryRlnGenerateProofFn generate_proof;
