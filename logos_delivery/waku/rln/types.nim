@@ -99,8 +99,6 @@ type
     kind*: RlnErrorKind
     message*: string
 
-  RlnApiResult*[T] = Result[T, RlnError]
-
 func init*(
     T: type MembershipScope, registryId: RegistryId, rlnIdentifier: RlnIdentifier
 ): T =

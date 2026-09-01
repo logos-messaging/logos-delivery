@@ -30,23 +30,22 @@ export chronos, types
 ##   confirmation is observed via `getMembershipState`
 
 type RlnInterface* = concept m
-  start(m) is Future[RlnApiResult[void]]
-  stop(m) is Future[RlnApiResult[void]]
+  start(m) is Future[Result[void, RlnError]]
+  stop(m) is Future[Result[void, RlnError]]
   register(m, scope = MembershipScope, options = RegistryOptions) is
-    Future[RlnApiResult[MembershipState]]
-  getMembershipState(m, scope = MembershipScope) is Future[
-    RlnApiResult[MembershipState]
-  ]
+    Future[Result[MembershipState, RlnError]]
+  getMembershipState(m, scope = MembershipScope) is
+    Future[Result[MembershipState, RlnError]]
   getEpochQuota(m, scope = MembershipScope, timestamp = uint64) is
-    Future[RlnApiResult[EpochQuota]]
+    Future[Result[EpochQuota, RlnError]]
   generateProof(m, scope = MembershipScope, signal = seq[byte], timestamp = uint64) is
-    Future[RlnApiResult[RateLimitProof]]
+    Future[Result[RateLimitProof, RlnError]]
   validateProof(
     m,
     scope = MembershipScope,
     signal = seq[byte],
     timestamp = uint64,
     proof = RateLimitProof,
-  ) is Future[RlnApiResult[ValidationResult]]
+  ) is Future[Result[ValidationResult, RlnError]]
 
 {.pop.}

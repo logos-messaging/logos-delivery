@@ -9,22 +9,22 @@ type StubRlnModule = ref object
 
 proc start(
     m: StubRlnModule
-): Future[RlnApiResult[void]] {.async: (raises: [CancelledError]).} =
+): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok()
 
 proc stop(
     m: StubRlnModule
-): Future[RlnApiResult[void]] {.async: (raises: [CancelledError]).} =
+): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok()
 
 proc register(
     m: StubRlnModule, scope: MembershipScope, options: RegistryOptions
-): Future[RlnApiResult[MembershipState]] {.async: (raises: [CancelledError]).} =
+): Future[Result[MembershipState, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok(MembershipState(status: MembershipStatus.Pending))
 
 proc getMembershipState(
     m: StubRlnModule, scope: MembershipScope
-): Future[RlnApiResult[MembershipState]] {.async: (raises: [CancelledError]).} =
+): Future[Result[MembershipState, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok(
     MembershipState(
       status: MembershipStatus.Active,
@@ -34,12 +34,12 @@ proc getMembershipState(
 
 proc getEpochQuota(
     m: StubRlnModule, scope: MembershipScope, timestamp: uint64
-): Future[RlnApiResult[EpochQuota]] {.async: (raises: [CancelledError]).} =
+): Future[Result[EpochQuota, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok(m.quota)
 
 proc generateProof(
     m: StubRlnModule, scope: MembershipScope, signal: seq[byte], timestamp: uint64
-): Future[RlnApiResult[RateLimitProof]] {.async: (raises: [CancelledError]).} =
+): Future[Result[RateLimitProof, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok(RateLimitProof())
 
 proc validateProof(
@@ -48,7 +48,7 @@ proc validateProof(
     signal: seq[byte],
     timestamp: uint64,
     proof: RateLimitProof,
-): Future[RlnApiResult[ValidationResult]] {.async: (raises: [CancelledError]).} =
+): Future[Result[ValidationResult, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok(ValidationResult(verdict: ProofVerdict.Valid))
 
 suite "RLN interface - types":
