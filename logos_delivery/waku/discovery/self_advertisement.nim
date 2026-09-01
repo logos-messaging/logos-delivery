@@ -14,7 +14,6 @@
 ## whose advertising means mutating our own ENR and which rejects `svc:` keys
 ## outright.
 
-import std/[algorithm, json, sequtils, strutils]
 import chronos, chronicles, results
 import libp2p_mix/mix_protocol
 import
@@ -25,27 +24,63 @@ import
 logScope:
   topics = "waku discovery advertise"
 
-const git_version {.strdefine.} = "(unknown)"
-
 const SvcKey = SvcKeyPrefix & LogosDeliveryServiceId
 
+const
+  AdvertFormatVersion* = 1'u8
+    ## Bumped whenever the layout below changes, so a reader can refuse a
+    ## payload it does not understand instead of misreading it.
+
+  MaxAdvertLen* = 32
+    ## Hard ceiling on the advertised payload. libp2p validates the `data` of a
+    ## ServiceInfo and rejects anything larger, which is why this is a compact
+    ## binary layout and not JSON: the JSON shape this replaced ran to ~188
+    ## bytes and could never be advertised at all. For scale, the one service
+    ## advertised successfully in production -- mix -- carries a 32-byte
+    ## Curve25519 key and nothing else.
+
+  AdvertHeaderLen = 4
+  MaxShardBitmapLen* = MaxAdvertLen - AdvertHeaderLen
+    ## 28 bytes, so shards 0..223 are representable. Higher indices are dropped
+    ## rather than silently aliased onto a lower bit.
+
 proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
-  ## The payload published alongside the advertisement, as JSON.
+  ## The payload published alongside the advertisement.
   ##
-  ## Experimental, so it is JSON rather than a codec: the shape is expected to
-  ## move, and the external provider already hands us `data` as base64 JSON at
-  ## its own boundary. `cluster` travels with `shards` because a shard index is
-  ## meaningless without it.
-  ## Shards are sorted so the same node produces the same record twice.
-  ## `git_version` arrives from `-d:git_version=\"...\"`, quotes included, so
-  ## they are stripped rather than nested inside the JSON string.
-  let payload = %*{
-    "version": git_version.strip(chars = {'"'}),
-    "cluster": conf.clusterId,
-    "shards": shards.sorted(),
-    "protocols": conf.wakuFlags.toCodecs(),
-  }
-  return cast[seq[byte]]($payload)
+  ## Layout, little-endian bit order within each bitmap byte:
+  ##
+  ##   [0]      format version
+  ##   [1..2]   cluster id, big-endian uint16
+  ##   [3]      capabilities bitfield
+  ##   [4..]    shard bitmap, one bit per shard, only as long as it needs to be
+  ##
+  ## Everything here is what a peer needs to decide whether to dial us: which
+  ## network, what we serve, which shards we are on. `cluster` travels with
+  ## `shards` because a shard index is meaningless without it. The node's
+  ## version string used to be included and is not: it is the single largest
+  ## field, it is not a selection criterion, and it does not fit the budget.
+  ##
+  ## Capabilities travel as the bitfield rather than as protocol id strings --
+  ## the same information, four bytes instead of roughly a hundred.
+  var payload = newSeq[byte](AdvertHeaderLen)
+  payload[0] = AdvertFormatVersion
+  payload[1] = byte(conf.clusterId shr 8)
+  payload[2] = byte(conf.clusterId and 0xff)
+  payload[3] = byte(conf.wakuFlags)
+
+  for shard in shards:
+    let idx = int(shard)
+    let byteIdx = idx div 8
+    if byteIdx >= MaxShardBitmapLen:
+      warn "shard index too large to advertise",
+        shard = shard, max = MaxShardBitmapLen * 8
+      continue
+    while payload.len <= AdvertHeaderLen + byteIdx:
+      payload.add(0'u8)
+    payload[AdvertHeaderLen + byteIdx] =
+      payload[AdvertHeaderLen + byteIdx] or byte(1'u8 shl (idx mod 8))
+
+  return payload
 
 proc advertiseSelf*(
     discoveries: seq[IPeerDiscovery], conf: WakuConf, shards: seq[uint16]
