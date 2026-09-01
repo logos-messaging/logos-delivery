@@ -169,7 +169,17 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageLostEvent.dropAllListeners(self.waku.brokerCtx)
 
-proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
+proc parseRlnGeneratedProof(resultJson: string): Result[seq[byte], string] =
+  let value = ?parseRlnResultEnvelope(resultJson)
+  let hexStr = value{"proof_canonical"}.getStr("")
+  if hexStr.len == 0:
+    return err("Generate_proof reply carries no proof_canonical")
+  try:
+    return ok(hexToSeqByte(hexStr))
+  except ValueError as e:
+    return err("Proof_canonical is not valid hex: " & e.msg)
+
+proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, string] =
   ## Bridges the waku layer's RLN module requests onto the FFI callback
   ## surface. Providers are registered at create time; the underlying calls
   ## only succeed once the host has installed its RLN callbacks.
@@ -218,6 +228,25 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
   ).isOkOr:
     return err("Failed to set RequestValidateRlnProof provider: " & error)
 
+  # lez-gated: the legacy zerokit path registers its own provider for this request type
+  if lez:
+    RequestGenerateRlnProof.setProvider(
+      ctx,
+      proc(
+          message: WakuMessage,
+          registryId: RegistryId,
+          rlnIdentifier: RlnIdentifier,
+          timestamp: uint64,
+      ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
+        let signalHex = message.toRLNSignal().toHex()
+        let response = ?await rlnGenerateProof(
+          registryId, rlnIdentifier.toHex(), signalHex, timestamp
+        )
+        let proofBytes = ?parseRlnGeneratedProof(response)
+        return ok(RequestGenerateRlnProof(proof: proofBytes)),
+    ).isOkOr:
+      return err("failed to set RequestGenerateRlnProof provider: " & error)
+
   ok()
 
 proc logosdelivery_create_node(
@@ -249,7 +278,8 @@ proc logosdelivery_create_node(
     await lib.teardownFFIEventScope()
     return err(error)
 
-  registerRlnModuleProviders(lib.waku.brokerCtx).isOkOr:
+  let lez = lib.waku.conf.rlnRelayConf.isSome() and lib.waku.conf.rlnRelayConf.get().lez
+  registerRlnModuleProviders(lib.waku.brokerCtx, lez).isOkOr:
     await lib.teardownFFIEventScope()
     return err(error)
 
