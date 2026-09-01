@@ -182,7 +182,7 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
       discard ?parseRlnResultEnvelope(response)
       return ok(RequestStartRlnModule(response: response)),
   ).isOkOr:
-    return err("failed to set RequestStartRlnModule provider: " & error)
+    return err("Failed to set RequestStartRlnModule provider: " & error)
 
   RequestRegisterRlnMembership.setProvider(
     ctx,
@@ -198,7 +198,7 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
       discard ?parseRlnTstrReply(response)
       return ok(RequestRegisterRlnMembership(response: response)),
   ).isOkOr:
-    return err("failed to set RequestRegisterRlnMembership provider: " & error)
+    return err("Failed to set RequestRegisterRlnMembership provider: " & error)
 
   RequestValidateRlnProof.setProvider(
     ctx,
@@ -208,11 +208,6 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
         rlnIdentifier: RlnIdentifier,
         timestamp: uint64,
     ): Future[Result[RequestValidateRlnProof, string]] {.async.} =
-      ## `message.proof` carries the module's canonical zerokit proof bytes;
-      ## the module recomputes the public values from it, so the proof crosses
-      ## as a single canonical hex field.
-      if message.proof.len == 0:
-        return err("message has no RLN proof")
       let signalHex = message.toRLNSignal().toHex()
       let proofJson = $(%*{"proof": message.proof.toHex()})
       let response = ?await rlnValidateProof(
@@ -221,7 +216,7 @@ proc registerRlnModuleProviders(ctx: BrokerContext): Result[void, string] =
       let validation = ?parseRlnValidationResult(response)
       return ok(RequestValidateRlnProof(validation: validation)),
   ).isOkOr:
-    return err("failed to set RequestValidateRlnProof provider: " & error)
+    return err("Failed to set RequestValidateRlnProof provider: " & error)
 
   ok()
 
