@@ -25,6 +25,7 @@ import
   libp2p_mix,
   libp2p_mix/mix_protocol,
   libp2p_mix/spam_protection,
+  mix_rln_spam_protection/spam_protection as mix_rln,
   brokers/broker_context,
   brokers/request_broker
 
@@ -144,6 +145,8 @@ type
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
       ## Kernel API Relay appHandlers (if any)
     subscriptionManager*: SubscriptionManager
+    wakuMixRln*: mix_rln.MixRlnSpamProtection
+    wakuMixRlnListener*: Opt[MessageSeenEventListener]
     wakuMix*: WakuMix
     wakuKademlia*: WakuKademlia
     ports*: BoundPorts
@@ -678,6 +681,13 @@ proc stop*(node: WakuNode) {.async.} =
   # Cancel the background relay reconnection (may still be in its backoff wait).
   if not node.relayReconnectFut.isNil():
     await node.relayReconnectFut.cancelAndWait()
+
+  node.wakuMixRlnListener.withValue(listener):
+    await MessageSeenEvent.dropListener(node.brokerCtx, listener)
+  node.wakuMixRlnListener = Opt.none(MessageSeenEventListener)
+
+  if not node.wakuMixRln.isNil():
+    await node.wakuMixRln.stop()
 
   await node.subscriptionManager.stop()
 

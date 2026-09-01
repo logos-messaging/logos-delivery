@@ -7,6 +7,8 @@ import
   std/[net, random, sequtils],
   results,
   testutils/unittests
+import libp2p_mix/spam_protection
+import mix_rln_spam_protection/spam_protection as mix_rln
 import
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/factory/conf_builder/conf_builder,
@@ -404,3 +406,27 @@ suite "Waku Conf Builder - rate limits":
 
     ## Then
     assert res.isOk(), $res.error
+
+suite "Waku Conf Builder - Mix-RLN":
+  test "Mix-RLN configuration is retained":
+    var builder = MixConfBuilder.init()
+    let config = mix_rln.defaultConfig()
+    builder.withEnabled(true)
+    builder.withMixRln(config)
+
+    let conf = builder.build().expect("Mix configuration should build").get()
+
+    check conf.mixRlnConfig.isSome()
+    check conf.mixRlnConfig.get().membershipContentTopic == config.membershipContentTopic
+    check conf.mixRlnConfig.get().proofMetadataContentTopic ==
+      config.proofMetadataContentTopic
+
+  test "Mix-RLN and another spam protection provider are rejected":
+    var builder = MixConfBuilder.init()
+    builder.withEnabled(true)
+    builder.withMixRln(mix_rln.defaultConfig())
+    builder.withSpamProtection(SpamProtection(proofSize: 0))
+
+    let conf = builder.build()
+
+    check conf.isErr()

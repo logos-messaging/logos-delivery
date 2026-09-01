@@ -10,7 +10,9 @@ import
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/extended_peer_record,
-  libp2p_mix/mix_protocol
+  libp2p_mix/mix_protocol,
+  libp2p_mix/spam_protection,
+  mix_rln_spam_protection/spam_protection as mix_rln
 
 import
   ./internal_config,
@@ -171,19 +173,6 @@ proc setupProtocols(
     ## e.g. the connection with the database is lost and not recovered.
     error "Unrecoverable error occurred", error = msg
     quit(QuitFailure)
-
-  #mount mix
-  if conf.mixConf.isSome():
-    let mixConf = conf.mixConf.get()
-    (
-      await node.mountMix(
-        conf.clusterId,
-        mixConf.mixKey,
-        mixConf.mixnodes,
-        spamProtection = mixConf.spamProtection,
-      )
-    ).isOkOr:
-      return err("failed to mount waku mix protocol: " & $error)
 
   # Setup service discovery
   if conf.kademliaDiscoveryConf.isSome():
@@ -421,6 +410,40 @@ proc setupProtocols(
   if conf.peerExchangeDiscovery:
     await node.mountPeerExchangeClient()
 
+  if conf.mixConf.isSome():
+    let mixConf = conf.mixConf.get()
+    var spamProtection = mixConf.spamProtection
+
+    if mixConf.mixRlnConfig.isSome():
+      if not conf.relay:
+        return err("Mix-RLN coordination requires Waku Relay")
+      if node.wakuAutoSharding.isNone():
+        return err("Mix-RLN coordination requires autosharding")
+
+      let mixRln = mix_rln.MixRlnSpamProtection.new(mixConf.mixRlnConfig.get()).valueOr:
+        return err("failed to create Mix-RLN spam protection: " & error)
+      (await mixRln.init()).isOkOr:
+        return err("failed to initialize Mix-RLN spam protection: " & error)
+
+      node.wakuMixRln = mixRln
+      spamProtection = Opt.some(SpamProtection(mixRln))
+
+    (
+      await node.mountMix(
+        conf.clusterId,
+        mixConf.mixKey,
+        mixConf.mixnodes,
+        spamProtection = spamProtection,
+      )
+    ).isOkOr:
+      return err("failed to mount waku mix protocol: " & $error)
+
+    if not node.wakuMixRln.isNil():
+      node.mountMixRlnCoordination().isOkOr:
+        return err("failed to mount Mix-RLN coordination: " & error)
+      (await node.wakuMixRln.start()).isOkOr:
+        return err("failed to start Mix-RLN spam protection: " & error)
+
   return ok()
 
 ## Start node
@@ -467,6 +490,13 @@ proc startNode*(
   # periodic loop to find peers and px returned peers actually come from discv5
   if conf.peerExchangeDiscovery and not conf.discv5Conf.isSome():
     node.startPeerExchangeLoop()
+
+  try:
+    if not node.wakuMixRln.isNil():
+      (await node.wakuMixRln.registerSelf()).isOkOr:
+        return err("failed to register Mix-RLN membership: " & error)
+  except CatchableError:
+    return err("failed to register Mix-RLN membership: " & getCurrentExceptionMsg())
 
   # Maintain relay connections
   if conf.relay:

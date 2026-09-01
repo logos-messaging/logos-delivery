@@ -311,6 +311,13 @@
     fetchSubmodules = true;
   };
 
+  mix_rln_spam_protection = pkgs.fetchgit {
+    url = "https://github.com/logos-co/mix-rln-spam-protection-plugin";
+    rev = "7e9bbc1c231e025a17dd0dd8ce6a4457e34ac333";
+    sha256 = "01dggifhxbl93mqgyjhnfc6d28l2iskh3zxlsllgjrrd6gfd9pla";
+    fetchSubmodules = true;
+  };
+
   eth = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-eth";
     rev = "d9135e6c3c5d6d819afdfb566aa8d958756b73a8";
