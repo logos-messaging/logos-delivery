@@ -9,7 +9,10 @@ RequestBroker:
     proof*: seq[byte]
 
   proc signature(
-    message: WakuMessage, senderEpoch: float64
+    message: WakuMessage,
+    registryId: RegistryId,
+    rlnIdentifier: RlnIdentifier,
+    timestamp: uint64,
   ): Future[Result[RequestGenerateRlnProof, string]] {.async.}
 
 RequestBroker:
@@ -30,7 +33,9 @@ RequestBroker:
   ## `configJson` is the RLN module's start() config — at minimum
   ## {"epoch_size_sec":N}, plus "registries" to warm; built from the node's
   ## RLN conf so proof generators and validators share one epoch size.
-  proc signature(configJson: string): Future[Result[RequestStartRlnModule, string]] {.async.}
+  proc signature(
+    configJson: string
+  ): Future[Result[RequestStartRlnModule, string]] {.async.}
 
 RequestBroker:
   type RequestRegisterRlnMembership* = object
