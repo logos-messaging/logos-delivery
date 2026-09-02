@@ -21,7 +21,7 @@ const RequiredNimbleRevision = "bc789ee6bcbfe315f81984a29318f6f8d4dcafa5"
 
 ### Dependencies
 requires "nim == 2.2.6",
-  "chronos >= 4.2.0 & < 4.4.0",
+  "chronos == 4.2.5",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -70,6 +70,10 @@ requires "nim == 2.2.6",
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
 
+# nim-snappy's 0.1.0 package tracks master; pin the validated revision so
+# dependency setup remains reproducible.
+requires "https://github.com/status-im/nim-snappy#a99d113197e81bf764a3b005b0ade3f9f3758069"
+
 # v0.3.1-rc.0: https://github.com/logos-messaging/nim-ffi/releases/tag/v0.3.1-rc.0
 requires "https://github.com/logos-messaging/nim-ffi#07ee8e1d6500762bab290465457a8d23559de546"
 
@@ -90,10 +94,10 @@ requires "https://github.com/vacp2p/nim-boringssl#v0.0.11"
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
 
 # Temporary pin to the mix commit that widens its libp2p requirement.
-requires "https://github.com/logos-co/nim-libp2p-mix#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94"
+requires "https://github.com/richard-ramos/nim-libp2p-mix#75f8bd5386f08ea909332774ddbeb78599b89d92"
 
 # Draft integration pin; update to the final revision when the plugin PR lands.
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#7e9bbc1c231e025a17dd0dd8ce6a4457e34ac333"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#2dee9aaa2214895805fded977543c2770db4dc16"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies

@@ -6,6 +6,7 @@ import
   libp2p_mix/curve25519
 import libp2p_mix/spam_protection
 import mix_rln_spam_protection/spam_protection as mix_rln
+import libp2p_mix/cover_traffic
 import ../waku_conf, logos_delivery/waku/waku_mix
 
 logScope:
@@ -21,6 +22,7 @@ type MixConfBuilder* = object
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
   spamProtection: Opt[SpamProtection]
+  coverTraffic: Opt[CoverTraffic]
   mixRlnConfig: Opt[mix_rln.MixRlnConfig]
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
@@ -34,6 +36,9 @@ proc withMixKey*(b: var MixConfBuilder, mixKey: string) =
 
 proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   b.mixNodes = mixNodes
+
+proc withCoverTraffic*(b: var MixConfBuilder, coverTraffic: CoverTraffic) =
+  b.coverTraffic = Opt.some(coverTraffic)
 
 proc withSpamProtection*(b: var MixConfBuilder, spamProtection: SpamProtection) =
   b.spamProtection = Opt.some(spamProtection)
@@ -56,6 +61,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
           MixConf(
             mixKey: mixPrivKey,
             mixPubKey: mixPubKey,
+            coverTraffic: b.coverTraffic,
             mixNodes: b.mixNodes,
             spamProtection: b.spamProtection,
             mixRlnConfig: b.mixRlnConfig,
@@ -73,6 +79,7 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
             mixNodes: b.mixNodes,
             spamProtection: b.spamProtection,
             mixRlnConfig: b.mixRlnConfig,
+            coverTraffic: b.coverTraffic,
           )
         )
       )

@@ -138,8 +138,8 @@
 
   snappy = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-snappy";
-    rev = "da2f0c7b6ce9053106e9bb098204fe5319038387";
-    sha256 = "1jmjh1b70wkhzmyzvp46y50x3i1f0hkdrpy6msvqix60xwkxf1zy";
+    rev = "a99d113197e81bf764a3b005b0ade3f9f3758069";
+    sha256 = "0fbr352m01psi3f25c3gi95yimrjmvsh10wckywscn0603iqzpjl";
     fetchSubmodules = true;
   };
 
@@ -305,16 +305,16 @@
   };
 
   libp2p_mix = pkgs.fetchgit {
-    url = "https://github.com/logos-co/nim-libp2p-mix";
-    rev = "39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94";
-    sha256 = "098db702wviph33mzvlj4b20cpj10csfya2yx80rwlppc2brxqc4";
+    url = "https://github.com/richard-ramos/nim-libp2p-mix";
+    rev = "75f8bd5386f08ea909332774ddbeb78599b89d92";
+    sha256 = "1l7yy9ihm1zcrw0bvg8qy6d44s8lkjxbxb1vbc4pryc7jkxryw9h";
     fetchSubmodules = true;
   };
 
   mix_rln_spam_protection = pkgs.fetchgit {
     url = "https://github.com/logos-co/mix-rln-spam-protection-plugin";
-    rev = "7e9bbc1c231e025a17dd0dd8ce6a4457e34ac333";
-    sha256 = "01dggifhxbl93mqgyjhnfc6d28l2iskh3zxlsllgjrrd6gfd9pla";
+    rev = "2dee9aaa2214895805fded977543c2770db4dc16";
+    sha256 = "0d0k2k95zrlm4bw2cjnxcc63zgwvkz6hlycj31v1h4syd3a2brzk";
     fetchSubmodules = true;
   };
 
