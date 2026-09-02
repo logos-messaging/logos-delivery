@@ -6,11 +6,12 @@ else:
 import chronicles, results, std/[tempfiles, sequtils]
 
 import
-  logos_delivery/waku/
-    [
-      waku_keystore, rln/rln_evm/bindings,
-      rln/rln_evm/conversion_utils, rln/rln_evm/group_manager,
-    ]
+  logos_delivery/waku/[
+    waku_keystore,
+    rln/rln_evm/bindings,
+    rln/rln_evm/conversion_utils,
+    rln/rln_evm/group_manager,
+  ]
 
 logScope:
   topics = "rln_keystore_generator"

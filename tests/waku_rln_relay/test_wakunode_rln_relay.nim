@@ -12,9 +12,7 @@ import
   brokers/broker_context
 
 import
-  logos_delivery/waku/[
-    waku_core, waku_node, rln, rln/rln_evm/protocol_types
-  ],
+  logos_delivery/waku/[waku_core, waku_node, rln, rln/rln_evm/protocol_types],
   logos_delivery/waku/requests/rln_requests,
   ../testlib/[wakucore, futures, wakunode, testutils],
   ./utils_onchain,
