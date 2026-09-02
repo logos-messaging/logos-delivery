@@ -23,6 +23,7 @@ import
   libp2p/transports/wstransport,
   libp2p/utils/offsettedseq,
   libp2p_mix,
+  libp2p_mix/cover_traffic,
   libp2p_mix/mix_protocol,
   libp2p_mix/spam_protection,
   mix_rln_spam_protection/spam_protection as mix_rln,
@@ -359,6 +360,7 @@ proc mountMix*(
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
+    coverTraffic: Opt[CoverTraffic] = Opt.none(CoverTraffic),
 ): Future[Result[void, string]] {.async.} =
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
@@ -376,6 +378,7 @@ proc mountMix*(
     mixPrivKey,
     mixnodes,
     spamProtection = spamProtection,
+    coverTraffic = coverTraffic,
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
     return

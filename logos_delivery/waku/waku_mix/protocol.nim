@@ -12,6 +12,7 @@ import
   libp2p_mix/delay_strategy,
   libp2p_mix/spam_protection,
   libp2p/[multiaddress, peerid],
+  libp2p_mix/cover_traffic,
   eth/common/keys
 
 import
@@ -79,6 +80,7 @@ proc new*(
     mixPrivKey: Curve25519Key,
     bootnodes: seq[MixNodePubInfo],
     spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
+    coverTraffic: Opt[CoverTraffic] = Opt.none(CoverTraffic),
 ): WakuMixResult[T] =
   let mixPubKey = public(mixPrivKey)
   info "mixPubKey", mixPubKey = mixPubKey
@@ -107,6 +109,7 @@ proc new*(
             ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng())
           )
         ),
+    coverTraffic = coverTraffic,
   )
 
   processBootNodes(bootnodes, peermgr, m)

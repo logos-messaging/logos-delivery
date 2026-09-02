@@ -434,6 +434,7 @@ proc setupProtocols(
         mixConf.mixKey,
         mixConf.mixnodes,
         spamProtection = spamProtection,
+        coverTraffic = mixConf.coverTraffic,
       )
     ).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
