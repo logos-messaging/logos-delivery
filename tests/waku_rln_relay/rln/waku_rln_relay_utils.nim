@@ -4,10 +4,13 @@ import results
 import
   logos_delivery/waku/rln,
   logos_delivery/waku/rln/[
-    rln_evm/group_manager, rln_evm/bindings,
+    rln_evm/group_manager,
+    rln_evm/bindings,
     rln_evm/conversion_utils,
-    rln_evm/constants, rln_evm/protocol_types,
-    rln_evm/protocol_metrics, rln_evm/nonce_manager,
+    rln_evm/constants,
+    rln_evm/protocol_types,
+    rln_evm/protocol_metrics,
+    rln_evm/nonce_manager,
   ]
 
 proc createRLNInstanceWrapper*(): Result[ptr RlnRaw, string] =

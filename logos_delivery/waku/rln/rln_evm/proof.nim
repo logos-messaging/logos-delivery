@@ -97,7 +97,9 @@ proc generateRLNProofWithRootRefresh*(
   let nonce = rlnEvm.nonceManager.getNonce().valueOr:
     return err("could not get new message id to generate an rln proof: " & $error)
 
-  let proofBytes = (await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)).valueOr:
+  let proofBytes = (
+    await rlnEvm.generateRLNProofWithNonce(input, senderEpochTime, nonce)
+  ).valueOr:
     return err("failed to generate RLN proof: " & $error)
 
   let rlnProof = RateLimitProof.init(proofBytes).valueOr:

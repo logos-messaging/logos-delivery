@@ -3,11 +3,7 @@
 import std/tables
 import chronicles, results
 
-import
-  ./types,
-  ./protocol_types,
-  ./conversion_utils,
-  ./proof
+import ./types, ./protocol_types, ./conversion_utils, ./proof
 
 logScope:
   topics = "waku rln nullifier_log"

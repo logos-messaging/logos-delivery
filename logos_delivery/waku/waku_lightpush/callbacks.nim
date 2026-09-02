@@ -2,8 +2,7 @@
 
 import results
 
-import
-  ../waku_core, ../waku_relay, ./common, ../rln, ../rln/rln_evm/protocol_types
+import ../waku_core, ../waku_relay, ./common, ../rln, ../rln/rln_evm/protocol_types
 
 import std/times, libp2p/peerid, stew/byteutils
 

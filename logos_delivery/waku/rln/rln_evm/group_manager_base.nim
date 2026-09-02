@@ -33,7 +33,9 @@ type RlnEvmGroupManagerBase* = ref object of RootObj
 
 # This proc is used to initialize the group manager
 # Any initialization logic should be implemented here
-method init*(g: RlnEvmGroupManagerBase): Future[RlnEvmGroupManagerResult[void]] {.base, async.} =
+method init*(
+    g: RlnEvmGroupManagerBase
+): Future[RlnEvmGroupManagerResult[void]] {.base, async.} =
   return err("init proc for " & $g.type & " is not implemented yet")
 
 # This proc is used to start the group sync process
@@ -57,7 +59,9 @@ method register*(
 # The user should have the identity secret to this commitment
 # It should be used when the user wants to join the group
 method register*(
-    g: RlnEvmGroupManagerBase, credentials: IdentityCredential, userMessageLimit: UserMessageLimit
+    g: RlnEvmGroupManagerBase,
+    credentials: IdentityCredential,
+    userMessageLimit: UserMessageLimit,
 ): Future[void] {.base, async: (raises: [Exception]).} =
   raise newException(
     CatchableError, "register proc for " & $g.type & " is not implemented yet"
@@ -121,7 +125,9 @@ method indexOfRoot*(
   ## returns the index of the root in the merkle tree and returns -1 if the root is not found
   return g.validRoots.find(root)
 
-method validateRoot*(g: RlnEvmGroupManagerBase, root: MerkleNode): Future[bool] {.base, async.} =
+method validateRoot*(
+    g: RlnEvmGroupManagerBase, root: MerkleNode
+): Future[bool] {.base, async.} =
   ## validates the root against the valid roots queue
   return g.indexOfRoot(root) >= 0
 
@@ -141,12 +147,16 @@ method generateProof*(
   ## Dummy implementation for generateProof
   return err("generateProof is not implemented")
 
-method invalidateMerkleProofCache*(g: RlnEvmGroupManagerBase) {.base, gcsafe, raises: [].} =
+method invalidateMerkleProofCache*(
+    g: RlnEvmGroupManagerBase
+) {.base, gcsafe, raises: [].} =
   ## Drops the cached merkle proof path so the next proof-gen refetches from
   ## chain. Called after a publish is rejected on a stale cache. No-op base.
   discard
 
-method scheduleMerkleProofRefresh*(g: RlnEvmGroupManagerBase) {.base, gcsafe, raises: [].} =
+method scheduleMerkleProofRefresh*(
+    g: RlnEvmGroupManagerBase
+) {.base, gcsafe, raises: [].} =
   ## Like `invalidateMerkleProofCache`, but starts the refetch in the
   ## background so the caller need not wait for it. No-op base.
   discard

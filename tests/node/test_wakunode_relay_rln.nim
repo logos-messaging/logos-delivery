@@ -598,9 +598,7 @@ suite "Waku RlnRelay - End to End - OnChain":
 
       discard await groupManager.init()
       var errorFuture = Future[string].new()
-      groupManager.onFatalErrorAction = proc(
-          errMsg: string
-      ) {.gcsafe, closure.} =
+      groupManager.onFatalErrorAction = proc(errMsg: string) {.gcsafe, closure.} =
         errorFuture.complete(errMsg)
       try:
         # Register credentials in the chain
@@ -714,9 +712,8 @@ suite "Waku RlnRelay - End to End - OnChain":
         registryContract = groupManager.registryContract.get()
         storageIndex = (await registryContract.usingStorageIndex().call())
         rlnContractAddress = await registryContract.storages(storageIndex).call()
-        contract = groupManager.ethRpc.get().contractSender(
-            RlnStorage, rlnContractAddress
-          )
+        contract =
+          groupManager.ethRpc.get().contractSender(RlnStorage, rlnContractAddress)
         contract2 = groupManager.rlnContract.get()
 
       echo "###"

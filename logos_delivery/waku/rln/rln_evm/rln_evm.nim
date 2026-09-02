@@ -109,8 +109,7 @@ proc validateMessage*(
 
   logos_delivery_rln_proof_verification_total.inc()
   logos_delivery_rln_proof_verification_duration_seconds.nanosecondTime:
-    let proofVerificationRes =
-      rlnEvm.groupManager.verifyProof(msg.toRLNSignal(), proof)
+    let proofVerificationRes = rlnEvm.groupManager.verifyProof(msg.toRLNSignal(), proof)
 
   proofVerificationRes.isOkOr:
     logos_delivery_rln_errors_total.inc(labelValues = ["proof_verification"])

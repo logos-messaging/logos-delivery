@@ -12,11 +12,7 @@ import
   stew/byteutils,
   sequtils
 
-import
-  ../../waku_keystore,
-  ./conversion_utils,
-  ./protocol_types,
-  ./group_manager_base
+import ../../waku_keystore, ./conversion_utils, ./protocol_types, ./group_manager_base
 
 logScope:
   topics = "waku rln evm_backend rpc_wrapper"

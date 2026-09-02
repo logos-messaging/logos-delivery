@@ -222,9 +222,7 @@ proc updateRecentRoots*(g: RlnEvmGroupManager): Future[bool] {.async.} =
 
   return true
 
-proc updateMemberCount*(
-    g: RlnEvmGroupManager
-): Future[Result[void, string]] {.async.} =
+proc updateMemberCount*(g: RlnEvmGroupManager): Future[Result[void, string]] {.async.} =
   ## Refreshes the registered-memberships metric from on-chain `nextFreeIndex`.
   ## Called whenever a root change is observed.
   let nextFreeIndex = (await g.fetchNextFreeIndex()).valueOr:
