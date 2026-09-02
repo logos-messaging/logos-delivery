@@ -97,7 +97,7 @@ requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312
 requires "https://github.com/richard-ramos/nim-libp2p-mix#75f8bd5386f08ea909332774ddbeb78599b89d92"
 
 # Draft integration pin; update to the final revision when the plugin PR lands.
-requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#7e9bbc1c231e025a17dd0dd8ce6a4457e34ac333"
+requires "https://github.com/logos-co/mix-rln-spam-protection-plugin#2dee9aaa2214895805fded977543c2770db4dc16"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
