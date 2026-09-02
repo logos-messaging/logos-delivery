@@ -26,13 +26,13 @@ RequestBroker:
     timestamp: uint64,
   ): Future[Result[RequestValidateRlnProof, string]] {.async.}
 
+## `configJson` is the RLN module's start() config — at minimum
+## {"epoch_size_sec":N}, plus "registries" to warm; built from the node's
+## RLN conf so proof generators and validators share one epoch size.
 RequestBroker:
   type RequestStartRlnModule* = object
     response*: string
 
-  ## `configJson` is the RLN module's start() config — at minimum
-  ## {"epoch_size_sec":N}, plus "registries" to warm; built from the node's
-  ## RLN conf so proof generators and validators share one epoch size.
   proc signature(
     configJson: string
   ): Future[Result[RequestStartRlnModule, string]] {.async.}
