@@ -23,6 +23,7 @@ import
     waku_lightpush/rpc,
     waku_lightpush/client,
     waku_lightpush/callbacks,
+    requests/rln_requests,
   ]
 
 # WakuLightPushResult, PushMessageHandler, LightPushErrorCode (common) plus the
