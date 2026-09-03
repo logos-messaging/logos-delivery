@@ -424,11 +424,6 @@ class TestChannelDelivery:
         that logos-delivery does not expose, so it cannot be driven from an E2E
         test. That path is RC10 — see test_rc10_missing_dependency_is_parked
         below and tests/wrappers_tests/test_channel_repair.py.
-
-        B subscribes and creates its channel before it starts. A node joins
-        its shard mesh at start, so a subscription made after start races
-        A's one-second retry: when the retry wins, B drops m1 as not
-        subscribed and m2 is parked on the missing dependency for good.
         """
         channel_id = unique_channel_id(RC09_CHANNEL_PREFIX)
         m1, m2 = "rc09 sent while B is away", "rc09 sent after B joins"
