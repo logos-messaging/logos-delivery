@@ -44,7 +44,7 @@ requires "nim == 2.2.6",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "https://github.com/status-im/nim-websock#v0.4.0",
+  "https://github.com/status-im/nim-websock#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "https://github.com/status-im/nim-secp256k1#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
