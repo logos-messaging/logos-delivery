@@ -36,6 +36,7 @@ type
     maxRelayPeers: int
     maxServicePeers: int
     colocationLimit: int
+    maxPureLibp2pPeers: int
     shardAware: bool
 
     # Libp2p switch
@@ -130,6 +131,9 @@ proc withPeerManagerConfig*(
 proc withColocationLimit*(builder: var WakuNodeBuilder, colocationLimit: int) =
   builder.colocationLimit = colocationLimit
 
+proc withMaxPureLibp2pPeers*(builder: var WakuNodeBuilder, maxPureLibp2pPeers: int) =
+  builder.maxPureLibp2pPeers = maxPureLibp2pPeers
+
 proc withRateLimit*(builder: var WakuNodeBuilder, limits: ProtocolRateLimitSettings) =
   builder.rateLimitSettings = Opt.some(limits)
 
@@ -212,6 +216,7 @@ proc build*(builder: WakuNodeBuilder): Result[WakuNode, string] =
     maxRelayPeers = Opt.some(builder.maxRelayPeers),
     maxServicePeers = Opt.some(builder.maxServicePeers),
     colocationLimit = builder.colocationLimit,
+    maxPureLibp2pPeers = builder.maxPureLibp2pPeers,
     shardedPeerManagement = builder.shardAware,
     maxConnections = builder.switchMaxConnections.get(MaxConnections),
   )

@@ -36,6 +36,7 @@ type NetworkPresetConf* = object
   entryNodes*: seq[string]
   mix*: bool
   p2pReliability*: bool
+  maxPureLibp2pPeers*: int
 
 # cluster-id=1 (aka The Waku Network)
 # Cluster configuration corresponding to The Waku Network. Note that it
@@ -81,6 +82,7 @@ proc LogosDevConf*(T: type NetworkPresetConf): NetworkPresetConf =
     shardingConf: ShardingConf(kind: AutoSharding, numShardsInCluster: 8),
     enableKadDiscovery: true,
     mix: true,
+    maxPureLibp2pPeers: 50,
     p2pReliability: true,
     discv5Discovery: true,
     discv5BootstrapNodes: @[],
@@ -110,6 +112,7 @@ proc LogosTestConf*(T: type NetworkPresetConf): NetworkPresetConf =
     shardingConf: ShardingConf(kind: AutoSharding, numShardsInCluster: 8),
     enableKadDiscovery: true,
     mix: true,
+    maxPureLibp2pPeers: 50,
     p2pReliability: true,
     discv5Discovery: true,
     discv5BootstrapNodes: @[],
