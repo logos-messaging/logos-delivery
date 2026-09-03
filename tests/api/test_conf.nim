@@ -446,3 +446,17 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     # not flip to flat; the leftover bare field (relay) then has no structured home and
     # is rejected. Guards against the discriminator silently splitting a mixed object.
     check parseLogosDeliveryConf("""{"messagingOverrides": {}, "relay": true}""").isErr()
+
+suite "MessagingClientConf - pure-libp2p peers budget":
+  test "unset stays unset through mode expansion":
+    # applyMode must not touch it: the kernel default (0) and any network
+    # preset (50) are decided further down the chain.
+    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
+        raiseAssert error
+    check kc.maxPureLibp2pPeers.isNone()
+
+  test "set value reaches the kernel conf":
+    let mc = MessagingClientConf(maxPureLibp2pPeers: Opt.some(7))
+    let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
+      raiseAssert error
+    check kc.maxPureLibp2pPeers == Opt.some(7)

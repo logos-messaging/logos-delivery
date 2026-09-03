@@ -173,6 +173,10 @@ type WakuConf* {.requiresInit.} = ref object
 
   colocationLimit*: int
 
+  maxPureLibp2pPeers*: int
+    ## Inbound budget for peers that are not waku nodes but offer a protocol
+    ## this node consumes. 0 admits none.
+
   rateLimit*: ProtocolRateLimitSettings
 
   # TODO: those could be in a relay conf object

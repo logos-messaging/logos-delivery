@@ -103,6 +103,7 @@ proc initNode(
     agentString = Opt.some(conf.agentString),
   )
   builder.withColocationLimit(conf.colocationLimit)
+  builder.withMaxPureLibp2pPeers(conf.maxPureLibp2pPeers)
 
   if conf.maxRelayPeers.isSome():
     let
