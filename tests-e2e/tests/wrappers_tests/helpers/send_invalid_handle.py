@@ -17,6 +17,7 @@ Cases:
 """
 
 import json
+import os
 import sys
 from pathlib import Path
 
@@ -146,7 +147,10 @@ def main() -> int:
 
     _ensure_bindings_on_path()
     CASES[case](marker)
-    return 0
+    # liblogosdelivery threads outlive destroy; finalizing the interpreter under them segfaults.
+    sys.stdout.flush()
+    sys.stderr.flush()
+    os._exit(0)
 
 
 if __name__ == "__main__":
