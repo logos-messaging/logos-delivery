@@ -197,8 +197,8 @@
       }
     },
     "chronos": {
-      "version": "4.2.4",
-      "vcsRevision": "90f543e447f6ade46f028bd7bdf882ae7fcb0ba9",
+      "version": "4.2.5",
+      "vcsRevision": "0ab802baef6bf16a8e3cc7d8a5c3128ddafadec5",
       "url": "https://github.com/status-im/nim-chronos",
       "downloadMethod": "git",
       "dependencies": [
@@ -210,7 +210,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "2161fffc20d6337784b5cee15a486b50f185e6ce"
+        "sha1": "5acb420a1aa1193eaf0e130e094ed4a80c095abb"
       }
     },
     "libplum": {

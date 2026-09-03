@@ -110,8 +110,8 @@
 
   chronos = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-chronos";
-    rev = "90f543e447f6ade46f028bd7bdf882ae7fcb0ba9";
-    sha256 = "0grbkcr4whiadzcszx84ch4mpa71hhr77n3z0dlzyb4d4iykj6cr";
+    rev = "0ab802baef6bf16a8e3cc7d8a5c3128ddafadec5";
+    sha256 = "0hlj4jml2vl7hcvg7g33qa8vbhlgv0qhb07b2nsqc2dbp05lyka5";
     fetchSubmodules = true;
   };
 

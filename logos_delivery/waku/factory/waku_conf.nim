@@ -9,6 +9,7 @@ import
   libp2p/extended_peer_record,
   libp2p/protocols/kademlia/types,
   libp2p/protocols/service_discovery/types as sd_types,
+  libp2p_mix/spam_protection,
   secp256k1,
   results
 
@@ -63,6 +64,7 @@ type MixConf* = ref object
   mixKey*: Curve25519Key
   mixPubKey*: Curve25519Key
   mixnodes*: seq[MixNodePubInfo]
+  spamProtection*: Opt[SpamProtection]
 
 type StoreServiceConf* = object
   dbMigration*: bool
