@@ -66,6 +66,9 @@ class WrapperManager:
         """Pass-through for NodeWrapper.destroy_keep_ctx — see that method."""
         return self._node.destroy_keep_ctx(timeout_s=timeout_s)
 
+    def connect_peer(self, peer_multiaddr: str, *, timeout_ms: int = 10_000, timeout_s: float = 20.0) -> Result[int, str]:
+        return self._node.connect_peer(peer_multiaddr, timeout_ms=timeout_ms, timeout_s=timeout_s)
+
     def subscribe_content_topic(self, content_topic: str, *, timeout_s: float = 20.0) -> Result[int, str]:
         return self._node.subscribe_content_topic(content_topic, timeout_s=timeout_s)
 

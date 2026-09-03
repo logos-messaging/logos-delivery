@@ -25,6 +25,7 @@ typedef struct { const char *contentTopicStr; } SubscribeReq;
 typedef struct { const char *contentTopicStr; } UnsubscribeReq;
 typedef struct { const char *messageJson; } SendReq;
 typedef struct { const char *nodeInfoId; } GetNodeInfoReq;
+typedef struct { const char *peerMultiAddr; uint32_t timeoutMs; } WakuConnectReq;
 
 void *logosdelivery_create_node(
     const CreateNodeCtorReq *req,
@@ -43,6 +44,7 @@ int logosdelivery_subscribe(void *ctx, ReplyFn onReply, void *userData, const Su
 int logosdelivery_unsubscribe(void *ctx, ReplyFn onReply, void *userData, const UnsubscribeReq *req);
 int logosdelivery_send(void *ctx, ReplyFn onReply, void *userData, const SendReq *req);
 int logosdelivery_get_node_info(void *ctx, ReplyFn onReply, void *userData, const GetNodeInfoReq *req);
+int waku_connect(void *ctx, ReplyFn onReply, void *userData, const WakuConnectReq *req);
 
 uint64_t logosdelivery_add_event_listener(
     void *ctx,
@@ -307,6 +309,18 @@ class NodeWrapper:
             return Err(stop_result.err())
 
         return destroy_result
+
+    def connect_peer(self, peer_multiaddr: str, *, timeout_ms: int = 10_000, timeout_s: float = 20.0) -> Result[int, str]:
+        state = _new_cb_state()
+        cb = self._make_waiting_reply_cb(state)
+
+        addr_buffer = ffi.new("char[]", peer_multiaddr.encode("utf-8"))
+        req = ffi.new("WakuConnectReq *", {"peerMultiAddr": addr_buffer, "timeoutMs": timeout_ms})
+        rc = lib.waku_connect(self.ctx, cb, ffi.NULL, req)
+        if rc != 0:
+            return Err(f"connect_peer: immediate call failed (ret={rc})")
+
+        return _wait_cb_ok(state, f"connect({peer_multiaddr})", timeout_s)
 
     def subscribe_content_topic(self, content_topic: str, *, timeout_s: float = 20.0) -> Result[int, str]:
         state = _new_cb_state()
