@@ -425,10 +425,10 @@ class TestChannelDelivery:
         test. That path is RC10 — see test_rc10_missing_dependency_is_parked
         below and tests/wrappers_tests/test_channel_repair.py.
 
-        B subscribes and creates its channel before it dials A. A node joins
-        its shard mesh at start, so with a static peer A's one-second retry
-        lands before B's content-topic subscription exists, B drops m1 and
-        m2 is parked on the missing dependency for good.
+        B subscribes and creates its channel before it starts. A node joins
+        its shard mesh at start, so a subscription made after start races
+        A's one-second retry: when the retry wins, B drops m1 as not
+        subscribed and m2 is parked on the missing dependency for good.
         """
         channel_id = unique_channel_id(RC09_CHANNEL_PREFIX)
         m1, m2 = "rc09 sent while B is away", "rc09 sent after B joins"
@@ -453,8 +453,9 @@ class TestChannelDelivery:
             settle_s=RC09_SENDER_SETTLE_S,
         ) as sender:
             receiver_collector = EventCollector()
-            receiver_result = WrapperManager.create_and_start(config=node_config, event_cb=receiver_collector.event_callback)
-            assert receiver_result.is_ok(), f"Failed to start receiver: {receiver_result.err()}"
+            receiver_config = {**node_config, "staticnodes": [sender.multiaddr]}
+            receiver_result = WrapperManager.create(config=receiver_config, event_cb=receiver_collector.event_callback)
+            assert receiver_result.is_ok(), f"Failed to create receiver: {receiver_result.err()}"
 
             with receiver_result.ok_value as receiver:
                 subscribe_result = receiver.subscribe_content_topic(RC09_CONTENT_TOPIC)
@@ -463,8 +464,8 @@ class TestChannelDelivery:
                 receiver_create = receiver.channel_create(channel_id, RC09_CONTENT_TOPIC, SENDER_B)
                 assert receiver_create.is_ok(), f"receiver channel_create failed: {receiver_create.err()}"
 
-                connect_result = receiver.connect_peer(sender.multiaddr)
-                assert connect_result.is_ok(), f"receiver connect_peer failed: {connect_result.err()}"
+                start_result = receiver.start_node()
+                assert start_result.is_ok(), f"Failed to start receiver: {start_result.err()}"
                 assert wait_for_connected(receiver_collector) is not None, "Receiver did not reach Connected/PartiallyConnected state"
 
                 delay(MESH_SETTLE_S)
