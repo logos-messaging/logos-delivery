@@ -182,5 +182,10 @@ proc lightpushPublishToAny*(
   try:
     return
       await self.node.lightpushPublish(Opt.some(shard), message, Opt.some(peer), mixify)
+  except CancelledError as exc:
+    # Not a publish failure: the send service is stopping and cancelled the
+    # attempt. Reported as an error result, the service loop keeps running and
+    # the stop never completes.
+    raise exc
   except CatchableError as e:
     return lightpushResultInternalError(e.msg)
