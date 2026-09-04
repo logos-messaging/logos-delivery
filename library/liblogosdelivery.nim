@@ -15,6 +15,7 @@ import
 ## Include different APIs, i.e. all procs with {.ffi.} pragma
 
 include
+  ./network_bridge_api,
   ./logos_delivery_api/node_api,
   ./logos_delivery_api/messaging_api,
   ./logos_delivery_api/debug_api,

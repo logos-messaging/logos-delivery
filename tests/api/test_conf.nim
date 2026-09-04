@@ -446,3 +446,32 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     # not flip to flat; the leftover bare field (relay) then has no structured home and
     # is rejected. Guards against the discriminator silently splitting a mixed object.
     check parseLogosDeliveryConf("""{"messagingOverrides": {}, "relay": true}""").isErr()
+
+suite "parseLogosDeliveryConf - libp2pProvider":
+  test "the provider reaches the kernel conf and leaves the field walker alone":
+    let conf = parseLogosDeliveryConf(
+      """{"mode": "Edge", "libp2pProvider": "libp2p_module"}"""
+    ).valueOr:
+      raiseAssert error
+
+    check WakuNodeConf(conf.kernelConf).libp2pProvider == "libp2p_module"
+
+  test "no provider leaves the node on its own libp2p stack":
+    let conf = parseLogosDeliveryConf("""{"mode": "Edge"}""").valueOr:
+      raiseAssert error
+
+    check WakuNodeConf(conf.kernelConf).libp2pProvider == ""
+
+  test "the key is taken under any spelling":
+    let conf = parseLogosDeliveryConf(
+      """{"mode": "Edge", "LIBP2PPROVIDER": "libp2p_module"}"""
+    ).valueOr:
+      raiseAssert error
+
+    check WakuNodeConf(conf.kernelConf).libp2pProvider == "libp2p_module"
+
+  test "a provider that is not a string is refused":
+    check parseLogosDeliveryConf("""{"libp2pProvider": 7}""").isErr()
+
+  test "a provider with no name is refused":
+    check parseLogosDeliveryConf("""{"libp2pProvider": "   "}""").isErr()

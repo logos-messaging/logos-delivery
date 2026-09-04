@@ -30,34 +30,7 @@ func shortPeerId(peer: PeerId): string =
 func shortPeerId(peer: RemotePeerInfo): string =
   shortLog(peer.peerId)
 
-proc sendPushRequest(
-    wl: WakuLightPushClient,
-    req: LightPushRequest,
-    peer: PeerId | RemotePeerInfo,
-    conn: Opt[Connection] = Opt.none(Connection),
-): Future[WakuLightPushResult] {.async.} =
-  let connection = conn.valueOr:
-    (await wl.peerManager.dialPeer(peer, WakuLightPushCodec)).valueOr:
-      logos_delivery_lightpush_v3_errors.inc(labelValues = [dialFailure])
-      return lighpushErrorResult(
-        LightPushErrorCode.NO_PEERS_TO_RELAY,
-        dialFailure & ": " & $peer & " is not accessible",
-      )
-
-  defer:
-    await connection.closeWithEOF()
-
-  await connection.writeLP(req.encode().buffer)
-
-  var buffer: seq[byte]
-  try:
-    buffer = await connection.readLp(DefaultMaxRpcSize.int)
-  except LPStreamRemoteClosedError:
-    debug "Failed to read response from peer", error = getCurrentExceptionMsg()
-    return lightpushResultInternalError(
-      "Failed to read response from peer: " & getCurrentExceptionMsg()
-    )
-
+proc parsePushResponse(req: LightPushRequest, buffer: seq[byte]): WakuLightPushResult =
   let response = LightpushResponse.decode(buffer).valueOr:
     debug "Failed to decode response"
     logos_delivery_lightpush_v3_errors.inc(labelValues = [decodeRpcFailure])
@@ -70,6 +43,44 @@ proc sendPushRequest(
     return lightpushResultInternalError("response failure, requestId mismatch")
 
   return toPushResult(response)
+
+proc sendPushRequestOverConn(
+    wl: WakuLightPushClient, req: LightPushRequest, connection: Connection
+): Future[WakuLightPushResult] {.async.} =
+  defer:
+    await connection.closeWithEOF()
+
+  await connection.writeLP(req.encode().buffer)
+
+  var buffer: seq[byte]
+  try:
+    buffer = await connection.readLp(MaxLightpushResponseSize)
+  except LPStreamRemoteClosedError:
+    debug "Failed to read response from peer", error = getCurrentExceptionMsg()
+    return lightpushResultInternalError(
+      "Failed to read response from peer: " & getCurrentExceptionMsg()
+    )
+
+  return parsePushResponse(req, buffer)
+
+proc sendPushRequest(
+    wl: WakuLightPushClient, req: LightPushRequest, peer: PeerId | RemotePeerInfo
+): Future[WakuLightPushResult] {.async.} =
+  let buffer = (
+    await wl.peerManager.request(
+      peer, WakuLightPushCodec, req.encode().buffer, MaxLightpushResponseSize
+    )
+  ).valueOr:
+    if error.kind == NetErrorKind.Dial:
+      logos_delivery_lightpush_v3_errors.inc(labelValues = [dialFailure])
+      return lighpushErrorResult(
+        LightPushErrorCode.NO_PEERS_TO_RELAY,
+        dialFailure & ": " & $peer & " is not accessible",
+      )
+    debug "Lightpush request failed", error = $error
+    return lightpushResultInternalError($error)
+
+  return parsePushResponse(req, buffer)
 
 proc publish*(
     wl: WakuLightPushClient,
@@ -99,7 +110,7 @@ proc publish*(
 
   let relayPeerCount =
     when dest is Connection:
-      ?await wl.sendPushRequest(request, dest.peerId, Opt.some(dest))
+      ?await wl.sendPushRequestOverConn(request, dest)
     else:
       ?await wl.sendPushRequest(request, dest)
 

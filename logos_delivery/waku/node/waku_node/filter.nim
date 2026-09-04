@@ -96,6 +96,10 @@ proc mountFilterClient*(node: WakuNode) {.async: (raises: []).} =
   except LPError:
     error "failed to mount wakuFilterClient", error = getCurrentExceptionMsg()
 
+  node.peerManager.netBackend.mountInbound(
+    WakuFilterPushCodec, node.wakuFilterClient.handler
+  )
+
 proc filterSubscribe*(
     node: WakuNode,
     pubsubTopic: Opt[PubsubTopic],

@@ -127,6 +127,7 @@ type WakuConf* {.requiresInit.} = ref object
 
   dnsAddrsNameServers*: seq[IpAddress]
   endpointConf*: EndpointConf
+  libp2pProvider*: Opt[string]
   wakuFlags*: CapabilitiesBitfield
 
   # TODO: could probably make it a `PeerRemoteInfo`

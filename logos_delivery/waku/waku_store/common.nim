@@ -11,6 +11,9 @@ const
 
   MaxPageSize*: uint64 = 100
 
+  MaxStoreResponseSize* =
+    MaxPageSize * DefaultMaxWakuMessageSize + DefaultSafetyBufferProtocolOverhead
+
   EmptyCursor*: WakuMessageHash = EmptyWakuMessageHash
 
 type WakuStoreResult*[T] = Result[T, string]
