@@ -37,8 +37,7 @@ const MaxTimeInCache* = chronos.minutes(1)
   ## feedback will be given when that happens
 
 proc maxDeliveryTime*(anonymityLevel: AnonymityLevel): timer.Duration =
-  ## `Preferred` gets a second window: one full `MaxTimeInCache` trying mix,
-  ## then another one on the plain send path before the task is failed.
+  ## `Preferred` gets two windows: one for mix, then one for the plain path.
   if anonymityLevel == AnonymityLevel.Preferred:
     MaxTimeInCache + MaxTimeInCache
   else:
@@ -90,8 +89,6 @@ proc setupSendProcessorChain(
     processors.add(mixProcessor)
 
     if anonymityLevel == AnonymityLevel.Required:
-      # Mix alone: the plain chain is never built, so there is no path by which a
-      # `Required` message can reach the network unmixed.
       return ok(mixProcessor)
 
   if isRelayAvail:
@@ -236,7 +233,7 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     # rest of the states are intermediate and does not translate to event
     discard
 
-  # Hard-fail a task admitted but never propagated within its delivery window.
+  # Fail a task that passed admission and did not propagate in its window.
   # Propagated-but-unvalidated tasks are dropped in evaluateAndCleanUp instead.
   if task.isDeliveryTimedOut(self.maxDeliveryTime):
     error "Failed to send message",

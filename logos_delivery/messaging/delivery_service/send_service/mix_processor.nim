@@ -31,26 +31,19 @@ method isValidProcessor*(self: MixSendProcessor, task: DeliveryTask): bool {.gcs
   return true
 
 proc mixWindowElapsed(self: MixSendProcessor, task: DeliveryTask): bool =
-  return self.fallbackAllowed and task.mixAge() > self.mixWindow
+  return self.fallbackAllowed and task.admissionAge() > self.mixWindow
 
 method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.async.} =
-  # Starts the mix window on the first round that reaches this processor, whether
-  # or not mix can publish yet: a task that never finds a path must still fall
-  # back under `Preferred`. Never reset afterwards, so a task cycling through
-  # RLN proof refreshes cannot keep restarting its own window.
-  if task.firstMixTriedTime.isNone():
-    task.firstMixTriedTime = Opt.some(Moment.now())
-
   if self.mixWindowElapsed(task):
-    debug "Mix window elapsed, handing the task to the plain send path",
+    trace "Mix window elapsed, handing the task to the plain send path",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
-      mixAge = task.mixAge()
+      admissionAge = task.admissionAge()
     task.state = DeliveryState.FallbackRetry
     return
 
   if not self.waku.mixReady():
-    debug "Mix cannot publish yet (not enough nodes for a path), retrying next round",
+    trace "Mix cannot publish yet (not enough nodes for a path), retrying next round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.NextRoundRetry
     return

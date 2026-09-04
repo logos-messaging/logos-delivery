@@ -109,24 +109,10 @@ proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
   return self.node.peerManager.selectPeer(WakuLightPushCodec, Opt.some(shard)).isSome()
 
 proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo] =
-  ## Picks a lightpush service peer for `shard` that mix can route to. With
-  ## `exit_is_dest` the lightpush server terminates the sphinx path, so it has
-  ## to be one mix can build a `MixPubInfo` for: a peer carrying a mix key but
-  ## no mix-routable address passes mix's own destination gate and only fails
-  ## deep inside path construction, which evicts it from the pool on the way out.
-  ##
-  ## Walks the mix pool rather than the lightpush peers. Both orders answer the
-  ## same question, but `selectPeers` reaches it through `peerStore.peers`, which
-  ## materialises a full `RemotePeerInfo` - addresses, protocols, shards, raw ENR
-  ## - for every peer in the store before filtering. The pool is a handful of
-  ## entries and the filters here are direct book reads, so the work scales with
-  ## the mix pool instead of the peer store. Shuffled for the same reason
-  ## `selectPeers` shuffles: without it every message leaves by the same exit.
-  ##
-  ## Service slot first, following `selectPeer`. A statically configured
-  ## `--lightpushnode` lives in the slot and carries no protocols and no shards
-  ## until identify and waku-metadata have filled those books, so the two filters
-  ## below would drop it on exactly the setup a mix deployment uses.
+  ## Selects a lightpush service peer for `shard` that mix can route to. With
+  ## `exit_is_dest` the server is the last node of the sphinx path, so the mix
+  ## pool must hold a `MixPubInfo` for it. The selection reads the service slot
+  ## first, then the rest of the pool in random order.
   let peerStore = self.node.peerManager.switch.peerStore
   let pool = MixNodePool.new(peerStore)
 
@@ -149,14 +135,9 @@ proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo
   return Opt.none(RemotePeerInfo)
 
 proc mixReady*(self: Waku): bool =
-  ## True if mix could carry a publish at all: mounted, and holding enough nodes
-  ## to build a path. Both checks are O(1) reads.
-  ##
-  ## Deliberately does not look for an exit peer. `lightpushPublishToAny` selects
-  ## one itself, and answers SERVICE_NOT_AVAILABLE when it finds none, which the
-  ## send processors already turn into the same `NextRoundRetry` this guard would
-  ## have produced. Checking here too only bought a second peer scan per task per
-  ## round, and that scan is the expensive part: it walks the whole peer store.
+  ## True when mix is mounted and the pool has enough nodes for a path. This
+  ## proc does not look for an exit node. `lightpushPublishToAny` selects one
+  ## and reports SERVICE_NOT_AVAILABLE when it finds none.
   if self.node.wakuMix.isNil():
     return false
   return self.node.getMixNodePoolSize() >= MinMixPoolSize
@@ -183,9 +164,8 @@ proc lightpushPublishToAny*(
     return
       await self.node.lightpushPublish(Opt.some(shard), message, Opt.some(peer), mixify)
   except CancelledError as exc:
-    # Not a publish failure: the send service is stopping and cancelled the
-    # attempt. Reported as an error result, the service loop keeps running and
-    # the stop never completes.
+    # The send service cancelled this attempt during its stop. An error result
+    # here keeps the service loop alive, and the stop does not complete.
     raise exc
   except CatchableError as e:
     return lightpushResultInternalError(e.msg)

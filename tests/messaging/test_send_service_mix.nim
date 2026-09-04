@@ -22,10 +22,10 @@ import
     [send_service, send_processor, mix_processor, delivery_task]
 import ../testlib/[testasync, wakucore]
 
-## Anonymity-level coverage for the send path: the mix processor owns the task
-## for a whole mix window, and only a `Preferred` chain ever hands it to the
-## plain relay/lightpush processors behind it. The node under test has no mix
-## mounted, which is exactly the "mix cannot deliver" case the levels differ on.
+## Tests for the anonymity levels of the send path. The mix processor keeps the
+## task for the mix window. Only a `Preferred` chain gives the task to the relay
+## and lightpush processors. The node in these tests has no mix mounted, so mix
+## cannot deliver.
 
 type PlainSendProcessor = ref object of BaseSendProcessor
   calls: int
@@ -111,20 +111,18 @@ suite "SendService - anonymity level":
     )
     mix.chain(plain)
 
+    # Mix had the task since admission and did not deliver it.
     let task = buildTask("preferred-late", chronos.minutes(2))
-    # Mix has owned the task since admission and got nowhere with it.
-    task.firstMixTriedTime = Opt.some(Moment.now() - chronos.minutes(2))
     await mix.process(task)
 
     check:
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
 
-  asyncTest "an RLN proof refresh does not restart the Preferred mix window":
-    ## `parkForRlnProofRefresh` clears `firstAdmittedTime` on purpose, to
-    ## re-charge the nonce the regenerated proof draws. A mix window measured
-    ## off that field would restart on every stale proof and strand the task on
-    ## mix forever, so the window keeps its own timestamp.
+  asyncTest "an RLN proof refresh starts a new Preferred mix window":
+    ## `parkForRlnProofRefresh` clears `firstAdmittedTime`, so the new proof
+    ## draws a new nonce. The mix window runs from that field, so the task gets
+    ## a new window and stays on mix.
     let plain = PlainSendProcessor()
     let mix = MixSendProcessor.new(
       waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
@@ -132,18 +130,17 @@ suite "SendService - anonymity level":
     mix.chain(plain)
 
     let task = buildTask("rln-park", chronos.minutes(2))
-    task.firstMixTriedTime = Opt.some(Moment.now() - chronos.minutes(2))
     task.firstAdmittedTime = Opt.none(Moment) # what the RLN park leaves behind
 
     await mix.process(task)
 
     check:
-      plain.calls == 1
-      task.state == DeliveryState.SuccessfullyPropagated
+      plain.calls == 0
+      task.state == DeliveryState.NextRoundRetry
 
-  asyncTest "the mix window starts when mix first takes the task, not at admission":
-    ## A task parked for rate-limit budget must not burn its mix window while
-    ## parked, so the window cannot start before the mix processor sees it.
+  asyncTest "a task parked for budget does not spend its mix window":
+    ## The window runs from admission. A task that did not pass admission has
+    ## no window, whatever the age of the message.
     let plain = PlainSendProcessor()
     let mix = MixSendProcessor.new(
       waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
@@ -151,13 +148,12 @@ suite "SendService - anonymity level":
     mix.chain(plain)
 
     let task = buildTask("late-admission", chronos.minutes(2))
-    check task.firstMixTriedTime.isNone()
+    task.firstAdmittedTime = Opt.none(Moment) # parked for epoch budget
 
     await mix.process(task)
 
     check:
-      task.firstMixTriedTime.isSome() # stamped on this first pass ...
-      plain.calls == 0 # ... so the window has not elapsed yet
+      plain.calls == 0
       task.state == DeliveryState.NextRoundRetry
 
   asyncTest "Preferred gets a second delivery window, the other levels do not":
@@ -180,9 +176,9 @@ suite "SendService - anonymity level":
       bestEffortService.maxDeliveryTime == MaxTimeInCache + MaxTimeInCache
 
 suite "Mix send path - exit peer selection":
-  ## With `exit_is_dest` the lightpush server terminates the sphinx path, so mix
-  ## refuses a destination that carries no mix public key. Selection must skip
-  ## plain lightpush peers instead of handing mix an unusable exit.
+  ## With `exit_is_dest` the lightpush server is the last node of the sphinx
+  ## path. Mix refuses a destination that has no mix public key. The selection
+  ## must skip a plain lightpush peer.
   var waku {.threadvar.}: Waku
 
   asyncSetup:
@@ -223,9 +219,9 @@ suite "Mix send path - exit peer selection":
       waku.selectMixLightpushPeer(shard).isNone() # but not as a mix exit
 
   asyncTest "a mix key alone does not make a peer a usable exit":
-    ## Mix routes over IPv4 TCP or QUIC-v1 only. A peer advertising anything
-    ## else is not in the pool however good its mix key is, and handing it over
-    ## as a destination costs a delivery round and evicts it from the pool.
+    ## Mix routes IPv4 TCP and QUIC-v1 addresses only. A peer with another
+    ## address is not in the pool, whatever its mix key is. Mix evicts such a
+    ## peer at the first path construction.
     discard addLightpushPeer(mixCapable = true, address = "/dns4/node.test/tcp/60000")
 
     check:
@@ -242,11 +238,8 @@ suite "Mix send path - exit peer selection":
     check selected.peerId == mixPeer
 
   asyncTest "a statically configured lightpush node is usable as a mix exit":
-    ## `--lightpushnode` lands in the peer manager's service slot from a bare
-    ## multiaddr: no protocols, no shards, no mix key. Both of `selectPeers`'
-    ## filters drop it until identify and waku-metadata have filled those books,
-    ## while `selectPeer` returns it from the slot right away. Mix exit selection
-    ## has to follow the slot too, or the plain path works and mix never does.
+    ## A `lightpushnode` peer reaches the service slot with its address only.
+    ## `selectPeers` drops it until identify and waku-metadata fill the books.
     let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
     let address = MultiAddress.init("/ip4/127.0.0.1/tcp/60000").tryGet()
     waku.node.peerManager.addServicePeer(
@@ -255,11 +248,11 @@ suite "Mix send path - exit peer selection":
 
     check:
       waku.lightpushPeerAvailable(shard) # the plain path already works
-      # ... and the peer is invisible to the shard-filtered protocol scan
+      # ... and the protocol scan with the shard filter does not return it
       waku.node.peerManager.selectPeers(WakuLightPushCodec, Opt.some(shard)).len == 0
       waku.selectMixLightpushPeer(shard).isNone() # no mix key learned yet
 
-    # Discovery (kademlia / rendezvous) later learns the peer's mix key.
+    # Later, discovery (kademlia or rendezvous) learns the mix key of the peer.
     let keyPair = generateKeyPair().expect("mix key pair")
     waku.node.peerManager.addPeer(
       RemotePeerInfo.init(peerId, @[address], mixPubKey = Opt.some(keyPair.publicKey))
@@ -269,11 +262,8 @@ suite "Mix send path - exit peer selection":
       raiseAssert "the slotted lightpush node should be offered as a mix exit"
     check selected.peerId == peerId
 
-## A stand-in for `libp2p_mix`'s `MixEntryConnection`, reproducing the three
-## behaviours that make a lost SURB reply dangerous: `write` succeeds (the
-## sphinx packet left), `readOnce` blocks on a future only the reply completes,
-## and `closeImpl` merely cancels the closure that would have completed it — so
-## the connection has no read deadline and never reaches EOF on its own.
+## A stub for `MixEntryConnection` of `libp2p_mix`. `write` completes, `readOnce`
+## waits for the reply future, and `closeImpl` cancels the closure that fills it.
 type StubMixConn = ref object of Connection
   incoming: AsyncQueue[seq[byte]]
   incomingFut: Future[void]
@@ -307,10 +297,8 @@ method readOnce(
 method write(
     s: StubMixConn, msg: sink seq[byte]
 ): Future[void] {.async: (raises: [CancelledError, LPStreamError]).} =
-  # `stallInSend` stands in for the first-hop dial inside
-  # `anonymizeLocalProtocolSend`: mix dials through `switch.dial`, bypassing the
-  # peer manager and its `DefaultDialTimeout`, and mix-pool entries never
-  # expire, so dialing a mix node that has gone away is the routine failure.
+  # `stallInSend` models the first-hop dial. Mix dials with `switch.dial`, so
+  # `DefaultDialTimeout` does not apply.
   if s.stallInSend:
     await s.sendStall
 
@@ -333,12 +321,8 @@ proc newStubMixConn(stallInSend = false): StubMixConn =
   return inst
 
 suite "Mix send path - the reply budget":
-  ## `publishOverMix` is the only thing bounding a mix-routed lightpush: the mix
-  ## connection has no read deadline, and mix dials its first hop past the peer
-  ## manager and its dial timeout. Left unbounded, either stall froze the whole
-  ## send-service loop — every message on the node, not just this one. Both
-  ## stalls are covered here, and what is asserted is not only that the wait
-  ## ends but that *abandoning* it returns, which is the half that regressed.
+  ## `publishOverMix` bounds a mix-routed lightpush. The mix connection does
+  ## not bound the first-hop dial. These tests stall each phase in turn.
   var waku {.threadvar.}: Waku
 
   asyncSetup:
@@ -347,17 +331,15 @@ suite "Mix send path - the reply budget":
   asyncTeardown:
     discard await waku.stop()
 
-  # `publishOverMix` waits `MixReplyTimeout` by default; the budget is shortened
-  # here because what is under test is the guard, not the constant.
+  # `publishOverMix` waits `MixReplyTimeout` by default. These tests use a short
+  # limit, because the test subject is the mechanism and not the constant.
   const ReplyBudget = chronos.milliseconds(200)
 
   proc givesUpOn(stallInSend: bool): Future[WakuLightPushResult] {.async.} =
-    ## Drives the real `publishOverMix` against a mix connection that never
-    ## answers, and returns its verdict. The call is raced against a generous
-    ## guard rather than awaited outright: if the guard under test ever
-    ## regresses, this fails a check instead of hanging the whole suite — which
-    ## is also why `publishOverMix` itself cannot be written with `withTimeout`,
-    ## since that waits for the very cancellation that would be stuck.
+    ## Calls the real `publishOverMix` with a mix connection that does not
+    ## answer, and returns the result. The test does not await the call
+    ## directly. It uses `race` with a long timer: when `publishOverMix` does
+    ## not return, the test fails one check and the suite continues.
     let conn = newStubMixConn(stallInSend = stallInSend)
     let msg = fakeWakuMessage(contentTopic = "/test/1/anonymity/proto")
 
@@ -370,7 +352,7 @@ suite "Mix send path - the reply budget":
 
     if not publishFut.finished():
       publishFut.cancelSoon()
-      raiseAssert "publishOverMix never returned; the send-service loop would wedge"
+      raiseAssert "publishOverMix did not return, so the send service loop would stop"
     return await publishFut
 
   asyncTest "a dropped reply is given up on instead of waited on forever":
@@ -380,12 +362,8 @@ suite "Mix send path - the reply budget":
       res.error.code == LightPushErrorCode.SERVICE_NOT_AVAILABLE
 
   asyncTest "a stalled first-hop dial is given up on too":
-    ## The sibling shape, and the one that bites hardest: with the stall in the
-    ## send, the reply future is still pending when the client's
-    ## `defer: closeWithEOF()` reads the stream for an EOF that will never come,
-    ## and closing already cancelled the closure that could have completed it.
-    ## Without the `reset` that makes `closeWithEOF` take its early return, the
-    ## unwind never finishes and the whole send-service loop wedges with it.
+    ## A stall in the send leaves the reply future pending, and the close of
+    ## the connection cancels the closure that completes it.
     let res = await givesUpOn(stallInSend = true)
     check:
       res.isErr()

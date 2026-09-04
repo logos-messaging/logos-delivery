@@ -23,9 +23,8 @@ logScope:
   topics = "waku mix"
 
 const MinMixPoolSize* = 4
-  ## Smallest pool mix can build a path from. `PathLength` is 3, and under
-  ## `exit_is_dest` the destination is itself a pool member that mix excludes
-  ## from the path it picks, so three hops need a fourth entry to choose from.
+  ## The smallest pool that mix can build a path from. `PathLength` is 3, and
+  ## with `exit_is_dest` the exit node is a pool member and not one of the hops.
 
 type
   WakuMix* = ref object of MixProtocol
@@ -59,18 +58,12 @@ proc processBootNodes(
         peerId = peerId, scheme = peerPubKey.scheme
       continue
 
-    ## The wire address, without the `/p2p/<id>` part: `parsePeerInfo` took the
-    ## peer id from that part. Mix compares pool addresses with its transport
-    ## patterns, and an address with the peer id does not match. Stored with
-    ## the id, the node stays in the pool until the first path construction,
-    ## and then mix evicts it as having no usable address.
+    # The wire address, without the `/p2p/<id>` part. Mix compares pool
+    # addresses with its transport patterns, and the suffix stops the match.
     let multiAddr = pInfo.addrs[0]
 
-    ## Pool first, peer manager second. `nodePool.add` writes the address with
-    ## `Infinite` confidence when the address book does not hold it yet, and
-    ## libp2p never lowers a confidence it holds, so the address never expires.
-    ## In the other order `addPeer` writes it at `Medium` first, the pool finds
-    ## it and does nothing, and libp2p drops it after one hour.
+    # The pool entry comes first: `nodePool.add` writes `Infinite` confidence,
+    # and libp2p does not lower a confidence that it holds.
     let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
     mix.nodePool.add(mixPubInfo)
     count.inc()
@@ -114,10 +107,7 @@ proc new*(
   processBootNodes(bootnodes, peermgr, m)
 
   if m.nodePool.len < MinMixPoolSize:
-    ## Not a warning: the pool is the peer store's mix book, so discovery
-    ## (kademlia, rendezvous) keeps filling it after mount. Starting short of a
-    ## full path is the normal boot state, not a misconfigured node.
-    info "mix cannot publish yet, waiting for more mix nodes",
+    info "Mix cannot publish yet, waiting for more mix nodes",
       poolSize = m.nodePool.len, required = MinMixPoolSize
   return ok(m)
 

@@ -37,8 +37,8 @@ type MessagingClientConf* = object
     ## RLN epoch size, in seconds.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
     ## Enable store-based send reliability.
-  anonymityLevel* {.name: "anonymity-level".}: Opt[AnonymityLevel]
-    ## Sender anonymity policy; anything but `None` mounts mix and sends through it.
+  anonymityLevel*: Opt[AnonymityLevel]
+    ## Sender anonymity level. A level above `None` mounts and uses mix.
   store*: Opt[bool] ## Enable the store protocol.
   storenode* {.name: "storenode".}: Opt[string]
   storeMessageDbUrl* {.name: "store-message-db-url".}: Opt[string]

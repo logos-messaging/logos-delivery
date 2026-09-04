@@ -196,7 +196,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
       WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
 
   test "a flat blob asking for anonymity while disabling mix is rejected":
-    check parseLogosDeliveryConf("""{"anonymity-level": "Required", "mix": false}""")
+    check parseLogosDeliveryConf("""{"anonymityLevel": "Required", "mix": false}""")
       .isErr()
 
   test "channelsOverrides fold into the channel conf":

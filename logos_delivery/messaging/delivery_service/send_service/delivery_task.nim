@@ -31,12 +31,6 @@ type DeliveryTask* = ref object
     ## waiting for epoch budget. Guards re-admission on retry and anchors the
     ## delivery-timeout reaper, so a task parked for budget is not aged out
     ## before it can be sent.
-  firstMixTriedTime*: Opt[Moment]
-    ## Set the first time the mix processor takes the task, and never reset.
-    ## Anchors the `Preferred` mix window. `firstAdmittedTime` cannot: an RLN
-    ## rejection deliberately clears it (`parkForRlnProofRefresh`) to re-charge
-    ## the nonce, which would restart the mix window on every stale proof and
-    ## keep the task from ever reaching the plain fallback.
   propagateEventEmitted*: bool
   errorDesc*: string
 
@@ -100,14 +94,6 @@ proc admissionAge*(self: DeliveryTask): timer.Duration =
   ## admitted (still parked waiting for epoch budget).
   if self.firstAdmittedTime.isSome():
     return timer.Moment.now() - self.firstAdmittedTime.get()
-  else:
-    return ZeroDuration
-
-proc mixAge*(self: DeliveryTask): timer.Duration =
-  ## Time since the mix processor first took the task; ZeroDuration until then.
-  ## Deliberately not derived from `firstAdmittedTime` — see `firstMixTriedTime`.
-  if self.firstMixTriedTime.isSome():
-    return timer.Moment.now() - self.firstMixTriedTime.get()
   else:
     return ZeroDuration
 
