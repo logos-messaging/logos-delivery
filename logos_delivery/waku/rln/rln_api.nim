@@ -6,8 +6,7 @@ import ./types
 
 export chronos, types
 
-## Client-facing surface of the RLN Module API (logos-lips
-## `docs/anoncomms/raw/rln-api.md`): the subset of the module this node calls.
+## Client-facing surface of the RLN Module API.
 ## Registry providers, credential generation and storage, proof crypto, the
 ## Merkle/root machinery and the nullifier log all live behind this boundary.
 ##
