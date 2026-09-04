@@ -42,7 +42,7 @@ proc stop*(rlnPeer: Rln) {.async: (raises: [Exception]).} =
   ## stops the rln protocol and epochmonitoring
   ## Throws an error if it cannot stop the rln protocol
 
-  if not rlnPeer.epochMonitorFuture.isNil:
+  if not rlnPeer.epochMonitorFuture.isNil():
     await rlnPeer.epochMonitorFuture.cancelAndWait()
 
   # stop the group sync, and flush data to tree db
