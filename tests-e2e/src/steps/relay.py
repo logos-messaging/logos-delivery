@@ -122,9 +122,15 @@ class StepsRelay(StepsCommon):
         for index, peer in enumerate(peer_list):
             logger.debug(f"Checking that peer NODE_{index + 1}:{peer.image} can find the published message")
             get_messages_response = peer.get_relay_messages(pubsub_topic)
-            assert get_messages_response, f"Peer NODE_{index + 1}:{peer.image} couldn't find any messages"
-            assert len(get_messages_response) == 1, f"Expected 1 message but got {len(get_messages_response)}"
-            waku_message = WakuMessage(get_messages_response)
+            # In fleet mode the relay cache may contain background messages from other
+            # fleet participants.  Filter to only the message whose contentTopic matches
+            # what the test sent so that fleet noise does not break the count assertion.
+            test_messages = [m for m in get_messages_response if m.get("contentTopic") == message["contentTopic"]]
+            assert test_messages, f"Peer NODE_{index + 1}:{peer.image} couldn't find any messages"
+            assert len(test_messages) == 1, (
+                f"Expected 1 test message but got {len(test_messages)} " f"(total messages in cache: {len(get_messages_response)})"
+            )
+            waku_message = WakuMessage(test_messages)
             waku_message.assert_received_message(message)
 
     @allure.step

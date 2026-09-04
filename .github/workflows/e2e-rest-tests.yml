@@ -1,0 +1,75 @@
+name: e2e-rest-tests
+
+on:
+  workflow_call:
+    inputs:
+      node_image:
+        description: "Node image every docker node runs (sets DEFAULT_NWAKU)."
+        type: string
+        required: false
+        default: ""
+  schedule:
+    # After pre-release.yml (03:13) has refreshed quay.io/wakuorg/nwaku-pr:nightly.
+    - cron: '47 4 * * *'
+  workflow_dispatch:
+    inputs:
+      default_nwaku:
+        description: "Image for every node without a more specific input below."
+        type: string
+        required: false
+        default: "quay.io/wakuorg/nwaku-pr:nightly"
+      node1:
+        description: "Image for NODE_1."
+        type: string
+        required: false
+        default: ""
+      node2:
+        description: "Image for NODE_2."
+        type: string
+        required: false
+        default: ""
+      additional_nodes:
+        description: "Comma-separated images for ADDITIONAL_NODES."
+        type: string
+        required: false
+        default: ""
+
+jobs:
+  rest-e2e:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 45
+    name: rest-e2e
+    env:
+      # Empty values fall back in src/env_vars.py: 
+      # DEFAULT_NWAKU to the pinned default,
+      # NODE_1/NODE_2/ADDITIONAL_NODES to DEFAULT_NWAKU.
+      DEFAULT_NWAKU: ${{ github.event_name == 'schedule' && 'quay.io/wakuorg/nwaku-pr:nightly' || inputs.node_image || inputs.default_nwaku }}
+      NODE_1: ${{ inputs.node1 }}
+      NODE_2: ${{ inputs.node2 }}
+      ADDITIONAL_NODES: ${{ inputs.additional_nodes }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+          cache-dependency-path: tests-e2e/requirements.txt
+
+      - name: Install Python deps
+        run: pip install -r tests-e2e/requirements.txt
+
+      - name: Run REST tests
+        working-directory: tests-e2e
+        run: |
+          echo "node image: ${DEFAULT_NWAKU:-pinned default (see src/env_vars.py)}"
+          pytest tests/rest -n 4 --dist=loadgroup --reruns 1 --junitxml=log/junit.xml
+
+      - name: Upload logs
+        if: failure()
+        uses: actions/upload-artifact@v4
+        with:
+          name: rest-e2e-logs-${{ github.event_name }}
+          path: tests-e2e/log/
