@@ -18,7 +18,8 @@ ARG DEBUG
 ARG LOG_LEVEL
 
 # Get build tools and required header files
-RUN apk add --no-cache bash git build-base openssl-dev linux-headers curl jq libbsd-dev
+# cmake: nim-leopard builds the vendored Leopard-RS C++ library at Nim compile time.
+RUN apk add --no-cache bash git build-base openssl-dev linux-headers curl jq libbsd-dev cmake
 
 WORKDIR /app
 COPY . .
@@ -64,7 +65,9 @@ LABEL version="unknown"
 EXPOSE 30303 60000 8545
 
 # Referenced in the binary
-RUN apk add --no-cache libgcc libpq-dev bind-tools libstdc++
+# libgomp: Leopard-RS is built with OpenMP on Linux, so the binary carries a
+# DT_NEEDED on libgomp.so.1 even when parity is switched off at runtime.
+RUN apk add --no-cache libgcc libpq-dev bind-tools libstdc++ libgomp
 
 # Copy to separate location to accomodate different MAKE_TARGET values
 COPY --from=nim-build /app/build/$MAKE_TARGET /usr/local/bin/

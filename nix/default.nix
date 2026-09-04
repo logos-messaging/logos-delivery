@@ -36,9 +36,16 @@ let
 
   # Some packages (e.g. regex, unicodedb) put their .nim files under src/
   # while others use the repo root. Pass both so the compiler finds either layout.
+  # /sds and /segmentation are those packages' nimble srcDir: nix hands us the
+  # raw checkout, not the flattened layout `nimble install` would produce.
   pathArgs =
     builtins.concatStringsSep " "
-      (builtins.concatMap (p: [ "--path:${p}" "--path:${p}/src" "--path:${p}/sds" ])
+      (builtins.concatMap (p: [
+        "--path:${p}"
+        "--path:${p}/src"
+        "--path:${p}/sds"
+        "--path:${p}/segmentation"
+      ])
         (builtins.attrValues otherDeps));
 
   libExt =
@@ -89,10 +96,18 @@ pkgs.stdenv.mkDerivation {
     git
     gnumake
     which
+    # nim-leopard builds the vendored Leopard-RS C++ library at Nim compile time.
+    cmake
   ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.cctools ];
 
   buildInputs = [ zerokitRln ]
     ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
+
+  # cmake is here only so nim-leopard can build Leopard-RS from its own
+  # CMakeLists during `nim c`. Without this, cmake's setup hook installs
+  # cmakeConfigurePhase as the derivation's configurePhase and fails on the
+  # repo root, which has no CMakeLists.txt of its own.
+  dontUseCmakeConfigure = true;
 
   buildPhase = ''
     export HOME=$TMPDIR

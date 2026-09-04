@@ -2,6 +2,7 @@ import std/json
 import chronos, chronicles, results, ffi
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
+import stew/byteutils
 import logos_delivery/waku/common/base64
 from ../events/json_message_event import `%` # base64 rendering for WakuMessage
 import
@@ -132,6 +133,22 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
     chronicles.error "ChannelMessageErrorEvent.listen failed", err = $error
     return err("ChannelMessageErrorEvent.listen failed: " & $error)
 
+  ChannelMessageLostEvent.listen(
+    self.waku.brokerCtx,
+    proc(event: ChannelMessageLostEvent) {.async: (raises: []).} =
+      emitEvent("onChannelMessageLost"):
+        $(
+          %*{
+            "eventType": "channel_message_lost",
+            "channelId": string(event.channelId),
+            "payloadHash": byteutils.toHex(event.payloadHash),
+            "reason": event.reason,
+          }
+        ),
+  ).isOkOr:
+    chronicles.error "ChannelMessageLostEvent.listen failed", err = $error
+    return err("ChannelMessageLostEvent.listen failed: " & $error)
+
   return ok()
 
 proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
@@ -148,6 +165,7 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageReceivedEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
+  await ChannelMessageLostEvent.dropAllListeners(self.waku.brokerCtx)
 
 proc logosdelivery_create_node(
     configJson: string

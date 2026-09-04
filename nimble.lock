@@ -626,6 +626,37 @@
         "sha1": "b2b3d114f529613911880098b303f38ce9fff15f"
       }
     },
+    "leopard": {
+      "version": "#0478b12df90cbbe531efa69422cff67b5a3a5d93",
+      "vcsRevision": "0478b12df90cbbe531efa69422cff67b5a3a5d93",
+      "url": "https://github.com/status-im/nim-leopard",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim",
+        "unittest2",
+        "results"
+      ],
+      "checksums": {
+        "sha1": "9352901ef26dfdc51dfc76c500be05a3c89abb1b"
+      }
+    },
+    "segmentation": {
+      "version": "#0593ef7c9267b0204093fe202bec477b2dbf824c",
+      "vcsRevision": "0593ef7c9267b0204093fe202bec477b2dbf824c",
+      "url": "https://github.com/logos-messaging/nim-segmentation",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim",
+        "results",
+        "nimcrypto",
+        "protobuf_serialization",
+        "unittest2",
+        "leopard"
+      ],
+      "checksums": {
+        "sha1": "44f5ffa727c58f581b356e8d1c6a3b167f32dee8"
+      }
+    },
     "sds": {
       "version": "#b12f5ee07c5b764303b51fb948b32a4ade1de3b5",
       "vcsRevision": "b12f5ee07c5b764303b51fb948b32a4ade1de3b5",

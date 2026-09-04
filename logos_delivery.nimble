@@ -81,6 +81,8 @@ requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
+requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b0204093fe202bec477b2dbf824c"
+
 # v0.8.1: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.8.1
 # libp2p requires "lsquic >= 0.5.4" by name. The exact numeric constraint
 # keeps the resolution at the validated release instead of floating to

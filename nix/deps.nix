@@ -297,6 +297,20 @@
     fetchSubmodules = true;
   };
 
+  leopard = pkgs.fetchgit {
+    url = "https://github.com/status-im/nim-leopard";
+    rev = "0478b12df90cbbe531efa69422cff67b5a3a5d93";
+    sha256 = "1lfwsqrdc3nzdc3a2v4fmx2ilqxyipb8v3n08ffcf2zj5nrjgql4";
+    fetchSubmodules = true;
+  };
+
+  segmentation = pkgs.fetchgit {
+    url = "https://github.com/logos-messaging/nim-segmentation";
+    rev = "0593ef7c9267b0204093fe202bec477b2dbf824c";
+    sha256 = "0liwh3v8af3achqlzrlsg7p9nphf7zgxw05hip1v24zd0klsl77g";
+    fetchSubmodules = true;
+  };
+
   sds = pkgs.fetchgit {
     url = "https://github.com/logos-messaging/nim-sds.git";
     rev = "b12f5ee07c5b764303b51fb948b32a4ade1de3b5";
