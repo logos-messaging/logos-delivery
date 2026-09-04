@@ -14,7 +14,7 @@
 ## See: https://lip.logos.co/messaging/raw/reliable-channel-api.html
 
 import std/tables
-import results, chronos
+import results, chronos, chronicles
 import bearssl/rand
 import stew/byteutils
 import libp2p/crypto/crypto as libp2p_crypto
@@ -27,11 +27,16 @@ import logos_delivery/api/events/reliable_channel_manager_events
 import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/waku_core/topics
 
-import ./segmentation/segmentation
+import ./segmentation/channel_segmentation
 import ./scalable_data_sync/scalable_data_sync
 import ./encryption/encryption
 
-export types, reliable_channel_manager_api, segmentation, scalable_data_sync, encryption
+export
+  types, reliable_channel_manager_api, channel_segmentation, scalable_data_sync,
+  encryption
+
+logScope:
+  topics = "reliable-channel"
 
 const LipWireReliableChannelVersion* = "RELIABLE-CHANNEL-API/1"
   ## Wire-format spec marker for the Reliable Channel layer, as defined
@@ -74,6 +79,8 @@ type
     senderId: SdsParticipantID
     rng: libp2p_crypto.Rng
     segmentation: SegmentationHandler
+    cleanupInterval: Duration
+    cleanupFut: Future[void]
     sdsHandler: SdsHandler
 
     channelReqs: ChannelReqs
@@ -112,6 +119,8 @@ proc stop*(self: ReliableChannel) {.async: (raises: []).} =
   await MessageReceivedEvent.dropListener(self.brokerCtx, self.receivedListener)
   await MessageSentEvent.dropListener(self.brokerCtx, self.sentListener)
   await MessageErrorEvent.dropListener(self.brokerCtx, self.errorListener)
+  if not self.cleanupFut.isNil():
+    await self.cleanupFut.cancelAndWait()
   await self.sdsHandler.stop()
 
 proc tryFinalizeChannelReq(self: ReliableChannel, channelReqId: RequestId) =
@@ -197,13 +206,20 @@ proc send*(
   ## `self.channelReqs` until every segment is final.
   if payload.len == 0:
     return err("empty payload")
+  if self.closed:
+    return err("channel is closed")
 
   let channelReqId = RequestId.new(self.rng)
   let persistenceReqType =
     if ephemeral: MessagePersistence.Ephemeral else: MessagePersistence.Persistent
 
+  ## A payload needing more segments than `maxTotalSegments` fails here,
+  ## before any channel-level request state exists to unwind.
+  let segments = self.segmentation.performSegmentation(payload).valueOr:
+    return err("segmentation failed: " & error)
+
   var sdsSegments: seq[seq[byte]]
-  for segmentBytes in self.segmentation.performSegmentation(payload):
+  for segmentBytes in segments:
     ## Segments arrive already encoded; the segmentation module owns
     ## the wire format so SDS only ever sees opaque bytes.
     let sdsBytes = (await self.sdsHandler.wrapOutgoing(segmentBytes)).valueOr:
@@ -214,6 +230,12 @@ proc send*(
     ChannelReqState.init(persistenceReqType, sdsSegments.len)
 
   for sdsBytes in sdsSegments:
+    ## A close can land on any of the awaits below. Stop dispatching: the
+    ## listeners are already gone, so the remaining segments would never be
+    ## finalised anyway.
+    if self.closed:
+      break
+
     ## TODO: revisit which fields of the SDS message must be encrypted.
     ## Encrypting the whole encoded blob forces every receiver to attempt
     ## decryption before it can route, which breaks selective dispatch.
@@ -259,21 +281,30 @@ proc reportReceived(self: ReliableChannel, deliverable: SdsDeliverable) =
   ## Tail of the ingress pipeline (reassemble -> emit).
   if self.closed:
     return
-  let reassembled = self.segmentation.handleIncomingSegment(deliverable.content)
-  if reassembled.isSome():
-    ## Emit on the captured `brokerCtx` (the manager's), so the
-    ## application listener that the manager has set up on that same
-    ## context picks the event up.
-    info "Message received on reliable channel",
-      channelId = self.channelId, senderId = deliverable.senderId
-    ChannelMessageReceivedEvent.emit(
-      self.brokerCtx,
-      ChannelMessageReceivedEvent(
-        channelId: self.channelId,
-        senderId: deliverable.senderId,
-        payload: reassembled.get().payload,
-      ),
-    )
+  ## `err` is an internal fault: every segment the spec says to drop comes
+  ## back as `ok(Opt.none)` and was already reported through the segmentation
+  ## callbacks.
+  let reassembled = self.segmentation.handleIncomingSegment(deliverable.content).valueOr:
+    error "Segmentation failed on an incoming segment",
+      channelId = self.channelId, error = error
+    return
+  if reassembled.isNone():
+    ## Stored but incomplete, or discarded.
+    return
+
+  ## Emit on the captured `brokerCtx` (the manager's), so the
+  ## application listener that the manager has set up on that same
+  ## context picks the event up.
+  info "Message received on reliable channel",
+    channelId = self.channelId, senderId = deliverable.senderId
+  ChannelMessageReceivedEvent.emit(
+    self.brokerCtx,
+    ChannelMessageReceivedEvent(
+      channelId: self.channelId,
+      senderId: deliverable.senderId,
+      payload: reassembled.get().payload,
+    ),
+  )
 
 proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []).} =
   ## SDS-driven repair rebroadcast. Pacing is done by SDS itself.
@@ -341,26 +372,38 @@ proc onMessageReceived(
   for item in deliverable:
     self.reportReceived(item)
 
+proc segmentCleanupLoop(self: ReliableChannel) {.async.} =
+  ## `handleIncomingSegment` sweeps on every arrival, so only a quiet channel needs this
+  while not self.closed:
+    await sleepAsync(self.cleanupInterval)
+    self.segmentation.cleanupSegments()
+
 proc new*(
     T: type ReliableChannel,
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
-    segConfig: SegmentationConfig,
+    segConfig: ChannelSegmentationConfig,
     sdsConfig: SdsConfig,
     brokerCtx: BrokerContext = globalBrokerContext(),
-): T =
+): Result[T, string] =
   ## Pipeline handlers (segmentation/SDS) are constructed inside the
   ## channel rather than handed in by the caller — they are implementation
   ## details of the channel, not knobs the API consumer should be wiring
   ## up. Encryption is delegated to the `Encrypt`/`Decrypt` request
   ## brokers, so the channel keeps no per-instance encryption state either.
+  ##
+  ## Segmentation is built first: it validates `segConfig`, and failing here
+  ## leaves no started loop or installed listener behind.
+  let segmentation = ?SegmentationHandler.new(segConfig, channelId, brokerCtx)
+
   let chn = T(
     channelId: channelId,
     contentTopic: contentTopic,
     senderId: senderId,
     rng: libp2p_crypto.newRng(),
-    segmentation: SegmentationHandler.new(segConfig),
+    segmentation: segmentation,
+    cleanupInterval: segConfig.cleanupInterval,
     sdsHandler: SdsHandler.new(sdsConfig, channelId, senderId),
     channelReqs: initTable[RequestId, ChannelReqState](),
     brokerCtx: brokerCtx,
@@ -370,6 +413,7 @@ proc new*(
   chn.sdsHandler.onRebroadcast = proc(wire: seq[byte]) {.gcsafe, raises: [].} =
     asyncSpawn chn.dispatchRepair(wire)
   chn.sdsHandler.start()
+  chn.cleanupFut = chn.segmentCleanupLoop()
 
   ## Each channel owns its own ingress + send-completion listeners on
   ## `chn.brokerCtx`, filtered to traffic addressed to this channel.
@@ -411,4 +455,4 @@ proc new*(
     error "MessageErrorEvent.listen failed", channelId = channelId, error = error
     MessageErrorEventListener()
 
-  return chn
+  return ok(chn)

@@ -7,6 +7,7 @@
 
 include Nat.mk
 include BearSSL.mk
+include Leopard.mk
 
 LINK_PCRE := 0
 FORMAT_MSG := "\\x1B[95mFormatting:\\x1B[39m"
@@ -145,7 +146,7 @@ audit-deps:
 # after nimble setup has populated nimbledeps/.
 .PHONY: build-deps
 build-deps: | $(NIMBLEDEPS_STAMP)
-	$(MAKE) rebuild-bearssl-nimbledeps rebuild-nat-libs-nimbledeps
+	$(MAKE) rebuild-bearssl-nimbledeps rebuild-nat-libs-nimbledeps rebuild-leopard-nimbledeps
 
 	$(MAKE) audit-deps
 
