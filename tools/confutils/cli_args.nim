@@ -120,20 +120,20 @@ type WakuNodeConf* = object
     desc:
       "Use the LEZ registry backed RLN module instead of on-chain group management: true|false. Default is false.",
     defaultValue: Opt.none(bool),
-    name: "rln-relay-lez"
+    name: "rln-lez"
   .}: Opt[bool]
 
   rlnRelayRegistryId* {.
     desc:
       "CAIP-10 account identifier of the LEZ RLN registry deployment, e.g. logos:<network>:<64-hex>",
     defaultValue: "",
-    name: "rln-relay-registry-id"
+    name: "rln-registry-id"
   .}: string
 
   rlnRelayIdentifier* {.
     desc: "32-byte hex per-application RLN identifier for the LEZ registry",
     defaultValue: "",
-    name: "rln-relay-identifier"
+    name: "rln-identifier"
   .}: string
 
   rlnRelayRegistryOptions* {.
@@ -141,7 +141,7 @@ type WakuNodeConf* = object
       "Flat JSON object of registry-specific registration options passed verbatim " &
       "to the external RLN module's register(), e.g. funding or delegation options",
     defaultValue: "",
-    name: "rln-relay-registry-options"
+    name: "rln-registry-options"
   .}: string
 
   rlnRelayEthPrivateKey* {.
