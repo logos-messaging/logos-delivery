@@ -226,9 +226,6 @@ proc mount(
     brokerCtx: globalBrokerContext(),
   )
 
-  # Start epoch monitoring in the background
-  rlnEvm.epochMonitorFuture = monitorEpochs(rlnEvm)
-
   RequestGenerateRlnProof.setProvider(
     rlnEvm.brokerCtx,
     proc(
@@ -249,6 +246,9 @@ proc mount(
   ).isOkOr:
     return err("Proof generator provider cannot be set: " & $error)
 
+  # Start epoch monitoring in the background
+  rlnEvm.epochMonitorFuture = monitorEpochs(rlnEvm)
+  
   return ok(rlnEvm)
 
 proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async.} =
