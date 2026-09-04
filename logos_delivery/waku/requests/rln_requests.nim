@@ -44,3 +44,11 @@ RequestBroker:
   proc signature(
     registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
   ): Future[Result[RequestRegisterRlnMembership, string]] {.async.}
+
+RequestBroker:
+  type RequestGetRlnMembershipState* = object
+    state*: MembershipState
+
+  proc signature(
+    registryId: RegistryId, rlnIdentifier: RlnIdentifier
+  ): Future[Result[RequestGetRlnMembershipState, string]] {.async.}
