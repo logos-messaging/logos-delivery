@@ -239,9 +239,9 @@ proc mount(
     return err("Proof generator provider cannot be set: " & $error)
 
   # Start epoch monitoring in the background
-  rln.epochMonitorFuture = monitorEpochs(rln)
+  rlnEvm.epochMonitorFuture = monitorEpochs(rlnEvm)
 
-  return ok(rln)
+  return ok(rlnEvm)
 
 proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async.} =
   ## returns true if the rln-relay protocol is ready to relay messages
