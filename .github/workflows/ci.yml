@@ -309,6 +309,14 @@ jobs:
       node_image: ${{ needs.build-docker-image.outputs.image }}
     secrets: inherit
 
+  # E2E tests that run the node docker image and drive it over its REST API
+  rest-e2e-tests:
+    needs: build-docker-image
+    uses: ./.github/workflows/e2e-rest-tests.yml
+    with:
+      node_image: ${{ needs.build-docker-image.outputs.image }}
+    secrets: inherit
+
   lint:
     name: "Lint"
     runs-on: ubuntu-22.04
