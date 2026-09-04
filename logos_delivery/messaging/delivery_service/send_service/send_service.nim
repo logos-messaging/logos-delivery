@@ -37,9 +37,9 @@ const MaxTimeInCache* = chronos.minutes(1)
   ## feedback will be given when that happens
 
 proc maxDeliveryTime*(anonymityLevel: AnonymityLevel): timer.Duration =
-  ## `BestEffort` gets a second window: one full `MaxTimeInCache` trying mix,
+  ## `Preferred` gets a second window: one full `MaxTimeInCache` trying mix,
   ## then another one on the plain send path before the task is failed.
-  if anonymityLevel == AnonymityLevel.BestEffort:
+  if anonymityLevel == AnonymityLevel.Preferred:
     MaxTimeInCache + MaxTimeInCache
   else:
     MaxTimeInCache

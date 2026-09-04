@@ -454,7 +454,7 @@ suite "Waku external config - http url parsing":
 suite "Waku external config - anonymity level":
   test "An anonymity level above None mounts mix":
     var preConfig = defaultWakuNodeConf().get()
-    preConfig.anonymityLevel = AnonymityLevel.BestEffort
+    preConfig.anonymityLevel = AnonymityLevel.Preferred
 
     let conf = preConfig.toWakuConf().valueOr:
       raiseAssert error

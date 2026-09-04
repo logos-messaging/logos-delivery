@@ -33,7 +33,7 @@ type DeliveryTask* = ref object
     ## before it can be sent.
   firstMixTriedTime*: Opt[Moment]
     ## Set the first time the mix processor takes the task, and never reset.
-    ## Anchors the `BestEffort` mix window. `firstAdmittedTime` cannot: an RLN
+    ## Anchors the `Preferred` mix window. `firstAdmittedTime` cannot: an RLN
     ## rejection deliberately clears it (`parkForRlnProofRefresh`) to re-charge
     ## the nonce, which would restart the mix window on every stale proof and
     ## keep the task from ever reaching the plain fallback.

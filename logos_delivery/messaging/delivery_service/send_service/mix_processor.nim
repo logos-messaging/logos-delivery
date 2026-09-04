@@ -23,7 +23,7 @@ proc new*(
   return T(
     waku: waku,
     brokerCtx: brokerCtx,
-    fallbackAllowed: anonymityLevel == AnonymityLevel.BestEffort,
+    fallbackAllowed: anonymityLevel == AnonymityLevel.Preferred,
     mixWindow: mixWindow,
   )
 
@@ -36,7 +36,7 @@ proc mixWindowElapsed(self: MixSendProcessor, task: DeliveryTask): bool =
 method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.async.} =
   # Starts the mix window on the first round that reaches this processor, whether
   # or not mix can publish yet: a task that never finds a path must still fall
-  # back under `BestEffort`. Never reset afterwards, so a task cycling through
+  # back under `Preferred`. Never reset afterwards, so a task cycling through
   # RLN proof refreshes cannot keep restarting its own window.
   if task.firstMixTriedTime.isNone():
     task.firstMixTriedTime = Opt.some(Moment.now())

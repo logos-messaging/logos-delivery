@@ -188,12 +188,12 @@ suite "parseLogosDeliveryConf - JSON parsing":
       WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
 
   test "a flat blob's anonymity level is lifted to the messaging record":
-    let lc = parseLogosDeliveryConf("""{"anonymityLevel": "BestEffort"}""").valueOr:
+    let lc = parseLogosDeliveryConf("""{"anonymityLevel": "Preferred"}""").valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
     check:
-      lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.BestEffort)
-      WakuNodeConf(lc.kernelConf).anonymityLevel == AnonymityLevel.BestEffort
+      lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Preferred)
+      WakuNodeConf(lc.kernelConf).anonymityLevel == AnonymityLevel.Preferred
 
   test "channelsOverrides fold into the channel conf":
     let lc = parseLogosDeliveryConf(
@@ -394,7 +394,7 @@ suite "MessagingClientConf - anonymity level":
       kc.mix.isNone()
 
   test "the mix protocol config is built, not just the ENR capability bit":
-    let kc = MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.BestEffort)).toWakuNodeConf(
+    let kc = MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.Preferred)).toWakuNodeConf(
       LogosDeliveryMode.Core
     ).valueOr:
       raiseAssert error

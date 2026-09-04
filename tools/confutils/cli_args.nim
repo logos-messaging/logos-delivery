@@ -669,7 +669,7 @@ hence would have reachability issues.""",
 
     anonymityLevel* {.
       desc:
-        "Sender anonymity of the Messaging API send path: None (never use mix), BestEffort (try mix first, then the plain path), Required (mix only). Any value but None mounts mix.",
+        "Sender anonymity of the Messaging API send path: None (never use mix), Preferred (try mix first, then the plain path), Required (mix only). Any value but None mounts mix.",
       defaultValue: AnonymityLevel.None,
       name: "anonymity-level"
     .}: AnonymityLevel

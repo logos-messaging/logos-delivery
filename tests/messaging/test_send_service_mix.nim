@@ -23,7 +23,7 @@ import
 import ../testlib/[testasync, wakucore]
 
 ## Anonymity-level coverage for the send path: the mix processor owns the task
-## for a whole mix window, and only a `BestEffort` chain ever hands it to the
+## for a whole mix window, and only a `Preferred` chain ever hands it to the
 ## plain relay/lightpush processors behind it. The node under test has no mix
 ## mounted, which is exactly the "mix cannot deliver" case the levels differ on.
 
@@ -90,28 +90,28 @@ suite "SendService - anonymity level":
       plain.calls == 0 # mix cannot deliver, but the plain path is off limits
       task.state == DeliveryState.NextRoundRetry
 
-  asyncTest "a BestEffort task stays on mix while the mix window is open":
+  asyncTest "a Preferred task stays on mix while the mix window is open":
     let plain = PlainSendProcessor()
     let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.BestEffort, chronos.minutes(1)
+      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
     )
     mix.chain(plain)
 
-    let task = buildTask("best-effort-early", chronos.seconds(5))
+    let task = buildTask("preferred-early", chronos.seconds(5))
     await mix.process(task)
 
     check:
       plain.calls == 0
       task.state == DeliveryState.NextRoundRetry
 
-  asyncTest "a BestEffort task falls back to the plain path once the window elapsed":
+  asyncTest "a Preferred task falls back to the plain path once the window elapsed":
     let plain = PlainSendProcessor()
     let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.BestEffort, chronos.minutes(1)
+      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
     )
     mix.chain(plain)
 
-    let task = buildTask("best-effort-late", chronos.minutes(2))
+    let task = buildTask("preferred-late", chronos.minutes(2))
     # Mix has owned the task since admission and got nowhere with it.
     task.firstMixTriedTime = Opt.some(Moment.now() - chronos.minutes(2))
     await mix.process(task)
@@ -120,14 +120,14 @@ suite "SendService - anonymity level":
       plain.calls == 1
       task.state == DeliveryState.SuccessfullyPropagated
 
-  asyncTest "an RLN proof refresh does not restart the BestEffort mix window":
+  asyncTest "an RLN proof refresh does not restart the Preferred mix window":
     ## `parkForRlnProofRefresh` clears `firstAdmittedTime` on purpose, to
     ## re-charge the nonce the regenerated proof draws. A mix window measured
     ## off that field would restart on every stale proof and strand the task on
     ## mix forever, so the window keeps its own timestamp.
     let plain = PlainSendProcessor()
     let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.BestEffort, chronos.minutes(1)
+      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
     )
     mix.chain(plain)
 
@@ -146,7 +146,7 @@ suite "SendService - anonymity level":
     ## parked, so the window cannot start before the mix processor sees it.
     let plain = PlainSendProcessor()
     let mix = MixSendProcessor.new(
-      waku, waku.brokerCtx, AnonymityLevel.BestEffort, chronos.minutes(1)
+      waku, waku.brokerCtx, AnonymityLevel.Preferred, chronos.minutes(1)
     )
     mix.chain(plain)
 
@@ -160,7 +160,7 @@ suite "SendService - anonymity level":
       plain.calls == 0 # ... so the window has not elapsed yet
       task.state == DeliveryState.NextRoundRetry
 
-  asyncTest "BestEffort gets a second delivery window, the other levels do not":
+  asyncTest "Preferred gets a second delivery window, the other levels do not":
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
 
@@ -171,7 +171,7 @@ suite "SendService - anonymity level":
       .new(false, waku, manager, anonymityLevel = AnonymityLevel.Required)
       .expect("SendService.new")
     let bestEffortService = SendService
-      .new(false, waku, manager, anonymityLevel = AnonymityLevel.BestEffort)
+      .new(false, waku, manager, anonymityLevel = AnonymityLevel.Preferred)
       .expect("SendService.new")
 
     check:

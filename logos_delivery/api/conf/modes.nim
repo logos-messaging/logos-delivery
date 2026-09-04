@@ -19,5 +19,5 @@ type EntryLayer* {.pure.} = enum
 
 type AnonymityLevel* {.pure.} = enum
   None
-  BestEffort
+  Preferred
   Required
