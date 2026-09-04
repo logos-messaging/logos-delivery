@@ -18,7 +18,7 @@ logger = get_custom_logger(__name__)
 class StepsFilter(StepsCommon):
     test_pubsub_topic = VALID_PUBSUB_TOPICS[1]
     second_pubsub_topic = VALID_PUBSUB_TOPICS[2]
-    another_cluster_pubsub_topic = "/waku/2/rs/2/2"
+    another_cluster_pubsub_topic = "/waku/2/rs/199/2"
     test_content_topic = "/test/1/waku-filter/proto"
     second_content_topic = "/test/2/waku-filter/proto"
     test_payload = "Filter works!!"
@@ -95,9 +95,15 @@ class StepsFilter(StepsCommon):
         for index, peer in enumerate(peer_list):
             logger.debug(f"Checking that peer NODE_{index + 2}:{peer.image} can find the published message")
             get_messages_response = self.get_filter_messages(message["contentTopic"], pubsub_topic=pubsub_topic, node=peer)
-            assert get_messages_response, f"Peer NODE_{index + 2}:{peer.image} couldn't find any messages"
-            assert len(get_messages_response) == 1, f"Expected 1 message but got {len(get_messages_response)}"
-            waku_message = WakuMessage(get_messages_response)
+            # get_filter_messages already scopes to the requested content topic
+            # additional filter guards against any residual or fleet messages that may
+            # have been queued under the same topic before this call
+            test_messages = [m for m in get_messages_response if m.get("contentTopic") == message["contentTopic"]]
+            assert test_messages, f"Peer NODE_{index + 2}:{peer.image} couldn't find any messages"
+            assert len(test_messages) == 1, (
+                f"Expected 1 test message but got {len(test_messages)} " f"(total messages returned: {len(get_messages_response)})"
+            )
+            waku_message = WakuMessage(test_messages)
             waku_message.assert_received_message(message)
 
     @allure.step
