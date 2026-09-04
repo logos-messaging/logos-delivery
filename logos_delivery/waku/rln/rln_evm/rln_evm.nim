@@ -248,7 +248,7 @@ proc mount(
 
   # Start epoch monitoring in the background
   rlnEvm.epochMonitorFuture = monitorEpochs(rlnEvm)
-  
+
   return ok(rlnEvm)
 
 proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async.} =
