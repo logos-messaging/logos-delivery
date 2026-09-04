@@ -9,13 +9,17 @@
 ## thread through `(mt)` request brokers, so a 30 s DHT bootstrap blocks that
 ## thread and never the node's event loop.
 ##
-## This module has no libp2p dependency at all.
+## The one thing this backend does that the internal one does not: it signs
+## this node's own peer record before advertising, because the provider's
+## discovery node is not this node. That is its only libp2p dependency.
 
-import std/sequtils
+import std/[sequtils, strutils]
 import chronos, chronicles, results
 import brokers/broker_implement
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/signed_service_record,
+  logos_delivery/waku/requests/node_state_requests,
   logos_delivery/waku/discovery/plugin/service_discovery_accessor,
   logos_delivery/waku/discovery/plugin/service_discovery_worker
 
@@ -256,8 +260,19 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     )
 
   method startAdvertising(
-      self: ExternalServiceDiscovery, key: string, data: seq[byte], record: seq[byte]
+      self: ExternalServiceDiscovery, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
+    ## The plugin's discovery node is not this node: left to itself it would
+    ## publish its own identity under our service. So sign a record for this
+    ## node listing exactly this service, and let the plugin publish it
+    ## verbatim. Identity and key come from the node-state getters, the way
+    ## the discv5 backend gets its ENR and key.
+    if not key.startsWith(SvcKeyPrefix):
+      return err("external backend: only svc: keys can be advertised")
+    let serviceId = key[SvcKeyPrefix.len ..^ 1]
+    let peerInfo = ?GetNodePeerInfo.request(self.nodeCtx)
+    let nodeKey = ?GetNodeKey.request(self.nodeCtx)
+    let record = ?signedServiceRecord(peerInfo, nodeKey, serviceId, data)
     pluginCall(
       void,
       "startAdvertising",
