@@ -35,6 +35,17 @@ type MessagingClientConf* = object
     ## Chain id the RLN contract is deployed on.
   rlnEpochSizeSec* {.name: "rln-relay-epoch-sec".}: Opt[uint]
     ## RLN epoch size, in seconds.
+  rlnLez* {.name: "rln-lez".}: Opt[bool]
+    ## Outsource RLN to the external LEZ-registry RLN module; when set, RLN is enabled.
+  rlnRegistryId* {.name: "rln-registry-id".}: Opt[string]
+    ## CAIP-10 account identifier of the LEZ RLN registry deployment.
+  rlnIdentifier* {.name: "rln-identifier".}: Opt[string]
+    ## 32-byte hex per-application RLN identifier; must match on every node of a deployment.
+  rlnRegistryOptions* {.name: "rln-registry-options".}: Opt[string]
+    ## Flat JSON object of registry-specific registration options, passed verbatim
+    ## to the external RLN module's register().
+  rlnUserMessageLimit* {.name: "rln-relay-user-message-limit".}: Opt[uint64]
+    ## Per-epoch message limit requested for the RLN membership.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
     ## Enable store-based send reliability.
   store*: Opt[bool] ## Enable the store protocol.
@@ -128,6 +139,18 @@ proc toWakuNodeConf*(
     conf.rlnRelayChainId = self.rlnChainId.get()
   if self.rlnEpochSizeSec.isSome():
     conf.rlnEpochSizeSec = Opt.some(self.rlnEpochSizeSec.get().uint64)
+  if self.rlnLez.isSome():
+    conf.rlnRelayLez = self.rlnLez
+    if self.rlnLez.get():
+      conf.rlnRelay = Opt.some(true)
+  if self.rlnRegistryId.isSome():
+    conf.rlnRelayRegistryId = self.rlnRegistryId.get()
+  if self.rlnIdentifier.isSome():
+    conf.rlnRelayIdentifier = self.rlnIdentifier.get()
+  if self.rlnRegistryOptions.isSome():
+    conf.rlnRelayRegistryOptions = self.rlnRegistryOptions.get()
+  if self.rlnUserMessageLimit.isSome():
+    conf.rlnRelayUserMessageLimit = self.rlnUserMessageLimit
   if self.logLevel.isSome():
     conf.logLevel = self.logLevel.get()
   if self.logFormat.isSome():

@@ -1,6 +1,6 @@
 import
   results,
-  std/sequtils,
+  std/[json, sequtils],
   chronicles,
   chronos,
   libp2p/peerid,
@@ -40,7 +40,8 @@ import
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
   ../common/rate_limit/setting,
-  ../api/events/discovery_events
+  ../api/events/discovery_events,
+  ../requests/rln_requests
 
 ## Peer persistence
 
@@ -336,22 +337,37 @@ proc setupProtocols(
         err("the configuration enables RLN relay, but this build has -d:disable_rln")
 
     let rlnRelayConf = conf.rlnRelayConf.get()
-    let rlnConf = WakuRlnConfig(
-      dynamic: rlnRelayConf.dynamic,
-      credIndex: rlnRelayConf.credIndex,
-      ethContractAddress: rlnRelayConf.ethContractAddress,
-      chainId: rlnRelayConf.chainId,
-      ethClientUrls: rlnRelayConf.ethClientUrls,
-      creds: rlnRelayConf.creds,
-      userMessageLimit: rlnRelayConf.userMessageLimit,
-      epochSizeSec: rlnRelayConf.epochSizeSec,
-      onFatalErrorAction: onFatalErrorAction,
-    )
-
-    try:
-      await node.setRlnValidator(rlnConf)
-    except CatchableError:
-      return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+    if rlnRelayConf.lez:
+      let rlnLezConf = WakuRlnLezConfig(
+        registryId: rlnRelayConf.registryId,
+        identifier: rlnRelayConf.identifier,
+        userMessageLimit: rlnRelayConf.userMessageLimit,
+        epochSizeSec: rlnRelayConf.epochSizeSec,
+        creds: rlnRelayConf.creds,
+        onFatalErrorAction: onFatalErrorAction,
+      )
+      try:
+        await node.setRlnValidator(rlnLezConf)
+      except CatchableError:
+        return
+          err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+    else:
+      let rlnConf = WakuRlnConfig(
+        dynamic: rlnRelayConf.dynamic,
+        credIndex: rlnRelayConf.credIndex,
+        ethContractAddress: rlnRelayConf.ethContractAddress,
+        chainId: rlnRelayConf.chainId,
+        ethClientUrls: rlnRelayConf.ethClientUrls,
+        creds: rlnRelayConf.creds,
+        userMessageLimit: rlnRelayConf.userMessageLimit,
+        epochSizeSec: rlnRelayConf.epochSizeSec,
+        onFatalErrorAction: onFatalErrorAction,
+      )
+      try:
+        await node.setRlnValidator(rlnConf)
+      except CatchableError:
+        return
+          err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
 
   # NOTE Must be mounted after relay
   if conf.lightPush:
@@ -430,6 +446,39 @@ proc startNode*(
     await node.start()
   except CatchableError:
     return err("failed to start waku node: " & getCurrentExceptionMsg())
+
+  # Start the external RLN module for the LEZ path and verify the node's
+  # existing membership. Runs at start rather than at mount: the host installs its RLN
+  # callbacks only after node creation returns. A missing module degrades
+  # RLN, not node startup; a verified unusable membership is fatal.
+  if conf.rlnRelayConf.isSome() and conf.rlnRelayConf.get().lez:
+    let rlnRelayConf = conf.rlnRelayConf.get()
+    try:
+      # epoch_size_sec must equal this node's epoch size so generators and
+      # validators derive the same epoch; listing the registry warms its
+      # valid-root window.
+      let configJson = $(
+        %*{
+          "epoch_size_sec": rlnRelayConf.epochSizeSec,
+          "registries": [rlnRelayConf.registryId],
+        }
+      )
+      let startRes = await RequestStartRlnModule.request(node.brokerCtx, configJson)
+      if startRes.isErr():
+        notice "RLN module start failed", reason = startRes.error()
+      else:
+        info "RLN module started", response = startRes.get().response
+        let stateRes = await RequestGetRlnMembershipState.request(
+          node.brokerCtx, rlnRelayConf.registryId, rlnRelayConf.identifier
+        )
+        if stateRes.isErr():
+          return err("failed to get RLN membership state: " & stateRes.error())
+        let status = stateRes.get().state.status
+        if status notin {MembershipStatus.Active, MembershipStatus.GracePeriod}:
+          return err("the node does not have a usable RLN membership: " & $status)
+        info "RLN membership verified", status = $status
+    except CatchableError:
+      notice "RLN module bring-up failed", reason = getCurrentExceptionMsg()
 
   # Connect to configured static nodes
   if conf.staticNodes.len > 0:

@@ -6,6 +6,7 @@ import
   nimcrypto/utils,
   std/[net, random, sequtils],
   results,
+  stew/byteutils,
   testutils/unittests
 import
   logos_delivery/waku/factory/waku_conf,
@@ -404,3 +405,49 @@ suite "Waku Conf Builder - rate limits":
 
     ## Then
     assert res.isOk(), $res.error
+
+suite "Rln Conf Builder - LEZ":
+  const LezIdentifierHex =
+    "1220000000000000000000000000000000000000000000000000000000000000"
+
+  test "LEZ conf builds with registry id and decoded identifier":
+    ## Given
+    var builder = RlnConfBuilder.init()
+    builder.withEnabled(true)
+    builder.withLez(true)
+    builder.withRegistryId("logos:testnet:00aa")
+    builder.withIdentifier(LezIdentifierHex)
+    builder.withEpochSizeSec(600)
+    builder.withUserMessageLimit(100)
+
+    ## When
+    let res = builder.build()
+
+    ## Then
+    assert res.isOk(), $res.error
+    require res.get().isSome()
+    let conf = res.get().get()
+    var expectedIdentifier: array[32, byte]
+    hexToByteArray(LezIdentifierHex, expectedIdentifier)
+    check:
+      conf.lez == true
+      conf.registryId == "logos:testnet:00aa"
+      conf.identifier == expectedIdentifier
+      conf.epochSizeSec == 600
+      conf.userMessageLimit == 100
+      conf.registryOptionsJson == "{}" # default when unset
+
+  test "a malformed identifier fails the build":
+    var builder = RlnConfBuilder.init()
+    builder.withEnabled(true)
+    builder.withLez(true)
+    builder.withRegistryId("logos:testnet:00aa")
+    builder.withIdentifier("not-hex")
+    check builder.build().isErr()
+
+  test "a missing registry id fails the build":
+    var builder = RlnConfBuilder.init()
+    builder.withEnabled(true)
+    builder.withLez(true)
+    builder.withIdentifier(LezIdentifierHex)
+    check builder.build().isErr()

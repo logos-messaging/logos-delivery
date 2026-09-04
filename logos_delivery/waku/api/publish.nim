@@ -23,6 +23,7 @@ import
     waku_lightpush/rpc,
     waku_lightpush/client,
     waku_lightpush/callbacks,
+    requests/rln_requests,
   ]
 
 # WakuLightPushResult, PushMessageHandler, LightPushErrorCode (common) plus the
@@ -65,7 +66,26 @@ proc attachRlnProof*(
   ## service's task cache while the group root moves on chain, so the proof is
   ## validated against the acceptable-root window and regenerated once against a
   ## refetched merkle path if it went stale.
-  if self.node.rln.isNil() or message.proof.len > 0:
+  if message.proof.len > 0:
+    return ok(message)
+
+  if self.conf.rlnRelayConf.isSome() and self.conf.rlnRelayConf.get().lez:
+    let rlnConf = self.conf.rlnRelayConf.get()
+    if message.timestamp <= 0:
+      return
+        err("Cannot attach an RLN proof to a message that has not been timestamped")
+    let timestamp = uint64(message.timestamp div 1_000_000_000)
+    let generated = (
+      await RequestGenerateRlnProof.request(
+        self.brokerCtx, message, rlnConf.registryId, rlnConf.identifier, timestamp
+      )
+    ).valueOr:
+      return err("Failed to attach RLN proof: " & error)
+    var msgWithProof = message
+    msgWithProof.proof = generated.proof
+    return ok(msgWithProof)
+
+  if self.node.rln.isNil():
     return ok(message)
 
   var msgWithProof = message

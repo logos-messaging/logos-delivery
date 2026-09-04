@@ -255,6 +255,37 @@ suite "parseLogosDeliveryConf - JSON parsing":
       raiseAssert error
     check WakuNodeConf(lc.kernelConf).ethClientUrls.len == 1
 
+  test "flat blob carries the LEZ RLN fields into the kernel conf":
+    let lc = parseLogosDeliveryConf(
+      """{"mode": "Core", "rln-relay": true, "rln-lez": true, "rln-registry-id": "logos:testnet:00aa", "rln-identifier": "1220000000000000000000000000000000000000000000000000000000000000", "rln-relay-epoch-sec": 600, "rln-relay-user-message-limit": 100}"""
+    ).valueOr:
+      raiseAssert error
+    let kc = WakuNodeConf(lc.kernelConf)
+    check:
+      kc.rlnRelay == Opt.some(true)
+      kc.rlnRelayLez == Opt.some(true)
+      kc.rlnRelayRegistryId == "logos:testnet:00aa"
+      kc.rlnRelayIdentifier ==
+        "1220000000000000000000000000000000000000000000000000000000000000"
+      kc.rlnEpochSizeSec == Opt.some(600'u64)
+      kc.rlnRelayUserMessageLimit == Opt.some(100'u64)
+
+  test "messagingOverrides carry the LEZ RLN fields; lez implies rln-relay":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"rln-lez": true, "rln-registry-id": "logos:testnet:00aa", "rln-identifier": "1220000000000000000000000000000000000000000000000000000000000000", "rln-relay-epoch-sec": 600, "rln-relay-user-message-limit": 100, "rln-registry-options": "{\"funding_holding_account_id\":\"acc1\"}"}}"""
+    ).valueOr:
+      raiseAssert error
+    let kc = WakuNodeConf(lc.kernelConf)
+    check:
+      kc.rlnRelay == Opt.some(true) # lifted by rln-lez, no explicit rln-relay key
+      kc.rlnRelayLez == Opt.some(true)
+      kc.rlnRelayRegistryId == "logos:testnet:00aa"
+      kc.rlnRelayIdentifier ==
+        "1220000000000000000000000000000000000000000000000000000000000000"
+      kc.rlnRelayRegistryOptions == """{"funding_holding_account_id":"acc1"}"""
+      kc.rlnEpochSizeSec == Opt.some(600'u64)
+      kc.rlnRelayUserMessageLimit == Opt.some(100'u64)
+
   test "store backend fields fold into the kernel conf":
     let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"store": true, "store-message-db-url": "sqlite://test.db", "store-message-retention-policy": "time:3600", "store-max-num-db-connections": 7}}"""
