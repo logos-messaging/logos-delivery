@@ -27,6 +27,8 @@ proc nodeConf(entryLayer: EntryLayer, rest = false): WakuNodeConf =
   conf.listenAddress = parseIpAddress("0.0.0.0")
   conf.tcpPort = Port(0)
   conf.discv5UdpPort = Port(0)
+  # The CLI default is "any"; keep test nodes off real gateway discovery.
+  conf.nat = "none"
   conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = 1
   conf.rest = rest

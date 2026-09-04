@@ -2,7 +2,7 @@ import stint, chronos
 
 import ./protocol_types
 
-import ../waku_keystore
+import ../../waku_keystore
 
 # Acceptable roots for merkle root validation of incoming messages
 const AcceptableRootWindowSize* = 50

@@ -4,15 +4,20 @@ import results
 import
   logos_delivery/waku/rln,
   logos_delivery/waku/rln/[
-    group_manager, bindings, conversion_utils, constants, protocol_types,
-    protocol_metrics, nonce_manager,
+    rln_evm/group_manager,
+    rln_evm/bindings,
+    rln_evm/conversion_utils,
+    rln_evm/constants,
+    rln_evm/protocol_types,
+    rln_evm/protocol_metrics,
+    rln_evm/nonce_manager,
   ]
 
 proc createRLNInstanceWrapper*(): Result[ptr RlnRaw, string] =
   return createRlnInstance()
 
 proc unsafeAppendRLNProof*(
-    rlnPeer: Rln, msg: var WakuMessage, epoch: Epoch, messageId: MessageId
+    rlnPeer: RlnEvm, msg: var WakuMessage, epoch: Epoch, messageId: MessageId
 ): Result[void, string] =
   ## Test helper derived from the publish-path proof flow.
   ## - Skips nonce validation to intentionally allow generating "bad" message IDs for tests.
@@ -20,7 +25,7 @@ proc unsafeAppendRLNProof*(
   ##   proof elements, updating `merkleProofCache` (bypasses `trackRootsChanges`).
   ## WARNING: For testing only
 
-  let manager = cast[OnchainGroupManager](rlnPeer.groupManager)
+  let manager = cast[RlnEvmGroupManager](rlnPeer.groupManager)
   let rootUpdated = waitFor manager.updateRoots()
 
   # Fetch Merkle proof either when a new root was detected *or* when the cache is empty.
@@ -37,7 +42,7 @@ proc unsafeAppendRLNProof*(
   return ok()
 
 proc getWakuRlnConfig*(
-    manager: OnchainGroupManager,
+    manager: RlnEvmGroupManager,
     userMessageLimit: uint64 = 1,
     epochSizeSec: uint64 = 1,
     index: MembershipIndex = MembershipIndex(0),

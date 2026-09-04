@@ -9,9 +9,9 @@ on:
 
 env:
   NPROC: 2
-  NIM_PARAMS: "-d:disableMarchNative"
-  NIM_VERSION: '2.2.4'
-  NIMBLE_VERSION: '0.22.3'
+  NIMFLAGS: "-d:disableMarchNative"
+  NIM_VERSION: '2.2.6'
+  NIMBLE_VERSION: '0.24.1'
 
 jobs:
   # Release gate: the pushed tag MUST exactly match logos_delivery.nimble's version,
@@ -69,8 +69,10 @@ jobs:
 
       - name: Install Nimble ${{ env.NIMBLE_VERSION }}
         run: |
-          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
+          NIMBLE_REVISION=$(sed -n 's/^const RequiredNimbleRevision = "\([0-9a-f]*\)"/\1/p' logos_delivery.nimble)
+          scripts/install_nimble.sh "${{ env.NIMBLE_VERSION }}" "${NIMBLE_REVISION}"
           echo "$HOME/.nimble/bin" >> $GITHUB_PATH
+          echo "$HOME/.local/nimble-${NIMBLE_REVISION}/bin" >> $GITHUB_PATH
 
       - name: Get submodules hash
         id: submodules
@@ -125,13 +127,16 @@ jobs:
         run: |
           # One make target for each line. Two parallel nimble processes
           # corrupt the shared package metadata.
-          make -j${NPROC} POSTGRES=1 CI=false wakunode2
-          make -j${NPROC} CI=false chat2
-          make -j${NPROC} POSTGRES=1 CI=false logosdeliverynode
+          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false wakunode2
+          make -j${NPROC} DEBUG=0 CI=false chat2
+          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false logosdeliverynode
           tar -cvzf ${{steps.vars.outputs.waku}} ./build/
 
-          make -j${NPROC} POSTGRES=1 CI=false liblogosdelivery
-          make -j${NPROC} POSTGRES=1 CI=false STATIC=1 liblogosdelivery
+          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false liblogosdelivery
+          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false STATIC=1 liblogosdelivery
+
+      - name: Audit installed deps
+        run: make audit-deps
 
       - name: Create distributable liblogosdelivery package
         run: |

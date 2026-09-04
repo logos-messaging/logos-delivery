@@ -3,7 +3,7 @@
 import chronicles, chronos, metrics, metrics/chronos_httpserver
 import
   logos_delivery/waku/
-    [net/auto_port, rln/protocol_metrics as rln_metrics, utils/collector],
+    [net/auto_port, rln/rln_evm/protocol_metrics as rln_metrics, utils/collector],
   ./peer_manager,
   ./node_telemetry,
   ./waku_node

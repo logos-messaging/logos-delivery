@@ -6,8 +6,12 @@ else:
 import chronicles, results, std/[tempfiles, sequtils]
 
 import
-  logos_delivery/waku/
-    [waku_keystore, rln/bindings, rln/conversion_utils, rln/group_manager/on_chain]
+  logos_delivery/waku/[
+    waku_keystore,
+    rln/rln_evm/bindings,
+    rln/rln_evm/conversion_utils,
+    rln/rln_evm/group_manager,
+  ]
 
 logScope:
   topics = "rln_keystore_generator"
@@ -47,8 +51,8 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
     error "Unrecoverable error occurred", error = msg
     quit(QuitFailure)
 
-  # 3. initialize OnchainGroupManager
-  let groupManager = OnchainGroupManager(
+  # 3. initialize RlnEvmGroupManager
+  let groupManager = RlnEvmGroupManager(
     ethClientUrls: conf.ethClientUrls,
     chainId: conf.chainId,
     ethContractAddress: conf.ethContractAddress,
@@ -59,11 +63,11 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
   )
   try:
     (waitFor groupManager.init()).isOkOr:
-      error "failure while initializing OnchainGroupManager", error = $error
+      error "failure while initializing RlnEvmGroupManager", error = $error
       quit(QuitFailure)
   # handling the exception is required since waitFor raises an exception
   except Exception, CatchableError:
-    error "failure while initializing OnchainGroupManager",
+    error "failure while initializing RlnEvmGroupManager",
       error = getCurrentExceptionMsg()
     quit(QuitFailure)
 
@@ -104,6 +108,6 @@ proc doRlnKeystoreGenerator*(conf: RlnKeystoreGeneratorConf) =
   try:
     waitFor groupManager.stop()
   except CatchableError:
-    error "failure while stopping OnchainGroupManager", error = getCurrentExceptionMsg()
+    error "failure while stopping RlnEvmGroupManager", error = getCurrentExceptionMsg()
     quit(QuitSuccess) # 0 because we already registered on-chain
   quit(QuitSuccess)

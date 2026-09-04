@@ -148,6 +148,7 @@ type WakuConfBuilder* = object
   logFormat: Opt[logging.LogFormat]
 
   natStrategy: Opt[string]
+  natDiscoveryTimeoutMs: Opt[uint32]
 
   p2pTcpPort: Opt[Port]
   p2pListenAddress: Opt[IpAddress]
@@ -290,6 +291,9 @@ proc withDns4DomainName*(b: var WakuConfBuilder, dns4DomainName: string) =
 
 proc withNatStrategy*(b: var WakuConfBuilder, natStrategy: string) =
   b.natStrategy = Opt.some(natStrategy)
+
+proc withNatDiscoveryTimeoutMs*(b: var WakuConfBuilder, timeoutMs: uint32) =
+  b.natDiscoveryTimeoutMs = Opt.some(timeoutMs)
 
 proc withAgentString*(b: var WakuConfBuilder, agentString: string) =
   b.agentString = Opt.some(agentString)
@@ -683,12 +687,24 @@ proc build*(
       debug "Log Format not specified, defaulting to TEXT"
       DefaultLogFormat
 
-  let natStrategy =
+  # The CLI defaults to "any". This embedded default stays "none",
+  # so library nodes probe gateways only when configured to.
+  let natStrategyString =
     if builder.natStrategy.isSome():
       builder.natStrategy.get()
     else:
       debug "Nat Strategy is not specified, defaulting to none"
       DefaultNatStrategy
+
+  let natStrategy = parseNatStrategy(natStrategyString).valueOr:
+    return err("Invalid NAT strategy: " & error)
+
+  ## Zero is a config error. The NATService also rejects a zero timeout
+  ## at switch build, but that error names no CLI flag.
+  let natDiscoveryTimeoutMs =
+    builder.natDiscoveryTimeoutMs.get(DefaultNatDiscoveryTimeoutMs)
+  if natDiscoveryTimeoutMs == 0:
+    return err("natDiscoveryTimeoutMs must be greater than 0")
 
   var p2pTcpPort = builder.p2pTcpPort.get(DefaultP2pTcpPort)
 
@@ -821,6 +837,7 @@ proc build*(
     # TODO: Separate builders
     endpointConf: EndpointConf(
       natStrategy: natStrategy,
+      natDiscoveryTimeoutMs: natDiscoveryTimeoutMs,
       p2pTcpPort: p2pTcpPort,
       dns4DomainName: dns4DomainName,
       p2pListenAddress: p2pListenAddress,

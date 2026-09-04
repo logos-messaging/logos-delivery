@@ -17,7 +17,6 @@ import
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
   libp2p/stream/connection,
-  libp2p/utility,
   libp2p_mix
 
 import
@@ -176,7 +175,7 @@ proc legacyLightpushPublish*(
 
   let rln =
     if node.rln.isNil():
-      Opt.none(Rln)
+      Opt.none(RlnEvm)
     else:
       Opt.some(node.rln)
   let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:
@@ -366,7 +365,7 @@ proc lightpushPublish*(
 
   let rln =
     if node.rln.isNil():
-      Opt.none(Rln)
+      Opt.none(RlnEvm)
     else:
       Opt.some(node.rln)
   let msgWithProof = (await checkAndGenerateRLNProof(rln, message)).valueOr:

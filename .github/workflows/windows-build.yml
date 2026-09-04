@@ -9,8 +9,8 @@ on:
 
 env:
   NPROC: 4
-  NIM_VERSION: '2.2.4'
-  NIMBLE_VERSION: '0.22.3'
+  NIM_VERSION: '2.2.6'
+  NIMBLE_VERSION: '0.24.1'
 
 jobs:
   build:
@@ -92,25 +92,13 @@ jobs:
         nim-version: ${{ env.NIM_VERSION }}
         repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-    - name: Install Nimble ${{ env.NIMBLE_VERSION }}
-      run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
-        cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
-        echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-
     - name: Install nimble deps
-      if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
-      run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        # nim's source tree checks out differently per platform (its own
-        # .gitattributes forces line endings), so its locked checksum never
-        # matches on Windows — even with autocrlf disabled. --useSystemNim
-        # uses the CI-installed nim and skips that check, while still
-        # verifying every other locked dependency.
-        nimble setup --localdeps -y --useSystemNim
-        make rebuild-nat-libs-nimbledeps CC=gcc
-        make rebuild-bearssl-nimbledeps CC=gcc
-        touch nimbledeps/.nimble-setup
+      uses: ./.github/actions/nimble-deps
+      with:
+        nimble-version: ${{ env.NIMBLE_VERSION }}
+        nim-version: ${{ env.NIM_VERSION }}
+        cache: 'false'
+        make-args: CC=gcc
 
     - name: Creating tmp directory
       run: mkdir -p tmp
@@ -129,6 +117,11 @@ jobs:
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
         make liblogosdelivery STATIC=0 V=1 -j
+
+    - name: Audit installed deps
+      run: |
+        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$PATH"
+        make audit-deps
 
     - name: Check Executable
       run: |

@@ -16,7 +16,7 @@
 ##                     x<32> | y<32> | nullifier<32> ]
 ## Total RLNProof byte size: 1 + 128 + 1 + 5*32 = 290 bytes.
 
-import results, ../protocol_types
+import results, ./protocol_types
 
 when defined(disable_rln):
   # Only for nodes that never enable RLN: the stubs abort if called.

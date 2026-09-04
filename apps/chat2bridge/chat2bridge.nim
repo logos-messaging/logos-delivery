@@ -11,7 +11,6 @@ import
   metrics,
   metrics/chronos_httpserver,
   stew/byteutils,
-  eth/net/nat,
   # Matterbridge client imports
   # Waku v2 imports
   libp2p/crypto/crypto,
@@ -23,6 +22,7 @@ import
     waku_filter_v2,
     waku_store,
     factory/builder,
+    net/nat_config,
     common/utils/matterbridge_client,
     common/rate_limit/setting,
   ],
@@ -160,6 +160,7 @@ proc new*(
     nodev2BindPort: Port,
     nodev2ExtIp = Opt.none(IpAddress),
     nodev2ExtPort = Opt.none(Port),
+    nodev2NatConfig = Opt.none(NATConfig),
     contentTopic: string,
 ): T {.
     raises: [Defect, ValueError, KeyError, TLSStreamProtocolError, IOError, LPError]
@@ -177,6 +178,7 @@ proc new*(
   let nodev2 = block:
     var builder = WakuNodeBuilder.init()
     builder.withNodeKey(nodev2Key)
+    builder.withNatConfig(nodev2NatConfig)
 
     builder
       .withNetworkConfigurationDetails(
@@ -244,8 +246,7 @@ proc stop*(cmb: Chat2MatterBridge) {.async: (raises: [Exception]).} =
 {.pop.}
   # @TODO confutils.nim(775, 17) Error: can raise an unlisted exception: ref IOError
 when isMainModule:
-  import
-    logos_delivery/waku/common/utils/nat, logos_delivery/waku/rest_api/message_cache
+  import logos_delivery/waku/rest_api/message_cache
 
   let
     rng = newRng()
@@ -254,27 +255,27 @@ when isMainModule:
   if conf.logLevel != LogLevel.NONE:
     setLogLevel(conf.logLevel)
 
-  let (nodev2ExtIp, nodev2ExtPort, _) = setupNat(
-    conf.nat,
-    clientId,
-    Port(uint16(conf.libp2pTcpPort) + conf.portsShift),
-    Port(uint16(conf.udpPort) + conf.portsShift),
-  ).valueOr:
-    raise newException(ValueError, "setupNat error " & error)
+  let natStrategy = parseNatStrategy(conf.nat).valueOr:
+    raise newException(ValueError, "invalid --nat value: " & error)
 
-  ## The following heuristic assumes that, in absence of manual
-  ## config, the external port is the same as the bind port.
-  let extPort =
-    if nodev2ExtIp.isSome() and nodev2ExtPort.isNone():
-      Opt.some(Port(uint16(conf.libp2pTcpPort) + conf.portsShift))
+  ## A static extip is known up front. The NATService maps ports when
+  ## the node starts, and the external port defaults to the bind port.
+  let (nodev2ExtIp, extPort) =
+    if natStrategy.kind == NatExtIp:
+      (
+        Opt.some(natStrategy.extIp),
+        Opt.some(Port(uint16(conf.libp2pTcpPort) + conf.portsShift)),
+      )
     else:
-      nodev2ExtPort
+      (Opt.none(IpAddress), Opt.none(Port))
 
   let nodev2Key =
     if conf.nodekey.isSome():
       conf.nodekey.get()
     else:
       crypto.PrivateKey.random(Secp256k1, rng).tryGet()
+
+  let resolvedNat = waitFor resolveNatStrategy(natStrategy)
 
   let bridge = Chat2Matterbridge.new(
     mbHostUri = "http://" & $initTAddress(conf.mbHostAddress, Port(conf.mbHostPort)),
@@ -284,6 +285,7 @@ when isMainModule:
     nodev2BindPort = Port(uint16(conf.libp2pTcpPort) + conf.portsShift),
     nodev2ExtIp = nodev2ExtIp,
     nodev2ExtPort = extPort,
+    nodev2NatConfig = natConfig(resolvedNat),
     contentTopic = conf.contentTopic,
   )
 

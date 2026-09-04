@@ -95,3 +95,5 @@ __pycache__/
 
 # Emitted by genBindings() during the liblogosdelivery build.
 library/generated/
+requires.generated
+observed.generated

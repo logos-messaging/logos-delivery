@@ -17,7 +17,6 @@ import
   libp2p/builders,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
-  libp2p/utility,
   brokers/broker_context
 
 import
@@ -192,7 +191,7 @@ proc setRlnValidator*(
 ) {.async.} =
   info "setting rln validator"
 
-  let rln = (await Rln.new(rlnConf, registrationHandler)).valueOr:
+  let rln = (await RlnEvm.new(rlnConf, registrationHandler)).valueOr:
     raise newException(CatchableError, "failed to set rln validator: " & error)
   if (rlnConf.userMessageLimit > rln.groupManager.rlnRelayMaxMessageLimit):
     error "rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"

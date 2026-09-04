@@ -8,6 +8,7 @@ import
     multiaddress,
     protobuf/minprotobuf,
     peerid,
+    utils/shortlog,
   ]
 
 type WakuPeerRecord* = object

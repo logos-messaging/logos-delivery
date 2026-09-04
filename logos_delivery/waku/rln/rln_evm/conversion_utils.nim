@@ -7,7 +7,7 @@ import
   stew/[arrayops, endians2],
   stint
 import ./constants, ./protocol_types
-import ../waku_keystore
+import ../../waku_keystore
 
 export web3, chronicles, stint, constants, endians2
 

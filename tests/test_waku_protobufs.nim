@@ -1,17 +1,13 @@
 {.used.}
 
-import results, std/[sequtils, tables], testutils/unittests, chronos, chronicles
-import
-  logos_delivery/waku/waku_metadata,
-  logos_delivery/waku/waku_metadata/rpc,
-  ./testlib/wakucore,
-  ./testlib/wakunode
+import results, testutils/unittests, chronos
+import logos_delivery/waku/waku_metadata/rpc, ./testlib/wakucore
 
 procSuite "Waku Protobufs":
   # TODO: Missing test coverage in many encode/decode protobuf functions
 
   test "WakuMetadataResponse":
-    let res = WakuMetadataResponse(clusterId: Opt.some(7), shards: @[10, 23, 33])
+    let res = WakuMetadataResponse(clusterId: Opt.some(7'u32), shards: @[10, 23, 33])
 
     let buffer = res.encode()
 
@@ -22,7 +18,7 @@ procSuite "Waku Protobufs":
       decodedBuff.get().shards == res.shards
 
   test "WakuMetadataRequest":
-    let req = WakuMetadataRequest(clusterId: Opt.some(5), shards: @[100, 2, 0])
+    let req = WakuMetadataRequest(clusterId: Opt.some(5'u32), shards: @[100, 2, 0])
 
     let buffer = req.encode()
 

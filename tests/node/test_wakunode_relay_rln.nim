@@ -18,8 +18,8 @@ import
     waku_node,
     common/error_handling,
     rln,
-    rln/bindings,
-    rln/protocol_types,
+    rln/rln_evm/bindings,
+    rln/rln_evm/protocol_types,
     waku_keystore/keystore,
   ],
   ../waku_store/store_utils,
@@ -219,7 +219,7 @@ suite "Waku RlnRelay - End to End - Static":
         await node.setRlnValidator(wakuRlnConfig)
       except CatchableError as e:
         check e.msg ==
-          "failed to mount Rln: rln-relay-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
+          "failed to mount Rln: rln-user-message-limit can't exceed the MAX_MESSAGE_LIMIT in the rln contract"
 
   suite "Analysis of Bandwith Limitations":
     asyncTest "Valid Payload Sizes":
@@ -501,20 +501,20 @@ suite "Waku RlnRelay - End to End - OnChain":
         ##### A
         - Register is not calling callback even though register is happening, this should happen.
         - This command should be working, but it doesn't on the current HEAD of the branch, it does work on master, which suggest there's something wrong with the branch.
-        - nim c -r --out:build/onchain -d:chronicles_log_level=NOTICE --verbosity:0 --hints:off  -d:git_version="v0.27.0-rc.0-3-gaa9c30" -d:release --passL:librln_v0.3.7.a --passL:-lm tests/waku_rln_relay/test_rln_group_manager_onchain.nim && onchain_group_test
+        - nim c -r --out:build/onchain -d:chronicles_log_level=NOTICE --verbosity:0 --hints:off  -d:git_version="v0.27.0-rc.0-3-gaa9c30" -d:release --passL:librln_v0.3.7.a --passL:-lm tests/waku_rln_relay/test_rln_evm_group_manager.nim && onchain_group_test
         - All modified files are tests/*, which is a bit weird. Might be interesting re-creating the branch slowly, and checking out why this is happening.
         ##### B
         Untested
       ]#
 
       let
-        onChainGroupManager = await setup()
-        contractAddress = onChainGroupManager.ethContractAddress
+        groupManager = await setup()
+        contractAddress = groupManager.ethContractAddress
         keystorePath =
           genTempPath("rln_keystore", "test_wakunode_relay_rln-valid_contract")
         appInfo = RlnAppInfo
         password = "1234"
-        rlnInstance = onChainGroupManager.rlnInstance
+        rlnInstance = groupManager.rlnInstance
       assertResultOk(createAppKeystore(keystorePath, appInfo))
 
       # Generate configs before registering the credentials. Otherwise the file gets cleared up.
@@ -529,11 +529,11 @@ suite "Waku RlnRelay - End to End - OnChain":
         idCredential1 = rlnInstance.membershipKeyGen().get()
         idCredential2 = rlnInstance.membershipKeyGen().get()
 
-      discard await onChainGroupManager.init()
+      discard await groupManager.init()
       try:
         # Register credentials in the chain
-        waitFor onChainGroupManager.register(idCredential1)
-        waitFor onChainGroupManager.register(idCredential2)
+        waitFor groupManager.register(idCredential1)
+        waitFor groupManager.register(idCredential2)
       except Exception:
         assert false, "Failed to register credentials: " & getCurrentExceptionMsg()
 
@@ -549,7 +549,7 @@ suite "Waku RlnRelay - End to End - OnChain":
       assertResultOk(persistRes1)
       assertResultOk(persistRes2)
 
-      await onChainGroupManager.stop()
+      await groupManager.stop()
 
       # Given the node enables Relay and Rln while subscribing to a pubsub topic
       await server.setupRelayWithOnChainRln(@[pubsubTopic], wakuRlnConfig1)
@@ -584,45 +584,43 @@ suite "Waku RlnRelay - End to End - OnChain":
 
     asyncTest "Not enough gas":
       let
-        onChainGroupManager = await setupOnchainGroupManager(amountWei = 0.u256)
-        contractAddress = onChainGroupManager.ethContractAddress
+        groupManager = await setupRlnEvm(amountWei = 0.u256)
+        contractAddress = groupManager.ethContractAddress
         keystorePath =
           genTempPath("rln_keystore", "test_wakunode_relay_rln-valid_contract")
         appInfo = RlnAppInfo
         password = "1234"
-        rlnInstance = onChainGroupManager.rlnInstance
+        rlnInstance = groupManager.rlnInstance
       assertResultOk(createAppKeystore(keystorePath, appInfo))
 
       # Generate credentials
       let idCredential = rlnInstance.membershipKeyGen().get()
 
-      discard await onChainGroupManager.init()
+      discard await groupManager.init()
       var errorFuture = Future[string].new()
-      onChainGroupManager.onFatalErrorAction = proc(
-          errMsg: string
-      ) {.gcsafe, closure.} =
+      groupManager.onFatalErrorAction = proc(errMsg: string) {.gcsafe, closure.} =
         errorFuture.complete(errMsg)
       try:
         # Register credentials in the chain
-        waitFor onChainGroupManager.register(idCredential)
+        waitFor groupManager.register(idCredential)
         assert false, "Should have failed to register credentials given there is 0 gas"
       except Exception:
         assert true
 
       check (await errorFuture.waitForResult()).get() ==
         "Failed to register the member: {\"code\":-32003,\"message\":\"Insufficient funds for gas * price + value\"}"
-      await onChainGroupManager.stop()
+      await groupManager.stop()
 
   suite "RLN Relay Configuration and Parameters":
     asyncTest "RLN Relay Credential Path":
       let
-        onChainGroupManager = await setup()
-        contractAddress = onChainGroupManager.ethContractAddress
+        groupManager = await setup()
+        contractAddress = groupManager.ethContractAddress
         keystorePath =
           genTempPath("rln_keystore", "test_wakunode_relay_rln-valid_contract")
         appInfo = RlnAppInfo
         password = "1234"
-        rlnInstance = onChainGroupManager.rlnInstance
+        rlnInstance = groupManager.rlnInstance
       assertResultOk(createAppKeystore(keystorePath, appInfo))
 
       # Generate configs before registering the credentials. Otherwise the file gets cleared up.
@@ -667,13 +665,13 @@ suite "Waku RlnRelay - End to End - OnChain":
   suite "RLN Relay Resilience, Security and Compatibility":
     asyncTest "Key Management and Integrity":
       let
-        onChainGroupManager = await setup()
-        contractAddress = onChainGroupManager.ethContractAddress
+        groupManager = await setup()
+        contractAddress = groupManager.ethContractAddress
         keystorePath =
           genTempPath("rln_keystore", "test_wakunode_relay_rln-valid_contract")
         appInfo = RlnAppInfo
         password = "1234"
-        rlnInstance = onChainGroupManager.rlnInstance
+        rlnInstance = groupManager.rlnInstance
       assertResultOk(createAppKeystore(keystorePath, appInfo))
 
       # Generate configs before registering the credentials. Otherwise the file gets cleared up.
@@ -688,11 +686,11 @@ suite "Waku RlnRelay - End to End - OnChain":
         idCredential1 = rlnInstance.membershipKeyGen().get()
         idCredential2 = rlnInstance.membershipKeyGen().get()
 
-      discard await onChainGroupManager.init()
+      discard await groupManager.init()
       try:
         # Register credentials in the chain
-        waitFor onChainGroupManager.register(idCredential1)
-        waitFor onChainGroupManager.register(idCredential2)
+        waitFor groupManager.register(idCredential1)
+        waitFor groupManager.register(idCredential2)
       except Exception:
         assert false, "Failed to register credentials: " & getCurrentExceptionMsg()
 
@@ -708,16 +706,15 @@ suite "Waku RlnRelay - End to End - OnChain":
       assertResultOk(persistRes1)
       assertResultOk(persistRes2)
 
-      # await onChainGroupManager.stop()
+      # await groupManager.stop()
 
       let
-        registryContract = onChainGroupManager.registryContract.get()
+        registryContract = groupManager.registryContract.get()
         storageIndex = (await registryContract.usingStorageIndex().call())
         rlnContractAddress = await registryContract.storages(storageIndex).call()
-        contract = onChainGroupManager.ethRpc.get().contractSender(
-            RlnStorage, rlnContractAddress
-          )
-        contract2 = onChainGroupManager.rlnContract.get()
+        contract =
+          groupManager.ethRpc.get().contractSender(RlnStorage, rlnContractAddress)
+        contract2 = groupManager.rlnContract.get()
 
       echo "###"
       echo await (contract.memberExists(idCredential1.idCommitment.toUInt256()).call())

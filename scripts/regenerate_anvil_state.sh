@@ -50,7 +50,7 @@ cd "$PROJECT_ROOT"
 
 # Run a single test that deploys contracts
 # The test framework will handle state dump
-make test tests/waku_rln_relay/test_rln_group_manager_onchain.nim "RLN instances" || {
+make test tests/waku_rln_relay/test_rln_evm_group_manager.nim "RLN instances" || {
     echo ""
     echo "Test execution completed (exit status: $?)"
     echo "Checking if state file was generated..."

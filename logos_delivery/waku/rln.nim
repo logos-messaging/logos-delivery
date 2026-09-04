@@ -1,3 +1,4 @@
-import ./rln/group_manager, ./rln/conversion_utils, ./rln/rln, ./rln/contract
+import
+  ./rln/rln_evm/group_manager, ./rln/rln_evm/conversion_utils, ./rln/rln_evm/rln_evm
 
-export group_manager, conversion_utils, rln, contract
+export group_manager, conversion_utils, rln_evm

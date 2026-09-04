@@ -2,11 +2,7 @@
 ## Pre-requisite
 liblogosdelivery.so is needed to be compiled and present in build folder. To create it:
 
-- Run only the first time and after changing the current commit
-```code
-make update
-```
-- Run the next every time you want to compile libwaku
+- Run this every time you want to compile liblogosdelivery
 ```code
 make POSTGRES=1 liblogosdelivery -j4
 ```

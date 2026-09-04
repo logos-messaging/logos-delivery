@@ -54,7 +54,7 @@ pipeline {
     )
     choice(
       name: "LOWEST_LOG_LEVEL_ALLOWED",
-      choices: ['TRACE', 'DEGUG', 'INFO', 'NOTICE', 'WARN', 'ERROR', 'FATAL'],
+      choices: ['TRACE', 'DEBUG', 'INFO', 'NOTICE', 'WARN', 'ERROR', 'FATAL'],
       description: "Defines the log level, which will be available at runtime (Chronicles log level)"
     )
   }

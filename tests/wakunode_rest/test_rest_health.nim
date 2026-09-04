@@ -40,11 +40,11 @@ proc testWakuNode(): WakuNode =
 suite "Waku v2 REST API - health":
   # TODO: better test for health
   var anvilProc {.threadVar.}: Process
-  var manager {.threadVar.}: OnchainGroupManager
+  var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupOnchainGroupManager(deployContracts = false)
+    manager = waitFor setupRlnEvm(deployContracts = false)
 
   teardown:
     stopAnvil(anvilProc)

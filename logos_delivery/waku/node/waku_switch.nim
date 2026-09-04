@@ -13,7 +13,8 @@ import
   libp2p/nameresolving/nameresolver,
   libp2p/builders,
   libp2p/switch,
-  libp2p/transports/[transport, tcptransport, wstransport]
+  libp2p/transports/[transport, tcptransport, wstransport],
+  libp2p/utils/opt
 import ./delivery_dialer
 
 # override nim-libp2p default value (which is also 1)
@@ -79,6 +80,7 @@ proc newWakuSwitch*(
     peerStoreCapacity = Opt.none(int), # defaults to 1.25 maxConnections
     rendezvous: RendezVous = nil,
     circuitRelay: Relay,
+    natConfig = Opt.none(NATConfig),
 ): Switch {.raises: [Defect, IOError, LPError].} =
   var b = SwitchBuilder
     .new()
@@ -91,6 +93,12 @@ proc newWakuSwitch*(
     .withSignedPeerRecord(sendSignedPeerRecord)
     .withCircuitRelay(circuitRelay)
     .withAutonat()
+    .withWildcardResolver(false)
+
+  # UPnP and NAT-PMP port mapping via libp2p's NATService.
+  # The extip strategy stays static in NetConfig.
+  natConfig.withValue(config):
+    b = b.withNAT(config)
 
   # libp2p 2.0.0 folded withMaxConnections and withMaxInOut into a single
   # `limits` field: they are mutually exclusive (last one wins), and
@@ -134,5 +142,9 @@ proc newWakuSwitch*(
     b = b.withRendezVous()
 
   let switch = b.build()
+  # The upstream wildcard service stays off. Its start mutates the
+  # mapper seq mid-walk. Even fixed it stays off: it expands a wildcard
+  # to every interface, and this node announces one primary-IP address.
+  # The base mapper resolves wildcards instead.
   DeliveryDialer.install(switch)
   switch

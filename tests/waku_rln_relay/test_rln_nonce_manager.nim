@@ -1,7 +1,7 @@
 {.used.}
 
 import testutils/unittests, chronos, os
-import logos_delivery/waku/rln/nonce_manager
+import logos_delivery/waku/rln/rln_evm/nonce_manager
 
 suite "Nonce manager":
   test "should initialize successfully":

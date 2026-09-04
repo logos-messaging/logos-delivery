@@ -14,6 +14,19 @@ import
   logos_delivery/waku/common/utils/parse_size_units
 
 suite "Waku Conf - build with cluster conf":
+  test "ext-multiaddr-only fails conf build without ext-multiaddrs":
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.withExtMultiAddrsOnly(true)
+    check builder.build().isErr()
+
+  test "ext-multiaddr-only fails conf build on a zero port":
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+    builder.withExtMultiAddrsOnly(true)
+    builder.withExtMultiAddrs(@["/ip4/203.0.113.9/tcp/0"])
+    check builder.build().isErr()
+
   test "Cluster Conf is passed and relay is enabled":
     ## Setup
     let networkPresetConf = NetworkPresetConf.TheWakuNetworkConf()

@@ -52,8 +52,8 @@ on:
 env:
   NPROC: 2
   MAKEFLAGS: "-j2"
-  NIM_VERSION: '2.2.4'
-  NIMBLE_VERSION: '0.22.3'
+  NIM_VERSION: '2.2.6'
+  NIMBLE_VERSION: '0.24.1'
 
 jobs:
   rln-e2e:
@@ -122,33 +122,20 @@ jobs:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
-        run: |
-          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
-          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-
-      - name: Cache nimble deps
-        id: cache-nimbledeps
-        uses: actions/cache@v3
-        with:
-          path: |
-            nimbledeps/
-            nimble.paths
-          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
-
       - name: Install nimble deps
-        if: steps.cache-nimbledeps.outputs.cache-hit != 'true'
-        run: |
-          nimble setup --localdeps -y
-          make rebuild-nat-libs-nimbledeps
-          make rebuild-bearssl-nimbledeps
-          touch nimbledeps/.nimble-setup
+        uses: ./.github/actions/nimble-deps
+        with:
+          nimble-version: ${{ env.NIMBLE_VERSION }}
+          nim-version: ${{ env.NIM_VERSION }}
 
       - name: Build wakunode2
         run: |
           make -j${NPROC} V=1 POSTGRES=1 \
             NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" \
             wakunode2
+
+      - name: Audit installed deps
+        run: make audit-deps
 
       - name: Build local Docker image
         run: |
@@ -259,7 +246,7 @@ jobs:
         env:
           DISCORD_WEBHOOK_URL: ${{ secrets.DISCORD_WEBHOOK_URL }}
         run: |
-          [ -z "$DISCORD_WEBHOOK_URL" ] && exit 0
+          [ -z "$DISCORD_WEBHOOK_URL" ] && { echo "::warning::DISCORD_WEBHOOK_URL is not set; skipping the Discord notification"; exit 0; }
           STATUS="${{ job.status }}"
           BRANCH="${{ steps.cfg.outputs.branch }}"
           RUN_URL="https://github.com/${{ github.repository }}/actions/runs/${{ github.run_id }}"

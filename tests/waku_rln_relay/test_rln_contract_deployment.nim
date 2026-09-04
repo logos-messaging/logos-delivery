@@ -5,8 +5,7 @@
 import std/os, results, testutils/unittests, chronos, web3
 
 import
-  logos_delivery/waku/
-    [rln, rln/conversion_utils, rln/group_manager/on_chain/group_manager],
+  logos_delivery/waku/[rln, rln/rln_evm/conversion_utils, rln/rln_evm/group_manager],
   ./utils_onchain
 
 suite "Token and RLN Contract Deployment":
@@ -15,7 +14,7 @@ suite "Token and RLN Contract Deployment":
     let testStateFile =
       Opt.some("tests/waku_rln_relay/anvil_state/anvil_state.ignore.json")
     let anvilProc = runAnvil(stateFile = testStateFile, dumpStateOnExit = true)
-    let manager = waitFor setupOnchainGroupManager(deployContracts = true)
+    let manager = waitFor setupRlnEvm(deployContracts = true)
 
     stopAnvil(anvilProc)
 

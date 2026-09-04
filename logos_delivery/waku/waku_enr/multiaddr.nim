@@ -62,16 +62,25 @@ func decodeMultiaddrs(buffer: seq[byte]): EnrResult[seq[MultiAddress]] =
 
 # ENR builder extension
 func stripPeerId(multiaddr: MultiAddress): MultiAddress =
-  if not multiaddr.contains(multiCodec("p2p")).get():
+  ## The final p2p names the node you reach. This record's key already
+  ## does that, so a trailing p2p only spends record bytes:
+  ## /ip4/1.2.3.4/tcp/60000/p2p/<own-id> becomes /ip4/1.2.3.4/tcp/60000
+  ## /ip4/9.9.9.9/tcp/4001/p2p/<relay-id>/p2p-circuit/p2p/<own-id> becomes
+  ## /ip4/9.9.9.9/tcp/4001/p2p/<relay-id>/p2p-circuit
+  ## An interior p2p names a relay hop and stays: stripping it leaves a
+  ## route with no relay to dial.
+  let maLen = multiaddr.len().valueOr:
+    return multiaddr
+  if maLen < 2:
     return multiaddr
 
-  var cleanAddr = MultiAddress.init()
-  for item in multiaddr.items:
-    if item.value.protoName().get() != "p2p":
-      # Add all parts except p2p peerId
-      discard cleanAddr.append(item.value)
+  let last = multiaddr[^1].valueOr:
+    return multiaddr
+  if last.protoName().get("") != "p2p":
+    return multiaddr
 
-  return cleanAddr
+  return multiaddr[0 .. ^2].valueOr:
+    return multiaddr
 
 func withMultiaddrs*(builder: var EnrBuilder, multiaddrs: seq[MultiAddress]) =
   let multiaddrs = deduplicate(multiaddrs.map(stripPeerId))

@@ -40,11 +40,11 @@ proc testWakuNode(): WakuNode =
 
 suite "Waku v2 Rest API - Relay":
   var anvilProc {.threadVar.}: Process
-  var manager {.threadVar.}: OnchainGroupManager
+  var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupOnchainGroupManager(deployContracts = false)
+    manager = waitFor setupRlnEvm(deployContracts = false)
 
   teardown:
     stopAnvil(anvilProc)
@@ -265,7 +265,7 @@ suite "Waku v2 Rest API - Relay":
     await node.setRlnValidator(wakuRlnConfig)
     await node.start()
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -536,7 +536,7 @@ suite "Waku v2 Rest API - Relay":
       await node.connectToNodes(@[meshNode.peerInfo.toRemotePeerInfo()])
 
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -605,7 +605,7 @@ suite "Waku v2 Rest API - Relay":
     await node.start()
 
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -664,7 +664,7 @@ suite "Waku v2 Rest API - Relay":
     await node.start()
 
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -736,7 +736,7 @@ suite "Waku v2 Rest API - Relay":
     await node.start()
 
     # Registration is mandatory before sending messages with rln-relay
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
@@ -813,7 +813,7 @@ suite "Waku v2 Rest API - Relay":
     await node.setRlnValidator(wakuRlnConfig)
     await node.start()
 
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register: " & getCurrentExceptionMsg()
@@ -922,7 +922,7 @@ suite "Waku v2 Rest API - Relay":
       await node.start()
       await node.connectToNodes(@[meshNode.peerInfo.toRemotePeerInfo()])
 
-    let manager = cast[OnchainGroupManager](node.rln.groupManager)
+    let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
     (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register: " & getCurrentExceptionMsg()

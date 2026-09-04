@@ -42,18 +42,24 @@ nwaku supports heaptrack, but it needs a special compilation setting.
 
 ### Patch Nim compiler to register allocations on Heaptrack
 
-Currently, we rely on the official Nim repository. So we need to patch the Nim compiler to register allocations and deallocations on Heaptrack.
-For Nim 2.2.4 version, we created a patch that can be applied as:
+The hooks live in Nim's allocator, so the Nim that builds the node must be patched. `-d:heaptracker` on its own compiles to nothing, and `make HEAPTRACKER=1` only adds that define.
+
+The container build applies the patch for you:
+
 ```bash
-git apply --directory=vendor/nimbus-build-system/vendor/Nim docs/tutorial/nim.2.2.4_heaptracker_addon.patch
-git add .
-git commit -m "Add heaptrack support to Nim compiler - temporary patch"
+make docker-image HEAPTRACKER=1
 ```
 
-> Until heaptrack support is not available in official Nim, so it is important to keep it in the `nimbus-build-system` repository.
-> Commit ensures that `make update` will not override the patch unintentionally.
+It patches the Nim that `make deps` installed, then builds with the define.
 
-> We are planning to make it available through an official PR for Nim.
+For a local build on Linux, patch the Nim on your PATH first. The commands below use `readlink -f` and the patch loads a `.so`, so this route is Linux-only; on other platforms use the container route above.
+
+```bash
+NIM_ROOT=$(dirname "$(dirname "$(readlink -f "$(command -v nim)")")")
+git -C "$NIM_ROOT" apply "$PWD/docs/tutorial/nim.2.2.4_heaptracker_addon.patch"
+```
+
+> The patch is not upstream in Nim. Reinstalling or upgrading Nim removes it, so it must be reapplied.
 
 When the patch is applied, we can build wakunode2 with heaptrack support.
 

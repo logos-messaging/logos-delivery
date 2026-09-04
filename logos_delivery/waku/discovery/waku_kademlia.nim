@@ -54,14 +54,13 @@ proc extractMixPubKey*(service: ServiceInfo): Opt[Curve25519Key] =
   if service.id != MixProtocolID:
     return Opt.none(Curve25519Key)
 
-  if service.data.len != Curve25519KeySize:
+  let data = service.data.get(@[])
+  if data.len != Curve25519KeySize:
     trace "Invalid mix pub key length",
-      expected = Curve25519KeySize,
-      actual = service.data.len,
-      dataHex = byteutils.toHex(service.data)
+      expected = Curve25519KeySize, actual = data.len, dataHex = byteutils.toHex(data)
     return Opt.none(Curve25519Key)
 
-  let key = intoCurve25519Key(service.data)
+  let key = intoCurve25519Key(data)
 
   return Opt.some(key)
 
@@ -262,8 +261,11 @@ proc addServiceToDiscover*(self: WakuKademlia, service: string) =
     debug "Added service to discover", service
 
 proc addServiceToAdvertise*(self: WakuKademlia, service: ServiceInfo) =
-  if not self.servicesToAdvertise.containsOrIncl(service):
-    self.protocol.startAdvertising(service)
+  if service notin self.servicesToAdvertise:
+    self.protocol.startAdvertising(service).isOkOr:
+      warn "Failed to advertise service", service = service.id, error = error
+      return
+    self.servicesToAdvertise.incl(service)
     debug "Added service to advertise", service = service.id
 
 proc removeServiceToDiscover*(self: WakuKademlia, service: string) =

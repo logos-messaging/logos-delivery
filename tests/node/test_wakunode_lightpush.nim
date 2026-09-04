@@ -98,7 +98,7 @@ suite "RLN Proofs as a Lightpush Service":
     server {.threadvar.}: WakuNode
     client {.threadvar.}: WakuNode
     anvilProc {.threadvar.}: Process
-    manager {.threadvar.}: OnchainGroupManager
+    manager {.threadvar.}: RlnEvmGroupManager
     wakuRlnConfig {.threadvar.}: WakuRlnConfig
 
     serverRemotePeerInfo {.threadvar.}: RemotePeerInfo
@@ -115,7 +115,7 @@ suite "RLN Proofs as a Lightpush Service":
     client = newTestWakuNode(clientKey)
 
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupOnchainGroupManager(deployContracts = false)
+    manager = waitFor setupRlnEvm(deployContracts = false)
 
     # mount rln-relay
     # match prod epoch window to reduce test flake
@@ -135,7 +135,7 @@ suite "RLN Proofs as a Lightpush Service":
     check (await server.mountLightPush()).isOk()
     client.mountLightPushClient()
 
-    let manager1 = cast[OnchainGroupManager](server.rln.groupManager)
+    let manager1 = cast[RlnEvmGroupManager](server.rln.groupManager)
     let idCredentials1 = generateCredentials()
 
     (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
@@ -195,7 +195,7 @@ suite "RLN Proofs as a Lightpush Service":
 
       # Corrupt the cache to model a stale/invalid witness — the same state a
       # 420/504 rejection would leave us in.
-      let manager = cast[OnchainGroupManager](server.rln.groupManager)
+      let manager = cast[RlnEvmGroupManager](server.rln.groupManager)
       let goodCache = manager.merkleProofCache
       manager.merkleProofCache = newSeq[byte](goodCache.len)
       check manager.merkleProofCache != goodCache
@@ -231,7 +231,7 @@ suite "RLN Proofs as a Lightpush Service":
           lighpushErrorResult(LightPushErrorCode.INVALID_MESSAGE, RlnValidatorErrorMsg)
       server.wakuLightPush.pushHandler = stub
 
-      let manager = cast[OnchainGroupManager](server.rln.groupManager)
+      let manager = cast[RlnEvmGroupManager](server.rln.groupManager)
       let goodCache = manager.merkleProofCache
       check goodCache.len > 0
 

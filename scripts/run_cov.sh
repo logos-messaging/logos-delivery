@@ -1,18 +1,20 @@
 #!/bin/sh
 
-# Check if env.sh has been loaded, or if this file is being ran from it.
-# Using NIMC as a proxy for this, as it's defined in the nimbus-build-system's env.sh.
-if [ -z "$NIMC" ]
+# Run this through `make coverage`, which supplies LIBRLN_FILE. The library is
+# named for the pinned zerokit release, so this script must not hardcode it.
+if [ -z "$LIBRLN_FILE" ]
 then
-    echo "[ERROR] This tool can only be ran from the Nimbus environment. Either:" 
-    echo "- Source env.sh 'source /path/to/env.sh', and then run the script directly '/path/to/scripts/run_cov.sh'." 
-    echo "- Run this script as a parameter to env.sh '/path/to/env.sh /path/to/scripts/run_cov.sh'."
+    echo "[ERROR] LIBRLN_FILE is not set. Run 'make coverage'."
     exit 1
 fi
 
+# set -e so a failed compile, test run, lcov or genhtml fails this script. The
+# cleanup below runs from a trap so it still happens on failure, and its exit
+# status cannot mask theirs.
+set -e
+
 # Check for lcov tool
-which lcov 1>/dev/null 2>&1
-if [ $? != 0 ]
+if ! command -v lcov >/dev/null 2>&1
 then
     echo "[ERROR] You need to have lcov installed in order to generate the test coverage report."
     exit 2
@@ -37,16 +39,18 @@ base_filepath="$REPO_ROOT/tests/test_all"
 nim_filepath=$base_filepath.nim
 info_filepath=$base_filepath.info
 
+cleanup() {
+    rm -rf "$info_filepath" "$base_filepath" nimcache
+    rm -f "$generated_not_to_break_here"
+}
+trap cleanup EXIT
+
 # Workaround a nim bug. See https://github.com/nim-lang/Nim/issues/12376
 touch $generated_not_to_break_here
 
 # Generate the coverage report
-nim --debugger:native --passC:--coverage --passL:--coverage --passL:librln_v0.3.4.a --passL:-lm c $nim_filepath
+nim --debugger:native --passC:--coverage --passL:--coverage --passL:"$LIBRLN_FILE" --passL:-lm c $nim_filepath
 lcov --base-directory . --directory . --zerocounters -q
 $base_filepath
 lcov --base-directory . --directory . --include "*/waku/**" --include "*/apps/**" --exclude "*/vendor/**" -c -o $info_filepath
 genhtml -o $output_directory $info_filepath
-
-# Cleanup
-rm -rf $info_filepath $base_filepath nimcache
-rm $generated_not_to_break_here

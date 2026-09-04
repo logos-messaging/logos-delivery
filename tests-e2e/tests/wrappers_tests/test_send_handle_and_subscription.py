@@ -19,10 +19,7 @@ from src.node.wrapper_helpers import (
 
 PROPAGATED_TIMEOUT_S = 30.0
 
-S01_EXPECTED_ERROR_FRAGMENT = "not initialized"
-# Destroyed-handle path fails synchronously in the C layer (no callback),
-# so the binding surfaces a different string than the nil-handle path.
-S01_DESTROYED_HANDLE_ERROR_FRAGMENT = "immediate call failed"
+S01_EXPECTED_ERROR_FRAGMENT = "not a valid FFI context"
 S01_SUBPROCESS_TIMEOUT_S = 30
 S01_RESULT_MARKER = "__S01_RESULT__"
 SEND_AFTER_DESTROY_RESULT_MARKER = "__SEND_AFTER_DESTROY_RESULT__"
@@ -47,7 +44,6 @@ S05_MALFORMED_CONTENT_TOPICS = [
 class TestS01NilOrUninitializedHandle(StepsCommon):
     """S01 — send() on a nil/destroyed handle must Err, no events, no crash."""
 
-    @pytest.mark.skip(reason="see https://github.com/logos-messaging/logos-delivery/issues/3873")
     def test_s01_send_on_uninitialized_handle(self):
         completed = subprocess.run(
             [sys.executable, "-m", S01_INVALID_HANDLE_HELPER, "nil", S01_RESULT_MARKER],
@@ -73,7 +69,6 @@ class TestS01NilOrUninitializedHandle(StepsCommon):
             result["err"] or ""
         ), f"expected error to mention {S01_EXPECTED_ERROR_FRAGMENT!r}, got: {result['err']!r}"
 
-    @pytest.mark.skip(reason="see https://github.com/logos-messaging/logos-delivery/issues/3863")
     def test_s01_send_on_destroyed_handle(self):
         completed = subprocess.run(
             [sys.executable, "-m", S01_INVALID_HANDLE_HELPER, "destroyed", SEND_AFTER_DESTROY_RESULT_MARKER],
@@ -96,11 +91,11 @@ class TestS01NilOrUninitializedHandle(StepsCommon):
 
         assert result["stage"] == "send_message", f"setup failed at stage {result['stage']!r}: {result['err']!r}"
         assert result["is_ok"] is False, f"expected Err, got Ok({result['ok']!r})"
-        err_msg = result["err"] or ""
-        assert S01_EXPECTED_ERROR_FRAGMENT in err_msg or S01_DESTROYED_HANDLE_ERROR_FRAGMENT in err_msg, (
-            f"expected error to mention {S01_EXPECTED_ERROR_FRAGMENT!r} " f"or {S01_DESTROYED_HANDLE_ERROR_FRAGMENT!r}, got: {result['err']!r}"
-        )
+        assert S01_EXPECTED_ERROR_FRAGMENT in (
+            result["err"] or ""
+        ), f"expected error to mention {S01_EXPECTED_ERROR_FRAGMENT!r}, got: {result['err']!r}"
         assert result["events_after_send"] == [], f"expected no events after send(), got: {result['events_after_send']}"
+        assert result["destroy_again_is_ok"] is False, "a second destroy on a destroyed handle must be rejected"
 
 
 class TestS03SendOnAlreadySubscribedTopic(StepsCommon):

@@ -29,7 +29,7 @@ suite "Message ID Provider":
       result.get() == expected.data
 
   test "Empty array":
-    let message = Message(data: @[])
+    let message = Message(data: newSeq[byte]())
     let result = defaultMessageIdProvider(message)
     let expected = MDigest[256].fromHex(
       "E3B0C44298FC1C149AFBF4C8996FB92427AE41E4649B934CA495991B7852B855"

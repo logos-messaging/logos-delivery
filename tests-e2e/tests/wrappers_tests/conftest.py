@@ -25,6 +25,7 @@ def build_node_config(**overrides):
         "lightpush": False,
         "peerExchange": False,
         "discv5Discovery": False,
+        "nat": "none",
     }
     config.update(overrides)
     return config

@@ -44,7 +44,6 @@ cd nwaku
 
 ```sh
 # The first `make` invocation will update all Git submodules.
-# You'll run `make update` after each `git pull`, in the future, to keep those submodules up to date.
 make wakunode2
 ```
 

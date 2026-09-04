@@ -61,8 +61,24 @@ proc toWakuMessage*(self: JsonMessage): Result[WakuMessage, string] =
     )
   )
 
+proc new*(T: type JsonMessage, msg: WakuMessage): T =
+  ## Renders a WakuMessage in the RFC 36 shape, with the byte fields base64-encoded.
+  JsonMessage(
+    payload: base64.encode(msg.payload),
+    contentTopic: msg.contentTopic,
+    version: msg.version,
+    timestamp: int64(msg.timestamp),
+    ephemeral: msg.ephemeral,
+    meta: base64.encode(msg.meta),
+    proof: base64.encode(msg.proof),
+  )
+
 proc `%`*(value: Base64String): JsonNode =
   %(value.string)
+
+proc `%`*(msg: WakuMessage): JsonNode =
+  ## Serializes a WakuMessage in the RFC 36 shape, with byte fields base64-encoded.
+  %JsonMessage.new(msg)
 
 type JsonMessageEvent* = ref object of JsonEvent
   pubsubTopic*: string
@@ -73,33 +89,13 @@ proc new*(T: type JsonMessageEvent, pubSubTopic: string, msg: WakuMessage): T =
   # Returns a WakuMessage event as indicated in
   # https://github.com/vacp2p/rfc/blob/master/content/docs/rfcs/36/README.md#jsonmessageevent-type
 
-  var payload = newSeq[byte](len(msg.payload))
-  if len(msg.payload) != 0:
-    copyMem(addr payload[0], unsafeAddr msg.payload[0], len(msg.payload))
-
-  var meta = newSeq[byte](len(msg.meta))
-  if len(msg.meta) != 0:
-    copyMem(addr meta[0], unsafeAddr msg.meta[0], len(msg.meta))
-
-  var proof = newSeq[byte](len(msg.proof))
-  if len(msg.proof) != 0:
-    copyMem(addr proof[0], unsafeAddr msg.proof[0], len(msg.proof))
-
   let msgHash = computeMessageHash(pubSubTopic, msg)
 
   return JsonMessageEvent(
     eventType: "message",
     pubSubTopic: pubSubTopic,
     messageHash: msgHash.to0xHex(),
-    wakuMessage: JsonMessage(
-      payload: base64.encode(payload),
-      contentTopic: msg.contentTopic,
-      version: msg.version,
-      timestamp: int64(msg.timestamp),
-      ephemeral: msg.ephemeral,
-      meta: base64.encode(meta),
-      proof: base64.encode(proof),
-    ),
+    wakuMessage: JsonMessage.new(msg),
   )
 
 method `$`*(jsonMessage: JsonMessageEvent): string =

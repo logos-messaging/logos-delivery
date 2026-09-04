@@ -13,13 +13,17 @@ skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 # Nimble installs only the namesake directory; dependents need these too.
 installDirs = @["library", "migrations", "tools"]
 
-const RequiredNimVersion = "2.2.4"
+const RequiredNimVersion = "2.2.6"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
-const RequiredNimbleVersion = "0.22.3"
+const RequiredNimbleVersion = "0.24.1"
   ## Enforced nimble version to ensure a reproducible flow
+const RequiredNimbleRevision = "1a2b3ae900a8ccb307a118173e0c3a7cdfcfc121"
+  ## Release 0.24.1 discards the --requires constraints before it applies nimble.lock.
+  ## 5df81e6 fixes that and is unreleased. 1a2b3ae is three commits later, and also
+  ## stops the solver reporting an exhausted search budget as an unsatisfiable graph.
 
 ### Dependencies
-requires "nim >= 2.2.4",
+requires "nim == 2.2.6",
   "chronos >= 4.2.0 & < 4.4.0",
   "taskpools",
   # Logging & Configuration
@@ -31,49 +35,65 @@ requires "nim >= 2.2.4",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "https://github.com/vacp2p/nim-libp2p.git#v2.0.0",
-  "eth",
-  "nat_traversal",
+  "libp2p == 2.3.1",
+  # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
+  # which no longer ships eth/p2p/discoveryv5/enr.
+  "eth == 0.9.0",
+  # nat_traversal stays in the graph through libp2p, which links
+  # the miniupnpc and libnatpmp static libs. Nat.mk and the iOS steps stay.
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "websock >= 0.3.0",
+  "https://github.com/status-im/nim-websock#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
-  "secp256k1",
+  "https://github.com/status-im/nim-secp256k1#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
   "bearssl",
   # RPC & APIs
-  "https://github.com/status-im/nim-json-rpc.git#v0.6.1",
+  "json_rpc == 0.6.1",
   "presto",
-  "web3",
+  "https://github.com/status-im/nim-web3#cdfe5601d2812a58e54faf53ee634452d01e5918",
   # Database
   "db_connector",
   "sqlite3_abi",
   # Utilities
   "stew",
   "stint",
-  "metrics",
+  "https://github.com/status-im/nim-metrics#9f2e1d4a4164deb37603b16cedd1707408ee5955",
   "regex",
   "unicodedb",
   "results",
   "minilru",
   "zlib",
   # Debug & Testing
-  "testutils",
+  "testutils == 0.8.1",
   "unittest2"
 
-# Packages not on nimble (use git URLs)
+# URL requirements described above.
+# For commit-pinned releases, the preceding link records the associated
+# upstream release tag at the time the revision was selected.
 
-# v0.3.1-rc.0
+# v0.3.1-rc.0: https://github.com/logos-messaging/nim-ffi/releases/tag/v0.3.1-rc.0
 requires "https://github.com/logos-messaging/nim-ffi#07ee8e1d6500762bab290465457a8d23559de546"
 
+# No tag at pinning time; revision was 19 commits after v0.3.1-rc.0.
 requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb948b32a4ade1de3b5"
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
-requires "https://github.com/vacp2p/nim-lsquic.git#v0.5.1"
+# v0.8.1: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.8.1
+# libp2p requires "lsquic >= 0.5.4" by name. The exact numeric constraint
+# keeps the resolution at the validated release instead of floating to
+# the newest one.
+requires "https://github.com/vacp2p/nim-lsquic#07783b55fb0ee7e9dc2dd9ced11548f84174306e"
+
+requires "https://github.com/vacp2p/nim-boringssl#v0.0.11"
+
+# No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"
-requires "https://github.com/logos-co/nim-libp2p-mix#380513117d556bf8f70066f5e72a7fd74fe36ba6"
+
+# Temporary pin to the mix commit that widens its libp2p requirement.
+requires "https://github.com/logos-co/nim-libp2p-mix#39d2ac78da7b7f33562eb7cd95d6280ca9fa0e94"
 
 proc getMyCPU(): string =
   ## Need to set cpu more explicit manner to avoid arch issues between dependencies
@@ -98,7 +118,7 @@ proc buildModule(filePath, params = ""): bool =
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & getNimParams() & " " & params &
+  exec "nim c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -107,7 +127,7 @@ proc buildModule(filePath, params = ""): bool =
 proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & getNimParams() & " " & params & " " &
+  exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
 
 ## Emitted by `genBindings()` during the library build, so the header can never
@@ -128,17 +148,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      cBindingsFlags & getMyCPU() & getNimParams() & srcDir & "/" & srcFile
+      cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
   else:
-    # -Bsymbolic binds the library's references to its own symbols at link
-    # time. Without it, a host process that already loads OpenSSL (e.g.
-    # Node.js) interposes our statically linked BoringSSL functions and data
-    # (ASN1_ITEM tables), and QUIC startup crashes in lsquic setupSSLContext
-    # (issue #4085).
-    let elfFlags = when defined(linux): "--passL:-Wl,-Bsymbolic " else: ""
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      elfFlags & cBindingsFlags & getMyCPU() & getNimParams() & " " & srcDir & "/" & srcFile
+      cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
@@ -194,9 +208,8 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
   if not dirExists outDir:
     mkDir outDir
 
-  # -Bsymbolic: see buildLibrary's dynamic branch (issue #4085).
   exec "nim c" & " --out:" & outDir &
-    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll --passL:-Wl,-Bsymbolic --passL:-L" &
+    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
@@ -214,98 +227,58 @@ proc buildMobileIOS(srcDir = ".", params = "") =
   let iosArch = getEnv("IOS_ARCH")
   let iosSdk = getEnv("IOS_SDK")
   let sdkPath = getEnv("IOS_SDK_PATH")
+  let minVersion = getEnv("IOS_DEPLOYMENT_TARGET", "18.0")
 
   if sdkPath.len == 0:
     quit "Error: IOS_SDK_PATH not set. Set it to the path of the iOS SDK"
 
-  # Get nimble package paths
-  let bearsslPath = gorge("nimble path bearssl").strip()
-  let secp256k1Path = gorge("nimble path secp256k1").strip()
-  let natTraversalPath = gorge("nimble path nat_traversal").strip()
+  # Package roots from nimble.paths — `nimble path` is unusable inside a
+  # task (it mixes Info and lock-validation noise into stdout).
+  proc nimblePkgPath(pkg: string): string =
+    for rawLine in readFile("nimble.paths").splitLines():
+      let line = rawLine.strip()
+      if line.startsWith("--path:\"") and ("/pkgs2/" & pkg & "-") in line:
+        return line[8 ..< line.high]
+    quit "Package " & pkg & " not found in nimble.paths — run 'make build-deps' first"
 
-  # Get Nim standard library path
-  let nimPath = gorge("nim --fullhelp 2>&1 | head -1 | sed 's/.*\\[//' | sed 's/\\].*//'").strip()
-  let nimLibPath = nimPath.parentDir.parentDir / "lib"
+  let natTraversalPath = nimblePkgPath("nat_traversal")
 
   # Use SDK name in path to differentiate device vs simulator
   let outDir = "build/ios/" & iosSdk & "-" & iosArch
-  if not dirExists outDir:
-    mkDir outDir
-
-  var extra_params = params
-  let args = commandLineParams()
-  for arg in args:
-    extra_params &= " " & arg
-
-  let cpu = if iosArch == "arm64": "arm64" else: "amd64"
-
-  # The output static library
   let nimcacheDir = outDir & "/nimcache"
-  let objDir = outDir & "/obj"
   let vendorObjDir = outDir & "/vendor_obj"
+  let nimLib = outDir & "/liblogosdelivery_nim.a"
   let aFile = outDir & "/liblogosdelivery.a"
-
-  if not dirExists objDir:
-    mkDir objDir
   if not dirExists vendorObjDir:
     mkDir vendorObjDir
 
-  let clangBase = "clang -arch " & iosArch & " -isysroot " & sdkPath &
-      " -mios-version-min=18.0 -fembed-bitcode -fPIC -O2"
+  let cpu = if iosArch == "arm64": "arm64" else: "amd64"
 
-  # Generate C sources from Nim (no linking)
+  # Simulator objects need the simulator flag, or Xcode refuses to link them.
+  let minVersionFlag =
+    if iosSdk == "iphonesimulator": "-mios-simulator-version-min=" & minVersion
+    else: "-mios-version-min=" & minVersion
+  let targetFlags = "-arch " & iosArch & " -isysroot " & sdkPath & " " & minVersionFlag
+
+  # nim compiles and archives every C source it owns (generated code and the
+  # {.compile.}-pragma'd dependency sources) with the iOS toolchain.
   exec "nim c" &
       " --nimcache:" & nimcacheDir &
       " --os:ios --cpu:" & cpu &
-      " --compileOnly:on" &
+      " --app:staticlib --out:" & nimLib &
       " --noMain --mm:refc" &
       " --threads:on --opt:size --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" &
-      " --nimMainPrefix:liblogosdelivery --skipParentCfg:on" &
+      " --nimMainPrefix:liblogosdelivery --skipParentCfg:off" &
       " --cc:clang" &
-      " " & extra_params &
+      " --passC:\"" & targetFlags & "\" --passL:\"" & targetFlags & "\"" &
+      " " & params & getNimParams() &
       " " & srcDir & "/liblogosdelivery.nim"
 
-  # Compile vendor C libraries for iOS
+  # nat_traversal links prebuilt archives instead of compiling its sources
+  # through nim, so miniupnpc and libnatpmp are compiled here.
+  let vendorClang = "clang " & targetFlags & " -fPIC -O2"
 
-  # --- BearSSL ---
-  echo "Compiling BearSSL for iOS..."
-  let bearSslSrcDir = bearsslPath / "bearssl/csources/src"
-  let bearSslIncDir = bearsslPath / "bearssl/csources/inc"
-  for path in walkDirRec(bearSslSrcDir):
-    if path.endsWith(".c"):
-      let relPath = path.replace(bearSslSrcDir & "/", "").replace("/", "_")
-      let baseName = relPath.changeFileExt("o")
-      let oFile = vendorObjDir / ("bearssl_" & baseName)
-      if not fileExists(oFile):
-        exec clangBase & " -I" & bearSslIncDir & " -I" & bearSslSrcDir & " -c " & path & " -o " & oFile
-
-  # --- secp256k1 ---
-  echo "Compiling secp256k1 for iOS..."
-  let secp256k1Dir = secp256k1Path / "vendor/secp256k1"
-  let secp256k1Flags = " -I" & secp256k1Dir & "/include" &
-        " -I" & secp256k1Dir & "/src" &
-        " -I" & secp256k1Dir &
-        " -DENABLE_MODULE_RECOVERY=1" &
-        " -DENABLE_MODULE_ECDH=1" &
-        " -DECMULT_WINDOW_SIZE=15" &
-        " -DECMULT_GEN_PREC_BITS=4"
-
-  # Main secp256k1 source
-  let secp256k1Obj = vendorObjDir / "secp256k1.o"
-  if not fileExists(secp256k1Obj):
-    exec clangBase & secp256k1Flags & " -c " & secp256k1Dir & "/src/secp256k1.c -o " & secp256k1Obj
-
-  # Precomputed tables (required for ecmult operations)
-  let secp256k1PreEcmultObj = vendorObjDir / "secp256k1_precomputed_ecmult.o"
-  if not fileExists(secp256k1PreEcmultObj):
-    exec clangBase & secp256k1Flags & " -c " & secp256k1Dir & "/src/precomputed_ecmult.c -o " & secp256k1PreEcmultObj
-
-  let secp256k1PreEcmultGenObj = vendorObjDir / "secp256k1_precomputed_ecmult_gen.o"
-  if not fileExists(secp256k1PreEcmultGenObj):
-    exec clangBase & secp256k1Flags & " -c " & secp256k1Dir & "/src/precomputed_ecmult_gen.c -o " & secp256k1PreEcmultGenObj
-
-  # --- miniupnpc ---
   echo "Compiling miniupnpc for iOS..."
   let miniupnpcSrcDir = natTraversalPath / "vendor/miniupnp/miniupnpc/src"
   let miniupnpcIncDir = natTraversalPath / "vendor/miniupnp/miniupnpc/include"
@@ -320,7 +293,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
     let srcPath = miniupnpcSrcDir / fileName
     let oFile = vendorObjDir / ("miniupnpc_" & fileName.changeFileExt("o"))
     if fileExists(srcPath) and not fileExists(oFile):
-      exec clangBase &
+      exec vendorClang &
           " -I" & miniupnpcIncDir &
           " -I" & miniupnpcSrcDir &
           " -I" & miniupnpcBuildDir &
@@ -328,64 +301,32 @@ proc buildMobileIOS(srcDir = ".", params = "") =
           " -D_BSD_SOURCE -D_DEFAULT_SOURCE" &
           " -c " & srcPath & " -o " & oFile
 
-  # --- libnatpmp ---
   echo "Compiling libnatpmp for iOS..."
   let natpmpSrcDir = natTraversalPath / "vendor/libnatpmp-upstream"
   # Only compile natpmp.c - getgateway.c uses net/route.h which is not available on iOS
   let natpmpObj = vendorObjDir / "natpmp_natpmp.o"
   if not fileExists(natpmpObj):
-    exec clangBase &
+    exec vendorClang &
         " -I" & natpmpSrcDir &
         " -DENABLE_STRNATPMPERR" &
         " -c " & natpmpSrcDir & "/natpmp.c -o " & natpmpObj
 
- # Use iOS-specific stub for getgateway
+  # Use iOS-specific stub for getgateway
   let getgatewayStubSrc = "./library/ios_natpmp_stubs.c"
   let getgatewayStubObj = vendorObjDir / "natpmp_getgateway_stub.o"
   if fileExists(getgatewayStubSrc) and not fileExists(getgatewayStubObj):
-    exec clangBase & " -c " & getgatewayStubSrc & " -o " & getgatewayStubObj
+    exec vendorClang & " -c " & getgatewayStubSrc & " -o " & getgatewayStubObj
 
-  # --- BearSSL stubs (for tools functions not in main library) ---
-  echo "Compiling BearSSL stubs for iOS..."
-  let bearSslStubsSrc = "./library/ios_bearssl_stubs.c"
-  let bearSslStubsObj = vendorObjDir / "bearssl_stubs.o"
-  if fileExists(bearSslStubsSrc) and not fileExists(bearSslStubsObj):
-    exec clangBase & " -c " & bearSslStubsSrc & " -o " & bearSslStubsObj
-
-  # Compile all Nim-generated C files to object files
-  echo "Compiling Nim-generated C files for iOS..."
-  var cFiles: seq[string] = @[]
-  for kind, path in walkDir(nimcacheDir):
-    if kind == pcFile and path.endsWith(".c"):
-      cFiles.add(path)
-
-  for cFile in cFiles:
-    let baseName = extractFilename(cFile).changeFileExt("o")
-    let oFile = objDir / baseName
-    exec clangBase &
-        " -DENABLE_STRNATPMPERR" &
-        " -I" & nimLibPath &
-        " -I" & bearsslPath & "/bearssl/csources/inc/" &
-        " -I" & bearsslPath & "/bearssl/csources/tools/" &
-        " -I" & bearsslPath & "/bearssl/abi/" &
-        " -I" & secp256k1Path & "/vendor/secp256k1/include/" &
-        " -I" & natTraversalPath & "/vendor/miniupnp/miniupnpc/include/" &
-        " -I" & natTraversalPath & "/vendor/libnatpmp-upstream/" &
-        " -I" & nimcacheDir &
-        " -c " & cFile &
-        " -o " & oFile
-
-  # Create static library from all object files
   echo "Creating static library..."
-  var objFiles: seq[string] = @[]
-  for kind, path in walkDir(objDir):
-    if kind == pcFile and path.endsWith(".o"):
-      objFiles.add(path)
+  var inputs = @[nimLib]
   for kind, path in walkDir(vendorObjDir):
     if kind == pcFile and path.endsWith(".o"):
-      objFiles.add(path)
+      inputs.add(path)
+  exec "libtool -static -o " & aFile & " " & inputs.join(" ")
 
-  exec "libtool -static -o " & aFile & " " & objFiles.join(" ")
+  let header = nimcacheDir & "/liblogosdelivery.h"
+  if fileExists(header):
+    cpFile(header, outDir & "/liblogosdelivery.h")
 
   echo "iOS library created: " & aFile
 
@@ -395,9 +336,6 @@ task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
   buildMobileIOS srcDir, extraParams
 
 proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
-  # XXX: When running `> NIM_PARAMS="-d:chronicles_log_level=INFO" make test2`
-  # I expect compiler flag to be overridden, however it stays with whatever is
-  # specified here.
   buildBinary name, "tests/", params
   exec "build/" & name
 

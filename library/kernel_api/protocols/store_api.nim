@@ -5,6 +5,8 @@ import
   library/utils,
   logos_delivery/waku/waku_core/message/digest,
   logos_delivery/waku/waku_store/common,
+  logos_delivery/waku/rest_api/endpoint/serdes,
+  logos_delivery/waku/rest_api/endpoint/store/types,
   logos_delivery/waku/common/paging,
   library/declare_lib
 
@@ -80,5 +82,6 @@ proc waku_store_query(
   ).valueOr:
     return err("StoreRequest failed store query: " & error)
 
-  let res = $(%*(queryResponse.toHex()))
+  let res = encodeIntoJsonString(queryResponse.toHex()).valueOr:
+    return err("StoreRequest failed encoding store response: " & $error)
   return ok(res) ## returning the response in json format

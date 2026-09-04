@@ -20,7 +20,8 @@ import
   results
 
 import
-  logos_delivery/waku/[rln, rln/protocol_types, rln/constants, rln/bindings],
+  logos_delivery/waku/
+    [rln, rln/rln_evm/protocol_types, rln/rln_evm/constants, rln/rln_evm/bindings],
   ../testlib/common
 
 const CHAIN_ID* = 1234'u256
@@ -639,25 +640,25 @@ proc stopAnvil*(runAnvil: Process) {.used.} =
   except Exception as e:
     error "Error stopping Anvil daemon", anvilPID = anvilPID, error = e.msg
 
-proc setupOnchainGroupManager*(
+proc setupRlnEvm*(
     ethClientUrl: string = EthClient,
     amountEth: UInt256 = 10.u256,
     deployContracts: bool = true,
-): Future[OnchainGroupManager] {.async.} =
+): Future[RlnEvmGroupManager] {.async.} =
   ## Setup an onchain group manager for testing
   ## If deployContracts is false, it will assume that the Anvil testnet already has the required contracts deployed, this significantly speeds up test runs.
   ## To run Anvil with a cached state file containing pre-deployed contracts, see runAnvil documentation.
   ## 
   ## To generate/update the cached state file:
   ## 1. Call runAnvil with stateFile and dumpStateOnExit=true
-  ## 2. Run setupOnchainGroupManager with deployContracts=true to deploy contracts
+  ## 2. Run setupRlnEvm with deployContracts=true to deploy contracts
   ## 3. The state will be saved to the specified file when anvil exits
   ## 4. Commit this file to git
   ## 
   ## To use cached state:
   ## 1. Call runAnvil with stateFile and dumpStateOnExit=false
   ## 2. Anvil loads state in read-only mode (won't overwrite the cached file)
-  ## 3. Call setupOnchainGroupManager with deployContracts=false
+  ## 3. Call setupRlnEvm with deployContracts=false
   ## 4. Tests run fast using pre-deployed contracts
   let rlnInstanceRes = createRlnInstance()
   check:
@@ -740,7 +741,7 @@ proc setupOnchainGroupManager*(
 
     assert tokenApprovalResult.isOk(), tokenApprovalResult.error
 
-  let manager = OnchainGroupManager(
+  let manager = RlnEvmGroupManager(
     ethClientUrls: @[ethClientUrl],
     ethContractAddress: $contractAddress,
     chainId: CHAIN_ID,
@@ -753,18 +754,18 @@ proc setupOnchainGroupManager*(
 
   return manager
 
-proc buildOnchainGroupManager*(
+proc buildRlnEvm*(
     privateKey: string, ethClientUrl: string = EthClient
-): OnchainGroupManager =
-  ## Constructs an OnchainGroupManager pointing at the cached RLN proxy contract
+): RlnEvmGroupManager =
+  ## Constructs an RlnEvmGroupManager pointing at the cached RLN proxy contract
   ## using the supplied private key. No on-chain work happens here — the caller
   ## is expected to have an Anvil snapshot where this key already owns a funded,
-  ## token-approved account (e.g. via a prior `setupOnchainGroupManager` followed
+  ## token-approved account (e.g. via a prior `setupRlnEvm` followed
   ## by `takeEvmSnapshot`). Each call returns a fresh RLN instance.
   let rlnInstanceRes = createRlnInstance()
   check:
     rlnInstanceRes.isOk()
-  return OnchainGroupManager(
+  return RlnEvmGroupManager(
     ethClientUrls: @[ethClientUrl],
     ethContractAddress: WAKU_RLNV2_PROXY_ADDRESS,
     chainId: CHAIN_ID,

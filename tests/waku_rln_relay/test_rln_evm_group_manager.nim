@@ -19,18 +19,18 @@ import
 import
   logos_delivery/waku/[
     rln,
-    rln/protocol_types,
-    rln/protocol_metrics,
-    rln/constants,
-    rln/bindings,
-    rln/conversion_utils,
-    rln/group_manager/on_chain/group_manager,
+    rln/rln_evm/protocol_types,
+    rln/rln_evm/protocol_metrics,
+    rln/rln_evm/constants,
+    rln/rln_evm/bindings,
+    rln/rln_evm/conversion_utils,
+    rln/rln_evm/group_manager,
   ],
   ../testlib/wakucore,
   ./utils_onchain
 
 # Anvil is started once for the whole suite. The first test runs the full
-# `setupOnchainGroupManager` flow (fund a fresh account + mint tokens + approve
+# `setupRlnEvm` flow (fund a fresh account + mint tokens + approve
 # allowance) and then takes a baseline snapshot capturing that post-setup chain
 # state. Subsequent tests revert to the baseline (restoring the funded account)
 # and build a bare manager pointing at the same key. evm_revert consumes the snapshot
@@ -42,7 +42,7 @@ var baselineSnapshotId: string
 var fundedPrivateKey: string
 
 suite "Onchain group manager":
-  var manager {.threadVar.}: OnchainGroupManager
+  var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
     if not anvilStarted:
@@ -53,13 +53,13 @@ suite "Onchain group manager":
           if not sharedAnvilProc.isNil:
             stopAnvil(sharedAnvilProc)
       )
-      manager = waitFor setupOnchainGroupManager(deployContracts = false)
+      manager = waitFor setupRlnEvm(deployContracts = false)
       fundedPrivateKey = manager.ethPrivateKey.get()
       baselineSnapshotId = waitFor takeEvmSnapshot()
     else:
       discard waitFor revertEvmSnapshot(baselineSnapshotId)
       baselineSnapshotId = waitFor takeEvmSnapshot()
-      manager = buildOnchainGroupManager(fundedPrivateKey)
+      manager = buildRlnEvm(fundedPrivateKey)
 
   test "should initialize successfully":
     (waitFor manager.init()).isOkOr:
@@ -139,7 +139,7 @@ suite "Onchain group manager":
       manager.validRoots.len == credentialCount
 
   test "updateRecentRoots: appends new on-chain roots from contract cache":
-    # Verify that the group_manager list of valid roots is updated correctly from the recent roots
+    # Verify that the rln_evm list of valid roots is updated correctly from the recent roots
     # cache as new credentials are registered.
 
     const credentialCount = RlnContractRootCacheSize
@@ -181,7 +181,7 @@ suite "Onchain group manager":
 
     check:
       res.isErr()
-      res.error == "OnchainGroupManager is not initialized"
+      res.error == "RlnEvmGroupManager is not initialized"
 
   test "register: should register successfully":
     (waitFor manager.init()).isOkOr:
@@ -236,7 +236,7 @@ suite "Onchain group manager":
 
     check:
       res.isErr()
-      res.error == "OnchainGroupManager is not initialized"
+      res.error == "RlnEvmGroupManager is not initialized"
 
   test "validateRoot: should validate good root":
     let idCredentials = generateCredentials()
@@ -301,7 +301,7 @@ suite "Onchain group manager":
     manager.merkleProofCache = newSeq[byte](640)
     for i in 0 ..< 640:
       manager.merkleProofCache[i] = byte(rand(255))
-    # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
+    # chunk[0] becomes the MSB after reversal in rln_evm; must be < 0x30
     for i in 0 ..< 20:
       manager.merkleProofCache[i * 32] = 0
 
@@ -810,7 +810,7 @@ suite "Onchain group manager":
     manager.merkleProofCache = newSeq[byte](640)
     for i in 0 ..< 640:
       manager.merkleProofCache[i] = byte(rand(255))
-    # chunk[0] becomes the MSB after reversal in group_manager; must be < 0x30
+    # chunk[0] becomes the MSB after reversal in rln_evm; must be < 0x30
     for i in 0 ..< 20:
       manager.merkleProofCache[i * 32] = 0
 
@@ -882,7 +882,7 @@ suite "Onchain group manager":
     let signal = "Hello, RLN!".toBytes()
     let epoch = default(Epoch)
 
-    # Build RLNWitnessInput the same way group_manager.generateProof does.
+    # Build RLNWitnessInput the same way rln_evm.generateProof does.
     var pathElements = newSeq[byte]()
     for i in 0 ..< proofElements.len div 32:
       pathElements.add(proofElements[i * 32 .. (i + 1) * 32 - 1].reversed())

@@ -61,11 +61,7 @@ suite "Waku NetConfig":
     check:
       netConfig.announcedAddresses.len == 1 # Only bind address should be present
       netConfig.announcedAddresses[0] ==
-        formatListenAddress(
-          ip4TcpEndPoint(
-            conf.endpointConf.p2pListenAddress, conf.endpointConf.p2pTcpPort
-          )
-        )
+        ip4TcpEndPoint(conf.endpointConf.p2pListenAddress, conf.endpointConf.p2pTcpPort)
 
   asyncTest "AnnouncedAddresses contains external address if extIp/Port are provided":
     let
@@ -509,3 +505,36 @@ suite "Waku NetConfig":
       netConfig.announcedAddresses.len == 1 # ExtAddress
       netConfig.announcedAddresses[0] == extMultiAddrs[0]
       netConfig.announcedAddresses.filterIt(it.isQuicAddress()).len == 0
+
+  test "NetConfig.init rejects ext-only with empty or zero-port sets":
+    check NetConfig
+      .init(
+        bindIp = parseIpAddress("127.0.0.1"),
+        bindPort = Port(60200),
+        extMultiAddrsOnly = true,
+      )
+      .isErr()
+    check NetConfig
+      .init(
+        bindIp = parseIpAddress("127.0.0.1"),
+        bindPort = Port(60200),
+        extMultiAddrs = @[MultiAddress.init("/ip4/203.0.113.9/tcp/0").get()],
+        extMultiAddrsOnly = true,
+      )
+      .isErr()
+    check NetConfig
+      .init(
+        bindIp = parseIpAddress("127.0.0.1"),
+        bindPort = Port(60200),
+        extMultiAddrs = @[MultiAddress.init("/ip4/203.0.113.9/udp/0/quic-v1").get()],
+        extMultiAddrsOnly = true,
+      )
+      .isErr()
+
+  test "hasZeroPort reads the port bytes on every transport shape":
+    check:
+      MultiAddress.init("/ip4/1.2.3.4/tcp/0").get().hasZeroPort()
+      MultiAddress.init("/dns4/x.example.org/tcp/0/wss").get().hasZeroPort()
+      MultiAddress.init("/ip4/1.2.3.4/udp/0/quic-v1").get().hasZeroPort()
+      not MultiAddress.init("/ip4/1.2.3.4/tcp/60000").get().hasZeroPort()
+      not MultiAddress.init("/dns4/x.example.org/tcp/443/wss").get().hasZeroPort()

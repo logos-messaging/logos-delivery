@@ -3,6 +3,7 @@ import chronos, chronicles, results, ffi
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
 import logos_delivery/waku/common/base64
+from ../events/json_message_event import `%` # base64 rendering for WakuMessage
 import
   logos_delivery,
   logos_delivery/waku/node/waku_node,

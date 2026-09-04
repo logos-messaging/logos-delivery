@@ -62,7 +62,7 @@ type
     desc: string
 
 proc attachRlnProofAndValidate(
-    rln: Rln, wakuRelay: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage
+    rln: RlnEvm, wakuRelay: WakuRelay, pubsubTopic: PubsubTopic, message: WakuMessage
 ): Future[Result[WakuMessage, RlnPublishError]] {.async.} =
   ## Attaches an RLN proof to `message` and validates it via `wakuRelay`.
   ## If the validator rejects it as RLN-invalid (error contains
@@ -229,9 +229,7 @@ proc installRelayApiHandlers*(
 
     # if we reach here its either a non-RLN message or a RLN message with a valid proof
     debug "Publishing message", pubSubTopic = pubSubTopic, rln = not node.rln.isNil()
-    if not (
-      waitFor node.publish(Opt.some(pubSubTopic), message).withTimeout(futTimeout)
-    ):
+    if not (await node.publish(Opt.some(pubSubTopic), message).withTimeout(futTimeout)):
       error "Failed to publish message to topic", pubSubTopic = pubSubTopic
       return RestApiResponse.internalServerError("Failed to publish: timedout")
 

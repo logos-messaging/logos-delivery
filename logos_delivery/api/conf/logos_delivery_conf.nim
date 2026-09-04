@@ -26,15 +26,21 @@ proc init*(
     messagingOverrides: MessagingClientConf,
     channelsOverrides: ReliableChannelManagerConf,
 ): ConfResult[LogosDeliveryConf] =
-  ## Structured (preset + overrides) entry. Only `messaging` / `channels` layers
-  ## reach here; the `kernel` layer uses `init(kernelConf)` (raw, mode ignored).
+  ## Structured (preset + overrides) entry: `mode` and `preset` shape the kernel
+  ## conf for every layer, `kernel` included - it just yields no upper layers.
+  ## `init(kernelConf)` is the raw entry that takes a caller's config as-is.
   let merged = merge(?resolvePreset(preset), messagingOverrides)
   var kernelConf = ?toWakuNodeConf(merged, mode)
   kernelConf.preset = preset
+  kernelConf.entryLayer = entryLayer
   return ok(
     LogosDeliveryConf(
       kernelConf: KernelConf(kernelConf),
-      messagingConf: Opt.some(merged),
+      messagingConf:
+        if entryLayer != EntryLayer.kernel:
+          Opt.some(merged)
+        else:
+          Opt.none(MessagingClientConf),
       channelsConf:
         if entryLayer == EntryLayer.channels:
           Opt.some(channelsOverrides)

@@ -1,7 +1,7 @@
 import testutils/unittests, results
 
-import logos_delivery/waku/rln/rln/rln_interface
-import logos_delivery/waku/rln/rln/wrappers
+import logos_delivery/waku/rln/rln_evm/librln_interface
+import logos_delivery/waku/rln/rln_evm/wrappers
 
 suite "Vec_uint8":
   suite "toVecUint8":

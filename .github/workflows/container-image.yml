@@ -14,13 +14,9 @@ on:
 env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "--parallelBuild:${NPROC}"
-  # logos_delivery.nimble reads compile flags from NIM_PARAMS, not NIMFLAGS. Without
-  # -d:disableMarchNative here, config.nims applies -march=native and
-  # secp256k1 fails to compile.
-  NIM_PARAMS: "-d:disableMarchNative"
-  NIM_VERSION: '2.2.4'
-  NIMBLE_VERSION: '0.22.3'
+  NIMFLAGS: "--parallelBuild:${NPROC} -d:disableMarchNative -d:chronicles_colors:none"
+  NIM_VERSION: '2.2.6'
+  NIMBLE_VERSION: '0.24.1'
 
 # This workflow should not run for outside contributors
 # If org secrets are not available, we'll avoid building and publishing the docker image and we'll pass the workflow
@@ -59,32 +55,14 @@ jobs:
           nim-version: ${{ env.NIM_VERSION }}
           repo-token: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Install Nimble ${{ env.NIMBLE_VERSION }}
-        if: ${{ steps.secrets.outcome == 'success' }}
-        run: |
-          cd /tmp && nimble install "nimble@${{ env.NIMBLE_VERSION }}" -y
-          echo "$HOME/.nimble/bin" >> $GITHUB_PATH
-
-      - name: Cache nimble deps
-        if: ${{ steps.secrets.outcome == 'success' }}
-        id: cache-nimbledeps
-        uses: actions/cache@v3
-        with:
-          path: |
-            nimbledeps/
-            nimble.paths
-          key: ${{ runner.os }}-nimbledeps-nimble${{ env.NIMBLE_VERSION }}-${{ hashFiles('nimble.lock', 'BearSSL.mk', 'Nat.mk') }}
-
       - name: Install nimble deps
-        if: ${{ steps.secrets.outcome == 'success' && steps.cache-nimbledeps.outputs.cache-hit != 'true' }}
-        run: |
-          nimble setup --localdeps -y
-          make rebuild-nat-libs-nimbledeps
-          make rebuild-bearssl-nimbledeps
-          touch nimbledeps/.nimble-setup
+        if: ${{ steps.secrets.outcome == 'success' }}
+        uses: ./.github/actions/nimble-deps
+        with:
+          nimble-version: ${{ env.NIMBLE_VERSION }}
+          nim-version: ${{ env.NIM_VERSION }}
 
       - name: Build binaries
-        id: build
         if: ${{ steps.secrets.outcome == 'success' }}
         # Sequential make invocations: wakunode2 and logosdeliverynode each run
         # via `nimble <task>`. Under a single `make -j` the two nimble
@@ -94,9 +72,17 @@ jobs:
         # Serializing the targets removes the race; Nim's own --parallelBuild
         # still parallelizes compilation. Mirrors the -j1 fix in ci.yml.
         run: |
-          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" wakunode2
-          make -j${NPROC} V=1 POSTGRES=1 NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" logosdeliverynode
+          make -j${NPROC} V=1 DEBUG=0 POSTGRES=1 wakunode2
+          make -j${NPROC} V=1 DEBUG=0 POSTGRES=1 logosdeliverynode
 
+      - name: Audit installed deps
+        if: ${{ steps.secrets.outcome == 'success' }}
+        run: make audit-deps
+
+      - name: Build and push images
+        id: build
+        if: ${{ steps.secrets.outcome == 'success' }}
+        run: |
           SHORT_REF=$(git rev-parse --short HEAD)
 
           TAG=$([ "${PR_NUMBER}" == "" ] && echo "${SHORT_REF}" || echo "${PR_NUMBER}")

@@ -36,6 +36,13 @@ type WakuRendezVousClient* = ref object
 const MaxSimultanesousAdvertisements = 5
 const RendezVousLookupInterval = 10.seconds
 
+# Nim can collide generated symbols when many templates expand in one scope.
+# A separate proc gives the `request` expansion a scope of its own.
+proc requestRecords[E](
+    rdv: GenericRendezVous[E], namespace: string, count: int, peer: PeerId
+): Future[seq[E]] {.async: (raises: [LPError, CancelledError]).} =
+  return await rdv.request(Opt.some(namespace), Opt.some(count), Opt.some(@[peer]))
+
 proc requestAll*(
     self: WakuRendezVousClient
 ): Future[Result[void, string]] {.async: (raises: []).} =
@@ -50,9 +57,7 @@ proc requestAll*(
   var records: seq[WakuPeerRecord]
   try:
     # Use the libp2p rendezvous request method
-    records = await self.rdv.request(
-      Opt.some(namespace), Opt.some(PeersRequestedCount), Opt.some(@[rpi.peerId])
-    )
+    records = await requestRecords(self.rdv, namespace, PeersRequestedCount, rpi.peerId)
   except CatchableError as e:
     return err("rendezvous request failed: " & e.msg)
 
