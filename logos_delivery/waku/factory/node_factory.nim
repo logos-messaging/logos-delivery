@@ -35,6 +35,7 @@ import
   ../waku_filter_v2,
   ../waku_peer_exchange,
   ../discovery/waku_kademlia,
+  ../discovery/kad_peer_discovery,
   ../node/peer_manager,
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
@@ -190,6 +191,8 @@ proc setupProtocols(
 
     node.mountKademlia(kadConf).isOkOr:
       return err("failed to setup service discovery: " & error)
+
+    node.attachDiscovery(KadPeerDiscovery.create(node.wakuKademlia))
 
     # Register ServicePeersRequest provider
     ServicePeersRequest.setProvider(
