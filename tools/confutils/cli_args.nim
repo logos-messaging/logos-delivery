@@ -667,13 +667,6 @@ hence would have reachability issues.""",
       name: "mixnode"
     .}: seq[MixNodePubInfo]
 
-    anonymityLevel* {.
-      desc:
-        "Sender anonymity of the Messaging API send path: None (never use mix), Preferred (try mix first, then the plain path), Required (mix only). Any value but None mounts mix.",
-      defaultValue: AnonymityLevel.None,
-      name: "anonymity-level"
-    .}: AnonymityLevel
-
     # Kademlia Discovery config
     # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
     enableKadDiscovery* {.
@@ -1152,17 +1145,9 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.storeServiceConf.storeSyncConf.withRangeSec(n.storeSyncRange)
   b.storeServiceConf.storeSyncConf.withRelayJitterSec(n.storeSyncRelayJitter)
 
-  let anonymityNeedsMix = n.anonymityLevel != AnonymityLevel.None
   if n.mix.isSome():
-    if anonymityNeedsMix and not n.mix.get():
-      return err(
-        "--anonymity-level=" & $n.anonymityLevel & " needs mix, but --mix=false was set"
-      )
     b.mixConf.withEnabled(n.mix.get())
     b.withMix(n.mix.get())
-  elif anonymityNeedsMix:
-    b.mixConf.withEnabled(true)
-    b.withMix(true)
   b.mixConf.withMixNodes(n.mixnodes)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())

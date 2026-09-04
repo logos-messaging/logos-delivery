@@ -4,7 +4,6 @@ import
   std/strutils,
   testutils/unittests,
   chronos,
-  results,
   libp2p/crypto/[crypto, secp],
   libp2p/multiaddress,
   nimcrypto/utils,
@@ -450,26 +449,3 @@ suite "Waku external config - http url parsing":
       discard parseCmdArg(EthRpcUrl, "http://")
     expect(ValueError):
       discard parseCmdArg(EthRpcUrl, "https://")
-
-suite "Waku external config - anonymity level":
-  test "An anonymity level above None mounts mix":
-    var preConfig = defaultWakuNodeConf().get()
-    preConfig.anonymityLevel = AnonymityLevel.Preferred
-
-    let conf = preConfig.toWakuConf().valueOr:
-      raiseAssert error
-
-    check conf.mixConf.isSome()
-
-  test "The default config does not mount mix":
-    let conf = defaultWakuNodeConf().get().toWakuConf().valueOr:
-        raiseAssert error
-
-    check conf.mixConf.isNone()
-
-  test "Asking for anonymity while disabling mix is rejected":
-    var preConfig = defaultWakuNodeConf().get()
-    preConfig.anonymityLevel = AnonymityLevel.Required
-    preConfig.mix = Opt.some(false)
-
-    check preConfig.toWakuConf().isErr()

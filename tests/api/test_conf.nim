@@ -193,7 +193,11 @@ suite "parseLogosDeliveryConf - JSON parsing":
     require lc.messagingConf.isSome()
     check:
       lc.messagingConf.get().anonymityLevel == Opt.some(AnonymityLevel.Preferred)
-      WakuNodeConf(lc.kernelConf).anonymityLevel == AnonymityLevel.Preferred
+      WakuNodeConf(lc.kernelConf).mix == Opt.some(true)
+
+  test "a flat blob asking for anonymity while disabling mix is rejected":
+    check parseLogosDeliveryConf("""{"anonymity-level": "Required", "mix": false}""")
+      .isErr()
 
   test "channelsOverrides fold into the channel conf":
     let lc = parseLogosDeliveryConf(
@@ -373,25 +377,19 @@ suite "MessagingClientConf - anonymity level":
       LogosDeliveryMode.Core
     ).valueOr:
       raiseAssert error
-    check:
-      kc.anonymityLevel == AnonymityLevel.Required
-      kc.mix == Opt.some(true)
+    check kc.mix == Opt.some(true)
 
   test "None leaves mix alone":
     let kc = MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.None)).toWakuNodeConf(
       LogosDeliveryMode.Core
     ).valueOr:
       raiseAssert error
-    check:
-      kc.anonymityLevel == AnonymityLevel.None
-      kc.mix.isNone()
+    check kc.mix.isNone()
 
   test "an unset anonymity level defaults to None and leaves mix alone":
     let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
         raiseAssert error
-    check:
-      kc.anonymityLevel == AnonymityLevel.None
-      kc.mix.isNone()
+    check kc.mix.isNone()
 
   test "the mix protocol config is built, not just the ENR capability bit":
     let kc = MessagingClientConf(anonymityLevel: Opt.some(AnonymityLevel.Preferred)).toWakuNodeConf(

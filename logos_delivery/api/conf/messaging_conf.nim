@@ -130,10 +130,14 @@ proc toWakuNodeConf*(
     conf.rlnRelayChainId = self.rlnChainId.get()
   if self.rlnEpochSizeSec.isSome():
     conf.rlnEpochSizeSec = Opt.some(self.rlnEpochSizeSec.get().uint64)
-  if self.anonymityLevel.isSome():
-    conf.anonymityLevel = self.anonymityLevel.get()
-    if self.anonymityLevel.get() != AnonymityLevel.None:
-      conf.mix = Opt.some(true)
+  if self.anonymityLevel.get(AnonymityLevel.None) != AnonymityLevel.None:
+    # The send path can only use a mix that the node mounts.
+    if conf.mix == Opt.some(false):
+      return err(
+        "anonymityLevel=" & $self.anonymityLevel.get() &
+          " needs mix, but mix=false was set"
+      )
+    conf.mix = Opt.some(true)
   if self.logLevel.isSome():
     conf.logLevel = self.logLevel.get()
   if self.logFormat.isSome():
