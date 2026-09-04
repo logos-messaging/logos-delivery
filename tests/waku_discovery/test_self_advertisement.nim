@@ -30,7 +30,7 @@ BrokerImplement FakeBackend of IPeerDiscovery:
     ok(DiscoveryBackendInfo(id: self.id, running: true, keyKinds: self.kinds))
 
   method startAdvertising(
-      self: FakeBackend, key: string, data: seq[byte], record: seq[byte]
+      self: FakeBackend, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
     self.advertised.add(key)
     self.advertisedData.add(data)

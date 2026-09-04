@@ -192,11 +192,9 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
     await self.lookupServicePeers("", 0)
 
   method startAdvertising(
-      self: Discv5PeerDiscovery, key: string, data: seq[byte], record: seq[byte]
+      self: Discv5PeerDiscovery, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
     ## Advertising for discv5 = mutating our own ENR; only shard: keys map.
-    if record.len > 0:
-      return err("discv5 backend: pre-signed records not supported")
     if not self.running:
       return err("discv5 backend: not running")
     let topic = ?shardKeyToPubsubTopic(key)
