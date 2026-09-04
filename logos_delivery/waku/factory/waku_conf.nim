@@ -240,7 +240,7 @@ proc validateNoEmptyStrings(wakuConf: WakuConf): Result[void, string] =
 
     if rlnRelayConf.lez:
       if isEmptyOrWhiteSpace(rlnRelayConf.registryId):
-        return err("rln-relay-registry-id is an empty string")
+        return err("rln-registry-id is an empty string")
     else:
       if rlnRelayConf.ethClientUrls.len == 0:
         return err("rln-relay-eth-client-address is empty")
