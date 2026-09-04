@@ -79,13 +79,14 @@ BrokerInterface(IPeerDiscovery):
     proc lookupRandom(): Future[Result[seq[DiscoveredPeer], string]] {.async.}
 
   RequestBroker:
-    # Make this node findable under `key`. `data` is the advertised payload.
-    # `record` is an optional pre-signed record published verbatim (external
-    # proxy-XPR path); empty = the backend derives/signs its own advertisement.
-    # (WakuKademlia: addServiceToAdvertise; libp2p-module: discoStartAdvertising;
-    #  discv5: ENR mutation for shard: keys)
+    # Make this node findable under `key`. `data` is the advertised payload,
+    # opaque bytes. What is published, and under whose identity, is the
+    # backend's business: the in-process host lets libp2p sign a record from
+    # this node's switch; the plugin host signs one itself (its switch is not
+    # this node); discv5 mutates our ENR for shard: keys.
+    # (WakuKademlia: addServiceToAdvertise; libp2p-module: discoStartAdvertising)
     proc startAdvertising(
-      key: string, data: seq[byte], record: seq[byte]
+      key: string, data: seq[byte]
     ): Future[Result[void, string]] {.async.}
 
   RequestBroker:

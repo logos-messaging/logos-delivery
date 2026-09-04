@@ -3,7 +3,12 @@
 import std/[atomics, strutils]
 import chronos, results, testutils/unittests
 import brokers/broker_context
-import logos_delivery/waku/discovery/external_service_discovery
+import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto, extended_peer_record]
+import
+  logos_delivery/waku/discovery/external_service_discovery,
+  logos_delivery/waku/requests/node_state_requests,
+  ../testlib/common,
+  ../testlib/wakucore
 
 ## A fake plugin written the way a real one would be: plain C entry points
 ## over shared state. The entry points run on the discovery worker thread, so
@@ -20,7 +25,7 @@ type FakeState = object
   lastKeyLen: Atomic[int]
   lastKey: array[128, char]
   lastData: array[32, uint8]
-  lastRecord: array[32, uint8]
+  lastRecord: array[512, uint8]
 
 var fake: ptr FakeState
 
@@ -183,11 +188,35 @@ suite "ExternalServiceDiscovery":
     check (await iface.lookupRandom()).isOk()
     check fake.freed.load() == 2
 
-    check (await iface.startAdvertising("svc:x", @[1'u8, 2], @[9'u8])).isOk()
+    ## Advertising publishes a record the node signs; without the node's
+    ## identity the backend refuses rather than letting the plugin publish
+    ## its own.
+    check (await iface.startAdvertising("svc:x", @[1'u8, 2])).isErr()
+    check fake.lastRecordLen.load() == 0
+    let nodeKey = generateSecp256k1Key()
+    let peerInfo = PeerInfo.new(nodeKey)
+    peerInfo.addrs = @[MultiAddress.init("/ip4/127.0.0.1/tcp/44002").get()]
+    discard GetNodePeerInfo.reprovideIt(ctx):
+      ok(peerInfo)
+    discard GetNodeKey.reprovideIt(ctx):
+      ok(nodeKey)
+    check (await iface.startAdvertising("svc:x", @[1'u8, 2])).isOk()
     check:
+      lastKey() == "svc:x"
       fake.lastDataLen.load() == 2
-      fake.lastRecordLen.load() == 1
-      fake.lastRecord[0] == 9'u8
+      fake.lastRecordLen.load() > 0
+    ## What the plugin got is this node's record, listing exactly this
+    ## service (svc: prefix stripped) with the advertised payload.
+    let recordBytes = @(fake.lastRecord)[0 ..< fake.lastRecordLen.load()]
+    let record = SignedExtendedPeerRecord.decode(recordBytes).expect("decodes")
+    record.checkValid().expect("signed by the node")
+    check:
+      record.data.peerId == peerInfo.peerId
+      record.data.addresses.len == 1
+      record.data.services.len == 1
+      record.data.services[0].id == "x"
+      record.data.services[0].data == Opt.some(@[1'u8, 2])
+    check (await iface.startAdvertising("shard:0", @[])).isErr()
 
     check (await iface.registerInterest("svc:y")).isOk()
     check lastKey() == "svc:y"
