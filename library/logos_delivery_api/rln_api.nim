@@ -2,8 +2,10 @@
 ## callback surface. One typed callback per RLN function: scalar args are passed
 ## directly, complex args (config, options, proof) as JSON, and every call's
 ## result comes back as JSON via `logosdelivery_rln_response`. See
-## `liblogosdelivery_rln.h`. The reply-parsing helpers at the bottom decode the
-## module's two wire dialects; node_api's providers are their only consumers.
+## `liblogosdelivery_rln.h`. The reply-parsing helpers near the bottom decode
+## the module's two wire dialects; the broker providers registered by
+## `registerRlnModuleProviders` (called from node_api at node create) are their
+## only consumers.
 ##
 ## Threading: host callbacks may complete on a foreign thread, so the crossing
 ## uses `ThreadSignalPtr` + `allocShared` (no GC memory shared across threads).
@@ -16,7 +18,12 @@
 import std/[json, locks]
 import chronos, chronos/threadsync, results
 import stew/byteutils
-import logos_delivery/waku/rln/api/types as rln_api_types
+import brokers/broker_context
+import
+  logos_delivery/waku/waku_core/message/message,
+  logos_delivery/waku/requests/rln_requests,
+  logos_delivery/waku/rln/api/types as rln_api_types
+from logos_delivery/waku/rln/proof import toRLNSignal
 
 type
   LogosDeliveryRlnStartFn = proc(reqId: uint64, configJson: cstring, userData: pointer) {.
@@ -429,3 +436,130 @@ proc parseRlnGeneratedProof(resultJson: string): Result[seq[byte], string] =
     return ok(hexToSeqByte(hexStr))
   except ValueError as e:
     return err("Proof_canonical is not valid hex: " & e.msg)
+
+proc parseRlnMembershipStatus(s: string): Result[MembershipStatus, string] =
+  case s
+  of "unknown":
+    ok(MembershipStatus.Unknown)
+  of "pending":
+    ok(MembershipStatus.Pending)
+  of "failed":
+    ok(MembershipStatus.Failed)
+  of "active":
+    ok(MembershipStatus.Active)
+  of "grace_period":
+    ok(MembershipStatus.GracePeriod)
+  of "expired":
+    ok(MembershipStatus.Expired)
+  of "erased_awaits_withdrawal":
+    ok(MembershipStatus.ErasedAwaitsWithdrawal)
+  of "erased":
+    ok(MembershipStatus.Erased)
+  of "slashed":
+    ok(MembershipStatus.Slashed)
+  else:
+    err("unknown membership state: " & s)
+
+proc parseRlnMembershipState(resultJson: string): Result[MembershipState, string] =
+  ## get_membership_state reply: {"state":str} plus membership_hash /
+  ## leaf_index / rate_limit once the membership data is known.
+  let node = ?parseRlnTstrReply(resultJson)
+  let status = ?parseRlnMembershipStatus(node{"state"}.getStr(""))
+  var state = MembershipState(status: status)
+  let hashHex = node{"membership_hash"}.getStr("")
+  if hashHex.len > 0:
+    var hash: array[RlnFieldElementSize, byte]
+    try:
+      hexToByteArray(hashHex, hash)
+    except ValueError:
+      return err("membership_hash is not a 32-byte hex string")
+    state.membership = some(
+      Membership(
+        membershipHash: hash,
+        rateLimit: node{"rate_limit"}.getBiggestInt(0).uint64,
+        leafIndex: node{"leaf_index"}.getBiggestInt(0).uint64,
+      )
+    )
+  return ok(state)
+
+# --- broker providers ---------------------------------------------------------
+
+proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, string] =
+  ## Bridges the waku layer's RLN module requests onto the FFI callback
+  ## surface. Providers are registered at create time; the underlying calls
+  ## only succeed once the host has installed its RLN callbacks.
+  RequestStartRlnModule.setProvider(
+    ctx,
+    proc(configJson: string): Future[Result[RequestStartRlnModule, string]] {.async.} =
+      let response = ?await rlnStart(configJson)
+      # result-dialect call: surface a module-side failure as err so the
+      # caller does not proceed to registration on a dead module.
+      discard ?parseRlnResultEnvelope(response)
+      return ok(RequestStartRlnModule(response: response)),
+  ).isOkOr:
+    return err("Failed to set RequestStartRlnModule provider: " & error)
+
+  RequestRegisterRlnMembership.setProvider(
+    ctx,
+    proc(
+        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
+    ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
+      var optionsJson = newJArray()
+      for opt in options:
+        optionsJson.add(%*{"key": opt.key, "value": opt.value})
+      let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
+      # tstr-dialect call: failures arrive in-band under "error".
+      discard ?parseRlnTstrReply(response)
+      return ok(RequestRegisterRlnMembership(response: response)),
+  ).isOkOr:
+    return err("Failed to set RequestRegisterRlnMembership provider: " & error)
+
+  RequestGetRlnMembershipState.setProvider(
+    ctx,
+    proc(
+        registryId: RegistryId, rlnIdentifier: RlnIdentifier
+    ): Future[Result[RequestGetRlnMembershipState, string]] {.async.} =
+      let response = ?await rlnGetMembershipState(registryId, rlnIdentifier.toHex())
+      let state = ?parseRlnMembershipState(response)
+      return ok(RequestGetRlnMembershipState(state: state)),
+  ).isOkOr:
+    return err("Failed to set RequestGetRlnMembershipState provider: " & error)
+
+  RequestValidateRlnProof.setProvider(
+    ctx,
+    proc(
+        message: WakuMessage,
+        registryId: RegistryId,
+        rlnIdentifier: RlnIdentifier,
+        timestamp: uint64,
+    ): Future[Result[RequestValidateRlnProof, string]] {.async.} =
+      let signalHex = message.toRLNSignal().toHex()
+      let proofJson = $(%*{"proof": message.proof.toHex()})
+      let response = ?await rlnValidateProof(
+        registryId, rlnIdentifier.toHex(), signalHex, timestamp, proofJson
+      )
+      let validation = ?parseRlnValidationResult(response)
+      return ok(RequestValidateRlnProof(validation: validation)),
+  ).isOkOr:
+    return err("Failed to set RequestValidateRlnProof provider: " & error)
+
+  # lez-gated: the legacy zerokit path registers its own provider for this request type
+  if lez:
+    RequestGenerateRlnProof.setProvider(
+      ctx,
+      proc(
+          message: WakuMessage,
+          registryId: RegistryId,
+          rlnIdentifier: RlnIdentifier,
+          timestamp: uint64,
+      ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
+        let signalHex = message.toRLNSignal().toHex()
+        let response = ?await rlnGenerateProof(
+          registryId, rlnIdentifier.toHex(), signalHex, timestamp
+        )
+        let proofBytes = ?parseRlnGeneratedProof(response)
+        return ok(RequestGenerateRlnProof(proof: proofBytes)),
+    ).isOkOr:
+      return err("failed to set RequestGenerateRlnProof provider: " & error)
+
+  ok()
