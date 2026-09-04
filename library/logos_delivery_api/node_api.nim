@@ -2,11 +2,8 @@ import std/json
 import chronos, chronicles, results, ffi
 import brokers/broker_context
 import libp2p/peerid # pull PeerId pretty string formatting
-import stew/byteutils
 import logos_delivery/waku/common/base64
 from ../events/json_message_event import `%` # base64 rendering for WakuMessage
-import logos_delivery/waku/requests/rln_requests
-from logos_delivery/waku/rln import toRLNSignal
 import
   logos_delivery,
   logos_delivery/waku/node/waku_node,
@@ -151,75 +148,6 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageReceivedEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
-
-proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, string] =
-  ## Bridges the waku layer's RLN module requests onto the FFI callback
-  ## surface. Providers are registered at create time; the underlying calls
-  ## only succeed once the host has installed its RLN callbacks.
-  RequestStartRlnModule.setProvider(
-    ctx,
-    proc(configJson: string): Future[Result[RequestStartRlnModule, string]] {.async.} =
-      let response = ?await rlnStart(configJson)
-      # result-dialect call: surface a module-side failure as err so the
-      # caller does not proceed to registration on a dead module.
-      discard ?parseRlnResultEnvelope(response)
-      return ok(RequestStartRlnModule(response: response)),
-  ).isOkOr:
-    return err("Failed to set RequestStartRlnModule provider: " & error)
-
-  RequestRegisterRlnMembership.setProvider(
-    ctx,
-    proc(
-        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
-    ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
-      var optionsJson = newJArray()
-      for opt in options:
-        optionsJson.add(%*{"key": opt.key, "value": opt.value})
-      let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
-      # tstr-dialect call: failures arrive in-band under "error".
-      discard ?parseRlnTstrReply(response)
-      return ok(RequestRegisterRlnMembership(response: response)),
-  ).isOkOr:
-    return err("Failed to set RequestRegisterRlnMembership provider: " & error)
-
-  RequestValidateRlnProof.setProvider(
-    ctx,
-    proc(
-        message: WakuMessage,
-        registryId: RegistryId,
-        rlnIdentifier: RlnIdentifier,
-        timestamp: uint64,
-    ): Future[Result[RequestValidateRlnProof, string]] {.async.} =
-      let signalHex = message.toRLNSignal().toHex()
-      let proofJson = $(%*{"proof": message.proof.toHex()})
-      let response = ?await rlnValidateProof(
-        registryId, rlnIdentifier.toHex(), signalHex, timestamp, proofJson
-      )
-      let validation = ?parseRlnValidationResult(response)
-      return ok(RequestValidateRlnProof(validation: validation)),
-  ).isOkOr:
-    return err("Failed to set RequestValidateRlnProof provider: " & error)
-
-  # lez-gated: the legacy zerokit path registers its own provider for this request type
-  if lez:
-    RequestGenerateRlnProof.setProvider(
-      ctx,
-      proc(
-          message: WakuMessage,
-          registryId: RegistryId,
-          rlnIdentifier: RlnIdentifier,
-          timestamp: uint64,
-      ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-        let signalHex = message.toRLNSignal().toHex()
-        let response = ?await rlnGenerateProof(
-          registryId, rlnIdentifier.toHex(), signalHex, timestamp
-        )
-        let proofBytes = ?parseRlnGeneratedProof(response)
-        return ok(RequestGenerateRlnProof(proof: proofBytes)),
-    ).isOkOr:
-      return err("failed to set RequestGenerateRlnProof provider: " & error)
-
-  ok()
 
 proc logosdelivery_create_node(
     configJson: string

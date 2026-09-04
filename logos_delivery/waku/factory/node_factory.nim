@@ -447,16 +447,16 @@ proc startNode*(
   except CatchableError:
     return err("failed to start waku node: " & getCurrentExceptionMsg())
 
-  # Drive the external RLN module for the LEZ path. Runs at start rather than
-  # at mount: the host installs its RLN callbacks only after node creation
-  # returns. Best-effort: a missing module degrades RLN, not node startup.
+  # Start the external RLN module for the LEZ path and verify the node's
+  # existing membership. Runs at start rather than at mount: the host installs its RLN
+  # callbacks only after node creation returns. A missing module degrades
+  # RLN, not node startup; a verified unusable membership is fatal.
   if conf.rlnRelayConf.isSome() and conf.rlnRelayConf.get().lez:
     let rlnRelayConf = conf.rlnRelayConf.get()
     try:
-      # start() config for the external module: epoch_size_sec is REQUIRED and
-      # must equal this node's epoch size, so generators and validators derive
-      # the same epoch from a message timestamp; the registry is listed so its
-      # valid-root window is warmed immediately.
+      # epoch_size_sec must equal this node's epoch size so generators and
+      # validators derive the same epoch; listing the registry warms its
+      # valid-root window.
       let configJson = $(
         %*{
           "epoch_size_sec": rlnRelayConf.epochSizeSec,
@@ -468,28 +468,15 @@ proc startNode*(
         notice "RLN module start failed", reason = startRes.error()
       else:
         info "RLN module started", response = startRes.get().response
-        var options =
-          @[RegistryOption(key: "rate_limit", value: $rlnRelayConf.userMessageLimit)]
-        try:
-          let extra = parseJson(rlnRelayConf.registryOptionsJson)
-          if extra.kind == JObject:
-            for key, val in extra:
-              options.add(
-                RegistryOption(
-                  key: key, value: (if val.kind == JString: val.getStr()
-                  else: $val)
-                )
-              )
-        except CatchableError:
-          notice "ignoring unparseable rln registry options",
-            options = rlnRelayConf.registryOptionsJson
-        let regRes = await RequestRegisterRlnMembership.request(
-          node.brokerCtx, rlnRelayConf.registryId, rlnRelayConf.identifier, options
+        let stateRes = await RequestGetRlnMembershipState.request(
+          node.brokerCtx, rlnRelayConf.registryId, rlnRelayConf.identifier
         )
-        if regRes.isErr():
-          notice "RLN membership registration failed", reason = regRes.error()
-        else:
-          info "RLN membership registered", response = regRes.get().response
+        if stateRes.isErr():
+          return err("failed to get RLN membership state: " & stateRes.error())
+        let status = stateRes.get().state.status
+        if status notin {MembershipStatus.Active, MembershipStatus.GracePeriod}:
+          return err("the node does not have a usable RLN membership: " & $status)
+        info "RLN membership verified", status = $status
     except CatchableError:
       notice "RLN module bring-up failed", reason = getCurrentExceptionMsg()
 
