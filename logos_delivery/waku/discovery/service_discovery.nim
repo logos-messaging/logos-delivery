@@ -100,12 +100,10 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     ok(found)
 
   method startAdvertising(
-      self: ServiceDiscovery, key: string, data: seq[byte], record: seq[byte]
+      self: ServiceDiscovery, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
-    if record.len > 0:
-      return err("service backend: pre-signed advertisements not supported")
     let serviceId = ?serviceIdOf(key)
     self.inner.addServiceToAdvertise(ServiceInfo(id: serviceId, data: Opt.some(data)))
     ok()

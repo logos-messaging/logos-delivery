@@ -14,7 +14,7 @@
 ## FFI/MT lanes.
 
 import chronos, results
-import libp2p/[switch, crypto/crypto]
+import libp2p/[switch, peerinfo, crypto/crypto]
 import brokers/request_broker
 import
   logos_delivery/waku/waku_core,
@@ -28,6 +28,11 @@ RequestBroker(sync):
 
 RequestBroker(sync):
   proc getNodePeerManager(): Result[PeerManager, string]
+
+RequestBroker(sync):
+  # The switch's own PeerInfo: peer id, announced addresses, private key.
+  # (The external discovery backend signs this node's records with it.)
+  proc getNodePeerInfo(): Result[PeerInfo, string]
 
 RequestBroker(sync):
   # The node's current ENR (final after setupNode; refreshed on updateEnr).

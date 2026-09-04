@@ -271,6 +271,8 @@ proc new*(
     ok(waku.node.enr)
   discard GetNodeKey.reprovideIt(waku.brokerCtx):
     ok(waku.key)
+  discard GetNodePeerInfo.reprovideIt(waku.brokerCtx):
+    ok(waku.node.switch.peerInfo)
   discard GetDynamicBootstrapNodes.reprovideIt(waku.brokerCtx):
     ok(waku.dynamicBootstrapNodes)
 
