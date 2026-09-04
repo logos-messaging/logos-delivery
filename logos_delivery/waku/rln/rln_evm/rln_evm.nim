@@ -225,12 +225,6 @@ proc mount(
     brokerCtx: globalBrokerContext(),
   )
 
-<<<<<<< HEAD:logos_delivery/waku/rln/rln_evm/peer.nim
-=======
-  # Start epoch monitoring in the background
-  rlnEvm.epochMonitorFuture = monitorEpochs(rlnEvm)
-
->>>>>>> 71c0e061 (Re-rename rln_evm):logos_delivery/waku/rln/rln_evm/rln_evm.nim
   RequestGenerateRlnProof.setProvider(
     rlnEvm.brokerCtx,
     proc(
@@ -244,14 +238,10 @@ proc mount(
   ).isOkOr:
     return err("Proof generator provider cannot be set: " & $error)
 
-<<<<<<< HEAD:logos_delivery/waku/rln/rln_evm/peer.nim
   # Start epoch monitoring in the background
   rln.epochMonitorFuture = monitorEpochs(rln)
 
   return ok(rln)
-=======
-  return ok(rlnEvm)
->>>>>>> 71c0e061 (Re-rename rln_evm):logos_delivery/waku/rln/rln_evm/rln_evm.nim
 
 proc isReady*(rlnEvm: RlnEvm): Future[bool] {.async.} =
   ## returns true if the rln-relay protocol is ready to relay messages
