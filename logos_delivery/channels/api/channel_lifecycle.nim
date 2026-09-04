@@ -29,6 +29,14 @@ proc sdsPersistence(brokerCtx: BrokerContext): Opt[Persistence] =
     return Opt.none(Persistence)
   return Opt.some(newSdsPersistence(job))
 
+proc topicStillUsed(self: ReliableChannelManager, contentTopic: ContentTopic): bool =
+  ## True while any registered channel still needs the topic. Callers check
+  ## after removing (or before adding) their own channel.
+  for chn in self.channels.values:
+    if chn.getContentTopic() == contentTopic:
+      return true
+  return false
+
 proc createReliableChannel*(
     self: ReliableChannelManager,
     channelId: ChannelId,
@@ -51,11 +59,7 @@ proc createReliableChannel*(
       channelId = channelId, contentTopic = contentTopic
 
   let cc = self.conf
-  let segConfig = SegmentationConfig(
-    segmentSizeBytes: cc.segmentationSegmentSizeBytes.get(DefaultSegmentSizeBytes),
-    enableReedSolomon: cc.segmentationEnableReedSolomon.get(false),
-    persistence: nil,
-  )
+  let segConfig = ChannelSegmentationConfig.init(cc)
   let sdsConfig = SdsConfig(
     acknowledgementTimeoutMs:
       cc.sdsAcknowledgementTimeoutMs.get(DefaultAcknowledgementTimeoutMs),
@@ -71,7 +75,17 @@ proc createReliableChannel*(
     segConfig = segConfig,
     sdsConfig = sdsConfig,
     brokerCtx = self.brokerCtx,
-  )
+  ).valueOr:
+    ## Undo the subscription made above; no other channel needed the topic,
+    ## or this one would not have been the first to ask for it. Bound here
+    ## because the rollback's own `isOkOr` shadows `error`.
+    let createError = error
+    if not topicStillUsed(self, contentTopic) and
+        MessagingUnsubscribe.isProvided(self.brokerCtx):
+      MessagingUnsubscribe.request(self.brokerCtx, contentTopic).isOkOr:
+        debug "Failed to unsubscribe after a failed channel creation",
+          channelId = channelId, contentTopic = contentTopic, error = error
+    return err("failed to create reliable channel: " & createError)
 
   self.channels[channelId] = chn
   return ok(channelId)
@@ -96,12 +110,8 @@ proc closeChannel*(
 
   # After `stop` so in-flight sends cannot auto-resubscribe; best-effort.
   let contentTopic = chn.getContentTopic()
-  var topicStillUsed = false
-  for other in self.channels.values:
-    if other.getContentTopic() == contentTopic:
-      topicStillUsed = true
-      break
-  if not topicStillUsed and MessagingUnsubscribe.isProvided(self.brokerCtx):
+  if not topicStillUsed(self, contentTopic) and
+      MessagingUnsubscribe.isProvided(self.brokerCtx):
     MessagingUnsubscribe.request(self.brokerCtx, contentTopic).isOkOr:
       debug "Failed to unsubscribe closed channel's content topic",
         channelId = channelId, contentTopic = contentTopic, error = error

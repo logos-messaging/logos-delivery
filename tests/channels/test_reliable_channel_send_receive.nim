@@ -39,6 +39,18 @@ proc createApiNodeConf(): WakuNodeConf =
   conf.rest = false
   return conf
 
+proc oneSegment(payload: seq[byte]): seq[byte] =
+  ## The wire unit a peer actually sends: one encoded `SegmentMessage`. Every
+  ## payload wrapped here fits a single chunk, so this is the whole message.
+  let handler = SegmentationHandler
+    .new(
+      ChannelSegmentationConfig.init(ReliableChannelManagerConf()),
+      ChannelId("test"),
+      globalBrokerContext(),
+    )
+    .expect("SegmentationHandler.new")
+  return handler.performSegmentation(payload).expect("performSegmentation")[0]
+
 suite "Reliable Channel - ingress":
   asyncTest "manager dispatches marked WakuMessage to the right channel":
     ## Unit test for the receive side of the API: instead of standing
@@ -89,7 +101,7 @@ suite "Reliable Channel - ingress":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let sdsWire = (
       await remotePeer.wrapOutgoingMessage(
-        appPayload, "ingress-test-msg-1", SdsChannelID(channelId)
+        oneSegment(appPayload), "ingress-test-msg-1", SdsChannelID(channelId)
       )
     ).expect("wrapOutgoingMessage")
 
@@ -204,7 +216,7 @@ suite "Reliable Channel - ingress":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let sdsWire = (
       await remotePeer.wrapOutgoingMessage(
-        appPayload, "close-test-msg-1", SdsChannelID(channelId)
+        oneSegment(appPayload), "close-test-msg-1", SdsChannelID(channelId)
       )
     ).expect("wrapOutgoingMessage")
 
@@ -273,7 +285,7 @@ suite "Reliable Channel - ingress":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let sdsWire = (
       await remotePeer.wrapOutgoingMessage(
-        appPayload, "inflight-test-msg-1", SdsChannelID(channelId)
+        oneSegment(appPayload), "inflight-test-msg-1", SdsChannelID(channelId)
       )
     ).expect("wrapOutgoingMessage")
 
@@ -376,13 +388,13 @@ suite "Reliable Channel - send state machine":
     (await waku.stop()).expect("stop")
 
   asyncTest "two independent channelReqIds are finalised independently":
-    ## Two `send()` calls -> two independent `channelReqId`s, each with
-    ## one segment under the current segmentation skeleton
-    ## (`performSegmentation` always emits exactly one segment). The
-    ## fake `MessagingSend` provider returns distinct `messagingReqId`s; finalising
-    ## the first emits `ChannelMessageSentEvent` for its `channelReqId`,
-    ## finalising the second as a failure emits `ChannelMessageErrorEvent`
-    ## for the other.
+    ## Two `send()` calls -> two independent `channelReqId`s, each a
+    ## single segment because both payloads fit one chunk (the
+    ## multi-segment case is covered by the prune tests below). The fake
+    ## `MessagingSend` provider returns distinct `messagingReqId`s;
+    ## finalising the first emits `ChannelMessageSentEvent` for its
+    ## `channelReqId`, finalising the second as a failure emits
+    ## `ChannelMessageErrorEvent` for the other.
     const
       channelId = ChannelId("sm-multi-channel")
       contentTopic = ContentTopic("/reliable-channel/test/sm-multi")
@@ -467,16 +479,182 @@ suite "Reliable Channel - send state machine":
 
     (await waku.stop()).expect("stop")
 
-  asyncTest "TODO: channelReqId not pruned until ALL its segments are final":
-    ## Placeholder for the multi-sibling prune rule. Today's
-    ## `performSegmentation` (segmentation skeleton) always emits
-    ## exactly one segment per `send()`, so multiple siblings under one
-    ## `channelReqId` cannot be produced through the real pipeline.
-    ## Implement once segmentation does real chunking: send a payload
-    ## larger than `DefaultSegmentSizeBytes`, capture the N
-    ## `messagingReqId`s from a fake `MessagingSend` provider, finalise some, and
-    ## assert prune only fires once every sibling is final.
-    skip()
+  asyncTest "channelReqId not pruned until ALL its segments are final":
+    ## Multi-sibling prune rule: one `send()` of a payload spanning four
+    ## segments yields four `messagingReqId`s under a single
+    ## `channelReqId`. Finalising three of them must NOT emit the
+    ## channel-level terminal event; only the fourth may, and exactly once.
+    const
+      channelId = ChannelId("sm-prune-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-prune")
+
+    var waku: LogosDelivery
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
+      manager = waku.reliableChannelManager
+
+    setNoopEncryption()
+
+    var msgReqIds: seq[RequestId]
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        let id = RequestId("prune-msg-req-" & $(msgReqIds.len + 1))
+        msgReqIds.add(id)
+        return ok(id),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
+
+    discard manager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+
+    var sentCount = 0
+    let sentFut = newFuture[RequestId]("channel-sent")
+    discard ChannelMessageSentEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageSentEvent) {.async: (raises: []).} =
+          if evt.channelId == channelId:
+            sentCount.inc()
+            if not sentFut.finished():
+              sentFut.complete(evt.requestId)
+        ,
+      )
+      .expect("listen ChannelMessageSentEvent")
+
+    ## The channel is built from the same defaults, so this handler reports
+    ## the chunk size its segmentation actually uses.
+    let segHandler = SegmentationHandler
+      .new(
+        ChannelSegmentationConfig.init(ReliableChannelManagerConf()),
+        channelId,
+        brokerCtx,
+      )
+      .expect("SegmentationHandler.new")
+
+    ## Just over three chunks -> four data segments (parity is off by default).
+    let payload = newSeq[byte](3 * segHandler.chunkSize() + 1)
+    let channelReqId = (await manager.send(channelId, payload)).expect("send")
+
+    let dispatchDeadline = Moment.now() + 5.seconds
+    while Moment.now() < dispatchDeadline and msgReqIds.len < 4:
+      await sleepAsync(5.milliseconds)
+    check msgReqIds.len == 4
+
+    for i in 0 .. 2:
+      waku_message_events.MessageSentEvent.emit(
+        brokerCtx,
+        waku_message_events.MessageSentEvent(requestId: msgReqIds[i], messageHash: ""),
+      )
+    await sleepAsync(100.milliseconds)
+    check not sentFut.finished()
+
+    waku_message_events.MessageSentEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageSentEvent(requestId: msgReqIds[3], messageHash: ""),
+    )
+    let finalised = await sentFut.withTimeout(1.seconds)
+    check finalised
+    if finalised:
+      check sentFut.read() == channelReqId
+    ## One parent request, one terminal event — not one per segment.
+    await sleepAsync(50.milliseconds)
+    check sentCount == 1
+
+    (await waku.stop()).expect("stop")
+
+  asyncTest "a single failed segment fails the whole channelReqId":
+    ## Same four-segment send, but the last sibling fails: the parent must
+    ## finalise as `ChannelMessageErrorEvent` rather than as sent.
+    const
+      channelId = ChannelId("sm-prune-fail-channel")
+      contentTopic = ContentTopic("/reliable-channel/test/sm-prune-fail")
+
+    var waku: LogosDelivery
+    var manager: ReliableChannelManager
+    var brokerCtx: BrokerContext
+    lockNewGlobalBrokerContext:
+      brokerCtx = globalBrokerContext()
+      waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
+      manager = waku.reliableChannelManager
+
+    setNoopEncryption()
+
+    var msgReqIds: seq[RequestId]
+    MessagingSend.replaceProvider(
+      brokerCtx,
+      proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
+        let id = RequestId("prune-fail-msg-req-" & $(msgReqIds.len + 1))
+        msgReqIds.add(id)
+        return ok(id),
+    ).isOkOr:
+      raiseAssert "replaceProvider failed: " & error
+
+    discard manager
+      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .expect("createReliableChannel")
+
+    var sentFired = false
+    let erroredFut = newFuture[RequestId]("channel-errored")
+    discard ChannelMessageSentEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageSentEvent) {.async: (raises: []).} =
+          if evt.channelId == channelId:
+            sentFired = true
+        ,
+      )
+      .expect("listen ChannelMessageSentEvent")
+    discard ChannelMessageErrorEvent
+      .listen(
+        brokerCtx,
+        proc(evt: ChannelMessageErrorEvent) {.async: (raises: []).} =
+          if not erroredFut.finished() and evt.channelId == channelId:
+            erroredFut.complete(evt.requestId)
+        ,
+      )
+      .expect("listen ChannelMessageErrorEvent")
+
+    let segHandler = SegmentationHandler
+      .new(
+        ChannelSegmentationConfig.init(ReliableChannelManagerConf()),
+        channelId,
+        brokerCtx,
+      )
+      .expect("SegmentationHandler.new")
+    let payload = newSeq[byte](3 * segHandler.chunkSize() + 1)
+    let channelReqId = (await manager.send(channelId, payload)).expect("send")
+
+    let dispatchDeadline = Moment.now() + 5.seconds
+    while Moment.now() < dispatchDeadline and msgReqIds.len < 4:
+      await sleepAsync(5.milliseconds)
+    check msgReqIds.len == 4
+
+    for i in 0 .. 2:
+      waku_message_events.MessageSentEvent.emit(
+        brokerCtx,
+        waku_message_events.MessageSentEvent(requestId: msgReqIds[i], messageHash: ""),
+      )
+    await sleepAsync(100.milliseconds)
+    check not erroredFut.finished()
+
+    waku_message_events.MessageErrorEvent.emit(
+      brokerCtx,
+      waku_message_events.MessageErrorEvent(
+        requestId: msgReqIds[3], messageHash: "", error: "synthetic"
+      ),
+    )
+    let errored = await erroredFut.withTimeout(1.seconds)
+    check errored
+    if errored:
+      check erroredFut.read() == channelReqId
+    check not sentFired
+
+    (await waku.stop()).expect("stop")
 
   asyncTest "sibling MessageSentEvent during sendHandler await does not corrupt state":
     ## Regression test for the prune-during-await race
@@ -692,12 +870,12 @@ suite "Reliable Channel - SDS lifecycle":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let wire1 = (
       await remotePeer.wrapOutgoingMessage(
-        payload1, "causal-m1", SdsChannelID(channelId)
+        oneSegment(payload1), "causal-m1", SdsChannelID(channelId)
       )
     ).expect("wrap m1")
     let wire2 = (
       await remotePeer.wrapOutgoingMessage(
-        payload2, "causal-m2", SdsChannelID(channelId)
+        oneSegment(payload2), "causal-m2", SdsChannelID(channelId)
       )
     ).expect("wrap m2")
 
@@ -763,7 +941,7 @@ suite "Reliable Channel - SDS lifecycle":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let wire = (
       await remotePeer.wrapOutgoingMessage(
-        appPayload, "dup-m1", SdsChannelID(channelId)
+        oneSegment(appPayload), "dup-m1", SdsChannelID(channelId)
       )
     ).expect("wrap")
 
@@ -820,7 +998,9 @@ suite "Reliable Channel - SDS lifecycle":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let wire = (
       await remotePeer.wrapOutgoingMessage(
-        "not for you".toBytes(), "foreign-m1", SdsChannelID("some-other-channel")
+        oneSegment("not for you".toBytes()),
+        "foreign-m1",
+        SdsChannelID("some-other-channel"),
       )
     ).expect("wrap")
 
@@ -882,7 +1062,7 @@ suite "Reliable Channel - SDS lifecycle":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let wire = (
       await remotePeer.wrapOutgoingMessage(
-        appPayload, "restore-m1", SdsChannelID(channelId)
+        oneSegment(appPayload), "restore-m1", SdsChannelID(channelId)
       )
     ).expect("wrap")
 
@@ -963,7 +1143,7 @@ suite "Reliable Channel - SDS protocol semantics":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let wire1 = (
       await remotePeer.wrapOutgoingMessage(
-        "from remote".toBytes(), "semantics-m1", SdsChannelID(channelId)
+        oneSegment("from remote".toBytes()), "semantics-m1", SdsChannelID(channelId)
       )
     ).expect("wrap m1")
     let m1 = deserializeMessage(wire1).expect("deserialize m1")
@@ -1063,7 +1243,9 @@ suite "Reliable Channel - SDS protocol semantics":
       (await remotePeer.unwrapReceivedMessage(capturedWires[0])).expect("remote unwrap")
     let ackCarrier = (
       await remotePeer.wrapOutgoingMessage(
-        "any later message".toBytes(), "ack-carrier-1", SdsChannelID(channelId)
+        oneSegment("any later message".toBytes()),
+        "ack-carrier-1",
+        SdsChannelID(channelId),
       )
     ).expect("wrap ack carrier")
 
@@ -1126,7 +1308,7 @@ suite "Reliable Channel - SDS protocol semantics":
       wires.add(
         (
           await remotePeer.wrapOutgoingMessage(
-            payloads[i], "chain-m" & $(i + 1), SdsChannelID(channelId)
+            oneSegment(payloads[i]), "chain-m" & $(i + 1), SdsChannelID(channelId)
           )
         ).expect("wrap chain-m" & $(i + 1))
       )
@@ -1218,7 +1400,7 @@ suite "Reliable Channel - SDS protocol semantics":
       ReliabilityManager.new(SdsParticipantID("remote"), ReliabilityConfig.init())
     let wire = (
       await remotePeer.wrapOutgoingMessage(
-        appPayload, "sync-m1", SdsChannelID(channelId)
+        oneSegment(appPayload), "sync-m1", SdsChannelID(channelId)
       )
     ).expect("wrap")
     waku_message_events.MessageReceivedEvent.emit(
@@ -1294,7 +1476,7 @@ suite "Reliable Channel - SDS protocol semantics":
     for i in 1 .. 2:
       let wire = (
         await remotePeer.wrapOutgoingMessage(
-          appPayload, "unique-m" & $i, SdsChannelID(channelId)
+          oneSegment(appPayload), "unique-m" & $i, SdsChannelID(channelId)
         )
       ).expect("wrap " & $i)
       waku_message_events.MessageReceivedEvent.emit(

@@ -88,3 +88,63 @@ suite "Reliable Channel - lifecycle":
 
       (await manager.closeChannel(chnB)).expect("closeChannel b")
       check unsubscribed == @[topic]
+
+  asyncTest "a rejected segmentation config fails create and rolls the subscribe back":
+    ## `ReliableChannel.new` became fallible when segmentation started
+    ## validating its config, so `createReliableChannel` has to undo the
+    ## content-topic subscription it makes before constructing.
+    const
+      topic = ContentTopic("/reliable-channel/test/bad-config/proto")
+      chnGood = ChannelId("bad-config-good")
+      chnBad = ChannelId("bad-config-bad")
+
+    ## Below the package's minimum segment size, so every create fails.
+    let conf = ReliableChannelManagerConf(segmentationSegmentSizeBytes: Opt.some(64))
+
+    var subscribed: seq[ContentTopic]
+    var unsubscribed: seq[ContentTopic]
+    var manager: ReliableChannelManager
+    lockNewGlobalBrokerContext:
+      let brokerCtx = globalBrokerContext()
+      manager = ReliableChannelManager.new(conf).expect("ReliableChannelManager.new")
+      setNoopEncryption()
+
+      MessagingSubscribe
+        .setProvider(
+          brokerCtx,
+          proc(contentTopic: ContentTopic): Result[void, string] =
+            subscribed.add(contentTopic)
+            ok(),
+        )
+        .expect("setProvider MessagingSubscribe")
+      MessagingUnsubscribe
+        .setProvider(
+          brokerCtx,
+          proc(contentTopic: ContentTopic): Result[void, string] =
+            unsubscribed.add(contentTopic)
+            ok(),
+        )
+        .expect("setProvider MessagingUnsubscribe")
+
+      let res = manager.createReliableChannel(chnBad, topic, SdsParticipantID("bad"))
+      check res.isErr()
+      check not manager.channelExists(chnBad)
+      check subscribed == @[topic]
+      check unsubscribed == @[topic]
+
+      ## With a healthy manager holding the topic, a later failed create must
+      ## leave that subscription alone.
+      var good: ReliableChannelManager
+      good = ReliableChannelManager.new(ReliableChannelManagerConf()).expect(
+          "ReliableChannelManager.new good"
+        )
+      discard good
+        .createReliableChannel(chnGood, topic, SdsParticipantID("good"))
+        .expect("createReliableChannel good")
+      unsubscribed.setLen(0)
+      check manager.createReliableChannel(chnBad, topic, SdsParticipantID("bad")).isErr()
+      ## `manager` holds no channel on the topic, so it still unsubscribes;
+      ## the guard only protects channels of the same manager.
+      check unsubscribed == @[topic]
+
+      (await good.closeChannel(chnGood)).expect("closeChannel good")

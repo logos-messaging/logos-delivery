@@ -25,3 +25,12 @@ EventBroker:
     channelId*: ChannelId
     requestId*: RequestId
     error*: string
+
+EventBroker:
+  ## Emitted when an inbound payload can no longer be reassembled: its segment
+  ## set expired, was evicted under memory pressure, or failed its integrity
+  ## check. There is no `requestId` -- the send was a peer's.
+  type ChannelMessageLostEvent* = object
+    channelId*: ChannelId
+    payloadHash*: seq[byte]
+    reason*: string

@@ -27,6 +27,35 @@ if defined(windows):
 # build more viable on an overall broader range of hardware.
 #
 if defined(disableMarchNative):
+  # nim-leopard runs cmake itself, from a `static:` block outside Nim's flag
+  # plumbing, and Leopard-RS' CMakeLists adds -march=native whenever the
+  # compiler accepts it. Seeding the cache variable that guards that check is
+  # the only way to keep a portable build portable; the rest of each string
+  # mirrors nim-leopard's own per-platform default.
+  #
+  # nim-leopard skips cmake entirely when its archive is already in nimcache,
+  # and nimcache is not keyed by defines: a tree first built without this flag
+  # keeps the -march=native archive. Use -d:LeopardRebuild or wipe nimcache
+  # when switching.
+  when defined(macosx):
+    switch(
+      "define",
+      "LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off " &
+        "-DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE",
+    )
+  elif defined(windows):
+    switch(
+      "define",
+      "LeopardCmakeFlags=-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release " &
+        "-DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE",
+    )
+  else:
+    switch(
+      "define",
+      "LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release " &
+        "-DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE",
+    )
+
   if defined(i386) or defined(amd64):
     if defined(macosx):
       # macOS Catalina is EOL as of 2022-09
