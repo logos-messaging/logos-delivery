@@ -120,12 +120,10 @@ proc unlinkPending(target: ptr Pending) =
     p.next = target.next
 
 const
-  # Per-call response budgets, from the RLN module's documented time budgets
-  # (docs/wire-binding.md): register / generate_proof / get_membership_state
-  # may each perform one registry read (<= 70 s worst case), so they get 95 s;
-  # everything else is local computation and answers in milliseconds.
+  # Per-call response budgets. Add 10s to each request's documented worst case.
   RlnLocalTimeout = 10.seconds
-  RlnRegistryReadTimeout = 95.seconds
+  RlnRegistryReadTimeout = 80.seconds
+  RlnRegisterTimeout = 200.seconds
 
 proc awaitResult(
     p: ptr Pending, timeout: Duration
@@ -203,7 +201,7 @@ proc rlnRegister*(
     ud = gUserData
     linkPending(pending)
   cb(pending.reqId, registryId.cstring, rlnIdentifier.cstring, optionsJson.cstring, ud)
-  return await awaitResult(pending, RlnRegistryReadTimeout)
+  return await awaitResult(pending, RlnRegisterTimeout)
 
 proc rlnGetMembershipState*(
     registryId, rlnIdentifier: string
