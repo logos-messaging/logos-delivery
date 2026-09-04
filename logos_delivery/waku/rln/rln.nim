@@ -39,11 +39,14 @@ logScope:
   topics = "waku rln"
 
 proc stop*(rlnPeer: Rln) {.async: (raises: [Exception]).} =
-  ## stops the rln-relay protocol
-  ## Throws an error if it cannot stop the rln-relay protocol
+  ## stops the rln protocol and epochmonitoring
+  ## Throws an error if it cannot stop the rln protocol
+
+  if not rlnPeer.epochMonitorFuture.isNil:
+    await rlnPeer.epochMonitorFuture.cancelAndWait()
 
   # stop the group sync, and flush data to tree db
-  info "stopping rln-relay"
+  info "stopping rln"
   RequestGenerateRlnProof.clearProvider(rlnPeer.brokerCtx)
   await rlnPeer.groupManager.stop()
 
@@ -223,9 +226,6 @@ proc mount(
     brokerCtx: globalBrokerContext(),
   )
 
-  # Start epoch monitoring in the background
-  rln.epochMonitorFuture = monitorEpochs(rln)
-
   RequestGenerateRlnProof.setProvider(
     rln.brokerCtx,
     proc(
@@ -238,6 +238,9 @@ proc mount(
       return ok(RequestGenerateRlnProof(proof: proofBytes)),
   ).isOkOr:
     return err("Proof generator provider cannot be set: " & $error)
+
+  # Start epoch monitoring in the background
+  rln.epochMonitorFuture = monitorEpochs(rln)
 
   return ok(rln)
 
