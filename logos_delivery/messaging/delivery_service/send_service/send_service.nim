@@ -74,22 +74,21 @@ proc setupSendProcessorChain(
   let isRelayAvail = waku.hasRelay()
   let isLightPushAvail = waku.hasLightpush()
 
-  if anonymityLevel != AnonymityLevel.None and not isLightPushAvail:
-    return err("Mix sending needs a lightpush client, which is not mounted")
-
-  if anonymityLevel != AnonymityLevel.Required and not isRelayAvail and
-      not isLightPushAvail:
-    return err("No valid send processor found for the delivery task")
-
   var processors = newSeq[BaseSendProcessor]()
 
-  if anonymityLevel != AnonymityLevel.None:
+  case anonymityLevel
+  of AnonymityLevel.None:
+    discard
+  of AnonymityLevel.Preferred, AnonymityLevel.Required:
+    if not isLightPushAvail:
+      return err("Mix sending needs a lightpush client, which is not mounted")
+
     let mixProcessor: BaseSendProcessor =
       MixSendProcessor.new(waku, brokerCtx, anonymityLevel, MaxTimeInCache)
-    processors.add(mixProcessor)
-
     if anonymityLevel == AnonymityLevel.Required:
       return ok(mixProcessor)
+
+    processors.add(mixProcessor)
 
   if isRelayAvail:
     let publishProc = waku.relayPushHandler()
@@ -98,6 +97,9 @@ proc setupSendProcessorChain(
     )
   if isLightPushAvail:
     processors.add(LightpushSendProcessor.new(waku, brokerCtx))
+
+  if processors.len == 0:
+    return err("No valid send processor found for the delivery task")
 
   var currentProcessor: BaseSendProcessor = processors[0]
   for i in 1 ..< processors.len:

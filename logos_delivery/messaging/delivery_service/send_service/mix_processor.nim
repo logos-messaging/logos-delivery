@@ -35,7 +35,7 @@ proc mixWindowElapsed(self: MixSendProcessor, task: DeliveryTask): bool =
 
 method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.async.} =
   if self.mixWindowElapsed(task):
-    trace "Mix window elapsed, handing the task to the plain send path",
+    debug "Mix window elapsed",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
       admissionAge = task.admissionAge()
@@ -43,8 +43,7 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
     return
 
   if not self.waku.mixReady():
-    trace "Mix cannot publish yet (not enough nodes for a path), retrying next round",
-      requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+    debug "Mix not ready", requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.NextRoundRetry
     return
 
