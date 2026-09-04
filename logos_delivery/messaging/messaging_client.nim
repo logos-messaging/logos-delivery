@@ -39,7 +39,12 @@ proc new*(
   let rateLimitManager = ?RateLimitManager.new(
     conf.rateLimit.get(DefaultRateLimitConfig), rlnQuotaProvider(waku)
   )
-  let sendService = ?SendService.new(reliability, waku, rateLimitManager)
+  let sendService = ?SendService.new(
+    reliability,
+    waku,
+    rateLimitManager,
+    anonymityLevel = conf.anonymityLevel.get(AnonymityLevel.None),
+  )
   let recvService = RecvService.new(waku)
   return ok(
     T(

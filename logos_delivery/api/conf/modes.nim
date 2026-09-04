@@ -16,3 +16,8 @@ type EntryLayer* {.pure.} = enum
   kernel # transport kernel only; ignores `mode` and uses the config as-is
   messaging # kernel + messaging client
   channels # kernel + messaging + reliable channels
+
+type AnonymityLevel* {.pure.} = enum
+  None
+  Preferred
+  Required

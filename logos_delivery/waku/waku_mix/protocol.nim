@@ -22,7 +22,9 @@ import
 logScope:
   topics = "waku mix"
 
-const minMixPoolSize = 4
+const MinMixPoolSize* = 4
+  ## The smallest pool that mix can build a path from. `PathLength` is 3, and
+  ## with `exit_is_dest` the exit node is a pool member and not one of the hops.
 
 type
   WakuMix* = ref object of MixProtocol
@@ -56,16 +58,20 @@ proc processBootNodes(
         peerId = peerId, scheme = peerPubKey.scheme
       continue
 
-    let multiAddr = MultiAddress.init(node.multiAddr).valueOr:
-      error "Failed to parse multiaddress", multiAddr = node.multiAddr, error = error
-      continue
+    # The wire address, without the `/p2p/<id>` part. Mix compares pool
+    # addresses with its transport patterns, and the suffix stops the match.
+    let multiAddr = pInfo.addrs[0]
 
+    # The pool entry comes first: `nodePool.add` writes `Infinite` confidence,
+    # and libp2p does not lower a confidence that it holds.
     let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
     mix.nodePool.add(mixPubInfo)
     count.inc()
 
     peermgr.addPeer(
-      RemotePeerInfo.init(peerId, @[multiAddr], mixPubKey = Opt.some(node.pubKey))
+      RemotePeerInfo.init(
+        peerId, @[multiAddr], publicKey = peerPubKey, mixPubKey = Opt.some(node.pubKey)
+      )
     )
   mix_pool_size.set(count)
   info "using mix bootstrap nodes ", count = count
@@ -100,8 +106,9 @@ proc new*(
 
   processBootNodes(bootnodes, peermgr, m)
 
-  if m.nodePool.len < minMixPoolSize:
-    warn "publishing with mix won't work until atleast 3 mix nodes in node pool"
+  if m.nodePool.len < MinMixPoolSize:
+    info "Mix cannot publish yet, waiting for more mix nodes",
+      poolSize = m.nodePool.len, required = MinMixPoolSize
   return ok(m)
 
 proc poolSize*(mix: WakuMix): int =
