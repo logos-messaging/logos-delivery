@@ -9,8 +9,8 @@
 #
 #   the Nim flags a make variable produces
 #   the commands make would run for a target
-#   the generated constraints against nimble.lock
 #   the command a Nimble task emits
+#   nix/deps.nix against nimble.lock
 #
 # A failed case prints the expected and the actual value.
 #
@@ -51,18 +51,6 @@ no() {
     printf '          %s\n' "${line}"
   done
   fail=$((fail + 1))
-}
-
-# name, python program. The program prints "ok" or the reason it failed.
-expect_python() {
-  local name=$1 prog=$2
-  local got
-  got=$(python3 -c "${prog}" 2>&1)
-  if [ "${got}" = "ok" ]; then
-    ok "${name}"
-  else
-    no "${name}" "${got}"
-  fi
 }
 
 # Return the commands make would run for a target. -B ignores timestamps.
@@ -293,47 +281,52 @@ expect_make_fails  "an arbitrary unknown target fails"  definitely-not-a-target
 expect_make_parses "make test <file> still parses"      test tests/all_tests_waku.nim
 
 # --------------------------------------------------------------------------
-# Nimble reads the constraints only from an attached --requires:<value>. A
-# separate argument leaves the value empty and Nimble discards nimble.lock.
+# Setup and the custom tasks build with the Nim on PATH.
 # --------------------------------------------------------------------------
-expect_recipe "setup attaches the constraints" \
-  '--requires:"$(cat requires.generated)"' nimbledeps/.nimble-setup
-reject_recipe "setup does not pass them as a separate argument" \
-  '--requires "' nimbledeps/.nimble-setup
-expect_recipe "custom tasks attach the constraints" \
-  '--requires:"$(cat requires.generated)"' wakunode2
-reject_recipe "custom tasks do not pass them as a separate argument" \
-  '--requires "' wakunode2
-
-# The constraints come from nimble.lock through the generator, and the audit
-# checks the result against the same lock.
-expect_recipe "setup regenerates the constraints first" \
-  "gen_requires.nims" nimbledeps/.nimble-setup
+expect_recipe "setup uses the system Nim" \
+  '--useSystemNim' nimbledeps/.nimble-setup
+expect_recipe "custom tasks use the system Nim" \
+  '--useSystemNim' wakunode2
 expect_recipe "setup audits the result" \
   "audit-deps" nimbledeps/.nimble-setup
+expect_recipe "build-deps audits after the native rebuilds" \
+  "audit-deps" build-deps
+expect_recipe "build-deps installs the pinned Nimble" \
+  "install_nimble.sh" build-deps
 
 # --------------------------------------------------------------------------
-# The constraints are generated from nimble.lock. A named constraint must
-# give the locked version, a URL constraint the locked revision.
+# Recipes run the pinned Nimble by path.
 # --------------------------------------------------------------------------
-expect_python "the constraints agree with nimble.lock" "import json
-lock = json.load(open(\"nimble.lock\"))[\"packages\"]
-gen = [c.strip() for c in open(\"requires.generated\").read().split(\";\") if c.strip()]
-def norm(u): return u.lower().rstrip(\"/\").removesuffix(\".git\")
-byurl = {norm(v[\"url\"]): v for v in lock.values() if \"url\" in v}
-bad = []
-for c in gen:
-    if \" == \" in c:
-        n, v = c.split(\" == \")
-        if lock.get(n, {}).get(\"version\") != v:
-            bad.append(c + \" (lock has \" + str(lock.get(n, {}).get(\"version\")) + \")\")
-    elif c.startswith(\"http\") and \"#\" in c:
-        u, rev = c.rsplit(\"#\", 1)
-        if byurl.get(norm(u), {}).get(\"vcsRevision\") != rev:
-            bad.append(c)
-    else:
-        bad.append(\"unrecognised form: \" + c)
-print(\"ok\" if not bad else \"constraints disagree with nimble.lock: \" + \"; \".join(bad[:3]))"
+nimble_dir=$(value_of NIMBLE_TOOLDIR)
+if [ -z "${nimble_dir}" ]; then
+  no "NIMBLE_TOOLDIR resolves" "make -pn shows no NIMBLE_TOOLDIR"
+else
+  ok "NIMBLE_TOOLDIR resolves"
+fi
+expect_recipe "setup invokes the pinned Nimble by path" \
+  "${nimble_dir}/nimble setup" nimbledeps/.nimble-setup
+expect_recipe "custom tasks invoke the pinned Nimble by path" \
+  "${nimble_dir}/nimble wakunode2" wakunode2
+
+# --------------------------------------------------------------------------
+# nix/deps.nix must list every git lock entry at its locked revision. The Nix
+# build reads deps.nix, not the lock.
+# --------------------------------------------------------------------------
+nix_lock_diff() {
+  python3 - <<'NIXCHECK'
+import json, re
+norm = lambda u: u.lower().rstrip("/").removesuffix(".git")
+lock = json.load(open("nimble.lock"))["packages"]
+nix = {norm(u): r for u, r in re.findall(
+    r'url = "([^"]+)";\s*\n\s*rev = "([^"]+)";', open("nix/deps.nix").read())}
+want = {norm(e["url"]): e["vcsRevision"] for n, e in lock.items()
+        if n not in ("nim", "nimble") and e.get("downloadMethod") == "git"}
+bad = [f"{u}: lock {r}, nix {nix.get(u, 'missing')}" for u, r in want.items() if nix.get(u) != r]
+bad += [f"{u}: in nix/deps.nix only" for u in nix if u not in want]
+print("; ".join(sorted(bad)) if bad else "ok", end="")
+NIXCHECK
+}
+expect_eq "nix/deps.nix lists the locked revisions" "ok" "$(nix_lock_diff 2>&1)"
 
 # --------------------------------------------------------------------------
 # The Nimble tasks concatenate their own defaults with NIM_PARAMS. The
@@ -355,21 +348,21 @@ else
 fi
 
 # --------------------------------------------------------------------------
-# The build installs a pinned Nimble revision and puts it first on PATH. The
-# release with the same version number is a different build and reports the
-# same version, so check the revision. The case above already ran a build,
-# which installs it.
+# A 40-hex pin is a git revision. Any other pin is a release version.
 # --------------------------------------------------------------------------
 # print-nimble-path is what the README tells a developer to use, so test that,
 # not a second way of finding the same binary.
 tooldir=$(make print-nimble-path 2>/dev/null)
-expect_eq "print-nimble-path names the pinned revision" \
-  "$(value_of REQUIRED_NIMBLE_REVISION)" \
-  "$("${tooldir}/nimble" --version 2>/dev/null | sed -n 's/^git hash: //p')"
+pin=$(value_of REQUIRED_NIMBLE_PIN)
+case "${pin}" in
+  *[!0-9a-f]*|"") reported=$("${tooldir}/nimble" --version 2>/dev/null | head -1 \
+                    | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1) ;;
+  *) reported=$("${tooldir}/nimble" --version 2>/dev/null | sed -n 's/^git hash: //p') ;;
+esac
+expect_eq "print-nimble-path names the pinned Nimble" "${pin#v}" "${reported}"
 
-# ~/.nimble/bin/nimble is a link that `nimble setup` rewrites. It must not
-# shadow the pinned binary.
-expect_eq "the pinned Nimble is the one make runs" \
+# The pinned directory must precede ~/.nimble/bin on make's PATH.
+expect_eq "the pinned Nimble is first on make's PATH" \
   "${tooldir}/nimble" \
   "$(printf 'include Makefile\n_p:\n\t@command -v nimble\n' | make -s -f - _p 2>/dev/null)"
 

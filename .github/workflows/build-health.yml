@@ -5,7 +5,6 @@ on:
 
 env:
   NIM_VERSION: '2.2.6'
-  NIMBLE_VERSION: '0.24.1'
 
 jobs:
   build-health:
@@ -24,7 +23,9 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
         with:
-          nimble-version: ${{ env.NIMBLE_VERSION }}
           nim-version: ${{ env.NIM_VERSION }}
 
       - uses: ./.github/actions/check-build-health
+
+      - name: Audit installed deps
+        run: make audit-deps
