@@ -16,7 +16,6 @@ env:
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} -d:disableMarchNative -d:chronicles_colors:none"
   NIM_VERSION: '2.2.6'
-  NIMBLE_VERSION: '0.24.1'
 
 # This workflow should not run for outside contributors
 # If org secrets are not available, we'll avoid building and publishing the docker image and we'll pass the workflow
@@ -59,7 +58,6 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         uses: ./.github/actions/nimble-deps
         with:
-          nimble-version: ${{ env.NIMBLE_VERSION }}
           nim-version: ${{ env.NIM_VERSION }}
 
       - name: Build binaries
