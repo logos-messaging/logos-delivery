@@ -23,6 +23,10 @@ let
 
   nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
+         # nix's cc-wrapper drops -march=native (NIX_ENFORCE_NO_NATIVE), so the
+         # build must not depend on it. This also hands nim-leopard's own cmake
+         # an explicit ISA baseline; see config.nims.
+         "--define:disableMarchNative"
          "--define:git_version=${gitVersion}" ]
     ++ pkgs.lib.optional enablePostgres       "--define:postgres"
     ++ pkgs.lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
