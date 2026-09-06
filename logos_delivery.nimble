@@ -373,6 +373,9 @@ task test, "Build & run Waku tests":
 task testwakunode2, "Build & run wakunode2 app tests":
   test "all_tests_wakunode2"
 
+task testlogosdelivery, "Build & run Logos Delivery API layer tests":
+  test "all_tests_logos_delivery"
+
 task example2, "Build Waku examples":
   buildBinary "api_example", "examples/api_example/"
   buildBinary "publisher", "examples/"
