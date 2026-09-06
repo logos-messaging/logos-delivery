@@ -147,6 +147,67 @@ suite "Waku Core - Peers":
     check:
       parsePeerInfo(address).isErr()
 
+  test "Peer address list parses a single address":
+    ## Given
+    let address =
+      "/ip4/127.0.0.1/tcp/65002/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+
+    ## When
+    let remotePeerInfoRes = parsePeerAddrList(address)
+    require remotePeerInfoRes.isOk()
+
+    ## Then
+    let remotePeerInfo = remotePeerInfoRes.value
+    check:
+      $(remotePeerInfo.peerId) == "16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+      remotePeerInfo.addrs.len == 1
+
+  test "Peer address list keeps every address of the peer":
+    ## Given
+    let addresses =
+      "/ip4/127.0.0.1/tcp/65002/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc," &
+      "/ip4/10.0.0.1/tcp/65003/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+
+    ## When
+    let remotePeerInfoRes = parsePeerAddrList(addresses)
+    require remotePeerInfoRes.isOk()
+
+    ## Then
+    let remotePeerInfo = remotePeerInfoRes.value
+    check:
+      $(remotePeerInfo.peerId) == "16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+      remotePeerInfo.addrs.len == 2
+      $(remotePeerInfo.addrs[0][0].tryGet()) == "/ip4/127.0.0.1"
+      $(remotePeerInfo.addrs[1][0].tryGet()) == "/ip4/10.0.0.1"
+
+  test "Peer address list tolerates whitespace and empty entries":
+    ## Given
+    let addresses =
+      " /ip4/127.0.0.1/tcp/65002/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc , ," &
+      " /ip4/10.0.0.1/tcp/65003/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc "
+
+    ## Then
+    let remotePeerInfoRes = parsePeerAddrList(addresses)
+    require remotePeerInfoRes.isOk()
+    check:
+      remotePeerInfoRes.value.addrs.len == 2
+
+  test "Peer address list rejects addresses of different peers":
+    ## Given
+    let addresses =
+      "/ip4/127.0.0.1/tcp/65002/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc," &
+      "/ip4/10.0.0.1/tcp/65003/p2p/16Uiu2HAmVGHwfEi4kiNvuK6xVwGB2WeHoZNU1FgTUgZ8QvxiMqQw"
+
+    ## Then
+    check:
+      parsePeerAddrList(addresses).isErr()
+
+  test "Peer address list rejects an empty list":
+    ## Then
+    check:
+      parsePeerAddrList("").isErr()
+      parsePeerAddrList(" , ").isErr()
+
   test "ENRs capabilities are filled when creating RemotePeerInfo":
     let
       enrSeqNum = 1u64

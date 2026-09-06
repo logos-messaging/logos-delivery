@@ -34,11 +34,13 @@ proc storeQueryToAny*(
 proc storeQuery*(
     self: Waku, request: StoreQueryRequest, peer: string, timeoutMs: int
 ): Future[Result[StoreQueryResponse, string]] {.async.} =
+  ## Runs a store query against one store peer. `peer` is one fully qualified
+  ## multiaddress, or several for the same peer separated by commas.
   try:
     if self.node.wakuStoreClient.isNil():
       return err("wakuStoreClient is not mounted")
 
-    let remotePeer = parsePeerInfo(peer).valueOr:
+    let remotePeer = parsePeerAddrList(peer).valueOr:
       return err("storeQuery failed to parse peer addr: " & $error)
 
     let queryFut = self.node.wakuStoreClient.query(request, remotePeer)
