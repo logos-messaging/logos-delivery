@@ -21,41 +21,80 @@ if defined(windows):
     # set the IMAGE_FILE_LARGE_ADDRESS_AWARE flag so we can use PAE, if enabled, and access more than 2 GiB of RAM
     switch("passL", "-Wl,--large-address-aware")
 
+# Leopard-RS is built by nim-leopard, which shells out to cmake from a `static:`
+# block outside Nim's flag plumbing: nothing passed with --passC/--cpu/--os
+# reaches Leopard-RS' compiler, so every knob it has -- all strdefines -- has to
+# be assembled here.
+#
+# nim-leopard also skips cmake entirely when its archive is already in nimcache,
+# and nimcache is not keyed by defines: a tree first built with other flags keeps
+# the old archive. Use -d:LeopardRebuild or wipe nimcache when switching.
+if defined(android):
+  # cmake runs on the build host, so left alone it hands Leopard-RS the host's
+  # x86-64 compiler and produces an archive that cannot link into the target
+  # .so. Point it at the same NDK clang this file gives Nim, and define ANDROID
+  # so Leopard-RS takes its LEO_TARGET_MOBILE path instead of including
+  # <tmmintrin.h>. -march=native must stay off even here: the x86_64 ABI's NDK
+  # clang accepts it, and would then tune for the build machine.
+  let ndkClang = getEnv("ANDROID_TOOLCHAIN_DIR") & "/bin/" & getEnv("ANDROID_COMPILER")
+  switch(
+    "define",
+    "LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off" &
+      " -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE -DCMAKE_SYSTEM_NAME=Linux" &
+      " -DCMAKE_C_COMPILER=" & ndkClang & " -DCMAKE_CXX_COMPILER=" & ndkClang &
+      "++ -DCMAKE_CXX_FLAGS=-DANDROID",
+  )
+  # nim-leopard's non-macOS defaults add -fopenmp, and the NDK resolves its
+  # -lomp to a shared libomp.so that every consumer of our .so would then have
+  # to ship. Leopard is built without OpenMP above, so drop it on this side too.
+  switch("define", "LeopardExtraCompilerFlags=-fno-openmp")
+  switch("define", "LeopardExtraLinkerFlags=-fno-openmp")
+  # Leopard-RS is C++ and allocates its tables with `new[]`. Everywhere else Nim
+  # notices the mixed-mode build and links through the C++ driver, which brings
+  # the runtime in by itself; here the android section below pins
+  # clang.linkerexe to the NDK's C driver, which does not. Name libc++
+  # explicitly, and take the static one so the .so stays self-contained -- a
+  # -shared link does not fail on the missing symbols, it just defers them to
+  # dlopen on the device.
+  switch("passL", "-lc++_static")
+  switch("passL", "-lc++abi")
+elif defined(disableMarchNative):
+  # Leopard-RS' CMakeLists adds -march=native whenever the compiler accepts it.
+  # Seed the cache variable guarding that probe so a portable build stays
+  # portable -- and hand leopard the same x86 baseline this file gives the C
+  # compiler below, because Leopard-RS includes <tmmintrin.h> unconditionally and
+  # its SSSE3 intrinsics (_mm_shuffle_epi8) do not compile without an enabling
+  # flag. Its AVX2 paths are gated on __AVX2__, so they drop out on their own.
+  var leopardCxxFlags = ""
+  if defined(i386) or defined(amd64):
+    if defined(macosx):
+      leopardCxxFlags = " -DCMAKE_CXX_FLAGS=-march=haswell"
+    elif defined(marchOptimized):
+      leopardCxxFlags = " -DCMAKE_CXX_FLAGS=-march=x86-64-v2"
+    else:
+      leopardCxxFlags = " -DCMAKE_CXX_FLAGS=-mssse3"
+
+  # Mirrors nim-leopard's own per-platform default, less -march=native.
+  let leopardCmakeBase =
+    if defined(macosx):
+      "-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off"
+    elif defined(windows):
+      "-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release"
+    else:
+      "-DCMAKE_BUILD_TYPE=Release"
+
+  switch(
+    "define",
+    "LeopardCmakeFlags=" & leopardCmakeBase & " -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
+      leopardCxxFlags,
+  )
+
 # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#ssse3-supplemental-sse3
 # suggests that SHA256 hashing with SSSE3 is 20% faster than without SSSE3, so
 # given its near-ubiquity in the x86 installed base, it renders a distribution
 # build more viable on an overall broader range of hardware.
 #
 if defined(disableMarchNative):
-  # nim-leopard runs cmake itself, from a `static:` block outside Nim's flag
-  # plumbing, and Leopard-RS' CMakeLists adds -march=native whenever the
-  # compiler accepts it. Seeding the cache variable that guards that check is
-  # the only way to keep a portable build portable; the rest of each string
-  # mirrors nim-leopard's own per-platform default.
-  #
-  # nim-leopard skips cmake entirely when its archive is already in nimcache,
-  # and nimcache is not keyed by defines: a tree first built without this flag
-  # keeps the -march=native archive. Use -d:LeopardRebuild or wipe nimcache
-  # when switching.
-  when defined(macosx):
-    switch(
-      "define",
-      "LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off " &
-        "-DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE",
-    )
-  elif defined(windows):
-    switch(
-      "define",
-      "LeopardCmakeFlags=-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release " &
-        "-DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE",
-    )
-  else:
-    switch(
-      "define",
-      "LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release " &
-        "-DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE",
-    )
-
   if defined(i386) or defined(amd64):
     if defined(macosx):
       # macOS Catalina is EOL as of 2022-09
