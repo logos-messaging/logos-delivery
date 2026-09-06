@@ -40,6 +40,7 @@ if defined(android):
   switch(
     "define",
     "LeopardCmakeFlags=-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off" &
+      " -DCMAKE_POSITION_INDEPENDENT_CODE=ON" &
       " -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE -DCMAKE_SYSTEM_NAME=Linux" &
       " -DCMAKE_C_COMPILER=" & ndkClang & " -DCMAKE_CXX_COMPILER=" & ndkClang &
       "++ -DCMAKE_CXX_FLAGS=-DANDROID",
@@ -83,9 +84,15 @@ elif defined(disableMarchNative):
     else:
       "-DCMAKE_BUILD_TYPE=Release"
 
+  # -fPIC: Leopard-RS builds a static archive, and on ELF that archive also has
+  # to go into liblogosdelivery.so. Only the shared-library target needs it, and
+  # config.nims cannot tell which target is being built, so ask for it always --
+  # elsewhere it is already the default (Mach-O, the NDK, nixpkgs' hardening),
+  # which is why a non-PIC archive got this far unnoticed.
   switch(
     "define",
-    "LeopardCmakeFlags=" & leopardCmakeBase & " -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
+    "LeopardCmakeFlags=" & leopardCmakeBase &
+      " -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
       leopardCxxFlags,
   )
 
