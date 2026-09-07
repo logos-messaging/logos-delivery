@@ -180,14 +180,17 @@ jobs:
           if-no-files-found: error
 
   # Attach the built packages to the GitHub release for the tag. pre-release.yml
-  # creates the release for rc tags; for a final tag this job creates a draft so
-  # the release owner only has to add notes and publish.
+  # creates the rc release from the same push; a final release is created with
+  # `gh release create vX.Y.Z`, which pushes the tag and so exists before this runs.
   attach-to-release:
     if: startsWith(github.ref, 'refs/tags/')
     needs: build-and-upload
     runs-on: ubuntu-22.04
     permissions:
       contents: write
+    env:
+      GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      TAG: ${{ github.ref_name }}
     steps:
       - name: Download packages
         uses: actions/download-artifact@v4
@@ -195,33 +198,17 @@ jobs:
           path: dist
           merge-multiple: true
 
-      - name: Create the release if none exists yet
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
+      - name: Wait for the release
         run: |
           set -euo pipefail
-          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
-            echo "release $TAG exists"
-            exit 0
-          fi
-          if [[ "$TAG" == *-* ]]; then
-            # pre-release.yml creates the rc release; wait for it rather than race.
-            for _ in $(seq 1 30); do
-              sleep 60
-              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && exit 0
-            done
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
-              --title "$TAG" --notes "Release notes pending."
-          else
-            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
-              --title "$TAG" --notes "Release notes pending."
-          fi
+          for _ in $(seq 1 15); do
+            gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && exit 0
+            sleep 60
+          done
+          echo "::error::No GitHub release for $TAG. Create it (gh release create $TAG) and re-run this workflow."
+          exit 1
 
       - name: Upload packages to the release
-        env:
-          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-          TAG: ${{ github.ref_name }}
         run: |
           set -euo pipefail
           ls -l dist

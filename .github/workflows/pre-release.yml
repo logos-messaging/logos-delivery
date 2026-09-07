@@ -274,12 +274,6 @@ jobs:
 
           TARGET=$([[ "$TAG" == "nightly" ]] && echo "--target ${{steps.vars.outputs.ref}}" || echo "")
 
-          if gh release view "$TAG" >/dev/null 2>&1; then
-            # release-assets.yml created it first; add our files to it.
-            gh release edit "$TAG" --prerelease --title "$TAG" --notes-file release_notes.md
-            gh release upload "$TAG" wakunode2/* wakutools/* --clobber
-          else
-            gh release create "$TAG" --prerelease ${TARGET} \
-              --title "$TAG" --notes-file release_notes.md \
-              wakunode2/* wakutools/*
-          fi
+          gh release create "$TAG" --prerelease ${TARGET} \
+            --title "$TAG" --notes-file release_notes.md \
+            wakunode2/* wakutools/*
