@@ -10,7 +10,7 @@ on:
         default: ""
   schedule:
     # After pre-release.yml (03:13) has refreshed quay.io/wakuorg/nwaku-pr:nightly.
-    - cron: '47 4 * * *'
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       default_nwaku:
