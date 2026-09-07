@@ -47,6 +47,8 @@ jobs:
       NODE_1: ${{ inputs.node1 }}
       NODE_2: ${{ inputs.node2 }}
       ADDITIONAL_NODES: ${{ inputs.additional_nodes }}
+      # Tests marked slow run only on the nightly cron and manual dispatch.
+      PYTEST_ADDOPTS: ${{ github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' && '-m "not slow"' || '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
