@@ -221,13 +221,18 @@ proc send*(
     ## Segments arrive already encoded; the segmentation module owns
     ## the wire format so SDS only ever sees opaque bytes.
     let sdsBytes = (await self.sdsHandler.wrapOutgoing(segmentBytes)).valueOr:
+      debug "SDS wrap failed",
+        channelId = self.channelId,
+        error = error,
+        wrapped = sdsSegments.len,
+        total = segments.len
       return err("SDS wrap failed: " & error)
     sdsSegments.add(sdsBytes)
 
   self.channelReqs[channelReqId] =
     ChannelReqState.init(persistenceReqType, sdsSegments.len)
 
-  for sdsBytes in sdsSegments:
+  for i, sdsBytes in sdsSegments:
     ## A close can land on any of the awaits below. `stop` has already dropped
     ## the listeners, so neither the segments still in flight nor the ones not
     ## yet dispatched can ever be finalised: the request would sit at
@@ -235,6 +240,8 @@ proc send*(
     ## and fail the send rather than hand back a `RequestId` that goes quiet.
     if self.closed:
       self.channelReqs.del(channelReqId)
+      debug "Channel closed mid-send, some segments already reached the wire",
+        channelId = self.channelId, dispatched = i, total = sdsSegments.len
       return err("channel closed mid-send")
 
     ## TODO: revisit which fields of the SDS message must be encrypted.
