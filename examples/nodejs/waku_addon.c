@@ -86,7 +86,8 @@ static void CallJs(napi_env env, napi_value js_cb, void* context, void* data) {
   free(data);
 }
 
-void handle_waku_version(int callerRet, const char* msg, size_t len) {
+// LogosDeliveryScalarRawFn
+void handle_waku_version(int callerRet, char* msg, size_t len, void* userData) {
   if (ref_version_callback == NULL) {
     napi_throw_type_error(my_env, NULL, "ERROR in event_handler. ref_version_callback == NULL");
   }
@@ -112,7 +113,8 @@ void handle_waku_version(int callerRet, const char* msg, size_t len) {
 
 // This function is directly passed as a callback to the libwaku and it
 // calls a NodeJs function if it has been set.
-void event_handler(int callerRet, const char* msg, size_t len) {
+// FFICallback: the event-listener registry shape.
+void event_handler(int callerRet, const char* msg, size_t len, void* userData) {
   if (thsafe_fn == NULL) {
   // if (ref_event_callback == NULL) {
     napi_throw_type_error(my_env, NULL, "ERROR in event_handler. ref_event_callback == NULL");
@@ -124,7 +126,20 @@ void event_handler(int callerRet, const char* msg, size_t len) {
   NAPI_CALL(napi_call_threadsafe_function(thsafe_fn, allocated_msg, napi_tsfn_nonblocking));
 }
 
-void handle_error(int callerRet, const char* msg, size_t len) {
+// LogosDelivery*ReplyFn: failure text arrives in its own argument.
+// LogosDeliveryScalarRawFn view of the same reporting.
+void event_handler_raw(int callerRet, char* msg, size_t len, void* userData) {
+  event_handler(callerRet, msg, len, userData);
+}
+
+// LogosDeliveryCreateRawFn view: no length, failure text in its own argument.
+void event_handler_create(int errCode, const char* reply, const char* errMsg, void* userData) {
+  const char* text = reply != NULL ? reply : (errMsg != NULL ? errMsg : "");
+  event_handler(errCode, text, strlen(text), userData);
+}
+
+void handle_error(int errCode, const char* reply, const char* errMsg, void* userData) {
+  const char* msg = reply != NULL ? reply : (errMsg != NULL ? errMsg : "");
   if (ref_on_error_callback == NULL) {
     napi_throw_type_error(my_env, NULL, "ERROR in event_handler. ref_on_error_callback == NULL");
   }
@@ -145,16 +160,17 @@ void handle_error(int callerRet, const char* msg, size_t len) {
 }
 
 char* contentTopic = NULL;
-void handle_content_topic(int callerRet, const char* msg, size_t len) {
+void handle_content_topic(int errCode, const char* reply, const char* errMsg, void* userData) {
     if (contentTopic != NULL) {
         free(contentTopic);
     }
 
-    contentTopic = malloc(len * sizeof(char) + 1);
-    strcpy(contentTopic, msg);
+    contentTopic = malloc(strlen(reply) + 1);
+    strcpy(contentTopic, reply);
 }
 
-void handle_default_pubsub_topic(int callerRet, const char* msg, size_t len) {
+// LogosDeliveryScalarRawFn
+void handle_default_pubsub_topic(int callerRet, char* msg, size_t len, void* userData) {
   if (ref_def_pubsub_topic_callback == NULL) {
     napi_throw_type_error(my_env, NULL,
            "ERROR in event_handler. ref_def_pubsub_topic_callback == NULL");
@@ -200,7 +216,9 @@ static napi_value WakuNew(napi_env env, napi_callback_info info) {
   str_size = str_size + 1;
   napi_get_value_string_utf8(env, args[0], jsonConfig, str_size, &str_size_read);
 
-  ctx = logosdelivery_create_node(jsonConfig, event_handler, userData);
+  ctx = logosdelivery_create_node(
+      &(LogosdeliveryCreateNodeCtorReq){.configJson = jsonConfig},
+      event_handler_create, userData);
 
   free(jsonConfig);
 
@@ -298,7 +316,7 @@ static napi_value WakuSetEventCallback(napi_env env, napi_callback_info info) {
 }
 
 static napi_value WakuStart(napi_env env, napi_callback_info info) {
-  logosdelivery_start_node(ctx, event_handler, userData);
+  logosdelivery_start_node(ctx, event_handler_raw, userData);
   return NULL;
 }
 
@@ -355,7 +373,9 @@ static napi_value WakuConnect(napi_env env, napi_callback_info info) {
   my_env = env;
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_on_error_callback));
 
-  WAKU_CALL(waku_connect(ctx, peers, timeoutMs, handle_error, userData));
+  WAKU_CALL(waku_connect(ctx, handle_error, userData,
+                         &(WakuConnectReq){.peerMultiAddr = peers,
+                                          .timeoutMs = timeoutMs}));
 
   // Free allocated memory
   free(peers);
@@ -426,13 +446,12 @@ static napi_value WakuRelayPublish(napi_env env, napi_callback_info info) {
   char *msgPayload = b64_encode((unsigned char*) msg, strlen(msg));
 
   // TODO: move all the 'waku_content_topic' logic inside the libwaku
-  WAKU_CALL( waku_content_topic(ctx,
-                                "appName",
-                                1,
-                                content_topic_name,
-                                "encoding",
-                                handle_content_topic,
-                                userData) );
+  WAKU_CALL( waku_content_topic(ctx, handle_content_topic, userData,
+                                &(WakuContentTopicReq){
+                                    .appName = "appName",
+                                    .appVersion = 1,
+                                    .contentTopicName = content_topic_name,
+                                    .encoding = "encoding"}) );
   snprintf(jsonWakuMsg,
            1024,
            "{\"payload\":\"%s\",\"content_topic\":\"%s\"}",
@@ -465,12 +484,11 @@ static napi_value WakuRelayPublish(napi_env env, napi_callback_info info) {
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_on_error_callback));
 
   // Perform the actual 'publish'
-  WAKU_CALL( waku_relay_publish(ctx,
-                                pubsub_topic,
-                                jsonWakuMsg,
-                                timeoutMs,
-                                handle_error,
-                                userData) );
+  WAKU_CALL( waku_relay_publish(ctx, handle_error, userData,
+                                &(WakuRelayPublishReq){
+                                    .pubSubTopic = pubsub_topic,
+                                    .jsonWakuMessage = jsonWakuMsg,
+                                    .timeoutMs = timeoutMs}) );
   free(pubsub_topic);
   free(content_topic_name);
 
@@ -551,7 +569,8 @@ static napi_value WakuRelaySubscribe(napi_env env, napi_callback_info info) {
   NAPI_CALL(napi_create_reference(env, cb, 1, &ref_on_error_callback));
 
   // Calling the actual 'subscribe' waku function
-  WAKU_CALL( waku_relay_subscribe(ctx, pubsub_topic, handle_error, userData) );
+  WAKU_CALL( waku_relay_subscribe(ctx, handle_error, userData,
+                                  &(WakuRelaySubscribeReq){.pubSubTopic = pubsub_topic}) );
 
   free(pubsub_topic);
 

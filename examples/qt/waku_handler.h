@@ -7,8 +7,14 @@
 class WakuHandler : public QObject {
     Q_OBJECT
 private:
+    // FFICallback shape.
     static void event_handler(int callerRet, const char* msg, size_t len, void* userData) {
         printf("Receiving message %s\n", msg);
+    }
+
+    // LogosDeliveryScalarRawFn: same reporting, non-const msg.
+    static void event_handler_raw(int callerRet, char* msg, size_t len, void* userData) {
+        event_handler(callerRet, msg, len, userData);
     }
 
     static void on_event_received(int callerRet, const char* msg, size_t len, void* userData) {
@@ -24,8 +30,10 @@ private:
 public:
     WakuHandler() : QObject(), ctx(nullptr) {}
 
-    void initialize(const QString& jsonConfig, WakuCallBack event_handler, void* userData) {
-        ctx = logosdelivery_create_node(jsonConfig.toUtf8().constData(), WakuCallBack(event_handler), userData);
+    void initialize(const QString& jsonConfig, LogosDeliveryCreateRawFn onCreated, void* userData) {
+        const QByteArray config = jsonConfig.toUtf8();
+        LogosdeliveryCreateNodeCtorReq createReq = {config.constData()};
+        ctx = logosdelivery_create_node(&createReq, onCreated, userData);
 
         for (const char *eventName :
              {"onMessageSent", "onMessageError", "onMessagePropagated",
@@ -39,7 +47,7 @@ public:
 
     Q_INVOKABLE void start() {
         if (ctx) {
-            logosdelivery_start_node(ctx, event_handler, nullptr);
+            logosdelivery_start_node(ctx, event_handler_raw, nullptr);
             qDebug() << "Waku start called with event_handler and userData.";
         } else {
             qDebug() << "Context is not initialized in start.";
@@ -48,7 +56,7 @@ public:
 
     Q_INVOKABLE void stop() {
         if (ctx) {
-            logosdelivery_stop_node(ctx, event_handler, nullptr);
+            logosdelivery_stop_node(ctx, event_handler_raw, nullptr);
             qDebug() << "Waku stop called with event_handler and userData.";
         } else {
             qDebug() << "Context is not initialized in stop.";

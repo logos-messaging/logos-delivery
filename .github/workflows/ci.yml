@@ -98,6 +98,9 @@ jobs:
         # job, which already forces -j1.
         run: make V=1 -j1 all
 
+      - name: Build FFI examples
+        run: make V=1 -j1 ffi-examples
+
       - name: Audit installed deps
         run: make audit-deps
 
