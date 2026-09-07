@@ -213,8 +213,6 @@ proc send*(
   let persistenceReqType =
     if ephemeral: MessagePersistence.Ephemeral else: MessagePersistence.Persistent
 
-  ## A payload needing more segments than `maxTotalSegments` fails here,
-  ## before any channel-level request state exists to unwind.
   let segments = self.segmentation.performSegmentation(payload).valueOr:
     return err("segmentation failed: " & error)
 
