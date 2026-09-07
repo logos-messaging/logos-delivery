@@ -32,10 +32,11 @@ jobs:
           # the moving `nightly` tag (auto-updated by the daily CI to point at
           # master HEAD), which would otherwise be picked as the nearest tag
           # and break the version-sort comparison below.
-          BASE_TAG=$(git describe --tags --abbrev=0 --match 'v*' 2>/dev/null || echo "")
+          # `--exclude '*-rc*'` skips release candidates: v0.39.0-rc.1 precedes
+          # the 0.39.0 release, so it must not demand that version be in
+          # logos_delivery.nimble yet.
+          BASE_TAG=$(git describe --tags --abbrev=0 --match 'v*' --exclude '*-rc*' 2>/dev/null || echo "")
           BASE_TAG=${BASE_TAG#v}
-          # Compare on the base version, ignoring any -rc.N prerelease suffix.
-          BASE_TAG=${BASE_TAG%%-*}
           echo "logos_delivery.nimble version: ${NIMBLE_VERSION}"
           echo "ancestor git tag:    ${BASE_TAG:-<none>}"
           if [ -z "${BASE_TAG}" ]; then
