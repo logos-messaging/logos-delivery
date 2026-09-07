@@ -23,6 +23,8 @@ let
 
   nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
+         "--define:libp2p_mix_experimental_exit_is_dest"
+         "--define:libp2p_quic_support"
          "--define:git_version=${gitVersion}" ]
     ++ pkgs.lib.optional enablePostgres       "--define:postgres"
     ++ pkgs.lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
@@ -45,6 +47,9 @@ let
     if pkgs.stdenv.hostPlatform.isWindows then "dll"
     else if pkgs.stdenv.hostPlatform.isDarwin then "dylib"
     else "so";
+
+  # Mirrors the nimble buildLibrary proc: library targets only, not the apps.
+  libDefineArgs = [ "--define:discv5_protocol_id=d5waku" ];
 
   # Must match the nimble task: library/liblogosdelivery.h includes this path.
   cBindingsDir = "library/generated";
@@ -132,7 +137,7 @@ pkgs.stdenv.mkDerivation {
         "--noMain"
         "--header"
         "--nimMainPrefix:liblogosdelivery"
-      ] ++ cBindingsArgs;
+      ] ++ libDefineArgs ++ cBindingsArgs;
     }}
 
     echo "== Building liblogosdelivery (static) =="
@@ -144,7 +149,7 @@ pkgs.stdenv.mkDerivation {
         "--opt:size"
         "--noMain"
         "--nimMainPrefix:liblogosdelivery"
-      ];
+      ] ++ libDefineArgs;
     }}
     ''}
   '';
