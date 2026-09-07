@@ -99,37 +99,33 @@ libwaku.logosdelivery_create_node.argtypes = [ctypes.POINTER(CreateNodeCtorReq),
                              ctypes.c_void_p]
 
 create_req = CreateNodeCtorReq(configJson=bytes(json_config, 'utf-8'))
+on_create_cb = reply_callback_type(
+    #onErrCb
+    lambda ret, reply, err, user_data:
+      print("Error calling logosdelivery_create_node: %s",
+            (err or b"").decode('utf-8')))
 ctx = libwaku.logosdelivery_create_node(ctypes.byref(create_req),
-                       reply_callback_type(
-                           #onErrCb
-                           lambda ret, reply, err, user_data:
-                             print("Error calling logosdelivery_create_node: %s",
-                                   (err or b"").decode('utf-8'))
-                           ),
-                           ctypes.c_void_p(0))
+                       on_create_cb,
+                       ctypes.c_void_p(0))
 
 # Retrieve the current version of the library
 libwaku.waku_version.argtypes = [ctypes.c_void_p,
                                  callback_type,
                                  ctypes.c_void_p]
-libwaku.waku_version(ctx,
-                     callback_type(lambda ret, msg, len, user_data:
-                                  print("Git Version: %s" %
-                                        msg.decode('utf-8'))),
-                     ctypes.c_void_p(0))
+on_version_cb = callback_type(lambda ret, msg, len, user_data:
+                              print("Git Version: %s" % msg.decode('utf-8')))
+libwaku.waku_version(ctx, on_version_cb, ctypes.c_void_p(0))
 
 # Retrieve the default pubsub topic
 default_pubsub_topic = ""
 libwaku.waku_default_pubsub_topic.argtypes = [ctypes.c_void_p,
                                  callback_type,
                                  ctypes.c_void_p]
-libwaku.waku_default_pubsub_topic(ctx,
-                                  callback_type(
-                                        lambda ret, msg, len, user_data: (
-                                            globals().update(default_pubsub_topic = msg.decode('utf-8')),
-                                            print("Default pubsub topic: %s" % msg.decode('utf-8')))
-                                  ),
-                                  ctypes.c_void_p(0))
+on_default_topic_cb = callback_type(
+    lambda ret, msg, len, user_data: (
+        globals().update(default_pubsub_topic = msg.decode('utf-8')),
+        print("Default pubsub topic: %s" % msg.decode('utf-8'))))
+libwaku.waku_default_pubsub_topic(ctx, on_default_topic_cb, ctypes.c_void_p(0))
 
 print("Bind addr: {}:{}".format(args.host, args.port))
 print("Waku Relay enabled: {}".format(args.relay))
@@ -153,11 +149,10 @@ for event_name in [b"onMessageSent", b"onMessageError", b"onMessagePropagated",
 libwaku.logosdelivery_start_node.argtypes = [ctypes.c_void_p,
                                callback_type,
                                ctypes.c_void_p]
-libwaku.logosdelivery_start_node(ctx,
-                   callback_type(lambda ret, msg, len, user_data:
-                                  print("Error in logosdelivery_start_node: %s" %
-                                        msg.decode('utf-8'))),
-                   ctypes.c_void_p(0))
+on_start_cb = callback_type(lambda ret, msg, len, user_data:
+                            print("Error in logosdelivery_start_node: %s" %
+                                  msg.decode('utf-8')))
+libwaku.logosdelivery_start_node(ctx, on_start_cb, ctypes.c_void_p(0))
 
 # Subscribe to the default pubsub topic
 libwaku.waku_relay_subscribe.argtypes = [ctypes.c_void_p,
@@ -165,14 +160,11 @@ libwaku.waku_relay_subscribe.argtypes = [ctypes.c_void_p,
                                          ctypes.c_void_p,
                                          ctypes.POINTER(RelaySubscribeReq)]
 subscribe_req = RelaySubscribeReq(pubSubTopic=default_pubsub_topic.encode('utf-8'))
-libwaku.waku_relay_subscribe(ctx,
-                             reply_callback_type(
-                                    #onErrCb
-                                    lambda ret, reply, err, user_data:
-                                        print("Error calling waku_relay_subscribe: %s" %
-                                                (err or b"").decode('utf-8'))
-                             ),
-                             ctypes.c_void_p(0),
+on_subscribe_cb = reply_callback_type(
+    #onErrCb
+    lambda ret, reply, err, user_data:
+        print("Error calling waku_relay_subscribe: %s" % (err or b"").decode('utf-8')))
+libwaku.waku_relay_subscribe(ctx, on_subscribe_cb, ctypes.c_void_p(0),
                              ctypes.byref(subscribe_req))
 
 libwaku.waku_connect.argtypes = [ctypes.c_void_p,
@@ -180,12 +172,11 @@ libwaku.waku_connect.argtypes = [ctypes.c_void_p,
                                  ctypes.c_void_p,
                                  ctypes.POINTER(ConnectReq)]
 connect_req = ConnectReq(peerMultiAddr=args.peer.encode('utf-8'), timeoutMs=10000)
-libwaku.waku_connect(ctx,
-                     # onErrCb
-                     reply_callback_type(
-                         lambda ret, reply, err, user_data:
-                           print("Error calling waku_connect: %s" % (err or b"").decode('utf-8'))),
-                     ctypes.c_void_p(0),
+on_connect_cb = reply_callback_type(
+    # onErrCb
+    lambda ret, reply, err, user_data:
+      print("Error calling waku_connect: %s" % (err or b"").decode('utf-8')))
+libwaku.waku_connect(ctx, on_connect_cb, ctypes.c_void_p(0),
                      ctypes.byref(connect_req))
 
 # app = Flask(__name__)

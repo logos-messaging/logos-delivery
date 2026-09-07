@@ -102,9 +102,6 @@ all: | wakunode2 logosdeliverynode liblogosdelivery
 
 examples: | example2 chat2 chat2bridge
 
-# The C/C++ examples link against liblogosdelivery, so they are the only thing
-# that catches drift between the generated FFI header and its consumers. They
-# need nothing but a compiler once the library is built, so CI builds them.
 ffi-examples: | cwaku_example cppwaku_example logosdelivery_example
 
 test_file := $(word 2,$(MAKECMDGOALS))
