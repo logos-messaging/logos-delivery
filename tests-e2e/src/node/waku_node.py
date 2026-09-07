@@ -97,7 +97,7 @@ def resolve_sharding_flags(kwargs):
 class WakuNode:
     def __init__(self, docker_image, docker_log_prefix=""):
         self._image_name = docker_image
-        self._log_path = os.path.join(DOCKER_LOG_DIR, f"{docker_log_prefix}__{self._image_name.replace('/', '_')}.log")
+        self._log_path = os.path.join(DOCKER_LOG_DIR, f"{docker_log_prefix}__{self._image_name.replace('/', '_').replace(':', '_')}.log")
         self._docker_manager = DockerManager(self._image_name)
         self._container = None
         self.rln_membership_index = None

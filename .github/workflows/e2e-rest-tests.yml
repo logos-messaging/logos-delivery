@@ -64,6 +64,7 @@ jobs:
         run: pip install -r tests-e2e/requirements.txt
 
       - name: Run REST tests
+        id: tests
         working-directory: tests-e2e
         run: |
           echo "node image: ${DEFAULT_NWAKU:-pinned default (see src/env_vars.py)}"
@@ -73,11 +74,12 @@ jobs:
         uses: dorny/test-reporter@v2
         if: ${{ !cancelled() }}
         with:
+          name: rest-e2e
           path: tests-e2e/log/junit.xml
           reporter: python-xunit
 
       - name: Upload logs
-        if: failure()
+        if: ${{ failure() && steps.tests.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: rest-e2e-logs-${{ github.event_name }}
