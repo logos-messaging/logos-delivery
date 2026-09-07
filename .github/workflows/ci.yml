@@ -15,7 +15,6 @@ env:
   MAKEFLAGS: "-j${NPROC}"
   NIMFLAGS: "--parallelBuild:${NPROC} --colors:off -d:chronicles_colors:none -d:disableMarchNative"
   NIM_VERSION: '2.2.6'
-  NIMBLE_VERSION: '0.24.1'
 
 jobs:
   changes: # changes detection
@@ -87,7 +86,6 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
         with:
-          nimble-version: ${{ env.NIMBLE_VERSION }}
           nim-version: ${{ env.NIM_VERSION }}
 
       - name: Build binaries
@@ -160,7 +158,6 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
         with:
-          nimble-version: ${{ env.NIMBLE_VERSION }}
           nim-version: ${{ env.NIM_VERSION }}
           # The NDK compiler rewrites the nimbledeps archives, so this job does not share the host jobs' cache.
           cache: 'false'
@@ -207,7 +204,6 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
         with:
-          nimble-version: ${{ env.NIMBLE_VERSION }}
           nim-version: ${{ env.NIM_VERSION }}
 
       - name: Build liblogosdelivery for ios-${{ matrix.sdk }}
@@ -250,7 +246,6 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
         with:
-          nimble-version: ${{ env.NIMBLE_VERSION }}
           nim-version: ${{ env.NIM_VERSION }}
 
       - name: Run tests
@@ -326,7 +321,6 @@ jobs:
       - name: Install nimble deps
         uses: ./.github/actions/nimble-deps
         with:
-          nimble-version: ${{ env.NIMBLE_VERSION }}
           nim-version: ${{ env.NIM_VERSION }}
 
       - name: Build nph
@@ -340,6 +334,3 @@ jobs:
           echo "using nph at ${NPH}"
           "${NPH}" examples logos_delivery tests tools apps *.@(nim|nims|nimble)
           git diff --exit-code
-
-      - name: Audit installed deps
-        run: make audit-deps

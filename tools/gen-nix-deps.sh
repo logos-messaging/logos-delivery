@@ -1,6 +1,6 @@
 #!/usr/bin/env bash
 # Generates nix/deps.nix from nimble.lock using nix-prefetch-git.
-# Usage: ./tools/gen-nix-deps.sh [nimble.lock] [nix/deps.nix]
+# Usage: ./tools/gen-nix-deps.sh <nimble.lock> <output.nix>
 set -euo pipefail
 
 usage() {
@@ -28,9 +28,8 @@ command -v jq             >/dev/null || { echo "error: jq required";            
 command -v nix-prefetch-git >/dev/null || { echo "error: nix-prefetch-git required"; exit 1; }
 
 if [[ ! -f "$LOCKFILE" ]]; then
-  echo "[!] $LOCKFILE not found"
-  echo "[*] Generating $LOCKFILE via 'nimble lock'"
-  nimble lock
+  echo "error: $LOCKFILE not found; write it with the pinned Nimble first" >&2
+  exit 1
 fi
 
 echo "[*] Generating $OUTFILE from $LOCKFILE"
