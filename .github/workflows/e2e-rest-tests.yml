@@ -69,6 +69,13 @@ jobs:
           echo "node image: ${DEFAULT_NWAKU:-pinned default (see src/env_vars.py)}"
           pytest tests/rest -n 4 --dist=loadgroup --reruns 1 --junitxml=log/junit.xml
 
+      - name: Report results in the job summary
+        uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }}
+        with:
+          path: tests-e2e/log/junit.xml
+          reporter: python-xunit
+
       - name: Upload logs
         if: failure()
         uses: actions/upload-artifact@v4

@@ -104,9 +104,9 @@ jobs:
       - name: Audit installed deps
         run: make audit-deps
 
-      # Publish the freshly built shared library so the interop-tests workflow
+      # Publish the freshly built shared library so the e2e-api-tests workflow
       # can run the wrapper suite against it without rebuilding. Only the Linux
-      # build is uploaded since the interop runners are ubuntu-latest.
+      # build is uploaded since those jobs run on ubuntu-22.04.
       - name: Upload liblogosdelivery.so
         if: matrix.os == 'ubuntu-22.04'
         uses: actions/upload-artifact@v4
@@ -273,18 +273,6 @@ jobs:
     needs: changes
     if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' || needs.changes.outputs.docker == 'true' }}
     uses: ./.github/workflows/container-image.yml
-    secrets: inherit
-
-  # Docker-based interop smoke tests. Gated only on the docker image so they
-  # still run on docker-only PRs (no liblogosdelivery build required).
-  nwaku-nwaku-interop-tests:
-    needs: build-docker-image
-    # The commit is tag SMOKE_TEST_2026.06.25; annotated tag refs break nested
-    # workflow resolution on push events, so pin the commit. Re-pin on bumps.
-    uses: logos-messaging/logos-delivery-interop-tests/.github/workflows/nim_waku_PR.yml@6980880dba70aebe443b1ea1864891940980ecea
-    with:
-      node_nwaku: ${{ needs.build-docker-image.outputs.image }}
-
     secrets: inherit
 
   # Send API E2E tests run the in-repo tests-e2e/ wrapper suite against the
