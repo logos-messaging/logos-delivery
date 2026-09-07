@@ -15,6 +15,7 @@ import logos_delivery/waku/discovery/peer_discovery_interface
 import
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/discovery/peer_discovery_conversion,
+  logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/waku_core,
   logos_delivery/waku/api/events/discovery_events
 
@@ -104,8 +105,15 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
+    ## Same as the external backend: this node signs the record it advertises,
+    ## one service per record, and libp2p publishes it verbatim. The switch is
+    ## ours here, so identity and key are read from it directly.
     let serviceId = ?serviceIdOf(key)
-    self.inner.addServiceToAdvertise(ServiceInfo(id: serviceId, data: Opt.some(data)))
+    let peerInfo = self.inner.protocol.switch.peerInfo
+    let record = ?signedServiceRecord(peerInfo, peerInfo.privateKey, serviceId, data)
+    self.inner.addServiceToAdvertise(
+      ServiceInfo(id: serviceId, data: Opt.some(data)), record
+    )
     ok()
 
   method stopAdvertising(

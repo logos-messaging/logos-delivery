@@ -260,9 +260,13 @@ proc addServiceToDiscover*(self: WakuKademlia, service: string) =
     discard self.protocol.registerInterest(service)
     debug "Added service to discover", service
 
-proc addServiceToAdvertise*(self: WakuKademlia, service: ServiceInfo) =
+proc addServiceToAdvertise*(
+    self: WakuKademlia, service: ServiceInfo, advert: seq[byte]
+) =
+  ## `advert` is the signed record to publish verbatim for this service; the
+  ## caller signs it, libp2p only registers it.
   if service notin self.servicesToAdvertise:
-    self.protocol.startAdvertising(service).isOkOr:
+    self.protocol.startAdvertising(service, Opt.some(advert)).isOkOr:
       warn "Failed to advertise service", service = service.id, error = error
       return
     self.servicesToAdvertise.incl(service)
