@@ -91,6 +91,10 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
 
   persistency*: Persistency
 
+  rlnMembershipVerified*: bool
+    ## The LEZ membership check has passed once; `attachRlnProof` skips the
+    ## registry read on later sends.
+
 proc setupSwitchServices*(
     node: WakuNode, conf: WakuConf, circuitRelay: Relay, rng: crypto.Rng
 ) =
