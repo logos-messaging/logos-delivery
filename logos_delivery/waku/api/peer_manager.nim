@@ -40,8 +40,10 @@ proc disconnectAllPeers*(self: Waku): Future[Result[bool, string]] {.async.} =
 proc dialPeer*(
     self: Waku, peerAddr: string, protocol: string, timeoutMs: int
 ): Future[Result[bool, string]] {.async.} =
+  ## Dials one peer over `protocol`. `peerAddr` is one fully qualified
+  ## multiaddress, or several for the same peer separated by commas.
   try:
-    let remotePeerInfo = parsePeerInfo(peerAddr).valueOr:
+    let remotePeerInfo = parsePeerAddrList(peerAddr).valueOr:
       return err($error)
     let conn = await self.node.peerManager.dialPeer(remotePeerInfo, protocol)
     if conn.isNone():

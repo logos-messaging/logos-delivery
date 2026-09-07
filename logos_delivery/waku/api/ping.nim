@@ -12,8 +12,10 @@ proc pingPeer*(
     self: Waku, peerAddr: string, timeoutMs: int
 ): Future[Result[int64, string]] {.async.} =
   ## Pings the peer; `timeoutMs <= 0` means no timeout. Returns RTT in nanos.
+  ## `peerAddr` is one fully qualified multiaddress, or several for the same
+  ## peer separated by commas.
   try:
-    let peerInfo = parsePeerInfo(peerAddr).valueOr:
+    let peerInfo = parsePeerAddrList(peerAddr).valueOr:
       return err("pingPeer failed to parse peer addr: " & $error)
 
     proc doPing(): Future[Result[Duration, string]] {.async.} =
