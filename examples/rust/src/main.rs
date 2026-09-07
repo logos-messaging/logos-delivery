@@ -124,11 +124,9 @@ fn main() {
             let _ = version.set(data.to_string());
         };
         let cb = get_trampoline(&closure);
-        let _ret = waku_version(
-            &ctx as *const _ as *const c_void,
-            cb,
-            &closure as *const _ as *const c_void,
-        );
+        // `ctx` is already the context pointer; taking its address passed a
+        // pointer to the local instead, which the library rejected.
+        let _ret = waku_version(ctx, cb, &closure as *const _ as *const c_void);
 
         // Extracting the default pubsub topic
         let default_pubsub_topic: OnceCell<String> = OnceCell::new();
