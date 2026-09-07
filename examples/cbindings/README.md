@@ -36,16 +36,29 @@ grep large-message run.log | grep -oE '0x[0-9a-f]{64}' | sort -u | wc -l
 One send must yield `CHANNEL_DATA_SEGMENTS` (4) hashes. That is the whole point
 of the option: fewer means the payload was not split.
 
-### Two instances
+### Confirming the reassembly
 
-Start a second node on another port, then on the sender use option 2 with the
-receiver's `/ip4/.../tcp/<port>/p2p/<peer-id>` (printed at startup) before
-option 4. Each instance derives its own channel sender id from its TCP port,
-because SDS ignores messages whose sender id matches its own participant id.
+This needs two nodes, and each must run **from its own directory**:
 
-Observed so far: the four segments do reach the peer, which reports four
-`message_received` events carrying the `RELIABLE-CHANNEL-API/1` marker on the
-channel's content topic. Reassembly into a single `onChannelMessageReceived`
-has **not** been observed on the receiver in a local two-node run, with no
-error event and no output from the segmentation layer, so treat the receive
-half as unverified.
+```
+mkdir -p /tmp/nodeA /tmp/nodeB
+(cd /tmp/nodeB && <repo>/build/cwaku_example -h 127.0.0.1 -p 60141)
+(cd /tmp/nodeA && <repo>/build/cwaku_example -h 127.0.0.1 -p 60142)
+```
+
+On the sender, use option 2 with the receiver's
+`/ip4/.../tcp/<port>/p2p/<peer-id>` (printed at startup), then option 4. The
+receiver reports a single `onChannelMessageReceived` carrying the whole
+payload, not one event per segment.
+
+The separate directories matter. A node persists its SDS state in
+`store.sqlite3` in the working directory, and that state includes the message
+ids it has already seen. Two nodes started from the same directory share one
+store, so the receiver treats the sender's segments as duplicates it has
+already handled and drops all of them: four segments arrive, nothing is
+reassembled, and nothing is logged, because a duplicate is a silent outcome by
+design.
+
+For the same reason each send seeds its payload from the clock. An identical
+payload produces identical SDS message ids, so a receiver that saw the previous
+run would discard the next one as a replay.

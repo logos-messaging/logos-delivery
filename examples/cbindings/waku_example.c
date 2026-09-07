@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <time.h>
 #include <pthread.h>
 
 #include <sys/types.h>
@@ -252,9 +253,12 @@ void send_large_channel_message()
     return;
   }
   // A non-repeating pattern, so a mis-ordered reassembly cannot look correct.
+  // Seeded per send: an identical payload yields identical SDS message ids,
+  // which a peer that already saw them discards as duplicates.
+  const unsigned char seed = (unsigned char)time(NULL);
   for (size_t i = 0; i < payloadLen; i++)
   {
-    payload[i] = (unsigned char)(i * 31 + (i / 251) * 7);
+    payload[i] = (unsigned char)(i * 31 + (i / 251) * 7 + seed);
   }
 
   char *payloadB64 = b64_encode(payload, payloadLen);
