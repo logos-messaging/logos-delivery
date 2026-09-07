@@ -23,7 +23,7 @@ import
   logos_delivery/waku/waku_core/message/message,
   logos_delivery/waku/requests/rln_requests,
   logos_delivery/waku/rln/api/types as rln_api_types
-from logos_delivery/waku/rln/proof import toRLNSignal
+from logos_delivery/waku/rln/rln_evm/proof import toRLNSignal
 
 type
   LogosDeliveryRlnStartFn = proc(reqId: uint64, configJson: cstring, userData: pointer) {.
