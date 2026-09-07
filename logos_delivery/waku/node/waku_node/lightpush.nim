@@ -16,6 +16,7 @@ import
   libp2p/builders,
   libp2p/transports/tcptransport,
   libp2p/transports/wstransport,
+  libp2p/stream/connection,
   libp2p_mix
 
 import
@@ -34,6 +35,35 @@ logScope:
   topics = "waku node lightpush api"
 
 const MountWithoutRelayError* = "cannot mount lightpush because relay is not mounted"
+
+const MixReplyTimeout* = chronos.seconds(5)
+  ## Time limit for one mix-routed lightpush, so a broken path costs one
+  ## attempt. It is short because the send service sends its tasks in turn.
+
+proc publishOverMix*(
+    node: WakuNode,
+    conn: Connection,
+    pubsubTopic: PubsubTopic,
+    message: WakuMessage,
+    replyTimeout: Duration = MixReplyTimeout,
+): Future[lightpush_protocol.WakuLightPushResult] {.async.} =
+  ## Publishes on a mix connection and returns within `replyTimeout`. The mix
+  ## connection limits its wait for the reply, but not the first-hop dial.
+  let publishFut =
+    node.wakuLightpushClient.publish(Opt.some(pubsubTopic), message, conn)
+  let deadline = sleepAsync(replyTimeout)
+  discard await race(FutureBase(publishFut), FutureBase(deadline))
+
+  if not publishFut.finished():
+    await conn.reset()
+    publishFut.cancelSoon()
+    debug "Mix lightpush timed out", pubsubTopic = pubsubTopic, timeout = replyTimeout
+    return lighpushErrorResult(
+      LightPushErrorCode.SERVICE_NOT_AVAILABLE, "Waku lightpush over mix timed out"
+    )
+
+  await deadline.cancelAndWait()
+  return await publishFut
 
 ## Waku lightpush
 proc mountLegacyLightPush*(
@@ -220,8 +250,7 @@ proc lightpushPublishHandler(
       target_peer_id = peer.peerId,
       msg_hash = msgHash,
       mixify = mixify
-    if defined(libp2p_mix_experimental_exit_is_dest) and mixify:
-      #indicates we want to use mix to send the message
+    if mixify:
       when defined(libp2p_mix_experimental_exit_is_dest):
         #TODO: How to handle multiple addresses?
         let conn = node.wakuMix.toConnection(
@@ -236,8 +265,13 @@ proc lightpushPublishHandler(
             "Waku lightpush with mix not available",
           )
 
-        return
-          await node.wakuLightpushClient.publish(Opt.some(pubsubTopic), message, conn)
+        return await node.publishOverMix(conn, pubsubTopic, message)
+      else:
+        # The caller asked for mix, so this proc does not publish in clear text.
+        return lighpushErrorResult(
+          LightPushErrorCode.SERVICE_NOT_AVAILABLE,
+          "Waku lightpush with mix not available: built without libp2p_mix_experimental_exit_is_dest",
+        )
     else:
       return
         await node.wakuLightpushClient.publish(Opt.some(pubsubTopic), message, peer)

@@ -4,7 +4,7 @@ import std/[json, strutils, tables]
 import results
 
 import tools/confutils/conf_from_json
-import logos_delivery/api/conf/logos_delivery_conf
+import logos_delivery/api/conf/[logos_delivery_conf, modes]
 
 const
   # Lowercased, since `collectJsonFields` keys the object case-insensitively.
@@ -18,6 +18,7 @@ const
   # a flat blob before the WakuNodeConf walker sees them (it would reject them).
   KeyReliabilityEnabled = "reliabilityenabled"
   KeyReliability = "reliability"
+  KeyAnonymityLevel = "anonymitylevel"
 
 proc parseMode(s: string): Result[LogosDeliveryMode, string] =
   case s.strip().toLowerAscii()
@@ -63,15 +64,15 @@ proc parseFlatConf(
   ## to the messaging conf (it left the kernel), and the rest parses as a
   ## `WakuNodeConf`. Full stack. Delete this proc and its call site to drop support.
   var messaging = MessagingClientConf()
-  var reliabilityFields: Table[string, (string, JsonNode)]
-  for key in [KeyReliabilityEnabled, KeyReliability]:
+  var messagingFields: Table[string, (string, JsonNode)]
+  for key in [KeyReliabilityEnabled, KeyReliability, KeyAnonymityLevel]:
     if topJsonNode.hasKey(key):
-      reliabilityFields[key] = topJsonNode.getOrDefault(key)
+      messagingFields[key] = topJsonNode.getOrDefault(key)
       topJsonNode.del(key)
-  if reliabilityFields.len > 0:
+  if messagingFields.len > 0:
     ?applyJsonFieldsToConf(
-      messaging, reliabilityFields, "Failed to parse reliability field",
-      "Unrecognized reliability option(s) found",
+      messaging, messagingFields, "Failed to parse messaging field",
+      "Unrecognized messaging option(s) found",
     )
 
   # [Legacy flat JSON config] The blob is a raw WakuNodeConf, exactly as the
@@ -90,6 +91,17 @@ proc parseFlatConf(
   # here to stay faithful to master. An explicit reliability in the blob still wins.
   if kernel.preset.len > 0:
     messaging = merge(?resolvePreset(kernel.preset), messaging)
+
+  # [Legacy flat JSON config] This shape builds its own kernel record, so it
+  # applies the level here. `toWakuNodeConf` does the same for the structured
+  # shape.
+  if messaging.anonymityLevel.get(AnonymityLevel.None) != AnonymityLevel.None:
+    if kernel.mix == Opt.some(false):
+      return err(
+        "anonymityLevel=" & $messaging.anonymityLevel.get() &
+          " needs mix, but mix=false was set"
+      )
+    kernel.mix = Opt.some(true)
 
   return ok(
     LogosDeliveryConf(

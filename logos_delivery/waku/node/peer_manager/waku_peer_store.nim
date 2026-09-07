@@ -8,6 +8,8 @@ import
   eth/p2p/discoveryv5/enr,
   libp2p/builders,
   libp2p/peerstore,
+  libp2p/peerid,
+  libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p_mix/pool
 
@@ -101,6 +103,13 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
     trace "adding mix pub key to peer store",
       peer_id = $peer.peerId, mix_pub_key = $peer.mixPubKey.get()
     peerStore[MixPubKeyBook].book[peer.peerId] = peer.mixPubKey.get()
+
+    # The mix pool needs the libp2p key, and discovery learns the mix key
+    # before identify fills the key book. The peer id holds the key.
+    if peerStore[KeyBook][peer.peerId].scheme != Secp256k1:
+      var libp2pPubKey: crypto.PublicKey
+      if peer.peerId.extractPublicKey(libp2pPubKey) and libp2pPubKey.scheme == Secp256k1:
+        peerStore[KeyBook][peer.peerId] = libp2pPubKey
 
   ## Notice that the origin parameter is used to manually override the given peer origin.
   ## At the time of writing, this is used in waku_discv5 or waku_node (peer exchange.)

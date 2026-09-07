@@ -5,12 +5,13 @@ import std/[sequtils, tables, typetraits]
 import chronos, chronicles, metrics
 import brokers/broker_context
 import
-  ./[send_processor, relay_processor, lightpush_processor, delivery_task],
+  ./[send_processor, relay_processor, lightpush_processor, mix_processor, delivery_task],
   logos_delivery/waku/[waku_core, waku_store/common],
   logos_delivery/waku/waku,
   logos_delivery/waku/api/[store, subscriptions, publish],
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 import logos_delivery/api/events/messaging_client_events
+import logos_delivery/api/conf/modes
 
 logScope:
   topics = "send service"
@@ -35,6 +36,13 @@ const MaxTimeInCache* = chronos.minutes(1)
   ## Messages older than this time will get completely forgotten on publication and a
   ## feedback will be given when that happens
 
+proc maxDeliveryTime*(anonymityLevel: AnonymityLevel): timer.Duration =
+  ## `Preferred` gets two windows: one for mix, then one for the plain path.
+  if anonymityLevel == AnonymityLevel.Preferred:
+    MaxTimeInCache + MaxTimeInCache
+  else:
+    MaxTimeInCache
+
 const ServiceLoopInterval* = chronos.seconds(1)
   ## Interval at which we check that messages have been properly received by a store node
 
@@ -57,17 +65,31 @@ type SendService* = ref object of RootObj
   waku: Waku
   checkStoreForMessages: bool
   lastStoreCheckTime: Moment ## throttles store validation queries to ArchiveTime cadence
+  maxDeliveryTime*: timer.Duration
+    ## How long an admitted task may keep trying before it is failed.
 
 proc setupSendProcessorChain(
-    waku: Waku, brokerCtx: BrokerContext
+    waku: Waku, brokerCtx: BrokerContext, anonymityLevel: AnonymityLevel
 ): Result[BaseSendProcessor, string] =
   let isRelayAvail = waku.hasRelay()
   let isLightPushAvail = waku.hasLightpush()
 
-  if not isRelayAvail and not isLightPushAvail:
+  if anonymityLevel != AnonymityLevel.None and not isLightPushAvail:
+    return err("Mix sending needs a lightpush client, which is not mounted")
+
+  if anonymityLevel != AnonymityLevel.Required and not isRelayAvail and
+      not isLightPushAvail:
     return err("No valid send processor found for the delivery task")
 
   var processors = newSeq[BaseSendProcessor]()
+
+  if anonymityLevel != AnonymityLevel.None:
+    let mixProcessor: BaseSendProcessor =
+      MixSendProcessor.new(waku, brokerCtx, anonymityLevel, MaxTimeInCache)
+    processors.add(mixProcessor)
+
+    if anonymityLevel == AnonymityLevel.Required:
+      return ok(mixProcessor)
 
   if isRelayAvail:
     let publishProc = waku.relayPushHandler()
@@ -91,6 +113,7 @@ proc new*(
     waku: Waku,
     rateLimitManager: RateLimitManager,
     sendProcessor: BaseSendProcessor = nil,
+    anonymityLevel: AnonymityLevel = AnonymityLevel.None,
 ): Result[T, string] =
   ## `sendProcessor` overrides the relay/lightpush chain built from `waku`,
   ## letting a caller drive the scheduler against a scripted delivery outcome.
@@ -103,7 +126,7 @@ proc new*(
 
   let sendProcessorChain =
     if sendProcessor.isNil():
-      setupSendProcessorChain(waku, waku.brokerCtx).valueOr:
+      setupSendProcessorChain(waku, waku.brokerCtx, anonymityLevel).valueOr:
         return err("failed to setup SendProcessorChain: " & $error)
     else:
       sendProcessor
@@ -117,6 +140,7 @@ proc new*(
     waku: waku,
     checkStoreForMessages: checkStoreForMessages,
     lastStoreCheckTime: Moment.now(),
+    maxDeliveryTime: maxDeliveryTime(anonymityLevel),
   )
 
   return ok(sendService)
@@ -209,9 +233,9 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     # rest of the states are intermediate and does not translate to event
     discard
 
-  # Hard-fail a task admitted but never propagated within MaxTimeInCache.
+  # Fail a task that passed admission and did not propagate in its window.
   # Propagated-but-unvalidated tasks are dropped in evaluateAndCleanUp instead.
-  if task.isDeliveryTimedOut(MaxTimeInCache):
+  if task.isDeliveryTimedOut(self.maxDeliveryTime):
     error "Failed to send message",
       requestId = task.requestId,
       msgHash = task.msgHash.to0xHex(),
