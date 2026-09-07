@@ -98,6 +98,12 @@ jobs:
         # job, which already forces -j1.
         run: make V=1 -j1 all
 
+      # The C/C++ FFI examples are the only consumers of the generated header
+      # that a compiler can check. Nothing built them, so they silently drifted
+      # out of sync with it; building them here keeps that from recurring.
+      - name: Build FFI examples
+        run: make V=1 -j1 ffi-examples
+
       - name: Audit installed deps
         run: make audit-deps
 

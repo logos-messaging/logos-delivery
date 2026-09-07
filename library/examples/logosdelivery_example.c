@@ -155,7 +155,7 @@ int main() {
     "}";
 
     printf("1. Creating node...\n");
-    CreateNodeCtorReq createReq = { .configJson = config };
+    LogosdeliveryCreateNodeCtorReq createReq = { .configJson = config };
     void *ctx = logosdelivery_create_node(&createReq, on_created, NULL);
     if (ctx == NULL) {
         printf("Failed to create node\n");
@@ -185,7 +185,7 @@ int main() {
 
     printf("\n4. Subscribing to content topic...\n");
     const char *contentTopic = "/example/1/chat/proto";
-    SubscribeReq subscribeReq = { .contentTopicStr = contentTopic };
+    LogosdeliverySubscribeReq subscribeReq = { .contentTopicStr = contentTopic };
     logosdelivery_subscribe(ctx, on_reply, (void *)"subscribe", &subscribeReq);
 
     // Wait for subscription
@@ -195,13 +195,13 @@ int main() {
     logosdelivery_get_available_node_info_ids(ctx, on_scalar, (void *)"get_available_node_info_ids");
 
     printf("\nRetrieving node info for a specific invalid ID...\n");
-    GetNodeInfoReq nodeInfoReq = { .nodeInfoId = "WrongNodeInfoId" };
+    LogosdeliveryGetNodeInfoReq nodeInfoReq = { .nodeInfoId = "WrongNodeInfoId" };
     logosdelivery_get_node_info(ctx, on_reply, (void *)"get_node_info", &nodeInfoReq);
 
     printf("\nRetrieving several node info for specific correct IDs...\n");
     const char *nodeInfoIds[] = {"Version", "MyMultiaddresses", "MyENR", "MyPeerId"};
     for (size_t i = 0; i < sizeof(nodeInfoIds) / sizeof(nodeInfoIds[0]); i++) {
-        GetNodeInfoReq req = { .nodeInfoId = nodeInfoIds[i] };
+        LogosdeliveryGetNodeInfoReq req = { .nodeInfoId = nodeInfoIds[i] };
         logosdelivery_get_node_info(ctx, on_reply, (void *)"get_node_info", &req);
     }
 
@@ -216,7 +216,7 @@ int main() {
         "\"payload\": \"SGVsbG8sIExvZ29zIE1lc3NhZ2luZyE=\","
         "\"ephemeral\": false"
     "}";
-    SendReq sendReq = { .messageJson = message };
+    LogosdeliverySendReq sendReq = { .messageJson = message };
     logosdelivery_send(ctx, on_reply, (void *)"send", &sendReq);
 
     // Poll for terminal message events (sent, error, or received) with timeout
@@ -233,7 +233,7 @@ int main() {
     }
 
     printf("\n7. Unsubscribing from content topic...\n");
-    UnsubscribeReq unsubscribeReq = { .contentTopicStr = contentTopic };
+    LogosdeliveryUnsubscribeReq unsubscribeReq = { .contentTopicStr = contentTopic };
     logosdelivery_unsubscribe(ctx, on_reply, (void *)"unsubscribe", &unsubscribeReq);
 
     sleep(1);
