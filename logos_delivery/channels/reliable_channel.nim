@@ -233,11 +233,6 @@ proc send*(
     ChannelReqState.init(persistenceReqType, sdsSegments.len)
 
   for i, sdsBytes in sdsSegments:
-    ## A close can land on any of the awaits below. `stop` has already dropped
-    ## the listeners, so neither the segments still in flight nor the ones not
-    ## yet dispatched can ever be finalised: the request would sit at
-    ## `confirmedCount + failedCount < totalExpectedSegments` forever. Drop it
-    ## and fail the send rather than hand back a `RequestId` that goes quiet.
     if self.closed:
       self.channelReqs.del(channelReqId)
       debug "Channel closed mid-send, some segments already reached the wire",
@@ -289,9 +284,6 @@ proc reportReceived(self: ReliableChannel, deliverable: SdsDeliverable) =
   ## Tail of the ingress pipeline (reassemble -> emit).
   if self.closed:
     return
-  ## `err` is an internal fault: every segment the spec says to drop comes
-  ## back as `ok(Opt.none)` and was already reported through the segmentation
-  ## callbacks.
   let reassembled = self.segmentation.handleIncomingSegment(deliverable.content).valueOr:
     error "Segmentation failed on an incoming segment",
       channelId = self.channelId, error = error
@@ -300,9 +292,6 @@ proc reportReceived(self: ReliableChannel, deliverable: SdsDeliverable) =
     ## Stored but incomplete, or discarded.
     return
 
-  ## Emit on the captured `brokerCtx` (the manager's), so the
-  ## application listener that the manager has set up on that same
-  ## context picks the event up.
   info "Message received on reliable channel",
     channelId = self.channelId, senderId = deliverable.senderId
   ChannelMessageReceivedEvent.emit(
