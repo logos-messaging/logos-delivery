@@ -22,6 +22,8 @@ class StepsLightPush(StepsCommon):
     test_content_topic = "/myapp/1/latest/proto"
     test_pubsub_topic = VALID_PUBSUB_TOPICS[0]
     test_payload = "Light push works!!"
+    default_message_propagation_delay = 0.1
+    num_shards_in_network = 8
 
     @pytest.fixture(scope="function", autouse=True)
     def light_push_setup(self):
@@ -109,7 +111,7 @@ class StepsLightPush(StepsCommon):
 
     @allure.step
     def check_light_pushed_message_reaches_receiving_peer(
-        self, pubsub_topic=None, message=None, message_propagation_delay=0.1, sender=None, peer_list=None
+        self, pubsub_topic=None, message=None, message_propagation_delay=None, sender=None, peer_list=None
     ):
         if pubsub_topic is None:
             pubsub_topic = self.test_pubsub_topic
@@ -117,6 +119,8 @@ class StepsLightPush(StepsCommon):
             sender = self.light_push_node1
         if not peer_list:
             peer_list = self.main_receiving_nodes + self.optional_nodes
+        if message_propagation_delay is None:
+            message_propagation_delay = self.default_message_propagation_delay
         payload = self.create_payload(pubsub_topic, message)
         logger.debug("Lightpushing message")
         sender.send_light_push_message(payload)
@@ -124,9 +128,12 @@ class StepsLightPush(StepsCommon):
         for index, peer in enumerate(peer_list):
             logger.debug(f"Checking that peer NODE_{index + 1}:{peer.image} can find the lightpushed message")
             get_messages_response = peer.get_relay_messages(pubsub_topic)
-            assert get_messages_response, f"Peer NODE_{index + 1}:{peer.image} couldn't find any messages"
-            assert len(get_messages_response) == 1, f"Expected 1 message but got {len(get_messages_response)}"
-            waku_message = WakuMessage(get_messages_response)
+            test_messages = [m for m in get_messages_response if m.get("contentTopic") == payload["message"]["contentTopic"]]
+            assert test_messages, f"Peer NODE_{index + 1}:{peer.image} couldn't find any messages"
+            assert len(test_messages) == 1, (
+                f"Expected 1 test message but got {len(test_messages)} " f"(total messages in cache: {len(get_messages_response)})"
+            )
+            waku_message = WakuMessage(test_messages)
             waku_message.assert_received_message(payload["message"])
 
     @allure.step
