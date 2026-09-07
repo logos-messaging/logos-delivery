@@ -241,8 +241,7 @@ proc parsePeerInfo*(maddrs: varargs[string]): Result[RemotePeerInfo, string] =
 
 proc parsePeerAddrList*(peerAddrs: string): Result[RemotePeerInfo, string] =
   ## Parses a comma-separated list of fully qualified multiaddresses, all
-  ## belonging to the same peer, into one dialable RemotePeerInfo. Entries are
-  ## stripped and empty ones ignored, so a single address parses unchanged.
+  ## belonging to the same peer, into one dialable RemotePeerInfo.
   var maddrs: seq[string]
   for entry in peerAddrs.split(','):
     let addrStr = entry.strip()
