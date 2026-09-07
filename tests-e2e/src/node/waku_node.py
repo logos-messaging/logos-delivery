@@ -223,6 +223,10 @@ class WakuNode:
         except Exception as ex:
             logger.error(f"REST service did not become ready in time: {ex}")
             raise
+        try:
+            logger.debug(f"Node {self._image_name} reports version {self.get_debug_version()}")
+        except Exception as ex:
+            logger.debug(f"Could not fetch node version: {ex}")
 
     @retry(stop=stop_after_delay(250), wait=wait_fixed(0.1), reraise=True)
     def register_rln(self, **kwargs):
