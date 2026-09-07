@@ -447,10 +447,10 @@ proc startNode*(
   except CatchableError:
     return err("failed to start waku node: " & getCurrentExceptionMsg())
 
-  # Start the external RLN module for the LEZ path and verify the node's
-  # existing membership. Runs at start rather than at mount: the host installs its RLN
-  # callbacks only after node creation returns. A missing module degrades
-  # RLN, not node startup; a verified unusable membership is fatal.
+  # Start the external RLN module if configured. Runs at start rather than
+  # at mount: the host installs its RLN callbacks only after node creation
+  # returns. The send path verifies the node's
+  # own membership before its first proof (`attachRlnProof`).
   if conf.rlnRelayConf.isSome() and conf.rlnRelayConf.get().lez:
     let rlnRelayConf = conf.rlnRelayConf.get()
     try:
@@ -468,15 +468,6 @@ proc startNode*(
         notice "RLN module start failed", reason = startRes.error()
       else:
         info "RLN module started", response = startRes.get().response
-        let stateRes = await RequestGetRlnMembershipState.request(
-          node.brokerCtx, rlnRelayConf.registryId, rlnRelayConf.identifier
-        )
-        if stateRes.isErr():
-          return err("failed to get RLN membership state: " & stateRes.error())
-        let status = stateRes.get().state.status
-        if status notin {MembershipStatus.Active, MembershipStatus.GracePeriod}:
-          return err("the node does not have a usable RLN membership: " & $status)
-        info "RLN membership verified", status = $status
     except CatchableError:
       notice "RLN module bring-up failed", reason = getCurrentExceptionMsg()
 

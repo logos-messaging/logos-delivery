@@ -76,6 +76,22 @@ proc attachRlnProof*(
       return
         err("Cannot attach an RLN proof to a message that has not been timestamped")
     let timestamp = uint64(message.timestamp div 1_000_000_000)
+
+    # Verify the node's membership before the first proof; a pass is cached so
+    # later sends skip the registry read. A failed check is not cached, so the
+    # next send retries it.
+    if not self.rlnMembershipVerified:
+      let stateRes = (
+        await RequestGetRlnMembershipState.request(
+          self.brokerCtx, rlnConf.registryId, rlnConf.identifier
+        )
+      ).valueOr:
+        return err("Failed to verify RLN membership: " & error)
+      let status = stateRes.state.status
+      if status notin {MembershipStatus.Active, MembershipStatus.GracePeriod}:
+        return err("The node does not have a usable RLN membership: " & $status)
+      self.rlnMembershipVerified = true
+
     let generated = (
       await RequestGenerateRlnProof.request(
         self.brokerCtx, message, rlnConf.registryId, rlnConf.identifier, timestamp
