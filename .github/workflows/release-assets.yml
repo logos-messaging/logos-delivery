@@ -104,7 +104,7 @@ jobs:
         run: |
           VERSION=${{ steps.version.outputs.version }}
 
-          NWAKU_ARTIFACT_NAME=$(echo "waku-${{matrix.arch}}-${{runner.os}}.tar.gz" | tr "[:upper:]" "[:lower:]")
+          NWAKU_ARTIFACT_NAME=$(echo "waku-${VERSION}-${{matrix.arch}}-${{runner.os}}.tar.gz" | tr "[:upper:]" "[:lower:]")
           echo "waku=${NWAKU_ARTIFACT_NAME}" >> $GITHUB_OUTPUT
 
           if [[ "${{ runner.os }}" == "Linux" ]]; then
@@ -178,3 +178,51 @@ jobs:
           name: liblogosdelivery-${{ steps.version.outputs.version }}-${{ matrix.arch }}-${{ runner.os }}
           path: ${{ steps.vars.outputs.liblogosdelivery }}
           if-no-files-found: error
+
+  # Attach the built packages to the GitHub release for the tag. pre-release.yml
+  # creates the release for rc tags; for a final tag this job creates a draft so
+  # the release owner only has to add notes and publish.
+  attach-to-release:
+    if: startsWith(github.ref, 'refs/tags/')
+    needs: build-and-upload
+    runs-on: ubuntu-22.04
+    permissions:
+      contents: write
+    steps:
+      - name: Download packages
+        uses: actions/download-artifact@v4
+        with:
+          path: dist
+          merge-multiple: true
+
+      - name: Create the release if none exists yet
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          if gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1; then
+            echo "release $TAG exists"
+            exit 0
+          fi
+          if [[ "$TAG" == *-* ]]; then
+            # pre-release.yml creates the rc release; wait for it rather than race.
+            for _ in $(seq 1 30); do
+              sleep 60
+              gh release view "$TAG" --repo "$GITHUB_REPOSITORY" >/dev/null 2>&1 && exit 0
+            done
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --prerelease \
+              --title "$TAG" --notes "Release notes pending."
+          else
+            gh release create "$TAG" --repo "$GITHUB_REPOSITORY" --verify-tag --draft \
+              --title "$TAG" --notes "Release notes pending."
+          fi
+
+      - name: Upload packages to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          TAG: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          ls -l dist
+          gh release upload "$TAG" dist/* --repo "$GITHUB_REPOSITORY" --clobber
