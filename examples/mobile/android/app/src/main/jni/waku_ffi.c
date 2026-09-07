@@ -41,6 +41,7 @@ void free_cb_result(cb_result *result) {
 
 // callback executed by libwaku functions. It expects user_data to be a
 // cb_result*.
+// LogosDeliveryScalarRawFn / FFICallback shape.
 void on_response(int ret, const char *msg, size_t len, void *user_data) {
   if (ret != RET_OK) {
     char errMsg[300];
@@ -180,11 +181,26 @@ void Java_com_mobile_WakuModule_wakuSetup(JNIEnv *env, jobject thiz) {
   LOGD("log example for debugging purposes...")
 }
 
+// LogosDeliveryScalarRawFn: same reporting, non-const msg.
+static void on_response_raw(int ret, char *msg, size_t len, void *user_data) {
+  on_response(ret, msg, len, user_data);
+}
+
+// LogosDelivery*ReplyFn and CreateRawFn: no length, and the failure text
+// arrives in its own argument.
+static void on_response_reply(int errCode, const char *reply,
+                              const char *errMsg, void *user_data) {
+  const char *text = reply != NULL ? reply : (errMsg != NULL ? errMsg : "");
+  on_response(errCode, text, strlen(text), user_data);
+}
+
 jobject Java_com_mobile_WakuModule_wakuNew(JNIEnv *env, jobject thiz,
                                            jstring configJson) {
   const char *config = (*env)->GetStringUTFChars(env, configJson, 0);
   cb_result *result = NULL;
-  void *wakuPtr = logosdelivery_create_node(config, on_response, (void *)&result);
+  void *wakuPtr = logosdelivery_create_node(
+      &(LogosdeliveryCreateNodeCtorReq){.configJson = config}, on_response_reply,
+      (void *)&result);
   jobject response = to_jni_ptr(env, result, wakuPtr);
   (*env)->ReleaseStringUTFChars(env, configJson, config);
   free_cb_result(result);
@@ -194,7 +210,7 @@ jobject Java_com_mobile_WakuModule_wakuNew(JNIEnv *env, jobject thiz,
 jobject Java_com_mobile_WakuModule_wakuStart(JNIEnv *env, jobject thiz,
                                              jlong wakuPtr) {
   cb_result *result = NULL;
-  logosdelivery_start_node((void *)wakuPtr, on_response, &result);
+  logosdelivery_start_node((void *)wakuPtr, on_response_raw, &result);
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   return response;
@@ -203,7 +219,7 @@ jobject Java_com_mobile_WakuModule_wakuStart(JNIEnv *env, jobject thiz,
 jobject Java_com_mobile_WakuModule_wakuVersion(JNIEnv *env, jobject thiz,
                                                jlong wakuPtr) {
   cb_result *result = NULL;
-  waku_version((void *)wakuPtr, on_response, (void *)&result);
+  waku_version((void *)wakuPtr, on_response_raw, (void *)&result);
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   return response;
@@ -212,7 +228,7 @@ jobject Java_com_mobile_WakuModule_wakuVersion(JNIEnv *env, jobject thiz,
 jobject Java_com_mobile_WakuModule_wakuStop(JNIEnv *env, jobject thiz,
                                             jlong wakuPtr) {
   cb_result *result = NULL;
-  logosdelivery_stop_node((void *)wakuPtr, on_response, &result);
+  logosdelivery_stop_node((void *)wakuPtr, on_response_raw, &result);
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   return response;
@@ -221,7 +237,7 @@ jobject Java_com_mobile_WakuModule_wakuStop(JNIEnv *env, jobject thiz,
 jobject Java_com_mobile_WakuModule_wakuDestroy(JNIEnv *env, jobject thiz,
                                                jlong wakuPtr) {
   cb_result *result = NULL;
-  logosdelivery_destroy((void *)wakuPtr, on_response, &result);
+  logosdelivery_destroy((void *)wakuPtr);
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   return response;
@@ -233,7 +249,8 @@ jobject Java_com_mobile_WakuModule_wakuConnect(JNIEnv *env, jobject thiz,
                                                jint timeoutMs) {
   cb_result *result = NULL;
   const char *peer = (*env)->GetStringUTFChars(env, peerMultiAddr, 0);
-  waku_connect((void *)wakuPtr, peer, timeoutMs, on_response, &result);
+  waku_connect((void *)wakuPtr, on_response_reply, &result,
+               &(WakuConnectReq){.peerMultiAddr = peer, .timeoutMs = timeoutMs});
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   (*env)->ReleaseStringUTFChars(env, peerMultiAddr, peer);
@@ -244,7 +261,7 @@ jobject Java_com_mobile_WakuModule_wakuListenAddresses(JNIEnv *env,
                                                        jobject thiz,
                                                        jlong wakuPtr) {
   cb_result *result = NULL;
-  waku_listen_addresses((void *)wakuPtr, on_response, (void *)&result);
+  waku_listen_addresses((void *)wakuPtr, on_response_raw, (void *)&result);
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   return response;
@@ -258,8 +275,10 @@ jobject Java_com_mobile_WakuModule_wakuRelayPublish(JNIEnv *env, jobject thiz,
   cb_result *result = NULL;
   const char *topic = (*env)->GetStringUTFChars(env, pubsubTopic, 0);
   const char *msg = (*env)->GetStringUTFChars(env, jsonWakuMessage, 0);
-  waku_relay_publish((void *)wakuPtr, topic, msg, timeoutMs, on_response,
-                     (void *)&result);
+  waku_relay_publish((void *)wakuPtr, on_response_reply, (void *)&result,
+                     &(WakuRelayPublishReq){.pubSubTopic = topic,
+                                            .jsonWakuMessage = msg,
+                                            .timeoutMs = timeoutMs});
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   (*env)->ReleaseStringUTFChars(env, pubsubTopic, topic);
@@ -272,7 +291,8 @@ jobject Java_com_mobile_WakuModule_wakuRelaySubscribe(JNIEnv *env, jobject thiz,
                                                       jstring pubsubTopic) {
   cb_result *result = NULL;
   const char *topic = (*env)->GetStringUTFChars(env, pubsubTopic, 0);
-  waku_relay_subscribe((void *)wakuPtr, topic, on_response, (void *)&result);
+  waku_relay_subscribe((void *)wakuPtr, on_response_reply, (void *)&result,
+                       &(WakuRelaySubscribeReq){.pubSubTopic = topic});
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   (*env)->ReleaseStringUTFChars(env, pubsubTopic, topic);
@@ -285,7 +305,8 @@ jobject Java_com_mobile_WakuModule_wakuRelayUnsubscribe(JNIEnv *env,
                                                         jstring pubsubTopic) {
   cb_result *result = NULL;
   const char *topic = (*env)->GetStringUTFChars(env, pubsubTopic, 0);
-  waku_relay_unsubscribe((void *)wakuPtr, topic, on_response, (void *)&result);
+  waku_relay_unsubscribe((void *)wakuPtr, on_response_reply, (void *)&result,
+                         &(WakuRelayUnsubscribeReq){.pubSubTopic = topic});
   jobject response = to_jni_result(env, result);
   free_cb_result(result);
   (*env)->ReleaseStringUTFChars(env, pubsubTopic, topic);
