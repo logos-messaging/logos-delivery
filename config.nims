@@ -87,6 +87,10 @@ when defined(macosx):
 --opt:
   speed
 
+# All feature defines go here
+--define:
+  libp2p_mix_experimental_exit_is_dest
+
 --excessiveStackTrace:
   on
 # enable metric collection
