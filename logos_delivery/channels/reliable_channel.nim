@@ -228,11 +228,14 @@ proc send*(
     ChannelReqState.init(persistenceReqType, sdsSegments.len)
 
   for sdsBytes in sdsSegments:
-    ## A close can land on any of the awaits below. Stop dispatching: the
-    ## listeners are already gone, so the remaining segments would never be
-    ## finalised anyway.
+    ## A close can land on any of the awaits below. `stop` has already dropped
+    ## the listeners, so neither the segments still in flight nor the ones not
+    ## yet dispatched can ever be finalised: the request would sit at
+    ## `confirmedCount + failedCount < totalExpectedSegments` forever. Drop it
+    ## and fail the send rather than hand back a `RequestId` that goes quiet.
     if self.closed:
-      break
+      self.channelReqs.del(channelReqId)
+      return err("channel closed mid-send")
 
     ## TODO: revisit which fields of the SDS message must be encrypted.
     ## Encrypting the whole encoded blob forces every receiver to attempt
