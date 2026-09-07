@@ -173,6 +173,12 @@ jobs:
           pattern: wakutools-*
           path: wakutools
           merge-multiple: true
+      - name: download packages
+        uses: actions/download-artifact@v4
+        with:
+          pattern: liblogosdelivery-*
+          path: packages
+          merge-multiple: true
 
       - name: prep variables
         id: vars
@@ -276,4 +282,4 @@ jobs:
 
           gh release create "$TAG" --prerelease ${TARGET} \
             --title "$TAG" --notes-file release_notes.md \
-            wakunode2/* wakutools/*
+            wakunode2/* wakutools/* packages/*
