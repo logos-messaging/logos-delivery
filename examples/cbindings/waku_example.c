@@ -215,6 +215,18 @@ void publish_message(const char *msg)
 // it on the far side. `segmentationSegmentSizeBytes` defaults to 102400 and the
 // wire header takes up to 128 of those, leaving 102272 bytes of payload per
 // segment once rounded down to the 64-byte alignment Reed-Solomon needs.
+//
+// To check the split really happens, count the distinct messages this node put
+// on the channel's content topic; one send must produce CHANNEL_DATA_SEGMENTS
+// of them:
+//
+//   ./build/cwaku_example -h 127.0.0.1 -p 60000 2>&1 | tee run.log
+//   # pick option 4, then:
+//   grep large-message run.log | grep -oE '0x[0-9a-f]{64}' | sort -u | wc -l
+//
+// To check reassembly, run a second instance on another port, connect the two
+// (option 2) and send from one: the receiver reports a single
+// onChannelMessageReceived carrying the whole payload, not one per segment.
 #define CHANNEL_SEGMENT_PAYLOAD 102272
 #define CHANNEL_DATA_SEGMENTS 4
 
