@@ -8,23 +8,68 @@ package main
 	#include <stdio.h>
 	#include <stdlib.h>
 	#include <string.h>
+	#include <pthread.h>
 
 	extern void globalEventCallback(int ret, char* msg, size_t len, void* userData);
 
+	// The library answers on its own thread, so a Resp carries the handshake
+	// as well as the payload. `msg` is owned here: the buffer handed to a
+	// callback is only valid for that call.
 	typedef struct {
 		int ret;
 		char* msg;
 		size_t len;
+		int done;
+		pthread_mutex_t mtx;
+		pthread_cond_t cond;
 	} Resp;
 
 	static void* allocResp() {
-		return calloc(1, sizeof(Resp));
+		Resp* r = calloc(1, sizeof(Resp));
+		pthread_mutex_init(&r->mtx, NULL);
+		pthread_cond_init(&r->cond, NULL);
+		return r;
 	}
 
 	static void freeResp(void* resp) {
 		if (resp != NULL) {
-			free(resp);
+			Resp* r = (Resp*) resp;
+			pthread_mutex_destroy(&r->mtx);
+			pthread_cond_destroy(&r->cond);
+			free(r->msg);
+			free(r);
 		}
+	}
+
+	// Blocks until the reply lands. Without this the caller reads a zeroed
+	// Resp, and since RET_OK is 0 that looks like success with an empty body.
+	static void waitResp(void* resp) {
+		if (resp == NULL) {
+			return;
+		}
+		Resp* m = (Resp*) resp;
+		pthread_mutex_lock(&m->mtx);
+		while (!m->done) {
+			pthread_cond_wait(&m->cond, &m->mtx);
+		}
+		pthread_mutex_unlock(&m->mtx);
+	}
+
+	static void completeResp(Resp* m, int ret, const char* text, size_t len) {
+		pthread_mutex_lock(&m->mtx);
+		m->ret = ret;
+		free(m->msg);
+		m->msg = malloc(len + 1);
+		if (m->msg != NULL) {
+			if (len > 0 && text != NULL) {
+				memcpy(m->msg, text, len);
+			}
+			m->msg[len] = '\0';
+			m->len = len;
+		}
+		m->done = 1;
+		pthread_cond_signal(&m->cond);
+		pthread_mutex_unlock(&m->mtx);
 	}
 
 	static char* getMyCharPtr(void* resp) {
@@ -55,10 +100,7 @@ package main
 	// retrieving data from the callback
 	static void callback(int ret, char* msg, size_t len, void* resp) {
 		if (resp != NULL) {
-			Resp* m = (Resp*) resp;
-			m->ret = ret;
-			m->msg = msg;
-			m->len = len;
+			completeResp((Resp*) resp, ret, msg, len);
 		}
 	}
 
@@ -67,11 +109,8 @@ package main
 	// in msg, so they need their own shim onto the same Resp.
 	static void replyCallback(int errCode, const char* reply, const char* errMsg, void* resp) {
 		if (resp != NULL) {
-			Resp* m = (Resp*) resp;
 			const char* text = reply != NULL ? reply : (errMsg != NULL ? errMsg : "");
-			m->ret = errCode;
-			m->msg = (char*) text;
-			m->len = strlen(text);
+			completeResp((Resp*) resp, errCode, text, strlen(text));
 		}
 	}
 
@@ -88,15 +127,18 @@ package main
 		// We pass NULL because we are not interested in retrieving data from this callback
 		void* ret = logosdelivery_create_node(
 			&(LogosdeliveryCreateNodeCtorReq){.configJson = configJson}, replyCallback, resp);
+		waitResp(resp);
 		return ret;
 	}
 
 	static void cGoWakuStart(void* wakuCtx, void* resp) {
 		WAKU_CALL(logosdelivery_start_node(wakuCtx, callback, resp));
+		waitResp(resp);
 	}
 
 	static void cGoWakuStop(void* wakuCtx, void* resp) {
 		WAKU_CALL(logosdelivery_stop_node(wakuCtx, callback, resp));
+		waitResp(resp);
 	}
 
 	static void cGoWakuDestroy(void* wakuCtx, void* resp) {
@@ -105,14 +147,17 @@ package main
 
 	static void cGoWakuStartDiscV5(void* wakuCtx, void* resp) {
 		WAKU_CALL(waku_start_discv5(wakuCtx, callback, resp));
+		waitResp(resp);
 	}
 
 	static void cGoWakuStopDiscV5(void* wakuCtx, void* resp) {
 		WAKU_CALL(waku_stop_discv5(wakuCtx, callback, resp));
+		waitResp(resp);
 	}
 
 	static void cGoWakuVersion(void* wakuCtx, void* resp) {
 		WAKU_CALL(waku_version(wakuCtx, callback, resp));
+		waitResp(resp);
 	}
 
 	static void cGoWakuSetEventCallback(void* wakuCtx) {
@@ -146,14 +191,17 @@ package main
 							void* resp) {
 
 		WAKU_CALL( waku_content_topic(wakuCtx, replyCallback, resp, &(WakuContentTopicReq){.appName = appName, .appVersion = appVersion, .contentTopicName = contentTopicName, .encoding = encoding}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuPubsubTopic(void* wakuCtx, char* topicName, void* resp) {
 		WAKU_CALL( waku_pubsub_topic(wakuCtx, replyCallback, resp, &(WakuPubsubTopicReq){.topicName = topicName}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuDefaultPubsubTopic(void* wakuCtx, void* resp) {
 		WAKU_CALL (waku_default_pubsub_topic(wakuCtx, callback, resp));
+		waitResp(resp);
 	}
 
 	static void cGoWakuRelayPublish(void* wakuCtx,
@@ -163,19 +211,23 @@ package main
 					   void* resp) {
 
 		WAKU_CALL (waku_relay_publish(wakuCtx, replyCallback, resp, &(WakuRelayPublishReq){.pubSubTopic = pubSubTopic, .jsonWakuMessage = jsonWakuMessage, .timeoutMs = timeoutMs}));
+		waitResp(resp);
 	}
 
 	static void cGoWakuRelaySubscribe(void* wakuCtx, char* pubSubTopic, void* resp) {
 		WAKU_CALL ( waku_relay_subscribe(wakuCtx, replyCallback, resp, &(WakuRelaySubscribeReq){.pubSubTopic = pubSubTopic}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuRelayUnsubscribe(void* wakuCtx, char* pubSubTopic, void* resp) {
 
 		WAKU_CALL ( waku_relay_unsubscribe(wakuCtx, replyCallback, resp, &(WakuRelayUnsubscribeReq){.pubSubTopic = pubSubTopic}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuConnect(void* wakuCtx, char* peerMultiAddr, int timeoutMs, void* resp) {
 		WAKU_CALL( waku_connect(wakuCtx, replyCallback, resp, &(WakuConnectReq){.peerMultiAddr = peerMultiAddr, .timeoutMs = timeoutMs}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuDialPeerById(void* wakuCtx,
@@ -185,34 +237,42 @@ package main
 									void* resp) {
 
 		WAKU_CALL( waku_dial_peer_by_id(wakuCtx, replyCallback, resp, &(WakuDialPeerByIdReq){.peerId = peerId, .protocol = protocol, .timeoutMs = timeoutMs}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuDisconnectPeerById(void* wakuCtx, char* peerId, void* resp) {
 		WAKU_CALL( waku_disconnect_peer_by_id(wakuCtx, replyCallback, resp, &(WakuDisconnectPeerByIdReq){.peerId = peerId}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuListenAddresses(void* wakuCtx, void* resp) {
 		WAKU_CALL (waku_listen_addresses(wakuCtx, callback, resp) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuGetMyENR(void* ctx, void* resp) {
 		WAKU_CALL (waku_get_my_enr(ctx, callback, resp) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuGetMyPeerId(void* ctx, void* resp) {
 		WAKU_CALL (waku_get_my_peerid(ctx, callback, resp) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuListPeersInMesh(void* ctx, char* pubSubTopic, void* resp) {
 		WAKU_CALL (waku_relay_get_num_peers_in_mesh(ctx, replyCallback, resp, &(WakuRelayGetNumPeersInMeshReq){.pubSubTopic = pubSubTopic}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuGetNumConnectedPeers(void* ctx, char* pubSubTopic, void* resp) {
 		WAKU_CALL (waku_relay_get_num_connected_peers(ctx, replyCallback, resp, &(WakuRelayGetNumConnectedPeersReq){.pubSubTopic = pubSubTopic}) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuGetPeerIdsFromPeerStore(void* wakuCtx, void* resp) {
 		WAKU_CALL (waku_get_peerids_from_peerstore(wakuCtx, callback, resp) );
+		waitResp(resp);
 	}
 
 	static void cGoWakuLightpushPublish(void* wakuCtx,
@@ -221,6 +281,7 @@ package main
 					void* resp) {
 
 		WAKU_CALL (waku_lightpush_publish(wakuCtx, replyCallback, resp, &(WakuLightpushPublishReq){.pubSubTopic = pubSubTopic, .jsonWakuMessage = jsonWakuMessage}));
+		waitResp(resp);
 	}
 
 	static void cGoWakuStoreQuery(void* wakuCtx,
@@ -230,6 +291,7 @@ package main
 					void* resp) {
 
 		WAKU_CALL (waku_store_query(wakuCtx, replyCallback, resp, &(WakuStoreQueryReq){.jsonQuery = jsonQuery, .peerAddr = peerAddr, .timeoutMs = timeoutMs}));
+		waitResp(resp);
 	}
 
 	static void cGoWakuPeerExchangeQuery(void* wakuCtx,
@@ -237,6 +299,7 @@ package main
 								void* resp) {
 
 		WAKU_CALL (waku_peer_exchange_request(wakuCtx, callback, resp, numPeers));
+		waitResp(resp);
 	}
 
 	static void cGoWakuGetPeerIdsByProtocol(void* wakuCtx,
@@ -244,6 +307,7 @@ package main
 									 void* resp) {
 
 		WAKU_CALL (waku_get_peerids_by_protocol(wakuCtx, replyCallback, resp, &(WakuGetPeeridsByProtocolReq){.protocol = protocol}));
+		waitResp(resp);
 	}
 
 */

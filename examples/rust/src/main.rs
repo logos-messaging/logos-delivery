@@ -1,6 +1,6 @@
-use std::cell::OnceCell;
 use std::ffi::CString;
 use std::os::raw::{c_char, c_int, c_void};
+use std::sync::mpsc::{channel, Receiver, Sender};
 use std::{slice, thread, time};
 
 // These declarations are hand-written rather than generated from
@@ -93,6 +93,21 @@ where
     create_trampoline::<C>
 }
 
+/// The library answers on its own thread, so every call below has to wait for
+/// its reply before reading the result.
+fn wait_reply(rx: &Receiver<(i32, String)>, what: &str) -> String {
+    match rx.recv_timeout(time::Duration::from_secs(15)) {
+        Ok((_ret, data)) => data,
+        Err(err) => panic!("no reply from {what}: {err}"),
+    }
+}
+
+fn reply_sender(tx: Sender<(i32, String)>) -> impl FnMut(i32, &str) {
+    move |ret: i32, data: &str| {
+        let _ = tx.send((ret, data.to_string()));
+    }
+}
+
 fn main() {
     let config_json = "\
     { \
@@ -107,47 +122,47 @@ fn main() {
 
     unsafe {
         // Create the waku node
-        let closure = |ret: i32, data: &str| {
-            println!("Ret {ret}. logosdelivery_create_node closure called {data}");
-        };
+        let (tx, rx) = channel::<(i32, String)>();
+        let mut closure = reply_sender(tx);
         let cb = get_create_trampoline(&closure);
         let config_json_str = CString::new(config_json).unwrap();
         let req = LogosdeliveryCreateNodeCtorReq {
             config_json: config_json_str.as_ptr(),
         };
-        let ctx = logosdelivery_create_node(&req, cb, &closure as *const _ as *const c_void);
+        let ctx = logosdelivery_create_node(&req, cb, &mut closure as *mut _ as *const c_void);
+        println!(
+            "logosdelivery_create_node: {}",
+            wait_reply(&rx, "logosdelivery_create_node")
+        );
 
         // Extracting the current waku version
-        let version: OnceCell<String> = OnceCell::new();
-        let closure = |ret: i32, data: &str| {
-            println!("version_closure. Ret: {ret}. Data: {data}");
-            let _ = version.set(data.to_string());
-        };
+        let (tx, rx) = channel::<(i32, String)>();
+        let mut closure = reply_sender(tx);
         let cb = get_trampoline(&closure);
         // `ctx` is already the context pointer; taking its address passed a
         // pointer to the local instead, which the library rejected.
-        let _ret = waku_version(ctx, cb, &closure as *const _ as *const c_void);
+        let _ret = waku_version(ctx, cb, &mut closure as *mut _ as *const c_void);
+        let version = wait_reply(&rx, "waku_version");
 
         // Extracting the default pubsub topic
-        let default_pubsub_topic: OnceCell<String> = OnceCell::new();
-        let closure = |_ret: i32, data: &str| {
-            let _ = default_pubsub_topic.set(data.to_string());
-        };
+        let (tx, rx) = channel::<(i32, String)>();
+        let mut closure = reply_sender(tx);
         let cb = get_trampoline(&closure);
-        let _ret = waku_default_pubsub_topic(ctx, cb, &closure as *const _ as *const c_void);
+        let _ret = waku_default_pubsub_topic(ctx, cb, &mut closure as *mut _ as *const c_void);
+        let default_pubsub_topic = wait_reply(&rx, "waku_default_pubsub_topic");
 
-        println!("Version: {}", version.get_or_init(|| unreachable!()));
-        println!(
-            "Default pubsubTopic: {}",
-            default_pubsub_topic.get_or_init(|| unreachable!())
-        );
+        println!("Version: {version}");
+        println!("Default pubsubTopic: {default_pubsub_topic}");
 
         // Start the Waku node
-        let closure = |ret: i32, data: &str| {
-            println!("Ret {ret}. logosdelivery_start_node closure called {data}");
-        };
+        let (tx, rx) = channel::<(i32, String)>();
+        let mut closure = reply_sender(tx);
         let cb = get_trampoline(&closure);
-        let _ret = logosdelivery_start_node(ctx, cb, &closure as *const _ as *const c_void);
+        let _ret = logosdelivery_start_node(ctx, cb, &mut closure as *mut _ as *const c_void);
+        println!(
+            "logosdelivery_start_node: {}",
+            wait_reply(&rx, "logosdelivery_start_node")
+        );
     }
 
     loop {
