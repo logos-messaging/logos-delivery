@@ -2,10 +2,16 @@
 ## callback surface. One typed callback per RLN function: scalar args are passed
 ## directly, complex args (config, options, proof) as JSON, and every call's
 ## result comes back as JSON via `logosdelivery_rln_response`. See
-## `liblogosdelivery_rln.h`. The reply-parsing helpers near the bottom decode
-## the module's two wire dialects; the broker providers registered by
-## `registerRlnModuleProviders` (called from node_api at node create) are their
-## only consumers.
+## `liblogosdelivery_rln.h`.
+##
+## This is the RLN API-module backend's own transport (the backend proper is
+## `./rln_lez`); `library/logos_delivery_api/node_api.nim` imports it, which
+## keeps the C entry points compiled into liblogosdelivery.
+##
+## The reply-parsing helpers near the bottom decode the module's two wire
+## dialects into typed results; the broker providers registered by
+## `registerRlnModuleProviders` (called from node_api at node create) flatten
+## those to strings at their edge.
 ##
 ## Threading: host callbacks may complete on a foreign thread, so the crossing
 ## uses `ThreadSignalPtr` + `allocShared` (no GC memory shared across threads).
@@ -22,43 +28,45 @@ import brokers/broker_context
 import
   logos_delivery/waku/waku_core/message/message,
   logos_delivery/waku/requests/rln_requests,
-  logos_delivery/waku/rln/api/types as rln_api_types
+  ./types
 from logos_delivery/waku/rln/rln_evm/proof import toRLNSignal
 
+export types
+
 type
-  LogosDeliveryRlnStartFn = proc(reqId: uint64, configJson: cstring, userData: pointer) {.
+  LogosDeliveryRlnStartFn* = proc(reqId: uint64, configJson: cstring, userData: pointer) {.
     cdecl, gcsafe, raises: []
   .}
 
-  LogosDeliveryRlnStopFn =
+  LogosDeliveryRlnStopFn* =
     proc(reqId: uint64, userData: pointer) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnRegisterFn = proc(
+  LogosDeliveryRlnRegisterFn* = proc(
     reqId: uint64,
     registryId, rlnIdentifier: cstring,
     optionsJson: cstring,
     userData: pointer,
   ) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnGetMembershipStateFn = proc(
+  LogosDeliveryRlnGetMembershipStateFn* = proc(
     reqId: uint64, registryId, rlnIdentifier: cstring, userData: pointer
   ) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnGetEpochQuotaFn = proc(
+  LogosDeliveryRlnGetEpochQuotaFn* = proc(
     reqId: uint64,
     registryId, rlnIdentifier: cstring,
     timestamp: uint64,
     userData: pointer,
   ) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnGenerateProofFn = proc(
+  LogosDeliveryRlnGenerateProofFn* = proc(
     reqId: uint64,
     registryId, rlnIdentifier, signalHex: cstring,
     timestamp: uint64,
     userData: pointer,
   ) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnValidateProofFn = proc(
+  LogosDeliveryRlnValidateProofFn* = proc(
     reqId: uint64,
     registryId, rlnIdentifier, signalHex: cstring,
     timestamp: uint64,
@@ -66,14 +74,14 @@ type
     userData: pointer,
   ) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnCallbacks = object
-    start: LogosDeliveryRlnStartFn
-    stop: LogosDeliveryRlnStopFn
-    register_membership: LogosDeliveryRlnRegisterFn
-    get_membership_state: LogosDeliveryRlnGetMembershipStateFn
-    get_epoch_quota: LogosDeliveryRlnGetEpochQuotaFn
-    generate_proof: LogosDeliveryRlnGenerateProofFn
-    validate_proof: LogosDeliveryRlnValidateProofFn
+  LogosDeliveryRlnCallbacks* = object
+    start*: LogosDeliveryRlnStartFn
+    stop*: LogosDeliveryRlnStopFn
+    register_membership*: LogosDeliveryRlnRegisterFn
+    get_membership_state*: LogosDeliveryRlnGetMembershipStateFn
+    get_epoch_quota*: LogosDeliveryRlnGetEpochQuotaFn
+    generate_proof*: LogosDeliveryRlnGenerateProofFn
+    validate_proof*: LogosDeliveryRlnValidateProofFn
 
   Pending = object
     reqId: uint64
@@ -287,8 +295,7 @@ proc rlnValidateProof*(
 
 # --- C entry points -----------------------------------------------------------
 
-#int logosdelivery_rln_set_callbacks(const LogosDeliveryRlnCallbacks* cbs, void* user_data);
-proc logosdelivery_rln_set_callbacks(
+proc logosdelivery_rln_set_callbacks*(
     cbs: ptr LogosDeliveryRlnCallbacks, userData: pointer
 ): cint {.exportc, cdecl, dynlib.} =
   # copy struct (or clear on nil), stash userData; nil fails all pending
@@ -306,8 +313,7 @@ proc logosdelivery_rln_set_callbacks(
       gUserData = userData
     return 0
 
-#int logosdelivery_rln_response(uint64_t req_id, const char* result_json);
-proc logosdelivery_rln_response(
+proc logosdelivery_rln_response*(
     reqId: uint64, resultJson: cstring
 ): cint {.exportc, cdecl, dynlib.} =
   # under lock: find pending by reqId, copy the JSON in, fireSync the signal.
@@ -326,8 +332,8 @@ proc logosdelivery_rln_response(
     return 0
 
 # --- reply parsing ------------------------------------------------------------
-# Module replies follow the RLN module's own wire dialects (logos-rln-modules,
-# docs/wire-binding.md), split by the method's declared return type:
+# Module replies follow the RLN module's own wire bindings, 
+# split by the method's declared return type:
 # - `result` methods (start, stop, generate_proof, validate_proof,
 #   get_epoch_quota) answer with the LogosResult envelope
 #   {"success":bool,"value":<reply>,"error":<string>}; on failure `error` is
@@ -335,9 +341,23 @@ proc logosdelivery_rln_response(
 # - `tstr` methods (register, get_membership_state) answer with compact JSON;
 #   failures are the in-band envelope {"error":{"class",...}}.
 # `class` is the spec's RlnErrorKind, lowercase: not_ready | transient |
-# budget_exhausted | permanent.
+# budget_exhausted | permanent. Decode failures map to Transient (retry
+# permitted; the module may answer coherently next time).
 
-proc parseRlnVerdict(s: string): Result[ProofVerdict, string] =
+proc toRlnError(errNode: JsonNode): RlnError =
+  let kind =
+    case errNode{"class"}.getStr("transient")
+    of "not_ready": RlnErrorKind.NotReady
+    of "budget_exhausted": RlnErrorKind.BudgetExhausted
+    of "permanent": RlnErrorKind.Permanent
+    else: RlnErrorKind.Transient
+  var msg = errNode{"message"}.getStr("")
+  let wireKind = errNode{"kind"}.getStr("")
+  if wireKind.len > 0:
+    msg.add " (kind: " & wireKind & ")"
+  RlnError.init(kind, msg)
+
+proc parseRlnVerdict(s: string): Result[ProofVerdict, RlnError] =
   case s
   of "valid":
     ok(ProofVerdict.Valid)
@@ -348,34 +368,30 @@ proc parseRlnVerdict(s: string): Result[ProofVerdict, string] =
   of "rate_limit_violation":
     ok(ProofVerdict.RateLimitViolation)
   else:
-    err("unknown verdict: " & s)
+    err(RlnError.transient("unknown verdict: " & s))
 
-proc parseRlnJson(resultJson: string): Result[JsonNode, string] =
+proc parseRlnJson(resultJson: string): Result[JsonNode, RlnError] =
   ## Parses a module reply, tolerating the SDK's known double-encoding quirk
   ## (a JSON string containing the actual JSON reply).
   var node =
     try:
       parseJson(resultJson)
     except CatchableError as e:
-      return err("invalid module reply JSON: " & e.msg)
+      return err(RlnError.transient("invalid module reply JSON: " & e.msg))
   if node.kind == JString:
     try:
       node = parseJson(node.getStr())
     except CatchableError:
-      return err("module reply is a plain string: " & node.getStr())
+      return err(RlnError.transient("module reply is a plain string: " & node.getStr()))
   if node.kind != JObject:
-    return err("module reply is not a JSON object")
+    return err(RlnError.transient("module reply is not a JSON object"))
   ok(node)
 
-proc formatRlnError(errNode: JsonNode): string =
-  errNode{"class"}.getStr("transient") & ": " & errNode{"message"}.getStr("") &
-    " (kind: " & errNode{"kind"}.getStr("") & ")"
-
-proc parseRlnResultEnvelope(resultJson: string): Result[JsonNode, string] =
+proc parseRlnResultEnvelope*(resultJson: string): Result[JsonNode, RlnError] =
   ## `result`-dialect reply: returns the envelope's `value` on success.
   let node = ?parseRlnJson(resultJson)
   if not node.hasKey("success"):
-    return err("module reply has no success field")
+    return err(RlnError.transient("module reply has no success field"))
   if not node{"success"}.getBool(false):
     let errField = node{"error"}
     if not errField.isNil() and errField.kind == JString:
@@ -383,12 +399,12 @@ proc parseRlnResultEnvelope(resultJson: string): Result[JsonNode, string] =
         try:
           parseJson(errField.getStr())
         except CatchableError:
-          return err(errField.getStr())
-      return err(formatRlnError(errObj))
-    return err("module call failed with no error detail")
+          return err(RlnError.transient(errField.getStr()))
+      return err(toRlnError(errObj))
+    return err(RlnError.transient("module call failed with no error detail"))
   var value = node{"value"}
   if value.isNil():
-    return err("module reply has no value field")
+    return err(RlnError.transient("module reply has no value field"))
   if value.kind == JString:
     # the value itself may arrive JSON-encoded; a genuine string stays as-is
     try:
@@ -397,14 +413,14 @@ proc parseRlnResultEnvelope(resultJson: string): Result[JsonNode, string] =
       discard
   ok(value)
 
-proc parseRlnTstrReply(resultJson: string): Result[JsonNode, string] =
+proc parseRlnTstrReply*(resultJson: string): Result[JsonNode, RlnError] =
   ## `tstr`-dialect reply: the compact JSON object, or the in-band error.
   let node = ?parseRlnJson(resultJson)
   if node.hasKey("error"):
-    return err(formatRlnError(node["error"]))
+    return err(toRlnError(node{"error"}))
   ok(node)
 
-proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, string] =
+proc parseRlnValidationResult*(resultJson: string): Result[ValidationResult, RlnError] =
   ## validate_proof reply: a result envelope whose value is the verdict object
   ## {"verdict":str}, plus "recovered_secret" (hex) on rate_limit_violation.
   ## An invalid proof is a verdict, not an error — an error means the module
@@ -418,24 +434,36 @@ proc parseRlnValidationResult(resultJson: string): Result[ValidationResult, stri
     try:
       hexToByteArray(recovered.getStr(), secret)
     except ValueError:
-      return err("recovered_secret is not a 32-byte hex string")
+      return err(RlnError.transient("recovered_secret is not a 32-byte hex string"))
     validation.recoveredSecret = some(secret)
   return ok(validation)
 
-proc parseRlnGeneratedProof(resultJson: string): Result[seq[byte], string] =
+proc parseRlnGeneratedProof*(resultJson: string): Result[seq[byte], RlnError] =
   ## generate_proof reply: a result envelope whose value carries
   ## "proof_canonical" — the full zerokit serialization as hex, the one blob
   ## a message carries and validate_proof accepts alone.
   let value = ?parseRlnResultEnvelope(resultJson)
   let hexStr = value{"proof_canonical"}.getStr("")
   if hexStr.len == 0:
-    return err("Generate_proof reply carries no proof_canonical")
+    return err(RlnError.transient("generate_proof reply carries no proof_canonical"))
   try:
     return ok(hexToSeqByte(hexStr))
   except ValueError as e:
-    return err("Proof_canonical is not valid hex: " & e.msg)
+    return err(RlnError.transient("proof_canonical is not valid hex: " & e.msg))
 
-proc parseRlnMembershipStatus(s: string): Result[MembershipStatus, string] =
+proc parseRlnEpochQuota*(resultJson: string): Result[EpochQuota, RlnError] =
+  ## get_epoch_quota reply: a result envelope whose value is
+  ## {"epoch_index","rate_limit","remaining"}.
+  let value = ?parseRlnResultEnvelope(resultJson)
+  ok(
+    EpochQuota(
+      epochIndex: value{"epoch_index"}.getBiggestInt(0).uint64,
+      rateLimit: value{"rate_limit"}.getBiggestInt(0).uint64,
+      remaining: value{"remaining"}.getBiggestInt(0).uint64,
+    )
+  )
+
+proc parseRlnMembershipStatus(s: string): Result[MembershipStatus, RlnError] =
   case s
   of "unknown":
     ok(MembershipStatus.Unknown)
@@ -456,9 +484,9 @@ proc parseRlnMembershipStatus(s: string): Result[MembershipStatus, string] =
   of "slashed":
     ok(MembershipStatus.Slashed)
   else:
-    err("unknown membership state: " & s)
+    err(RlnError.transient("unknown membership state: " & s))
 
-proc parseRlnMembershipState(resultJson: string): Result[MembershipState, string] =
+proc parseRlnMembershipState*(resultJson: string): Result[MembershipState, RlnError] =
   ## get_membership_state reply: {"state":str} plus membership_hash /
   ## leaf_index / rate_limit once the membership data is known.
   let node = ?parseRlnTstrReply(resultJson)
@@ -470,7 +498,7 @@ proc parseRlnMembershipState(resultJson: string): Result[MembershipState, string
     try:
       hexToByteArray(hashHex, hash)
     except ValueError:
-      return err("membership_hash is not a 32-byte hex string")
+      return err(RlnError.transient("membership_hash is not a 32-byte hex string"))
     state.membership = some(
       Membership(
         membershipHash: hash,
@@ -482,7 +510,7 @@ proc parseRlnMembershipState(resultJson: string): Result[MembershipState, string
 
 # --- broker providers ---------------------------------------------------------
 
-proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, string] =
+proc registerRlnModuleProviders*(ctx: BrokerContext, lez: bool): Result[void, string] =
   ## Bridges the waku layer's RLN module requests onto the FFI callback
   ## surface. Providers are registered at create time; the underlying calls
   ## only succeed once the host has installed its RLN callbacks.
@@ -492,7 +520,8 @@ proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, str
       let response = ?await rlnStart(configJson)
       # result-dialect call: surface a module-side failure as err so the
       # caller does not proceed to registration on a dead module.
-      discard ?parseRlnResultEnvelope(response)
+      discard parseRlnResultEnvelope(response).valueOr:
+        return err($error)
       return ok(RequestStartRlnModule(response: response)),
   ).isOkOr:
     return err("Failed to set RequestStartRlnModule provider: " & error)
@@ -507,7 +536,8 @@ proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, str
         optionsJson.add(%*{"key": opt.key, "value": opt.value})
       let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
       # tstr-dialect call: failures arrive in-band under "error".
-      discard ?parseRlnTstrReply(response)
+      discard parseRlnTstrReply(response).valueOr:
+        return err($error)
       return ok(RequestRegisterRlnMembership(response: response)),
   ).isOkOr:
     return err("Failed to set RequestRegisterRlnMembership provider: " & error)
@@ -518,7 +548,8 @@ proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, str
         registryId: RegistryId, rlnIdentifier: RlnIdentifier
     ): Future[Result[RequestGetRlnMembershipState, string]] {.async.} =
       let response = ?await rlnGetMembershipState(registryId, rlnIdentifier.toHex())
-      let state = ?parseRlnMembershipState(response)
+      let state = parseRlnMembershipState(response).valueOr:
+        return err($error)
       return ok(RequestGetRlnMembershipState(state: state)),
   ).isOkOr:
     return err("Failed to set RequestGetRlnMembershipState provider: " & error)
@@ -536,7 +567,8 @@ proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, str
       let response = ?await rlnValidateProof(
         registryId, rlnIdentifier.toHex(), signalHex, timestamp, proofJson
       )
-      let validation = ?parseRlnValidationResult(response)
+      let validation = parseRlnValidationResult(response).valueOr:
+        return err($error)
       return ok(RequestValidateRlnProof(validation: validation)),
   ).isOkOr:
     return err("Failed to set RequestValidateRlnProof provider: " & error)
@@ -555,7 +587,8 @@ proc registerRlnModuleProviders(ctx: BrokerContext, lez: bool): Result[void, str
         let response = ?await rlnGenerateProof(
           registryId, rlnIdentifier.toHex(), signalHex, timestamp
         )
-        let proofBytes = ?parseRlnGeneratedProof(response)
+        let proofBytes = parseRlnGeneratedProof(response).valueOr:
+          return err($error)
         return ok(RequestGenerateRlnProof(proof: proofBytes)),
     ).isOkOr:
       return err("failed to set RequestGenerateRlnProof provider: " & error)

@@ -9,7 +9,7 @@ import results, chronos
 
 import logos_delivery/waku/waku
 import logos_delivery/waku/[node/waku_node, rln, rln/protocol_types, rln/nonce_manager]
-import logos_delivery/waku/rln/api/types as rln_api_types
+import logos_delivery/waku/rln/rln_lez/types as rln_api_types
 
 export rln_api_types
 
