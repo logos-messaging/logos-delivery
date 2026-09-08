@@ -1,7 +1,13 @@
 {.used.}
 
 import
-  results, chronos, testutils/unittests, libp2p/builders, libp2p/protocols/rendezvous
+  results,
+  chronos,
+  stew/byteutils,
+  testutils/unittests,
+  libp2p/builders,
+  libp2p/crypto/curve25519,
+  libp2p/protocols/rendezvous
 
 import
   logos_delivery/waku/waku_core/peers,
@@ -12,7 +18,52 @@ import
   logos_delivery/waku/waku_rendezvous/protocol,
   logos_delivery/waku/waku_rendezvous/common,
   logos_delivery/waku/waku_rendezvous/waku_peer_record,
+  logos_delivery/waku/waku_rendezvous/client,
   ./testlib/[wakucore, wakunode]
+
+suite "mixPubKeyFromHex":
+  proc validKeyBytes(): seq[byte] =
+    var b = newSeq[byte](Curve25519KeySize)
+    for i in 0 ..< Curve25519KeySize:
+      b[i] = byte(i)
+    b
+
+  test "empty string returns none":
+    check:
+      mixPubKeyFromHex("").isNone()
+
+  test "short hex does not raise":
+    check:
+      mixPubKeyFromHex("ff").isNone()
+      mixPubKeyFromHex("zz").isNone()
+
+  test "non-32-byte decoded length returns none":
+    check:
+      mixPubKeyFromHex(byteutils.toHex(newSeq[byte](Curve25519KeySize - 1))).isNone()
+      mixPubKeyFromHex(byteutils.toHex(newSeq[byte](Curve25519KeySize + 1))).isNone()
+
+  test "32-byte hex returns the key":
+    let bytes = validKeyBytes()
+    let res = mixPubKeyFromHex(byteutils.toHex(bytes))
+    require:
+      res.isSome()
+    check:
+      res.get().getBytes() == bytes
+
+  test "0x-prefixed 32-byte hex returns the key":
+    let bytes = validKeyBytes()
+    let res = mixPubKeyFromHex("0x" & byteutils.toHex(bytes))
+    require:
+      res.isSome()
+    check:
+      res.get().getBytes() == bytes
+
+  test "round-trip matches intoCurve25519Key on raw bytes":
+    let bytes = validKeyBytes()
+    let extracted = mixPubKeyFromHex(byteutils.toHex(bytes)).get()
+    let direct = intoCurve25519Key(bytes)
+    check:
+      extracted.getBytes() == direct.getBytes()
 
 procSuite "Waku Rendezvous":
   asyncTest "Simple remote test":
