@@ -19,6 +19,7 @@ import
     node/peer_manager,
     waku_relay/protocol,
     rln,
+    rln/rln_lez/rln_lez,
     waku_lightpush/common,
     waku_lightpush/rpc,
     waku_lightpush/client,
@@ -70,31 +71,26 @@ proc attachRlnProof*(
   if message.proof.len > 0:
     return ok(message)
 
-  if self.conf.rlnRelayConf.isSome() and self.conf.rlnRelayConf.get().lez:
-    let rlnConf = self.conf.rlnRelayConf.get()
+  if not self.node.rlnLez.isNil():
+    let rlnLez = self.node.rlnLez
     if message.timestamp <= 0:
       return
         err("Cannot attach an RLN proof to a message that has not been timestamped")
     let timestamp = uint64(message.timestamp div 1_000_000_000)
 
-    # Verify the node's membership before the first proof; a pass is cached so
-    # later sends skip the registry read. A failed check is not cached, so the
-    # next send retries it.
-    if not self.rlnMembershipVerified:
-      let stateRes = (
-        await RequestGetRlnMembershipState.request(
-          self.brokerCtx, rlnConf.registryId, rlnConf.identifier
-        )
-      ).valueOr:
+    # Verify the node's membership before the first proof; a pass is cached on
+    # the handle (usually already at node start) so later sends skip the
+    # registry read. A failed check is not cached, so the next send retries it.
+    if not rlnLez.membershipVerified:
+      let status = (await rlnLez.verifyMembership()).valueOr:
         return err("Failed to verify RLN membership: " & error)
-      let status = stateRes.state.status
-      if status notin {MembershipStatus.Active, MembershipStatus.GracePeriod}:
+      if not rlnLez.membershipVerified:
         return err("The node does not have a usable RLN membership: " & $status)
-      self.rlnMembershipVerified = true
 
     let generated = (
       await RequestGenerateRlnProof.request(
-        self.brokerCtx, message, rlnConf.registryId, rlnConf.identifier, timestamp
+        self.brokerCtx, message, rlnLez.scope.registryId, rlnLez.scope.rlnIdentifier,
+        timestamp,
       )
     ).valueOr:
       return err("Failed to attach RLN proof: " & error)

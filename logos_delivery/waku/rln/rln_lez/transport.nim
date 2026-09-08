@@ -518,8 +518,6 @@ proc registerRlnModuleProviders*(ctx: BrokerContext, lez: bool): Result[void, st
     ctx,
     proc(configJson: string): Future[Result[RequestStartRlnModule, string]] {.async.} =
       let response = ?await rlnStart(configJson)
-      # result-dialect call: surface a module-side failure as err so the
-      # caller does not proceed to registration on a dead module.
       discard parseRlnResultEnvelope(response).valueOr:
         return err($error)
       return ok(RequestStartRlnModule(response: response)),
@@ -535,7 +533,6 @@ proc registerRlnModuleProviders*(ctx: BrokerContext, lez: bool): Result[void, st
       for opt in options:
         optionsJson.add(%*{"key": opt.key, "value": opt.value})
       let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
-      # tstr-dialect call: failures arrive in-band under "error".
       discard parseRlnTstrReply(response).valueOr:
         return err($error)
       return ok(RequestRegisterRlnMembership(response: response)),
