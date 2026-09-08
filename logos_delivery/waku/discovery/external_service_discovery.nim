@@ -3,7 +3,7 @@
 ## IPeerDiscovery backed by an external service-discovery plugin (today:
 ## logos-libp2p-module, driven by glue in logos-delivery-module).
 ##
-## Shape-wise this is the twin of the internal `ServiceDiscovery` backend:
+## Shape-wise this is the twin of the internal `ServicePeerDiscovery` backend:
 ## fully async verbs plus periodic lookup loops. The difference is only where
 ## the work happens — every plugin call is dispatched to the discovery worker
 ## thread through `(mt)` request brokers, so a 30 s DHT bootstrap blocks that

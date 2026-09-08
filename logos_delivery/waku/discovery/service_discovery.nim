@@ -26,7 +26,7 @@ logScope:
 
 const ServiceBackendId* = "service"
 
-type ServiceDiscovery* = ref object of IPeerDiscovery
+type ServicePeerDiscovery* = ref object of IPeerDiscovery
   inner*: WakuKademlia
   running: bool
 
@@ -39,9 +39,11 @@ proc serviceIdOf(key: string): Result[string, string] =
     return ok(key[ServiceKeyPrefix.len ..^ 1])
   ok(key)
 
-BrokerImplement ServiceDiscovery of IPeerDiscovery:
-  proc new(T: typedesc[ServiceDiscovery], inner: WakuKademlia): ServiceDiscovery =
-    let self = ServiceDiscovery(inner: inner)
+BrokerImplement ServicePeerDiscovery of IPeerDiscovery:
+  proc new(
+      T: typedesc[ServicePeerDiscovery], inner: WakuKademlia
+  ): ServicePeerDiscovery =
+    let self = ServicePeerDiscovery(inner: inner)
 
     # Bridge the node-level event onto the instance-scoped interface event.
     # The wrapper lives as long as the node, so the listener is never dropped.
@@ -59,7 +61,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     self
 
   method backendInfo(
-      self: ServiceDiscovery
+      self: ServicePeerDiscovery
   ): Future[Result[DiscoveryBackendInfo, string]] {.async.} =
     ok(
       DiscoveryBackendInfo(
@@ -71,7 +73,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     )
 
   method startDiscovery(
-      self: ServiceDiscovery
+      self: ServicePeerDiscovery
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
@@ -81,7 +83,9 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     self.running = true
     ok()
 
-  method stopDiscovery(self: ServiceDiscovery): Future[Result[void, string]] {.async.} =
+  method stopDiscovery(
+      self: ServicePeerDiscovery
+  ): Future[Result[void, string]] {.async.} =
     if not self.running:
       return ok()
     await self.inner.stop()
@@ -89,7 +93,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     ok()
 
   method lookupServicePeers(
-      self: ServiceDiscovery, key: string, limit: int
+      self: ServicePeerDiscovery, key: string, limit: int
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
@@ -101,7 +105,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     ok(found)
 
   method startAdvertising(
-      self: ServiceDiscovery, key: string, data: seq[byte]
+      self: ServicePeerDiscovery, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
@@ -117,7 +121,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     ok()
 
   method stopAdvertising(
-      self: ServiceDiscovery, key: string
+      self: ServicePeerDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
@@ -129,7 +133,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     ok()
 
   method registerInterest(
-      self: ServiceDiscovery, key: string
+      self: ServicePeerDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
@@ -138,7 +142,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     ok()
 
   method unregisterInterest(
-      self: ServiceDiscovery, key: string
+      self: ServicePeerDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
@@ -147,7 +151,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     ok()
 
   method addBootstrapEntries(
-      self: ServiceDiscovery, entries: seq[string]
+      self: ServicePeerDiscovery, entries: seq[string]
   ): Future[Result[void, string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
@@ -162,7 +166,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
     ok()
 
   method lookupRandom(
-      self: ServiceDiscovery
+      self: ServicePeerDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if self.inner.isNil():
       return err("service backend: not mounted")
