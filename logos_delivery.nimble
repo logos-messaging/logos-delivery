@@ -78,6 +78,8 @@ requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb
 
 requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
+requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b0204093fe202bec477b2dbf824c"
+
 # v0.8.1: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.8.1
 # libp2p requires "lsquic >= 0.5.4" by name. The exact numeric constraint
 # keeps the resolution at the validated release instead of floating to
@@ -137,6 +139,10 @@ const cBindingsFlags =
   " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=" & cBindingsDir &
   " -d:ffiSrcPath=../liblogosdelivery.nim "
 
+## The Makefile does not export NIM_PARAMS, so its defines never reach here.
+const libFeatureFlags =
+  " -d:libp2p_mix_experimental_exit_is_dest -d:libp2p_quic_support "
+
 proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static", srcFile = "liblogosdelivery.nim", mainPrefix = "liblogosdelivery") =
   if not dirExists "build":
     mkDir "build"
@@ -145,11 +151,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
+      libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
   else:
     exec "nim c" & " --out:build/" & lib_name &
       " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
-      cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
+      libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
   buildLibrary libName & ".dll", folderName,
@@ -370,6 +376,9 @@ task test, "Build & run Waku tests":
 
 task testwakunode2, "Build & run wakunode2 app tests":
   test "all_tests_wakunode2"
+
+task testlogosdelivery, "Build & run Logos Delivery API layer tests":
+  test "all_tests_logos_delivery"
 
 task example2, "Build Waku examples":
   buildBinary "api_example", "examples/api_example/"

@@ -23,6 +23,12 @@ let
 
   nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
+         # nix's cc-wrapper drops -march=native (NIX_ENFORCE_NO_NATIVE), so the
+         # build must not depend on it. This also hands nim-leopard's own cmake
+         # an explicit ISA baseline; see config.nims.
+         "--define:disableMarchNative"
+         "--define:libp2p_mix_experimental_exit_is_dest"
+         "--define:libp2p_quic_support"
          "--define:git_version=${gitVersion}" ]
     ++ pkgs.lib.optional enablePostgres       "--define:postgres"
     ++ pkgs.lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
@@ -36,15 +42,25 @@ let
 
   # Some packages (e.g. regex, unicodedb) put their .nim files under src/
   # while others use the repo root. Pass both so the compiler finds either layout.
+  # /sds and /segmentation are those packages' nimble srcDir: nix hands us the
+  # raw checkout, not the flattened layout `nimble install` would produce.
   pathArgs =
     builtins.concatStringsSep " "
-      (builtins.concatMap (p: [ "--path:${p}" "--path:${p}/src" "--path:${p}/sds" ])
+      (builtins.concatMap (p: [
+        "--path:${p}"
+        "--path:${p}/src"
+        "--path:${p}/sds"
+        "--path:${p}/segmentation"
+      ])
         (builtins.attrValues otherDeps));
 
   libExt =
     if pkgs.stdenv.hostPlatform.isWindows then "dll"
     else if pkgs.stdenv.hostPlatform.isDarwin then "dylib"
     else "so";
+
+  # Mirrors the nimble buildLibrary proc: library targets only, not the apps.
+  libDefineArgs = [ "--define:discv5_protocol_id=d5waku" ];
 
   # Must match the nimble task: library/liblogosdelivery.h includes this path.
   cBindingsDir = "library/generated";
@@ -89,10 +105,18 @@ pkgs.stdenv.mkDerivation {
     git
     gnumake
     which
+    # nim-leopard builds the vendored Leopard-RS C++ library at Nim compile time.
+    cmake
   ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.cctools ];
 
   buildInputs = [ zerokitRln ]
     ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
+
+  # cmake is here only so nim-leopard can build Leopard-RS from its own
+  # CMakeLists during `nim c`. Without this, cmake's setup hook installs
+  # cmakeConfigurePhase as the derivation's configurePhase and fails on the
+  # repo root, which has no CMakeLists.txt of its own.
+  dontUseCmakeConfigure = true;
 
   buildPhase = ''
     export HOME=$TMPDIR
@@ -132,7 +156,7 @@ pkgs.stdenv.mkDerivation {
         "--noMain"
         "--header"
         "--nimMainPrefix:liblogosdelivery"
-      ] ++ cBindingsArgs;
+      ] ++ libDefineArgs ++ cBindingsArgs;
     }}
 
     echo "== Building liblogosdelivery (static) =="
@@ -144,7 +168,7 @@ pkgs.stdenv.mkDerivation {
         "--opt:size"
         "--noMain"
         "--nimMainPrefix:liblogosdelivery"
-      ];
+      ] ++ libDefineArgs;
     }}
     ''}
   '';
