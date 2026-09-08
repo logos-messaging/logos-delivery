@@ -91,7 +91,7 @@ const TestShards = @[0'u16, 3'u16]
 
 suite "Self advertisement":
   asyncTest "a serving node advertises and registers interest":
-    let kad = FakeBackend.create("service", @["service", "shard", "cap"])
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(@[IPeerDiscovery(kad)], confWith(CoreFlags), TestShards)
     check:
       kad.advertised == @["service:" & LogosDeliveryServiceId]
@@ -99,14 +99,14 @@ suite "Self advertisement":
 
   asyncTest "an edge node registers interest but advertises nothing":
     ## Nothing to be found for, but it still needs to find others.
-    let kad = FakeBackend.create("service", @["service", "shard", "cap"])
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(@[IPeerDiscovery(kad)], confWith(EdgeFlags), TestShards)
     check:
       kad.advertised.len == 0
       kad.interests == @["service:" & LogosDeliveryServiceId]
 
   asyncTest "relay alone is enough to be worth finding":
-    let kad = FakeBackend.create("service", @["service", "shard", "cap"])
+    let kad = FakeBackend.create("service", @["service", "topic", "cap"])
     await advertiseSelf(
       @[IPeerDiscovery(kad)],
       confWith(CapabilitiesBitfield.init(relay = true)),
@@ -117,9 +117,9 @@ suite "Self advertisement":
   asyncTest "both kademlia hosts take part, discv5 does not":
     ## Selected by what a backend declares it understands, not by its name --
     ## discv5 rejects svc: keys, so asking it would only produce warnings.
-    let internal = FakeBackend.create("service", @["service", "shard", "cap"])
-    let plugin = FakeBackend.create("service-ext", @["service", "shard", "cap"])
-    let discv5 = FakeBackend.create("discv5", @["shard", "cap", ""])
+    let internal = FakeBackend.create("service", @["service", "topic", "cap"])
+    let plugin = FakeBackend.create("service-ext", @["service", "topic", "cap"])
+    let discv5 = FakeBackend.create("discv5", @["topic", "cap", ""])
     await advertiseSelf(
       @[IPeerDiscovery(internal), IPeerDiscovery(plugin), IPeerDiscovery(discv5)],
       confWith(CoreFlags),
