@@ -22,48 +22,22 @@ import
   ./testlib/[wakucore, wakunode]
 
 suite "mixPubKeyFromHex":
-  proc validKeyBytes(): seq[byte] =
-    var b = newSeq[byte](Curve25519KeySize)
-    for i in 0 ..< Curve25519KeySize:
-      b[i] = byte(i)
-    b
-
-  test "empty string returns none":
+  test "wrong decoded length returns none":
     check:
       mixPubKeyFromHex("").isNone()
-
-  test "short hex does not raise":
-    check:
       mixPubKeyFromHex("ff").isNone()
       mixPubKeyFromHex("zz").isNone()
-
-  test "non-32-byte decoded length returns none":
-    check:
       mixPubKeyFromHex(byteutils.toHex(newSeq[byte](Curve25519KeySize - 1))).isNone()
       mixPubKeyFromHex(byteutils.toHex(newSeq[byte](Curve25519KeySize + 1))).isNone()
 
-  test "32-byte hex returns the key":
-    let bytes = validKeyBytes()
-    let res = mixPubKeyFromHex(byteutils.toHex(bytes))
-    require:
-      res.isSome()
+  test "32-byte hex is accepted, with or without 0x":
+    var bytes = newSeq[byte](Curve25519KeySize)
+    for i in 0 ..< bytes.len:
+      bytes[i] = byte(i)
+    let hex = byteutils.toHex(bytes)
     check:
-      res.get().getBytes() == bytes
-
-  test "0x-prefixed 32-byte hex returns the key":
-    let bytes = validKeyBytes()
-    let res = mixPubKeyFromHex("0x" & byteutils.toHex(bytes))
-    require:
-      res.isSome()
-    check:
-      res.get().getBytes() == bytes
-
-  test "round-trip matches intoCurve25519Key on raw bytes":
-    let bytes = validKeyBytes()
-    let extracted = mixPubKeyFromHex(byteutils.toHex(bytes)).get()
-    let direct = intoCurve25519Key(bytes)
-    check:
-      extracted.getBytes() == direct.getBytes()
+      mixPubKeyFromHex(hex).get().getBytes() == bytes
+      mixPubKeyFromHex("0x" & hex).get().getBytes() == bytes
 
 procSuite "Waku Rendezvous":
   asyncTest "Simple remote test":
