@@ -7,6 +7,7 @@
 
 include Nat.mk
 include BearSSL.mk
+include Leopard.mk
 
 LINK_PCRE := 0
 FORMAT_MSG := "\\x1B[95mFormatting:\\x1B[39m"
@@ -113,6 +114,7 @@ test:
 ifeq ($(strip $(test_file)),)
 	$(MAKE) testcommon
 	$(MAKE) testwaku
+	$(MAKE) testlogosdelivery
 else
 	$(MAKE) compile-test TEST_FILE="$(test_file)" TEST_NAME="$(call test_name)"
 endif
@@ -145,7 +147,7 @@ audit-deps:
 # after nimble setup has populated nimbledeps/.
 .PHONY: build-deps
 build-deps: | $(NIMBLEDEPS_STAMP)
-	$(MAKE) rebuild-bearssl-nimbledeps rebuild-nat-libs-nimbledeps
+	$(MAKE) rebuild-bearssl-nimbledeps rebuild-nat-libs-nimbledeps rebuild-leopard-nimbledeps
 
 	$(MAKE) audit-deps
 
@@ -286,11 +288,17 @@ testcommon: | build-deps build
 ##########
 ## Waku ##
 ##########
-.PHONY: testwaku wakunode2 logosdeliverynode testwakunode2 example2 chat2 chat2bridge liteprotocoltester
+.PHONY: testwaku testlogosdelivery wakunode2 logosdeliverynode testwakunode2 example2 chat2 chat2bridge liteprotocoltester
 
 testwaku: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) test $(NIMBLE_TASK_FLAGS)
+
+# Split out of testwaku: refc caps a binary at 3500 GC-traced globals and the
+# combined suite had reached it. See tests/all_tests_logos_delivery.nim.
+testlogosdelivery: | build-deps build rln-deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(NIMBLE) testlogosdelivery $(NIMBLE_TASK_FLAGS)
 
 # Windows: build with nim directly — `nimble <task>` re-clones git deps every
 # build and they intermittently hang on the MSYS2 runner. Flags mirror logos_delivery.nimble.

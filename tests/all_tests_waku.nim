@@ -72,17 +72,11 @@ import ./waku_rln_relay/test_all
 # Node Factory
 import ./factory/test_all
 
-# Waku API tests
-import ./api/test_all
-
 # Waku tools tests
 import ./tools/test_all
 
 # Persistency library tests
 import ./persistency/test_all
 
-# Messaging API tests
-import ./messaging/test_all
-
-# Reliable Channel API tests
-import ./channels/test_all
+# The logos_delivery/{api,messaging,channels} suites live in
+# all_tests_logos_delivery: see the note there.

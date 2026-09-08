@@ -44,7 +44,8 @@ extern "C"
   // Events are delivered through a per-event listener registry. Register one
   // callback per event name of interest; see the README for the full list.
   // Channel lifecycle events are "onChannelMessageReceived" (payload
-  // base64-encoded), "onChannelMessageSent" and "onChannelMessageError".
+  // base64-encoded), "onChannelMessageSent", "onChannelMessageError" and
+  // "onChannelMessageLost" (payloadHash hex-encoded).
 
   // Registers a callback for the named event and returns a non-zero listener id
   // (0 on an invalid context). `ctx` is the context handle returned by
