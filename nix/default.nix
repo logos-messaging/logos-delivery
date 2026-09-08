@@ -21,6 +21,7 @@ let
     in if requested == [] then null else builtins.head requested;
   buildApp = appTarget != null;
 
+  # Build-specific defines only. Feature defines live in config.nims.
   nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
          "--define:libp2p_mix_experimental_exit_is_dest"

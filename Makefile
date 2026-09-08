@@ -214,13 +214,8 @@ else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif
 
+# Build flags only. Feature defines live in config.nims.
 NIM_PARAMS := $(NIM_PARAMS) -d:disable_libbacktrace
-
-# enable experimental exit is dest feature in libp2p mix
-NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest
-
-# enable libp2p's QUIC transport
-NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_quic_support
 
 ifeq ($(POSTGRES), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:postgres -d:nimDebugDlOpen
