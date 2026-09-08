@@ -1,0 +1,25 @@
+{.push raises: [].}
+
+## Configuration of the RLN-LEZ backend: only the membership scope and epoch
+## parameters — the external RLN module owns everything else (keystore,
+## credentials, registry connectivity), so none of the on-chain zerokit
+## fields (eth*, creds, credIndex, dynamic) apply here.
+
+import logos_delivery/waku/common/error_handling
+
+type RlnLezConf* = object of RootObj
+  registryId*: string
+    ## CAIP-10 account identifier selecting the registry deployment.
+  identifier*: array[32, byte]
+    ## Per-application RLN identifier, mixed into the external nullifier.
+  epochSizeSec*: uint64
+  userMessageLimit*: uint64
+  registryOptionsJson*: string
+    ## Flat JSON object of registry-specific registration options passed
+    ## verbatim to the external RLN module's register() (e.g. funding or
+    ## delegation options for the logos namespace). "{}" when unset.
+
+type WakuRlnLezConfig* = object of RlnLezConf
+  onFatalErrorAction*: OnFatalErrorHandler
+
+{.pop.}
