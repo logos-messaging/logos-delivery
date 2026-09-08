@@ -4,6 +4,7 @@ import
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p_mix/curve25519
+import libp2p_mix/spam_protection
 import ../waku_conf, logos_delivery/waku/waku_mix
 
 logScope:
@@ -18,6 +19,7 @@ type MixConfBuilder* = object
   enabled: Opt[bool]
   mixKey: Opt[string]
   mixNodes: seq[MixNodePubInfo]
+  spamProtection: Opt[SpamProtection]
 
 proc init*(T: type MixConfBuilder): MixConfBuilder =
   MixConfBuilder()
@@ -31,6 +33,9 @@ proc withMixKey*(b: var MixConfBuilder, mixKey: string) =
 proc withMixNodes*(b: var MixConfBuilder, mixNodes: seq[MixNodePubInfo]) =
   b.mixNodes = mixNodes
 
+proc withSpamProtection*(b: var MixConfBuilder, spamProtection: SpamProtection) =
+  b.spamProtection = Opt.some(spamProtection)
+
 proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
   if not b.enabled.get(DefaultMixEnabled):
     return ok(Opt.none(MixConf))
@@ -40,7 +45,12 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
       let mixPubKey = public(mixPrivKey)
       return ok(
         Opt.some(
-          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+          MixConf(
+            mixKey: mixPrivKey,
+            mixPubKey: mixPubKey,
+            mixNodes: b.mixNodes,
+            spamProtection: b.spamProtection,
+          )
         )
       )
     else:
@@ -48,6 +58,11 @@ proc build*(b: MixConfBuilder): Result[Opt[MixConf], string] =
         return err("Generate key pair error: " & $error)
       return ok(
         Opt.some(
-          MixConf(mixKey: mixPrivKey, mixPubKey: mixPubKey, mixNodes: b.mixNodes)
+          MixConf(
+            mixKey: mixPrivKey,
+            mixPubKey: mixPubKey,
+            mixNodes: b.mixNodes,
+            spamProtection: b.spamProtection,
+          )
         )
       )
