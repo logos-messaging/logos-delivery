@@ -120,8 +120,6 @@ suite "Waku v2 Rest API - Filter V2":
     )
     let response = await restFilterTest.client.filterPostSubscriptions(requestBody)
 
-    echo "response", $response
-
     let subscribedPeer1 = restFilterTest.serviceNode.wakuFilter.subscriptions.findSubscribedPeers(
       DefaultPubsubTopic, DefaultContentTopic
     )
