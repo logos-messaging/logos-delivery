@@ -5,6 +5,7 @@
 #include <unistd.h>
 #include <fcntl.h>
 #include <stdint.h>
+#include <time.h>
 #include <pthread.h>
 
 #include <sys/types.h>
@@ -211,6 +212,84 @@ void publish_message(const char *msg)
   WAKU_CALL(waku_relay_publish(ctx, reply_handler, userData, &publishReq));
 }
 
+// A reliable channel splits anything larger than one segment and reassembles
+// it on the far side. `segmentationSegmentSizeBytes` defaults to 102400 and the
+// wire header takes up to 128 of those, leaving 102272 bytes of payload per
+// segment once rounded down to the 64-byte alignment Reed-Solomon needs.
+// See README.md for how to confirm the split and the reassembly.
+#define CHANNEL_SEGMENT_PAYLOAD 102272
+#define CHANNEL_DATA_SEGMENTS 4
+
+static const char *kChannelId = "c-example-large";
+// A real node validates this: /<application>/<version>/<topic-name>/<encoding>.
+static const char *kChannelTopic = "/c-example/1/large-message/proto";
+
+// Both ends need the channel: creating it subscribes to the content topic, so
+// a node that never calls this receives nothing. Done at startup rather than on
+// the first send, so an instance can be receive-only.
+void ensure_channel(const char *senderId)
+{
+  static int channelReady = 0;
+  if (channelReady)
+  {
+    return;
+  }
+  LogosdeliveryChannelCreateReq createReq = {.channelIdStr = kChannelId,
+                                             .contentTopicStr = kChannelTopic,
+                                             .senderIdStr = senderId};
+  WAKU_CALL(logosdelivery_channel_create(ctx, reply_handler, userData, &createReq));
+  channelReady = 1;
+}
+
+void send_large_channel_message()
+{
+
+  // One byte past three whole segments, so the payload needs a fourth.
+  const size_t payloadLen = (CHANNEL_DATA_SEGMENTS - 1) * CHANNEL_SEGMENT_PAYLOAD + 1;
+  unsigned char *payload = malloc(payloadLen);
+  if (payload == NULL)
+  {
+    printf("Could not allocate the payload\n");
+    return;
+  }
+  // A non-repeating pattern, so a mis-ordered reassembly cannot look correct.
+  // Seeded per send: an identical payload yields identical SDS message ids,
+  // which a peer that already saw them discards as duplicates.
+  const unsigned char seed = (unsigned char)time(NULL);
+  for (size_t i = 0; i < payloadLen; i++)
+  {
+    payload[i] = (unsigned char)(i * 31 + (i / 251) * 7 + seed);
+  }
+
+  char *payloadB64 = b64_encode(payload, payloadLen);
+  free(payload);
+  if (payloadB64 == NULL)
+  {
+    printf("Could not base64-encode the payload\n");
+    return;
+  }
+
+  const size_t jsonLen = strlen(payloadB64) + 64;
+  char *messageJson = malloc(jsonLen);
+  if (messageJson == NULL)
+  {
+    free(payloadB64);
+    printf("Could not allocate the message\n");
+    return;
+  }
+  snprintf(messageJson, jsonLen, "{\"payload\":\"%s\",\"ephemeral\":false}", payloadB64);
+  free(payloadB64);
+
+  printf("Sending %zu bytes over channel '%s': expect %d segments on the wire,\n"
+         "and a single onChannelMessageReceived on any peer that reassembles it.\n",
+         payloadLen, kChannelId, CHANNEL_DATA_SEGMENTS);
+
+  LogosdeliveryChannelSendReq sendReq = {.channelIdStr = kChannelId,
+                                         .messageJson = messageJson};
+  WAKU_CALL(logosdelivery_channel_send(ctx, reply_handler, userData, &sendReq));
+  free(messageJson);
+}
+
 void show_help_and_exit()
 {
   printf("Wrong parameters\n");
@@ -236,7 +315,8 @@ enum PROGRAM_STATE
   MAIN_MENU,
   SUBSCRIBE_TOPIC_MENU,
   CONNECT_TO_OTHER_NODE_MENU,
-  PUBLISH_MESSAGE_MENU
+  PUBLISH_MESSAGE_MENU,
+  SEND_LARGE_CHANNEL_MESSAGE_MENU
 };
 
 enum PROGRAM_STATE current_state = MAIN_MENU;
@@ -247,6 +327,7 @@ void show_main_menu()
   printf("\t1.) Subscribe to topic\n");
   printf("\t2.) Connect to other node\n");
   printf("\t3.) Publish a message\n");
+  printf("\t4.) Send a large message over a reliable channel (segmented)\n");
 }
 
 void handle_user_input()
@@ -276,13 +357,19 @@ void handle_user_input()
   break;
 
   case CONNECT_TO_OTHER_NODE_MENU:
-    // printf("Connecting to a node. Please indicate the peer Multiaddress:\n");
-    // printf("e.g.: /ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN\n");
-    // char peerAddr[512];
-    // scanf("%511s", peerAddr);
-    // WAKU_CALL(waku_connect(ctx, peerAddr, 10000 /* timeoutMs */, event_handler, userData));
+  {
+    printf("Connecting to a node. Please indicate the peer Multiaddress:\n");
+    printf("e.g.: /ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN\n");
+    char peerAddr[512];
+    scanf("%511s", peerAddr);
+
+    WakuConnectReq connectReq = {.peerMultiAddr = peerAddr, .timeoutMs = 10000};
+    WAKU_CALL(waku_connect(ctx, reply_handler, userData, &connectReq));
+    printf("Connected\n");
+
     show_main_menu();
-    break;
+  }
+  break;
 
   case PUBLISH_MESSAGE_MENU:
   {
@@ -292,6 +379,13 @@ void handle_user_input()
 
     publish_message(msg);
 
+    show_main_menu();
+  }
+  break;
+
+  case SEND_LARGE_CHANNEL_MESSAGE_MENU:
+  {
+    send_large_channel_message();
     show_main_menu();
   }
   break;
@@ -324,12 +418,15 @@ int main(int argc, char **argv)
                                         \"tcp-port\": %d,        \
                                         \"store\": %s,       \
                                         \"log-level\": \"DEBUG\", \
-                                        \"discv5-udp-port\": 9999 \
+                                        \"discv5-udp-port\": %d \
                                     } \
                                 }",
            cfgNode.host,
            cfgNode.port,
-           cfgNode.store ? "true" : "false");
+           cfgNode.store ? "true" : "false",
+           // Derived from the TCP port, so a second local instance does not
+           // fail to start with "Address already in use".
+           cfgNode.port + 1);
 
   LogosdeliveryCreateNodeCtorReq createReq = {.configJson = jsonConfig};
   ctx = logosdelivery_create_node(&createReq, create_handler, userData);
@@ -347,7 +444,7 @@ int main(int argc, char **argv)
       "onConnectionStatusChange", "onTopicHealthChange",
       "onConnectionChange",       "onReceivedMessage",
       "onChannelMessageReceived", "onChannelMessageSent",
-      "onChannelMessageError"};
+      "onChannelMessageError",     "onChannelMessageLost"};
   for (size_t i = 0; i < sizeof(kEventNames) / sizeof(kEventNames[0]); i++)
     logosdelivery_add_event_listener(ctx, kEventNames[i], on_event_received, userData);
 
@@ -368,6 +465,12 @@ int main(int argc, char **argv)
   WAKU_CALL(waku_get_peerids_from_peerstore(ctx,
                                             event_handler,
                                             userData));
+
+  // Distinct per instance: SDS drops messages whose sender id matches its own
+  // participant id, so two local nodes sharing one id never see each other.
+  char senderId[64];
+  snprintf(senderId, sizeof(senderId), "c-example-%d", cfgNode.port);
+  ensure_channel(senderId);
 
   show_main_menu();
   while (1)
