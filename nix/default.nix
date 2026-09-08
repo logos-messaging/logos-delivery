@@ -21,12 +21,9 @@ let
     in if requested == [] then null else builtins.head requested;
   buildApp = appTarget != null;
 
+  # Build-specific defines only. Feature defines live in config.nims.
   nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
-         # nix's cc-wrapper drops -march=native (NIX_ENFORCE_NO_NATIVE), so the
-         # build must not depend on it. This also hands nim-leopard's own cmake
-         # an explicit ISA baseline; see config.nims.
-         "--define:disableMarchNative"
          "--define:libp2p_mix_experimental_exit_is_dest"
          "--define:libp2p_quic_support"
          "--define:git_version=${gitVersion}" ]
