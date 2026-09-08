@@ -21,6 +21,10 @@ if defined(windows):
     # set the IMAGE_FILE_LARGE_ADDRESS_AWARE flag so we can use PAE, if enabled, and access more than 2 GiB of RAM
     switch("passL", "-Wl,--large-address-aware")
 
+# CPU baseline. The default build is portable. -d:marchNative selects the native flags.
+# -d:disableMarchNative, the former name of the portable build, still works and wins.
+const portableBuild = not defined(marchNative) or defined(disableMarchNative)
+
 # Leopard-RS is built by nim-leopard, which shells out to cmake from a `static:`
 # block outside Nim's flag plumbing: nothing passed with --passC/--cpu/--os
 # reaches Leopard-RS' compiler, so every knob it has -- all strdefines -- has to
@@ -59,7 +63,7 @@ if defined(android):
   # dlopen on the device.
   switch("passL", "-lc++_static")
   switch("passL", "-lc++abi")
-elif defined(disableMarchNative):
+elif portableBuild:
   # Leopard-RS' CMakeLists adds -march=native whenever the compiler accepts it.
   # Seed the cache variable guarding that probe so a portable build stays
   # portable -- and hand leopard the same x86 baseline this file gives the C
@@ -95,13 +99,12 @@ elif defined(disableMarchNative):
       " -DCMAKE_POSITION_INDEPENDENT_CODE=ON -DCOMPILER_SUPPORTS_MARCH_NATIVE=FALSE" &
       leopardCxxFlags,
   )
-
-# https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#ssse3-supplemental-sse3
-# suggests that SHA256 hashing with SSSE3 is 20% faster than without SSSE3, so
-# given its near-ubiquity in the x86 installed base, it renders a distribution
-# build more viable on an overall broader range of hardware.
-#
-if defined(disableMarchNative):
+if portableBuild:
+  switch("define", "disableMarchNative")
+  # https://github.com/status-im/nimbus-eth2/blob/stable/docs/cpu_features.md#ssse3-supplemental-sse3
+  # suggests that SHA256 hashing with SSSE3 is 20% faster than without SSSE3, so
+  # given its near-ubiquity in the x86 installed base, it renders a distribution
+  # build more viable on an overall broader range of hardware.
   if defined(i386) or defined(amd64):
     if defined(macosx):
       # macOS Catalina is EOL as of 2022-09

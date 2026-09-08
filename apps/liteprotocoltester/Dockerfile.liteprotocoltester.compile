@@ -22,9 +22,7 @@ RUN git submodule update --init --recursive
 RUN make -j$(nproc) deps QUICK_AND_DIRTY_COMPILER=1 ${NIM_COMMIT}
 
 # Build the final node binary
-# -d:disableMarchNative is appended here. Without it config.nims adds
-# -march=native and the image may require CPU features the runtime host lacks.
-RUN make -j$(nproc) ${NIM_COMMIT} $MAKE_TARGET LOG_LEVEL=${LOG_LEVEL} NIMFLAGS="${NIMFLAGS} -d:disableMarchNative"
+RUN make -j$(nproc) ${NIM_COMMIT} $MAKE_TARGET LOG_LEVEL=${LOG_LEVEL} NIMFLAGS="${NIMFLAGS}"
 
 
 # REFERENCE IMAGE as BASE for specialized PRODUCTION IMAGES----------------------------------------
