@@ -9,7 +9,7 @@ on:
 
 env:
   NPROC: 2
-  NIMFLAGS: "-d:disableMarchNative"
+  NIMFLAGS: ""
   NIM_VERSION: '2.2.6'
 
 jobs:

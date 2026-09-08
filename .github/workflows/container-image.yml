@@ -14,7 +14,7 @@ on:
 env:
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "--parallelBuild:${NPROC} -d:disableMarchNative -d:chronicles_colors:none"
+  NIMFLAGS: "--parallelBuild:${NPROC} -d:chronicles_colors:none"
   NIM_VERSION: '2.2.6'
 
 # This workflow should not run for outside contributors
