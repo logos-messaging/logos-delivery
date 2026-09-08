@@ -34,6 +34,19 @@ const
   listenPort = Port(0)
   # every shard id hardcoded below is the gen-zero derivation over 65536 shards
   autoShardCount = 65536'u32
+  # every content topic below resolves to a different shard
+  contentTopics = [
+    "/myapp/1/latest/proto", "/waku/2/content/test.js",
+    "/app/22/sometopic/someencoding", "/toychat/2/huilong/proto",
+    "/statusim/1/community/cbor", "/app/27/sometopic/someencoding",
+    "/app/29/sometopic/someencoding", "/app/20/sometopic/someencoding",
+  ]
+  # Automatically generated from the contentTopics above
+  shards = [
+    "/waku/2/rs/0/18728", "/waku/2/rs/0/15257", "/waku/2/rs/0/52594",
+    "/waku/2/rs/0/58355", "/waku/2/rs/0/4404", "/waku/2/rs/0/18525",
+    "/waku/2/rs/0/45782", "/waku/2/rs/0/45503",
+  ]
 
 proc waitForTopicPeer(
     node: WakuNode, topic: PubsubTopic, peer: PeerId, timeout = 5.seconds
@@ -46,6 +59,29 @@ proc waitForTopicPeer(
         return
     await sleepAsync(10.milliseconds)
   raiseAssert $peer & " never announced a subscription to " & topic
+
+proc subscribeToAllContentTopics(
+    server, client: WakuNode
+): Future[seq[Future[bool]]] {.async.} =
+  ## Connects the client to the server, both subscribed to every content topic,
+  ## and checks each one delivers.
+  let serverHandlers =
+    contentTopics.mapIt(server.subscribeToContentTopicWithHandler(it))
+  for contentTopic in contentTopics:
+    client.subscribe((kind: ContentSub, topic: contentTopic), noopRawHandler()).isOkOr:
+      raiseAssert "Failed to subscribe to content topic " & contentTopic & ": " & error
+
+  await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+  for shard in shards:
+    await client.waitForTopicPeer(shard, server.switch.peerInfo.peerId)
+
+  for i, contentTopic in contentTopics:
+    discard await client.publish(
+      Opt.some(shards[i]),
+      WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic),
+    )
+    assertResultOk(await serverHandlers[i].waitForResult(FUTURE_TIMEOUT))
+  serverHandlers
 
 suite "Sharding":
   var
@@ -153,6 +189,88 @@ suite "Sharding":
       check serverResult2.isErr()
       assertResultOk(clientResult2)
 
+    asyncTest "Unsubscribing from some pubsub topics keeps the others delivering":
+      # Given a connected server and client subscribed to eight pubsub topics
+      let
+        contentTopic = "myContentTopic"
+        topics = toSeq(1 .. 8).mapIt("/waku/2/rs/0/" & $it)
+        serverHandlers = topics.mapIt(server.subscribeCompletionHandler(it))
+      for topic in topics:
+        client.subscribe((kind: PubsubSub, topic: topic), noopRawHandler()).isOkOr:
+          raiseAssert "Failed to subscribe to topic " & topic & ": " & error
+
+      await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      for topic in topics:
+        await client.waitForTopicPeer(topic, server.switch.peerInfo.peerId)
+
+      for i, topic in topics:
+        discard await client.publish(
+          Opt.some(topic),
+          WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic),
+        )
+        assertResultOk(await serverHandlers[i].waitForResult(FUTURE_TIMEOUT))
+
+      # When both nodes unsubscribe from the first three topics
+      for node in [server, client]:
+        for topic in topics[0 .. 2]:
+          node.unsubscribe((kind: PubsubUnsub, topic: topic)).isOkOr:
+            raiseAssert "Failed to unsubscribe from topic " & topic & ": " & error
+      for handler in serverHandlers:
+        handler.reset()
+
+      # Then the unsubscribed topics stop delivering
+      for i in 0 .. 2:
+        discard await client.publish(
+          Opt.some(topics[i]),
+          WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
+        )
+        check (await serverHandlers[i].waitForResult(FUTURE_TIMEOUT)).isErr()
+
+      # Then the other topics keep delivering
+      for i in 3 .. topics.high:
+        discard await client.publish(
+          Opt.some(topics[i]),
+          WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
+        )
+        assertResultOk(await serverHandlers[i].waitForResult(FUTURE_TIMEOUT))
+
+    asyncTest "Unsubscribing from all pubsub topics stops delivery":
+      # Given a connected server and client subscribed to eight pubsub topics
+      let
+        contentTopic = "myContentTopic"
+        topics = toSeq(1 .. 8).mapIt("/waku/2/rs/0/" & $it)
+        serverHandlers = topics.mapIt(server.subscribeCompletionHandler(it))
+      for topic in topics:
+        client.subscribe((kind: PubsubSub, topic: topic), noopRawHandler()).isOkOr:
+          raiseAssert "Failed to subscribe to topic " & topic & ": " & error
+
+      await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      for topic in topics:
+        await client.waitForTopicPeer(topic, server.switch.peerInfo.peerId)
+
+      for i, topic in topics:
+        discard await client.publish(
+          Opt.some(topic),
+          WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic),
+        )
+        assertResultOk(await serverHandlers[i].waitForResult(FUTURE_TIMEOUT))
+
+      # When both nodes unsubscribe from every topic
+      for node in [server, client]:
+        for topic in topics:
+          node.unsubscribe((kind: PubsubUnsub, topic: topic)).isOkOr:
+            raiseAssert "Failed to unsubscribe from topic " & topic & ": " & error
+      for handler in serverHandlers:
+        handler.reset()
+
+      # Then no topic delivers anymore
+      for i, topic in topics:
+        discard await client.publish(
+          Opt.some(topic),
+          WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
+        )
+        check (await serverHandlers[i].waitForResult(FUTURE_TIMEOUT)).isErr()
+
   suite "Automatic Sharding Mechanics":
     asyncTest "Content Topic-Based Shard Dialing":
       # Given a connected server and client subscribed to the same content topic (with two different formats)
@@ -243,6 +361,124 @@ suite "Sharding":
       # Then the client receives the message but the server does not
       assertResultOk(clientResult2)
       check serverResult2.isErr()
+
+    asyncTest "Unsubscribing from some content topics keeps the others delivering":
+      # Given a connected server and client delivering on every content topic
+      let serverHandlers = await subscribeToAllContentTopics(server, client)
+
+      # When both nodes unsubscribe from the first three content topics
+      for node in [server, client]:
+        for contentTopic in contentTopics[0 .. 2]:
+          node.unsubscribe((kind: ContentUnsub, topic: contentTopic)).isOkOr:
+            raiseAssert "Failed to unsubscribe from " & contentTopic & ": " & error
+      for handler in serverHandlers:
+        handler.reset()
+
+      # Then the unsubscribed content topics stop delivering
+      for i in 0 .. 2:
+        discard await client.publish(
+          Opt.some(shards[i]),
+          WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopics[i]),
+        )
+        check (await serverHandlers[i].waitForResult(FUTURE_TIMEOUT)).isErr()
+
+      # Then the other content topics keep delivering
+      for i in 3 .. contentTopics.high:
+        discard await client.publish(
+          Opt.some(shards[i]),
+          WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopics[i]),
+        )
+        assertResultOk(await serverHandlers[i].waitForResult(FUTURE_TIMEOUT))
+
+    asyncTest "Unsubscribing one content topic silences other content topics on its shard":
+      # Given a one-shard network, so both content topics resolve to the same shard
+      for node in [server, client]:
+        node.mountAutoSharding(DefaultClusterId, 1).isOkOr:
+          raiseAssert "mountAutoSharding failed: " & error
+
+      let
+        contentTopic1 = "/toychat/2/huilong/proto"
+        contentTopic2 = "/0/toychat2/2/huilong/proto"
+        shard = "/waku/2/rs/0/0"
+      for contentTopic in [contentTopic1, contentTopic2]:
+        let contentShard = server.wakuAutoSharding.get().getShard(contentTopic).valueOr:
+            raiseAssert "getShard failed: " & $error
+        require $contentShard == shard
+
+      let serverHandler1 = server.subscribeToContentTopicWithHandler(contentTopic1)
+      for contentTopic in [contentTopic1, contentTopic2]:
+        client.subscribe((kind: ContentSub, topic: contentTopic), noopRawHandler()).isOkOr:
+          raiseAssert "Failed to subscribe to content topic " & contentTopic & ": " &
+            error
+
+      await client.connectToNodes(@[server.switch.peerInfo.toRemotePeerInfo()])
+      await client.waitForTopicPeer(shard, server.switch.peerInfo.peerId)
+
+      discard await client.publish(
+        Opt.some(shard),
+        WakuMessage(payload: "message1".toBytes(), contentTopic: contentTopic1),
+      )
+      assertResultOk(await serverHandler1.waitForResult(FUTURE_TIMEOUT))
+
+      # When both nodes unsubscribe only from contentTopic2
+      for node in [server, client]:
+        node.unsubscribe((kind: ContentUnsub, topic: contentTopic2)).isOkOr:
+          raiseAssert "Failed to unsubscribe from " & contentTopic2 & ": " & error
+
+      # Then contentTopic1 stops delivering too: unsubscribing one content topic
+      # drops the whole shard subscription
+      serverHandler1.reset()
+      discard await client.publish(
+        Opt.some(shard),
+        WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic1),
+      )
+      check (await serverHandler1.waitForResult(FUTURE_TIMEOUT)).isErr()
+
+    asyncTest "Unsubscribing from all content topics stops delivery":
+      # Given a connected server and client delivering on every content topic
+      let serverHandlers = await subscribeToAllContentTopics(server, client)
+
+      # When both nodes unsubscribe from every content topic
+      for node in [server, client]:
+        for contentTopic in contentTopics:
+          node.unsubscribe((kind: ContentUnsub, topic: contentTopic)).isOkOr:
+            raiseAssert "Failed to unsubscribe from " & contentTopic & ": " & error
+      for handler in serverHandlers:
+        handler.reset()
+
+      # Then no content topic delivers anymore
+      for i, contentTopic in contentTopics:
+        discard await client.publish(
+          Opt.some(shards[i]),
+          WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
+        )
+        check (await serverHandlers[i].waitForResult(FUTURE_TIMEOUT)).isErr()
+
+    asyncTest "Resubscribing after unsubscribing from all content topics restores delivery":
+      # Given a connected server and client delivering on every content topic
+      discard await subscribeToAllContentTopics(server, client)
+
+      # When both nodes unsubscribe from every content topic and then resubscribe
+      for node in [server, client]:
+        for contentTopic in contentTopics:
+          node.unsubscribe((kind: ContentUnsub, topic: contentTopic)).isOkOr:
+            raiseAssert "Failed to unsubscribe from " & contentTopic & ": " & error
+      let resubscribedHandlers =
+        contentTopics.mapIt(server.subscribeToContentTopicWithHandler(it))
+      for contentTopic in contentTopics:
+        client.subscribe((kind: ContentSub, topic: contentTopic), noopRawHandler()).isOkOr:
+          raiseAssert "Failed to subscribe to content topic " & contentTopic & ": " &
+            error
+      for shard in shards:
+        await client.waitForTopicPeer(shard, server.switch.peerInfo.peerId)
+
+      # Then every content topic delivers again
+      for i, contentTopic in contentTopics:
+        discard await client.publish(
+          Opt.some(shards[i]),
+          WakuMessage(payload: "message2".toBytes(), contentTopic: contentTopic),
+        )
+        assertResultOk(await resubscribedHandlers[i].waitForResult(FUTURE_TIMEOUT))
 
   suite "Application Layer Integration":
     suite "App Protocol Compatibility":
