@@ -16,7 +16,7 @@ env:
 
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"
-  NIMFLAGS: "-d:disableMarchNative"
+  NIMFLAGS: ""
   NIM_VERSION: '2.2.6'
 
 jobs:

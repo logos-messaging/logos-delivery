@@ -42,11 +42,7 @@ RUN if [ "$HEAPTRACK_BUILD" = "1" ]; then \
     fi
 
 # Build the final node binary
-# -d:disableMarchNative is appended here, not left to the caller. Without it
-# config.nims adds -march=native, and the image may then require CPU features
-# unavailable on the runtime host. NIMFLAGS is applied last, so a caller can
-# still add to it.
-RUN make -j$(nproc) ${NIM_COMMIT} $MAKE_TARGET NIMFLAGS="${NIMFLAGS} -d:disableMarchNative" POSTGRES=${POSTGRES} DEBUG=${DEBUG} LOG_LEVEL=${LOG_LEVEL} HEAPTRACKER=${HEAPTRACK_BUILD}
+RUN make -j$(nproc) ${NIM_COMMIT} $MAKE_TARGET NIMFLAGS="${NIMFLAGS}" POSTGRES=${POSTGRES} DEBUG=${DEBUG} LOG_LEVEL=${LOG_LEVEL} HEAPTRACKER=${HEAPTRACK_BUILD}
 
 
 # PRODUCTION IMAGE -------------------------------------------------------------
