@@ -11,31 +11,21 @@ export chronos, types
 ## vocabulary — logos-lips `docs/anoncomms/raw/rln-api.md` — mirrored in
 ## `./rln_lez/types`, not defined by this repo.
 ##
+## The surface is implementation-agnostic: no membership, registry or epoch
+## size appears in it. Starting, configuring and registering the backend belong
+## to whoever installs it.
+##
 ## Implementation contract:
 ## - calls made before the implementation can serve fail with `NotReady`;
 ##   unsupported optional extensions fail with `Permanent`
 ## - only `validateProof` writes the nullifier log
-## - `registerMembership` is idempotent while the scope's membership is
-##   `Pending`/`Active`/`GracePeriod` and returns `Pending` on submission —
-##   confirmation is observed via `getMembershipState`
 
 type RlnInterface* = concept m
-  start(m, config = string) is Future[Result[void, RlnError]]
-  stop(m) is Future[Result[void, RlnError]]
-  registerMembership(m, scope = MembershipScope, options = RegistryOptions) is
-    Future[Result[MembershipState, RlnError]]
-  getMembershipState(m, scope = MembershipScope) is
-    Future[Result[MembershipState, RlnError]]
-  getEpochQuota(m, scope = MembershipScope, timestamp = uint64) is
-    Future[Result[EpochQuota, RlnError]]
-  generateProof(m, scope = MembershipScope, signal = seq[byte], timestamp = uint64) is
+  getMembershipState(m) is Future[Result[MembershipState, RlnError]]
+  getEpochQuota(m, timestamp = uint64) is Future[Result[EpochQuota, RlnError]]
+  generateProof(m, signal = seq[byte], timestamp = uint64) is
     Future[Result[RateLimitProof, RlnError]]
-  validateProof(
-    m,
-    scope = MembershipScope,
-    signal = seq[byte],
-    timestamp = uint64,
-    proof = RateLimitProof,
-  ) is Future[Result[ValidationResult, RlnError]]
+  validateProof(m, signal = seq[byte], timestamp = uint64, proof = RateLimitProof) is
+    Future[Result[ValidationResult, RlnError]]
 
 {.pop.}

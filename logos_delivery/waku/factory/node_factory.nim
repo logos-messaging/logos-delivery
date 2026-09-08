@@ -26,6 +26,7 @@ import
   ../waku_core/codecs,
   ../rln,
   ../rln/rln_lez/rln_lez,
+  ../rln/rln_lez/transport,
   ../discovery/waku_dnsdisc,
   ../waku_archive/retention_policy as policy,
   ../waku_archive/retention_policy/builder as policy_builder,
@@ -331,26 +332,26 @@ proc setupProtocols(
   except CatchableError:
     return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
 
-  if conf.rlnLezConf.isSome() or conf.rlnEvmConf.isSome():
+  # The RLN module backend is selected by the host installing an RLN plugin over
+  # FFI (`logosdelivery_rln_set_plugin`), not by configuration. The plugin is
+  # implementation-agnostic: the host owns its parameters and its lifecycle.
+  let rlnPlugin = rlnPluginRegistered()
+
+  if rlnPlugin and conf.rlnEvmConf.isSome():
+    return err(
+      "two RLN backends requested: an RLN plugin is installed and RLN relay is " &
+        "also configured for the embedded EVM backend"
+    )
+
+  if rlnPlugin or conf.rlnEvmConf.isSome():
     when defined(disable_rln):
       return
         err("the configuration enables RLN relay, but this build has -d:disable_rln")
 
-  if conf.rlnLezConf.isSome():
-    let rlnLezConf = conf.rlnLezConf.get()
-    # Module start happens in startNode, after the host installs its RLN callbacks.
-    node.rlnLez = RlnLez.init(
-      MembershipScope.init(rlnLezConf.registryId, rlnLezConf.identifier),
-      rlnLezConf.epochSizeSec,
-    )
-    let validatorConf = WakuRlnLezConfig(
-      registryId: rlnLezConf.registryId,
-      identifier: rlnLezConf.identifier,
-      userMessageLimit: rlnLezConf.userMessageLimit,
-      epochSizeSec: rlnLezConf.epochSizeSec,
-      registryOptionsJson: rlnLezConf.registryOptionsJson,
-      onFatalErrorAction: onFatalErrorAction,
-    )
+  if rlnPlugin:
+    info "Mounting RLN plugin backend"
+    node.rlnLez = RlnLez.init()
+    let validatorConf = WakuRlnLezConfig(onFatalErrorAction: onFatalErrorAction)
     try:
       await node.setRlnValidator(validatorConf)
     except CatchableError:
@@ -446,19 +447,6 @@ proc startNode*(
   ## keep-alive, if configured.
 
   info "Running nwaku node", version = git_version
-
-  # Start the external RLN module before the switch listens: the host installs
-  # its RLN callbacks between node creation and start, so this is the first
-  # point the module is reachable — and bringing it up first closes the window
-  # where inbound RLN traffic could only be Ignored. A node that cannot start
-  # its module silently stops relaying RLN traffic, so failure is fatal.
-  if not node.rlnLez.isNil():
-    try:
-      (await node.rlnLez.startModule()).isOkOr:
-        return err("failed to start RLN module: " & error)
-      info "RLN module started"
-    except CancelledError:
-      return err("cancelled while starting RLN module")
 
   try:
     await node.start()

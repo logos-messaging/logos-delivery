@@ -23,10 +23,6 @@ type RlnConfBuilder* = object
   dynamic*: Opt[bool]
   epochSizeSec*: Opt[uint64]
   userMessageLimit*: Opt[uint64]
-  lez*: Opt[bool]
-  registryId*: Opt[string]
-  identifier*: Opt[string] ## 32-byte hex string, decoded and validated in build()
-  registryOptions*: Opt[string] ## flat JSON object, passed verbatim to register()
 
 proc init*(T: type RlnConfBuilder): RlnConfBuilder =
   RlnConfBuilder()
@@ -64,51 +60,15 @@ proc withEpochSizeSec*(b: var RlnConfBuilder, epochSizeSec: uint64) =
 proc withUserMessageLimit*(b: var RlnConfBuilder, userMessageLimit: uint64) =
   b.userMessageLimit = Opt.some(userMessageLimit)
 
-proc withLez*(b: var RlnConfBuilder, lez: bool) =
-  b.lez = Opt.some(lez)
-
-proc withRegistryId*(b: var RlnConfBuilder, registryId: string) =
-  b.registryId = Opt.some(registryId)
-
-proc withIdentifier*(b: var RlnConfBuilder, identifier: string) =
-  b.identifier = Opt.some(identifier)
-
-proc withRegistryOptions*(b: var RlnConfBuilder, registryOptions: string) =
-  b.registryOptions = Opt.some(registryOptions)
-
 type RlnConfs* = object
-  ## Built RLN configuration: at most one backend is set — `lez` when the
-  ## builder's lez switch is on, `evm` otherwise, neither when RLN is disabled.
+  ## Built RLN configuration: the embedded EVM backend, or nothing when RLN is
+  ## disabled. The RLN module backend is configured by the plugin the host
+  ## installs over FFI, not from here.
   evm*: Opt[RlnConf]
-  lez*: Opt[RlnLezConf]
 
 proc build*(b: RlnConfBuilder): Result[RlnConfs, string] =
   if not b.enabled.get(DefaultRlnRelayEnabled):
     return ok(RlnConfs())
-
-  if b.lez.get(false):
-    if b.registryId.get("") == "":
-      return err("rlnRelay.registryId is not specified")
-    if b.identifier.get("") == "":
-      return err("rlnRelay.identifier is not specified")
-    var identifier: array[32, byte]
-    try:
-      hexToByteArray(b.identifier.get(), identifier)
-    except ValueError:
-      return err("rlnRelay.identifier is not a 32-byte hex string")
-    return ok(
-      RlnConfs(
-        lez: Opt.some(
-          RlnLezConf(
-            registryId: b.registryId.get(),
-            identifier: identifier,
-            epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
-            userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
-            registryOptionsJson: b.registryOptions.get("{}"),
-          )
-        )
-      )
-    )
 
   let creds =
     if b.credPath.isSome() and b.credPassword.isSome():

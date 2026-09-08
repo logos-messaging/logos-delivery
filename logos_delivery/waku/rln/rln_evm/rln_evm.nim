@@ -229,13 +229,8 @@ proc mount(
   RequestGenerateRlnProof.setProvider(
     rlnEvm.brokerCtx,
     proc(
-        message: WakuMessage,
-        registryId: rln_api_types.RegistryId,
-        rlnIdentifier: rln_api_types.RlnIdentifier,
-        timestamp: uint64,
+        message: WakuMessage, timestamp: uint64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
-      # The legacy zerokit path keeps its registry/identifier in the group
-      # manager, so only the signal and the sender epoch time are used here.
       let proofBytes = (
         await rlnEvm.generateRLNProofWithRootRefresh(
           message.toRLNSignal(), float64(timestamp)

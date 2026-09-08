@@ -29,8 +29,7 @@ import
   ./conf_builder/kademlia_discovery_conf_builder
 
 export
-  RlnConf, RlnCreds, RlnLezConf, WakuRlnLezConfig, RestServerConf, Discv5Conf,
-  MetricsServerConf
+  RlnConf, RlnCreds, WakuRlnLezConfig, RestServerConf, Discv5Conf, MetricsServerConf
 # Export only the NatStrategy type and its parse and render procs.
 # The mapper machinery stays in net/nat_config.
 export nat_strategy
@@ -121,7 +120,6 @@ type WakuConf* {.requiresInit.} = ref object
   filterServiceConf*: Opt[FilterServiceConf]
   storeServiceConf*: Opt[StoreServiceConf]
   rlnEvmConf*: Opt[RlnConf]
-  rlnLezConf*: Opt[RlnLezConf]
   restServerConf*: Opt[RestServerConf]
   metricsServerConf*: Opt[MetricsServerConf]
   webSocketConf*: Opt[WebSocketConf]
@@ -168,7 +166,7 @@ type WakuConf* {.requiresInit.} = ref object
 proc logConf*(conf: WakuConf) =
   info "Configuration: Enabled protocols",
     relay = conf.relay,
-    rlnRelay = conf.rlnEvmConf.isSome() or conf.rlnLezConf.isSome(),
+    rlnRelay = conf.rlnEvmConf.isSome(),
     store = conf.storeServiceConf.isSome(),
     filter = conf.filterServiceConf.isSome(),
     lightPush = conf.lightPush,
@@ -184,15 +182,7 @@ proc logConf*(conf: WakuConf) =
     for i in conf.discv5Conf.get().bootstrapNodes:
       debug "Configuration. Bootstrap nodes", node = i.string
 
-  if conf.rlnLezConf.isSome():
-    let rlnLezConf = conf.rlnLezConf.get()
-    info "Configuration. Validation",
-      mechanism = "lez rln",
-      registryId = rlnLezConf.registryId,
-      maxMessageSize = conf.maxMessageSizeBytes,
-      rlnEpochSizeSec = rlnLezConf.epochSizeSec,
-      rlnRelayUserMessageLimit = rlnLezConf.userMessageLimit
-  elif conf.rlnEvmConf.isSome() and conf.rlnEvmConf.get().dynamic:
+  if conf.rlnEvmConf.isSome() and conf.rlnEvmConf.get().dynamic:
     let rlnEvmConf = conf.rlnEvmConf.get()
     info "Configuration. Validation",
       mechanism = "onchain rln",
@@ -239,10 +229,6 @@ proc validateNoEmptyStrings(wakuConf: WakuConf): Result[void, string] =
     return err("dns-discovery-url is an empty string")
 
   # TODO: rln relay config should validate itself
-  if wakuConf.rlnLezConf.isSome():
-    if isEmptyOrWhiteSpace(wakuConf.rlnLezConf.get().registryId):
-      return err("rln-registry-id is an empty string")
-
   if wakuConf.rlnEvmConf.isSome():
     let rlnEvmConf = wakuConf.rlnEvmConf.get()
 

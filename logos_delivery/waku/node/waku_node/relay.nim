@@ -199,10 +199,6 @@ proc setRlnValidator*(
       info "WakuRelay not mounted; RLN validator not set"
       return
 
-    let
-      registryId = rlnConf.registryId
-      rlnIdentifier = rlnConf.identifier
-
     # Maps the module's verdict (RequestValidateRlnProof) to pubsub.ValidationResult.
     proc validator(
         topic: string, message: WakuMessage
@@ -218,9 +214,7 @@ proc setRlnValidator*(
       let timestamp = uint64(message.timestamp div 1_000_000_000)
 
       let res = (
-        await RequestValidateRlnProof.request(
-          node.brokerCtx, message, registryId, rlnIdentifier, timestamp
-        )
+        await RequestValidateRlnProof.request(node.brokerCtx, message, timestamp)
       ).valueOr:
         # no verdict from the module — don't score the peer down for our own failure
         trace "rln-lez validator ignore", error = error
