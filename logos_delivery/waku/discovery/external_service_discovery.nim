@@ -187,7 +187,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       DiscoveryBackendInfo(
         id: ExternalBackendId,
         running: self.running,
-        keyKinds: @["svc", "shard", "cap"],
+        keyKinds: @["service", "shard", "cap"],
         boundPorts: @[],
       )
     )
@@ -267,9 +267,9 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## node listing exactly this service, and let the plugin publish it
     ## verbatim. Identity and key come from the node-state getters, the way
     ## the discv5 backend gets its ENR and key.
-    if not key.startsWith(SvcKeyPrefix):
-      return err("external backend: only svc: keys can be advertised")
-    let serviceId = key[SvcKeyPrefix.len ..^ 1]
+    if not key.startsWith(ServiceKeyPrefix):
+      return err("external backend: only service: keys can be advertised")
+    let serviceId = key[ServiceKeyPrefix.len ..^ 1]
     let peerInfo = ?GetNodePeerInfo.request(self.nodeCtx)
     let nodeKey = ?GetNodeKey.request(self.nodeCtx)
     let record = ?signedServiceRecord(peerInfo, nodeKey, serviceId, data)

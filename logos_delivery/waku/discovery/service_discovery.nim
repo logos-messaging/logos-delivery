@@ -31,12 +31,12 @@ type ServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
 
 proc serviceIdOf(key: string): Result[string, string] =
-  ## Any non-prefixed key and svc:/shard:/cap: keys are literal service
-  ## ids; the svc: prefix is stripped.
+  ## Any non-prefixed key and service:/shard:/cap: keys are literal service
+  ## ids; the service: prefix is stripped.
   if key.len == 0:
     return err("service backend: empty criteria key")
-  if key.startsWith(SvcKeyPrefix):
-    return ok(key[SvcKeyPrefix.len ..^ 1])
+  if key.startsWith(ServiceKeyPrefix):
+    return ok(key[ServiceKeyPrefix.len ..^ 1])
   ok(key)
 
 BrokerImplement ServiceDiscovery of IPeerDiscovery:
@@ -65,7 +65,7 @@ BrokerImplement ServiceDiscovery of IPeerDiscovery:
       DiscoveryBackendInfo(
         id: ServiceBackendId,
         running: self.running,
-        keyKinds: @["svc", "shard", "cap"],
+        keyKinds: @["service", "shard", "cap"],
         boundPorts: @[],
       )
     )
