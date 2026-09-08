@@ -17,7 +17,7 @@ env:
   NIM_VERSION: '2.2.6'
 
 jobs:
-  changes: # changes detection
+  changes: # skip the build/test jobs when a PR only touches documentation
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: read
@@ -25,46 +25,32 @@ jobs:
     - uses: actions/checkout@v4
       name: Checkout code
       id: checkout
-    - uses: dorny/paths-filter@v2
+    # Deny-list rather than allow-list: every path is code unless it is one of
+    # the doc files below, so a new source directory is covered without anyone
+    # remembering to extend this filter.
+    - uses: dorny/paths-filter@v4
       id: filter
       with:
+        # 'some-with-excludes' is what makes the '!' patterns subtractive; the
+        # default 'some' would match every file against the bare '**'.
+        predicate-quantifier: 'some-with-excludes'
         filters: |
-          common:
-          - '.github/workflows/**'
-          - '.github/actions/**'
-          - 'BearSSL.mk'
-          - 'Nat.mk'
-          - 'nix/**'
-          - 'nimble.lock'
-          - 'logos_delivery.nimble'
-          - 'Makefile'
-          - 'vendor/zerokit'
-          - 'config.nims'
-          - 'scripts/**'
-          - 'flake.nix'
-          - 'flake.lock'
-          - 'library/**'
-          v2:
-          - 'logos_delivery/**'
-          - 'apps/**'
-          - 'tools/**'
-          - 'tests/all_tests_v2.nim'
-          - 'tests/**'
-          - 'tests-e2e/**'
-          docker:
-          - 'docker/**'
+          code:
+          - '**'
+          - '!**/*.md'
+          - '!docs/**'
+          - '!LICENSE-*'
+          - '!.github/ISSUE_TEMPLATE/**'
 
     outputs:
-      common: ${{ steps.filter.outputs.common }}
-      v2: ${{ steps.filter.outputs.v2 }}
-      docker: ${{ steps.filter.outputs.docker }}
+      code: ${{ steps.filter.outputs.code }}
 
   build-health:
     uses: ./.github/workflows/build-health.yml
 
   build:
     needs: changes
-    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -149,14 +135,14 @@ jobs:
 
   build-windows:
     needs: changes
-    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     uses: ./.github/workflows/windows-build.yml
     with:
       branch: ${{ github.ref }}
 
   build-android:
     needs: changes
-    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -216,7 +202,7 @@ jobs:
   # macos-15 runners ship full Xcode with the iOS SDKs preinstalled.
   build-ios:
     needs: changes
-    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -259,7 +245,7 @@ jobs:
 
   test:
     needs: changes
-    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -305,14 +291,14 @@ jobs:
 
   build-docker-image:
     needs: changes
-    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' || needs.changes.outputs.docker == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     uses: ./.github/workflows/container-image.yml
     secrets: inherit
 
   # Send API E2E tests run the in-repo tests-e2e/ wrapper suite against the
   # liblogosdelivery.so built by the `build` job (downloaded as the
   # `liblogosdelivery` artifact). Gated on `build`, so it is skipped on
-  # docker-only PRs where no lib is built.
+  # docs-only PRs where no lib is built.
   send-api-e2e-tests:
     needs: build
     uses: ./.github/workflows/e2e-api-tests.yml
