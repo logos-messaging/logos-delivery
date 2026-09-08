@@ -1,6 +1,6 @@
 import
   results,
-  std/[json, sequtils],
+  std/sequtils,
   chronicles,
   chronos,
   libp2p/peerid,
@@ -25,6 +25,7 @@ import
   ../waku_core,
   ../waku_core/codecs,
   ../rln,
+  ../rln/rln_lez/rln_lez,
   ../discovery/waku_dnsdisc,
   ../waku_archive/retention_policy as policy,
   ../waku_archive/retention_policy/builder as policy_builder,
@@ -40,8 +41,7 @@ import
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
   ../waku_lightpush_legacy/common,
   ../common/rate_limit/setting,
-  ../api/events/discovery_events,
-  ../requests/rln_requests
+  ../api/events/discovery_events
 
 ## Peer persistence
 
@@ -338,6 +338,13 @@ proc setupProtocols(
 
     let rlnRelayConf = conf.rlnRelayConf.get()
     if rlnRelayConf.lez:
+      # Mount is local wiring only: create the module handle and install the
+      # relay validator. The module itself is started from `startNode` — the
+      # host installs its RLN callbacks only after node creation returns.
+      node.rlnLez = RlnLez.init(
+        MembershipScope.init(rlnRelayConf.registryId, rlnRelayConf.identifier),
+        rlnRelayConf.epochSizeSec,
+      )
       let rlnLezConf = WakuRlnLezConfig(
         registryId: rlnRelayConf.registryId,
         identifier: rlnRelayConf.identifier,
@@ -442,34 +449,43 @@ proc startNode*(
   ## keep-alive, if configured.
 
   info "Running nwaku node", version = git_version
+
+  # Start the external RLN module before the switch listens: the host installs
+  # its RLN callbacks between node creation and start, so this is the first
+  # point the module is reachable — and bringing it up first closes the window
+  # where inbound RLN traffic could only be Ignored. A node that cannot start
+  # its module silently stops relaying RLN traffic, so failure is fatal.
+  if not node.rlnLez.isNil():
+    try:
+      (await node.rlnLez.startModule()).isOkOr:
+        return err("failed to start RLN module: " & error)
+      info "RLN module started"
+    except CancelledError:
+      return err("cancelled while starting RLN module")
+
   try:
     await node.start()
   except CatchableError:
     return err("failed to start waku node: " & getCurrentExceptionMsg())
 
-  # Start the external RLN module if configured. Runs at start rather than
-  # at mount: the host installs its RLN callbacks only after node creation
-  # returns. The send path verifies the node's
-  # own membership before its first proof (`attachRlnProof`).
-  if conf.rlnRelayConf.isSome() and conf.rlnRelayConf.get().lez:
-    let rlnRelayConf = conf.rlnRelayConf.get()
-    try:
-      # epoch_size_sec must equal this node's epoch size so generators and
-      # validators derive the same epoch; listing the registry warms its
-      # valid-root window.
-      let configJson = $(
-        %*{
-          "epoch_size_sec": rlnRelayConf.epochSizeSec,
-          "registries": [rlnRelayConf.registryId],
-        }
-      )
-      let startRes = await RequestStartRlnModule.request(node.brokerCtx, configJson)
-      if startRes.isErr():
-        notice "RLN module start failed", reason = startRes.error()
-      else:
-        info "RLN module started", response = startRes.get().response
-    except CatchableError:
-      notice "RLN module bring-up failed", reason = getCurrentExceptionMsg()
+  # Membership only gates sending, so verify it non-fatally: a validate-only
+  # node is legitimate, and a Pending membership can settle later. A pass is
+  # cached on the handle so the send path (`attachRlnProof`) skips the
+  # registry read; anything else is retried per send.
+  if not node.rlnLez.isNil():
+    let membershipRes =
+      try:
+        await node.rlnLez.verifyMembership()
+      except CancelledError:
+        Result[MembershipStatus, string].err("cancelled")
+    if membershipRes.isErr():
+      notice "could not verify RLN membership at startup",
+        error = membershipRes.error
+    elif not membershipRes.get().isUsable():
+      notice "node has no usable RLN membership; sends will fail until it is active",
+        status = $membershipRes.get()
+    else:
+      info "RLN membership verified", status = $membershipRes.get()
 
   # Connect to configured static nodes
   if conf.staticNodes.len > 0:

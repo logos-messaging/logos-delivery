@@ -9,17 +9,32 @@
 ## (`logosdelivery_rln_set_callbacks`); before that every call fails NotReady.
 
 import std/json
-import chronos, results
+import chronos, chronicles, results
 import stew/byteutils
 import ./types, ./transport
 import ../rln_api
 
 export types
 
+logScope:
+  topics = "waku rln lez"
+
 type RlnLez* = ref object
+  ## The typed calls below are the RlnInterface backend proper; the fields
+  ## carry the node's own view of it: the membership scope it proves under
+  ## and the cached membership verification the send path reads. The default
+  ## zero state is valid — a scope-less instance can still serve typed calls.
+  scope*: MembershipScope
+  epochSizeSec*: uint64
+  membershipVerified*: bool
+    ## The membership check has passed once; `attachRlnProof` skips the
+    ## registry read on later sends.
 
 proc init*(T: type RlnLez): T =
   RlnLez()
+
+proc init*(T: type RlnLez, scope: MembershipScope, epochSizeSec: uint64): T =
+  RlnLez(scope: scope, epochSizeSec: epochSizeSec)
 
 proc toRlnError(transportErr: string): RlnError =
   ## Transport-level failures never carry a wire error object: no callbacks
@@ -117,5 +132,50 @@ proc validateProof*(
 
 static:
   doAssert RlnLez is RlnInterface
+
+## Node bring-up over the backend, driven from node start — the module is only
+## reachable then, once the host has installed its RLN callbacks. The instance
+## itself is created at mount (protocol setup), which is local wiring only.
+
+const
+  RlnStartAttempts = 3
+  RlnStartRetryDelay = 2.seconds
+
+proc startModule*(
+    w: RlnLez
+): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
+  ## Starts the external RLN module. epoch_size_sec must equal this node's
+  ## epoch size so proof generators and validators derive the same epoch;
+  ## listing the registry warms its valid-root window. NotReady/Transient
+  ## failures are retried briefly (the module bridge may still be coming up);
+  ## a Permanent failure is returned at once.
+  w.membershipVerified = false
+  let config =
+    $(%*{"epoch_size_sec": w.epochSizeSec, "registries": [w.scope.registryId]})
+  var lastErr: RlnError
+  for attempt in 1 .. RlnStartAttempts:
+    let res = await w.start(config)
+    if res.isOk():
+      return ok()
+    lastErr = res.error
+    if lastErr.kind notin {RlnErrorKind.NotReady, RlnErrorKind.Transient}:
+      break
+    if attempt < RlnStartAttempts:
+      debug "RLN module start not ready, retrying", attempt = attempt, error = $lastErr
+      await sleepAsync(RlnStartRetryDelay)
+  return err($lastErr)
+
+proc verifyMembership*(
+    w: RlnLez
+): Future[Result[MembershipStatus, string]] {.async: (raises: [CancelledError]).} =
+  ## Reads the scope's membership state from the module. A usable membership
+  ## (Active/GracePeriod) is cached in `membershipVerified` so later sends
+  ## skip the registry read; a failed or non-usable check is not cached, so
+  ## the next call retries.
+  let state = (await w.getMembershipState(w.scope)).valueOr:
+    return err($error)
+  if state.status.isUsable():
+    w.membershipVerified = true
+  return ok(state.status)
 
 {.pop.}
