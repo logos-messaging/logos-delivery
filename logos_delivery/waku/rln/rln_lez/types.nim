@@ -125,6 +125,10 @@ func budgetExhausted*(T: type RlnError, message = ""): T =
 func permanent*(T: type RlnError, message = ""): T =
   RlnError(kind: RlnErrorKind.Permanent, message: message)
 
+func isUsable*(status: MembershipStatus): bool =
+  ## A membership the node can currently generate proofs against.
+  status in {MembershipStatus.Active, MembershipStatus.GracePeriod}
+
 func `$`*(e: RlnError): string =
   $e.kind & ": " & e.message
 
