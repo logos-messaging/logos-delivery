@@ -233,7 +233,9 @@ jobs:
       matrix:
         os: [ubuntu-22.04, macos-15]
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 60
+    # `make test` now builds three test binaries; the third pushed ubuntu past
+    # the previous 60.
+    timeout-minutes: 90
 
     name: test-${{ matrix.os }}
     steps:

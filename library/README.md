@@ -246,7 +246,7 @@ uint64_t logosdelivery_add_event_listener(
 Event names: `onMessageSent`, `onMessageError`, `onMessagePropagated`,
 `onMessageReceived`, `onConnectionStatusChange`, `onTopicHealthChange`,
 `onConnectionChange`, `onReceivedMessage`, `onChannelMessageReceived`,
-`onChannelMessageSent`, `onChannelMessageError`.
+`onChannelMessageSent`, `onChannelMessageError`, `onChannelMessageLost`.
 
 #### `logosdelivery_remove_event_listener`
 Removes a previously registered listener. Returns `0` on success, `1` if the
