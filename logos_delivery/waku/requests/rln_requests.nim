@@ -1,6 +1,6 @@
 import brokers/request_broker
 import logos_delivery/waku/waku_core/message/message
-import logos_delivery/waku/rln/api/types as rln_api_types
+import logos_delivery/waku/rln/rln_lez/types as rln_api_types
 
 export rln_api_types
 

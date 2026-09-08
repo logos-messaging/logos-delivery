@@ -11,6 +11,7 @@ import
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
   logos_delivery/api/conf/logos_delivery_conf_json,
+  logos_delivery/waku/rln/rln_lez/transport,
   ../declare_lib,
   ../json_event
 
