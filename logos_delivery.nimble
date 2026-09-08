@@ -382,6 +382,7 @@ task testlogosdelivery, "Build & run Logos Delivery API layer tests":
 
 task example2, "Build Waku examples":
   buildBinary "api_example", "examples/api_example/"
+  buildBinary "channel_encryption_example", "examples/channel_encryption/"
   buildBinary "publisher", "examples/"
   buildBinary "subscriber", "examples/"
   buildBinary "filter_subscriber", "examples/"

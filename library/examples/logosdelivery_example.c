@@ -141,6 +141,89 @@ void on_scalar(int ret, char *msg, size_t len, void *userData) {
     }
 }
 
+
+// --- Per-channel encryption ------------------------------------------------
+// Two channels, two different schemes, one left in the clear. Both ciphers
+// here are illustrative plumbing, NOT production crypto -- see the Nim
+// example for a real AEAD.
+
+// XOR keystream.
+static int xor_crypt(const uint8_t *in, size_t in_len,
+                     LogosDeliveryCryptoSink sink, void *sink_ctx,
+                     void *user_data) {
+    const char *key = (const char *)user_data;
+    const size_t key_len = strlen(key);
+    if (key_len == 0) {
+        return -1;
+    }
+
+    uint8_t stack_buf[512];
+    uint8_t *buf = (in_len <= sizeof(stack_buf)) ? stack_buf : malloc(in_len);
+    if (in_len > 0 && buf == NULL) {
+        return -2;
+    }
+    for (size_t i = 0; i < in_len; i++) {
+        buf[i] = in[i] ^ (uint8_t)key[i % key_len];
+    }
+
+    // The bytes are copied out during this call, so freeing right after is safe.
+    sink(buf, in_len, sink_ctx);
+    if (buf != stack_buf) {
+        free(buf);
+    }
+    return 0;
+}
+
+// Add-then-rotate, so the two channels visibly disagree. Self-inverse it is
+// not, hence a separate encrypt and decrypt.
+static uint8_t rot_key(void *user_data) { return (uint8_t)(uintptr_t)user_data; }
+
+static int rot_encrypt(const uint8_t *in, size_t in_len,
+                       LogosDeliveryCryptoSink sink, void *sink_ctx,
+                       void *user_data) {
+    const uint8_t k = rot_key(user_data);
+    for (size_t i = 0; i < in_len; i++) {
+        // Emitted one byte at a time purely to show the sink may be called
+        // repeatedly; a real cipher would buffer and call it once.
+        uint8_t b = (uint8_t)(in[i] + k + (uint8_t)i);
+        sink(&b, 1, sink_ctx);
+    }
+    if (in_len == 0) {
+        sink(NULL, 0, sink_ctx);
+    }
+    return 0;
+}
+
+static int rot_decrypt(const uint8_t *in, size_t in_len,
+                       LogosDeliveryCryptoSink sink, void *sink_ctx,
+                       void *user_data) {
+    const uint8_t k = rot_key(user_data);
+    for (size_t i = 0; i < in_len; i++) {
+        uint8_t b = (uint8_t)(in[i] - k - (uint8_t)i);
+        sink(&b, 1, sink_ctx);
+    }
+    if (in_len == 0) {
+        sink(NULL, 0, sink_ctx);
+    }
+    return 0;
+}
+
+// nim-ffi has no function-pointer parameter kind, so the callbacks travel as
+// uint64_t. This wrapper keeps the cast in one place.
+static int set_channel_encryption(void *ctx, const char *channel_id,
+                                  LogosDeliveryCryptoFn encrypt,
+                                  LogosDeliveryCryptoFn decrypt,
+                                  void *crypto_user_data) {
+    LogosdeliveryChannelSetEncryptionReq req = {
+        .channelIdStr = channel_id,
+        .encryptFn = (uint64_t)(uintptr_t)encrypt,
+        .decryptFn = (uint64_t)(uintptr_t)decrypt,
+        .cryptoUserData = (uint64_t)(uintptr_t)crypto_user_data,
+    };
+    return logosdelivery_channel_set_encryption(ctx, on_reply,
+                                                (void *)"set_encryption", &req);
+}
+
 int main() {
     printf("=== Logos Messaging API (LMAPI) Example ===\n\n");
 
@@ -175,7 +258,10 @@ int main() {
     logosdelivery_add_event_listener(ctx, "onMessageSent", event_callback, NULL);
     logosdelivery_add_event_listener(ctx, "onMessagePropagated", event_callback, NULL);
     logosdelivery_add_event_listener(ctx, "onMessageError", event_callback, NULL);
-    printf("Event listeners registered for message events\n");
+    logosdelivery_add_event_listener(ctx, "onChannelMessageReceived", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx, "onChannelMessageSent", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx, "onChannelMessageError", event_callback, NULL);
+    printf("Event listeners registered for message and channel events\n");
 
     printf("\n3. Starting node...\n");
     logosdelivery_start_node(ctx, on_scalar, (void *)"start_node");
@@ -232,18 +318,62 @@ int main() {
         printf("Timed out waiting for message events after %d seconds\n", timeout_sec);
     }
 
-    printf("\n7. Unsubscribing from content topic...\n");
+    printf("\n7. Per-channel encryption...\n");
+    // Registered before the channels are created, so nothing can ever arrive
+    // on them in the clear. Registration survives channel close, so
+    // `user_data` must outlive the channel.
+    static char xor_key[] = "example-xor-key";
+    set_channel_encryption(ctx, "#xor", xor_crypt, xor_crypt, xor_key);
+    set_channel_encryption(ctx, "#rot", rot_encrypt, rot_decrypt,
+                           (void *)(uintptr_t)0x2Bu);
+    sleep(1);
+
+    const char *channels[][2] = {
+        {"#xor", "/example/1/xor/proto"},
+        {"#rot", "/example/1/rot/proto"},
+        {"#plain", "/example/1/plain/proto"},  // no cipher registered
+    };
+    for (size_t i = 0; i < sizeof(channels) / sizeof(channels[0]); i++) {
+        LogosdeliveryChannelCreateReq createChanReq = {
+            .channelIdStr = channels[i][0],
+            .contentTopicStr = channels[i][1],
+            .senderIdStr = "logosdelivery-example",
+        };
+        logosdelivery_channel_create(ctx, on_reply, (void *)"channel_create",
+                                     &createChanReq);
+    }
+    sleep(1);
+
+    for (size_t i = 0; i < sizeof(channels) / sizeof(channels[0]); i++) {
+        LogosdeliveryChannelSendReq chanSendReq = {
+            .channelIdStr = channels[i][0],
+            .messageJson = "{\"payload\": \"SGVsbG8sIExvZ29zIE1lc3NhZ2luZyE=\","
+                           "\"ephemeral\": false}",
+        };
+        logosdelivery_channel_send(ctx, on_reply, (void *)"channel_send",
+                                   &chanSendReq);
+    }
+    sleep(2);
+
+    // Stops new messages picking the cipher up; anything in flight keeps
+    // using it, so `user_data` must live until logosdelivery_destroy.
+    LogosdeliveryChannelClearEncryptionReq clearReq = {.channelIdStr = "#xor"};
+    logosdelivery_channel_clear_encryption(ctx, on_reply,
+                                           (void *)"clear_encryption", &clearReq);
+    sleep(1);
+
+    printf("\n8. Unsubscribing from content topic...\n");
     LogosdeliveryUnsubscribeReq unsubscribeReq = { .contentTopicStr = contentTopic };
     logosdelivery_unsubscribe(ctx, on_reply, (void *)"unsubscribe", &unsubscribeReq);
 
     sleep(1);
 
-    printf("\n8. Stopping node...\n");
+    printf("\n9. Stopping node...\n");
     logosdelivery_stop_node(ctx, on_scalar, (void *)"stop_node");
 
     sleep(1);
 
-    printf("\n9. Destroying context...\n");
+    printf("\n10. Destroying context...\n");
     logosdelivery_destroy(ctx);
 
     printf("\n=== Example completed ===\n");
