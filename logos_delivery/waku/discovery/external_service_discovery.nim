@@ -187,7 +187,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       DiscoveryBackendInfo(
         id: ExternalBackendId,
         running: self.running,
-        keyKinds: @["service", "shard", "cap"],
+        keyKinds: @["service", "topic", "cap"],
         boundPorts: @[],
       )
     )

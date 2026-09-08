@@ -27,7 +27,7 @@ logScope:
 const
   Discv5BackendId* = "discv5"
   CapKeyPrefix = "cap:"
-  ShardKeyPrefix = "shard:"
+  TopicKeyPrefix = "topic:"
 
 type Discv5PeerDiscovery* = ref object of IPeerDiscovery
   conf: Discv5Conf
@@ -39,6 +39,15 @@ type Discv5PeerDiscovery* = ref object of IPeerDiscovery
     ## own brokerCtx scopes the interface brokers).
   inner*: WakuDiscoveryV5
   running: bool
+
+proc topicOf(key: string): Result[RelayShard, string] =
+  ## "topic:/waku/2/rs/<cluster>/<shard>": the payload is the pubsub topic
+  ## itself, only checked to be a static-sharding one.
+  if not key.startsWith(TopicKeyPrefix):
+    return err("discv5 backend: only topic: keys map to shards, got: " & key)
+  let shard = RelayShard.parse(key[TopicKeyPrefix.len ..^ 1]).valueOr:
+    return err("discv5 backend: invalid topic key: " & key & ": " & $error)
+  ok(shard)
 
 proc keyPredicate(key: string): Result[Opt[WakuDiscv5Predicate], string] =
   ## Maps a criteria key onto an ENR record predicate.
@@ -58,36 +67,13 @@ proc keyPredicate(key: string): Result[Opt[WakuDiscv5Predicate], string] =
       record.supportsCapability(cap)
     return ok(Opt.some(WakuDiscv5Predicate(pred)))
 
-  if key.startsWith(ShardKeyPrefix):
-    let parts = key[ShardKeyPrefix.len ..^ 1].split('/')
-    if parts.len != 2:
-      return err("discv5 backend: expected shard:<cluster>/<shard>: " & key)
-    let (clusterId, shardId) =
-      try:
-        (uint16(parseUInt(parts[0])), uint16(parseUInt(parts[1])))
-      except ValueError:
-        return err("discv5 backend: invalid shard key: " & key)
+  if key.startsWith(TopicKeyPrefix):
+    let shard = ?topicOf(key)
     let pred = proc(record: waku_enr.Record): bool {.closure, gcsafe, raises: [].} =
-      record.containsShard(clusterId, shardId)
+      record.containsShard(shard)
     return ok(Opt.some(WakuDiscv5Predicate(pred)))
 
   err("discv5 backend: unsupported criteria key: " & key)
-
-proc shardKeyToPubsubTopic(key: string): Result[PubsubTopic, string] =
-  ## "shard:<cluster>/<shard>" -> "/waku/2/rs/<cluster>/<shard>"
-  if not key.startsWith(ShardKeyPrefix):
-    return err("discv5 backend: only shard: keys can be advertised, got: " & key)
-  let parts = key[ShardKeyPrefix.len ..^ 1].split('/')
-  if parts.len != 2:
-    return err("discv5 backend: expected shard:<cluster>/<shard>: " & key)
-  try:
-    ok(
-      $RelayShard(
-        clusterId: uint16(parseUInt(parts[0])), shardId: uint16(parseUInt(parts[1]))
-      )
-    )
-  except ValueError:
-    err("discv5 backend: invalid shard key: " & key)
 
 BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
   proc new(
@@ -127,7 +113,7 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
       DiscoveryBackendInfo(
         id: Discv5BackendId,
         running: self.running,
-        keyKinds: @["shard", "cap", ""],
+        keyKinds: @["topic", "cap", ""],
         boundPorts: boundPorts,
       )
     )
@@ -194,20 +180,20 @@ BrokerImplement Discv5PeerDiscovery of IPeerDiscovery:
   method startAdvertising(
       self: Discv5PeerDiscovery, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
-    ## Advertising for discv5 = mutating our own ENR; only shard: keys map.
+    ## Advertising for discv5 = mutating our own ENR; only topic: keys map.
     if not self.running:
       return err("discv5 backend: not running")
-    let topic = ?shardKeyToPubsubTopic(key)
-    self.inner.updateShards(@[topic], add = true)
+    let shard = ?topicOf(key)
+    self.inner.updateShards(@[$shard], add = true)
 
   method stopAdvertising(
       self: Discv5PeerDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     if not self.running:
       return err("discv5 backend: not running")
-    let topic = ?shardKeyToPubsubTopic(key)
+    let shard = ?topicOf(key)
     # updateShards refuses to remove the last remaining shard.
-    self.inner.updateShards(@[topic], add = false)
+    self.inner.updateShards(@[$shard], add = false)
 
   method registerInterest(
       self: Discv5PeerDiscovery, key: string

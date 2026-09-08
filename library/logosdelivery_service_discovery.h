@@ -91,7 +91,7 @@ extern "C"
 
   typedef int (*LdDiscoStopFn)(void *pluginCtx, char *errBuf, size_t errBufLen);
 
-  /* `key` is a criteria key ("service:<id>", "shard:<cluster>/<shard>",
+  /* `key` is a criteria key ("service:<id>", "topic:<pubsubTopic>",
    * "cap:<capability>"); `limit` <= 0 means the plugin's own default.
    * On success *outJson receives a plugin-owned JSON array (see above). */
   typedef int (*LdDiscoLookupFn)(void *pluginCtx,

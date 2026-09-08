@@ -13,7 +13,7 @@
 ##
 ## Criteria keys are opaque, convention-prefixed strings:
 ##   "service:<serviceId>"      libp2p service id (kad backends)
-##   "shard:<cluster>/<shard>"  relay shard
+##   "topic:<pubsubTopic>"      relay shard, e.g. topic:/waku/2/rs/<cluster>/<shard>
 ##   "cap:<capability>"         node capability
 ##   ""                         no criteria / random sample
 
@@ -83,7 +83,7 @@ BrokerInterface(IPeerDiscovery):
     # opaque bytes. What is published, and under whose identity, is the
     # backend's business: the in-process host lets libp2p sign a record from
     # this node's switch; the plugin host signs one itself (its switch is not
-    # this node); discv5 mutates our ENR for shard: keys.
+    # this node); discv5 mutates our ENR for topic: keys.
     # (WakuKademlia: addServiceToAdvertise; libp2p-module: discoStartAdvertising)
     proc startAdvertising(
       key: string, data: seq[byte]

@@ -216,7 +216,7 @@ suite "ExternalServiceDiscovery":
       record.data.services.len == 1
       record.data.services[0].id == "x"
       record.data.services[0].data == Opt.some(@[1'u8, 2])
-    check (await iface.startAdvertising("shard:0", @[])).isErr()
+    check (await iface.startAdvertising("topic:/waku/2/rs/0/0", @[])).isErr()
 
     check (await iface.registerInterest("service:y")).isOk()
     check lastKey() == "service:y"
