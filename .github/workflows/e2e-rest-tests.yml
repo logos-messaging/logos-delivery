@@ -10,7 +10,7 @@ on:
         default: ""
   schedule:
     # After pre-release.yml (03:13) has refreshed quay.io/wakuorg/nwaku-pr:nightly.
-    - cron: '47 4 * * *'
+    - cron: '0 5 * * *'
   workflow_dispatch:
     inputs:
       default_nwaku:
@@ -47,6 +47,8 @@ jobs:
       NODE_1: ${{ inputs.node1 }}
       NODE_2: ${{ inputs.node2 }}
       ADDITIONAL_NODES: ${{ inputs.additional_nodes }}
+      # Tests marked slow run only on the nightly cron and manual dispatch.
+      PYTEST_ADDOPTS: ${{ github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' && '-m "not slow"' || '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -62,13 +64,22 @@ jobs:
         run: pip install -r tests-e2e/requirements.txt
 
       - name: Run REST tests
+        id: tests
         working-directory: tests-e2e
         run: |
           echo "node image: ${DEFAULT_NWAKU:-pinned default (see src/env_vars.py)}"
           pytest tests/rest -n 4 --dist=loadgroup --reruns 1 --junitxml=log/junit.xml
 
+      - name: Report results in the job summary
+        uses: dorny/test-reporter@v2
+        if: ${{ !cancelled() }}
+        with:
+          name: rest-e2e
+          path: tests-e2e/log/junit.xml
+          reporter: python-xunit
+
       - name: Upload logs
-        if: failure()
+        if: ${{ failure() && steps.tests.outcome == 'failure' }}
         uses: actions/upload-artifact@v4
         with:
           name: rest-e2e-logs-${{ github.event_name }}

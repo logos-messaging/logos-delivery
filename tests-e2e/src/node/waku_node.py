@@ -97,7 +97,7 @@ def resolve_sharding_flags(kwargs):
 class WakuNode:
     def __init__(self, docker_image, docker_log_prefix=""):
         self._image_name = docker_image
-        self._log_path = os.path.join(DOCKER_LOG_DIR, f"{docker_log_prefix}__{self._image_name.replace('/', '_')}.log")
+        self._log_path = os.path.join(DOCKER_LOG_DIR, f"{docker_log_prefix}__{self._image_name.replace('/', '_').replace(':', '_')}.log")
         self._docker_manager = DockerManager(self._image_name)
         self._container = None
         self.rln_membership_index = None
@@ -223,6 +223,10 @@ class WakuNode:
         except Exception as ex:
             logger.error(f"REST service did not become ready in time: {ex}")
             raise
+        try:
+            logger.debug(f"Node {self._image_name} reports version {self.get_debug_version()}")
+        except Exception as ex:
+            logger.debug(f"Could not fetch node version: {ex}")
 
     @retry(stop=stop_after_delay(250), wait=wait_fixed(0.1), reraise=True)
     def register_rln(self, **kwargs):
