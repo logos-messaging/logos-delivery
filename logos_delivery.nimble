@@ -347,10 +347,6 @@ task testcommon, "Build & run common tests":
   test "all_tests_common", "-d:chronicles_log_level=DEBUG -d:chronosStrictException"
 
 ### Waku tasks
-task wakunode2, "Build Waku v2 cli node":
-  let name = "wakunode2"
-  buildBinary name, "apps/wakunode2/", " -d:chronicles_log_level=TRACE "
-
 task logosdeliverynode, "Build Logos Delivery cli node":
   let name = "logosdeliverynode"
   buildBinary name, "apps/logos_delivery_node/", " -d:chronicles_log_level=TRACE "
@@ -374,8 +370,8 @@ task rln_db_inspector, "Build the rln db inspector":
 task test, "Build & run Waku tests":
   test "all_tests_waku"
 
-task testwakunode2, "Build & run wakunode2 app tests":
-  test "all_tests_wakunode2"
+task testapp, "Build & run node app tests":
+  test "all_tests_app"
 
 task testlogosdelivery, "Build & run Logos Delivery API layer tests":
   test "all_tests_logos_delivery"

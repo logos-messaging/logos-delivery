@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/strutils,
+  std/[os, strutils],
   testutils/unittests,
   chronos,
   libp2p/crypto/[crypto, secp],
@@ -449,3 +449,28 @@ suite "Waku external config - http url parsing":
       discard parseCmdArg(EthRpcUrl, "http://")
     expect(ValueError):
       discard parseCmdArg(EthRpcUrl, "https://")
+
+suite "Waku external config - environment variables":
+  test "options are read from the LOGOS_DELIVERY_NODE_ prefix":
+    ## Given
+    putEnv("LOGOS_DELIVERY_NODE_TCP_PORT", "8080")
+    defer:
+      delEnv("LOGOS_DELIVERY_NODE_TCP_PORT")
+
+    ## When
+    ## `cmdLine = @[]` keeps the test runner's own arguments out of the parse.
+    let conf =
+      try:
+        WakuNodeConf.load(
+          version = "",
+          cmdLine = @[],
+          secondarySources = proc(
+              conf: WakuNodeConf, sources: auto
+          ) {.gcsafe, raises: [ConfigurationError].} =
+            sources.addConfigFile(Envvar, InputFile(NodeEnvvarPrefix)),
+        )
+      except CatchableError:
+        raiseAssert getCurrentExceptionMsg()
+
+    ## Then
+    check conf.tcpPort == Port(8080)

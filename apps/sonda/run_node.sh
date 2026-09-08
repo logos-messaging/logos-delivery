@@ -73,7 +73,7 @@ fi
 
 # TO DO: configure bootstrap nodes in env
 
-exec /usr/bin/wakunode\
+exec /usr/bin/logosdeliverynode\
   --relay=true\
   --filter=false\
   --lightpush=false\

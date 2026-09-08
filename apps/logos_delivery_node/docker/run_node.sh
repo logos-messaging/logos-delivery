@@ -63,7 +63,7 @@ fi
 #   ENTRY_LAYER=kernel -> transport only (no messaging/channels layer); also skips
 #                         mode application, so the explicit protocol flags below are honored
 # Set PRESET empty to run without a network preset (then define cluster/shards via EXTRA_ARGS).
-# `--entry-layer` is always passed because the binary's own default is `channels`, not kernel.
+# `--entry-layer` is always passed explicitly so the layer in use is visible here.
 PRESET="${PRESET-logos.dev}"
 ENTRY_LAYER="${ENTRY_LAYER:-kernel}"
 

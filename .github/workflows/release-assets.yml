@@ -127,7 +127,6 @@ jobs:
         run: |
           # One make target for each line. Two parallel nimble processes
           # corrupt the shared package metadata.
-          make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false wakunode2
           make -j${NPROC} DEBUG=0 CI=false chat2
           make -j${NPROC} DEBUG=0 POSTGRES=1 CI=false logosdeliverynode
           tar -cvzf ${{steps.vars.outputs.waku}} ./build/

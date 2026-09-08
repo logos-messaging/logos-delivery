@@ -28,7 +28,6 @@ services:
       # last stage (debug-with-heaptrack), shipping gdb/heaptrack needlessly.
       target: prod
       args:
-        MAKE_TARGET: logosdeliverynode
         POSTGRES: "1"
         NIMFLAGS: "-d:chronicles_colors:none -d:insecure -d:postgres"
     restart: on-failure

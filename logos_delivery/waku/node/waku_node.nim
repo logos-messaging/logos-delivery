@@ -79,7 +79,7 @@ logScope:
 # if not called, the outcome of randomization procedures will be the same in every run
 randomize()
 
-# TODO: Move to application instance (e.g., `WakuNode2`)
+# TODO: Move to application instance (e.g., the node app)
 # Git version in git describe format (defined compile time)
 const git_version* {.strdefine.} = "n/a"
 
@@ -89,7 +89,7 @@ const clientId* = "Nimbus Waku v2 node"
 const WakuNodeVersionString* = "version / git commit hash: " & git_version
 
 type
-  # TODO: Move to application instance (e.g., `WakuNode2`)
+  # TODO: Move to application instance (e.g., the node app)
   WakuInfo* = object # NOTE One for simplicity, can extend later as needed
     listenAddresses*: seq[string]
     enrUri*: string #multiaddrStrings*: seq[string]
@@ -289,7 +289,7 @@ proc peerInfo*(node: WakuNode): PeerInfo =
 proc peerId*(node: WakuNode): PeerId =
   node.peerInfo.peerId
 
-# TODO: Move to application instance (e.g., `WakuNode2`)
+# TODO: Move to application instance (e.g., the node app)
 # TODO: Extend with more relevant info: topics, peers, memory usage, online time, etc
 proc info*(node: WakuNode): WakuInfo =
   ## Returns information about the Node, such as what multiaddress it can be reached at.

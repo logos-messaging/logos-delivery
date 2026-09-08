@@ -2,7 +2,7 @@
 FROM rustlang/rust:nightly-alpine3.19 AS nim-build
 
 ARG NIMFLAGS
-ARG MAKE_TARGET=wakunode2
+ARG MAKE_TARGET=logosdeliverynode
 ARG NIM_COMMIT
 ARG HEAPTRACK_BUILD=0
 ARG POSTGRES=0
@@ -53,11 +53,11 @@ RUN make -j$(nproc) ${NIM_COMMIT} $MAKE_TARGET NIMFLAGS="${NIMFLAGS} -d:disableM
 
 FROM alpine:3.18 AS prod
 
-ARG MAKE_TARGET=wakunode2
+ARG MAKE_TARGET=logosdeliverynode
 
 LABEL maintainer="jakub@status.im"
-LABEL source="https://github.com/waku-org/nwaku"
-LABEL description="Wakunode: Waku client"
+LABEL source="https://github.com/logos-messaging/logos-delivery"
+LABEL description="Logos Delivery node"
 LABEL commit="unknown"
 LABEL version="unknown"
 
@@ -75,28 +75,13 @@ COPY --from=nim-build /app/build/$MAKE_TARGET /usr/local/bin/
 # Copy migration scripts for DB upgrades
 COPY --from=nim-build /app/migrations/ /app/migrations/
 
-# Symlink the correct wakunode binary
-RUN ln -sv /usr/local/bin/$MAKE_TARGET /usr/bin/wakunode
+# Symlink the built binary under the canonical name
+RUN ln -sv /usr/local/bin/$MAKE_TARGET /usr/bin/logosdeliverynode
 
-ENTRYPOINT ["/usr/bin/wakunode"]
+ENTRYPOINT ["/usr/bin/logosdeliverynode"]
 
 # By default just show help if called without arguments
 CMD ["--help"]
-
-
-# LOGOS DELIVERY NODE IMAGE ----------------------------------------------------
-
-# Reuses the prod image but exposes the binary under its own name so the image
-# identity and entrypoint are logosdeliverynode rather than the generic
-# /usr/bin/wakunode symlink. Build with --build-arg MAKE_TARGET=logosdeliverynode.
-FROM prod AS logosdeliverynode
-
-LABEL source="https://github.com/logos-messaging/logos-delivery"
-LABEL description="Logos Delivery node"
-
-RUN ln -sv /usr/local/bin/logosdeliverynode /usr/bin/logosdeliverynode
-
-ENTRYPOINT ["/usr/bin/logosdeliverynode"]
 
 
 # DEBUG IMAGE ------------------------------------------------------------------
@@ -126,4 +111,4 @@ COPY --from=heaptrack-build /heaptrack/build/ /heaptrack/build/
 ENV LD_LIBRARY_PATH=/heaptrack/build/lib/heaptrack/
 RUN ln -s /heaptrack/build/bin/heaptrack /usr/local/bin/heaptrack
 
-ENTRYPOINT ["/heaptrack/build/bin/heaptrack", "/usr/bin/wakunode"]
+ENTRYPOINT ["/heaptrack/build/bin/heaptrack", "/usr/bin/logosdeliverynode"]

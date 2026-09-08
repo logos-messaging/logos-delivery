@@ -62,15 +62,7 @@ jobs:
 
       - name: Build binaries
         if: ${{ steps.secrets.outcome == 'success' }}
-        # Sequential make invocations: wakunode2 and logosdeliverynode each run
-        # via `nimble <task>`. Under a single `make -j` the two nimble
-        # invocations re-resolve git deps concurrently and clobber each other
-        # in the shared ~/.nimble/pkgcache (e.g. "destination already exists",
-        # "fetch-pack: invalid index-pack output"), failing the build.
-        # Serializing the targets removes the race; Nim's own --parallelBuild
-        # still parallelizes compilation. Mirrors the -j1 fix in ci.yml.
         run: |
-          make -j${NPROC} V=1 DEBUG=0 POSTGRES=1 wakunode2
           make -j${NPROC} V=1 DEBUG=0 POSTGRES=1 logosdeliverynode
 
       - name: Audit installed deps
@@ -95,8 +87,10 @@ jobs:
           docker build -t ${IMAGE} -f docker/binaries/Dockerfile.bn.amd64 --label quay.expires-after=30d .
           docker push ${IMAGE}
 
-          # logosdeliverynode image (same generic Dockerfile, selected via MAKE_TARGET)
-          docker build -t ${LD_IMAGE} --build-arg MAKE_TARGET=logosdeliverynode -f docker/binaries/Dockerfile.bn.amd64 --label quay.expires-after=30d .
+          # There is a single node binary now, so the -logosdeliverynode tag is
+          # the same image under a second name. Tag rather than rebuild; the tag
+          # stays published for consumers that already reference it.
+          docker tag ${IMAGE} ${LD_IMAGE}
           docker push ${LD_IMAGE}
         env:
           QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
