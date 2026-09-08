@@ -104,7 +104,7 @@ jobs:
   # Runs `make liblogosdelivery` with the default flags to test compile and link.
   liblogosdelivery-default:
     needs: changes
-    if: ${{ needs.changes.outputs.v2 == 'true' || needs.changes.outputs.common == 'true' }}
+    if: ${{ needs.changes.outputs.code == 'true' }}
     strategy:
       fail-fast: false
       matrix:
