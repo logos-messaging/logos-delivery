@@ -324,6 +324,50 @@ suite "Waku v2 Rest API - Relay":
     await restServer.closeWait()
     await node.stop()
 
+  asyncTest "Post a message to a not subscribed pubsub topic - POST /relay/v1/messages/{topic}":
+    # Given
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node.start()
+
+    # RPC server setup
+    var restPort = Port(0)
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, restPort).tryGet()
+
+    restPort = restServer.httpServer.address.port # update with bound port for client use
+
+    let cache = MessageCache.init()
+
+    installRelayApiHandlers(restServer.router, node, cache)
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+      await node.stop()
+
+    let client = newRestHttpClient(initTAddress(restAddress, restPort))
+
+    check node.wakuRelay.subscribedTopics.toSeq().len == 0
+
+    # When
+    let response = await client.relayPostMessagesV1(
+      DefaultPubsubTopic,
+      RelayWakuMessage(
+        payload: base64.encode("TEST-PAYLOAD"),
+        contentTopic: Opt.some(DefaultContentTopic),
+        timestamp: Opt.some(now()),
+      ),
+    )
+
+    # Then
+    check:
+      response.status == 400
+      $response.contentType == $MIMETYPE_TEXT
+      response.data ==
+        "Failed to publish: Node not subscribed to topic: " & DefaultPubsubTopic
+
   # Autosharding API
 
   asyncTest "Subscribe a node to an array of content topics - POST /relay/v1/auto/subscriptions":
