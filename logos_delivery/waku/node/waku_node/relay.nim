@@ -28,6 +28,7 @@ import
     waku_archive,
     waku_store_sync,
     rln,
+    rln/rln_lez/config as rln_lez_config,
     node/waku_node,
     node/subscription_manager,
     node/peer_manager,

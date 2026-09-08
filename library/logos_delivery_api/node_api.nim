@@ -196,7 +196,7 @@ proc logosdelivery_create_node(
     await lib.teardownFFIEventScope()
     return err(error)
 
-  let lez = lib.waku.conf.rlnRelayConf.isSome() and lib.waku.conf.rlnRelayConf.get().lez
+  let lez = lib.waku.conf.rlnLezConf.isSome()
   registerRlnModuleProviders(lib.waku.brokerCtx, lez).isOkOr:
     await lib.teardownFFIEventScope()
     return err(error)

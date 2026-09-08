@@ -76,9 +76,41 @@ proc withIdentifier*(b: var RlnConfBuilder, identifier: string) =
 proc withRegistryOptions*(b: var RlnConfBuilder, registryOptions: string) =
   b.registryOptions = Opt.some(registryOptions)
 
-proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
+type RlnConfs* = object
+  ## Built RLN configuration: at most one backend is set — `lez` when the
+  ## builder's lez switch is on, `evm` otherwise, neither when RLN is disabled.
+  evm*: Opt[RlnConf]
+  lez*: Opt[RlnLezConf]
+
+proc build*(b: RlnConfBuilder): Result[RlnConfs, string] =
   if not b.enabled.get(DefaultRlnRelayEnabled):
-    return ok(Opt.none(RlnConf))
+    return ok(RlnConfs())
+
+  if b.lez.get(false):
+    # The external RLN module owns the keystore and registry connectivity, so
+    # the eth*/creds builder fields do not apply and are ignored here.
+    if b.registryId.get("") == "":
+      return err("rlnRelay.registryId is not specified")
+    if b.identifier.get("") == "":
+      return err("rlnRelay.identifier is not specified")
+    var identifier: array[32, byte]
+    try:
+      hexToByteArray(b.identifier.get(), identifier)
+    except ValueError:
+      return err("rlnRelay.identifier is not a 32-byte hex string")
+    return ok(
+      RlnConfs(
+        lez: Opt.some(
+          RlnLezConf(
+            registryId: b.registryId.get(),
+            identifier: identifier,
+            epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
+            userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
+            registryOptionsJson: b.registryOptions.get("{}"),
+          )
+        )
+      )
+    )
 
   let creds =
     if b.credPath.isSome() and b.credPassword.isSome():
@@ -90,30 +122,6 @@ proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
     else:
       Opt.none(RlnCreds)
 
-  if b.lez.get(false):
-    if b.registryId.get("") == "":
-      return err("rlnRelay.registryId is not specified")
-    if b.identifier.get("") == "":
-      return err("rlnRelay.identifier is not specified")
-    var identifier: array[32, byte]
-    try:
-      hexToByteArray(b.identifier.get(), identifier)
-    except ValueError:
-      return err("rlnRelay.identifier is not a 32-byte hex string")
-    return ok(
-      Opt.some(
-        RlnConf(
-          lez: true,
-          registryId: b.registryId.get(),
-          identifier: identifier,
-          creds: creds,
-          epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
-          userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
-          registryOptionsJson: b.registryOptions.get("{}"),
-        )
-      )
-    )
-
   if b.chainId.isNone():
     return err("RLN Relay Chain Id is not specified")
   if b.dynamic.isNone():
@@ -123,16 +131,18 @@ proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
   if b.ethContractAddress.get("") == "":
     return err("rlnRelay.ethContractAddress is not specified")
   return ok(
-    Opt.some(
-      RlnConf(
-        chainId: b.chainId.get(),
-        credIndex: b.credIndex,
-        creds: creds,
-        dynamic: b.dynamic.get(),
-        ethClientUrls: b.ethClientUrls.get(),
-        ethContractAddress: b.ethContractAddress.get(),
-        epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
-        userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
+    RlnConfs(
+      evm: Opt.some(
+        RlnConf(
+          chainId: b.chainId.get(),
+          credIndex: b.credIndex,
+          creds: creds,
+          dynamic: b.dynamic.get(),
+          ethClientUrls: b.ethClientUrls.get(),
+          ethContractAddress: b.ethContractAddress.get(),
+          epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
+          userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
+        )
       )
     )
   )

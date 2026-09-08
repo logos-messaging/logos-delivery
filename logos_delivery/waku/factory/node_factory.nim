@@ -331,50 +331,49 @@ proc setupProtocols(
   except CatchableError:
     return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
 
-  if conf.rlnRelayConf.isSome():
+  if conf.rlnLezConf.isSome() or conf.rlnEvmConf.isSome():
     when defined(disable_rln):
       return
         err("the configuration enables RLN relay, but this build has -d:disable_rln")
 
-    let rlnRelayConf = conf.rlnRelayConf.get()
-    if rlnRelayConf.lez:
-      # Mount is local wiring only: create the module handle and install the
-      # relay validator. The module itself is started from `startNode` — the
-      # host installs its RLN callbacks only after node creation returns.
-      node.rlnLez = RlnLez.init(
-        MembershipScope.init(rlnRelayConf.registryId, rlnRelayConf.identifier),
-        rlnRelayConf.epochSizeSec,
-      )
-      let rlnLezConf = WakuRlnLezConfig(
-        registryId: rlnRelayConf.registryId,
-        identifier: rlnRelayConf.identifier,
-        userMessageLimit: rlnRelayConf.userMessageLimit,
-        epochSizeSec: rlnRelayConf.epochSizeSec,
-        creds: rlnRelayConf.creds,
-        onFatalErrorAction: onFatalErrorAction,
-      )
-      try:
-        await node.setRlnValidator(rlnLezConf)
-      except CatchableError:
-        return
-          err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
-    else:
-      let rlnConf = WakuRlnConfig(
-        dynamic: rlnRelayConf.dynamic,
-        credIndex: rlnRelayConf.credIndex,
-        ethContractAddress: rlnRelayConf.ethContractAddress,
-        chainId: rlnRelayConf.chainId,
-        ethClientUrls: rlnRelayConf.ethClientUrls,
-        creds: rlnRelayConf.creds,
-        userMessageLimit: rlnRelayConf.userMessageLimit,
-        epochSizeSec: rlnRelayConf.epochSizeSec,
-        onFatalErrorAction: onFatalErrorAction,
-      )
-      try:
-        await node.setRlnValidator(rlnConf)
-      except CatchableError:
-        return
-          err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+  if conf.rlnLezConf.isSome():
+    let rlnLezConf = conf.rlnLezConf.get()
+    # Mount is local wiring only: create the module handle and install the
+    # relay validator. The module itself is started from `startNode` — the
+    # host installs its RLN callbacks only after node creation returns.
+    node.rlnLez = RlnLez.init(
+      MembershipScope.init(rlnLezConf.registryId, rlnLezConf.identifier),
+      rlnLezConf.epochSizeSec,
+    )
+    let validatorConf = WakuRlnLezConfig(
+      registryId: rlnLezConf.registryId,
+      identifier: rlnLezConf.identifier,
+      userMessageLimit: rlnLezConf.userMessageLimit,
+      epochSizeSec: rlnLezConf.epochSizeSec,
+      registryOptionsJson: rlnLezConf.registryOptionsJson,
+      onFatalErrorAction: onFatalErrorAction,
+    )
+    try:
+      await node.setRlnValidator(validatorConf)
+    except CatchableError:
+      return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+  elif conf.rlnEvmConf.isSome():
+    let rlnEvmConf = conf.rlnEvmConf.get()
+    let rlnConf = WakuRlnConfig(
+      dynamic: rlnEvmConf.dynamic,
+      credIndex: rlnEvmConf.credIndex,
+      ethContractAddress: rlnEvmConf.ethContractAddress,
+      chainId: rlnEvmConf.chainId,
+      ethClientUrls: rlnEvmConf.ethClientUrls,
+      creds: rlnEvmConf.creds,
+      userMessageLimit: rlnEvmConf.userMessageLimit,
+      epochSizeSec: rlnEvmConf.epochSizeSec,
+      onFatalErrorAction: onFatalErrorAction,
+    )
+    try:
+      await node.setRlnValidator(rlnConf)
+    except CatchableError:
+      return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
 
   # NOTE Must be mounted after relay
   if conf.lightPush:

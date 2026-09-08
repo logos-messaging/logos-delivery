@@ -650,7 +650,7 @@ proc build*(
   var restServerConf = builder.restServerConf.build().valueOr:
     return err("REST Server Conf building failed: " & $error)
 
-  let rlnRelayConf = builder.rlnRelayConf.build().valueOr:
+  let rlnConfs = builder.rlnRelayConf.build().valueOr:
     return err("RLN Relay Conf building failed: " & $error)
 
   let storeServiceConf = builder.storeServiceConf.build().valueOr:
@@ -807,7 +807,8 @@ proc build*(
     storeServiceConf: storeServiceConf,
     filterServiceConf: filterServiceConf,
     discv5Conf: discv5Conf,
-    rlnRelayConf: rlnRelayConf,
+    rlnEvmConf: rlnConfs.evm,
+    rlnLezConf: rlnConfs.lez,
     metricsServerConf: metricsServerConf,
     restServerConf: restServerConf,
     dnsDiscoveryConf: dnsDiscoveryConf,
