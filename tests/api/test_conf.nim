@@ -5,6 +5,7 @@ import brokers/broker_context
 import logos_delivery
 import logos_delivery/api/conf/logos_delivery_conf_json
 import logos_delivery/waku/factory/[waku_conf, networks_config]
+import tools/confutils/cli_args
 import logos_delivery/waku/common/logging
 
 suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
@@ -30,6 +31,14 @@ suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
       kc.peerExchange == true
       kc.discv5Discovery == Opt.some(true)
         # discovery stays on; mode does not force it off
+
+  test "an explicit discv5Discovery=false survives mode expansion":
+    var kc = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    kc.discv5Discovery = Opt.some(false)
+    applyMode(kc, LogosDeliveryMode.Core).isOkOr:
+      raiseAssert error
+    check kc.discv5Discovery == Opt.some(false)
 
 suite "MessagingClientConf - field mapping + transport policy":
   test "set fields are written to their kernel counterparts":

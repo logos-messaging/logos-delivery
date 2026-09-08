@@ -89,12 +89,7 @@ proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[voi
     conf.relay = true
     conf.filter = true
     conf.lightpush = true
-    # Only when the operator has not spoken. The other fields here are plain
-    # bools with no "unset" to respect, but discv5Discovery is an Opt precisely
-    # so an explicit choice can be told apart from a default -- and overwriting
-    # it made `--discv5-discovery=false` silently ineffective on every path that
-    # applies a mode (logosdeliverynode did; wakunode2, which never calls this,
-    # honoured the flag).
+    # Opt so an explicit --discv5-discovery=false set before the mode survives.
     if conf.discv5Discovery.isNone():
       conf.discv5Discovery = Opt.some(true)
     conf.peerExchange = true
