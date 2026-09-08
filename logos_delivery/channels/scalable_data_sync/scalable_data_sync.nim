@@ -208,6 +208,12 @@ proc handleIncoming*(
       break ingress
 
     if isDuplicate:
+      ## Silent otherwise, and indistinguishable from a message that never
+      ## arrived: two nodes sharing a working directory share one persisted
+      ## SDS history, and every segment one sends is then a duplicate to the
+      ## other.
+      debug "SDS dropping duplicate",
+        channelId = self.channelId, messageId = msg.messageId, senderId = msg.senderId
       res = ok(newSeq[SdsDeliverable]())
       break ingress
 

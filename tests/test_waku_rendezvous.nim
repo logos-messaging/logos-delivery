@@ -1,7 +1,13 @@
 {.used.}
 
 import
-  results, chronos, testutils/unittests, libp2p/builders, libp2p/protocols/rendezvous
+  results,
+  chronos,
+  stew/byteutils,
+  testutils/unittests,
+  libp2p/builders,
+  libp2p/crypto/curve25519,
+  libp2p/protocols/rendezvous
 
 import
   logos_delivery/waku/waku_core/peers,
@@ -12,7 +18,26 @@ import
   logos_delivery/waku/waku_rendezvous/protocol,
   logos_delivery/waku/waku_rendezvous/common,
   logos_delivery/waku/waku_rendezvous/waku_peer_record,
+  logos_delivery/waku/waku_rendezvous/client,
   ./testlib/[wakucore, wakunode]
+
+suite "mixPubKeyFromHex":
+  test "wrong decoded length returns none":
+    check:
+      mixPubKeyFromHex("").isNone()
+      mixPubKeyFromHex("ff").isNone()
+      mixPubKeyFromHex("zz").isNone()
+      mixPubKeyFromHex(byteutils.toHex(newSeq[byte](Curve25519KeySize - 1))).isNone()
+      mixPubKeyFromHex(byteutils.toHex(newSeq[byte](Curve25519KeySize + 1))).isNone()
+
+  test "32-byte hex is accepted, with or without 0x":
+    var bytes = newSeq[byte](Curve25519KeySize)
+    for i in 0 ..< bytes.len:
+      bytes[i] = byte(i)
+    let hex = byteutils.toHex(bytes)
+    check:
+      mixPubKeyFromHex(hex).get().getBytes() == bytes
+      mixPubKeyFromHex("0x" & hex).get().getBytes() == bytes
 
 procSuite "Waku Rendezvous":
   asyncTest "Simple remote test":

@@ -239,6 +239,20 @@ proc parsePeerInfo*(maddrs: varargs[string]): Result[RemotePeerInfo, string] =
 
   parsePeerInfo(multiAddresses)
 
+proc parsePeerAddrList*(peerAddrs: string): Result[RemotePeerInfo, string] =
+  ## Parses a comma-separated list of fully qualified multiaddresses, all
+  ## belonging to the same peer, into one dialable RemotePeerInfo.
+  var maddrs: seq[string]
+  for entry in peerAddrs.split(','):
+    let addrStr = entry.strip()
+    if addrStr.len > 0:
+      maddrs.add(addrStr)
+
+  if maddrs.len == 0:
+    return err("no peer address given")
+
+  parsePeerInfo(maddrs)
+
 proc parseUrlPeerAddr*(peerAddr: Opt[string]): Result[Opt[RemotePeerInfo], string] =
   # Checks whether the peerAddr parameter represents a valid p2p multiaddress.
   # The param must be in the format `(ip4|ip6)/tcp/p2p/$peerId` but URL-encoded

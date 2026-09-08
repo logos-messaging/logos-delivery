@@ -43,6 +43,13 @@ proc requestRecords[E](
 ): Future[seq[E]] {.async: (raises: [LPError, CancelledError]).} =
   return await rdv.request(Opt.some(namespace), Opt.some(count), Opt.some(@[peer]))
 
+proc mixPubKeyFromHex*(mixKey: string): Opt[Curve25519Key] =
+  ## `fromHex` may return any length; `intoCurve25519Key` asserts on size.
+  let mixKeyBytes = fromHex(mixKey)
+  if mixKeyBytes.len != Curve25519KeySize:
+    return Opt.none(Curve25519Key)
+  Opt.some(intoCurve25519Key(mixKeyBytes))
+
 proc requestAll*(
     self: WakuRendezVousClient
 ): Future[Result[void, string]] {.async: (raises: []).} =
@@ -65,14 +72,17 @@ proc requestAll*(
   for record in records:
     if not self.switch.peerStore.peerExists(record.peerId):
       logos_delivery_rendezvous_peer_found.inc()
-    if record.mixKey.len == 0 or record.peerId == self.switch.peerInfo.peerId:
+    if record.peerId == self.switch.peerInfo.peerId:
+      continue
+    let mixPubKey = mixPubKeyFromHex(record.mixKey).valueOr:
+      if record.mixKey.len > 0:
+        trace "Rejecting rendezvous record with malformed mix key",
+          peerId = record.peerId, mixKey = record.mixKey
       continue
     trace "adding peer from rendezvous",
       peerId = record.peerId, addresses = $record.addresses, mixKey = record.mixKey
     let rInfo = RemotePeerInfo.init(
-      record.peerId,
-      record.addresses,
-      mixPubKey = Opt.some(intoCurve25519Key(fromHex(record.mixKey))),
+      record.peerId, record.addresses, mixPubKey = Opt.some(mixPubKey)
     )
     self.peerManager.addPeer(rInfo)
 

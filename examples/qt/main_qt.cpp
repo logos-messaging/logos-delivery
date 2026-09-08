@@ -4,7 +4,10 @@
 
 #include "waku_handler.h"
 
-void event_handler(int callerRet, const char* msg, size_t len, void* userData) {
+// LogosDeliveryCreateRawFn: node creation reports the context address, and any
+// failure text in its own argument.
+void event_handler(int errCode, const char* reply, const char* errMsg, void* userData) {
+    const char* msg = reply != nullptr ? reply : (errMsg != nullptr ? errMsg : "");
     printf("Receiving message %s\n", msg);
 }
 

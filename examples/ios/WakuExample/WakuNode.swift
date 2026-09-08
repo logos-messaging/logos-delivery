@@ -126,13 +126,15 @@ actor WakuActor {
     // Using a simple static reference (safe because we only have one instance)
     private static var sharedEventContinuation: AsyncStream<String>.Continuation?
 
-    private static let eventCallback: WakuCallBack = { ret, msg, len, userData in
+    // FFICallback: the event-listener registry shape.
+    private static let eventCallback: FFICallback = { ret, msg, len, userData in
         guard ret == RET_OK, let msg = msg else { return }
         let str = String(cString: msg)
         WakuActor.sharedEventContinuation?.yield(str)
     }
 
-    private static let syncCallback: WakuCallBack = { ret, msg, len, userData in
+    // LogosDeliveryScalarRawFn: `msg` is a byte run of `len` bytes.
+    private static let syncCallback: LogosDeliveryScalarRawFn = { ret, msg, len, userData in
         guard let userData = userData else { return }
         let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
         let success = (ret == RET_OK)
@@ -142,6 +144,18 @@ actor WakuActor {
         }
         context.resumeOnce(returning: (success, resultStr))
     }
+
+    // LogosDelivery*ReplyFn, shared by every entry point that takes a request
+    // struct: no length, and the failure text arrives in its own argument.
+    private static let syncReplyCallback:
+        @convention(c) (Int32, UnsafePointer<CChar>?, UnsafePointer<CChar>?, UnsafeMutableRawPointer?) -> Void = {
+            ret, reply, errMsg, userData in
+            guard let userData = userData else { return }
+            let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
+            let success = (ret == RET_OK)
+            let text = reply ?? errMsg
+            context.resumeOnce(returning: (success, text.map { String(cString: $0) }))
+        }
 
     // MARK: - Stream Setup
 
@@ -244,7 +258,7 @@ actor WakuActor {
             print("[WakuActor] Node stopped")
 
             // Destroy
-            _ = await self.callWakuSync { logosdelivery_destroy(ctxToStop, WakuActor.syncCallback, $0) }
+            logosdelivery_destroy(ctxToStop)
             print("[WakuActor] Node destroyed")
         }
     }
@@ -270,13 +284,14 @@ actor WakuActor {
         """
 
         let result = await callWakuSync { userData in
-            waku_lightpush_publish(
-                context,
-                self.defaultPubsubTopic,
-                jsonMessage,
-                WakuActor.syncCallback,
-                userData
-            )
+            _ = self.defaultPubsubTopic.withCString { topicPtr in
+                jsonMessage.withCString { msgPtr in
+                    var req = WakuLightpushPublishReq(
+                        pubSubTopic: topicPtr, jsonWakuMessage: msgPtr)
+                    return waku_lightpush_publish(
+                        context, WakuActor.syncReplyCallback, userData, &req)
+                }
+            }
         }
 
         if result.success {
@@ -320,14 +335,17 @@ actor WakuActor {
             let userDataPtr = Unmanaged.passRetained(callbackCtx).toOpaque()
 
             // Set up a simple callback for logosdelivery_create_node
-            let newCtx = logosdelivery_create_node(config, { ret, msg, len, userData in
-                guard let userData = userData else { return }
-                let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
-                context.success = (ret == RET_OK)
-                if let msg = msg {
-                    context.result = String(cString: msg)
-                }
-            }, userDataPtr)
+            let newCtx = config.withCString { configPtr -> UnsafeMutableRawPointer? in
+                var req = LogosdeliveryCreateNodeCtorReq(configJson: configPtr)
+                return logosdelivery_create_node(&req, { ret, reply, errMsg, userData in
+                    guard let userData = userData else { return }
+                    let context = Unmanaged<CallbackContext>.fromOpaque(userData).takeUnretainedValue()
+                    context.success = (ret == RET_OK)
+                    if let text = reply ?? errMsg {
+                        context.result = String(cString: text)
+                    }
+                }, userDataPtr)
+            }
 
             // Small delay to ensure callback completes
             DispatchQueue.global().asyncAfter(deadline: .now() + 0.1) {
@@ -377,7 +395,10 @@ actor WakuActor {
         print("[WakuActor] Connecting to static peer...")
 
         let result = await callWakuSync { userData in
-            waku_connect(context, self.staticPeer, 10000, WakuActor.syncCallback, userData)
+            _ = self.staticPeer.withCString { peerPtr in
+                var req = WakuConnectReq(peerMultiAddr: peerPtr, timeoutMs: 10000)
+                return waku_connect(context, WakuActor.syncReplyCallback, userData, &req)
+            }
         }
 
         if result.success {
@@ -397,13 +418,14 @@ actor WakuActor {
         let topic = contentTopic ?? defaultContentTopic
 
         let result = await callWakuSync { userData in
-            waku_filter_subscribe(
-                context,
-                self.defaultPubsubTopic,
-                topic,
-                WakuActor.syncCallback,
-                userData
-            )
+            _ = self.defaultPubsubTopic.withCString { topicPtr in
+                topic.withCString { contentPtr in
+                    var req = WakuFilterSubscribeReq(
+                        pubSubTopic: topicPtr, contentTopics: contentPtr)
+                    return waku_filter_subscribe(
+                        context, WakuActor.syncReplyCallback, userData, &req)
+                }
+            }
         }
 
         isSubscribing = false
@@ -424,13 +446,10 @@ actor WakuActor {
         guard let context = ctx else { return false }
 
         let result = await callWakuSync { userData in
-            waku_ping_peer(
-                context,
-                self.staticPeer,
-                10000,
-                WakuActor.syncCallback,
-                userData
-            )
+            _ = self.staticPeer.withCString { peerPtr in
+                var req = WakuPingPeerReq(peerAddr: peerPtr, timeoutMs: 10000)
+                return waku_ping_peer(context, WakuActor.syncReplyCallback, userData, &req)
+            }
         }
 
         return result.success
