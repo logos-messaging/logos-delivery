@@ -12,6 +12,7 @@ import
   brokers/broker_context
 
 import
+  logos_delivery/waku/rln/rln_lez/types as rln_api_types,
   logos_delivery/waku/[waku_core, waku_node, rln, rln/rln_evm/protocol_types],
   logos_delivery/waku/requests/rln_requests,
   ../testlib/[wakucore, futures, wakunode, testutils],
@@ -794,7 +795,7 @@ procSuite "WakuNode - RLN relay":
 
       let msg = fakeWakuMessage()
       let proofResult = await RequestGenerateRlnProof.request(
-        node.rln.brokerCtx, msg, "", default(RlnIdentifier), uint64(epochTime())
+        node.rln.brokerCtx, msg, "", default(rln_api_types.RlnIdentifier), uint64(epochTime())
       )
 
       check proofResult.isOk()
