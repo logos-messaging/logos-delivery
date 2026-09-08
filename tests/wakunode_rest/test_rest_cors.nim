@@ -15,61 +15,20 @@ import
     rest_api/endpoint/server,
     rest_api/endpoint/debug/handlers as debug_rest_interface,
   ],
-  ../testlib/common,
   ../testlib/wakucore,
-  ../testlib/wakunode
+  ../testlib/wakunode,
+  ../testlib/rest_requests
 
-type TestResponseTuple = tuple[status: int, data: string, headers: HttpTable]
+const OriginHeader = "Origin"
 
 proc testWakuNode(): WakuNode =
   let
-    privkey = crypto.PrivateKey.random(Secp256k1, rng).tryGet()
+    privkey = generateSecp256k1Key()
     bindIp = parseIpAddress("0.0.0.0")
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
 
   newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
-
-proc fetchWithHeader(
-    request: HttpClientRequestRef
-): Future[TestResponseTuple] {.async: (raises: [CancelledError, HttpError]).} =
-  var response: HttpClientResponseRef
-  try:
-    response = await request.send()
-    let buffer = await response.getBodyBytes()
-    let status = response.status
-    let headers = response.headers
-    await response.closeWait()
-    response = nil
-    return (status, buffer.bytesToString(), headers)
-  except HttpError as exc:
-    if not (isNil(response)):
-      await response.closeWait()
-    assert false
-  except CancelledError as exc:
-    if not (isNil(response)):
-      await response.closeWait()
-    assert false
-
-proc issueRequest(
-    address: HttpAddress, reqOrigin: Opt[string] = Opt.none(string)
-): Future[TestResponseTuple] {.async.} =
-  var
-    session = HttpSessionRef.new({HttpClientFlag.Http11Pipeline})
-    data: TestResponseTuple
-
-  var originHeader: seq[HttpHeaderTuple]
-  if reqOrigin.isSome():
-    originHeader.insert(("Origin", reqOrigin.get()))
-
-  var request = HttpClientRequestRef.new(
-    session, address, version = HttpVersion11, headers = originHeader
-  )
-  try:
-    data = await request.fetchWithHeader()
-  finally:
-    await request.closeWait()
-  return data
 
 proc checkResponse(
     response: TestResponseTuple, expectedStatus: int, expectedOrigin: Opt[string]
@@ -125,28 +84,36 @@ suite "Waku v2 REST API CORS Handling":
     let ha = getAddress(srvAddr, HttpClientScheme.NonSecure, "/debug/v1/info")
 
     # When
-    var response = await issueRequest(ha, Opt.some("http://test.net:1234"))
+    var response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://test.net:1234")])
     check checkResponse(response, 200, Opt.some("http://test.net:1234"))
 
-    response = await issueRequest(ha, Opt.some("https://test.net:1234"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "https://test.net:1234")])
     check checkResponse(response, 200, Opt.some("https://test.net:1234"))
 
-    response = await issueRequest(ha, Opt.some("https://localhost:8080"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "https://localhost:8080")])
     check checkResponse(response, 200, Opt.some("https://localhost:8080"))
 
-    response = await issueRequest(ha, Opt.some("https://localhost:80"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "https://localhost:80")])
     check checkResponse(response, 200, Opt.some("https://localhost:80"))
 
-    response = await issueRequest(ha, Opt.some("http://127.0.0.1:78"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://127.0.0.1:78")])
     check checkResponse(response, 200, Opt.some("http://127.0.0.1:78"))
 
-    response = await issueRequest(ha, Opt.some("http://wakuTHE.net:8078"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://wakuTHE.net:8078")])
     check checkResponse(response, 200, Opt.some("http://wakuTHE.net:8078"))
 
-    response = await issueRequest(ha, Opt.some("http://nwaku.main.net:1980"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://nwaku.main.net:1980")])
     check checkResponse(response, 200, Opt.some("http://nwaku.main.net:1980"))
 
-    response = await issueRequest(ha, Opt.some("http://nwaku.main.net:80"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://nwaku.main.net:80")])
     check checkResponse(response, 200, Opt.some("http://nwaku.main.net:80"))
 
     await restServer.stop()
@@ -180,31 +147,40 @@ suite "Waku v2 REST API CORS Handling":
     let ha = getAddress(srvAddr, HttpClientScheme.NonSecure, "/debug/v1/info")
 
     # When
-    var response = await issueRequest(ha, Opt.some("http://test.net:12334"))
+    var response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://test.net:12334")])
     check checkResponse(response, 403, Opt.none(string))
 
-    response = await issueRequest(ha, Opt.some("http://test.net:12345"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://test.net:12345")])
     check checkResponse(response, 403, Opt.none(string))
 
-    response = await issueRequest(ha, Opt.some("xhttp://test.net:1234"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "xhttp://test.net:1234")])
     check checkResponse(response, 403, Opt.none(string))
 
-    response = await issueRequest(ha, Opt.some("https://xtest.net:1234"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "https://xtest.net:1234")])
     check checkResponse(response, 403, Opt.none(string))
 
-    response = await issueRequest(ha, Opt.some("http://localhost:8080"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://localhost:8080")])
     check checkResponse(response, 403, Opt.none(string))
 
-    response = await issueRequest(ha, Opt.some("https://127.0.0.1:78"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "https://127.0.0.1:78")])
     check checkResponse(response, 403, Opt.none(string))
 
-    response = await issueRequest(ha, Opt.some("http://127.0.0.1:89"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://127.0.0.1:89")])
     check checkResponse(response, 403, Opt.none(string))
 
-    response = await issueRequest(ha, Opt.some("http://the.waku.net:8078"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://the.waku.net:8078")])
     check checkResponse(response, 403, Opt.none(string))
 
-    response = await issueRequest(ha, Opt.some("http://nwaku.main.net:1900"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://nwaku.main.net:1900")])
     check checkResponse(response, 403, Opt.none(string))
 
     await restServer.stop()
@@ -232,28 +208,36 @@ suite "Waku v2 REST API CORS Handling":
     let ha = getAddress(srvAddr, HttpClientScheme.NonSecure, "/debug/v1/info")
 
     # When
-    var response = await issueRequest(ha, Opt.some("http://test.net:1234"))
+    var response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://test.net:1234")])
     check checkResponse(response, 200, Opt.some("*"))
 
-    response = await issueRequest(ha, Opt.some("https://test.net:1234"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "https://test.net:1234")])
     check checkResponse(response, 200, Opt.some("*"))
 
-    response = await issueRequest(ha, Opt.some("https://localhost:8080"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "https://localhost:8080")])
     check checkResponse(response, 200, Opt.some("*"))
 
-    response = await issueRequest(ha, Opt.some("https://localhost:80"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "https://localhost:80")])
     check checkResponse(response, 200, Opt.some("*"))
 
-    response = await issueRequest(ha, Opt.some("http://127.0.0.1:78"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://127.0.0.1:78")])
     check checkResponse(response, 200, Opt.some("*"))
 
-    response = await issueRequest(ha, Opt.some("http://wakuTHE.net:8078"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://wakuTHE.net:8078")])
     check checkResponse(response, 200, Opt.some("*"))
 
-    response = await issueRequest(ha, Opt.some("http://nwaku.main.net:1980"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://nwaku.main.net:1980")])
     check checkResponse(response, 200, Opt.some("*"))
 
-    response = await issueRequest(ha, Opt.some("http://nwaku.main.net:80"))
+    response =
+      await issueRequest(ha, headers = @[(OriginHeader, "http://nwaku.main.net:80")])
     check checkResponse(response, 200, Opt.some("*"))
 
     await restServer.stop()
@@ -287,7 +271,7 @@ suite "Waku v2 REST API CORS Handling":
     let ha = getAddress(srvAddr, HttpClientScheme.NonSecure, "/debug/v1/info")
 
     # When
-    var response = await issueRequest(ha, Opt.none(string))
+    var response = await issueRequest(ha)
     check checkResponse(response, 200, Opt.none(string))
 
     await restServer.stop()

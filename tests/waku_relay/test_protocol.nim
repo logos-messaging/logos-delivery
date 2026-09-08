@@ -1235,6 +1235,55 @@ suite "Waku Relay":
       # Finally stop the other node
       await allFutures(otherSwitch.stop(), otherNode.stop())
 
+    asyncTest "Publishing the same message twice delivers it to the peer once":
+      # Given a second node connected to the first one
+      let
+        otherSwitch = newTestSwitch()
+        otherNode = await newTestWakuRelay(otherSwitch)
+
+      await allFutures(otherSwitch.start(), otherNode.start())
+      defer:
+        await allFutures(otherSwitch.stop(), otherNode.stop())
+      let otherRemotePeerInfo = otherSwitch.peerInfo.toRemotePeerInfo()
+      check await peerManager.connectPeer(otherRemotePeerInfo)
+
+      # Given both are subscribed to the same pubsub topic
+      var otherHandlerFuture = newPushHandlerFuture()
+      var otherMessageSeq: seq[(PubsubTopic, WakuMessage)] = @[]
+      proc otherSimpleFutureHandler(
+          topic: PubsubTopic, message: WakuMessage
+      ) {.async, gcsafe.} =
+        otherMessageSeq.add((topic, message))
+        otherHandlerFuture.complete((topic, message))
+
+      node.subscribe(pubsubTopic, simpleFutureHandler)
+      otherNode.subscribe(pubsubTopic, otherSimpleFutureHandler)
+      check:
+        node.subscribedTopics == pubsubTopicSeq
+        otherNode.subscribedTopics == pubsubTopicSeq
+      await sleepAsync(500.millis)
+
+      # When the same message is published twice
+      let msg = fakeWakuMessage("msg", pubsubTopic)
+      let firstPublish = await node.publish(pubsubTopic, msg)
+      check:
+        firstPublish.isOk()
+        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
+
+      handlerFuture = newPushHandlerFuture()
+      otherHandlerFuture = newPushHandlerFuture()
+      let secondPublish = await node.publish(pubsubTopic, msg)
+
+      # Then the second publish fails with NoPeersToPublish, the publishing
+      # node's handler still runs and the peer receives a single copy
+      check:
+        secondPublish.isErr() and secondPublish.error == PublishOutcome.NoPeersToPublish
+        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+        not (await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT))
+        messageSeq == @[(pubsubTopic, msg), (pubsubTopic, msg)]
+        otherMessageSeq == @[(pubsubTopic, msg)]
+
   suite "Security and Privacy":
     asyncTest "Relay can't receive messages after subscribing and stopping without unsubscribing":
       # Given a second node connected to the first one
