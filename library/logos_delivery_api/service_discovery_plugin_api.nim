@@ -4,25 +4,14 @@ import
   logos_delivery/waku/discovery/plugin/service_discovery_accessor,
   ../declare_lib
 
-## Registration surface for the external service-discovery plugin declared in
-## `library/logosdelivery_service_discovery.h`.
+## Registration entry points for the external service-discovery plugin
+## declared in `library/logosdelivery_service_discovery.h`.
 ##
-## The vtable travels as its address, not as a payload: it is a struct of
-## function pointers, which neither the CBOR wire nor the (mt) broker codec can
-## marshal. Passing the address is also what lets the node thread run the
-## registration, and that matters -- `SetServiceDiscoveryPlugin`'s provider is
-## registered by `ExternalServiceDiscovery.new` into a thread-local registry on
-## the node's FFI thread, so it is unreachable from the host thread that calls
-## the C entry point. Routing through `{.ffi.}` puts the request on the thread
-## that owns the provider.
-##
-## The caller keeps ownership of the struct and must keep it alive until the
-## reply callback fires; the provider copies it into a lock-guarded global that
-## the discovery worker thread reads.
-##
-## When the node was not configured for external discovery no backend exists to
-## provide the broker, so the request fails with "no provider registered" -- the
-## refusal the header documents for registration without configuration.
+## The vtable is passed by address: a struct of function pointers cannot be
+## marshalled, and the request has to run on the node's FFI thread, where the
+## provider lives. The caller keeps the struct alive until the reply callback
+## fires. Without external-discovery configuration there is no provider and
+## the request fails with "no provider registered".
 
 proc logosdelivery_set_service_discovery_plugin(
     self: LogosDelivery, pluginPtr: uint64
