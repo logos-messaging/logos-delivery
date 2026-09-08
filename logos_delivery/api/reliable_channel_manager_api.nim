@@ -14,3 +14,7 @@ type ReliableChannelApi* = concept c
   closeChannel(c, channelId = ChannelId) is Future[Result[void, string]]
   send(c, channelId = ChannelId, appPayload = seq[byte]) is
     Future[Result[RequestId, string]]
+  setChannelEncryption(
+    c, channelId = ChannelId, encrypt = ChannelCryptoFn, decrypt = ChannelCryptoFn
+  ) is Result[void, string]
+  clearChannelEncryption(c, channelId = ChannelId) is Result[void, string]
