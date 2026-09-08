@@ -17,7 +17,7 @@ export messaging_client
 proc start*(self: MessagingClient): Result[void, string] =
   if self.started:
     return ok()
-  self.recvService.startRecvService()
+  ?self.recvService.startRecvService()
   self.sendService.startSendService()
 
   ?MessagingSend.setProvider(

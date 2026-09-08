@@ -45,7 +45,8 @@ proc new*(
     rateLimitManager,
     anonymityLevel = conf.anonymityLevel.get(AnonymityLevel.None),
   )
-  let recvService = RecvService.new(waku)
+  let backfill = ?BackfillState.init(conf)
+  let recvService = RecvService.new(waku, backfill)
   return ok(
     T(
       waku: waku,

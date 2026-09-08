@@ -1,13 +1,17 @@
 {.used.}
 
-import results, std/[sequtils, net, sets]
+import results, std/[sequtils, net, sets, os, osproc, tempfiles, strutils]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
 import logos_delivery/messaging/messaging_client
+import logos_delivery/messaging/messaging_client_lifecycle
 import logos_delivery/messaging/delivery_service/recv_service
+import logos_delivery/messaging/delivery_service/recv_service/backfill
+import logos_delivery/waku/persistency/persistency
+import logos_delivery/api/conf/logos_delivery_conf
 
 import
   logos_delivery,
@@ -92,7 +96,18 @@ proc createApiNodeConf(numShards: uint16 = 1): WakuNodeConf =
   conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = numShards
   conf.rest = false
-  result = conf
+  conf.localStoragePath = InMemoryStoragePath
+  conf.dnsAddrsNameServers = @[parseIpAddress("127.0.0.1")]
+  conf
+
+proc backfillOverrides(enabled = true): MessagingClientConf =
+  ## An hour between cycles. Only the trigger under test can run one.
+  MessagingClientConf(
+    backfillEnabled: Opt.some(enabled), backfillIntervalSeconds: Opt.some(3600'i64)
+  )
+
+proc nodeConf(kernel: WakuNodeConf, messaging: MessagingClientConf): LogosDeliveryConf =
+  LogosDeliveryConf(kernelConf: KernelConf(kernel), messagingConf: Opt.some(messaging))
 
 type TestNetwork = ref object
   storeNode: WakuNode
@@ -100,11 +115,22 @@ type TestNetwork = ref object
   subscriber: LogosDelivery
   storeNodePeerInfo: RemotePeerInfo
   missedPayload: seq[byte]
+  ownedRoot: string ## temp storage root created here, removed at teardown
 
-proc setupNetwork(testTopic: ContentTopic): Future[TestNetwork] {.async.} =
-  ## Returns a started subscriber subscribed to `testTopic` but not yet connected
-  ## to the store, with a message sitting in the store it never saw live.
+proc setupNetwork(
+    testTopic: ContentTopic, storageRoot = ""
+): Future[TestNetwork] {.async.} =
+  ## A started subscriber on `testTopic`, not connected to the store, with a
+  ## message in the store that it did not see live. Its history is on disk,
+  ## because an in-memory root disables catch-up. With no root given, the
+  ## helper creates a temporary one.
   const numShards: uint16 = 1
+  let ownedRoot =
+    if storageRoot.len == 0:
+      createTempDir("recv-api-", "")
+    else:
+      ""
+  let root = if ownedRoot.len > 0: ownedRoot else: storageRoot
   let shard = PubsubTopic("/waku/2/rs/3/0")
 
   proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
@@ -153,14 +179,17 @@ proc setupNetwork(testTopic: ContentTopic): Future[TestNetwork] {.async.} =
   if not meshFormed:
     raiseAssert "publisher<->store relay mesh did not form in time"
 
-  # subscriber: created before the publish so the message timestamp lands after
-  # its RecvService startTimeToCheck watermark
+  # Subscribed before the publish and without peers. The subscriber does not
+  # see the message live, so the message is inside the range to catch up.
   var subscriber: LogosDelivery
   lockNewGlobalBrokerContext:
-    subscriber = (await LogosDelivery.new(createApiNodeConf(numShards))).expect(
+    var conf = createApiNodeConf(numShards)
+    conf.localStoragePath = root
+    subscriber = (await LogosDelivery.new(nodeConf(conf, backfillOverrides()))).expect(
       "Failed to create subscriber"
     )
     (await subscriber.start()).expect("Failed to start subscriber")
+  (await subscriber.messagingClient.subscribe(testTopic)).expect("Failed to subscribe")
 
   # publish while the subscriber is offline: the message reaches the archive but
   # the subscriber never sees it via live relay
@@ -183,15 +212,13 @@ proc setupNetwork(testTopic: ContentTopic): Future[TestNetwork] {.async.} =
       await sleepAsync(100.milliseconds)
     raiseAssert "Message was not archived in time"
 
-  # subscribe to the content topic; with no peers yet the subscriber stays offline
-  (await subscriber.messagingClient.subscribe(testTopic)).expect("Failed to subscribe")
-
   return TestNetwork(
     storeNode: storeNode,
     publisher: publisher,
     subscriber: subscriber,
     storeNodePeerInfo: storeNodePeerInfo,
     missedPayload: missedPayload,
+    ownedRoot: ownedRoot,
   )
 
 proc teardown(net: TestNetwork) {.async.} =
@@ -204,46 +231,324 @@ proc teardown(net: TestNetwork) {.async.} =
   if not isNil(net.storeNode):
     await net.storeNode.stop()
     net.storeNode = nil
+  if net.ownedRoot.len > 0:
+    removeDir(net.ownedRoot)
+    net.ownedRoot = ""
+
+const RestartTopic = ContentTopic("/waku/2/recv-process-restart/proto")
+const TestShard = PubsubTopic("/waku/2/rs/3/0")
+const OfflineCount = 105
+  ## archived while no subscriber process runs. Spans two Store pages
+
+proc runRestartedReceiver(
+    storageRoot, storePeer: string, expectedCount: int, backfillEnabled: bool
+) {.async.} =
+  ## Child process on the same root with a new identity. It must recover
+  ## exactly `expectedCount` messages by automatic catch-up. When it expects
+  ## messages, every archived message must be among them.
+  var conf = createApiNodeConf()
+  conf.localStoragePath = storageRoot
+  let subscriber = (
+    await LogosDelivery.new(nodeConf(conf, backfillOverrides(backfillEnabled)))
+  ).expect("new process subscriber")
+  let events =
+    newReceiveEventListenerManager(subscriber.waku.brokerCtx, max(expectedCount, 1))
+  (await subscriber.start()).expect("start new process subscriber")
+  (await subscriber.messagingClient.subscribe(RestartTopic)).expect("resubscribe")
+  await subscriber.waku.node.connectToNodes(@[parsePeerInfo(storePeer).get()])
+  if expectedCount == 0:
+    await sleepAsync(3.seconds)
+  else:
+    doAssert await events.waitForEvents(TestTimeout)
+    # Wait for a possible over-delivery.
+    await sleepAsync(1.seconds)
+  doAssert events.receivedMessages.len == expectedCount,
+    "expected " & $expectedCount & " recovered messages, got " &
+      $events.receivedMessages.len
+  let payloads = events.receivedMessages.mapIt(string.fromBytes(it.payload)).toHashSet()
+  doAssert payloads.len == expectedCount
+  if expectedCount > 0:
+    for i in 0 ..< OfflineCount:
+      doAssert "process-offline-" & $i in payloads
+  await events.teardown()
+  (await subscriber.stop()).expect("stop new process subscriber")
+
+if paramCount() == 5 and paramStr(1) == "--recv-restart-child":
+  waitFor runRestartedReceiver(
+    paramStr(2), paramStr(3), parseInt(paramStr(4)), paramStr(5) == "enabled"
+  )
+  quit(QuitSuccess)
+
+proc archiveOffline(net: TestNetwork) {.async.} =
+  ## Archives `OfflineCount` messages while no subscriber process runs.
+  for i in 0 ..< OfflineCount:
+    await net.storeNode.wakuArchive.handleMessage(
+      TestShard,
+      WakuMessage(
+        payload: ("process-offline-" & $i).toBytes(),
+        contentTopic: RestartTopic,
+        timestamp: now(),
+      ),
+    )
+
+proc runRestartedProcess(
+    net: TestNetwork, storageRoot: string, expectedCount: int, backfillEnabled = true
+) {.async.} =
+  ## Runs a new process on `storageRoot` until it recovers `expectedCount`
+  ## messages.
+  let storePeer =
+    $net.storeNodePeerInfo.addrs[0] & "/p2p/" & $net.storeNodePeerInfo.peerId
+  let child = startProcess(
+    getAppFilename(),
+    args = @[
+      "--recv-restart-child",
+      storageRoot,
+      storePeer,
+      $expectedCount,
+      if backfillEnabled: "enabled" else: "disabled",
+    ],
+    options = {poParentStreams},
+  )
+  defer:
+    if child.running():
+      child.terminate()
+    child.close()
+  let deadline = Moment.now() + TestTimeout + 10.seconds
+  while child.running() and Moment.now() < deadline:
+    await sleepAsync(50.milliseconds)
+  doAssert not child.running(), "restarted process did not finish in time"
+  doAssert child.waitForExit() == 0, "restarted process failed"
+
+proc waitForArchived(net: TestNetwork, topic: ContentTopic, count: int) {.async.} =
+  for _ in 0 ..< 100:
+    let query = archive_common.ArchiveQuery(
+      includeData: false, contentTopics: @[topic], pubsubTopic: Opt.some(TestShard)
+    )
+    let res = await net.storeNode.wakuArchive.findMessages(query)
+    if res.isOk() and res.get().hashes.len >= count:
+      return
+    await sleepAsync(100.milliseconds)
+  raiseAssert "messages were not archived in time"
+
+proc bringOnline(net: TestNetwork) {.async.} =
+  ## Connects the subscriber to the store node and waits for the online edge.
+  let onlineFut = waitForConnectionStatus(
+    net.subscriber.waku.brokerCtx, ConnectionStatus.PartiallyConnected
+  )
+  await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
+  await onlineFut
+
+## Few multi-phase cases. Each `test` block costs three GC-tracked globals, and
+## the refc runtime caps the waku test binary at 3500.
 
 suite "Messaging API, Receive Service (store recovery)":
-  asyncTest "recv_service delivers store-recovered messages via MessageReceivedEvent":
-    ## Regression: a message archived before the subscriber connects is recovered
-    ## by an explicit checkStore() and delivered via MessageReceivedEvent.
-    let net = await setupNetwork(ContentTopic("/waku/2/recv-test/proto"))
+  asyncTest "a new process recovers what was archived while it was down":
+    # Phase 1: the first session did not reach a Store peer. The next process
+    # recovers the setup message and all messages archived while stopped,
+    # across two Store pages.
+    block:
+      let root = createTempDir("recv-api-process-", "")
+      defer:
+        removeDir(root)
+      let net = await setupNetwork(RestartTopic, root)
+      defer:
+        await net.teardown()
+      (await net.subscriber.stop()).expect("stop previous session")
+      net.subscriber = nil
+      await net.archiveOffline()
+      # A child that resumes from its own start does not find these messages.
+      await sleepAsync(1.seconds)
+      await net.runRestartedProcess(root, OfflineCount + 1)
+
+    # Phase 2: disabled, the child retrieves nothing. The saved records stay
+    # for a later run.
+    block:
+      let root = createTempDir("recv-api-disabled-", "")
+      defer:
+        removeDir(root)
+      let net = await setupNetwork(RestartTopic, root)
+      defer:
+        await net.teardown()
+      (await net.subscriber.stop()).expect("stop previous session")
+      net.subscriber = nil
+      await net.archiveOffline()
+      await net.runRestartedProcess(root, 0, backfillEnabled = false)
+      await net.runRestartedProcess(root, OfflineCount + 1)
+
+    # Phase 3: stop writes the record for a topic subscribed after the last
+    # cycle, no later than the subscription itself.
+    block:
+      let root = createTempDir("recv-api-late-", "")
+      defer:
+        removeDir(root)
+      var conf = createApiNodeConf()
+      conf.localStoragePath = root
+      var node: LogosDelivery
+      lockNewGlobalBrokerContext:
+        node = (await LogosDelivery.new(nodeConf(conf, backfillOverrides()))).expect(
+          "create node"
+        )
+        (await node.start()).expect("start node")
+      let topic = ContentTopic("/waku/2/recv-late-subscribe/proto")
+      let subscribedAt = now()
+      (await node.messagingClient.subscribe(topic)).expect("subscribe")
+      (await node.stop()).expect("stop node")
+      let p = Persistency.new(root).expect("reopen root")
+      defer:
+        p.close()
+      let job = p.openJob(BackfillJobId).expect("reopen job")
+      let saved = (await job.readResumeAt((TestShard, topic))).expect("read record")
+      check saved.isSome() and saved.get() <= subscribedAt
+
+  asyncTest "recv_service recovers a missed message on an explicit check and on the online edge":
+    # Phase 1: an explicit checkStore() recovers a message archived before
+    # the subscriber connected.
+    block:
+      let net = await setupNetwork(ContentTopic("/waku/2/recv-test/proto"))
+      defer:
+        await net.teardown()
+      let eventManager =
+        newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
+      defer:
+        await eventManager.teardown()
+      await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
+      await net.subscriber.messagingClient.recvService.checkStore()
+      check await eventManager.waitForEvents(TestTimeout)
+      check eventManager.receivedMessages.len == 1
+      if eventManager.receivedMessages.len > 0:
+        check eventManager.receivedMessages[0].payload == net.missedPayload
+
+    # Phase 2: the online edge runs a cycle that recovers a message archived
+    # while offline.
+    block:
+      let net = await setupNetwork(ContentTopic("/waku/2/recv-reconnect-test/proto"))
+      defer:
+        await net.teardown()
+      let eventManager =
+        newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
+      defer:
+        await eventManager.teardown()
+      await net.bringOnline()
+      check await eventManager.waitForEvents(TestTimeout)
+      check eventManager.receivedMessages.len == 1
+      if eventManager.receivedMessages.len > 0:
+        check eventManager.receivedMessages[0].payload == net.missedPayload
+
+    # Phase 3: storage closed under a running node suspends catch-up with a
+    # warning. The node keeps running.
+    block:
+      let net = await setupNetwork(ContentTopic("/waku/2/recv-storage-lost/proto"))
+      defer:
+        await net.teardown()
+      let eventManager =
+        newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
+      defer:
+        await eventManager.teardown()
+      await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
+      GetPersistency
+        .request(net.subscriber.waku.brokerCtx)
+        .expect("persistency")
+        .closeJob(BackfillJobId)
+      await net.subscriber.messagingClient.recvService.checkStore()
+      check not (await eventManager.waitForEvents(3.seconds))
+      check net.subscriber.isRunning()
+
+  asyncTest "resubscribing replays what was archived while unsubscribed":
+    ## Unsubscribe keeps the topic's record. Subscribe again resumes from it.
+    let topic = ContentTopic("/waku/2/recv-resubscribe-test/proto")
+    let net = await setupNetwork(topic)
     defer:
       await net.teardown()
-
     let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
     defer:
       await eventManager.teardown()
 
-    await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
-    await net.subscriber.messagingClient.recvService.checkStore()
-
+    await net.bringOnline()
     check await eventManager.waitForEvents(TestTimeout)
     check eventManager.receivedMessages.len == 1
-    if eventManager.receivedMessages.len > 0:
-      check eventManager.receivedMessages[0].payload == net.missedPayload
 
-  asyncTest "recv_service backfills missed messages when it comes back online":
-    ## Connecting a peer brings the subscriber online, firing the backfill that
-    ## recovers a message archived while it was offline.
-    let net = await setupNetwork(ContentTopic("/waku/2/recv-reconnect-test/proto"))
-    defer:
-      await net.teardown()
-
-    let eventManager = newReceiveEventListenerManager(net.subscriber.waku.brokerCtx, 1)
-    defer:
-      await eventManager.teardown()
-
-    # sync on coming online (the transition that fires the backfill) before asserting
-    let onlineFut = waitForConnectionStatus(
-      net.subscriber.waku.brokerCtx, ConnectionStatus.PartiallyConnected
+    net.subscriber.messagingClient.unsubscribe(topic).expect("unsubscribe")
+    let archivedMsg = WakuMessage(
+      payload: "archived while unsubscribed".toBytes(),
+      contentTopic: topic,
+      timestamp: now(),
     )
-    await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
-    await onlineFut
-
-    check await eventManager.waitForEvents(TestTimeout)
+    discard (await net.publisher.publish(Opt.some(TestShard), archivedMsg)).expect(
+      "publish while unsubscribed"
+    )
+    await net.waitForArchived(topic, 2)
+    # The node delivers nothing for an unsubscribed topic, live or from Store.
     check eventManager.receivedMessages.len == 1
-    if eventManager.receivedMessages.len > 0:
-      check eventManager.receivedMessages[0].payload == net.missedPayload
+
+    # A maintenance tick must see the topic gone. Then a topic that enters the
+    # set makes a cycle due, and the cycle queries the range since its last
+    # cycle.
+    await sleepAsync(1500.milliseconds)
+    eventManager.targetCount = 2
+    eventManager.receivedEvent.clear()
+    (await net.subscriber.messagingClient.subscribe(topic)).expect("resubscribe")
+    check await eventManager.waitForEvents(TestTimeout)
+    check eventManager.receivedMessages.len == 2
+    if eventManager.receivedMessages.len > 1:
+      check eventManager.receivedMessages[1].payload == archivedMsg.payload
+
+  asyncTest "an in-memory storage root leaves messaging running with catch-up off":
+    ## Phase 1: a started node with `:memory:` keeps no history. Catch-up is
+    ## off (info). Live messaging and explicit checks do no harm.
+    block:
+      var node: LogosDelivery
+      lockNewGlobalBrokerContext:
+        node = (await LogosDelivery.new(createApiNodeConf())).expect("create node")
+        (await node.start()).expect("start node")
+      check GetPersistency.request(node.waku.brokerCtx).isOk()
+      let topic = ContentTopic("/waku/2/recv-memory-only/proto")
+      (await node.messagingClient.subscribe(topic)).expect("subscribe")
+      await node.messagingClient.recvService.checkStore()
+      await sleepAsync(1500.milliseconds)
+      check node.isRunning()
+      (await node.stop()).expect("stop node")
+      check not node.isRunning()
+    ## Phase 2: no Persistency provider (transport not started). Messaging
+    ## starts. Catch-up is suspended with a warning.
+    block:
+      var node: LogosDelivery
+      lockNewGlobalBrokerContext:
+        node = (await LogosDelivery.new(createApiNodeConf())).expect("create node")
+      check GetPersistency.request(node.waku.brokerCtx).isErr()
+      check node.messagingClient.start().isOk()
+      (
+        await node.messagingClient.subscribe(
+          ContentTopic("/waku/2/recv-no-provider/proto")
+        )
+      ).expect("subscribe")
+      await node.messagingClient.recvService.checkStore()
+      await sleepAsync(1500.milliseconds)
+      check node.isRunning()
+      await node.messagingClient.stop()
+      check not node.isRunning()
+    ## Phase 3: an out-of-range catch-up setting fails node creation. The
+    ## full range checks are in the unit test.
+    let bad = MessagingClientConf(backfillMaxPagesPerCycle: Opt.some(0))
+    lockNewGlobalBrokerContext:
+      check (await LogosDelivery.new(nodeConf(createApiNodeConf(), bad))).isErr()
+    ## Phase 4: a job that cannot be opened (a directory where its file goes)
+    ## suspends catch-up with a warning. The node keeps running.
+    block:
+      let root = createTempDir("recv-api-badjob-", "")
+      defer:
+        removeDir(root)
+      createDir(root / "messaging-recv.db")
+      var conf = createApiNodeConf()
+      conf.localStoragePath = root
+      var node: LogosDelivery
+      lockNewGlobalBrokerContext:
+        node = (await LogosDelivery.new(nodeConf(conf, backfillOverrides()))).expect(
+          "create node"
+        )
+        (await node.start()).expect("start node")
+      (await node.messagingClient.subscribe(ContentTopic("/waku/2/recv-bad-job/proto"))).expect(
+        "subscribe"
+      )
+      await node.messagingClient.recvService.checkStore()
+      check node.isRunning()
+      (await node.stop()).expect("stop node")
