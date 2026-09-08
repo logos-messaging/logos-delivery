@@ -95,3 +95,6 @@ __pycache__/
 
 # Emitted by genBindings() during the liblogosdelivery build.
 library/generated/
+
+# Local, per-developer helpers (design notes, scripts); never committed.
+.local/
