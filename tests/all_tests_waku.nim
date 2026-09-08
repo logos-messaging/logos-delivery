@@ -24,7 +24,10 @@ when os == "Linux" and
     defined(postgres):
   import ./waku_archive/test_driver_postgres_query, ./waku_archive/test_driver_postgres
 
-import ./wakunode_rest/test_rest_store
+import
+  ./wakunode_rest/test_rest_filter,
+  ./wakunode_rest/test_rest_relay,
+  ./wakunode_rest/test_rest_store
 
 # Waku store test suite
 import ./waku_store/test_all
