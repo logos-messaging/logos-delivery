@@ -27,7 +27,7 @@ A clear and concise description of what you expected to happen.
 If applicable, add screenshots or logs to help explain your problem.
 
 ### nwaku version/commit hash
-State the version of `nwaku` where you've encountered the bug or, if built off a specific commit, the relevant commit hash. You can check the version by running `./wakunode2 --version`.
+State the version of `nwaku` where you've encountered the bug or, if built off a specific commit, the relevant commit hash. You can check the version by running `./logosdeliverynode --version`.
 - e.g. `v0.9` or `ed53bcd`
 
 ### Additional context

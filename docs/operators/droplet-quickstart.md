@@ -213,10 +213,10 @@ This [guide](https://www.itprotoday.com/development-techniques-and-management/ho
 
 OR
 
-Run the following script to copy over the wakunode2 binary (from the host machine) -
+Run the following script to copy over the logosdeliverynode binary (from the host machine) -
 
 ```bash
-scp -i $DROPLET_SSH_KEY_PATH ./build/wakunode2 $DROPLET_USERNAME@$DROPLET_IP:~/wakunode2
+scp -i $DROPLET_SSH_KEY_PATH ./build/logosdeliverynode $DROPLET_USERNAME@$DROPLET_IP:~/logosdeliverynode
 ```
 
 ## 10. Set up a terminal multiplexer of choice
@@ -236,9 +236,9 @@ First, start the `screen` or `tmux` session by following the instructions of the
 
 Run the following command to run `nwaku` -
 
-*Note the path to the wakunode2 binary*
+*Note the path to the logosdeliverynode binary*
 
-a. Add the parent directory of the wakunode2 binary to your environment:
+a. Add the parent directory of the logosdeliverynode binary to your environment:
 
   If you built it locally and copied it via scp -
 
@@ -269,9 +269,8 @@ c. Run `nwaku`:
 
   ```bash
   export DOMAIN_NAME=<your-domain-name>
-  $WAKUNODE_DIR/wakunode2 \
+  $WAKUNODE_DIR/logosdeliverynode \
     --store:true \
-    --persist-messages \
     --dns-discovery \
     --dns-discovery-url:"$WAKU_FLEET" \
     --dns4-domain-name:"$DOMAIN_NAME" \
@@ -283,9 +282,8 @@ c. Run `nwaku`:
   If you did not set up a domain -
 
   ```bash
-  $WAKUNODE_DIR/wakunode2 \
+  $WAKUNODE_DIR/logosdeliverynode \
     --store:true \
-    --persist-messages \
     --dns-discovery \
     --dns-discovery-url:"$WAKU_FLEET" \
     --discv5-discovery:true

@@ -28,7 +28,7 @@ The main mechanism to configure the node is via command line options. Any config
 The configuration options should be provided after the binary name as follows:
 
 ```shell
-wakunode2 --tcp-port=65000
+logosdeliverynode --tcp-port=65000
 ```
 
 In the case of using docker to run you node you should provide the commandline options after the image name as follows:
@@ -37,13 +37,13 @@ In the case of using docker to run you node you should provide the commandline o
 docker run wakuorg/nwaku --tcp-port=65000
 ```
 
-Run `wakunode2 --help` to get a comprehensive list of configuration options (and its default values):
+Run `logosdeliverynode --help` to get a comprehensive list of configuration options (and its default values):
 
 ```shell
-$ wakunode2 --help
+$ logosdeliverynode --help
 Usage: 
 
-wakunode2 [OPTIONS]...
+logosdeliverynode [OPTIONS]...
 
 The following options are available:
 
@@ -62,18 +62,18 @@ The node can also be configured via environment variables.
 
 > :information_source: Support for configuring the node via environment variables was added in v0.13.0
 
-The environment variable name should be prefixed by the app's name, in this case `WAKUNODE2_` followed by the commandline option in [screaming snake case](https://en.wiktionary.org/wiki/screaming_snake_case). 
+The environment variable name should be prefixed by the app's name, in this case `LOGOS_DELIVERY_NODE_` followed by the commandline option in [screaming snake case](https://en.wiktionary.org/wiki/screaming_snake_case). 
 
-For example, to set the `--tcp-port` configuration we should call `wakunode2` binary as follows:
+For example, to set the `--tcp-port` configuration we should call `logosdeliverynode` binary as follows:
 
 ```shell
-WAKUNODE2_TCP_PORT=65000 wakunode2
+LOGOS_DELIVERY_NODE_TCP_PORT=65000 logosdeliverynode
 ```
 
 In the case of using docker to run you node you should start the node using the `-e` command options:
 
 ```shell
-docker run -e "WAKUNODE2_TCP_PORT=65000" wakuorg/nwaku
+docker run -e "LOGOS_DELIVERY_NODE_TCP_PORT=65000" wakuorg/nwaku
 ```
 
 This is the second configuration method in order of precedence. Any command line configuration option will override the configuration
@@ -94,24 +94,24 @@ The path to the TOML file can be specified using one of the previous configurati
 
 * By passing the `--config-file` command line option:
   ```shell
-  wakunode2 --config-file=<path-to-toml-config-file>
+  logosdeliverynode --config-file=<path-to-toml-config-file>
   ```
 * By passing the path via environment variables:
   ```shell
-  WAKUNODE2_CONFIG_FILE=<path-to-toml-config-file> wakunode2
+  LOGOS_DELIVERY_NODE_CONFIG_FILE=<path-to-toml-config-file> logosdeliverynode
   ```
 
 ### Configuration default values
 
 As usual, if no configuration option is specified by any of the previous mechanisms, the default configuration will be used.
 
-The default configuration value is listed in the `wakunode2 --help` output:
+The default configuration value is listed in the `logosdeliverynode --help` output:
 
 ```shell
-$ wakunode2 --help
+$ logosdeliverynode --help
 Usage: 
 
-wakunode2 [OPTIONS]...
+logosdeliverynode [OPTIONS]...
 
 The following options are available:
 

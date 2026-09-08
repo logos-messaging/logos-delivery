@@ -7,7 +7,7 @@ by which a node may discover the listening addresses of other peers using DNS.
 It is possible to configure an IPv4 DNS domain name that resolves to the node's public IPv4 address.
 
 ```shell
-wakunode2 --dns4-domain-name=mynode.example.com
+logosdeliverynode --dns4-domain-name=mynode.example.com
 ```
 
 This allows for the node's publicly announced `multiaddrs` to use the `/dns4` scheme.
