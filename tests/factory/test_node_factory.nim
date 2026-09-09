@@ -21,7 +21,6 @@ import
     net/auto_port,
     discovery/waku_discv5,
     node/waku_metrics,
-    common/rate_limit/setting,
   ],
   logos_delivery/waku/factory/[
     node_factory,
@@ -68,15 +67,16 @@ suite "Node Factory":
     let node = (await setupNode(conf, relay = Relay.new())).valueOr:
       raiseAssert error
 
-    # Then the filter is mounted with the limit the command line assigns
-    require not node.wakuFilter.isNil()
-    let filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+    # Then each protocol is mounted with the limit the command line assigns
+    let
+      filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+      lightPushLimit = node.wakuLightPush.requestRateLimiter.setting
+      peerExchangeLimit = node.wakuPeerExchange.requestRateLimiter.setting
 
     check:
-      filterLimit.isSome()
-      filterLimit.get() == (volume: 100, period: 1.seconds)
-      node.rateLimitSettings.getSetting(LIGHTPUSH) == (volume: 5, period: 1.seconds)
-      node.rateLimitSettings.getSetting(PEEREXCHG) == (volume: 5, period: 1.seconds)
+      filterLimit == Opt.some((volume: 100, period: 1.seconds))
+      lightPushLimit == Opt.some((volume: 5, period: 1.seconds))
+      peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
 
   test "ENR configuration trims multiaddrs until record fits":
     var conf = defaultTestWakuConf()

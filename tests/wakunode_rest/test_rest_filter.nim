@@ -558,29 +558,29 @@ suite "Waku v2 Rest API - Filter V2":
       await restFilterTest.client.waitForFilterMessages(DefaultContentTopic, 1)
 
     check:
-      messages.len == 1
-      messages[0].payload == base64.encode(testMessage.payload)
-      messages[0].contentTopic == Opt.some(testMessage.contentTopic)
-      messages[0].version == Opt.some(Natural(testMessage.version))
-      messages[0].timestamp == Opt.some(testMessage.timestamp)
-      messages[0].meta == Opt.some(base64.encode(testMessage.meta))
-      messages[0].ephemeral == Opt.some(testMessage.ephemeral)
+      messages.mapIt(it.payload) == @[base64.encode(testMessage.payload)]
+      messages.mapIt(it.contentTopic) == @[Opt.some(testMessage.contentTopic)]
+      messages.mapIt(it.version) == @[Opt.some(Natural(testMessage.version))]
+      messages.mapIt(it.timestamp) == @[Opt.some(testMessage.timestamp)]
+      messages.mapIt(it.meta) == @[Opt.some(base64.encode(testMessage.meta))]
+      messages.mapIt(it.ephemeral) == @[Opt.some(testMessage.ephemeral)]
 
-  asyncTest "Subscribe and unsubscribe without a pubsub topic - POST and DELETE /filter/v2/subscriptions":
+  asyncTest "Subscribe and unsubscribe without a pubsub topic under autosharding - POST and DELETE /filter/v2/subscriptions":
     # Given a subscriber whose node derives the shard from the content topic
-    let autoShardedTest = await RestFilterTest.init(autoShardCount = 8'u32)
+    let restFilterTest = await RestFilterTest.init(autoShardCount = 8'u32)
     defer:
-      await autoShardedTest.shutdown()
+      await restFilterTest.shutdown()
 
     let
-      autoPeerId = autoShardedTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
-      derivedShard = autoShardedTest.subscriberNode.wakuAutoSharding
+      subPeerId = restFilterTest.subscriberNode.peerInfo.toRemotePeerInfo().peerId
+      subscriptions = restFilterTest.serviceNode.wakuFilter.subscriptions
+      derivedShard = restFilterTest.subscriberNode.wakuAutoSharding
         .get()
         .getShard(DefaultContentTopic).valueOr:
           raiseAssert "Failed to derive the shard: " & error
 
     # When it subscribes without a pubsubTopic
-    let autoResponse = await autoShardedTest.client.filterPostSubscriptions(
+    let subscribeResponse = await restFilterTest.client.filterPostSubscriptions(
       FilterSubscribeRequest(
         requestId: "1234",
         contentFilters: @[DefaultContentTopic],
@@ -590,20 +590,33 @@ suite "Waku v2 Rest API - Filter V2":
 
     # Then the criterion lands on the derived shard
     check:
-      autoResponse.status == 200
-      autoResponse.data.statusDesc == "OK"
-      autoPeerId in
-        autoShardedTest.serviceNode.wakuFilter.subscriptions.findSubscribedPeers(
-          $derivedShard, DefaultContentTopic
-        )
+      subscribeResponse.status == 200
+      subscribeResponse.data.statusDesc == "OK"
+      subPeerId in subscriptions.findSubscribedPeers($derivedShard, DefaultContentTopic)
 
-    # Given a subscriber on static sharding
-    let staticTest = await RestFilterTest.init()
+    # When it unsubscribes without a pubsubTopic
+    let unsubscribeResponse = await restFilterTest.client.filterDeleteSubscriptions(
+      FilterUnsubscribeRequest(
+        requestId: "4321",
+        contentFilters: @[DefaultContentTopic],
+        pubsubTopic: Opt.none(string),
+      )
+    )
+
+    # Then the criterion leaves the derived shard
+    check:
+      unsubscribeResponse.status == 200
+      unsubscribeResponse.data.statusDesc == "OK"
+      subscriptions.findSubscribedPeers($derivedShard, DefaultContentTopic).len() == 0
+
+  asyncTest "Subscribe and unsubscribe without a pubsub topic under static sharding - POST and DELETE /filter/v2/subscriptions":
+    # Given a subscriber whose node cannot derive a shard
+    let restFilterTest = await RestFilterTest.init()
     defer:
-      await staticTest.shutdown()
+      await restFilterTest.shutdown()
 
     # When it subscribes without a pubsubTopic
-    let staticResponse = await staticTest.client.filterPostSubscriptions(
+    let subscribeResponse = await restFilterTest.client.filterPostSubscriptions(
       FilterSubscribeRequest(
         requestId: "1234",
         contentFilters: @[DefaultContentTopic],
@@ -613,21 +626,21 @@ suite "Waku v2 Rest API - Filter V2":
 
     # Then the request is answered UNKNOWN and no criterion is registered
     check:
-      staticResponse.status == 200
-      staticResponse.data.statusDesc == "UNKNOWN"
-      staticTest.serviceNode.wakuFilter.subscriptions
+      subscribeResponse.status == 200
+      subscribeResponse.data.statusDesc == "UNKNOWN"
+      restFilterTest.serviceNode.wakuFilter.subscriptions
         .findSubscribedPeers(DefaultPubsubTopic, DefaultContentTopic)
         .len() == 0
 
     # And the content topic is in the message cache, so a read answers with an empty list
-    let messages = await staticTest.client.filterGetMessagesV1(DefaultContentTopic)
+    let messages = await restFilterTest.client.filterGetMessagesV1(DefaultContentTopic)
 
     check:
       messages.status == 200
       messages.data.len() == 0
 
     # When it unsubscribes without a pubsubTopic
-    let staticUnsubResponse = await staticTest.client.filterDeleteSubscriptions(
+    let unsubscribeResponse = await restFilterTest.client.filterDeleteSubscriptions(
       FilterUnsubscribeRequest(
         requestId: "4321",
         contentFilters: @[DefaultContentTopic],
@@ -636,8 +649,8 @@ suite "Waku v2 Rest API - Filter V2":
     )
 
     check:
-      staticUnsubResponse.status == 200
-      staticUnsubResponse.data.statusDesc == "UNKNOWN"
+      unsubscribeResponse.status == 200
+      unsubscribeResponse.data.statusDesc == "UNKNOWN"
 
   asyncTest "Subscribe, update and unsubscribe with an invalid body - POST, PUT and DELETE /filter/v2/subscriptions":
     # Given a subscriber with a service peer, so only the body decides the response
@@ -679,9 +692,9 @@ suite "Waku v2 Rest API - Filter V2":
       },
     ]
 
-    # Then every endpoint reading it rejects the request
+    # Then both endpoints reading it reject the request
     for body in invalidBodies:
-      for meth in [MethodPost, MethodPut, MethodDelete]:
+      for meth in [MethodPost, MethodDelete]:
         let response = await issueRequest(
           restFilterTest.restServer.getAddress(ROUTE_FILTER_SUBSCRIPTIONS),
           meth,
@@ -695,6 +708,20 @@ suite "Waku v2 Rest API - Filter V2":
           data["statusDesc"].getStr().startsWith(
             "BAD_REQUEST: Failed to decode request"
           )
+
+    # And so does PUT, which shares the subscribe handler
+    let putResponse = await issueRequest(
+      restFilterTest.restServer.getAddress(ROUTE_FILTER_SUBSCRIPTIONS),
+      MethodPut,
+      jsonHeader,
+      invalidBodies[0],
+    )
+    let putData = parseJson(putResponse.data)
+
+    check:
+      putResponse.status == 400
+      putData["requestId"].getStr() == "unknown"
+      putData["statusDesc"].getStr().startsWith("BAD_REQUEST: Failed to decode request")
 
     # When the body does not decode into an unsubscribe-all request
     let invalidAllBodies =
@@ -757,7 +784,6 @@ suite "Waku v2 Rest API - Filter V2":
 
     await otherNode.mountFilterClient()
     let servicePeer = restFilterTest.serviceNode.peerInfo.toRemotePeerInfo()
-    otherNode.peerManager.addServicePeer(servicePeer, WakuFilterSubscribeCodec)
     (
       await otherNode.filterSubscribe(
         Opt.some(DefaultPubsubTopic), @[ContentTopic("3")], servicePeer

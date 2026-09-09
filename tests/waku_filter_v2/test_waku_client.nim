@@ -2266,7 +2266,7 @@ suite "Waku Filter - End to End":
           stoppedFilterClient = await newTestWakuFilterClient(stoppedClientSwitch)
         await stoppedClientSwitch.start()
         defer:
-          await stoppedFilterClient.stop()
+          await allFutures(stoppedFilterClient.stop(), stoppedClientSwitch.stop())
 
         let stoppedClientPeerId = stoppedClientSwitch.peerInfo.peerId
 
@@ -2598,6 +2598,9 @@ suite "Waku Filter - End to End":
       )
       assert subscribeResponse2nd.isOk(), $subscribeResponse2nd.error
       check server.wakuFilter.subscriptions.isSubscribed(clientPeerId2nd)
+
+      await server.wakuFilter.maintainSubscriptions()
+      check logos_delivery_filter_subscriptions.value() == 2
 
       pushHandlerFuture = newPushHandlerFuture() # Clear previous future
       pushHandlerFuture2nd = newPushHandlerFuture() # Clear previous future
