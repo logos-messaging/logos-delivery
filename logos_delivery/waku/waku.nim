@@ -43,8 +43,11 @@ import
     rest_api/endpoint/builder as rest_server_builder,
     discovery/waku_dnsdisc,
     discovery/waku_discv5,
+    discovery/discv5_peer_discovery,
     discovery/autonat_service,
     requests/health_requests,
+    requests/node_state_requests,
+    api/events/node_lifecycle_events,
     factory/node_factory,
     factory/internal_config,
     factory/app_callbacks,
@@ -75,6 +78,9 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   key: crypto.PrivateKey
 
   wakuDiscv5*: WakuDiscoveryV5
+    ## Set by discv5Discovery on start; kept for direct consumers
+    ## (REST builder, ENR/address updates, FFI ops).
+  discv5Discovery*: Discv5PeerDiscovery
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
@@ -237,6 +243,31 @@ proc new*(
 
   waku.node.setupSwitchServices(wakuConf, relay, rng)
 
+  if wakuConf.discv5Conf.isSome():
+    waku.discv5Discovery = Discv5PeerDiscovery.create(
+      wakuConf.discv5Conf.get(), wakuConf.endpointConf.p2pListenAddress, rng
+    )
+    node.attachDiscovery(waku.discv5Discovery)
+
+  ## Node-state getters for loosely-coupled components (discovery backends).
+  ## reprovideIt so a recreated Waku instance replaces stale providers.
+  discard GetNodeSwitch.reprovideIt(waku.brokerCtx):
+    ok(waku.node.switch)
+  discard GetNodePeerManager.reprovideIt(waku.brokerCtx):
+    ok(waku.node.peerManager)
+  discard GetNodeEnr.reprovideIt(waku.brokerCtx):
+    ok(waku.node.enr)
+  discard GetNodeKey.reprovideIt(waku.brokerCtx):
+    ok(waku.key)
+  discard GetDynamicBootstrapNodes.reprovideIt(waku.brokerCtx):
+    ok(waku.dynamicBootstrapNodes)
+  discard GetTopicSubscriptionQueue.reprovideIt(waku.brokerCtx):
+    ok(waku.node.topicSubscriptionQueue)
+
+  NodeLifecycleEvent.emit(
+    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Initialized)
+  )
+
   ok(waku)
 
 proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.} =
@@ -371,6 +402,10 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     debug "start: waku node already started"
     return ok()
 
+  NodeLifecycleEvent.emit(
+    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Starting)
+  )
+
   info "Retrieve dynamic bootstrap nodes"
   let conf = waku.conf
 
@@ -418,23 +453,20 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   waku.node.ports.quic = bound.quicPort.get(Port(0)).uint16
 
   ## Discv5
-  if conf.discv5Conf.isSome():
-    waku.wakuDiscV5 = (
-      await waku_discv5.setupAndStartDiscv5(
-        waku.node.enr,
-        waku.node.peerManager,
-        waku.node.topicSubscriptionQueue,
-        conf.discv5Conf.get(),
-        waku.dynamicBootstrapNodes,
-        waku.rng,
-        conf.nodeKey,
-        conf.endpointConf.p2pListenAddress,
-      )
-    ).valueOr:
+  if not waku.discv5Discovery.isNil():
+    ## Normally already started by node.start() through the attached
+    ## discovery backends; startDiscovery is idempotent and surfaces a
+    ## start failure that the node start path only logged.
+    (await waku.discv5Discovery.startDiscovery()).isOkOr:
       return err("failed to start waku discovery v5: " & error)
 
-    waku.node.ports.discv5Udp = waku.wakuDiscV5.udpPort.uint16
-    waku.conf.discv5Conf.get().udpPort = waku.wakuDiscV5.udpPort
+    waku.wakuDiscv5 = waku.discv5Discovery.inner
+
+    let discoveryInfo = (await waku.discv5Discovery.backendInfo()).valueOr:
+      return err("failed to read discv5 backend info: " & error)
+    if discoveryInfo.boundPorts.len > 0:
+      waku.node.ports.discv5Udp = discoveryInfo.boundPorts[0]
+      waku.conf.discv5Conf.get().udpPort = Port(discoveryInfo.boundPorts[0])
 
   ## Set the callback before the explicit refresh in updateWaku,
   ## so a commit in between reaches the ENR.
@@ -529,12 +561,20 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       )
   waku.healthMonitor.setOverallHealth(HealthStatus.READY)
 
+  NodeLifecycleEvent.emit(
+    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Started)
+  )
+
   startSucceeded = true
   return ok()
 
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if not waku.node.started:
     debug "stop: attempting to stop node that isn't running"
+
+  NodeLifecycleEvent.emit(
+    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Stopping)
+  )
 
   try:
     waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
@@ -544,8 +584,7 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     if not waku.metricsServer.isNil():
       await waku.metricsServer.stop()
 
-    if not waku.wakuDiscv5.isNil():
-      await waku.wakuDiscv5.stop()
+    # discv5 (as attached IPeerDiscovery backend) is stopped by node.stop()
 
     if not waku.node.isNil():
       await waku.node.stop()
@@ -566,6 +605,10 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   except Exception:
     error "Waku stop failed", error = getCurrentExceptionMsg()
     return err("waku stop failed: " & getCurrentExceptionMsg())
+
+  NodeLifecycleEvent.emit(
+    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Stopped)
+  )
 
   return ok()
 
