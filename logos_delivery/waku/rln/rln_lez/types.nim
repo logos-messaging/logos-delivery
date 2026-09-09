@@ -1,19 +1,20 @@
 {.push raises: [].}
 
+## Client-facing data types of the RLN Module API. Flat and serializable on
+## purpose: no chain dependencies, no FFI types, so the module can be consumed
+## over any topology (direct Nim import or a C-ABI module boundary).
+
 import std/options
 import results
 
 export options, results
 
-## Client-facing data types of the RLN Module API, mirroring the RLN-API spec
-## (logos-lips `docs/anoncomms/raw/rln-api.md`). Flat and serializable on
-## purpose: no chain dependencies, no FFI types, so the module can be consumed
-## over any topology (direct Nim import or a C-ABI module boundary).
-
 const
   RlnIdentifierSize* = 32
   RlnFieldElementSize* = 32
-  RlnProofSize* = 128
+  RlnProofSize* = 289
+    ## Canonical zerokit proof serialization: 128-byte compressed Groth16
+    ## proof, one mode tag byte (0x00), then 160 bytes of LE public values.
 
 type
   RegistryId* = string
@@ -62,13 +63,16 @@ type
 
   EpochQuota* = object
     ## One consistent snapshot of the current epoch budget.
-    ## `rateLimit == 0` means no usable membership for the scope, never a
-    ## spent budget — disambiguate via `getMembershipState`.
+    ## `rateLimit == 0` means no usable membership for the scope, not a
+    ## spent budget
     epochIndex*: uint64
     rateLimit*: uint64
     remaining*: uint64
 
   RateLimitProof* = object
+    ## `proof` is the authoritative canonical serialization; the remaining
+    ## fields are the decoded public-value view, which the Module recomputes
+    ## from `proof` on verification.
     proof*: array[RlnProofSize, byte]
     root*: array[RlnFieldElementSize, byte]
     epoch*: array[RlnFieldElementSize, byte]
@@ -99,6 +103,8 @@ type
     kind*: RlnErrorKind
     message*: string
 
+  RlnApiResult*[T] = Result[T, RlnError]
+
 func init*(
     T: type MembershipScope, registryId: RegistryId, rlnIdentifier: RlnIdentifier
 ): T =
@@ -118,6 +124,10 @@ func budgetExhausted*(T: type RlnError, message = ""): T =
 
 func permanent*(T: type RlnError, message = ""): T =
   RlnError(kind: RlnErrorKind.Permanent, message: message)
+
+func isUsable*(status: MembershipStatus): bool =
+  ## A membership the node can currently generate proofs against.
+  status in {MembershipStatus.Active, MembershipStatus.GracePeriod}
 
 func `$`*(e: RlnError): string =
   $e.kind & ": " & e.message

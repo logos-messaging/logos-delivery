@@ -12,6 +12,7 @@ import
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
   logos_delivery/api/conf/logos_delivery_conf_json,
+  logos_delivery/waku/rln/rln_lez/transport,
   ../declare_lib,
   ../json_event
 
@@ -196,6 +197,10 @@ proc logosdelivery_create_node(
     await lib.teardownFFIEventScope()
     return err(error)
 
+  registerRlnModuleProviders(lib.waku.brokerCtx, rlnPluginRegistered()).isOkOr:
+    await lib.teardownFFIEventScope()
+    return err(error)
+
   return ok(lib)
 
 proc logosdelivery_start_node(
@@ -205,6 +210,7 @@ proc logosdelivery_start_node(
     let errMsg = $error
     chronicles.error "START_NODE failed", err = errMsg
     return err("failed to start: " & errMsg)
+
   return ok("")
 
 proc stopNode(self: LogosDelivery): Future[Result[void, string]] {.async.} =

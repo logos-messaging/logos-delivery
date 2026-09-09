@@ -6,6 +6,7 @@ import
   nimcrypto/utils,
   std/[net, random, sequtils],
   results,
+  stew/byteutils,
   testutils/unittests
 import
   logos_delivery/waku/factory/waku_conf,
@@ -61,15 +62,15 @@ suite "Waku Conf - build with cluster conf":
     check conf.discv5Conf.get().bootstrapNodes == networkPresetConf.discv5BootstrapNodes
 
     if networkPresetConf.rlnRelay:
-      assert conf.rlnRelayConf.isSome(), "RLN Relay conf is disabled"
+      assert conf.rlnEvmConf.isSome(), "RLN Relay conf is disabled"
 
-      let rlnRelayConf = conf.rlnRelayConf.get()
-      check rlnRelayConf.ethContractAddress.string ==
+      let rlnEvmConf = conf.rlnEvmConf.get()
+      check rlnEvmConf.ethContractAddress.string ==
         networkPresetConf.rlnRelayEthContractAddress
-      check rlnRelayConf.dynamic == networkPresetConf.rlnRelayDynamic
-      check rlnRelayConf.chainId == networkPresetConf.rlnRelayChainId
-      check rlnRelayConf.epochSizeSec == networkPresetConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == userMessageLimit.uint
+      check rlnEvmConf.dynamic == networkPresetConf.rlnRelayDynamic
+      check rlnEvmConf.chainId == networkPresetConf.rlnRelayChainId
+      check rlnEvmConf.epochSizeSec == networkPresetConf.rlnEpochSizeSec
+      check rlnEvmConf.userMessageLimit == userMessageLimit.uint
 
   test "Cluster Conf is passed, but relay is disabled":
     ## Setup
@@ -102,7 +103,7 @@ suite "Waku Conf - build with cluster conf":
       uint64(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
     check conf.discv5Conf.get().bootstrapNodes == networkPresetConf.discv5BootstrapNodes
 
-    assert conf.rlnRelayConf.isNone
+    assert conf.rlnEvmConf.isNone
 
   test "Cluster Conf is passed, but rln relay is disabled":
     ## Setup
@@ -133,7 +134,7 @@ suite "Waku Conf - build with cluster conf":
     check conf.maxMessageSizeBytes ==
       uint64(parseCorrectMsgSize(networkPresetConf.maxMessageSize))
     check conf.discv5Conf.get().bootstrapNodes == networkPresetConf.discv5BootstrapNodes
-    assert conf.rlnRelayConf.isNone
+    assert conf.rlnEvmConf.isNone
 
   test "Cluster Conf is passed and valid shards are specified":
     ## Setup

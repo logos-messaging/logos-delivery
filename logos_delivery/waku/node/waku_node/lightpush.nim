@@ -267,11 +267,8 @@ proc lightpushPublishHandler(
 
         return await node.publishOverMix(conn, pubsubTopic, message)
       else:
-        # The caller asked for mix, so this proc does not publish in clear text.
-        return lighpushErrorResult(
-          LightPushErrorCode.SERVICE_NOT_AVAILABLE,
-          "Waku lightpush with mix not available: built without libp2p_mix_experimental_exit_is_dest",
-        )
+        # Fail the build here, not every mixed send at runtime
+        {.error: "mix sends need -d:libp2p_mix_experimental_exit_is_dest".}
     else:
       return
         await node.wakuLightpushClient.publish(Opt.some(pubsubTopic), message, peer)

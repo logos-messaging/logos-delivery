@@ -2,49 +2,30 @@
 
 import chronos
 
-import ./types
+import ./rln_lez/types
 
 export chronos, types
 
-## Client-facing surface of the RLN Module API.
-## Registry providers, credential generation and storage, proof crypto, the
-## Merkle/root machinery and the nullifier log all live behind this boundary.
+## Client-facing surface of the RLN Module API. All types carried here
+## (`RlnError`, `MembershipScope`, `MembershipState`, …) are the spec's own
+## vocabulary — logos-lips `docs/anoncomms/raw/rln-api.md` — mirrored in
+## `./rln_lez/types`, not defined by this repo.
 ##
-## Contract every implementation is held to:
-## - failures are reported through the `Result`; the returned Future MUST NOT
-##   fail except with `CancelledError` — implementations use
-##   `{.async: (raises: [CancelledError]).}`
-## - any call made before the implementation can serve fails with `NotReady`
-##   (there is no separate readiness probe)
-## - an unsupported optional extension fails with `Permanent`
-## - the epoch is derived from the consumer-supplied `timestamp` (Unix
-##   seconds, `epoch_index = timestamp / epoch_size`); the implementation
-##   owns message-id allocation in `generateProof` and the double-signalling
-##   verdict in `validateProof`; `proof.epoch` must equal the epoch derived
-##   from `timestamp`
+## The surface is implementation-agnostic: no membership, registry or epoch
+## size appears in it. Starting, configuring and registering the backend belong
+## to whoever installs it.
+##
+## Implementation contract:
+## - calls made before the implementation can serve fail with `NotReady`;
+##   unsupported optional extensions fail with `Permanent`
 ## - only `validateProof` writes the nullifier log
-## - `register` generates the identity credential internally and is
-##   idempotent for the scope's registry while its membership is
-##   `Pending`/`Active`/`GracePeriod`; it returns `Pending` on submission —
-##   confirmation is observed via `getMembershipState`
 
 type RlnInterface* = concept m
-  start(m) is Future[Result[void, RlnError]]
-  stop(m) is Future[Result[void, RlnError]]
-  register(m, scope = MembershipScope, options = RegistryOptions) is
-    Future[Result[MembershipState, RlnError]]
-  getMembershipState(m, scope = MembershipScope) is
-    Future[Result[MembershipState, RlnError]]
-  getEpochQuota(m, scope = MembershipScope, timestamp = uint64) is
-    Future[Result[EpochQuota, RlnError]]
-  generateProof(m, scope = MembershipScope, signal = seq[byte], timestamp = uint64) is
+  getMembershipState(m) is Future[Result[MembershipState, RlnError]]
+  getEpochQuota(m, timestamp = uint64) is Future[Result[EpochQuota, RlnError]]
+  generateProof(m, signal = seq[byte], timestamp = uint64) is
     Future[Result[RateLimitProof, RlnError]]
-  validateProof(
-    m,
-    scope = MembershipScope,
-    signal = seq[byte],
-    timestamp = uint64,
-    proof = RateLimitProof,
-  ) is Future[Result[ValidationResult, RlnError]]
+  validateProof(m, signal = seq[byte], timestamp = uint64, proof = RateLimitProof) is
+    Future[Result[ValidationResult, RlnError]]
 
 {.pop.}

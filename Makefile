@@ -198,6 +198,15 @@ NIM_PARAMS := $(NIM_PARAMS) -d:heaptracker
 endif
 endif
 
+# TODO: native builds are unsupported until nim-leopard builds Leopard-RS through
+# Nim; its cmake step ignores Nim's flags and the native .so does not link.
+# CPU baseline. The default is the portable build (see config.nims).
+#
+# MARCH_NATIVE ?= 0
+# ifeq ($(MARCH_NATIVE), 1)
+# NIM_PARAMS := $(NIM_PARAMS) -d:marchNative
+# endif
+
 # Debug/Release mode
 ifeq ($(DEBUG), 0)
 NIM_PARAMS := $(NIM_PARAMS) -d:release -d:lto_incremental -d:strip
@@ -205,13 +214,8 @@ else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif
 
+# Build flags only. Feature defines live in config.nims.
 NIM_PARAMS := $(NIM_PARAMS) -d:disable_libbacktrace
-
-# enable experimental exit is dest feature in libp2p mix
-NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_mix_experimental_exit_is_dest
-
-# enable libp2p's QUIC transport
-NIM_PARAMS := $(NIM_PARAMS) -d:libp2p_quic_support
 
 ifeq ($(POSTGRES), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:postgres -d:nimDebugDlOpen
