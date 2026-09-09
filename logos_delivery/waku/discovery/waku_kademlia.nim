@@ -244,13 +244,31 @@ proc start*(self: WakuKademlia) {.async: (raises: []).} =
 
   info "Kademlia discovery started"
 
+const LoopStopGrace = chronos.seconds(5)
+
+proc stopLoop(loop: Future[void], name: string) {.async: (raises: []).} =
+  ## Bounded on purpose: a cancelled nim-libp2p lookup waits out its
+  ## in-flight requests under `noCancel`, and a request to a peer that is
+  ## going away with us can outlast the whole shutdown. The bound sits on an
+  ## independent `join`: `withTimeout` cancels what it wraps and waits for
+  ## that cancellation to finish, so wrapping the loop itself would block on
+  ## the same `noCancel` section.
+  loop.cancelSoon()
+  let stopped =
+    try:
+      await loop.join().withTimeout(LoopStopGrace)
+    except CancelledError:
+      false
+  if not stopped:
+    warn "kademlia lookup loop did not stop in time, leaving it behind", loop = name
+
 proc stop*(self: WakuKademlia) {.async: (raises: []).} =
   if not self.serviceLookupLoop.isNil():
-    await self.serviceLookupLoop.cancelAndWait()
+    await stopLoop(self.serviceLookupLoop, "service lookup")
     self.serviceLookupLoop = nil
 
   if not self.randomLookupLoop.isNil():
-    await self.randomLookupLoop.cancelAndWait()
+    await stopLoop(self.randomLookupLoop, "random lookup")
     self.randomLookupLoop = nil
 
   info "Kademlia discovery stopped"
