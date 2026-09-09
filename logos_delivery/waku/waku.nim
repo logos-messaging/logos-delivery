@@ -275,6 +275,18 @@ proc new*(
     ok(waku.node.switch.peerInfo)
   discard GetDynamicBootstrapNodes.reprovideIt(waku.brokerCtx):
     ok(waku.dynamicBootstrapNodes)
+  discard GetDiscoveryRequirements.reprovideIt(waku.brokerCtx):
+    let ext = wakuConf.externalDiscoveryConf
+    ok(
+      DiscoveryRequirements(
+        externalServiceDiscovery: ext.isSome(),
+        bootstrapNodes:
+          if ext.isSome():
+            ext.get().bootstrapNodes
+          else:
+            @[],
+      )
+    )
 
   NodeLifecycleEvent.emit(
     waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Initialized)
