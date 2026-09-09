@@ -221,7 +221,7 @@ proc rlnPluginRegistered*(): bool =
   ## Whether the host has installed an RLN plugin. This is what enables RLN
   ## over it: there is no separate configuration switch.
   withLock gLock:
-    result = gRegistered
+    return gRegistered
 
 proc logosdelivery_rln_response*(
     reqId: uint64, resultJson: cstring

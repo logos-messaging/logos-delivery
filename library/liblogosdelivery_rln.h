@@ -6,11 +6,14 @@
 extern "C" {
 #endif
 
-/* One typed callback per RLN operation the node performs. Each dispatches and
-   returns immediately; the plugin replies to logosdelivery later via logosdelivery_rln_response
-   with the same req_id. Scalar args are passed directly; complex args (proof)
-   and every result are JSON strings. All strings are borrowed for the duration
-   of the call — copy before returning.
+/* "Host" below is the application embedding this library over its C ABI and
+   installing the plugin — logos-delivery-module in a Logos Core deployment.
+
+   One typed callback per RLN operation the node performs. Each dispatches and
+   returns immediately; the plugin replies to logosdelivery later via
+   logosdelivery_rln_response with the same req_id. Scalar args are passed
+   directly; complex args (proof) and every result are JSON strings. All strings
+   are borrowed for the duration of the call — copy before returning.
 
    The plugin is implementation-agnostic: the library never names a membership,
    a registry or an epoch size, and never starts or configures the backend. The
