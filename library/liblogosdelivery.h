@@ -63,25 +63,24 @@ extern "C"
                                           uint64_t listenerId);
 
   // ---------------------------------------------------------------------
-  // Per-channel encryption. No cipher registered means plaintext; a
-  // registered one is used for every send, repair and receive on that
-  // channel, and its failure fails the message -- never plaintext.
+  // Per-channel encryption. A channel created without a cipher sends and
+  // receives plaintext; one created with a cipher always uses it, and its
+  // failure fails the message -- never plaintext. SDS repairs replay
+  // already-encrypted bytes and do not re-enter it.
   //
-  // Register with logosdelivery_channel_set_encryption before
-  // logosdelivery_channel_create -- a channel is live as soon as it exists
-  // and earlier messages are dropped -- or later to rotate a key.
-  // Registration survives channel close; free `user_data` only after
-  // logosdelivery_destroy, the only call that drains in-flight sends. Pass
-  // both function pointers and `user_data` as uint64_t, e.g.
-  // (uint64_t)(uintptr_t)my_encrypt, in the fields of
-  // LogosdeliveryChannelSetEncryptionReq (see generated/logosdelivery.h).
+  // Supplied to logosdelivery_channel_create and fixed for the channel's
+  // life; leave all three fields zero for an unencrypted channel. Pass both
+  // function pointers and `user_data` as uint64_t, e.g.
+  // (uint64_t)(uintptr_t)my_encrypt, in LogosdeliveryChannelCreateReq (see
+  // generated/logosdelivery.h). Free `user_data` only after
+  // logosdelivery_destroy, the only call that drains in-flight sends.
   //
   // The cipher itself is bytes in, bytes out: transform `in` (NULL when
   // in_len is 0), point `out`/`out_len` at the result, return 0; non-zero
   // fails the message. `out` is copied on return but must outlive the call,
   // so use a static or user_data-owned buffer, never a stack local.
-  // `user_data` is what you registered for this channel, and is how one
-  // cipher finds this channel's key.
+  // `user_data` is what you passed at create, and is how one cipher finds
+  // this channel's key.
   //
   // Runs inline on the event loop: be fast, do no I/O, call no
   // logosdelivery_* function. Invoked once per segment, and decrypt sees

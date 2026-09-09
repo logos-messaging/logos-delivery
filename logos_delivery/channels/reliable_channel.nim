@@ -94,8 +94,7 @@ type
       ## returning, and an app cipher may suspend, so without this two
       ## concurrent arrivals could interleave and lose the causal order
       ## SDS exists to provide.
-    encryption: ChannelEncryptionRegistry
-      ## A cipher can be registered before the channel exists, and outlives its close.
+    crypto: Opt[ChannelCrypto] ## `none` means the channel is not encrypted
     receivedListener: MessageReceivedEventListener
     sentListener: MessageSentEventListener
     errorListener: MessageErrorEventListener
@@ -205,12 +204,6 @@ proc markSegmentInflight(
     error "unreachable: channelReqId not found in markSegmentInflight",
       channelReqId = $channelReqId, error = e.msg
 
-func channelCrypto(self: ReliableChannel): Opt[ChannelCrypto] =
-  ## Resolve once per message, never per segment: re-reading the registry
-  ## mid-send would let a concurrent `clearChannelEncryption` push the
-  ## remaining segments out in the clear.
-  self.encryption.getChannelCrypto(self.channelId)
-
 proc send*(
     self: ReliableChannel, payload: seq[byte], ephemeral: bool = false
 ): Future[Result[RequestId, string]] {.async: (raises: []).} =
@@ -237,7 +230,7 @@ proc send*(
   ## registers a segment in SDS's outgoing buffer and causal history, so a
   ## half-wrapped send would leave orphans there that SDS retransmits on its
   ## own. Each ciphertext becomes one SDS `content` field.
-  let cipher = self.channelCrypto()
+  let cipher = self.crypto
   let encryptedSegments =
     if cipher.isNone():
       segments ## not encrypted: the segments go out as they are
@@ -247,9 +240,6 @@ proc send*(
 
   var sdsSegments: seq[seq[byte]]
   for encrypted in encryptedSegments:
-    if self.closed:
-      return err("channel closed mid-send")
-
     ## Segments arrive already encoded; the segmentation module owns
     ## the wire format so SDS only ever sees opaque bytes.
     let sdsBytes = (await self.sdsHandler.wrapOutgoing(encrypted)).valueOr:
@@ -321,12 +311,9 @@ proc reportReceived(self: ReliableChannel, deliverable: SdsDeliverable) =
   )
 
 proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []).} =
-  ## SDS-driven repair rebroadcast. Pacing is done by SDS itself.
-  ## No encryption step: `wire` is a re-serialized SDS message whose
-  ## `content` was encrypted before the wrap, so replaying it verbatim
-  ## cannot leak plaintext even if the cipher has since been cleared.
-  ##
-  ## Ephemeral: the original message is already store-persisted.
+  ## SDS-driven repair rebroadcast; SDS paces it. No cipher here: `wire` is
+  ## already sealed, and encrypting it again would scramble the SDS envelope
+  ## itself. Ephemeral because the original is already store-persisted.
   let envelope = MessageEnvelope(
     contentTopic: self.contentTopic,
     payload: wire,
@@ -337,13 +324,6 @@ proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []
   (await MessagingSend.request(self.brokerCtx, envelope)).isOkOr:
     debug "SDS repair rebroadcast dropped: dispatch failed",
       channelId = self.channelId, error = error
-
-proc dispatchRepairForTest*(
-    self: ReliableChannel, wire: seq[byte]
-): Future[void] {.async: (raises: []), used.} =
-  ## SDS drives `dispatchRepair` from its own loop; tests reach it directly
-  ## to check that a repair replays the wire verbatim.
-  await self.dispatchRepair(wire)
 
 proc deliverInOrder(
     self: ReliableChannel, deliverables: seq[SdsDeliverable], messageHash: string
@@ -361,7 +341,7 @@ proc deliverInOrder(
     return
 
   var ready: seq[SdsDeliverable]
-  let crypto = self.channelCrypto()
+  let crypto = self.crypto
   if crypto.isNone():
     ## Not encrypted: the SDS content is already plaintext.
     ready = deliverables
@@ -442,13 +422,12 @@ proc new*(
     segConfig: ChannelSegmentationConfig,
     sdsConfig: SdsConfig,
     brokerCtx: BrokerContext = globalBrokerContext(),
-    encryption: ChannelEncryptionRegistry = nil,
+    encryption: Opt[ChannelCrypto] = Opt.none(ChannelCrypto),
 ): Result[T, string] =
   ## Pipeline handlers (segmentation/SDS) are constructed inside the
   ## channel rather than handed in by the caller — they are implementation
   ## details of the channel, not knobs the API consumer should be wiring
-  ## up. `encryption` is the manager's registry, shared by reference; `nil`
-  ## means plaintext.
+  ## up. `encryption` is fixed for the channel's life; `none` means plaintext.
   ##
   ## Segmentation is built first: it validates `segConfig`, and failing here
   ## leaves no started loop or installed listener behind.
@@ -465,7 +444,7 @@ proc new*(
     channelReqs: initTable[RequestId, ChannelReqState](),
     brokerCtx: brokerCtx,
     ingressLock: newAsyncLock(),
-    encryption: encryption,
+    crypto: encryption,
   )
 
   ## SDS-R repair rebroadcasts go straight to the dispatch tail.

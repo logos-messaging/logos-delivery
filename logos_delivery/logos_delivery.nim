@@ -53,8 +53,6 @@ import logos_delivery/channels/api/channel_lifecycle
 export channel_lifecycle
 import logos_delivery/channels/api/send as channel_send
 export channel_send
-import logos_delivery/channels/api/encryption as channel_encryption_api
-export channel_encryption_api
 import logos_delivery/api/events/reliable_channel_manager_events
 export reliable_channel_manager_events
 

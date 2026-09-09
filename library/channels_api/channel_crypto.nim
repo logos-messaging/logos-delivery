@@ -38,36 +38,49 @@ proc toChannelCryptoFn*(
   let fn = cast[LogosDeliveryCryptoFn](cast[uint](fnHandle))
   let ctx = cast[pointer](cast[uint](userData))
 
-  return ok(
-    proc(
-        payload: seq[byte]
-    ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
-      let input =
-        if payload.len == 0:
-          nil
-        else:
-          cast[ptr byte](unsafeAddr payload[0])
+  proc callCipher(
+      payload: seq[byte]
+  ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
+    let input =
+      if payload.len == 0:
+        nil
+      else:
+        cast[ptr byte](unsafeAddr payload[0])
 
-      var
-        output: ptr byte = nil
-        outputLen: csize_t = 0
+    var
+      output: ptr byte = nil
+      outputLen: csize_t = 0
 
-      let rc = fn(ctx, input, csize_t(payload.len), addr output, addr outputLen)
-      if rc != 0:
-        return err("channel crypto callback failed with code " & $rc)
+    let rc = fn(ctx, input, csize_t(payload.len), addr output, addr outputLen)
+    if rc != 0:
+      return err("channel crypto callback failed with code " & $rc)
 
-      let n = int(outputLen)
-      if n < 0:
-        return err("channel crypto callback returned an out-of-range length")
-      if n > 0 and output.isNil():
-        ## Copying from here would segfault, and treating it as empty would
-        ## put a zero-length payload on the wire.
-        return err("channel crypto callback returned a null buffer of non-zero length")
+    let n = int(outputLen)
+    if n < 0:
+      return err("channel crypto callback returned an out-of-range length")
+    if n > 0 and output.isNil():
+      ## Copying from here would segfault, and treating it as empty would
+      ## put a zero-length payload on the wire.
+      return err("channel crypto callback returned a null buffer of non-zero length")
+    if n == 0 and payload.len > 0:
+      return err("channel crypto callback returned nothing for a non-empty input")
 
-      var res = newSeq[byte](n)
-      if n > 0:
-        copyMem(addr res[0], output, n)
-      return ok(res)
-  )
+    var res = newSeq[byte](n)
+    if n > 0:
+      copyMem(addr res[0], output, n)
+    return ok(res)
+
+  return ok(callCipher)
+
+proc toChannelCrypto*(
+    encryptFn: uint64, decryptFn: uint64, userData: uint64
+): Result[Opt[ChannelCrypto], string] =
+  ## All three zero means the channel is not encrypted.
+  if encryptFn == 0 and decryptFn == 0 and userData == 0:
+    return ok(Opt.none(ChannelCrypto))
+
+  let encrypt = ?toChannelCryptoFn(encryptFn, userData)
+  let decrypt = ?toChannelCryptoFn(decryptFn, userData)
+  return ok(Opt.some(?ChannelCrypto.init(encrypt, decrypt)))
 
 {.pop.}

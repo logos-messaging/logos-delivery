@@ -243,13 +243,10 @@ suite "Reliable Channel - ingress":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    ## Gate decryption so the receive handler parks mid-pipeline. Registered
-    ## before the channel exists, which is also what an application does when
-    ## it wants the channel encrypted from its very first inbound message.
+    ## Gate decryption so the receive handler parks mid-pipeline.
     let decryptGate = newFuture[void]("decrypt-gate")
-    manager
-      .setChannelEncryption(
-        channelId,
+    let gatedCrypto = ChannelCrypto
+      .init(
         encrypt = proc(
             payload: seq[byte]
         ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
@@ -263,10 +260,12 @@ suite "Reliable Channel - ingress":
             return err(e.msg)
           return ok(payload),
       )
-      .expect("setChannelEncryption")
+      .expect("ChannelCrypto.init")
 
     discard manager
-      .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
+      .createReliableChannel(
+        channelId, contentTopic, SdsParticipantID("local"), Opt.some(gatedCrypto)
+      )
       .expect("createReliableChannel")
 
     var fired = false

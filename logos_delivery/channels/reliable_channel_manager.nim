@@ -19,7 +19,6 @@ import logos_delivery/api/messaging_client_api
 import logos_delivery/api/conf/channels_conf
 
 import ./reliable_channel
-import ./encryption/channel_encryption
 
 export reliable_channel, channels_conf
 
@@ -27,8 +26,6 @@ type ReliableChannelManager* = ref object ## Implements `ReliableChannelApi`.
   channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
   conf*: ReliableChannelManagerConf
   brokerCtx*: BrokerContext
-  encryption*: ChannelEncryptionRegistry
-    ## `channelId -> cipher`. Outlives individual channels on purpose.
 
 proc new*(
     T: type ReliableChannelManager,
@@ -45,7 +42,6 @@ proc new*(
       channels: initTable[ChannelId, ReliableChannel](),
       conf: conf,
       brokerCtx: brokerCtx,
-      encryption: ChannelEncryptionRegistry.new(),
     )
   )
 
@@ -67,9 +63,3 @@ proc stop*(self: ReliableChannelManager) {.async.} =
   for chn in self.channels.values:
     await chn.stop()
   self.channels.clear()
-  let registeredCiphers = self.encryption.len
-  self.encryption.clear()
-  if registeredCiphers > 0:
-    notice "channel encryption registrations dropped on manager stop; " &
-      "re-register before restarting, or channels resume in plaintext",
-      count = registeredCiphers
