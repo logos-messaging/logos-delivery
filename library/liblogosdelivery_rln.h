@@ -7,7 +7,7 @@ extern "C" {
 #endif
 
 /* One typed callback per RLN operation the node performs. Each dispatches and
-   returns immediately; the call completes later via logosdelivery_rln_response
+   returns immediately; the plugin replies to logosdelivery later via logosdelivery_rln_response
    with the same req_id. Scalar args are passed directly; complex args (proof)
    and every result are JSON strings. All strings are borrowed for the duration
    of the call — copy before returning.
