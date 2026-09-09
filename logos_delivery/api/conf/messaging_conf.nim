@@ -65,13 +65,7 @@ type MessagingClientConf* = object
     ## pragma or `parseCmdArg`, it is not reachable from the JSON config or a
     ## CLI flag.
   backfillEnabled* {.name: "backfill-enabled".}: Opt[bool]
-    ## Store catch-up of missed history (default true). Off keeps the saved records.
-  backfillMaxLookbackSeconds* {.name: "backfill-max-lookback-seconds".}: Opt[int64]
-    ## Oldest history a catch-up cycle queries, in seconds (default 86400).
-  backfillIntervalSeconds* {.name: "backfill-interval-seconds".}: Opt[int64]
-    ## Minimum spacing between catch-up cycles, in seconds (default 300).
-  backfillMaxPagesPerCycle* {.name: "backfill-max-pages-per-cycle".}: Opt[int]
-    ## Store queries per cycle, shared across topics (default 10, at most 1000).
+    ## Store catch-up of missed history after a start (default true).
   backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:
     Opt[int64] ## Deadline for one Store query, in seconds (default 10, at most 300).
 

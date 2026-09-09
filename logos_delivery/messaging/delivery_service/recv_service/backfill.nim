@@ -1,15 +1,14 @@
-## Store catch-up of missed messages across process restarts.
+## Store catch-up of missed messages after a stop.
 ##
-## Each cycle asks Store nodes for messages on the subscribed topics. It saves
-## a timestamp per topic on disk through Persistency. The next process resumes
-## retrieval from that timestamp after a restart.
-##
-## Each query starts at the saved timestamp, clipped to the configured lookback.
-## Returned messages go through the normal receive path. Then the cycle saves
-## its progress. A query budget limits the work in each cycle.
+## The node keeps one timestamp in Persistency, the last time it was online.
+## A catch-up queries every subscribed topic from that timestamp to now, one
+## page at a time, and delivers the pages through the normal receive path.
+## Delivery is at-least-once: a restart re-queries the overlap, and the
+## receive cache that drops duplicates starts empty. The Store node's own
+## retention bounds how far back a query reaches.
 {.push raises: [].}
 
-import std/sets, chronos, chronicles, results, libp2p/protobuf/minprotobuf
+import chronos, chronicles, results, libp2p/protobuf/minprotobuf
 import
   logos_delivery/waku/[waku_core, waku_store/common],
   logos_delivery/waku/common/paging,
@@ -23,9 +22,13 @@ const
   BackfillJobId* = "messaging-recv"
   BackfillCategory = "recv.backfill.v1"
   BackfillOverlap* = chronos.nanoseconds(MaxMessageTimestampVariance)
-    ## Tail of an exhausted range that the next cycle queries again. Equal to
-    ## the archive's late-timestamp window.
+    ## Queried again before the stored timestamp. Equal to the archive's
+    ## late-timestamp window.
   WriteConfirmTimeout = chronos.seconds(5)
+  MaxQueriesPerCatchUp* = 10_000
+    ## One catch-up asks no more than this, so a Store node that answers with
+    ## tiny steps forever cannot hold the worker. Topics are done in order and
+    ## finished ones are remembered, so the next catch-up carries on.
 
 type
   BackfillTopic* = tuple[pubsubTopic: PubsubTopic, contentTopic: ContentTopic]
@@ -37,109 +40,75 @@ type
     proc(pubsubTopic: PubsubTopic, message: WakuMessage): bool {.gcsafe, raises: [].}
     ## False means the caller refused the message, for example after an unsubscribe.
 
-  BackfillCycleOutcome* = object
+  BackfillOutcome* = object
     queries*: int
-    completed*: int ## topics with an exhausted range
+    completedTopics*: seq[BackfillTopic] ## topics with an exhausted range
     failed*: int ## queries that failed or returned an invalid page
-    storageFailed*: bool ## a storage operation failed. The caller suspends catch-up
 
-  TopicScan = object
-    topic: BackfillTopic
-    resumeAt: Timestamp
-    done: bool ## exhausted, failed, or at the cycle start. No more queries this cycle
+proc lastOnlineKey(): Key =
+  key("last-online")
 
-func newlySubscribed*(
-    previousTopics, currentTopics: openArray[BackfillTopic]
-): seq[BackfillTopic] =
-  ## Topics in `currentTopics` that are absent from `previousTopics`.
-  var seen: HashSet[BackfillTopic]
-  for topic in previousTopics:
-    seen.incl(topic)
-  var res: seq[BackfillTopic]
-  for topic in currentTopics:
-    if topic notin seen:
-      res.add(topic)
-  res
-
-proc topicKey(topic: BackfillTopic): Result[Key, string] =
-  if topic.pubsubTopic.len > StringLenMax or topic.contentTopic.len > StringLenMax:
-    return err("backfill topic exceeds persistency key limit")
-  ok(key(topic.pubsubTopic, topic.contentTopic))
-
-proc encodeResumeAt(resumeAt: Timestamp): seq[byte] =
+proc encodeTimestamp(at: Timestamp): seq[byte] =
   var pb = initProtoBuffer()
-  pb.write(1, uint64(resumeAt))
+  pb.write(1, uint64(at))
   pb.finish()
   pb.buffer
 
-proc decodeResumeAt(bytes: seq[byte]): Result[Timestamp, string] =
+proc decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
   let pb = initProtoBuffer(bytes)
   var raw: uint64
   let present = pb.getField(1, raw).valueOr:
-    return err("resume timestamp: " & $error)
+    return err("timestamp: " & $error)
   if not present or raw == 0 or raw > uint64(int64.high):
-    return err("resume timestamp is missing or out of range")
+    return err("timestamp is missing or out of range")
   ok(Timestamp(raw))
 
-proc readResumeAt*(
-    job: Job, topic: BackfillTopic
+proc readLastOnline*(
+    job: Job
 ): Future[Result[Opt[Timestamp], string]] {.async: (raises: [CancelledError]).} =
-  ## The stored timestamp, or none when the topic has no readable record.
-  ## An unreadable record logs a warning and counts as none.
+  ## The last time the node was online, or none when nothing is stored. An
+  ## unreadable record logs a warning and counts as none.
   if job.isNil() or not job.running:
     return err("backfill persistency job is closed")
-  let k = ?topicKey(topic)
   let stored =
     try:
-      (await job.get(BackfillCategory, k)).valueOr:
-        return err("read backfill record: " & $error)
+      (await job.get(BackfillCategory, lastOnlineKey())).valueOr:
+        return err("read last-online record: " & $error)
     except CancelledError as e:
       raise e
     except CatchableError as e:
-      return err("read backfill record: " & e.msg)
+      return err("read last-online record: " & e.msg)
   if stored.isNone():
     return ok(Opt.none(Timestamp))
-  let at = decodeResumeAt(stored.get()).valueOr:
-    warn "unreadable backfill record; catch-up for this topic restarts from the previous cycle",
-      pubsubTopic = topic.pubsubTopic, contentTopic = topic.contentTopic, error
+  let at = decodeTimestamp(stored.get()).valueOr:
+    warn "unreadable last-online record; catch-up starts from the service start", error
     return ok(Opt.none(Timestamp))
   return ok(Opt.some(at))
 
-proc writeResumeAt(
-    job: Job, topic: BackfillTopic, resumeAt: Timestamp
+proc writeLastOnline*(
+    job: Job, at: Timestamp
 ): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
-  ## Persists `resumeAt` and reads it back until the stored bytes match.
+  ## Persists `at` and reads it back until the stored bytes match.
   if job.isNil() or not job.running:
     return err("backfill persistency job is closed")
-  let k = ?topicKey(topic)
-  let payload = encodeResumeAt(resumeAt)
+  if at <= 0:
+    return err("invalid last-online timestamp")
+  let payload = encodeTimestamp(at)
   try:
-    await job.persistPut(BackfillCategory, k, payload)
+    await job.persistPut(BackfillCategory, lastOnlineKey(), payload)
     let deadline = Moment.now() + WriteConfirmTimeout
     while true:
-      let stored = (await job.get(BackfillCategory, k)).valueOr:
-        return err("read back backfill record: " & $error)
+      let stored = (await job.get(BackfillCategory, lastOnlineKey())).valueOr:
+        return err("read back last-online record: " & $error)
       if stored.isSome() and stored.get() == payload:
         return ok()
       if Moment.now() >= deadline:
-        return err("timed out persisting backfill record")
-      await sleepAsync(10.milliseconds)
+        return err("timed out persisting last-online record")
+      await sleepAsync(100.milliseconds)
   except CancelledError as e:
     raise e
   except CatchableError as e:
-    return err("persist backfill record: " & e.msg)
-
-proc seedTopic*(
-    job: Job, topic: BackfillTopic, resumeAt: Timestamp
-): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
-  ## Writes `resumeAt` if the topic has no record.
-  if resumeAt <= 0:
-    return err("invalid backfill seed")
-  let stored = (await job.readResumeAt(topic)).valueOr:
-    return err(error)
-  if stored.isSome():
-    return ok()
-  return await job.writeResumeAt(topic, resumeAt)
+    return err("persist last-online record: " & e.msg)
 
 proc queryPage(
     query: BackfillQuery, request: StoreQueryRequest, queryTimeout: Duration
@@ -179,104 +148,71 @@ proc acceptPage(
   for row in response.messages:
     if not deliver(topic.pubsubTopic, row.message.get()):
       return err("delivery declined; subscription removed or stopping")
-  if response.messages.len == 0:
-    if response.paginationCursor.isSome():
-      return err("store page is empty but claims more")
-    return ok(Opt.none(Timestamp))
   if response.paginationCursor.isNone():
-    return ok(Opt.none(Timestamp))
+    return ok(Opt.none(Timestamp)) # the range is exhausted
+  if response.messages.len == 0:
+    return err("store page is empty but claims more")
   if last == queryStart:
-    # The next query returns this page again.
-    return err("store page does not advance past " & $last)
+    # Every message in the page shares the query start, so the next query by
+    # time returns this same page. Step past that instant. Any message beyond
+    # this page at that instant is not fetched.
+    warn "backfill steps past a timestamp that fills a page",
+      pubsubTopic = topic.pubsubTopic,
+      contentTopic = topic.contentTopic,
+      timestamp = last
+    return ok(Opt.some(last + 1))
   ok(Opt.some(last))
 
-proc runCycle*(
-    job: Job,
+proc runCatchUp*(
     subscribedTopics: seq[BackfillTopic],
-    cycleStart: Timestamp,
-    fallbackStart: Timestamp,
-    firstTopicIndex: int,
-    maxLookback: Duration,
-    maxQueries: int,
+    since: Timestamp,
+    now: Timestamp,
     queryTimeout: Duration,
     query: BackfillQuery,
     deliver: BackfillDeliver,
-): Future[BackfillCycleOutcome] {.async: (raises: [CancelledError]).} =
-  ## Queries topics in turn, within the lookback and query budget.
-  ## Saves progress. Failed topics wait for the next cycle.
-  var outcome: BackfillCycleOutcome
-  if subscribedTopics.len == 0:
-    return outcome
-  var scans: seq[TopicScan]
-  for i in 0 ..< subscribedTopics.len:
-    let topic = subscribedTopics[(firstTopicIndex + i) mod subscribedTopics.len]
-    if topicKey(topic).isErr():
-      debug "backfill skips a topic whose name exceeds the persistency key limit",
-        pubsubTopicLength = topic.pubsubTopic.len,
-        contentTopicLength = topic.contentTopic.len
-      continue
-    let stored = (await job.readResumeAt(topic)).valueOr:
-      debug "backfill record read failed; cycle stopped",
-        pubsubTopic = topic.pubsubTopic, contentTopic = topic.contentTopic, error
-      outcome.storageFailed = true
-      return outcome
-    if stored.isNone():
-      (await job.writeResumeAt(topic, fallbackStart)).isOkOr:
-        outcome.storageFailed = true
-        return outcome
-    scans.add(TopicScan(topic: topic, resumeAt: stored.get(fallbackStart)))
-  var remaining = maxQueries
-  var progressed = true
-  while remaining > 0 and progressed:
-    progressed = false
-    for i in 0 ..< scans.len:
-      if remaining <= 0:
+): Future[BackfillOutcome] {.async: (raises: [CancelledError]).} =
+  ## Queries the topics in order over `[since, now)`, page by page, until each
+  ## one is exhausted or fails. The catch-up stops at `MaxQueriesPerCatchUp`;
+  ## the caller keeps the completed topics and asks again later.
+  var outcome: BackfillOutcome
+  for topic in subscribedTopics:
+    var start = since
+    var completed = false
+    while outcome.queries < MaxQueriesPerCatchUp:
+      if start >= now:
+        completed = true
         break
-      if scans[i].done:
-        continue
-      let topic = scans[i].topic
-      let queryStart = max(scans[i].resumeAt, cycleStart - maxLookback.nanos)
-      if queryStart >= cycleStart:
-        scans[i].done = true
-        continue
-      dec remaining
       inc outcome.queries
-      progressed = true
       let request = StoreQueryRequest(
         includeData: true,
         pubsubTopic: Opt.some(topic.pubsubTopic),
         contentTopics: @[topic.contentTopic],
-        startTime: Opt.some(queryStart),
-        endTime: Opt.some(cycleStart - 1), # inclusive on the wire
+        startTime: Opt.some(start),
+        endTime: Opt.some(now - 1), # inclusive on the wire
         paginationForward: PagingDirection.FORWARD,
         paginationLimit: Opt.some(MaxPageSize),
       )
       let response = await queryPage(query, request, queryTimeout)
       let accepted =
         if response.isOk():
-          acceptPage(topic, queryStart, cycleStart, response.get(), deliver)
+          acceptPage(topic, start, now, response.get(), deliver)
         else:
           Result[Opt[Timestamp], string].err(response.error)
       let next = accepted.valueOr:
-        debug "backfill query failed; topic rests until the next cycle",
+        debug "backfill query failed; topic rests until the next catch-up",
           pubsubTopic = topic.pubsubTopic, contentTopic = topic.contentTopic, error
         inc outcome.failed
-        scans[i].done = true
-        continue
-      let resumeAt =
-        if next.isSome():
-          next.get()
-        else:
-          max(scans[i].resumeAt, cycleStart - BackfillOverlap.nanos)
-      (await job.writeResumeAt(topic, resumeAt)).isOkOr:
-        debug "backfill record write not confirmed; cycle stopped",
-          pubsubTopic = topic.pubsubTopic, contentTopic = topic.contentTopic, error
-        outcome.storageFailed = true
-        return outcome
-      scans[i].resumeAt = resumeAt
+        break
       if next.isNone():
-        scans[i].done = true
-        inc outcome.completed
+        completed = true
+        break
+      start = next.get()
+    if completed:
+      outcome.completedTopics.add(topic)
+    elif outcome.queries >= MaxQueriesPerCatchUp:
+      debug "backfill reached its query limit; the rest waits for the next catch-up",
+        queries = outcome.queries
+      break
   return outcome
 
 {.pop.}

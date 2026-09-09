@@ -1,67 +1,66 @@
 ## This module is in charge of taking care of the messages that this node is expecting to
 ## receive and is backed by store-v3 requests to get an additional degree of certainty
 ##
-## Relay and filter deliver live messages. Store catch-up runs in budgeted
-## cycles at the configured cadence. Each cycle resumes every subscribed topic
-## from the timestamp that `backfill.nim` keeps in Persistency.
+## Relay and filter deliver live messages. Store catch-up runs once after a
+## start, when the node has a Store peer. It queries every subscribed topic
+## from the last time the node was online, which `backfill.nim` keeps in
+## Persistency. While the node is online and every topic is caught up, the
+## service advances that timestamp.
 
 import
-  std/[sequtils, sets, algorithm], results, chronos, chronicles, brokers/broker_context
+  std/[sequtils, sets, tables, algorithm],
+  results,
+  chronos,
+  chronicles,
+  brokers/broker_context
 import
   ./backfill,
   logos_delivery/api/conf/messaging_conf,
   logos_delivery/waku/persistency/persistency,
   logos_delivery/waku/[waku_core, waku_core/topics, waku_store/common],
   logos_delivery/waku/waku,
-  logos_delivery/waku/api/[store, subscriptions],
-  logos_delivery/api/events/kernel_events,
-    # MessageSeenEvent + EventConnectionStatusChange
+  logos_delivery/waku/api/[peer_manager, store, subscriptions],
+  logos_delivery/api/events/kernel_events, # MessageSeenEvent
   logos_delivery/api/events/messaging_client_events # MessageReceivedEvent
 
 const MaxMessageLife = chronos.minutes(7) ## Max time we will keep track of rx messages
 
 const MaintenancePeriod = chronos.seconds(1)
-  ## Cadence of cache pruning and of the check for a due cycle.
+  ## Cadence of cache pruning and of the catch-up and timestamp checks.
+
+const LastOnlinePeriod* = chronos.seconds(10)
+  ## How often the service writes the last-online timestamp while online.
+
+const CatchUpRetryPeriod = chronos.seconds(30)
+  ## Wait after a catch-up that left a topic behind before the next attempt.
 
 const
-  DefaultBackfillLookback = chronos.hours(24)
-  DefaultBackfillInterval = chronos.minutes(5)
-  DefaultBackfillQueriesPerCycle = 10
   DefaultBackfillRequestTimeout = chronos.seconds(10)
-  MaxBackfillSeconds = int64(int32.high)
-  MaxBackfillQueriesPerCycle = 1000
   MaxBackfillRequestTimeoutSeconds = 300
-
-type RecvMessage = object
-  msgHash: WakuMessageHash
-  rxTime: Timestamp ## local receipt time. We will not keep the rx messages forever
 
 type BackfillState* = object
   ## Store catch-up settings and progress. The mechanism is in `backfill.nim`.
   enabled*: bool
-  maxLookback*: Duration ## oldest history a cycle queries
-  interval*: Duration ## minimum spacing between cycles
-  maxQueries*: int ## Store queries per cycle, shared across topics
   queryTimeout*: Duration
   job: Job ## nil when disabled or storage is unavailable this run
-  previousCycleStart: Timestamp
-    ## start for a topic without a record. It precedes the subscription, so
-    ## the first query fetches more, not less
-  lastSample: seq[BackfillTopic]
-  nextTopicIndex: int ## round-robin start for the next cycle
-  cycle: Future[void] ## in flight, if any
-  nextCycleAt: Moment
+  startedAt: Timestamp ## service start, stored when nothing is stored yet
+  since: Opt[Timestamp] ## the stored timestamp at load. Catch-ups start there
+  caughtUp: HashSet[BackfillTopic] ## topics caught up this run
+  lastWrite: Moment
+  retryAt: Moment ## no catch-up from the tick before this, after a failure
+  task: Future[void] ## the catch-up in flight, if any
 
 type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
   waku: Waku
   seenMsgListener: MessageSeenEventListener
-  connStatusListener: EventConnectionStatusChangeListener
 
-  recentReceivedMsgs: seq[RecvMessage]
+  recentReceivedMsgs: Table[WakuMessageHash, Timestamp]
+    ## hash of every message received in the last `MaxMessageLife`, with the
+    ## local receipt time. A catch-up can deliver a million messages, so this
+    ## is a table, not a list to scan.
 
   backfill: BackfillState
-  online: bool ## ConnectionStatus != Disconnected, tracked on edges
   maintenanceHandler: Future[void]
   stopping: bool
 
@@ -78,7 +77,7 @@ proc processIncomingMessage(
     return false
 
   let msgHash = computeMessageHash(pubsubTopic, message)
-  if self.recentReceivedMsgs.anyIt(it.msgHash == msgHash):
+  if self.recentReceivedMsgs.hasKey(msgHash):
     trace "skipping duplicate message",
       shard = pubsubTopic,
       contentTopic = message.contentTopic,
@@ -86,8 +85,7 @@ proc processIncomingMessage(
     return false
 
   # Local receipt time, so the cache keeps a recovered old message for the full period.
-  let rxMsg = RecvMessage(msgHash: msgHash, rxTime: getNowInNanosecondTime())
-  self.recentReceivedMsgs.add(rxMsg)
+  self.recentReceivedMsgs[msgHash] = getNowInNanosecondTime()
   info "Message received",
     msg_hash = msgHash.to0xHex(),
     contentTopic = message.contentTopic,
@@ -100,34 +98,79 @@ proc subscribedTopics(self: RecvService): seq[BackfillTopic] =
   for (pubsubTopic, contentTopics) in self.waku.subscribedContentTopics():
     for contentTopic in contentTopics:
       snapshot.add((pubsubTopic, contentTopic))
-  snapshot.sort(
-    proc(a, b: BackfillTopic): int =
-      cmp(a, b)
-  )
+  snapshot.sort()
   return snapshot
 
-proc sampleSubscriptions(self: RecvService): bool =
-  ## True when a topic entered the subscription set since the previous sample.
-  let subscribed = self.subscribedTopics()
-  let entered = newlySubscribed(self.backfill.lastSample, subscribed)
-  self.backfill.lastSample = subscribed
-  return entered.len > 0
+proc pendingTopics(self: RecvService): seq[BackfillTopic] =
+  ## Subscribed topics not caught up this run.
+  self.subscribedTopics().filterIt(it notin self.backfill.caughtUp)
+
+proc mayAdvance(self: RecvService): bool =
+  ## True when a catch-up has run and every subscribed topic is caught up.
+  ## With no topic caught up the timestamp stays, so a topic subscribed later
+  ## still starts before this run.
+  self.backfill.caughtUp.len > 0 and self.pendingTopics().len == 0
 
 proc suspendBackfill(self: RecvService, reason: string) =
-  ## Saved records stay. The next start retries.
+  ## The stored timestamp stays. The next start retries. At shutdown the
+  ## broker reports a cancelled read as an error, which is not a failure and
+  ## must not cost the final write.
+  if self.stopping:
+    return
   warn "automatic Store catch-up suspended for this run", reason
   self.backfill.job = nil
 
-proc runCycle(self: RecvService) {.async.} =
-  ## One budgeted pass over the subscribed topics. See `backfill.runCycle`.
+proc loadSince(self: RecvService): Future[Result[void, string]] {.async.} =
+  ## Loads the stored timestamp once per run. Stores the service start when
+  ## nothing is stored yet.
+  if self.backfill.since.isSome():
+    return ok()
+  let stored = (await self.backfill.job.readLastOnline()).valueOr:
+    return err(error)
+  if stored.isSome():
+    self.backfill.since = stored
+    return ok()
+  (await self.backfill.job.writeLastOnline(self.backfill.startedAt)).isOkOr:
+    return err(error)
+  self.backfill.since = Opt.some(self.backfill.startedAt)
+  return ok()
+
+proc canQueryStore(self: RecvService): Future[bool] {.async.} =
+  ## A connected Store peer exists. Read fresh, and false through an outage,
+  ## so the timestamp never runs ahead of what the node received.
+  let peers = (await self.waku.peerIdsByProtocol(WakuStoreCodec)).valueOr:
+    return false
+  return peers.len > 0
+
+proc writeLastOnlineNow(self: RecvService) {.async.} =
+  ## Writes the current time and moves the start of the next catch-up with it,
+  ## so a topic subscribed later queries from the last write, not from the
+  ## start of the run.
+  let at = getNowInNanosecondTime()
+  (await self.backfill.job.writeLastOnline(at)).isOkOr:
+    # One failed write is not a broken store. The timestamp stays and the
+    # next attempt writes it again. At shutdown the broker reports a
+    # cancelled write as an error, which is not worth a warning.
+    if not self.stopping:
+      warn "backfill timestamp not written", reason = error
+    return
+  self.backfill.lastWrite = Moment.now()
+  self.backfill.since = Opt.some(at)
+
+proc catchUpPending(self: RecvService) {.async.} =
+  ## One catch-up of the topics not caught up this run. See `backfill.runCatchUp`.
   if self.stopping or self.backfill.job.isNil():
     return
-  if not self.waku.isStoreMounted():
-    debug "recv service has no store client mounted, skipping store catch-up"
+  if not await self.canQueryStore():
+    return # nothing to ask yet; the tick tries again when a peer connects
+  (await self.loadSince()).isOkOr:
+    self.suspendBackfill(error)
     return
-  discard self.sampleSubscriptions()
-  let subscribed = self.backfill.lastSample
-  let cycleStart = getNowInNanosecondTime()
+  let pending = self.pendingTopics()
+  if pending.len == 0:
+    return
+  let now = getNowInNanosecondTime()
+  let since = self.backfill.since.get() - BackfillOverlap.nanos
   let query: BackfillQuery = proc(
       request: StoreQueryRequest
   ): Future[Result[StoreQueryResponse, string]] {.async.} =
@@ -142,111 +185,85 @@ proc runCycle(self: RecvService) {.async.} =
       return false
     discard self.processIncomingMessage(pubsubTopic, message)
     return true
-  let outcome = await self.backfill.job.runCycle(
-    subscribed, cycleStart, self.backfill.previousCycleStart,
-    self.backfill.nextTopicIndex, self.backfill.maxLookback, self.backfill.maxQueries,
-    self.backfill.queryTimeout, query, deliver,
-  )
+  let outcome =
+    await runCatchUp(pending, since, now, self.backfill.queryTimeout, query, deliver)
   if self.stopping:
-    # Shutdown writes the final records. A cancelled read is not a storage failure.
-    return
-  self.backfill.previousCycleStart = cycleStart
-  if subscribed.len > 0:
-    self.backfill.nextTopicIndex = (self.backfill.nextTopicIndex + 1) mod subscribed.len
-  if outcome.storageFailed:
-    self.suspendBackfill("a storage operation failed")
-    return
+    return # shutdown owns the final write
+  for topic in outcome.completedTopics:
+    self.backfill.caughtUp.incl(topic)
+  if outcome.completedTopics.len < pending.len:
+    # A topic failed or reached the query limit. Wait before the next try.
+    self.backfill.retryAt = Moment.now() + CatchUpRetryPeriod
   if outcome.queries > 0:
-    debug "recv service catch-up cycle",
-      queries = outcome.queries, completed = outcome.completed, failed = outcome.failed
+    debug "recv service catch-up",
+      queries = outcome.queries,
+      completed = outcome.completedTopics.len,
+      failed = outcome.failed
 
-proc startCycle(self: RecvService): Future[void] =
-  ## Single flight. Explicit checks, online edges and the cadence share one task.
-  if self.backfill.cycle.isNil() or self.backfill.cycle.finished():
-    self.backfill.nextCycleAt = Moment.now() + self.backfill.interval
-    self.backfill.cycle = self.runCycle()
-  return self.backfill.cycle
+proc startCatchUp(self: RecvService): Future[void] =
+  ## Single flight. Explicit checks and the maintenance tick share one task.
+  if self.backfill.task.isNil() or self.backfill.task.finished():
+    self.backfill.task = self.catchUpPending()
+  return self.backfill.task
 
 proc checkStore*(self: RecvService) {.async.} =
-  ## Runs one catch-up cycle now and delivers what it retrieves via
-  ## MessageReceivedEvent.
+  ## Runs the catch-up of the topics not caught up yet and delivers what it
+  ## retrieves via MessageReceivedEvent. It returns at once when every
+  ## subscribed topic is already caught up in this run.
   if self.backfill.job.isNil():
     return
-  if not self.backfill.cycle.isNil() and not self.backfill.cycle.finished():
-    await self.backfill.cycle # let a cycle in flight finish first
-  await self.startCycle()
-
-proc onConnectionStatusChange(self: RecvService, status: ConnectionStatus) =
-  ## Runs a cycle when the node comes online, unless one is in flight.
-  let nowOnline = status != ConnectionStatus.Disconnected
-  if nowOnline == self.online:
-    return
-  self.online = nowOnline
-  if nowOnline and not self.stopping:
-    discard self.startCycle()
-
-proc checkedSeconds(
-    settingName: string,
-    seconds: Opt[int64],
-    default: Duration,
-    maxSeconds = MaxBackfillSeconds,
-): Result[Duration, string] =
-  if seconds.isNone():
-    return ok(default)
-  if seconds.get() < 1 or seconds.get() > maxSeconds:
-    return err(
-      settingName & " must be between 1 and " & $maxSeconds & ", got " & $seconds.get()
-    )
-  ok(chronos.seconds(seconds.get()))
+  if not self.backfill.task.isNil() and not self.backfill.task.finished():
+    await self.backfill.task # let a catch-up in flight finish first
+  await self.startCatchUp()
 
 proc init*(T: type BackfillState, conf: MessagingClientConf): Result[T, string] =
-  ## Rejects out-of-range settings. Zero is not unlimited. Disable with
+  ## Rejects an out-of-range timeout. Zero is not unlimited. Disable with
   ## `backfillEnabled`.
-  let maxQueries = conf.backfillMaxPagesPerCycle.get(DefaultBackfillQueriesPerCycle)
-  if maxQueries < 1 or maxQueries > MaxBackfillQueriesPerCycle:
-    return err(
-      "backfillMaxPagesPerCycle must be between 1 and " & $MaxBackfillQueriesPerCycle &
-        ", got " & $maxQueries
-    )
-  ok(
-    T(
-      enabled: conf.backfillEnabled.get(true),
-      maxLookback: ?checkedSeconds(
-        "backfillMaxLookbackSeconds", conf.backfillMaxLookbackSeconds,
-        DefaultBackfillLookback,
-      ),
-      interval: ?checkedSeconds(
-        "backfillIntervalSeconds", conf.backfillIntervalSeconds, DefaultBackfillInterval
-      ),
-      maxQueries: maxQueries,
-      queryTimeout: ?checkedSeconds(
-        "backfillRequestTimeoutSeconds", conf.backfillRequestTimeoutSeconds,
-        DefaultBackfillRequestTimeout, MaxBackfillRequestTimeoutSeconds,
-      ),
-      previousCycleStart: getNowInNanosecondTime(),
-    )
-  )
+  var queryTimeout = DefaultBackfillRequestTimeout
+  if conf.backfillRequestTimeoutSeconds.isSome():
+    let seconds = conf.backfillRequestTimeoutSeconds.get()
+    if seconds < 1 or seconds > MaxBackfillRequestTimeoutSeconds:
+      return err(
+        "backfillRequestTimeoutSeconds must be between 1 and " &
+          $MaxBackfillRequestTimeoutSeconds & ", got " & $seconds
+      )
+    queryTimeout = chronos.seconds(seconds)
+  ok(T(enabled: conf.backfillEnabled.get(true), queryTimeout: queryTimeout))
 
 proc new*(T: typedesc[RecvService], waku: Waku, backfill: BackfillState): T =
   ## The storeClient will help to acquire any possible missed messages.
-  RecvService(
-    waku: waku, brokerCtx: waku.brokerCtx, recentReceivedMsgs: @[], backfill: backfill
-  )
+  RecvService(waku: waku, brokerCtx: waku.brokerCtx, backfill: backfill)
 
 proc maintenanceLoop(self: RecvService) {.async.} =
   while not self.stopping:
-    let now = getNowInNanosecondTime()
-    self.recentReceivedMsgs.keepItIf(it.rxTime > now - MaxMessageLife.nanos)
+    let oldest = getNowInNanosecondTime() - MaxMessageLife.nanos
+    var expired: seq[WakuMessageHash]
+    for msgHash, rxTime in self.recentReceivedMsgs:
+      if rxTime <= oldest:
+        expired.add(msgHash)
+    for msgHash in expired:
+      self.recentReceivedMsgs.del(msgHash)
+    if not self.backfill.job.isNil() and self.backfill.since.isNone():
+      # Store the service start at once, so a crash before the first
+      # catch-up still leaves a timestamp for the next run.
+      (await self.loadSince()).isOkOr:
+        self.suspendBackfill(error)
     if not self.backfill.job.isNil() and
-        (self.backfill.cycle.isNil() or self.backfill.cycle.finished()):
-      # Sample only when idle. A topic that appears during a cycle is new at
-      # the next tick. A new topic makes a cycle due now.
-      if self.sampleSubscriptions() or Moment.now() >= self.backfill.nextCycleAt:
-        discard self.startCycle()
+        (self.backfill.task.isNil() or self.backfill.task.finished()):
+      if self.pendingTopics().len > 0:
+        # Until every topic is caught up, the stored timestamp stays put.
+        if Moment.now() >= self.backfill.retryAt:
+          discard self.startCatchUp()
+      elif self.mayAdvance() and
+          Moment.now() - self.backfill.lastWrite >= LastOnlinePeriod and
+          await self.canQueryStore():
+        await self.writeLastOnlineNow()
+    if self.stopping:
+      return
     await sleepAsync(MaintenancePeriod)
 
 proc openBackfillJob(self: RecvService): Job =
-  ## The Persistency job for the per-topic records, or nil with a warning.
+  ## The Persistency job for the last-online record, or nil with a warning.
   ## Live messaging continues. The next start retries.
   let persistency = GetPersistency.request(self.brokerCtx).valueOr:
     warn "automatic Store catch-up suspended: no persistency provider", reason = error
@@ -262,15 +279,16 @@ proc openBackfillJob(self: RecvService): Job =
 
 proc startRecvService*(self: RecvService): Result[void, string] =
   self.stopping = false
-  self.online = false
   self.backfill.job =
     if self.backfill.enabled:
       self.openBackfillJob()
     else:
       nil
-  self.backfill.lastSample = @[]
-  self.backfill.nextTopicIndex = 0
-  self.backfill.nextCycleAt = Moment.now()
+  self.backfill.startedAt = getNowInNanosecondTime()
+  self.backfill.since = Opt.none(Timestamp)
+  self.backfill.caughtUp = initHashSet[BackfillTopic]()
+  self.backfill.lastWrite = Moment()
+  self.backfill.retryAt = Moment()
 
   self.seenMsgListener = MessageSeenEvent.listen(
     self.brokerCtx,
@@ -280,36 +298,26 @@ proc startRecvService*(self: RecvService): Result[void, string] =
     error "Failed to set MessageSeenEvent listener", error = error
     return err("register receive listener: " & error)
 
-  self.connStatusListener = EventConnectionStatusChange.listen(
-    self.brokerCtx,
-    proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
-      self.onConnectionStatusChange(event.connectionStatus),
-  ).valueOr:
-    error "Failed to set EventConnectionStatusChange listener", error = error
-    discard MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
-    return err("register receive listener: " & error)
-
   self.maintenanceHandler = self.maintenanceLoop()
   return ok()
 
 proc stopRecvService*(self: RecvService) {.async.} =
-  ## Cancels and joins the cycle in flight before the kernel closes Persistency.
+  ## Cancels and joins the catch-up in flight before the kernel closes
+  ## Persistency, then writes the last-online timestamp when the node has a
+  ## Store peer and every topic is caught up.
   self.stopping = true
   await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
-  await EventConnectionStatusChange.dropListener(
-    self.brokerCtx, self.connStatusListener
-  )
-  if not self.backfill.cycle.isNil():
-    await self.backfill.cycle.cancelAndWait()
-    self.backfill.cycle = nil
+  if not self.backfill.task.isNil():
+    await self.backfill.task.cancelAndWait()
+    self.backfill.task = nil
   if not self.maintenanceHandler.isNil():
     await self.maintenanceHandler.cancelAndWait()
     self.maintenanceHandler = nil
   if not self.backfill.job.isNil():
-    # A topic subscribed after the last cycle has no record. Write one now, so
-    # the next process resumes from it.
-    for topic in self.subscribedTopics():
-      (await self.backfill.job.seedTopic(topic, self.backfill.previousCycleStart)).isOkOr:
-        warn "backfill record not written at stop",
-          pubsubTopic = topic.pubsubTopic, contentTopic = topic.contentTopic, error
+    let loaded = await self.loadSince()
+    if loaded.isErr():
+      warn "backfill timestamp not stored at stop", reason = loaded.error
+    elif self.mayAdvance() and await self.canQueryStore():
+      (await self.backfill.job.writeLastOnline(getNowInNanosecondTime())).isOkOr:
+        warn "backfill timestamp not written at stop", reason = error
     self.backfill.job = nil
