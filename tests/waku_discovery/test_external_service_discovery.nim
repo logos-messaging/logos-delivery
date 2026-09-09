@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[atomics, strutils]
+import std/[atomics, os, strutils]
 import chronos, results, testutils/unittests
 import brokers/broker_context
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto, extended_peer_record]
@@ -18,6 +18,7 @@ import
 type FakeState = object
   started: Atomic[bool]
   failNext: Atomic[bool]
+  blockLookup: Atomic[bool] ## lookup spins until cleared, like a wedged provider
   freed: Atomic[int]
   lastLimit: Atomic[int64]
   lastDataLen: Atomic[int]
@@ -87,6 +88,8 @@ proc fakeLookup(
   if fake.failNext.load():
     setErr(errBuf, errBufLen, "lookup exploded")
     return LdDiscoError
+  while fake.blockLookup.load():
+    sleep(10)
   setKey(key)
   fake.lastLimit.store(limit)
   emitJson(outJson)
@@ -332,3 +335,32 @@ suite "ExternalServiceDiscovery":
     check:
       res.isErr()
       "no service discovery plugin registered" in res.error
+
+  asyncTest "stop gives up on a worker stuck in a plugin call; a restart works":
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+
+    ## The verb never returns, so the caller times out (requestTimeoutMs)...
+    fake.blockLookup.store(true)
+    let stuck = iface.lookupServicePeers("service:/mix/1.0.0", 1)
+    ## ...and stop must not hang the loop behind the join: it reports the
+    ## abandoned worker after the grace period instead.
+    let t0 = Moment.now()
+    let stopped = await iface.stopDiscovery()
+    check:
+      stopped.isErr()
+      Moment.now() - t0 < chronos.seconds(20)
+      (await stuck).isErr()
+
+    ## Release the old thread; it exits without touching the registrations
+    ## the next worker installs, so discovery comes back on the same context.
+    fake.blockLookup.store(false)
+    await sleepAsync(chronos.milliseconds(200))
+    check (await iface.startDiscovery()).isOk()
+    let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 1)).valueOr:
+      raiseAssert error
+    check peers.len == 1
+    check (await iface.stopDiscovery()).isOk()
