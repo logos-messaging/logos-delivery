@@ -1,8 +1,9 @@
-import std/[macros, os]
+import std/[json, macros, os]
 import chronos, chronicles, results, ffi
 import
   logos_delivery,
   logos_delivery/waku/discovery/plugin/service_discovery_accessor,
+  logos_delivery/waku/requests/node_state_requests,
   ../declare_lib
 
 ## Registration entry points for the external service-discovery plugin
@@ -64,6 +65,25 @@ proc logosdelivery_set_service_discovery_plugin(
     error "SET_SERVICE_DISCOVERY_PLUGIN failed", err = error
     return err(error)
   return ok("service discovery plugin installed")
+
+proc logosdelivery_get_discovery_requirements(
+    self: LogosDelivery
+): Future[Result[string, string]] {.ffi.} =
+  ## What the host must set up before `start`: whether service discovery is
+  ## expected from a plugin, and the DHT bootstrap peers the node's
+  ## configuration resolves to, presets included. Reply JSON:
+  ## {"externalServiceDiscovery": bool, "bootstrapNodes": ["/dns4/.../p2p/16Uiu..."]}
+  let req = GetDiscoveryRequirements.request(self.waku.brokerCtx).valueOr:
+    error "GET_DISCOVERY_REQUIREMENTS failed", err = error
+    return err(error)
+  return ok(
+    $(
+      %*{
+        "externalServiceDiscovery": req.externalServiceDiscovery,
+        "bootstrapNodes": req.bootstrapNodes,
+      }
+    )
+  )
 
 proc logosdelivery_clear_service_discovery_plugin(
     self: LogosDelivery
