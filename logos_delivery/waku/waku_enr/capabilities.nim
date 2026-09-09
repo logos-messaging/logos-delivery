@@ -69,6 +69,12 @@ func toCapabilities*(bitfield: CapabilitiesBitfield): seq[Capabilities] =
     supportsCapability(bitfield, it)
   )
 
+func toCodecs*(bitfield: CapabilitiesBitfield): seq[string] =
+  ## Protocol ids for the capabilities the bitfield carries. Same mapping the
+  ## ENR accessors use, reachable without a Record in hand.
+  ## `getOrDefault` keeps this non-raising; the table covers every enum value.
+  bitfield.toCapabilities().mapIt(capabilityToCodec.getOrDefault(it))
+
 # ENR builder extension
 
 proc withWakuCapabilities*(builder: var EnrBuilder, caps: CapabilitiesBitfield) =
