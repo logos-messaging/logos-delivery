@@ -1,19 +1,11 @@
 {.push raises: [].}
 
 ## Accessor for an external service-discovery plugin: the Nim mirror of
-## `library/logosdelivery_service_discovery.h` (the plugin ABI), the guarded
-## slot the installed vtable lives in, and the brokers that surround it.
+## `library/logosdelivery_service_discovery.h` (the plugin ABI.)
 ##
-## Two broker lanes meet here, deliberately:
-##
-## * **Registration** rides a plain single-thread RequestBroker, so it is
-##   served on the node's own thread and the backend can simply keep the
-##   vtable as instance state. It could not travel any other way: the struct
-##   is full of `pointer`/proc fields, which the (mt) codec rejects at compile
-##   time. The worker receives it as its thread argument instead.
-## * **Calls** ride `(mt)` RequestBrokers whose providers live on the worker
-##   thread. Their payloads are plain Nim types, so results are marshalled
-##   onto the caller's heap and the node's event loop only ever awaits.
+## Registration rides a single-thread RequestBroker, since the vtable holds
+## pointers the (mt) codec cannot carry; the calls ride (mt) RequestBrokers
+## served on the worker thread.
 
 import brokers/broker_context
 import chronos, results

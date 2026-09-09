@@ -21,7 +21,7 @@ BrokerImplement MockDiscovery of IPeerDiscovery:
   ): Future[Result[DiscoveryBackendInfo, string]] {.async.} =
     ok(
       DiscoveryBackendInfo(
-        id: "mock", running: self.started, keyKinds: @["svc", ""], boundPorts: @[]
+        id: "mock", running: self.started, keyKinds: @["service", ""], boundPorts: @[]
       )
     )
 
@@ -83,7 +83,7 @@ suite "IPeerDiscovery interface":
     let mock = MockDiscovery.create()
     let iface: IPeerDiscovery = mock
 
-    check (await iface.lookupServicePeers("svc:/mix/1.0.0", 0)).isErr()
+    check (await iface.lookupServicePeers("service:/mix/1.0.0", 0)).isErr()
 
     check (await iface.startDiscovery()).isOk()
     let info = (await iface.backendInfo()).valueOr:
@@ -92,12 +92,12 @@ suite "IPeerDiscovery interface":
       info.id == "mock"
       info.running
 
-    let peers = (await iface.lookupServicePeers("svc:/mix/1.0.0", 5)).valueOr:
+    let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 5)).valueOr:
       raiseAssert error
     check:
       peers.len == 1
-      peers[0].peerId == "peer-of-svc:/mix/1.0.0"
-      mock.lastLookup == "svc:/mix/1.0.0"
+      peers[0].peerId == "peer-of-service:/mix/1.0.0"
+      mock.lastLookup == "service:/mix/1.0.0"
 
     let randomPeers = (await iface.lookupRandom()).valueOr:
       raiseAssert error
@@ -150,16 +150,16 @@ suite "IPeerDiscovery interface":
     let mock = MockDiscovery.create()
     let iface: IPeerDiscovery = mock
 
-    check (await iface.startAdvertising("svc:/mix/1.0.0", @[1'u8, 2], @[])).isOk()
-    check (await iface.startAdvertising("svc:x", @[], @[9'u8])).isErr()
-    check mock.advertised == @["svc:/mix/1.0.0"]
+    check (await iface.startAdvertising("service:/mix/1.0.0", @[1'u8, 2], @[])).isOk()
+    check (await iface.startAdvertising("service:x", @[], @[9'u8])).isErr()
+    check mock.advertised == @["service:/mix/1.0.0"]
 
-    check (await iface.registerInterest("svc:/mix/1.0.0")).isOk()
+    check (await iface.registerInterest("service:/mix/1.0.0")).isOk()
     check (await iface.registerInterest("cap:store")).isOk()
     check (await iface.unregisterInterest("cap:store")).isOk()
-    check mock.interests == @["svc:/mix/1.0.0"]
+    check mock.interests == @["service:/mix/1.0.0"]
 
-    check (await iface.stopAdvertising("svc:/mix/1.0.0")).isOk()
+    check (await iface.stopAdvertising("service:/mix/1.0.0")).isOk()
     check mock.advertised.len == 0
 
     check (await iface.addBootstrapEntries(@["/ip4/1.2.3.4/tcp/1/p2p/16Uxx"])).isOk()

@@ -190,7 +190,7 @@ proc setupProtocols(
     node.mountKademlia(kadConf).isOkOr:
       return err("failed to setup service discovery: " & error)
 
-    node.attachDiscovery(ServiceDiscovery.create(node.wakuKademlia))
+    node.attachDiscovery(ServicePeerDiscovery.create(node.wakuKademlia))
 
     # Register ServicePeersRequest provider
     ServicePeersRequest.setProvider(

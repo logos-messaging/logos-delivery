@@ -466,10 +466,14 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
     builder.discv5Conf.bootstrapNodes, networkPresetConf.discv5BootstrapNodes
   )
 
-  checkSetPresetValueToField(
-    builder.kademliaDiscoveryConf.enabled, networkPresetConf.enableKadDiscovery,
-    "Kademlia Discovery was provided alongside a network conf",
-  )
+  ## An explicit plugin request names the host, so the preset's in-process
+  ## default yields to it instead of colliding (the messaging layer resolves
+  ## the same way). An explicit --enable-kad-discovery still collides below.
+  if builder.externalDiscoveryConf.enabled != Opt.some(true):
+    checkSetPresetValueToField(
+      builder.kademliaDiscoveryConf.enabled, networkPresetConf.enableKadDiscovery,
+      "Kademlia Discovery was provided alongside a network conf",
+    )
   checkAddPresetValueToField(
     builder.kademliaDiscoveryConf.bootstrapNodes, networkPresetConf.kadBootstrapNodes
   )
@@ -506,8 +510,11 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
       # kad accepts peerId+multiaddr entries, and on presets whose entry
       # nodes are plain multiaddrs it would otherwise start with empty
       # buckets (nothing bridges static connections into the DHT).
-      if staticNodesFromEntry.len > 0 and networkPresetConf.enableKadDiscovery:
-        builder.kademliaDiscoveryConf.bootstrapNodes.add(staticNodesFromEntry)
+      if staticNodesFromEntry.len > 0:
+        if builder.externalDiscoveryConf.enabled == Opt.some(true):
+          builder.externalDiscoveryConf.bootstrapNodes.add(staticNodesFromEntry)
+        elif networkPresetConf.enableKadDiscovery:
+          builder.kademliaDiscoveryConf.bootstrapNodes.add(staticNodesFromEntry)
     else:
       warn "Failed to process entry nodes from network conf", error = processed.error()
 
@@ -687,10 +694,18 @@ proc build*(
   let rateLimit = builder.rateLimitConf.build().valueOr:
     return err("Rate limits Conf building failed: " & $error)
 
+  ## Under a plugin request, kademlia bootstrap peers describe the plugin's
+  ## DHT; they must not switch the in-process backend on by themselves.
+  if builder.externalDiscoveryConf.enabled == Opt.some(true) and
+      builder.kademliaDiscoveryConf.enabled.isNone():
+    builder.kademliaDiscoveryConf.enabled = Opt.some(false)
+
   var kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
     return err("Kademlia Discovery Conf building failed: " & $error)
 
-  let externalDiscoveryConf = builder.externalDiscoveryConf.build().valueOr:
+  let externalDiscoveryConf = builder.externalDiscoveryConf.build(
+    builder.kademliaDiscoveryConf.bootstrapNodes
+  ).valueOr:
     return err("External Discovery Conf building failed: " & $error)
 
   ## Internal and external service discovery are the same libp2p protocol,

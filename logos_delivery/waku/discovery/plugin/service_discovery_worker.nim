@@ -37,6 +37,8 @@ type
       plugin: ServiceDiscoveryPlugin,
       shutdown: ptr Atomic[bool],
       ready: ptr Atomic[bool],
+      done: ptr Atomic[bool],
+      abandoned: ptr Atomic[bool],
     ]
 
   ServiceDiscoveryWorker* = ref object
@@ -46,6 +48,12 @@ type
     thread: Thread[WorkerArg]
     shutdown: ptr Atomic[bool]
     ready: ptr Atomic[bool]
+    done: ptr Atomic[bool]
+      ## Set by the thread as its very last act; `stop` waits on it so a join
+      ## never blocks the node's loop.
+    abandoned: ptr Atomic[bool]
+      ## Set by `stop` when it gave up waiting. The thread then leaves the
+      ## (mt) registrations alone: a successor worker has taken them over.
     running: bool
 
 proc parsePeers(payload: string): Result[seq[DiscoveredPeer], string] =
@@ -111,6 +119,17 @@ proc takeJson(plugin: ServiceDiscoveryPlugin, outJson: cstring): string =
   result = $outJson
   plugin.freeString(plugin.pluginCtx, outJson)
 
+proc clearProviders(ctx: BrokerContext) =
+  ## Removes this context's (mt) buckets; called by the owning thread only.
+  PluginStart.clearProvider(ctx)
+  PluginStop.clearProvider(ctx)
+  PluginLookup.clearProvider(ctx)
+  PluginRandomLookup.clearProvider(ctx)
+  PluginStartAdvertising.clearProvider(ctx)
+  PluginStopAdvertising.clearProvider(ctx)
+  PluginRegisterInterest.clearProvider(ctx)
+  PluginUnregisterInterest.clearProvider(ctx)
+
 proc workerMain(arg: WorkerArg) {.thread.} =
   ## Owns a chronos loop for one discovery session; that node's MT brokers
   ## dispatch onto it.
@@ -120,9 +139,10 @@ proc workerMain(arg: WorkerArg) {.thread.} =
   let plugin = arg.plugin
   setThreadBrokerContext(ctx)
 
-  # reprovide, not provide: a previous worker generation may still hold a
-  # registration pointing at a thread that has since been joined.
   # One provider per plugin entry point -- each calls its own vtable slot.
+  # The (mt) bucket for this context must be free: a bucket owned by another
+  # thread makes registration fail, which is why a thread hands its buckets
+  # back on exit and an abandoned one is replaced on a fresh context.
 
   discard PluginStart.reprovideIt(ctx):
     var errBuf = newString(LdDiscoErrBufLen)
@@ -239,20 +259,28 @@ proc workerMain(arg: WorkerArg) {.thread.} =
 
   ## Hand the (mt) buckets back before the thread dies. Without this the
   ## registry keeps pointing at a thread that has been joined, and the next
-  ## worker for this context could never take over.
-  PluginStart.clearProvider(ctx)
-  PluginStop.clearProvider(ctx)
-  PluginLookup.clearProvider(ctx)
-  PluginRandomLookup.clearProvider(ctx)
-  PluginStartAdvertising.clearProvider(ctx)
-  PluginStopAdvertising.clearProvider(ctx)
-  PluginRegisterInterest.clearProvider(ctx)
-  PluginUnregisterInterest.clearProvider(ctx)
+  ## worker for this context could never take over. Not when abandoned: the
+  ## successor lives on another context, and a requester of this one may
+  ## still be polling a slot that the hand-back would free.
+  if not arg.abandoned[].load():
+    clearProviders(ctx)
 
   info "service discovery worker stopped", ctx = $ctx
+  ## Last touch of shared memory: after this `stop` may free the flags.
+  arg.done[].store(true)
 
 proc new*(T: type ServiceDiscoveryWorker): ServiceDiscoveryWorker =
   ServiceDiscoveryWorker()
+
+proc freeFlags(w: ServiceDiscoveryWorker) =
+  deallocShared(w.shutdown)
+  deallocShared(w.ready)
+  deallocShared(w.done)
+  deallocShared(w.abandoned)
+  w.shutdown = nil
+  w.ready = nil
+  w.done = nil
+  w.abandoned = nil
 
 proc start*(
     w: ServiceDiscoveryWorker, ctx: BrokerContext, plugin: ServiceDiscoveryPlugin
@@ -264,20 +292,28 @@ proc start*(
 
   w.shutdown = createShared(Atomic[bool])
   w.ready = createShared(Atomic[bool])
+  w.done = createShared(Atomic[bool])
+  w.abandoned = createShared(Atomic[bool])
   w.shutdown[].store(false)
   w.ready[].store(false)
+  w.done[].store(false)
+  w.abandoned[].store(false)
 
   try:
     createThread(
       w.thread,
       workerMain,
-      (ctx: ctx, plugin: plugin, shutdown: w.shutdown, ready: w.ready),
+      (
+        ctx: ctx,
+        plugin: plugin,
+        shutdown: w.shutdown,
+        ready: w.ready,
+        done: w.done,
+        abandoned: w.abandoned,
+      ),
     )
   except ResourceExhaustedError:
-    deallocShared(w.shutdown)
-    deallocShared(w.ready)
-    w.shutdown = nil
-    w.ready = nil
+    w.freeFlags()
     return err("could not spawn service discovery worker thread")
 
   w.running = true
@@ -293,22 +329,49 @@ proc start*(
 
   err("service discovery worker did not become ready")
 
-proc stop*(w: ServiceDiscoveryWorker) =
-  ## Signals the worker and joins it. A plugin call already in flight keeps
-  ## the thread busy until it returns on its own (the module side caps its own
-  ## waits, so this is bounded).
+proc stop*(
+    w: ServiceDiscoveryWorker, grace: Duration
+): Future[Result[void, string]] {.async: (raises: []).} =
+  ## Signals the worker and joins it once it has exited, waiting at most
+  ## `grace`. A plugin call already in flight keeps the thread busy until it
+  ## returns on its own, and the ABI lets it take as long as the operation
+  ## takes, so the join is never attempted on a thread still inside one.
+  ##
+  ## Past `grace` the thread is abandoned: it keeps running with its flags
+  ## and its (mt) buckets (leaked on purpose; freeing them from here would
+  ## race a requester still polling a slot), skips the hand-back when it does
+  ## exit, and this object must not be started again -- the caller replaces
+  ## it, on a fresh broker context.
   ##
   ## Safe to pair with a later `start` on the same context: the exiting thread
   ## hands its (mt) buckets back, so the next worker registers cleanly rather
   ## than inheriting a registration that points at a joined thread.
   if not w.running:
-    return
+    return ok()
 
   w.shutdown[].store(true)
-  joinThread(w.thread)
+  let deadline = Moment.now() + grace
+  while not w.done[].load():
+    if Moment.now() > deadline:
+      # The thread keeps its (mt) buckets: they are only ever freed from the
+      # thread that owns them, and a requester may still hold a slot in them.
+      # The successor registers on a fresh context instead (the backend's
+      # job), so nothing here is touched from another thread.
+      w.abandoned[].store(true)
+      w.running = false
+      w.shutdown = nil
+      w.ready = nil
+      w.done = nil
+      w.abandoned = nil
+      error "service discovery worker did not stop in time; its thread is abandoned",
+        grace = $grace
+      return err("service discovery worker did not stop within " & $grace)
+    try:
+      await sleepAsync(chronos.milliseconds(20))
+    except CancelledError:
+      return err("cancelled while stopping service discovery worker")
 
-  deallocShared(w.shutdown)
-  deallocShared(w.ready)
-  w.shutdown = nil
-  w.ready = nil
+  joinThread(w.thread)
+  w.freeFlags()
   w.running = false
+  ok()

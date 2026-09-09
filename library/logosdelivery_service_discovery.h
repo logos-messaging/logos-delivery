@@ -4,71 +4,46 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Registration rides the generated entry points, so their declarations and the
- * LogosDeliveryCtx helpers must be in scope. */
+/* LD_DISCO_ABI_ONLY: only the entry-point typedefs and the vtable struct, no
+ * registration helpers. Defined by liblogosdelivery itself to check its Nim
+ * mirror of the struct against this header at compile time; hosts never set
+ * it. */
+#ifndef LD_DISCO_ABI_ONLY
 #include "generated/logosdelivery.h"
+#endif
 
 /*
  * Service-discovery plugin interface.
  *
- * logos-delivery can delegate peer/service discovery to an external provider
- * (today: logos-libp2p-module, driven by glue in logos-delivery-module). The
- * provider implements the entry points below -- one per libp2p service
- * discovery operation -- and registers them with
- * logosdelivery_set_service_discovery_plugin (see "Registration" below).
+ * logos-delivery can delegate peer/service discovery to an external provider.
+ * The provider implements the entry points below and registers them with
+ * logosdelivery_install_service_discovery_plugin. External discovery is active
+ * only when the node is configured for it AND a valid plugin (matching ABI
+ * version, no NULL entry point) is registered.
  *
- * External service discovery is active only when BOTH hold:
- *   - the node is configured for it, and
- *   - a plugin is registered whose ABI version matches and whose every
- *     entry point is non-NULL.
- * Configuration alone leaves the backend inert: its verbs fail with a clear
- * error until a valid plugin arrives. Registration alone is refused, because
- * without the configuration there is no backend to register with.
- *
- * Not covered here:
- *   - Bootstrap entries. The provider takes them at its own initialisation,
- *     and libp2p exposes no call to add more afterwards, so there is no entry
- *     point for them and logos-delivery never asks. Configure them wherever
- *     the provider is set up.
- *
- * Scope:
- *   - A registration belongs to one node. A process may hold several nodes;
- *     each keeps its own plugin and its own discovery thread, for as long as
- *     that node exists. Registering for one node never disturbs another, and
- *     tearing one down leaves the others running.
+ * Bootstrap peers are the provider's own configuration; logos-delivery never
+ * passes them.
  *
  * Calling model:
- *   - logos-delivery drives the plugin through the lifecycle these entry
- *     points describe: start, then lookups while the node runs, then stop.
- *     What the plugin does internally to serve them is its own business.
- *   - Every entry point is a plain blocking request: it performs the work and
- *     returns its result. There are no completion callbacks and no events
- *     from the plugin back into logos-delivery.
- *   - Entry points are invoked on that node's discovery thread inside
- *     logos-delivery, never on the node's event loop, so they MAY block for
- *     as long as the operation genuinely takes (a cold DHT bootstrap can run
- *     for tens of seconds).
- *   - Calls from one node are serialized: its discovery thread runs one entry
- *     point at a time. A vtable registered for SEVERAL nodes is called from
- *     each of their threads, so it must tolerate concurrent calls.
+ *   - Entry points are blocking calls made from the node's discovery thread,
+ *     one at a time per node. They may block for as long as the operation
+ *     takes. A vtable shared by several nodes must tolerate concurrent calls.
+ *   - Lifecycle: start, then lookups and advertisements while the node runs,
+ *     then stop.
  *
  * Results:
- *   - Lookups return JSON, matching what the libp2p module already produces:
+ *   - Lookups return a plugin-owned JSON array; an empty array means no peers:
  *       [ { "peerId": "16Uiu2...",
  *           "seqNo": 1730000000,
  *           "addrs": ["/ip4/1.2.3.4/tcp/60000"],
  *           "services": [ { "id": "/mix/1.0.0", "data": "<base64>" } ] } ]
- *     `services` is an array (ids may repeat) and each `data` is base64.
- *     An empty array means "no peers", not an error.
- *   - The JSON string is owned by the plugin; logos-delivery parses it and
- *     then hands it back to freeString.
+ *     logos-delivery releases the string through freeString.
  *
  * Memory:
- *   - Arguments are borrowed for the duration of the call; the plugin copies
- *     what it needs to keep.
- *   - Error text is written into the caller-provided errBuf (NUL-terminated,
- *     truncated to errBufLen); no allocation crosses the boundary for errors.
- *   - Strings are NUL-terminated UTF-8. Byte runs use an explicit length and
+ *   - Arguments are borrowed for the duration of the call.
+ *   - Errors are written into the caller-provided errBuf (NUL-terminated,
+ *     truncated to errBufLen).
+ *   - Strings are NUL-terminated UTF-8. Byte runs carry an explicit length and
  *     may be NULL when the length is 0.
  */
 
@@ -91,7 +66,7 @@ extern "C"
 
   typedef int (*LdDiscoStopFn)(void *pluginCtx, char *errBuf, size_t errBufLen);
 
-  /* `key` is a criteria key ("svc:<id>", "shard:<cluster>/<shard>",
+  /* `key` is a criteria key ("service:<id>", "topic:<pubsubTopic>",
    * "cap:<capability>"); `limit` <= 0 means the plugin's own default.
    * On success *outJson receives a plugin-owned JSON array (see above). */
   typedef int (*LdDiscoLookupFn)(void *pluginCtx,
@@ -109,9 +84,8 @@ extern "C"
   /* Releases a string previously produced by lookup/randomLookup. */
   typedef void (*LdDiscoFreeStringFn)(void *pluginCtx, char *s);
 
-  /* `record`, when non-NULL, is a pre-signed advertisement to publish
-   * verbatim, so the plugin can advertise this node's identity from its own
-   * discovery node. */
+  /* `record`, when non-NULL, is a pre-signed advertisement of this node to
+   * publish verbatim. */
   typedef int (*LdDiscoStartAdvertisingFn)(void *pluginCtx,
                                            const char *key,
                                            const uint8_t *data,
@@ -144,11 +118,8 @@ extern "C"
     uint32_t abiVersion; /* must be LD_DISCO_ABI_VERSION */
     void *pluginCtx;     /* opaque, passed back to every entry point */
 
-    /* How long logos-delivery waits for one verb before giving up on it.
-     * The plugin owns this value because only the plugin knows how slow its
-     * operations can be. 0 selects the built-in default. Note that a verb
-     * that exceeds it is abandoned by the caller, not interrupted: the entry
-     * point keeps running to completion on the discovery thread. */
+    /* Per-verb timeout; 0 selects the built-in default. A verb that exceeds
+     * it is abandoned by the caller, not interrupted. */
     uint32_t requestTimeoutMs;
 
     LdDiscoStartFn start;
@@ -162,48 +133,34 @@ extern "C"
     LdDiscoUnregisterInterestFn unregisterInterest;
   } LdServiceDiscoveryPlugin;
 
+#ifndef LD_DISCO_ABI_ONLY
   /* ------------------------------------------------------ registration -- */
 
   /*
-   * Registration is asynchronous, like every other logos-delivery entry point.
-   * It has to be: the request is served on the node's own thread, and the host
-   * calls in from its own. The vtable therefore travels as an address rather
-   * than as a value --
-   *   int logosdelivery_set_service_discovery_plugin(
-   *       void *ctx, LogosDeliveryScalarRawFn cb, void *user_data,
-   *       uint64_t pluginPtr);
-   * declared in the generated header. Use the typed wrappers below instead of
-   * casting by hand.
+   * After createNode, logosdelivery_get_discovery_requirements(ctx, cb,
+   * user_data) (generated header) answers with JSON
+   *   {"externalServiceDiscovery": bool, "bootstrapNodes": ["/dns4/.../p2p/..."]}
+   * telling the host whether a plugin is expected and which DHT peers the
+   * node's configuration, presets included, resolved for it.
    *
-   * Lifetime: logos-delivery copies the struct while serving the request, so
-   * `plugin` must stay alive and unmodified until on_reply fires. A static or
-   * heap-allocated struct is the simple choice; a stack one is only safe if the
-   * caller blocks until the reply.
+   * Registration is asynchronous like every logos-delivery entry point: the
+   * outcome arrives on the callback, err_code == 0 means installed. The vtable
+   * is copied while the request is served, so `plugin` must stay alive and
+   * unmodified until the callback fires.
    *
-   * Register while the node is STOPPED. Both registration calls are refused
-   * once discovery is running, because its discovery thread is calling into
-   * the vtable and swapping it underneath would change which plugin serves
-   * calls already in flight. Register once, before the first start.
+   * Register while the node is stopped; both calls below are refused while
+   * discovery runs. A registration belongs to the node: it survives stop/start
+   * cycles and is released when the node is destroyed. A node configured for
+   * external discovery fails to start without a valid plugin.
    *
-   * A registration then survives every stop/start cycle -- it belongs to the
-   * node, not to a run of it, and is released when the node is destroyed.
-   * There is no need to re-register on restart.
-   *
-   * Registration is also a precondition for starting: a node configured for
-   * external discovery but holding no valid plugin FAILS to start, rather
-   * than coming up with no discovery at all.
-   *
-   * Outcome arrives on on_reply: err_code == 0 means installed. It fails when
-   * the ABI version does not match, an entry point is NULL, discovery is
-   * already running, or the node was not configured for external discovery --
-   * in that last case no backend exists to serve the request, and err_msg says
-   * no provider is registered. Replacing this node's stopped plugin is
-   * allowed; it never touches another node's.
+   * Registration fails when the ABI version does not match, an entry point is
+   * NULL, discovery is running, or the node is not configured for external
+   * discovery.
    */
 
-  /* Installs (or replaces) the plugin for the node identified by `ctx` (the
-   * handle returned by logosdelivery_create_node). Takes a typed plugin
-   * pointer so the caller never casts. */
+  /* Installs (or replaces) the plugin of the node `ctx`. Typed wrapper over
+   * the generated logosdelivery_set_service_discovery_plugin, which takes the
+   * plugin address as a uint64_t. */
   static inline int logosdelivery_install_service_discovery_plugin(
       void *ctx,
       const LdServiceDiscoveryPlugin *plugin,
@@ -214,16 +171,11 @@ extern "C"
         ctx, callback, user_data, (uint64_t)(uintptr_t)plugin);
   }
 
-  /* Removes this node's plugin. Like registration, only while stopped; the
-   * node then cannot start again until a new plugin is installed. Other nodes
-   * are unaffected. Declared in the generated header as
-   *   int logosdelivery_clear_service_discovery_plugin(
-   *       void *ctx, LogosDeliveryScalarRawFn cb, void *user_data);
-   *
-   * Hosts that hold the LogosDeliveryCtx wrapper rather than a raw handle can
-   * use the generated logosdelivery_ctx_set_service_discovery_plugin /
-   * logosdelivery_ctx_clear_service_discovery_plugin helpers instead; the
-   * former takes the plugin address as a uint64_t. */
+  /* Removal is logosdelivery_clear_service_discovery_plugin(ctx, cb, user_data)
+   * from the generated header; the node cannot start again until a new plugin
+   * is installed. Hosts holding a LogosDeliveryCtx can use the generated
+   * logosdelivery_ctx_set/clear_service_discovery_plugin helpers instead. */
+#endif /* LD_DISCO_ABI_ONLY */
 
 #ifdef __cplusplus
 }

@@ -78,6 +78,10 @@ type ExternalDiscoveryConf* {.requiresInit.} = object
   ## are alternative hosts for one protocol, so they are tuned alike.
   serviceLookupInterval*: Duration
   randomLookupInterval*: Duration
+  bootstrapNodes*: seq[string]
+    ## Peers the provider's DHT bootstraps from, as /p2p/ multiaddrs: the
+    ## preset's entry nodes plus any --kad-bootstrap-node. Handed to the host
+    ## through GetDiscoveryRequirements; the node itself never dials them.
 
 type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32

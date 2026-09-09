@@ -12,8 +12,8 @@
 ## serve on-demand consumers (e.g. the ServicePeersRequest provider).
 ##
 ## Criteria keys are opaque, convention-prefixed strings:
-##   "svc:<serviceId>"          libp2p service id (kad backends)
-##   "shard:<cluster>/<shard>"  relay shard
+##   "service:<serviceId>"      libp2p service id (kad backends)
+##   "topic:<pubsubTopic>"      relay shard, e.g. topic:/waku/2/rs/<cluster>/<shard>
 ##   "cap:<capability>"         node capability
 ##   ""                         no criteria / random sample
 
@@ -23,9 +23,9 @@ import brokers/[broker_interface, event_broker, request_broker]
 export chronos, results, broker_interface, event_broker, request_broker
 
 const
-  SvcKind* = "svc"
+  ServiceKind* = "service"
     ## Criteria-key kind for a service id; see `DiscoveryBackendInfo.keyKinds`.
-  SvcKeyPrefix* = SvcKind & ":"
+  ServiceKeyPrefix* = ServiceKind & ":"
 
 const LogosDeliveryServiceId* = "/logos/delivery"
   ## The service every participating node advertises itself under, so that
@@ -46,7 +46,7 @@ type DiscoveredPeer* = object
 type DiscoveryBackendInfo* = object
   id*: string ## "discv5" | "kad" | "kad-ext"
   running*: bool
-  keyKinds*: seq[string] ## supported criteria key prefixes, e.g. @["svc", ""]
+  keyKinds*: seq[string] ## supported criteria key prefixes, e.g. @["service", ""]
   boundPorts*: seq[uint16] ## e.g. discv5 UDP port after auto-port; empty if n/a
 
 BrokerInterface(IPeerDiscovery):
@@ -83,7 +83,7 @@ BrokerInterface(IPeerDiscovery):
     # opaque bytes. What is published, and under whose identity, is the
     # backend's business: the in-process host lets libp2p sign a record from
     # this node's switch; the plugin host signs one itself (its switch is not
-    # this node); discv5 mutates our ENR for shard: keys.
+    # this node); discv5 mutates our ENR for topic: keys.
     # (WakuKademlia: addServiceToAdvertise; libp2p-module: discoStartAdvertising)
     proc startAdvertising(
       key: string, data: seq[byte]
