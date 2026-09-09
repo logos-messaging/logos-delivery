@@ -48,8 +48,7 @@ logScope:
 const git_version* {.strdefine.} = "n/a"
 
 const NodeEnvvarPrefix* = "logos_delivery_node"
-  ## Env-var prefix for every `WakuNodeConf` option, upper-cased and joined to
-  ## the option name: `--tcp-port` is `LOGOS_DELIVERY_NODE_TCP_PORT`.
+  ## `--tcp-port` reads `LOGOS_DELIVERY_NODE_TCP_PORT`.
 
 # CLI defaults that differ from confbuilder defaults
 const

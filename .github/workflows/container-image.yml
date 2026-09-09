@@ -87,9 +87,7 @@ jobs:
           docker build -t ${IMAGE} -f docker/binaries/Dockerfile.bn.amd64 --label quay.expires-after=30d .
           docker push ${IMAGE}
 
-          # There is a single node binary now, so the -logosdeliverynode tag is
-          # the same image under a second name. Tag rather than rebuild; the tag
-          # stays published for consumers that already reference it.
+          # Second tag for the same image.
           docker tag ${IMAGE} ${LD_IMAGE}
           docker push ${LD_IMAGE}
         env:

@@ -458,7 +458,7 @@ suite "Waku external config - environment variables":
       delEnv("LOGOS_DELIVERY_NODE_TCP_PORT")
 
     ## When
-    ## `cmdLine = @[]` keeps the test runner's own arguments out of the parse.
+    ## `cmdLine = @[]` ignores the test runner's own arguments.
     let conf =
       try:
         WakuNodeConf.load(

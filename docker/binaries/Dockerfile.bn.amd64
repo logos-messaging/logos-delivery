@@ -22,7 +22,6 @@ ADD ./build/$MAKE_TARGET /usr/local/bin/
 # Copy migration scripts for DB upgrades
 ADD ./migrations/ /app/migrations/
 
-# Symlink the built binary under the canonical name
 RUN ln -sv /usr/local/bin/$MAKE_TARGET /usr/bin/logosdeliverynode
 
 ENTRYPOINT ["/usr/bin/logosdeliverynode"]

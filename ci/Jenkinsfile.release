@@ -111,9 +111,7 @@ pipeline {
           )
         }
 
-        /* There is a single node binary now, so the logosdelivery repository
-         * gets the same image under a second name. Retagging keeps that
-         * repository published without paying for a second build. */
+        /* Second tag for the same image. */
         def ldImageName = "${params.LOGOSDELIVERY_IMAGE_NAME}:${params.IMAGE_TAG ?: env.GIT_COMMIT.take(8)}"
         echo "Tagging ${ldImageName}"
         sh "docker tag ${image.id} ${ldImageName}"
