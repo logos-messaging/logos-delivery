@@ -1,3 +1,4 @@
+import std/[macros, os]
 import chronos, chronicles, results, ffi
 import
   logos_delivery,
@@ -12,6 +13,42 @@ import
 ## provider lives. The caller keeps the struct alive until the reply callback
 ## fires. Without external-discovery configuration there is no provider and
 ## the request fails with "no provider registered".
+
+macro emitAbiLayoutGuards(T: typedesc, cname: static string, header: static string) =
+  ## Emits one C `_Static_assert` per field of the Nim mirror `T` against the
+  ## C struct `cname` from `header`, plus size and ABI-version checks, so a
+  ## mirror that drifts from the header fails the C compile of this library
+  ## with the field's name in the message. This module is the one place both
+  ## sides are visible: the header pulls in the generated `logosdelivery.h`,
+  ## which exists only in the library build.
+  var text =
+    "_Static_assert(LD_DISCO_ABI_VERSION == " & $LdDiscoAbiVersion &
+    ", \"LD_DISCO_ABI_VERSION drifted from LdDiscoAbiVersion\");\n"
+  let impl = getTypeImpl(T)[1].getTypeImpl()
+  for def in impl[2]:
+    let field = def[0]
+    text.add "_Static_assert(offsetof(" & cname & ", " & $field & ") == " &
+      $getOffset(field) & ", \"" & cname & "." & $field &
+      " drifted from the Nim mirror\");\n"
+  text.add "_Static_assert(sizeof(" & cname & ") == " & $getSize(T) & ", \"" & cname &
+    " size drifted from the Nim mirror\");\n"
+  result = newStmtList(
+    nnkPragma.newTree(
+      nnkExprColonExpr.newTree(
+        ident"emit",
+        newLit(
+          "/*INCLUDESECTION*/\n#include <stddef.h>\n#define LD_DISCO_ABI_ONLY 1\n#include \"" &
+            header & "\"\n"
+        ),
+      )
+    ),
+    nnkPragma.newTree(nnkExprColonExpr.newTree(ident"emit", newLit(text))),
+  )
+
+const PluginHeader =
+  currentSourcePath().parentDir().parentDir() / "logosdelivery_service_discovery.h"
+
+emitAbiLayoutGuards(ServiceDiscoveryPlugin, "LdServiceDiscoveryPlugin", PluginHeader)
 
 proc logosdelivery_set_service_discovery_plugin(
     self: LogosDelivery, pluginPtr: uint64
