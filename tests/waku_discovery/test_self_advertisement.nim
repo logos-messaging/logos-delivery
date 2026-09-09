@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[json, sequtils, strutils]
+import std/[base64, sequtils]
 import chronos, results, testutils/unittests
 import brokers/broker_implement
 import
@@ -131,14 +131,47 @@ suite "Self advertisement":
       discv5.advertised.len == 0
       discv5.interests.len == 0
 
-  test "the payload carries version, cluster, shards and protocol ids":
-    let data = selfAdvertisementData(confWith(CoreFlags), TestShards)
-    let js = parseJson(cast[string](data))
+  test "the payload carries version, cluster, capabilities and shards":
+    let raw = cast[seq[byte]](base64.decode(
+      cast[string](selfAdvertisementData(confWith(CoreFlags), TestShards))
+    ))
     check:
-      js["cluster"].getInt() == 16
-      js["shards"].getElems().mapIt(it.getInt()) == @[0, 3]
-      js["version"].getStr().len > 0
-      WakuRelayCodec in js["protocols"].getElems().mapIt(it.getStr())
-      WakuStoreCodec in js["protocols"].getElems().mapIt(it.getStr())
-      WakuLightPushCodec in js["protocols"].getElems().mapIt(it.getStr())
-      WakuFilterSubscribeCodec notin js["protocols"].getElems().mapIt(it.getStr())
+      raw.len == 5 # 4-byte header + one bitmap byte covering shards 0 and 3
+      raw[0] == AdvertFormatVersion
+      (uint16(raw[1]) shl 8 or uint16(raw[2])) == 16'u16
+      CapabilitiesBitfield(raw[3]).supportsCapability(Capabilities.Relay)
+      CapabilitiesBitfield(raw[3]).supportsCapability(Capabilities.Store)
+      CapabilitiesBitfield(raw[3]).supportsCapability(Capabilities.Lightpush)
+      not CapabilitiesBitfield(raw[3]).supportsCapability(Capabilities.Filter)
+      raw[4] == 0b0000_1001'u8 # shards 0 and 3
+
+  test "the payload stays within the size libp2p will accept":
+    ## The JSON shape this replaced ran to ~188 bytes and could never be
+    ## advertised. Checked with a deliberately wide shard set, not just the
+    ## two-shard fixture.
+    var manyShards: seq[uint16]
+    for i in 0'u16 ..< 200'u16:
+      manyShards.add(i)
+    check selfAdvertisementData(confWith(CoreFlags), manyShards).len <= MaxAdvertLen
+
+  test "the payload is valid UTF-8, so it survives a JSON transport":
+    ## The plugin-hosted path marshals `data` as a JSON string on its way to the
+    ## provider. A raw binary record throws there and takes the hosting module
+    ## down, so every byte has to be printable ASCII.
+    var manyShards: seq[uint16]
+    for i in 0'u16 ..< 160'u16:
+      manyShards.add(i)
+    for data in [
+      selfAdvertisementData(confWith(CoreFlags), TestShards),
+      selfAdvertisementData(confWith(EdgeFlags), @[]),
+      selfAdvertisementData(confWith(CoreFlags), manyShards),
+    ]:
+      check data.allIt(it >= 0x20'u8 and it < 0x7f'u8)
+
+  test "a shard index beyond the bitmap is dropped, not aliased":
+    let raw = cast[seq[byte]](base64.decode(
+      cast[string](selfAdvertisementData(confWith(CoreFlags), @[0'u16, 9999'u16]))
+    ))
+    check:
+      raw.len == 5
+      raw[4] == 0b0000_0001'u8 # shard 0 only; 9999 did not fold onto a low bit
