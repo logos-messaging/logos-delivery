@@ -14,9 +14,6 @@ type ChannelId* = SdsChannelID
 type ChannelCryptoFn* = proc(payload: seq[byte]): Future[Result[seq[byte], string]] {.
   async: (raises: []), closure
 .}
-  ## One direction of an application-supplied channel cipher. Lives here, not
-  ## next to the registry, so `ReliableChannelApi` can name it without
-  ## importing an implementation module.
 
 proc hash*(r: RequestId): Hash =
   ## Allows `RequestId` to be used as a `Table` key.

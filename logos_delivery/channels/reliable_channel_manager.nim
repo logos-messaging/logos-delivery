@@ -63,7 +63,7 @@ proc start*(self: ReliableChannelManager): Result[void, string] =
   ok()
 
 proc stop*(self: ReliableChannelManager) {.async.} =
-  ## Stops every channel's SDS background loops. Persisted state survives
+  ## Stops every channel's SDS background loops. Persisted state survives.
   for chn in self.channels.values:
     await chn.stop()
   self.channels.clear()
