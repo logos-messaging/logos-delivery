@@ -8,7 +8,7 @@ type StubRlnModule = ref object
   quota: EpochQuota
 
 proc start(
-    m: StubRlnModule
+    m: StubRlnModule, config: string
 ): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok()
 
@@ -17,7 +17,7 @@ proc stop(
 ): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok()
 
-proc register(
+proc registerMembership(
     m: StubRlnModule, scope: MembershipScope, options: RegistryOptions
 ): Future[Result[MembershipState, RlnError]] {.async: (raises: [CancelledError]).} =
   return ok(MembershipState(status: MembershipStatus.Pending))
@@ -101,7 +101,7 @@ suite "RLN interface - types":
       raiseAssert $error
 
     check:
-      (waitFor m.start()).isOk()
+      (waitFor m.start("{}")).isOk()
       quota.remaining == 99
       validation.verdict == ProofVerdict.Valid
       state.membership.isSome()
