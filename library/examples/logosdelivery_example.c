@@ -141,6 +141,88 @@ void on_scalar(int ret, char *msg, size_t len, void *userData) {
     }
 }
 
+
+// --- Per-channel encryption ------------------------------------------------
+// Two channels, two different schemes, one left in the clear. Both ciphers
+// here are illustrative plumbing, NOT production crypto -- see the Nim
+// example for a real AEAD.
+//
+// The result buffer must outlive the callback's return, so each cipher keeps
+// a scratch buffer rather than writing into a stack local. One buffer is
+// enough here: the node calls these one at a time on its event loop.
+
+#define CRYPTO_SCRATCH_MAX 262144
+static uint8_t crypto_scratch[CRYPTO_SCRATCH_MAX];
+
+// XOR keystream. `user_data` is the key, so one function serves any channel.
+static int xor_crypt(void *user_data, const uint8_t *in, size_t in_len,
+                     const uint8_t **out, size_t *out_len) {
+    const char *key = (const char *)user_data;
+    const size_t key_len = strlen(key);
+    if (key_len == 0 || in_len > CRYPTO_SCRATCH_MAX) {
+        return -1;
+    }
+    for (size_t i = 0; i < in_len; i++) {
+        crypto_scratch[i] = in[i] ^ (uint8_t)key[i % key_len];
+    }
+    *out = crypto_scratch;
+    *out_len = in_len;
+    return 0;
+}
+
+// Add-then-rotate, so the two channels visibly disagree. Not self-inverse,
+// hence a separate encrypt and decrypt. Here `user_data` carries the key by
+// value rather than by pointer.
+static uint8_t rot_key(void *user_data) { return (uint8_t)(uintptr_t)user_data; }
+
+static int rot_encrypt(void *user_data, const uint8_t *in, size_t in_len,
+                       const uint8_t **out, size_t *out_len) {
+    const uint8_t k = rot_key(user_data);
+    if (in_len > CRYPTO_SCRATCH_MAX) {
+        return -1;
+    }
+    for (size_t i = 0; i < in_len; i++) {
+        crypto_scratch[i] = (uint8_t)(in[i] + k + (uint8_t)i);
+    }
+    *out = crypto_scratch;
+    *out_len = in_len;
+    return 0;
+}
+
+static int rot_decrypt(void *user_data, const uint8_t *in, size_t in_len,
+                       const uint8_t **out, size_t *out_len) {
+    const uint8_t k = rot_key(user_data);
+    if (in_len > CRYPTO_SCRATCH_MAX) {
+        return -1;
+    }
+    for (size_t i = 0; i < in_len; i++) {
+        crypto_scratch[i] = (uint8_t)(in[i] - k - (uint8_t)i);
+    }
+    *out = crypto_scratch;
+    *out_len = in_len;
+    return 0;
+}
+
+// The cipher is given to the channel at creation. nim-ffi has no callback
+// parameter kind, so the callbacks travel as uint64_t; this wrapper keeps
+// the casts in one place. Pass NULLs for an unencrypted channel.
+static int create_channel(void *ctx, const char *channel_id,
+                          const char *content_topic,
+                          LogosDeliveryCryptoFn encrypt,
+                          LogosDeliveryCryptoFn decrypt,
+                          void *crypto_user_data) {
+    LogosdeliveryChannelCreateReq req = {
+        .channelIdStr = channel_id,
+        .contentTopicStr = content_topic,
+        .senderIdStr = "logosdelivery-example",
+        .encryptFn = (uint64_t)(uintptr_t)encrypt,
+        .decryptFn = (uint64_t)(uintptr_t)decrypt,
+        .userData = (uint64_t)(uintptr_t)crypto_user_data,
+    };
+    return logosdelivery_channel_create(ctx, on_reply,
+                                        (void *)"channel_create", &req);
+}
+
 int main() {
     printf("=== Logos Messaging API (LMAPI) Example ===\n\n");
 
@@ -175,7 +257,10 @@ int main() {
     logosdelivery_add_event_listener(ctx, "onMessageSent", event_callback, NULL);
     logosdelivery_add_event_listener(ctx, "onMessagePropagated", event_callback, NULL);
     logosdelivery_add_event_listener(ctx, "onMessageError", event_callback, NULL);
-    printf("Event listeners registered for message events\n");
+    logosdelivery_add_event_listener(ctx, "onChannelMessageReceived", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx, "onChannelMessageSent", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx, "onChannelMessageError", event_callback, NULL);
+    printf("Event listeners registered for message and channel events\n");
 
     printf("\n3. Starting node...\n");
     logosdelivery_start_node(ctx, on_scalar, (void *)"start_node");
@@ -232,18 +317,43 @@ int main() {
         printf("Timed out waiting for message events after %d seconds\n", timeout_sec);
     }
 
-    printf("\n7. Unsubscribing from content topic...\n");
+    printf("\n7. Per-channel encryption...\n");
+    // Three channels, three schemes. The crypto `user_data` must outlive
+    // the channel, so it is static here.
+    static char xor_key[] = "example-xor-key";
+    create_channel(ctx, "#xor", "/example/1/xor/proto",
+                   xor_crypt, xor_crypt, xor_key);
+    create_channel(ctx, "#rot", "/example/1/rot/proto",
+                   rot_encrypt, rot_decrypt, (void *)(uintptr_t)0x2Bu);
+    create_channel(ctx, "#plain", "/example/1/plain/proto",
+                   NULL, NULL, NULL);  // unencrypted
+    sleep(1);
+
+    const char *channels[] = {"#xor", "#rot", "#plain"};
+
+    for (size_t i = 0; i < sizeof(channels) / sizeof(channels[0]); i++) {
+        LogosdeliveryChannelSendReq chanSendReq = {
+            .channelIdStr = channels[i],
+            .messageJson = "{\"payload\": \"SGVsbG8sIExvZ29zIE1lc3NhZ2luZyE=\","
+                           "\"ephemeral\": false}",
+        };
+        logosdelivery_channel_send(ctx, on_reply, (void *)"channel_send",
+                                   &chanSendReq);
+    }
+    sleep(2);
+
+    printf("\n8. Unsubscribing from content topic...\n");
     LogosdeliveryUnsubscribeReq unsubscribeReq = { .contentTopicStr = contentTopic };
     logosdelivery_unsubscribe(ctx, on_reply, (void *)"unsubscribe", &unsubscribeReq);
 
     sleep(1);
 
-    printf("\n8. Stopping node...\n");
+    printf("\n9. Stopping node...\n");
     logosdelivery_stop_node(ctx, on_scalar, (void *)"stop_node");
 
     sleep(1);
 
-    printf("\n9. Destroying context...\n");
+    printf("\n10. Destroying context...\n");
     logosdelivery_destroy(ctx);
 
     printf("\n=== Example completed ===\n");
