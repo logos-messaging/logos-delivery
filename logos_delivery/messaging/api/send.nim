@@ -6,7 +6,7 @@ import logos_delivery/api/events/messaging_client_events
 import logos_delivery/messaging/messaging_client
 import logos_delivery/waku/waku
 import logos_delivery/waku/api/subscriptions
-import logos_delivery/messaging/delivery_service/send_service
+import logos_delivery/messaging/delivery_service/[recv_service, send_service]
 import logos_delivery/messaging/delivery_service/send_service/delivery_task
 
 proc send*(
@@ -24,6 +24,7 @@ proc send*(
     self.waku.subscribe(envelope.contentTopic).isOkOr:
       error "Failed to auto-subscribe", error = error
       return err("Failed to auto-subscribe before sending: " & error)
+    self.recvService.noteSubscribed()
 
   let requestId = RequestId.new(self.waku.rng)
 

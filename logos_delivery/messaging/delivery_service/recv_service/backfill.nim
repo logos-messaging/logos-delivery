@@ -1,11 +1,11 @@
 ## Store catch-up of missed messages after a stop.
 ##
-## The node keeps one timestamp in Persistency, the last time it was online.
-## A catch-up queries every subscribed topic from that timestamp to now, one
-## page at a time, and delivers the pages through the normal receive path. A
-## restart re-queries the 20 s before the timestamp, and the receive cache
-## starts empty, so messages near it arrive again. The Store node's own
-## retention bounds how far back a query reaches.
+## The node keeps one recovery hint in Persistency: where the next start's
+## catch-up begins. A catch-up queries every subscribed topic from that hint
+## up to a cutoff, one page at a time, and delivers the rows through the
+## normal receive path. A restart re-queries `BackfillOverlap` before the hint,
+## and the receive cache starts empty, so messages near it arrive again. The
+## Store node's own retention bounds how far back a query reaches.
 {.push raises: [].}
 
 import chronos, chronicles, results, libp2p/protobuf/minprotobuf
@@ -61,8 +61,8 @@ proc decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
 proc readLastOnline*(
     job: Job
 ): Future[Result[Opt[Timestamp], string]] {.async: (raises: [CancelledError]).} =
-  ## The last time the node was online, or none when nothing is stored. An
-  ## unreadable record logs a warning and counts as none.
+  ## The recovery hint, or none when nothing is stored. An unreadable record
+  ## logs a warning and counts as none.
   if job.isNil() or not job.running:
     return err("backfill persistency job is closed")
   let stored =
@@ -76,7 +76,7 @@ proc readLastOnline*(
   if stored.isNone():
     return ok(Opt.none(Timestamp))
   let at = decodeTimestamp(stored.get()).valueOr:
-    warn "unreadable last-online record; catch-up starts from the service start", error
+    warn "unreadable recovery hint; catch-up starts from the service start", error
     return ok(Opt.none(Timestamp))
   return ok(Opt.some(at))
 
@@ -88,7 +88,7 @@ proc writeLastOnline*(job: Job, at: Timestamp) {.async: (raises: [CancelledError
   except CancelledError as e:
     raise e
   except CatchableError as e:
-    warn "last-online timestamp not written", error = e.msg
+    warn "recovery hint not written", error = e.msg
 
 proc queryPage(
     query: BackfillQuery, request: StoreQueryRequest, queryTimeout: Duration

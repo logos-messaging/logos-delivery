@@ -82,7 +82,7 @@ proc names(payloads: openArray[string]): seq[string] =
   payloads.deduplicate()
 
 suite "Receive backfill":
-  asyncTest "the last-online timestamp survives a Persistency reopen; bad records count as none":
+  asyncTest "the recovery hint survives a Persistency reopen; bad records count as none":
     let root = createTempDir("recv-backfill-", "")
     defer:
       removeDir(root)

@@ -29,7 +29,9 @@ proc start*(self: MessagingClient): Result[void, string] =
   ?MessagingSubscribe.setProvider(
     self.brokerCtx,
     proc(contentTopic: ContentTopic): Result[void, string] =
-      self.waku.subscribe(contentTopic),
+      ?self.waku.subscribe(contentTopic)
+      self.recvService.noteSubscribed()
+      ok(),
   )
 
   ?MessagingUnsubscribe.setProvider(
