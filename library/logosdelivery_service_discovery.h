@@ -137,6 +137,12 @@ extern "C"
   /* ------------------------------------------------------ registration -- */
 
   /*
+   * After createNode, logosdelivery_get_discovery_requirements(ctx, cb,
+   * user_data) (generated header) answers with JSON
+   *   {"externalServiceDiscovery": bool, "bootstrapNodes": ["/dns4/.../p2p/..."]}
+   * telling the host whether a plugin is expected and which DHT peers the
+   * node's configuration, presets included, resolved for it.
+   *
    * Registration is asynchronous like every logos-delivery entry point: the
    * outcome arrives on the callback, err_code == 0 means installed. The vtable
    * is copied while the request is served, so `plugin` must stay alive and
