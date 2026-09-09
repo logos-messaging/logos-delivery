@@ -2,9 +2,9 @@
 ##
 ## The node keeps one timestamp in Persistency, the last time it was online.
 ## A catch-up queries every subscribed topic from that timestamp to now, one
-## page at a time, and delivers the pages through the normal receive path.
-## Delivery is at-least-once: a restart re-queries the overlap, and the
-## receive cache that drops duplicates starts empty. The Store node's own
+## page at a time, and delivers the pages through the normal receive path. A
+## restart re-queries the 20 s before the timestamp, and the receive cache
+## starts empty, so messages near it arrive again. The Store node's own
 ## retention bounds how far back a query reaches.
 {.push raises: [].}
 
@@ -24,11 +24,6 @@ const
   BackfillOverlap* = chronos.nanoseconds(MaxMessageTimestampVariance)
     ## Queried again before the stored timestamp. Equal to the archive's
     ## late-timestamp window.
-  WriteConfirmTimeout = chronos.seconds(5)
-  MaxQueriesPerCatchUp* = 10_000
-    ## One catch-up asks no more than this, so a Store node that answers with
-    ## tiny steps forever cannot hold the worker. Topics are done in order and
-    ## finished ones are remembered, so the next catch-up carries on.
 
 type
   BackfillTopic* = tuple[pubsubTopic: PubsubTopic, contentTopic: ContentTopic]
@@ -43,7 +38,7 @@ type
   BackfillOutcome* = object
     queries*: int
     completedTopics*: seq[BackfillTopic] ## topics with an exhausted range
-    failed*: int ## queries that failed or returned an invalid page
+    failed*: int ## queries that failed or returned an unusable row
 
 proc lastOnlineKey(): Key =
   key("last-online")
@@ -85,30 +80,15 @@ proc readLastOnline*(
     return ok(Opt.none(Timestamp))
   return ok(Opt.some(at))
 
-proc writeLastOnline*(
-    job: Job, at: Timestamp
-): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
-  ## Persists `at` and reads it back until the stored bytes match.
-  if job.isNil() or not job.running:
-    return err("backfill persistency job is closed")
-  if at <= 0:
-    return err("invalid last-online timestamp")
-  let payload = encodeTimestamp(at)
+proc writeLastOnline*(job: Job, at: Timestamp) {.async: (raises: [CancelledError]).} =
+  ## Hands `at` to Persistency. The write is fire-and-forget, as its API is; a
+  ## write that is lost costs extra history at the next start.
   try:
-    await job.persistPut(BackfillCategory, lastOnlineKey(), payload)
-    let deadline = Moment.now() + WriteConfirmTimeout
-    while true:
-      let stored = (await job.get(BackfillCategory, lastOnlineKey())).valueOr:
-        return err("read back last-online record: " & $error)
-      if stored.isSome() and stored.get() == payload:
-        return ok()
-      if Moment.now() >= deadline:
-        return err("timed out persisting last-online record")
-      await sleepAsync(100.milliseconds)
+    await job.persistPut(BackfillCategory, lastOnlineKey(), encodeTimestamp(at))
   except CancelledError as e:
     raise e
   except CatchableError as e:
-    return err("persist last-online record: " & e.msg)
+    warn "last-online timestamp not written", error = e.msg
 
 proc queryPage(
     query: BackfillQuery, request: StoreQueryRequest, queryTimeout: Duration
@@ -129,25 +109,18 @@ proc acceptPage(
     response: StoreQueryResponse,
     deliver: BackfillDeliver,
 ): Result[Opt[Timestamp], string] =
-  ## Validates and delivers one page. Returns the timestamp of the last
-  ## message, or none when the range is exhausted.
-  if response.statusCode != uint32(StatusCode.SUCCESS):
-    return err("store response " & $response.statusCode & " " & response.statusDesc)
-  if uint64(response.messages.len) > MaxPageSize:
-    return err("store response exceeds the page size")
+  ## Delivers one page in order. Returns the timestamp of the last message,
+  ## or none when the range is exhausted. A row that cannot be used ends the
+  ## page; the rows before it are delivered.
   var last = queryStart
   for row in response.messages:
-    if row.message.isNone() or row.pubsubTopic != Opt.some(topic.pubsubTopic):
-      return err("store response is missing data or has the wrong shard")
-    let message = row.message.get()
-    if message.contentTopic != topic.contentTopic or message.timestamp < last or
-        message.timestamp >= queryStop or
-        computeMessageHash(topic.pubsubTopic, message) != row.messageHash:
-      return err("store response contains an invalid message")
-    last = message.timestamp
-  for row in response.messages:
-    if not deliver(topic.pubsubTopic, row.message.get()):
+    let message = row.message.valueOr:
+      return err("store row without a message")
+    if message.timestamp < last or message.timestamp >= queryStop:
+      return err("store row out of order or outside the range")
+    if not deliver(topic.pubsubTopic, message):
       return err("delivery declined; subscription removed or stopping")
+    last = message.timestamp
   if response.paginationCursor.isNone():
     return ok(Opt.none(Timestamp)) # the range is exhausted
   if response.messages.len == 0:
@@ -172,16 +145,12 @@ proc runCatchUp*(
     deliver: BackfillDeliver,
 ): Future[BackfillOutcome] {.async: (raises: [CancelledError]).} =
   ## Queries the topics in order over `[since, now)`, page by page, until each
-  ## one is exhausted or fails. The catch-up stops at `MaxQueriesPerCatchUp`;
-  ## the caller keeps the completed topics and asks again later.
+  ## one is exhausted or fails.
   var outcome: BackfillOutcome
   for topic in subscribedTopics:
     var start = since
-    var completed = false
-    while outcome.queries < MaxQueriesPerCatchUp:
-      if start >= now:
-        completed = true
-        break
+    var completed = true
+    while start < now:
       inc outcome.queries
       let request = StoreQueryRequest(
         includeData: true,
@@ -202,17 +171,13 @@ proc runCatchUp*(
         debug "backfill query failed; topic rests until the next catch-up",
           pubsubTopic = topic.pubsubTopic, contentTopic = topic.contentTopic, error
         inc outcome.failed
+        completed = false
         break
       if next.isNone():
-        completed = true
         break
       start = next.get()
     if completed:
       outcome.completedTopics.add(topic)
-    elif outcome.queries >= MaxQueriesPerCatchUp:
-      debug "backfill reached its query limit; the rest waits for the next catch-up",
-        queries = outcome.queries
-      break
   return outcome
 
 {.pop.}

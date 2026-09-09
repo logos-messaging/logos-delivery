@@ -71,6 +71,13 @@ proc waitStored(
     doAssert Moment.now() < deadline
     await sleepAsync(10.milliseconds)
 
+proc waitLastOnline(job: Job, expected: Opt[Timestamp]) {.async.} =
+  ## Writes are fire-and-forget. Waits until the record reads as `expected`.
+  let deadline = Moment.now() + 2.seconds
+  while (await job.readLastOnline()).get() != expected:
+    doAssert Moment.now() < deadline
+    await sleepAsync(10.milliseconds)
+
 proc names(payloads: openArray[string]): seq[string] =
   payloads.deduplicate()
 
@@ -83,9 +90,8 @@ suite "Receive backfill":
       let p = Persistency.new(root).get()
       let job = p.openJob(BackfillJobId).get()
       check (await job.readLastOnline()).get().isNone()
-      check (await job.writeLastOnline(0)).isErr()
-      check (await job.writeLastOnline(Base)).isOk()
-      check (await job.readLastOnline()).get() == Opt.some(Base)
+      await job.writeLastOnline(Base)
+      await job.waitLastOnline(Opt.some(Base))
       p.close()
     block:
       let p = Persistency.new(root).get()
@@ -102,11 +108,10 @@ suite "Receive backfill":
         await job.persistPut(BackfillCategory, k, bad)
         await job.waitStored(BackfillCategory, k, bad)
         check (await job.readLastOnline()).get().isNone()
-      check (await job.writeLastOnline(Base + Hour)).isOk()
-      check (await job.readLastOnline()).get() == Opt.some(Base + Hour)
+      await job.writeLastOnline(Base + Hour)
+      await job.waitLastOnline(Opt.some(Base + Hour))
       p.closeJob(BackfillJobId)
       check (await job.readLastOnline()).isErr()
-      check (await job.writeLastOnline(Base)).isErr()
 
   asyncTest "catch-up: topics in order, page progress, range bounds, failures":
     let t0 = Base
@@ -231,46 +236,36 @@ suite "Receive backfill":
     outcome = await catchUp(@[TestTopic], t0, t1, twoRows, declineSecond)
     check outcome.queries == 1 and outcome.failed == 1
     check offered == @["msg-20", "msg-21"]
-    # A malformed page delivers nothing, its valid rows included.
-    for scenario in 0 .. 9:
-      var count = 0
+    # A row that cannot be used ends the page and fails the topic. The rows
+    # before it are delivered.
+    for scenario in 0 .. 3:
       got = @[]
       let bad: BackfillQuery = proc(
           request: StoreQueryRequest
       ): Future[Result[StoreQueryResponse, string]] {.async.} =
-        inc count
         let good = rowAt(t0 + 30 * Second, 8)
         var row = rowAt(t0 + Minute, 9)
-        var response = StoreQueryResponse(statusCode: 200)
         case scenario
         of 0:
-          response.statusCode = 503
-        of 1:
           row.message = Opt.none(WakuMessage)
-        of 2:
-          row.pubsubTopic = Opt.some(PubsubTopic("wrong-shard"))
-        of 3:
+        of 1:
           row = rowAt(t1, 9) # exactly the exclusive end of the range
-        of 4:
-          row.messageHash[0] = row.messageHash[0] xor 0xff
-        of 5:
+        of 2:
           row = rowAt(t0 + 20 * Second, 10) # earlier than the row before it
-        of 6:
-          response.paginationCursor = Opt.some(row.messageHash) # empty, claims more
-          return ok(response)
-        of 7:
-          row = rowAt(t0 + Minute, 9, OtherTopic) # right shard, other topic
-        of 8:
-          response.messages =
-            toSeq(1 .. int(MaxPageSize) + 1).mapIt(rowAt(t0 + int64(it) * Second, it))
-          return ok(response)
         else:
           return page(@[rowAt(t0 - Second, 12)]) # before the query start
-        response.messages = @[good, row]
-        return ok(response)
+        return page(@[good, row])
       outcome = await catchUp(@[TestTopic], t0, t1, bad, collect)
-      check outcome.failed == 1 and outcome.queries == 1 and count == 1
-      check got.len == 0
+      check outcome.failed == 1 and outcome.queries == 1
+      check got.len == (if scenario == 3: 0 else: 1)
+    let emptyClaimsMore: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      var response = StoreQueryResponse(statusCode: 200)
+      response.paginationCursor = Opt.some(rowAt(t0, 1).messageHash)
+      return ok(response)
+    outcome = await catchUp(@[TestTopic], t0, t1, emptyClaimsMore)
+    check outcome.failed == 1 and outcome.queries == 1
     # A page whose messages all sit at the query start is delivered once, and
     # the next query starts one nanosecond later.
     var starts: seq[Timestamp]
@@ -285,20 +280,6 @@ suite "Receive backfill":
     outcome = await catchUp(@[TestTopic], t0, t1, sameInstant, collect)
     check outcome.completedTopics == @[TestTopic] and outcome.queries == 2
     check got == @["msg-14", "msg-15"] and starts == @[t0, t0 + 1]
-    # A Store that answers one message a nanosecond ahead forever reaches the
-    # query limit. The limit is for the whole catch-up, so more topics do not
-    # buy the Store more queries.
-    let crawling: BackfillQuery = proc(
-        request: StoreQueryRequest
-    ): Future[Result[StoreQueryResponse, string]] {.async.} =
-      let topic: BackfillTopic = (request.pubsubTopic.get(), request.contentTopics[0])
-      return page(@[rowAt(request.startTime.get(), 13, topic)], hasMore = true)
-    outcome = await catchUp(@[TestTopic], t0, t1, crawling)
-    check outcome.queries == MaxQueriesPerCatchUp
-    check outcome.completedTopics.len == 0 and outcome.failed == 0
-    outcome = await catchUp(topics, t0, t1, crawling)
-    check outcome.queries == MaxQueriesPerCatchUp
-    check outcome.completedTopics.len == 0
     # A full last page of 100 rows completes the topic.
     got = @[]
     let fullPage: BackfillQuery = proc(
