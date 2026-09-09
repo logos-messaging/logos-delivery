@@ -139,7 +139,6 @@ type
     extMultiAddrsOnly: bool
       ## Announce only the configured addresses. Set at construction.
     started*: bool # Indicates that node has started listening
-    topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
     rateLimitSettings*: ProtocolRateLimitSettings
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
       ## Kernel API Relay appHandlers (if any)
@@ -247,7 +246,6 @@ proc new*(
 
   let brokerCtx = globalBrokerContext()
 
-  let queue = newAsyncEventQueue[SubscriptionEvent](0)
   let node = WakuNode(
     peerManager: peerManager,
     switch: switch,
@@ -257,7 +255,6 @@ proc new*(
     announcedAddresses: netConfig.announcedAddresses,
     configuredAnnounced: netConfig.announcedAddresses,
     extMultiAddrsOnly: netConfig.extMultiAddrsOnly,
-    topicSubscriptionQueue: queue,
     rateLimitSettings: rateLimitSettings,
     ports: BoundPorts.init(),
   )

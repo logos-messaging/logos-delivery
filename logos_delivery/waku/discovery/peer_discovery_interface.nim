@@ -67,3 +67,33 @@ BrokerInterface(IPeerDiscovery):
     # Unfiltered random sample of the backend's peer space.
     # (libp2p ServiceDiscovery: lookupRandom; libp2p-module: discoRandomLookup)
     proc lookupRandom(): Future[Result[seq[DiscoveredPeer], string]] {.async.}
+
+  RequestBroker:
+    # Make this node findable under `key`. `data` is the advertised payload.
+    # `record` is an optional pre-signed record published verbatim (external
+    # proxy-XPR path); empty = the backend derives/signs its own advertisement.
+    # (WakuKademlia: addServiceToAdvertise; libp2p-module: discoStartAdvertising;
+    #  discv5: ENR mutation for shard: keys)
+    proc startAdvertising(
+      key: string, data: seq[byte], record: seq[byte]
+    ): Future[Result[void, string]] {.async.}
+
+  RequestBroker:
+    # (WakuKademlia: removeServiceToAdvertise; libp2p-module: discoStopAdvertising)
+    proc stopAdvertising(key: string): Future[Result[void, string]] {.async.}
+
+  RequestBroker:
+    # Track/pre-warm a key so later lookups are fast.
+    # (libp2p ServiceDiscovery / libp2p-module: registerInterest;
+    #  WakuKademlia: addServiceToDiscover)
+    proc registerInterest(key: string): Future[Result[void, string]] {.async.}
+
+  RequestBroker:
+    proc unregisterInterest(key: string): Future[Result[void, string]] {.async.}
+
+  RequestBroker:
+    # Runtime bootstrap injection; entries are backend-native strings
+    # (ENR URIs for discv5, full multiaddrs with /p2p/ for kad).
+    proc addBootstrapEntries(
+      entries: seq[string]
+    ): Future[Result[void, string]] {.async.}
