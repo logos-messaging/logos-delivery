@@ -1,4 +1,4 @@
-import chronicles, results, stint, stew/endians2
+import chronicles, results, stint, stew/[byteutils, endians2]
 import ../waku_conf
 
 logScope:
@@ -60,12 +60,15 @@ proc withEpochSizeSec*(b: var RlnConfBuilder, epochSizeSec: uint64) =
 proc withUserMessageLimit*(b: var RlnConfBuilder, userMessageLimit: uint64) =
   b.userMessageLimit = Opt.some(userMessageLimit)
 
-proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
-  if not b.enabled.get(DefaultRlnRelayEnabled):
-    return ok(Opt.none(RlnConf))
+type RlnConfs* = object
+  ## Built RLN configuration: the embedded EVM backend, or nothing when RLN is
+  ## disabled. The RLN module backend is configured by the plugin the host
+  ## installs over FFI, not from here.
+  evm*: Opt[RlnConf]
 
-  if b.chainId.isNone():
-    return err("RLN Relay Chain Id is not specified")
+proc build*(b: RlnConfBuilder): Result[RlnConfs, string] =
+  if not b.enabled.get(DefaultRlnRelayEnabled):
+    return ok(RlnConfs())
 
   let creds =
     if b.credPath.isSome() and b.credPassword.isSome():
@@ -77,6 +80,8 @@ proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
     else:
       Opt.none(RlnCreds)
 
+  if b.chainId.isNone():
+    return err("RLN Relay Chain Id is not specified")
   if b.dynamic.isNone():
     return err("rlnRelay.dynamic is not specified")
   if b.ethClientUrls.get(newSeq[string](0)).len == 0:
@@ -84,16 +89,18 @@ proc build*(b: RlnConfBuilder): Result[Opt[RlnConf], string] =
   if b.ethContractAddress.get("") == "":
     return err("rlnRelay.ethContractAddress is not specified")
   return ok(
-    Opt.some(
-      RlnConf(
-        chainId: b.chainId.get(),
-        credIndex: b.credIndex,
-        creds: creds,
-        dynamic: b.dynamic.get(),
-        ethClientUrls: b.ethClientUrls.get(),
-        ethContractAddress: b.ethContractAddress.get(),
-        epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
-        userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
+    RlnConfs(
+      evm: Opt.some(
+        RlnConf(
+          chainId: b.chainId.get(),
+          credIndex: b.credIndex,
+          creds: creds,
+          dynamic: b.dynamic.get(),
+          ethClientUrls: b.ethClientUrls.get(),
+          ethContractAddress: b.ethContractAddress.get(),
+          epochSizeSec: b.epochSizeSec.get(DefaultRlnRelayEpochSizeSec),
+          userMessageLimit: b.userMessageLimit.get(DefaultRlnRelayUserMessageLimit),
+        )
       )
     )
   )
