@@ -338,9 +338,7 @@ proc setupProtocols(
 
   if conf.rlnLezConf.isSome():
     let rlnLezConf = conf.rlnLezConf.get()
-    # Mount is local wiring only: create the module handle and install the
-    # relay validator. The module itself is started from `startNode` — the
-    # host installs its RLN callbacks only after node creation returns.
+    # Module start happens in startNode, after the host installs its RLN callbacks.
     node.rlnLez = RlnLez.init(
       MembershipScope.init(rlnLezConf.registryId, rlnLezConf.identifier),
       rlnLezConf.epochSizeSec,
@@ -478,8 +476,7 @@ proc startNode*(
       except CancelledError:
         Result[MembershipStatus, string].err("cancelled")
     if membershipRes.isErr():
-      notice "could not verify RLN membership at startup",
-        error = membershipRes.error
+      notice "could not verify RLN membership at startup", error = membershipRes.error
     elif not membershipRes.get().isUsable():
       notice "node has no usable RLN membership; sends will fail until it is active",
         status = $membershipRes.get()

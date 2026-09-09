@@ -78,9 +78,6 @@ proc attachRlnProof*(
         err("Cannot attach an RLN proof to a message that has not been timestamped")
     let timestamp = uint64(message.timestamp div 1_000_000_000)
 
-    # Verify the node's membership before the first proof; a pass is cached on
-    # the handle (usually already at node start) so later sends skip the
-    # registry read. A failed check is not cached, so the next send retries it.
     if not rlnLez.membershipVerified:
       let status = (await rlnLez.verifyMembership()).valueOr:
         return err("Failed to verify RLN membership: " & error)

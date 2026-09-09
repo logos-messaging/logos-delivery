@@ -1,25 +1,11 @@
-## RLN module FFI — logos-delivery consumes an external RLN module over a C
-## callback surface. One typed callback per RLN function: scalar args are passed
-## directly, complex args (config, options, proof) as JSON, and every call's
-## result comes back as JSON via `logosdelivery_rln_response`. See
-## `liblogosdelivery_rln.h`.
+## FFI transport to the external RLN module: one typed C callback per RLN
+## function; every result returns as JSON via `logosdelivery_rln_response`.
+## Wire contract: `library/liblogosdelivery_rln.h`.
+## `node_api.nim` imports this module to keep the C entry points compiled in.
 ##
-## This is the RLN API-module backend's own transport (the backend proper is
-## `./rln_lez`); `library/logos_delivery_api/node_api.nim` imports it, which
-## keeps the C entry points compiled into liblogosdelivery.
-##
-## The reply-parsing helpers near the bottom decode the module's two wire
-## dialects into typed results; the broker providers registered by
-## `registerRlnModuleProviders` (called from node_api at node create) flatten
-## those to strings at their edge.
-##
-## Threading: host callbacks may complete on a foreign thread, so the crossing
-## uses `ThreadSignalPtr` + `allocShared` (no GC memory shared across threads).
-## One `Lock` guards the callback table and the in-flight `ptr Pending` list.
-##
-## Membership is keyed by two identifiers carried on nearly every call:
-## `registryId` is a CAIP-10 account identifier (`namespace:reference:account_address`)
-## and `rlnIdentifier` is a 32-byte per-application identifier.
+## Host callbacks may complete on a foreign thread, so the crossing uses
+## `ThreadSignalPtr` + `allocShared` only, with one `Lock` over the callback
+## table and in-flight list.
 
 import std/[json, locks]
 import chronos, chronos/threadsync, results
@@ -146,9 +132,10 @@ proc awaitResult(
     deallocShared(p)
 
   let answered = await p.signal.wait().withTimeout(timeout)
-  if not answered or not p.completed:
-    return
-      err("timeout") # or "module cleared" if completed=false via set_callbacks(nil)
+  if not answered:
+    return err("timeout")
+  if not p.completed:
+    return err("RLN module unregistered while awaiting response")
   return ok($p.resultBuf)
 
 # --- outbound calls (one per RLN function) ------------------------------------
@@ -332,17 +319,9 @@ proc logosdelivery_rln_response*(
     return 0
 
 # --- reply parsing ------------------------------------------------------------
-# Module replies follow the RLN module's own wire bindings, 
-# split by the method's declared return type:
-# - `result` methods (start, stop, generate_proof, validate_proof,
-#   get_epoch_quota) answer with the LogosResult envelope
-#   {"success":bool,"value":<reply>,"error":<string>}; on failure `error` is
-#   the JSON-encoded typed object {"class","kind","message"}.
-# - `tstr` methods (register, get_membership_state) answer with compact JSON;
-#   failures are the in-band envelope {"error":{"class",...}}.
-# `class` is the spec's RlnErrorKind, lowercase: not_ready | transient |
-# budget_exhausted | permanent. Decode failures map to Transient (retry
-# permitted; the module may answer coherently next time).
+# Two dialects (see liblogosdelivery_rln.h): `result` methods answer with the
+# {"success","value","error"} envelope, `tstr` methods with compact JSON and an
+# in-band {"error":{...}}. Decode failures map to Transient.
 
 proc toRlnError(errNode: JsonNode): RlnError =
   let kind =

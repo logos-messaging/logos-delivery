@@ -203,10 +203,7 @@ proc setRlnValidator*(
       registryId = rlnConf.registryId
       rlnIdentifier = rlnConf.identifier
 
-    ## Bridges the external RLN module's validation into a relay (gossipsub)
-    ## validator. The verdict is produced by the module answering
-    ## `RequestValidateRlnProof`; this maps it to `pubsub.ValidationResult`
-    ## so the validator can be installed on WakuRelay's validator chain.
+    # Maps the module's verdict (RequestValidateRlnProof) to pubsub.ValidationResult.
     proc validator(
         topic: string, message: WakuMessage
     ): Future[pubsub.ValidationResult] {.async.} =
@@ -262,11 +259,7 @@ proc setRlnValidator*(
       info "WakuRelay not mounted; RLN validator not set"
       return
 
-    ## Bridges RLN's protocol-agnostic message validation into a relay
-    ## (gossipsub) validator. The core decision is made by
-    ## `validateMessageAndUpdateLog`; this maps the result to
-    ## `pubsub.ValidationResult` so the validator can be installed on
-    ## WakuRelay's validator chain.
+    # Maps validateMessageAndUpdateLog's result to pubsub.ValidationResult.
     proc validator(
         topic: string, message: WakuMessage
     ): Future[pubsub.ValidationResult] {.async.} =

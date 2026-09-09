@@ -87,8 +87,6 @@ proc build*(b: RlnConfBuilder): Result[RlnConfs, string] =
     return ok(RlnConfs())
 
   if b.lez.get(false):
-    # The external RLN module owns the keystore and registry connectivity, so
-    # the eth*/creds builder fields do not apply and are ignored here.
     if b.registryId.get("") == "":
       return err("rlnRelay.registryId is not specified")
     if b.identifier.get("") == "":
