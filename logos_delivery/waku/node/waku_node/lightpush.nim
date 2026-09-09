@@ -183,7 +183,7 @@ proc legacyLightpushPublish*(
   except CatchableError:
     return err(getCurrentExceptionMsg())
 
-# TODO: Move to application module (e.g., wakunode2.nim)
+# TODO: Move to application module (e.g., logosdeliverynode.nim)
 proc legacyLightpushPublish*(
     node: WakuNode, pubsubTopic: Opt[PubsubTopic], message: WakuMessage
 ): Future[legacy_lightpush_protocol.WakuLightPushResult[string]] {.

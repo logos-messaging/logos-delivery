@@ -84,7 +84,7 @@ pipeline {
       when { expression { v2changed } }
       steps { script {
         def out = genOutputFilename()
-        sh "mv build/wakunode2 ${out}"
+        sh "mv build/logosdeliverynode ${out}"
         env.PKG_URL = s3.uploadArtifact(out)
         jenkins.setBuildDesc(Waku: env.PKG_URL)
       } }
@@ -113,7 +113,7 @@ def getAgentLabel() {
 
 def genOutputFilename() {
   return [
-    "wakunode2", utils.timestamp(), utils.gitCommit(), getAgentLabel()
+    "logosdeliverynode", utils.timestamp(), utils.gitCommit(), getAgentLabel()
   ].join('-') + (env.NODE_NAME.startsWith('windows') ? '.exe' : '.bin')
 }
 

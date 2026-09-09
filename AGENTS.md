@@ -88,17 +88,17 @@ The project uses a Makefile that drives Nimble. Dependencies are resolved from
 `NIMBLEDEPS_STAMP` target).
 ```bash
 # Initial build (resolves Nimble deps automatically)
-make wakunode2
+make logosdeliverynode
 
 # Build with custom flags
-make wakunode2 NIMFLAGS="-d:chronicles_log_level=DEBUG"
+make logosdeliverynode NIMFLAGS="-d:chronicles_log_level=DEBUG"
 ```
 
 Note: The build uses `--mm:refc` memory management (passed automatically by the Nimble tasks in `logos_delivery.nimble`). Only relevant if compiling outside the standard build system.
 
 ### Common Make Targets
 ```bash
-make wakunode2          # Build main node binary
+make logosdeliverynode  # Build main node binary
 make test               # Run all tests
 make testcommon         # Run common tests only
 make liblogosdelivery   # Build the C FFI library
@@ -493,14 +493,14 @@ Language: Nim 2.x | License: MIT or Apache 2.0
 - `Makefile` - Primary build interface
 - `logos_delivery.nimble` - Package definition and build tasks (invoked by the Makefile via Nimble)
 - `nimble.lock` - Pinned dependency versions resolved into `nimbledeps/`
-- `waku/node/waku_node.nim` - Core node implementation
-- `apps/wakunode2/wakunode2.nim` - Main CLI application
-- `waku/factory/waku_conf.nim` - Configuration types
-- `liblogosdelivery/liblogosdelivery.nim` - C bindings entry point
+- `logos_delivery/waku/node/waku_node.nim` - Core node implementation
+- `apps/logos_delivery_node/logosdeliverynode.nim` - Main CLI application
+- `logos_delivery/waku/factory/waku_conf.nim` - Configuration types
+- `library/liblogosdelivery.nim` - C bindings entry point
 
 ### Testing Entry Points
 - `tests/all_tests_waku.nim` - All Waku protocol tests
-- `tests/all_tests_wakunode2.nim` - Node application tests
+- `tests/all_tests_app.nim` - Node application tests
 - `tests/all_tests_common.nim` - Common utilities tests
 #### in-flight testing
 - any test can be run separately by issuing `make test tests/<relativepath>/<unit-test-source>.nim`

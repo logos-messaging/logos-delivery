@@ -1,5 +1,8 @@
 # Configure store protocol (versions prior to v0.13.0)
 
+> This page documents releases prior to v0.13.0, where the node binary was
+> named `wakunode2`. The current binary is `logosdeliverynode`.
+
 Store protocol is enabled by default on a nwaku node.
 This is controlled by the `--store` CLI option.
 

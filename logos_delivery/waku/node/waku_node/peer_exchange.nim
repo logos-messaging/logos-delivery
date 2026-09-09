@@ -101,7 +101,7 @@ proc startPeerExchangeLoop*(node: WakuNode) =
   debug "Starting peer exchange loop"
   node.wakuPeerExchangeClient.pxLoopHandle = node.peerExchangeLoop()
 
-# TODO: Move to application module (e.g., wakunode2.nim)
+# TODO: Move to application module (e.g., logosdeliverynode.nim)
 proc setPeerExchangePeer*(
     node: WakuNode, peer: RemotePeerInfo | MultiAddress | string
 ) =

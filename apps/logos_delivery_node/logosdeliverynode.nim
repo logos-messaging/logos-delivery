@@ -8,7 +8,7 @@ import
   system/ansi_c,
   libp2p/crypto/crypto
 import
-  ../../tools/confutils/cli_args,
+  ../../tools/[rln_keystore_generator/rln_keystore_generator, confutils/cli_args],
   logos_delivery/logos_delivery,
   logos_delivery/waku/common/logging
 
@@ -40,8 +40,8 @@ when isMainModule:
 
   case wakuNodeConf.cmd
   of generateRlnKeystore:
-    error "generateRlnKeystore not supported by logos_delivery_node; use wakunode2"
-    quit(QuitFailure)
+    let conf = wakuNodeConf.toKeystoreGeneratorConf()
+    doRlnKeystoreGenerator(conf)
   of noCommand:
     # `LogosDelivery` derives the per-layer config from `WakuNodeConf` itself
     # (it runs `toWakuConf` internally), then builds the layers bottom-up:

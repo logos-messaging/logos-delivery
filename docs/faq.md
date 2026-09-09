@@ -4,7 +4,7 @@
 
 Grep for "Listening on". It should be printed at INFO level at the beginning. E.g. from Kibana:
 
-`Oct 7, 2020 @ 23:17:00.383INF 2020-10-07 23:17:00.375+00:00 Listening on                               topics="wakunode" tid=1 file=wakunode2.nim:140 full=/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAkzHaTP5JsUwfR9NR8Rj9HC24puS6ocaU8wze4QrXr9iXp`
+`Oct 7, 2020 @ 23:17:00.383INF 2020-10-07 23:17:00.375+00:00 Listening on                               topics="wakunode" tid=1 file=logosdeliverynode.nim:140 full=/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAkzHaTP5JsUwfR9NR8Rj9HC24puS6ocaU8wze4QrXr9iXp`
 
 ## How do I find out node addresses at the test cluster?
 

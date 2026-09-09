@@ -6,13 +6,13 @@ To enable QUIC, use the `--quic-support` option.
 Note, the default port for QUIC is 60000.
 
 ```shell
-wakunode2 --quic-support=true
+logosdeliverynode --quic-support=true
 ```
 
 To listen on a different UDP port, use `--quic-port`:
 
 ```shell
-wakunode2 --quic-support=true --quic-port=<port>
+logosdeliverynode --quic-support=true --quic-port=<port>
 ```
 
 QUIC runs alongside the existing TCP transport. The node keeps listening on TCP and announces a `/udp/<port>/quic-v1` address in its ENR, so peers that support QUIC can connect over it while others continue to use TCP.

@@ -11,7 +11,7 @@ on:
 env:
   RELEASE_NAME: nightly
 
-  NODE_BINARIES: "wakunode2 logosdeliverynode chat2"
+  NODE_BINARIES: "logosdeliverynode chat2"
   TOOLS_BINARIES: "wakucanary networkmonitor"
 
   NPROC: 2
@@ -103,7 +103,7 @@ jobs:
       - name: upload artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: wakunode2-${{ matrix.os }}-${{ matrix.arch }}
+          name: nodes-${{ matrix.os }}-${{ matrix.arch }}
           path: ${{steps.vars.outputs.nwaku}}
           retention-days: 2
 
@@ -163,8 +163,8 @@ jobs:
       - name: download node artifacts
         uses: actions/download-artifact@v4
         with:
-          pattern: wakunode2-*
-          path: wakunode2
+          pattern: nodes-*
+          path: nodes
           merge-multiple: true
 
       - name: download tools artifacts
@@ -198,12 +198,12 @@ jobs:
           echo "expected platform count: $EXPECTED"
 
           # check_dir <dir> <binaries>
-          # e.g. check_dir wakunode2 "wakunode2 logosdeliverynode chat2"
+          # e.g. check_dir nodes "logosdeliverynode chat2"
           # Every tarball in <dir> must extract and must contain each named
           # binary with the CPU type that the tarball name shows.
           check_dir() {
-            local dir="$1"       # artifact directory, e.g. wakunode2
-            local binaries="$2"  # in each tarball, e.g. "wakunode2 logosdeliverynode chat2"
+            local dir="$1"       # artifact directory, e.g. nodes
+            local binaries="$2"  # in each tarball, e.g. "logosdeliverynode chat2"
 
             echo "== $dir (binaries: $binaries) =="
             ls -l "$dir"
@@ -230,7 +230,7 @@ jobs:
               esac
 
               # file reads the bytes of each binary,
-              # e.g. "build/wakunode2: ELF 64-bit LSB pie executable, x86-64, ...".
+              # e.g. "build/logosdeliverynode: ELF 64-bit LSB pie executable, x86-64, ...".
               # A missing, zero-size, truncated, or wrong-arch binary fails here.
               for binary in $binaries; do
                 line=$(file "$unpacked/build/$binary" 2>/dev/null || true)
@@ -241,7 +241,7 @@ jobs:
             done
           }
 
-          check_dir wakunode2 "$NODE_BINARIES"
+          check_dir nodes "$NODE_BINARIES"
           check_dir wakutools "$TOOLS_BINARIES"
 
       - name: generate release notes
@@ -282,4 +282,4 @@ jobs:
 
           gh release create "$TAG" --prerelease ${TARGET} \
             --title "$TAG" --notes-file release_notes.md \
-            wakunode2/* wakutools/* packages/*
+            nodes/* wakutools/* packages/*

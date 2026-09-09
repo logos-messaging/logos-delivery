@@ -200,7 +200,7 @@ make chat2bridge
 ```
 ./build/chat2bridge --mb-host-address=127.0.0.1 --mb-host-port=4242 --mb-gateway="gateway1"
 ```
-Note that `chat2bridge` encompasses a full `wakunode2` which can be configured with the normal configuration parameters.
+Note that `chat2bridge` encompasses a full `logosdeliverynode` which can be configured with the normal configuration parameters.
 For a full list of configuration options, run `--help`.
 ```
 ./build/chat2bridge --help

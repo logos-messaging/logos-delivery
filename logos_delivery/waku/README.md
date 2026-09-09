@@ -18,19 +18,15 @@ See [specifications](https://rfc.vac.dev/waku/standards/core/10/waku2).
 
 ```bash
 # The first `make` invocation will update all Git submodules.
-make wakunode2
+make logosdeliverynode
 
 # See available command line options
-./build/wakunode2 --help
-
-# Connect the client directly with the Status test fleet
-# TODO NYI
-#./build/wakunode2 --log-level:debug --discovery:off --fleet:test --log-metrics
+./build/logosdeliverynode --help
 ```
 
-Note: building `wakunode2` requires 2GB of RAM. The build will fail on systems not fulfilling this requirement.
+Note: building `logosdeliverynode` requires 2GB of RAM. The build will fail on systems not fulfilling this requirement.
 
-Setting up a `wakunode2` on the smallest [digital ocean](https://docs.digitalocean.com/products/droplets/how-to/) droplet, you can either
+Setting up a `logosdeliverynode` on the smallest [digital ocean](https://docs.digitalocean.com/products/droplets/how-to/) droplet, you can either
 
 * compile on a stronger droplet featuring the same CPU architecture and downgrade after compiling, or
 * activate swap on the smallest droplet, or
@@ -67,7 +63,7 @@ nim c -r -d:chronicles_log_level=WARN --verbosity=0 --hints=off --outdir=build .
 ### Waku Protocol Example
 
 There are basic examples of both publishing and subscribing,
-more limited in features and configuration than the `wakunode2` binary,
+more limited in features and configuration than the `logosdeliverynode` binary,
 located in `examples/`.
 
 There is also a more full featured example in `apps/chat2/`.
@@ -77,8 +73,8 @@ There is also a more full featured example in `apps/chat2/`.
 Metrics are available for Waku nodes.
 
 ```bash
-make wakunode2
-./build/wakunode2 --metrics-server
+make logosdeliverynode
+./build/logosdeliverynode --metrics-server
 ```
 
 Ensure your Prometheus config `prometheus.yml` contains the targets you care about, e.g.:
@@ -112,7 +108,7 @@ To maintain consistent addressing across restarts,
 it is possible to configure the node with a previously generated private key using the `--nodekey` option.
 
 ```shell
-wakunode2 --nodekey=<64_char_hex>
+logosdeliverynode --nodekey=<64_char_hex>
 ```
 
 This option takes a [Secp256k1](https://en.bitcoin.it/wiki/Secp256k1) private key in 64 char hexstring format.
@@ -155,7 +151,7 @@ writing EC key
 where the key `0c687bb8a7984c770b566eae08520c67f53d302f24b8d4e5e47cc479a1e1ce23` can be used as `nodekey`.
 
 ```sh
-wakunode2 --nodekey=0c687bb8a7984c770b566eae08520c67f53d302f24b8d4e5e47cc479a1e1ce23
+logosdeliverynode --nodekey=0c687bb8a7984c770b566eae08520c67f53d302f24b8d4e5e47cc479a1e1ce23
 ```
 
 ## Configuring a domain name
@@ -163,7 +159,7 @@ wakunode2 --nodekey=0c687bb8a7984c770b566eae08520c67f53d302f24b8d4e5e47cc479a1e1
 It is possible to configure an IPv4 DNS domain name that resolves to the node's public IPv4 address.
 
 ```shell
-wakunode2 --dns4-domain-name=mynode.example.com
+logosdeliverynode --dns4-domain-name=mynode.example.com
 ```
 
 This allows for the node's publicly announced `multiaddrs` to use the `/dns4` scheme.
@@ -211,11 +207,11 @@ sudo letsencrypt -d <your.domain.name>
 
 You will need the `privkey.pem` and `fullchain.pem` files.
 
-To enable secure websocket, pass the generated files to `wakunode2`:
+To enable secure websocket, pass the generated files to `logosdeliverynode`:
 Note, the default port for websocket is 8000.
 
 ```shell
-wakunode2 --websocket-secure-support=true --websocket-secure-key-path="<letsencrypt cert dir>/privkey.pem" --websocket-secure-cert-path="<letsencrypt cert dir>/fullchain.pem"
+logosdeliverynode --websocket-secure-support=true --websocket-secure-key-path="<letsencrypt cert dir>/privkey.pem" --websocket-secure-cert-path="<letsencrypt cert dir>/fullchain.pem"
 ```
 
 ### Self-signed certificates
@@ -230,7 +226,7 @@ However, they can be used for local testing purposes:
 ```shell
 mkdir -p ./ssl_dir/
 openssl req -x509 -newkey rsa:4096 -keyout ./ssl_dir/key.pem -out ./ssl_dir/cert.pem -sha256 -nodes
-wakunode2 --websocket-secure-support=true --websocket-secure-key-path="./ssl_dir/key.pem" --websocket-secure-cert-path="./ssl_dir/cert.pem"
+logosdeliverynode --websocket-secure-support=true --websocket-secure-key-path="./ssl_dir/key.pem" --websocket-secure-cert-path="./ssl_dir/cert.pem"
 ```
 
 ## Enabling QUIC
@@ -240,11 +236,11 @@ QUIC is a UDP-based transport that peers can use to connect to your node.
 The default port for QUIC is 60000.
 
 ```shell
-wakunode2 --quic-support=true
+logosdeliverynode --quic-support=true
 ```
 
 To listen on a different UDP port, use `--quic-port`:
 
 ```shell
-wakunode2 --quic-support=true --quic-port=<port>
+logosdeliverynode --quic-support=true --quic-port=<port>
 ```

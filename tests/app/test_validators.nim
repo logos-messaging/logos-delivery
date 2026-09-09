@@ -19,7 +19,7 @@ import
   ../testlib/wakucore,
   ../testlib/wakunode
 
-suite "WakuNode2 - Validators":
+suite "Node app - Validators":
   asyncTest "Spam protected topic accepts signed messages":
     # Create 5 nodes
     let nodes = toSeq(0 ..< 5).mapIt(newTestWakuNode(generateSecp256k1Key()))

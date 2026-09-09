@@ -8,11 +8,11 @@ It includes scripts that run a `4 node` mixnet along with a lightpush service no
 
 ## Simulation Details
 
-Note that before running the simulation both `wakunode2` and `chat2mix` have to be built.
+Note that before running the simulation both `logosdeliverynode` and `chat2mix` have to be built.
 
 ```bash
 cd <repo-root-dir>
-make wakunode2
+make logosdeliverynode
 make chat2mix
 ```
 
@@ -36,7 +36,7 @@ Look for following 2 log lines to ensure node ran successfully and has also moun
 ```log
 INF 2025-08-01 14:51:05.445+05:30 mounting mix protocol                      topics="waku node" tid=39996871 file=waku_node.nim:231 nodeId="(listenAddresses: @[\"/ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAmPiEs2ozjjJF2iN2Pe2FYeMC9w4caRHKYdLdAfjgbWM6o\"], enrUri: \"enr:-NC4QKYtas8STkenlqBTJ3a1TTLzJA2DsGGbFlnxem9aSM2IXm-CSVZULdk2467bAyFnepnt8KP_QlfDzdaMXd_zqtwBgmlkgnY0gmlwhH8AAAGHbWl4LWtleaCdCc5iT3bo9gYmXtucyit96bQXcqbXhL3a-S_6j7p9LIptdWx0aWFkZHJzgIJyc4UAAgEAAIlzZWNwMjU2azGhA6RFtVJVBh0SYOoP8xrgnXSlpiFARmQkF9d8Rn4fSeiog3RjcILqYYN1ZHCCIymFd2FrdTIt\")"
 
-INF 2025-08-01 14:49:23.467+05:30 Node setup complete                        topics="wakunode main" tid=39994244 file=wakunode2.nim:104
+INF 2025-08-01 14:49:23.467+05:30 Node setup complete                        topics="wakunode main" tid=39994244 file=logosdeliverynode.nim:104
 ```
 
 Once all the 4 nodes are up without any issues, run the script to start the chat application.

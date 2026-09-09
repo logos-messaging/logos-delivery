@@ -9,7 +9,7 @@ This differs from the prior test scenarios in which the RLN group was static and
 ## Prerequisites
 To complete this tutorial, you will need
 
-1. An rln keystore file with credentials to the rln membership smart contract you wish to use. You may obtain this by registering to the smart contract and generating a keystore, or by using the [rln-keystore-generator](./rln-keystore-generator.md) which does that for you.
+1. An rln keystore file with credentials to the rln membership smart contract you wish to use. You may obtain this by registering to the smart contract and generating a keystore, or by using the node binary's `generateRlnKeystore` subcommand, which does that for you (see [tools/rln_keystore_generator](../../tools/rln_keystore_generator/README.md)).
 
 
 ## Overview

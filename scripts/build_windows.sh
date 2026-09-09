@@ -33,13 +33,10 @@ execute_command "mkdir -p tmp"
 # Nat.mk builds miniupnpc and libnatpmp from the package nimble installed, and
 # libbacktrace is disabled by default. The vendor tree those steps used is gone.
 
-echo "5. -.-.-.- Building wakunode2 -.-.-.- "
-execute_command "make wakunode2 LOG_LEVEL=DEBUG V=1 -j8"
-
-echo "6. -.-.-.- Building logosdeliverynode -.-.-.- "
+echo "5. -.-.-.- Building logosdeliverynode -.-.-.- "
 execute_command "make logosdeliverynode POSTGRES=1 LOG_LEVEL=DEBUG V=1 -j8"
 
-echo "7. -.-.-.- Building liblogosdelivery -.-.-.- "
+echo "6. -.-.-.- Building liblogosdelivery -.-.-.- "
 execute_command "make liblogosdelivery STATIC=0 LOG_LEVEL=DEBUG V=1 -j8"
 
 echo "✓ Successful commands: $success_count"

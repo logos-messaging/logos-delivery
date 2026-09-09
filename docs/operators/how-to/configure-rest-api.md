@@ -18,7 +18,7 @@ Note that these command line options have their counterpart option in the node c
 Example:
 
 ```shell
-wakunode2 --rest=true
+logosdeliverynode --rest=true
 ```
 
 The `page_size` flag in the Store API has a default value of 20 and a max value of 100.

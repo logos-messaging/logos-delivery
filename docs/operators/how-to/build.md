@@ -40,19 +40,19 @@ git clone https://github.com/status-im/nwaku
 cd nwaku
 ```
 
-### 2. Make the `wakunode2` target
+### 2. Make the `logosdeliverynode` target
 
 ```sh
 # The first `make` invocation will update all Git submodules.
-make wakunode2
+make logosdeliverynode
 ```
 
-This will create a `wakunode2` binary in the `./build/` directory.
+This will create a `logosdeliverynode` binary in the `./build/` directory.
 
-> **Note:** Building `wakunode2` requires 2GB of RAM.
+> **Note:** Building `logosdeliverynode` requires 2GB of RAM.
 The build will fail on systems not fulfilling this requirement. 
 
-> Setting up a `wakunode2` on the smallest [digital ocean](https://docs.digitalocean.com/products/droplets/how-to/) droplet, you can either
+> Setting up a `logosdeliverynode` on the smallest [digital ocean](https://docs.digitalocean.com/products/droplets/how-to/) droplet, you can either
 > * compile on a stronger droplet featuring the same CPU architecture and downgrade after compiling, or
 > * activate swap on the smallest droplet, or
 > * use Docker.

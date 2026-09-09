@@ -5,10 +5,10 @@ Windows support is experimental.
 
 ```sh
 # Run with default configuration
-./build/wakunode2
+./build/logosdeliverynode
 
 # See available command line options
-./build/wakunode2 --help
+./build/logosdeliverynode --help
 ```
 
 ## Default configuration
@@ -41,7 +41,7 @@ and contains a list of all publicly announced listening addresses for the nwaku 
 For example
 
 ```
-INF 2022-05-11 16:42:30.591+02:00 Listening on                               topics="wakunode" tid=6661 file=wakunode2.nim:941 full=[/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H][/ip4/0.0.0.0/tcp/8000/ws/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H]
+INF 2022-05-11 16:42:30.591+02:00 Listening on                               topics="wakunode" tid=6661 file=logosdeliverynode.nim:941 full=[/ip4/0.0.0.0/tcp/60000/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H][/ip4/0.0.0.0/tcp/8000/ws/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H]
 ```
 
 indicates that your node is listening on the TCP transport address
@@ -83,7 +83,7 @@ and contains an ENR that can be added to node lists discoverable via DNS.
 For example
 
 ```
-INF 2022-05-20 11:52:48.772+02:00 DNS: discoverable ENR                      topics="wakunode" tid=5182 file=wakunode2.nim:941 enr=enr:-Iu4QBZs5huNuEAjI9WA0HOAjzpmp39vKJAtYRG3HXH86-i3HGcxMgupIkyDBmBq9qJ2wFfgMiW8AUzUxTFMAzfJM5MBgmlkgnY0gmlwhAAAAACJc2VjcDI1NmsxoQN0EcrUbHrL_O_kNXDlBvcO1I4yZUdNk7VZI5GsXaWgvYN0Y3CC6mCFd2FrdTID
+INF 2022-05-20 11:52:48.772+02:00 DNS: discoverable ENR                      topics="wakunode" tid=5182 file=logosdeliverynode.nim:941 enr=enr:-Iu4QBZs5huNuEAjI9WA0HOAjzpmp39vKJAtYRG3HXH86-i3HGcxMgupIkyDBmBq9qJ2wFfgMiW8AUzUxTFMAzfJM5MBgmlkgnY0gmlwhAAAAACJc2VjcDI1NmsxoQN0EcrUbHrL_O_kNXDlBvcO1I4yZUdNk7VZI5GsXaWgvYN0Y3CC6mCFd2FrdTID
 ```
 
 indicates that your node addresses are encoded in the ENR
@@ -101,7 +101,7 @@ and contains the ENR that will be discoverable by other peers.
 For example
 
 ```
-INF 2022-05-20 11:52:48.775+02:00 Discv5: discoverable ENR                   topics="wakunode" tid=5182 file=wakunode2.nim:905 enr=enr:-IO4QDxToTg86pPCK2KvMeVCXC2ADVZWrxXSvNZeaoa0JhShbM5qed69RQz1s1mWEEqJ3aoklo_7EU9iIBcPMVeKlCQBgmlkgnY0iXNlY3AyNTZrMaEDdBHK1Gx6y_zv5DVw5Qb3DtSOMmVHTZO1WSORrF2loL2DdWRwgiMohXdha3UyAw
+INF 2022-05-20 11:52:48.775+02:00 Discv5: discoverable ENR                   topics="wakunode" tid=5182 file=logosdeliverynode.nim:905 enr=enr:-IO4QDxToTg86pPCK2KvMeVCXC2ADVZWrxXSvNZeaoa0JhShbM5qed69RQz1s1mWEEqJ3aoklo_7EU9iIBcPMVeKlCQBgmlkgnY0iXNlY3AyNTZrMaEDdBHK1Gx6y_zv5DVw5Qb3DtSOMmVHTZO1WSORrF2loL2DdWRwgiMohXdha3UyAw
 ```
 
 indicates that your node addresses are encoded in the ENR
@@ -133,7 +133,7 @@ The Discovery v5 routing table can similarly be bootstrapped using a static ENR.
 We include an example below.
 
 ```sh
-./build/wakunode2 \
+./build/logosdeliverynode \
   --ports-shift:1 \
   --staticnode:/ip4/0.0.0.0/tcp/60002/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H \
   --staticnode:/ip4/0.0.0.0/tcp/60003/p2p/16Uiu2HAmFBA7LGtwY5WVVikdmXVo3cKLqkmvVtuDu63fe8safeQJ \
@@ -153,7 +153,7 @@ You can use DNS discovery to bootstrap connection to the existing production net
 Discovery v5 will attempt to extract the ENRs of the discovered nodes as bootstrap entries to the routing table.
 
 ```sh
-./build/wakunode2 \
+./build/logosdeliverynode \
   --ports-shift:1 \
   --dns-discovery:true \
   --dns-discovery-url:enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im \
@@ -168,7 +168,7 @@ You can use DNS discovery to bootstrap connection to the existing test network.
 Discovery v5 will attempt to extract the ENRs of the discovered nodes as bootstrap entries to the routing table.
 
 ```sh
-./build/wakunode2 \
+./build/logosdeliverynode \
   --ports-shift:1 \
   --dns-discovery:true \
   --dns-discovery-url:enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im \
@@ -184,12 +184,11 @@ For example, a typical configuration for such a store service node,
 appears below.
 
 ```sh
-./build/wakunode2 \
+./build/logosdeliverynode \
   --ports-shift:1 \
   --store:true \
-  --persist-messages:true \
-  --db-path:/mnt/nwaku/data/db1/ \
-  --store-capacity:150000 \
+  --store-message-db-url:sqlite:///mnt/nwaku/data/db1/store.sqlite3 \
+  --store-message-retention-policy:capacity:150000 \
   --dns-discovery:true \
   --dns-discovery-url:enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im \
   --discv5-discovery:true

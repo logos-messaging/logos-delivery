@@ -286,7 +286,7 @@ expect_make_parses "make test <file> still parses"      test tests/all_tests_wak
 expect_recipe "setup uses the system Nim" \
   '--useSystemNim' nimbledeps/.nimble-setup
 expect_recipe "custom tasks use the system Nim" \
-  '--useSystemNim' wakunode2
+  '--useSystemNim' logosdeliverynode
 expect_recipe "setup audits the result" \
   "audit-deps" nimbledeps/.nimble-setup
 expect_recipe "build-deps audits after the native rebuilds" \
@@ -306,7 +306,7 @@ fi
 expect_recipe "setup invokes the pinned Nimble by path" \
   "${nimble_dir}/nimble setup" nimbledeps/.nimble-setup
 expect_recipe "custom tasks invoke the pinned Nimble by path" \
-  "${nimble_dir}/nimble wakunode2" wakunode2
+  "${nimble_dir}/nimble logosdeliverynode" logosdeliverynode
 
 # --------------------------------------------------------------------------
 # nix/deps.nix must list every git lock entry at its locked revision. The Nix
@@ -333,7 +333,7 @@ expect_eq "nix/deps.nix lists the locked revisions" "ok" "$(nix_lock_diff 2>&1)"
 # caller's value has to come last. An invalid flag stops Nim before it
 # compiles, and the command is printed before it runs.
 # --------------------------------------------------------------------------
-emitted=$(make wakunode2 \
+emitted=$(make logosdeliverynode \
   NIMFLAGS="-d:chronicles_log_level=HEALTHSENTINEL --nonexistent-flag-xyz" 2>&1 \
   | grep -oE 'nim c [^|]*' | head -1)
 if [ -z "${emitted}" ]; then

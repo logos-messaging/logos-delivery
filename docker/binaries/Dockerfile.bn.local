@@ -2,11 +2,11 @@
 # FROM debian:stable-slim AS prod
 FROM ubuntu:24.04 AS prod
 
-ARG MAKE_TARGET=wakunode2
+ARG MAKE_TARGET=logosdeliverynode
 
 LABEL maintainer="vaclav@status.im"
-LABEL source="https://github.com/waku-org/nwaku"
-LABEL description="Wakunode: Waku client"
+LABEL source="https://github.com/logos-messaging/logos-delivery"
+LABEL description="Logos Delivery node"
 LABEL commit="unknown"
 
 # DevP2P, LibP2P, and JSON RPC ports
@@ -23,10 +23,9 @@ ADD ./build/$MAKE_TARGET /usr/local/bin/
 # Copy migration scripts for DB upgrades
 ADD ./migrations/ /app/migrations/
 
-# Symlink the correct wakunode binary
-RUN ln -sv /usr/local/bin/$MAKE_TARGET /usr/bin/wakunode
+RUN ln -sv /usr/local/bin/$MAKE_TARGET /usr/bin/logosdeliverynode
 
-ENTRYPOINT ["/usr/bin/wakunode"]
+ENTRYPOINT ["/usr/bin/logosdeliverynode"]
 
 # By default just show help if called without arguments
 CMD ["--help"]
@@ -57,4 +56,4 @@ COPY --from=heaptrack-build /heaptrack/build/ /heaptrack/build/
 ENV LD_LIBRARY_PATH=/heaptrack/build/lib/heaptrack/
 RUN ln -s /heaptrack/build/bin/heaptrack /usr/local/bin/heaptrack
 
-ENTRYPOINT ["/heaptrack/build/bin/heaptrack", "/usr/bin/wakunode"]
+ENTRYPOINT ["/heaptrack/build/bin/heaptrack", "/usr/bin/logosdeliverynode"]

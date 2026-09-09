@@ -15,8 +15,8 @@ such as a C compiler, Make, Bash and Git.*
 ```bash
 git clone --recurse-submodules https://github.com/waku-org/nwaku
 cd nwaku
-make wakunode2
-./build/wakunode2 \
+make logosdeliverynode
+./build/logosdeliverynode \
   --dns-discovery:true \
   --dns-discovery-url:enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im \
   --discv5-discovery \

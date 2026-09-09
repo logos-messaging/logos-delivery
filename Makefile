@@ -99,7 +99,7 @@ endif
 .PHONY: all test clean examples ffi-examples deps nimble install-nim install-nimble print-nimble-path
 
 # default target
-all: | wakunode2 logosdeliverynode liblogosdelivery
+all: | logosdeliverynode liblogosdelivery
 
 examples: | example2 chat2 chat2bridge
 
@@ -292,7 +292,7 @@ testcommon: | build-deps build
 ##########
 ## Waku ##
 ##########
-.PHONY: testwaku testlogosdelivery wakunode2 logosdeliverynode testwakunode2 example2 chat2 chat2bridge liteprotocoltester
+.PHONY: testwaku testlogosdelivery logosdeliverynode testapp example2 chat2 chat2bridge liteprotocoltester
 
 testwaku: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -303,17 +303,6 @@ testwaku: | build-deps build rln-deps librln
 testlogosdelivery: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) testlogosdelivery $(NIMBLE_TASK_FLAGS)
-
-# Windows: build with nim directly — `nimble <task>` re-clones git deps every
-# build and they intermittently hang on the MSYS2 runner. Flags mirror logos_delivery.nimble.
-wakunode2: | build-deps build deps librln
-ifeq ($(detected_OS),Windows)
-	echo -e $(BUILD_MSG) "build/$@" && \
-		nim c --out:build/wakunode2 --mm:refc --cpu:amd64 -d:chronicles_log_level=TRACE $(NIM_PARAMS) apps/wakunode2/wakunode2.nim
-else
-	echo -e $(BUILD_MSG) "build/$@" && \
-		$(NIMBLE) wakunode2 $(NIMBLE_TASK_FLAGS)
-endif
 
 # Windows: build with nim directly — `nimble <task>` re-clones git deps every
 # build and they intermittently hang on the MSYS2 runner. Flags mirror logos_delivery.nimble.
@@ -330,9 +319,9 @@ benchmarks: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) benchmarks $(NIMBLE_TASK_FLAGS)
 
-testwakunode2: | build-deps build deps librln
+testapp: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
-		$(NIMBLE) testwakunode2 $(NIMBLE_TASK_FLAGS)
+		$(NIMBLE) testapp $(NIMBLE_TASK_FLAGS)
 
 example2: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -445,7 +434,7 @@ coverage: | build-deps build rln-deps librln
 #####################
 DOCKER_IMAGE_NIMFLAGS ?= -d:chronicles_colors:none -d:insecure -d:postgres
 
-docker-image: MAKE_TARGET ?= wakunode2
+docker-image: MAKE_TARGET ?= logosdeliverynode
 docker-image: DEBUG ?= 0
 docker-image: DOCKER_IMAGE_TAG ?= $(MAKE_TARGET)-$(GIT_VERSION)
 docker-image: DOCKER_IMAGE_NAME ?= wakuorg/nwaku:$(DOCKER_IMAGE_TAG)
@@ -461,11 +450,11 @@ docker-image:
 		--target $(TARGET) \
 		--tag $(DOCKER_IMAGE_NAME) .
 
-docker-quick-image: MAKE_TARGET ?= wakunode2
+docker-quick-image: MAKE_TARGET ?= logosdeliverynode
 docker-quick-image: DOCKER_IMAGE_TAG ?= $(MAKE_TARGET)-$(GIT_VERSION)
 docker-quick-image: DOCKER_IMAGE_NAME ?= wakuorg/nwaku:$(DOCKER_IMAGE_TAG)
 docker-quick-image: NIM_PARAMS := $(NIM_PARAMS) -d:chronicles_colors:none -d:insecure -d:postgres --passL:$(LIBRLN_FILE) --passL:-lm
-docker-quick-image: | build librln wakunode2
+docker-quick-image: | build librln logosdeliverynode
 	docker build \
 		--build-arg="MAKE_TARGET=$(MAKE_TARGET)" \
 		--tag $(DOCKER_IMAGE_NAME) \
@@ -531,7 +520,7 @@ else ifeq ($(detected_OS),Linux)
 	BUILD_COMMAND := $(BUILD_COMMAND)Linux
 endif
 
-# Windows: build with nim directly (see wakunode2) — `nimble <task>` re-clones
+# Windows: build with nim directly (see logosdeliverynode) — `nimble <task>` re-clones
 # git deps every build and they intermittently hang on the MSYS2 runner. Flags
 # mirror logos_delivery.nimble's dynamic-windows task.
 # DISABLE_RLN=true links liblogosdelivery without zerokit: no librln, no Rust,
@@ -540,7 +529,7 @@ DISABLE_RLN ?= false
 ifeq ($(DISABLE_RLN),true)
     LIBLOGOSDELIVERY_RLN_DEP :=
     # Target-specific, so `make DISABLE_RLN=true all` cannot compile the stubs
-    # into wakunode2, which still links the real librln.
+    # into logosdeliverynode, which still links the real librln.
     liblogosdelivery: NIM_PARAMS += -d:disable_rln
 else
     LIBLOGOSDELIVERY_RLN_DEP := librln

@@ -17,7 +17,7 @@ Static peers can be provided to a nwaku node on startup using the `--staticnode`
 The `--staticnode` option can be repeated for each peer you want to connect to on startup.
 
 ```sh
-./build/wakunode2 \
+./build/logosdeliverynode \
   --staticnode:<libp2p-multiaddr-peer1> \
   --staticnode:<libp2p-multiaddr-peer2>
 ```
@@ -28,7 +28,7 @@ with TCP ports `60002` and `60003`,
 and peer IDs `16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H` and `16Uiu2HAmFBA7LGtwY5WVVikdmXVo3cKLqkmvVtuDu63fe8safeQJ` respectively.
 
 ```sh
-./build/wakunode2 \
+./build/logosdeliverynode \
   --staticnode:/ip4/0.0.0.0/tcp/60002/p2p/16Uiu2HAkzjwwgEAXfeGNMKFPSpc6vGBRqCdTLG5q3Gmk2v4pQw7H \
   --staticnode:/ip4/0.0.0.0/tcp/60003/p2p/16Uiu2HAmFBA7LGtwY5WVVikdmXVo3cKLqkmvVtuDu63fe8safeQJ
 ```
@@ -50,7 +50,7 @@ It is possible to configure bootstrap entries for the Discovery v5 routing table
 using the `--discv5-bootstrap-node` option repeatedly.
 
 ```sh
-./build/wakunode2 \
+./build/logosdeliverynode \
   --discv5-discovery:true \
   --discv5-bootstrap-node:<discv5-enr-bootstrap-entry1> \
   --discv5-bootstrap-node:<discv5-enr-bootstrap-entry2>
