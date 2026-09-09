@@ -12,6 +12,11 @@ extern "C" {
    every result are JSON strings. All strings are borrowed for the duration of
    the call — copy before returning.
 
+   req_id is supplied by the library calling the callbacks. It needs to be 
+   unique among the requests currently in flight, that lets concurrent calls 
+   (including calls made from different threads) be told apart and matched to
+   their responses.
+
    Arg shapes and result_json follow the RLN module's own wire dialect
    (logos-rln-modules, liblogos_rln_module.lidl / docs/wire-binding.md) — the
    host forwards both directions verbatim:
@@ -28,9 +33,6 @@ typedef void (*LogosDeliveryRlnStartFn)(uint64_t req_id, const char* config_json
 
 typedef void (*LogosDeliveryRlnStopFn)(uint64_t req_id, void* user_data);
 
-/* options_json is the module's RegistryOptions array, ready to send:
-   [{"key":"<str>","value":"<str>"}, …] — every value a string; the key
-   "rate_limit" (decimal string) carries the per-epoch rate. */
 typedef void (*LogosDeliveryRlnRegisterFn)(uint64_t req_id, const char* registry_id,
                                            const char* rln_identifier,
                                            const char* options_json, void* user_data);
@@ -64,12 +66,12 @@ typedef struct {
   LogosDeliveryRlnValidateProofFn validate_proof;
 } LogosDeliveryRlnCallbacks;
 
-/* library ← shell: register once, before node start. NULL clears and fails
+/* The host application registers callbacks once, before node start. NULL clears and fails
    all in-flight requests. Returns 0 on success. */
 int logosdelivery_rln_set_callbacks(const LogosDeliveryRlnCallbacks* cbs,
                                     void* user_data);
 
-/* shell → library: completion of an outbound call, same req_id. Thread-safe;
+/* The host application sends the response on completion of an outbound call, same req_id. Thread-safe;
    result_json is copied before return. */
 int logosdelivery_rln_response(uint64_t req_id, const char* result_json);
 

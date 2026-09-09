@@ -50,7 +50,9 @@ proc fakeStop(reqId: uint64, userData: pointer) {.cdecl, gcsafe, raises: [].} =
     discard logosdelivery_rln_response(reqId, OkEnvelope.cstring)
 
 proc fakeRegister(
-    reqId: uint64, registryId, rlnIdentifier: cstring, optionsJson: cstring,
+    reqId: uint64,
+    registryId, rlnIdentifier: cstring,
+    optionsJson: cstring,
     userData: pointer,
 ) {.cdecl, gcsafe, raises: [].} =
   {.cast(gcsafe), cast(raises: []).}:
@@ -64,22 +66,29 @@ proc fakeGetState(
     discard logosdelivery_rln_response(reqId, StateReply.cstring)
 
 proc fakeGetQuota(
-    reqId: uint64, registryId, rlnIdentifier: cstring, timestamp: uint64,
+    reqId: uint64,
+    registryId, rlnIdentifier: cstring,
+    timestamp: uint64,
     userData: pointer,
 ) {.cdecl, gcsafe, raises: [].} =
   {.cast(gcsafe), cast(raises: []).}:
     discard logosdelivery_rln_response(reqId, QuotaReply.cstring)
 
 proc fakeGenerate(
-    reqId: uint64, registryId, rlnIdentifier, signalHex: cstring, timestamp: uint64,
+    reqId: uint64,
+    registryId, rlnIdentifier, signalHex: cstring,
+    timestamp: uint64,
     userData: pointer,
 ) {.cdecl, gcsafe, raises: [].} =
   {.cast(gcsafe), cast(raises: []).}:
     discard logosdelivery_rln_response(reqId, GenerateReply.cstring)
 
 proc fakeValidate(
-    reqId: uint64, registryId, rlnIdentifier, signalHex: cstring, timestamp: uint64,
-    proofJson: cstring, userData: pointer,
+    reqId: uint64,
+    registryId, rlnIdentifier, signalHex: cstring,
+    timestamp: uint64,
+    proofJson: cstring,
+    userData: pointer,
 ) {.cdecl, gcsafe, raises: [].} =
   {.cast(gcsafe), cast(raises: []).}:
     discard logosdelivery_rln_response(reqId, gValidateReply.cstring)
@@ -101,10 +110,10 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
     scope = MembershipScope.init("logos:testnet:0", rlnId)
     timestamp = 1_700_000_000'u64
     configJson = """{"epoch_size_sec":120,"registries":["logos:testnet:0"]}"""
-    m = RlnLez.init()
+    rlnLez = RlnLez.init()
 
   test "unregistered host fails NotReady":
-    let res = waitFor m.start(configJson)
+    let res = waitFor rlnLez.start(configJson)
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.NotReady
@@ -112,14 +121,14 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
   test "start and stop round-trip the result envelope":
     check logosdelivery_rln_set_callbacks(addr gCallbacks, nil) == 0
     check:
-      (waitFor m.start(configJson)).isOk()
-      (waitFor m.stop()).isOk()
+      (waitFor rlnLez.start(configJson)).isOk()
+      (waitFor rlnLez.stop()).isOk()
 
   test "module-level failure decodes into the typed error":
     gStartReply = NotReadyEnvelope
     defer:
       gStartReply = OkEnvelope
-    let res = waitFor m.start(configJson)
+    let res = waitFor rlnLez.start(configJson)
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.NotReady
@@ -127,14 +136,14 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
 
   test "registerMembership submits and reports the pending state":
     let options = @[RegistryOption(key: "rate_limit", value: "100")]
-    let state = (waitFor m.registerMembership(scope, options)).valueOr:
+    let state = (waitFor rlnLez.registerMembership(scope, options)).valueOr:
       raiseAssert $error
     check:
       state.status == MembershipStatus.Pending
       gLastRegistryId == scope.registryId
 
   test "getMembershipState decodes the tstr reply":
-    let state = (waitFor m.getMembershipState(scope)).valueOr:
+    let state = (waitFor rlnLez.getMembershipState(scope)).valueOr:
       raiseAssert $error
     check:
       state.status == MembershipStatus.Active
@@ -143,7 +152,7 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
       state.membership.get().leafIndex == 7
 
   test "getEpochQuota decodes the envelope value":
-    let quota = (waitFor m.getEpochQuota(scope, timestamp)).valueOr:
+    let quota = (waitFor rlnLez.getEpochQuota(scope, timestamp)).valueOr:
       raiseAssert $error
     check:
       quota.epochIndex == 42
@@ -151,17 +160,17 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
       quota.remaining == 99
 
   test "generateProof carries the canonical blob":
-    let proof = (waitFor m.generateProof(scope, @[1'u8, 2, 3], timestamp)).valueOr:
+    let proof = (waitFor rlnLez.generateProof(scope, @[1'u8, 2, 3], timestamp)).valueOr:
       raiseAssert $error
     check:
       proof.proof[0] == 0xab'u8
       proof.proof[RlnProofSize - 1] == 0xab'u8
 
   test "validateProof decodes verdict and recovered secret":
-    let generated = (waitFor m.generateProof(scope, @[1'u8, 2, 3], timestamp)).valueOr:
+    let generated = (waitFor rlnLez.generateProof(scope, @[1'u8, 2, 3], timestamp)).valueOr:
       raiseAssert $error
     let validation = (
-      waitFor m.validateProof(scope, @[1'u8, 2, 3], timestamp, generated)
+      waitFor rlnLez.validateProof(scope, @[1'u8, 2, 3], timestamp, generated)
     ).valueOr:
       raiseAssert $error
     check:
@@ -171,7 +180,7 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
 
     gValidateReply = """{"error":null,"success":true,"value":{"verdict":"valid"}}"""
     let valid = (
-      waitFor m.validateProof(scope, @[1'u8, 2, 3], timestamp, generated)
+      waitFor rlnLez.validateProof(scope, @[1'u8, 2, 3], timestamp, generated)
     ).valueOr:
       raiseAssert $error
     check:
@@ -180,7 +189,7 @@ suite "RlnLez - RlnInterface over the module FFI crossing":
 
   test "clearing the host callbacks returns the backend to NotReady":
     check logosdelivery_rln_set_callbacks(nil, nil) == 0
-    let res = waitFor m.getEpochQuota(scope, timestamp)
+    let res = waitFor rlnLez.getEpochQuota(scope, timestamp)
     check:
       res.isErr()
       res.error.kind == RlnErrorKind.NotReady

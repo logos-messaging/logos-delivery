@@ -794,8 +794,14 @@ procSuite "WakuNode - RLN relay":
       rlnManager.merkleProofCache = newSeq[byte](goodCache.len)
 
       let msg = fakeWakuMessage()
+      const testRegistryId =
+        "logos:selftest:0000000000000000000000000000000000000000000000000000000000000000"
       let proofResult = await RequestGenerateRlnProof.request(
-        node.rln.brokerCtx, msg, "", default(rln_api_types.RlnIdentifier), uint64(epochTime())
+        node.rln.brokerCtx,
+        msg,
+        testRegistryId,
+        default(rln_api_types.RlnIdentifier),
+        uint64(epochTime()),
       )
 
       check proofResult.isOk()

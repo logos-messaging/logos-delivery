@@ -44,6 +44,7 @@ type MessagingClientConf* = object
   rlnRegistryOptions* {.name: "rln-registry-options".}: Opt[string]
     ## Flat JSON object of registry-specific registration options, passed verbatim
     ## to the external RLN module's register().
+    ## e.g. "rate_limit":"10" (default is applied if not present)
   rlnUserMessageLimit* {.name: "rln-relay-user-message-limit".}: Opt[uint64]
     ## Per-epoch message limit requested for the RLN membership.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
