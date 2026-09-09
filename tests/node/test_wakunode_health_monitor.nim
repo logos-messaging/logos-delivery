@@ -2,6 +2,7 @@
 
 import std/[json, sequtils, strutils, tables], testutils/unittests, chronos, results
 import brokers/broker_context
+import libp2p_mix/curve25519, libp2p/[peerid, multiaddress]
 
 import
   logos_delivery/waku/[
@@ -21,6 +22,7 @@ import
     api/events/health_events,
     api/events/peer_events,
     waku_archive,
+    waku_mix,
   ]
 
 import ../testlib/[wakunode, wakucore], ../waku_archive/archive_utils
@@ -36,8 +38,11 @@ const TestConnectivityTimeLimit = 3.seconds
 
 proc protoHealthMock(kind: WakuProtocol, health: HealthStatus): ProtocolHealth =
   var ph = ProtocolHealth.init(kind)
-  if health == HealthStatus.READY:
+  case health
+  of HealthStatus.READY:
     return ph.ready()
+  of HealthStatus.NOT_MOUNTED:
+    return ph.notMounted()
   else:
     return ph.notReady("mock")
 
@@ -134,6 +139,69 @@ suite "Health Monitor - health state calculation":
     strength[StoreClientProtocol] = 0
     let state = calculateConnectionState(protocols, strength, Opt.some(MockDLow))
     check state == ConnectionStatus.Connected
+
+  test "Disconnected, mix required but pool too small":
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.READY),
+      protoHealthMock(MixProtocol, HealthStatus.NOT_READY),
+    ]
+    var strength = initTable[WakuProtocol, int]()
+    strength[RelayProtocol] = MockDLow
+    let state = calculateConnectionState(
+      protocols, strength, Opt.some(MockDLow), mixRequired = true
+    )
+    check state == ConnectionStatus.Disconnected
+
+  test "Disconnected, mix required but not mounted":
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.READY),
+      protoHealthMock(MixProtocol, HealthStatus.NOT_MOUNTED),
+    ]
+    var strength = initTable[WakuProtocol, int]()
+    strength[RelayProtocol] = MockDLow
+    let state = calculateConnectionState(
+      protocols, strength, Opt.some(MockDLow), mixRequired = true
+    )
+    check state == ConnectionStatus.Disconnected
+
+  test "Connected, mix required and ready":
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.READY),
+      protoHealthMock(MixProtocol, HealthStatus.READY),
+    ]
+    var strength = initTable[WakuProtocol, int]()
+    strength[RelayProtocol] = MockDLow
+    let state = calculateConnectionState(
+      protocols, strength, Opt.some(MockDLow), mixRequired = true
+    )
+    check state == ConnectionStatus.Connected
+
+  test "Connected, mix not ready but not required":
+    # anonymityLevel None/Preferred: the plain send path still works
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.READY),
+      protoHealthMock(MixProtocol, HealthStatus.NOT_READY),
+    ]
+    var strength = initTable[WakuProtocol, int]()
+    strength[RelayProtocol] = MockDLow
+    let state = calculateConnectionState(protocols, strength, Opt.some(MockDLow))
+    check state == ConnectionStatus.Connected
+
+  test "Disconnected, mix required on an edge node":
+    let protocols = @[
+      protoHealthMock(RelayProtocol, HealthStatus.NOT_MOUNTED),
+      protoHealthMock(LightpushClientProtocol, HealthStatus.READY),
+      protoHealthMock(FilterClientProtocol, HealthStatus.READY),
+      protoHealthMock(StoreClientProtocol, HealthStatus.READY),
+      protoHealthMock(MixProtocol, HealthStatus.NOT_READY),
+    ]
+    var strength = initTable[WakuProtocol, int]()
+    strength[LightpushClientProtocol] = HealthyThreshold
+    strength[FilterClientProtocol] = HealthyThreshold
+    strength[StoreClientProtocol] = HealthyThreshold
+    let state =
+      calculateConnectionState(protocols, strength, Opt.none(int), mixRequired = true)
+    check state == ConnectionStatus.Disconnected
 
 suite "Health Monitor - events":
   asyncTest "Core (relay) health update":
@@ -449,6 +517,159 @@ suite "Health Monitor - events":
     check lastStatus == ConnectionStatus.PartiallyConnected
 
     await ds.stop()
+    await monitorA.stopHealthMonitor()
+    await nodeB.stop()
+    await nodeA.stop()
+
+proc addMixPeer(node: WakuNode, port: int) =
+  ## Mix pool size is the count of peer-store entries carrying a mix key.
+  let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
+  let keyPair = generateKeyPair().expect("mix key pair")
+  node.peerManager.addPeer(
+    RemotePeerInfo.init(
+      peerId,
+      @[MultiAddress.init("/ip4/127.0.0.1/tcp/" & $port).tryGet()],
+      mixPubKey = Opt.some(keyPair.publicKey),
+    )
+  )
+
+proc mountTestMix(node: WakuNode) {.async.} =
+  let (mixPrivKey, _) = generateKeyPair().expect("mix key pair")
+  (await node.mountMix(DefaultClusterId, mixPrivKey, @[])).expect("failed to mount mix")
+
+suite "Health Monitor - mix readiness":
+  asyncTest "Mix health follows the pool size":
+    var node: WakuNode
+    lockNewGlobalBrokerContext:
+      node =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+
+    let monitor = NodeHealthMonitor.new(node)
+    check monitor.getSyncProtocolHealthInfo(MixProtocol).health ==
+      HealthStatus.NOT_MOUNTED
+
+    await node.mountTestMix()
+
+    let shortPool = monitor.getSyncProtocolHealthInfo(MixProtocol)
+    check:
+      shortPool.health == HealthStatus.NOT_READY
+      shortPool.desc.isSome()
+
+    for i in 0 ..< MinMixPoolSize:
+      node.addMixPeer(61000 + i)
+
+    check monitor.getSyncProtocolHealthInfo(MixProtocol).health == HealthStatus.READY
+
+  asyncTest "Required mix keeps the status Disconnected while the pool is short":
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeA =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
+      await nodeA.mountTestMix()
+      await nodeA.start()
+
+    let monitorA = NodeHealthMonitor.new(nodeA)
+    monitorA.setMixRequired(true)
+
+    var
+      lastStatus = ConnectionStatus.Disconnected
+      healthChangeSignal = newAsyncEvent()
+
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
+      lastStatus = status
+      healthChangeSignal.fire()
+
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeB =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.start()
+
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+      discard
+
+    nodeA.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node A failed to subscribe"
+    )
+    nodeB.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node B failed to subscribe"
+    )
+
+    let deadline = Moment.now() + TestConnectivityTimeLimit
+    while Moment.now() < deadline:
+      if await healthChangeSignal.wait().withTimeout(deadline - Moment.now()):
+        healthChangeSignal.clear()
+
+    check:
+      # relay is up, so only the mix gate can be holding the status down
+      monitorA.getSyncProtocolHealthInfo(RelayProtocol).health == HealthStatus.READY
+      lastStatus == ConnectionStatus.Disconnected
+
+    await monitorA.stopHealthMonitor()
+    await nodeB.stop()
+    await nodeA.stop()
+
+  asyncTest "Required mix reaches PartiallyConnected once the pool fills":
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeA =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
+      await nodeA.mountTestMix()
+      await nodeA.start()
+
+    for i in 0 ..< MinMixPoolSize:
+      nodeA.addMixPeer(62000 + i)
+
+    let monitorA = NodeHealthMonitor.new(nodeA)
+    monitorA.setMixRequired(true)
+
+    var
+      lastStatus = ConnectionStatus.Disconnected
+      healthChangeSignal = newAsyncEvent()
+
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
+      lastStatus = status
+      healthChangeSignal.fire()
+
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeB =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.start()
+
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+      discard
+
+    nodeA.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node A failed to subscribe"
+    )
+    nodeB.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node B failed to subscribe"
+    )
+
+    let deadline = Moment.now() + TestConnectivityTimeLimit
+    var gotConnected = false
+    while Moment.now() < deadline:
+      if lastStatus == ConnectionStatus.PartiallyConnected:
+        gotConnected = true
+        break
+      if await healthChangeSignal.wait().withTimeout(deadline - Moment.now()):
+        healthChangeSignal.clear()
+
+    check gotConnected == true
+
     await monitorA.stopHealthMonitor()
     await nodeB.stop()
     await nodeA.stop()

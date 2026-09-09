@@ -7,6 +7,7 @@ import
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
   logos_delivery/waku/api/publish,
+  logos_delivery/waku/api/health,
   logos_delivery/waku/factory/conf_builder/waku_conf_builder,
   logos_delivery/waku/persistency/persistency,
   logos_delivery/messaging/delivery_service/[recv_service, send_service],
@@ -38,17 +39,19 @@ proc new*(
   ## The messaging layer chains onto Waku: it drives the underlying Waku kernel
   ## for transport while exposing its own send/recv API.
   let reliability = conf.reliabilityEnabled.get(DefaultP2pReliability)
+  let anonymityLevel = conf.anonymityLevel.get(AnonymityLevel.None)
   let rateLimitManager = ?RateLimitManager.new(
     conf.rateLimit.get(DefaultRateLimitConfig), rlnQuotaProvider(waku)
   )
   let sendService = ?SendService.new(
-    reliability,
-    waku,
-    rateLimitManager,
-    anonymityLevel = conf.anonymityLevel.get(AnonymityLevel.None),
+    reliability, waku, rateLimitManager, anonymityLevel = anonymityLevel
   )
   let backfill = ?BackfillState.init(conf)
   let recvService = RecvService.new(waku, backfill)
+
+  # `Required` has no plain fallback, so connectivity must account for mix.
+  waku.setMixRequired(anonymityLevel == AnonymityLevel.Required)
+
   return ok(
     T(
       waku: waku,
