@@ -26,3 +26,4 @@ const
   requestIdMismatch* = "request_id_mismatch"
   errorResponse* = "error_response"
   pushTimeoutFailure* = "push_timeout_failure"
+  requestFailure* = "request_failure"

@@ -18,5 +18,6 @@ const
   retrievePeersDiscv5Error* = "retrieve_peers_discv5_failure"
   pxFailure* = "px_failure"
   streamClosedFailure* = "stream_closed_failure"
+  sendOrReceiveFailure* = "error_sending_or_receiving_px_req"
 
 type WakuPeerExchangeResult*[T] = Result[T, PeerExchangeResponseStatus]

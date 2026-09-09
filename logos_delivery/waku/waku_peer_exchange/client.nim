@@ -25,34 +25,7 @@ type WakuPeerExchangeClient* = ref object
 proc new*(T: type WakuPeerExchangeClient, peerManager: PeerManager): T =
   WakuPeerExchangeClient(peerManager: peerManager)
 
-proc request*(
-    wpx: WakuPeerExchangeClient, numPeers = DefaultPXNumPeersReq, conn: Connection
-): Future[WakuPeerExchangeResult[PeerExchangeResponse]] {.async: (raises: []).} =
-  let rpc = PeerExchangeRpc.makeRequest(numPeers)
-
-  var buffer: seq[byte]
-  var callResult =
-    (status_code: PeerExchangeResponseStatusCode.SUCCESS, status_desc: Opt.none(string))
-  try:
-    await conn.writeLP(rpc.encode().buffer)
-    buffer = await conn.readLp(DefaultMaxRpcSize.int)
-  except CatchableError as exc:
-    debug "Exception when handling peer exchange request", error = exc.msg
-    logos_delivery_px_client_errors.inc(
-      labelValues = ["error_sending_or_receiving_px_req"]
-    )
-    callResult = (
-      status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
-      status_desc: Opt.some($exc.msg),
-    )
-  finally:
-    # close, no more data is expected
-    await conn.closeWithEof()
-
-  if callResult.status_code != PeerExchangeResponseStatusCode.SUCCESS:
-    debug "Peer exchange request failed", status_code = callResult.status_code
-    return err(callResult)
-
+proc decodeResponse(buffer: seq[byte]): WakuPeerExchangeResult[PeerExchangeResponse] =
   let decoded = PeerExchangeRpc.decode(buffer).valueOr:
     debug "Peer exchange request error decoding buffer", error = $error
     return err(
@@ -73,11 +46,44 @@ proc request*(
   return ok(decoded.response)
 
 proc request*(
+    wpx: WakuPeerExchangeClient, numPeers = DefaultPXNumPeersReq, conn: Connection
+): Future[WakuPeerExchangeResult[PeerExchangeResponse]] {.async: (raises: []).} =
+  let rpc = PeerExchangeRpc.makeRequest(numPeers)
+
+  var buffer: seq[byte]
+  var callResult =
+    (status_code: PeerExchangeResponseStatusCode.SUCCESS, status_desc: Opt.none(string))
+  try:
+    await conn.writeLP(rpc.encode().buffer)
+    buffer = await conn.readLp(DefaultMaxRpcSize.int)
+  except CatchableError as exc:
+    debug "Exception when handling peer exchange request", error = exc.msg
+    logos_delivery_px_client_errors.inc(labelValues = [sendOrReceiveFailure])
+    callResult = (
+      status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
+      status_desc: Opt.some($exc.msg),
+    )
+  finally:
+    # close, no more data is expected
+    await conn.closeWithEof()
+
+  if callResult.status_code != PeerExchangeResponseStatusCode.SUCCESS:
+    debug "Peer exchange request failed", status_code = callResult.status_code
+    return err(callResult)
+
+  return decodeResponse(buffer)
+
+proc request*(
     wpx: WakuPeerExchangeClient, numPeers = DefaultPXNumPeersReq, peer: RemotePeerInfo
 ): Future[WakuPeerExchangeResult[PeerExchangeResponse]] {.async: (raises: []).} =
-  try:
-    let connOpt = await wpx.peerManager.dialPeer(peer, WakuPeerExchangeCodec)
-    if connOpt.isNone():
+  let rpc = PeerExchangeRpc.makeRequest(numPeers)
+
+  let buffer = (
+    await wpx.peerManager.request(
+      peer, WakuPeerExchangeCodec, rpc.encode().buffer, DefaultMaxRpcSize.int
+    )
+  ).valueOr:
+    if error.kind == NetErrorKind.Dial:
       debug "Peer exchange request dial failed, no connection"
       return err(
         (
@@ -85,15 +91,17 @@ proc request*(
           status_desc: Opt.some(dialFailure),
         )
       )
-    return await wpx.request(numPeers, connOpt.get())
-  except CatchableError:
-    debug "Peer exchange request exception", error = getCurrentExceptionMsg()
+
+    debug "Peer exchange request failed", error = $error
+    logos_delivery_px_client_errors.inc(labelValues = [sendOrReceiveFailure])
     return err(
       (
-        status_code: PeerExchangeResponseStatusCode.BAD_RESPONSE,
-        status_desc: Opt.some("exception dialing peer: " & getCurrentExceptionMsg()),
+        status_code: PeerExchangeResponseStatusCode.SERVICE_UNAVAILABLE,
+        status_desc: Opt.some(error.cause),
       )
     )
+
+  return decodeResponse(buffer)
 
 proc request*(
     wpx: WakuPeerExchangeClient, numPeers = DefaultPXNumPeersReq

@@ -7,6 +7,8 @@ from ../waku_core/codecs import WakuLightPushCodec
 export WakuLightPushCodec
 export LightPushStatusCode
 
+const MaxLightpushResponseSize* = 64 * 1024
+
 const LightPushSuccessCode* = (SUCCESS: LightPushStatusCode(200))
 
 const LightPushErrorCode* = (

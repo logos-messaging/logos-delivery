@@ -30,28 +30,32 @@ proc new*(
   WakuStoreClient(peerManager: peerManager, rng: rng)
 
 proc sendStoreRequest(
-    self: WakuStoreClient, request: StoreQueryRequest, connection: Connection
+    self: WakuStoreClient, request: StoreQueryRequest, peer: RemotePeerInfo | PeerId
 ): Future[StoreQueryResult] {.async, gcsafe.} =
   var req = request
 
-  self.peerManager.addActiveStoreRequest(connection.peerId)
+  let peerId = when peer is PeerId: peer else: peer.peerId
+
+  self.peerManager.addActiveStoreRequest(peerId)
   defer:
-    self.peerManager.removeActiveStoreRequest(connection.peerId)
-    await connection.closeWithEof()
+    self.peerManager.removeActiveStoreRequest(peerId)
 
   if req.requestId == "":
     req.requestId = generateRequestId(self.rng)
 
-  let writeRes = catch:
-    await connection.writeLP(req.encode().buffer)
-  if writeRes.isErr():
-    return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: writeRes.error.msg))
-
-  let readRes = catch:
-    await connection.readLp(DefaultMaxRpcSize.int)
-
-  let buf = readRes.valueOr:
-    return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: error.msg))
+  let buf = (
+    await self.peerManager.request(
+      peer, WakuStoreCodec, req.encode().buffer, MaxStoreResponseSize.int
+    )
+  ).valueOr:
+    case error.kind
+    of NetErrorKind.Dial:
+      logos_delivery_store_errors.inc(labelValues = [DialFailure])
+      return err(StoreError(kind: ErrorCode.PEER_DIAL_FAILURE, address: $peer))
+    of NetErrorKind.Write:
+      return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: error.cause))
+    of NetErrorKind.Read:
+      return err(StoreError(kind: ErrorCode.BAD_RESPONSE, cause: error.cause))
 
   let res = StoreQueryResponse.decode(buf).valueOr:
     logos_delivery_store_errors.inc(labelValues = [DecodeRpcFailure])
@@ -80,12 +84,7 @@ proc query*(
   if request.paginationCursor.isSome() and request.paginationCursor.get() == EmptyCursor:
     return err(StoreError(kind: ErrorCode.BAD_REQUEST, cause: "invalid cursor"))
 
-  let connection = (await self.peerManager.dialPeer(peer, WakuStoreCodec)).valueOr:
-    logos_delivery_store_errors.inc(labelValues = [DialFailure])
-
-    return err(StoreError(kind: ErrorCode.PEER_DIAL_FAILURE, address: $peer))
-
-  return await self.sendStoreRequest(request, connection)
+  return await self.sendStoreRequest(request, peer)
 
 proc queryToAny*(
     self: WakuStoreClient, request: StoreQueryRequest, peerId = Opt.none(PeerId)
@@ -107,13 +106,7 @@ proc queryToAny*(
 
   var lastError: StoreError
   for peer in peersToTry:
-    let connection = (await self.peerManager.dialPeer(peer, WakuStoreCodec)).valueOr:
-      logos_delivery_store_errors.inc(labelValues = [DialFailure])
-      debug "Failed to dial store peer, trying next"
-      lastError = StoreError(kind: ErrorCode.PEER_DIAL_FAILURE, address: $peer)
-      continue
-
-    let response = (await self.sendStoreRequest(request, connection)).valueOr:
+    let response = (await self.sendStoreRequest(request, peer)).valueOr:
       debug "Store query failed, trying next peer", peerId = peer.peerId, error = $error
       lastError = error
       continue
