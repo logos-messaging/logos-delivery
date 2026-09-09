@@ -29,6 +29,7 @@ import
 import
   logos_delivery/waku/
     [common/error_handling, waku_core, requests/rln_requests, waku_keystore]
+import logos_delivery/waku/rln/rln_lez/types as rln_api_types
 
 # Re-export the submodules so existing `import rln`
 # callers see the moved symbols
@@ -228,10 +229,12 @@ proc mount(
   RequestGenerateRlnProof.setProvider(
     rlnEvm.brokerCtx,
     proc(
-        msg: WakuMessage, senderEpochTime: float64
+        message: WakuMessage, timestamp: uint64
     ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
       let proofBytes = (
-        await rlnEvm.generateRLNProofWithRootRefresh(msg.toRLNSignal(), senderEpochTime)
+        await rlnEvm.generateRLNProofWithRootRefresh(
+          message.toRLNSignal(), float64(timestamp)
+        )
       ).valueOr:
         return err("Could not create RLN proof: " & error)
       return ok(RequestGenerateRlnProof(proof: proofBytes)),

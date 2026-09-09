@@ -129,7 +129,7 @@ jobs:
       - name: Build logosdeliverynode
         run: |
           make -j${NPROC} V=1 POSTGRES=1 \
-            NIMFLAGS="-d:disableMarchNative -d:chronicles_colors:none" \
+            NIMFLAGS="-d:chronicles_colors:none" \
             logosdeliverynode
 
       - name: Audit installed deps

@@ -16,6 +16,7 @@ import
   ../net/nat_strategy,
   ../net/net_config,
   ../rln/rln_evm/rln_evm,
+  ../rln/rln_lez/config as rln_lez_config,
   ../rest_api/endpoint/builder,
   ../discovery/waku_discv5,
   ../discovery/waku_kademlia,
@@ -27,7 +28,8 @@ import
   ../waku_mix,
   ./conf_builder/kademlia_discovery_conf_builder
 
-export RlnConf, RlnCreds, RestServerConf, Discv5Conf, MetricsServerConf
+export
+  RlnConf, RlnCreds, WakuRlnLezConfig, RestServerConf, Discv5Conf, MetricsServerConf
 # Export only the NatStrategy type and its parse and render procs.
 # The mapper machinery stays in net/nat_config.
 export nat_strategy
@@ -117,7 +119,7 @@ type WakuConf* {.requiresInit.} = ref object
   dnsDiscoveryConf*: Opt[DnsDiscoveryConf]
   filterServiceConf*: Opt[FilterServiceConf]
   storeServiceConf*: Opt[StoreServiceConf]
-  rlnRelayConf*: Opt[RlnConf]
+  rlnEvmConf*: Opt[RlnConf]
   restServerConf*: Opt[RestServerConf]
   metricsServerConf*: Opt[MetricsServerConf]
   webSocketConf*: Opt[WebSocketConf]
@@ -164,7 +166,7 @@ type WakuConf* {.requiresInit.} = ref object
 proc logConf*(conf: WakuConf) =
   info "Configuration: Enabled protocols",
     relay = conf.relay,
-    rlnRelay = conf.rlnRelayConf.isSome(),
+    rlnRelay = conf.rlnEvmConf.isSome(),
     store = conf.storeServiceConf.isSome(),
     filter = conf.filterServiceConf.isSome(),
     lightPush = conf.lightPush,
@@ -180,15 +182,14 @@ proc logConf*(conf: WakuConf) =
     for i in conf.discv5Conf.get().bootstrapNodes:
       debug "Configuration. Bootstrap nodes", node = i.string
 
-  if conf.rlnRelayConf.isSome():
-    var rlnRelayConf = conf.rlnRelayConf.get()
-    if rlnRelayConf.dynamic:
-      info "Configuration. Validation",
-        mechanism = "onchain rln",
-        contract = rlnRelayConf.ethContractAddress.string,
-        maxMessageSize = conf.maxMessageSizeBytes,
-        rlnEpochSizeSec = rlnRelayConf.epochSizeSec,
-        rlnRelayUserMessageLimit = rlnRelayConf.userMessageLimit
+  if conf.rlnEvmConf.isSome() and conf.rlnEvmConf.get().dynamic:
+    let rlnEvmConf = conf.rlnEvmConf.get()
+    info "Configuration. Validation",
+      mechanism = "onchain rln",
+      contract = rlnEvmConf.ethContractAddress.string,
+      maxMessageSize = conf.maxMessageSizeBytes,
+      rlnEpochSizeSec = rlnEvmConf.epochSizeSec,
+      rlnRelayUserMessageLimit = rlnEvmConf.userMessageLimit
 
 proc validateNodeKey(wakuConf: WakuConf): Result[void, string] =
   wakuConf.nodeKey.getPublicKey().isOkOr:
@@ -228,16 +229,16 @@ proc validateNoEmptyStrings(wakuConf: WakuConf): Result[void, string] =
     return err("dns-discovery-url is an empty string")
 
   # TODO: rln relay config should validate itself
-  if wakuConf.rlnRelayConf.isSome():
-    let rlnRelayConf = wakuConf.rlnRelayConf.get()
+  if wakuConf.rlnEvmConf.isSome():
+    let rlnEvmConf = wakuConf.rlnEvmConf.get()
 
-    if rlnRelayConf.ethClientUrls.len == 0:
+    if rlnEvmConf.ethClientUrls.len == 0:
       return err("rln-relay-eth-client-address is empty")
-    if isEmptyOrWhiteSpace(rlnRelayConf.ethContractAddress):
+    if isEmptyOrWhiteSpace(rlnEvmConf.ethContractAddress):
       return err("rln-relay-eth-contract-address is an empty string")
 
-    if rlnRelayConf.creds.isSome():
-      let creds = rlnRelayConf.creds.get()
+    if rlnEvmConf.creds.isSome():
+      let creds = rlnEvmConf.creds.get()
       if isEmptyOrWhiteSpace(creds.path):
         return err ("rln-relay-cred-path is an empty string")
       if isEmptyOrWhiteSpace(creds.password):

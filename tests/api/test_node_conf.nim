@@ -72,7 +72,7 @@ suite "WakuNodeConf - preset integration":
       wakuConf.clusterId == 16
       wakuConf.shardingConf.kind == AutoSharding
       wakuConf.shardingConf.numShardsInCluster == 1
-      wakuConf.rlnRelayConf.isNone()
+      wakuConf.rlnEvmConf.isNone()
 
   test "Invalid preset returns error":
     ## Given
@@ -91,7 +91,7 @@ suite "WakuNodeConf - preset integration":
       wakuConf.clusterId == 16
       wakuConf.shardingConf.kind == AutoSharding
       wakuConf.shardingConf.numShardsInCluster == 1
-      wakuConf.rlnRelayConf.isNone()
+      wakuConf.rlnEvmConf.isNone()
 
   test "Invalid preset returns error":
     ## Given

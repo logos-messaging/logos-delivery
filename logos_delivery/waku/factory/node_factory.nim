@@ -25,6 +25,8 @@ import
   ../waku_core,
   ../waku_core/codecs,
   ../rln,
+  ../rln/rln_lez/rln_lez,
+  ../rln/rln_lez/transport,
   ../discovery/waku_dnsdisc,
   ../waku_archive/retention_policy as policy,
   ../waku_archive/retention_policy/builder as policy_builder,
@@ -330,24 +332,43 @@ proc setupProtocols(
   except CatchableError:
     return err("failed to mount libp2p ping protocol: " & getCurrentExceptionMsg())
 
-  if conf.rlnRelayConf.isSome():
+  # The RLN module backend is selected by the host installing an RLN plugin over
+  # FFI (`logosdelivery_rln_set_plugin`), not by configuration. The plugin is
+  # implementation-agnostic: the host owns its parameters and its lifecycle.
+  let rlnPlugin = rlnPluginRegistered()
+
+  if rlnPlugin and conf.rlnEvmConf.isSome():
+    return err(
+      "two RLN backends requested: an RLN plugin is installed and RLN relay is " &
+        "also configured for the embedded EVM backend"
+    )
+
+  if rlnPlugin or conf.rlnEvmConf.isSome():
     when defined(disable_rln):
       return
         err("the configuration enables RLN relay, but this build has -d:disable_rln")
 
-    let rlnRelayConf = conf.rlnRelayConf.get()
+  if rlnPlugin:
+    info "Mounting RLN plugin backend"
+    node.rlnLez = RlnLez.init()
+    let validatorConf = WakuRlnLezConfig(onFatalErrorAction: onFatalErrorAction)
+    try:
+      await node.setRlnValidator(validatorConf)
+    except CatchableError:
+      return err("failed to mount waku RLN relay protocol: " & getCurrentExceptionMsg())
+  elif conf.rlnEvmConf.isSome():
+    let rlnEvmConf = conf.rlnEvmConf.get()
     let rlnConf = WakuRlnConfig(
-      dynamic: rlnRelayConf.dynamic,
-      credIndex: rlnRelayConf.credIndex,
-      ethContractAddress: rlnRelayConf.ethContractAddress,
-      chainId: rlnRelayConf.chainId,
-      ethClientUrls: rlnRelayConf.ethClientUrls,
-      creds: rlnRelayConf.creds,
-      userMessageLimit: rlnRelayConf.userMessageLimit,
-      epochSizeSec: rlnRelayConf.epochSizeSec,
+      dynamic: rlnEvmConf.dynamic,
+      credIndex: rlnEvmConf.credIndex,
+      ethContractAddress: rlnEvmConf.ethContractAddress,
+      chainId: rlnEvmConf.chainId,
+      ethClientUrls: rlnEvmConf.ethClientUrls,
+      creds: rlnEvmConf.creds,
+      userMessageLimit: rlnEvmConf.userMessageLimit,
+      epochSizeSec: rlnEvmConf.epochSizeSec,
       onFatalErrorAction: onFatalErrorAction,
     )
-
     try:
       await node.setRlnValidator(rlnConf)
     except CatchableError:
@@ -426,10 +447,29 @@ proc startNode*(
   ## keep-alive, if configured.
 
   info "Running nwaku node", version = git_version
+
   try:
     await node.start()
   except CatchableError:
     return err("failed to start waku node: " & getCurrentExceptionMsg())
+
+  # Membership only gates sending, so verify it non-fatally: a validate-only
+  # node is legitimate, and a Pending membership can settle later. A pass is
+  # cached on the handle so the send path (`attachRlnProof`) skips the
+  # registry read; anything else is retried per send.
+  if not node.rlnLez.isNil():
+    let membershipRes =
+      try:
+        await node.rlnLez.verifyMembership()
+      except CancelledError:
+        Result[MembershipStatus, string].err("cancelled")
+    if membershipRes.isErr():
+      notice "could not verify RLN membership at startup", error = membershipRes.error
+    elif not membershipRes.get().isUsable():
+      notice "node has no usable RLN membership; sends will fail until it is active",
+        status = $membershipRes.get()
+    else:
+      info "RLN membership verified", status = $membershipRes.get()
 
   # Connect to configured static nodes
   if conf.staticNodes.len > 0:

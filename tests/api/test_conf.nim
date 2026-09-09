@@ -277,6 +277,12 @@ suite "parseLogosDeliveryConf - JSON parsing":
       raiseAssert error
     check WakuNodeConf(lc.kernelConf).ethClientUrls.len == 1
 
+  test "the LEZ RLN options are not accepted from configuration":
+    # The RLN plugin is installed over FFI and carries its own configuration.
+    for key in ["rln-lez", "rln-registry-id", "rln-identifier", "rln-registry-options"]:
+      check parseLogosDeliveryConf("{\"messagingOverrides\": {\"" & key & "\": \"x\"}}")
+        .isErr()
+
   test "store backend fields fold into the kernel conf":
     let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"store": true, "store-message-db-url": "sqlite://test.db", "store-message-retention-policy": "time:3600", "store-max-num-db-connections": 7}}"""

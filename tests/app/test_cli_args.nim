@@ -83,14 +83,14 @@ suite "Waku external config - apply preset":
     check conf.maxMessageSizeBytes ==
       uint64(parseCorrectMsgSize(expectedConf.maxMessageSize))
     check conf.clusterId == expectedConf.clusterId
-    check conf.rlnRelayConf.isSome() == expectedConf.rlnRelay
-    if conf.rlnRelayConf.isSome():
-      let rlnRelayConf = conf.rlnRelayConf.get()
-      check rlnRelayConf.ethContractAddress == expectedConf.rlnRelayEthContractAddress
-      check rlnRelayConf.dynamic == expectedConf.rlnRelayDynamic
-      check rlnRelayConf.chainId == expectedConf.rlnRelayChainId
-      check rlnRelayConf.epochSizeSec == expectedConf.rlnEpochSizeSec
-      check rlnRelayConf.userMessageLimit == expectedConf.rlnRelayUserMessageLimit
+    check conf.rlnEvmConf.isSome() == expectedConf.rlnRelay
+    if conf.rlnEvmConf.isSome():
+      let rlnEvmConf = conf.rlnEvmConf.get()
+      check rlnEvmConf.ethContractAddress == expectedConf.rlnRelayEthContractAddress
+      check rlnEvmConf.dynamic == expectedConf.rlnRelayDynamic
+      check rlnEvmConf.chainId == expectedConf.rlnRelayChainId
+      check rlnEvmConf.epochSizeSec == expectedConf.rlnEpochSizeSec
+      check rlnEvmConf.userMessageLimit == expectedConf.rlnRelayUserMessageLimit
       check conf.shardingConf.kind == expectedConf.shardingConf.kind
       check conf.shardingConf.numShardsInCluster ==
         expectedConf.shardingConf.numShardsInCluster

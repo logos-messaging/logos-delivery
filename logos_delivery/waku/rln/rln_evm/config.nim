@@ -9,6 +9,8 @@ type RlnCreds* {.requiresInit.} = object
   password*: string
 
 type RlnConf* = object of RootObj
+  ## On-chain (zerokit/EVM) RLN configuration. The LEZ module's configuration
+  ## lives in `rln/rln_lez/config`.
   # TODO: severals parameters are only needed when it's dynamic
   # change the config to either nest or use enum/type variant so it's obvious
   # and then it can be set to `requiresInit`

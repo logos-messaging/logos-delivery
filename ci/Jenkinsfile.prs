@@ -12,7 +12,6 @@ pipeline {
       defaultValue: params.NIMFLAGS ?: [
         '--colors:off',
         '-d:insecure',
-        '-d:disableMarchNative',
         '--parallelBuild:6',
         '-d:postgres',
       ].join(' ')
