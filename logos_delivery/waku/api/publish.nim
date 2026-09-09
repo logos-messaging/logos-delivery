@@ -85,10 +85,7 @@ proc attachRlnProof*(
         return err("The node does not have a usable RLN membership: " & $status)
 
     let generated = (
-      await RequestGenerateRlnProof.request(
-        self.brokerCtx, message, rlnLez.scope.registryId, rlnLez.scope.rlnIdentifier,
-        timestamp,
-      )
+      await RequestGenerateRlnProof.request(self.brokerCtx, message, timestamp)
     ).valueOr:
       return err("Failed to attach RLN proof: " & error)
     var msgWithProof = message

@@ -20,50 +20,26 @@ from logos_delivery/waku/rln/rln_evm/proof import toRLNSignal
 export types
 
 type
-  LogosDeliveryRlnStartFn* = proc(reqId: uint64, configJson: cstring, userData: pointer) {.
-    cdecl, gcsafe, raises: []
-  .}
-
-  LogosDeliveryRlnStopFn* =
+  LogosDeliveryRlnGetMembershipStateFn* =
     proc(reqId: uint64, userData: pointer) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnRegisterFn* = proc(
-    reqId: uint64,
-    registryId, rlnIdentifier: cstring,
-    optionsJson: cstring,
-    userData: pointer,
-  ) {.cdecl, gcsafe, raises: [].}
-
-  LogosDeliveryRlnGetMembershipStateFn* = proc(
-    reqId: uint64, registryId, rlnIdentifier: cstring, userData: pointer
-  ) {.cdecl, gcsafe, raises: [].}
-
   LogosDeliveryRlnGetEpochQuotaFn* = proc(
-    reqId: uint64,
-    registryId, rlnIdentifier: cstring,
-    timestamp: uint64,
-    userData: pointer,
+    reqId: uint64, timestamp: uint64, userData: pointer
   ) {.cdecl, gcsafe, raises: [].}
 
   LogosDeliveryRlnGenerateProofFn* = proc(
-    reqId: uint64,
-    registryId, rlnIdentifier, signalHex: cstring,
-    timestamp: uint64,
-    userData: pointer,
+    reqId: uint64, signalHex: cstring, timestamp: uint64, userData: pointer
   ) {.cdecl, gcsafe, raises: [].}
 
   LogosDeliveryRlnValidateProofFn* = proc(
     reqId: uint64,
-    registryId, rlnIdentifier, signalHex: cstring,
+    signalHex: cstring,
     timestamp: uint64,
     proofJson: cstring,
     userData: pointer,
   ) {.cdecl, gcsafe, raises: [].}
 
-  LogosDeliveryRlnCallbacks* = object
-    start*: LogosDeliveryRlnStartFn
-    stop*: LogosDeliveryRlnStopFn
-    register_membership*: LogosDeliveryRlnRegisterFn
+  LogosDeliveryRlnPlugin* = object
     get_membership_state*: LogosDeliveryRlnGetMembershipStateFn
     get_epoch_quota*: LogosDeliveryRlnGetEpochQuotaFn
     generate_proof*: LogosDeliveryRlnGenerateProofFn
@@ -78,10 +54,11 @@ type
 
 var
   gLock: Lock
-  gCallbacks: LogosDeliveryRlnCallbacks # all-nil struct = "not registered"
+  gPlugin: LogosDeliveryRlnPlugin # all-nil struct = "no plugin installed"
   gUserData: pointer
   gPending: ptr Pending # head of the in-flight request list
   gNextReqId: uint64
+  gRegistered: bool # a plugin has been installed
 
 initLock(gLock)
 
@@ -117,7 +94,6 @@ const
   # Per-call response budgets. Add 10s to each request's documented worst case.
   RlnLocalTimeout = 10.seconds
   RlnRegistryReadTimeout = 80.seconds
-  RlnRegisterTimeout = 200.seconds
 
 proc awaitResult(
     p: ptr Pending, timeout: Duration
@@ -143,33 +119,16 @@ proc awaitResult(
 # the lock, fire the callback (outside the lock, so a synchronous host response
 # can't deadlock), then await the JSON result.
 
-proc rlnStart*(
-    configJson: string
-): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
+proc rlnGetMembershipState*(): Future[Result[string, string]] {.
+    async: (raises: [CancelledError])
+.} =
+  var cb: LogosDeliveryRlnGetMembershipStateFn
+  var ud: pointer
   let pending = newPending()
   if pending.isNil:
-    return err("signal alloc failed")
-  var cb: LogosDeliveryRlnStartFn
-  var ud: pointer
+    return err("failed to allocate RLN request")
   withLock gLock:
-    cb = gCallbacks.start
-    if cb.isNil:
-      discard pending.signal.close()
-      deallocShared(pending)
-      return err("RLN module not registered")
-    ud = gUserData
-    linkPending(pending)
-  cb(pending.reqId, configJson.cstring, ud)
-  return await awaitResult(pending, RlnLocalTimeout)
-
-proc rlnStop*(): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  let pending = newPending()
-  if pending.isNil:
-    return err("signal alloc failed")
-  var cb: LogosDeliveryRlnStopFn
-  var ud: pointer
-  withLock gLock:
-    cb = gCallbacks.stop
+    cb = gPlugin.get_membership_state
     if cb.isNil:
       discard pending.signal.close()
       deallocShared(pending)
@@ -177,128 +136,92 @@ proc rlnStop*(): Future[Result[string, string]] {.async: (raises: [CancelledErro
     ud = gUserData
     linkPending(pending)
   cb(pending.reqId, ud)
-  return await awaitResult(pending, RlnLocalTimeout)
-
-proc rlnRegister*(
-    registryId, rlnIdentifier: string, optionsJson: string
-): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  let pending = newPending()
-  if pending.isNil:
-    return err("signal alloc failed")
-  var cb: LogosDeliveryRlnRegisterFn
-  var ud: pointer
-  withLock gLock:
-    cb = gCallbacks.register_membership
-    if cb.isNil:
-      discard pending.signal.close()
-      deallocShared(pending)
-      return err("RLN module not registered")
-    ud = gUserData
-    linkPending(pending)
-  cb(pending.reqId, registryId.cstring, rlnIdentifier.cstring, optionsJson.cstring, ud)
-  return await awaitResult(pending, RlnRegisterTimeout)
-
-proc rlnGetMembershipState*(
-    registryId, rlnIdentifier: string
-): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  let pending = newPending()
-  if pending.isNil:
-    return err("signal alloc failed")
-  var cb: LogosDeliveryRlnGetMembershipStateFn
-  var ud: pointer
-  withLock gLock:
-    cb = gCallbacks.get_membership_state
-    if cb.isNil:
-      discard pending.signal.close()
-      deallocShared(pending)
-      return err("RLN module not registered")
-    ud = gUserData
-    linkPending(pending)
-  cb(pending.reqId, registryId.cstring, rlnIdentifier.cstring, ud)
   return await awaitResult(pending, RlnRegistryReadTimeout)
 
 proc rlnGetEpochQuota*(
-    registryId, rlnIdentifier: string, timestamp: uint64
+    timestamp: uint64
 ): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  let pending = newPending()
-  if pending.isNil:
-    return err("signal alloc failed")
   var cb: LogosDeliveryRlnGetEpochQuotaFn
   var ud: pointer
+  let pending = newPending()
+  if pending.isNil:
+    return err("failed to allocate RLN request")
   withLock gLock:
-    cb = gCallbacks.get_epoch_quota
+    cb = gPlugin.get_epoch_quota
     if cb.isNil:
       discard pending.signal.close()
       deallocShared(pending)
       return err("RLN module not registered")
     ud = gUserData
     linkPending(pending)
-  cb(pending.reqId, registryId.cstring, rlnIdentifier.cstring, timestamp, ud)
+  cb(pending.reqId, timestamp, ud)
   return await awaitResult(pending, RlnLocalTimeout)
 
 proc rlnGenerateProof*(
-    registryId, rlnIdentifier, signalHex: string, timestamp: uint64
+    signalHex: string, timestamp: uint64
 ): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  let pending = newPending()
-  if pending.isNil:
-    return err("signal alloc failed")
   var cb: LogosDeliveryRlnGenerateProofFn
   var ud: pointer
+  let pending = newPending()
+  if pending.isNil:
+    return err("failed to allocate RLN request")
   withLock gLock:
-    cb = gCallbacks.generate_proof
+    cb = gPlugin.generate_proof
     if cb.isNil:
       discard pending.signal.close()
       deallocShared(pending)
       return err("RLN module not registered")
     ud = gUserData
     linkPending(pending)
-  cb(
-    pending.reqId, registryId.cstring, rlnIdentifier.cstring, signalHex.cstring,
-    timestamp, ud,
-  )
+  cb(pending.reqId, signalHex.cstring, timestamp, ud)
   return await awaitResult(pending, RlnRegistryReadTimeout)
 
 proc rlnValidateProof*(
-    registryId, rlnIdentifier, signalHex: string, timestamp: uint64, proofJson: string
+    signalHex: string, timestamp: uint64, proofJson: string
 ): Future[Result[string, string]] {.async: (raises: [CancelledError]).} =
-  let pending = newPending()
-  if pending.isNil:
-    return err("signal alloc failed")
   var cb: LogosDeliveryRlnValidateProofFn
   var ud: pointer
+  let pending = newPending()
+  if pending.isNil:
+    return err("failed to allocate RLN request")
   withLock gLock:
-    cb = gCallbacks.validate_proof
+    cb = gPlugin.validate_proof
     if cb.isNil:
       discard pending.signal.close()
       deallocShared(pending)
       return err("RLN module not registered")
     ud = gUserData
     linkPending(pending)
-  cb(
-    pending.reqId, registryId.cstring, rlnIdentifier.cstring, signalHex.cstring,
-    timestamp, proofJson.cstring, ud,
-  )
+  cb(pending.reqId, signalHex.cstring, timestamp, proofJson.cstring, ud)
   return await awaitResult(pending, RlnLocalTimeout)
 
 # --- C entry points -----------------------------------------------------------
 
-proc logosdelivery_rln_set_callbacks*(
-    cbs: ptr LogosDeliveryRlnCallbacks, userData: pointer
+proc logosdelivery_rln_set_plugin*(
+    plugin: ptr LogosDeliveryRlnPlugin, userData: pointer
 ): cint {.exportc, cdecl, dynlib.} =
-  # copy struct (or clear on nil), stash userData; nil fails all pending
+  # copy the struct (or clear on nil), stash userData; nil fails all pending
   withLock gLock:
-    if cbs.isNil:
-      gCallbacks = LogosDeliveryRlnCallbacks()
+    if plugin.isNil:
+      gPlugin = LogosDeliveryRlnPlugin()
       gUserData = nil
+      gRegistered = false
       var p = gPending
       while not p.isNil:
         p.completed = false # signals "module cleared", not a real completion
         discard p.signal.fireSync()
         p = p.next
     else:
-      gCallbacks = cbs[]
+      gPlugin = plugin[]
       gUserData = userData
+      gRegistered = true
     return 0
+
+proc rlnPluginRegistered*(): bool =
+  ## Whether the host has installed an RLN plugin. This is what enables RLN
+  ## over it: there is no separate configuration switch.
+  withLock gLock:
+    return gRegistered
 
 proc logosdelivery_rln_response*(
     reqId: uint64, resultJson: cstring
@@ -489,41 +412,16 @@ proc parseRlnMembershipState*(resultJson: string): Result[MembershipState, RlnEr
 
 # --- broker providers ---------------------------------------------------------
 
-proc registerRlnModuleProviders*(ctx: BrokerContext, lez: bool): Result[void, string] =
-  ## Bridges the waku layer's RLN module requests onto the FFI callback
-  ## surface. Providers are registered at create time; the underlying calls
-  ## only succeed once the host has installed its RLN callbacks.
-  RequestStartRlnModule.setProvider(
-    ctx,
-    proc(configJson: string): Future[Result[RequestStartRlnModule, string]] {.async.} =
-      let response = ?await rlnStart(configJson)
-      discard parseRlnResultEnvelope(response).valueOr:
-        return err($error)
-      return ok(RequestStartRlnModule(response: response)),
-  ).isOkOr:
-    return err("Failed to set RequestStartRlnModule provider: " & error)
-
-  RequestRegisterRlnMembership.setProvider(
-    ctx,
-    proc(
-        registryId: RegistryId, rlnIdentifier: RlnIdentifier, options: RegistryOptions
-    ): Future[Result[RequestRegisterRlnMembership, string]] {.async.} =
-      var optionsJson = newJArray()
-      for opt in options:
-        optionsJson.add(%*{"key": opt.key, "value": opt.value})
-      let response = ?await rlnRegister(registryId, rlnIdentifier.toHex(), $optionsJson)
-      discard parseRlnTstrReply(response).valueOr:
-        return err($error)
-      return ok(RequestRegisterRlnMembership(response: response)),
-  ).isOkOr:
-    return err("Failed to set RequestRegisterRlnMembership provider: " & error)
-
+proc registerRlnModuleProviders*(
+    ctx: BrokerContext, plugin: bool
+): Result[void, string] =
+  ## Bridges the waku layer's RLN requests onto the FFI plugin surface.
+  ## Providers are registered at create time; the underlying calls only succeed
+  ## once the host has installed its plugin.
   RequestGetRlnMembershipState.setProvider(
     ctx,
-    proc(
-        registryId: RegistryId, rlnIdentifier: RlnIdentifier
-    ): Future[Result[RequestGetRlnMembershipState, string]] {.async.} =
-      let response = ?await rlnGetMembershipState(registryId, rlnIdentifier.toHex())
+    proc(): Future[Result[RequestGetRlnMembershipState, string]] {.async.} =
+      let response = ?await rlnGetMembershipState()
       let state = parseRlnMembershipState(response).valueOr:
         return err($error)
       return ok(RequestGetRlnMembershipState(state: state)),
@@ -533,40 +431,31 @@ proc registerRlnModuleProviders*(ctx: BrokerContext, lez: bool): Result[void, st
   RequestValidateRlnProof.setProvider(
     ctx,
     proc(
-        message: WakuMessage,
-        registryId: RegistryId,
-        rlnIdentifier: RlnIdentifier,
-        timestamp: uint64,
+        message: WakuMessage, timestamp: uint64
     ): Future[Result[RequestValidateRlnProof, string]] {.async.} =
       let signalHex = message.toRLNSignal().toHex()
       let proofJson = $(%*{"proof": message.proof.toHex()})
-      let response = ?await rlnValidateProof(
-        registryId, rlnIdentifier.toHex(), signalHex, timestamp, proofJson
-      )
+      let response = ?await rlnValidateProof(signalHex, timestamp, proofJson)
       let validation = parseRlnValidationResult(response).valueOr:
         return err($error)
       return ok(RequestValidateRlnProof(validation: validation)),
   ).isOkOr:
     return err("Failed to set RequestValidateRlnProof provider: " & error)
 
-  # lez-gated: the legacy zerokit path registers its own provider for this request type
-  if lez:
+  # plugin-gated: the legacy zerokit path registers its own provider for this
+  # request type
+  if plugin:
     RequestGenerateRlnProof.setProvider(
       ctx,
       proc(
-          message: WakuMessage,
-          registryId: RegistryId,
-          rlnIdentifier: RlnIdentifier,
-          timestamp: uint64,
+          message: WakuMessage, timestamp: uint64
       ): Future[Result[RequestGenerateRlnProof, string]] {.async.} =
         let signalHex = message.toRLNSignal().toHex()
-        let response = ?await rlnGenerateProof(
-          registryId, rlnIdentifier.toHex(), signalHex, timestamp
-        )
-        let proofBytes = parseRlnGeneratedProof(response).valueOr:
+        let response = ?await rlnGenerateProof(signalHex, timestamp)
+        let blob = parseRlnGeneratedProof(response).valueOr:
           return err($error)
-        return ok(RequestGenerateRlnProof(proof: proofBytes)),
+        return ok(RequestGenerateRlnProof(proof: blob)),
     ).isOkOr:
-      return err("failed to set RequestGenerateRlnProof provider: " & error)
+      return err("Failed to set RequestGenerateRlnProof provider: " & error)
 
-  ok()
+  return ok()

@@ -1,9 +1,11 @@
 {.push raises: [].}
 
-## `RlnInterface` backend over the external RLN module FFI (`./transport`).
-## The instance is created at mount (local wiring only); the module itself is
-## started from `startNode`, once the host has installed its RLN callbacks
-## (`logosdelivery_rln_set_callbacks`) — before that every call fails NotReady.
+## `RlnInterface` backend over the external RLN plugin (`./transport`).
+## Implementation-agnostic: the library never names a membership or a registry,
+## never configures the backend and never starts it — the host owns all of that
+## and supplies whatever its implementation needs when it forwards a call.
+## Calls fail NotReady until the host has installed its plugin
+## (`logosdelivery_rln_set_plugin`).
 
 import std/json
 import chronos, chronicles, results
@@ -17,17 +19,15 @@ logScope:
   topics = "waku rln lez"
 
 type RlnLez* = ref object
-  scope*: MembershipScope
-  epochSizeSec*: uint64
+  ## The typed calls below are the RlnInterface backend proper. The single
+  ## field is the node's cached view of whether it may send: the host's
+  ## implementation knows which membership that refers to.
   membershipVerified*: bool
-    ## Set once a membership check passes; `attachRlnProof` then skips the
-    ## registry read. Never set on failure, so the next send retries.
+    ## The membership check has passed once; `attachRlnProof` skips the
+    ## registry read on later sends.
 
 proc init*(T: type RlnLez): T =
   RlnLez()
-
-proc init*(T: type RlnLez, scope: MembershipScope, epochSizeSec: uint64): T =
-  RlnLez(scope: scope, epochSizeSec: epochSizeSec)
 
 proc toRlnError(transportErr: string): RlnError =
   ## Transport-level failures never carry a wire error object: no callbacks
@@ -38,62 +38,24 @@ proc toRlnError(transportErr: string): RlnError =
   else:
     RlnError.transient(transportErr)
 
-proc start*(
-    m: RlnLez, config: string
-): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
-  ## `config` is the module's start config JSON (the node_factory shape:
-  ## epoch_size_sec, registries).
-  let response = (await rlnStart(config)).valueOr:
-    return err(toRlnError(error))
-  discard ?parseRlnResultEnvelope(response)
-  return ok()
-
-proc stop*(
-    m: RlnLez
-): Future[Result[void, RlnError]] {.async: (raises: [CancelledError]).} =
-  let response = (await rlnStop()).valueOr:
-    return err(toRlnError(error))
-  discard ?parseRlnResultEnvelope(response)
-  return ok()
-
-proc registerMembership*(
-    m: RlnLez, scope: MembershipScope, options: RegistryOptions
-): Future[Result[MembershipState, RlnError]] {.async: (raises: [CancelledError]).} =
-  var optionsJson = newJArray()
-  for opt in options:
-    optionsJson.add(%*{"key": opt.key, "value": opt.value})
-  let response = (
-    await rlnRegister(scope.registryId, scope.rlnIdentifier.toHex(), $optionsJson)
-  ).valueOr:
-    return err(toRlnError(error))
-  return parseRlnMembershipState(response)
-
 proc getMembershipState*(
-    m: RlnLez, scope: MembershipScope
+    m: RlnLez
 ): Future[Result[MembershipState, RlnError]] {.async: (raises: [CancelledError]).} =
-  let response = (
-    await rlnGetMembershipState(scope.registryId, scope.rlnIdentifier.toHex())
-  ).valueOr:
+  let response = (await rlnGetMembershipState()).valueOr:
     return err(toRlnError(error))
   return parseRlnMembershipState(response)
 
 proc getEpochQuota*(
-    m: RlnLez, scope: MembershipScope, timestamp: uint64
+    m: RlnLez, timestamp: uint64
 ): Future[Result[EpochQuota, RlnError]] {.async: (raises: [CancelledError]).} =
-  let response = (
-    await rlnGetEpochQuota(scope.registryId, scope.rlnIdentifier.toHex(), timestamp)
-  ).valueOr:
+  let response = (await rlnGetEpochQuota(timestamp)).valueOr:
     return err(toRlnError(error))
   return parseRlnEpochQuota(response)
 
 proc generateProof*(
-    m: RlnLez, scope: MembershipScope, signal: seq[byte], timestamp: uint64
+    m: RlnLez, signal: seq[byte], timestamp: uint64
 ): Future[Result[RateLimitProof, RlnError]] {.async: (raises: [CancelledError]).} =
-  let response = (
-    await rlnGenerateProof(
-      scope.registryId, scope.rlnIdentifier.toHex(), signal.toHex(), timestamp
-    )
-  ).valueOr:
+  let response = (await rlnGenerateProof(signal.toHex(), timestamp)).valueOr:
     return err(toRlnError(error))
   let blob = ?parseRlnGeneratedProof(response)
   if blob.len != RlnProofSize:
@@ -109,59 +71,22 @@ proc generateProof*(
   return ok(proof)
 
 proc validateProof*(
-    m: RlnLez,
-    scope: MembershipScope,
-    signal: seq[byte],
-    timestamp: uint64,
-    proof: RateLimitProof,
+    m: RlnLez, signal: seq[byte], timestamp: uint64, proof: RateLimitProof
 ): Future[Result[ValidationResult, RlnError]] {.async: (raises: [CancelledError]).} =
   let proofJson = $(%*{"proof": proof.proof.toHex()})
-  let response = (
-    await rlnValidateProof(
-      scope.registryId,
-      scope.rlnIdentifier.toHex(),
-      signal.toHex(),
-      timestamp,
-      proofJson,
-    )
-  ).valueOr:
+  let response = (await rlnValidateProof(signal.toHex(), timestamp, proofJson)).valueOr:
     return err(toRlnError(error))
   return parseRlnValidationResult(response)
 
 static:
   doAssert RlnLez is RlnInterface
 
-const
-  RlnStartAttempts = 3
-  RlnStartRetryDelay = 2.seconds
-
-proc startModule*(
-    w: RlnLez
-): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
-  ## Starts the external RLN module. epoch_size_sec must equal this node's epoch
-  ## size so proof generators and validators derive the same epoch.
-  w.membershipVerified = false
-  let config =
-    $(%*{"epoch_size_sec": w.epochSizeSec, "registries": [w.scope.registryId]})
-  var lastErr: RlnError
-  for attempt in 1 .. RlnStartAttempts:
-    let res = await w.start(config)
-    if res.isOk():
-      return ok()
-    lastErr = res.error
-    if lastErr.kind notin {RlnErrorKind.NotReady, RlnErrorKind.Transient}:
-      break
-    if attempt < RlnStartAttempts:
-      debug "RLN module start not ready, retrying", attempt = attempt, error = $lastErr
-      await sleepAsync(RlnStartRetryDelay)
-  return err($lastErr)
-
 proc verifyMembership*(
     w: RlnLez
 ): Future[Result[MembershipStatus, string]] {.async: (raises: [CancelledError]).} =
-  ## Reads the scope's membership state; a usable result (Active/GracePeriod)
-  ## sets `membershipVerified`.
-  let state = (await w.getMembershipState(w.scope)).valueOr:
+  ## Reads the membership state from the host's implementation; a usable
+  ## result (Active/GracePeriod) sets `membershipVerified`.
+  let state = (await w.getMembershipState()).valueOr:
     return err($error)
   if state.status.isUsable():
     w.membershipVerified = true

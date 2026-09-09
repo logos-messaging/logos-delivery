@@ -808,7 +808,6 @@ proc build*(
     filterServiceConf: filterServiceConf,
     discv5Conf: discv5Conf,
     rlnEvmConf: rlnConfs.evm,
-    rlnLezConf: rlnConfs.lez,
     metricsServerConf: metricsServerConf,
     restServerConf: restServerConf,
     dnsDiscoveryConf: dnsDiscoveryConf,
