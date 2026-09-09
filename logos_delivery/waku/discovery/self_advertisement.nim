@@ -126,7 +126,7 @@ proc advertiseSelf*(
     if not serves:
       continue
 
-    (await discovery.startAdvertising(SvcKey, data, @[])).isOkOr:
+    (await discovery.startAdvertising(SvcKey, data)).isOkOr:
       warn "could not advertise this node on the delivery network",
         backend = info.id, reason = error
       continue
@@ -147,9 +147,9 @@ proc advertiseMix*(
   ## so a node running mix with plugin-hosted discovery advertised nothing and
   ## found no mix peers. Same route as `advertiseSelf`, so both hosts get it.
   ##
-  ## No signed record is passed, here or anywhere: every backend rejects one
-  ## (`pre-signed advertisements not supported`) because libp2p builds and signs
-  ## the advertisement from its own identity.
+  ## Only the service id and the key bytes travel: whether a record is signed
+  ## here or by libp2p is each backend's business (see `startAdvertising` on
+  ## the interface).
   if conf.mixConf.isNone():
     return
 
@@ -167,7 +167,7 @@ proc advertiseMix*(
     (await discovery.registerInterest(key)).isOkOr:
       warn "could not register interest in mix peers", backend = info.id, reason = error
 
-    (await discovery.startAdvertising(key, data, @[])).isOkOr:
+    (await discovery.startAdvertising(key, data)).isOkOr:
       warn "could not advertise this node as a mix node",
         backend = info.id, reason = error
       continue

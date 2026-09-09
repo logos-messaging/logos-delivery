@@ -13,6 +13,7 @@ import
 
 import
   logos_delivery/waku/discovery/waku_kademlia,
+  logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/waku_core/peers,
   logos_delivery/waku/node/peer_manager/waku_peer_store
 import ../testlib/[wakucore, testasync, assertions, futures, testutils]
@@ -203,3 +204,82 @@ suite "Waku Kademlia service discovery":
 
       await wk.stop()
       await switch.stop()
+
+suite "Waku Kademlia advertises records this node signs":
+  asyncTest "each service is its own record, signed by the node":
+    ## The in-process host no longer leaves the record to libp2p: it signs one
+    ## per service, the same as the plugin host. A lookup for a service must
+    ## return this node's identity listing exactly that service.
+    ##
+    ## Three nodes: a registrar R, the advertiser A and a looker B. A node
+    ## registers only one of its services with its own registrar, so A's
+    ## adverts have to reach R and B has to ask R. Registrations are scheduled
+    ## when a service is added, towards the peers already in that service's
+    ## table, so A adds its services only once it knows R.
+    # a registrar makes a second registration from the same IP wait up to
+    # advertExpiry (15 min by default); shorten it so the second service is
+    # accepted within the test.
+    let disco = ServiceDiscoveryConfig.new(advertExpiry = 2.seconds)
+    let switchR = newTestSwitch()
+    let wkR = kad_utils.newTestKademlia(switchR, discoConfig = disco)
+    await switchR.start()
+    await wkR.start()
+    let bootstrap = @[(switchR.peerInfo.peerId, switchR.peerInfo.addrs)]
+
+    let switchA = newTestSwitch()
+    let wkA = kad_utils.newTestKademlia(
+      switchA, bootstrapNodes = bootstrap, discoConfig = disco
+    )
+    await switchA.start()
+    await wkA.start()
+    let switchB = newTestSwitch()
+    let wkB = kad_utils.newTestKademlia(
+      switchB, bootstrapNodes = bootstrap, discoConfig = disco
+    )
+    await switchB.start()
+    await wkB.start()
+    await sleepAsync(1.seconds) # A's service tables must hold R first
+
+    let infoA = switchA.peerInfo
+    proc signed(id: string, data: seq[byte]): seq[byte] =
+      signedServiceRecord(infoA, infoA.privateKey, id, data).expect("signs")
+
+    var mixKey = newSeq[byte](Curve25519KeySize)
+    for i in 0 ..< mixKey.len:
+      mixKey[i] = byte(i)
+    wkA.addServiceToAdvertise(
+      ServiceInfo(id: "/logos/delivery", data: Opt.some(@[1'u8])),
+      signed("/logos/delivery", @[1'u8]),
+    )
+    wkA.addServiceToAdvertise(
+      ServiceInfo(id: MixProtocolID, data: Opt.some(mixKey)),
+      signed(MixProtocolID, mixKey),
+    )
+
+    # each registration is a ticket round; the second one waits advertExpiry
+    var mixPeers: seq[RemotePeerInfo]
+    for _ in 0 ..< 30:
+      await sleepAsync(500.milliseconds)
+      let res = await wkB.lookupServicePeers(MixProtocolID)
+      if res.isOk() and res.get().len > 0:
+        mixPeers = res.get()
+        break
+    require mixPeers.len == 1
+    check:
+      mixPeers[0].peerId == infoA.peerId
+      mixPeers[0].protocols == @[MixProtocolID]
+      mixPeers[0].mixPubKey.isSome()
+
+    let delivery = (await wkB.lookupServicePeers("/logos/delivery")).expect("lookup")
+    require delivery.len == 1
+    check:
+      delivery[0].peerId == infoA.peerId
+      delivery[0].protocols == @["/logos/delivery"]
+      delivery[0].mixPubKey.isNone()
+
+    await wkB.stop()
+    await wkA.stop()
+    await wkR.stop()
+    await switchB.stop()
+    await switchA.stop()
+    await switchR.stop()
