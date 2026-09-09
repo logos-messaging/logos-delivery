@@ -110,6 +110,7 @@ proc initNode(
       conf.endpointConf.natDiscoveryTimeoutMs.int64.milliseconds,
     )
   )
+  builder.withMaxPureLibp2pPeers(conf.maxPureLibp2pPeers)
 
   if conf.maxRelayPeers.isSome():
     let
