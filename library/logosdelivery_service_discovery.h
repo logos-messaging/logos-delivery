@@ -4,7 +4,13 @@
 #include <stddef.h>
 #include <stdint.h>
 
+/* LD_DISCO_ABI_ONLY: only the entry-point typedefs and the vtable struct, no
+ * registration helpers. Defined by liblogosdelivery itself to check its Nim
+ * mirror of the struct against this header at compile time; hosts never set
+ * it. */
+#ifndef LD_DISCO_ABI_ONLY
 #include "generated/logosdelivery.h"
+#endif
 
 /*
  * Service-discovery plugin interface.
@@ -127,6 +133,7 @@ extern "C"
     LdDiscoUnregisterInterestFn unregisterInterest;
   } LdServiceDiscoveryPlugin;
 
+#ifndef LD_DISCO_ABI_ONLY
   /* ------------------------------------------------------ registration -- */
 
   /*
@@ -161,6 +168,7 @@ extern "C"
   /* Removal is logosdelivery_ctx_clear_service_discovery_plugin(ctx, on_reply,
    * user_data) from the generated header; the node cannot start again until a
    * new plugin is installed. */
+#endif /* LD_DISCO_ABI_ONLY */
 
 #ifdef __cplusplus
 }
