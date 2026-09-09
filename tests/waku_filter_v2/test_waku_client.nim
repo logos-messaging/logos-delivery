@@ -1,13 +1,13 @@
 {.used.}
 
-import std/[sequtils, json], testutils/unittests, results, chronos
+import std/[sequtils, json], testutils/unittests, results, chronos, metrics
 
 import
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/waku_node,
   logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_filter_v2/
-    [common, client, subscriptions, protocol, rpc_codec],
+    [common, client, subscriptions, protocol, protocol_metrics, rpc_codec],
   ../testlib/[wakucore, testasync, testutils, futures, sequtils, wakunode],
   ./waku_filter_utils,
   ../resources/payloads
@@ -2131,6 +2131,46 @@ suite "Waku Filter - End to End":
         # Then the message is not pushed to the client
         check not await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT)
 
+      asyncTest "Burst of Messages":
+        # Given a subscribed client whose handler only collects, so nothing is
+        # awaited between messages
+        let
+          burstClientSwitch = newStandardSwitch()
+          burstFilterClient = await newTestWakuFilterClient(burstClientSwitch)
+        await burstClientSwitch.start()
+        defer:
+          await allFutures(burstFilterClient.stop(), burstClientSwitch.stop())
+
+        var received: seq[WakuMessage]
+        burstFilterClient.registerPushHandler(
+          proc(
+              pubsubTopic: PubsubTopic, message: WakuMessage
+          ): Future[void] {.async, closure, gcsafe.} =
+            received.add(message)
+        )
+
+        let subscribeResponse = await burstFilterClient.subscribe(
+          serverRemotePeerInfo, pubsubTopic, contentTopicSeq
+        )
+        assert subscribeResponse.isOk(), $subscribeResponse.error
+
+        # When fifty messages are handled without waiting in between
+        const messageCount = 50
+        let messages = toSeq(0 ..< messageCount).mapIt(
+            fakeWakuMessage(payload = "M_" & $it, contentTopic = contentTopic)
+          )
+        await allFutures(messages.mapIt(wakuFilter.handleMessage(pubsubTopic, it)))
+
+        # Then the client receives every one of them
+        let deadline = Moment.now() + FUTURE_TIMEOUT_MEDIUM
+        while received.len < messageCount and Moment.now() < deadline:
+          await sleepAsync(10.milliseconds)
+
+        let receivedPayloads = received.mapIt(it.payload)
+        check:
+          receivedPayloads.len == messageCount
+          messages.allIt(it.payload in receivedPayloads)
+
     suite "Security and Privacy":
       asyncTest "Filter Client can receive messages after Client and Server reboot":
         # Given a clean client and server
@@ -2218,6 +2258,46 @@ suite "Waku Filter - End to End":
         check:
           pushedMsgPubsubTopic == pubsubTopic
           pushedMsg == msg
+
+      asyncTest "Filter Client is served while another subscriber's switch is stopped":
+        # Given a second subscribed client
+        let
+          stoppedClientSwitch = newStandardSwitch()
+          stoppedFilterClient = await newTestWakuFilterClient(stoppedClientSwitch)
+        await stoppedClientSwitch.start()
+        defer:
+          await stoppedFilterClient.stop()
+
+        let stoppedClientPeerId = stoppedClientSwitch.peerInfo.peerId
+
+        for client in [wakuFilterClient, stoppedFilterClient]:
+          let subscribeResponse =
+            await client.subscribe(serverRemotePeerInfo, pubsubTopic, contentTopicSeq)
+          assert subscribeResponse.isOk(), $subscribeResponse.error
+
+        check:
+          wakuFilter.subscriptions.subscribedPeerCount() == 2
+          wakuFilter.subscriptions.isSubscribed(clientPeerId)
+          wakuFilter.subscriptions.isSubscribed(stoppedClientPeerId)
+
+        # When the second client's switch is stopped
+        await stoppedClientSwitch.stop()
+
+        # And the server receives a message
+        let msg = fakeWakuMessage(contentTopic = contentTopic)
+        await wakuFilter.handleMessage(pubsubTopic, msg)
+
+        # Then the first client is served
+        check await pushHandlerFuture.withTimeout(FUTURE_TIMEOUT)
+        let (pushedMsgPubsubTopic, pushedMsg) = pushHandlerFuture.read()
+        check:
+          pushedMsgPubsubTopic == pubsubTopic
+          pushedMsg == msg
+
+        # And the stopped client is still counted as subscribed
+        check:
+          wakuFilter.subscriptions.subscribedPeerCount() == 2
+          wakuFilter.subscriptions.isSubscribed(stoppedClientPeerId)
 
   suite "Subscription timeout":
     var server {.threadvar.}: WakuNode
@@ -2544,6 +2624,7 @@ suite "Waku Filter - End to End":
 
       check not server.wakuFilter.subscriptions.isSubscribed(clientPeerId)
       check not server.wakuFilter.subscriptions.isSubscribed(clientPeerId2nd)
+      check logos_delivery_filter_subscriptions.value() == 0
 
       pushHandlerFuture = newPushHandlerFuture() # Clear previous future
       pushHandlerFuture2nd = newPushHandlerFuture() # Clear previous future

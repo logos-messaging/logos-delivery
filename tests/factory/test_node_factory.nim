@@ -10,6 +10,8 @@ import
   libp2p/[crypto/crypto, multiaddress, protocols/connectivity/relay/relay],
   eth/p2p/discoveryv5/enr
 
+import tools/confutils/cli_args
+
 import
   tests/testlib/[wakunode, wakucore],
   logos_delivery/waku/[
@@ -19,6 +21,7 @@ import
     net/auto_port,
     discovery/waku_discv5,
     node/waku_metrics,
+    common/rate_limit/setting,
   ],
   logos_delivery/waku/factory/[
     node_factory,
@@ -55,6 +58,25 @@ suite "Node Factory":
       not node.isNil()
       not node.wakuStore.isNil()
       not node.wakuArchive.isNil()
+
+  asynctest "The command line default rate limits reach the mounted protocols":
+    # Given the configuration of a binary started without --rate-limit
+    let conf = defaultWakuNodeConf().get().toWakuConf().valueOr:
+        raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then the filter is mounted with the limit the command line assigns
+    require not node.wakuFilter.isNil()
+    let filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
+
+    check:
+      filterLimit.isSome()
+      filterLimit.get() == (volume: 100, period: 1.seconds)
+      node.rateLimitSettings.getSetting(LIGHTPUSH) == (volume: 5, period: 1.seconds)
+      node.rateLimitSettings.getSetting(PEEREXCHG) == (volume: 5, period: 1.seconds)
 
   test "ENR configuration trims multiaddrs until record fits":
     var conf = defaultTestWakuConf()
