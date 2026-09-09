@@ -697,6 +697,27 @@
         "sha1": "053909f0933b725018f7d87b27403a4b06d7f23a"
       }
     },
+    "mix_rln_spam_protection": {
+      "version": "#d9045c146124cc4ac661188ea50df48da0445233",
+      "vcsRevision": "d9045c146124cc4ac661188ea50df48da0445233",
+      "url": "https://github.com/logos-co/mix-rln-spam-protection-plugin",
+      "downloadMethod": "git",
+      "dependencies": [
+        "nim",
+        "results",
+        "stew",
+        "chronicles",
+        "chronos",
+        "nimcrypto",
+        "secp256k1",
+        "json_serialization",
+        "libp2p",
+        "libp2p_mix"
+      ],
+      "checksums": {
+        "sha1": "731f754d57f84cc14fc83a135bbef3fffa72b964"
+      }
+    },
     "eth": {
       "version": "0.9.0",
       "vcsRevision": "d9135e6c3c5d6d819afdfb566aa8d958756b73a8",

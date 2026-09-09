@@ -10,14 +10,18 @@ import
   libp2p_mix/mix_protocol,
   libp2p_mix/mix_metrics,
   libp2p_mix/delay_strategy,
-  libp2p/[multiaddress, peerid],
+  libp2p_mix/spam_protection,
+  libp2p/[multiaddress, multicodec, peerid, peerinfo],
   eth/common/keys
 
 import
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/waku_core,
   logos_delivery/waku/waku_enr,
-  logos_delivery/waku/node/peer_manager/waku_peer_store
+  logos_delivery/waku/node/peer_manager/waku_peer_store,
+  mix_rln_spam_protection,
+  logos_delivery/waku/waku_relay,
+  logos_delivery/waku/common/nimchronos
 
 logScope:
   topics = "waku mix"
@@ -27,10 +31,20 @@ const MinMixPoolSize* = 4
   ## with `exit_is_dest` the exit node is a pool member and not one of the hops.
 
 type
+  PublishMessage* = proc(message: WakuMessage): Future[Result[void, string]] {.
+    async, gcsafe, raises: []
+  .}
+
   WakuMix* = ref object of MixProtocol
     peerManager*: PeerManager
     clusterId: uint16
     pubKey*: Curve25519Key
+    mixRlnSpamProtection*: MixRlnSpamProtection
+    publishMessage*: PublishMessage
+    dosRegistrationTask: Future[void]
+      ## Background task that retries DoS-protection self-registration until
+      ## it succeeds. nil until kicked off via registerDoSProtectionWithNetwork;
+      ## cancelled in stop().
 
   WakuMixResult*[T] = Result[T, string]
 
@@ -43,11 +57,9 @@ proc processBootNodes(
 ) =
   var count = 0
   for node in bootnodes:
-    let pInfo = parsePeerInfo(node.multiAddr).valueOr:
-      error "Failed to get peer id from multiaddress: ",
-        error = error, multiAddr = $node.multiAddr
+    let (peerId, networkAddr) = parseFullAddress(node.multiAddr).valueOr:
+      error "Failed to parse multiaddress", multiAddr = node.multiAddr, error = error
       continue
-    let peerId = pInfo.peerId
     var peerPubKey: crypto.PublicKey
     if not peerId.extractPublicKey(peerPubKey):
       warn "Failed to extract public key from peerId, skipping node", peerId = peerId
@@ -58,23 +70,25 @@ proc processBootNodes(
         peerId = peerId, scheme = peerPubKey.scheme
       continue
 
-    # The wire address, without the `/p2p/<id>` part. Mix compares pool
-    # addresses with its transport patterns, and the suffix stops the match.
-    let multiAddr = pInfo.addrs[0]
-
+    # `networkAddr` carries no `/p2p/<id>` suffix: mix compares pool addresses
+    # with its transport patterns, and the suffix stops the match.
+    #
     # The pool entry comes first: `nodePool.add` writes `Infinite` confidence,
     # and libp2p does not lower a confidence that it holds.
-    let mixPubInfo = MixPubInfo.init(peerId, multiAddr, node.pubKey, peerPubKey.skkey)
+    let mixPubInfo = MixPubInfo.init(peerId, networkAddr, node.pubKey, peerPubKey.skkey)
     mix.nodePool.add(mixPubInfo)
     count.inc()
 
     peermgr.addPeer(
       RemotePeerInfo.init(
-        peerId, @[multiAddr], publicKey = peerPubKey, mixPubKey = Opt.some(node.pubKey)
+        peerId,
+        @[networkAddr],
+        publicKey = peerPubKey,
+        mixPubKey = Opt.some(node.pubKey),
       )
     )
   mix_pool_size.set(count)
-  info "using mix bootstrap nodes ", count = count
+  debug "using mix bootstrap nodes ", count = count
 
 proc new*(
     T: typedesc[WakuMix],
@@ -83,9 +97,11 @@ proc new*(
     clusterId: uint16,
     mixPrivKey: Curve25519Key,
     bootnodes: seq[MixNodePubInfo],
+    publishMessage: PublishMessage,
+    userMessageLimit: Opt[int] = Opt.none(int),
 ): WakuMixResult[T] =
   let mixPubKey = public(mixPrivKey)
-  info "mixPubKey", mixPubKey = mixPubKey
+  trace "mixPubKey", mixPubKey = mixPubKey
   let nodeMultiAddr = MultiAddress.init(nodeAddr).valueOr:
     return err("failed to parse mix node address: " & $nodeAddr & ", error: " & error)
   let localMixNodeInfo = initMixNodeInfo(
@@ -93,13 +109,34 @@ proc new*(
     peermgr.switch.peerInfo.publicKey.skkey, peermgr.switch.peerInfo.privateKey.skkey,
   )
 
-  var m = WakuMix(peerManager: peermgr, clusterId: clusterId, pubKey: mixPubKey)
+  # Initialize spam protection with persistent credentials
+  # Use peerID in keystore path so multiple peers can run from same directory
+  # Tree path is shared across all nodes to maintain the full membership set
+  let peerId = peermgr.switch.peerInfo.peerId
+  var spamProtectionConfig = defaultConfig()
+  spamProtectionConfig.keystorePath = "rln_keystore_" & $peerId & ".json"
+  spamProtectionConfig.keystorePassword = "mix-rln-password"
+  if userMessageLimit.isSome():
+    spamProtectionConfig.userMessageLimit = userMessageLimit.get()
+  # rlnResourcesPath left empty to use bundled resources (via "tree_height_/" placeholder)
+
+  let spamProtection = MixRlnSpamProtection.new(spamProtectionConfig).valueOr:
+    return err("failed to create spam protection: " & error)
+
+  var m = WakuMix(
+    peerManager: peermgr,
+    clusterId: clusterId,
+    pubKey: mixPubKey,
+    mixRlnSpamProtection: spamProtection,
+    publishMessage: publishMessage,
+  )
   procCall MixProtocol(m).init(
     localMixNodeInfo,
     peermgr.switch,
+    spamProtection = Opt.some(SpamProtection(spamProtection)),
     delayStrategy = Opt.some(
       DelayStrategy(
-        ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng())
+        ExponentialDelayStrategy.new(meanDelay = 100, rng = crypto.newRng())
       )
     ),
   )
@@ -113,5 +150,204 @@ proc new*(
 
 proc poolSize*(mix: WakuMix): int =
   mix.nodePool.len
+
+proc setupSpamProtectionCallbacks(mix: WakuMix) =
+  ## Set up the publish callback for spam protection coordination.
+  ## This enables the plugin to broadcast membership updates and proof metadata
+  ## via Waku relay.
+  if mix.publishMessage.isNil():
+    warn "PublishMessage callback not available, spam protection coordination disabled"
+    return
+
+  let publishCallback: PublishCallback = proc(
+      contentTopic: string, data: seq[byte]
+  ): Future[Result[void, string]] {.async.} =
+    # Create a WakuMessage for the coordination data
+    let msg = WakuMessage(
+      payload: data,
+      contentTopic: contentTopic,
+      ephemeral: true, # Coordination messages don't need to be stored
+      timestamp: getNowInNanosecondTime(),
+    )
+
+    # Delegate to node's publish API which handles topic derivation and relay publishing
+    let res = await mix.publishMessage(msg)
+    if res.isErr():
+      warn "Failed to publish spam protection coordination message",
+        contentTopic = contentTopic, error = res.error
+      return err(res.error)
+
+    trace "Published spam protection coordination message", contentTopic = contentTopic
+    return ok()
+
+  mix.mixRlnSpamProtection.setPublishCallback(publishCallback)
+  trace "Spam protection publish callback configured"
+
+proc handleMessage*(
+    mix: WakuMix, pubsubTopic: PubsubTopic, message: WakuMessage
+) {.async.} =
+  ## Handle incoming messages for spam protection coordination.
+  ## This should be called from the relay handler for coordination content topics.
+  if mix.mixRlnSpamProtection.isNil():
+    return
+
+  let contentTopic = message.contentTopic
+
+  if contentTopic == mix.mixRlnSpamProtection.getMembershipContentTopic():
+    # Handle membership update
+    (await mix.mixRlnSpamProtection.handleMembershipUpdate(message.payload)).isOkOr:
+      warn "Failed to handle membership update", error = error
+      return
+    trace "Handled membership update"
+
+    # Persist tree after membership changes (temporary solution)
+    # TODO: Replace with proper persistence strategy (e.g., periodic snapshots)
+    mix.mixRlnSpamProtection.saveTree().isOkOr:
+      debug "Failed to save tree after membership update", error = error
+      return
+    trace "Saved tree after membership update"
+  elif contentTopic == mix.mixRlnSpamProtection.getProofMetadataContentTopic():
+    # Handle proof metadata for network-wide spam detection
+    mix.mixRlnSpamProtection.handleProofMetadata(message.payload).isOkOr:
+      warn "Failed to handle proof metadata", error = error
+      return
+    trace "Handled proof metadata"
+
+proc getSpamProtectionContentTopics*(mix: WakuMix): seq[string] =
+  ## Get the content topics used by spam protection for coordination.
+  ## Use these to set up relay subscriptions.
+  if mix.mixRlnSpamProtection.isNil():
+    return @[]
+  return mix.mixRlnSpamProtection.getContentTopics()
+
+proc saveSpamProtectionTree*(mix: WakuMix): Result[void, string] =
+  ## Save the spam protection membership tree to disk.
+  ## This allows preserving the tree state across restarts.
+  if mix.mixRlnSpamProtection.isNil():
+    return err("Spam protection not initialized")
+
+  mix.mixRlnSpamProtection.saveTree()
+
+proc loadSpamProtectionTree*(mix: WakuMix): Result[void, string] =
+  ## Load the spam protection membership tree from disk.
+  ## Call this before init() to restore tree state from previous runs.
+  ## TODO: This is a temporary solution. Ideally nodes should sync tree state
+  ## via a store query for historical membership messages or via dedicated
+  ## tree sync protocol.
+  if mix.mixRlnSpamProtection.isNil():
+    return err("Spam protection not initialized")
+
+  mix.mixRlnSpamProtection.loadTree()
+
+method start*(mix: WakuMix) {.async.} =
+  ## Local-only mix protocol initialization. Does NOT touch the network.
+  ## The network-dependent self-registration broadcast is handled separately
+  ## by registerDoSProtectionWithNetwork so that this proc can run before
+  ## peers are connected without blocking on relay startup.
+  info "starting waku mix protocol"
+
+  if mix.mixRlnSpamProtection.isNil():
+    return
+
+  # Initialize spam protection (MixProtocol.init() does NOT call init() on the plugin)
+  (await mix.mixRlnSpamProtection.init()).isOkOr:
+    error "Failed to initialize spam protection", error = error
+    return
+
+  # Load existing tree to sync with other members.
+  # Should be done after init() (which loads credentials) but before
+  # registerSelf() (which adds us to the tree).
+  let loadRes = mix.mixRlnSpamProtection.loadTree()
+  if loadRes.isErr:
+    debug "No existing tree found or failed to load, starting fresh",
+      error = loadRes.error
+  else:
+    debug "Loaded existing spam protection membership tree from disk"
+
+  # Restore our credentials to the tree (after tree load, whether it succeeded or not).
+  # Ensures our member is in the tree if we have an index from keystore.
+  mix.mixRlnSpamProtection.restoreCredentialsToTree().isOkOr:
+    error "Failed to restore credentials to tree", error = error
+
+  # Set up publish callback. Must be before the network-side registration so
+  # the plugin's groupManager.register can broadcast the membership update.
+  mix.setupSpamProtectionCallbacks()
+
+  (await mix.mixRlnSpamProtection.start()).isOkOr:
+    error "Failed to start spam protection", error = error
+
+  info "waku mix protocol started"
+
+proc dosRegistrationRetryLoop(mix: WakuMix) {.async.} =
+  ## Indefinitely retry the DoS-protection self-registration broadcast until
+  ## it succeeds (or this task is cancelled by WakuMix.stop()). For nodes that
+  ## already have a membership index in their keystore, registerSelf early-
+  ## returns and the loop exits on the first attempt. For fresh nodes, the
+  ## broadcast needs at least one relay peer subscribed to the membership
+  ## topic to land — this loop survives transient "no peers yet" failures.
+  ##
+  ## TODO: Remove once RLN membership moves on-chain. With on-chain membership
+  ## peers discover each other via the contract / a watcher rather than via a
+  ## pubsub broadcast, so the retry loop (and the whole publishCallback path
+  ## from registerSelf) becomes unnecessary.
+  ##
+  ## Retry pacing uses exponential backoff (5s, 10s, 20s, ..., capped at 5min)
+  ## so persistent misconfiguration — e.g., relay never available — degrades
+  ## to one log line every 5 minutes after the initial ramp instead of every
+  ## 5 seconds forever.
+  const InitialRetryDelay = chronos.seconds(5)
+  const MaxRetryDelay = chronos.minutes(5)
+  var delay = InitialRetryDelay
+  while true:
+    try:
+      let registerRes = await mix.mixRlnSpamProtection.registerSelf()
+      if registerRes.isOk():
+        debug "DoS-protection self-registration succeeded", index = registerRes.get()
+        # Persist tree only after a successful register — for fresh nodes this
+        # captures the new index; for keystore nodes it's a harmless no-op.
+        let saveRes = mix.mixRlnSpamProtection.saveTree()
+        if saveRes.isErr:
+          warn "Failed to save spam protection tree", error = saveRes.error
+        else:
+          trace "Saved spam protection tree to disk"
+        return # success — exit the loop
+      warn "DoS-protection self-registration failed, retrying",
+        error = registerRes.error, nextDelay = delay
+    except CancelledError as e:
+      debug "DoS-protection registration loop cancelled"
+      raise e
+    except CatchableError as e:
+      warn "DoS-protection registration raised, retrying",
+        error = e.msg, nextDelay = delay
+    await sleepAsync(delay)
+    delay = min(delay * 2, MaxRetryDelay)
+
+proc registerDoSProtectionWithNetwork*(mix: WakuMix) =
+  ## Kick off an indefinite background task that broadcasts this node's
+  ## DoS-protection (RLN) membership registration to other mix nodes via
+  ## relay. Returns immediately so callers don't block on a possibly-slow
+  ## broadcast. The task is cancelled when WakuMix.stop() is called.
+  if mix.mixRlnSpamProtection.isNil():
+    return
+  # Guard against kicking off the retry loop when the plugin isn't actually
+  # usable (e.g., mix.start()'s init/start steps failed). Without this check
+  # the loop would spin forever logging "Plugin not initialized" warnings.
+  if not mix.mixRlnSpamProtection.isReady():
+    warn "Skipping DoS-protection registration: plugin not ready"
+    return
+  # Re-call safety: don't spawn a second loop if one is still in flight.
+  if not mix.dosRegistrationTask.isNil and not mix.dosRegistrationTask.finished:
+    debug "DoS-protection registration already in progress, skipping"
+    return
+  mix.dosRegistrationTask = mix.dosRegistrationRetryLoop()
+
+method stop*(mix: WakuMix) {.async.} =
+  # Cancel the in-flight DoS-protection registration retry loop, if any
+  if not mix.dosRegistrationTask.isNil and not mix.dosRegistrationTask.finished:
+    await mix.dosRegistrationTask.cancelAndWait()
+  # Stop spam protection
+  if not mix.mixRlnSpamProtection.isNil():
+    await mix.mixRlnSpamProtection.stop()
+    debug "Spam protection stopped"
 
 # Mix Protocol
