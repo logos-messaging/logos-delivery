@@ -19,7 +19,7 @@ import logos_delivery/api/messaging_client_api
 import logos_delivery/api/conf/channels_conf
 
 import ./reliable_channel
-import ./encryption/noop_encryption
+import ./encryption/channel_encryption
 
 export reliable_channel, channels_conf
 
@@ -27,6 +27,8 @@ type ReliableChannelManager* = ref object ## Implements `ReliableChannelApi`.
   channels*: Table[ChannelId, ReliableChannel] ## read by `channels/api.nim`
   conf*: ReliableChannelManagerConf
   brokerCtx*: BrokerContext
+  encryption*: ChannelEncryptionRegistry
+    ## `channelId -> cipher`. Outlives individual channels on purpose.
 
 proc new*(
     T: type ReliableChannelManager,
@@ -43,20 +45,13 @@ proc new*(
       channels: initTable[ChannelId, ReliableChannel](),
       conf: conf,
       brokerCtx: brokerCtx,
+      encryption: ChannelEncryptionRegistry.new(),
     )
   )
 
 proc start*(self: ReliableChannelManager): Result[void, string] =
-  ## Per-channel listeners are installed in `ReliableChannel.new`, so the only
-  ## thing to wire up here is the encryption brokers. Channels encrypt on egress
-  ## and decrypt on ingress via the `Encrypt`/`Decrypt` request brokers; with no
-  ## provider registered every send and receive would fail, so `channel_send`
-  ## would never reach the wire and `ChannelMessageReceivedEvent` would never
-  ## fire. Install the pass-through noop so channels default to unencrypted
-  ## payloads. `setProvider` refuses to overwrite, so an application that
-  ## installed its own encryption before start keeps it.
-  setNoopEncryption()
-
+  ## Per-channel listeners are installed in `ReliableChannel.new`, so only
+  ## deferred subscriptions are left to wire up here.
   # Subscribe channels created before the MessagingSubscribe provider existed.
   if MessagingSubscribe.isProvided(self.brokerCtx):
     for chn in self.channels.values:
@@ -68,14 +63,13 @@ proc start*(self: ReliableChannelManager): Result[void, string] =
   ok()
 
 proc stop*(self: ReliableChannelManager) {.async.} =
-  ## Stops every channel's SDS background loops. Persisted state survives.
+  ## Stops every channel's SDS background loops. Persisted state survives
   for chn in self.channels.values:
     await chn.stop()
   self.channels.clear()
-
-## Inbound messages are not handed to the manager by direct call. Each
-## `ReliableChannel` installs its own `MessageReceivedEvent` listener
-## in `ReliableChannel.new`, filters by spec marker and `contentTopic`,
-## and routes to its private `onMessageReceived`. This keeps the lower
-## layer (MessagingClient/Waku) unaware of the existence of ReliableChannel
-## and keeps the manager out of per-channel event dispatch.
+  let registeredCiphers = self.encryption.len
+  self.encryption.clear()
+  if registeredCiphers > 0:
+    notice "channel encryption registrations dropped on manager stop; " &
+      "re-register before restarting, or channels resume in plaintext",
+      count = registeredCiphers

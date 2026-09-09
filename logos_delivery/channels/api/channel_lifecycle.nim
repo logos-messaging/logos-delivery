@@ -43,12 +43,17 @@ proc createReliableChannel*(
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
 ): Result[ChannelId, string] =
-  ## Encryption and egress providers must be installed (or `setNoopEncryption()`)
-  ## before traffic flows on the channel.
+  ## The channel is live the moment this returns -- it subscribes and
+  ## installs its ingress listener here -- so register any cipher with
+  ## `setChannelEncryption` *first*. Registering afterwards leaves a gap in
+  ## which inbound messages arrive undecryptable and are dropped.
   ## Subscribes to `contentTopic`; without a `MessagingSubscribe` provider the
   ## subscription is deferred to `ReliableChannelManager.start`.
   if self.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
+
+  if self.encryption.getChannelCrypto(channelId).isNone():
+    warn "channel has no encryption registered", channelId = channelId
 
   # Subscribe before constructing so a failure leaks no listeners.
   if MessagingSubscribe.isProvided(self.brokerCtx):
@@ -75,6 +80,7 @@ proc createReliableChannel*(
     segConfig = segConfig,
     sdsConfig = sdsConfig,
     brokerCtx = self.brokerCtx,
+    encryption = self.encryption,
   ).valueOr:
     ## Undo the subscription made above; no other channel needed the topic,
     ## or this one would not have been the first to ask for it. Bound here

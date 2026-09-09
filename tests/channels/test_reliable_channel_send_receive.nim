@@ -16,7 +16,6 @@ import tools/confutils/cli_args
 import logos_delivery/api/conf/messaging_conf
 
 import logos_delivery/channels/reliable_channel_manager
-import logos_delivery/channels/encryption/noop_encryption
 import logos_delivery/waku/persistency/keys
 import logos_delivery/waku/persistency/sds_persistency
 
@@ -73,11 +72,6 @@ suite "Reliable Channel - ingress":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    ## Noop encryption providers so the Encrypt/Decrypt brokers have
-    ## something to dispatch to; without this the channel falls back to
-    ## plaintext anyway, but installing them is the documented setup.
-    setNoopEncryption()
 
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
@@ -143,8 +137,6 @@ suite "Reliable Channel - ingress":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    setNoopEncryption()
-
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
@@ -192,8 +184,6 @@ suite "Reliable Channel - ingress":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    setNoopEncryption()
 
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
@@ -253,18 +243,27 @@ suite "Reliable Channel - ingress":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    setNoopEncryption()
-
-    ## Gate decryption so the receive handler parks mid-pipeline.
+    ## Gate decryption so the receive handler parks mid-pipeline. Registered
+    ## before the channel exists, which is also what an application does when
+    ## it wants the channel encrypted from its very first inbound message.
     let decryptGate = newFuture[void]("decrypt-gate")
-    Decrypt
-      .replaceProvider(
-        DefaultBrokerContext,
-        proc(payload: seq[byte]): Future[Result[Decrypt, string]] {.async.} =
-          await decryptGate
-          return ok(Decrypt(payload)),
+    manager
+      .setChannelEncryption(
+        channelId,
+        encrypt = proc(
+            payload: seq[byte]
+        ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
+          return ok(payload),
+        decrypt = proc(
+            payload: seq[byte]
+        ): Future[Result[seq[byte], string]] {.async: (raises: []).} =
+          try:
+            await decryptGate
+          except CatchableError as e:
+            return err(e.msg)
+          return ok(payload),
       )
-      .expect("replaceProvider")
+      .expect("setChannelEncryption")
 
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
@@ -309,15 +308,6 @@ suite "Reliable Channel - ingress":
     await sleepAsync(100.milliseconds)
     check not fired
 
-    ## Restore pass-through decryption for the remaining tests.
-    Decrypt
-      .replaceProvider(
-        DefaultBrokerContext,
-        proc(payload: seq[byte]): Future[Result[Decrypt, string]] {.async.} =
-          return ok(Decrypt(payload)),
-      )
-      .expect("replaceProvider restore")
-
     (await waku.stop()).expect("stop")
 
 suite "Reliable Channel - send state machine":
@@ -341,8 +331,6 @@ suite "Reliable Channel - send state machine":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    setNoopEncryption()
 
     var sendCalls = 0
     MessagingSend.replaceProvider(
@@ -406,8 +394,6 @@ suite "Reliable Channel - send state machine":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    setNoopEncryption()
 
     var msgReqIds: seq[RequestId]
     MessagingSend.replaceProvider(
@@ -496,8 +482,6 @@ suite "Reliable Channel - send state machine":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    setNoopEncryption()
-
     var msgReqIds: seq[RequestId]
     MessagingSend.replaceProvider(
       brokerCtx,
@@ -581,8 +565,6 @@ suite "Reliable Channel - send state machine":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    setNoopEncryption()
 
     var msgReqIds: seq[RequestId]
     MessagingSend.replaceProvider(
@@ -673,8 +655,6 @@ suite "Reliable Channel - send state machine":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    setNoopEncryption()
 
     var msgReqIds: seq[RequestId]
     var sendsReturned = 0
@@ -779,8 +759,6 @@ suite "Reliable Channel - SDS persistence":
     discard GetPersistency.reprovideIt(manager.brokerCtx):
       ok(persistency)
 
-    setNoopEncryption()
-
     MessagingSend.replaceProvider(
       globalBrokerContext(),
       proc(envelope: MessageEnvelope): Future[Result[RequestId, string]] {.async.} =
@@ -848,8 +826,6 @@ suite "Reliable Channel - SDS lifecycle":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    setNoopEncryption()
 
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
@@ -920,8 +896,6 @@ suite "Reliable Channel - SDS lifecycle":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    setNoopEncryption()
-
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
@@ -976,8 +950,6 @@ suite "Reliable Channel - SDS lifecycle":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    setNoopEncryption()
 
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
@@ -1040,8 +1012,6 @@ suite "Reliable Channel - SDS lifecycle":
 
     discard GetPersistency.reprovideIt(manager.brokerCtx):
       ok(persistency)
-
-    setNoopEncryption()
 
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
@@ -1123,8 +1093,6 @@ suite "Reliable Channel - SDS protocol semantics":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    setNoopEncryption()
-
     var capturedWires: seq[seq[byte]]
     MessagingSend.replaceProvider(
       brokerCtx,
@@ -1192,8 +1160,6 @@ suite "Reliable Channel - SDS protocol semantics":
 
     discard GetPersistency.reprovideIt(manager.brokerCtx):
       ok(persistency)
-
-    setNoopEncryption()
 
     var capturedWires: seq[seq[byte]]
     MessagingSend.replaceProvider(
@@ -1284,8 +1250,6 @@ suite "Reliable Channel - SDS protocol semantics":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    setNoopEncryption()
-
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
@@ -1359,8 +1323,6 @@ suite "Reliable Channel - SDS protocol semantics":
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
 
-    setNoopEncryption()
-
     discard manager
       .createReliableChannel(channelId, contentTopic, SdsParticipantID("local"))
       .expect("createReliableChannel")
@@ -1431,8 +1393,6 @@ suite "Reliable Channel - SDS protocol semantics":
       brokerCtx = globalBrokerContext()
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-    setNoopEncryption()
 
     var capturedWires: seq[seq[byte]]
     MessagingSend.replaceProvider(
@@ -1518,8 +1478,6 @@ suite "Reliable Channel - content topic subscription":
     lockNewGlobalBrokerContext:
       waku = (await LogosDelivery.new(createApiNodeConf())).expect("LogosDelivery.new")
       manager = waku.reliableChannelManager
-
-      setNoopEncryption()
 
       ## Created before start: subscribed by `ReliableChannelManager.start`.
       discard manager

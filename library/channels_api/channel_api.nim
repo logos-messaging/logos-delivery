@@ -5,7 +5,8 @@ import
   logos_delivery,
   logos_delivery/waku/waku_core/topics/content_topic,
   logos_delivery/api/types,
-  ../declare_lib
+  ../declare_lib,
+  ./channel_crypto
 
 proc logosdelivery_channel_create(
     self: LogosDelivery,
@@ -70,5 +71,53 @@ proc logosdelivery_channel_close(
 
   (await self.reliableChannelManager.closeChannel(ChannelId(channelIdStr))).isOkOr:
     return err("ChannelClose failed: " & $error)
+
+  return ok("")
+
+proc logosdelivery_channel_set_encryption(
+    self: LogosDelivery,
+    channelIdStr: string,
+    encryptFn: uint64,
+    decryptFn: uint64,
+    userData: uint64,
+): Future[Result[string, string]] {.ffi.} =
+  ## `encryptFn`/`decryptFn` are `LogosDeliveryCryptoFn` pointers cast to
+  ## `uint64`; `userData` is an opaque `void*`, also cast.
+  ##
+  ## `userData` is what lets one C function serve several channels. A
+  ## function pointer carries no state, so the same `my_encrypt` registered
+  ## on two channels is the same address both times and cannot tell them
+  ## apart. Whatever is passed here comes back as the callback's first
+  ## argument on every call, so it can point at this channel's key -- the C
+  ## equivalent of a closure capture.
+  ##
+  ## Call this before `logosdelivery_channel_create`: the channel goes live
+  ## as soon as it is created. The registration survives channel close.
+  requireChannels(self, "ChannelSetEncryption"):
+    return err(errMsg)
+
+  let encrypt = toChannelCryptoFn(encryptFn, userData).valueOr:
+    return err("ChannelSetEncryption failed: encrypt " & error)
+  let decrypt = toChannelCryptoFn(decryptFn, userData).valueOr:
+    return err("ChannelSetEncryption failed: decrypt " & error)
+
+  self.reliableChannelManager.setChannelEncryption(
+    ChannelId(channelIdStr), encrypt, decrypt
+  ).isOkOr:
+    return err("ChannelSetEncryption failed: " & error)
+
+  return ok("")
+
+proc logosdelivery_channel_clear_encryption(
+    self: LogosDelivery, channelIdStr: string
+): Future[Result[string, string]] {.ffi.} =
+  ## Reverts the channel to plaintext for new messages; a send already in
+  ## flight keeps using the cipher, so this is not a safe point to free
+  ## `userData`. See the lifetime note in `library/liblogosdelivery.h`.
+  requireChannels(self, "ChannelClearEncryption"):
+    return err(errMsg)
+
+  self.reliableChannelManager.clearChannelEncryption(ChannelId(channelIdStr)).isOkOr:
+    return err("ChannelClearEncryption failed: " & error)
 
   return ok("")
