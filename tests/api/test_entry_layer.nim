@@ -9,6 +9,7 @@ import
   logos_delivery/messaging/rest_api/client as messaging_rest_client,
   logos_delivery/waku/rest_api/endpoint/client
 import tools/confutils/cli_args
+import logos_delivery/waku/persistency/persistency
 import ../testlib/testasync
 
 ## Validates the layer-selection invariant of `LogosDelivery.new(WakuNodeConf)`:
@@ -31,6 +32,8 @@ proc nodeConf(entryLayer: EntryLayer, rest = false): WakuNodeConf =
   conf.nat = "none"
   conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = 1
+  # This suite does not test persistence. Keep the node off the shared ./data root.
+  conf.localStoragePath = InMemoryStoragePath
   conf.rest = rest
   conf.restAddress = parseIpAddress("127.0.0.1")
   conf.restPort = 0'u16 # bind to an ephemeral port

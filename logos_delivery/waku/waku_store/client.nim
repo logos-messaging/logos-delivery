@@ -98,6 +98,11 @@ proc queryToAny*(
 
   # Get all available store peers
   var peers = self.peerManager.switch.peerStore.getPeersByProtocol(WakuStoreCodec)
+  # A configured Store peer sits in its service slot with no protocols recorded
+  # until a connection learns them; dial it too.
+  self.peerManager.serviceSlots.withValue(WakuStoreCodec, slot):
+    if not peers.anyIt(it.peerId == slot[].peerId):
+      peers.add(slot[])
   if peers.len == 0:
     return err(StoreError(kind: BAD_RESPONSE, cause: "no service store peer connected"))
 

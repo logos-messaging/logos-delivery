@@ -3,6 +3,7 @@
 import results, std/[sequtils, times]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
+import logos_delivery/waku/persistency/persistency
 import ../testlib/[common, wakucore, wakunode, testasync]
 
 import
@@ -99,6 +100,8 @@ suite "LM API health checking":
       conf.clusterId = Opt.some(3'u16)
       conf.numShardsInNetwork = 1
       conf.rest = false
+      # This suite does not test persistence. Keep the node off the shared ./data root.
+      conf.localStoragePath = InMemoryStoragePath
 
       client = (await LogosDelivery.new(conf)).valueOr:
         raiseAssert error
@@ -279,6 +282,7 @@ suite "LM API health checking":
       edgeConf.clusterId = Opt.some(3'u16)
       edgeConf.maxMessageSize = "150 KiB"
       edgeConf.rest = false
+      edgeConf.localStoragePath = InMemoryStoragePath
 
       edgeWaku = (await LogosDelivery.new(edgeConf)).valueOr:
         raiseAssert "Failed to create edge node: " & error

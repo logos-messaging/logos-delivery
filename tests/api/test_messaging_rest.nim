@@ -15,6 +15,7 @@ import
   logos_delivery/waku/rest_api/endpoint/client,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
+import logos_delivery/waku/persistency/persistency
 import ../testlib/[wakucore, testasync]
 
 ## Integration test for the messaging REST endpoints and their event cache.
@@ -38,6 +39,8 @@ proc restNodeConf(): WakuNodeConf =
   conf.nat = "none"
   conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = 1
+  # This suite does not test persistence. Keep the node off the shared ./data root.
+  conf.localStoragePath = InMemoryStoragePath
   conf.rest = true
   conf.restAddress = parseIpAddress("127.0.0.1")
   conf.restPort = 0'u16 # bind to an ephemeral port
