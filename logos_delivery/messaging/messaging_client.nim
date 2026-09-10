@@ -8,6 +8,7 @@ import
   logos_delivery/waku/waku,
   logos_delivery/waku/api/publish,
   logos_delivery/waku/factory/conf_builder/waku_conf_builder,
+  logos_delivery/waku/persistency/persistency,
   logos_delivery/messaging/delivery_service/[recv_service, send_service],
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 
@@ -18,6 +19,7 @@ type MessagingClient* = ref object
   waku*: Waku ## The Waku kernel this layer drives; read by `messaging/api/*`.
   sendService*: SendService
   recvService*: RecvService
+  persistencyJob*: persistency.Job
   started*: bool
 
 proc rlnQuotaProvider(waku: Waku): QuotaProvider =

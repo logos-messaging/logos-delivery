@@ -1,66 +1,103 @@
 ## This module is in charge of taking care of the messages that this node is expecting to
 ## receive and is backed by store-v3 requests to get an additional degree of certainty
 ##
-## Relay and filter deliver live messages. One task per service start catches
-## up from Store: it waits for a subscription and a known Store peer, queries
-## every subscribed topic from the recovery hint that `backfill.nim` keeps in
-## Persistency up to a cutoff fixed at its first attempt, retries until each
-## topic is exhausted or unsubscribed, writes the cutoff, and exits. From then
-## on an accepted live message advances the hint with its local receipt time,
-## at most once per `ActivityWriteInterval`. No messages, no writes.
 
-import
-  std/[sequtils, sets, algorithm],
-  results,
-  chronos,
-  chronicles,
-  brokers/broker_context,
-  libp2p/protocols/pubsub/timedcache
+import results, std/[tables, sequtils, sets]
+import chronos, chronicles
+import brokers/broker_context
 import
   ./backfill,
   logos_delivery/api/conf/messaging_conf,
   logos_delivery/waku/persistency/persistency,
   logos_delivery/waku/[waku_core, waku_core/topics, waku_store/common],
   logos_delivery/waku/waku,
-  logos_delivery/waku/api/[store, subscriptions],
-  logos_delivery/api/events/kernel_events, # MessageSeenEvent
+  logos_delivery/waku/api/[store, subscriptions]
+import
+  logos_delivery/api/events/kernel_events,
   logos_delivery/api/events/messaging_client_events # MessageReceivedEvent
 
 const MaxMessageLife = chronos.minutes(7) ## Max time we will keep track of rx messages
 
-const ActivityWriteInterval* = chronos.seconds(10)
-  ## Least time between two writes of the recovery hint from live receipts.
+const PruneOldMsgsPeriod = chronos.minutes(1)
 
-const CatchUpRetryPeriod = chronos.seconds(30)
-  ## Wait inside the startup task before it asks again, after a failed topic
-  ## or while no Store peer is known.
+const DelayExtra* = chronos.seconds(5)
+  ## Additional security time to overlap the missing messages queries
+
+const ActivityWriteInterval* = chronos.seconds(10)
+  ## Least time between two recovery hint writes from received messages.
+
+const CatchUpRetryPeriod* = chronos.seconds(30)
+  ## Wait between two Store attempts of the startup catch-up.
+
+const CatchUpSettlePeriod* = chronos.seconds(10)
+  ## Wait for one more subscription once the startup catch-up has caught up. An
+  ## app restores its subscriptions in one turn; a person takes seconds.
 
 const
   DefaultBackfillRequestTimeout = chronos.seconds(10)
   MinBackfillRequestTimeoutSeconds = 1
   MaxBackfillRequestTimeoutSeconds = 300
 
+type TupleHashAndMsg =
+  tuple[hash: WakuMessageHash, msg: WakuMessage, pubsubTopic: PubsubTopic]
+
 type BackfillState* = object
-  ## Store catch-up settings and the startup task. The mechanism is in `backfill.nim`.
+  ## Settings and state of the startup catch-up. `backfill.nim` has the mechanism.
   enabled*: bool
   queryTimeout*: Duration
-  job: Job ## nil when disabled or storage is unavailable this run
-  task: Future[void] ## the startup catch-up, until it exits
-  subscribed: AsyncEvent ## fired when a subscription is added
-  done: bool ## the startup catch-up exited; live receipts may write the hint
-  lastWrite: Moment ## throttle for live-receipt writes
+  task: Future[void] ## the startup catch-up
+  hintListener: Opt[MessageReceivedEventListener]
+    ## advances the hint per received message; installed when the catch-up completes
 
 type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
   waku: Waku
   seenMsgListener: MessageSeenEventListener
+  connStatusListener: EventConnectionStatusChangeListener
 
-  recentReceivedMsgs: TimedCache[WakuMessageHash]
-    ## every message received in the last `MaxMessageLife`, from its first
-    ## local receipt
+  recentReceivedMsgs: Table[WakuMessageHash, Timestamp]
+    ## hash of each message received in the last `MaxMessageLife`, with its
+    ## local receipt time
 
-  backfill: BackfillState
+  online: bool
+    ## Whether we currently have connectivity (ConnectionStatus != Disconnected).
+    ## Status events carry only the new state, so this remembers the previous one
+    ## to act on edges, not every event: `PartiallyConnected`/`Connected` flicker
+    ## while still online, and the bool collapses that — backfill once when we come
+    ## online, stamp the gap start when we go offline.
+  backfillHandler: Future[void] ## in-flight store backfill task
+  msgPrunerHandler: Future[void] ## removes too old messages
+
+  startTimeToCheck: Timestamp
+  endTimeToCheck: Timestamp
+
+  backfill: BackfillState ## the startup catch-up from the persisted hint
   stopping: bool
+    ## Lets the startup catch-up exit at stop. `storeQueryToAny`, `sendStoreRequest`,
+    ## `dialPeer` and the brokers request path swallow `CancelledError`, so a cancel
+    ## may not reach the task. Re-raise it at those sites, then delete this.
+
+proc getMissingMsgsFromStore(
+    self: RecvService, msgHashes: seq[WakuMessageHash]
+): Future[Result[seq[TupleHashAndMsg], string]] {.async.} =
+  let storeResp: StoreQueryResponse = (
+    await self.waku.storeQueryToAny(
+      StoreQueryRequest(includeData: true, messageHashes: msgHashes)
+    )
+  ).valueOr:
+    return err("getMissingMsgsFromStore: " & $error)
+
+  let otherwiseMsg = WakuMessage()
+  let otherwiseTopic = PubsubTopic("")
+  return ok(
+    storeResp.messages.mapIt(
+      (
+        hash: it.messageHash,
+        msg: it.message.get(otherwiseMsg),
+        pubsubTopic: it.pubsubTopic.get(otherwiseTopic),
+      )
+    )
+  )
 
 proc processIncomingMessage(
     self: RecvService, pubsubTopic: string, message: WakuMessage
@@ -75,13 +112,16 @@ proc processIncomingMessage(
     return false
 
   let msgHash = computeMessageHash(pubsubTopic, message)
-  if self.recentReceivedMsgs.put(msgHash):
+  if self.recentReceivedMsgs.hasKey(msgHash):
     trace "skipping duplicate message",
       shard = pubsubTopic,
       contentTopic = message.contentTopic,
       msg_hash = msgHash.to0xHex()
     return false
 
+  # Local receipt time: a message recovered from Store stays known for the
+  # full period whatever its own timestamp.
+  self.recentReceivedMsgs[msgHash] = getNowInNanosecondTime()
   info "Message received",
     msg_hash = msgHash.to0xHex(),
     contentTopic = message.contentTopic,
@@ -89,66 +129,90 @@ proc processIncomingMessage(
   MessageReceivedEvent.emit(self.brokerCtx, msgHash.to0xHex(), message)
   return true
 
-proc subscribedTopics(self: RecvService): seq[BackfillTopic] =
-  var snapshot: seq[BackfillTopic]
+proc checkStore*(self: RecvService) {.async.} =
+  ## Checks the store for messages that were not received directly and
+  ## delivers them via MessageReceivedEvent.
+  if not self.waku.isStoreMounted():
+    debug "recv service has no store client mounted, skipping store check"
+    return
+
+  self.endTimeToCheck = getNowInNanosecondTime()
+
+  ## query store and deliver new recovered messages per subscribed topic
   for (pubsubTopic, contentTopics) in self.waku.subscribedContentTopics():
-    for contentTopic in contentTopics:
-      snapshot.add((pubsubTopic, contentTopic))
-  snapshot.sort()
-  return snapshot
+    let storeResp: StoreQueryResponse = (
+      await self.waku.storeQueryToAny(
+        StoreQueryRequest(
+          includeData: false,
+          pubsubTopic: Opt.some(pubsubTopic),
+          contentTopics: toSeq(contentTopics),
+          startTime: Opt.some(self.startTimeToCheck - DelayExtra.nanos),
+          endTime: Opt.some(self.endTimeToCheck + DelayExtra.nanos),
+        )
+      )
+    ).valueOr:
+      debug "checkStore failed to get remote msgHashes",
+        pubsubTopic = pubsubTopic, cTopics = toSeq(contentTopics), error = $error
+      continue
 
-proc suspendBackfill(self: RecvService, reason: string) =
-  ## The stored hint stays. The next start retries. At shutdown the broker
-  ## reports a cancelled read as an error, which is not a failure.
-  if self.stopping:
+    ## compare the msgHashes seen from the store vs the ones received directly
+    let msgHashesInStore = storeResp.messages.mapIt(it.messageHash)
+    let missedHashes: seq[WakuMessageHash] =
+      msgHashesInStore.filterIt(not self.recentReceivedMsgs.hasKey(it))
+
+    if missedHashes.len > 0:
+      info "missed messages detected, checking store for missed messages",
+        pubsubTopic = pubsubTopic, missedCount = missedHashes.len
+
+      ## Now retrieve the missing WakuMessages and deliver them
+      let missingMsgsRet = await self.getMissingMsgsFromStore(missedHashes)
+      if missingMsgsRet.isOk():
+        for msgTuple in missingMsgsRet.get():
+          if self.processIncomingMessage(msgTuple.pubsubTopic, msgTuple.msg):
+            debug "recv service store-recovered message",
+              msg_hash = shortLog(msgTuple.hash), pubsubTopic = msgTuple.pubsubTopic
+      else:
+        debug "Failed to retrieve missing messages: ", error = $missingMsgsRet.error
+
+  ## update next check times
+  self.startTimeToCheck = self.endTimeToCheck
+
+proc onConnectionStatusChange(self: RecvService, status: ConnectionStatus) =
+  ## Backfill the store over the window we were offline (`Disconnected`).
+  let nowOnline = status != ConnectionStatus.Disconnected
+  if nowOnline == self.online:
     return
-  warn "automatic Store catch-up suspended for this run", reason
-  self.backfill.job = nil
+  self.online = nowOnline
 
-proc noteSubscribed*(self: RecvService) =
-  ## Wakes the startup catch-up waiting for its first subscription. A no-op
-  ## once it has exited.
-  if not self.backfill.done and not self.backfill.subscribed.isNil():
-    self.backfill.subscribed.fire()
-
-proc noteLiveReceipt(self: RecvService, receivedAt: Timestamp) {.async: (raises: []).} =
-  ## Advances the recovery hint to a live receipt once the startup catch-up
-  ## has exited, at most once per `ActivityWriteInterval`.
-  if not self.backfill.done or self.backfill.job.isNil() or not self.backfill.job.running:
+  if not nowOnline:
+    self.startTimeToCheck = getNowInNanosecondTime()
     return
-  if Moment.now() - self.backfill.lastWrite < ActivityWriteInterval:
-    return
-  self.backfill.lastWrite = Moment.now() # before the yield, so a burst writes once
-  try:
-    await self.backfill.job.writeLastOnline(receivedAt)
-  except CancelledError:
-    discard
 
-proc onLiveMessage(self: RecvService, event: MessageSeenEvent) {.async: (raises: []).} =
-  ## Relay and filter deliveries. The receipt time is taken before delivery.
-  let receivedAt = getNowInNanosecondTime()
-  if self.processIncomingMessage(event.topic, event.message):
-    await self.noteLiveReceipt(receivedAt)
+  # At most one backfill in flight; skip if the previous is still running.
+  # Triggers are paced by health-monitor status changes, so overlap is unlikely.
+  if self.backfillHandler.isNil() or self.backfillHandler.finished():
+    info "recv service backfilling missed messages after coming back online"
+    self.backfillHandler = self.checkStore()
 
-proc startupCatchUp(self: RecvService) {.async.} =
-  ## The one catch-up of a service run. Reads or seeds the hint, waits for a
-  ## subscription and a known Store peer, walks `[hint - BackfillOverlap,
-  ## cutoff)` for every subscribed topic until each is exhausted or gone, then
-  ## writes the cutoff and hands the hint over to live receipts.
-  let job = self.backfill.job
-  let startedAt = getNowInNanosecondTime() # before the first await: the service start
-  let stored = (await job.readLastOnline()).valueOr:
-    self.suspendBackfill(error)
+proc startupCatchUp(self: RecvService, job: Job) {.async.} =
+  ## The one Store catch-up of a service run, from the persisted hint.
+  let startedAt = getNowInNanosecondTime() # before the first await
+  let stored = (await job.readRecoveryHint()).valueOr:
+    if not self.stopping:
+      warn "automatic Store catch-up suspended for this run", reason = error
     return
   let hint =
     if stored.isSome():
       stored.get()
     else:
-      await job.writeLastOnline(startedAt) # a first run: the next run starts here
+      await job.writeRecoveryHint(startedAt) # first run: the next run starts here
       startedAt
-  let since = hint - BackfillOverlap.nanos
-  var cutoff = Timestamp(0) # fixed at the first Store attempt
+  let since = hint - BackfillOverlap
   var completed: HashSet[BackfillTopic]
+  let progress = newTable[BackfillTopic, Timestamp]() # a failed topic's next page start
+  var caughtUpAt = Timestamp(0)
+    # the first completing pass's bound; covered for every topic
+  var settleUntil: Opt[Moment] # set when there is nothing left to do
   let query: BackfillQuery = proc(
       request: StoreQueryRequest
   ): Future[Result[StoreQueryResponse, string]] {.async.} =
@@ -158,54 +222,85 @@ proc startupCatchUp(self: RecvService) {.async.} =
   let deliver: BackfillDeliver = proc(
       pubsubTopic: PubsubTopic, message: WakuMessage
   ): bool {.gcsafe, raises: [].} =
-    if self.stopping or
-        not self.waku.isContentSubscribed(pubsubTopic, message.contentTopic):
+    if not self.waku.isContentSubscribed(pubsubTopic, message.contentTopic):
       return false
     discard self.processIncomingMessage(pubsubTopic, message)
     return true
+  let subscribed = newAsyncEvent()
+  let onSubscribed = proc(event: ContentTopicSubscribedEvent) {.async: (raises: []).} =
+    subscribed.fire()
+  let listener = ContentTopicSubscribedEvent.listen(self.brokerCtx, onSubscribed).valueOr:
+    warn "automatic Store catch-up suspended for this run", reason = error
+    return
+  defer:
+    await ContentTopicSubscribedEvent.dropListener(self.brokerCtx, listener)
   while true:
     if not job.running:
-      self.suspendBackfill("persistency job is closed")
+      warn "automatic Store catch-up suspended for this run",
+        reason = "persistency job is closed"
       return
-    self.backfill.subscribed.clear()
-    let subscribed = self.subscribedTopics()
-    if subscribed.len == 0:
-      if cutoff == 0:
-        await self.backfill.subscribed.wait() # the app subscribes after start
-        continue
-      break # everything was unsubscribed
-    let pending = subscribed.filterIt(it notin completed)
+    let pending =
+      backfillTopics(self.waku.subscribedContentTopics()).filterIt(it notin completed)
     if pending.len == 0:
-      break
+      if completed.len > 0:
+        # Caught up. The app may still be restoring its subscriptions: wait for
+        # the next, and finish when none comes. A wake that brings no work
+        # spends the same wait.
+        if settleUntil.isNone():
+          settleUntil = Opt.some(Moment.now() + CatchUpSettlePeriod)
+        let remaining = settleUntil.get() - Moment.now()
+        if remaining <= ZeroDuration or
+            not await subscribed.wait().withTimeout(remaining):
+          break
+      else:
+        await subscribed.wait() # nothing subscribed yet
+      subscribed.clear()
+      continue
+    settleUntil = Opt.none(Moment) # new work; settle after it
     if not self.waku.hasStorePeer():
       await sleepAsync(CatchUpRetryPeriod) # nobody to ask yet
       continue
-    if cutoff == 0:
-      cutoff = getNowInNanosecondTime()
-    let outcome = await runCatchUp(
-      pending, since, cutoff, self.backfill.queryTimeout, query, deliver
+    let cutoff = getNowInNanosecondTime() # this pass's bound; live covers from here
+    let exhausted = await runCatchUpPass(
+      pending, progress, since, cutoff, self.backfill.queryTimeout, query, deliver
     )
-    for topic in outcome.completedTopics:
+    if self.stopping:
+      return
+    if caughtUpAt == 0 and exhausted.len > 0:
+      caughtUpAt = cutoff
+    for topic in exhausted:
       completed.incl(topic)
-    debug "recv service catch-up pass",
-      queries = outcome.queries,
-      completed = outcome.completedTopics.len,
-      failed = outcome.failed
-    if outcome.completedTopics.len < pending.len:
+    if exhausted.len < pending.len:
       await sleepAsync(CatchUpRetryPeriod) # a topic failed; ask again
-  if completed.len > 0:
-    await job.writeLastOnline(cutoff) # the bound actually queried
-  self.backfill.done = true
+  await job.writeRecoveryHint(caughtUpAt)
+  if self.stopping:
+    return
+  # From here every accepted message, live or recovered from Store, moves the
+  # hint to now, at most once per `ActivityWriteInterval`.
+  var lastWrite = Moment()
+  let onReceived = proc(event: MessageReceivedEvent) {.async: (raises: []).} =
+    let now = Moment.now()
+    if not job.running or now - lastWrite < ActivityWriteInterval:
+      return
+    lastWrite = now # before the await: a burst writes once
+    try:
+      await job.writeRecoveryHint(getNowInNanosecondTime())
+    except CancelledError:
+      discard
+  let receipts = MessageReceivedEvent.listen(self.brokerCtx, onReceived).valueOr:
+    warn "recovery hint writes off for this run", reason = error
+    return
+  self.backfill.hintListener = Opt.some(receipts)
 
-proc checkStore*(self: RecvService) {.async.} =
-  ## Waits for the startup catch-up of this run, if it is still in flight. It
-  ## never starts one; the next service start does.
+proc waitForStartupCatchUp*(self: RecvService) {.async.} =
+  ## Waits for the startup catch-up to exit. Cancelling the wait leaves the
+  ## catch-up running.
   if not self.backfill.task.isNil():
-    await self.backfill.task
+    await self.backfill.task.join()
 
 proc init*(T: type BackfillState, conf: MessagingClientConf): Result[T, string] =
-  ## Rejects an out-of-range timeout. Zero is not unlimited. Disable with
-  ## `backfillEnabled`.
+  ## Rejects a timeout outside `MinBackfillRequestTimeoutSeconds` ..
+  ## `MaxBackfillRequestTimeoutSeconds`.
   var queryTimeout = DefaultBackfillRequestTimeout
   if conf.backfillRequestTimeoutSeconds.isSome():
     let seconds = conf.backfillRequestTimeoutSeconds.get()
@@ -217,62 +312,69 @@ proc init*(T: type BackfillState, conf: MessagingClientConf): Result[T, string] 
           ", got " & $seconds
       )
     queryTimeout = chronos.seconds(seconds)
-  ok(T(enabled: conf.backfillEnabled.get(true), queryTimeout: queryTimeout))
+  return ok(T(enabled: conf.backfillEnabled.get(true), queryTimeout: queryTimeout))
 
 proc new*(T: typedesc[RecvService], waku: Waku, backfill: BackfillState): T =
-  ## The storeClient will help to acquire any possible missed messages.
-  RecvService(
-    waku: waku,
-    brokerCtx: waku.brokerCtx,
-    backfill: backfill,
-    recentReceivedMsgs:
-      init(TimedCache[WakuMessageHash], MaxMessageLife, refreshOnPut = false),
+  ## The storeClient will help to acquire any possible missed messages
+
+  let now = getNowInNanosecondTime()
+  var recvService = RecvService(
+    waku: waku, startTimeToCheck: now, brokerCtx: waku.brokerCtx, backfill: backfill
   )
 
-proc openBackfillJob(self: RecvService): Job =
-  ## The Persistency job for the recovery hint, or nil with a warning. Live
-  ## messaging continues. The next start retries.
-  let persistency = GetPersistency.request(self.brokerCtx).valueOr:
-    warn "automatic Store catch-up suspended: no persistency provider", reason = error
-    return nil
-  if persistency.rootDir == InMemoryStoragePath:
-    info "automatic Store catch-up disabled: in-memory storage root keeps no history"
-    return nil
-  let job = persistency.openJob(BackfillJobId).valueOr:
-    warn "automatic Store catch-up suspended: could not open persistency job",
-      jobId = BackfillJobId, reason = $error
-    return nil
-  job
+  return recvService
 
-proc startRecvService*(self: RecvService): Result[void, string] =
+proc loopPruneOldMessages(self: RecvService) {.async.} =
+  while true:
+    let oldestAllowedTime = getNowInNanosecondTime() - MaxMessageLife.nanos
+    var expired: seq[WakuMessageHash]
+    for msgHash, rxTime in self.recentReceivedMsgs:
+      if rxTime <= oldestAllowedTime:
+        expired.add(msgHash)
+    for msgHash in expired:
+      self.recentReceivedMsgs.del(msgHash)
+    await sleepAsync(PruneOldMsgsPeriod)
+
+proc startRecvService*(self: RecvService, job: Job) =
+  ## `job` is the messaging layer's Persistency job, nil when the layer has none.
   self.stopping = false
-  self.backfill.job =
-    if self.backfill.enabled:
-      self.openBackfillJob()
-    else:
-      nil
-  self.backfill.done = false
-  self.backfill.lastWrite = Moment()
-  self.backfill.subscribed = newAsyncEvent()
+  self.msgPrunerHandler = self.loopPruneOldMessages()
 
-  let onSeen = proc(event: MessageSeenEvent) {.async: (raises: []).} =
-    await self.onLiveMessage(event)
-  self.seenMsgListener = MessageSeenEvent.listen(self.brokerCtx, onSeen).valueOr:
+  self.seenMsgListener = MessageSeenEvent.listen(
+    self.brokerCtx,
+    proc(event: MessageSeenEvent) {.async: (raises: []).} =
+      discard self.processIncomingMessage(event.topic, event.message),
+  ).valueOr:
     error "Failed to set MessageSeenEvent listener", error = error
-    return err("register receive listener: " & error)
+    quit(QuitFailure)
 
-  if not self.backfill.job.isNil():
-    self.backfill.task = self.startupCatchUp()
-  return ok()
+  self.connStatusListener = EventConnectionStatusChange.listen(
+    self.brokerCtx,
+    proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
+      self.onConnectionStatusChange(event.connectionStatus),
+  ).valueOr:
+    error "Failed to set EventConnectionStatusChange listener", error = error
+    quit(QuitFailure)
+
+  if self.backfill.enabled and not job.isNil():
+    self.backfill.task = self.startupCatchUp(job)
 
 proc stopRecvService*(self: RecvService) {.async.} =
-  ## Cancels and joins the startup catch-up before the kernel closes
-  ## Persistency. The hint stays where the last write put it; the kernel
-  ## closes Persistency right after this, so a write here would race the
-  ## worker thread's shutdown.
   self.stopping = true
   await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
-  if not self.backfill.task.isNil():
-    await self.backfill.task.cancelAndWait()
-    self.backfill.task = nil
-  self.backfill.job = nil
+  await EventConnectionStatusChange.dropListener(
+    self.brokerCtx, self.connStatusListener
+  )
+  if self.backfill.hintListener.isSome():
+    await MessageReceivedEvent.dropListener(
+      self.brokerCtx, self.backfill.hintListener.get()
+    )
+    self.backfill.hintListener = Opt.none(MessageReceivedEventListener)
+  var tasks: seq[Future[void]]
+  for task in [self.backfillHandler, self.msgPrunerHandler, self.backfill.task]:
+    if not task.isNil():
+      tasks.add(task)
+  await cancelAndWait(tasks) # every cancel requested before any wait
+  self.backfillHandler = nil
+  self.msgPrunerHandler = nil
+  self.backfill.task = nil

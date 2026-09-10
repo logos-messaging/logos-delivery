@@ -11,6 +11,7 @@ import logos_delivery/messaging/messaging_client_lifecycle
 import logos_delivery/messaging/delivery_service/recv_service
 import logos_delivery/messaging/delivery_service/recv_service/backfill
 import logos_delivery/waku/persistency/persistency
+import logos_delivery/api/events/kernel_events
 import logos_delivery/api/conf/logos_delivery_conf
 from logos_delivery/waku/waku_store/common import WakuStoreCodec
 
@@ -100,13 +101,15 @@ proc createApiNodeConf(numShards: uint16 = 1): WakuNodeConf =
   conf.rest = false
   conf.localStoragePath = InMemoryStoragePath
   conf.dnsAddrsNameServers = @[parseIpAddress("127.0.0.1")]
-  conf
+  return conf
 
 proc backfillOverrides(enabled = true): MessagingClientConf =
-  MessagingClientConf(backfillEnabled: Opt.some(enabled))
+  return MessagingClientConf(backfillEnabled: Opt.some(enabled))
 
 proc nodeConf(kernel: WakuNodeConf, messaging: MessagingClientConf): LogosDeliveryConf =
-  LogosDeliveryConf(kernelConf: KernelConf(kernel), messagingConf: Opt.some(messaging))
+  return LogosDeliveryConf(
+    kernelConf: KernelConf(kernel), messagingConf: Opt.some(messaging)
+  )
 
 type TestNetwork = ref object
   storeNode: WakuNode
@@ -122,13 +125,12 @@ type TestNetwork = ref object
 proc setupNetwork(
     testTopic: ContentTopic, storageRoot = "", knowStorePeer = true
 ): Future[TestNetwork] {.async.} =
-  ## A started subscriber on `testTopic`, never connected to the store, with a
-  ## message archived after its start and before its subscription, so it did
-  ## not see it live. With `knowStorePeer` the store node is a known service
-  ## peer that the Store client dials on demand, the way a configured store
-  ## node is registered; without it nobody can be asked yet. Its history is on
-  ## disk, because an in-memory root disables catch-up. With no root given,
-  ## the helper creates a temporary one.
+  ## A started subscriber on `testTopic` with one message archived between its
+  ## start and its subscription, so only Store can deliver it. With
+  ## `knowStorePeer` the store node is a known service peer that the Store
+  ## client dials on demand, as a configured store node is. The root is on
+  ## disk so a later process reads the hint; an empty `storageRoot` gets a
+  ## temporary one.
   const numShards: uint16 = 1
   let ownedRoot =
     if storageRoot.len == 0:
@@ -185,8 +187,7 @@ proc setupNetwork(
     raiseAssert "publisher<->store relay mesh did not form in time"
 
   # Started, without peers. The message is archived after the service start
-  # and before the subscription, so it is inside the range to catch up and
-  # the subscriber never sees it live.
+  # and before the subscription, inside the range to catch up.
   var subscriber: LogosDelivery
   lockNewGlobalBrokerContext:
     var conf = createApiNodeConf(numShards)
@@ -203,8 +204,8 @@ proc setupNetwork(
   discard (await publisher.publish(Opt.some(shard), missedMsg)).expect(
     "Publish missed msg failed"
   )
-  # Relay publish does not acknowledge the archive write. The catch-up asks
-  # once, so the message must be archived before the subscription wakes it.
+  # Relay publish returns before the archive write. The subscription wakes
+  # the catch-up, so the message must be archived first.
   block waitArchive:
     for _ in 0 ..< 50:
       let query = archive_common.ArchiveQuery(
@@ -250,8 +251,7 @@ proc teardown(net: TestNetwork) {.async.} =
 
 const RestartTopic = ContentTopic("/waku/2/recv-process-restart/proto")
 const TestShard = PubsubTopic("/waku/2/rs/3/0")
-const OfflineCount = 105
-  ## archived while no subscriber process runs. Spans two Store pages
+const OfflineCount = 105 ## archived between two subscriber processes; two Store pages
 
 proc runRestartedReceiver(
     storageRoot, storePeer: string, expectedCount: int, backfillEnabled: bool
@@ -345,10 +345,10 @@ proc waitForArchived(net: TestNetwork, topic: ContentTopic, count: int) {.async.
     await sleepAsync(100.milliseconds)
   raiseAssert "messages were not archived in time"
 
-proc waitForLastOnline(job: Job): Future[Timestamp] {.async.} =
+proc waitForHint(job: Job): Future[Timestamp] {.async.} =
   ## The stored hint, once the first write has landed.
   for _ in 0 ..< 50:
-    let stored = (await job.readLastOnline()).expect("read record")
+    let stored = (await job.readRecoveryHint()).expect("read record")
     if stored.isSome():
       return stored.get()
     await sleepAsync(100.milliseconds)
@@ -361,14 +361,14 @@ proc waitForAdvance(
   ## its Store peer after subscribing waits out one retry period first.
   let deadline = Moment.now() + within
   while Moment.now() < deadline:
-    let stored = (await job.readLastOnline()).expect("read record")
+    let stored = (await job.readRecoveryHint()).expect("read record")
     if stored.isSome() and stored.get() > past:
       return stored.get()
     await sleepAsync(100.milliseconds)
   raiseAssert "the recovery hint did not advance in time"
 
 proc knowStorePeer(net: TestNetwork) =
-  ## Registers the store node as a known service peer, without connecting.
+  ## Registers the store node as a service peer. The Store client dials it on demand.
   net.subscriber.waku.node.peerManager.addServicePeer(
     net.storeNodePeerInfo, WakuStoreCodec
   )
@@ -376,13 +376,30 @@ proc knowStorePeer(net: TestNetwork) =
 proc joinMesh(net: TestNetwork) {.async.} =
   ## Connects the subscriber to the store node and waits until they share a
   ## relay mesh, so a message the publisher relays reaches the subscriber live.
-  ## Not a status event: the Store dial may already have connected them.
+  ## Polls the mesh: the Store dial may have connected them already.
   await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
   for _ in 0 ..< 100:
     if net.subscriber.waku.node.wakuRelay.getNumPeersInMesh(TestShard).valueOr(0) > 0:
       return
     await sleepAsync(100.milliseconds)
   raiseAssert "the subscriber did not join the relay mesh in time"
+
+proc tunnel(net: TestNetwork, topic: ContentTopic): Future[WakuMessage] {.async.} =
+  ## Disconnects the subscriber from the store node, waits until it reports
+  ## `Disconnected`, then puts one message straight into the archive. Direct
+  ## insertion keeps Store the only path; relay's cache can hand a published
+  ## message over at reconnection.
+  let offline = waitForConnectionStatus(
+    net.subscriber.waku.brokerCtx, ConnectionStatus.Disconnected
+  )
+  await net.subscriber.waku.node.disconnectNode(net.storeNodePeerInfo)
+  await offline
+  let msg = WakuMessage(
+    payload: "archived in the tunnel".toBytes(), contentTopic: topic, timestamp: now()
+  )
+  await net.storeNode.wakuArchive.handleMessage(TestShard, msg)
+  await net.waitForArchived(topic, 2)
+  return msg
 
 proc publishLive(net: TestNetwork, topic: ContentTopic, text: string) {.async.} =
   ## A message the subscriber receives live, through the relay mesh.
@@ -402,9 +419,9 @@ proc bringOnline(net: TestNetwork) {.async.} =
 
 suite "Messaging API, Receive Service (store recovery)":
   asyncTest "a new process recovers what was archived while it was down":
-    # Phase 1: the first session did not reach a Store peer. The next process
-    # recovers the setup message and all messages archived while stopped,
-    # across two Store pages.
+    # Phase 1: the first session is stopped before its catch-up settles, so the
+    # stored hint is its seed. The next process recovers the setup message and
+    # all messages archived while stopped, across two Store pages.
     block:
       let root = createTempDir("recv-api-process-", "")
       defer:
@@ -415,12 +432,13 @@ suite "Messaging API, Receive Service (store recovery)":
       (await net.subscriber.stop()).expect("stop previous session")
       net.subscriber = nil
       await net.archiveOffline()
-      # A child that resumes from its own start does not find these messages.
+      # Separates these messages from the child's start time.
       await sleepAsync(1.seconds)
       await net.runRestartedProcess(root, OfflineCount + 1)
 
-    # Phase 2: disabled, the child retrieves nothing. The saved timestamp
-    # stays for a later run.
+    # Phase 2: disabled, only the reconnection check runs, and its `DelayExtra`
+    # lookback is waited out first, so the child retrieves nothing. The saved
+    # timestamp stays for a later run.
     block:
       let root = createTempDir("recv-api-disabled-", "")
       defer:
@@ -431,6 +449,7 @@ suite "Messaging API, Receive Service (store recovery)":
       (await net.subscriber.stop()).expect("stop previous session")
       net.subscriber = nil
       await net.archiveOffline()
+      await sleepAsync(DelayExtra + 1.seconds)
       await net.runRestartedProcess(root, 0, backfillEnabled = false)
       await net.runRestartedProcess(root, OfflineCount + 1)
 
@@ -452,16 +471,16 @@ suite "Messaging API, Receive Service (store recovery)":
       let topic = ContentTopic("/waku/2/recv-late-subscribe/proto")
       let subscribedAt = now()
       (await node.messagingClient.subscribe(topic)).expect("subscribe")
-      let p = Persistency.new(root).expect("open root")
+      let persistency = Persistency.new(root).expect("open root")
       defer:
-        p.close()
-      let job = p.openJob(BackfillJobId).expect("open job")
-      check (await job.waitForLastOnline()) <= subscribedAt
+        persistency.close()
+      let job = persistency.openJob(MessagingJobId).expect("open job")
+      check (await job.waitForHint()) <= subscribedAt
       (await node.stop()).expect("stop node")
 
     # Phase 4: the hint stays at the service start while nobody can be asked.
-    # Once a Store peer is known, the startup catch-up completes and writes
-    # the cutoff it queried, after one retry period.
+    # Once a Store peer is known, the startup catch-up completes and writes the
+    # hint: one retry period until it asks again, one settle period after.
     block:
       let root = createTempDir("recv-api-advance-", "")
       defer:
@@ -470,20 +489,21 @@ suite "Messaging API, Receive Service (store recovery)":
       let net = await setupNetwork(topic, root, knowStorePeer = false)
       defer:
         await net.teardown()
-      let p = Persistency.new(root).expect("open root")
+      let persistency = Persistency.new(root).expect("open root")
       defer:
-        p.close()
-      let job = p.openJob(BackfillJobId).expect("open job")
-      let atStart = await job.waitForLastOnline()
+        persistency.close()
+      let job = persistency.openJob(MessagingJobId).expect("open job")
+      let atStart = await job.waitForHint()
       await sleepAsync(1500.milliseconds)
-      check (await job.readLastOnline()).expect("read record") == Opt.some(atStart)
+      check (await job.readRecoveryHint()).expect("read record") == Opt.some(atStart)
       net.knowStorePeer()
-      let cutoff = await job.waitForAdvance(atStart, within = 45.seconds)
+      let cutoff = await job.waitForAdvance(
+        atStart, within = CatchUpRetryPeriod + CatchUpSettlePeriod + 15.seconds
+      )
       check cutoff < now()
 
-    # Phase 5: once the startup catch-up has exited, an accepted live message
-    # advances the hint with its local receipt time, at most once per
-    # `ActivityWriteInterval`. No messages, no writes.
+    # Phase 5: after the startup catch-up exits, a received message advances
+    # the hint to its receipt time, at most once per `ActivityWriteInterval`.
     block:
       let root = createTempDir("recv-api-live-", "")
       defer:
@@ -493,11 +513,11 @@ suite "Messaging API, Receive Service (store recovery)":
       defer:
         await net.teardown()
       let events = net.events
-      let p = Persistency.new(root).expect("open root")
+      let persistency = Persistency.new(root).expect("open root")
       defer:
-        p.close()
-      let job = p.openJob(BackfillJobId).expect("open job")
-      await net.subscriber.messagingClient.recvService.checkStore()
+        persistency.close()
+      let job = persistency.openJob(MessagingJobId).expect("open job")
+      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
       check await events.waitForEvents(TestTimeout) # the setup message
       # The setup message was stamped after the seed and before the first
       # Store attempt, so the first value past it is the completion write.
@@ -511,13 +531,13 @@ suite "Messaging API, Receive Service (store recovery)":
       check await events.waitForEvents(TestTimeout)
       let afterFirst = await job.waitForAdvance(cutoff)
       check afterFirst >= beforeLive
-      # A second live message inside the interval does not write.
+      # A second message inside the interval leaves the hint as is.
       events.targetCount = 3
       events.receivedEvent.clear()
       await net.publishLive(topic, "live two")
       check await events.waitForEvents(TestTimeout)
       await sleepAsync(1500.milliseconds)
-      check (await job.readLastOnline()).expect("read record") == Opt.some(afterFirst)
+      check (await job.readRecoveryHint()).expect("read record") == Opt.some(afterFirst)
       # After the interval the next one writes again.
       await sleepAsync(ActivityWriteInterval)
       events.targetCount = 4
@@ -527,14 +547,14 @@ suite "Messaging API, Receive Service (store recovery)":
       discard await job.waitForAdvance(afterFirst)
 
   asyncTest "recv_service recovers a missed message through a known Store peer":
-    # Phase 1: the startup catch-up dials the known, never connected Store
-    # peer. `checkStore()` waits for it.
+    # Phase 1: the startup catch-up dials the known Store peer.
+    # `waitForStartupCatchUp()` waits for it.
     block:
       let net = await setupNetwork(ContentTopic("/waku/2/recv-test/proto"))
       defer:
         await net.teardown()
       let eventManager = net.events
-      await net.subscriber.messagingClient.recvService.checkStore()
+      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
       check await eventManager.waitForEvents(TestTimeout)
       check eventManager.receivedMessages.len == 1
       if eventManager.receivedMessages.len > 0:
@@ -555,35 +575,115 @@ suite "Messaging API, Receive Service (store recovery)":
       if eventManager.receivedMessages.len > 0:
         check eventManager.receivedMessages[0].payload == net.missedPayload
 
-    # Phase 3: storage closed under a running node suspends catch-up with a
-    # warning. The node keeps running.
+    # Phase 3: storage closed under a running node ends the startup catch-up
+    # with a warning. The node keeps running; the reconnection check still
+    # delivers on its own.
     block:
       let net = await setupNetwork(
         ContentTopic("/waku/2/recv-storage-lost/proto"), knowStorePeer = false
       )
       defer:
         await net.teardown()
-      let eventManager = net.events
       GetPersistency
         .request(net.subscriber.waku.brokerCtx)
         .expect("persistency")
-        .closeJob(BackfillJobId)
+        .closeJob(MessagingJobId)
       net.knowStorePeer()
-      await net.subscriber.messagingClient.recvService.checkStore()
-      check not (await eventManager.waitForEvents(3.seconds))
+      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
       check net.subscriber.isRunning()
 
-  asyncTest "an unsubscribed topic is delivered neither live nor from Store":
-    ## The startup catch-up has exited, so subscribing again starts no history
-    ## retrieval in this run. Whether a later start reaches the gap depends on
-    ## where the shared hint is by then.
+    # Phase 4: the hot path. After the startup catch-up, the reconnection
+    # check recovers a message archived during a tunnel (offline, then
+    # online).
+    block:
+      let topic = ContentTopic("/waku/2/recv-tunnel-test/proto")
+      let net = await setupNetwork(topic)
+      defer:
+        await net.teardown()
+      let eventManager = net.events
+      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
+      check await eventManager.waitForEvents(TestTimeout) # the setup message
+      await net.joinMesh() # the Store dial may already have connected them
+      let gapMsg = await net.tunnel(topic)
+      eventManager.targetCount = 2
+      eventManager.receivedEvent.clear()
+      await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
+      check await eventManager.waitForEvents(TestTimeout)
+      check eventManager.receivedMessages.len == 2 and
+        eventManager.receivedMessages[^1].payload == gapMsg.payload
+
+  asyncTest "a topic subscribed while the catch-up settles is caught up to its own time":
+    ## The app restores its subscriptions one call at a time. After the first
+    ## topic is caught up, the worker waits `CatchUpSettlePeriod` for another;
+    ## a topic subscribed in that window is caught up to its own pass, so a
+    ## message archived after the first pass and before the subscription is
+    ## delivered. Silence ends the worker; a topic subscribed after that gets
+    ## live delivery only.
+    let topicA = ContentTopic("/waku/2/recv-settle-a/proto")
+    let topicB = ContentTopic("/waku/2/recv-settle-b/proto")
+    let topicC = ContentTopic("/waku/2/recv-settle-c/proto")
+    let net = await setupNetwork(topicA)
+    defer:
+      await net.teardown()
+    let events = net.events
+    check await events.waitForEvents(TestTimeout) # topic A, the setup message
+
+    # Phase 1: archived after A's pass, before B's subscription.
+    let msgB = WakuMessage(
+      payload: "archived before B subscribed".toBytes(),
+      contentTopic: topicB,
+      timestamp: now(),
+    )
+    await net.storeNode.wakuArchive.handleMessage(TestShard, msgB) # inserted on return
+    events.targetCount = 2
+    events.receivedEvent.clear()
+    (await net.subscriber.messagingClient.subscribe(topicB)).expect("subscribe B")
+    check await events.waitForEvents(TestTimeout)
+    check events.receivedMessages.len == 2 and
+      events.receivedMessages[^1].payload == msgB.payload
+
+    # Subscribing a topic that is already subscribed announces nothing, so a
+    # send, which subscribes its topic every time, leaves the settle wait alone.
+    var announced = 0
+    let onSubscribed = proc(
+        event: ContentTopicSubscribedEvent
+    ) {.async: (raises: []).} =
+      inc announced
+    let announcements = ContentTopicSubscribedEvent
+      .listen(net.subscriber.waku.brokerCtx, onSubscribed)
+      .expect("listen")
+    (await net.subscriber.messagingClient.subscribe(topicB)).expect("subscribe B again")
+    await sleepAsync(200.milliseconds)
+    await ContentTopicSubscribedEvent.dropListener(
+      net.subscriber.waku.brokerCtx, announcements
+    )
+    check announced == 0
+
+    # Phase 2: no further subscription within the period; the worker exits.
+    await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
+    let msgC = WakuMessage(
+      payload: "archived before C subscribed".toBytes(),
+      contentTopic: topicC,
+      timestamp: now(),
+    )
+    await net.storeNode.wakuArchive.handleMessage(TestShard, msgC)
+    events.targetCount = 3
+    events.receivedEvent.clear()
+    (await net.subscriber.messagingClient.subscribe(topicC)).expect("subscribe C")
+    check not (await events.waitForEvents(3.seconds))
+    check events.receivedMessages.len == 2
+
+  asyncTest "the node drops an unsubscribed topic, live and from Store":
+    ## The startup catch-up has exited. A new subscription in this run receives
+    ## live messages only; the next start reaches the gap when the shared hint
+    ## is behind it.
     let topic = ContentTopic("/waku/2/recv-resubscribe-test/proto")
     let net = await setupNetwork(topic)
     defer:
       await net.teardown()
     let eventManager = net.events
 
-    await net.subscriber.messagingClient.recvService.checkStore()
+    await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
     check await eventManager.waitForEvents(TestTimeout)
     check eventManager.receivedMessages.len == 1
 
@@ -597,19 +697,19 @@ suite "Messaging API, Receive Service (store recovery)":
       "publish while unsubscribed"
     )
     await net.waitForArchived(topic, 2)
-    # The node delivers nothing for an unsubscribed topic, live or from Store.
+    # Unsubscribed: dropped live, skipped in Store.
     check eventManager.receivedMessages.len == 1
 
     eventManager.targetCount = 2
     eventManager.receivedEvent.clear()
     (await net.subscriber.messagingClient.subscribe(topic)).expect("resubscribe")
-    await net.subscriber.messagingClient.recvService.checkStore()
+    await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
     check not (await eventManager.waitForEvents(3.seconds))
     check eventManager.receivedMessages.len == 1
 
-  asyncTest "an in-memory storage root leaves messaging running with catch-up off":
-    ## Phase 1: a started node with `:memory:` keeps no history. Catch-up is
-    ## off (info). Live messaging and explicit checks do no harm.
+  asyncTest "messaging runs without durable storage":
+    ## Phase 1: a started node with `:memory:` keeps the hint in memory. The
+    ## catch-up waits for a Store peer; stop cancels it.
     block:
       var node: LogosDelivery
       lockNewGlobalBrokerContext:
@@ -618,7 +718,6 @@ suite "Messaging API, Receive Service (store recovery)":
       check GetPersistency.request(node.waku.brokerCtx).isOk()
       let topic = ContentTopic("/waku/2/recv-memory-only/proto")
       (await node.messagingClient.subscribe(topic)).expect("subscribe")
-      await node.messagingClient.recvService.checkStore()
       await sleepAsync(1500.milliseconds)
       check node.isRunning()
       (await node.stop()).expect("stop node")
@@ -636,7 +735,7 @@ suite "Messaging API, Receive Service (store recovery)":
           ContentTopic("/waku/2/recv-no-provider/proto")
         )
       ).expect("subscribe")
-      await node.messagingClient.recvService.checkStore()
+      await node.messagingClient.recvService.waitForStartupCatchUp()
       await sleepAsync(1500.milliseconds)
       check node.isRunning()
       await node.messagingClient.stop()
@@ -646,13 +745,13 @@ suite "Messaging API, Receive Service (store recovery)":
     let bad = MessagingClientConf(backfillRequestTimeoutSeconds: Opt.some(0'i64))
     lockNewGlobalBrokerContext:
       check (await LogosDelivery.new(nodeConf(createApiNodeConf(), bad))).isErr()
-    ## Phase 4: a job that cannot be opened (a directory where its file goes)
-    ## suspends catch-up with a warning. The node keeps running.
+    ## Phase 4: a job whose file path is a directory suspends catch-up with a
+    ## warning. The node keeps running.
     block:
       let root = createTempDir("recv-api-badjob-", "")
       defer:
         removeDir(root)
-      createDir(root / "messaging-recv.db")
+      createDir(root / "messaging.db")
       var conf = createApiNodeConf()
       conf.localStoragePath = root
       var node: LogosDelivery
@@ -664,6 +763,6 @@ suite "Messaging API, Receive Service (store recovery)":
       (await node.messagingClient.subscribe(ContentTopic("/waku/2/recv-bad-job/proto"))).expect(
         "subscribe"
       )
-      await node.messagingClient.recvService.checkStore()
+      await node.messagingClient.recvService.waitForStartupCatchUp()
       check node.isRunning()
       (await node.stop()).expect("stop node")

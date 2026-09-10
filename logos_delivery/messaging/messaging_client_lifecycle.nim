@@ -9,15 +9,29 @@ import
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
   logos_delivery/waku/api/subscriptions,
+  logos_delivery/waku/persistency/persistency,
   logos_delivery/messaging/delivery_service/[recv_service, send_service]
 
 # Surfaces the messaging API interface (and its Message* events) to consumers.
 export messaging_client
 
+const MessagingJobId* = "messaging"
+
+proc getMessagingJob(brokerCtx: BrokerContext): Job =
+  let persistency = GetPersistency.request(brokerCtx).valueOr:
+    debug "messaging persistence disabled, no persistency provider", reason = $error
+    return nil
+  let job = persistency.openJob(MessagingJobId).valueOr:
+    warn "messaging persistence disabled, could not open persistency job",
+      jobId = MessagingJobId, reason = $error
+    return nil
+  return job
+
 proc start*(self: MessagingClient): Result[void, string] =
   if self.started:
     return ok()
-  ?self.recvService.startRecvService()
+  self.persistencyJob = getMessagingJob(self.brokerCtx)
+  self.recvService.startRecvService(self.persistencyJob)
   self.sendService.startSendService()
 
   ?MessagingSend.setProvider(
@@ -29,9 +43,7 @@ proc start*(self: MessagingClient): Result[void, string] =
   ?MessagingSubscribe.setProvider(
     self.brokerCtx,
     proc(contentTopic: ContentTopic): Result[void, string] =
-      ?self.waku.subscribe(contentTopic)
-      self.recvService.noteSubscribed()
-      ok(),
+      self.waku.subscribe(contentTopic),
   )
 
   ?MessagingUnsubscribe.setProvider(
@@ -51,4 +63,9 @@ proc stop*(self: MessagingClient) {.async.} =
   MessagingUnsubscribe.clearProvider(self.brokerCtx)
   await self.sendService.stopSendService()
   await self.recvService.stopRecvService()
+  if not self.persistencyJob.isNil():
+    let persistency = GetPersistency.request(self.brokerCtx)
+    if persistency.isOk():
+      persistency.get().closeJob(MessagingJobId)
+    self.persistencyJob = nil
   self.started = false
