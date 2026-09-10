@@ -270,6 +270,18 @@ proc getRendezvousHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
   return p.ready()
 
+proc hasMixExit(hm: NodeHealthMonitor): bool =
+  ## Mirrors `selectMixLightpushPeer`, minus its per-message shard filter.
+  ## Returns true if one node in the mix pool is capable of serving lightpush to exit through.
+  let pool = hm.node.wakuMix.nodePool
+  let slotted = hm.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
+  if not slotted.isNil() and pool.get(slotted.peerId).isSome():
+    return true
+  let peerStore = hm.node.switch.peerStore
+  return pool.peerIds().anyIt(
+      peerStore[ProtoBook][it].contains(WakuLightPushCodec) and pool.get(it).isSome()
+    )
+
 proc getMixHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.MixProtocol)
 
@@ -283,6 +295,9 @@ proc getMixHealth(hm: NodeHealthMonitor): ProtocolHealth =
   # Same threshold as `mixReady`, so health and the send path agree.
   if poolSize < MinMixPoolSize:
     return p.notReady("Mix pool too small: " & $poolSize & " < " & $MinMixPoolSize)
+
+  if not hm.hasMixExit():
+    return p.notReady("No mix pool member serves lightpush to exit through")
 
   return p.ready()
 

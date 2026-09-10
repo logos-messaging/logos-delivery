@@ -521,17 +521,19 @@ suite "Health Monitor - events":
     await nodeB.stop()
     await nodeA.stop()
 
-proc addMixPeer(node: WakuNode, port: int) =
-  ## Mix pool size is the count of peer-store entries carrying a mix key.
+proc mixPeerInfo(port: int, lightpush = false): RemotePeerInfo =
   let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
   let keyPair = generateKeyPair().expect("mix key pair")
-  node.peerManager.addPeer(
-    RemotePeerInfo.init(
-      peerId,
-      @[MultiAddress.init("/ip4/127.0.0.1/tcp/" & $port).tryGet()],
-      mixPubKey = Opt.some(keyPair.publicKey),
-    )
+  return RemotePeerInfo.init(
+    peerId,
+    @[MultiAddress.init("/ip4/127.0.0.1/tcp/" & $port).tryGet()],
+    protocols = (if lightpush: @[WakuLightPushCodec] else: @[]),
+    mixPubKey = Opt.some(keyPair.publicKey),
   )
+
+proc addMixPeer(node: WakuNode, port: int, lightpush = false) =
+  ## Mix pool size is the count of peer-store entries carrying a mix key.
+  node.peerManager.addPeer(mixPeerInfo(port, lightpush))
 
 proc mountTestMix(node: WakuNode) {.async.} =
   let (mixPrivKey, _) = generateKeyPair().expect("mix key pair")
@@ -557,6 +559,25 @@ suite "Health Monitor - mix readiness":
 
     for i in 0 ..< MinMixPoolSize:
       node.addMixPeer(61000 + i)
+
+    # Large enough, but no member can be the lightpush exit.
+    check monitor.getSyncProtocolHealthInfo(MixProtocol).health == HealthStatus.NOT_READY
+
+    node.addMixPeer(61100, lightpush = true)
+    check monitor.getSyncProtocolHealthInfo(MixProtocol).health == HealthStatus.READY
+
+  asyncTest "Mix health accepts the slotted lightpush peer as exit":
+    var node: WakuNode
+    lockNewGlobalBrokerContext:
+      node =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+    await node.mountTestMix()
+    let monitor = NodeHealthMonitor.new(node)
+
+    for i in 0 ..< MinMixPoolSize - 1:
+      node.addMixPeer(63000 + i)
+    # Not identified yet, so the codec is not in its ProtoBook.
+    node.peerManager.addServicePeer(mixPeerInfo(63100), WakuLightPushCodec)
 
     check monitor.getSyncProtocolHealthInfo(MixProtocol).health == HealthStatus.READY
 
@@ -677,7 +698,7 @@ suite "Health Monitor - mix readiness":
 
     # Discovery adds mix peers to the peer store without any peer event.
     for i in 0 ..< MinMixPoolSize:
-      nodeA.addMixPeer(62000 + i)
+      nodeA.addMixPeer(62000 + i, lightpush = true)
     check await waitForStatus(ConnectionStatus.PartiallyConnected)
 
     # Pruning a single mix peer takes the pool below the minimum again.
