@@ -75,8 +75,9 @@ proc toChannelCryptoFn*(
 proc toChannelCrypto*(
     encryptFn: uint64, decryptFn: uint64, userData: uint64
 ): Result[Opt[ChannelCrypto], string] =
-  ## All three zero means the channel is not encrypted.
-  if encryptFn == 0 and decryptFn == 0 and userData == 0:
+  ## Both callbacks zero means the channel is not encrypted; `userData` is
+  ## meaningless on its own, so it does not take part in the decision.
+  if encryptFn == 0 and decryptFn == 0:
     return ok(Opt.none(ChannelCrypto))
 
   let encrypt = ?toChannelCryptoFn(encryptFn, userData)

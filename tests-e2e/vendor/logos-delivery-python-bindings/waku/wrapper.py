@@ -60,6 +60,9 @@ typedef struct {
     const char *channelIdStr;
     const char *contentTopicStr;
     const char *senderIdStr;
+    uint64_t encryptFn;
+    uint64_t decryptFn;
+    uint64_t userData;
 } ChannelCreateReq;
 typedef struct { const char *channelIdStr; const char *messageJson; } ChannelSendReq;
 typedef struct { const char *channelIdStr; } ChannelCloseReq;
@@ -446,6 +449,9 @@ class NodeWrapper:
         content_topic: str,
         sender_id: str,
         *,
+        encrypt_fn: int = 0,
+        decrypt_fn: int = 0,
+        crypto_user_data: int = 0,
         timeout_s: float = 20.0,
     ) -> Result[str, str]:
         state = _new_cb_state()
@@ -460,6 +466,9 @@ class NodeWrapper:
                 "channelIdStr": channel_buffer,
                 "contentTopicStr": topic_buffer,
                 "senderIdStr": sender_buffer,
+                "encryptFn": encrypt_fn,
+                "decryptFn": decrypt_fn,
+                "userData": crypto_user_data,
             },
         )
         rc = lib.logosdelivery_channel_create(self.ctx, cb, ffi.NULL, req)
