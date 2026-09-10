@@ -1,0 +1,350 @@
+{.used.}
+
+## Few multi-phase cases. Each `test` block costs three GC-tracked globals, and
+## the refc runtime caps the test binary at 3500.
+
+import std/[os, tempfiles, sequtils, tables]
+import chronos, results, testutils/unittests
+import stew/byteutils
+
+import logos_delivery/messaging/delivery_service/recv_service/backfill
+import logos_delivery/messaging/delivery_service/recv_service/recv_service
+import logos_delivery/messaging/messaging_client_lifecycle
+import logos_delivery/api/conf/messaging_conf
+import logos_delivery/api/conf/logos_delivery_conf_json
+import logos_delivery/waku/[waku_core, waku_store/common]
+import logos_delivery/waku/persistency/persistency
+
+const
+  Base = 1_700_000_000_000_000_000'i64 ## 2023-11-14
+  Hour = chronos.hours(1).nanos
+  Minute = chronos.minutes(1).nanos
+  Second = chronos.seconds(1).nanos
+  TestTopic: BackfillTopic = ("/waku/2/rs/3/0", "/backfill/1/restart/proto")
+  OtherTopic: BackfillTopic = ("/waku/2/rs/3/0", "/backfill/1/other/proto")
+
+proc rowAt(timestamp: Timestamp, index: int, topic = TestTopic): WakuMessageKeyValue =
+  let message = WakuMessage(
+    payload: ("msg-" & $index).toBytes(),
+    contentTopic: topic.contentTopic,
+    timestamp: timestamp,
+  )
+  return WakuMessageKeyValue(
+    messageHash: computeMessageHash(topic.pubsubTopic, message),
+    message: Opt.some(message),
+    pubsubTopic: Opt.some(topic.pubsubTopic),
+  )
+
+proc page(
+    rows: seq[WakuMessageKeyValue], hasMore = false
+): Result[StoreQueryResponse, string] =
+  ## `hasMore` sets the cursor, as a Store does when the range holds more rows.
+  let cursor =
+    if hasMore and rows.len > 0:
+      Opt.some(rows[^1].messageHash)
+    else:
+      Opt.none(WakuMessageHash)
+  return
+    ok(StoreQueryResponse(statusCode: 200, messages: rows, paginationCursor: cursor))
+
+proc accept(pubsubTopic: PubsubTopic, message: WakuMessage): bool =
+  return true
+
+proc catchUp(
+    topics: seq[BackfillTopic],
+    since, cutoff: Timestamp,
+    query: BackfillQuery,
+    deliver: BackfillDeliver = accept,
+    queryTimeout = chronos.seconds(10),
+    progress: TableRef[BackfillTopic, Timestamp] = nil,
+): Future[seq[BackfillTopic]] {.async.} =
+  let pages =
+    if progress.isNil():
+      newTable[BackfillTopic, Timestamp]()
+    else:
+      progress
+  return
+    await runCatchUpPass(topics, pages, since, cutoff, queryTimeout, query, deliver)
+
+proc waitStored(
+    job: Job, category: string, recordKey: Key, expected: seq[byte]
+) {.async.} =
+  let deadline = Moment.now() + 2.seconds
+  while (await job.get(category, recordKey)).get() != Opt.some(expected):
+    doAssert Moment.now() < deadline
+    await sleepAsync(10.milliseconds)
+
+proc waitHint(job: Job, expected: Opt[Timestamp]) {.async.} =
+  ## Writes are fire-and-forget. Waits until the record reads as `expected`.
+  let deadline = Moment.now() + 2.seconds
+  while (await job.readRecoveryHint()).get() != expected:
+    doAssert Moment.now() < deadline
+    await sleepAsync(10.milliseconds)
+
+proc names(payloads: openArray[string]): seq[string] =
+  return payloads.deduplicate()
+
+suite "Receive backfill":
+  asyncTest "the recovery hint survives a Persistency reopen; bad records count as none":
+    let root = createTempDir("recv-backfill-", "")
+    defer:
+      removeDir(root)
+    block:
+      let persistency = Persistency.new(root).get()
+      let job = persistency.openJob(MessagingJobId).get()
+      check (await job.readRecoveryHint()).get().isNone()
+      await job.writeRecoveryHint(Base)
+      await job.waitHint(Opt.some(Base))
+      persistency.close()
+    block:
+      let persistency = Persistency.new(root).get()
+      defer:
+        persistency.close()
+      let job = persistency.openJob(MessagingJobId).get()
+      check (await job.readRecoveryHint()).get() == Opt.some(Base)
+      for badRecord in [
+        @[0x08'u8, 0x00],
+        @[0xff'u8, 0x01, 0x02],
+        @[0x08'u8, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0xff, 0x01],
+      ]:
+        await job.persistPut(BackfillCategory, LastOnlineKey, badRecord)
+        await job.waitStored(BackfillCategory, LastOnlineKey, badRecord)
+        check (await job.readRecoveryHint()).get().isNone()
+      await job.writeRecoveryHint(Base + Hour)
+      await job.waitHint(Opt.some(Base + Hour))
+      persistency.closeJob(MessagingJobId)
+      check (await job.readRecoveryHint()).isErr()
+
+  asyncTest "catch-up: topics in order, page progress, range bounds, failures":
+    let t0 = Base
+    let t1 = Base + Hour
+    # The fake Store applies the time bounds, answers one page in forward
+    # order, and sets a cursor when the range holds more rows. Six rows per
+    # topic in the first hour, two at the same instant, three per page. A
+    # query from a shared timestamp returns that row again: a duplicate, which
+    # the receive service drops.
+    var content: Table[BackfillTopic, seq[WakuMessageKeyValue]]
+    var pageSize = 3
+    var calls = 0
+    var seen: seq[(Timestamp, Timestamp)]
+    let query: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      inc calls
+      doAssert request.paginationCursor.isNone()
+      seen.add((request.startTime.get(), request.endTime.get()))
+      let topic: BackfillTopic = (request.pubsubTopic.get(), request.contentTopics[0])
+      let inRange = content.getOrDefault(topic).filterIt(
+          it.message.get().timestamp >= request.startTime.get() and
+            it.message.get().timestamp <= request.endTime.get()
+        )
+      let pageLen = min(inRange.len, pageSize)
+      return page(inRange[0 ..< pageLen], hasMore = inRange.len > pageLen)
+    var delivered: Table[BackfillTopic, seq[string]]
+    let deliver: BackfillDeliver = proc(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): bool =
+      let topic: BackfillTopic = (pubsubTopic, message.contentTopic)
+      delivered.mgetOrPut(topic, @[]).add(string.fromBytes(message.payload))
+      return true
+    let topics = @[TestTopic, OtherTopic]
+    for topic in topics:
+      content[topic] = @[
+        rowAt(t0 + Minute, 1, topic),
+        rowAt(t0 + 10 * Minute, 2, topic),
+        rowAt(t0 + 10 * Minute, 3, topic),
+        rowAt(t0 + 20 * Minute, 4, topic),
+        rowAt(t0 + 30 * Minute, 5, topic),
+        rowAt(t0 + 40 * Minute, 6, topic),
+      ]
+
+    # Phase 1: both topics run to completion, one after the other. A page
+    # continues from the timestamp of the last delivered message.
+    var exhausted = await catchUp(topics, t0, t1, query, deliver)
+    check calls == 6 and exhausted == topics
+    for topic in topics:
+      check delivered[topic].names() == toSeq(1 .. 6).mapIt("msg-" & $it)
+      check delivered[topic].len == 9 # msg-2..4 twice: shared instant, boundary
+    check seen[0] == (t0, t1 - 1)
+    # Phase 2: the range includes `since` and excludes `cutoff`. A topic whose
+    # start is at or past `cutoff` completes with zero queries.
+    var got: seq[string]
+    let collect: BackfillDeliver = proc(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): bool =
+      got.add(string.fromBytes(message.payload))
+      return true
+    let edges: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      return
+        page(@[rowAt(request.startTime.get(), 30), rowAt(request.endTime.get(), 31)])
+    exhausted = await catchUp(@[TestTopic], t0, t1, edges, collect)
+    check exhausted == @[TestTopic] and got == @["msg-30", "msg-31"]
+    calls = 0
+    exhausted = await catchUp(@[TestTopic], t1, t1, query)
+    check calls == 0 and exhausted == @[TestTopic]
+    # Phase 3: a topic with more pages than one advances page by page. The
+    # sixth row sits at `t1`, the exclusive end, so five rows are in range.
+    let busy: BackfillTopic = ("/waku/2/rs/3/1", "/backfill/1/busy/proto")
+    content[busy] = toSeq(1 .. 6).mapIt(rowAt(t0 + int64(it) * 10 * Minute, it, busy))
+    pageSize = 2
+    got = @[]
+    calls = 0
+    exhausted = await catchUp(@[busy], t0, t1, query, collect)
+    check calls == 4 and exhausted == @[busy]
+    check got.names() == toSeq(1 .. 5).mapIt("msg-" & $it)
+    check got.count("msg-1") == 1
+    # Phase 4: a failure ends the topic for this catch-up and completes
+    # nothing. An error, a timeout, a raising query, a declined delivery,
+    # and malformed pages.
+    calls = 0
+    let failing: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      inc calls
+      return err("peer gone")
+    exhausted = await catchUp(topics, t0, t1, failing)
+    check calls == 2 and exhausted.len == 0
+    var cancelled = false
+    # The stub propagates the cancel; the Store client's `catch:` sites do not,
+    # so against a real peer the timeout ends the attempt, not the wait.
+    let slow: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      try:
+        await sleepAsync(1.hours)
+      except CancelledError as e:
+        cancelled = true
+        raise e
+      return page(@[])
+    exhausted =
+      await catchUp(@[TestTopic], t0, t1, slow, queryTimeout = chronos.milliseconds(50))
+    check exhausted.len == 0 and cancelled
+    let raising: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      raise newException(ValueError, "boom")
+    exhausted = await catchUp(@[TestTopic], t0, t1, raising)
+    check exhausted.len == 0
+    var offered: seq[string]
+    let declineSecond: BackfillDeliver = proc(
+        pubsubTopic: PubsubTopic, message: WakuMessage
+    ): bool =
+      offered.add(string.fromBytes(message.payload))
+      return offered.len == 1
+    let twoRows: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      return page(@[rowAt(t0 + Minute, 20), rowAt(t0 + 2 * Minute, 21)])
+    exhausted = await catchUp(@[TestTopic], t0, t1, twoRows, declineSecond)
+    check exhausted.len == 0
+    check offered == @["msg-20", "msg-21"]
+    # A bad row fails the page and the topic. The rows before it stay
+    # delivered.
+    for scenario in 0 .. 3:
+      got = @[]
+      let bad: BackfillQuery = proc(
+          request: StoreQueryRequest
+      ): Future[Result[StoreQueryResponse, string]] {.async.} =
+        let good = rowAt(t0 + 30 * Second, 8)
+        var row = rowAt(t0 + Minute, 9)
+        case scenario
+        of 0:
+          row.message = Opt.none(WakuMessage)
+        of 1:
+          row = rowAt(t1, 9) # exactly the exclusive end of the range
+        of 2:
+          row = rowAt(t0 + 20 * Second, 10) # earlier than the row before it
+        else:
+          return page(@[rowAt(t0 - Second, 12)]) # before the query start
+        return page(@[good, row])
+      exhausted = await catchUp(@[TestTopic], t0, t1, bad, collect)
+      check exhausted.len == 0
+      check got.len == (if scenario == 3: 0 else: 1)
+    let emptyClaimsMore: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      var response = StoreQueryResponse(statusCode: 200)
+      response.paginationCursor = Opt.some(rowAt(t0, 1).messageHash)
+      return ok(response)
+    exhausted = await catchUp(@[TestTopic], t0, t1, emptyClaimsMore)
+    check exhausted.len == 0
+    # A failed topic keeps its progress: the next pass starts where the last
+    # good page ended.
+    var pageCalls = 0
+    var pageStarts: seq[Timestamp]
+    let failsSecondPage: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      inc pageCalls
+      let start = request.startTime.get()
+      pageStarts.add(start)
+      if pageCalls == 2:
+        return err("peer gone")
+      return page(
+        @[rowAt(start + Minute, 40), rowAt(start + 2 * Minute, 41)],
+        hasMore = pageCalls == 1,
+      )
+    let progress = newTable[BackfillTopic, Timestamp]()
+    exhausted =
+      await catchUp(@[TestTopic], t0, t1, failsSecondPage, progress = progress)
+    check exhausted.len == 0 and progress[TestTopic] == t0 + 2 * Minute
+    exhausted =
+      await catchUp(@[TestTopic], t0, t1, failsSecondPage, progress = progress)
+    check exhausted == @[TestTopic] and
+      pageStarts == @[t0, t0 + 2 * Minute, t0 + 2 * Minute]
+    check not progress.hasKey(TestTopic)
+    # A page whose messages all sit at the query start is delivered once, and
+    # the next query starts one nanosecond later.
+    var starts: seq[Timestamp]
+    got = @[]
+    let sameInstant: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      starts.add(request.startTime.get())
+      if starts.len == 1:
+        return page(@[rowAt(t0, 14), rowAt(t0, 15)], hasMore = true)
+      return page(@[])
+    exhausted = await catchUp(@[TestTopic], t0, t1, sameInstant, collect)
+    check exhausted == @[TestTopic]
+    check got == @["msg-14", "msg-15"] and starts == @[t0, t0 + 1]
+    # A full last page of 100 rows completes the topic.
+    got = @[]
+    let fullPage: BackfillQuery = proc(
+        request: StoreQueryRequest
+    ): Future[Result[StoreQueryResponse, string]] {.async.} =
+      let start = request.startTime.get()
+      return page(toSeq(1 .. int(MaxPageSize)).mapIt(rowAt(start + int64(it), it)))
+    exhausted = await catchUp(@[TestTopic], t0, t1, fullPage, collect)
+    check exhausted == @[TestTopic] and got.len == int(MaxPageSize)
+
+  test "settings: defaults, range checks, JSON":
+    let defaults = BackfillState.init(MessagingClientConf()).get()
+    check defaults.enabled and defaults.queryTimeout == chronos.seconds(10)
+    let custom = BackfillState
+      .init(
+        MessagingClientConf(
+          backfillEnabled: Opt.some(false),
+          backfillRequestTimeoutSeconds: Opt.some(300'i64),
+        )
+      )
+      .get()
+    check not custom.enabled and custom.queryTimeout == chronos.minutes(5)
+    for bad in [
+      MessagingClientConf(backfillRequestTimeoutSeconds: Opt.some(0'i64)),
+      MessagingClientConf(backfillRequestTimeoutSeconds: Opt.some(301'i64)),
+    ]:
+      check BackfillState.init(bad).isErr()
+    let parsed = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"backfill-enabled": false,
+           "backfillRequestTimeoutSeconds": 7}}"""
+    ).valueOr:
+      raiseAssert error
+    let messagingConf = parsed.messagingConf.get()
+    check messagingConf.backfillEnabled == Opt.some(false)
+    check messagingConf.backfillRequestTimeoutSeconds == Opt.some(7'i64)
+    check parseLogosDeliveryConf(
+      """{"messagingOverrides": {"backfillRequestTimeoutSeconds": "many"}}"""
+    )
+      .isErr()

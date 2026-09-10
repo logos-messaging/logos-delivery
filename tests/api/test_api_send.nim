@@ -3,6 +3,7 @@
 import results, std/strutils
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
+import logos_delivery/waku/persistency/persistency
 import ../testlib/[common, wakucore, wakunode, testasync]
 import ../waku_archive/archive_utils
 import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
@@ -131,6 +132,8 @@ proc createApiNodeConf(
   conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = 1
   conf.rest = false
+  # This suite does not test persistence. Keep the node off the shared ./data root.
+  conf.localStoragePath = InMemoryStoragePath
   result = conf
 
 suite "Waku API - Send":

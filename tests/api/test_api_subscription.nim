@@ -4,6 +4,7 @@ import results, std/[strutils, sequtils, net, sets, tables]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
 import brokers/broker_context
+import logos_delivery/waku/persistency/persistency
 import ../testlib/[common, wakucore, wakunode, testasync]
 import logos_delivery/messaging/messaging_client
 
@@ -80,6 +81,8 @@ proc createApiNodeConf(
   conf.clusterId = Opt.some(3'u16)
   conf.numShardsInNetwork = numShards
   conf.rest = false
+  # This suite does not test persistence. Keep the node off the shared ./data root.
+  conf.localStoragePath = InMemoryStoragePath
   result = conf
 
 proc setupSubscriberNode(conf: WakuNodeConf): Future[LogosDelivery] {.async.} =
