@@ -709,10 +709,6 @@ proc setOverallHealth*(hm: NodeHealthMonitor, health: HealthStatus) =
 proc onMixPoolChange(hm: NodeHealthMonitor) =
   if hm.node.wakuMix.isNil() or hm.healthUpdateEvent.isNil():
     return
-  # Discovery keeps re-adding known mix peers, which leaves readiness unchanged.
-  if hm.node.switch.peerStore[MixPubKeyBook].len ==
-      hm.strength.getOrDefault(WakuProtocol.MixProtocol):
-    return
   hm.healthUpdateEvent.fire()
 
 proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
