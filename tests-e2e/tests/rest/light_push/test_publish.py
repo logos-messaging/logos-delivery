@@ -25,7 +25,7 @@ class TestLightPushPublish(StepsLightPush):
         for index in range(num_messages):
             message = self.create_message(payload=to_base64(f"M_{index}"))
             self.light_push_node1.send_light_push_message(self.create_payload(message=message))
-            delay(0.3)  # the service answers 429 above 5 lightpush requests per second
+            delay(0.3)  # the service node answers 429 above 5 lightpush requests per second
         messages = []
 
         def enough_messages_received():

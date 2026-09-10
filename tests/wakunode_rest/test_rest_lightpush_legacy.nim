@@ -396,7 +396,7 @@ suite "Waku v2 Rest API - legacy lightpush":
         response.status == 400
         response.data.startsWith("Invalid content body, could not decode: ")
 
-    # An unknown field is rejected although the decoder is configured to allow one.
+    # An unknown field is rejected although the decoder sets allowUnknownFields.
     let unknownFieldResponse = await issueRequest(
       restLightPushTest.restServer.getAddress(path),
       MethodPost,
@@ -424,7 +424,7 @@ suite "Waku v2 Rest API - legacy lightpush":
       },
     ]
 
-    # Then the message the handler could not build is rejected
+    # Then the request is rejected as an invalid message
     for body in notBase64Bodies:
       let response = await issueRequest(
         restLightPushTest.restServer.getAddress(path), MethodPost, jsonHeader, body

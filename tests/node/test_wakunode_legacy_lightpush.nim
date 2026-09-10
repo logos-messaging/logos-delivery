@@ -317,7 +317,7 @@ suite "Waku Legacy Lightpush message delivery":
     ## Cleanup
     await allFutures(lightNode.stop(), bridgeNode.stop(), destNode.stop())
 
-  asyncTest "Publishing without a pubsub topic delivers on the shard the content topic derives":
+  asyncTest "Publishing without a pubsub topic delivers on the shard derived from the content topic":
     ## Setup
     let
       lightNode = newTestWakuNode(generateSecp256k1Key())
@@ -325,6 +325,8 @@ suite "Waku Legacy Lightpush message delivery":
       destNode = newTestWakuNode(generateSecp256k1Key())
 
     await allFutures(destNode.start(), bridgeNode.start(), lightNode.start())
+    defer:
+      await allFutures(lightNode.stop(), bridgeNode.stop(), destNode.stop())
 
     (await destNode.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
@@ -372,14 +374,13 @@ suite "Waku Legacy Lightpush message delivery":
       res.isOk()
       await completionFutRelay.withTimeout(5.seconds)
 
-    ## Cleanup
-    await allFutures(lightNode.stop(), bridgeNode.stop(), destNode.stop())
-
-  asyncTest "Publishing without a pubsub topic fails when the node does not autoshard":
+  asyncTest "Publishing without a pubsub topic fails when autosharding is not mounted":
     ## Setup
     let lightNode = newTestWakuNode(generateSecp256k1Key())
 
     await lightNode.start()
+    defer:
+      await lightNode.stop()
 
     lightNode.mountLegacyLightPushClient()
 
@@ -394,9 +395,6 @@ suite "Waku Legacy Lightpush message delivery":
     check:
       res.isErr()
       res.error == "Pubsub topic must be specified when static sharding is enabled"
-
-    ## Cleanup
-    await lightNode.stop()
 
 suite "Waku Legacy Lightpush mounting behavior":
   asyncTest "fails to mount when relay is not mounted":

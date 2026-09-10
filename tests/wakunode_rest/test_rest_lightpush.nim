@@ -101,6 +101,8 @@ proc shutdown(self: RestLightPushTest) {.async.} =
 suite "Waku v2 Rest API - lightpush":
   asyncTest "Push message with proof":
     let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
 
     let message: RelayWakuMessage = fakeWakuMessage(
         contentTopic = DefaultContentTopic,
@@ -124,8 +126,6 @@ suite "Waku v2 Rest API - lightpush":
       response.status == 505
       response.data.statusDesc == Opt.some("No peers for topic, skipping publish")
       response.data.relayPeerCount == Opt.none(uint32)
-
-    await restLightPushTest.shutdown()
 
   asyncTest "Push message request":
     # Given
