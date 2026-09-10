@@ -329,5 +329,7 @@ suite "Waku Legacy Lightpush Client":
       let publishResponse =
         await client.publish(pubsubTopic, message, serverRemotePeerInfo2)
 
-      # Then the response is negative
-      check not publishResponse.isOk()
+      # Then the error names the dial the client could not make
+      check:
+        publishResponse.isErr()
+        publishResponse.error == dialFailure

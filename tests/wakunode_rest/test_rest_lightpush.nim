@@ -125,6 +125,8 @@ suite "Waku v2 Rest API - lightpush":
       response.data.statusDesc == Opt.some("No peers for topic, skipping publish")
       response.data.relayPeerCount == Opt.none(uint32)
 
+    await restLightPushTest.shutdown()
+
   asyncTest "Push message request":
     # Given
     let restLightPushTest = await RestLightPushTest.init()
@@ -143,7 +145,7 @@ suite "Waku v2 Rest API - lightpush":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to relay: " & $error
-    require:
+    check:
       toSeq(restLightPushTest.serviceNode.wakuRelay.subscribedTopics).len == 1
 
     # When
@@ -177,7 +179,7 @@ suite "Waku v2 Rest API - lightpush":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to relay: " & $error
-    require:
+    check:
       toSeq(restLightPushTest.serviceNode.wakuRelay.subscribedTopics).len == 1
 
     # When
@@ -244,7 +246,7 @@ suite "Waku v2 Rest API - lightpush":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to relay: " & $error
-    require:
+    check:
       toSeq(restLightPushTest.serviceNode.wakuRelay.subscribedTopics).len == 1
 
     # When
