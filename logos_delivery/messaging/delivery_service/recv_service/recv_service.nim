@@ -194,6 +194,24 @@ proc onConnectionStatusChange(self: RecvService, status: ConnectionStatus) =
     info "recv service backfilling missed messages after coming back online"
     self.backfillHandler = self.checkStore()
 
+proc listenForReceipts(
+    brokerCtx: BrokerContext, job: Job
+): Result[MessageReceivedEventListener, string] =
+  ## Every accepted message, live or recovered from Store, moves the hint to
+  ## now, at most once per `ActivityWriteInterval`. A proc of its own, so the
+  ## closure holds the job and the throttle and nothing of the worker's frame.
+  var lastWrite = Moment()
+  let onReceived = proc(event: MessageReceivedEvent) {.async: (raises: []).} =
+    let now = Moment.now()
+    if not job.running or now - lastWrite < ActivityWriteInterval:
+      return
+    lastWrite = now # before the await: a burst writes once
+    try:
+      await job.writeRecoveryHint(getNowInNanosecondTime())
+    except CancelledError:
+      discard
+  return MessageReceivedEvent.listen(brokerCtx, onReceived)
+
 proc startupCatchUp(self: RecvService, job: Job) {.async.} =
   ## The one Store catch-up of a service run, from the persisted hint.
   let startedAt = getNowInNanosecondTime() # before the first await
@@ -275,19 +293,7 @@ proc startupCatchUp(self: RecvService, job: Job) {.async.} =
   await job.writeRecoveryHint(caughtUpAt)
   if self.stopping:
     return
-  # From here every accepted message, live or recovered from Store, moves the
-  # hint to now, at most once per `ActivityWriteInterval`.
-  var lastWrite = Moment()
-  let onReceived = proc(event: MessageReceivedEvent) {.async: (raises: []).} =
-    let now = Moment.now()
-    if not job.running or now - lastWrite < ActivityWriteInterval:
-      return
-    lastWrite = now # before the await: a burst writes once
-    try:
-      await job.writeRecoveryHint(getNowInNanosecondTime())
-    except CancelledError:
-      discard
-  let receipts = MessageReceivedEvent.listen(self.brokerCtx, onReceived).valueOr:
+  let receipts = listenForReceipts(self.brokerCtx, job).valueOr:
     warn "recovery hint writes off for this run", reason = error
     return
   self.backfill.hintListener = Opt.some(receipts)
