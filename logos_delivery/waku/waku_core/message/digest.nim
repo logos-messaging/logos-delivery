@@ -1,7 +1,7 @@
 {.push raises: [].}
 
 import std/sequtils, stew/[byteutils, endians2, arrayops], nimcrypto/sha2, results
-import ../topics, ./message
+import ../topics, ./message, ./path_counters
 
 ## 14/WAKU2-MESSAGE: Deterministic message hashing
 ## https://rfc.vac.dev/spec/14/#deterministic-message-hashing
@@ -51,6 +51,7 @@ proc hexToHash*(hexString: string): Result[WakuMessageHash, string] =
   return ok(hash)
 
 proc computeMessageHash*(pubsubTopic: PubsubTopic, msg: WakuMessage): WakuMessageHash =
+  countHash(msg.payload.len + msg.meta.len)
   var ctx: sha256
   ctx.init()
   defer:
