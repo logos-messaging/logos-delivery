@@ -30,6 +30,7 @@ import
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
+  ../testlib/testasync,
   ../testlib/futures,
   ../testlib/rest_requests,
   ../resources/payloads
@@ -119,18 +120,6 @@ proc shutdown(self: RestLightPushTest) {.async.} =
   await allFutures(
     self.serviceNode.stop(), self.pushNode.stop(), self.consumerNode.stop()
   )
-
-proc waitForTopicPeer(
-    node: WakuNode, topic: PubsubTopic, peer: PeerId, timeout = FUTURE_TIMEOUT_LONG
-) {.async.} =
-  ## Waits until node's gossipsub has learnt that peer subscribes to topic.
-  let deadline = Moment.now() + timeout
-  while Moment.now() < deadline:
-    for p in node.wakuRelay.gossipsub.getOrDefault(topic):
-      if p.peerId == peer:
-        return
-    await sleepAsync(10.milliseconds)
-  raiseAssert $peer & " never announced a subscription to " & topic
 
 proc waitForRelayMessages(
     client: RestClientRef,
@@ -360,9 +349,10 @@ suite "Waku v2 Rest API - legacy lightpush":
       @[DefaultPubsubTopic]
     )
     check subscribeResponse.status == 200
-    await restLightPushTest.serviceNode.waitForTopicPeer(
-      DefaultPubsubTopic, restLightPushTest.consumerNode.peerInfo.peerId
-    )
+    checkUntilTimeout:
+      restLightPushTest.serviceNode.hasGossipsubPeer(
+        DefaultPubsubTopic, restLightPushTest.consumerNode.peerInfo.peerId
+      )
 
     # When a message with every optional field set is pushed
     let sent = RelayWakuMessage(

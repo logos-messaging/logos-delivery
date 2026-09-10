@@ -1,6 +1,5 @@
 import pytest
-from time import time
-from src.libs.common import delay, to_base64
+from src.libs.common import delay, to_base64, wait_until
 from src.steps.light_push import StepsLightPush
 
 
@@ -34,10 +33,12 @@ class TestLightPushPublish(StepsLightPush):
             self.light_push_node1.send_light_push_message(self.create_payload(message=message))
             delay(0.3)  # the service answers 429 above 5 lightpush requests per second
         messages = []
-        deadline = time() + 10
-        while len(messages) < num_messages and time() < deadline:
+
+        def enough_messages_received():
             messages.extend(self.receiving_node1.get_relay_messages(self.test_pubsub_topic))
-            delay(0.1)
+            return len(messages) >= num_messages
+
+        wait_until(enough_messages_received, timeout_duration=10, time_between_retries=0.1)
         assert len(messages) == num_messages
         received_payloads = {message["payload"] for message in messages}
         expected_payloads = {to_base64(f"M_{index}") for index in range(num_messages)}

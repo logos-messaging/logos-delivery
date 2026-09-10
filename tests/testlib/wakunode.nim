@@ -1,4 +1,5 @@
 import
+  std/[sets, tables],
   results,
   chronos,
   libp2p/switch,
@@ -9,6 +10,7 @@ import
 import
   logos_delivery/waku/[
     waku_node,
+    waku_relay,
     net/net_config,
     waku_core/topics,
     node/waku_switch,
@@ -174,3 +176,21 @@ proc boundTcpPort*(node: WakuNode): Port =
   if ports.tcpPort.isNone():
     raiseAssert "no tcp listen address in " & $node.switch.peerInfo.listenAddrs
   ports.tcpPort.get()
+
+proc hasMeshPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
+  for p in relay.mesh.getOrDefault(topic):
+    if p.peerId == peer:
+      return true
+  false
+
+proc hasGossipsubPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
+  for p in relay.gossipsub.getOrDefault(topic):
+    if p.peerId == peer:
+      return true
+  false
+
+proc hasMeshPeer*(node: WakuNode, topic: PubsubTopic, peer: PeerId): bool =
+  node.wakuRelay.hasMeshPeer(topic, peer)
+
+proc hasGossipsubPeer*(node: WakuNode, topic: PubsubTopic, peer: PeerId): bool =
+  node.wakuRelay.hasGossipsubPeer(topic, peer)

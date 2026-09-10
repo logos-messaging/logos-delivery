@@ -359,8 +359,8 @@ suite "Waku Legacy Lightpush message delivery":
     destNode.subscribe((kind: PubsubSub, topic: $derivedShard), relayHandler).isOkOr:
       assert false, "Failed to subscribe to topic:" & $error
 
-    # Wait for subscription to take effect
-    await sleepAsync(100.millis)
+    checkUntilTimeout:
+      bridgeNode.hasGossipsubPeer($derivedShard, destNode.peerInfo.peerId)
 
     ## When
     let res = await lightNode.legacyLightpushPublish(Opt.none(PubsubTopic), message)
