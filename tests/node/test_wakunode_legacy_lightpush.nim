@@ -363,7 +363,9 @@ suite "Waku Legacy Lightpush message delivery":
       bridgeNode.hasGossipsubPeer($derivedShard, destNode.peerInfo.peerId)
 
     ## When
-    let res = await lightNode.legacyLightpushPublish(Opt.none(PubsubTopic), message)
+    let res = await lightNode.legacyLightpushPublish(
+      Opt.none(PubsubTopic), message, bridgeNode.peerInfo.toRemotePeerInfo()
+    )
 
     ## Then
     check:
@@ -375,22 +377,17 @@ suite "Waku Legacy Lightpush message delivery":
 
   asyncTest "Publishing without a pubsub topic fails when the node does not autoshard":
     ## Setup
-    let
-      lightNode = newTestWakuNode(generateSecp256k1Key())
-      bridgeNode = newTestWakuNode(generateSecp256k1Key())
+    let lightNode = newTestWakuNode(generateSecp256k1Key())
 
-    await allFutures(bridgeNode.start(), lightNode.start())
+    await lightNode.start()
 
-    (await bridgeNode.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    check (await bridgeNode.mountLegacyLightPush()).isOk()
     lightNode.mountLegacyLightPushClient()
 
     ## When
     let res = await lightNode.legacyLightpushPublish(
       Opt.none(PubsubTopic),
       fakeWakuMessage(contentTopic = DefaultContentTopic),
-      bridgeNode.peerInfo.toRemotePeerInfo(),
+      RemotePeerInfo.init("16Uiu2HAmFccGe5iezmyRDQZuLPRP7FqpqXLjnocmMRk18pmTZs2j"),
     )
 
     ## Then
@@ -399,7 +396,7 @@ suite "Waku Legacy Lightpush message delivery":
       res.error == "Pubsub topic must be specified when static sharding is enabled"
 
     ## Cleanup
-    await allFutures(lightNode.stop(), bridgeNode.stop())
+    await lightNode.stop()
 
 suite "Waku Legacy Lightpush mounting behavior":
   asyncTest "fails to mount when relay is not mounted":

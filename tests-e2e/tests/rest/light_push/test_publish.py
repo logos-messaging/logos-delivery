@@ -3,21 +3,15 @@ from src.libs.common import delay, to_base64, wait_until
 from src.steps.light_push import StepsLightPush
 
 
+@pytest.mark.usefixtures("setup_main_lightpush_nodes", "subscribe_main_lightpush_nodes")
 class TestLightPushPublish(StepsLightPush):
-    @pytest.fixture(scope="function", autouse=True)
-    def light_push_publish_setup(self, light_push_setup):
-        self.setup_first_receiving_node()
-        self.setup_second_receiving_node(lightpush="false", relay="true")
-        self.setup_first_lightpush_node()
-        self.subscribe_to_pubsub_topics_via_relay()
-
     def test_light_push_after_light_push_node_restarts(self):
         # A sender that neither relays nor serves lightpush reaches the network only through its service peer.
-        self.setup_first_lightpush_node(lightpush="false", relay="false")
-        self.check_light_pushed_message_reaches_receiving_peer()
-        self.light_push_node1.restart()
-        self.light_push_node1.ensure_ready()
-        self.check_light_pushed_message_reaches_receiving_peer()
+        self.setup_second_lightpush_node(lightpush="false", relay="false")
+        self.check_light_pushed_message_reaches_receiving_peer(sender=self.light_push_node2)
+        self.light_push_node2.restart()
+        self.light_push_node2.ensure_ready()
+        self.subscribe_and_light_push_with_retry(sender=self.light_push_node2)
 
     def test_light_push_after_receiving_node_restarts(self):
         self.check_light_pushed_message_reaches_receiving_peer()

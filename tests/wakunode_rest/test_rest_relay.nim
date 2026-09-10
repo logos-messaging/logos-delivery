@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[json, sequtils, sets, strformat, strutils, tempfiles, osproc, uri],
+  std/[json, sequtils, strformat, strutils, tempfiles, osproc, uri],
   stew/byteutils,
   testutils/unittests,
   presto,
@@ -26,7 +26,7 @@ import
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
-  ../testlib/futures,
+  ../testlib/testasync,
   ../testlib/rest_requests,
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
@@ -39,33 +39,6 @@ proc testWakuNode(): WakuNode =
     port = Port(0)
 
   newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
-
-proc waitForTopicPeer(
-    node: WakuNode, topic: PubsubTopic, peer: PeerId, timeout = FUTURE_TIMEOUT_LONG
-) {.async.} =
-  ## Waits until node's gossipsub has learnt that peer subscribes to topic.
-  let deadline = Moment.now() + timeout
-  while Moment.now() < deadline:
-    for p in node.wakuRelay.gossipsub.getOrDefault(topic):
-      if p.peerId == peer:
-        return
-    await sleepAsync(10.milliseconds)
-  raiseAssert $peer & " never announced a subscription to " & topic
-
-proc waitForRelayMessages(
-    client: RestClientRef,
-    pubsubTopic: PubsubTopic,
-    count: int,
-    timeout = FUTURE_TIMEOUT_MEDIUM,
-): Future[seq[RelayWakuMessage]] {.async.} =
-  ## Each GET clears the cache, so the messages of every poll are collected.
-  var messages: seq[RelayWakuMessage]
-  let deadline = Moment.now() + timeout
-  while messages.len < count and Moment.now() < deadline:
-    let response = await client.relayGetMessagesV1(pubsubTopic)
-    messages.add(response.data)
-    await sleepAsync(50.milliseconds)
-  return messages
 
 suite "Waku v2 Rest API - Relay":
   var anvilProc {.threadVar.}: Process
@@ -1105,7 +1078,8 @@ suite "Waku v2 Rest API - Relay":
         await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic, otherTopic])
       require response.status == 200
     await publisher.connectToNodes(@[receiver.peerInfo.toRemotePeerInfo()])
-    await publisher.waitForTopicPeer(DefaultPubsubTopic, receiver.peerInfo.peerId)
+    checkUntilTimeout:
+      publisher.hasGossipsubPeer(DefaultPubsubTopic, receiver.peerInfo.peerId)
 
     # When a message with every optional field set is published on one node
     let sent = RelayWakuMessage(

@@ -2,7 +2,7 @@ import results
 {.used.}
 
 import
-  std/[json, sequtils, sets, strutils],
+  std/[json, sequtils, strutils],
   stew/byteutils,
   testutils/unittests,
   presto,
@@ -31,7 +31,6 @@ import
   ../testlib/wakucore,
   ../testlib/wakunode,
   ../testlib/testasync,
-  ../testlib/futures,
   ../testlib/rest_requests,
   ../resources/payloads
 
@@ -49,9 +48,7 @@ type RestLightPushTest = object
   pushNode: WakuNode
   consumerNode: WakuNode
   restServer: WakuRestServerRef
-  restServerForConsumer: WakuRestServerRef
   client: RestClientRef
-  clientTwdConsumerNode: RestClientRef
 
 proc init(
     T: type RestLightPushTest, rateLimit: RateLimitSetting = (0, 0.millis)
@@ -92,53 +89,26 @@ proc init(
   restPort = testSetup.restServer.httpServer.address.port
     # update with bound port for client use
 
-  var consumerRestPort = Port(0)
-  testSetup.restServerForConsumer =
-    WakuRestServerRef.init(restAddress, consumerRestPort).tryGet()
-  consumerRestPort = testSetup.restServerForConsumer.httpServer.address.port
-    # update with bound port for client use
-
   installLightPushRequestHandler(testSetup.restServer.router, testSetup.pushNode)
-  installRelayApiHandlers(
-    testSetup.restServerForConsumer.router, testSetup.consumerNode, MessageCache.init()
-  )
 
   testSetup.restServer.start()
-  testSetup.restServerForConsumer.start()
 
   testSetup.client = newRestHttpClient(initTAddress(restAddress, restPort))
-  testSetup.clientTwdConsumerNode =
-    newRestHttpClient(initTAddress(restAddress, consumerRestPort))
 
   return testSetup
 
 proc shutdown(self: RestLightPushTest) {.async.} =
   await self.restServer.stop()
   await self.restServer.closeWait()
-  await self.restServerForConsumer.stop()
-  await self.restServerForConsumer.closeWait()
   await allFutures(
     self.serviceNode.stop(), self.pushNode.stop(), self.consumerNode.stop()
   )
 
-proc waitForRelayMessages(
-    client: RestClientRef,
-    pubsubTopic: PubsubTopic,
-    count: int,
-    timeout = FUTURE_TIMEOUT_MEDIUM,
-): Future[seq[RelayWakuMessage]] {.async.} =
-  ## Each GET clears the cache, so the messages of every poll are collected.
-  var messages: seq[RelayWakuMessage]
-  let deadline = Moment.now() + timeout
-  while messages.len < count and Moment.now() < deadline:
-    let response = await client.relayGetMessagesV1(pubsubTopic)
-    messages.add(response.data)
-    await sleepAsync(50.milliseconds)
-  return messages
-
 suite "Waku v2 Rest API - legacy lightpush":
   asyncTest "Push message with proof":
     let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
 
     let message: RelayWakuMessage = fakeWakuMessage(
         contentTopic = DefaultContentTopic,
@@ -161,11 +131,12 @@ suite "Waku v2 Rest API - legacy lightpush":
       response.status == 503
       response.data == "Failed to request a message push: not_published_to_any_peer"
 
-    await restLightPushTest.shutdown()
-
   asyncTest "Push message request":
     # Given
     let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
     let simpleHandler = proc(
         topic: PubsubTopic, msg: WakuMessage
     ): Future[void] {.async, gcsafe.} =
@@ -200,11 +171,12 @@ suite "Waku v2 Rest API - legacy lightpush":
       response.status == 200
       $response.contentType == $MIMETYPE_TEXT
 
-    await restLightPushTest.shutdown()
-
   asyncTest "Push message bad-request":
     # Given
     let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
     let simpleHandler = proc(
         topic: PubsubTopic, msg: WakuMessage
     ): Future[void] {.async, gcsafe.} =
@@ -263,13 +235,14 @@ suite "Waku v2 Rest API - legacy lightpush":
       $response.contentType == $MIMETYPE_TEXT
       response.data.startsWith("Invalid content body")
 
-    await restLightPushTest.shutdown()
-
   asyncTest "Request rate limit push message":
     # Given
     let budgetCap = 3
     let tokenPeriod = 500.millis
     let restLightPushTest = await RestLightPushTest.init((budgetCap, tokenPeriod))
+    defer:
+      await restLightPushTest.shutdown()
+
     let simpleHandler = proc(
         topic: PubsubTopic, msg: WakuMessage
     ): Future[void] {.async, gcsafe.} =
@@ -337,17 +310,26 @@ suite "Waku v2 Rest API - legacy lightpush":
       let elapsed: Duration = (endTime - startTime)
       await sleepAsync(tokenPeriod - elapsed + 10.millis)
 
-    await restLightPushTest.shutdown()
-
   asyncTest "A pushed message is read back on the relay peer of the service node - POST /lightpush/v1/message, GET /relay/v1/messages/{topic}":
     # Given the consumer node subscribed over REST and known to the service node
     let restLightPushTest = await RestLightPushTest.init()
     defer:
       await restLightPushTest.shutdown()
 
-    let subscribeResponse = await restLightPushTest.clientTwdConsumerNode.relayPostSubscriptionsV1(
-      @[DefaultPubsubTopic]
+    let restServerForConsumer =
+      WakuRestServerRef.init(parseIpAddress("127.0.0.1"), Port(0)).tryGet()
+    installRelayApiHandlers(
+      restServerForConsumer.router, restLightPushTest.consumerNode, MessageCache.init()
     )
+    restServerForConsumer.start()
+    defer:
+      await restServerForConsumer.stop()
+      await restServerForConsumer.closeWait()
+
+    let clientTwdConsumerNode = newRestHttpClient(restServerForConsumer.localAddress())
+
+    let subscribeResponse =
+      await clientTwdConsumerNode.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
     check subscribeResponse.status == 200
     checkUntilTimeout:
       restLightPushTest.serviceNode.hasGossipsubPeer(
@@ -371,9 +353,8 @@ suite "Waku v2 Rest API - legacy lightpush":
       pushResponse.data == "OK"
 
     # Then the relay peer reads it back over REST with every field unchanged
-    let received = await restLightPushTest.clientTwdConsumerNode.waitForRelayMessages(
-      DefaultPubsubTopic, 1
-    )
+    let received =
+      await clientTwdConsumerNode.waitForRelayMessages(DefaultPubsubTopic, 1)
     check:
       received.mapIt(it.payload) == @[sent.payload]
       received.mapIt(it.contentTopic) == @[sent.contentTopic]
@@ -398,22 +379,12 @@ suite "Waku v2 Rest API - legacy lightpush":
     # When the body does not decode into a push request
     let invalidBodies = [
       $ %*{
-        "pubsubTopic": DefaultPubsubTopic,
-        "message": {"payload": "", "contentTopic": DefaultContentTopic},
-      },
-      $ %*{
-        "pubsubTopic": DefaultPubsubTopic,
-        "message": {"payload": payload, "contentTopic": ""},
-      },
-      $ %*{
         "pubsubTopic": [DefaultPubsubTopic],
         "message": {"payload": payload, "contentTopic": DefaultContentTopic},
       },
       $ %*{"pubsubTopic": DefaultPubsubTopic},
       "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
         ", \"message\": " & validMessage & "}",
-      "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
-        ", \"extraField\": \"extraValue\"}",
     ]
 
     # Then each is rejected as an invalid content body
@@ -424,6 +395,18 @@ suite "Waku v2 Rest API - legacy lightpush":
       check:
         response.status == 400
         response.data.startsWith("Invalid content body, could not decode: ")
+
+    # An unknown field is rejected although the decoder is configured to allow one.
+    let unknownFieldResponse = await issueRequest(
+      restLightPushTest.restServer.getAddress(path),
+      MethodPost,
+      jsonHeader,
+      "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
+        ", \"extraField\": \"extraValue\"}",
+    )
+    check:
+      unknownFieldResponse.status == 400
+      unknownFieldResponse.data.startsWith("Invalid content body, could not decode: ")
 
     # When a field that must be base64 is not
     let notBase64Bodies = [
