@@ -52,9 +52,6 @@ proc createReliableChannel*(
   if self.channels.hasKey(channelId):
     return err("channel already exists: " & channelId)
 
-  if encryption.isNone():
-    notice "channel created without encryption", channelId = channelId
-
   # Subscribe before constructing so a failure leaks no listeners.
   if MessagingSubscribe.isProvided(self.brokerCtx):
     MessagingSubscribe.request(self.brokerCtx, contentTopic).isOkOr:
