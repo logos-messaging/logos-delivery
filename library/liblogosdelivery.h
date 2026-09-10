@@ -65,8 +65,8 @@ extern "C"
   // ---------------------------------------------------------------------
   // Per-channel encryption. A channel created without a cipher sends and
   // receives plaintext; one created with a cipher always uses it, and its
-  // failure fails the message -- never plaintext. SDS repairs replay
-  // already-encrypted bytes and do not re-enter it.
+  // failure fails the message -- never plaintext. It covers the whole SDS
+  // message, repairs included, so no routing metadata reaches the wire.
   //
   // Supplied to logosdelivery_channel_create and fixed for the channel's
   // life; leave all three fields zero for an unencrypted channel. Pass both
