@@ -8,6 +8,7 @@ import
   libp2p/protocols/rendezvous,
   libp2p/protocols/pubsub,
   libp2p/protocols/pubsub/rpc/messages,
+  libp2p_mix/pool,
   logos_delivery/api/types,
   logos_delivery/api/events/kernel_events,
   # EventConnectionStatusChange
@@ -696,6 +697,15 @@ proc setMixRequired*(hm: NodeHealthMonitor, required: bool) =
   if not isNil(hm.healthUpdateEvent):
     hm.healthUpdateEvent.fire()
 
+proc onMixPoolChange(hm: NodeHealthMonitor) =
+  if not hm.mixRequired or isNil(hm.healthUpdateEvent):
+    return
+  # Discovery keeps re-adding known mix peers, which leaves readiness unchanged.
+  if hm.node.switch.peerStore[MixPubKeyBook].len ==
+      hm.strength.getOrDefault(WakuProtocol.MixProtocol):
+    return
+  hm.healthUpdateEvent.fire()
+
 proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
   hm.onlineMonitor.startOnlineMonitor()
 
@@ -770,10 +780,17 @@ proc new*(
   let om = OnlineMonitor.init(dnsNameServers)
   om.setPeerStoreToOnlineMonitor(node.switch.peerStore)
   om.addOnlineStateObserver(node.peerManager.getOnlineStateObserver())
-  T(
+  let hm = T(
     nodeHealth: INITIALIZING,
     node: node,
     onlineMonitor: om,
     connectionStatus: ConnectionStatus.Disconnected,
     strength: initTable[WakuProtocol, int](),
   )
+  # Mix peers are learnt from discovery without any peer event, so without this
+  # a filled (or drained) pool would wait for an unrelated trigger to show up.
+  node.switch.peerStore[MixPubKeyBook].addHandler(
+    proc(peerId: PeerId) {.gcsafe, raises: [].} =
+      hm.onMixPoolChange()
+  )
+  return hm
