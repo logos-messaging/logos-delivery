@@ -1,30 +1,20 @@
 {.used.}
 
-import std/[options, net, osproc]
+import std/[options, osproc]
 import chronos, testutils/unittests, results, stew/byteutils
 import
   logos_delivery/waku/[waku, waku_core, rln],
   logos_delivery/waku/node/waku_node,
   logos_delivery/waku/node/waku_node/relay,
   logos_delivery/waku/api/publish,
-  logos_delivery/api/conf/messaging_conf,
   logos_delivery/waku/factory/waku_conf
 import
-  ../testlib/testasync,
+  ../testlib/[testasync, wakunodeconf],
   ../waku_rln_relay/utils_onchain,
   ../waku_rln_relay/rln/waku_rln_relay_utils
 
 proc testConf(): WakuConf =
-  var conf = MessagingClientConf()
-    .toWakuNodeConf(messaging_conf.LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = 1
-  conf.rest = false
-  return conf.toWakuConf().valueOr:
+  defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
 proc testMessage(): WakuMessage =

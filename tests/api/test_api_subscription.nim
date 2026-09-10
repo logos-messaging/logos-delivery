@@ -4,8 +4,7 @@ import results, std/[strutils, sequtils, net, sets, tables]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
 import brokers/broker_context
-import logos_delivery/waku/persistency/persistency
-import ../testlib/[common, wakucore, wakunode, testasync]
+import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 import logos_delivery/messaging/messaging_client
 
 import
@@ -69,22 +68,6 @@ type TestNetwork = ref object
     # The receiver node in tests. Edge node in edge tests, Core node in relay tests.
   publisherPeerInfo: RemotePeerInfo
 
-proc createApiNodeConf(
-    mode: messaging_conf.LogosDeliveryMode = messaging_conf.LogosDeliveryMode.Core,
-    numShards: uint16 = 1,
-): WakuNodeConf =
-  var conf = MessagingClientConf().toWakuNodeConf(mode).valueOr:
-      raiseAssert error
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = numShards
-  conf.rest = false
-  # This suite does not test persistence. Keep the node off the shared ./data root.
-  conf.localStoragePath = InMemoryStoragePath
-  result = conf
-
 proc setupSubscriberNode(conf: WakuNodeConf): Future[LogosDelivery] {.async.} =
   var node: LogosDelivery
   lockNewGlobalBrokerContext:
@@ -100,7 +83,7 @@ proc setupNetwork(
 
   lockNewGlobalBrokerContext:
     net.publisher = newTestWakuNode(generateSecp256k1Key())
-    net.publisher.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+    net.publisher.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
       "Failed to mount metadata"
     )
     (await net.publisher.mountRelay()).expect("Failed to mount relay")
@@ -126,7 +109,7 @@ proc setupNetwork(
   if mode == messaging_conf.LogosDeliveryMode.Edge:
     lockNewGlobalBrokerContext:
       net.meshBuddy = newTestWakuNode(generateSecp256k1Key())
-      net.meshBuddy.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+      net.meshBuddy.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on meshBuddy"
       )
       (await net.meshBuddy.mountRelay()).expect("Failed to mount relay on meshBuddy")
@@ -139,7 +122,7 @@ proc setupNetwork(
 
     await net.meshBuddy.connectToNodes(@[net.publisherPeerInfo])
 
-  net.subscriber = await setupSubscriberNode(createApiNodeConf(mode, numShards))
+  net.subscriber = await setupSubscriberNode(defaultTestWakuNodeConf(mode, numShards))
 
   await net.subscriber.waku.node.connectToNodes(@[net.publisherPeerInfo])
 
@@ -626,7 +609,7 @@ suite "Messaging API, SubscriptionManager":
     var publisher: WakuNode
     lockNewGlobalBrokerContext:
       publisher = newTestWakuNode(generateSecp256k1Key())
-      publisher.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+      publisher.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on publisher"
       )
       (await publisher.mountRelay()).expect("Failed to mount relay on publisher")
@@ -644,7 +627,7 @@ suite "Messaging API, SubscriptionManager":
     var meshBuddy: WakuNode
     lockNewGlobalBrokerContext:
       meshBuddy = newTestWakuNode(generateSecp256k1Key())
-      meshBuddy.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+      meshBuddy.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on meshBuddy"
       )
       (await meshBuddy.mountRelay()).expect("Failed to mount relay on meshBuddy")
@@ -661,7 +644,7 @@ suite "Messaging API, SubscriptionManager":
 
     await meshBuddy.connectToNodes(@[publisherPeerInfo])
 
-    let conf = createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge, numShards)
+    let conf = defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge, numShards)
     var subscriber: LogosDelivery
     lockNewGlobalBrokerContext:
       subscriber =
@@ -735,7 +718,7 @@ suite "Messaging API, SubscriptionManager":
     var publisher: WakuNode
     lockNewGlobalBrokerContext:
       publisher = newTestWakuNode(generateSecp256k1Key())
-      publisher.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+      publisher.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on publisher"
       )
       (await publisher.mountRelay()).expect("Failed to mount relay on publisher")
@@ -753,7 +736,7 @@ suite "Messaging API, SubscriptionManager":
     var meshBuddy: WakuNode
     lockNewGlobalBrokerContext:
       meshBuddy = newTestWakuNode(generateSecp256k1Key())
-      meshBuddy.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+      meshBuddy.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on meshBuddy"
       )
       (await meshBuddy.mountRelay()).expect("Failed to mount relay on meshBuddy")
@@ -771,7 +754,7 @@ suite "Messaging API, SubscriptionManager":
     var sparePeer: WakuNode
     lockNewGlobalBrokerContext:
       sparePeer = newTestWakuNode(generateSecp256k1Key())
-      sparePeer.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+      sparePeer.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
         "Failed to mount metadata on sparePeer"
       )
       (await sparePeer.mountRelay()).expect("Failed to mount relay on sparePeer")
@@ -789,7 +772,7 @@ suite "Messaging API, SubscriptionManager":
     await meshBuddy.connectToNodes(@[publisherPeerInfo])
     await sparePeer.connectToNodes(@[publisherPeerInfo])
 
-    let conf = createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge, numShards)
+    let conf = defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge, numShards)
     var subscriber: LogosDelivery
     lockNewGlobalBrokerContext:
       subscriber =

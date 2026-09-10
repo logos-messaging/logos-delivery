@@ -4,7 +4,7 @@ import results, std/[sequtils, net, sets, os, osproc, tempfiles, strutils]
 import chronos, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, crypto/crypto]
 import brokers/broker_context
-import ../testlib/[common, wakucore, wakunode, testasync]
+import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 import ../waku_archive/archive_utils
 import logos_delivery/messaging/messaging_client
 import logos_delivery/messaging/messaging_client_lifecycle
@@ -90,16 +90,9 @@ proc waitForConnectionStatus(
     await EventConnectionStatusChange.dropListener(brokerCtx, handle)
 
 proc createApiNodeConf(numShards: uint16 = 1): WakuNodeConf =
-  var conf = MessagingClientConf()
-    .toWakuNodeConf(messaging_conf.LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = numShards
-  conf.rest = false
-  conf.localStoragePath = InMemoryStoragePath
+  ## The shared test defaults, plus a resolver that stays on this machine: the
+  ## restarted child process must not wait on a real DNS server.
+  var conf = defaultTestWakuNodeConf(numShards = numShards)
   conf.dnsAddrsNameServers = @[parseIpAddress("127.0.0.1")]
   return conf
 
@@ -150,7 +143,7 @@ proc setupNetwork(
   var archiveDriver: ArchiveDriver
   lockNewGlobalBrokerContext:
     storeNode = newTestWakuNode(generateSecp256k1Key())
-    storeNode.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+    storeNode.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
       "Failed to mount metadata on storeNode"
     )
     (await storeNode.mountRelay()).expect("Failed to mount relay on storeNode")
@@ -169,7 +162,7 @@ proc setupNetwork(
   var publisher: WakuNode
   lockNewGlobalBrokerContext:
     publisher = newTestWakuNode(generateSecp256k1Key())
-    publisher.mountMetadata(3, toSeq(0'u16 ..< numShards)).expect(
+    publisher.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
       "Failed to mount metadata on publisher"
     )
     (await publisher.mountRelay()).expect("Failed to mount relay on publisher")

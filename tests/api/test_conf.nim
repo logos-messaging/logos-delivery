@@ -6,6 +6,7 @@ import logos_delivery
 import logos_delivery/api/conf/logos_delivery_conf_json
 import logos_delivery/waku/factory/[waku_conf, networks_config]
 import logos_delivery/waku/common/logging
+import ../testlib/wakunodeconf
 
 suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
   test "Core mode enables relay + service protocols":
@@ -53,6 +54,22 @@ suite "MessagingClientConf - field mapping + transport policy":
       kc.discv5UdpPort == Port(0)
       kc.websocketSupport == false
       kc.quicSupport == false
+
+  test "nat and storage defaults are the CLI defaults":
+    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
+        raiseAssert error
+    let cli = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    check:
+      kc.nat == cli.nat
+      kc.localStoragePath == cli.localStoragePath
+
+  test "an explicit nat overrides the default":
+    let kc = MessagingClientConf(nat: Opt.some("none")).toWakuNodeConf(
+      LogosDeliveryMode.Core
+    ).valueOr:
+      raiseAssert error
+    check kc.nat == "none"
 
   test "explicit transport overrides win":
     let mc = MessagingClientConf(
@@ -160,6 +177,15 @@ suite "parseLogosDeliveryConf - JSON parsing":
     ).valueOr:
       raiseAssert error
     check WakuNodeConf(lc.kernelConf).localStoragePath == "/tmp/inst-1/data"
+
+  test "nat override maps to the kernel":
+    ## The structured shape is what the FFI and the JSON config use; without
+    ## this the only way to reach `nat` was the legacy flat blob.
+    let lc = parseLogosDeliveryConf(
+      """{"mode": "Core", "messagingOverrides": {"nat": "none"}}"""
+    ).valueOr:
+      raiseAssert error
+    check WakuNodeConf(lc.kernelConf).nat == "none"
 
   test "messaging overrides are recorded verbatim, unset fields left none":
     let lc = parseLogosDeliveryConf("""{"messagingOverrides": {"clusterId": 7}}""").valueOr:
@@ -408,10 +434,7 @@ suite "MessagingClientConf - anonymity level":
 
 suite "LogosDelivery.new - raw kernel construction":
   asyncTest "a kernel-only node mounts the kernel only; start/stop tolerate the nil layers":
-    let kernel = MessagingClientConf(listenIpv4: Opt.some(parseIpAddress("0.0.0.0"))).toWakuNodeConf(
-      LogosDeliveryMode.Core
-    ).valueOr:
-      raiseAssert error
+    let kernel = defaultTestWakuNodeConf()
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
       node = (await LogosDelivery.new(KernelConf(kernel))).valueOr:
