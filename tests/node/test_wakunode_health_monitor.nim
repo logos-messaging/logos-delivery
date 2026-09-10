@@ -38,11 +38,8 @@ const TestConnectivityTimeLimit = 3.seconds
 
 proc protoHealthMock(kind: WakuProtocol, health: HealthStatus): ProtocolHealth =
   var ph = ProtocolHealth.init(kind)
-  case health
-  of HealthStatus.READY:
+  if health == HealthStatus.READY:
     return ph.ready()
-  of HealthStatus.NOT_MOUNTED:
-    return ph.notMounted()
   else:
     return ph.notReady("mock")
 
@@ -147,20 +144,20 @@ suite "Health Monitor - health state calculation":
     ]
     var strength = initTable[WakuProtocol, int]()
     strength[RelayProtocol] = MockDLow
-    let state = calculateConnectionState(
-      protocols, strength, Opt.some(MockDLow), mixRequired = true
+    let state = requireMixReady(
+      calculateConnectionState(protocols, strength, Opt.some(MockDLow)), protocols
     )
     check state == ConnectionStatus.Disconnected
 
   test "Disconnected, mix required but not mounted":
     let protocols = @[
       protoHealthMock(RelayProtocol, HealthStatus.READY),
-      protoHealthMock(MixProtocol, HealthStatus.NOT_MOUNTED),
+      ProtocolHealth.init(MixProtocol), # not mounted
     ]
     var strength = initTable[WakuProtocol, int]()
     strength[RelayProtocol] = MockDLow
-    let state = calculateConnectionState(
-      protocols, strength, Opt.some(MockDLow), mixRequired = true
+    let state = requireMixReady(
+      calculateConnectionState(protocols, strength, Opt.some(MockDLow)), protocols
     )
     check state == ConnectionStatus.Disconnected
 
@@ -171,8 +168,8 @@ suite "Health Monitor - health state calculation":
     ]
     var strength = initTable[WakuProtocol, int]()
     strength[RelayProtocol] = MockDLow
-    let state = calculateConnectionState(
-      protocols, strength, Opt.some(MockDLow), mixRequired = true
+    let state = requireMixReady(
+      calculateConnectionState(protocols, strength, Opt.some(MockDLow)), protocols
     )
     check state == ConnectionStatus.Connected
 
@@ -199,8 +196,9 @@ suite "Health Monitor - health state calculation":
     strength[LightpushClientProtocol] = HealthyThreshold
     strength[FilterClientProtocol] = HealthyThreshold
     strength[StoreClientProtocol] = HealthyThreshold
-    let state =
-      calculateConnectionState(protocols, strength, Opt.none(int), mixRequired = true)
+    let state = requireMixReady(
+      calculateConnectionState(protocols, strength, Opt.none(int)), protocols
+    )
     check state == ConnectionStatus.Disconnected
 
 suite "Health Monitor - events":
@@ -591,7 +589,7 @@ suite "Health Monitor - mix readiness":
       await nodeA.start()
 
     let monitorA = NodeHealthMonitor.new(nodeA)
-    monitorA.setMixRequired(true)
+    monitorA.adjustConnectionStatus = requireMixReady
 
     var
       lastStatus = ConnectionStatus.Disconnected
@@ -646,7 +644,7 @@ suite "Health Monitor - mix readiness":
       await nodeA.start()
 
     let monitorA = NodeHealthMonitor.new(nodeA)
-    monitorA.setMixRequired(true)
+    monitorA.adjustConnectionStatus = requireMixReady
 
     var
       lastStatus = ConnectionStatus.Disconnected
