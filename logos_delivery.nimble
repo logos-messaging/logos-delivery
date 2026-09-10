@@ -344,7 +344,7 @@ proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
 
 ### Waku common tasks
 task testcommon, "Build & run common tests":
-  test "all_tests_common", "-d:chronicles_log_level=DEBUG -d:chronosStrictException"
+  test "all_tests_common"
 
 ### Waku tasks
 task logosdeliverynode, "Build Logos Delivery cli node":

@@ -1,9 +1,20 @@
-import os
+import os, strutils
+
+# The all_tests_* binaries compile the same dependency tree with the same flags,
+# so one cache between them lets every build after the first reuse the objects
+# instead of generating and compiling the tree again. Single-file test builds
+# keep a cache of their own: buildModule passes no chronicles level, so their
+# objects differ.
+let nimcacheName =
+  if projectName().startsWith("all_tests_"):
+    "all_tests"
+  else:
+    projectName()
 
 if defined(release):
-  switch("nimcache", "nimcache/release/$projectName")
+  switch("nimcache", "nimcache/release/" & nimcacheName)
 else:
-  switch("nimcache", "nimcache/debug/$projectName")
+  switch("nimcache", "nimcache/debug/" & nimcacheName)
 
 if defined(windows):
   if not defined(disable_rln):
