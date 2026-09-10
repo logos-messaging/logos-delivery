@@ -338,7 +338,7 @@ task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
 
-proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
+proc test(name: string, params = "-d:chronicles_log_level=INFO") =
   buildBinary name, "tests/", params
   exec "build/" & name
 
@@ -541,3 +541,4 @@ task nphchanges, "Run nph on .nim/.nims/.nimble files changed on this branch/PR"
   for f in files:
     echo "Formatting " & f
     exec nph & " \"" & f & "\""
+
