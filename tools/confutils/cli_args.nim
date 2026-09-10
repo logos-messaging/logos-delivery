@@ -47,6 +47,9 @@ logScope:
 # Git version in git describe format (defined at compile time)
 const git_version* {.strdefine.} = "n/a"
 
+const NodeEnvvarPrefix* = "logos_delivery_node"
+  ## `--tcp-port` reads `LOGOS_DELIVERY_NODE_TCP_PORT`.
+
 # CLI defaults that differ from confbuilder defaults
 const
   DefaultCLIRelay* = true
@@ -954,7 +957,7 @@ proc load*(T: type WakuNodeConf, version = ""): ConfResult[T] =
       secondarySources = proc(
           conf: WakuNodeConf, sources: auto
       ) {.gcsafe, raises: [ConfigurationError].} =
-        sources.addConfigFile(Envvar, InputFile("wakunode2"))
+        sources.addConfigFile(Envvar, InputFile(NodeEnvvarPrefix))
 
         if conf.configFile.isSome():
           sources.addConfigFile(Toml, conf.configFile.get())

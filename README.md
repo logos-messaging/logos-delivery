@@ -45,25 +45,25 @@ curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh
 
 ```bash
 # The first `make` invocation will initialize the local dependency state.
-make wakunode2
+make logosdeliverynode
 
 # Build with custom compilation flags. Do not use NIM_PARAMS unless you know what you are doing.
 # Replace with your own flags
-make wakunode2 NIMFLAGS="-d:chronicles_colors:none -d:disableMarchNative"
+make logosdeliverynode NIMFLAGS="-d:chronicles_colors:none -d:disableMarchNative"
 
 # Run with DNS bootstrapping
-./build/wakunode2 --dns-discovery --dns-discovery-url=DNS_BOOTSTRAP_NODE_URL
+./build/logosdeliverynode --dns-discovery --dns-discovery-url=DNS_BOOTSTRAP_NODE_URL
 
 # Run with the QUIC transport enabled
-./build/wakunode2 --quic-support=true
+./build/logosdeliverynode --quic-support=true
 
 # See available command line options
-./build/wakunode2 --help
+./build/logosdeliverynode --help
 ```
 To join the network, you need to know the address of at least one bootstrap node.
 Please refer to the [Waku README](https://github.com/logos-messaging/logos-delivery/blob/master/logos_delivery/waku/README.md) for more information.
 
-For more on how to run `wakunode2`, refer to:
+For more on how to run `logosdeliverynode`, refer to:
 - [Run using binaries](https://docs.waku.org/run-node/build-source)
 - [Run using docker](https://docs.waku.org/run-node/run-docker)
 - [Run using docker-compose](https://docs.waku.org/run-node/run-docker-compose)
@@ -114,7 +114,7 @@ nim --version
 - Execute: `./scripts/build_windows.sh`
 
 #### 4. Troubleshooting
-If `wakunode2.exe`, `logosdeliverynode.exe` or `liblogosdelivery` isn't generated:  
+If `logosdeliverynode.exe` or `liblogosdelivery` isn't generated:  
 - **Missing Dependencies**: Verify with:  
   `which make cmake gcc g++ rustc cargo python3 upx nasm nim`  
   If missing, revisit Step 2 or ensure MSYS2 is at `C:\`  
@@ -138,11 +138,11 @@ make test
 
 # Run a specific test file
 make test <test_file_path>
-# e.g. : make test tests/wakunode2/test_all.nim
+# e.g. : make test tests/app/test_all.nim
 
 # Run a specific test name from a specific test file
 make test <test_file_path> <test_name>
-# e.g. : make test tests/wakunode2/test_all.nim "node setup is successful with default configuration"
+# e.g. : make test tests/app/test_all.nim "node setup is successful with default configuration"
 ```
 
 ### Building single test files

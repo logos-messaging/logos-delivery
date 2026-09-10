@@ -126,11 +126,11 @@ jobs:
         with:
           nim-version: ${{ env.NIM_VERSION }}
 
-      - name: Build wakunode2
+      - name: Build logosdeliverynode
         run: |
           make -j${NPROC} V=1 POSTGRES=1 \
             NIMFLAGS="-d:chronicles_colors:none" \
-            wakunode2
+            logosdeliverynode
 
       - name: Audit installed deps
         run: make audit-deps

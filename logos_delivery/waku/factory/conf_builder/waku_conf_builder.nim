@@ -45,13 +45,13 @@ const git_version {.strdefine.} = "(unknown)"
 const
   DefaultMaxConnections = 150
   DefaultRelay: bool = false
-    # historical confbuilder default; wakunode2 CLI deviates (true)
+    # historical confbuilder default; the node CLI deviates (true)
   DefaultLightPush: bool = false
   DefaultPeerExchange: bool = false
-    # historical confbuilder default; wakunode2 CLI deviates (true)
+    # historical confbuilder default; the node CLI deviates (true)
   DefaultStoreSyncMount: bool = false
   DefaultRendezvous: bool = false
-    # historical confbuilder default; wakunode2 CLI deviates (true)
+    # historical confbuilder default; the node CLI deviates (true)
   DefaultMix*: bool = false
   DefaultRelayPeerExchange: bool = false
   DefaultLogLevel: logging.LogLevel = logging.LogLevel.INFO

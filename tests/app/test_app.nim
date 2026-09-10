@@ -12,7 +12,7 @@ import
 
 include logos_delivery/waku/waku, logos_delivery/waku/common/enr/typed_record
 
-suite "Wakunode2 - Waku":
+suite "Node app - Waku":
   test "compilation version should be reported":
     ## Given
     let conf = defaultTestWakuConf()
@@ -41,7 +41,7 @@ suite "Wakunode2 - Waku":
     check:
       maxMessageSize == $conf.maxMessageSizeBytes
 
-suite "Wakunode2 - Waku initialization":
+suite "Node app - Waku initialization":
   test "peer persistence setup should be successfully mounted":
     ## Given
     var conf = defaultTestWakuConf()

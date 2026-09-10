@@ -17,15 +17,15 @@ You may alter the rln-specific arguments as required.
 
 ## Prerequisites
 
-1. Follow the [droplet quickstart](../droplet-quickstart.md) or the [build guide](./build.md) till the `make` command for the wakunode2 binary.
+1. Follow the [droplet quickstart](../droplet-quickstart.md) or the [build guide](./build.md) till the `make` command for the logosdeliverynode binary.
 
 > Note: If you would like to run a nwaku node with RLN enabled within a docker container, skip ahead to step 2.
 
-## 1. Build wakunode2
+## 1. Build logosdeliverynode
 
 Run -
 ```bash
-make wakunode2
+make logosdeliverynode
 ```
 
 ## 2. Update the runtime arguments
@@ -35,9 +35,8 @@ Follow [Step 10](../droplet-quickstart.md#10-run-nwaku) of the [droplet quicksta
 ```bash
 export LINEA_SEPOLIA_HTTP_NODE_ADDRESS=<HTTP RPC URL to a Linea Sepolia Node>
 export RLN_RELAY_CONTRACT_ADDRESS="0xB9cd878C90E49F797B4431fBF4fb333108CB90e6" # Replace this with any compatible implementation
-$WAKUNODE_DIR/wakunode2 \
+$WAKUNODE_DIR/logosdeliverynode \
 --store:true \
---persist-messages \
 --dns-discovery \
 --dns-discovery-url:"$WAKU_FLEET" \
 --discv5-discovery:true \

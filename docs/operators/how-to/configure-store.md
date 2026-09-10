@@ -6,7 +6,7 @@ The waku store protocol is disabled by default the nwaku node.
 This is controlled by the `--store` option. To enable waku store protocol on startup, specify explicitly the `--store` option set to `true`:
 
 ```shell
-wakunode2 --store=true
+logosdeliverynode --store=true
 ```
 
 This option controls the mounting of the Waku Store protocol, meaning that your node will indicate to other peers that it supports the Waku store protocol.
@@ -18,7 +18,7 @@ Provide at least one store service node address with the `--storenode` option. T
 For example, to use the peer at `/dns4/node-01.ac-cn-hongkong-c.waku.test.status.im/tcp/30303/p2p/16Uiu2HAkzHaTP5JsUwfR9NR8Rj9HC24puS6ocaU8wze4QrXr9iXp` as the waku store service node:
 
 ```shell
-wakunode2 \
+logosdeliverynode \
   --storenode=/dns4/node-01.ac-cn-hongkong-c.waku.test.status.im/tcp/30303/p2p/16Uiu2HAkzHaTP5JsUwfR9NR8Rj9HC24puS6ocaU8wze4QrXr9iXp
 ```
 
@@ -46,7 +46,7 @@ By default the node message store will be configured with a time retention polic
 > :warning: Note the 3 slashes, `///`,  after the SQLite database URL schema. The third slash indicates that it is an absolute path: `/mnt/nwaku/data/db1/store.sqlite3`
 
 ```shell
-wakunode2 \
+logosdeliverynode \
   --store=true \
   --store-message-db-url=sqlite:///mnt/nwaku/data/db1/store.sqlite3 \
   --store-message-retention-policy=capacity:150000

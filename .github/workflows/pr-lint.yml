@@ -24,7 +24,7 @@ jobs:
       with:
         filters: |
           config:
-          - 'apps/wakunode2/external_config.nim'
+          - 'tools/confutils/cli_args.nim'
           - 'apps/networkmonitor/networkmonitor_config.nim'
           - 'apps/chat2/config_chat2.nim'
           - 'apps/chat2bridge/config_chat2bridge.nim'

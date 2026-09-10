@@ -61,11 +61,11 @@ git -C "$NIM_ROOT" apply "$PWD/docs/tutorial/nim.2.2.4_heaptracker_addon.patch"
 
 > The patch is not upstream in Nim. Reinstalling or upgrading Nim removes it, so it must be reapplied.
 
-When the patch is applied, we can build wakunode2 with heaptrack support.
+When the patch is applied, we can build logosdeliverynode with heaptrack support.
 
 ### Build nwaku with heaptrack support
 
-`make -j<nproc> HEAPTRACKER=1 wakunode2`
+`make -j<nproc> HEAPTRACKER=1 logosdeliverynode`
 
 ### Create nwaku memory report with heaptrack
 
@@ -73,14 +73,14 @@ nwaku only works correctly with heaptrack operating in 'preload' mode, i.e. the 
 To achieve this, the `heaptrack` binary should be prepended to the usual `wakunode`:
 
 e.g.:
-`<base_heaptrack_folder>/build/bin/heaptrack <base_nwaku_folder>/build/wakunode2 ...`
+`<base_heaptrack_folder>/build/bin/heaptrack <base_nwaku_folder>/build/logosdeliverynode ...`
 
 While the above is running, a file with the next format is being populated with allocs/deallocs stats in the current folder:
 
  ```
  heaptrack.<process_name>.<pid>.gz
 e.g.:
- heaptrack.wakunode2.23125.gz
+ heaptrack.logosdeliverynode.23125.gz
  ```
 
 ### Build a Docker image with Heaptrack + Nim Waku
@@ -90,13 +90,13 @@ Having Docker properly installed in your machine, do the next:
 - ```sudo make docker-image DOCKER_IMAGE_NAME=docker_repo:docker_tag HEAPTRACKER=1```
 - alternatively you can use the `docker-quick-image` target, this is faster but creates an ubuntu based image, so your local build environment must match.
 
-That will create a Docker image with both nwaku and heaptrack. The container's entry point is `ENTRYPOINT ["/heaptrack/build/bin/heaptrack", "/usr/bin/wakunode"]`, so the memory report starts being generated from the beginning.
+That will create a Docker image with both nwaku and heaptrack. The container's entry point is `ENTRYPOINT ["/heaptrack/build/bin/heaptrack", "/usr/bin/logosdeliverynode"]`, so the memory report starts being generated from the beginning.
 
 #### Notice for using heaptrack supporting image with `docker compose`
 
-Take care that wakunode2 should be started as
+Take care that logosdeliverynode should be started as
 ```
-exec /heaptrack/build/bin/heaptrack /usr/bin/wakunode\
+exec /heaptrack/build/bin/heaptrack /usr/bin/logosdeliverynode\
 ... all the arguments you want to pass to wakunode ...
 ```
 

@@ -1,3 +1,21 @@
+## Unreleased
+
+### Breaking changes
+
+- The `wakunode2` binary is removed. `logosdeliverynode` is the only node binary; it
+  covers everything `wakunode2` did, including the `generateRlnKeystore` subcommand.
+  Replace `make wakunode2` with `make logosdeliverynode` and `./build/wakunode2` with
+  `./build/logosdeliverynode`.
+
+- The environment-variable prefix for node options is now `LOGOS_DELIVERY_NODE_`
+  instead of `WAKUNODE2_` (e.g. `LOGOS_DELIVERY_NODE_TCP_PORT`). This is a silent
+  break: a node configured entirely through `WAKUNODE2_*` variables starts with
+  default values rather than failing.
+
+- Container images no longer provide `/usr/bin/wakunode`. The entrypoint is
+  `/usr/bin/logosdeliverynode`. Anything that execs the old absolute path, or
+  overrides the entrypoint with it, must be updated.
+
 ## v0.38.1 (2026-05-07)
 
 ### Changes

@@ -26,9 +26,9 @@ The `nim-waku` implementation with integrated DNS discovery already takes care o
 
 ## Usage
 
-Ensure you have built [`wakunode2`](https://github.com/status-im/nim-waku) or [`chat2`](./chat2.md) as per the linked instructions.
+Ensure you have built [`logosdeliverynode`](https://github.com/status-im/nim-waku) or [`chat2`](./chat2.md) as per the linked instructions.
 
-The following command line options are available for both `wakunode2` or `chat2`.
+The following command line options are available for both `logosdeliverynode` or `chat2`.
 
 ```
 --dns-discovery              Enable DNS Discovery
@@ -47,10 +47,10 @@ a list of `waku.test` fleet nodes was encoded according to EIP-1459 and deployed
 The list was signed by the public key `AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI`.
 The complete URL for DNS discovery is therefore: `enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im`.
 
-To run a `wakunode2` with DNS-based discovery of `waku.test` nodes:
+To run a `logosdeliverynode` with DNS-based discovery of `waku.test` nodes:
 
 ```
-./build/wakunode2 --dns-discovery:true --dns-discovery-url:enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im
+./build/logosdeliverynode --dns-discovery:true --dns-discovery-url:enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im
 ```
 
 Similarly, for `chat2`:
@@ -64,6 +64,5 @@ The node will discover and attempt connection to all `waku.test` nodes during se
 To use specific DNS name servers, one or more `--dns-addrs-name-server` arguments can be added:
 
 ```
-./build/wakunode2 --dns-discovery:true --dns-discovery-url:enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im --dns-dis
-covery-name-server:8.8.8.8 --dns-addrs-name-server:8.8.4.4
+./build/logosdeliverynode --dns-discovery:true --dns-discovery-url:enrtree://AOGYWMBYOUIMOENHXCHILPKY3ZRFEULMFI4DOM442QSZ73TT2A7VI@test.waku.nodes.status.im --dns-addrs-name-server:8.8.8.8 --dns-addrs-name-server:8.8.4.4
 ```

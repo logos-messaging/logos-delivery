@@ -25,7 +25,7 @@ pipeline {
     string(
       name: 'MAKE_TARGET',
       description: 'Makefile target to build. Optional Parameter.',
-      defaultValue: params.MAKE_TARGET ?: 'wakunode2',
+      defaultValue: params.MAKE_TARGET ?: 'logosdeliverynode',
     )
     string(
       name: 'IMAGE_TAG',
@@ -111,29 +111,18 @@ pipeline {
           )
         }
 
-        /* logosdeliverynode image is always built, regardless of the primary
-         * target / heaptrack selection above. It uses the dedicated
-         * 'logosdeliverynode' stage so its entrypoint is /usr/bin/logosdeliverynode. */
-        echo 'Building logosdeliverynode image'
-        logosDeliveryImage = docker.build(
-          "${params.LOGOSDELIVERY_IMAGE_NAME}:${params.IMAGE_TAG ?: env.GIT_COMMIT.take(8)}",
-          "--label=build='${env.BUILD_URL}' " +
-          "--label=commit='${git.commit()}' " +
-          "--label=version='${git.describe('--tags')}' " +
-          "--build-arg=MAKE_TARGET='logosdeliverynode' " +
-          "--build-arg=NIMFLAGS='${params.NIMFLAGS}' " +
-          "--build-arg=POSTGRES='1' " +
-          "--build-arg=LOG_LEVEL='${params.LOWEST_LOG_LEVEL_ALLOWED}' "  +
-          "--build-arg=DEBUG='${params.DEBUG ? "1" : "0"} ' " +
-          "--target='logosdeliverynode' ."
-        )
+        /* Second tag for the same image. */
+        def ldImageName = "${params.LOGOSDELIVERY_IMAGE_NAME}:${params.IMAGE_TAG ?: env.GIT_COMMIT.take(8)}"
+        echo "Tagging ${ldImageName}"
+        sh "docker tag ${image.id} ${ldImageName}"
+        logosDeliveryImage = docker.image(ldImageName)
       } }
     }
 
     stage('Check') {
       steps { script {
         image.inside('--entrypoint=""') { c ->
-          sh '/usr/bin/wakunode --version'
+          sh '/usr/bin/logosdeliverynode --version'
         }
         logosDeliveryImage.inside('--entrypoint=""') { c ->
           sh '/usr/bin/logosdeliverynode --version'

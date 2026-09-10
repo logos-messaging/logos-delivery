@@ -38,7 +38,7 @@ if [ -z "${STANDALONE}" ]; then
 fi
 
 
-exec /usr/bin/wakunode\
+exec /usr/bin/logosdeliverynode\
       --relay=true\
       --filter=true\
       --lightpush=true\

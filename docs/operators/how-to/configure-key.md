@@ -7,7 +7,7 @@ To maintain consistent addressing across restarts,
 it is possible to configure the node with a previously generated private key using the `--nodekey` option.
 
 ```shell
-wakunode2 --nodekey=<64_char_hex>
+logosdeliverynode --nodekey=<64_char_hex>
 ```
 
 This option takes a [Secp256k1](https://en.bitcoin.it/wiki/Secp256k1) private key in 64 char hexstring format.
@@ -50,5 +50,5 @@ writing EC key
 where the key `0c687bb8a7984c770b566eae08520c67f53d302f24b8d4e5e47cc479a1e1ce23` can be used as `nodekey`.
 
 ```sh
-wakunode2 --nodekey=0c687bb8a7984c770b566eae08520c67f53d302f24b8d4e5e47cc479a1e1ce23
+logosdeliverynode --nodekey=0c687bb8a7984c770b566eae08520c67f53d302f24b8d4e5e47cc479a1e1ce23
 ```

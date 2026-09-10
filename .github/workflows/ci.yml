@@ -75,7 +75,7 @@ jobs:
           nim-version: ${{ env.NIM_VERSION }}
 
       - name: Build binaries
-        # -j1: `all` builds wakunode2 and liblogosdelivery, each via `nimble
+        # -j1: `all` builds logosdeliverynode and liblogosdelivery, each via `nimble
         # <task>`. Under -j2 the two nimble invocations re-resolve git deps
         # concurrently and clobber each other in the shared ~/.nimble/pkgcache
         # (e.g. "destination already exists", "could not lock config file"),
@@ -284,7 +284,7 @@ jobs:
           export USE_LIBBACKTRACE=0
 
           make V=1 POSTGRES=$postgres_enabled test
-          make V=1 POSTGRES=$postgres_enabled testwakunode2
+          make V=1 POSTGRES=$postgres_enabled testapp
 
       - name: Audit installed deps
         run: make audit-deps
