@@ -2162,9 +2162,8 @@ suite "Waku Filter - End to End":
         await allFutures(messages.mapIt(wakuFilter.handleMessage(pubsubTopic, it)))
 
         # Then the client receives every one of them
-        let deadline = Moment.now() + FUTURE_TIMEOUT_MEDIUM
-        while received.len < messageCount and Moment.now() < deadline:
-          await sleepAsync(10.milliseconds)
+        checkUntilTimeout:
+          received.len == messageCount
 
         let receivedPayloads = received.mapIt(it.payload)
         check:

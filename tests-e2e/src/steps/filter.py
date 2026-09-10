@@ -4,7 +4,7 @@ from src.libs.custom_logger import get_custom_logger
 from time import time
 import pytest
 import allure
-from src.libs.common import to_base64, delay
+from src.libs.common import to_base64, delay, wait_until
 from src.node.waku_message import WakuMessage
 from src.env_vars import NODE_1, NODE_2, ADDITIONAL_NODES
 from src.node.waku_node import WakuNode
@@ -201,3 +201,15 @@ class StepsFilter(StepsCommon):
             return node.get_filter_messages(content_topic)
         else:
             raise NotImplementedError("Not implemented for this node type")
+
+    @allure.step
+    def wait_for_filter_messages(self, content_topic, count, pubsub_topic=None, node=None, timeout_duration=20, time_between_retries=0.5):
+        # Each GET returns only the messages received since the previous call, so they are collected across polls.
+        messages = []
+
+        def all_messages_received():
+            messages.extend(self.get_filter_messages(content_topic, pubsub_topic=pubsub_topic, node=node))
+            return len(messages) >= count
+
+        wait_until(all_messages_received, timeout_duration, time_between_retries, f"Expected {count} filter messages")
+        return messages
