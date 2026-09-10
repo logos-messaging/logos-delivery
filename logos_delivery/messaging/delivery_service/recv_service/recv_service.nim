@@ -27,7 +27,8 @@ const ActivityWriteInterval* = chronos.seconds(10)
   ## Least time between two recovery hint writes from received messages.
 
 const CatchUpRetryPeriod* = chronos.seconds(30)
-  ## Wait between two Store attempts of the startup catch-up.
+  ## Longest wait between two Store attempts of the startup catch-up. A new
+  ## subscription or a connectivity change ends the wait early.
 
 const CatchUpSettlePeriod* = chronos.seconds(10)
   ## Wait for one more subscription once the startup catch-up has caught up. An
@@ -244,14 +245,23 @@ proc startupCatchUp(self: RecvService, job: Job) {.async.} =
       return false
     discard self.processIncomingMessage(pubsubTopic, message)
     return true
-  let subscribed = newAsyncEvent()
+  let wake = newAsyncEvent() # a new subscription or a connectivity change
   let onSubscribed = proc(event: ContentTopicSubscribedEvent) {.async: (raises: []).} =
-    subscribed.fire()
-  let listener = ContentTopicSubscribedEvent.listen(self.brokerCtx, onSubscribed).valueOr:
+    wake.fire()
+  let onConnectivity = proc(
+      event: EventConnectionStatusChange
+  ) {.async: (raises: []).} =
+    wake.fire()
+  let subscriptions = ContentTopicSubscribedEvent.listen(self.brokerCtx, onSubscribed).valueOr:
     warn "automatic Store catch-up suspended for this run", reason = error
     return
   defer:
-    await ContentTopicSubscribedEvent.dropListener(self.brokerCtx, listener)
+    await ContentTopicSubscribedEvent.dropListener(self.brokerCtx, subscriptions)
+  let connectivity = EventConnectionStatusChange.listen(self.brokerCtx, onConnectivity).valueOr:
+    warn "automatic Store catch-up suspended for this run", reason = error
+    return
+  defer:
+    await EventConnectionStatusChange.dropListener(self.brokerCtx, connectivity)
   while true:
     if not job.running:
       warn "automatic Store catch-up suspended for this run",
@@ -267,16 +277,16 @@ proc startupCatchUp(self: RecvService, job: Job) {.async.} =
         if settleUntil.isNone():
           settleUntil = Opt.some(Moment.now() + CatchUpSettlePeriod)
         let remaining = settleUntil.get() - Moment.now()
-        if remaining <= ZeroDuration or
-            not await subscribed.wait().withTimeout(remaining):
+        if remaining <= ZeroDuration or not await wake.wait().withTimeout(remaining):
           break
       else:
-        await subscribed.wait() # nothing subscribed yet
-      subscribed.clear()
+        await wake.wait() # nothing subscribed yet
+      wake.clear()
       continue
     settleUntil = Opt.none(Moment) # new work; settle after it
     if not self.waku.hasStorePeer():
-      await sleepAsync(CatchUpRetryPeriod) # nobody to ask yet
+      discard await wake.wait().withTimeout(CatchUpRetryPeriod) # nobody to ask yet
+      wake.clear()
       continue
     let cutoff = getNowInNanosecondTime() # this pass's bound; live covers from here
     let exhausted = await runCatchUpPass(
@@ -289,7 +299,9 @@ proc startupCatchUp(self: RecvService, job: Job) {.async.} =
     for topic in exhausted:
       completed.incl(topic)
     if exhausted.len < pending.len:
-      await sleepAsync(CatchUpRetryPeriod) # a topic failed; ask again
+      discard
+        await wake.wait().withTimeout(CatchUpRetryPeriod) # a topic failed; ask again
+      wake.clear()
   await job.writeRecoveryHint(caughtUpAt)
   if self.stopping:
     return

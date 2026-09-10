@@ -548,20 +548,18 @@ suite "Messaging API, Receive Service (store recovery)":
 
   asyncTest "recv_service recovers a missed message through a known Store peer":
     # Phase 1: the startup catch-up dials the known Store peer.
-    # `waitForStartupCatchUp()` waits for it.
     block:
       let net = await setupNetwork(ContentTopic("/waku/2/recv-test/proto"))
       defer:
         await net.teardown()
       let eventManager = net.events
-      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
       check await eventManager.waitForEvents(TestTimeout)
       check eventManager.receivedMessages.len == 1
       if eventManager.receivedMessages.len > 0:
         check eventManager.receivedMessages[0].payload == net.missedPayload
 
     # Phase 2: a Store peer learned after the subscription, by connecting to
-    # it, is asked at the next retry.
+    # it, is asked as soon as the connection is reported.
     block:
       let net = await setupNetwork(
         ContentTopic("/waku/2/recv-learned-peer-test/proto"), knowStorePeer = false
@@ -576,8 +574,8 @@ suite "Messaging API, Receive Service (store recovery)":
         check eventManager.receivedMessages[0].payload == net.missedPayload
 
     # Phase 3: storage closed under a running node ends the startup catch-up
-    # with a warning. The node keeps running; the reconnection check still
-    # delivers on its own.
+    # with a warning once the connection wakes it. The node keeps running; the
+    # reconnection check still delivers on its own.
     block:
       let net = await setupNetwork(
         ContentTopic("/waku/2/recv-storage-lost/proto"), knowStorePeer = false
@@ -588,7 +586,7 @@ suite "Messaging API, Receive Service (store recovery)":
         .request(net.subscriber.waku.brokerCtx)
         .expect("persistency")
         .closeJob(MessagingJobId)
-      net.knowStorePeer()
+      await net.bringOnline()
       await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
       check net.subscriber.isRunning()
 
@@ -601,7 +599,6 @@ suite "Messaging API, Receive Service (store recovery)":
       defer:
         await net.teardown()
       let eventManager = net.events
-      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
       check await eventManager.waitForEvents(TestTimeout) # the setup message
       await net.joinMesh() # the Store dial may already have connected them
       let gapMsg = await net.tunnel(topic)
