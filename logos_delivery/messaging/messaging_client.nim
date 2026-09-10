@@ -1,13 +1,13 @@
 ## Messaging layer core: the `MessagingClient` type plus its construction and
 ## lifecycle. The public operations (subscribe / unsubscribe / send) live in
 ## `messaging/api.nim`.
-import results, chronos, chronicles
+import std/sequtils, results, chronos, chronicles
 import
   logos_delivery/api/conf/messaging_conf,
   logos_delivery/api/messaging_client_api,
   logos_delivery/waku/waku,
-  logos_delivery/waku/api/publish,
-  logos_delivery/waku/api/health,
+  logos_delivery/waku/api/[publish, health],
+  logos_delivery/waku/node/health_monitor,
   logos_delivery/waku/factory/conf_builder/waku_conf_builder,
   logos_delivery/waku/persistency/persistency,
   logos_delivery/messaging/delivery_service/[recv_service, send_service],
@@ -33,6 +33,14 @@ proc rlnQuotaProvider(waku: Waku): QuotaProvider =
     return
       Opt.some(EpochQuota(epochIndex: q.epochIndex, userMessageLimit: q.messageLimit))
 
+proc requireMixReady*(
+    status: ConnectionStatus, protocols: seq[ProtocolHealth]
+): ConnectionStatus {.gcsafe, raises: [].} =
+  ## `Required` has no plain fallback, so without mix nothing can be sent.
+  if protocols.anyIt(it.protocol == $MixProtocol and it.health == HealthStatus.READY):
+    return status
+  return ConnectionStatus.Disconnected
+
 proc new*(
     T: type MessagingClient, conf: MessagingClientConf, waku: Waku
 ): Result[T, string] =
@@ -49,8 +57,8 @@ proc new*(
   let backfill = ?BackfillState.init(conf)
   let recvService = RecvService.new(waku, backfill)
 
-  # `Required` has no plain fallback, so connectivity must account for mix.
-  waku.setMixRequired(anonymityLevel == AnonymityLevel.Required)
+  if anonymityLevel == AnonymityLevel.Required:
+    waku.setConnectionStatusAdjuster(requireMixReady)
 
   return ok(
     T(

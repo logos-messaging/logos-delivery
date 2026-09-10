@@ -12,8 +12,8 @@ proc isOnline*(self: Waku): Future[Result[bool, string]] {.async.} =
   except CatchableError as e:
     return err(e.msg)
 
-proc setMixRequired*(self: Waku, required: bool) =
-  ## Tells the health monitor whether mix readiness gates connectivity.
-  if isNil(self.healthMonitor):
+proc setConnectionStatusAdjuster*(self: Waku, adjuster: ConnectionStatusAdjuster) =
+  ## Lets an upper layer tighten the connection status; call before start.
+  if self.healthMonitor.isNil():
     return
-  self.healthMonitor.setMixRequired(required)
+  self.healthMonitor.adjustConnectionStatus = adjuster

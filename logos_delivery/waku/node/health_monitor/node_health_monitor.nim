@@ -37,6 +37,11 @@ import
 # if not called, the outcome of randomization procedures will be the same in every run
 random.randomize()
 
+type ConnectionStatusAdjuster* = proc(
+  status: ConnectionStatus, protocols: seq[ProtocolHealth]
+): ConnectionStatus {.gcsafe, raises: [].}
+  # Allows an upper layer to adjust the computed connection status based on additional criteria.
+
 type NodeHealthMonitor* = ref object
   nodeHealth: HealthStatus
   node: WakuNode
@@ -59,7 +64,8 @@ type NodeHealthMonitor* = ref object
   eventLoopLagExceeded: bool
     ## set to true when the chronos event loop lag exceeds the severe threshold,
     ## causing the node health to be reported as EVENT_LOOP_LAGGING until lag recovers.
-  mixRequired: bool ## the configured anonymity level forbids the plain send path
+  adjustConnectionStatus*: ConnectionStatusAdjuster
+    ## lets an upper layer tighten the computed status; set before start
 
 func getHealth*(report: HealthReport, kind: WakuProtocol): ProtocolHealth =
   for h in report.protocolsHealth:
@@ -388,14 +394,12 @@ proc calculateConnectionState*(
     protocols: seq[ProtocolHealth],
     strength: Table[WakuProtocol, int], ## latest connectivity strength (e.g. peer count) for a protocol
     dLowOpt: Opt[int], ## minimum relay peers for Connected status if in Core (Relay) mode
-    mixRequired = false, ## the anonymity level forbids the plain send path
 ): ConnectionStatus =
   var
     relayCount = 0
     lightpushCount = 0
     filterCount = 0
     storeClientCount = 0
-    mixIsReady = false
 
   for p in protocols:
     let kind =
@@ -417,15 +421,9 @@ proc calculateConnectionState*(
       lightpushCount = max(lightpushCount, strength)
     elif kind in FilterClientProtocols:
       filterCount = max(filterCount, strength)
-    elif kind == WakuProtocol.MixProtocol:
-      mixIsReady = true
 
   debug "calculateConnectionState",
-    relayCount, storeClientCount, lightpushCount, filterCount, mixIsReady
-
-  # Mix-only sending: without a usable mix pool nothing can be delivered.
-  if mixRequired and not mixIsReady:
-    return ConnectionStatus.Disconnected
+    relayCount, storeClientCount, lightpushCount, filterCount
 
   # Relay connectivity should be a sufficient check in Core mode.
   # "Store peers" are relay peers because incoming messages in
@@ -467,7 +465,10 @@ proc calculateConnectionState*(hm: NodeHealthMonitor): ConnectionStatus =
       Opt.none(int)
     else:
       Opt.some(hm.node.wakuRelay.parameters.dLow)
-  return calculateConnectionState(hm.cachedProtocols, hm.strength, dLow, hm.mixRequired)
+  let status = calculateConnectionState(hm.cachedProtocols, hm.strength, dLow)
+  if hm.adjustConnectionStatus.isNil():
+    return status
+  return hm.adjustConnectionStatus(status, hm.cachedProtocols)
 
 proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.} =
   ## Get a HealthReport that includes all protocols
@@ -705,15 +706,8 @@ proc startKeepalive*(
 proc setOverallHealth*(hm: NodeHealthMonitor, health: HealthStatus) =
   hm.nodeHealth = health
 
-proc setMixRequired*(hm: NodeHealthMonitor, required: bool) =
-  ## Mix readiness gates the connection status only when the plain send path is
-  ## off-limits, which is a messaging-level (anonymity level) decision.
-  hm.mixRequired = required
-  if not isNil(hm.healthUpdateEvent):
-    hm.healthUpdateEvent.fire()
-
 proc onMixPoolChange(hm: NodeHealthMonitor) =
-  if not hm.mixRequired or isNil(hm.healthUpdateEvent):
+  if hm.node.wakuMix.isNil() or hm.healthUpdateEvent.isNil():
     return
   # Discovery keeps re-adding known mix peers, which leaves readiness unchanged.
   if hm.node.switch.peerStore[MixPubKeyBook].len ==
