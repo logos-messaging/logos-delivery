@@ -102,7 +102,7 @@ proc addPeer*(peerStore: PeerStore, peer: RemotePeerInfo, origin = UnknownOrigin
   if peer.mixPubKey.isSome():
     trace "adding mix pub key to peer store",
       peer_id = $peer.peerId, mix_pub_key = $peer.mixPubKey.get()
-    peerStore[MixPubKeyBook].book[peer.peerId] = peer.mixPubKey.get()
+    peerStore[MixPubKeyBook][peer.peerId] = peer.mixPubKey.get()
 
     # The mix pool needs the libp2p key, and discovery learns the mix key
     # before identify fills the key book. The peer id holds the key.

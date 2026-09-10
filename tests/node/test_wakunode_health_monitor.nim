@@ -2,7 +2,7 @@
 
 import std/[json, sequtils, strutils, tables], testutils/unittests, chronos, results
 import brokers/broker_context
-import libp2p_mix/curve25519, libp2p/[peerid, multiaddress]
+import libp2p_mix/[curve25519, pool], libp2p/[peerid, multiaddress]
 
 import
   logos_delivery/waku/[
@@ -615,7 +615,7 @@ suite "Health Monitor - mix readiness":
     await nodeB.stop()
     await nodeA.stop()
 
-  asyncTest "Required mix reaches PartiallyConnected once the pool fills":
+  asyncTest "Required mix status follows the pool as it fills and drains":
     var nodeA: WakuNode
     lockNewGlobalBrokerContext:
       nodeA =
@@ -623,9 +623,6 @@ suite "Health Monitor - mix readiness":
       (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
       await nodeA.mountTestMix()
       await nodeA.start()
-
-    for i in 0 ..< MinMixPoolSize:
-      nodeA.addMixPeer(62000 + i)
 
     let monitorA = NodeHealthMonitor.new(nodeA)
     monitorA.setMixRequired(true)
@@ -659,16 +656,33 @@ suite "Health Monitor - mix readiness":
       "Node B failed to subscribe"
     )
 
-    let deadline = Moment.now() + TestConnectivityTimeLimit
-    var gotConnected = false
-    while Moment.now() < deadline:
-      if lastStatus == ConnectionStatus.PartiallyConnected:
-        gotConnected = true
-        break
-      if await healthChangeSignal.wait().withTimeout(deadline - Moment.now()):
-        healthChangeSignal.clear()
+    proc waitForStatus(expected: ConnectionStatus): Future[bool] {.async.} =
+      let deadline = Moment.now() + TestConnectivityTimeLimit
+      while lastStatus != expected and Moment.now() < deadline:
+        if await healthChangeSignal.wait().withTimeout(deadline - Moment.now()):
+          healthChangeSignal.clear()
+      return lastStatus == expected
 
-    check gotConnected == true
+    let relayDeadline = Moment.now() + TestConnectivityTimeLimit
+    while monitorA.getSyncProtocolHealthInfo(RelayProtocol).health != HealthStatus.READY and
+        Moment.now() < relayDeadline:
+      await sleepAsync(100.milliseconds)
+
+    # Let the relay mesh go quiet, so that only a pool change can trigger the
+    # next health recomputation.
+    await sleepAsync(1.seconds)
+    check:
+      monitorA.getSyncProtocolHealthInfo(RelayProtocol).health == HealthStatus.READY
+      lastStatus == ConnectionStatus.Disconnected
+
+    # Discovery adds mix peers to the peer store without any peer event.
+    for i in 0 ..< MinMixPoolSize:
+      nodeA.addMixPeer(62000 + i)
+    check await waitForStatus(ConnectionStatus.PartiallyConnected)
+
+    # Pruning a single mix peer takes the pool below the minimum again.
+    nodeA.peerManager.switch.peerStore.delete(nodeA.wakuMix.nodePool.peerIds()[0])
+    check await waitForStatus(ConnectionStatus.Disconnected)
 
     await monitorA.stopHealthMonitor()
     await nodeB.stop()
