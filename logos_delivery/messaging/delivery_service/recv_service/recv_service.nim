@@ -30,11 +30,14 @@ const CatchUpRetryPeriod* = chronos.seconds(30)
   ## Longest wait between two Store attempts of the startup catch-up. A new
   ## subscription or a connectivity change ends the wait early.
 
+const FirstRunHistory* = chronos.hours(24)
+  ## The catch-up of a node with no recovery hint goes back this far.
+
 const CatchUpSettlePeriod* = chronos.seconds(10)
-  ## Wait for one more subscription once the startup catch-up has caught up. An
-  ## app restores its subscriptions in one turn; a person takes seconds.
+  ## The wait for one more subscription after the startup catch-up is complete.
 
 const
+  DefaultBackfillEnabled = true
   DefaultBackfillRequestTimeout = chronos.seconds(10)
   MinBackfillRequestTimeoutSeconds = 1
   MaxBackfillRequestTimeoutSeconds = 300
@@ -48,7 +51,7 @@ type BackfillState* = object
   queryTimeout*: Duration
   task: Future[void] ## the startup catch-up
   hintListener: Opt[MessageReceivedEventListener]
-    ## advances the hint per received message; installed when the catch-up completes
+    ## advances the hint on each received message, installed after the hint is read
 
 type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
@@ -76,7 +79,7 @@ type RecvService* = ref object of RootObj
   stopping: bool
     ## Lets the startup catch-up exit at stop. `storeQueryToAny`, `sendStoreRequest`,
     ## `dialPeer` and the brokers request path swallow `CancelledError`, so a cancel
-    ## may not reach the task. Re-raise it at those sites, then delete this.
+    ## can fail to get to the task. Re-raise it at those sites, then delete this.
 
 proc getMissingMsgsFromStore(
     self: RecvService, msgHashes: seq[WakuMessageHash]
@@ -196,41 +199,46 @@ proc onConnectionStatusChange(self: RecvService, status: ConnectionStatus) =
     self.backfillHandler = self.checkStore()
 
 proc listenForReceipts(
-    brokerCtx: BrokerContext, job: Job
+    brokerCtx: BrokerContext, job: persistency.Job
 ): Result[MessageReceivedEventListener, string] =
-  ## Every accepted message, live or recovered from Store, moves the hint to
-  ## now, at most once per `ActivityWriteInterval`. A proc of its own, so the
-  ## closure holds the job and the throttle and nothing of the worker's frame.
+  ## Every accepted message, live or from Store, moves the hint to now, at
+  ## most one time per `ActivityWriteInterval`.
   var lastWrite = Moment()
   let onReceived = proc(event: MessageReceivedEvent) {.async: (raises: []).} =
     let now = Moment.now()
     if not job.running or now - lastWrite < ActivityWriteInterval:
       return
-    lastWrite = now # before the await: a burst writes once
+    lastWrite = now # before the await, so a burst writes one time
     try:
       await job.writeRecoveryHint(getNowInNanosecondTime())
     except CancelledError:
       discard
   return MessageReceivedEvent.listen(brokerCtx, onReceived)
 
-proc startupCatchUp(self: RecvService, job: Job) {.async.} =
-  ## The one Store catch-up of a service run, from the persisted hint.
+proc startupCatchUp(self: RecvService, job: persistency.Job) {.async.} =
+  ## Run once at startup to fetch missed messages from Store.
+  ## Received messages update the saved time on disk. This catch-up keeps
+  ## using the value it read at startup. If the time is missing or cannot
+  ## be read, query from 24 hours before startup.
   let startedAt = getNowInNanosecondTime() # before the first await
   let stored = (await job.readRecoveryHint()).valueOr:
-    if not self.stopping:
-      warn "automatic Store catch-up suspended for this run", reason = error
-    return
-  let hint =
+    if self.stopping:
+      return
+    warn "Failed to read the Store catch-up recovery hint", reason = error
+    Opt.none(Timestamp) # the same as no hint
+  let since =
     if stored.isSome():
-      stored.get()
+      stored.get() - BackfillOverlap
     else:
-      await job.writeRecoveryHint(startedAt) # first run: the next run starts here
-      startedAt
-  let since = hint - BackfillOverlap
+      await job.writeRecoveryHint(startedAt)
+        # a first run stores its start for the next run
+      startedAt - FirstRunHistory.nanos
+  let receipts = listenForReceipts(self.brokerCtx, job).valueOr:
+    warn "Store catch-up aborted", reason = error
+    return
+  self.backfill.hintListener = Opt.some(receipts)
   var completed: HashSet[BackfillTopic]
   let progress = newTable[BackfillTopic, Timestamp]() # a failed topic's next page start
-  var caughtUpAt = Timestamp(0)
-    # the first completing pass's bound; covered for every topic
   var settleUntil: Opt[Moment] # set when there is nothing left to do
   let query: BackfillQuery = proc(
       request: StoreQueryRequest
@@ -253,27 +261,26 @@ proc startupCatchUp(self: RecvService, job: Job) {.async.} =
   ) {.async: (raises: []).} =
     wake.fire()
   let subscriptions = ContentTopicSubscribedEvent.listen(self.brokerCtx, onSubscribed).valueOr:
-    warn "automatic Store catch-up suspended for this run", reason = error
+    warn "Store catch-up aborted", reason = error
     return
   defer:
     await ContentTopicSubscribedEvent.dropListener(self.brokerCtx, subscriptions)
   let connectivity = EventConnectionStatusChange.listen(self.brokerCtx, onConnectivity).valueOr:
-    warn "automatic Store catch-up suspended for this run", reason = error
+    warn "Store catch-up aborted", reason = error
     return
   defer:
     await EventConnectionStatusChange.dropListener(self.brokerCtx, connectivity)
   while true:
     if not job.running:
-      warn "automatic Store catch-up suspended for this run",
-        reason = "persistency job is closed"
+      warn "Store catch-up aborted", reason = "persistency job is closed"
       return
     let pending =
       backfillTopics(self.waku.subscribedContentTopics()).filterIt(it notin completed)
     if pending.len == 0:
       if completed.len > 0:
-        # Caught up. The app may still be restoring its subscriptions: wait for
-        # the next, and finish when none comes. A wake that brings no work
-        # spends the same wait.
+        # Caught up. The app can subscribe more topics after this. Wait for the
+        # next subscription, and stop when none comes. A wake that brings no
+        # work does not extend the wait.
         if settleUntil.isNone():
           settleUntil = Opt.some(Moment.now() + CatchUpSettlePeriod)
         let remaining = settleUntil.get() - Moment.now()
@@ -283,32 +290,24 @@ proc startupCatchUp(self: RecvService, job: Job) {.async.} =
         await wake.wait() # nothing subscribed yet
       wake.clear()
       continue
-    settleUntil = Opt.none(Moment) # new work; settle after it
+    settleUntil = Opt.none(Moment) # new work, the settle wait starts after it
     if not self.waku.hasStorePeer():
       discard await wake.wait().withTimeout(CatchUpRetryPeriod) # nobody to ask yet
       wake.clear()
       continue
-    let cutoff = getNowInNanosecondTime() # this pass's bound; live covers from here
+    let cutoff = getNowInNanosecondTime()
+      # the end of this pass, from here the messages come live
     let exhausted = await runCatchUpPass(
       pending, progress, since, cutoff, self.backfill.queryTimeout, query, deliver
     )
     if self.stopping:
       return
-    if caughtUpAt == 0 and exhausted.len > 0:
-      caughtUpAt = cutoff
     for topic in exhausted:
       completed.incl(topic)
     if exhausted.len < pending.len:
       discard
-        await wake.wait().withTimeout(CatchUpRetryPeriod) # a topic failed; ask again
+        await wake.wait().withTimeout(CatchUpRetryPeriod) # a topic failed, ask again
       wake.clear()
-  await job.writeRecoveryHint(caughtUpAt)
-  if self.stopping:
-    return
-  let receipts = listenForReceipts(self.brokerCtx, job).valueOr:
-    warn "recovery hint writes off for this run", reason = error
-    return
-  self.backfill.hintListener = Opt.some(receipts)
 
 proc waitForStartupCatchUp*(self: RecvService) {.async.} =
   ## Waits for the startup catch-up to exit. Cancelling the wait leaves the
@@ -330,7 +329,12 @@ proc init*(T: type BackfillState, conf: MessagingClientConf): Result[T, string] 
           ", got " & $seconds
       )
     queryTimeout = chronos.seconds(seconds)
-  return ok(T(enabled: conf.backfillEnabled.get(true), queryTimeout: queryTimeout))
+  return ok(
+    T(
+      enabled: conf.backfillEnabled.get(DefaultBackfillEnabled),
+      queryTimeout: queryTimeout,
+    )
+  )
 
 proc new*(T: typedesc[RecvService], waku: Waku, backfill: BackfillState): T =
   ## The storeClient will help to acquire any possible missed messages
@@ -353,7 +357,7 @@ proc loopPruneOldMessages(self: RecvService) {.async.} =
       self.recentReceivedMsgs.del(msgHash)
     await sleepAsync(PruneOldMsgsPeriod)
 
-proc startRecvService*(self: RecvService, job: Job) =
+proc startRecvService*(self: RecvService, job: persistency.Job) =
   ## `job` is the messaging layer's Persistency job, nil when the layer has none.
   self.stopping = false
   self.msgPrunerHandler = self.loopPruneOldMessages()

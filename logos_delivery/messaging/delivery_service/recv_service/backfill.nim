@@ -17,9 +17,9 @@ const
     ## the receive service's category in the messaging layer's Persistency job
   LastOnlineKey* = key("last-online")
   BackfillOverlap* = 2 * MaxMessageTimestampVariance
-    ## The query starts this much before the hint: the archive's tolerance once
-    ## for a message stamped before the hint that reaches the archive after it,
-    ## once for this node's clock against the archive's.
+    ## Start the query 40 seconds before the saved time. Allow 20 seconds for
+    ## messages that reach the archive late and 20 seconds for differences
+    ## between this node's clock and the archive's clock.
 
 type
   BackfillTopic* = tuple[pubsubTopic: PubsubTopic, contentTopic: ContentTopic]
@@ -58,7 +58,7 @@ proc decodeTimestamp(bytes: seq[byte]): Result[Timestamp, string] =
   return ok(Timestamp(raw))
 
 proc readRecoveryHint*(
-    job: Job
+    job: persistency.Job
 ): Future[Result[Opt[Timestamp], string]] {.async: (raises: [CancelledError]).} =
   ## The stored recovery hint. An unreadable record logs a warning and reads
   ## as none.
@@ -75,11 +75,13 @@ proc readRecoveryHint*(
   if stored.isNone():
     return ok(Opt.none(Timestamp))
   let at = decodeTimestamp(stored.get()).valueOr:
-    warn "unreadable recovery hint; catch-up starts from the service start", error
+    warn "Failed to decode the Store catch-up recovery hint", error
     return ok(Opt.none(Timestamp))
   return ok(Opt.some(at))
 
-proc writeRecoveryHint*(job: Job, at: Timestamp) {.async: (raises: [CancelledError]).} =
+proc writeRecoveryHint*(
+    job: persistency.Job, at: Timestamp
+) {.async: (raises: [CancelledError]).} =
   ## Fire-and-forget, as the Persistency write API is. A lost write costs
   ## extra history at the next start.
   try:
@@ -87,7 +89,7 @@ proc writeRecoveryHint*(job: Job, at: Timestamp) {.async: (raises: [CancelledErr
   except CancelledError as e:
     raise e
   except CatchableError as e:
-    warn "recovery hint not written", error = e.msg
+    warn "Failed to write the Store catch-up recovery hint", error = e.msg
 
 proc queryPage(
     query: BackfillQuery, request: StoreQueryRequest, queryTimeout: Duration
@@ -109,8 +111,8 @@ proc acceptPage(
     deliver: BackfillDeliver,
 ): Result[Opt[Timestamp], string] =
   ## Delivers one page in order. Returns the timestamp of the last message,
-  ## or none when the range is exhausted. A bad row fails the page; the rows
-  ## before it stay delivered.
+  ## or none when the range has no more rows. A bad row fails the page, and
+  ## the rows before it stay delivered.
   var last = queryStart
   for row in response.messages:
     let message = row.message.valueOr:
@@ -126,9 +128,9 @@ proc acceptPage(
     return err("store page is empty but claims more")
   if last == queryStart:
     # Every message in the page shares the query start, so a query from that
-    # instant returns this same page. Step past the instant; messages at it
-    # beyond this page stay in the archive.
-    warn "backfill steps past a timestamp that fills a page",
+    # instant returns this same page. Step past the instant. The catch-up does
+    # not deliver the messages at that instant beyond this page.
+    debug "Store catch-up steps past a timestamp that fills a page",
       pubsubTopic = topic.pubsubTopic,
       contentTopic = topic.contentTopic,
       timestamp = last
@@ -144,10 +146,10 @@ proc runCatchUpPass*(
     query: BackfillQuery,
     deliver: BackfillDeliver,
 ): Future[seq[BackfillTopic]] {.async: (raises: [CancelledError]).} =
-  ## One pass: queries the topics in order over `[since, cutoff)`, page by
-  ## page, until each one is exhausted or fails. A failed topic leaves its next
-  ## page start in `progress` and resumes there next pass. Returns the
-  ## exhausted topics.
+  ## One pass. Queries the topics in order over `[since, cutoff)`, page by
+  ## page, until each one has no more rows or fails. A failed topic leaves its
+  ## next page start in `progress` and continues from there in the next pass.
+  ## Returns the topics that have no more rows.
   var exhausted: seq[BackfillTopic]
   for topic in subscribedTopics:
     var start = progress.getOrDefault(topic, since)
@@ -169,7 +171,7 @@ proc runCatchUpPass*(
         else:
           Result[Opt[Timestamp], string].err(response.error)
       let next = accepted.valueOr:
-        debug "backfill query failed; the topic waits for the next pass",
+        debug "Store catch-up query failed, the topic retries next pass",
           pubsubTopic = topic.pubsubTopic, contentTopic = topic.contentTopic, error
         progress[topic] = start
         completed = false

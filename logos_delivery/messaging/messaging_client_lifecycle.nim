@@ -17,12 +17,12 @@ export messaging_client
 
 const MessagingJobId* = "messaging"
 
-proc getMessagingJob(brokerCtx: BrokerContext): Job =
+proc getMessagingJob(brokerCtx: BrokerContext): persistency.Job =
   let persistency = GetPersistency.request(brokerCtx).valueOr:
-    debug "messaging persistence disabled, no persistency provider", reason = $error
+    debug "Messaging persistence disabled, no persistency provider", reason = $error
     return nil
   let job = persistency.openJob(MessagingJobId).valueOr:
-    warn "messaging persistence disabled, could not open persistency job",
+    warn "Messaging persistence disabled, could not open persistency job",
       jobId = MessagingJobId, reason = $error
     return nil
   return job
