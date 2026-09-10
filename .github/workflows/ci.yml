@@ -250,12 +250,11 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-15]
+        suite: [testcommon, testwaku, testlogosdelivery, testapp]
     runs-on: ${{ matrix.os }}
-    # `make test` now builds three test binaries; the third pushed ubuntu past
-    # the previous 60.
-    timeout-minutes: 90
+    timeout-minutes: 60
 
-    name: test-${{ matrix.os }}
+    name: ${{ matrix.suite }}-${{ matrix.os }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -273,8 +272,9 @@ jobs:
 
       - name: Run tests
         run: |
+          # all_tests_waku carries the only postgres suites.
           postgres_enabled=0
-          if [ ${{ runner.os }} == "Linux" ]; then
+          if [ ${{ runner.os }} == "Linux" ] && [ ${{ matrix.suite }} == "testwaku" ]; then
             sudo docker run --rm -d -e POSTGRES_PASSWORD=test123 -p 5432:5432 postgres:15.4-alpine3.18
             postgres_enabled=1
           fi
@@ -283,8 +283,7 @@ jobs:
           export NIMFLAGS="--colors:off -d:chronicles_colors:none"
           export USE_LIBBACKTRACE=0
 
-          make V=1 POSTGRES=$postgres_enabled test
-          make V=1 POSTGRES=$postgres_enabled testapp
+          make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite }}
 
       - name: Audit installed deps
         run: make audit-deps
