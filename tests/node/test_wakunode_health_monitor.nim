@@ -706,3 +706,83 @@ suite "Health Monitor - mix readiness":
     await monitorA.stopHealthMonitor()
     await nodeB.stop()
     await nodeA.stop()
+
+  asyncTest "Required mix recovers when a known pool peer turns out to serve lightpush":
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeA =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
+      await nodeA.mountTestMix()
+      await nodeA.start()
+
+    # A full pool without an exit, like bootnodes, which arrive without protocols.
+    let exitCandidate = mixPeerInfo(63000)
+    nodeA.peerManager.addPeer(exitCandidate)
+    for i in 1 ..< MinMixPoolSize:
+      nodeA.addMixPeer(63000 + i)
+
+    let monitorA = NodeHealthMonitor.new(nodeA)
+    monitorA.adjustConnectionStatus = requireMixReady
+
+    var
+      lastStatus = ConnectionStatus.Disconnected
+      healthChangeSignal = newAsyncEvent()
+
+    monitorA.onConnectionStatusChange = proc(status: ConnectionStatus) {.async.} =
+      lastStatus = status
+      healthChangeSignal.fire()
+
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeB =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.start()
+
+    await nodeA.connectToNodes(@[nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+      discard
+
+    nodeA.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node A failed to subscribe"
+    )
+    nodeB.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node B failed to subscribe"
+    )
+
+    proc waitForStatus(expected: ConnectionStatus): Future[bool] {.async.} =
+      let deadline = Moment.now() + TestConnectivityTimeLimit
+      while lastStatus != expected and Moment.now() < deadline:
+        if await healthChangeSignal.wait().withTimeout(deadline - Moment.now()):
+          healthChangeSignal.clear()
+      return lastStatus == expected
+
+    let relayDeadline = Moment.now() + TestConnectivityTimeLimit
+    while monitorA.getSyncProtocolHealthInfo(RelayProtocol).health != HealthStatus.READY and
+        Moment.now() < relayDeadline:
+      await sleepAsync(100.milliseconds)
+
+    # Let the relay mesh go quiet, so that only a pool change can trigger the
+    # next health recomputation.
+    await sleepAsync(1.seconds)
+    check:
+      monitorA.getSyncProtocolHealthInfo(RelayProtocol).health == HealthStatus.READY
+      monitorA.getSyncProtocolHealthInfo(MixProtocol).health == HealthStatus.NOT_READY
+      lastStatus == ConnectionStatus.Disconnected
+
+    # Discovery re-adds a known pool peer, now listing lightpush. The pool size
+    # does not change, yet the pool gains its exit.
+    let poolSize = nodeA.getMixNodePoolSize()
+    exitCandidate.protocols = @[WakuLightPushCodec]
+    nodeA.peerManager.addPeer(exitCandidate)
+    check:
+      nodeA.getMixNodePoolSize() == poolSize
+      await waitForStatus(ConnectionStatus.PartiallyConnected)
+
+    await monitorA.stopHealthMonitor()
+    await nodeB.stop()
+    await nodeA.stop()
