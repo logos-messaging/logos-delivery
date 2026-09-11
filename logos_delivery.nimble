@@ -338,13 +338,13 @@ task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
 
-proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
+proc test(name: string, params = "-d:chronicles_log_level=INFO") =
   buildBinary name, "tests/", params
   exec "build/" & name
 
 ### Waku common tasks
 task testcommon, "Build & run common tests":
-  test "all_tests_common", "-d:chronicles_log_level=DEBUG -d:chronosStrictException"
+  test "all_tests_common"
 
 ### Waku tasks
 task logosdeliverynode, "Build Logos Delivery cli node":

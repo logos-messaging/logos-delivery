@@ -178,15 +178,11 @@ when defined(macosx):
 --define:
   nimTypeNames
 
-# the default open files limit is too low on macOS (512), breaking the
-# "--debugger:native" build. It can be increased with `ulimit -n 1024`.
 if not defined(macosx) and not defined(android):
-  # add debugging symbols and original files and line numbers
-  --debugger:
-    native
   when defined(enable_libbacktrace):
     # light-weight stack traces using libbacktrace and libunwind
-    # opt-in: pass -d:enable_libbacktrace (requires libbacktrace in project deps)
+    # opt-in: pass -d:enable_libbacktrace (requires libbacktrace in project
+    # deps) and build with DEBUG_SYMBOLS=1, which emits the symbols it reads
     --define:
       nimStackTraceOverride
     switch("import", "libbacktrace")

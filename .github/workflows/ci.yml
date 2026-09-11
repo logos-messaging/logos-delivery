@@ -243,51 +243,10 @@ jobs:
             build/ios/*/liblogosdelivery.h
           retention-days: 1
 
-  test:
+  tests:
     needs: changes
     if: ${{ needs.changes.outputs.code == 'true' }}
-    strategy:
-      fail-fast: false
-      matrix:
-        os: [ubuntu-22.04, macos-15]
-    runs-on: ${{ matrix.os }}
-    # `make test` now builds three test binaries; the third pushed ubuntu past
-    # the previous 60.
-    timeout-minutes: 90
-
-    name: test-${{ matrix.os }}
-    steps:
-      - name: Checkout code
-        uses: actions/checkout@v4
-
-      - name: Install Nim ${{ env.NIM_VERSION }}
-        uses: jiro4989/setup-nim-action@v2
-        with:
-          nim-version: ${{ env.NIM_VERSION }}
-          repo-token: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Install nimble deps
-        uses: ./.github/actions/nimble-deps
-        with:
-          nim-version: ${{ env.NIM_VERSION }}
-
-      - name: Run tests
-        run: |
-          postgres_enabled=0
-          if [ ${{ runner.os }} == "Linux" ]; then
-            sudo docker run --rm -d -e POSTGRES_PASSWORD=test123 -p 5432:5432 postgres:15.4-alpine3.18
-            postgres_enabled=1
-          fi
-
-          export MAKEFLAGS="-j1"
-          export NIMFLAGS="--colors:off -d:chronicles_colors:none"
-          export USE_LIBBACKTRACE=0
-
-          make V=1 POSTGRES=$postgres_enabled test
-          make V=1 POSTGRES=$postgres_enabled testapp
-
-      - name: Audit installed deps
-        run: make audit-deps
+    uses: ./.github/workflows/tests.yml
 
   build-docker-image:
     needs: changes
