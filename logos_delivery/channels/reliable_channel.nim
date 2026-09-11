@@ -1,8 +1,8 @@
 ## Reliable Channel type.
 ##
 ## A `ReliableChannel` orchestrates segmentation, SDS (end-to-end
-## reliability), optional encryption, and dispatch on top of the
-## Messaging API for a single channel.
+## reliability), optional per-channel encryption, and dispatch on top of
+## the Messaging API for a single channel.
 ##
 ## Outgoing pipeline: Segment -> SDS -> Encrypt -> Dispatch
 ## Incoming pipeline: Decrypt -> SDS -> Reassemble -> Emit event
@@ -29,11 +29,11 @@ import logos_delivery/waku/waku_core/topics
 
 import ./segmentation/channel_segmentation
 import ./scalable_data_sync/scalable_data_sync
-import ./encryption/encryption
+import ./encryption/channel_encryption
 
 export
   types, reliable_channel_manager_api, channel_segmentation, scalable_data_sync,
-  encryption
+  channel_encryption
 
 logScope:
   topics = "reliable-channel"
@@ -85,6 +85,7 @@ type
 
     channelReqs: ChannelReqs
     brokerCtx: BrokerContext
+    crypto: Opt[ChannelCrypto] ## `none` means the channel is not encrypted
     receivedListener: MessageReceivedEventListener
     sentListener: MessageSentEventListener
     errorListener: MessageErrorEventListener
@@ -229,37 +230,31 @@ proc send*(
       return err("SDS wrap failed: " & error)
     sdsSegments.add(sdsBytes)
 
-  self.channelReqs[channelReqId] =
-    ChannelReqState.init(persistenceReqType, sdsSegments.len)
+  ## Encrypt every wrapped segment before dispatching any, so a cipher
+  ## failure never puts part of a message on the wire.
+  let wireSegments =
+    if self.crypto.isNone():
+      sdsSegments
+    else:
+      (await self.crypto.get().encrypt(sdsSegments)).valueOr:
+        return err("encryption failed: " & error)
 
-  for i, sdsBytes in sdsSegments:
+  self.channelReqs[channelReqId] =
+    ChannelReqState.init(persistenceReqType, wireSegments.len)
+
+  for i, wireBytes in wireSegments:
     if self.closed:
       self.channelReqs.del(channelReqId)
       debug "Channel closed mid-send, some segments already reached the wire",
-        channelId = self.channelId, dispatched = i, total = sdsSegments.len
+        channelId = self.channelId, dispatched = i, total = wireSegments.len
       return err("channel closed mid-send")
-
-    ## TODO: revisit which fields of the SDS message must be encrypted.
-    ## Encrypting the whole encoded blob forces every receiver to attempt
-    ## decryption before it can route, which breaks selective dispatch.
-    ## Leave routing metadata (channelId, causal-history references) in
-    ## clear and encrypt only the application payload.
-    let encrypted = (await Encrypt.request(sdsBytes)).valueOr:
-      MessageErrorEvent.emit(
-        self.brokerCtx,
-        MessageErrorEvent(
-          requestId: channelReqId, messageHash: "", error: "encryption failed: " & error
-        ),
-      )
-      self.markSegmentFailed(channelReqId)
-      continue
 
     ## The `meta` field carries the Reliable Channel wire-format spec
     ## marker so the ingress side of any peer can route this WakuMessage
     ## to its Reliable Channel layer.
     let envelope = MessageEnvelope(
       contentTopic: self.contentTopic,
-      payload: seq[byte](encrypted),
+      payload: wireBytes,
       ephemeral: ephemeral,
       meta: LipWireReliableChannelVersion.toBytes(),
     )
@@ -304,17 +299,20 @@ proc reportReceived(self: ReliableChannel, deliverable: SdsDeliverable) =
   )
 
 proc dispatchRepair(self: ReliableChannel, wire: seq[byte]) {.async: (raises: []).} =
-  ## SDS-driven repair rebroadcast. Pacing is done by SDS itself.
-  let encRes = await Encrypt.request(wire)
-  let encrypted = encRes.valueOr:
-    debug "SDS repair rebroadcast dropped: encryption failed",
-      channelId = self.channelId, error = error
-    return
+  ## SDS-driven repair rebroadcast; SDS paces it. `wire` is SDS's cached
+  ## cleartext copy, so it is sealed again like any other send. Ephemeral
+  ## because the original is already store-persisted.
+  var payload = wire
+  if self.crypto.isSome():
+    let sealed = (await self.crypto.get().encrypt(@[wire])).valueOr:
+      debug "SDS repair rebroadcast dropped: encryption failed",
+        channelId = self.channelId, error = error
+      return
+    payload = sealed[0]
 
-  ## Ephemeral: the original message is already store-persisted.
   let envelope = MessageEnvelope(
     contentTopic: self.contentTopic,
-    payload: seq[byte](encrypted),
+    payload: payload,
     ephemeral: true,
     meta: LipWireReliableChannelVersion.toBytes(),
   )
@@ -336,27 +334,23 @@ proc onMessageReceived(
   if self.closed:
     return
 
-  ## Notice that the following "request" is implemented implicitly as a broker call to
-  ## the `Decrypt` request broker.
-  let decRes = await Decrypt.request(payload)
-  let plaintext = decRes.valueOr:
-    MessageErrorEvent.emit(
-      self.brokerCtx,
-      MessageErrorEvent(
-        requestId: RequestId(""),
-        messageHash: messageHash,
-        error: "decryption failed: " & error,
-      ),
-    )
-    return
-  let plaintextBytes = seq[byte](plaintext)
+  ## Channels sharing a content topic tell their traffic apart by whether it
+  ## decrypts, so a failure here is routine rather than an error.
+  let sdsWire =
+    if self.crypto.isNone():
+      payload
+    else:
+      (await self.crypto.get().decrypt(payload)).valueOr:
+        debug "channel decryption failed",
+          channelId = self.channelId, messageHash = messageHash, error = error
+        return
 
   ## SDS returns every payload deliverable now, in causal order — the
   ## message itself plus any parked segments it released. Empty = consumed
   ## by SDS (parked or duplicate). `err` is a real ingress failure here: the
   ## marker/contentTopic filter already ran, so surface it as an error event
   ## rather than dropping it silently.
-  let deliverable = (await self.sdsHandler.handleIncoming(plaintextBytes)).valueOr:
+  let deliverables = (await self.sdsHandler.handleIncoming(sdsWire)).valueOr:
     MessageErrorEvent.emit(
       self.brokerCtx,
       MessageErrorEvent(
@@ -366,7 +360,8 @@ proc onMessageReceived(
       ),
     )
     return
-  for item in deliverable:
+
+  for item in deliverables:
     self.reportReceived(item)
 
 proc segmentCleanupLoop(self: ReliableChannel) {.async.} =
@@ -383,12 +378,12 @@ proc new*(
     segConfig: ChannelSegmentationConfig,
     sdsConfig: SdsConfig,
     brokerCtx: BrokerContext = globalBrokerContext(),
+    encryption: Opt[ChannelCrypto] = Opt.none(ChannelCrypto),
 ): Result[T, string] =
   ## Pipeline handlers (segmentation/SDS) are constructed inside the
   ## channel rather than handed in by the caller — they are implementation
   ## details of the channel, not knobs the API consumer should be wiring
-  ## up. Encryption is delegated to the `Encrypt`/`Decrypt` request
-  ## brokers, so the channel keeps no per-instance encryption state either.
+  ## up. `encryption` is fixed for the channel's life; `none` means plaintext.
   ##
   ## Segmentation is built first: it validates `segConfig`, and failing here
   ## leaves no started loop or installed listener behind.
@@ -404,6 +399,7 @@ proc new*(
     sdsHandler: SdsHandler.new(sdsConfig, channelId, senderId),
     channelReqs: initTable[RequestId, ChannelReqState](),
     brokerCtx: brokerCtx,
+    crypto: encryption,
   )
 
   ## SDS-R repair rebroadcasts go straight to the dispatch tail.

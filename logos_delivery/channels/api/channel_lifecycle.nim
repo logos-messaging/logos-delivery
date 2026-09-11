@@ -42,9 +42,11 @@ proc createReliableChannel*(
     channelId: ChannelId,
     contentTopic: ContentTopic,
     senderId: SdsParticipantID,
+    encryption: Opt[ChannelCrypto] = Opt.none(ChannelCrypto),
 ): Result[ChannelId, string] =
-  ## Encryption and egress providers must be installed (or `setNoopEncryption()`)
-  ## before traffic flows on the channel.
+  ## `encryption` is fixed for the channel's life; `none` sends and receives
+  ## plaintext. Taking it here rather than through a later setter is what
+  ## makes it impossible for traffic to arrive before the cipher exists.
   ## Subscribes to `contentTopic`; without a `MessagingSubscribe` provider the
   ## subscription is deferred to `ReliableChannelManager.start`.
   if self.channels.hasKey(channelId):
@@ -75,6 +77,7 @@ proc createReliableChannel*(
     segConfig = segConfig,
     sdsConfig = sdsConfig,
     brokerCtx = self.brokerCtx,
+    encryption = encryption,
   ).valueOr:
     ## Undo the subscription made above; no other channel needed the topic,
     ## or this one would not have been the first to ask for it. Bound here

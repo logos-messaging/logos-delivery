@@ -9,7 +9,6 @@ import logos_delivery/api/conf/channels_conf
 import logos_delivery/api/messaging_client_api
 import logos_delivery/channels/reliable_channel_manager
 import logos_delivery/channels/api/channel_lifecycle
-import logos_delivery/channels/encryption/noop_encryption
 
 suite "Reliable Channel - lifecycle":
   asyncTest "channelExists tracks create and close":
@@ -22,7 +21,6 @@ suite "Reliable Channel - lifecycle":
       manager = ReliableChannelManager.new(ReliableChannelManagerConf()).expect(
           "ReliableChannelManager.new"
         )
-      setNoopEncryption()
 
       check not manager.channelExists(channelId)
 
@@ -54,7 +52,6 @@ suite "Reliable Channel - lifecycle":
       manager = ReliableChannelManager.new(ReliableChannelManagerConf()).expect(
           "ReliableChannelManager.new"
         )
-      setNoopEncryption()
 
       MessagingSubscribe
         .setProvider(
@@ -107,7 +104,6 @@ suite "Reliable Channel - lifecycle":
     lockNewGlobalBrokerContext:
       let brokerCtx = globalBrokerContext()
       manager = ReliableChannelManager.new(conf).expect("ReliableChannelManager.new")
-      setNoopEncryption()
 
       MessagingSubscribe
         .setProvider(

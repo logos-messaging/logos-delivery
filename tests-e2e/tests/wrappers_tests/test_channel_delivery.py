@@ -123,8 +123,8 @@ def envelope_message_ids(envelope):
 
     Ids are 64-char hex strings the minprotobuf embeds verbatim, and no other
     field can produce that run — the bloom filter stores hashed bits, not ids.
-    Channel encryption is a noop (`setNoopEncryption`), so the envelope reaches
-    a message_received event in the clear.
+    No cipher is registered for the channel, so the envelope reaches a
+    message_received event in the clear.
     """
     return SDS_MESSAGE_ID_RE.findall(envelope)
 
