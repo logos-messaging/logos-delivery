@@ -25,9 +25,6 @@ type
     Connected
 
   MessageSource* {.pure.} = enum
-    ## How a received message reached this node. Carried by
-    ## `MessageReceivedEvent`, so an app can tell a message that was
-    ## published while it listened from one it recovered afterwards.
     Live = "live" ## delivered as it was published, over relay or filter
     History = "history" ## recovered from a Store peer, at start or after a gap
 
