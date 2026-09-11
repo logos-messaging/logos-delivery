@@ -9,7 +9,6 @@ class TestRelayPublish(StepsRelay):
     def test_publish_after_node2_restarts(self):
         self.check_published_message_reaches_relay_peer()
         self.node2.restart()
-        self.node2.ensure_ready()
         self.ensure_relay_subscriptions_on_nodes(self.main_nodes, [self.test_pubsub_topic])
         self.wait_for_published_message_to_reach_relay_peer()
 
