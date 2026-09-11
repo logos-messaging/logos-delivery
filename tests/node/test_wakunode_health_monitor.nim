@@ -707,7 +707,7 @@ suite "Health Monitor - mix readiness":
     await nodeB.stop()
     await nodeA.stop()
 
-  asyncTest "Required mix recovers when a known pool peer turns out to serve lightpush":
+  asyncTest "Required mix recovers when discovery learns a pool peer serves lightpush":
     var nodeA: WakuNode
     lockNewGlobalBrokerContext:
       nodeA =
@@ -774,11 +774,15 @@ suite "Health Monitor - mix readiness":
       monitorA.getSyncProtocolHealthInfo(MixProtocol).health == HealthStatus.NOT_READY
       lastStatus == ConnectionStatus.Disconnected
 
-    # Discovery re-adds a known pool peer, now listing lightpush. The pool size
-    # does not change, yet the pool gains its exit.
+    # ENR discovery (discv5, peer exchange) reports lightpush for a known pool
+    # peer, without a mix key. The pool size does not change, yet the pool gains
+    # its exit.
     let poolSize = nodeA.getMixNodePoolSize()
-    exitCandidate.protocols = @[WakuLightPushCodec]
-    nodeA.peerManager.addPeer(exitCandidate)
+    nodeA.peerManager.addPeer(
+      RemotePeerInfo.init(
+        exitCandidate.peerId, exitCandidate.addrs, protocols = @[WakuLightPushCodec]
+      )
+    )
     check:
       nodeA.getMixNodePoolSize() == poolSize
       await waitForStatus(ConnectionStatus.PartiallyConnected)
