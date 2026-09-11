@@ -1,18 +1,16 @@
 {.used.}
 
-import std/net
 import chronos, chronicles, testutils/unittests, results, stew/byteutils
 
 import
   logos_delivery/waku/waku,
   logos_delivery/waku/waku_core,
   logos_delivery/api/types,
-  logos_delivery/api/conf/messaging_conf,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
     [send_service, send_processor, delivery_task]
-import ../testlib/testasync
+import ../testlib/[testasync, wakunodeconf]
 
 ## Scheduler-level coverage for the send service's rate-limit seam: a task is
 ## charged exactly once however many rounds it takes, and an over-budget task
@@ -33,16 +31,7 @@ method process(self: FakeSendProcessor, task: DeliveryTask): Future[void] {.asyn
     task.firstPropagatedTime = Opt.some(Moment.now())
 
 proc testConf(): WakuConf =
-  var conf = MessagingClientConf()
-    .toWakuNodeConf(messaging_conf.LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = 1
-  conf.rest = false
-  return conf.toWakuConf().valueOr:
+  defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
 proc fixedEpochQuota(epoch: ptr uint64, userMessageLimit: uint64): QuotaProvider =

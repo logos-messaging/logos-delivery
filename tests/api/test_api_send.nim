@@ -3,8 +3,7 @@
 import results, std/strutils
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
-import logos_delivery/waku/persistency/persistency
-import ../testlib/[common, wakucore, wakunode, testasync]
+import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 import ../waku_archive/archive_utils
 import logos_delivery, logos_delivery/waku/[waku_node, waku_core, waku_relay/protocol]
 import logos_delivery/waku/factory/waku_conf
@@ -121,21 +120,6 @@ proc validate(
   for requestId in manager.errorRequestIds:
     check requestId == expectedRequestId
 
-proc createApiNodeConf(
-    mode: messaging_conf.LogosDeliveryMode = messaging_conf.LogosDeliveryMode.Core
-): WakuNodeConf =
-  var conf = MessagingClientConf().toWakuNodeConf(mode).valueOr:
-      raiseAssert error
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = 1
-  conf.rest = false
-  # This suite does not test persistence. Keep the node off the shared ./data root.
-  conf.localStoragePath = InMemoryStoragePath
-  result = conf
-
 suite "Waku API - Send":
   var
     relayNode1 {.threadvar.}: WakuNode
@@ -157,7 +141,7 @@ suite "Waku API - Send":
   asyncSetup:
     lockNewGlobalBrokerContext:
       relayNode1 = newTestWakuNode(generateSecp256k1Key())
-      relayNode1.mountMetadata(3, @[0'u16]).isOkOr:
+      relayNode1.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await relayNode1.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -166,7 +150,7 @@ suite "Waku API - Send":
 
     lockNewGlobalBrokerContext:
       relayNode2 = newTestWakuNode(generateSecp256k1Key())
-      relayNode2.mountMetadata(3, @[0'u16]).isOkOr:
+      relayNode2.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await relayNode2.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -175,7 +159,7 @@ suite "Waku API - Send":
 
     lockNewGlobalBrokerContext:
       lightpushNode = newTestWakuNode(generateSecp256k1Key())
-      lightpushNode.mountMetadata(3, @[0'u16]).isOkOr:
+      lightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await lightpushNode.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -186,7 +170,7 @@ suite "Waku API - Send":
 
     lockNewGlobalBrokerContext:
       storeNode = newTestWakuNode(generateSecp256k1Key())
-      storeNode.mountMetadata(3, @[0'u16]).isOkOr:
+      storeNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await storeNode.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -239,7 +223,7 @@ suite "Waku API - Send":
   asyncTest "Check API availability (unhealthy node)":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -261,7 +245,7 @@ suite "Waku API - Send":
   asyncTest "Send fully validated":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -295,7 +279,7 @@ suite "Waku API - Send":
   asyncTest "Send only propagates":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -325,7 +309,7 @@ suite "Waku API - Send":
   asyncTest "Send only propagates fallback to lightpush":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -359,7 +343,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+          defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge)
         )
       ).valueOr:
         raiseAssert error
@@ -398,7 +382,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+          defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge)
         )
       ).valueOr:
         raiseAssert error
@@ -438,7 +422,7 @@ suite "Waku API - Send":
   asyncTest "Send fully validates fallback to lightpush":
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
@@ -470,7 +454,7 @@ suite "Waku API - Send":
     var fakeLightpushNode: WakuNode
     lockNewGlobalBrokerContext:
       fakeLightpushNode = newTestWakuNode(generateSecp256k1Key())
-      fakeLightpushNode.mountMetadata(3, @[0'u16]).isOkOr:
+      fakeLightpushNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await fakeLightpushNode.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -493,7 +477,7 @@ suite "Waku API - Send":
     lockNewGlobalBrokerContext:
       node = (
         await LogosDelivery.new(
-          createApiNodeConf(messaging_conf.LogosDeliveryMode.Edge)
+          defaultTestWakuNodeConf(messaging_conf.LogosDeliveryMode.Edge)
         )
       ).valueOr:
         raiseAssert error
@@ -531,7 +515,7 @@ suite "Waku API - Send":
     var isolatedStoreNode: WakuNode
     lockNewGlobalBrokerContext:
       isolatedStoreNode = newTestWakuNode(generateSecp256k1Key())
-      isolatedStoreNode.mountMetadata(3, @[0'u16]).isOkOr:
+      isolatedStoreNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
         raiseAssert "Failed to mount metadata: " & error
       (await isolatedStoreNode.mountRelay()).isOkOr:
         raiseAssert "Failed to mount relay"
@@ -547,7 +531,7 @@ suite "Waku API - Send":
 
     var node: LogosDelivery
     lockNewGlobalBrokerContext:
-      node = (await LogosDelivery.new(createApiNodeConf())).valueOr:
+      node = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
         raiseAssert error
       (await node.start()).isOkOr:
         raiseAssert "Failed to start Waku node: " & error
