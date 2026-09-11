@@ -5,21 +5,38 @@ import
   logos_delivery,
   logos_delivery/waku/waku_core/topics/content_topic,
   logos_delivery/api/types,
-  ../declare_lib
+  ../declare_lib,
+  ./channel_crypto
 
 proc logosdelivery_channel_create(
     self: LogosDelivery,
     channelIdStr: string,
     contentTopicStr: string,
     senderIdStr: string,
+    encryptFn: uint64,
+    decryptFn: uint64,
+    userData: uint64,
 ): Future[Result[string, string]] {.ffi.} =
+  ## `encryptFn`/`decryptFn` are `LogosDeliveryCryptoFn` pointers cast to
+  ## `uint64`, and all three zero means an unencrypted channel. The cipher
+  ## is fixed for the channel's life.
+  ##
+  ## `userData` is what lets one C function serve several channels: a
+  ## function pointer carries no state, so the same `my_encrypt` used on two
+  ## channels is the same address both times and cannot tell them apart.
+  ## Whatever is passed here comes back as the callback's first argument on
+  ## every call, so it can point at this channel's key.
   requireChannels(self, "ChannelCreate"):
     return err(errMsg)
+
+  let encryption = toChannelCrypto(encryptFn, decryptFn, userData).valueOr:
+    return err("ChannelCreate failed: " & error)
 
   let id = self.reliableChannelManager.createReliableChannel(
     ChannelId(channelIdStr),
     ContentTopic(contentTopicStr),
     SdsParticipantID(senderIdStr),
+    encryption,
   ).valueOr:
     return err("ChannelCreate failed: " & $error)
 

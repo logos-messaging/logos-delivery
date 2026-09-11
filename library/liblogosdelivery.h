@@ -62,6 +62,36 @@ extern "C"
   int logosdelivery_remove_event_listener(void *ctx,
                                           uint64_t listenerId);
 
+  // ---------------------------------------------------------------------
+  // Per-channel encryption. A channel created without a cipher sends and
+  // receives plaintext; one created with a cipher always uses it, and its
+  // failure fails the message -- never plaintext. It covers the whole SDS
+  // message, repairs included, so no routing metadata reaches the wire.
+  //
+  // Supplied to logosdelivery_channel_create and fixed for the channel's
+  // life; leave all three fields zero for an unencrypted channel. Pass both
+  // function pointers and `user_data` as uint64_t, e.g.
+  // (uint64_t)(uintptr_t)my_encrypt, in LogosdeliveryChannelCreateReq (see
+  // generated/logosdelivery.h). Free `user_data` only after
+  // logosdelivery_destroy, the only call that drains in-flight sends.
+  //
+  // The cipher itself is bytes in, bytes out: transform `in` (NULL when
+  // in_len is 0), point `out`/`out_len` at the result, return 0; non-zero
+  // fails the message. `out` is copied on return but must outlive the call,
+  // so use a static or user_data-owned buffer, never a stack local.
+  // `user_data` is what you passed at create, and is how one cipher finds
+  // this channel's key.
+  //
+  // Runs inline on the event loop: be fast, do no I/O, call no
+  // logosdelivery_* function. Invoked once per segment, and decrypt sees
+  // segments in network order, so each result must carry what decrypting it
+  // needs (a nonce, a key id).
+  typedef int (*LogosDeliveryCryptoFn)(void *user_data,
+                                       const uint8_t *in,
+                                       size_t in_len,
+                                       const uint8_t **out,
+                                       size_t *out_len);
+
 #ifdef __cplusplus
 }
 #endif
