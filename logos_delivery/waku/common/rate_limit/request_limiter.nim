@@ -15,12 +15,7 @@
 
 {.push raises: [].}
 
-import
-  results,
-  std/math,
-  chronicles,
-  chronos/timer,
-  libp2p/stream/connection
+import results, std/math, chronicles, chronos/timer, libp2p/stream/connection
 
 import std/times except TimeInterval, Duration, seconds, minutes
 
