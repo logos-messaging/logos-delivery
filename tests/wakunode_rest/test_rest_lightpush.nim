@@ -388,6 +388,9 @@ suite "Waku v2 Rest API - lightpush":
       $ %*{"pubsubTopic": DefaultPubsubTopic},
       "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
         ", \"message\": " & validMessage & "}",
+      # An unknown field is rejected although the decoder sets allowUnknownFields.
+      "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
+        ", \"extraField\": \"extraValue\"}",
     ]
 
     # Then each is rejected as an invalid push request
@@ -402,21 +405,6 @@ suite "Waku v2 Rest API - lightpush":
         data["statusDesc"].getStr().startsWith(
           "Invalid push request! (status: 400 Bad Request, "
         )
-
-    # An unknown field is rejected although the decoder sets allowUnknownFields.
-    let unknownFieldResponse = await issueRequest(
-      restLightPushTest.restServer.getAddress(path),
-      MethodPost,
-      jsonHeader,
-      "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
-        ", \"extraField\": \"extraValue\"}",
-    )
-    let unknownFieldData = parseJson(unknownFieldResponse.data)
-    check:
-      unknownFieldResponse.status == 400
-      unknownFieldData["statusDesc"].getStr().startsWith(
-        "Invalid push request! (status: 400 Bad Request, "
-      )
 
     # When a field that must be base64 is not
     let notBase64Bodies = [

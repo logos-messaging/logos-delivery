@@ -443,10 +443,6 @@ suite "Waku Lightpush message delivery":
     lightNode.mountAutoSharding(DefaultClusterId, 8).isOkOr:
       assert false, "Failed to mount autosharding: " & $error
 
-    discard await lightNode.peerManager.dialPeer(
-      bridgeNode.peerInfo.toRemotePeerInfo(), WakuLightPushCodec
-    )
-    await sleepAsync(100.milliseconds)
     await destNode.connectToNodes(@[bridgeNode.peerInfo.toRemotePeerInfo()])
 
     ## Given
@@ -483,10 +479,6 @@ suite "Waku Lightpush message delivery":
   asyncTest "Publishing without a pubsub topic fails when autosharding is not mounted":
     ## Setup
     let lightNode = newTestWakuNode(generateSecp256k1Key())
-
-    await lightNode.start()
-    defer:
-      await lightNode.stop()
 
     lightNode.mountLightPushClient()
 
