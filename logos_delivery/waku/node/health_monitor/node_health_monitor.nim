@@ -798,4 +798,11 @@ proc new*(
     proc(peerId: PeerId) {.gcsafe, raises: [].} =
       hm.onMixPoolChange()
   )
+  # ENR discovery and identify learn a pool peer's lightpush (its exit role)
+  # through ProtoBook alone, without writing its mix key.
+  node.switch.peerStore[ProtoBook].addHandler(
+    proc(peerId: PeerId) {.gcsafe, raises: [].} =
+      if peerId in node.switch.peerStore[MixPubKeyBook]:
+        hm.onMixPoolChange()
+  )
   return hm
