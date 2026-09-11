@@ -541,4 +541,3 @@ task nphchanges, "Run nph on .nim/.nims/.nimble files changed on this branch/PR"
   for f in files:
     echo "Formatting " & f
     exec nph & " \"" & f & "\""
-

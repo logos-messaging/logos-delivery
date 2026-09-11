@@ -181,10 +181,8 @@ when defined(macosx):
 if not defined(macosx) and not defined(android):
   when defined(enable_libbacktrace):
     # light-weight stack traces using libbacktrace and libunwind
-    # opt-in: pass -d:enable_libbacktrace (requires libbacktrace in project deps)
-    # libbacktrace reads the symbols --debugger:native emits
-    --debugger:
-      native
+    # opt-in: pass -d:enable_libbacktrace (requires libbacktrace in project
+    # deps) and build with DEBUG_SYMBOLS=1, which emits the symbols it reads
     --define:
       nimStackTraceOverride
     switch("import", "libbacktrace")

@@ -12,7 +12,8 @@ jobs:
       fail-fast: false
       matrix:
         os: [ubuntu-22.04, macos-15]
-        # One binary per job.
+        # One job per binary, except testcommon and testapp: both are almost
+        # all compile, and paired they still finish well inside testwaku.
         suite:
           - {name: testcommon-testapp, targets: testcommon testapp}
           - {name: testwaku, targets: testwaku}
@@ -40,14 +41,13 @@ jobs:
         run: |
           # all_tests_waku carries the only postgres suites.
           postgres_enabled=0
-          if [ ${{ runner.os }} == "Linux" ] && [ ${{ matrix.suite.name }} == "testwaku" ]; then
+          if [ "${{ runner.os }}" = Linux ] && [ "${{ matrix.suite.name }}" = testwaku ]; then
             sudo docker run --rm -d -e POSTGRES_PASSWORD=test123 -p 5432:5432 postgres:15.4-alpine3.18
             postgres_enabled=1
           fi
 
           export MAKEFLAGS="-j1"
           export NIMFLAGS="--colors:off -d:chronicles_colors:none"
-          export USE_LIBBACKTRACE=0
 
           make V=1 POSTGRES=$postgres_enabled ${{ matrix.suite.targets }}
 
