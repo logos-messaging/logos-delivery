@@ -5,6 +5,7 @@ permissions:
 on:
   pull_request:
     branches: [master]
+  merge_group:
 
 jobs:
   # PR check: logos_delivery.nimble version must be >= the nearest tag reachable from
@@ -12,8 +13,11 @@ jobs:
   # Because we check out the PR HEAD (not the simulated merge ref), a branch
   # that predates a release tag does not see that tag in its history, so a
   # newly pushed tag does NOT break in-flight PRs. Once the branch merges/
-  # rebases past the tag, the bump is then enforced. This keeps logos_delivery.nimble
-  # fixed as early as possible, independent of whether a release is cut.
+  # rebases past the tag, the bump is then enforced. In the merge queue there
+  # is no pull_request payload, so the checkout falls back to the queue commit
+  # (the PR on top of the latest master), which is exactly what would land.
+  # This keeps logos_delivery.nimble fixed as early as possible, independent
+  # of whether a release is cut.
   # The exact tag==nimble guarantee at release time lives in
   # release-assets.yml, which gates artifact publishing on it.
   nimble-not-behind-tag:
