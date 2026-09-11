@@ -64,6 +64,10 @@ type MessagingClientConf* = object
     ## Settable only programmatically: as a nested object with no `{.name.}`
     ## pragma or `parseCmdArg`, it is not reachable from the JSON config or a
     ## CLI flag.
+  backfillEnabled* {.name: "backfill-enabled".}: Opt[bool]
+    ## Store catch-up of missed messages after a start (default true).
+  backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:
+    Opt[int64] ## Timeout of one Store query, in seconds (default 10, 1 .. 300).
 
 proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
   ## Sets the protocol flags implied by the mode.

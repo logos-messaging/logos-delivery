@@ -105,7 +105,7 @@ class WakuNode:
         self._rln_creds_set = False
         logger.debug(f"WakuNode instance initialized with log path {self._log_path}")
 
-    @retry(stop=stop_after_delay(60), wait=wait_fixed(0.1), reraise=True)
+    @retry(stop=stop_after_delay(60), wait=wait_fixed(1), reraise=True)
     def start(self, wait_for_node_sec=20, **kwargs):
         logger.debug("Starting Node...")
         default_args, remove_container = self._prepare_start_context(**kwargs)
@@ -222,6 +222,12 @@ class WakuNode:
             self.ensure_ready(timeout_duration=wait_for_node_sec, rln_required=self._rln_creds_set)
         except Exception as ex:
             logger.error(f"REST service did not become ready in time: {ex}")
+            # Drop the container before the retry starts another one, so a node that never
+            # becomes ready leaves one container behind instead of one per attempt.
+            try:
+                self.stop()
+            except Exception as stop_ex:
+                logger.debug(f"Could not remove the container of a failed start: {stop_ex}")
             raise
         try:
             logger.debug(f"Node {self._image_name} reports version {self.get_debug_version()}")

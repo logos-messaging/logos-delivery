@@ -27,15 +27,10 @@ proc hasMeshPeer(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
       return true
   false
 
-proc waitForMeshPeer(
-    relay: WakuRelay, topic: PubsubTopic, peer: PeerId, timeout = 10.seconds
-): Future[bool] {.async.} =
-  ## Wait until `relay`'s gossipsub mesh for `topic` has GRAFTed `peer`.
-  let deadline = Moment.now() + timeout
-  while Moment.now() < deadline:
-    if relay.hasMeshPeer(topic, peer):
+proc hasGossipsubPeer(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
+  for p in relay.gossipsub.getOrDefault(topic):
+    if p.peerId == peer:
       return true
-    await sleepAsync(50.milliseconds)
   false
 
 suite "Waku Relay":
@@ -138,7 +133,8 @@ suite "Waku Relay":
         otherNode.isSubscribed(pubsubTopic)
         otherNode.subscribedTopics == pubsubTopicSeq
 
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasGossipsubPeer(pubsubTopic, otherRemotePeerInfo.peerId)
 
       # When publishing a message in the subscribed node
       let fromOtherWakuMessage = fakeWakuMessage("fromOther")
@@ -200,7 +196,9 @@ suite "Waku Relay":
         otherNode.isSubscribed(pubsubTopic)
         otherNode.subscribedTopics == pubsubTopicSeq
 
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherRemotePeerInfo.peerId)
+        otherNode.hasMeshPeer(pubsubTopic, peerId)
 
       # When publishing a message in node
       let fromOtherWakuMessage = fakeWakuMessage("fromOther")
@@ -310,14 +308,17 @@ suite "Waku Relay":
 
       otherNode.addValidator(len4Validator)
       otherNode.subscribe(pubsubTopic, otherSimpleFutureHandler)
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasGossipsubPeer(pubsubTopic, otherRemotePeerInfo.peerId)
       check:
         otherNode.isSubscribed(pubsubTopic)
 
       # Given a subscribed node with a validator
       node.addValidator(len4Validator)
       node.subscribe(pubsubTopic, simpleFutureHandler)
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherRemotePeerInfo.peerId)
+        otherNode.hasMeshPeer(pubsubTopic, peerId)
       check:
         node.isSubscribed(pubsubTopic)
         node.subscribedTopics == pubsubTopicSeq
@@ -406,7 +407,9 @@ suite "Waku Relay":
         otherNode.isSubscribed(pubsubTopic)
         otherNode.subscribedTopics == pubsubTopicSeq
 
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherRemotePeerInfo.peerId)
+        otherNode.hasMeshPeer(pubsubTopic, peerId)
 
       # Given some crypto info
       var key = "My fancy key"
@@ -514,7 +517,11 @@ suite "Waku Relay":
       otherNode.subscribe(pubsubTopicC, otherSimpleFutureHandler2)
       anotherNode.subscribe(pubsubTopicB, anotherSimpleFutureHandler1)
       anotherNode.subscribe(pubsubTopicC, anotherSimpleFutureHandler2)
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherPeerId)
+        node.hasMeshPeer(pubsubTopicB, anotherPeerId)
+        node.hasGossipsubPeer(pubsubTopicC, otherPeerId)
+        node.hasGossipsubPeer(pubsubTopicC, anotherPeerId)
 
       # When publishing a message in node for each of the pubsub topics
       let
@@ -695,9 +702,9 @@ suite "Waku Relay":
         otherPeerManager.switch.isConnected(anotherPeerId)
 
       # Wait for the mesh to re-form before publishing (else it races the 1s FUTURE_TIMEOUT).
-      check:
-        await otherNode.waitForMeshPeer(pubsubTopicC, anotherPeerId)
-        await anotherNode.waitForMeshPeer(pubsubTopicC, otherPeerId)
+      checkUntilTimeout:
+        otherNode.hasMeshPeer(pubsubTopicC, anotherPeerId)
+        anotherNode.hasMeshPeer(pubsubTopicC, otherPeerId)
 
       # When publishing a message in anotherNode for each of the pubsub topics
       handlerFuture = newPushHandlerFuture()
@@ -881,7 +888,9 @@ suite "Waku Relay":
         node.subscribedTopics == pubsubTopicSeq
         otherNode.subscribedTopics == pubsubTopicSeq
 
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherRemotePeerInfo.peerId)
+        otherNode.hasMeshPeer(pubsubTopic, peerId)
 
       # Given some payloads
       let
@@ -1047,7 +1056,9 @@ suite "Waku Relay":
         node.subscribedTopics == pubsubTopicSeq
         otherNode.subscribedTopics == pubsubTopicSeq
 
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherRemotePeerInfo.peerId)
+        otherNode.hasMeshPeer(pubsubTopic, peerId)
 
       # Given some valid payloads
       let
@@ -1188,7 +1199,9 @@ suite "Waku Relay":
       check:
         node.subscribedTopics == pubsubTopicSeq
         otherNode.subscribedTopics == pubsubTopicSeq
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherRemotePeerInfo.peerId)
+        otherNode.hasMeshPeer(pubsubTopic, peerId)
 
       # When sending multiple messages from node
       let
@@ -1235,6 +1248,57 @@ suite "Waku Relay":
       # Finally stop the other node
       await allFutures(otherSwitch.stop(), otherNode.stop())
 
+    asyncTest "Publishing the same message twice delivers it to the peer once":
+      # Given a second node connected to the first one
+      let
+        otherSwitch = newTestSwitch()
+        otherNode = await newTestWakuRelay(otherSwitch)
+
+      await allFutures(otherSwitch.start(), otherNode.start())
+      defer:
+        await allFutures(otherSwitch.stop(), otherNode.stop())
+      let otherRemotePeerInfo = otherSwitch.peerInfo.toRemotePeerInfo()
+      check await peerManager.connectPeer(otherRemotePeerInfo)
+
+      # Given both are subscribed to the same pubsub topic
+      var otherHandlerFuture = newPushHandlerFuture()
+      var otherMessageSeq: seq[(PubsubTopic, WakuMessage)] = @[]
+      proc otherSimpleFutureHandler(
+          topic: PubsubTopic, message: WakuMessage
+      ) {.async, gcsafe.} =
+        otherMessageSeq.add((topic, message))
+        otherHandlerFuture.complete((topic, message))
+
+      node.subscribe(pubsubTopic, simpleFutureHandler)
+      otherNode.subscribe(pubsubTopic, otherSimpleFutureHandler)
+      check:
+        node.subscribedTopics == pubsubTopicSeq
+        otherNode.subscribedTopics == pubsubTopicSeq
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherRemotePeerInfo.peerId)
+        otherNode.hasMeshPeer(pubsubTopic, peerId)
+
+      # When the same message is published twice
+      let msg = fakeWakuMessage("msg", pubsubTopic)
+      let firstPublish = await node.publish(pubsubTopic, msg)
+      check:
+        firstPublish.isOk()
+        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+        await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
+
+      handlerFuture = newPushHandlerFuture()
+      otherHandlerFuture = newPushHandlerFuture()
+      let secondPublish = await node.publish(pubsubTopic, msg)
+
+      # Then the second publish fails with NoPeersToPublish, the publishing
+      # node's handler still runs and the peer receives a single copy
+      check:
+        secondPublish.isErr() and secondPublish.error == PublishOutcome.NoPeersToPublish
+        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+        not (await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT))
+        messageSeq == @[(pubsubTopic, msg), (pubsubTopic, msg)]
+        otherMessageSeq == @[(pubsubTopic, msg)]
+
   suite "Security and Privacy":
     asyncTest "Relay can't receive messages after subscribing and stopping without unsubscribing":
       # Given a second node connected to the first one
@@ -1263,7 +1327,9 @@ suite "Waku Relay":
         node.subscribedTopics == pubsubTopicSeq
         otherNode.subscribedTopics == pubsubTopicSeq
 
-      await sleepAsync(500.millis)
+      checkUntilTimeout:
+        node.hasMeshPeer(pubsubTopic, otherPeerId)
+        otherNode.hasMeshPeer(pubsubTopic, peerId)
 
       # Given other node is stopped without unsubscribing
       await allFutures(otherSwitch.stop(), otherNode.stop())

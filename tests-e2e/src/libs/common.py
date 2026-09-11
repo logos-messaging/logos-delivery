@@ -5,6 +5,7 @@ from src.libs.custom_logger import get_custom_logger
 import os
 import base64
 import allure
+from tenacity import retry, stop_after_delay, wait_fixed
 
 logger = get_custom_logger(__name__)
 
@@ -46,6 +47,18 @@ def attach_allure_file(file):
 def delay(num_seconds):
     logger.debug(f"Sleeping for {num_seconds} seconds")
     sleep(num_seconds)
+
+
+def wait_until(condition, timeout_duration=20, time_between_retries=0.5, message=None):
+    # Calls condition() until it returns a truthy value, which is returned to the caller.
+    # An exception raised by condition() counts as not met yet, and is polled through.
+    @retry(stop=stop_after_delay(timeout_duration), wait=wait_fixed(time_between_retries), reraise=True)
+    def poll():
+        result = condition()
+        assert result, message or f"Condition not met within {timeout_duration} seconds"
+        return result
+
+    return poll()
 
 
 def gen_step_id():

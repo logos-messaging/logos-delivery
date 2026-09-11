@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sequtils, strformat, strutils, tempfiles, osproc],
+  std/[json, sequtils, sets, strformat, strutils, tempfiles, osproc, uri],
   stew/byteutils,
   testutils/unittests,
   presto,
@@ -26,6 +26,8 @@ import
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
+  ../testlib/futures,
+  ../testlib/rest_requests,
   ../resources/payloads,
   ../waku_rln_relay/[rln/waku_rln_relay_utils, utils_onchain]
 
@@ -37,6 +39,33 @@ proc testWakuNode(): WakuNode =
     port = Port(0)
 
   newTestWakuNode(privkey, bindIp, port, Opt.some(extIp), Opt.some(port))
+
+proc waitForTopicPeer(
+    node: WakuNode, topic: PubsubTopic, peer: PeerId, timeout = FUTURE_TIMEOUT_LONG
+) {.async.} =
+  ## Waits until node's gossipsub has learnt that peer subscribes to topic.
+  let deadline = Moment.now() + timeout
+  while Moment.now() < deadline:
+    for p in node.wakuRelay.gossipsub.getOrDefault(topic):
+      if p.peerId == peer:
+        return
+    await sleepAsync(10.milliseconds)
+  raiseAssert $peer & " never announced a subscription to " & topic
+
+proc waitForRelayMessages(
+    client: RestClientRef,
+    pubsubTopic: PubsubTopic,
+    count: int,
+    timeout = FUTURE_TIMEOUT_MEDIUM,
+): Future[seq[RelayWakuMessage]] {.async.} =
+  ## Each GET clears the cache, so the messages of every poll are collected.
+  var messages: seq[RelayWakuMessage]
+  let deadline = Moment.now() + timeout
+  while messages.len < count and Moment.now() < deadline:
+    let response = await client.relayGetMessagesV1(pubsubTopic)
+    messages.add(response.data)
+    await sleepAsync(50.milliseconds)
+  return messages
 
 suite "Waku v2 Rest API - Relay":
   var anvilProc {.threadVar.}: Process
@@ -1034,3 +1063,276 @@ suite "Waku v2 Rest API - Relay":
     await restServer.stop()
     await restServer.closeWait()
     await allFutures(node.stop(), meshNode.stop())
+
+  asyncTest "A message published on one node is read back on its relay peer - POST /relay/v1/messages/{topic}, GET /relay/v1/messages/{topic}":
+    # Given two relay nodes, each behind its own REST server
+    let publisher = testWakuNode()
+    (await publisher.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await publisher.start()
+    defer:
+      await publisher.stop()
+
+    var receiver: WakuNode
+    lockNewGlobalBrokerContext:
+      receiver = testWakuNode()
+      (await receiver.mountRelay()).isOkOr:
+        assert false, "Failed to mount relay"
+      await receiver.start()
+    defer:
+      await receiver.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let
+      publisherServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+      receiverServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(publisherServer.router, publisher, MessageCache.init())
+    installRelayApiHandlers(receiverServer.router, receiver, MessageCache.init())
+    publisherServer.start()
+    receiverServer.start()
+    defer:
+      await allFutures(publisherServer.stop(), receiverServer.stop())
+      await allFutures(publisherServer.closeWait(), receiverServer.closeWait())
+
+    let
+      publisherClient = newRestHttpClient(publisherServer.localAddress())
+      receiverClient = newRestHttpClient(receiverServer.localAddress())
+      otherTopic = $RelayShard(clusterId: DefaultClusterId, shardId: 1)
+
+    # Given both nodes subscribed over REST to two pubsub topics and connected
+    for client in [publisherClient, receiverClient]:
+      let response =
+        await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic, otherTopic])
+      require response.status == 200
+    await publisher.connectToNodes(@[receiver.peerInfo.toRemotePeerInfo()])
+    await publisher.waitForTopicPeer(DefaultPubsubTopic, receiver.peerInfo.peerId)
+
+    # When a message with every optional field set is published on one node
+    let sent = RelayWakuMessage(
+      payload: base64.encode(EMOJI),
+      contentTopic: Opt.some(ContentTopic("/test/1/wäku-relay/proto")),
+      version: Opt.some(Natural(10)),
+      timestamp: Opt.some(now()),
+      meta: Opt.some(base64.encode("test-meta")),
+      ephemeral: Opt.some(true),
+    )
+    let postResponse =
+      await publisherClient.relayPostMessagesV1(DefaultPubsubTopic, sent)
+    check:
+      postResponse.status == 200
+      postResponse.data == "OK"
+
+    # Then the peer reads it back over REST with every field unchanged
+    let received = await receiverClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    check:
+      received.mapIt(it.payload) == @[sent.payload]
+      received.mapIt(it.contentTopic) == @[sent.contentTopic]
+      received.mapIt(it.version) == @[sent.version]
+      received.mapIt(it.timestamp) == @[sent.timestamp]
+      received.mapIt(it.meta) == @[sent.meta]
+      received.mapIt(it.ephemeral) == @[sent.ephemeral]
+
+    # Then nothing arrives on the other subscribed topic
+    let otherResponse = await receiverClient.relayGetMessagesV1(otherTopic)
+    check:
+      otherResponse.status == 200
+      otherResponse.data.len == 0
+
+    # When a message without a timestamp is published
+    let untimed = RelayWakuMessage(
+      payload: base64.encode("TEST-PAYLOAD"),
+      contentTopic: Opt.some(DefaultContentTopic),
+    )
+    let before = now()
+    let untimedResponse =
+      await publisherClient.relayPostMessagesV1(DefaultPubsubTopic, untimed)
+    check untimedResponse.status == 200
+
+    # Then the peer reads it back with a timestamp the publishing node assigned
+    let untimedReceived =
+      await receiverClient.waitForRelayMessages(DefaultPubsubTopic, 1)
+    check:
+      untimedReceived.mapIt(it.payload) == @[untimed.payload]
+      untimedReceived.mapIt(it.timestamp.get(0) >= before) == @[true]
+
+  asyncTest "Get messages of a not subscribed topic returns 404 - GET /relay/v1/messages/{topic}, GET /relay/v1/auto/messages/{topic}":
+    # Given
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    # When getting messages of a pubsub topic
+    let staticResponse = await issueRequest(
+      restServer.getAddress("/relay/v1/messages/" & encodeUrl(DefaultPubsubTopic))
+    )
+
+    # Then the response has an empty body
+    check:
+      staticResponse.status == 404
+      staticResponse.data == ""
+
+    # When getting messages of a content topic
+    let autoResponse = await issueRequest(
+      restServer.getAddress("/relay/v1/auto/messages/" & encodeUrl(DefaultContentTopic))
+    )
+
+    # Then the response body is the content topic
+    check:
+      autoResponse.status == 404
+      autoResponse.data == DefaultContentTopic
+
+  asyncTest "Post a message with an invalid body - POST /relay/v1/messages/{topic}":
+    # Given a node subscribed to the topic, so only the body decides the response
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installRelayApiHandlers(restServer.router, node, MessageCache.init())
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    let client = newRestHttpClient(restServer.localAddress())
+    require (await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])).status == 200
+
+    let
+      path = "/relay/v1/messages/" & encodeUrl(DefaultPubsubTopic)
+      jsonHeader: seq[HttpHeaderTuple] = @[("Content-Type", "application/json")]
+      payload = string(base64.encode("TEST-PAYLOAD"))
+      validFields =
+        "\"payload\": \"" & payload & "\", \"contentTopic\": \"" & DefaultContentTopic &
+        "\""
+
+    # When the body does not decode into a message
+    let invalidBodies = [
+      $ %*{"contentTopic": DefaultContentTopic},
+      $ %*{"payload": "", "contentTopic": DefaultContentTopic},
+      $ %*{"payload": {"key": "YWFh"}, "contentTopic": DefaultContentTopic},
+      $ %*{"payload": 1234567890, "contentTopic": DefaultContentTopic},
+      $ %*{"payload": ["YWFh"], "contentTopic": DefaultContentTopic},
+      $ %*{"payload": true, "contentTopic": DefaultContentTopic},
+      "{" & validFields & ", \"payload\": \"" & payload & "\"}",
+      $ %*{"payload": payload},
+      $ %*{"payload": payload, "contentTopic": ""},
+      $ %*{"payload": payload, "contentTopic": 1234567890},
+      $ %*{
+        "payload": payload,
+        "contentTopic": DefaultContentTopic,
+        "timestamp": "1700000000000000000",
+      },
+      $ %*{"payload": payload, "contentTopic": DefaultContentTopic, "timestamp": 1.7e18},
+      $ %*{
+        "payload": payload,
+        "contentTopic": DefaultContentTopic,
+        "timestamp": [1700000000000000000],
+      },
+      $ %*{
+        "payload": payload,
+        "contentTopic": DefaultContentTopic,
+        "timestamp": {"time": 1700000000000000000},
+      },
+      "{" & validFields & ", \"timestamp\": null}",
+      "{" & validFields & ", \"timestamp\": 9223372036854775808}",
+      $ %*{"payload": payload, "contentTopic": DefaultContentTopic, "version": 2.1},
+      $ %*{
+        "payload": payload,
+        "contentTopic": DefaultContentTopic,
+        "extraField": "extraValue",
+      },
+    ]
+
+    # Then each is rejected as an invalid content body
+    for body in invalidBodies:
+      let response =
+        await issueRequest(restServer.getAddress(path), MethodPost, jsonHeader, body)
+      check:
+        response.status == 400
+        response.data.startsWith("Invalid content body, could not decode: ")
+
+    # When a field that must be base64 is not
+    let notBase64Bodies = [
+      $ %*{"payload": "Hello World!", "contentTopic": DefaultContentTopic},
+      $ %*{
+        "payload": payload, "contentTopic": DefaultContentTopic, "meta": "Hello World!"
+      },
+    ]
+
+    # Then it is rejected as an incorrect base64 string
+    for body in notBase64Bodies:
+      let response =
+        await issueRequest(restServer.getAddress(path), MethodPost, jsonHeader, body)
+      check:
+        response.status == 400
+        response.data == "Incorrect base64 string"
+
+  asyncTest "Subscribe and unsubscribe with an empty list, a repeated topic and an invalid topic - POST and DELETE /relay/v1/subscriptions":
+    # Given
+    let node = testWakuNode()
+    (await node.mountRelay()).isOkOr:
+      assert false, "Failed to mount relay"
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    let cache = MessageCache.init()
+    installRelayApiHandlers(restServer.router, node, cache)
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    let client = newRestHttpClient(restServer.localAddress())
+    let noTopics = newSeq[PubsubTopic]()
+
+    # When subscribing and unsubscribing with an empty list
+    let emptyPost = await client.relayPostSubscriptionsV1(noTopics)
+    let emptyDelete = await client.relayDeleteSubscriptionsV1(noTopics)
+
+    # Then both succeed and nothing is subscribed
+    check:
+      emptyPost.status == 200
+      emptyDelete.status == 200
+      toSeq(node.wakuRelay.subscribedTopics).len == 0
+
+    # When subscribing to the same topic twice
+    let firstPost = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+    let secondPost = await client.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+
+    # Then both succeed and the topic is subscribed once
+    check:
+      firstPost.status == 200
+      secondPost.status == 200
+      toSeq(node.wakuRelay.subscribedTopics) == @[DefaultPubsubTopic]
+
+    # When unsubscribing with an invalid topic in the list
+    let invalidTopic = "/test/2/this/is/a/content/topic/1"
+    let invalidDelete =
+      await client.relayDeleteSubscriptionsV1(@[DefaultPubsubTopic, invalidTopic])
+
+    # Then the request fails and the valid topic stays subscribed
+    check:
+      invalidDelete.status == 400
+      $invalidDelete.contentType == $MIMETYPE_TEXT
+      invalidDelete.data ==
+        "Invalid pubsub topic(s): @[\"/test/2/this/is/a/content/topic/1\"]"
+      node.wakuRelay.isSubscribed(DefaultPubsubTopic)
+      cache.isPubsubSubscribed(DefaultPubsubTopic)
