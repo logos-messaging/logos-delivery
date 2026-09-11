@@ -29,6 +29,7 @@ type ReceiveEventListenerManager = ref object
   receivedListener: MessageReceivedEventListener
   receivedEvent: AsyncEvent
   receivedMessages: seq[WakuMessage]
+  receivedSources: seq[MessageSource] ## one per `receivedMessages` entry
   targetCount: int
 
 proc newReceiveEventListenerManager(
@@ -44,6 +45,7 @@ proc newReceiveEventListenerManager(
       brokerCtx,
       proc(event: MessageReceivedEvent) {.async: (raises: []).} =
         manager.receivedMessages.add(event.message)
+        manager.receivedSources.add(event.source)
 
         if manager.receivedMessages.len >= manager.targetCount:
           manager.receivedEvent.fire()
@@ -224,6 +226,7 @@ suite "Messaging API, SubscriptionManager":
     require await eventManager.waitForEvents(TestTimeout)
     require eventManager.receivedMessages.len == 1
     check eventManager.receivedMessages[0].contentTopic == testTopic
+    check eventManager.receivedSources[0] == MessageSource.Live
 
   asyncTest "Subscription API, relay node ignores unsubscribed content topics on same shard":
     let net = await setupNetwork(1)
@@ -481,6 +484,7 @@ suite "Messaging API, SubscriptionManager":
     require await eventManager.waitForEvents(TestTimeout)
     require eventManager.receivedMessages.len == 1
     check eventManager.receivedMessages[0].contentTopic == testTopic
+    check eventManager.receivedSources[0] == MessageSource.Live
 
   asyncTest "Subscription API, edge node ignores unsubscribed content topics":
     let net = await setupNetwork(1, messaging_conf.LogosDeliveryMode.Edge)

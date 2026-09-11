@@ -37,6 +37,7 @@ type ReceiveEventListenerManager = ref object
   receivedListener: MessageReceivedEventListener
   receivedEvent: AsyncEvent
   receivedMessages: seq[WakuMessage]
+  receivedSources: seq[MessageSource] ## one per `receivedMessages` entry
   targetCount: int
 
 proc newReceiveEventListenerManager(
@@ -52,6 +53,7 @@ proc newReceiveEventListenerManager(
       brokerCtx,
       proc(event: MessageReceivedEvent) {.async: (raises: []).} =
         manager.receivedMessages.add(event.message)
+        manager.receivedSources.add(event.source)
         if manager.receivedMessages.len >= manager.targetCount:
           manager.receivedEvent.fire()
       ,
@@ -284,6 +286,9 @@ proc runRestartedReceiver(
   if expectedCount > 0:
     for i in 0 ..< OfflineCount:
       doAssert "process-offline-" & $i in payloads
+  # Everything a restarted process recovers comes from Store.
+  doAssert events.receivedSources.allIt(it == MessageSource.History),
+    "recovered messages must be reported as history, got " & $events.receivedSources
   await events.teardown()
   (await subscriber.stop()).expect("stop new process subscriber")
 
@@ -587,6 +592,9 @@ suite "Messaging API, Receive Service (store recovery)":
       await net.publishLive(topic, "live three")
       check await events.waitForEvents(TestTimeout)
       discard await job.waitForAdvance(afterFirst)
+      # The setup message came from Store, the published ones came live.
+      check events.receivedSources[0] == MessageSource.History
+      check events.receivedSources[1 ..^ 1].allIt(it == MessageSource.Live)
 
     # Phase 7: the hint moves on a live receipt while the catch-up waits on a
     # Store peer that it cannot get to. The catch-up continues to retry behind it.
@@ -617,9 +625,10 @@ suite "Messaging API, Receive Service (store recovery)":
       check await events.waitForEvents(TestTimeout)
       let moved = await job.waitForAdvance(atStart)
       check moved <= now()
-      check events.receivedMessages.mapIt(string.fromBytes(it.payload)).anyIt(
-        it == "live while Store is dead"
-      )
+      let liveIdx = events.receivedMessages.mapIt(string.fromBytes(it.payload)).find(
+          "live while Store is dead"
+        )
+      check liveIdx >= 0 and events.receivedSources[liveIdx] == MessageSource.Live
 
   asyncTest "recv_service recovers a missed message through a known Store peer":
     # Phase 1: the startup catch-up dials the known Store peer.
@@ -632,6 +641,7 @@ suite "Messaging API, Receive Service (store recovery)":
       check eventManager.receivedMessages.len == 1
       if eventManager.receivedMessages.len > 0:
         check eventManager.receivedMessages[0].payload == net.missedPayload
+        check eventManager.receivedSources[0] == MessageSource.History
 
     # Phase 2: a Store peer learned after the subscription, by connecting to
     # it, is asked as soon as the connection is reported.
@@ -683,6 +693,9 @@ suite "Messaging API, Receive Service (store recovery)":
       check await eventManager.waitForEvents(TestTimeout)
       check eventManager.receivedMessages.len == 2 and
         eventManager.receivedMessages[^1].payload == gapMsg.payload
+      # The setup message and the gap message were both recovered from Store.
+      check eventManager.receivedSources ==
+        @[MessageSource.History, MessageSource.History]
 
   asyncTest "a topic subscribed while the catch-up settles is caught up to its own time":
     ## The app restores its subscriptions one call at a time. After the first

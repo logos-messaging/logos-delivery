@@ -135,13 +135,16 @@ suite "Messaging REST API":
     let client = restClientFor(node)
     let brokerCtx = node.waku.brokerCtx
 
-    # Emit more than the cache capacity (50); oldest must be dropped.
+    # Emit more than the cache capacity (50); oldest must be dropped. Odd
+    # messages come from Store, so the source travels with each record.
     const total = 55
     for i in 0 ..< total:
       let wm =
         fakeWakuMessage(payload = "msg-" & $i, contentTopic = "/test/1/recv/proto")
+      let source = if i mod 2 == 0: MessageSource.Live else: MessageSource.History
       MessageReceivedEvent.emit(
-        brokerCtx, MessageReceivedEvent(messageHash: "0x" & $i, message: wm)
+        brokerCtx,
+        MessageReceivedEvent(messageHash: "0x" & $i, message: wm, source: source),
       )
     await sleepAsync(settleDelay)
 
@@ -151,7 +154,9 @@ suite "Messaging REST API":
       resp.data.len == 50 # capped at DefaultMaxReceived
       # oldest (0..4) evicted, newest retained, oldest-first ordering
       resp.data[0].messageHash == "0x5"
+      resp.data[0].source == MessageSource.History
       resp.data[^1].messageHash == "0x" & $(total - 1)
+      resp.data[^1].source == MessageSource.Live
 
     let emptyResp = await client.messagingGetReceivedMessagesV1()
     check:
