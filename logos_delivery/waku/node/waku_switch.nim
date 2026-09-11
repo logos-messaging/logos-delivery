@@ -13,8 +13,7 @@ import
   libp2p/nameresolving/nameresolver,
   libp2p/builders,
   libp2p/switch,
-  libp2p/transports/[transport, tcptransport, wstransport],
-  libp2p/utils/opt
+  libp2p/transports/[transport, tcptransport, wstransport]
 import ./delivery_dialer
 
 # override nim-libp2p default value (which is also 1)
@@ -97,8 +96,8 @@ proc newWakuSwitch*(
 
   # UPnP and NAT-PMP port mapping via libp2p's NATService.
   # The extip strategy stays static in NetConfig.
-  natConfig.withValue(config):
-    b = b.withNAT(config)
+  if natConfig.isSome():
+    b = b.withNAT(natConfig.get())
 
   # libp2p 2.0.0 folded withMaxConnections and withMaxInOut into a single
   # `limits` field: they are mutually exclusive (last one wins), and

@@ -20,8 +20,7 @@ import
   std/math,
   chronicles,
   chronos/timer,
-  libp2p/stream/connection,
-  libp2p/utils/opt
+  libp2p/stream/connection
 
 import std/times except TimeInterval, Duration, seconds, minutes
 
@@ -138,33 +137,31 @@ template checkUsageLimit*(
 
 # TODO: review these ratio assumptions! Debatable!
 func calcPeriodRatio(settingOpt: Opt[RateLimitSetting]): int =
-  settingOpt.withValue(setting):
-    if setting.isUnlimited():
-      return UNLIMITED_RATIO
-
-    if setting.period <= 1.seconds:
-      return MILISECONDS_RATIO
-
-    if setting.period <= 1.minutes:
-      return SECONDS_RATIO
-
-    return MINUTES_RATIO
-  do:
-    # when setting is none
+  let setting = settingOpt.valueOr:
     return UNLIMITED_RATIO
+
+  if setting.isUnlimited():
+    return UNLIMITED_RATIO
+
+  if setting.period <= 1.seconds:
+    return MILISECONDS_RATIO
+
+  if setting.period <= 1.minutes:
+    return SECONDS_RATIO
+
+  return MINUTES_RATIO
 
 # calculates peer cache items timeout
 # effectively if a peer does not issue any requests for this amount of time will be forgotten.
 func calcCacheTimeout(settingOpt: Opt[RateLimitSetting], ratio: int): Duration =
-  settingOpt.withValue(setting):
-    if setting.isUnlimited():
-      return UNLIMITED_TIMEOUT
-
-    # CacheTimout for peers is double the replensih period for peers
-    return setting.period * ratio * 2
-  do:
-    # when setting is none
+  let setting = settingOpt.valueOr:
     return UNLIMITED_TIMEOUT
+
+  if setting.isUnlimited():
+    return UNLIMITED_TIMEOUT
+
+  # CacheTimout for peers is double the replensih period for peers
+  return setting.period * ratio * 2
 
 func calcPeerTokenSetting(
     setting: Opt[RateLimitSetting], ratio: int
