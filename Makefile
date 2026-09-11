@@ -225,6 +225,14 @@ ifeq ($(DEBUG_DISCV5), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:debugDiscv5
 endif
 
+# Symbols for gdb, lldb and libbacktrace. Off by default. 
+# Turn it on to read a core from the C and Rust dependencies.
+# macOS needs `ulimit -n 1024` for this build, its default of 512 is too low.
+# No effect under DEBUG=0: -d:strip links with -s, which discards them again.
+ifeq ($(DEBUG_SYMBOLS), 1)
+NIM_PARAMS := $(NIM_PARAMS) --debugger:native
+endif
+
 # Callers set NIMFLAGS. The README, the workflows, the Jenkinsfiles and the
 # Dockerfiles use it. Only NIM_PARAMS reaches the build, so add NIMFLAGS to it
 # here, after the defines it may conflict with. Nim uses the last
