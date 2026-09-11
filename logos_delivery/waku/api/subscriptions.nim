@@ -10,10 +10,15 @@ import results
 
 import logos_delivery/waku/waku
 import logos_delivery/waku/[waku_core, node/waku_node, node/subscription_manager]
+import logos_delivery/api/events/kernel_events # ContentTopicSubscribedEvent
 
 proc subscribe*(self: Waku, contentTopic: ContentTopic): Result[void, string] =
   ## Subscribes to `contentTopic`, resolving its shard via autosharding.
-  return self.node.subscriptionManager.subscribe(contentTopic)
+  let wasSubscribed = ?self.node.subscriptionManager.isSubscribed(contentTopic)
+  ?self.node.subscriptionManager.subscribe(contentTopic)
+  if not wasSubscribed:
+    ContentTopicSubscribedEvent.emit(self.brokerCtx, contentTopic)
+  return ok()
 
 proc unsubscribe*(self: Waku, contentTopic: ContentTopic): Result[void, string] =
   ## Unsubscribes from `contentTopic`, resolving its shard via autosharding.

@@ -9,7 +9,7 @@ import
   logos_delivery/messaging/rest_api/client as messaging_rest_client,
   logos_delivery/waku/rest_api/endpoint/client
 import tools/confutils/cli_args
-import ../testlib/testasync
+import ../testlib/[testasync, wakunodeconf]
 
 ## Validates the layer-selection invariant of `LogosDelivery.new(WakuNodeConf)`:
 ## `messagingClient` (and `reliableChannelManager`) are instantiated only for the
@@ -20,21 +20,7 @@ import ../testlib/testasync
 ##   channels  -> waku + messagingClient + reliableChannelManager
 
 proc nodeConf(entryLayer: EntryLayer, rest = false): WakuNodeConf =
-  var conf = defaultWakuNodeConf().valueOr:
-    raiseAssert error
-  conf.entryLayer = entryLayer
-  conf.mode = LogosDeliveryMode.Core
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  # The CLI default is "any"; keep test nodes off real gateway discovery.
-  conf.nat = "none"
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = 1
-  conf.rest = rest
-  conf.restAddress = parseIpAddress("127.0.0.1")
-  conf.restPort = 0'u16 # bind to an ephemeral port
-  return conf
+  defaultTestWakuNodeConf(entryLayer = entryLayer, rest = rest)
 
 proc restClientFor(node: LogosDelivery): RestClientRef =
   let boundPort = node.waku.restServer.httpServer.address.port

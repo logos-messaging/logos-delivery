@@ -20,6 +20,7 @@ import
     factory/conf_builder/conf_builder,
     factory/builder,
     common/logging,
+    persistency/persistency,
   ],
   ./common
 
@@ -35,6 +36,7 @@ proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   )
   # The "none" strategy keeps tests off real UPnP/NAT-PMP gateway discovery.
   builder.withNatStrategy("none")
+  builder.withLocalStoragePath(InMemoryStoragePath)
   builder.withMaxConnections(150)
   builder.withRelayServiceRatio("50:50")
   builder.withMaxMessageSize("1024 KiB")

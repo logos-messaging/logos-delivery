@@ -23,6 +23,7 @@ type MessagingClientConf* = object
   quicSupport* {.name: "quic-support".}: Opt[bool] ## Enable the QUIC transport.
   quicPort* {.name: "quic-port".}: Opt[Port] ## QUIC (UDP) listening port.
   listenIpv4* {.name: "listen-address".}: Opt[IpAddress] ## Inbound bind address.
+  nat* {.name: "nat".}: Opt[string] ## Public address discovery strategy.
   maxMessageSize* {.name: "max-msg-size".}: Opt[string]
     ## Maximum accepted message size (e.g. "150 KiB").
   entryNodes* {.name: "entry-node".}: Opt[seq[string]]
@@ -64,6 +65,10 @@ type MessagingClientConf* = object
     ## Settable only programmatically: as a nested object with no `{.name.}`
     ## pragma or `parseCmdArg`, it is not reachable from the JSON config or a
     ## CLI flag.
+  backfillEnabled* {.name: "backfill-enabled".}: Opt[bool]
+    ## Store catch-up of missed messages after a start (default true).
+  backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:
+    Opt[int64] ## Timeout of one Store query, in seconds (default 10, 1 .. 300).
 
 proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[void] =
   ## Sets the protocol flags implied by the mode.
@@ -96,9 +101,6 @@ proc toWakuNodeConf*(
   # Derived from a `MessagingClientConf`, so never kernel-only: don't inherit the
   # CLI default. `LogosDeliveryConf.init` overwrites this with the caller's layer.
   conf.entryLayer = EntryLayer.channels
-  # The CLI defaults to "any"; the embedded default stays "none" so library
-  # nodes probe gateways only when configured to.
-  conf.nat = "none"
 
   if self.store.isSome():
     conf.store = self.store.get()
@@ -119,6 +121,8 @@ proc toWakuNodeConf*(
     conf.numShardsInNetwork = self.numShardsInCluster.get()
   if self.listenIpv4.isSome():
     conf.listenAddress = self.listenIpv4.get()
+  if self.nat.isSome():
+    conf.nat = self.nat.get()
   if self.maxMessageSize.isSome():
     conf.maxMessageSize = self.maxMessageSize.get()
   if self.entryNodes.isSome():

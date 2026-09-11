@@ -5,7 +5,7 @@ from std/times import epochTime
 import chronos, testutils/unittests, stew/byteutils
 import brokers/broker_context
 
-import ../testlib/[common, wakucore, wakunode, testasync]
+import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 
 import logos_delivery
 import logos_delivery/waku/[waku_node, waku_core]
@@ -28,16 +28,7 @@ import snapshot_codec
 const TestTimeout = chronos.seconds(15)
 
 proc createApiNodeConf(): WakuNodeConf =
-  var conf = MessagingClientConf()
-    .toWakuNodeConf(messaging_conf.LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = 1
-  conf.rest = false
-  return conf
+  defaultTestWakuNodeConf()
 
 proc oneSegment(payload: seq[byte]): seq[byte] =
   ## The wire unit a peer actually sends: one encoded `SegmentMessage`. Every

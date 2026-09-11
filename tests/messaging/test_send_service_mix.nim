@@ -1,6 +1,5 @@
 {.used.}
 
-import std/net
 import chronos, chronicles, testutils/unittests, results, stew/byteutils
 
 import
@@ -15,12 +14,11 @@ import
   logos_delivery/waku/waku_lightpush/common,
   logos_delivery/waku/waku_core,
   logos_delivery/api/types,
-  logos_delivery/api/conf/messaging_conf,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
     [send_service, send_processor, mix_processor, delivery_task]
-import ../testlib/[testasync, wakucore]
+import ../testlib/[testasync, wakucore, wakunodeconf]
 
 ## Tests for the anonymity levels of the send path. The mix processor keeps the
 ## task for the mix window. Only a `Preferred` chain gives the task to the relay
@@ -39,16 +37,7 @@ method sendImpl(self: PlainSendProcessor, task: DeliveryTask): Future[void] {.as
   task.firstPropagatedTime = Opt.some(Moment.now())
 
 proc testConf(): WakuConf =
-  var conf = MessagingClientConf()
-    .toWakuNodeConf(messaging_conf.LogosDeliveryMode.Core).valueOr:
-      raiseAssert error
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = 1
-  conf.rest = false
-  return conf.toWakuConf().valueOr:
+  defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
 suite "SendService - anonymity level":
