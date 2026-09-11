@@ -18,9 +18,8 @@ It currently consists of four jobs:
 
 The main configuration file is [`Jenkinsfile.release`](../../ci/Jenkinsfile.release) in the `ci` folder.
 
-Key part is the definition of five `parameters`:
+Key part is the definition of four `parameters`:
 
-* `MAKE_TARGET` - Which `Makefile` target is built.
 * `IMAGE_TAG` - Tag of the Docker image to push.
 * `IMAGE_NAME` - Name of the Docker image to push.
 * `NIMFLAGS` - Nim compilation parameters.
