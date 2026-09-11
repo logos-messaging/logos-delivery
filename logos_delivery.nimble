@@ -18,7 +18,10 @@ const RequiredNimblePin = "0.26.0"
 
 ### Dependencies
 requires "nim == 2.2.6",
-  "chronos >= 4.4.0 & < 4.5.0",
+  # 4.4.0 plus the shutdown API that nim-ffi and nim-brokers use. No release
+  # tag has it: v4.4.1 was cut before it. A URL pin does not hold here, the
+  # solver keeps the name node on the newest tag.
+  "chronos#0de7b335d0ad5557ad5ba71a4b7662f7b201750e",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -29,7 +32,7 @@ requires "nim == 2.2.6",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.3.5",
+  "libp2p == 2.4.0",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -38,7 +41,8 @@ requires "nim == 2.2.6",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "https://github.com/status-im/nim-websock#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
+  # v0.4.1: libp2p 2.4.0 requires websock >= 0.4.1 and locks this version.
+  "https://github.com/status-im/nim-websock#0432dc445c500b20963ef4b76e585c1a3943c254",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "https://github.com/status-im/nim-secp256k1#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",

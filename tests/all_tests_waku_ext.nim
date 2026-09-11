@@ -34,6 +34,7 @@ import
   ./test_waku_dnsdisc,
   ./waku_discv5/test_waku_discv5,
   ./waku_kademlia/test_waku_kademlia,
+  ./waku_kademlia/test_node_advertising,
   ./waku_discovery/test_external_service_discovery,
   ./waku_discovery/test_self_advertisement,
   ./waku_discovery/test_signed_service_record
