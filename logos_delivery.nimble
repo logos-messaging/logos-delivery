@@ -32,7 +32,7 @@ requires "nim == 2.2.6",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.3.1",
+  # libp2p is a URL requirement below: 2.4.0 has no release tag yet.
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -41,7 +41,9 @@ requires "nim == 2.2.6",
   "dnsdisc",
   "dnsclient",
   "httputils >= 0.4.1",
-  "https://github.com/status-im/nim-websock#387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d",
+  # v0.4.1: libp2p 2.4.0 requires websock >= 0.4.1. v0.4.2 requires
+  # chronos >= 4.4.0 (chronos is pinned < 4.4.0), so 0.4.1 exactly.
+  "https://github.com/status-im/nim-websock#0432dc445c500b20963ef4b76e585c1a3943c254",
   # Cryptography
   "nimcrypto == 0.6.4", # 0.6.4 used in libp2p. Version 0.7.3 makes test to crash on Ubuntu.
   "https://github.com/status-im/nim-secp256k1#d8f1288b7c72f00be5fc2c5ea72bf5cae1eafb15",
@@ -69,6 +71,11 @@ requires "nim == 2.2.6",
 # URL requirements described above.
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
+
+# v2.4.0: head of https://github.com/vacp2p/nim-libp2p/tree/release/v2.4
+# ("chore: bump version to 2.4.0"). No v2.4.0 tag exists at pinning time;
+# once it does, this can become `"libp2p == 2.4.0"` in the list above.
+requires "https://github.com/vacp2p/nim-libp2p#73c3637bb7ebb6f749d74b676e9a0e461b9f30d5"
 
 # v0.3.1-rc.0: https://github.com/logos-messaging/nim-ffi/releases/tag/v0.3.1-rc.0
 requires "https://github.com/logos-messaging/nim-ffi#07ee8e1d6500762bab290465457a8d23559de546"
