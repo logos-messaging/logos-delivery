@@ -896,7 +896,7 @@ class TestSendBeforeRelay(StepsStore):
             all_request_ids.extend(phase1_ids)
 
             for peer in churn_peers:
-                peer.restart()
+                peer.restart(wait_for_node_sec=None)
             delay(1)  # small window so the restart is actually in-flight
             phase2_ids = self._s31_fire_burst(sender_node, phase_label="phase2")
             all_request_ids.extend(phase2_ids)

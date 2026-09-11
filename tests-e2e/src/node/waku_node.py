@@ -314,10 +314,12 @@ class WakuNode:
             self._container = None
             logger.debug("Container killed.")
 
-    def restart(self):
+    def restart(self, wait_for_node_sec=20):
         if self._container:
             logger.debug(f"Restarting container with id {self._container.short_id}")
             self._container.restart()
+            if wait_for_node_sec:
+                self.ensure_ready(timeout_duration=wait_for_node_sec, rln_required=self._rln_creds_set)
 
     def pause(self):
         if self._container:

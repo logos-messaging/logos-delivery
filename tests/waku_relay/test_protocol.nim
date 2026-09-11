@@ -17,21 +17,9 @@ import
     waku_core,
     waku_core/message/codec,
   ],
-  ../testlib/[wakucore, testasync, futures, sequtils],
+  ../testlib/[wakucore, wakunode, testasync, futures, sequtils],
   ./utils,
   ../resources/payloads
-
-proc hasMeshPeer(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
-  for p in relay.mesh.getOrDefault(topic):
-    if p.peerId == peer:
-      return true
-  false
-
-proc hasGossipsubPeer(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
-  for p in relay.gossipsub.getOrDefault(topic):
-    if p.peerId == peer:
-      return true
-  false
 
 suite "Waku Relay":
   var messageSeq {.threadvar.}: seq[(PubsubTopic, WakuMessage)]

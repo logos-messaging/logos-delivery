@@ -32,6 +32,18 @@ class StepsLightPush(StepsCommon):
         self.optional_nodes = []
         self.multiaddr_list = []
 
+    @pytest.fixture(scope="function")
+    def setup_main_lightpush_nodes(self):
+        logger.debug(f"Running fixture setup: {inspect.currentframe().f_code.co_name}")
+        self.setup_first_receiving_node()
+        self.setup_second_receiving_node(lightpush="false", relay="true")
+        self.setup_first_lightpush_node()
+
+    @pytest.fixture(scope="function")
+    def subscribe_main_lightpush_nodes(self):
+        logger.debug(f"Running fixture setup: {inspect.currentframe().f_code.co_name}")
+        self.subscribe_to_pubsub_topics_via_relay()
+
     @allure.step
     def start_receiving_node(self, image, node_index, **kwargs):
         node = WakuNode(image, f"receiving_node{node_index}_{self.test_id}")
@@ -148,8 +160,6 @@ class StepsLightPush(StepsCommon):
 
     @allure.step
     @retry(stop=stop_after_delay(120), wait=wait_fixed(1), reraise=True)
-    def subscribe_and_light_push_with_retry(self):
+    def subscribe_and_light_push_with_retry(self, sender=None):
         self.subscribe_to_pubsub_topics_via_relay()
-        self.light_push_node1.send_light_push_message(self.create_payload())
-        get_messages_response = self.main_receiving_nodes[0].get_relay_messages(self.test_pubsub_topic)
-        assert len(get_messages_response) >= 1, f"Expected al least 1 message but got {len(get_messages_response)}"
+        self.check_light_pushed_message_reaches_receiving_peer(sender=sender)
