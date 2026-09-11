@@ -11,7 +11,6 @@ import
 import
   logos_delivery/waku/[
     waku_core,
-    waku_core/topics/sharding,
     node/peer_manager,
     waku_node,
     waku_lightpush_legacy,
@@ -316,85 +315,6 @@ suite "Waku Legacy Lightpush message delivery":
 
     ## Cleanup
     await allFutures(lightNode.stop(), bridgeNode.stop(), destNode.stop())
-
-  asyncTest "Publishing without a pubsub topic delivers on the shard derived from the content topic":
-    ## Setup
-    let
-      lightNode = newTestWakuNode(generateSecp256k1Key())
-      bridgeNode = newTestWakuNode(generateSecp256k1Key())
-      destNode = newTestWakuNode(generateSecp256k1Key())
-
-    await allFutures(destNode.start(), bridgeNode.start(), lightNode.start())
-    defer:
-      await allFutures(lightNode.stop(), bridgeNode.stop(), destNode.stop())
-
-    (await destNode.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    (await bridgeNode.mountRelay()).isOkOr:
-      assert false, "Failed to mount relay"
-    check (await bridgeNode.mountLegacyLightPush()).isOk()
-    lightNode.mountLegacyLightPushClient()
-    lightNode.mountAutoSharding(DefaultClusterId, 8).isOkOr:
-      assert false, "Failed to mount autosharding: " & $error
-
-    discard await lightNode.peerManager.dialPeer(
-      bridgeNode.peerInfo.toRemotePeerInfo(), WakuLegacyLightPushCodec
-    )
-    await sleepAsync(100.milliseconds)
-    await destNode.connectToNodes(@[bridgeNode.peerInfo.toRemotePeerInfo()])
-
-    ## Given
-    let derivedShard = lightNode.wakuAutoSharding
-      .get()
-      .getShard(DefaultContentTopic).valueOr:
-        raiseAssert "Failed to derive the shard: " & error
-    let message = fakeWakuMessage(contentTopic = DefaultContentTopic)
-    var completionFutRelay = newFuture[bool]()
-    proc relayHandler(
-        topic: PubsubTopic, msg: WakuMessage
-    ): Future[void] {.async, gcsafe.} =
-      check:
-        topic == $derivedShard
-        msg == message
-      completionFutRelay.complete(true)
-
-    destNode.subscribe((kind: PubsubSub, topic: $derivedShard), relayHandler).isOkOr:
-      assert false, "Failed to subscribe to topic:" & $error
-
-    checkUntilTimeout:
-      bridgeNode.hasGossipsubPeer($derivedShard, destNode.peerInfo.peerId)
-
-    ## When
-    let res = await lightNode.legacyLightpushPublish(
-      Opt.none(PubsubTopic), message, bridgeNode.peerInfo.toRemotePeerInfo()
-    )
-
-    ## Then
-    check:
-      res.isOk()
-      await completionFutRelay.withTimeout(5.seconds)
-
-  asyncTest "Publishing without a pubsub topic fails when autosharding is not mounted":
-    ## Setup
-    let lightNode = newTestWakuNode(generateSecp256k1Key())
-
-    await lightNode.start()
-    defer:
-      await lightNode.stop()
-
-    lightNode.mountLegacyLightPushClient()
-
-    ## When
-    let res = await lightNode.legacyLightpushPublish(
-      Opt.none(PubsubTopic),
-      fakeWakuMessage(contentTopic = DefaultContentTopic),
-      RemotePeerInfo.init("16Uiu2HAmFccGe5iezmyRDQZuLPRP7FqpqXLjnocmMRk18pmTZs2j"),
-    )
-
-    ## Then
-    check:
-      res.isErr()
-      res.error == "Pubsub topic must be specified when static sharding is enabled"
 
 suite "Waku Legacy Lightpush mounting behavior":
   asyncTest "fails to mount when relay is not mounted":

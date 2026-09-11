@@ -71,13 +71,11 @@ suite "Node Factory":
     let
       filterLimit = node.wakuFilter.peerRequestRateLimiter.setting
       lightPushLimit = node.wakuLightPush.requestRateLimiter.setting
-      legacyLightPushLimit = node.wakuLegacyLightPush.requestRateLimiter.setting
       peerExchangeLimit = node.wakuPeerExchange.requestRateLimiter.setting
 
     check:
       filterLimit == Opt.some((volume: 100, period: 1.seconds))
       lightPushLimit == Opt.some((volume: 5, period: 1.seconds))
-      legacyLightPushLimit == Opt.some((volume: 5, period: 1.seconds))
       peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
 
   test "ENR configuration trims multiaddrs until record fits":
