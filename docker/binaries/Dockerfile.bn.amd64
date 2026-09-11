@@ -14,7 +14,7 @@ RUN apt-get update &&\
     apt-get install -y libpq-dev curl iproute2 wget dnsutils &&\
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-ADD ./build/logosdeliverynode /usr/local/bin/
+ADD ./build/logosdeliverynode ./build/rlnkeystore /usr/local/bin/
 
 # Copy migration scripts for DB upgrades
 ADD ./migrations/ /app/migrations/

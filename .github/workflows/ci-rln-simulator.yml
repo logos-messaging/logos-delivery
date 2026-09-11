@@ -131,6 +131,7 @@ jobs:
           make -j${NPROC} V=1 POSTGRES=1 \
             NIMFLAGS="-d:chronicles_colors:none" \
             logosdeliverynode
+          make -j${NPROC} V=1 NIMFLAGS="-d:chronicles_colors:none" rlnkeystore
 
       - name: Audit installed deps
         run: make audit-deps

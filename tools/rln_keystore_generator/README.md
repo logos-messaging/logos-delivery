@@ -2,11 +2,17 @@
 
 Generates an RLN keystore by registering a membership with the RLN smart contract.
 
-It is exposed as the `generateRlnKeystore` subcommand of the node binary:
+It is built as the `rlnkeystore` tool:
 
 ```bash
-make logosdeliverynode
-./build/logosdeliverynode generateRlnKeystore --help
+make rlnkeystore
+./build/rlnkeystore --help
+```
+
+Node images ship it too:
+
+```bash
+docker run --entrypoint rlnkeystore <node-image> --help
 ```
 
 Run it without `--execute` for a dry run: the credential is printed and no

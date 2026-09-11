@@ -64,6 +64,7 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         run: |
           make -j${NPROC} V=1 DEBUG=0 POSTGRES=1 logosdeliverynode
+          make -j${NPROC} V=1 DEBUG=0 rlnkeystore
 
       - name: Audit installed deps
         if: ${{ steps.secrets.outcome == 'success' }}

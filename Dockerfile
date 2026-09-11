@@ -40,8 +40,9 @@ RUN if [ "$HEAPTRACK_BUILD" = "1" ]; then \
       git -C "$NIM_ROOT" apply /app/docs/tutorial/nim.2.2.4_heaptracker_addon.patch; \
     fi
 
-# Build the final node binary
+# Build the node and rlnkeystore binaries
 RUN make -j$(nproc) ${NIM_COMMIT} logosdeliverynode NIMFLAGS="${NIMFLAGS}" POSTGRES=${POSTGRES} DEBUG=${DEBUG} LOG_LEVEL=${LOG_LEVEL} HEAPTRACKER=${HEAPTRACK_BUILD}
+RUN make -j$(nproc) ${NIM_COMMIT} rlnkeystore NIMFLAGS="${NIMFLAGS}" DEBUG=${DEBUG} LOG_LEVEL=${LOG_LEVEL}
 
 
 # PRODUCTION IMAGE -------------------------------------------------------------
@@ -62,7 +63,7 @@ EXPOSE 30303 60000 8545
 # DT_NEEDED on libgomp.so.1 even when parity is switched off at runtime.
 RUN apk add --no-cache libgcc libpq-dev bind-tools libstdc++ libgomp
 
-COPY --from=nim-build /app/build/logosdeliverynode /usr/local/bin/
+COPY --from=nim-build /app/build/logosdeliverynode /app/build/rlnkeystore /usr/local/bin/
 
 # Copy migration scripts for DB upgrades
 COPY --from=nim-build /app/migrations/ /app/migrations/

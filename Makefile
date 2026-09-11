@@ -375,9 +375,9 @@ compile-test: | build-deps build deps librln
 ################
 ## Waku tools ##
 ################
-.PHONY: tools wakucanary networkmonitor
+.PHONY: tools wakucanary networkmonitor rlnkeystore
 
-tools: networkmonitor wakucanary
+tools: networkmonitor wakucanary rlnkeystore
 
 wakucanary: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -386,6 +386,10 @@ wakucanary: | build-deps build deps librln
 networkmonitor: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) networkmonitor $(NIMBLE_TASK_FLAGS)
+
+rlnkeystore: | build-deps build deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(NIMBLE) rlnkeystore $(NIMBLE_TASK_FLAGS)
 
 ############
 ## Format ##
@@ -459,7 +463,7 @@ docker-image:
 docker-quick-image: DOCKER_IMAGE_TAG ?= logosdeliverynode-$(GIT_VERSION)
 docker-quick-image: DOCKER_IMAGE_NAME ?= wakuorg/nwaku:$(DOCKER_IMAGE_TAG)
 docker-quick-image: NIM_PARAMS := $(NIM_PARAMS) -d:chronicles_colors:none -d:insecure -d:postgres --passL:$(LIBRLN_FILE) --passL:-lm
-docker-quick-image: | build librln logosdeliverynode
+docker-quick-image: | build librln logosdeliverynode rlnkeystore
 	docker build \
 		--tag $(DOCKER_IMAGE_NAME) \
 		--target $(TARGET) \
