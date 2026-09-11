@@ -15,8 +15,7 @@ import
   logos_delivery/waku/rest_api/endpoint/client,
   logos_delivery/waku/common/base64
 import tools/confutils/cli_args
-import logos_delivery/waku/persistency/persistency
-import ../testlib/[wakucore, testasync]
+import ../testlib/[wakucore, testasync, wakunodeconf]
 
 ## Integration test for the messaging REST endpoints and their event cache.
 ##
@@ -28,23 +27,7 @@ import ../testlib/[wakucore, testasync]
 ## network delivery.
 
 proc restNodeConf(): WakuNodeConf =
-  var conf = defaultWakuNodeConf().valueOr:
-    raiseAssert error
-  conf.entryLayer = EntryLayer.messaging
-  conf.mode = LogosDeliveryMode.Core
-  conf.listenAddress = parseIpAddress("0.0.0.0")
-  conf.tcpPort = Port(0)
-  conf.discv5UdpPort = Port(0)
-  # The CLI default is "any"; keep test nodes off real gateway discovery.
-  conf.nat = "none"
-  conf.clusterId = Opt.some(3'u16)
-  conf.numShardsInNetwork = 1
-  # This suite does not test persistence. Keep the node off the shared ./data root.
-  conf.localStoragePath = InMemoryStoragePath
-  conf.rest = true
-  conf.restAddress = parseIpAddress("127.0.0.1")
-  conf.restPort = 0'u16 # bind to an ephemeral port
-  return conf
+  defaultTestWakuNodeConf(entryLayer = EntryLayer.messaging, rest = true)
 
 proc restClientFor(node: LogosDelivery): RestClientRef =
   let boundPort = node.waku.restServer.httpServer.address.port

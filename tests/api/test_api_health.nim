@@ -3,8 +3,7 @@
 import results, std/[sequtils, times]
 import chronos, testutils/unittests, stew/byteutils, libp2p/[switch, peerinfo]
 import brokers/broker_context
-import logos_delivery/waku/persistency/persistency
-import ../testlib/[common, wakucore, wakunode, testasync]
+import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 
 import
   logos_delivery,
@@ -83,7 +82,7 @@ suite "LM API health checking":
       serviceNode = newTestWakuNode(generateSecp256k1Key())
       (await serviceNode.mountRelay()).isOkOr:
         raiseAssert error
-      serviceNode.mountMetadata(3, @[0'u16]).isOkOr:
+      serviceNode.mountMetadata(TestClusterId, @[0'u16]).isOkOr:
         raiseAssert error
       await serviceNode.mountLibp2pPing()
       await serviceNode.start()
@@ -92,18 +91,7 @@ suite "LM API health checking":
     serviceNode.wakuRelay.subscribe(DefaultShard, dummyHandler)
 
     lockNewGlobalBrokerContext:
-      var conf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
-          raiseAssert error
-      conf.listenAddress = parseIpAddress("0.0.0.0")
-      conf.tcpPort = Port(0)
-      conf.discv5UdpPort = Port(0)
-      conf.clusterId = Opt.some(3'u16)
-      conf.numShardsInNetwork = 1
-      conf.rest = false
-      # This suite does not test persistence. Keep the node off the shared ./data root.
-      conf.localStoragePath = InMemoryStoragePath
-
-      client = (await LogosDelivery.new(conf)).valueOr:
+      client = (await LogosDelivery.new(defaultTestWakuNodeConf())).valueOr:
         raiseAssert error
       (await client.start()).isOkOr:
         raiseAssert error
@@ -274,15 +262,8 @@ suite "LM API health checking":
     var edgeWaku: LogosDelivery
 
     lockNewGlobalBrokerContext:
-      var edgeConf = MessagingClientConf().toWakuNodeConf(Edge).valueOr:
-          raiseAssert error
-      edgeConf.listenAddress = parseIpAddress("0.0.0.0")
-      edgeConf.tcpPort = Port(0)
-      edgeConf.discv5UdpPort = Port(0)
-      edgeConf.clusterId = Opt.some(3'u16)
+      var edgeConf = defaultTestWakuNodeConf(mode = Edge)
       edgeConf.maxMessageSize = "150 KiB"
-      edgeConf.rest = false
-      edgeConf.localStoragePath = InMemoryStoragePath
 
       edgeWaku = (await LogosDelivery.new(edgeConf)).valueOr:
         raiseAssert "Failed to create edge node: " & error

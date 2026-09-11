@@ -1,21 +1,16 @@
 {.used.}
 
-import results, std/net
+import results
 
 import chronos, testutils/unittests
 
 import logos_delivery
-import tools/confutils/cli_args
-import logos_delivery/waku/factory/networks_config
-import logos_delivery/waku/factory/conf_builder/conf_builder
+import ./testlib/wakunodeconf
 
 suite "LogosDelivery API - Create node":
   asyncTest "Create node with minimal configuration":
     ## Given
-    var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
-        raiseAssert "toWakuNodeConf failed: " & error
-    nodeConf.clusterId = Opt.some(3'u16)
-    nodeConf.rest = false
+    let nodeConf = defaultTestWakuNodeConf()
 
     # This is the actual minimal config but as the node auto-start, it is not suitable for tests
 
@@ -31,10 +26,8 @@ suite "LogosDelivery API - Create node":
 
   asyncTest "Create node with full configuration":
     ## Given
-    var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
-        raiseAssert "toWakuNodeConf failed: " & error
+    var nodeConf = defaultTestWakuNodeConf()
     nodeConf.clusterId = Opt.some(99'u16)
-    nodeConf.rest = false
     nodeConf.numShardsInNetwork = 16
     nodeConf.maxMessageSize = "1024 KiB"
     nodeConf.entryNodes = @[
@@ -62,10 +55,8 @@ suite "LogosDelivery API - Create node":
 
   asyncTest "Create node with mixed entry nodes (enrtree, multiaddr)":
     ## Given
-    var nodeConf = MessagingClientConf().toWakuNodeConf(Core).valueOr:
-        raiseAssert "toWakuNodeConf failed: " & error
+    var nodeConf = defaultTestWakuNodeConf()
     nodeConf.clusterId = Opt.some(42'u16)
-    nodeConf.rest = false
     nodeConf.entryNodes = @[
       "enrtree://AIRVQ5DDA4FFWLRBCHJWUWOO6X6S4ZTZ5B667LQ6AJU6PEYDLRD5O@sandbox.waku.nodes.status.im",
       "/ip4/127.0.0.1/tcp/60000/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc",
