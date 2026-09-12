@@ -72,11 +72,7 @@ proc setupAndSubscribe(rng: crypto.Rng) {.async.} =
 
   # assumes behind a firewall, so not care about being discoverable
   let wakuDiscv5 = WakuDiscoveryV5.new(
-    node.rng,
-    discv5Conf,
-    Opt.some(node.enr),
-    Opt.some(node.peerManager),
-    node.topicSubscriptionQueue,
+    node.rng, discv5Conf, Opt.some(node.enr), Opt.some(node.peerManager)
   )
 
   await node.start()
