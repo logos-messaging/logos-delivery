@@ -62,6 +62,7 @@ import
     api/events/peer_events,
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
+  logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./peer_manager,
@@ -147,6 +148,9 @@ type
     subscriptionManager*: SubscriptionManager
     wakuMix*: WakuMix
     wakuKademlia*: WakuKademlia
+    discoveries*: seq[IPeerDiscovery]
+      ## Attached IPeerDiscovery backends; started after the node is up,
+      ## stopped on node teardown.
     ports*: BoundPorts
     relayReconnectFut*: Future[void]
 
@@ -402,6 +406,11 @@ proc mountKademlia*(
 
   return ok()
 
+proc attachDiscovery*(node: WakuNode, discovery: IPeerDiscovery) =
+  ## Attach an IPeerDiscovery backend: started after the node is up
+  ## (node.start or explicitly by the owner), stopped in node.stop.
+  node.discoveries.add(discovery)
+
 ## Waku Sync
 
 proc mountStoreSync*(
@@ -651,8 +660,9 @@ proc start*(node: WakuNode) {.async.} =
 
   node.started = true
 
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.start()
+  for discovery in node.discoveries:
+    (await discovery.startDiscovery()).isOkOr:
+      error "failed to start discovery backend", error = error
 
   if not node.wakuFilterClient.isNil():
     node.wakuFilterClient.registerPushHandler(
@@ -678,8 +688,9 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.stopProvidersAndListeners()
 
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.stop()
+  for discovery in node.discoveries:
+    (await discovery.stopDiscovery()).isOkOr:
+      error "failed to stop discovery backend", error = error
 
   ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()
