@@ -13,6 +13,18 @@ env:
 
 jobs:
   build:
+    # One job per artifact: built back to back they made this the slowest job in ci.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: logosdeliverynode
+            make: make logosdeliverynode POSTGRES=1 V=3 -j$NPROC
+            output: build/logosdeliverynode.exe
+          - target: liblogosdelivery
+            make: make liblogosdelivery STATIC=0 V=1 -j
+            output: build/liblogosdelivery.dll
+    name: build-${{ matrix.target }}
     runs-on: windows-latest
 
     defaults:
@@ -100,15 +112,10 @@ jobs:
     - name: Creating tmp directory
       run: mkdir -p tmp
 
-    - name: Building logosdeliverynode.exe
+    - name: Building ${{ matrix.target }}
       run: |
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        make logosdeliverynode POSTGRES=1 V=3 -j${{ env.NPROC }}
-
-    - name: Building liblogosdelivery.dll
-      run: |
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        make liblogosdelivery STATIC=0 V=1 -j
+        ${{ matrix.make }}
 
     - name: Audit installed deps
       run: |
@@ -117,15 +124,9 @@ jobs:
 
     - name: Check Executable
       run: |
-        if [ -f "./build/logosdeliverynode.exe" ]; then
-          echo "logosdeliverynode.exe build successful"
+        if [ -f "./${{ matrix.output }}" ]; then
+          echo "${{ matrix.output }} build successful"
         else
-          echo "Build failed: logosdeliverynode.exe not found"
-          exit 1
-        fi
-        if [ -f "./build/liblogosdelivery.dll" ]; then
-          echo "liblogosdelivery.dll build successful"
-        else
-          echo "Build failed: liblogosdelivery.dll not found"
+          echo "Build failed: ${{ matrix.output }} not found"
           exit 1
         fi
