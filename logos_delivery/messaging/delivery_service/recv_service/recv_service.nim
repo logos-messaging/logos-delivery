@@ -14,7 +14,8 @@ import
   logos_delivery/waku/api/[store, subscriptions]
 import
   logos_delivery/api/events/kernel_events,
-  logos_delivery/api/events/messaging_client_events # MessageReceivedEvent
+  logos_delivery/api/events/messaging_client_events, # MessageReceivedEvent
+  logos_delivery/messaging/messaging_metrics
 
 const MaxMessageLife = chronos.minutes(7) ## Max time we will keep track of rx messages
 
@@ -127,6 +128,7 @@ proc processIncomingMessage(
   # Local receipt time: a message recovered from Store stays known for the
   # full period whatever its own timestamp.
   self.recentReceivedMsgs[msgHash] = getNowInNanosecondTime()
+  recordReceived(source, message.payload.len)
   info "Message received",
     msg_hash = msgHash.to0xHex(),
     contentTopic = message.contentTopic,

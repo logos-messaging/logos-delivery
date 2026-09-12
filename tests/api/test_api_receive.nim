@@ -1,12 +1,13 @@
 {.used.}
 
 import results, std/[sequtils, net, sets, os, osproc, tempfiles, strutils]
-import chronos, testutils/unittests, stew/byteutils
+import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 import ../waku_archive/archive_utils
 import logos_delivery/messaging/messaging_client
+import logos_delivery/messaging/messaging_metrics
 import logos_delivery/messaging/messaging_client_lifecycle
 import logos_delivery/messaging/delivery_service/recv_service
 import logos_delivery/messaging/delivery_service/recv_service/backfill
@@ -633,6 +634,9 @@ suite "Messaging API, Receive Service (store recovery)":
   asyncTest "recv_service recovers a missed message through a known Store peer":
     # Phase 1: the startup catch-up dials the known Store peer.
     block:
+      let history = $MessageSource.History
+      let countBefore = logos_delivery_recv_messages_total.value([history])
+      let bytesBefore = logos_delivery_recv_message_bytes_total.value([history])
       let net = await setupNetwork(ContentTopic("/waku/2/recv-test/proto"))
       defer:
         await net.teardown()
@@ -642,6 +646,9 @@ suite "Messaging API, Receive Service (store recovery)":
       if eventManager.receivedMessages.len > 0:
         check eventManager.receivedMessages[0].payload == net.missedPayload
         check eventManager.receivedSources[0] == MessageSource.History
+      check logos_delivery_recv_messages_total.value([history]) == countBefore + 1
+      check logos_delivery_recv_message_bytes_total.value([history]) ==
+        bytesBefore + float64(net.missedPayload.len)
 
     # Phase 2: a Store peer learned after the subscription, by connecting to
     # it, is asked as soon as the connection is reported.
