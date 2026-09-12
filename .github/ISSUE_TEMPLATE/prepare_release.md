@@ -28,33 +28,22 @@ Add appropriate release number to title
 
 #### Validate the release candidate
 
-  - [ ] 1. Essential test
+  - [ ] 1. Essential
     - [ ] Ensure all unit tests are green
     - [ ] Get interop tests results from QA
 
-  - [ ] 2. Fleet validation (pre-requisite: 1. Can be done in parallel with 3.)
-    - [ ] Deploy the release candidate to the waku.test fleet.
-      - Start the deployment job in [Jenkins](https://ci.infra.status.im/) and wait for it to finish (Jenkins access required; ask the infra team if you don't have it).
-      - Confirm the container image exists on [Harbor](https://harbor.status.im/harbor/projects/32/repositories/logos-node/artifacts-tab).
-      - After completion, disable the fleet so that daily CI does not override your release candidate.
-      - Verify at https://fleets.logos.co/ that the fleet is locked to the release candidate image.
-    
-    - [ ] Ask QA to run tests against waku.test and attach a screenshot as evidence.
-    - [ ] Re-enable the waku.test fleet to resume auto-deployment of the latest master commit.
-    <!-- In the future, automate `waku.test` crash detection so `master` stays continuously green and we can cut a release easier. -->
-
-  - [ ] 3. DST sign-off (pre-requisite: 1)
+  - [ ] 2. DST sign-off (pre-requisite: 1)
     - [ ] Inform the DST team about the expectations for this release. For example, if we expect higher, same or lower bandwidth consumption, or a new protocol appears, etc.
     - [ ] Ask DST to add a comment approving this release and add a summary analysis report.
 
-  - [ ] 4. Status testing (pre-requisite: 1, 2, 3)
+  - [ ] 3. Status testing (pre-requisite: 1, 2)
     - [ ] Bump logos-delivery dependency in [logos-delivery-go-bindings](https://github.com/logos-messaging/logos-delivery-go-bindings) and make sure all tests work.
     - [ ] Submit a PR on [status-go](https://github.com/status-im/status-go/blob/1f9061064587e1167e32d965d5a6f2b745324d5e/tests-functional/docker-compose.waku.yml#L3) bumping logos-delivery to this release candidate.
     - [ ] Submit a PR on [status-app](https://github.com/status-im/status-app/blob/3639e28374ca3c2158ac2dac6af35dbce439b10a/docker-compose.waku.yml#L3) bumping logos-delivery to this release candidate.
     - [ ] Both PRs must be merged before the release is considered created.
     - [ ] Deploy the release candidate in status.staging. That may alert about needed infra changes.
 
-  - [ ] 5. Submit a PR against release/v0.X with CHANGELOG.md updates (pre-requisite: all previous.)
+  - [ ] 4. Submit a PR against release/v0.X with CHANGELOG.md updates (pre-requisite: all previous.)
 
 #### Complete the release
   - [ ] Assign a final release tag (`v0.X.0`) to the same commit that contains the latest release-candidate tag (e.g. `git tag -as v0.X.0 -m "final release."`).
@@ -66,14 +55,6 @@ Add appropriate release number to title
   - [ ] Adjust the status-go and status-app `docker-compose.waku.yml` files (the ones bumped above) so they use the final tag instead of the release candidate one.
 
 #### Deployment
-  - [ ] Deploy to waku.sandbox
-    - [ ] Confirm the release candidate ran properly in waku.test with the current infra config.
-      - [ ] If it did NOT (e.g. CLI params changed): submit PRs to the infra repos adjusting the deprecated or changed arguments (review CHANGELOG.md for that release), add links to them, and wait until they are merged. Infra changes are deployed by the infra team, so this requires coordination with them.
-      - [ ] If it ran fine with the current config, no infra PR is needed.
-    - [ ] Deploy:
-      - [ ] Coordinate with the Infra Team about the deployment timing.
-      - [ ] Update waku.sandbox with [this deployment job](https://ci.infra.status.im/job/nim-waku/job/deploy-waku-sandbox/).
-      - [ ] Confirm the fleet runs properly after the deployment.
   - [ ] Deploy to status.prod
     - [ ] Confirm the release candidate ran properly in status.staging with the current infra config.
       - [ ] If it did NOT (e.g. CLI params changed): submit PRs to the infra repos adjusting the deprecated or changed arguments (review CHANGELOG.md for that release), add links to them, and wait until they are merged. Infra changes are deployed by the infra team, so this requires coordination with them.
