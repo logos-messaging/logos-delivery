@@ -12,7 +12,7 @@ env:
   RELEASE_NAME: nightly
 
   NODE_BINARIES: "logosdeliverynode chat2"
-  TOOLS_BINARIES: "wakucanary networkmonitor"
+  TOOLS_BINARIES: "wakucanary networkmonitor rlnkeystore"
 
   NPROC: 2
   MAKEFLAGS: "-j${NPROC}"

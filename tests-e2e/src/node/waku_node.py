@@ -252,7 +252,13 @@ class WakuNode:
 
         if rln_creds_set:
             self._container = self._docker_manager.start_container(
-                self._docker_manager.image, self._ports, rln_args, self._log_path, self._ext_ip, self._volumes
+                self._docker_manager.image,
+                self._ports,
+                rln_args,
+                self._log_path,
+                self._ext_ip,
+                self._volumes,
+                entrypoint="/usr/local/bin/rlnkeystore" if self.is_nwaku() else None,
             )
 
             logger.debug(f"Executed container from image {self._image_name}. REST: {self._rest_port} to register RLN")
@@ -558,7 +564,6 @@ class WakuNode:
             if is_registration:
                 rln_args.update(
                     {
-                        "generateRlnKeystore": None,
                         "--execute": None,
                         "rln-relay-user-message-limit": default_args["rln-relay-user-message-limit-registration"],
                     }

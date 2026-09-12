@@ -363,6 +363,10 @@ task networkmonitor, "Build network monitor tool":
   let name = "networkmonitor"
   buildBinary name, "apps/networkmonitor/"
 
+task rlnkeystore, "Build the RLN keystore generator":
+  let name = "rlnkeystore"
+  buildBinary name, "apps/rlnkeystore/"
+
 task rln_db_inspector, "Build the rln db inspector":
   let name = "rln_db_inspector"
   buildBinary name, "tools/rln_db_inspector/"
