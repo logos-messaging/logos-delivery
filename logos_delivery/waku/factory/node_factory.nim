@@ -105,12 +105,18 @@ proc initNode(
     agentString = Opt.some(conf.agentString),
   )
   builder.withColocationLimit(conf.colocationLimit)
-  builder.withNatConfig(
-    natConfig(
-      conf.endpointConf.natStrategy,
-      conf.endpointConf.natDiscoveryTimeoutMs.int64.milliseconds,
-    )
+  let natConf = natConfig(
+    conf.endpointConf.natStrategy,
+    conf.endpointConf.natDiscoveryTimeoutMs.int64.milliseconds,
   )
+  if conf.endpointConf.extMultiAddrsOnly:
+    ## libp2p announces this list as is. Port mapping would target listed
+    ## ports that need not be bound, so leave it off.
+    if natConf.isSome():
+      info "Automatic NAT port mapping stays off under ext-multiaddr-only",
+        natStrategy = $conf.endpointConf.natStrategy
+  else:
+    builder.withNatConfig(natConf)
 
   if conf.maxRelayPeers.isSome():
     let

@@ -127,14 +127,13 @@ suite "NAT config - NATService pipeline":
     let switch =
       newTestSwitch(address = Opt.some(MultiAddress.init("/ip4/0.0.0.0/tcp/0").get()))
     switch.services.keepItIf(it of NATService)
-    ## The same shape as the production base mapper. It answers with
-    ## the resolved private addresses.
-    switch.peerInfo.addressMappers.insert(
+    ## Stand-in for the production base mapper: first in the AddressManager.
+    switch.addressManager.addMapper(
       proc(
           addrs: seq[MultiAddress]
       ): Future[seq[MultiAddress]] {.gcsafe, async: (raises: [CancelledError]).} =
         return privateBase,
-      0,
+      AddrSource.Listen,
     )
     let svc = NATService.new(
       natConfig(parseNatStrategy("pmp").get()).get(),
@@ -156,8 +155,28 @@ suite "NAT config - NATService pipeline":
     await switch.stop()
 
 suite "NAT config - switch composition":
-  test "the switch has no wildcard service and no build-time mappers":
-    let switch = newWakuSwitch(rng = rng(), circuitRelay = Relay.new())
+  asyncTest "a wildcard bind is expanded onto one primary address, with no build-time mappers":
+    ## Waku's provider replaces the upstream wildcard service, which announces every interface.
+    let switch = newWakuSwitch(
+      rng = rng(),
+      address = MultiAddress.init("/ip4/0.0.0.0/tcp/0").get(),
+      circuitRelay = Relay.new(),
+    )
     check:
       not switch.services.anyIt(it of WildcardAddressResolverService)
       switch.peerInfo.addressMappers.len == 0
+    await switch.start()
+    check:
+      switch.peerInfo.addrs.len == 1
+      "0.0.0.0" notin $switch.peerInfo.addrs[0]
+      "/tcp/0" notin $switch.peerInfo.addrs[0]
+    await switch.stop()
+
+  test "the primary interface provider answers one address per family, never a wildcard":
+    let v4 = primaryInterfaceProvider(AddressFamily.IPv4)
+    check:
+      v4.len == 1
+      $v4[0].host.toIpAddress() != "0.0.0.0"
+      ## One primary IPv6, or none on a host without an IPv6 route.
+      primaryInterfaceProvider(AddressFamily.IPv6).len <= 1
+      primaryInterfaceProvider(AddressFamily.Unix).len == 0

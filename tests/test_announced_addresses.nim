@@ -1,15 +1,17 @@
 {.used.}
 
-## libp2p commits the final announced addresses into peerInfo after
-## the address mappers run. These tests check that node.announcedAddresses
-## and the ENR multiaddrs field copy that committed set.
+## libp2p resolves peerInfo.addrs inside switch.start, before the mounted
+## protocols start. These tests check that result and its copies (ENR, API).
 
 import results
 import std/[net, sequtils, strutils]
 import testutils/unittests, chronos
 import libp2p/[multiaddress, switch, wire]
 import libp2p/crypto/crypto as libp2pcrypto
+import libp2p/protocols/protocol
+import libp2p/stream/connection
 import libp2p/services/natservice
+import chronos/transports/osnet
 import libp2p/services/nat/portmapper
 import eth/p2p/discoveryv5/protocol as discv5_protocol
 import ../logos_delivery/waku/discovery/waku_discv5
@@ -30,11 +32,6 @@ type RecordingMapper = ref object of PortMapper
   grantPort: Port
   mappedInternal: seq[Port]
 
-method discover(
-    self: RecordingMapper, timeout: Duration
-): Future[Result[IpAddress, string]] {.async: (raises: [CancelledError]), gcsafe.} =
-  return ok(self.grantIp)
-
 method map(
     self: RecordingMapper, internalPort: Port, externalPort: Port, proto: MapProto
 ): Future[Result[MappedPort, string]] {.async: (raises: [CancelledError]), gcsafe.} =
@@ -49,19 +46,41 @@ method unmap(
 method close(self: RecordingMapper) {.async: (raises: []), gcsafe.} =
   discard
 
-type EagerUpdate = ref object of Service
-  ## Runs a peerInfo update while the switch starts, before the node
-  ## resolves its announced addresses. The base mapper must drop port-0
-  ## entries during that update, or the NATService maps port 0.
+type UpdateBeforeBind = ref object of Service
+  ## Calls peerInfo.update() before the transports bind, as libp2p's AutonatService
+  ## does in production. The base mapper must drop port-0 entries in that update.
 
-method setup(self: EagerUpdate, switch: Switch) {.raises: [ServiceSetupError].} =
+method setup(self: UpdateBeforeBind, switch: Switch) {.raises: [ServiceSetupError].} =
   discard
 
-method start(self: EagerUpdate, switch: Switch) {.async: (raises: [CancelledError]).} =
+method start(
+    self: UpdateBeforeBind, switch: Switch
+) {.async: (raises: [CancelledError]).} =
   await switch.peerInfo.update()
 
-method stop(self: EagerUpdate, switch: Switch) {.async: (raises: [CancelledError]).} =
+method stop(
+    self: UpdateBeforeBind, switch: Switch
+) {.async: (raises: [CancelledError]).} =
   discard
+
+const PrivateInterfaceIp = static(parseIpAddress("192.168.9.9"))
+
+proc privateInterfaceProvider(
+    addrFamily: AddressFamily
+): seq[InterfaceAddress] {.gcsafe, raises: [].} =
+  ## A deterministic stand-in for the primary interface: a private IPv4.
+  if addrFamily != AddressFamily.IPv4:
+    return @[]
+  @[InterfaceAddress.init(initTAddress(PrivateInterfaceIp, Port(0)), 24)]
+
+type AddressProbe = ref object of LPProtocol
+  ## Records peerInfo.addrs when the switch starts the mounted protocols.
+  switch: Switch
+  addrsAtStart: seq[MultiAddress]
+
+method start(p: AddressProbe) {.async: (raises: [CancelledError]).} =
+  p.addrsAtStart = p.switch.peerInfo.addrs
+  p.started = true
 
 suite "Announced addresses":
   asyncTest "the resolved base reaches peerInfo and the API projection":
@@ -73,6 +92,28 @@ suite "Announced addresses":
       node.announcedAddresses == node.switch.peerInfo.addrs
       node.announcedAddresses.allIt("/tcp/0" notin $it and "/udp/0/" notin $it)
       node.announcedAddresses.allIt("0.0.0.0" notin $it)
+    await node.stop()
+
+  asyncTest "a wildcard bind is resolved in peerInfo.addrs before the mounted protocols start":
+    ## The helper rewrites 0.0.0.0 to loopback when quic is on, so quic is off.
+    let node = newTestWakuNode(
+      generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0), quicEnabled = false
+    )
+    let probe = AddressProbe(switch: node.switch)
+    probe.codec = "/waku/test/address-probe/1.0.0"
+    probe.handler = proc(
+        stream: Stream, proto: string
+    ) {.async: (raises: [CancelledError]).} =
+      discard
+    node.switch.mount(probe)
+
+    await node.start()
+    check:
+      probe.addrsAtStart.len > 0
+      probe.addrsAtStart.allIt("0.0.0.0" notin $it and "/tcp/0" notin $it)
+      ## Nothing after switch.start changed peerInfo.addrs.
+      probe.addrsAtStart == node.switch.peerInfo.addrs
+      probe.addrsAtStart == node.announcedAddresses
     await node.stop()
 
   asyncTest "a loopback bind stays loopback in the base":
@@ -153,9 +194,9 @@ suite "Announced addresses":
       extMultiAddrs = @[MultiAddress.init("/ip4/192.168.77.7/tcp/60111").get()],
     )
     let natSvc = NATService.new(upnpConfig(), rng(), portMapperFactory = factory)
-    ## The eager service updates before start resolves the announced addresses.
-    node.switch.services.add(Service(EagerUpdate()))
+    ## NAT first, then the update, as in Waku.new.
     node.switch.services.add(Service(natSvc))
+    node.switch.services.add(Service(UpdateBeforeBind()))
 
     await node.start()
     let mappersAfterFirstStart = node.switch.peerInfo.addressMappers.len
@@ -170,6 +211,90 @@ suite "Announced addresses":
       ## The new grant is announced. The mapper got the configured address.
       node.announcedAddresses.anyIt("203.0.113.77" in $it and "62002" in $it)
       recorders.allIt(Port(0) notin it.mappedInternal)
+    await node.stop()
+
+  asyncTest "NAT maps the port a wildcard bind actually bound":
+    ## The wildcard bind resolves onto the provider's interface before the NAT
+    ## mapper runs, so NAT maps the bound port and the granted address is announced.
+    var recorders: seq[RecordingMapper]
+    let grantIp = parseIpAddress("203.0.113.77")
+    let factory = proc(mode: PortMappingMode): Opt[PortMapper] {.gcsafe, raises: [].} =
+      let rec = RecordingMapper(grantIp: grantIp, grantPort: Port(62010))
+      {.gcsafe.}:
+        recorders.add(rec)
+      Opt.some(PortMapper(rec))
+
+    ## The helper rewrites 0.0.0.0 to loopback when quic is on, so quic is off.
+    let node = newTestWakuNode(
+      generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0), quicEnabled = false
+    )
+    node.switch.addressManager.networkInterfaceProvider = privateInterfaceProvider
+    node.switch.services.add(
+      Service(NATService.new(upnpConfig(), rng(), portMapperFactory = factory))
+    )
+
+    await node.start()
+    let bound = node.boundTcpPort()
+    check:
+      bound != Port(0)
+      recorders.len >= 1
+      recorders.allIt(it.mappedInternal.len >= 1)
+      recorders.allIt(it.mappedInternal.allIt(it == bound))
+      node.announcedAddresses.anyIt("203.0.113.77" in $it and "62010" in $it)
+    await node.stop()
+
+  asyncTest "a fixed port is mapped in both mapper runs and announced once":
+    ## Production binds a fixed port and AutonatService updates peerInfo during the
+    ## bind, so the mappers run twice. Both runs map the configured port, never 0.
+    var recorders: seq[RecordingMapper]
+    let grantIp = parseIpAddress("203.0.113.77")
+    let factory = proc(mode: PortMappingMode): Opt[PortMapper] {.gcsafe, raises: [].} =
+      let rec = RecordingMapper(grantIp: grantIp, grantPort: Port(62020))
+      {.gcsafe.}:
+        recorders.add(rec)
+      Opt.some(PortMapper(rec))
+
+    const FixedPort = Port(61020)
+    let node = newTestWakuNode(
+      generateSecp256k1Key(), parseIpAddress("0.0.0.0"), FixedPort, quicEnabled = false
+    )
+    node.switch.addressManager.networkInterfaceProvider = privateInterfaceProvider
+    node.switch.services.add(
+      Service(NATService.new(upnpConfig(), rng(), portMapperFactory = factory))
+    )
+    node.switch.services.add(Service(UpdateBeforeBind()))
+
+    await node.start()
+    check:
+      recorders.len >= 1
+      recorders.allIt(it.mappedInternal == @[FixedPort, FixedPort])
+      node.announcedAddresses.filterIt("203.0.113.77" in $it and "62020" in $it).len == 1
+    await node.stop()
+
+  asyncTest "a later update announces the current primary interface":
+    ## The provider runs on every update, so a changed primary IP replaces the old one.
+    var primary = parseIpAddress("192.168.9.9")
+    let movingProvider = proc(
+        addrFamily: AddressFamily
+    ): seq[InterfaceAddress] {.gcsafe, raises: [].} =
+      if addrFamily != AddressFamily.IPv4:
+        return @[]
+      {.gcsafe.}:
+        @[InterfaceAddress.init(initTAddress(primary, Port(0)), 24)]
+
+    let node = newTestWakuNode(
+      generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0), quicEnabled = false
+    )
+    node.switch.addressManager.networkInterfaceProvider = movingProvider
+    await node.start()
+    let bound = node.boundTcpPort()
+    check node.announcedAddresses ==
+      @[MultiAddress.init("/ip4/192.168.9.9/tcp/" & $bound).get()]
+
+    primary = parseIpAddress("192.168.9.10")
+    await node.switch.peerInfo.update()
+    check node.announcedAddresses ==
+      @[MultiAddress.init("/ip4/192.168.9.10/tcp/" & $bound).get()]
     await node.stop()
 
   asyncTest "an unchanged owned update needs the explicit copy":
@@ -206,7 +331,7 @@ suite "Announced addresses":
     ## The override is active from construction, before any start.
     check node.switch.peerInfo.announcedAddrs == @[ext]
 
-    node.switch.services.add(Service(EagerUpdate()))
+    node.switch.services.add(Service(UpdateBeforeBind()))
     node.switch.services.add(
       Service(NATService.new(upnpConfig(), rng(), portMapperFactory = factory))
     )
@@ -214,7 +339,8 @@ suite "Announced addresses":
     check:
       node.announcedAddresses == @[ext]
       node.switch.peerInfo.addrs == @[ext]
-      ## libp2p skipped the chain. The factory ran and every mapper stayed idle.
+      ## The mappers ran over the configured list, which has nothing private to map.
+      ## libp2p announced that list itself. Every mapper stayed idle.
       recorders.len >= 1
       recorders.allIt(it.mappedInternal.len == 0)
     await node.stop()

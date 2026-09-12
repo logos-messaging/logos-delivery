@@ -1117,7 +1117,7 @@ suite "Waku Relay":
         (pubsubTopic, msg3) == handlerFuture.read()
         (pubsubTopic, msg3) == otherHandlerFuture.read()
 
-      # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 38' message
+      # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 26' message
       handlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
       discard await node.publish(pubsubTopic, msg4)
@@ -1129,27 +1129,27 @@ suite "Waku Relay":
         (pubsubTopic, msg4) == handlerFuture.read()
         (pubsubTopic, msg4) == otherHandlerFuture.read()
 
-      # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 37' message
+      # When sending the 'DefaultMaxWakuMessageSize - sizeEmptyMsg - 25' message
       handlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
-      discard await node.publish(pubsubTopic, msg5)
+      let msg5Res = await node.publish(pubsubTopic, msg5)
 
-      # Then the message is received in self, because there's no checking, but not in other node
+      # Then publish rejects the message before the local delivery, so no node receives it
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+        msg5Res.isErr()
+        not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         not await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg5) == handlerFuture.read()
 
       # When sending the 'DefaultMaxWakuMessageSize' message
       handlerFuture = newPushHandlerFuture()
       otherHandlerFuture = newPushHandlerFuture()
-      discard await node.publish(pubsubTopic, msg6)
+      let msg6Res = await node.publish(pubsubTopic, msg6)
 
-      # Then the message is received in self, because there's no checking, but not in other node
+      # Then publish rejects the message before the local delivery, so no node receives it
       check:
-        await handlerFuture.withTimeout(FUTURE_TIMEOUT)
+        msg6Res.isErr()
+        not await handlerFuture.withTimeout(FUTURE_TIMEOUT)
         not await otherHandlerFuture.withTimeout(FUTURE_TIMEOUT)
-        (pubsubTopic, msg6) == handlerFuture.read()
 
       # Finally stop the other node
       await allFutures(otherSwitch.stop(), otherNode.stop())

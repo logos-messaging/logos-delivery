@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/[sequtils, strutils, net], results, stew/endians2, chronicles
+import std/[sequtils, net], results, stew/endians2
 import libp2p/[multiaddress, multicodec, wire]
 import ../../waku/waku_core/peers
 import ../waku_enr
@@ -60,18 +60,30 @@ template ipQuicEndPoint(address: IpAddress, port: Port): MultiAddress =
 template dns4QuicEndPoint(dns4DomainName: string, port: Port): MultiAddress =
   dns4Ma(dns4DomainName) & udpPortMa(port) & quicFlag()
 
-func hasZeroPort*(ma: MultiAddress): bool =
-  ## Port 0 means "the kernel picks a port at bind time".
-  ## initTAddress cannot parse dns-hosted entries, so read the port
-  ## bytes from the tcp or udp component directly.
+func transportPort*(ma: MultiAddress): Opt[Port] =
+  ## Port of the tcp or udp component, read from its bytes (works for dns hosts).
   for code in [multiCodec("tcp"), multiCodec("udp")]:
     let part = ma[code].valueOr:
       continue
     let portBytes = part.protoArgument().valueOr:
       continue
-    if portBytes.len == 2 and uint16.fromBytesBE(portBytes) == 0:
-      return true
-  return false
+    if portBytes.len == 2:
+      return Opt.some(Port(uint16.fromBytesBE(portBytes)))
+  Opt.none(Port)
+
+func hasZeroPort*(ma: MultiAddress): bool =
+  ## Port 0 means "the kernel picks a port at bind time".
+  let port = ma.transportPort().valueOr:
+    return false
+  port == Port(0)
+
+const WildcardHosts = [parseIpAddress("0.0.0.0"), parseIpAddress("::")]
+
+func isWildcardHost*(ma: MultiAddress): bool =
+  ## True for a 0.0.0.0 or :: host.
+  let ip = ma.getIp().valueOr:
+    return false
+  ip in WildcardHosts
 
 proc isWsAddress*(ma: MultiAddress): bool =
   let
@@ -130,38 +142,48 @@ func replacePort*(ma: MultiAddress, port: Port): Opt[MultiAddress] =
         return Opt.none(MultiAddress)
   return Opt.some(res)
 
-proc substituteBoundPorts*(
-    addrs: seq[MultiAddress], listenAddrs: seq[MultiAddress]
+func sameTransport(a, b: MultiAddress): bool =
+  ## Same transport: ws/wss, quic, or plain tcp.
+  a.isWsAddress() == b.isWsAddress() and a.isQuicAddress() == b.isQuicAddress()
+
+func resolveAnnouncedAddresses*(
+    intent: seq[MultiAddress], listenAddrs: seq[MultiAddress]
 ): seq[MultiAddress] =
-  ## Replace port 0 with the port the entry's transport bound.
-  ## Drop a port-0 entry whose transport did not bind.
-  ## Entries with concrete ports pass through unchanged.
-  if not addrs.anyIt(it.hasZeroPort()):
-    return addrs
-
-  let bound = getPorts(listenAddrs).valueOr:
-    ## If getPorts fails, drop the zero-port entries.
-    error "failed to read bound ports; dropping zero-port entries", error = error
-    return addrs.filterIt(not it.hasZeroPort())
-
+  ## Resolves `intent` against the bound `listenAddrs`. A wildcard host and port 0
+  ## take the bound address of the same transport, e.g. /ip4/0.0.0.0/tcp/0 with
+  ## bound /ip4/10.0.0.5/tcp/60001 gives /ip4/10.0.0.5/tcp/60001. Unresolved
+  ## entries are dropped, concrete entries pass through.
   var resolved: seq[MultiAddress]
-  for ma in addrs:
-    if not ma.hasZeroPort():
-      resolved.add(ma)
+  for entry in intent:
+    let
+      wildcardHost = entry.isWildcardHost()
+      zeroPort = entry.hasZeroPort()
+    if not wildcardHost and not zeroPort:
+      if entry notin resolved:
+        resolved.add(entry)
       continue
-    let port = (
-      if ma.isWsAddress():
-        bound.websocketPort
-      elif ma.isQuicAddress():
-        bound.quicPort
-      else:
-        bound.tcpPort
-    ).valueOr:
-      continue
-    let substituted = ma.replacePort(port).valueOr:
-      continue
-    resolved.add(substituted)
-  return resolved
+    for bound in listenAddrs:
+      if not bound.sameTransport(entry):
+        continue
+      var concrete = entry
+      if wildcardHost:
+        let host = bound.getIp().valueOr:
+          continue
+        concrete = concrete.replaceIp(host).valueOr:
+          continue
+      if zeroPort:
+        let port = bound.transportPort().valueOr:
+          continue
+        concrete = concrete.replacePort(port).valueOr:
+          continue
+      if concrete.isWildcardHost() or concrete.hasZeroPort():
+        continue
+      if concrete notin resolved:
+        resolved.add(concrete)
+      if not wildcardHost:
+        ## One bound port per concrete host.
+        break
+  resolved
 
 proc containsWsAddress(extMultiAddrs: seq[MultiAddress]): bool =
   return extMultiAddrs.filterIt(it.isWsAddress()).len > 0
@@ -194,8 +216,7 @@ proc init*(
   ## Initialize and validate waku node network configuration
 
   if extMultiAddrsOnly:
-    ## libp2p applies `announcedAddrs` only when non-empty, and the override
-    ## skips port resolution. So require concrete addresses here.
+    ## libp2p announces this list as is, so it needs concrete ports.
     if extMultiAddrs.len == 0:
       return err("extMultiAddrsOnly requires at least one ext multiaddr")
     for ma in extMultiAddrs:
