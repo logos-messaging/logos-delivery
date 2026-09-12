@@ -24,6 +24,10 @@ type
     PartiallyConnected
     Connected
 
+  MessageSource* {.pure.} = enum
+    Live = "live" ## delivered as it was published, over relay or filter
+    History = "history" ## recovered from a Store peer, at start or after a gap
+
   PeerConnInfo* = object ## structured connected-peer info for the api boundary
     peerId*: string
     protocols*: seq[string]

@@ -67,7 +67,9 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
 
     } else if (strcmp(eventType, "message_received") == 0) {
         char messageHash[128];
+        char source[32]; // "live" from the network, "history" from Store
         extract_json_field(eventJson, "messageHash", messageHash, sizeof(messageHash));
+        extract_json_field(eventJson, "source", source, sizeof(source));
 
         // Extract the nested "message" object
         size_t msgObjLen = 0;
@@ -82,11 +84,12 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
                 char contentTopic[256];
                 extract_json_field(msgJson, "contentTopic", contentTopic, sizeof(contentTopic));
 
-                // Decode payload from JSON byte array to string
+                // The payload arrives base64-encoded; decode it for display
                 char payload[4096];
-                int payloadLen = decode_json_byte_array(msgJson, "payload", payload, sizeof(payload));
+                int payloadLen = decode_json_base64_field(msgJson, "payload", payload, sizeof(payload));
 
-                printf("[EVENT] Message received - Hash: %s, ContentTopic: %s\n", messageHash, contentTopic);
+                printf("[EVENT] Message received - Hash: %s, ContentTopic: %s, Source: %s\n",
+                       messageHash, contentTopic, source);
                 if (payloadLen > 0) {
                     printf("        Payload (%d bytes): %.*s\n", payloadLen, payloadLen, payload);
                 } else {
@@ -96,7 +99,8 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
                 free(msgJson);
             }
         } else {
-            printf("[EVENT] Message received - Hash: %s (could not parse message)\n", messageHash);
+            printf("[EVENT] Message received - Hash: %s, Source: %s (could not parse message)\n",
+                   messageHash, source);
         }
         got_message_received = 1;
 

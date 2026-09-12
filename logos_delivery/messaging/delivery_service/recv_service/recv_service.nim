@@ -14,7 +14,8 @@ import
   logos_delivery/waku/api/[store, subscriptions]
 import
   logos_delivery/api/events/kernel_events,
-  logos_delivery/api/events/messaging_client_events # MessageReceivedEvent
+  logos_delivery/api/events/messaging_client_events, # MessageReceivedEvent
+  logos_delivery/messaging/messaging_metrics
 
 const MaxMessageLife = chronos.minutes(7) ## Max time we will keep track of rx messages
 
@@ -104,11 +105,12 @@ proc getMissingMsgsFromStore(
   )
 
 proc processIncomingMessage(
-    self: RecvService, pubsubTopic: string, message: WakuMessage
+    self: RecvService, pubsubTopic: string, message: WakuMessage, source: MessageSource
 ): bool =
   ## Return false if the incoming message is from a non-subscribed topic,
   ## or if the message is a duplicate (recently-seen). Otherwise, save it as
-  ## recently-seen, emit a MessageReceivedEvent, and return true.
+  ## recently-seen, emit a MessageReceivedEvent tagged with `source`, and
+  ## return true.
 
   if not self.waku.isContentSubscribed(pubsubTopic, message.contentTopic):
     trace "skipping message as I am not subscribed",
@@ -126,16 +128,18 @@ proc processIncomingMessage(
   # Local receipt time: a message recovered from Store stays known for the
   # full period whatever its own timestamp.
   self.recentReceivedMsgs[msgHash] = getNowInNanosecondTime()
+  recordReceived(source, message.payload.len)
   info "Message received",
     msg_hash = msgHash.to0xHex(),
     contentTopic = message.contentTopic,
-    pubsubTopic = pubsubTopic
-  MessageReceivedEvent.emit(self.brokerCtx, msgHash.to0xHex(), message)
+    pubsubTopic = pubsubTopic,
+    source = source
+  MessageReceivedEvent.emit(self.brokerCtx, msgHash.to0xHex(), message, source)
   return true
 
 proc checkStore*(self: RecvService) {.async.} =
   ## Checks the store for messages that were not received directly and
-  ## delivers them via MessageReceivedEvent.
+  ## delivers them via MessageReceivedEvent, as `MessageSource.History`.
   if not self.waku.isStoreMounted():
     debug "recv service has no store client mounted, skipping store check"
     return
@@ -172,7 +176,9 @@ proc checkStore*(self: RecvService) {.async.} =
       let missingMsgsRet = await self.getMissingMsgsFromStore(missedHashes)
       if missingMsgsRet.isOk():
         for msgTuple in missingMsgsRet.get():
-          if self.processIncomingMessage(msgTuple.pubsubTopic, msgTuple.msg):
+          if self.processIncomingMessage(
+            msgTuple.pubsubTopic, msgTuple.msg, MessageSource.History
+          ):
             debug "recv service store-recovered message",
               msg_hash = shortLog(msgTuple.hash), pubsubTopic = msgTuple.pubsubTopic
       else:
@@ -251,7 +257,7 @@ proc startupCatchUp(self: RecvService, job: persistency.Job) {.async.} =
   ): bool {.gcsafe, raises: [].} =
     if not self.waku.isContentSubscribed(pubsubTopic, message.contentTopic):
       return false
-    discard self.processIncomingMessage(pubsubTopic, message)
+    discard self.processIncomingMessage(pubsubTopic, message, MessageSource.History)
     return true
   let wake = newAsyncEvent() # a new subscription or a connectivity change
   let onSubscribed = proc(event: ContentTopicSubscribedEvent) {.async: (raises: []).} =
@@ -365,7 +371,8 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
   self.seenMsgListener = MessageSeenEvent.listen(
     self.brokerCtx,
     proc(event: MessageSeenEvent) {.async: (raises: []).} =
-      discard self.processIncomingMessage(event.topic, event.message),
+      discard
+        self.processIncomingMessage(event.topic, event.message, MessageSource.Live),
   ).valueOr:
     error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)
