@@ -1,13 +1,8 @@
 ## Messaging layer counters.
 ##
-## A send that no store node validates in time is logged at DEBUG, and a
-## received message is logged at INFO; these counters are what makes both
-## visible in aggregate, with receipts split by where the message came from.
-##
-## Label cardinality is bounded by construction: the recorder below takes the
-## package's enum rather than a string, so `source` can only ever be one of the
-## two `MessageSource` values (Live, History). Four series in total, and
-## nothing a peer sends can reach a label.
+## Label cardinality is bounded by construction: `recordReceived` takes the
+## `MessageSource` enum rather than a string, so `source` can only ever be
+## `live` or `history`. Four receive series in total, plus the send counter.
 
 {.push raises: [].}
 
@@ -21,6 +16,12 @@ declarePublicCounter logos_delivery_recv_messages_total,
   ["source"]
 declarePublicCounter logos_delivery_recv_message_bytes_total,
   "payload bytes of the messages delivered to the application, by source", ["source"]
+
+# A labelled series exists from its first increment. Start every source at zero,
+# so the series are scraped before the first message and can be read at any time.
+for source in MessageSource:
+  logos_delivery_recv_messages_total.inc(0, labelValues = [$source])
+  logos_delivery_recv_message_bytes_total.inc(0, labelValues = [$source])
 
 proc recordStoreValidationTimeout*() =
   logos_delivery_send_store_validation_timeout_total.inc()

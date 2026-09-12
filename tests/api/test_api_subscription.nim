@@ -7,7 +7,6 @@ import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 import logos_delivery/messaging/messaging_client
 import logos_delivery/messaging/messaging_metrics
-import logos_delivery/messaging/delivery_service/recv_service
 
 import
   logos_delivery,
