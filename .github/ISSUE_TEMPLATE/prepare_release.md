@@ -36,7 +36,7 @@ Add appropriate release number to title
     - [ ] Inform the DST team about the expectations for this release. For example, if we expect higher, same or lower bandwidth consumption, or a new protocol appears, etc.
     - [ ] Ask DST to add a comment approving this release and add a summary analysis report.
 
-  - [ ] 3. Status testing (pre-requisite: 1, 2)
+  - [ ] 3. Status testing (pre-requisite: 1, 2) (will become automatic nightly job soon)
     - [ ] Bump logos-delivery dependency in [logos-delivery-go-bindings](https://github.com/logos-messaging/logos-delivery-go-bindings) and make sure all tests work.
     - [ ] Submit a PR on [status-go](https://github.com/status-im/status-go/blob/1f9061064587e1167e32d965d5a6f2b745324d5e/tests-functional/docker-compose.waku.yml#L3) bumping logos-delivery to this release candidate.
     - [ ] Submit a PR on [status-app](https://github.com/status-im/status-app/blob/3639e28374ca3c2158ac2dac6af35dbce439b10a/docker-compose.waku.yml#L3) bumping logos-delivery to this release candidate.
