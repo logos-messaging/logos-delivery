@@ -340,7 +340,6 @@ jobs:
     permissions:
       contents: read
       pull-requests: read
-      checks: write
     uses: ./.github/workflows/ci-nix.yml
     secrets: inherit
 
