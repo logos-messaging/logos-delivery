@@ -73,11 +73,14 @@ proc recordSend*(
     status[].events.add(record)
 
 proc recordReceived*(
-    self: MessagingEventCache, messageHash: string, message: RelayWakuMessage
+    self: MessagingEventCache,
+    messageHash: string,
+    message: RelayWakuMessage,
+    source: MessageSource,
 ) =
   ## Buffer a received message, dropping the oldest past the ring capacity.
   self.received.addLast(
-    ReceivedMessageRecord(messageHash: messageHash, message: message)
+    ReceivedMessageRecord(messageHash: messageHash, message: message, source: source)
   )
 
   while self.received.len > self.maxReceived:
