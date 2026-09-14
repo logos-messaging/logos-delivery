@@ -26,6 +26,9 @@ jobs:
             output: build/liblogosdelivery.dll
     name: build-${{ matrix.target }}
     runs-on: windows-latest
+    # A green build takes 20-30 min. Fail a hung one instead of holding the
+    # runner for the 6 h default.
+    timeout-minutes: 60
 
     defaults:
       run:
@@ -112,8 +115,12 @@ jobs:
     - name: Creating tmp directory
       run: mkdir -p tmp
 
+    # "Install nimble deps" runs in Git Bash, whose HOME is the Windows profile,
+    # and builds Nimble under it. MSYS2 has its own HOME, so without this make
+    # would clone and build Nimble a second time, and that clone hangs.
     - name: Building ${{ matrix.target }}
       run: |
+        export HOME="$(cygpath -u "$USERPROFILE")"
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
         ${{ matrix.make }}
 

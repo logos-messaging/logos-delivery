@@ -53,7 +53,7 @@ proc installEventListeners(brokerCtx: BrokerContext, cache: MessagingEventCache)
   discard MessageReceivedEvent.listen(
     brokerCtx,
     proc(evt: MessageReceivedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordReceived(evt.messageHash, toRelayWakuMessage(evt.message)),
+      cache.recordReceived(evt.messageHash, toRelayWakuMessage(evt.message), evt.source),
   )
 
 proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClient) =

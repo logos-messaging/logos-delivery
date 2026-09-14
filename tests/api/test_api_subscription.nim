@@ -1,11 +1,12 @@
 {.used.}
 
 import results, std/[strutils, sequtils, net, sets, tables]
-import chronos, testutils/unittests, stew/byteutils
+import chronos, metrics, testutils/unittests, stew/byteutils
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto]
 import brokers/broker_context
 import ../testlib/[common, wakucore, wakunode, wakunodeconf, testasync]
 import logos_delivery/messaging/messaging_client
+import logos_delivery/messaging/messaging_metrics
 
 import
   logos_delivery,
@@ -29,6 +30,7 @@ type ReceiveEventListenerManager = ref object
   receivedListener: MessageReceivedEventListener
   receivedEvent: AsyncEvent
   receivedMessages: seq[WakuMessage]
+  receivedSources: seq[MessageSource] ## one per `receivedMessages` entry
   targetCount: int
 
 proc newReceiveEventListenerManager(
@@ -44,6 +46,7 @@ proc newReceiveEventListenerManager(
       brokerCtx,
       proc(event: MessageReceivedEvent) {.async: (raises: []).} =
         manager.receivedMessages.add(event.message)
+        manager.receivedSources.add(event.source)
 
         if manager.receivedMessages.len >= manager.targetCount:
           manager.receivedEvent.fire()
@@ -217,13 +220,19 @@ suite "Messaging API, SubscriptionManager":
     defer:
       await eventManager.teardown()
 
-    discard (await net.publishToMesh(testTopic, "Hello, world!".toBytes())).expect(
-      "Publish failed"
-    )
+    let live = $MessageSource.Live
+    let countBefore = logos_delivery_recv_messages_total.value([live])
+    let bytesBefore = logos_delivery_recv_message_bytes_total.value([live])
+    let payload = "Hello, world!".toBytes()
+    discard (await net.publishToMesh(testTopic, payload)).expect("Publish failed")
 
     require await eventManager.waitForEvents(TestTimeout)
     require eventManager.receivedMessages.len == 1
     check eventManager.receivedMessages[0].contentTopic == testTopic
+    check eventManager.receivedSources[0] == MessageSource.Live
+    check logos_delivery_recv_messages_total.value([live]) == countBefore + 1
+    check logos_delivery_recv_message_bytes_total.value([live]) ==
+      bytesBefore + float64(payload.len)
 
   asyncTest "Subscription API, relay node ignores unsubscribed content topics on same shard":
     let net = await setupNetwork(1)
@@ -481,6 +490,7 @@ suite "Messaging API, SubscriptionManager":
     require await eventManager.waitForEvents(TestTimeout)
     require eventManager.receivedMessages.len == 1
     check eventManager.receivedMessages[0].contentTopic == testTopic
+    check eventManager.receivedSources[0] == MessageSource.Live
 
   asyncTest "Subscription API, edge node ignores unsubscribed content topics":
     let net = await setupNetwork(1, messaging_conf.LogosDeliveryMode.Edge)
