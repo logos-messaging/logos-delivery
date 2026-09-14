@@ -124,6 +124,7 @@ jobs:
           NIMFLAGS: "--parallelBuild:2 -d:chronicles_colors:none"
         run: |
           make -j2 V=1 DEBUG=0 POSTGRES=1 logosdeliverynode
+          make -j2 V=1 DEBUG=0 rlnkeystore
           docker build -t "${NIGHTLY_IMAGE}" -f docker/binaries/Dockerfile.bn.amd64 .
           docker save "${NIGHTLY_IMAGE}" | gzip > "${RUNNER_TEMP}/nightly-image.tar.gz"
 
