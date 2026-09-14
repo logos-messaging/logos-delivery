@@ -3,10 +3,9 @@ permissions:
   contents: read
   pull-requests: read
   checks: write
+# Called from ci.yml so the `changes` filter and the `ci-required` gate cover it.
 on:
-  pull_request:
-    branches: [master]
-  merge_group:
+  workflow_call:
 
 jobs:
   build:

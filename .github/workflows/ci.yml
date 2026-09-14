@@ -18,7 +18,7 @@ env:
   NIM_VERSION: '2.2.6'
 
 jobs:
-  changes: # skip the build/test jobs when a PR only touches documentation
+  changes: # run only the jobs relevant to what a PR touches
     runs-on: ubuntu-22.04
     permissions:
       pull-requests: read
@@ -26,9 +26,9 @@ jobs:
     - uses: actions/checkout@v4
       name: Checkout code
       id: checkout
-    # Deny-list rather than allow-list: every path is code unless it is one of
-    # the doc files below, so a new source directory is covered without anyone
-    # remembering to extend this filter.
+    # `all` is a deny-list rather than an allow-list: every path runs the whole
+    # CI unless it is docs or one of the narrow areas below, so a new source
+    # directory is covered without anyone remembering to extend this filter.
     - uses: dorny/paths-filter@v4
       id: filter
       with:
@@ -36,22 +36,59 @@ jobs:
         # default 'some' would match every file against the bare '**'.
         predicate-quantifier: 'some-with-excludes'
         filters: |
-          code:
+          all:
           - '**'
           - '!**/*.md'
           - '!docs/**'
           - '!LICENSE-*'
           - '!.github/ISSUE_TEMPLATE/**'
+          - '!tests/**'
+          - '!tests-e2e/**'
+          - '!examples/**'
+          - '!docker/**'
+          - '!.dockerignore'
+          - '!nix/**'
+          - '!flake.nix'
+          - '!flake.lock'
+          tests:
+          - 'tests/**'
+          - '!**/*.md'
+          e2e:
+          - 'tests-e2e/**'
+          - '!**/*.md'
+          examples:
+          - 'examples/**'
+          - '!**/*.md'
+          docker:
+          - 'docker/**'
+          - '.dockerignore'
+          - '!**/*.md'
+          nix:
+          - 'nix/**'
+          - 'flake.nix'
+          - 'flake.lock'
+          - '!**/*.md'
 
     outputs:
-      code: ${{ steps.filter.outputs.code }}
+      # A push to master runs everything so every master commit keeps a full CI record.
+      all: ${{ github.event_name == 'push' || steps.filter.outputs.all == 'true' }}
+      tests: ${{ steps.filter.outputs.tests }}
+      e2e: ${{ steps.filter.outputs.e2e }}
+      examples: ${{ steps.filter.outputs.examples }}
+      docker: ${{ steps.filter.outputs.docker }}
+      nix: ${{ steps.filter.outputs.nix }}
 
   build-health:
+    needs: changes
+    if: ${{ needs.changes.outputs.all == 'true' }}
     uses: ./.github/workflows/build-health.yml
 
+  # Also feeds the e2e jobs with liblogosdelivery.so.
   build:
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: >-
+      ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.examples == 'true'
+      || needs.changes.outputs.e2e == 'true' || needs.changes.outputs.docker == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -105,7 +142,7 @@ jobs:
   # Runs `make liblogosdelivery` with the default flags to test compile and link.
   liblogosdelivery-default:
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.all == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -136,14 +173,14 @@ jobs:
 
   build-windows:
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.all == 'true' }}
     uses: ./.github/workflows/windows-build.yml
     with:
       branch: ${{ github.ref }}
 
   build-android:
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.all == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -203,7 +240,7 @@ jobs:
   # macos-15 runners ship full Xcode with the iOS SDKs preinstalled.
   build-ios:
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.all == 'true' }}
     strategy:
       fail-fast: false
       matrix:
@@ -246,21 +283,23 @@ jobs:
 
   tests:
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.tests == 'true' }}
     uses: ./.github/workflows/tests.yml
 
   build-docker-image:
     needs: changes
-    if: ${{ needs.changes.outputs.code == 'true' }}
+    if: >-
+      ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.e2e == 'true'
+      || needs.changes.outputs.docker == 'true' }}
     uses: ./.github/workflows/container-image.yml
     secrets: inherit
 
   # Send API E2E tests run the in-repo tests-e2e/ wrapper suite against the
   # liblogosdelivery.so built by the `build` job (downloaded as the
-  # `liblogosdelivery` artifact). Gated on `build`, so it is skipped on
-  # docs-only PRs where no lib is built.
+  # `liblogosdelivery` artifact).
   send-api-e2e-tests:
-    needs: build
+    needs: [changes, build]
+    if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.e2e == 'true' }}
     uses: ./.github/workflows/e2e-api-tests.yml
     with:
       subset: non-docker
@@ -268,7 +307,10 @@ jobs:
 
   # Docker subset; an empty node_image falls back to DEFAULT_NWAKU (fork PRs lack the quay secrets).
   send-api-e2e-docker-tests:
-    needs: [build, build-docker-image]
+    needs: [changes, build, build-docker-image]
+    if: >-
+      ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.e2e == 'true'
+      || needs.changes.outputs.docker == 'true' }}
     uses: ./.github/workflows/e2e-api-tests.yml
     with:
       subset: docker
@@ -277,16 +319,35 @@ jobs:
 
   # E2E tests that run the node docker image and drive it over its REST API
   rest-e2e-tests:
-    needs: build-docker-image
+    needs: [changes, build-docker-image]
+    if: >-
+      ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.e2e == 'true'
+      || needs.changes.outputs.docker == 'true' }}
     uses: ./.github/workflows/e2e-rest-tests.yml
     with:
       node_image: ${{ needs.build-docker-image.outputs.image }}
     secrets: inherit
 
+  nix:
+    needs: changes
+    if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.nix == 'true' }}
+    permissions:
+      contents: read
+      pull-requests: read
+      checks: write
+    uses: ./.github/workflows/ci-nix.yml
+    secrets: inherit
+
   lint:
     name: "Lint"
     runs-on: ubuntu-22.04
-    needs: build
+    needs: [changes, build]
+    # Still waits for `build` when it runs, but a tests-only PR skips `build`
+    # and must be linted anyway.
+    if: >-
+      ${{ !cancelled() && needs.build.result != 'failure'
+      && (needs.changes.outputs.all == 'true' || needs.changes.outputs.tests == 'true'
+      || needs.changes.outputs.examples == 'true') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -313,3 +374,30 @@ jobs:
           echo "using nph at ${NPH}"
           "${NPH}" examples logos_delivery tests tools apps *.@(nim|nims|nimble)
           git diff --exit-code
+
+  # The single required check for this workflow. A matrix or reusable-workflow
+  # job skipped at job level reports under its raw name (e.g.
+  # `build-${{ matrix.os }}`), so requiring the per-job names blocks forever.
+  # A skipped job is not relevant to the change and counts as passing here.
+  ci-required:
+    if: always()
+    needs:
+      - changes
+      - build-health
+      - build
+      - liblogosdelivery-default
+      - build-windows
+      - build-android
+      - build-ios
+      - tests
+      - build-docker-image
+      - send-api-e2e-tests
+      - send-api-e2e-docker-tests
+      - rest-e2e-tests
+      - nix
+      - lint
+    runs-on: ubuntu-22.04
+    steps:
+      - name: Fail if a job failed or was cancelled
+        if: contains(needs.*.result, 'failure') || contains(needs.*.result, 'cancelled')
+        run: exit 1
