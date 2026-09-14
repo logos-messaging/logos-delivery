@@ -78,9 +78,11 @@ jobs:
       docker: ${{ steps.filter.outputs.docker }}
       nix: ${{ steps.filter.outputs.nix }}
 
+  # Also on nix changes: it is the only check that compares nix/deps.nix
+  # against nimble.lock, and the Nix build itself never reads the lock.
   build-health:
     needs: changes
-    if: ${{ needs.changes.outputs.all == 'true' }}
+    if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.nix == 'true' }}
     uses: ./.github/workflows/build-health.yml
 
   # Also feeds the e2e jobs with liblogosdelivery.so.
