@@ -2,7 +2,7 @@
 
 ## Overview
 
-The liblogosdelivery library emits three types of message delivery events that clients can listen to by registering a per-event callback with `logosdelivery_add_event_listener()`. The events are delivered under the wire names `onMessageSent`, `onMessagePropagated` and `onMessageError` (the JSON `eventType` inside each payload is `message_sent` / `message_propagated` / `message_error`).
+The liblogosdelivery library emits three types of message delivery events and one message receipt event that clients can listen to by registering a per-event callback with `logosdelivery_add_event_listener()`. The events are delivered under the wire names `onMessageSent`, `onMessagePropagated`, `onMessageError` and `onMessageReceived` (the JSON `eventType` inside each payload is `message_sent` / `message_propagated` / `message_error` / `message_received`).
 
 ## Event Types
 
@@ -59,6 +59,35 @@ Emitted when an error occurs during message sending or propagation.
 - `messageHash`: Hash of the message that failed
 - `error`: Description of what went wrong
 
+### 4. message_received
+Emitted once for every message accepted on a subscribed content topic, whether it arrived live from the network or was recovered from a Store peer (at startup, or after a connectivity gap). The `source` field tells the two apart.
+
+**JSON Structure:**
+```json
+{
+  "eventType": "message_received",
+  "messageHash": "0x...",
+  "message": {
+    "payload": "base64...",
+    "contentTopic": "/myapp/1/chat/proto",
+    "version": 0,
+    "timestamp": 1700000000000000000,
+    "ephemeral": false,
+    "meta": "",
+    "proof": ""
+  },
+  "source": "live"
+}
+```
+
+**Fields:**
+- `eventType`: Always "message_received"
+- `messageHash`: Hash of the received message
+- `message`: The received message; `payload`, `meta` and `proof` are base64-encoded
+- `source`: `"live"` when the message was delivered as it was published (relay or filter), `"history"` when it was recovered from Store
+
+Duplicate suppression is best effort. The node remembers the hashes it has delivered for a few minutes, in memory only, so a live message that a Store check returns within that window is not reported again. After a restart, or when a Store recovery returns a message later than that, the same message can be reported a second time as `history`. Consumers that need exactly-once delivery should deduplicate by `messageHash`.
+
 ## Usage
 
 ### 1. Define an Event Callback
@@ -79,6 +108,8 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
         // Handle message propagated
     } else if (eventType == "message_error") {
         // Handle message error
+    } else if (eventType == "message_received") {
+        // Handle message received; check "source" for "live" or "history"
     }
 }
 ```
@@ -97,6 +128,7 @@ void *rawCtx = ctx->ptr;
 logosdelivery_add_event_listener(rawCtx, "onMessageSent", event_callback, NULL);
 logosdelivery_add_event_listener(rawCtx, "onMessagePropagated", event_callback, NULL);
 logosdelivery_add_event_listener(rawCtx, "onMessageError", event_callback, NULL);
+logosdelivery_add_event_listener(rawCtx, "onMessageReceived", event_callback, NULL);
 ```
 
 ### 3. Start the Node
@@ -141,7 +173,7 @@ For a failed message send:
 See `examples/liblogosdelivery_example.c` for a complete working example that:
 - Registers an event callback
 - Sends a message
-- Receives and prints all three event types
+- Receives and prints all four event types
 - Properly parses the JSON event structure
 
 ## Debugging Events

@@ -144,8 +144,9 @@ proc readValue*(
 ##
 ## Send-related events (sent / propagated / error) are grouped per request id.
 ## Received messages carry the full `WakuMessage` (serialized as
-## `RelayWakuMessage`), matching the nim `MessageReceivedEvent`. Both surfaces
-## are populated by the broker listeners installed in the messaging handlers.
+## `RelayWakuMessage`) and the `source` it came from (`live` / `history`),
+## matching the nim `MessageReceivedEvent`. Both surfaces are populated by the
+## broker listeners installed in the messaging handlers.
 
 type
   SendEventKind* {.pure.} = enum
@@ -166,6 +167,7 @@ type
   ReceivedMessageRecord* = object
     messageHash*: string
     message*: RelayWakuMessage ## the received WakuMessage, full fidelity
+    source*: MessageSource ## `live` from the network, `history` from Store
 
 #### Event DTO serialization
 
@@ -194,6 +196,7 @@ proc writeValue*(
   writer.beginRecord()
   writer.writeField("messageHash", value.messageHash)
   writer.writeField("message", value.message)
+  writer.writeField("source", $value.source)
   writer.endRecord()
 
 proc readValue*(
@@ -209,6 +212,18 @@ proc readValue*(
     value = SendEventKind.Error
   else:
     reader.raiseUnexpectedValue("Invalid send event kind: " & s)
+
+proc readValue*(
+    reader: var JsonReader[RestJson], value: var MessageSource
+) {.raises: [SerializationError, IOError].} =
+  let s = reader.readValue(string)
+  case s
+  of "live":
+    value = MessageSource.Live
+  of "history":
+    value = MessageSource.History
+  else:
+    reader.raiseUnexpectedValue("Invalid message source: " & s)
 
 proc readValue*(
     reader: var JsonReader[RestJson], value: var SendEventRecord
@@ -263,6 +278,7 @@ proc readValue*(
   var
     messageHash = ""
     message = RelayWakuMessage()
+    source = Opt.none(MessageSource)
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -270,7 +286,14 @@ proc readValue*(
       messageHash = reader.readValue(string)
     of "message":
       message = reader.readValue(RelayWakuMessage)
+    of "source":
+      source = Opt.some(reader.readValue(MessageSource))
     else:
       unrecognizedFieldWarning(value)
 
-  value = ReceivedMessageRecord(messageHash: messageHash, message: message)
+  if source.isNone():
+    reader.raiseUnexpectedValue("Field `source` is missing")
+
+  value = ReceivedMessageRecord(
+    messageHash: messageHash, message: message, source: source.get()
+  )

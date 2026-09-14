@@ -2,6 +2,7 @@ name: ci
 
 on:
   pull_request:
+  merge_group:
   push:
     branches:
       - master
@@ -253,6 +254,8 @@ jobs:
     if: ${{ needs.changes.outputs.code == 'true' }}
     uses: ./.github/workflows/container-image.yml
     secrets: inherit
+    with:
+      artifact_fallback: true
 
   # Send API E2E tests run the in-repo tests-e2e/ wrapper suite against the
   # liblogosdelivery.so built by the `build` job (downloaded as the
@@ -272,6 +275,7 @@ jobs:
     with:
       subset: docker
       node_image: ${{ needs.build-docker-image.outputs.image }}
+      node_image_artifact: ${{ needs.build-docker-image.outputs.image_artifact }}
     secrets: inherit
 
   # E2E tests that run the node docker image and drive it over its REST API
@@ -280,6 +284,7 @@ jobs:
     uses: ./.github/workflows/e2e-rest-tests.yml
     with:
       node_image: ${{ needs.build-docker-image.outputs.image }}
+      node_image_artifact: ${{ needs.build-docker-image.outputs.image_artifact }}
     secrets: inherit
 
   lint:

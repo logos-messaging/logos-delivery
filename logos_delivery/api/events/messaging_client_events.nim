@@ -24,7 +24,9 @@ EventBroker:
     messageHash*: string
 
 EventBroker:
-  # Event emitted when a message is received via Waku
+  # Event emitted when either a message belongs to Live communication or
+  # recovered from Store. The source field has this information.
   type MessageReceivedEvent* = object
     messageHash*: string
     message*: WakuMessage
+    source*: MessageSource
