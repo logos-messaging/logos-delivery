@@ -33,6 +33,11 @@ pipeline {
       defaultValue: params.IMAGE_NAME ?: 'harbor.status.im/wakuorg/nwaku',
     )
     string(
+      name: 'LOGOSDELIVERY_IMAGE_NAME',
+      description: 'Name of the logosdeliverynode Docker image to push.',
+      defaultValue: params.LOGOSDELIVERY_IMAGE_NAME ?: 'harbor.status.im/wakuorg/logosdelivery',
+    )
+    string(
       name: 'DOCKER_CRED',
       description: 'Name of Docker Registry credential.',
       defaultValue: params.DOCKER_CRED ?: 'harbor-wakuorg-robot',
@@ -98,12 +103,21 @@ pipeline {
             "--target='prod' ."
           )
         }
+
+        /* Second tag for the same image. */
+        def ldImageName = "${params.LOGOSDELIVERY_IMAGE_NAME}:${params.IMAGE_TAG ?: env.GIT_COMMIT.take(8)}"
+        echo "Tagging ${ldImageName}"
+        sh "docker tag ${image.id} ${ldImageName}"
+        logosDeliveryImage = docker.image(ldImageName)
       } }
     }
 
     stage('Check') {
       steps { script {
         image.inside('--entrypoint=""') { c ->
+          sh '/usr/bin/logosdeliverynode --version'
+        }
+        logosDeliveryImage.inside('--entrypoint=""') { c ->
           sh '/usr/bin/logosdeliverynode --version'
         }
       } }
@@ -116,10 +130,13 @@ pipeline {
           credentialsId: params.DOCKER_CRED, url: params.DOCKER_REGISTRY_URL
         ]) {
           image.push()
+          logosDeliveryImage.push()
           /* If Git ref is a tag push it as Docker tag too. */
           if (params.GIT_REF ==~ /v\d+\.\d+\.\d+.*/) {
             image.push(params.GIT_REF)
             image.push('latest-release')
+            logosDeliveryImage.push(params.GIT_REF)
+            logosDeliveryImage.push('latest-release')
           }
         }
       } }
