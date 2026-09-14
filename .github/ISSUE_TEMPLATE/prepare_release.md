@@ -28,9 +28,9 @@ Add appropriate release number to title
 
 #### Validate the release candidate
 
-  - [ ] 1. Essential
-    - [ ] Ensure all unit tests are green
-    - [ ] Get interop tests results from QA
+  - [ ] 1. Essential requirements to pick a master commit the relase branch is cut from.
+    - [ ] The `ci` run on that commit is green.
+    - [ ] The nightly runs after that commit are green (pre-release, e2e REST, daily CI.).
 
   - [ ] 2. DST sign-off (pre-requisite: 1)
     - [ ] Inform the DST team about the expectations for this release. For example, if we expect higher, same or lower bandwidth consumption, or a new protocol appears, etc.
