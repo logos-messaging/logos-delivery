@@ -24,6 +24,7 @@ import
   libp2p/utils/offsettedseq,
   libp2p_mix,
   libp2p_mix/mix_protocol,
+  libp2p_mix/spam_protection,
   brokers/broker_context,
   brokers/request_broker
 
@@ -356,6 +357,7 @@ proc mountMix*(
     clusterId: uint16,
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
+    spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
 ): Future[Result[void, string]] {.async.} =
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
@@ -367,7 +369,12 @@ proc mountMix*(
   info "local addr", localaddr = localaddrStr
 
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes
+    localaddrStr,
+    node.peerManager,
+    clusterId,
+    mixPrivKey,
+    mixnodes,
+    spamProtection = spamProtection,
   ).valueOr:
     error "Waku Mix protocol initialization failed", err = error
     return
