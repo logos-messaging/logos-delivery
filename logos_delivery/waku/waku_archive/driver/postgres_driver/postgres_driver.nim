@@ -34,6 +34,8 @@ type PostgresDriver* = ref object of ArchiveDriver
   ## Partition container
   partitionMngr: PartitionManager
   futLoopPartitionFactory: Future[void]
+  ## Set once a partition factory pass has provisioned the current and next hour
+  partitionsProvisioned: bool
 
   futLoopAnalyzeTable: Future[void]
 
@@ -1523,20 +1525,24 @@ proc runPartitionMaintenance(
     let newestPartition = self.partitionMngr.getNewestPartition().valueOr:
       return err("could not get newest partition: " & $error)
 
-    if newestPartition.containsMoment(now):
-      debug "Creating a new partition for the future"
-      ## The current used partition is the last one that was created.
-      ## Thus, let's create another partition for the future.
-
-      (await self.addPartition(newestPartition.getLastMoment())).isOkOr:
-        return err("could not add the next partition for 'now': " & $error)
-    elif now >= newestPartition.getLastMoment():
+    if now >= newestPartition.getLastMoment():
       debug "Creating a new partition to contain current messages"
       ## There is no partition to contain the current time.
       ## This happens if the node has been stopped for quite a long time.
       ## Then, let's create the needed partition to contain 'now'.
       (await self.addPartition(now)).isOkOr:
         return err("could not add the next partition: " & $error)
+
+  ## Also right after creating the partition for 'now' above: it ends at the next
+  ## o'clock, possibly within seconds, while the next pass is ten minutes away.
+  ## No partition tracked means that creation was deferred to another instance.
+  let newestPartition = self.partitionMngr.getNewestPartition()
+  if newestPartition.isOk() and newestPartition.get().containsMoment(now):
+    debug "Creating a new partition for the future"
+    (await self.addPartition(newestPartition.get().getLastMoment())).isOkOr:
+      return err("could not add the next partition for 'now': " & $error)
+
+  self.partitionsProvisioned = true
 
   ## After the partition checks, so a long backfill never gates builder.nim's
   ## startup partition wait; non-fatal, the next pass retries.
@@ -1722,6 +1728,9 @@ proc removeOldestPartition(
 
 proc containsAnyPartition*(self: PostgresDriver): bool =
   return not self.partitionMngr.isEmpty()
+
+proc arePartitionsProvisioned*(self: PostgresDriver): bool =
+  return self.partitionsProvisioned
 
 method decreaseDatabaseSize*(
     driver: PostgresDriver, targetSizeInBytes: int64, forceRemoval: bool = false
