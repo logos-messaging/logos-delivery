@@ -14,9 +14,9 @@ env:
 jobs:
   build:
     runs-on: windows-latest
-    # A green build takes 30-70 min. Fail a hung one instead of holding the
+    # A green build takes 30-45 min. Fail a hung one instead of holding the
     # runner for the 6 h default.
-    timeout-minutes: 120
+    timeout-minutes: 60
 
     defaults:
       run:
