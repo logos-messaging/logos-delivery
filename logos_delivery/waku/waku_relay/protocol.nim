@@ -218,7 +218,7 @@ proc logMessageInfo*(
   let payloadSize = float64(msg.payload.len)
 
   if onRecv:
-    trace "Received relay message",
+    info "Received relay message",
       my_peer_id = w.switch.peerInfo.peerId,
       msg_hash = msg_hash,
       msg_id = msg_id_short,
@@ -228,7 +228,7 @@ proc logMessageInfo*(
       receivedTime = getNowInNanosecondTime(),
       payloadSizeBytes = payloadSize
   else:
-    trace "Sent relay message",
+    info "Sent relay message",
       my_peer_id = w.switch.peerInfo.peerId,
       msg_hash = msg_hash,
       msg_id = msg_id_short,
