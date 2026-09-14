@@ -1,6 +1,6 @@
 {.push raises: [].}
 
-import std/sequtils, chronicles, confutils, results, stew/endians2, stint
+import std/[os, sequtils], chronicles, confutils, results, stew/endians2, stint
 import
   ../../tools/[rln_keystore_generator/rln_keystore_generator, confutils/cli_args],
   logos_delivery/waku/common/logging,
@@ -12,6 +12,11 @@ logScope:
 const git_version* {.strdefine.} = "n/a"
 
 type RlnKeystoreConf* = object
+  configFile* {.
+    desc: "Loads configuration from a TOML file (cmd-line parameters take precedence)",
+    name: "config-file"
+  .}: Opt[InputFile]
+
   logLevel* {.
     desc:
       "Sets the log level for process. Supported levels: TRACE, DEBUG, INFO, NOTICE, WARN, ERROR or FATAL",
@@ -73,6 +78,20 @@ type RlnKeystoreConf* = object
     name: "rln-relay-user-message-limit"
   .}: Opt[uint64]
 
+  # Accepted but unused, as in the former `generateRlnKeystore` subcommand, so
+  # its invocations keep working.
+  rlnEpochSizeSec* {.
+    desc: "Not used by keystore generation; accepted for compatibility with the node.",
+    defaultValue: Opt.none(uint64),
+    name: "rln-relay-epoch-sec"
+  .}: Opt[uint64]
+
+  maxMessageSize* {.
+    desc: "Not used by keystore generation; accepted for compatibility with the node.",
+    defaultValue: DefaultMaxWakuMessageSizeStr,
+    name: "max-msg-size"
+  .}: string
+
   execute* {.
     desc: "Runs the registration function on-chain. By default, a dry-run will occur",
     defaultValue: false,
@@ -91,14 +110,26 @@ func toGeneratorConf(conf: RlnKeystoreConf): RlnKeystoreGeneratorConf =
     credPassword: conf.rlnRelayCredPassword,
   )
 
-proc load*(T: type RlnKeystoreConf, version = ""): ConfResult[T] =
+proc load*(
+    T: type RlnKeystoreConf, version = "", cmdLine = commandLineParams()
+): ConfResult[T] =
   try:
     let conf = RlnKeystoreConf.load(
       version = version,
+      cmdLine = cmdLine,
       secondarySources = proc(
           conf: RlnKeystoreConf, sources: auto
       ) {.gcsafe, raises: [ConfigurationError].} =
-        sources.addConfigFile(Envvar, InputFile("rlnkeystore")),
+        sources.addConfigFile(Envvar, InputFile("rlnkeystore"))
+        # The former subcommand read the node's variables and config file;
+        # keep both working. Unknown TOML keys are the node's own options.
+        sources.addConfigFile(Envvar, InputFile(NodeEnvvarPrefix))
+
+        if conf.configFile.isSome():
+          sources.addConfigFileWithParams(
+            Toml, conf.configFile.get(), flags = {TomlUnknownFields}
+          )
+      ,
     )
     return ok(conf)
   except CatchableError:
