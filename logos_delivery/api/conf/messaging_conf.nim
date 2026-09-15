@@ -38,6 +38,8 @@ type MessagingClientConf* = object
     ## RLN epoch size, in seconds.
   rlnUserMessageLimit* {.name: "rln-relay-user-message-limit".}: Opt[uint64]
     ## Per-epoch message limit requested for the RLN membership.
+  rlnDisableValidation* {.name: "rln-disable-validation".}: Opt[bool]
+    ## Disable RLN message proof validation.
   reliabilityEnabled* {.name: "reliability".}: Opt[bool]
     ## Enable store-based send reliability.
   anonymityLevel*: Opt[AnonymityLevel]
@@ -138,6 +140,8 @@ proc toWakuNodeConf*(
     conf.rlnEpochSizeSec = Opt.some(self.rlnEpochSizeSec.get().uint64)
   if self.rlnUserMessageLimit.isSome():
     conf.rlnRelayUserMessageLimit = self.rlnUserMessageLimit
+  if self.rlnDisableValidation.isSome():
+    conf.rlnDisableValidation = self.rlnDisableValidation.get()
   if self.anonymityLevel.get(AnonymityLevel.None) != AnonymityLevel.None:
     # The send path can only use a mix that the node mounts.
     if conf.mix == Opt.some(false):

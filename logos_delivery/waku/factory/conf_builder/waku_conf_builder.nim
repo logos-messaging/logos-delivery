@@ -54,6 +54,7 @@ const
     # historical confbuilder default; the node CLI deviates (true)
   DefaultMix*: bool = false
   DefaultRelayPeerExchange: bool = false
+  DefaultRlnDisableValidation: bool = false
   DefaultLogLevel: logging.LogLevel = logging.LogLevel.INFO
   DefaultLogFormat: logging.LogFormat = logging.LogFormat.TEXT
   DefaultNatStrategy: string = "none"
@@ -116,6 +117,7 @@ type WakuConfBuilder* = object
   metricsServerConf*: MetricsServerConfBuilder
   restServerConf*: RestServerConfBuilder
   rlnRelayConf*: RlnConfBuilder
+  rlnDisableValidation: Opt[bool]
   storeServiceConf*: StoreServiceConfBuilder
   mixConf*: MixConfBuilder
   webSocketConf*: WebSocketConfBuilder
@@ -233,6 +235,9 @@ proc withRelayPeerExchange*(b: var WakuConfBuilder, relayPeerExchange: bool) =
 
 proc withRendezvous*(b: var WakuConfBuilder, rendezvous: bool) =
   b.rendezvous = Opt.some(rendezvous)
+
+proc withRlnDisableValidation*(b: var WakuConfBuilder, rlnDisableValidation: bool) =
+  b.rlnDisableValidation = Opt.some(rlnDisableValidation)
 
 proc withMix*(builder: var WakuConfBuilder, mix: bool) =
   builder.mix = Opt.some(mix)
@@ -602,6 +607,9 @@ proc build*(
 
   let relayPeerExchange = builder.relayPeerExchange.get(DefaultRelayPeerExchange)
 
+  let rlnDisableValidation =
+    builder.rlnDisableValidation.get(DefaultRlnDisableValidation)
+
   let nodeKey = ?nodeKey(builder, rng)
 
   let clusterId =
@@ -808,6 +816,7 @@ proc build*(
     filterServiceConf: filterServiceConf,
     discv5Conf: discv5Conf,
     rlnEvmConf: rlnConfs.evm,
+    rlnDisableValidation: rlnDisableValidation,
     metricsServerConf: metricsServerConf,
     restServerConf: restServerConf,
     dnsDiscoveryConf: dnsDiscoveryConf,
