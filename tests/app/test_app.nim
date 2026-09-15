@@ -88,6 +88,17 @@ suite "Node app - Waku initialization":
     check:
       services.filterIt(it of NATService).len == 1
 
+  test "ext-multiaddr-only leaves automatic NAT port mapping off":
+    ## libp2p runs the mappers even with an explicit list, so the factory configures none.
+    var conf = defaultTestWakuConf()
+    conf.endpointConf.extMultiAddrs =
+      @[MultiAddress.init("/ip4/203.0.113.44/tcp/60123").get()]
+    conf.endpointConf.extMultiAddrsOnly = true
+    conf.endpointConf.natStrategy = parseNatStrategy("upnp").expect("upnp")
+    let waku = (waitFor Waku.new(conf)).valueOr:
+      raiseAssert error
+    check waku.node.switch.services.filterIt(it of NATService).len == 0
+
   test "a post-start commit reaches the ENR through the production hook":
     ## Deleting the onCommittedAddresses callback fails this.
     ## So does setting it after the first refresh.

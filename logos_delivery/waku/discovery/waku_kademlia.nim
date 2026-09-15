@@ -7,20 +7,23 @@ import
   results,
   stew/byteutils,
   libp2p/[peerid, multiaddress, switch, extended_peer_record],
-  libp2p/extended_peer_record,
   libp2p/crypto/crypto,
   libp2p/crypto/rng,
   libp2p/crypto/curve25519,
   libp2p/protocols/service_discovery,
   libp2p/protocols/service_discovery/types,
   libp2p/protocols/kademlia/types,
-  libp2p_mix/mix_protocol,
-  libp2p_mix/curve25519
+  libp2p/protocols/kademlia/key_value,
+  libp2p_mix/mix_protocol
 
 import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/node/peer_manager,
   logos_delivery/waku/api/events/discovery_events
+
+# `WakuKademlia.new` is generic, so `ServiceDiscovery.new` instantiates in the
+# caller, which needs `hash`/`==` of the distinct kademlia `Key` in scope.
+export key_value.hash, key_value.`==`
 
 logScope:
   topics = "waku service discovery"
@@ -38,6 +41,13 @@ type WakuKademlia* = ref object
   serviceLookupInterval: Duration
   servicesToDiscover: HashSet[string]
   servicesToAdvertise: HashSet[ServiceInfo]
+    ## Configured services. `start` advertises them, `stop` stops advertising them.
+
+# Upstream ServiceDiscovery has one set for configured and advertised services:
+# its start asserts when a first advertisement fails, and its stop keeps the
+# advertised status. So the protocol gets no services at construction, `start`
+# advertises the configured set, and `stop` stops advertising it. Remove when
+# upstream fixes both.
 
 type KademliaDiscoveryConf* = object
   bootstrapNodes*: seq[(PeerId, seq[MultiAddress])]
@@ -210,13 +220,14 @@ proc new*(
   if bootstrapNodes.len == 0:
     debug "Creating service discovery as seed node (no bootstrap nodes)"
 
+  ## `start` advertises the configured set, see above.
   let protocol = ServiceDiscovery.new(
     switch,
     bootstrapNodes = bootstrapNodes,
     config = kadDhtConfig,
     rng = rng,
     client = clientMode,
-    services = servicesToAdvertise.toSeq(),
+    services = @[],
     discoConfig = discoConfig,
     xprPublishing = xprPublishing,
   )
@@ -232,9 +243,27 @@ proc new*(
 
   return ok(self)
 
+proc advertiseConfiguredServices(self: WakuKademlia) =
+  ## Advertises the configured services not advertised yet. Failures stay configured.
+  var added = false
+  for service in self.servicesToAdvertise:
+    if service in self.protocol.services:
+      continue
+    self.protocol.startAdvertising(service).isOkOr:
+      warn "Failed to advertise configured service", service = service.id, error = error
+      continue
+    added = true
+
+  ## Republish the self record: it listed no services at protocol start.
+  if added:
+    self.protocol.addressChanged.fire()
+
 proc start*(self: WakuKademlia) {.async: (raises: []).} =
   for serviceId in self.servicesToDiscover:
     discard self.protocol.registerInterest(serviceId)
+
+  ## Runs after switch.start, so the record has the announced addresses.
+  self.advertiseConfiguredServices()
 
   if self.randomLookupLoop.isNil():
     self.randomLookupLoop = self.runRandomLookupLoop()
@@ -252,6 +281,11 @@ proc stop*(self: WakuKademlia) {.async: (raises: []).} =
   if not self.randomLookupLoop.isNil():
     await self.randomLookupLoop.cancelAndWait()
     self.randomLookupLoop = nil
+
+  ## Stopped services stay marked as provided upstream and a restart rejects
+  ## them, so stop advertising them here. noCancel: a cancelled stop must finish.
+  for service in self.servicesToAdvertise.toSeq():
+    await noCancel self.protocol.stopAdvertising(service.id)
 
   info "Kademlia discovery stopped"
 

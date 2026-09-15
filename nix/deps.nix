@@ -138,8 +138,8 @@
 
   snappy = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-snappy";
-    rev = "da2f0c7b6ce9053106e9bb098204fe5319038387";
-    sha256 = "1jmjh1b70wkhzmyzvp46y50x3i1f0hkdrpy6msvqix60xwkxf1zy";
+    rev = "a99d113197e81bf764a3b005b0ade3f9f3758069";
+    sha256 = "0fbr352m01psi3f25c3gi95yimrjmvsh10wckywscn0603iqzpjl";
     fetchSubmodules = true;
   };
 
@@ -213,6 +213,13 @@
     fetchSubmodules = true;
   };
 
+  leopard = pkgs.fetchgit {
+    url = "https://github.com/status-im/nim-leopard";
+    rev = "0478b12df90cbbe531efa69422cff67b5a3a5d93";
+    sha256 = "1lfwsqrdc3nzdc3a2v4fmx2ilqxyipb8v3n08ffcf2zj5nrjgql4";
+    fetchSubmodules = true;
+  };
+
   taskpools = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-taskpools";
     rev = "7d96007793fdb2d244d392eb7c5cfa4a695d4ecc";
@@ -271,8 +278,8 @@
 
   websock = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-websock";
-    rev = "387a8eb7e961e8fdd3b1a717d36bc53b55e4dc5d";
-    sha256 = "1v0m3x96fbp9jdzsys6mbxxc2xw3k3dqiv7wksfla89gc6z8w377";
+    rev = "0432dc445c500b20963ef4b76e585c1a3943c254";
+    sha256 = "17kdlywwrlnqx8chf8l1b5gsbix5mmgkpgcwrxgj58af029h4yhr";
     fetchSubmodules = true;
   };
 
@@ -280,6 +287,13 @@
     url = "https://github.com/status-im/nim-json-rpc";
     rev = "6f1fff8ba685c9192fab153a9d66484ad9066e78";
     sha256 = "1r4xlis5fxcmp1cdqskb25nzmxckfkl8lndshvl76kcqrb0hl88d";
+    fetchSubmodules = true;
+  };
+
+  segmentation = pkgs.fetchgit {
+    url = "https://github.com/logos-messaging/nim-segmentation";
+    rev = "0593ef7c9267b0204093fe202bec477b2dbf824c";
+    sha256 = "0liwh3v8af3achqlzrlsg7p9nphf7zgxw05hip1v24zd0klsl77g";
     fetchSubmodules = true;
   };
 
@@ -292,22 +306,8 @@
 
   libp2p = pkgs.fetchgit {
     url = "https://github.com/vacp2p/nim-libp2p";
-    rev = "391e403cc274ab8623fb1106f2c2827e09c6c89f";
-    sha256 = "04hn4q73c598hh8hxs9y1s3zq6zhijb74776z23q4adlymy15x5q";
-    fetchSubmodules = true;
-  };
-
-  leopard = pkgs.fetchgit {
-    url = "https://github.com/status-im/nim-leopard";
-    rev = "0478b12df90cbbe531efa69422cff67b5a3a5d93";
-    sha256 = "1lfwsqrdc3nzdc3a2v4fmx2ilqxyipb8v3n08ffcf2zj5nrjgql4";
-    fetchSubmodules = true;
-  };
-
-  segmentation = pkgs.fetchgit {
-    url = "https://github.com/logos-messaging/nim-segmentation";
-    rev = "0593ef7c9267b0204093fe202bec477b2dbf824c";
-    sha256 = "0liwh3v8af3achqlzrlsg7p9nphf7zgxw05hip1v24zd0klsl77g";
+    rev = "73c3637bb7ebb6f749d74b676e9a0e461b9f30d5";
+    sha256 = "1ibf196jfwlhrbnxjl346z0ciwzf5a5x8gjwncq4s99yhfi1v2ml";
     fetchSubmodules = true;
   };
 
