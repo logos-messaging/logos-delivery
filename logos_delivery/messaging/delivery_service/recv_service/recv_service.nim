@@ -1,9 +1,9 @@
 ## This module is in charge of taking care of the messages that this node is expecting to
 ## receive and is backed by store-v3 requests to get an additional degree of certainty
 ##
-## For the reconnection backfill the node is offline while the kernel reports
-## relay not ready in Core mode, or no healthy filter subscription in Edge
-## mode. Back online, it queries Store for the messages missed while offline.
+## Reconnection backfill: offline while relay is not READY (Core) or any
+## subscribed shard lacks a healthy filter subscription (Edge). Queries Store
+## when back online.
 ##
 
 import results, std/[tables, sequtils, sets]
@@ -73,9 +73,7 @@ type RecvService* = ref object of RootObj
     ## hash of each message received in the last `MaxMessageLife`, with its
     ## local receipt time
 
-  online: bool
-    ## True when the kernel last reported relay READY or a healthy filter
-    ## subscription on a subscribed shard.
+  online: bool ## relay READY, or a healthy filter subscription on every subscribed shard
   backfillHandler: Future[void] ## in-flight store backfill task
   msgPrunerHandler: Future[void] ## removes too old messages
 
@@ -194,21 +192,21 @@ proc checkStore*(self: RecvService) {.async.} =
   self.startTimeToCheck = self.endTimeToCheck
 
 proc hasHealthyFilterSubscription(self: RecvService): bool =
-  ## True when the subscription manager reports a healthy filter subscription
-  ## on a subscribed shard.
+  ## Every subscribed shard has a healthy filter subscription (false with none).
+  var shards = 0
   for (shard, _) in self.waku.subscribedContentTopics():
+    inc shards
     let shardHealth = RequestEdgeShardHealth.request(self.brokerCtx, shard).valueOr:
       debug "Failed to read the filter subscription health of a shard",
         shard = shard, error = error
-      continue
-    if shardHealth.health in
+      return false
+    if shardHealth.health notin
         {TopicHealth.MINIMALLY_HEALTHY, TopicHealth.SUFFICIENTLY_HEALTHY}:
-      return true
-  return false
+      return false
+  return shards > 0
 
 proc hasReadyReceivePath(self: RecvService): bool =
-  ## True when the kernel reports relay READY or a healthy filter subscription
-  ## on a subscribed shard.
+  ## Relay READY, or a healthy filter subscription on every subscribed shard.
   return
     self.waku.reportedProtocolHealth(WakuProtocol.RelayProtocol).health ==
     HealthStatus.READY or self.hasHealthyFilterSubscription()
@@ -414,8 +412,7 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
     error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)
 
-  # Each event below can change `online`. An unsubscribe can remove the last
-  # shard with a healthy filter subscription, which no health event reports.
+  # All of these can change `online`. Subscription changes have no health event.
   self.protocolHealthListener = self.listenForReadiness(EventProtocolHealthChange)
   self.shardHealthListener = self.listenForReadiness(EventShardTopicHealthChange)
   self.subscribedEventListener = self.listenForReadiness(ContentTopicSubscribedEvent)

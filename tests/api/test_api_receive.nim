@@ -946,11 +946,9 @@ suite "Messaging API, Receive Service (store recovery)":
       check await eventManager.waitForEvents(CatchUpRetryPeriod - 5.seconds)
       check eventManager.receivedMessages.mapIt(it.payload).contains(oldMsg.payload)
 
-    # Phase 6: Edge mode, two shards. Shard 0 has a filter subscription and
-    # shard 1 has none. The application unsubscribes shard 0's topic. Only the
-    # unsubscribe event reports that the node went offline. A filter service
-    # for shard 1 then appears. The backfill must deliver the message archived
-    # after the unsubscribe.
+    # Phase 6: Edge, two shards, no filter service on shard 1. Subscribing it
+    # takes the node offline. Unsubscribe shard 0, archive on shard 1, start a
+    # shard 1 filter service. Backfill must deliver the archived message.
     block:
       # with two shards, `/recv-a/1` maps to shard 0 and `/recv-b/1` maps to shard 1
       let topicA = ContentTopic("/recv-a/1/edge-two-shards/proto")
