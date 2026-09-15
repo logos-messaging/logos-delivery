@@ -858,8 +858,10 @@ proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
 
     WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventIdentified)
 
-  peerStore[ConnectionBook][peerId] = connectedness
-  peerStore[DirectionBook][peerId] = direction
+  if event.kind != PeerEventKind.Identified:
+    # Identified changes the protocol book only.
+    peerStore[ConnectionBook][peerId] = connectedness
+    peerStore[DirectionBook][peerId] = direction
 
   if not pm.storage.isNil:
     var remotePeerInfo = peerStore.getPeer(peerId)
@@ -1253,6 +1255,8 @@ proc new*(
 
   pm.switch.addPeerEventHandler(peerHook, PeerEventKind.Joined)
   pm.switch.addPeerEventHandler(peerHook, PeerEventKind.Left)
+  # identify writes the protocol book, then libp2p emits `Identified`
+  pm.switch.addPeerEventHandler(peerHook, PeerEventKind.Identified)
 
   # called every time the peerstore is updated
   peerStore[AddressBook].addHandler(peerStoreChanged)

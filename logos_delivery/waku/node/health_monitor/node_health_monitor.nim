@@ -67,6 +67,27 @@ type NodeHealthMonitor* = ref object
   adjustConnectionStatus*: ConnectionStatusAdjuster
     ## lets an upper layer tighten the computed status; set before start
 
+proc publishProtocolHealth(hm: NodeHealthMonitor, protocols: seq[ProtocolHealth]) =
+  ## Stores the records of one pass. Emits `EventProtocolHealthChange` for
+  ## each protocol whose status changed. A change of the description alone
+  ## emits no event.
+  let previous = hm.cachedProtocols
+  hm.cachedProtocols = protocols
+  for current in protocols:
+    if previous.anyIt(it.protocol == current.protocol and it.health == current.health):
+      continue
+    EventProtocolHealthChange.emit(hm.node.brokerCtx, current)
+
+func reportedProtocolHealth*(
+    hm: NodeHealthMonitor, protocol: WakuProtocol
+): ProtocolHealth =
+  ## The record the last pass stored for `protocol`. Before the first pass
+  ## the status is `NOT_MOUNTED`.
+  for p in hm.cachedProtocols:
+    if p.protocol == $protocol:
+      return p
+  return ProtocolHealth.init(protocol)
+
 func getHealth*(report: HealthReport, kind: WakuProtocol): ProtocolHealth =
   for h in report.protocolsHealth:
     if h.protocol == $kind:
@@ -482,7 +503,7 @@ proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.}
     return report
 
   if hm.cachedProtocols.len == 0:
-    hm.cachedProtocols = await hm.getAllProtocolHealthInfo()
+    hm.publishProtocolHealth(await hm.getAllProtocolHealthInfo())
     hm.connectionStatus = hm.calculateConnectionState()
 
   report.nodeHealth =
@@ -503,7 +524,7 @@ proc getSyncNodeHealthReport*(hm: NodeHealthMonitor): HealthReport =
     return report
 
   if hm.cachedProtocols.len == 0:
-    hm.cachedProtocols = hm.getSyncAllProtocolHealthInfo()
+    hm.publishProtocolHealth(hm.getSyncAllProtocolHealthInfo())
     hm.connectionStatus = hm.calculateConnectionState()
 
   report.nodeHealth =
@@ -541,7 +562,8 @@ proc healthLoop(hm: NodeHealthMonitor) {.async.} =
       await hm.healthUpdateEvent.wait()
       hm.healthUpdateEvent.clear()
 
-      hm.cachedProtocols = await hm.getAllProtocolHealthInfo()
+      hm.publishProtocolHealth(await hm.getAllProtocolHealthInfo())
+
       let newConnectionStatus = hm.calculateConnectionState()
 
       if newConnectionStatus != hm.connectionStatus:

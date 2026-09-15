@@ -20,3 +20,8 @@ EventBroker:
   type EventShardTopicHealthChange* = object
     topic*: PubsubTopic
     health*: TopicHealth
+
+# The health monitor emits this when a protocol's health status changes.
+EventBroker:
+  type EventProtocolHealthChange* = object
+    protocolHealth*: ProtocolHealth

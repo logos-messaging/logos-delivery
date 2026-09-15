@@ -13,8 +13,13 @@ import logos_delivery/messaging/delivery_service/recv_service
 import logos_delivery/messaging/delivery_service/recv_service/backfill
 import logos_delivery/waku/persistency/persistency
 import logos_delivery/api/events/kernel_events
+import logos_delivery/waku/requests/health_requests
+import logos_delivery/waku/node/health_monitor/health_status
+import logos_delivery/waku/api/health
+import logos_delivery/api/conf/modes
 import logos_delivery/api/conf/logos_delivery_conf
 from logos_delivery/waku/waku_store/common import WakuStoreCodec
+from logos_delivery/waku/waku_filter_v2/subscriptions import removePeer
 
 import
   logos_delivery,
@@ -71,31 +76,12 @@ proc waitForEvents(
 ): Future[bool] {.async.} =
   return await manager.receivedEvent.wait().withTimeout(timeout)
 
-proc waitForConnectionStatus(
-    brokerCtx: BrokerContext, expected: ConnectionStatus
-) {.async.} =
-  ## Completes when the node reports `expected`.
-  var future = newFuture[void]("waitForConnectionStatus")
-
-  let handler: EventConnectionStatusChangeListenerProc = proc(
-      e: EventConnectionStatusChange
-  ) {.async: (raises: []), gcsafe.} =
-    if not future.finished and e.connectionStatus == expected:
-      future.complete()
-
-  let handle = EventConnectionStatusChange.listen(brokerCtx, handler).valueOr:
-    raiseAssert error
-
-  try:
-    if not await future.withTimeout(TestTimeout):
-      raiseAssert "Timeout waiting for status: " & $expected
-  finally:
-    await EventConnectionStatusChange.dropListener(brokerCtx, handle)
-
-proc createApiNodeConf(numShards: uint16 = 1): WakuNodeConf =
+proc createApiNodeConf(
+    numShards: uint16 = 1, mode = LogosDeliveryMode.Core
+): WakuNodeConf =
   ## The shared test defaults, plus a resolver that stays on this machine: the
   ## restarted child process must not wait on a real DNS server.
-  var conf = defaultTestWakuNodeConf(numShards = numShards)
+  var conf = defaultTestWakuNodeConf(mode = mode, numShards = numShards)
   conf.dnsAddrsNameServers = @[parseIpAddress("127.0.0.1")]
   return conf
 
@@ -121,15 +107,24 @@ type TestNetwork = ref object
   ownedRoot: string ## temp storage root created here, removed at teardown
 
 proc setupNetwork(
-    testTopic: ContentTopic, storageRoot = "", knowStorePeer = true
+    testTopic: ContentTopic,
+    storageRoot = "",
+    knowStorePeer = true,
+    messaging = backfillOverrides(),
+    mode = LogosDeliveryMode.Core,
+    remoteFilter = false,
+    localStore = false,
+    numShards: uint16 = 1,
+    storeNodeShards: seq[uint16] = @[],
 ): Future[TestNetwork] {.async.} =
   ## A started subscriber on `testTopic` with one message archived between its
   ## start and its subscription, so only Store can deliver it. With
   ## `knowStorePeer` the store node is a known service peer that the Store
   ## client dials on demand, as a configured store node is. The root is on
   ## disk so a later process reads the hint, and an empty `storageRoot` gets
-  ## a temporary one.
-  const numShards: uint16 = 1
+  ## a temporary one. With `remoteFilter` the store node serves filter. With
+  ## `localStore` the subscriber serves Store. `storeNodeShards` limits the
+  ## shards the store node advertises. `testTopic` must autoshard to shard 0.
   let ownedRoot =
     if storageRoot.len == 0:
       createTempDir("recv-api-", "")
@@ -146,13 +141,20 @@ proc setupNetwork(
   var archiveDriver: ArchiveDriver
   lockNewGlobalBrokerContext:
     storeNode = newTestWakuNode(generateSecp256k1Key())
-    storeNode.mountMetadata(TestClusterId, toSeq(0'u16 ..< numShards)).expect(
+    let advertised =
+      if storeNodeShards.len > 0:
+        storeNodeShards
+      else:
+        toSeq(0'u16 ..< numShards)
+    storeNode.mountMetadata(TestClusterId, advertised).expect(
       "Failed to mount metadata on storeNode"
     )
     (await storeNode.mountRelay()).expect("Failed to mount relay on storeNode")
     archiveDriver = newSqliteArchiveDriver()
     storeNode.mountArchive(archiveDriver).expect("Failed to mount archive")
     await storeNode.mountStore()
+    if remoteFilter:
+      await storeNode.mountFilter()
     await storeNode.mountLibp2pPing()
     await storeNode.start()
   storeNode.subscribe((kind: PubsubSub, topic: shard), dummyHandler).expect(
@@ -190,9 +192,12 @@ proc setupNetwork(
   # and before the subscription, inside the range to catch up.
   var subscriber: LogosDelivery
   lockNewGlobalBrokerContext:
-    var conf = createApiNodeConf(numShards)
+    var conf = createApiNodeConf(numShards, mode)
     conf.localStoragePath = root
-    subscriber = (await LogosDelivery.new(nodeConf(conf, backfillOverrides()))).expect(
+    if localStore:
+      conf.store = true
+      conf.storeMessageDbUrl = "sqlite://" & (root / "local-store.sqlite3")
+    subscriber = (await LogosDelivery.new(nodeConf(conf, messaging))).expect(
       "Failed to create subscriber"
     )
     (await subscriber.start()).expect("Failed to start subscriber")
@@ -252,6 +257,7 @@ proc teardown(net: TestNetwork) {.async.} =
 
 const RestartTopic = ContentTopic("/waku/2/recv-process-restart/proto")
 const TestShard = PubsubTopic("/waku/2/rs/3/0")
+const SecondShard = PubsubTopic("/waku/2/rs/3/1") ## shard 1 of a two-shard network
 const OfflineCount = 105 ## archived between two subscriber processes, two Store pages
 const Hour = chronos.hours(1).nanos
 
@@ -351,12 +357,16 @@ proc waitForArchived(net: TestNetwork, topic: ContentTopic, count: int) {.async.
   raiseAssert "messages were not archived in time"
 
 proc archiveAt(
-    net: TestNetwork, topic: ContentTopic, at: Timestamp, text: string
+    net: TestNetwork,
+    topic: ContentTopic,
+    at: Timestamp,
+    text: string,
+    shard = TestShard,
 ): Future[WakuMessage] {.async.} =
   ## Puts a message with the timestamp `at` directly into the archive driver,
   ## because the archive rejects a timestamp outside its tolerance.
   let msg = WakuMessage(payload: text.toBytes(), contentTopic: topic, timestamp: at)
-  (await net.archiveDriver.put(computeMessageHash(TestShard, msg), TestShard, msg)).expect(
+  (await net.archiveDriver.put(computeMessageHash(shard, msg), shard, msg)).expect(
     "archive put"
   )
   return msg
@@ -404,14 +414,13 @@ proc joinMesh(net: TestNetwork) {.async.} =
   ## Joins the relay mesh through the store node.
   await net.joinMesh(net.storeNodePeerInfo)
 
-proc tunnel(net: TestNetwork, topic: ContentTopic): Future[WakuMessage] {.async.} =
-  ## Disconnects the subscriber from the store node, waits until it reports
-  ## `Disconnected`, then puts one message straight into the archive. Direct
-  ## insertion keeps Store the only path, because the relay cache can give a
-  ## published message at reconnection.
-  let offline = waitForConnectionStatus(
-    net.subscriber.waku.brokerCtx, ConnectionStatus.Disconnected
-  )
+proc tunnel(
+    net: TestNetwork, topic: ContentTopic, offline: Future[void]
+): Future[WakuMessage] {.async.} =
+  ## Disconnects the subscriber from the store node, waits for `offline`, then
+  ## puts one message straight into the archive. Direct insertion keeps Store
+  ## the only path, because the relay cache can give a published message at
+  ## reconnection.
   await net.subscriber.waku.node.disconnectNode(net.storeNodePeerInfo)
   await offline
   let msg = WakuMessage(
@@ -426,13 +435,99 @@ proc publishLive(net: TestNetwork, topic: ContentTopic, text: string) {.async.} 
   let msg = WakuMessage(payload: text.toBytes(), contentTopic: topic, timestamp: now())
   discard (await net.publisher.publish(Opt.some(TestShard), msg)).expect("publish live")
 
+proc requiredAnonymity(): MessagingClientConf =
+  ## A `Required` node with an empty mix pool, so `ConnectionStatus` stays
+  ## `Disconnected`.
+  return MessagingClientConf(
+    backfillEnabled: Opt.some(true), anonymityLevel: Opt.some(AnonymityLevel.Required)
+  )
+
+proc waitForProtocolHealth(
+    waku: Waku, protocol: WakuProtocol, health: HealthStatus
+) {.async.} =
+  ## Completes once the kernel reports `protocol` at `health`. Registers the
+  ## listener, then reads the stored status.
+  let future = newFuture[void]("waitForProtocolHealth")
+  let handler: EventProtocolHealthChangeListenerProc = proc(
+      e: EventProtocolHealthChange
+  ) {.async: (raises: []), gcsafe.} =
+    if not future.finished and e.protocolHealth.protocol == $protocol and
+        e.protocolHealth.health == health:
+      future.complete()
+  let handle = EventProtocolHealthChange.listen(waku.brokerCtx, handler).valueOr:
+    raiseAssert error
+  try:
+    if waku.reportedProtocolHealth(protocol).health == health:
+      return
+    if not await future.withTimeout(TestTimeout):
+      raiseAssert "Timeout waiting for " & $protocol & " to be " & $health
+  finally:
+    await EventProtocolHealthChange.dropListener(waku.brokerCtx, handle)
+
+proc noopRelayHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+  discard
+
+proc newFilterServiceNode(shardId: uint16): Future[WakuNode] {.async.} =
+  ## A started relay and filter service node that advertises shard `shardId` only.
+  let shard = PubsubTopic("/waku/2/rs/" & $TestClusterId & "/" & $shardId)
+  var node: WakuNode
+  lockNewGlobalBrokerContext:
+    node = newTestWakuNode(generateSecp256k1Key())
+    node.mountMetadata(TestClusterId, @[shardId]).expect("mount metadata")
+    (await node.mountRelay()).expect("mount relay")
+    await node.mountFilter()
+    await node.mountLibp2pPing()
+    await node.start()
+  let subscribed = node.subscribe((kind: PubsubSub, topic: shard), noopRelayHandler)
+  if subscribed.isErr():
+    await node.stop()
+    raiseAssert "filter service node subscribe: " & subscribed.error
+  return node
+
+proc filterSubscriptionHealthy(net: TestNetwork, shard = TestShard): bool =
+  ## True when the subscription manager reports `shard`'s filter subscription healthy.
+  let shardHealth = RequestEdgeShardHealth.request(net.subscriber.waku.brokerCtx, shard).valueOr:
+    return false
+  return
+    shardHealth.health in
+    {TopicHealth.MINIMALLY_HEALTHY, TopicHealth.SUFFICIENTLY_HEALTHY}
+
+proc waitForFilterSubscriptionHealth(
+    net: TestNetwork, healthy: bool, shard = TestShard
+) {.async.} =
+  ## Completes once the subscription manager reports `shard`'s filter
+  ## subscription at `healthy`. Registers the listener, then reads the stored
+  ## health.
+  let future = newFuture[void]("waitForFilterSubscriptionHealth")
+  let handler: EventShardTopicHealthChangeListenerProc = proc(
+      e: EventShardTopicHealthChange
+  ) {.async: (raises: []), gcsafe.} =
+    if future.finished or e.topic != shard:
+      return
+    let isHealthy =
+      e.health in {TopicHealth.MINIMALLY_HEALTHY, TopicHealth.SUFFICIENTLY_HEALTHY}
+    if isHealthy == healthy:
+      future.complete()
+  let brokerCtx = net.subscriber.waku.brokerCtx
+  let handle = EventShardTopicHealthChange.listen(brokerCtx, handler).valueOr:
+    raiseAssert error
+  try:
+    if net.filterSubscriptionHealthy(shard) == healthy:
+      return
+    if not await future.withTimeout(TestTimeout):
+      raiseAssert "Timeout waiting for the shard to be " &
+        (if healthy: "healthy" else: "unhealthy")
+  finally:
+    await EventShardTopicHealthChange.dropListener(brokerCtx, handle)
+
 proc bringOnline(net: TestNetwork) {.async.} =
-  ## Connects the subscriber to the store node and waits for the status event.
-  let onlineFut = waitForConnectionStatus(
-    net.subscriber.waku.brokerCtx, ConnectionStatus.PartiallyConnected
+  ## Connects the subscriber to the store node and waits until the kernel
+  ## reports relay READY.
+  let relayReady = waitForProtocolHealth(
+    net.subscriber.waku, WakuProtocol.RelayProtocol, HealthStatus.READY
   )
   await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
-  await onlineFut
+  await relayReady
 
 ## Few multi-phase cases. Each `test` block costs three GC-tracked globals, and
 ## the refc runtime caps the waku test binary at 3500.
@@ -693,7 +788,16 @@ suite "Messaging API, Receive Service (store recovery)":
       let eventManager = net.events
       check await eventManager.waitForEvents(TestTimeout) # the setup message
       await net.joinMesh() # the Store dial can connect them before this
-      let gapMsg = await net.tunnel(topic)
+      # the kernel must report relay READY before the tunnel waits for NOT_READY
+      await waitForProtocolHealth(
+        net.subscriber.waku, WakuProtocol.RelayProtocol, HealthStatus.READY
+      )
+      let gapMsg = await net.tunnel(
+        topic,
+        waitForProtocolHealth(
+          net.subscriber.waku, WakuProtocol.RelayProtocol, HealthStatus.NOT_READY
+        ),
+      )
       eventManager.targetCount = 2
       eventManager.receivedEvent.clear()
       await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
@@ -703,6 +807,196 @@ suite "Messaging API, Receive Service (store recovery)":
       # The setup message and the gap message were both recovered from Store.
       check eventManager.receivedSources ==
         @[MessageSource.History, MessageSource.History]
+
+  asyncTest "the receive service follows its receive peers, not ConnectionStatus":
+    ## Under #4238, `ConnectionStatus` stays `Disconnected` in every phase.
+    # Phase 1: the reconnection backfill runs when the relay peer is back. The
+    # startup catch-up exited, so only the reconnection backfill can deliver
+    # the tunnel message.
+    block:
+      let topic = ContentTopic("/waku/2/recv-required-tunnel/proto")
+      let net = await setupNetwork(topic, messaging = requiredAnonymity())
+      defer:
+        await net.teardown()
+      let eventManager = net.events
+      check await eventManager.waitForEvents(TestTimeout) # the setup message
+      await net.joinMesh()
+      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
+      # mix is not ready, so #4238 holds `ConnectionStatus` at `Disconnected`
+      check net.subscriber.waku.reportedProtocolHealth(WakuProtocol.MixProtocol).health !=
+        HealthStatus.READY
+      let gapMsg = await net.tunnel(
+        topic,
+        waitForProtocolHealth(
+          net.subscriber.waku, WakuProtocol.RelayProtocol, HealthStatus.NOT_READY
+        ),
+      )
+      eventManager.targetCount = 2
+      eventManager.receivedEvent.clear()
+      await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
+      check await eventManager.waitForEvents(TestTimeout)
+      check eventManager.receivedMessages.len == 2 and
+        eventManager.receivedMessages[^1].payload == gapMsg.payload
+      # mix is still not ready
+      check net.subscriber.waku.reportedProtocolHealth(WakuProtocol.MixProtocol).health !=
+        HealthStatus.READY
+
+    # Phase 2: the startup catch-up queries a Store peer as soon as the kernel
+    # reports its connection. A message from an hour before the start is
+    # outside the reconnection backfill's window, so only the catch-up can
+    # deliver it.
+    block:
+      let topic = ContentTopic("/waku/2/recv-required-learned-peer/proto")
+      let net = await setupNetwork(
+        topic, knowStorePeer = false, messaging = requiredAnonymity()
+      )
+      defer:
+        await net.teardown()
+      let eventManager = net.events
+      let oldMsg = await net.archiveAt(topic, now() - Hour, "archived an hour ago")
+      eventManager.targetCount = 2
+      await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
+      check await eventManager.waitForEvents(CatchUpRetryPeriod - 5.seconds)
+      check eventManager.receivedMessages.mapIt(it.payload).contains(oldMsg.payload)
+
+    # Phase 3: the relay peer stays connected, unsubscribes from the shard,
+    # then subscribes again. The peer serves filter too, so the filter
+    # client's protocol health stays READY through the outage.
+    block:
+      let topic = ContentTopic("/waku/2/recv-required-resubscribe/proto")
+      let net =
+        await setupNetwork(topic, messaging = requiredAnonymity(), remoteFilter = true)
+      defer:
+        await net.teardown()
+      let eventManager = net.events
+      check await eventManager.waitForEvents(TestTimeout) # the setup message
+      await net.joinMesh()
+      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
+      check net.subscriber.waku.reportedProtocolHealth(
+        WakuProtocol.FilterClientProtocol
+      ).health == HealthStatus.READY
+      let offline = waitForProtocolHealth(
+        net.subscriber.waku, WakuProtocol.RelayProtocol, HealthStatus.NOT_READY
+      )
+      net.storeNode.unsubscribe((kind: PubsubSub, topic: TestShard)).expect(
+        "store node unsubscribe"
+      )
+      await offline
+      let gapMsg = await net.archiveAt(topic, now(), "archived while unsubscribed")
+      eventManager.targetCount = 2
+      eventManager.receivedEvent.clear()
+      net.storeNode
+        .subscribe((kind: PubsubSub, topic: TestShard), noopRelayHandler)
+        .expect("store node subscribe")
+      check await eventManager.waitForEvents(TestTimeout)
+      check eventManager.receivedMessages.len == 2 and
+        eventManager.receivedMessages[^1].payload == gapMsg.payload
+
+    # Phase 4: Edge mode. The filter service drops the subscription while the
+    # connection stays. The subscription manager notices on its next ping and
+    # subscribes again. The test archives the message after the ping, because
+    # the offline window starts there.
+    block:
+      let topic = ContentTopic("/waku/2/recv-required-edge-filter/proto")
+      let net = await setupNetwork(
+        topic,
+        messaging = requiredAnonymity(),
+        mode = LogosDeliveryMode.Edge,
+        remoteFilter = true,
+      )
+      defer:
+        await net.teardown()
+      let eventManager = net.events
+      check await eventManager.waitForEvents(TestTimeout) # the setup message
+      await net.waitForFilterSubscriptionHealth(healthy = true)
+      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
+      let offline = net.waitForFilterSubscriptionHealth(healthy = false)
+      await net.storeNode.wakuFilter.subscriptions.removePeer(
+        net.subscriber.waku.node.switch.peerInfo.peerId
+      )
+      await offline
+      check net.subscriber.waku.reportedProtocolHealth(
+        WakuProtocol.FilterClientProtocol
+      ).health == HealthStatus.READY
+      let gapMsg = await net.archiveAt(
+        topic, now(), "archived while the filter subscription was gone"
+      )
+      eventManager.targetCount = 2
+      eventManager.receivedEvent.clear()
+      check await eventManager.waitForEvents(TestTimeout)
+      check eventManager.receivedMessages.len == 2 and
+        eventManager.receivedMessages[^1].payload == gapMsg.payload
+
+    # Phase 5: a local Store keeps the Store client's protocol health READY
+    # with no remote peer. The catch-up queries the first remote Store peer
+    # as soon as the kernel reports its identify.
+    block:
+      let topic = ContentTopic("/waku/2/recv-required-local-store/proto")
+      let net = await setupNetwork(
+        topic, knowStorePeer = false, messaging = requiredAnonymity(), localStore = true
+      )
+      defer:
+        await net.teardown()
+      let eventManager = net.events
+      check net.subscriber.waku.reportedProtocolHealth(WakuProtocol.StoreClientProtocol).health ==
+        HealthStatus.READY
+      let oldMsg = await net.archiveAt(topic, now() - Hour, "archived an hour ago too")
+      eventManager.targetCount = 2
+      await net.subscriber.waku.node.connectToNodes(@[net.storeNodePeerInfo])
+      check await eventManager.waitForEvents(CatchUpRetryPeriod - 5.seconds)
+      check eventManager.receivedMessages.mapIt(it.payload).contains(oldMsg.payload)
+
+    # Phase 6: Edge mode, two shards. Shard 0 has a filter subscription and
+    # shard 1 has none. The application unsubscribes shard 0's topic. Only the
+    # unsubscribe event reports that the node went offline. A filter service
+    # for shard 1 then appears. The backfill must deliver the message archived
+    # after the unsubscribe.
+    block:
+      # with two shards, `/recv-a/1` maps to shard 0 and `/recv-b/1` maps to shard 1
+      let topicA = ContentTopic("/recv-a/1/edge-two-shards/proto")
+      let topicB = ContentTopic("/recv-b/1/edge-two-shards/proto")
+      let net = await setupNetwork(
+        topicA,
+        messaging = requiredAnonymity(),
+        mode = LogosDeliveryMode.Edge,
+        remoteFilter = true,
+        numShards = 2,
+        storeNodeShards = @[0'u16],
+      )
+      defer:
+        await net.teardown()
+      let eventManager = net.events
+      check await eventManager.waitForEvents(TestTimeout) # the setup message
+      await net.waitForFilterSubscriptionHealth(healthy = true)
+      await net.subscriber.messagingClient.recvService.waitForStartupCatchUp()
+      (await net.subscriber.messagingClient.subscribe(topicB)).expect("subscribe B")
+      # no service peer advertises shard 1, so its filter subscription stays down
+      await sleepAsync(2.seconds) # past the subscription loop's debounce
+      check not net.filterSubscriptionHealthy(SecondShard)
+      check net.filterSubscriptionHealthy(TestShard)
+      net.subscriber.messagingClient.unsubscribe(topicA).expect("unsubscribe A")
+      # archived after the unsubscribe, inside the offline window
+      let gapMsg = await net.archiveAt(
+        topicB,
+        now(),
+        "archived after the unsubscribe, before a filter service",
+        SecondShard,
+      )
+      # shard 1 gets its filter service
+      let filterNode = await newFilterServiceNode(1'u16)
+      defer:
+        await filterNode.stop()
+      eventManager.targetCount = 2
+      eventManager.receivedEvent.clear()
+      let healthyB = net.waitForFilterSubscriptionHealth(healthy = true, SecondShard)
+      await net.subscriber.waku.node.connectToNodes(
+        @[filterNode.peerInfo.toRemotePeerInfo()]
+      )
+      await healthyB
+      check await eventManager.waitForEvents(TestTimeout)
+      check eventManager.receivedMessages.len == 2 and
+        eventManager.receivedMessages[^1].payload == gapMsg.payload
+      check eventManager.receivedSources[^1] == MessageSource.History
 
   asyncTest "a topic subscribed while the catch-up settles is caught up to its own time":
     ## The app restores its subscriptions one call at a time. After the first

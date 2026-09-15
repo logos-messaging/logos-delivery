@@ -1,6 +1,10 @@
 ## This module is in charge of taking care of the messages that this node is expecting to
 ## receive and is backed by store-v3 requests to get an additional degree of certainty
 ##
+## For the reconnection backfill the node is offline while the kernel reports
+## relay not ready in Core mode, or no healthy filter subscription in Edge
+## mode. Back online, it queries Store for the messages missed while offline.
+##
 
 import results, std/[tables, sequtils, sets]
 import chronos, chronicles
@@ -8,14 +12,16 @@ import brokers/broker_context
 import
   ./backfill,
   logos_delivery/api/conf/messaging_conf,
+  logos_delivery/api/events/kernel_events,
+  logos_delivery/api/events/messaging_client_events, # MessageReceivedEvent
+  logos_delivery/messaging/messaging_metrics,
   logos_delivery/waku/persistency/persistency,
   logos_delivery/waku/[waku_core, waku_core/topics, waku_store/common],
   logos_delivery/waku/waku,
-  logos_delivery/waku/api/[store, subscriptions]
-import
-  logos_delivery/api/events/kernel_events,
-  logos_delivery/api/events/messaging_client_events, # MessageReceivedEvent
-  logos_delivery/messaging/messaging_metrics
+  logos_delivery/waku/api/[store, subscriptions, health],
+  logos_delivery/waku/api/events/[health_events, peer_events],
+  logos_delivery/waku/requests/health_requests,
+  logos_delivery/waku/node/health_monitor/health_status
 
 const MaxMessageLife = chronos.minutes(7) ## Max time we will keep track of rx messages
 
@@ -29,7 +35,7 @@ const ActivityWriteInterval* = chronos.seconds(10)
 
 const CatchUpRetryPeriod* = chronos.seconds(30)
   ## Longest wait between two Store attempts of the startup catch-up. A new
-  ## subscription or a connectivity change ends the wait early.
+  ## subscription or a peer change ends the wait early.
 
 const FirstRunHistory* = chronos.hours(24)
   ## The catch-up of a node with no recovery hint goes back this far.
@@ -58,18 +64,18 @@ type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
   waku: Waku
   seenMsgListener: MessageSeenEventListener
-  connStatusListener: EventConnectionStatusChangeListener
+  relayHealthListener: EventProtocolHealthChangeListener
+  shardHealthListener: EventShardTopicHealthChangeListener
+  subscriptionListener: ContentTopicSubscribedEventListener
+  unsubscriptionListener: ContentTopicUnsubscribedEventListener
 
   recentReceivedMsgs: Table[WakuMessageHash, Timestamp]
     ## hash of each message received in the last `MaxMessageLife`, with its
     ## local receipt time
 
   online: bool
-    ## Whether we currently have connectivity (ConnectionStatus != Disconnected).
-    ## Status events carry only the new state, so this remembers the previous one
-    ## to act on edges, not every event: `PartiallyConnected`/`Connected` flicker
-    ## while still online, and the bool collapses that — backfill once when we come
-    ## online, stamp the gap start when we go offline.
+    ## True when the kernel last reported relay READY or a healthy filter
+    ## subscription on a subscribed shard.
   backfillHandler: Future[void] ## in-flight store backfill task
   msgPrunerHandler: Future[void] ## removes too old messages
 
@@ -187,9 +193,31 @@ proc checkStore*(self: RecvService) {.async.} =
   ## update next check times
   self.startTimeToCheck = self.endTimeToCheck
 
-proc onConnectionStatusChange(self: RecvService, status: ConnectionStatus) =
-  ## Backfill the store over the window we were offline (`Disconnected`).
-  let nowOnline = status != ConnectionStatus.Disconnected
+proc hasHealthyFilterSubscription(self: RecvService): bool =
+  ## True when the subscription manager reports a healthy filter subscription
+  ## on a subscribed shard.
+  for (shard, _) in self.waku.subscribedContentTopics():
+    let shardHealth = RequestEdgeShardHealth.request(self.brokerCtx, shard).valueOr:
+      debug "Failed to read the filter subscription health of a shard",
+        shard = shard, error = error
+      continue
+    if shardHealth.health in
+        {TopicHealth.MINIMALLY_HEALTHY, TopicHealth.SUFFICIENTLY_HEALTHY}:
+      return true
+  return false
+
+proc hasReadyReceivePath(self: RecvService): bool =
+  ## True when the kernel reports relay READY or a healthy filter subscription
+  ## on a subscribed shard.
+  return
+    self.waku.reportedProtocolHealth(WakuProtocol.RelayProtocol).health ==
+    HealthStatus.READY or self.hasHealthyFilterSubscription()
+
+proc updateReceiveReadiness(self: RecvService) =
+  ## Records the time the node goes offline. When the node is back online,
+  ## queries Store for the messages missed while offline. Does not retry a
+  ## failed Store query.
+  let nowOnline = self.hasReadyReceivePath()
   if nowOnline == self.online:
     return
   self.online = nowOnline
@@ -199,7 +227,6 @@ proc onConnectionStatusChange(self: RecvService, status: ConnectionStatus) =
     return
 
   # At most one backfill in flight; skip if the previous is still running.
-  # Triggers are paced by health-monitor status changes, so overlap is unlikely.
   if self.backfillHandler.isNil() or self.backfillHandler.finished():
     info "recv service backfilling missed messages after coming back online"
     self.backfillHandler = self.checkStore()
@@ -259,23 +286,21 @@ proc startupCatchUp(self: RecvService, job: persistency.Job) {.async.} =
       return false
     discard self.processIncomingMessage(pubsubTopic, message, MessageSource.History)
     return true
-  let wake = newAsyncEvent() # a new subscription or a connectivity change
+  let wake = newAsyncEvent() # a new subscription or a peer change
   let onSubscribed = proc(event: ContentTopicSubscribedEvent) {.async: (raises: []).} =
     wake.fire()
-  let onConnectivity = proc(
-      event: EventConnectionStatusChange
-  ) {.async: (raises: []).} =
-    wake.fire()
+  let onPeer = proc(event: WakuPeerEvent) {.async: (raises: []).} =
+    wake.fire() # identify can add a Store peer
   let subscriptions = ContentTopicSubscribedEvent.listen(self.brokerCtx, onSubscribed).valueOr:
     warn "Store catch-up aborted", reason = error
     return
   defer:
     await ContentTopicSubscribedEvent.dropListener(self.brokerCtx, subscriptions)
-  let connectivity = EventConnectionStatusChange.listen(self.brokerCtx, onConnectivity).valueOr:
+  let peers = WakuPeerEvent.listen(self.brokerCtx, onPeer).valueOr:
     warn "Store catch-up aborted", reason = error
     return
   defer:
-    await EventConnectionStatusChange.dropListener(self.brokerCtx, connectivity)
+    await WakuPeerEvent.dropListener(self.brokerCtx, peers)
   while true:
     if not job.running:
       warn "Store catch-up aborted", reason = "persistency job is closed"
@@ -377,13 +402,45 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
     error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)
 
-  self.connStatusListener = EventConnectionStatusChange.listen(
+  # Each event below can change `online`.
+  self.relayHealthListener = EventProtocolHealthChange.listen(
     self.brokerCtx,
-    proc(event: EventConnectionStatusChange) {.async: (raises: []).} =
-      self.onConnectionStatusChange(event.connectionStatus),
+    proc(event: EventProtocolHealthChange) {.async: (raises: []).} =
+      if event.protocolHealth.protocol == $WakuProtocol.RelayProtocol:
+        self.updateReceiveReadiness()
+    ,
   ).valueOr:
-    error "Failed to set EventConnectionStatusChange listener", error = error
+    error "Failed to set EventProtocolHealthChange listener", error = error
     quit(QuitFailure)
+
+  self.shardHealthListener = EventShardTopicHealthChange.listen(
+    self.brokerCtx,
+    proc(event: EventShardTopicHealthChange) {.async: (raises: []).} =
+      self.updateReceiveReadiness(),
+  ).valueOr:
+    error "Failed to set EventShardTopicHealthChange listener", error = error
+    quit(QuitFailure)
+
+  self.subscriptionListener = ContentTopicSubscribedEvent.listen(
+    self.brokerCtx,
+    proc(event: ContentTopicSubscribedEvent) {.async: (raises: []).} =
+      self.updateReceiveReadiness(),
+  ).valueOr:
+    error "Failed to set ContentTopicSubscribedEvent listener", error = error
+    quit(QuitFailure)
+
+  # An unsubscribe can remove the last shard with a healthy filter
+  # subscription. No health event reports that.
+  self.unsubscriptionListener = ContentTopicUnsubscribedEvent.listen(
+    self.brokerCtx,
+    proc(event: ContentTopicUnsubscribedEvent) {.async: (raises: []).} =
+      self.updateReceiveReadiness(),
+  ).valueOr:
+    error "Failed to set ContentTopicUnsubscribedEvent listener", error = error
+    quit(QuitFailure)
+
+  # The initial read starts no backfill.
+  self.online = self.hasReadyReceivePath()
 
   if self.backfill.enabled and not job.isNil():
     self.backfill.task = self.startupCatchUp(job)
@@ -391,8 +448,15 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
 proc stopRecvService*(self: RecvService) {.async.} =
   self.stopping = true
   await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
-  await EventConnectionStatusChange.dropListener(
-    self.brokerCtx, self.connStatusListener
+  await EventProtocolHealthChange.dropListener(self.brokerCtx, self.relayHealthListener)
+  await EventShardTopicHealthChange.dropListener(
+    self.brokerCtx, self.shardHealthListener
+  )
+  await ContentTopicSubscribedEvent.dropListener(
+    self.brokerCtx, self.subscriptionListener
+  )
+  await ContentTopicUnsubscribedEvent.dropListener(
+    self.brokerCtx, self.unsubscriptionListener
   )
   if self.backfill.hintListener.isSome():
     await MessageReceivedEvent.dropListener(

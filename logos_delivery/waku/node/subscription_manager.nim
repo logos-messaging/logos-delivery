@@ -634,7 +634,9 @@ proc startEdgeFilterLoops(self: SubscriptionManager): Result[void, string] =
           if state.peers.len < oldLen:
             self.updateShardHealth(shard, state)
         self.edgeFilterWakeup.fire()
-      elif evt.kind == WakuPeerEventKind.EventMetadataUpdated:
+      elif evt.kind in
+          {WakuPeerEventKind.EventMetadataUpdated, WakuPeerEventKind.EventIdentified}:
+        # identify lists the peer's protocols after the connection event
         self.edgeFilterWakeup.fire(),
   ).valueOr:
     return err("Failed to listen to peer events for edge filter: " & error)

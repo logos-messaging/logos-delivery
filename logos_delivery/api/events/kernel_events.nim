@@ -17,6 +17,11 @@ EventBroker:
   type ContentTopicSubscribedEvent* = object
     contentTopic*: ContentTopic
 
+# Emitted when a content topic stops being subscribed.
+EventBroker:
+  type ContentTopicUnsubscribedEvent* = object
+    contentTopic*: ContentTopic
+
 # Emitted by the health monitor when overall node connectivity changes.
 EventBroker:
   type EventConnectionStatusChange* = object

@@ -519,6 +519,107 @@ suite "Health Monitor - events":
     await nodeB.stop()
     await nodeA.stop()
 
+  asyncTest "protocol health changes are published, identify included":
+    ## The Store client is READY once the peer's identify lists Store. libp2p
+    ## completes identify after the connection event.
+    var nodeA: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeA =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      (await nodeA.mountRelay()).expect("Node A failed to mount Relay")
+      nodeA.mountStoreClient()
+      await nodeA.start()
+    defer:
+      await nodeA.stop()
+
+    let monitorA = NodeHealthMonitor.new(nodeA)
+    var seen: seq[ProtocolHealth]
+    var identified = 0
+    let changed = newAsyncEvent()
+    let onHealth = proc(
+        evt: EventProtocolHealthChange
+    ): Future[void] {.async: (raises: []), gcsafe.} =
+      seen.add(evt.protocolHealth)
+      changed.fire()
+    let healthListener = EventProtocolHealthChange
+      .listen(nodeA.brokerCtx, onHealth)
+      .expect("listen to protocol health")
+    defer:
+      await EventProtocolHealthChange.dropListener(nodeA.brokerCtx, healthListener)
+    let onPeer = proc(
+        evt: WakuPeerEvent
+    ): Future[void] {.async: (raises: []), gcsafe.} =
+      if evt.kind == WakuPeerEventKind.EventIdentified:
+        inc identified
+    let peerListener =
+      WakuPeerEvent.listen(nodeA.brokerCtx, onPeer).expect("listen to peer events")
+    defer:
+      await WakuPeerEvent.dropListener(nodeA.brokerCtx, peerListener)
+    monitorA.startHealthMonitor().expect("Health monitor failed to start")
+    defer:
+      await monitorA.stopHealthMonitor()
+
+    var nodeB: WakuNode
+    lockNewGlobalBrokerContext:
+      nodeB =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      nodeB.mountArchive(newSqliteArchiveDriver()).expect(
+        "Node B failed to mount archive"
+      )
+      (await nodeB.mountRelay()).expect("Node B failed to mount relay")
+      await nodeB.mountStore()
+      await nodeB.start()
+    var nodeBStopped = false
+    defer:
+      if not nodeBStopped:
+        await nodeB.stop()
+
+    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async.} =
+      discard
+
+    nodeA.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node A failed to subscribe"
+    )
+    nodeB.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), dummyHandler).expect(
+      "Node B failed to subscribe"
+    )
+    let peerB = nodeB.switch.peerInfo.toRemotePeerInfo()
+    await nodeA.connectToNodes(@[peerB])
+
+    proc lastReported(kind: WakuProtocol): Opt[HealthStatus] =
+      for i in countdown(seen.high, 0):
+        if seen[i].protocol == $kind:
+          return Opt.some(seen[i].health)
+      return Opt.none(HealthStatus)
+
+    var deadline = Moment.now() + TestConnectivityTimeLimit
+    while Moment.now() < deadline and (
+      lastReported(RelayProtocol) != Opt.some(HealthStatus.READY) or
+      lastReported(StoreClientProtocol) != Opt.some(HealthStatus.READY)
+    )
+    :
+      if await changed.wait().withTimeout(deadline - Moment.now()):
+        changed.clear()
+
+    check:
+      lastReported(RelayProtocol) == Opt.some(HealthStatus.READY)
+      lastReported(StoreClientProtocol) == Opt.some(HealthStatus.READY)
+      identified >= 1
+      # identify does not touch the connection book
+      nodeA.switch.peerStore[ConnectionBook][peerB.peerId] == Connectedness.Connected
+
+    await nodeB.stop()
+    nodeBStopped = true
+    await nodeA.disconnectNode(peerB)
+
+    deadline = Moment.now() + TestConnectivityTimeLimit
+    while Moment.now() < deadline and
+        lastReported(RelayProtocol) != Opt.some(HealthStatus.NOT_READY):
+      if await changed.wait().withTimeout(deadline - Moment.now()):
+        changed.clear()
+
+    check lastReported(RelayProtocol) == Opt.some(HealthStatus.NOT_READY)
+
 proc mixPeerInfo(port: int, lightpush = false): RemotePeerInfo =
   let peerId = PeerId.init(generateSecp256k1Key()).tryGet()
   let keyPair = generateKeyPair().expect("mix key pair")

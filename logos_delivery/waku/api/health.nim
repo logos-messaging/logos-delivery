@@ -4,7 +4,14 @@
 import results, chronos, chronicles
 
 import logos_delivery/waku/waku
-import logos_delivery/waku/[node/health_monitor, node/health_monitor/online_monitor]
+import
+  logos_delivery/waku/[
+    node/health_monitor,
+    node/health_monitor/online_monitor,
+    node/health_monitor/protocol_health,
+  ]
+
+export protocol_health
 
 proc isOnline*(self: Waku): Future[Result[bool, string]] {.async.} =
   try:
@@ -17,3 +24,11 @@ proc setConnectionStatusAdjuster*(self: Waku, adjuster: ConnectionStatusAdjuster
   if self.healthMonitor.isNil():
     return
   self.healthMonitor.adjustConnectionStatus = adjuster
+
+func reportedProtocolHealth*(self: Waku, protocol: WakuProtocol): ProtocolHealth =
+  ## The record the health monitor stored for `protocol` on its last pass.
+  ## The last `EventProtocolHealthChange` for `protocol` carried the same
+  ## status. Before the first pass the status is `NOT_MOUNTED`.
+  if self.healthMonitor.isNil():
+    return ProtocolHealth.init(protocol)
+  return self.healthMonitor.reportedProtocolHealth(protocol)
