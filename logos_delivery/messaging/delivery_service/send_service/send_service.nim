@@ -284,6 +284,17 @@ proc evaluateAndCleanUp(self: SendService) =
     )
   )
 
+proc reportTaskQueued(self: SendService, task: DeliveryTask) =
+  ## Announces a task parked for epoch budget, once per task. Retry rounds
+  ## re-enter the same branch, so the flag is what keeps the event one-shot.
+  if task.queuedEventEmitted:
+    return
+
+  info "Message queued for rate-limit budget",
+    requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+  MessageQueuedEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+  task.queuedEventEmitted = true
+
 proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.} =
   ## Gates a task's first transmission: charges one epoch slot, then attaches
   ## an RLN proof — strictly in that order, so an over-budget message never
@@ -295,6 +306,7 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
     (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
       debug "Over rate-limit budget, task waits for the epoch to roll",
         requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+      self.reportTaskQueued(task)
       return false
     task.firstAdmittedTime = Opt.some(Moment.now())
 
