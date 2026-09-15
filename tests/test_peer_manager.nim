@@ -626,7 +626,7 @@ procSuite "Peer Manager":
 
     await allFutures([node1.stop(), node2.stop(), node3.stop()])
 
-  asyncTest "Peer manager drops conections to peers on different networks":
+  asyncTest "Peer manager keeps peers on different networks without their shards":
     let
       port = Port(0)
       # different network
@@ -661,25 +661,56 @@ procSuite "Peer Manager":
     # Start nodes
     await allFutures([node1.start(), node2.start(), node3.start()])
 
-    # 1->2 (fails)
-    let conn1 = await node1.peerManager.dialPeer(
-      node2.switch.peerInfo.toRemotePeerInfo(), WakuMetadataCodec
+    let
+      peerId2 = node2.switch.peerInfo.peerId
+      peerId3 = node3.switch.peerInfo.peerId
+
+    # 1->2 (different network)
+    require await node1.peerManager.connectPeer(
+      node2.switch.peerInfo.toRemotePeerInfo()
+    )
+    # 2->3 (same network)
+    require await node2.peerManager.connectPeer(
+      node3.switch.peerInfo.toRemotePeerInfo()
     )
 
-    # 1->3 (fails)
-    let conn2 = await node1.peerManager.dialPeer(
-      node3.switch.peerInfo.toRemotePeerInfo(), WakuMetadataCodec
-    )
-
-    # 2->3 (succeeds)
-    let conn3 = await node2.peerManager.dialPeer(
-      node3.switch.peerInfo.toRemotePeerInfo(), WakuMetadataCodec
-    )
+    # Let the metadata exchange run
+    await sleepAsync(chronos.milliseconds(500))
 
     check:
-      conn1.isNone or conn1.get().isClosed
-      conn2.isNone or conn2.get().isClosed
-      conn3.isSome and not conn3.get().isClosed
+      node1.peerManager.switch.isConnected(peerId2)
+      node2.peerManager.switch.isConnected(peerId3)
+      # Shards are only recorded for peers on our cluster
+      not node1.peerManager.switch.peerStore.hasShard(peerId2, 3, 0)
+      node2.peerManager.switch.peerStore.hasShard(peerId3, 4, 0)
+
+    await allFutures([node1.stop(), node2.stop(), node3.stop()])
+
+  asyncTest "Peer manager keeps peers that do not serve waku metadata":
+    let
+      node1 =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      node2 =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
+      peerId2 = node2.switch.peerInfo.peerId
+
+    # Only node1 runs metadata, so its metadata dial to node2 fails
+    node1.mountMetadata(0, @[0'u16]).expect("Mounted Waku Metadata")
+
+    await allFutures([node1.start(), node2.start()])
+
+    require await node1.peerManager.connectPeer(
+      node2.switch.peerInfo.toRemotePeerInfo()
+    )
+
+    # Let the metadata exchange run
+    await sleepAsync(chronos.milliseconds(500))
+
+    check:
+      node1.peerManager.switch.isConnected(peerId2)
+      node1.peerManager.switch.peerStore.peerExists(peerId2)
+
+    await allFutures([node1.stop(), node2.stop()])
 
   # TODO: nwaku/issues/1377
   xasyncTest "Peer manager support multiple protocol IDs when reconnecting to peers":

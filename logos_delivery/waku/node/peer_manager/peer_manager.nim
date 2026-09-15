@@ -789,9 +789,11 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
     WakuPeerEvent.emit(pm.brokerCtx, peerId, WakuPeerEventKind.EventMetadataUpdated)
     return
 
-  debug "Disconnecting from peer", peerId = peerId, reason = reason
-  asyncSpawn(pm.switch.disconnect(peerId))
-  pm.switch.peerStore.delete(peerId)
+  # Metadata only records what the peer told us; whether to use the peer is up
+  # to each protocol. A peer that is not a waku node may still serve a protocol
+  # we consume (e.g. kademlia), so the connection is left alone.
+  debug "No usable waku metadata from peer, keeping connection",
+    peerId = peerId, reason = reason
 
 # called when a peer i) first connects to us ii) disconnects all connections from us
 proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
