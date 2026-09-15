@@ -30,8 +30,13 @@ proc rlnQuotaProvider(waku: Waku): QuotaProvider =
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
     let q = waku.currentRlnEpochQuota().valueOr:
       return Opt.none(EpochQuota)
-    return
-      Opt.some(EpochQuota(epochIndex: q.epochIndex, userMessageLimit: q.messageLimit))
+    return Opt.some(
+      EpochQuota(
+        epochIndex: q.epochIndex,
+        userMessageLimit: q.messageLimit,
+        epochPeriodSec: q.epochPeriodSec,
+      )
+    )
 
 proc requireMixReady*(
     status: ConnectionStatus, protocols: seq[ProtocolHealth]

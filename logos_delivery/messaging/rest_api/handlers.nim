@@ -41,7 +41,12 @@ proc installEventListeners(brokerCtx: BrokerContext, cache: MessagingEventCache)
   discard MessageQueuedEvent.listen(
     brokerCtx,
     proc(evt: MessageQueuedEvent): Future[void] {.async: (raises: []).} =
-      cache.recordSend($evt.requestId, evt.messageHash, SendEventKind.Queued),
+      cache.recordSend(
+        $evt.requestId,
+        evt.messageHash,
+        SendEventKind.Queued,
+        expectedPublishTimestamp = evt.expectedPublishTimestamp,
+      ),
   )
 
   discard MessagePropagatedEvent.listen(

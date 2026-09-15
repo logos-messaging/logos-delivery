@@ -85,14 +85,16 @@ suite "SendService RLN proof attach - RLN mounted":
 
     check attached.proof.len > 0
 
-  asyncTest "currentRlnEpochQuota reports RLN's epoch and user message limit":
+  asyncTest "currentRlnEpochQuota reports RLN's epoch, message limit and period":
     ## Wires the rate limit manager to RLN: the manager clamps its configured
-    ## cap to `messageLimit` and rolls on `epochIndex`.
+    ## cap to `messageLimit`, rolls on `epochIndex`, and locates the boundary
+    ## it reports to queued senders with `epochPeriodSec`.
     let quota = waku.currentRlnEpochQuota()
     check:
       quota.isSome()
       quota.get().messageLimit == 20'u64 # the mounted userMessageLimit
       quota.get().epochIndex > 0'u64 # unixTime div epochSize, far from zero
+      quota.get().epochPeriodSec == 600'u64 # the mounted epochSizeSec
 
   asyncTest "is idempotent: a message that already carries a proof is untouched":
     ## Pins the retry contract: the send service re-attaches on every round, so
