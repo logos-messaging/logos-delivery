@@ -54,13 +54,6 @@ typedef struct {
 int logosdelivery_rln_set_plugin(const LogosDeliveryRlnPlugin* plugin,
                                  void* user_data);
 
-/* This is a temporary config option. Needed to phase in RLN on an existing 
-   network. Validating message proofs will be disabled while proof generation 
-   and attaching RLN proofs is still enabled. Call before node creation, the
-   value is read once when the node is created. Defaults to 0 (validation 
-   enabled). Returns 0 on success. */
-int logosdelivery_rln_disable_validation(int disable);
-
 /* The host application sends the response on completion of an outbound call, same req_id. Thread-safe;
    result_json is copied before return. */
 int logosdelivery_rln_response(uint64_t req_id, const char* result_json);

@@ -120,6 +120,7 @@ type WakuConf* {.requiresInit.} = ref object
   filterServiceConf*: Opt[FilterServiceConf]
   storeServiceConf*: Opt[StoreServiceConf]
   rlnEvmConf*: Opt[RlnConf]
+  rlnDisableValidation*: bool
   restServerConf*: Opt[RestServerConf]
   metricsServerConf*: Opt[MetricsServerConf]
   webSocketConf*: Opt[WebSocketConf]

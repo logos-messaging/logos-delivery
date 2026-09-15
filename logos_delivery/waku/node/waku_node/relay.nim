@@ -200,8 +200,6 @@ proc setRlnValidator*(
       return
 
     if rlnConf.disableValidation:
-      # Temporary RLN phase-in: published messages still carry proofs, but
-      # received messages pass through unchecked.
       info "RLN proof validation is disabled; not registering the RLN validator"
       return
 

@@ -352,7 +352,8 @@ proc setupProtocols(
     info "Mounting RLN plugin backend"
     node.rlnLez = RlnLez.init()
     let validatorConf = WakuRlnLezConfig(
-      onFatalErrorAction: onFatalErrorAction, disableValidation: rlnDisableValidation()
+      onFatalErrorAction: onFatalErrorAction,
+      disableValidation: conf.rlnDisableValidation,
     )
     try:
       await node.setRlnValidator(validatorConf)
