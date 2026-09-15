@@ -66,8 +66,8 @@ type RecvService* = ref object of RootObj
   seenMsgListener: MessageSeenEventListener
   protocolHealthListener: EventProtocolHealthChangeListener
   shardHealthListener: EventShardTopicHealthChangeListener
-  subscriptionListener: ContentTopicSubscribedEventListener
-  unsubscriptionListener: ContentTopicUnsubscribedEventListener
+  subscribedEventListener: ContentTopicSubscribedEventListener
+  unsubscribedEventListener: ContentTopicUnsubscribedEventListener
 
   recentReceivedMsgs: Table[WakuMessageHash, Timestamp]
     ## hash of each message received in the last `MaxMessageLife`, with its
@@ -301,14 +301,14 @@ proc startupCatchUp(self: RecvService, job: persistency.Job) {.async.} =
   let wake = newAsyncEvent() # a new subscription or a peer change
   let onSubscribed = proc(event: ContentTopicSubscribedEvent) {.async: (raises: []).} =
     wake.fire()
-  let onPeer = proc(event: WakuPeerEvent) {.async: (raises: []).} =
-    wake.fire() # identify can add a Store peer
+  let onPeerEvent = proc(event: WakuPeerEvent) {.async: (raises: []).} =
+    wake.fire() # any peer change can make a Store peer available
   let subscriptions = ContentTopicSubscribedEvent.listen(self.brokerCtx, onSubscribed).valueOr:
     warn "Store catch-up aborted", reason = error
     return
   defer:
     await ContentTopicSubscribedEvent.dropListener(self.brokerCtx, subscriptions)
-  let peers = WakuPeerEvent.listen(self.brokerCtx, onPeer).valueOr:
+  let peers = WakuPeerEvent.listen(self.brokerCtx, onPeerEvent).valueOr:
     warn "Store catch-up aborted", reason = error
     return
   defer:
@@ -418,8 +418,9 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
   # shard with a healthy filter subscription, which no health event reports.
   self.protocolHealthListener = self.listenForReadiness(EventProtocolHealthChange)
   self.shardHealthListener = self.listenForReadiness(EventShardTopicHealthChange)
-  self.subscriptionListener = self.listenForReadiness(ContentTopicSubscribedEvent)
-  self.unsubscriptionListener = self.listenForReadiness(ContentTopicUnsubscribedEvent)
+  self.subscribedEventListener = self.listenForReadiness(ContentTopicSubscribedEvent)
+  self.unsubscribedEventListener =
+    self.listenForReadiness(ContentTopicUnsubscribedEvent)
 
   # The initial read starts no backfill.
   self.online = self.hasReadyReceivePath()
@@ -437,10 +438,10 @@ proc stopRecvService*(self: RecvService) {.async.} =
     self.brokerCtx, self.shardHealthListener
   )
   await ContentTopicSubscribedEvent.dropListener(
-    self.brokerCtx, self.subscriptionListener
+    self.brokerCtx, self.subscribedEventListener
   )
   await ContentTopicUnsubscribedEvent.dropListener(
-    self.brokerCtx, self.unsubscriptionListener
+    self.brokerCtx, self.unsubscribedEventListener
   )
   if self.backfill.hintListener.isSome():
     await MessageReceivedEvent.dropListener(
