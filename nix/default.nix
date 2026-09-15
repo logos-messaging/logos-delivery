@@ -74,11 +74,24 @@ let
   #  - boringssl (Windows only): the Windows branch of boringssl.nim both
   #    assembles .obj files into its own source dir (`outDir = baseDir`) and
   #    needs a two-line patch; see the sed in buildPhase.
-  copiedDeps = [ "nat_traversal" ] ++ lib.optional isWindows "boringssl";
+  #  - leopard (Windows only): its compile-time CMake helper assumes that every
+  #    Windows target is being built inside MSYS and invokes cygpath.
+  copiedDeps =
+    [ "nat_traversal" ]
+    ++ lib.optionals isWindows [ "boringssl" "leopard" ];
   otherDeps = builtins.removeAttrs deps copiedDeps;
 
   boringsslPathArgs =
     lib.optionalString isWindows "--path:$BORINGSSL --path:$BORINGSSL/src";
+
+  leopardPathArgs =
+    lib.optionalString isWindows "--path:$LEOPARD --path:$LEOPARD/src";
+
+  leopardDefineArgs = lib.optionals isWindows [
+    "--define:posixCrossCompile"
+    "--define:LeopardDir=$LEOPARD/vendor/leopard"
+    "--define:LeopardLib=$NIMCACHE/vendor_leopard/liblibleopard.a"
+  ];
 
   # Some packages (e.g. regex, unicodedb) put their .nim files under src/
   # while others use the repo root. Pass both so the compiler finds either layout.
@@ -166,9 +179,10 @@ let
       --noNimblePath \
       ${pathArgs} \
       --path:$NAT_TRAV \
-      --path:$NAT_TRAV/src ${boringsslPathArgs} \
+      --path:$NAT_TRAV/src ${boringsslPathArgs} ${leopardPathArgs} \
       --passL:"${linkArgs}" \
       ${nimDefineArgs} \
+      ${lib.concatStringsSep " \\\n      " leopardDefineArgs} \
       --threads:on \
       --mm:refc \
       --nimcache:$NIMCACHE \
@@ -283,6 +297,23 @@ pkgs.stdenv.mkDerivation {
     # Invisible on MSYS2, where the filesystem accepts either separator.
     sed -i "s|const baseDir = currentSourcePath.parentDir|const baseDir = normalizePath(currentSourcePath.parentDir, dirSep = '/')|" $BORINGSSL/boringssl.nim
     sed -i "/normalizePath/!s|baseDir /|baseDir \& \"/\" \&|" $BORINGSSL/boringssl.nim
+
+    # nim-leopard selects its build helper from the TARGET OS. Its Windows
+    # branch assumes an MSYS host and calls cygpath plus the MSYS CMake
+    # generator, neither of which exists on a Linux cross builder. Use the
+    # ordinary host-shell branch while keeping the target compiler supplied by
+    # the cross stdenv. Override target-joined paths with host-style paths too.
+    LEOPARD=$TMPDIR/leopard
+    cp -r ${deps.leopard} $LEOPARD
+    chmod -R +w $LEOPARD
+    substituteInPlace config.nims \
+      --replace-fail '-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release' \
+                     '-DCMAKE_BUILD_TYPE=Release'
+    substituteInPlace $LEOPARD/leopard/wrapper.nim \
+      --replace-fail 'if defined(windows):' \
+                     'if defined(windows) and not defined(posixCrossCompile):' \
+      --replace-fail 'buildDir = joinPath(querySetting(nimcacheDir), "vendor_leopard")' \
+                     'buildDir = querySetting(nimcacheDir) & "/vendor_leopard"'
     ''}
 
     ${if buildApp then ''
