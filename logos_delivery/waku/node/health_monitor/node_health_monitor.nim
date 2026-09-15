@@ -8,11 +8,13 @@ import
   libp2p/protocols/rendezvous,
   libp2p/protocols/pubsub,
   libp2p/protocols/pubsub/rpc/messages,
+  libp2p_mix/pool,
   logos_delivery/api/types,
   logos_delivery/api/events/kernel_events,
   # EventConnectionStatusChange
   logos_delivery/waku/[
     waku_relay,
+    waku_mix,
     api/events/health_events,
     api/events/peer_events,
     rln,
@@ -34,6 +36,11 @@ import
 # randomize initializes sdt/random's random number generator
 # if not called, the outcome of randomization procedures will be the same in every run
 random.randomize()
+
+type ConnectionStatusAdjuster* = proc(
+  status: ConnectionStatus, protocols: seq[ProtocolHealth]
+): ConnectionStatus {.gcsafe, raises: [].}
+  # Allows an upper layer to adjust the computed connection status based on additional criteria.
 
 type NodeHealthMonitor* = ref object
   nodeHealth: HealthStatus
@@ -57,6 +64,8 @@ type NodeHealthMonitor* = ref object
   eventLoopLagExceeded: bool
     ## set to true when the chronos event loop lag exceeds the severe threshold,
     ## causing the node health to be reported as EVENT_LOOP_LAGGING until lag recovers.
+  adjustConnectionStatus*: ConnectionStatusAdjuster
+    ## lets an upper layer tighten the computed status; set before start
 
 func getHealth*(report: HealthReport, kind: WakuProtocol): ProtocolHealth =
   for h in report.protocolsHealth:
@@ -267,11 +276,34 @@ proc getRendezvousHealth(hm: NodeHealthMonitor): ProtocolHealth =
 
   return p.ready()
 
+proc hasMixExit(hm: NodeHealthMonitor): bool =
+  ## Mirrors `selectMixLightpushPeer`, minus its per-message shard filter.
+  ## Returns true if one node in the mix pool is capable of serving lightpush to exit through.
+  let pool = hm.node.wakuMix.nodePool
+  let slotted = hm.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
+  if not slotted.isNil() and pool.get(slotted.peerId).isSome():
+    return true
+  let peerStore = hm.node.switch.peerStore
+  return pool.peerIds().anyIt(
+      peerStore[ProtoBook][it].contains(WakuLightPushCodec) and pool.get(it).isSome()
+    )
+
 proc getMixHealth(hm: NodeHealthMonitor): ProtocolHealth =
   var p = ProtocolHealth.init(WakuProtocol.MixProtocol)
 
   if isNil(hm.node.wakuMix):
+    hm.strength[WakuProtocol.MixProtocol] = 0
     return p.notMounted()
+
+  let poolSize = hm.node.getMixNodePoolSize()
+  hm.strength[WakuProtocol.MixProtocol] = poolSize
+
+  # Same threshold as `mixReady`, so health and the send path agree.
+  if poolSize < MinMixPoolSize:
+    return p.notReady("Mix pool too small: " & $poolSize & " < " & $MinMixPoolSize)
+
+  if not hm.hasMixExit():
+    return p.notReady("No mix pool member serves lightpush to exit through")
 
   return p.ready()
 
@@ -433,7 +465,10 @@ proc calculateConnectionState*(hm: NodeHealthMonitor): ConnectionStatus =
       Opt.none(int)
     else:
       Opt.some(hm.node.wakuRelay.parameters.dLow)
-  return calculateConnectionState(hm.cachedProtocols, hm.strength, dLow)
+  let status = calculateConnectionState(hm.cachedProtocols, hm.strength, dLow)
+  if hm.adjustConnectionStatus.isNil():
+    return status
+  return hm.adjustConnectionStatus(status, hm.cachedProtocols)
 
 proc getNodeHealthReport*(hm: NodeHealthMonitor): Future[HealthReport] {.async.} =
   ## Get a HealthReport that includes all protocols
@@ -671,6 +706,11 @@ proc startKeepalive*(
 proc setOverallHealth*(hm: NodeHealthMonitor, health: HealthStatus) =
   hm.nodeHealth = health
 
+proc onMixPoolChange(hm: NodeHealthMonitor) =
+  if hm.node.wakuMix.isNil() or hm.healthUpdateEvent.isNil():
+    return
+  hm.healthUpdateEvent.fire()
+
 proc startHealthMonitor*(hm: NodeHealthMonitor): Result[void, string] =
   hm.onlineMonitor.startOnlineMonitor()
 
@@ -745,10 +785,24 @@ proc new*(
   let om = OnlineMonitor.init(dnsNameServers)
   om.setPeerStoreToOnlineMonitor(node.switch.peerStore)
   om.addOnlineStateObserver(node.peerManager.getOnlineStateObserver())
-  T(
+  let hm = T(
     nodeHealth: INITIALIZING,
     node: node,
     onlineMonitor: om,
     connectionStatus: ConnectionStatus.Disconnected,
     strength: initTable[WakuProtocol, int](),
   )
+  # Mix peers are learnt from discovery without any peer event, so without this
+  # a filled (or drained) pool would wait for an unrelated trigger to show up.
+  node.switch.peerStore[MixPubKeyBook].addHandler(
+    proc(peerId: PeerId) {.gcsafe, raises: [].} =
+      hm.onMixPoolChange()
+  )
+  # ENR discovery and identify learn a pool peer's lightpush (its exit role)
+  # through ProtoBook alone, without writing its mix key.
+  node.switch.peerStore[ProtoBook].addHandler(
+    proc(peerId: PeerId) {.gcsafe, raises: [].} =
+      if peerId in node.switch.peerStore[MixPubKeyBook]:
+        hm.onMixPoolChange()
+  )
+  return hm

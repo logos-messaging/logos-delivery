@@ -11,3 +11,9 @@ proc isOnline*(self: Waku): Future[Result[bool, string]] {.async.} =
     return ok(self.healthMonitor.onlineMonitor.amIOnline())
   except CatchableError as e:
     return err(e.msg)
+
+proc setConnectionStatusAdjuster*(self: Waku, adjuster: ConnectionStatusAdjuster) =
+  ## Lets an upper layer tighten the connection status; call before start.
+  if self.healthMonitor.isNil():
+    return
+  self.healthMonitor.adjustConnectionStatus = adjuster

@@ -1,8 +1,6 @@
 # Dockerfile to build a distributable container image from pre-existing binaries
 FROM debian:bookworm-slim AS prod
 
-ARG MAKE_TARGET=logosdeliverynode
-
 LABEL maintainer="vaclav@status.im"
 LABEL source="https://github.com/logos-messaging/logos-delivery"
 LABEL description="Logos Delivery node"
@@ -16,13 +14,12 @@ RUN apt-get update &&\
     apt-get install -y libpq-dev curl iproute2 wget dnsutils &&\
     apt-get clean && rm -rf /var/lib/apt/lists/*
 
-# Copy to separate location to accomodate different MAKE_TARGET values
-ADD ./build/$MAKE_TARGET /usr/local/bin/
+ADD ./build/logosdeliverynode ./build/rlnkeystore /usr/local/bin/
 
 # Copy migration scripts for DB upgrades
 ADD ./migrations/ /app/migrations/
 
-RUN ln -sv /usr/local/bin/$MAKE_TARGET /usr/bin/logosdeliverynode
+RUN ln -sv /usr/local/bin/logosdeliverynode /usr/bin/logosdeliverynode
 
 ENTRYPOINT ["/usr/bin/logosdeliverynode"]
 

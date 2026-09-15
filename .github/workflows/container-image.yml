@@ -6,10 +6,17 @@ on:
       image_tag:
         type: string
         default: ${{ github.event.number }}
+      artifact_fallback:
+        description: "If the quay.io push fails, hand the image over as a GitHub artifact instead of failing."
+        type: boolean
+        default: false
     outputs:
       image:
         description: The resulting image link
         value: ${{ jobs.build-docker-image.outputs.image }}
+      image_artifact:
+        description: "Artifact holding the image when the push failed and artifact_fallback is set; empty otherwise."
+        value: ${{ jobs.build-docker-image.outputs.image_artifact }}
 
 env:
   NPROC: 2
@@ -30,6 +37,7 @@ jobs:
     name: docker-build-${{ matrix.os }}
     outputs:
       image: ${{ steps.build.outputs.image }}
+      image_artifact: ${{ steps.push.outputs.pushed == 'false' && 'node-image' || '' }}
     steps:
       - name: Check secrets
         id: secrets
@@ -64,12 +72,13 @@ jobs:
         if: ${{ steps.secrets.outcome == 'success' }}
         run: |
           make -j${NPROC} V=1 DEBUG=0 POSTGRES=1 logosdeliverynode
+          make -j${NPROC} V=1 DEBUG=0 rlnkeystore
 
       - name: Audit installed deps
         if: ${{ steps.secrets.outcome == 'success' }}
         run: make audit-deps
 
-      - name: Build and push images
+      - name: Build images
         id: build
         if: ${{ steps.secrets.outcome == 'success' }}
         run: |
@@ -77,35 +86,94 @@ jobs:
 
           TAG=$([ "${PR_NUMBER}" == "" ] && echo "${SHORT_REF}" || echo "${PR_NUMBER}")
           IMAGE=quay.io/wakuorg/nwaku-pr:${TAG}
-          LD_IMAGE=quay.io/wakuorg/nwaku-pr:${TAG}-logosdeliverynode
 
           echo "image=${IMAGE}" >> $GITHUB_OUTPUT
-          echo "ld_image=${LD_IMAGE}" >> $GITHUB_OUTPUT
           echo "commit_hash=$(git rev-parse HEAD)" >> $GITHUB_OUTPUT
 
-          docker login -u ${QUAY_USER} -p ${QUAY_PASSWORD} quay.io
           docker build -t ${IMAGE} -f docker/binaries/Dockerfile.bn.amd64 --label quay.expires-after=30d .
-          docker push ${IMAGE}
+        env:
+          PR_NUMBER: ${{ inputs.image_tag}}
 
-          # Second tag for the same image.
-          docker tag ${IMAGE} ${LD_IMAGE}
-          docker push ${LD_IMAGE}
+      # A quay.io outage must not fail CI when the caller can take the image as
+      # an artifact instead; without artifact_fallback a failed push still fails.
+      - name: Push image
+        id: push
+        if: ${{ steps.secrets.outcome == 'success' }}
+        shell: bash
+        run: |
+          if { docker login -u ${QUAY_USER} -p ${QUAY_PASSWORD} quay.io \
+               && docker push ${IMAGE}; } 2>&1 | tee push.log; then
+            echo "pushed=true" >> $GITHUB_OUTPUT
+            exit 0
+          fi
+
+          ERROR=$(grep -v '^[[:space:]]*$' push.log | tail -n 1)
+          echo "pushed=false" >> $GITHUB_OUTPUT
+          echo "error=${ERROR}" >> $GITHUB_OUTPUT
+          if [[ "${ARTIFACT_FALLBACK}" != "true" ]]; then
+            exit 1
+          fi
+
+          echo "::warning title=quay.io push failed::Could not push ${IMAGE} (${ERROR}). quay.io may be having an outage, see https://status.redhat.com. The image is passed to the e2e jobs as the node-image artifact."
+          {
+            echo "### :warning: quay.io push failed"
+            echo "Could not push \`${IMAGE}\`: \`${ERROR}\`"
+            echo
+            echo "quay.io may be having an outage, see https://status.redhat.com."
+            echo "The image is passed to the e2e jobs as the \`node-image\` artifact instead."
+          } >> $GITHUB_STEP_SUMMARY
         env:
           QUAY_PASSWORD: ${{ secrets.QUAY_PASSWORD }}
           QUAY_USER: ${{ secrets.QUAY_USER }}
-          PR_NUMBER: ${{ inputs.image_tag}}
+          IMAGE: ${{ steps.build.outputs.image }}
+          ARTIFACT_FALLBACK: ${{ inputs.artifact_fallback }}
+
+      - name: Save image
+        if: ${{ steps.push.outputs.pushed == 'false' }}
+        run: docker save ${IMAGE} | gzip > node-image.tar.gz
+        env:
+          IMAGE: ${{ steps.build.outputs.image }}
+
+      - name: Upload image artifact
+        if: ${{ steps.push.outputs.pushed == 'false' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: node-image
+          path: node-image.tar.gz
+          retention-days: 1
+          compression-level: 0
+          # A re-run of this job uploads the same name again.
+          overwrite: true
 
       - name: Comment PR
         uses: thollander/actions-comment-pull-request@v2
-        if: ${{ github.event_name == 'pull_request' && steps.secrets.outcome == 'success' }}
+        if: ${{ github.event_name == 'pull_request' && steps.push.outputs.pushed == 'true' }}
         with:
           message: |
-            You can find the images built from this PR at
+            You can find the image built from this PR at
 
             ```
             ${{steps.build.outputs.image}}
-            ${{steps.build.outputs.ld_image}}
             ```
 
             Built from ${{ steps.build.outputs.commit_hash }}
-          comment_tag: execution-rln-v${{ matrix.rln_version }}
+          # The tag used to append the undefined matrix.rln_version, which
+          # resolved to this; keeping it updates the existing PR comments.
+          comment_tag: execution-rln-v
+
+      - name: Comment PR (quay.io push failed)
+        uses: thollander/actions-comment-pull-request@v2
+        if: ${{ github.event_name == 'pull_request' && steps.push.outputs.pushed == 'false' }}
+        with:
+          message: |
+            :warning: Could not push the image built from this PR to quay.io, which may be having an outage (see https://status.redhat.com):
+
+            ```
+            ${{ steps.push.outputs.error }}
+            ```
+
+            The CI e2e jobs got the image as the `node-image` artifact of [this run](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}) instead, so they still test this PR.
+
+            Built from ${{ steps.build.outputs.commit_hash }}
+          # Same tag, so this replaces the comment of a previous successful push.
+          comment_tag: execution-rln-v

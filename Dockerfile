@@ -2,7 +2,6 @@
 FROM rustlang/rust:nightly-alpine3.19 AS nim-build
 
 ARG NIMFLAGS
-ARG MAKE_TARGET=logosdeliverynode
 ARG NIM_COMMIT
 ARG HEAPTRACK_BUILD=0
 ARG POSTGRES=0
@@ -41,15 +40,14 @@ RUN if [ "$HEAPTRACK_BUILD" = "1" ]; then \
       git -C "$NIM_ROOT" apply /app/docs/tutorial/nim.2.2.4_heaptracker_addon.patch; \
     fi
 
-# Build the final node binary
-RUN make -j$(nproc) ${NIM_COMMIT} $MAKE_TARGET NIMFLAGS="${NIMFLAGS}" POSTGRES=${POSTGRES} DEBUG=${DEBUG} LOG_LEVEL=${LOG_LEVEL} HEAPTRACKER=${HEAPTRACK_BUILD}
+# Build the node and rlnkeystore binaries
+RUN make -j$(nproc) ${NIM_COMMIT} logosdeliverynode NIMFLAGS="${NIMFLAGS}" POSTGRES=${POSTGRES} DEBUG=${DEBUG} LOG_LEVEL=${LOG_LEVEL} HEAPTRACKER=${HEAPTRACK_BUILD}
+RUN make -j$(nproc) ${NIM_COMMIT} rlnkeystore NIMFLAGS="${NIMFLAGS}" DEBUG=${DEBUG} LOG_LEVEL=${LOG_LEVEL}
 
 
 # PRODUCTION IMAGE -------------------------------------------------------------
 
 FROM alpine:3.18 AS prod
-
-ARG MAKE_TARGET=logosdeliverynode
 
 LABEL maintainer="jakub@status.im"
 LABEL source="https://github.com/logos-messaging/logos-delivery"
@@ -65,13 +63,12 @@ EXPOSE 30303 60000 8545
 # DT_NEEDED on libgomp.so.1 even when parity is switched off at runtime.
 RUN apk add --no-cache libgcc libpq-dev bind-tools libstdc++ libgomp
 
-# Copy to separate location to accomodate different MAKE_TARGET values
-COPY --from=nim-build /app/build/$MAKE_TARGET /usr/local/bin/
+COPY --from=nim-build /app/build/logosdeliverynode /app/build/rlnkeystore /usr/local/bin/
 
 # Copy migration scripts for DB upgrades
 COPY --from=nim-build /app/migrations/ /app/migrations/
 
-RUN ln -sv /usr/local/bin/$MAKE_TARGET /usr/bin/logosdeliverynode
+RUN ln -sv /usr/local/bin/logosdeliverynode /usr/bin/logosdeliverynode
 
 ENTRYPOINT ["/usr/bin/logosdeliverynode"]
 

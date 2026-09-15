@@ -8,7 +8,7 @@ import
   system/ansi_c,
   libp2p/crypto/crypto
 import
-  ../../tools/[rln_keystore_generator/rln_keystore_generator, confutils/cli_args],
+  ../../tools/confutils/cli_args,
   logos_delivery/logos_delivery,
   logos_delivery/waku/common/logging
 
@@ -38,62 +38,57 @@ when isMainModule:
   ## needs the following line
   logging.setupLog(wakuNodeConf.logLevel, wakuNodeConf.logFormat)
 
-  case wakuNodeConf.cmd
-  of generateRlnKeystore:
-    let conf = wakuNodeConf.toKeystoreGeneratorConf()
-    doRlnKeystoreGenerator(conf)
-  of noCommand:
-    # `LogosDelivery` derives the per-layer config from `WakuNodeConf` itself
-    # (it runs `toWakuConf` internally), then builds the layers bottom-up:
-    #   Waku <- MessagingClient <- ReliableChannelManager
-    # How far up it goes is set by `--entry-layer` (default `kernel`: Waku only).
-    var node = (waitFor LogosDelivery.new(wakuNodeConf)).valueOr:
-      error "LogosDelivery initialization failed", error = error
-      quit(QuitFailure)
+  # `LogosDelivery` derives the per-layer config from `WakuNodeConf` itself
+  # (it runs `toWakuConf` internally), then builds the layers bottom-up:
+  #   Waku <- MessagingClient <- ReliableChannelManager
+  # How far up it goes is set by `--entry-layer` (default `kernel`: Waku only).
+  var node = (waitFor LogosDelivery.new(wakuNodeConf)).valueOr:
+    error "LogosDelivery initialization failed", error = error
+    quit(QuitFailure)
 
-    (waitFor node.start()).isOkOr:
-      error "Starting LogosDelivery failed", error = error
-      quit(QuitFailure)
+  (waitFor node.start()).isOkOr:
+    error "Starting LogosDelivery failed", error = error
+    quit(QuitFailure)
 
-    info "Setting up shutdown hooks"
-    proc asyncStopper(node: LogosDelivery) {.async: (raises: [Exception]).} =
-      (await node.stop()).isOkOr:
-        error "LogosDelivery shutdown failed", error = error
-      quit(QuitSuccess)
+  info "Setting up shutdown hooks"
+  proc asyncStopper(node: LogosDelivery) {.async: (raises: [Exception]).} =
+    (await node.stop()).isOkOr:
+      error "LogosDelivery shutdown failed", error = error
+    quit(QuitSuccess)
 
-    # Handle Ctrl-C SIGINT
-    proc handleCtrlC() {.noconv.} =
-      when defined(windows):
-        # workaround for https://github.com/nim-lang/Nim/issues/4057
-        setupForeignThreadGc()
-      notice "Shutting down after receiving SIGINT"
+  # Handle Ctrl-C SIGINT
+  proc handleCtrlC() {.noconv.} =
+    when defined(windows):
+      # workaround for https://github.com/nim-lang/Nim/issues/4057
+      setupForeignThreadGc()
+    notice "Shutting down after receiving SIGINT"
+    asyncSpawn asyncStopper(node)
+
+  setControlCHook(handleCtrlC)
+
+  # Handle SIGTERM
+  when defined(posix):
+    proc handleSigterm(signal: cint) {.noconv.} =
+      notice "Shutting down after receiving SIGTERM"
       asyncSpawn asyncStopper(node)
 
-    setControlCHook(handleCtrlC)
+    c_signal(ansi_c.SIGTERM, handleSigterm)
 
-    # Handle SIGTERM
-    when defined(posix):
-      proc handleSigterm(signal: cint) {.noconv.} =
-        notice "Shutting down after receiving SIGTERM"
-        asyncSpawn asyncStopper(node)
+  # Handle SIGSEGV
+  when defined(posix):
+    proc handleSigsegv(signal: cint) {.noconv.} =
+      # Require --debugger:native
+      fatal "Shutting down after receiving SIGSEGV"
 
-      c_signal(ansi_c.SIGTERM, handleSigterm)
+      # Not available in -d:release mode
+      writeStackTrace()
 
-    # Handle SIGSEGV
-    when defined(posix):
-      proc handleSigsegv(signal: cint) {.noconv.} =
-        # Require --debugger:native
-        fatal "Shutting down after receiving SIGSEGV"
+      (waitFor node.stop()).isOkOr:
+        error "LogosDelivery shutdown failed", error = error
+      quit(QuitFailure)
 
-        # Not available in -d:release mode
-        writeStackTrace()
+    c_signal(ansi_c.SIGSEGV, handleSigsegv)
 
-        (waitFor node.stop()).isOkOr:
-          error "LogosDelivery shutdown failed", error = error
-        quit(QuitFailure)
+  info "Node setup complete"
 
-      c_signal(ansi_c.SIGSEGV, handleSigsegv)
-
-    info "Node setup complete"
-
-    runForever()
+  runForever()

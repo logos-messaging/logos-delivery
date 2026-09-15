@@ -338,13 +338,13 @@ task libLogosDeliveryIOS, "Build the mobile bindings for iOS":
   let extraParams = "-d:chronicles_log_level=ERROR"
   buildMobileIOS srcDir, extraParams
 
-proc test(name: string, params = "-d:chronicles_log_level=DEBUG") =
+proc test(name: string, params = "-d:chronicles_log_level=INFO") =
   buildBinary name, "tests/", params
   exec "build/" & name
 
 ### Waku common tasks
 task testcommon, "Build & run common tests":
-  test "all_tests_common", "-d:chronicles_log_level=DEBUG -d:chronosStrictException"
+  test "all_tests_common"
 
 ### Waku tasks
 task logosdeliverynode, "Build Logos Delivery cli node":
@@ -362,6 +362,10 @@ task wakucanary, "Build waku-canary tool":
 task networkmonitor, "Build network monitor tool":
   let name = "networkmonitor"
   buildBinary name, "apps/networkmonitor/"
+
+task rlnkeystore, "Build the RLN keystore generator":
+  let name = "rlnkeystore"
+  buildBinary name, "apps/rlnkeystore/"
 
 task rln_db_inspector, "Build the rln db inspector":
   let name = "rln_db_inspector"

@@ -252,7 +252,13 @@ class WakuNode:
 
         if rln_creds_set:
             self._container = self._docker_manager.start_container(
-                self._docker_manager.image, self._ports, rln_args, self._log_path, self._ext_ip, self._volumes
+                self._docker_manager.image,
+                self._ports,
+                rln_args,
+                self._log_path,
+                self._ext_ip,
+                self._volumes,
+                entrypoint="/usr/local/bin/rlnkeystore" if self.is_nwaku() else None,
             )
 
             logger.debug(f"Executed container from image {self._image_name}. REST: {self._rest_port} to register RLN")
@@ -314,10 +320,12 @@ class WakuNode:
             self._container = None
             logger.debug("Container killed.")
 
-    def restart(self):
+    def restart(self, wait_for_node_sec=20):
         if self._container:
             logger.debug(f"Restarting container with id {self._container.short_id}")
             self._container.restart()
+            if wait_for_node_sec:
+                self.ensure_ready(timeout_duration=wait_for_node_sec, rln_required=self._rln_creds_set)
 
     def pause(self):
         if self._container:
@@ -556,7 +564,6 @@ class WakuNode:
             if is_registration:
                 rln_args.update(
                     {
-                        "generateRlnKeystore": None,
                         "--execute": None,
                         "rln-relay-user-message-limit": default_args["rln-relay-user-message-limit-registration"],
                     }

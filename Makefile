@@ -225,6 +225,14 @@ ifeq ($(DEBUG_DISCV5), 1)
 NIM_PARAMS := $(NIM_PARAMS) -d:debugDiscv5
 endif
 
+# Symbols for gdb, lldb and libbacktrace. Off by default. 
+# Turn it on to read a core from the C and Rust dependencies.
+# macOS needs `ulimit -n 1024` for this build, its default of 512 is too low.
+# No effect under DEBUG=0: -d:strip links with -s, which discards them again.
+ifeq ($(DEBUG_SYMBOLS), 1)
+NIM_PARAMS := $(NIM_PARAMS) --debugger:native
+endif
+
 # Callers set NIMFLAGS. The README, the workflows, the Jenkinsfiles and the
 # Dockerfiles use it. Only NIM_PARAMS reaches the build, so add NIMFLAGS to it
 # here, after the defines it may conflict with. Nim uses the last
@@ -367,9 +375,9 @@ compile-test: | build-deps build deps librln
 ################
 ## Waku tools ##
 ################
-.PHONY: tools wakucanary networkmonitor
+.PHONY: tools wakucanary networkmonitor rlnkeystore
 
-tools: networkmonitor wakucanary
+tools: networkmonitor wakucanary rlnkeystore
 
 wakucanary: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
@@ -378,6 +386,10 @@ wakucanary: | build-deps build deps librln
 networkmonitor: | build-deps build deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) networkmonitor $(NIMBLE_TASK_FLAGS)
+
+rlnkeystore: | build-deps build deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(NIMBLE) rlnkeystore $(NIMBLE_TASK_FLAGS)
 
 ############
 ## Format ##
@@ -434,13 +446,11 @@ coverage: | build-deps build rln-deps librln
 #####################
 DOCKER_IMAGE_NIMFLAGS ?= -d:chronicles_colors:none -d:insecure -d:postgres
 
-docker-image: MAKE_TARGET ?= logosdeliverynode
 docker-image: DEBUG ?= 0
-docker-image: DOCKER_IMAGE_TAG ?= $(MAKE_TARGET)-$(GIT_VERSION)
+docker-image: DOCKER_IMAGE_TAG ?= logosdeliverynode-$(GIT_VERSION)
 docker-image: DOCKER_IMAGE_NAME ?= wakuorg/nwaku:$(DOCKER_IMAGE_TAG)
 docker-image:
 	docker build \
-		--build-arg="MAKE_TARGET=$(MAKE_TARGET)" \
 		--build-arg="NIMFLAGS=$(DOCKER_IMAGE_NIMFLAGS)" \
 		--build-arg="DEBUG=$(DEBUG)" \
 		--build-arg="LOG_LEVEL=$(LOG_LEVEL)" \
@@ -450,13 +460,11 @@ docker-image:
 		--target $(TARGET) \
 		--tag $(DOCKER_IMAGE_NAME) .
 
-docker-quick-image: MAKE_TARGET ?= logosdeliverynode
-docker-quick-image: DOCKER_IMAGE_TAG ?= $(MAKE_TARGET)-$(GIT_VERSION)
+docker-quick-image: DOCKER_IMAGE_TAG ?= logosdeliverynode-$(GIT_VERSION)
 docker-quick-image: DOCKER_IMAGE_NAME ?= wakuorg/nwaku:$(DOCKER_IMAGE_TAG)
 docker-quick-image: NIM_PARAMS := $(NIM_PARAMS) -d:chronicles_colors:none -d:insecure -d:postgres --passL:$(LIBRLN_FILE) --passL:-lm
-docker-quick-image: | build librln logosdeliverynode
+docker-quick-image: | build librln logosdeliverynode rlnkeystore
 	docker build \
-		--build-arg="MAKE_TARGET=$(MAKE_TARGET)" \
 		--tag $(DOCKER_IMAGE_NAME) \
 		--target $(TARGET) \
 		--file docker/binaries/Dockerfile.bn.local \

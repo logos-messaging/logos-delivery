@@ -33,7 +33,7 @@ class DockerManager:
         logger.debug(f"Network {network_name} created")
         return network
 
-    def start_container(self, image_name, ports, args, log_path, container_ip, volumes, remove_container=True):
+    def start_container(self, image_name, ports, args, log_path, container_ip, volumes, remove_container=True, entrypoint=None):
         cli_args = []
         for key, value in args.items():
             if isinstance(value, list):  # Check if value is a list
@@ -46,9 +46,17 @@ class DockerManager:
         port_bindings = {f"{port}/tcp": ("", port) for port in ports}
         port_bindings_for_log = " ".join(f"-p {port}:{port}" for port in ports)
         cli_args_str_for_log = " ".join(cli_args)
-        logger.debug(f"docker run -i -t {port_bindings_for_log} {image_name} {cli_args_str_for_log}")
+        entrypoint_for_log = f"--entrypoint {entrypoint} " if entrypoint else ""
+        logger.debug(f"docker run -i -t {port_bindings_for_log} {entrypoint_for_log}{image_name} {cli_args_str_for_log}")
         container = self._client.containers.run(
-            image_name, command=cli_args, ports=port_bindings, detach=True, remove=remove_container, auto_remove=remove_container, volumes=volumes
+            image_name,
+            command=cli_args,
+            entrypoint=entrypoint,
+            ports=port_bindings,
+            detach=True,
+            remove=remove_container,
+            auto_remove=remove_container,
+            volumes=volumes,
         )
 
         network = self._client.networks.get(NETWORK_NAME)

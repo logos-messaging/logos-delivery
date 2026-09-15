@@ -1,5 +1,12 @@
-import stew/byteutils, presto, presto/client as presto_client
-import logos_delivery/waku/rest_api/endpoint/server
+import chronos, stew/byteutils, presto, presto/client as presto_client
+import
+  logos_delivery/waku/[
+    waku_core,
+    rest_api/endpoint/server,
+    rest_api/endpoint/relay/types,
+    rest_api/endpoint/relay/client as relay_rest_client,
+  ],
+  ./futures
 
 type TestResponseTuple* = tuple[status: int, data: string, headers: HttpTable]
 
@@ -52,3 +59,18 @@ proc issueRequest*(
     await request.closeWait()
     await session.closeWait()
   return data
+
+proc waitForRelayMessages*(
+    client: RestClientRef,
+    pubsubTopic: PubsubTopic,
+    count: int,
+    timeout = FUTURE_TIMEOUT_MEDIUM,
+): Future[seq[RelayWakuMessage]] {.async.} =
+  ## Each GET clears the cache, so the messages of every poll are collected.
+  var messages: seq[RelayWakuMessage]
+  let deadline = Moment.now() + timeout
+  while messages.len < count and Moment.now() < deadline:
+    let response = await client.relayGetMessagesV1(pubsubTopic)
+    messages.add(response.data)
+    await sleepAsync(50.milliseconds)
+  return messages

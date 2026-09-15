@@ -23,11 +23,6 @@ pipeline {
 
   parameters {
     string(
-      name: 'MAKE_TARGET',
-      description: 'Makefile target to build. Optional Parameter.',
-      defaultValue: params.MAKE_TARGET ?: 'logosdeliverynode',
-    )
-    string(
       name: 'IMAGE_TAG',
       description: 'Name of Docker tag to push. Optional Parameter.',
       defaultValue: getDefaultImageTag()
@@ -88,7 +83,6 @@ pipeline {
             "--label=build='${env.BUILD_URL}' " +
             "--label=commit='${git.commit()}' " +
             "--label=version='${git.describe('--tags')}' " +
-            "--build-arg=MAKE_TARGET='${params.MAKE_TARGET}' " +
             "--build-arg=NIMFLAGS='${params.NIMFLAGS}' " +
             "--build-arg=HEAPTRACK_BUILD='1' " +
             "--build-arg=POSTGRES='1' " +
@@ -102,7 +96,6 @@ pipeline {
             "--label=build='${env.BUILD_URL}' " +
             "--label=commit='${git.commit()}' " +
             "--label=version='${git.describe('--tags')}' " +
-            "--build-arg=MAKE_TARGET='${params.MAKE_TARGET}' " +
             "--build-arg=NIMFLAGS='${params.NIMFLAGS}' " +
             "--build-arg=POSTGRES='1' " +
             "--build-arg=LOG_LEVEL='${params.LOWEST_LOG_LEVEL_ALLOWED}' "  +

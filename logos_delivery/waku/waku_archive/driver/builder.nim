@@ -87,9 +87,11 @@ proc new*(
 
       driver.startAnalyzeTableLoop()
 
-      debug "Waiting for a partition to be created"
+      ## Waiting for the whole pass, not just its first partition, so that the
+      ## messages stamped past the next o'clock have a partition too.
+      debug "Waiting for the partitions to be created"
       for i in 0 ..< 100:
-        if driver.containsAnyPartition():
+        if driver.arePartitionsProvisioned():
           break
         await sleepAsync(chronos.milliseconds(100))
 

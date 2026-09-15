@@ -68,10 +68,7 @@ suite "Waku external config - apply preset":
 
     ## Given
     let preConfig = WakuNodeConf(
-      cmd: noCommand,
-      preset: "twn",
-      relay: true,
-      ethClientUrls: @["http://someaddress".EthRpcUrl],
+      preset: "twn", relay: true, ethClientUrls: @["http://someaddress".EthRpcUrl]
     )
 
     ## When
@@ -105,7 +102,7 @@ suite "Waku external config - apply preset":
 
     ## Given
     let shards: seq[uint16] = @[0, 1, 2, 3, 4, 5, 6, 7]
-    let preConfig = WakuNodeConf(cmd: noCommand, preset: "twn", shards: shards)
+    let preConfig = WakuNodeConf(preset: "twn", shards: shards)
 
     ## When
     let res = preConfig.toWakuConf()
@@ -121,7 +118,7 @@ suite "Waku external config - apply preset":
 
     ## Given
     let shards: seq[uint16] = @[0, 4, 7]
-    let preConfig = WakuNodeConf(cmd: noCommand, preset: "twn", shards: shards)
+    let preConfig = WakuNodeConf(preset: "twn", shards: shards)
 
     ## When
     let resConf = preConfig.toWakuConf()
@@ -138,7 +135,7 @@ suite "Waku external config - apply preset":
 
     ## Given
     let shards: seq[uint16] = @[0, 4, 7, 10]
-    let preConfig = WakuNodeConf(cmd: noCommand, preset: "twn", shards: shards)
+    let preConfig = WakuNodeConf(preset: "twn", shards: shards)
 
     ## When
     let res = preConfig.toWakuConf()
@@ -174,9 +171,8 @@ suite "Waku external config - Shards":
     ## Given
     let shards: seq[uint16] = @[0, 2, 4]
     let numShardsInNetwork = 5.uint16
-    let wakuNodeConf = WakuNodeConf(
-      cmd: noCommand, shards: shards, numShardsInNetwork: numShardsInNetwork
-    )
+    let wakuNodeConf =
+      WakuNodeConf(shards: shards, numShardsInNetwork: numShardsInNetwork)
 
     ## When
     let res = wakuNodeConf.toWakuConf()
@@ -193,9 +189,8 @@ suite "Waku external config - Shards":
     ## Given
     let shards: seq[uint16] = @[0, 2, 5]
     let numShardsInNetwork = 5.uint16
-    let wakuNodeConf = WakuNodeConf(
-      cmd: noCommand, shards: shards, numShardsInNetwork: numShardsInNetwork
-    )
+    let wakuNodeConf =
+      WakuNodeConf(shards: shards, numShardsInNetwork: numShardsInNetwork)
 
     ## When
     let res = wakuNodeConf.toWakuConf()

@@ -17,8 +17,7 @@ import
   ./waku_archive/test_waku_archive,
   ./waku_archive/test_partition_manager
 
-const os* {.strdefine.} = ""
-when os == "Linux" and
+when defined(linux) and
     # GitHub only supports container actions on Linux
     # and we need to start a postgres database in a docker container
     defined(postgres):
@@ -26,6 +25,7 @@ when os == "Linux" and
 
 import
   ./wakunode_rest/test_rest_filter,
+  ./wakunode_rest/test_rest_lightpush,
   ./wakunode_rest/test_rest_relay,
   ./wakunode_rest/test_rest_store
 

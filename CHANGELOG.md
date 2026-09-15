@@ -2,10 +2,15 @@
 
 ### Breaking changes
 
-- The `wakunode2` binary is removed. `logosdeliverynode` is the only node binary; it
-  covers everything `wakunode2` did, including the `generateRlnKeystore` subcommand.
+- The `wakunode2` binary is removed. `logosdeliverynode` is the only node binary.
   Replace `make wakunode2` with `make logosdeliverynode` and `./build/wakunode2` with
   `./build/logosdeliverynode`.
+
+- RLN keystore generation moves from the `generateRlnKeystore` subcommand to the
+  standalone `rlnkeystore` tool, with the same flags (including `--config-file`):
+  replace `wakunode2 generateRlnKeystore …` with `rlnkeystore …`. It reads
+  `RLNKEYSTORE_` environment variables, then the node's `LOGOS_DELIVERY_NODE_` ones.
+  Node images ship it at `/usr/local/bin/rlnkeystore`.
 
 - The environment-variable prefix for node options is now `LOGOS_DELIVERY_NODE_`
   instead of `WAKUNODE2_` (e.g. `LOGOS_DELIVERY_NODE_TCP_PORT`). This is a silent

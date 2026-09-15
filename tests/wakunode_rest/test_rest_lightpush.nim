@@ -2,7 +2,7 @@ import results
 {.used.}
 
 import
-  std/sequtils,
+  std/[json, sequtils, strformat, strutils],
   stew/byteutils,
   testutils/unittests,
   presto,
@@ -11,6 +11,7 @@ import
 
 import
   logos_delivery/waku/[
+    common/base64,
     rest_api/message_cache,
     waku_core,
     waku_node,
@@ -22,11 +23,16 @@ import
     rest_api/endpoint/lightpush/types,
     rest_api/endpoint/lightpush/handlers as lightpush_rest_interface,
     rest_api/endpoint/lightpush/client as lightpush_rest_client,
+    rest_api/endpoint/relay/handlers as relay_rest_interface,
+    rest_api/endpoint/relay/client as relay_rest_client,
     waku_relay,
     common/rate_limit/setting,
   ],
   ../testlib/wakucore,
-  ../testlib/wakunode
+  ../testlib/wakunode,
+  ../testlib/testasync,
+  ../testlib/rest_requests,
+  ../resources/payloads
 
 proc testWakuNode(): WakuNode =
   let
@@ -101,6 +107,8 @@ proc shutdown(self: RestLightPushTest) {.async.} =
 suite "Waku v2 Rest API - lightpush":
   asyncTest "Push message with proof":
     let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
 
     let message: RelayWakuMessage = fakeWakuMessage(
         contentTopic = DefaultContentTopic,
@@ -143,7 +151,7 @@ suite "Waku v2 Rest API - lightpush":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to relay: " & $error
-    require:
+    check:
       toSeq(restLightPushTest.serviceNode.wakuRelay.subscribedTopics).len == 1
 
     # When
@@ -177,7 +185,7 @@ suite "Waku v2 Rest API - lightpush":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to relay: " & $error
-    require:
+    check:
       toSeq(restLightPushTest.serviceNode.wakuRelay.subscribedTopics).len == 1
 
     # When
@@ -244,7 +252,7 @@ suite "Waku v2 Rest API - lightpush":
       (kind: PubsubSub, topic: DefaultPubsubTopic), simpleHandler
     ).isOkOr:
       assert false, "Failed to subscribe to relay: " & $error
-    require:
+    check:
       toSeq(restLightPushTest.serviceNode.wakuRelay.subscribedTopics).len == 1
 
     # When
@@ -302,3 +310,150 @@ suite "Waku v2 Rest API - lightpush":
       await sleepAsync(tokenPeriod - elapsed + 10.millis)
 
     await restLightPushTest.shutdown()
+
+  asyncTest "A pushed message is read back on the relay peer of the service node - POST /lightpush/v3/message, GET /relay/v1/messages/{topic}":
+    # Given the consumer node subscribed over REST and known to the service node
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    let restServerForConsumer =
+      WakuRestServerRef.init(parseIpAddress("127.0.0.1"), Port(0)).tryGet()
+    installRelayApiHandlers(
+      restServerForConsumer.router, restLightPushTest.consumerNode, MessageCache.init()
+    )
+    restServerForConsumer.start()
+    defer:
+      await restServerForConsumer.stop()
+      await restServerForConsumer.closeWait()
+
+    let clientTwdConsumerNode = newRestHttpClient(restServerForConsumer.localAddress())
+
+    let subscribeResponse =
+      await clientTwdConsumerNode.relayPostSubscriptionsV1(@[DefaultPubsubTopic])
+    check subscribeResponse.status == 200
+    checkUntilTimeout:
+      restLightPushTest.serviceNode.hasGossipsubPeer(
+        DefaultPubsubTopic, restLightPushTest.consumerNode.peerInfo.peerId
+      )
+
+    # When a message with every optional field set is pushed
+    let sent = RelayWakuMessage(
+      payload: base64.encode(EMOJI),
+      contentTopic: Opt.some(ContentTopic("/test/1/wäku-lightpush/proto")),
+      version: Opt.some(Natural(10)),
+      timestamp: Opt.some(now()),
+      meta: Opt.some(base64.encode("test-meta")),
+      ephemeral: Opt.some(true),
+      proof: Opt.some(base64.encode("test-proof")),
+    )
+    let pushResponse = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: sent)
+    )
+    check:
+      pushResponse.status == 200
+      pushResponse.data.relayPeerCount == Opt.some(1.uint32)
+
+    # Then the relay peer reads it back over REST with every field unchanged
+    let received =
+      await clientTwdConsumerNode.waitForRelayMessages(DefaultPubsubTopic, 1)
+    check:
+      received.mapIt(it.payload) == @[sent.payload]
+      received.mapIt(it.contentTopic) == @[sent.contentTopic]
+      received.mapIt(it.version) == @[sent.version]
+      received.mapIt(it.timestamp) == @[sent.timestamp]
+      received.mapIt(it.meta) == @[sent.meta]
+      received.mapIt(it.ephemeral) == @[sent.ephemeral]
+      received.mapIt(it.proof) == @[sent.proof]
+
+  asyncTest "Push a message with an invalid body - POST /lightpush/v3/message":
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    let
+      path = "/lightpush/v3/message"
+      jsonHeader: seq[HttpHeaderTuple] = @[("Content-Type", "application/json")]
+      payload = string(base64.encode("TEST-PAYLOAD"))
+      validMessage =
+        "{\"payload\": \"" & payload & "\", \"contentTopic\": \"" & DefaultContentTopic &
+        "\"}"
+
+    # When the body does not decode into a push request
+    let invalidBodies = [
+      $ %*{
+        "pubsubTopic": [DefaultPubsubTopic],
+        "message": {"payload": payload, "contentTopic": DefaultContentTopic},
+      },
+      $ %*{"pubsubTopic": DefaultPubsubTopic},
+      "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
+        ", \"message\": " & validMessage & "}",
+      # An unknown field is rejected although the decoder sets allowUnknownFields.
+      "{\"pubsubTopic\": \"" & DefaultPubsubTopic & "\", \"message\": " & validMessage &
+        ", \"extraField\": \"extraValue\"}",
+    ]
+
+    # Then each is rejected as an invalid push request
+    for body in invalidBodies:
+      let response = await issueRequest(
+        restLightPushTest.restServer.getAddress(path), MethodPost, jsonHeader, body
+      )
+      let data = parseJson(response.data)
+      # The answer carries the printed response object that wraps the decode error.
+      check:
+        response.status == 400
+        data["statusDesc"].getStr().startsWith(
+          "Invalid push request! (status: 400 Bad Request, "
+        )
+
+    # When a field that must be base64 is not
+    let notBase64Bodies = [
+      $ %*{
+        "pubsubTopic": DefaultPubsubTopic,
+        "message": {"payload": "Hello World!", "contentTopic": DefaultContentTopic},
+      },
+      $ %*{
+        "pubsubTopic": DefaultPubsubTopic,
+        "message": {
+          "payload": payload,
+          "contentTopic": DefaultContentTopic,
+          "meta": "Hello World!",
+        },
+      },
+    ]
+
+    # Then the request is rejected as an invalid message
+    for body in notBase64Bodies:
+      let response = await issueRequest(
+        restLightPushTest.restServer.getAddress(path), MethodPost, jsonHeader, body
+      )
+      let data = parseJson(response.data)
+      check:
+        response.status == 400
+        data["statusDesc"].getStr() == "Invalid message! Incorrect base64 string"
+
+  asyncTest "Push a message over the size limit - POST /lightpush/v3/message":
+    # Given
+    let restLightPushTest = await RestLightPushTest.init()
+    defer:
+      await restLightPushTest.shutdown()
+
+    # When
+    let message: RelayWakuMessage = fakeWakuMessage(
+        contentTopic = DefaultContentTopic,
+        payload = getByteSequence(DefaultMaxWakuMessageSize + 64 * 1024),
+      )
+      .toRelayWakuMessage()
+
+    let response = await restLightPushTest.restClient.sendPushRequest(
+      PushRequest(pubsubTopic: Opt.some(DefaultPubsubTopic), message: message)
+    )
+
+    # Then
+    # The lightpush code INVALID_MESSAGE (420) has no HTTP status, so REST answers 500.
+    check:
+      response.status == 500
+      response.data.statusDesc ==
+        Opt.some(
+          fmt"Message size exceeded maximum of {DefaultMaxWakuMessageSize} bytes"
+        )

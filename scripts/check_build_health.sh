@@ -30,6 +30,7 @@
 #   DEBUG unset       adds -d:debug
 #   POSTGRES=1        adds -d:postgres
 #   DEBUG_DISCV5=1    adds -d:debugDiscv5
+#   DEBUG_SYMBOLS=1   adds --debugger:native
 
 set -uo pipefail
 
@@ -270,6 +271,8 @@ reject_flag "an unset DEBUG does not strip"    "-d:strip"
 expect_flag "POSTGRES=1 enables the postgres driver" "-d:postgres"    POSTGRES=1
 reject_flag "POSTGRES unset leaves it out"           "-d:postgres"
 expect_flag "DEBUG_DISCV5=1 enables discv5 tracing"  "-d:debugDiscv5" DEBUG_DISCV5=1
+expect_flag "DEBUG_SYMBOLS=1 emits native symbols"   "--debugger:native" DEBUG_SYMBOLS=1
+reject_flag "DEBUG_SYMBOLS unset leaves them out"    "--debugger:native"
 
 # --------------------------------------------------------------------------
 # `make test <file> [name]` passes the file and the name as extra goals, which

@@ -279,6 +279,20 @@ suite "Waku Lightpush Client":
         publishResponse.statusDesc.isSome()
         scanf(publishResponse.statusDesc.get(), decodeRpcFailure)
 
+    asyncTest "A message whose meta exceeds the limit is reported as a requestId mismatch":
+      # Given a message whose meta is one byte over the limit
+      let message = fakeWakuMessage(meta = newSeq[byte](MaxMetaAttrLength + 1))
+
+      # When publishing it
+      let publishResponse =
+        await client.publish(Opt.some(pubsubTopic), message, serverRemotePeerInfo)
+
+      # Then the service cannot read the requestId of a request it cannot decode
+      check:
+        publishResponse.isErr()
+        publishResponse.error.code == LightPushErrorCode.INTERNAL_SERVER_ERROR
+        publishResponse.error.desc == Opt.some("response failure, requestId mismatch")
+
     asyncTest "Handle Error":
       # Given a lightpush server that fails
       let
@@ -361,11 +375,16 @@ suite "Waku Lightpush Client":
         serverRemotePeerInfo2 = serverSwitch2.peerInfo.toRemotePeerInfo()
 
       await serverSwitch2.start()
+      defer:
+        await serverSwitch2.stop()
 
       # When sending an invalid PushRequest
       let publishResponse =
         await client.publish(Opt.some(pubsubTopic), message, serverRemotePeerInfo2)
 
-      # Then the response is negative
-      check not publishResponse.isOk()
-      check publishResponse.error.code == LightPushErrorCode.NO_PEERS_TO_RELAY
+      # Then the response reports a dial failure
+      check:
+        publishResponse.isErr()
+        publishResponse.error.code == LightPushErrorCode.NO_PEERS_TO_RELAY
+        publishResponse.error.desc ==
+          Opt.some(dialFailure & ": " & $serverRemotePeerInfo2 & " is not accessible")

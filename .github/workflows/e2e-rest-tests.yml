@@ -8,6 +8,11 @@ on:
         type: string
         required: false
         default: ""
+      node_image_artifact:
+        description: "Artifact holding node_image when it could not be pushed to quay.io."
+        type: string
+        required: false
+        default: ""
   schedule:
     # After pre-release.yml (03:13) has refreshed quay.io/wakuorg/nwaku-pr:nightly.
     - cron: '0 5 * * *'
@@ -34,6 +39,10 @@ on:
         required: false
         default: ""
 
+env:
+  NIM_VERSION: '2.2.6'
+  NIGHTLY_IMAGE: quay.io/wakuorg/nwaku-pr:nightly
+
 jobs:
   rest-e2e:
     runs-on: ubuntu-22.04
@@ -47,11 +56,84 @@ jobs:
       NODE_1: ${{ inputs.node1 }}
       NODE_2: ${{ inputs.node2 }}
       ADDITIONAL_NODES: ${{ inputs.additional_nodes }}
-      # Tests marked slow run only on the nightly cron and manual dispatch.
-      PYTEST_ADDOPTS: ${{ github.event_name != 'schedule' && github.event_name != 'workflow_dispatch' && '-m "not slow"' || '' }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
+
+      # Loaded under its quay.io name, so the tests use it without pulling.
+      - name: Download node image
+        if: ${{ inputs.node_image_artifact != '' }}
+        uses: actions/download-artifact@v4
+        with:
+          name: ${{ inputs.node_image_artifact }}
+          path: ${{ runner.temp }}/node-image
+
+      - name: Load node image
+        if: ${{ inputs.node_image_artifact != '' }}
+        run: docker load -i "${RUNNER_TEMP}/node-image/node-image.tar.gz"
+
+      # The nightly image comes from pre-release.yml via quay.io, refreshed every
+      # night at 03:13. When it cannot be pulled (quay.io outage) or is older
+      # than 24h (that night's push failed), rebuild it from this checkout under
+      # the same name. The rebuild is cached per commit, so re-runs reuse it.
+      - name: Pull nightly image
+        id: nightly
+        if: ${{ env.DEFAULT_NWAKU == env.NIGHTLY_IMAGE }}
+        continue-on-error: true
+        run: |
+          if ! docker pull "${NIGHTLY_IMAGE}"; then
+            echo "::warning title=Nightly image unavailable::Could not pull ${NIGHTLY_IMAGE}; rebuilding it from ${GITHUB_SHA}."
+            exit 1
+          fi
+          CREATED=$(docker image inspect -f '{{.Created}}' "${NIGHTLY_IMAGE}")
+          AGE_H=$(( ($(date +%s) - $(date -d "${CREATED}" +%s)) / 3600 ))
+          echo "${NIGHTLY_IMAGE} was built ${CREATED} (${AGE_H}h ago)"
+          if (( AGE_H >= 24 )); then
+            echo "::warning title=Stale nightly image::${NIGHTLY_IMAGE} is ${AGE_H}h old; rebuilding it from ${GITHUB_SHA}."
+            exit 1
+          fi
+
+      - name: Restore rebuilt nightly image
+        id: nightly-cache
+        if: ${{ steps.nightly.outcome == 'failure' }}
+        uses: actions/cache/restore@v4
+        with:
+          path: ${{ runner.temp }}/nightly-image.tar.gz
+          key: nightly-image-${{ github.sha }}
+
+      - name: Load rebuilt nightly image
+        if: ${{ steps.nightly-cache.outputs.cache-hit == 'true' }}
+        run: docker load -i "${RUNNER_TEMP}/nightly-image.tar.gz"
+
+      - name: Install Nim ${{ env.NIM_VERSION }}
+        if: ${{ steps.nightly.outcome == 'failure' && steps.nightly-cache.outputs.cache-hit != 'true' }}
+        uses: jiro4989/setup-nim-action@v2
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+          repo-token: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Install nimble deps
+        if: ${{ steps.nightly.outcome == 'failure' && steps.nightly-cache.outputs.cache-hit != 'true' }}
+        uses: ./.github/actions/nimble-deps
+        with:
+          nim-version: ${{ env.NIM_VERSION }}
+
+      - name: Build nightly image
+        if: ${{ steps.nightly.outcome == 'failure' && steps.nightly-cache.outputs.cache-hit != 'true' }}
+        env:
+          NIMFLAGS: "--parallelBuild:2 -d:chronicles_colors:none"
+        run: |
+          make -j2 V=1 DEBUG=0 POSTGRES=1 logosdeliverynode
+          make -j2 V=1 DEBUG=0 rlnkeystore
+          docker build -t "${NIGHTLY_IMAGE}" -f docker/binaries/Dockerfile.bn.amd64 .
+          docker save "${NIGHTLY_IMAGE}" | gzip > "${RUNNER_TEMP}/nightly-image.tar.gz"
+
+      - name: Cache rebuilt nightly image
+        if: ${{ steps.nightly.outcome == 'failure' && steps.nightly-cache.outputs.cache-hit != 'true' }}
+        uses: actions/cache/save@v4
+        with:
+          path: ${{ runner.temp }}/nightly-image.tar.gz
+          key: nightly-image-${{ github.sha }}
 
       - name: Set up Python
         uses: actions/setup-python@v5

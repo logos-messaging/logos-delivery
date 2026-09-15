@@ -1,4 +1,5 @@
 import
+  std/[sets, tables],
   results,
   chronos,
   libp2p/switch,
@@ -9,6 +10,7 @@ import
 import
   logos_delivery/waku/[
     waku_node,
+    waku_relay,
     net/net_config,
     waku_core/topics,
     node/waku_switch,
@@ -30,7 +32,10 @@ import
 proc defaultTestWakuConfBuilder*(): WakuConfBuilder =
   var builder = WakuConfBuilder.init()
   builder.withP2pListenAddress(parseIpAddress("0.0.0.0"))
+  builder.withP2pTcpPort(Port(0))
+  builder.discv5Conf.withUdpPort(Port(0))
   builder.restServerConf.withListenAddress(parseIpAddress("127.0.0.1"))
+  builder.restServerConf.withPort(Port(0))
   builder.withDnsAddrsNameServers(
     @[parseIpAddress("1.1.1.1"), parseIpAddress("1.0.0.1")]
   )
@@ -174,3 +179,18 @@ proc boundTcpPort*(node: WakuNode): Port =
   if ports.tcpPort.isNone():
     raiseAssert "no tcp listen address in " & $node.switch.peerInfo.listenAddrs
   ports.tcpPort.get()
+
+proc hasMeshPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
+  for p in relay.mesh.getOrDefault(topic):
+    if p.peerId == peer:
+      return true
+  false
+
+proc hasGossipsubPeer*(relay: WakuRelay, topic: PubsubTopic, peer: PeerId): bool =
+  for p in relay.gossipsub.getOrDefault(topic):
+    if p.peerId == peer:
+      return true
+  false
+
+proc hasGossipsubPeer*(node: WakuNode, topic: PubsubTopic, peer: PeerId): bool =
+  node.wakuRelay.hasGossipsubPeer(topic, peer)
