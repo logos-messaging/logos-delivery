@@ -35,11 +35,19 @@ proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
-proc fixedEpochQuota(epoch: ptr uint64, userMessageLimit: uint64): QuotaProvider =
+proc fixedEpochQuota(
+    epoch: ptr uint64, userMessageLimit: uint64, epochPeriodSec = 600'u64
+): QuotaProvider =
   ## Quota pinned to whatever `epoch` holds, so a test rolls the epoch by
   ## writing through the pointer.
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
-    return Opt.some(EpochQuota(epochIndex: epoch[], userMessageLimit: userMessageLimit))
+    return Opt.some(
+      EpochQuota(
+        epochIndex: epoch[],
+        userMessageLimit: userMessageLimit,
+        epochPeriodSec: epochPeriodSec,
+      )
+    )
 
 suite "SendService - rate-limit scheduling":
   var waku {.threadvar.}: Waku
@@ -145,7 +153,7 @@ suite "SendService - rate-limit scheduling":
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+        fixedEpochQuota(addr epoch, userMessageLimit = 100, epochPeriodSec = 600),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
@@ -171,6 +179,8 @@ suite "SendService - rate-limit scheduling":
       queued.len == 1
       queued[0].requestId == second.requestId
       queued[0].messageHash == second.msgHash.to0xHex()
+      ## Epoch 1 of 600s closes at 1200s; reported in nanoseconds.
+      queued[0].expectedPublishTimestamp == Timestamp(1200 * 1_000_000_000)
 
     ## Still over budget: the task parks again, the event does not repeat.
     await service.trySendMessages()

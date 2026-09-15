@@ -160,6 +160,8 @@ type
     messageHash*: string
     error*: string ## populated only for `Error`
     timestamp*: int64 ## nanoseconds, stamped when cached
+    expectedPublishTimestamp*: int64
+      ## nanoseconds, populated only for `Queued`; 0 when not known
 
   SendStatus* = object ## All send events observed so far for a single request id.
     requestId*: string
@@ -180,6 +182,8 @@ proc writeValue*(
   writer.writeField("messageHash", value.messageHash)
   if value.error.len > 0:
     writer.writeField("error", value.error)
+  if value.expectedPublishTimestamp > 0:
+    writer.writeField("expectedPublishTimestamp", value.expectedPublishTimestamp)
   writer.writeField("timestamp", value.timestamp)
   writer.endRecord()
 
@@ -236,6 +240,7 @@ proc readValue*(
     messageHash = ""
     error = ""
     timestamp = int64(0)
+    expectedPublishTimestamp = int64(0)
 
   for fieldName in readObjectFields(reader):
     case fieldName
@@ -245,6 +250,8 @@ proc readValue*(
       messageHash = reader.readValue(string)
     of "error":
       error = reader.readValue(string)
+    of "expectedPublishTimestamp":
+      expectedPublishTimestamp = reader.readValue(int64)
     of "timestamp":
       timestamp = reader.readValue(int64)
     else:
@@ -254,7 +261,11 @@ proc readValue*(
     reader.raiseUnexpectedValue("Field `kind` is missing")
 
   value = SendEventRecord(
-    kind: kind.get(), messageHash: messageHash, error: error, timestamp: timestamp
+    kind: kind.get(),
+    messageHash: messageHash,
+    error: error,
+    timestamp: timestamp,
+    expectedPublishTimestamp: expectedPublishTimestamp,
   )
 
 proc readValue*(

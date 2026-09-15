@@ -290,9 +290,20 @@ proc reportTaskQueued(self: SendService, task: DeliveryTask) =
   if task.queuedEventEmitted:
     return
 
+  let nextEpochStart = self.rateLimitManager.nextEpochStartUnixSec()
+  let expectedPublishTimestamp =
+    if nextEpochStart == 0:
+      Timestamp(0)
+    else:
+      getNanosecondTime(int64(nextEpochStart))
+
   info "Message queued for rate-limit budget",
-    requestId = task.requestId, msgHash = task.msgHash.to0xHex()
-  MessageQueuedEvent.emit(self.brokerCtx, task.requestId, task.msgHash.to0xHex())
+    requestId = task.requestId,
+    msgHash = task.msgHash.to0xHex(),
+    expectedPublishTimestamp = expectedPublishTimestamp
+  MessageQueuedEvent.emit(
+    self.brokerCtx, task.requestId, task.msgHash.to0xHex(), expectedPublishTimestamp
+  )
   task.queuedEventEmitted = true
 
 proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.} =

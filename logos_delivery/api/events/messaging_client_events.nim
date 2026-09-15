@@ -1,8 +1,9 @@
 import brokers/event_broker
 
 import logos_delivery/api/types as api_types
+import logos_delivery/waku/waku_core/time
 
-export event_broker, api_types
+export event_broker, api_types, time
 
 EventBroker:
   # Event emitted when a message is sent to the network
@@ -23,6 +24,10 @@ EventBroker:
   type MessageQueuedEvent* = object
     requestId*: RequestId
     messageHash*: string
+    expectedPublishTimestamp*: Timestamp
+      ## Nanoseconds, when the budget refills; 0 when no epoch period is known.
+      ## The earliest the send can go out, not a promise that it will: budget
+      ## released at the boundary is shared with every other queued message.
 
 EventBroker:
   # Confirmation that a message has been correctly delivered to some neighbouring nodes.
