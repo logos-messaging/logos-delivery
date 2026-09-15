@@ -23,6 +23,8 @@ fi
 NODE="${NODE:-logosdeliverynode/bin/logosdeliverynode.exe}"
 LIB="${LIB:-liblogosdelivery/bin/liblogosdelivery.dll}"
 HDR="${HDR:-liblogosdelivery/include/generated/logosdelivery.h}"
+CBOR_HDR="${CBOR_HDR:-liblogosdelivery/include/generated/nim_ffi_cbor.h}"
+PRELUDE_HDR="${PRELUDE_HDR:-liblogosdelivery/include/generated/nim_ffi_prelude.h}"
 
 # ---------------------------------------------------------------------------
 # 1. The tree carries what a consumer links and dlopens.
@@ -34,20 +36,17 @@ HDR="${HDR:-liblogosdelivery/include/generated/logosdelivery.h}"
 # node's exe alone, so without this line the DLL could vanish and the job would
 # still be green.
 # ---------------------------------------------------------------------------
-for f in "$LIB" "$HDR"; do
+for f in "$LIB" "$HDR" "$CBOR_HDR" "$PRELUDE_HDR"; do
   if [ ! -s "$f" ]; then
     echo "::error::$f is missing or empty in the staged tree." >&2
     echo "::error::staged: $(find . -mindepth 1 -maxdepth 1 -type d | sort | tr '\n' ' ')" >&2
     exit 1
   fi
 done
-echo "staged: $LIB ($(wc -c < "$LIB") bytes), $HDR"
+echo "staged: $LIB ($(wc -c < "$LIB") bytes), generated C binding headers"
 
-# `generated/logosdelivery.h` is emitted by a Nim compile-time pass whose path
-# handling follows the TARGET's separator. Under cross that pass wrote the whole
-# path as one backslash-named file at the project root and left include/generated
-# empty -- a build that succeeded and shipped no header. It is asserted by name
-# because "the header exists" was, for one release, the whole bug.
+# Assert the exact generated paths rather than accepting an unusable include
+# directory.
 
 # ---------------------------------------------------------------------------
 # 2. libpq ships beside the node's exe.

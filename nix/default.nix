@@ -20,6 +20,19 @@ let
   hostPlatform = pkgs.stdenv.hostPlatform;
   isWindows    = hostPlatform.isWindows;
 
+  # nixpkgs' TinyCBOR install target drops the .exe suffix from cbordump when
+  # cross-compiling. Consumers only need the static library and public headers.
+  tinycbor =
+    if !isWindows then pkgs.tinycbor
+    else pkgs.tinycbor.overrideAttrs (old: {
+      makeFlags = (old.makeFlags or []) ++ [ "BUILD_SHARED=0" "BUILD_STATIC=1" ];
+      postPatch = (old.postPatch or "") + ''
+        substituteInPlace Makefile \
+          --replace-fail 'INSTALL_TARGETS += $(bindir)/cbordump' \
+                         '# cbordump is not installed when cross-compiling'
+      '';
+    });
+
   # Every one of these runs on the BUILDER, so they must come from
   # buildPackages: in a cross package set `pkgs.git` is a git cross-compiled
   # FOR Windows, and `pkgs.nim-2_2` is the mingw-hosted nim wrapper, which does
@@ -101,35 +114,15 @@ let
   # Putting it in bin/ gets that staging for free instead of hand-rolling it.
   dllDir = if isWindows then "bin" else "lib";
 
-  # The public header library/liblogosdelivery.h does
-  #     #include "generated/logosdelivery.h"
-  # and that file is a BUILD ARTIFACT, emitted by nim-ffi only when these
-  # defines are passed -- see `cBindingsFlags` at logos_delivery.nimble:111-117,
-  # which the Makefile path passes and this derivation did not. Without them the
-  # header is never generated and never installed, so every consumer of the
-  # installed include/ dir dies with
-  #     fatal error: generated/logosdelivery.h: No such file or directory
-  # on EVERY platform. Found by cross-building logos-delivery-module.
-  #
-  # -d:ffiSrcPath is not optional: without it nim-ffi derives the path with
-  # relativePath, which needs getcwd at compile time and fails to build.
+  # The public header includes this generated call surface. Keep the output
+  # absolute because nim-ffi writes it from the compile-time VM; the pinned
+  # version uses build-host path separators when cross-compiling (nim-ffi#168).
   cBindingsDir = "library/generated";
-  # ffiOutputDir is handed to a compile-time writeFile, so a RELATIVE value is
-  # resolved against whatever directory the nim VM considers current -- which is
-  # not reliably the source root (the nimble task gets away with it because it
-  # execs from there). $PWD is expanded by the shell before nim ever sees it, so
-  # the codegen lands in the source tree no matter what the VM's cwd is.
   cBindingsArgs = [
-    # THE load-bearing flag. nim-ffi emits via compile-time createDir/writeFile,
-    # and Nim gates VM filesystem writes behind this: without it both calls
-    # SILENTLY do nothing -- no exception, no warning -- so genBindings() reports
-    # success having written zero files. Upstream passes the four defines below
-    # but not this, which is why the header has never been produced on any
-    # platform. See logos-messaging/logos-delivery#4121.
-    "--experimental:vmopsDanger"
     "--define:ffiGenBindings"
     "--define:targetLang=c"
     "--define:ffiOutputDir=$PWD/${cBindingsDir}"
+    # Avoid compile-time getcwd in nim-ffi's default relative-path derivation.
     "--define:ffiSrcPath=../liblogosdelivery.nim"
   ];
 
@@ -225,6 +218,10 @@ pkgs.stdenv.mkDerivation {
   # cmakeConfigurePhase as the derivation's configurePhase and fails on the
   # repo root, which has no CMakeLists.txt of its own.
   dontUseCmakeConfigure = true;
+
+  # The generated C helpers include <tinycbor/cbor.h> and call TinyCBOR's
+  # encoder/decoder API. Propagate it from the library package to consumers.
+  propagatedBuildInputs = lib.optionals (!buildApp) [ tinycbor ];
 
   buildPhase = ''
     export HOME=$TMPDIR
@@ -330,39 +327,6 @@ pkgs.stdenv.mkDerivation {
       ] ++ libDefineArgs ++ cBindingsArgs;
     }}
 
-    # nim-ffi emits its generated binding with `outputDir / name`, and Nim's `/`
-    # normalises to the TARGET's separator. Building for Windows from a Linux
-    # host makes that a BACKSLASH, and it converts the WHOLE path, not just the
-    # final join -- so an absolute -d:ffiOutputDir=/build/.../library/generated
-    # becomes the single relative filename
-    #
-    #     \build\...\library\generated\logosdelivery.h
-    #
-    # which the compile-time writeFile then creates in the CURRENT directory.
-    # The requested output directory is left empty and the header appears at the
-    # source root under a name nothing looks for.
-    #
-    # Reduced to a 7-line program rather than inferred. The same file built
-    # natively and with --os:windows:
-    #
-    #     native : out/mylib.h, out/CMakeLists.txt
-    #     windows: ./\tmp\ffi2\out\mylib.h, ./\tmp\ffi2\out\CMakeLists.txt
-    #
-    # That is why liblogosdelivery.h -- which #includes generated/logosdelivery.h
-    # -- could never be compiled against on Windows. Convert the separators back
-    # and move each file where it was meant to go. Inert on a native target,
-    # where the name never contains a backslash and this loop matches nothing.
-    #
-    # The root cause belongs upstream in nim-ffi: its emitter runs on the HOST at
-    # compile time, so it must use host path semantics, not the target's.
-    while IFS= read -r bs; do
-      [ -e "$bs" ] || continue
-      target=$(printf '%s' "''${bs#./}" | tr '\\' '/')
-      case "$target" in /*) ;; *) target="$PWD/$target" ;; esac
-      mkdir -p "$(dirname "$target")"
-      mv -f "$bs" "$target"
-      echo "normalised cross-DirSep artifact -> $target"
-    done < <(find . -maxdepth 1 -type f -name '*\\*' 2>/dev/null)
     ''}
   '';
 
@@ -406,33 +370,19 @@ ${lib.optionalString isWindows ''
     cp library/liblogosdelivery_kernel.h $out/include/ 2>/dev/null || true
     cp library/liblogosdelivery_rln.h    $out/include/ 2>/dev/null || true
 
-    # The generated C binding. liblogosdelivery.h #includes it, so an include/
-    # without it cannot be compiled against at all -- which is how this surfaced:
-    # every consumer died on "fatal error: generated/logosdelivery.h: No such
-    # file or directory".
-    #
-    # Two things had to be true for it to appear, and both are handled above:
-    # nim-ffi emits via compile-time createDir/writeFile, which Nim gates behind
-    # --experimental:vmopsDanger (without it both calls silently do nothing), and
-    # on a cross-to-Windows build the path it writes to is joined with the
-    # TARGET's backslash, which the normalisation in buildPhase puts back.
-    #
-    # Now that both halves are fixed, a missing header is a real regression, so
-    # fail instead of shipping an include/ that cannot compile.
-    if [ -f ${cBindingsDir}/logosdelivery.h ]; then
-      mkdir -p $out/include/generated
-      cp ${cBindingsDir}/logosdelivery.h $out/include/generated/
-    elif grep -q 'generated/logosdelivery.h' library/liblogosdelivery.h 2>/dev/null; then
-      echo "error: genBindings() produced no ${cBindingsDir}/logosdelivery.h," >&2
-      echo "       but library/liblogosdelivery.h #includes generated/logosdelivery.h." >&2
-      echo "       The installed include/ would not compile. See logos-delivery#4121." >&2
-      echo "       Contents of ${cBindingsDir}:" >&2
-      ls -la ${cBindingsDir} >&2 || true
-      echo "       Any files still carrying a target-separator name (the" >&2
-      echo "       normalisation above should have moved these):" >&2
-      find . -maxdepth 1 -type f -name '*\\*' >&2 2>/dev/null || true
-      exit 1
-    fi
+    # The public header includes the generated binding, which in turn includes
+    # nim-ffi's CBOR helpers. Fail rather than ship an incomplete include tree.
+    for header in logosdelivery.h nim_ffi_cbor.h nim_ffi_prelude.h; do
+      if [ ! -f ${cBindingsDir}/$header ]; then
+        echo "error: genBindings() produced no ${cBindingsDir}/$header." >&2
+        echo "       The installed include/ would not compile. See logos-delivery#4121." >&2
+        echo "       Contents of ${cBindingsDir}:" >&2
+        ls -la ${cBindingsDir} >&2 || true
+        exit 1
+      fi
+    done
+    mkdir -p $out/include/generated
+    cp ${cBindingsDir}/*.h $out/include/generated/
     runHook postInstall
   '';
 

@@ -3,8 +3,8 @@
 // The call surface is generated from the {.ffi.} annotations in library/*.nim
 // and written to generated/logosdelivery.h by `make liblogosdelivery`. That file
 // is a build artifact, not checked in, so build the library before you compile
-// against this header. This file adds what nim-ffi exports but leaves out of the
-// `abi = c` header: the event-listener ABI, and the synchronous exports.
+// against this header. This wrapper retains the legacy callback and return-code
+// aliases used by existing consumers.
 #pragma once
 #ifndef __liblogosdelivery__
 #define __liblogosdelivery__
@@ -39,7 +39,7 @@ extern "C"
   // Raw result-delivery callback used by the event API. `msg` is a byte run of
   // `len` bytes, not NUL-terminated, and is valid only for the duration of the
   // call.
-  typedef void (*FFICallBack)(int callerRet, const char *msg, size_t len, void *userData);
+  typedef FFICallback FFICallBack;
 
   // Events are delivered through a per-event listener registry. Register one
   // callback per event name of interest; see the README for the full list.

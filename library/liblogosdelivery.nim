@@ -1,4 +1,4 @@
-import std/[atomics, macros]
+import std/atomics
 import chronicles, chronos, chronos/threadsync, ffi
 import
   logos_delivery/waku/waku_core/message/message,
@@ -34,5 +34,5 @@ include
 # waku_new / waku_start / waku_stop / waku_destroy entry points were removed to
 # avoid maintaining two parallel node-lifecycle APIs.
 
-# Emits the `abi = c` dispatch wrappers, so it must stay the last FFI call here.
+# Emits the dispatch wrappers, so it must stay the last FFI call here.
 genBindings()
