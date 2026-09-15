@@ -23,9 +23,7 @@ export peer_discovery_interface
 logScope:
   topics = "waku discovery service"
 
-const
-  ServiceBackendId* = "service"
-  SvcKeyPrefix = "svc:"
+const ServiceBackendId* = "service"
 
 type ServiceDiscovery* = ref object of IPeerDiscovery
   inner*: WakuKademlia
