@@ -51,6 +51,7 @@ proc recordSend*(
     messageHash: string,
     kind: SendEventKind,
     error = "",
+    expectedPublishTimestamp = int64(0),
 ) =
   ## Append a send event to its request id's timeline, creating the entry (and
   ## evicting the oldest request id past the overflow cap) as needed.
@@ -59,6 +60,7 @@ proc recordSend*(
     messageHash: messageHash,
     error: error,
     timestamp: getNowInNanosecondTime(),
+    expectedPublishTimestamp: expectedPublishTimestamp,
   )
 
   if not self.sendByReqId.hasKey(requestId):

@@ -47,6 +47,38 @@ proc currentQuota(self: RateLimitManager): Opt[EpochQuota] =
     return Opt.none(EpochQuota)
   return self.quotaProvider()
 
+type EffectiveQuota = object ## The window and cap one admission is judged against.
+  epochIndex: uint64
+  epochPeriodSec: uint64 ## Zero when no period is known; the window never rolls.
+  limit: uint64
+
+proc effectiveQuota(self: RateLimitManager): EffectiveQuota =
+  ## Resolves the quota source against the configured caps. Read in one place so
+  ## an admission and the boundary reported alongside it cannot disagree.
+  let quota = self.currentQuota()
+
+  if quota.isSome():
+    let q = quota.get()
+    # RLN can only tighten the configured cap, never widen it: exceeding RLN's
+    # limit would fail later at proof generation.
+    return EffectiveQuota(
+      epochIndex: q.epochIndex,
+      epochPeriodSec:
+        if q.epochPeriodSec > 0: q.epochPeriodSec else: self.config.epochPeriodSec,
+      limit: min(q.userMessageLimit, self.config.messagesPerEpoch),
+    )
+
+  if self.config.epochPeriodSec == 0:
+    return EffectiveQuota(
+      epochIndex: 0, epochPeriodSec: 0, limit: self.config.messagesPerEpoch
+    )
+
+  return EffectiveQuota(
+    epochIndex: wallClockEpochIndex(self.config.epochPeriodSec),
+    epochPeriodSec: self.config.epochPeriodSec,
+    limit: self.config.messagesPerEpoch,
+  )
+
 proc admit*(
     self: RateLimitManager, msg: seq[byte]
 ): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
@@ -55,26 +87,30 @@ proc admit*(
   if not self.config.enabled:
     return ok()
 
-  let quota = self.currentQuota()
+  let quota = self.effectiveQuota()
 
-  let epochIndex =
-    if quota.isSome():
-      quota.get().epochIndex
-    else:
-      wallClockEpochIndex(self.config.epochPeriodSec)
-
-  # RLN can only tighten the configured cap, never widen it: exceeding RLN's
-  # limit would fail later at proof generation.
-  var limit = self.config.messagesPerEpoch
-  if quota.isSome() and quota.get().userMessageLimit < limit:
-    limit = quota.get().userMessageLimit
-
-  if epochIndex != self.currentEpochIndex:
-    self.currentEpochIndex = epochIndex
+  if quota.epochIndex != self.currentEpochIndex:
+    self.currentEpochIndex = quota.epochIndex
     self.sentInCurrentEpoch = 0
 
-  if self.sentInCurrentEpoch >= limit:
+  if self.sentInCurrentEpoch >= quota.limit:
     return err(RateLimitError.OverBudget)
 
   self.sentInCurrentEpoch.inc()
   return ok()
+
+proc nextEpochStartUnixSec*(self: RateLimitManager): uint64 =
+  ## Unix second the current epoch's budget refills at — the earliest an
+  ## over-budget task can be admitted. Zero when no epoch period is known, so
+  ## callers must treat it as "unknown" rather than as a time.
+  ##
+  ## Resolution is one boundary, not one message: a task released at the roll
+  ## still queues behind any earlier-parked task competing for the same budget.
+  if not self.config.enabled:
+    return 0
+
+  let quota = self.effectiveQuota()
+  if quota.epochPeriodSec == 0:
+    return 0
+
+  return epochStartUnixSec(quota.epochIndex + 1, quota.epochPeriodSec)

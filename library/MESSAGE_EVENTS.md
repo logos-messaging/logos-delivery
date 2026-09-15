@@ -67,7 +67,8 @@ Emitted when a send is held back because the current epoch's rate-limit budget i
 {
   "eventType": "message_queued",
   "requestId": "unique-request-id",
-  "messageHash": "0x..."
+  "messageHash": "0x...",
+  "expectedPublishTimestamp": 1700000000000000000
 }
 ```
 
@@ -75,6 +76,7 @@ Emitted when a send is held back because the current epoch's rate-limit budget i
 - `eventType`: Always "message_queued"
 - `requestId`: Request ID from the send operation
 - `messageHash`: Hash of the message that was held back
+- `expectedPublishTimestamp`: Nanoseconds, when the epoch's budget refills; `0` when no epoch period is known. This is the earliest the message can go out, not a guarantee that it will: the budget released at that boundary is shared with every other queued message, so a send behind a long queue waits for a later epoch.
 
 ### 5. message_received
 Emitted once for every message accepted on a subscribed content topic, whether it arrived live from the network or was recovered from a Store peer (at startup, or after a connectivity gap). The `source` field tells the two apart.

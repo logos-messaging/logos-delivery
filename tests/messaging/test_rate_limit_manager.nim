@@ -1,15 +1,23 @@
 {.used.}
 
+import std/times
 import results, chronos, testutils/unittests, stew/byteutils
 
 import logos_delivery/messaging/rate_limit_manager/rate_limit_manager
 
-proc fixedQuota(epochIndex, userMessageLimit: uint64): QuotaProvider =
+proc fixedQuota(
+    epochIndex, userMessageLimit: uint64, epochPeriodSec = 0'u64
+): QuotaProvider =
   ## A quota source pinned to one epoch, so limit-boundary tests don't touch
   ## the wall clock.
   return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
-    return
-      Opt.some(EpochQuota(epochIndex: epochIndex, userMessageLimit: userMessageLimit))
+    return Opt.some(
+      EpochQuota(
+        epochIndex: epochIndex,
+        userMessageLimit: userMessageLimit,
+        epochPeriodSec: epochPeriodSec,
+      )
+    )
 
 suite "RateLimitManager - admission":
   asyncTest "admit is a pass-through when disabled":
@@ -96,3 +104,41 @@ suite "RateLimitManager - admission":
       .expect("RateLimitManager.new")
     check (await rl.admit("first".toBytes())).isOk()
     check (await rl.admit("second".toBytes())).isErr()
+
+suite "RateLimitManager - epoch boundary":
+  test "reports the boundary from the quota source's own period":
+    ## The source's period wins over the configured one: it is what the source
+    ## derived its index with, so only it locates the matching boundary.
+    let rl = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
+        fixedQuota(epochIndex = 10, userMessageLimit = 100, epochPeriodSec = 300),
+      )
+      .expect("RateLimitManager.new")
+    check rl.nextEpochStartUnixSec() == 11'u64 * 300
+
+  test "falls back to the configured period when the source reports none":
+    let rl = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
+        fixedQuota(epochIndex = 10, userMessageLimit = 100),
+      )
+      .expect("RateLimitManager.new")
+    check rl.nextEpochStartUnixSec() == 11'u64 * 600
+
+  test "the wall-clock fallback reports a boundary within one period ahead":
+    let rl = RateLimitManager
+      .new(RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1))
+      .expect("RateLimitManager.new")
+    let now = uint64(getTime().toUnix())
+    let boundary = rl.nextEpochStartUnixSec()
+    check:
+      boundary > now
+      boundary - now <= 600
+
+  test "a disabled manager reports no boundary":
+    ## Nothing is ever held back, so there is no wait to report.
+    let rl = RateLimitManager
+      .new(RateLimitConfig(enabled: false, epochPeriodSec: 600, messagesPerEpoch: 1))
+      .expect("RateLimitManager.new")
+    check rl.nextEpochStartUnixSec() == 0'u64
