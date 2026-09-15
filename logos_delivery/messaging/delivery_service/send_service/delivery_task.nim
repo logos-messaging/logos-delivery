@@ -32,6 +32,9 @@ type DeliveryTask* = ref object
     ## delivery-timeout reaper, so a task parked for budget is not aged out
     ## before it can be sent.
   propagateEventEmitted*: bool
+  queuedEventEmitted*: bool
+    ## Set once the task has reported itself queued for rate-limit budget, so
+    ## the event fires on the first park only and not on every retry round.
   errorDesc*: string
 
 proc new*(

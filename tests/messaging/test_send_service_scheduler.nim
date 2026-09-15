@@ -6,6 +6,7 @@ import
   logos_delivery/waku/waku,
   logos_delivery/waku/waku_core,
   logos_delivery/api/types,
+  logos_delivery/api/events/messaging_client_events,
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/messaging/rate_limit_manager/rate_limit_manager,
   logos_delivery/messaging/delivery_service/send_service/
@@ -137,3 +138,49 @@ suite "SendService - rate-limit scheduling":
     check:
       second.firstAdmittedTime.isSome()
       second.state == DeliveryState.SuccessfullyPropagated
+
+  asyncTest "a task parked for budget reports itself queued, exactly once":
+    ## The park branch is re-entered every retry round; the event must not be.
+    var epoch = 1'u64
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
+        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+      )
+      .expect("RateLimitManager.new")
+    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let service =
+      SendService.new(false, waku, manager, processor).expect("SendService.new")
+
+    var queued: seq[MessageQueuedEvent]
+    discard MessageQueuedEvent
+      .listen(
+        waku.brokerCtx,
+        proc(evt: MessageQueuedEvent) {.async: (raises: []).} =
+          queued.add(evt),
+      )
+      .expect("listen MessageQueuedEvent")
+
+    ## Spends the epoch's single slot; admitted, so it reports nothing.
+    await service.send(buildTask("queued-in-budget", "one"))
+    check queued.len == 0
+
+    let second = buildTask("queued-over-budget", "two")
+    await service.send(second)
+    check:
+      queued.len == 1
+      queued[0].requestId == second.requestId
+      queued[0].messageHash == second.msgHash.to0xHex()
+
+    ## Still over budget: the task parks again, the event does not repeat.
+    await service.trySendMessages()
+    check queued.len == 1
+
+    ## Released by the roll, and delivery emits no further queued event.
+    epoch = 2'u64
+    await service.trySendMessages()
+    check:
+      second.state == DeliveryState.SuccessfullyPropagated
+      queued.len == 1
+
+    await MessageQueuedEvent.dropAllListeners(waku.brokerCtx)
