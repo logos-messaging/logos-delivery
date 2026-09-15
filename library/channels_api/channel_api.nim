@@ -15,13 +15,13 @@ proc logosdelivery_channel_create(
     senderIdStr: string,
     encryptFn: uint64,
     decryptFn: uint64,
-    userData: uint64,
+    cryptoUserData: uint64,
 ): Future[Result[string, string]] {.ffi.} =
   ## `encryptFn`/`decryptFn` are `LogosDeliveryCryptoFn` pointers cast to
   ## `uint64`, and all three zero means an unencrypted channel. The cipher
   ## is fixed for the channel's life.
   ##
-  ## `userData` is what lets one C function serve several channels: a
+  ## `cryptoUserData` is what lets one C function serve several channels: a
   ## function pointer carries no state, so the same `my_encrypt` used on two
   ## channels is the same address both times and cannot tell them apart.
   ## Whatever is passed here comes back as the callback's first argument on
@@ -29,7 +29,7 @@ proc logosdelivery_channel_create(
   requireChannels(self, "ChannelCreate"):
     return err(errMsg)
 
-  let encryption = toChannelCrypto(encryptFn, decryptFn, userData).valueOr:
+  let encryption = toChannelCrypto(encryptFn, decryptFn, cryptoUserData).valueOr:
     return err("ChannelCreate failed: " & error)
 
   let id = self.reliableChannelManager.createReliableChannel(
