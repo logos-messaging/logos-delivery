@@ -26,3 +26,4 @@ type RlnConf* = object of RootObj
 
 type WakuRlnConfig* = object of RlnConf
   onFatalErrorAction*: OnFatalErrorHandler
+  disableValidation*: bool
