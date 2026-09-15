@@ -1,9 +1,9 @@
 ## This module is in charge of taking care of the messages that this node is expecting to
 ## receive and is backed by store-v3 requests to get an additional degree of certainty
 ##
-## Reconnection backfill: offline while relay is not READY (Core) or any
-## subscribed shard lacks a healthy filter subscription (Edge). Queries Store
-## when back online.
+## Reconnection backfill: offline while relay is not READY (Core), any
+## subscribed shard lacks a healthy filter subscription (Edge), or no Store
+## peer is known. Queries Store when back online.
 ##
 
 import results, std/[tables, sequtils, sets]
@@ -68,12 +68,13 @@ type RecvService* = ref object of RootObj
   shardHealthListener: EventShardTopicHealthChangeListener
   subscribedEventListener: ContentTopicSubscribedEventListener
   unsubscribedEventListener: ContentTopicUnsubscribedEventListener
+  peerEventListener: WakuPeerEventListener
 
   recentReceivedMsgs: Table[WakuMessageHash, Timestamp]
     ## hash of each message received in the last `MaxMessageLife`, with its
     ## local receipt time
 
-  online: bool ## relay READY, or a healthy filter subscription on every subscribed shard
+  online: bool ## receive path ready (see hasReadyReceivePath) and a Store peer known
   backfillHandler: Future[void] ## in-flight store backfill task
   msgPrunerHandler: Future[void] ## removes too old messages
 
@@ -214,8 +215,8 @@ proc hasReadyReceivePath(self: RecvService): bool =
 proc updateReceiveReadiness(self: RecvService) =
   ## Records the time the node goes offline. When the node is back online,
   ## queries Store for the messages missed while offline. Does not retry a
-  ## failed Store query.
-  let nowOnline = self.hasReadyReceivePath()
+  ## failed Store query, so online needs a Store peer.
+  let nowOnline = self.hasReadyReceivePath() and self.waku.hasStorePeer()
   if nowOnline == self.online:
     return
   self.online = nowOnline
@@ -412,12 +413,13 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
     error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)
 
-  # All of these can change `online`. Subscription changes have no health event.
+  # All of these can change `online`. Subscriptions and peers have no health event.
   self.protocolHealthListener = self.listenForReadiness(EventProtocolHealthChange)
   self.shardHealthListener = self.listenForReadiness(EventShardTopicHealthChange)
   self.subscribedEventListener = self.listenForReadiness(ContentTopicSubscribedEvent)
   self.unsubscribedEventListener =
     self.listenForReadiness(ContentTopicUnsubscribedEvent)
+  self.peerEventListener = self.listenForReadiness(WakuPeerEvent)
 
   # The initial read starts no backfill.
   self.online = self.hasReadyReceivePath()
@@ -440,6 +442,7 @@ proc stopRecvService*(self: RecvService) {.async.} =
   await ContentTopicUnsubscribedEvent.dropListener(
     self.brokerCtx, self.unsubscribedEventListener
   )
+  await WakuPeerEvent.dropListener(self.brokerCtx, self.peerEventListener)
   if self.backfill.hintListener.isSome():
     await MessageReceivedEvent.dropListener(
       self.brokerCtx, self.backfill.hintListener.get()
