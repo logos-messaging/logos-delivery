@@ -91,6 +91,8 @@ let
     "--define:posixCrossCompile"
     "--define:LeopardDir=$LEOPARD/vendor/leopard"
     "--define:LeopardLib=$NIMCACHE/vendor_leopard/liblibleopard.a"
+    "--define:LeopardExtraCompilerFlags=-fno-openmp"
+    "--define:LeopardExtraLinkerFlags=-fno-openmp"
   ];
 
   # Some packages (e.g. regex, unicodedb) put their .nim files under src/
@@ -308,7 +310,7 @@ pkgs.stdenv.mkDerivation {
     chmod -R +w $LEOPARD
     substituteInPlace config.nims \
       --replace-fail '-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release' \
-                     '-DCMAKE_BUILD_TYPE=Release'
+                     '-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off'
     substituteInPlace $LEOPARD/leopard/wrapper.nim \
       --replace-fail 'if defined(windows):' \
                      'if defined(windows) and not defined(posixCrossCompile):' \
