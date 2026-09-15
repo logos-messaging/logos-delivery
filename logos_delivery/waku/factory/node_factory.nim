@@ -351,7 +351,10 @@ proc setupProtocols(
   if rlnPlugin:
     info "Mounting RLN plugin backend"
     node.rlnLez = RlnLez.init()
-    let validatorConf = WakuRlnLezConfig(onFatalErrorAction: onFatalErrorAction)
+    let validatorConf = WakuRlnLezConfig(
+      onFatalErrorAction: onFatalErrorAction,
+      disableValidation: conf.rlnDisableValidation,
+    )
     try:
       await node.setRlnValidator(validatorConf)
     except CatchableError:
@@ -368,6 +371,7 @@ proc setupProtocols(
       userMessageLimit: rlnEvmConf.userMessageLimit,
       epochSizeSec: rlnEvmConf.epochSizeSec,
       onFatalErrorAction: onFatalErrorAction,
+      disableValidation: conf.rlnDisableValidation,
     )
     try:
       await node.setRlnValidator(rlnConf)

@@ -324,6 +324,13 @@ hence would have reachability issues.""",
     name: "rln-relay-dynamic"
   .}: Opt[bool]
 
+  rlnDisableValidation* {.
+    desc:
+      "Disable validation RLN proofs of received messages: true|false",
+    defaultValue: false,
+    name: "rln-disable-validation"
+  .}: bool
+
   entryNodes* {.
     desc:
       "Entry node address (enrtree:, enr:, or multiaddr). " &
@@ -1012,6 +1019,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.rlnRelayConf.withCredIndex(n.rlnRelayCredIndex.get())
   if n.rlnRelayDynamic.isSome():
     b.rlnRelayConf.withDynamic(n.rlnRelayDynamic.get())
+  if n.rlnDisableValidation:
+    b.withRlnDisableValidation(n.rlnDisableValidation)
 
   if n.maxMessageSize != "":
     b.withMaxMessageSize(n.maxMessageSize)
