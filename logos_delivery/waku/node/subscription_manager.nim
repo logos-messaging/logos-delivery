@@ -22,7 +22,7 @@ import
     node/health_monitor/topic_health,
     node/health_monitor/connection_status,
   ]
-import logos_delivery/api/events/kernel_events # MessageSeenEvent
+import logos_delivery/api/events/kernel_events
 
 {.push raises: [].}
 
@@ -223,6 +223,8 @@ proc subscribe*(
     self.edgeFilterWakeup.fire()
   if not isNil(self.node.wakuRelay):
     discard self.node.doRelaySubscribe(shard, handler)
+  if added:
+    ContentTopicSubscribedEvent.emit(self.node.brokerCtx, contentTopic)
   return ok()
 
 proc unsubscribe*(
@@ -242,6 +244,7 @@ proc unsubscribe*(
       self.shards.del(shard)
       if not isNil(self.node.wakuRelay):
         discard self.node.doRelayUnsubscribe(shard)
+    ContentTopicUnsubscribedEvent.emit(self.node.brokerCtx, contentTopic)
   return ok()
 
 proc subscribe*(self: SubscriptionManager, topic: ContentTopic): Result[void, string] =

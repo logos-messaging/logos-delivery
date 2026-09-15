@@ -546,13 +546,13 @@ suite "Health Monitor - events":
       .expect("listen to protocol health")
     defer:
       await EventProtocolHealthChange.dropListener(nodeA.brokerCtx, healthListener)
-    let onPeer = proc(
+    let onPeerEvent = proc(
         evt: WakuPeerEvent
     ): Future[void] {.async: (raises: []), gcsafe.} =
       if evt.kind == WakuPeerEventKind.EventIdentified:
         inc identified
     let peerListener =
-      WakuPeerEvent.listen(nodeA.brokerCtx, onPeer).expect("listen to peer events")
+      WakuPeerEvent.listen(nodeA.brokerCtx, onPeerEvent).expect("listen to peer events")
     defer:
       await WakuPeerEvent.dropListener(nodeA.brokerCtx, peerListener)
     monitorA.startHealthMonitor().expect("Health monitor failed to start")
