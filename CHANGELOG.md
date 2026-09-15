@@ -1,4 +1,17 @@
-## Unreleased
+## v0.39.0 (2026-09-15)
+
+### Notes
+
+- **Node app**: `logosdeliverynode` replaces `wakunode2` and adds a messaging REST API with event observability. The CLI now runs only the kernel (transport) layer by default; `--entry-layer=channels` enables the messaging client, reliable channels and the messaging REST endpoints.
+- **Messaging**: sender anonymity through Mix (`anonymityLevel`), per-channel encryption with app-supplied ciphers, message segmentation, Store catch-up across process restarts, and RLN proofs and the per-epoch rate limit handled in the send service.
+- **Transport and discovery**: QUIC transport support (off by default on the messaging path) and service discovery.
+- **RLN**: pluggable RLN API module; RLN proof generation moves from the lightpush server to the client; keystore generation moves to the standalone `rlnkeystore` tool.
+- **liblogosdelivery**: the previously separate libraries are unified into a single FFI library, now on the nim-ffi 0.3 typed C ABI (see breaking changes). Android and iOS builds are restored.
+- **Reliable Channel**: `ReliabilityManager` wired into the Reliable Channel, with SDS persistency.
+- **Config**: JSON config accepts CLI option names, a port value of zero auto-assigns the port, and unrecognized options are errors. Adds fleet mode and the `status.prod` (cluster 16) and `logos.test` presets; the `logos.dev` preset moves to cluster-id 3.
+- **Operations**: one container image ships `logosdeliverynode` and `rlnkeystore`; a docker-compose stack is added; every metric now has a `logos_delivery_` prefix.
+- **Build and dependencies**: migrated to Nimble with pinned dependencies (vendored dependencies deprecated); Nim 2.2.6, nim-libp2p v2.3.1 and zerokit RLN v2.0.2.
+- Repository module layout restructured into `logos_delivery` layers (e.g. `kernel_api` renamed to `waku_node`).
 
 ### Breaking changes
 
@@ -20,6 +33,227 @@
 - Container images no longer provide `/usr/bin/wakunode`. The entrypoint is
   `/usr/bin/logosdeliverynode`. Anything that execs the old absolute path, or
   overrides the entrypoint with it, must be updated.
+
+- The liblogosdelivery C ABI changes, so this is not a drop-in upgrade for FFI
+  consumers: rebuild bindings against the new header.
+  - Every exported function moves to the nim-ffi 0.3.0 typed C ABI ([#4082](https://github.com/logos-messaging/logos-delivery/pull/4082)).
+  - `logosdelivery_set_event_callback` is removed. Register per-event listeners with
+    `logosdelivery_add_event_listener` and `logosdelivery_remove_event_listener`
+    ([#4070](https://github.com/logos-messaging/logos-delivery/pull/4070)).
+  - The legacy `waku_*` lifecycle functions are removed in favour of `logosdelivery_*`
+    (e.g. `waku_new` → `logosdelivery_create_node`, `waku_start` → `logosdelivery_start_node`)
+    ([#4012](https://github.com/logos-messaging/logos-delivery/pull/4012)).
+
+- Every exported metric is renamed with a `logos_delivery_` prefix
+  ([#4074](https://github.com/logos-messaging/logos-delivery/pull/4074)). Dashboards and
+  alerts that query the old names (e.g. `waku_*`) must be updated.
+
+### Features
+
+- messaging: tag MessageReceivedEvent with its source, live or history ([#4247](https://github.com/logos-messaging/logos-delivery/pull/4247)) ([f99945df](https://github.com/logos-messaging/logos-delivery/commit/f99945df))
+- channels: per-channel encryption with app-supplied ciphers ([#4231](https://github.com/logos-messaging/logos-delivery/pull/4231)) ([49f55fe4](https://github.com/logos-messaging/logos-delivery/commit/49f55fe4))
+- messaging: Store catch-up across process restarts ([#4227](https://github.com/logos-messaging/logos-delivery/pull/4227)) ([e74acbca](https://github.com/logos-messaging/logos-delivery/commit/e74acbca))
+- Pluggable RLN API module ([#4160](https://github.com/logos-messaging/logos-delivery/pull/4160)) ([03946c68](https://github.com/logos-messaging/logos-delivery/commit/03946c68))
+- examples: demo a segmented send from the C example ([#4214](https://github.com/logos-messaging/logos-delivery/pull/4214)) ([cecdb2b6](https://github.com/logos-messaging/logos-delivery/commit/cecdb2b6))
+- Integrate nim-segmentation ([#4200](https://github.com/logos-messaging/logos-delivery/pull/4200)) ([8bdccc32](https://github.com/logos-messaging/logos-delivery/commit/8bdccc32))
+- messaging: sender anonymity through mix (anonymityLevel) ([#4180](https://github.com/logos-messaging/logos-delivery/pull/4180)) ([123fd3dd](https://github.com/logos-messaging/logos-delivery/commit/123fd3dd))
+- Migrate to nim-libp2p 2.2.1 ([#4145](https://github.com/logos-messaging/logos-delivery/pull/4145)) ([786df123](https://github.com/logos-messaging/logos-delivery/commit/786df123))
+- conf: default --entry-layer to kernel ([#4076](https://github.com/logos-messaging/logos-delivery/pull/4076)) ([c59b91bc](https://github.com/logos-messaging/logos-delivery/commit/c59b91bc))
+- DISABLE_RLN builds the library without zerokit ([#4138](https://github.com/logos-messaging/logos-delivery/pull/4138)) ([65efb24f](https://github.com/logos-messaging/logos-delivery/commit/65efb24f))
+- Let Nimble dependents build liblogosdelivery ([#4137](https://github.com/logos-messaging/logos-delivery/pull/4137)) ([4a45d22e](https://github.com/logos-messaging/logos-delivery/commit/4a45d22e))
+- ffi: pin nim-ffi 0.3.0 and stop the node on destroy ([#4111](https://github.com/logos-messaging/logos-delivery/pull/4111)) ([27e0767e](https://github.com/logos-messaging/logos-delivery/commit/27e0767e))
+- compose: add logosdeliverynode docker-compose stack ([#4057](https://github.com/logos-messaging/logos-delivery/pull/4057)) ([0d433ea8](https://github.com/logos-messaging/logos-delivery/commit/0d433ea8))
+- ffi: migrate liblogosdelivery to the nim-ffi 0.3.0 typed C ABI ([#4082](https://github.com/logos-messaging/logos-delivery/pull/4082)) ([4a85db1b](https://github.com/logos-messaging/logos-delivery/commit/4a85db1b))
+- Attach and refresh RLN proofs in the send service (Stream B) ([#4069](https://github.com/logos-messaging/logos-delivery/pull/4069)) ([6a1af006](https://github.com/logos-messaging/logos-delivery/commit/6a1af006))
+- conf: add localStoragePath to MessagingClientConf ([#4083](https://github.com/logos-messaging/logos-delivery/pull/4083)) ([ba28e32e](https://github.com/logos-messaging/logos-delivery/commit/ba28e32e))
+- node-info: expose MaxMessageSize node info item ([#4018](https://github.com/logos-messaging/logos-delivery/pull/4018)) ([504336ef](https://github.com/logos-messaging/logos-delivery/commit/504336ef))
+- Enforce the per-epoch rate limit at the send service (RLN-sourced) ([#4062](https://github.com/logos-messaging/logos-delivery/pull/4062)) ([c873f74b](https://github.com/logos-messaging/logos-delivery/commit/c873f74b))
+- Add the logos_delivery_node app and a messaging REST API with event observability ([#4014](https://github.com/logos-messaging/logos-delivery/pull/4014)) ([9827be59](https://github.com/logos-messaging/logos-delivery/commit/9827be59))
+- channels: add channelExists to reliable channels API ([#4045](https://github.com/logos-messaging/logos-delivery/pull/4045)) ([1c83c323](https://github.com/logos-messaging/logos-delivery/commit/1c83c323))
+- Add fleet mode ([#4019](https://github.com/logos-messaging/logos-delivery/pull/4019)) ([d83900aa](https://github.com/logos-messaging/logos-delivery/commit/d83900aa))
+- Improve config v3 ([#4015](https://github.com/logos-messaging/logos-delivery/pull/4015)) ([90fa5fa9](https://github.com/logos-messaging/logos-delivery/commit/90fa5fa9))
+- Add status.prod network preset (cluster 16, RLN off) ([#3962](https://github.com/logos-messaging/logos-delivery/pull/3962)) ([7a3a064b](https://github.com/logos-messaging/logos-delivery/commit/7a3a064b))
+- Add LogosDelivery orchestrator as project entry point for FFI ([#3970](https://github.com/logos-messaging/logos-delivery/pull/3970)) ([1a3b3204](https://github.com/logos-messaging/logos-delivery/commit/1a3b3204))
+- Integrate service discovery ([#3947](https://github.com/logos-messaging/logos-delivery/pull/3947)) ([a73035e2](https://github.com/logos-messaging/logos-delivery/commit/a73035e2))
+- QUIC transport support ([#3951](https://github.com/logos-messaging/logos-delivery/pull/3951)) ([c3090fb6](https://github.com/logos-messaging/logos-delivery/commit/c3090fb6))
+- liblogosdelivery: unify libs into a single liblogosdelivery ([#3949](https://github.com/logos-messaging/logos-delivery/pull/3949)) ([54c89085](https://github.com/logos-messaging/logos-delivery/commit/54c89085))
+- Wire ReliabilityManager into the Reliable Channel ([#3942](https://github.com/logos-messaging/logos-delivery/pull/3942)) ([7e98489a](https://github.com/logos-messaging/logos-delivery/commit/7e98489a))
+- Decouple merkle path and on-demand strategy ([#3940](https://github.com/logos-messaging/logos-delivery/pull/3940)) ([22040b73](https://github.com/logos-messaging/logos-delivery/commit/22040b73))
+- Bump nim-libp2p to v2.0.0 ([#3929](https://github.com/logos-messaging/logos-delivery/pull/3929)) ([6837ae0c](https://github.com/logos-messaging/logos-delivery/commit/6837ae0c))
+- Improve config (v2) ([#3925](https://github.com/logos-messaging/logos-delivery/pull/3925)) ([41b5c490](https://github.com/logos-messaging/logos-delivery/commit/41b5c490))
+- Fetch prebuilt zerokit rln, fall back to source build ([#3915](https://github.com/logos-messaging/logos-delivery/pull/3915)) ([bb23ee64](https://github.com/logos-messaging/logos-delivery/commit/bb23ee64))
+- Introduce SDS persistency glue ([#3913](https://github.com/logos-messaging/logos-delivery/pull/3913)) ([deb69296](https://github.com/logos-messaging/logos-delivery/commit/deb69296))
+- nix: expose cargoHash-corrected librln as packages.rln ([#3902](https://github.com/logos-messaging/logos-delivery/pull/3902)) ([bdd562ec](https://github.com/logos-messaging/logos-delivery/commit/bdd562ec))
+- Add logos.test fleet preset ([#3900](https://github.com/logos-messaging/logos-delivery/pull/3900)) ([29a77dcf](https://github.com/logos-messaging/logos-delivery/commit/29a77dcf))
+- node-info: expose MixPubKey as node info item ([#3893](https://github.com/logos-messaging/logos-delivery/pull/3893)) ([e7142110](https://github.com/logos-messaging/logos-delivery/commit/e7142110))
+- Persistency ([#3880](https://github.com/logos-messaging/logos-delivery/pull/3880)) ([42e0aa43](https://github.com/logos-messaging/logos-delivery/commit/42e0aa43))
+- Migrate to zerokit v2.0.2 ([#3868](https://github.com/logos-messaging/logos-delivery/pull/3868)) ([eb1891dc](https://github.com/logos-messaging/logos-delivery/commit/eb1891dc))
+- Allow a port value of zero for service ports (auto-assign port) ([#3828](https://github.com/logos-messaging/logos-delivery/pull/3828)) ([71a369ff](https://github.com/logos-messaging/logos-delivery/commit/71a369ff))
+
+### Bug Fixes
+
+- health: report Disconnected when required mix is not ready ([#4238](https://github.com/logos-messaging/logos-delivery/pull/4238)) ([3e5bd5b7](https://github.com/logos-messaging/logos-delivery/commit/3e5bd5b7))
+- postgres: make sure partitions are created ([#4260](https://github.com/logos-messaging/logos-delivery/pull/4260)) ([58eebedb](https://github.com/logos-messaging/logos-delivery/commit/58eebedb))
+- tests: make WakuConf (kernel) TCP, Discv5, REST auto-port ([#4253](https://github.com/logos-messaging/logos-delivery/pull/4253)) ([f0fa8590](https://github.com/logos-messaging/logos-delivery/commit/f0fa8590))
+- Make CLI, library and test config defaults consistent ([#4240](https://github.com/logos-messaging/logos-delivery/pull/4240)) ([7fba1d5a](https://github.com/logos-messaging/logos-delivery/commit/7fba1d5a))
+- ci: run the liblogosdelivery default build again ([#4228](https://github.com/logos-messaging/logos-delivery/pull/4228)) ([4c1efd90](https://github.com/logos-messaging/logos-delivery/commit/4c1efd90))
+- build: fix feature defines ([#4209](https://github.com/logos-messaging/logos-delivery/pull/4209)) ([a683ae75](https://github.com/logos-messaging/logos-delivery/commit/a683ae75))
+- build: make portable builds the default ([#4224](https://github.com/logos-messaging/logos-delivery/pull/4224)) ([e1d36b79](https://github.com/logos-messaging/logos-delivery/commit/e1d36b79))
+- rendezvous: skip malformed mixKey instead of aborting ([#4217](https://github.com/logos-messaging/logos-delivery/pull/4217)) ([486eb4df](https://github.com/logos-messaging/logos-delivery/commit/486eb4df))
+- build: enable mix and QUIC on every library build path ([#4208](https://github.com/logos-messaging/logos-delivery/pull/4208)) ([b7a7a340](https://github.com/logos-messaging/logos-delivery/commit/b7a7a340))
+- examples: migrate every FFI example to the current signatures, build them in CI ([#4210](https://github.com/logos-messaging/logos-delivery/pull/4210)) ([8c57cce0](https://github.com/logos-messaging/logos-delivery/commit/8c57cce0))
+- ffi: accept every address of a peer, not just one ([#4202](https://github.com/logos-messaging/logos-delivery/pull/4202)) ([4db855c2](https://github.com/logos-messaging/logos-delivery/commit/4db855c2))
+- networks: update waku.test addresses ([791faca3](https://github.com/logos-messaging/logos-delivery/commit/791faca3))
+- build: bump Nimble and chronos, simplify build ([#4201](https://github.com/logos-messaging/logos-delivery/pull/4201)) ([67ac6616](https://github.com/logos-messaging/logos-delivery/commit/67ac6616))
+- Mix send review follow-ups ([#4199](https://github.com/logos-messaging/logos-delivery/pull/4199)) ([29fbed2b](https://github.com/logos-messaging/logos-delivery/commit/29fbed2b))
+- Stop the RLN epoch monitor future when RLN stops ([#4197](https://github.com/logos-messaging/logos-delivery/pull/4197)) ([676459e6](https://github.com/logos-messaging/logos-delivery/commit/676459e6))
+- Fix tests (e2e, macOS) ([#4186](https://github.com/logos-messaging/logos-delivery/pull/4186)) ([48f1d15e](https://github.com/logos-messaging/logos-delivery/commit/48f1d15e))
+- build: misc build system fixes ([#4183](https://github.com/logos-messaging/logos-delivery/pull/4183)) ([d46babd9](https://github.com/logos-messaging/logos-delivery/commit/d46babd9))
+- conf: drop duplicated dnsDiscovery name servers ([#4171](https://github.com/logos-messaging/logos-delivery/pull/4171)) ([52acb832](https://github.com/logos-messaging/logos-delivery/commit/52acb832))
+- ffi: serialise byte fields as base64 on the FFI surface ([#4170](https://github.com/logos-messaging/logos-delivery/pull/4170)) ([53d42f3f](https://github.com/logos-messaging/logos-delivery/commit/53d42f3f))
+- ios: restore the liblogosdelivery iOS build and add a CI job ([#4120](https://github.com/logos-messaging/logos-delivery/pull/4120)) ([0a48e8a5](https://github.com/logos-messaging/logos-delivery/commit/0a48e8a5))
+- build: constrain and verify Nimble dependency setup ([#4162](https://github.com/logos-messaging/logos-delivery/pull/4162)) ([7b72f4c0](https://github.com/logos-messaging/logos-delivery/commit/7b72f4c0))
+- e2e: exit the test process before the library threads are finalized ([#4151](https://github.com/logos-messaging/logos-delivery/pull/4151)) ([c249937b](https://github.com/logos-messaging/logos-delivery/commit/c249937b))
+- Fix Android support ([#4119](https://github.com/logos-messaging/logos-delivery/pull/4119)) ([a1c92205](https://github.com/logos-messaging/logos-delivery/commit/a1c92205))
+- postgres: survive a database restart without leaking connections ([#4149](https://github.com/logos-messaging/logos-delivery/pull/4149)) ([bfdb5afd](https://github.com/logos-messaging/logos-delivery/commit/bfdb5afd))
+- archive: make a node that writes nothing visible ([#4148](https://github.com/logos-messaging/logos-delivery/pull/4148)) ([393f7e94](https://github.com/logos-messaging/logos-delivery/commit/393f7e94))
+- postgres: guard the partition maintenance against concurrent writers ([#4147](https://github.com/logos-messaging/logos-delivery/pull/4147)) ([b133653b](https://github.com/logos-messaging/logos-delivery/commit/b133653b))
+- nix: emit and install the generated C header ([#4136](https://github.com/logos-messaging/logos-delivery/pull/4136)) ([69fbffa3](https://github.com/logos-messaging/logos-delivery/commit/69fbffa3))
+- Partition messages_lookup to stop the index bloat ([#4106](https://github.com/logos-messaging/logos-delivery/pull/4106)) ([bc4a64f0](https://github.com/logos-messaging/logos-delivery/commit/bc4a64f0))
+- ci: fix daily build timeouts ([#4126](https://github.com/logos-messaging/logos-delivery/pull/4126)) ([517bef15](https://github.com/logos-messaging/logos-delivery/commit/517bef15))
+- ci: nightly pre-release and release-assets fixes ([#4112](https://github.com/logos-messaging/logos-delivery/pull/4112)) ([e2a8c2b5](https://github.com/logos-messaging/logos-delivery/commit/e2a8c2b5))
+- ffi: event listeners lifetime ([#4118](https://github.com/logos-messaging/logos-delivery/pull/4118)) ([f4c5a703](https://github.com/logos-messaging/logos-delivery/commit/f4c5a703))
+- networks: move logos.dev preset to cluster-id 3 ([#4113](https://github.com/logos-messaging/logos-delivery/pull/4113)) ([ef651a7c](https://github.com/logos-messaging/logos-delivery/commit/ef651a7c))
+- ci: misc CI fixes ([#4107](https://github.com/logos-messaging/logos-delivery/pull/4107)) ([13d9b52f](https://github.com/logos-messaging/logos-delivery/commit/13d9b52f))
+- persistency: own Persistency per node instead of a process-global singleton ([#4109](https://github.com/logos-messaging/logos-delivery/pull/4109)) ([e8566db8](https://github.com/logos-messaging/logos-delivery/commit/e8566db8))
+- Stop host OpenSSL from hijacking bundled BoringSSL in liblogosdelivery ([#4086](https://github.com/logos-messaging/logos-delivery/pull/4086)) ([230417e7](https://github.com/logos-messaging/logos-delivery/commit/230417e7))
+- conf: default QUIC off on the messaging path ([#4084](https://github.com/logos-messaging/logos-delivery/pull/4084)) ([f8b03659](https://github.com/logos-messaging/logos-delivery/commit/f8b03659))
+- Subscribe to the channel's content topic on channel_create ([#4081](https://github.com/logos-messaging/logos-delivery/pull/4081)) ([3288d2d8](https://github.com/logos-messaging/logos-delivery/commit/3288d2d8))
+- Stop emitting receive events after channel_close ([#4075](https://github.com/logos-messaging/logos-delivery/pull/4075)) ([ed8e881c](https://github.com/logos-messaging/logos-delivery/commit/ed8e881c))
+- Report the wire sender's id in channel_message_received ([#4073](https://github.com/logos-messaging/logos-delivery/pull/4073)) ([b5f624f5](https://github.com/logos-messaging/logos-delivery/commit/b5f624f5))
+- Bound the error label of failed_store_queries ([#4053](https://github.com/logos-messaging/logos-delivery/pull/4053)) ([92841b50](https://github.com/logos-messaging/logos-delivery/commit/92841b50))
+- Dial QUIC before TCP regardless of address list order ([#4061](https://github.com/logos-messaging/logos-delivery/pull/4061)) ([296460a4](https://github.com/logos-messaging/logos-delivery/commit/296460a4))
+- channels: default channels to unencrypted so messages flow ([#4051](https://github.com/logos-messaging/logos-delivery/pull/4051)) ([2dbf9a3c](https://github.com/logos-messaging/logos-delivery/commit/2dbf9a3c))
+- Don't apply reconnect backoff to discovered relay peers ([#4029](https://github.com/logos-messaging/logos-delivery/pull/4029)) ([0a19473a](https://github.com/logos-messaging/logos-delivery/commit/0a19473a))
+- Fix FFI peerId pretty print ([#4023](https://github.com/logos-messaging/logos-delivery/pull/4023)) ([f28cc711](https://github.com/logos-messaging/logos-delivery/commit/f28cc711))
+- Handle peer-exchange stream-closed errors gracefully ([#4010](https://github.com/logos-messaging/logos-delivery/pull/4010)) ([ad175416](https://github.com/logos-messaging/logos-delivery/commit/ad175416))
+- Handle on-chain RPC errors gracefully during RLN setup ([#4008](https://github.com/logos-messaging/logos-delivery/pull/4008)) ([440bd01c](https://github.com/logos-messaging/logos-delivery/commit/440bd01c))
+- Remove hardcoded ports in tests ([#3998](https://github.com/logos-messaging/logos-delivery/pull/3998)) ([7b6d5d54](https://github.com/logos-messaging/logos-delivery/commit/7b6d5d54))
+- Fix portsShift feature ([#4006](https://github.com/logos-messaging/logos-delivery/pull/4006)) ([a763a59a](https://github.com/logos-messaging/logos-delivery/commit/a763a59a))
+- start_node() after stop_node() re-opens the listener ([#4007](https://github.com/logos-messaging/logos-delivery/pull/4007)) ([a4cd261f](https://github.com/logos-messaging/logos-delivery/commit/a4cd261f))
+- Cap store checks on propagated messages by MessagingClient ([#3965](https://github.com/logos-messaging/logos-delivery/pull/3965)) ([8501d051](https://github.com/logos-messaging/logos-delivery/commit/8501d051))
+- Retry send tasks stuck in Entry state ([5309ce29](https://github.com/logos-messaging/logos-delivery/commit/5309ce29))
+- Work around macOS build issue between bearssl 0.2.9 and chronos 2.2.4 ([#3969](https://github.com/logos-messaging/logos-delivery/pull/3969)) ([2fe7e1c3](https://github.com/logos-messaging/logos-delivery/commit/2fe7e1c3))
+- pr-lint: grant the comment job pull-requests:write ([#3944](https://github.com/logos-messaging/logos-delivery/pull/3944)) ([b7c2cee2](https://github.com/logos-messaging/logos-delivery/commit/b7c2cee2))
+- Build zerokit rln from source via fixed nixpkgs, drop prebuilt fetch ([#3930](https://github.com/logos-messaging/logos-delivery/pull/3930)) ([faa67413](https://github.com/logos-messaging/logos-delivery/commit/faa67413))
+- Accept port 0 in JSON config (ephemeral port support) ([#3895](https://github.com/logos-messaging/logos-delivery/pull/3895)) ([c738c7b6](https://github.com/logos-messaging/logos-delivery/commit/c738c7b6))
+- Real getNodeInfo Version in Nix/lgpm builds ([#3889](https://github.com/logos-messaging/logos-delivery/pull/3889)) ([c6e448a0](https://github.com/logos-messaging/logos-delivery/commit/c6e448a0))
+- Stop recv_service from delivering messages on unsubscribed topics for store-recovered messages ([#3874](https://github.com/logos-messaging/logos-delivery/pull/3874)) ([cb35b59f](https://github.com/logos-messaging/logos-delivery/commit/cb35b59f))
+- Ensure peers are retrieved in random order from peer store ([#3860](https://github.com/logos-messaging/logos-delivery/pull/3860)) ([f23983f4](https://github.com/logos-messaging/logos-delivery/commit/f23983f4))
+- receive_service: ensure fetch msgs query is performed when missing msg ([#3849](https://github.com/logos-messaging/logos-delivery/pull/3849)) ([27ae07ad](https://github.com/logos-messaging/logos-delivery/commit/27ae07ad))
+- Avoid keeping delivery tasks in propagated state when check store is disabled ([#3843](https://github.com/logos-messaging/logos-delivery/pull/3843)) ([34c197c5](https://github.com/logos-messaging/logos-delivery/commit/34c197c5))
+- Restore -d:postgres in nimble task and propagate NIMFLAGS ([#3830](https://github.com/logos-messaging/logos-delivery/pull/3830)) ([32404843](https://github.com/logos-messaging/logos-delivery/commit/32404843))
+- Fix websock nimble dependency version restriction to match lock file ([#3829](https://github.com/logos-messaging/logos-delivery/pull/3829)) ([75864a70](https://github.com/logos-messaging/logos-delivery/commit/75864a70))
+- Relay validator registration and sync filter ([#3823](https://github.com/logos-messaging/logos-delivery/pull/3823)) ([ff98d853](https://github.com/logos-messaging/logos-delivery/commit/ff98d853))
+- Fix redundant start/stop calls ([#3817](https://github.com/logos-messaging/logos-delivery/pull/3817)) ([bb8a7e87](https://github.com/logos-messaging/logos-delivery/commit/bb8a7e87))
+- Prefer --num-shards-in-network over preset ([#3816](https://github.com/logos-messaging/logos-delivery/pull/3816)) ([9cbb4e73](https://github.com/logos-messaging/logos-delivery/commit/9cbb4e73))
+- Fix peer stats endpoint ([#3815](https://github.com/logos-messaging/logos-delivery/pull/3815)) ([9ae108b4](https://github.com/logos-messaging/logos-delivery/commit/9ae108b4))
+- Make update and wakunode2 build on arm64 after Nimble migration ([#3814](https://github.com/logos-messaging/logos-delivery/pull/3814)) ([43948432](https://github.com/logos-messaging/logos-delivery/commit/43948432))
+- Fix BearSSL and NAT lib build reproducibility ([#3806](https://github.com/logos-messaging/logos-delivery/pull/3806)) ([c04df751](https://github.com/logos-messaging/logos-delivery/commit/c04df751))
+
+### Changes
+
+- One node image and a standalone rlnkeystore tool ([#4256](https://github.com/logos-messaging/logos-delivery/pull/4256)) ([e0912910](https://github.com/logos-messaging/logos-delivery/commit/e0912910))
+- Simplify release issue template ([#4254](https://github.com/logos-messaging/logos-delivery/pull/4254)) ([9fd34e7d](https://github.com/logos-messaging/logos-delivery/commit/9fd34e7d))
+- Stop relying on libp2p's internal withValue helper ([#4255](https://github.com/logos-messaging/logos-delivery/pull/4255)) ([ac190ba8](https://github.com/logos-messaging/logos-delivery/commit/ac190ba8))
+- Deprecate wakunode2 in favour of logosdeliverynode ([#4229](https://github.com/logos-messaging/logos-delivery/pull/4229)) ([5491cc19](https://github.com/logos-messaging/logos-delivery/commit/5491cc19))
+- ci: run CI unless a PR only touches docs ([#4225](https://github.com/logos-messaging/logos-delivery/pull/4225)) ([0786a534](https://github.com/logos-messaging/logos-delivery/commit/0786a534))
+- Bump version to 0.39.0 ([#4212](https://github.com/logos-messaging/logos-delivery/pull/4212)) ([afaa8221](https://github.com/logos-messaging/logos-delivery/commit/afaa8221))
+- Add RLN API folder structure and consumer-facing interface ([#4130](https://github.com/logos-messaging/logos-delivery/pull/4130)) ([c50a580e](https://github.com/logos-messaging/logos-delivery/commit/c50a580e))
+- nimble: pin nim-websock by commit instead of tag ([#4188](https://github.com/logos-messaging/logos-delivery/pull/4188)) ([799786ea](https://github.com/logos-messaging/logos-delivery/commit/799786ea))
+- Bump nim-libp2p to v2.3.1 ([#4161](https://github.com/logos-messaging/logos-delivery/pull/4161)) ([35dc5f78](https://github.com/logos-messaging/logos-delivery/commit/35dc5f78))
+- Bump to nim 2.2.6 ([#4164](https://github.com/logos-messaging/logos-delivery/pull/4164)) ([50593bc8](https://github.com/logos-messaging/logos-delivery/commit/50593bc8))
+- Pin boringssl v0.0.11 ([#4150](https://github.com/logos-messaging/logos-delivery/pull/4150)) ([5100d332](https://github.com/logos-messaging/logos-delivery/commit/5100d332))
+- Bump nim-ffi to v0.3.1 ([#4135](https://github.com/logos-messaging/logos-delivery/pull/4135)) ([17829419](https://github.com/logos-messaging/logos-delivery/commit/17829419))
+- Rework logging to be useful ([#4110](https://github.com/logos-messaging/logos-delivery/pull/4110)) ([19591789](https://github.com/logos-messaging/logos-delivery/commit/19591789))
+- docker: rename compose folder and fix review follow-ups from #4057 ([#4129](https://github.com/logos-messaging/logos-delivery/pull/4129)) ([d3c0979d](https://github.com/logos-messaging/logos-delivery/commit/d3c0979d))
+- Add logging policy ([#4104](https://github.com/logos-messaging/logos-delivery/pull/4104)) ([a5d78188](https://github.com/logos-messaging/logos-delivery/commit/a5d78188))
+- deps: bump nim-ffi to 0.3.0-rc.1 (per-listener event ABI) ([#4070](https://github.com/logos-messaging/logos-delivery/pull/4070)) ([4809b991](https://github.com/logos-messaging/logos-delivery/commit/4809b991))
+- metrics: sync fleet dashboards from Grafana ([#4079](https://github.com/logos-messaging/logos-delivery/pull/4079)) ([afe90a9d](https://github.com/logos-messaging/logos-delivery/commit/afe90a9d))
+- metrics: give every metric a logos_delivery_ prefix ([#4074](https://github.com/logos-messaging/logos-delivery/pull/4074)) ([8125cd02](https://github.com/logos-messaging/logos-delivery/commit/8125cd02))
+- Adjust artifact builds and uploads to contain logosdeliverynode app ([#4059](https://github.com/logos-messaging/logos-delivery/pull/4059)) ([a7df0d9c](https://github.com/logos-messaging/logos-delivery/commit/a7df0d9c))
+- Bump nim-brokers to 3.3.0 and add nim-brokers skill ([#4058](https://github.com/logos-messaging/logos-delivery/pull/4058)) ([29861bc2](https://github.com/logos-messaging/logos-delivery/commit/29861bc2))
+- Move rate-limit-manager to the messaging client layer ([#4021](https://github.com/logos-messaging/logos-delivery/pull/4021)) ([54360d47](https://github.com/logos-messaging/logos-delivery/commit/54360d47))
+- Replace Option with Opt ([#4035](https://github.com/logos-messaging/logos-delivery/pull/4035)) ([ce918b08](https://github.com/logos-messaging/logos-delivery/commit/ce918b08))
+- Refresh the merkle proof cache reactively on publish rejection ([#4013](https://github.com/logos-messaging/logos-delivery/pull/4013)) ([77cb8a6c](https://github.com/logos-messaging/logos-delivery/commit/77cb8a6c))
+- Move conf types to api/conf ([#4024](https://github.com/logos-messaging/logos-delivery/pull/4024)) ([53c084df](https://github.com/logos-messaging/logos-delivery/commit/53c084df))
+- Move API config modules to api/conf/ ([#4022](https://github.com/logos-messaging/logos-delivery/pull/4022)) ([9f2a1c89](https://github.com/logos-messaging/logos-delivery/commit/9f2a1c89))
+- Replace RLN-specific Result with generic Result ([#4011](https://github.com/logos-messaging/logos-delivery/pull/4011)) ([0a1700e2](https://github.com/logos-messaging/logos-delivery/commit/0a1700e2))
+- ffi: unify node lifecycle on logosdelivery_* and drop legacy waku_* surface ([#4012](https://github.com/logos-messaging/logos-delivery/pull/4012)) ([21569ef8](https://github.com/logos-messaging/logos-delivery/commit/21569ef8))
+- Replace ReliableChannel sendhandler hack ([#3994](https://github.com/logos-messaging/logos-delivery/pull/3994)) ([42ccb5c6](https://github.com/logos-messaging/logos-delivery/commit/42ccb5c6))
+- RLN phase 4: move RLN proof generation from the lightpush server to the client ([#4009](https://github.com/logos-messaging/logos-delivery/pull/4009)) ([cbb601ec](https://github.com/logos-messaging/logos-delivery/commit/cbb601ec))
+- api: define layer contracts with concept, not RootObj inheritance ([#4001](https://github.com/logos-messaging/logos-delivery/pull/4001)) ([82dcada1](https://github.com/logos-messaging/logos-delivery/commit/82dcada1))
+- messaging: depend on the Waku kernel, not the raw WakuNode ([#4000](https://github.com/logos-messaging/logos-delivery/pull/4000)) ([a45b7851](https://github.com/logos-messaging/logos-delivery/commit/a45b7851))
+- Integrate API shape phase 2 and API interfaces ([#3999](https://github.com/logos-messaging/logos-delivery/pull/3999)) ([a7f89355](https://github.com/logos-messaging/logos-delivery/commit/a7f89355))
+- RLN phase 3: inline the RLN validator, allow mountRlnRelay without wakuRelay ([#3985](https://github.com/logos-messaging/logos-delivery/pull/3985)) ([ec36e09b](https://github.com/logos-messaging/logos-delivery/commit/ec36e09b))
+- RLN phase 2: rename/restructure waku_rln_relay to waku_rln ([#3978](https://github.com/logos-messaging/logos-delivery/pull/3978)) ([57ff2476](https://github.com/logos-messaging/logos-delivery/commit/57ff2476))
+- RLN phase 1: extract generateRlnValidator into a temporary adapter dir ([#3984](https://github.com/logos-messaging/logos-delivery/pull/3984)) ([4ba5710a](https://github.com/logos-messaging/logos-delivery/commit/4ba5710a))
+- API shape phase 2 ([#3974](https://github.com/logos-messaging/logos-delivery/pull/3974)) ([6d35800f](https://github.com/logos-messaging/logos-delivery/commit/6d35800f))
+- Fix .md docs (fix broken links, add QUIC notes) ([#3988](https://github.com/logos-messaging/logos-delivery/pull/3988)) ([56b92cfd](https://github.com/logos-messaging/logos-delivery/commit/56b92cfd))
+- Build C/C++ examples on macOS via POSIX getopt ([#3982](https://github.com/logos-messaging/logos-delivery/pull/3982)) ([5c20f48a](https://github.com/logos-messaging/logos-delivery/commit/5c20f48a))
+- Simplify release process — merge deploy into prepare_release ([#3964](https://github.com/logos-messaging/logos-delivery/pull/3964)) ([319c0c68](https://github.com/logos-messaging/logos-delivery/commit/319c0c68))
+- Messaging backfills from store only when regaining connectivity ([#3957](https://github.com/logos-messaging/logos-delivery/pull/3957)) ([03efe676](https://github.com/logos-messaging/logos-delivery/commit/03efe676))
+- Address deferred SDS-handler review comments from #3942 ([#3960](https://github.com/logos-messaging/logos-delivery/pull/3960)) ([066838aa](https://github.com/logos-messaging/logos-delivery/commit/066838aa))
+- Update release issue templates to logos fleets ([#3952](https://github.com/logos-messaging/logos-delivery/pull/3952)) ([9289ba62](https://github.com/logos-messaging/logos-delivery/commit/9289ba62))
+- Accept CLI option names in JSON config ([#3943](https://github.com/logos-messaging/logos-delivery/pull/3943)) ([d712da5a](https://github.com/logos-messaging/logos-delivery/commit/d712da5a))
+- Install specific foundry anvil version directly ([#3937](https://github.com/logos-messaging/logos-delivery/pull/3937)) ([362c35f2](https://github.com/logos-messaging/logos-delivery/commit/362c35f2))
+- Introduce proper logos_delivery layers folder structure ([#3935](https://github.com/logos-messaging/logos-delivery/pull/3935)) ([3b03ca29](https://github.com/logos-messaging/logos-delivery/commit/3b03ca29))
+- Clean waku_noise because it is not used in prod code ([#3934](https://github.com/logos-messaging/logos-delivery/pull/3934)) ([c7350abb](https://github.com/logos-messaging/logos-delivery/commit/c7350abb))
+- Pin nim-ffi to v0.1.3 in waku.nimble ([#3928](https://github.com/logos-messaging/logos-delivery/pull/3928)) ([4099ff26](https://github.com/logos-messaging/logos-delivery/commit/4099ff26))
+- Rename kernel_api dir to waku_node and tidy node module layout ([#3927](https://github.com/logos-messaging/logos-delivery/pull/3927)) ([38d951a2](https://github.com/logos-messaging/logos-delivery/commit/38d951a2))
+- Add helper nimble task to ease nph formatting on changed nim files (nimble nphchanges) ([#3926](https://github.com/logos-messaging/logos-delivery/pull/3926)) ([64a0ed7d](https://github.com/logos-messaging/logos-delivery/commit/64a0ed7d))
+- tools: add sync-nimble-lock.sh to cross-check waku.nimble pins into nimble.lock ([#3924](https://github.com/logos-messaging/logos-delivery/pull/3924)) ([b593d16d](https://github.com/logos-messaging/logos-delivery/commit/b593d16d))
+- ci: fix Windows build hang on re-downloading nimble deps ([#3920](https://github.com/logos-messaging/logos-delivery/pull/3920)) ([6fd0f9c0](https://github.com/logos-messaging/logos-delivery/commit/6fd0f9c0))
+- Enhance reliable channel segment states ([#3919](https://github.com/logos-messaging/logos-delivery/pull/3919)) ([8b0e21fa](https://github.com/logos-messaging/logos-delivery/commit/8b0e21fa))
+- Clean separation between ReliableChannelManager, MessagingClient, and kernel/core ([#3918](https://github.com/logos-messaging/logos-delivery/pull/3918)) ([f833ded2](https://github.com/logos-messaging/logos-delivery/commit/f833ded2))
+- Disable js-waku from ci ([#3917](https://github.com/logos-messaging/logos-delivery/pull/3917)) ([2447ce9e](https://github.com/logos-messaging/logos-delivery/commit/2447ce9e))
+- ci: pass -d:disableMarchNative to avoid secp256k1 build failures ([#3916](https://github.com/logos-messaging/logos-delivery/pull/3916)) ([5bc1ad63](https://github.com/logos-messaging/logos-delivery/commit/5bc1ad63))
+- Better pending segments management ([#3914](https://github.com/logos-messaging/logos-delivery/pull/3914)) ([c5b24e21](https://github.com/logos-messaging/logos-delivery/commit/c5b24e21))
+- Retrieve cache of merkle roots from RLN contract ([#3903](https://github.com/logos-messaging/logos-delivery/pull/3903)) ([86e424c8](https://github.com/logos-messaging/logos-delivery/commit/86e424c8))
+- Simplify zerokit cargoHash fix ([#3899](https://github.com/logos-messaging/logos-delivery/pull/3899)) ([5ff734aa](https://github.com/logos-messaging/logos-delivery/commit/5ff734aa))
+- Remove makefile target update ([#3897](https://github.com/logos-messaging/logos-delivery/pull/3897)) ([8b53e643](https://github.com/logos-messaging/logos-delivery/commit/8b53e643))
+- Update and improve READMEs ([#3894](https://github.com/logos-messaging/logos-delivery/pull/3894)) ([04ef12cc](https://github.com/logos-messaging/logos-delivery/commit/04ef12cc))
+- Recover wakucanary in nix output ([#3892](https://github.com/logos-messaging/logos-delivery/pull/3892)) ([79dda637](https://github.com/logos-messaging/logos-delivery/commit/79dda637))
+- Start basic reliable channel folder ([#3886](https://github.com/logos-messaging/logos-delivery/pull/3886)) ([74057c66](https://github.com/logos-messaging/logos-delivery/commit/74057c66))
+- ci: add daily rln simulator e2e workflow ([#3885](https://github.com/logos-messaging/logos-delivery/pull/3885)) ([67eebe3a](https://github.com/logos-messaging/logos-delivery/commit/67eebe3a))
+- Fixing daily ci ([#3878](https://github.com/logos-messaging/logos-delivery/pull/3878)) ([5e262bad](https://github.com/logos-messaging/logos-delivery/commit/5e262bad))
+- Add event_loop_accumulates_lag_secs ([#3833](https://github.com/logos-messaging/logos-delivery/pull/3833)) ([587014e3](https://github.com/logos-messaging/logos-delivery/commit/587014e3))
+- Remove duplicates of announcedAddresses, extMultiaddresses ([#3831](https://github.com/logos-messaging/logos-delivery/pull/3831)) ([300f584e](https://github.com/logos-messaging/logos-delivery/commit/300f584e))
+- Make nix build phase configurable ([#3826](https://github.com/logos-messaging/logos-delivery/pull/3826)) ([5034086f](https://github.com/logos-messaging/logos-delivery/commit/5034086f))
+- Add nim-sds (no runtime integration yet) ([#3820](https://github.com/logos-messaging/logos-delivery/pull/3820)) ([a62ab1e7](https://github.com/logos-messaging/logos-delivery/commit/a62ab1e7))
+- Improve logging of content topic on server ([#3818](https://github.com/logos-messaging/logos-delivery/pull/3818)) ([ca4dbb19](https://github.com/logos-messaging/logos-delivery/commit/ca4dbb19))
+- Enable postgres support in nix liblogosdelivery build ([#3813](https://github.com/logos-messaging/logos-delivery/pull/3813)) ([509c8755](https://github.com/logos-messaging/logos-delivery/commit/509c8755))
+- Bump nim-jwt version ([#3812](https://github.com/logos-messaging/logos-delivery/pull/3812)) ([166dc69c](https://github.com/logos-messaging/logos-delivery/commit/166dc69c))
+- Use nimble 0.22.3 and more appropriate nimble.lock ([#3809](https://github.com/logos-messaging/logos-delivery/pull/3809)) ([cda01971](https://github.com/logos-messaging/logos-delivery/commit/cda01971))
+- Use EWMA to show main loop lag information ([#3808](https://github.com/logos-messaging/logos-delivery/pull/3808)) ([260def68](https://github.com/logos-messaging/logos-delivery/commit/260def68))
+- Add main loop lag monitor ([#3803](https://github.com/logos-messaging/logos-delivery/pull/3803)) ([ca7ec3de](https://github.com/logos-messaging/logos-delivery/commit/ca7ec3de))
+- Add pre-check of options used in config JSON for liblogosdelivery pre-createNode, treat unrecognized options as error ([#3801](https://github.com/logos-messaging/logos-delivery/pull/3801)) ([55035295](https://github.com/logos-messaging/logos-delivery/commit/55035295))
+- Start using nimble and deprecate vendor dependencies ([#3798](https://github.com/logos-messaging/logos-delivery/pull/3798)) ([f5762af4](https://github.com/logos-messaging/logos-delivery/commit/f5762af4))
+- Set num-shards-in-network to 0 by default ([#3748](https://github.com/logos-messaging/logos-delivery/pull/3748)) ([59bd365c](https://github.com/logos-messaging/logos-delivery/commit/59bd365c))
+- Add ci support for liblogosdelivery, build and artifacts ([#3746](https://github.com/logos-messaging/logos-delivery/pull/3746)) ([820ccc6e](https://github.com/logos-messaging/logos-delivery/commit/820ccc6e))
+- Point CLAUDE.md to (updated) AGENTS.md ([4b80c776](https://github.com/logos-messaging/logos-delivery/commit/4b80c776))
+
+### This release supports the following [libp2p protocols](https://docs.libp2p.io/concepts/protocols/):
+
+| Protocol | Spec status | Protocol id |
+| ---: | :---: | :--- |
+| [`11/WAKU2-RELAY`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/11/relay.md) | `stable` | `/vac/waku/relay/2.0.0` |
+| [`12/WAKU2-FILTER`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/12/filter.md) | `draft` | `/vac/waku/filter/2.0.0-beta1` <br />`/vac/waku/filter-subscribe/2.0.0-beta1` <br />`/vac/waku/filter-push/2.0.0-beta1` |
+| [`13/WAKU2-STORE`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/13/store.md) | `draft` | `/vac/waku/store/2.0.0-beta4` |
+| [`19/WAKU2-LIGHTPUSH`](https://github.com/vacp2p/rfc-index/blob/main/waku/standards/core/19/lightpush.md) | `draft` | `/vac/waku/lightpush/2.0.0-beta1` |
+| [`WAKU2-LIGHTPUSH v3`](https://github.com/waku-org/specs/blob/master/standards/core/lightpush.md) | `draft` | `/vac/waku/lightpush/3.0.0` |
+| [`66/WAKU2-METADATA`](https://github.com/waku-org/specs/blob/master/standards/core/metadata.md) | `raw` | `/vac/waku/metadata/1.0.0` |
+| [`WAKU-SYNC`](https://github.com/waku-org/specs/blob/master/standards/core/sync.md) | `draft` | `/vac/waku/sync/1.0.0` |
 
 ## v0.38.1 (2026-05-07)
 
