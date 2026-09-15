@@ -461,7 +461,7 @@ class NodeWrapper:
                 "senderIdStr": sender_id,
                 "encryptFn": encrypt_fn,
                 "decryptFn": decrypt_fn,
-                "userData": crypto_user_data,
+                "cryptoUserData": crypto_user_data,
             },
         )
         rc = lib.logosdelivery_channel_create(self.ctx, cb, ffi.NULL, req, req_len)
