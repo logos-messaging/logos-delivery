@@ -32,6 +32,9 @@ import
 # Waku store test suite
 import ./waku_store/test_all
 
+# Net backend test suite
+import ./waku_net/test_net_backend
+
 # Waku store sync suite
 import ./waku_store_sync/test_all
 
