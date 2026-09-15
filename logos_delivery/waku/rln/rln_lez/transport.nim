@@ -59,6 +59,7 @@ var
   gPending: ptr Pending # head of the in-flight request list
   gNextReqId: uint64
   gRegistered: bool # a plugin has been installed
+  gDisableValidation: bool # temporary RLN phase-in: don't validate received proofs
 
 initLock(gLock)
 
@@ -222,6 +223,20 @@ proc rlnPluginRegistered*(): bool =
   ## over it: there is no separate configuration switch.
   withLock gLock:
     return gRegistered
+
+proc logosdelivery_rln_disable_validation*(
+    disable: cint
+): cint {.exportc, cdecl, dynlib.} =
+  # Temporary RLN phase-in switch, read once at node creation (see the header).
+  withLock gLock:
+    gDisableValidation = disable != 0
+    return 0
+
+proc rlnDisableValidation*(): bool =
+  ## Whether the host has disabled RLN proof validation, so received messages
+  ## pass through unchecked. Temporary RLN phase-in switch.
+  withLock gLock:
+    return gDisableValidation
 
 proc logosdelivery_rln_response*(
     reqId: uint64, resultJson: cstring

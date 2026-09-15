@@ -199,6 +199,12 @@ proc setRlnValidator*(
       info "WakuRelay not mounted; RLN validator not set"
       return
 
+    if rlnConf.disableValidation:
+      # Temporary RLN phase-in: published messages still carry proofs, but
+      # received messages pass through unchecked.
+      info "RLN proof validation is disabled; not registering the RLN validator"
+      return
+
     # Maps the module's verdict (RequestValidateRlnProof) to pubsub.ValidationResult.
     proc validator(
         topic: string, message: WakuMessage
