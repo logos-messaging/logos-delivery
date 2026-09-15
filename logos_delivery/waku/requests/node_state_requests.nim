@@ -42,6 +42,16 @@ RequestBroker(sync):
   # The node's libp2p private key (discv5 signs its ENR with it).
   proc getNodeKey(): Result[crypto.PrivateKey, string]
 
+type DiscoveryRequirements* = object
+  ## What a host must set up before starting the node: whether service
+  ## discovery is expected from an external plugin, and the DHT bootstrap
+  ## peers (/p2p/ multiaddrs) resolved from the node's configuration.
+  externalServiceDiscovery*: bool
+  bootstrapNodes*: seq[string]
+
+RequestBroker(sync):
+  proc getDiscoveryRequirements(): Result[DiscoveryRequirements, string]
+
 RequestBroker(sync):
   # DNS-discovery (or otherwise dynamically obtained) bootstrap peers;
   # empty until retrieval succeeded.

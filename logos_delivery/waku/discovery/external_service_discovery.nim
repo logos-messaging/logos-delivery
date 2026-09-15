@@ -3,7 +3,7 @@
 ## IPeerDiscovery backed by an external service-discovery plugin (today:
 ## logos-libp2p-module, driven by glue in logos-delivery-module).
 ##
-## Shape-wise this is the twin of the internal `ServiceDiscovery` backend:
+## Shape-wise this is the twin of the internal `ServicePeerDiscovery` backend:
 ## fully async verbs plus periodic lookup loops. The difference is only where
 ## the work happens — every plugin call is dispatched to the discovery worker
 ## thread through `(mt)` request brokers, so a 30 s DHT bootstrap blocks that
@@ -39,6 +39,13 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
     ## Instance state, not a global: registration is served on this node's own
     ## thread, and the worker gets its own copy at spawn.
   worker: ServiceDiscoveryWorker
+  workerCtx: BrokerContext
+    ## The context the plugin (mt) brokers live on for the current worker.
+    ## Fresh per worker generation: an abandoned worker keeps its buckets,
+    ## and a bucket owned by another thread cannot be re-registered.
+  abandonedWorkers: seq[ServiceDiscoveryWorker]
+    ## Workers whose thread never came back from a plugin call. Kept alive on
+    ## purpose: the thread still owns the Thread object inside.
   nodeCtx: BrokerContext
   interests: seq[string]
   serviceLookupInterval: Duration
@@ -142,6 +149,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     let self = ExternalServiceDiscovery(
       nodeCtx: globalBrokerContext(),
       worker: ServiceDiscoveryWorker.new(),
+      workerCtx: NewBrokerContext(),
       serviceLookupInterval: serviceLookupInterval,
       randomLookupInterval: randomLookupInterval,
     )
@@ -187,7 +195,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       DiscoveryBackendInfo(
         id: ExternalBackendId,
         running: self.running,
-        keyKinds: @["svc", "shard", "cap"],
+        keyKinds: @["service", "topic", "cap"],
         boundPorts: @[],
       )
     )
@@ -207,8 +215,8 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
 
     ## The worker gets the vtable by value, so nothing is shared and there is
     ## nothing to look up on the far side.
-    ?await self.worker.start(self.nodeCtx, plugin)
-    ?pluginCall(void, "start", PluginStart.request(self.nodeCtx))
+    ?await self.worker.start(self.workerCtx, plugin)
+    ?pluginCall(void, "start", PluginStart.request(self.workerCtx))
 
     self.running = true
     if self.serviceLookupLoop.isNil():
@@ -233,13 +241,23 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
 
     ## The plugin is still there: `startDiscovery` required one, and clearing
     ## is refused while discovery runs, so there is nothing to guard against.
-    let stopRes = pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
+    let stopRes = pluginCall(void, "stop", PluginStop.request(self.workerCtx))
 
     ## The worker exists to serve this discovery session, so it goes with it.
     ## Its thread hands the (mt) buckets back on the way out, which is what
     ## lets a later `startDiscovery` spawn a fresh one on the same context.
-    self.worker.stop()
-    stopRes
+    ## The wait is bounded by what the plugin itself declared a verb may take;
+    ## a thread still inside one after that is abandoned and replaced.
+    let grace = block:
+      let p = readyPlugin(self)
+      (if p.isOk(): p.get().requestTimeout() else: DefaultPluginRequestTimeout) +
+        chronos.seconds(5)
+    let workerRes = await self.worker.stop(grace)
+    if workerRes.isErr():
+      self.abandonedWorkers.add(self.worker)
+      self.worker = ServiceDiscoveryWorker.new()
+      self.workerCtx = NewBrokerContext()
+    if stopRes.isErr(): stopRes else: workerRes
 
   method lookupServicePeers(
       self: ExternalServiceDiscovery, key: string, limit: int
@@ -247,7 +265,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if not self.running:
       return err("external backend: not running")
     pluginCall(
-      seq[DiscoveredPeer], "lookup", PluginLookup.request(self.nodeCtx, key, limit)
+      seq[DiscoveredPeer], "lookup", PluginLookup.request(self.workerCtx, key, limit)
     )
 
   method lookupRandom(
@@ -256,7 +274,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if not self.running:
       return err("external backend: not running")
     pluginCall(
-      seq[DiscoveredPeer], "randomLookup", PluginRandomLookup.request(self.nodeCtx)
+      seq[DiscoveredPeer], "randomLookup", PluginRandomLookup.request(self.workerCtx)
     )
 
   method startAdvertising(
@@ -267,30 +285,30 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## node listing exactly this service, and let the plugin publish it
     ## verbatim. Identity and key come from the node-state getters, the way
     ## the discv5 backend gets its ENR and key.
-    if not key.startsWith(SvcKeyPrefix):
-      return err("external backend: only svc: keys can be advertised")
-    let serviceId = key[SvcKeyPrefix.len ..^ 1]
+    if not key.startsWith(ServiceKeyPrefix):
+      return err("external backend: only service: keys can be advertised")
+    let serviceId = key[ServiceKeyPrefix.len ..^ 1]
     let peerInfo = ?GetNodePeerInfo.request(self.nodeCtx)
     let nodeKey = ?GetNodeKey.request(self.nodeCtx)
     let record = ?signedServiceRecord(peerInfo, nodeKey, serviceId, data)
     pluginCall(
       void,
       "startAdvertising",
-      PluginStartAdvertising.request(self.nodeCtx, key, data, record),
+      PluginStartAdvertising.request(self.workerCtx, key, data, record),
     )
 
   method stopAdvertising(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     pluginCall(
-      void, "stopAdvertising", PluginStopAdvertising.request(self.nodeCtx, key)
+      void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
     )
 
   method registerInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     ?pluginCall(
-      void, "registerInterest", PluginRegisterInterest.request(self.nodeCtx, key)
+      void, "registerInterest", PluginRegisterInterest.request(self.workerCtx, key)
     )
     if key notin self.interests:
       self.interests.add(key)
@@ -300,7 +318,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     ?pluginCall(
-      void, "unregisterInterest", PluginUnregisterInterest.request(self.nodeCtx, key)
+      void, "unregisterInterest", PluginUnregisterInterest.request(self.workerCtx, key)
     )
     self.interests.keepItIf(it != key)
     ok()
