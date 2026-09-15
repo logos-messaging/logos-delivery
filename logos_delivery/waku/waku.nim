@@ -44,6 +44,7 @@ import
     discovery/waku_dnsdisc,
     discovery/waku_discv5,
     discovery/discv5_peer_discovery,
+    discovery/external_service_discovery,
     discovery/autonat_service,
     requests/health_requests,
     requests/node_state_requests,
@@ -81,6 +82,9 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
     ## Set by discv5Discovery on start; kept for direct consumers
     ## (REST builder, ENR/address updates, FFI ops).
   discv5Discovery*: Discv5PeerDiscovery
+  externalDiscovery*: ExternalServiceDiscovery
+    ## Present when discovery is delegated to an external provider; the
+    ## library layer installs its host transport.
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
@@ -248,6 +252,14 @@ proc new*(
       wakuConf.discv5Conf.get(), wakuConf.endpointConf.p2pListenAddress, rng
     )
     node.attachDiscovery(waku.discv5Discovery)
+
+  if wakuConf.externalDiscoveryConf.isSome():
+    let extConf = wakuConf.externalDiscoveryConf.get()
+    waku.externalDiscovery = ExternalServiceDiscovery.create(
+      chronos.milliseconds(extConf.serviceLookupIntervalMs.int64),
+      chronos.milliseconds(extConf.randomLookupIntervalMs.int64),
+    )
+    node.attachDiscovery(waku.externalDiscovery)
 
   ## Node-state getters for loosely-coupled components (discovery backends).
   ## reprovideIt so a recreated Waku instance replaces stale providers.
@@ -471,6 +483,16 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   waku.node.onCommittedAddresses = proc() {.gcsafe, raises: [].} =
     refreshEnrAddrs(waku.node, waku.key, waku.wakuDiscv5).isOkOr:
       error "failed to refresh ENR multiaddrs", error = $error
+
+  ## External service discovery
+  if not waku.externalDiscovery.isNil():
+    ## Configured means required. The plugin is registered at runtime, so a
+    ## node can reach start with none installed -- and it would then run
+    ## believing it has discovery while having none at all. Same idempotent
+    ## re-call as discv5 above, to turn the node start path's logged failure
+    ## into a hard one.
+    (await waku.externalDiscovery.startDiscovery()).isOkOr:
+      return err("failed to start external service discovery: " & error)
 
   ## Update waku data that is set dynamically on node start
   try:

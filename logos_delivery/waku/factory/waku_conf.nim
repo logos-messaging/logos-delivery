@@ -56,6 +56,15 @@ type ProtectedShard* {.requiresInit.} = object
 type DnsDiscoveryConf* {.requiresInit.} = object
   enrTreeUrl*: string
 
+type ExternalDiscoveryConf* {.requiresInit.} = object
+  ## Discovery delegated to an external provider (logos-libp2p-module via
+  ## glue in logos-delivery-module). The plugin is registered at
+  ## runtime by an external entity; until then the backend stays inert.
+  ## The per-request timeout is not configured here -- it belongs to the
+  ## registered plugin.
+  serviceLookupIntervalMs*: uint32
+  randomLookupIntervalMs*: uint32
+
 type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32
   intervalSec*: uint32
@@ -126,6 +135,7 @@ type WakuConf* {.requiresInit.} = ref object
   quicConf*: Opt[QuicConf]
   mixConf*: Opt[MixConf]
   kademliaDiscoveryConf*: Opt[KademliaDiscoveryConf]
+  externalDiscoveryConf*: Opt[ExternalDiscoveryConf]
 
   dnsAddrsNameServers*: seq[IpAddress]
   endpointConf*: EndpointConf
