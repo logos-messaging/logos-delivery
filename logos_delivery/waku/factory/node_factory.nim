@@ -371,6 +371,7 @@ proc setupProtocols(
       userMessageLimit: rlnEvmConf.userMessageLimit,
       epochSizeSec: rlnEvmConf.epochSizeSec,
       onFatalErrorAction: onFatalErrorAction,
+      disableValidation: conf.rlnDisableValidation,
     )
     try:
       await node.setRlnValidator(rlnConf)
