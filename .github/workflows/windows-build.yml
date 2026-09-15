@@ -10,11 +10,25 @@ on:
 env:
   NPROC: 4
   NIM_VERSION: '2.2.6'
+  CCACHE_VERSION: '4.14'
+  CCACHE_SHA256: 2568347a697e103ca1b073981c704ad76fb2507d066c38dba038dd73399d968f
 
 jobs:
   build:
+    # One job per artifact: built back to back they made this the slowest job in ci.
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - target: logosdeliverynode
+            make: make logosdeliverynode POSTGRES=1 V=3 -j$NPROC
+            output: build/logosdeliverynode.exe
+          - target: liblogosdelivery
+            make: make liblogosdelivery STATIC=0 V=1 -j
+            output: build/liblogosdelivery.dll
+    name: build-${{ matrix.target }}
     runs-on: windows-latest
-    # A green build takes 30-45 min. Fail a hung one instead of holding the
+    # A green build takes 20-30 min. Fail a hung one instead of holding the
     # runner for the 6 h default.
     timeout-minutes: 60
 
@@ -24,6 +38,10 @@ jobs:
 
     env:
       MSYSTEM: MINGW64
+      # MSYS2 installs gcc afresh on every run, so its mtime, ccache's default
+      # compiler check, would miss every time.
+      CCACHE_COMPILERCHECK: content
+      CCACHE_MAXSIZE: 500M
 
     steps:
     - name: Configure Git to keep LF line endings
@@ -103,20 +121,47 @@ jobs:
     - name: Creating tmp directory
       run: mkdir -p tmp
 
+    # Nim quotes the compiler command, so "ccache gcc" cannot stand in for gcc.
+    # Copies of ccache named gcc.exe and g++.exe masquerade as the compilers
+    # instead, and --gcc.path points Nim at them. Their directory stays off
+    # PATH, so ccache finds the real compilers there. The release build is
+    # static, so the copies need no DLLs next to them.
+    - name: Install ccache
+      run: |
+        tmp="$(cygpath -u "$RUNNER_TEMP")"
+        zip="$tmp/ccache.zip"
+        bin="$tmp/ccache-bin"
+        curl -fsSL -o "$zip" "https://github.com/ccache/ccache/releases/download/v$CCACHE_VERSION/ccache-$CCACHE_VERSION-windows-x86_64.zip"
+        echo "$CCACHE_SHA256  $zip" | sha256sum -c -
+        unzip -j -o "$zip" '*/ccache.exe' -d "$bin"
+        cp "$bin/ccache.exe" "$bin/gcc.exe"
+        cp "$bin/ccache.exe" "$bin/g++.exe"
+        echo "CCACHE_BIN=$(cygpath -m "$bin")" >> "$GITHUB_ENV"
+        echo "CCACHE_DIR=$(cygpath -m "$tmp/ccache")" >> "$GITHUB_ENV"
+
+    # One entry per commit. restore-keys pick the newest, which lets a PR start
+    # from master's cache.
+    - name: Cache ccache
+      uses: actions/cache@v3
+      with:
+        path: ${{ env.CCACHE_DIR }}
+        key: ${{ runner.os }}-ccache-${{ matrix.target }}-${{ github.sha }}
+        restore-keys: |
+          ${{ runner.os }}-ccache-${{ matrix.target }}-
+
     # "Install nimble deps" runs in Git Bash, whose HOME is the Windows profile,
     # and builds Nimble under it. MSYS2 has its own HOME, so without this make
     # would clone and build Nimble a second time, and that clone hangs.
-    - name: Building logosdeliverynode.exe
+    - name: Building ${{ matrix.target }}
       run: |
         export HOME="$(cygpath -u "$USERPROFILE")"
         export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        make logosdeliverynode POSTGRES=1 V=3 -j${{ env.NPROC }}
+        "$CCACHE_BIN/ccache.exe" --zero-stats
+        ${{ matrix.make }} NIMFLAGS="--gcc.path:$CCACHE_BIN"
 
-    - name: Building liblogosdelivery.dll
+    - name: ccache stats
       run: |
-        export HOME="$(cygpath -u "$USERPROFILE")"
-        export PATH="$GITHUB_WORKSPACE/.nim_runtime/bin:$HOME/.nimble/bin:$PATH"
-        make liblogosdelivery STATIC=0 V=1 -j
+        "$CCACHE_BIN/ccache.exe" --show-stats
 
     - name: Audit installed deps
       run: |
@@ -125,15 +170,9 @@ jobs:
 
     - name: Check Executable
       run: |
-        if [ -f "./build/logosdeliverynode.exe" ]; then
-          echo "logosdeliverynode.exe build successful"
+        if [ -f "./${{ matrix.output }}" ]; then
+          echo "${{ matrix.output }} build successful"
         else
-          echo "Build failed: logosdeliverynode.exe not found"
-          exit 1
-        fi
-        if [ -f "./build/liblogosdelivery.dll" ]; then
-          echo "liblogosdelivery.dll build successful"
-        else
-          echo "Build failed: liblogosdelivery.dll not found"
+          echo "Build failed: ${{ matrix.output }} not found"
           exit 1
         fi
