@@ -30,11 +30,10 @@ PRELUDE_HDR="${PRELUDE_HDR:-liblogosdelivery/include/generated/nim_ffi_prelude.h
 # 1. The tree carries what a consumer links and dlopens.
 #
 # The DLL cannot be smoke-RUN -- it has no entry point -- so its presence is
-# asserted here and its imports and exports are gated on the builder side
-# (windows-gates, and .github/gates/exported-c-abi.sh). What this catches is an
-# install rule that silently stopped copying: `min-pes: 1` is satisfied by the
-# node's exe alone, so without this line the DLL could vanish and the job would
-# still be green.
+# asserted here and its imports are gated on the builder side (windows-gates).
+# What this catches is an install rule that silently stopped copying:
+# `min-pes: 1` is satisfied by the node's exe alone, so without this line the
+# DLL could vanish and the job would still be green.
 # ---------------------------------------------------------------------------
 for f in "$LIB" "$HDR" "$CBOR_HDR" "$PRELUDE_HDR"; do
   if [ ! -s "$f" ]; then
