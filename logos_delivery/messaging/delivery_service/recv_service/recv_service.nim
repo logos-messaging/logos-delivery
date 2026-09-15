@@ -64,7 +64,7 @@ type RecvService* = ref object of RootObj
   brokerCtx: BrokerContext
   waku: Waku
   seenMsgListener: MessageSeenEventListener
-  relayHealthListener: EventProtocolHealthChangeListener
+  protocolHealthListener: EventProtocolHealthChangeListener
   shardHealthListener: EventShardTopicHealthChangeListener
   subscriptionListener: ContentTopicSubscribedEventListener
   unsubscriptionListener: ContentTopicUnsubscribedEventListener
@@ -230,6 +230,18 @@ proc updateReceiveReadiness(self: RecvService) =
   if self.backfillHandler.isNil() or self.backfillHandler.finished():
     info "recv service backfilling missed messages after coming back online"
     self.backfillHandler = self.checkStore()
+
+proc listenForReadiness(self: RecvService, E: typedesc): auto =
+  ## Re-evaluates `online` on each `E` event. An event that changes nothing
+  ## is harmless, as `updateReceiveReadiness` acts only on a change.
+  let listener = E.listen(
+    self.brokerCtx,
+    proc(event: E) {.async: (raises: []).} =
+      self.updateReceiveReadiness(),
+  ).valueOr:
+    error "Failed to set a receive readiness listener", event = $E, error = error
+    quit(QuitFailure)
+  return listener
 
 proc listenForReceipts(
     brokerCtx: BrokerContext, job: persistency.Job
@@ -402,42 +414,12 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
     error "Failed to set MessageSeenEvent listener", error = error
     quit(QuitFailure)
 
-  # Each event below can change `online`.
-  self.relayHealthListener = EventProtocolHealthChange.listen(
-    self.brokerCtx,
-    proc(event: EventProtocolHealthChange) {.async: (raises: []).} =
-      if event.protocolHealth.protocol == $WakuProtocol.RelayProtocol:
-        self.updateReceiveReadiness()
-    ,
-  ).valueOr:
-    error "Failed to set EventProtocolHealthChange listener", error = error
-    quit(QuitFailure)
-
-  self.shardHealthListener = EventShardTopicHealthChange.listen(
-    self.brokerCtx,
-    proc(event: EventShardTopicHealthChange) {.async: (raises: []).} =
-      self.updateReceiveReadiness(),
-  ).valueOr:
-    error "Failed to set EventShardTopicHealthChange listener", error = error
-    quit(QuitFailure)
-
-  self.subscriptionListener = ContentTopicSubscribedEvent.listen(
-    self.brokerCtx,
-    proc(event: ContentTopicSubscribedEvent) {.async: (raises: []).} =
-      self.updateReceiveReadiness(),
-  ).valueOr:
-    error "Failed to set ContentTopicSubscribedEvent listener", error = error
-    quit(QuitFailure)
-
-  # An unsubscribe can remove the last shard with a healthy filter
-  # subscription. No health event reports that.
-  self.unsubscriptionListener = ContentTopicUnsubscribedEvent.listen(
-    self.brokerCtx,
-    proc(event: ContentTopicUnsubscribedEvent) {.async: (raises: []).} =
-      self.updateReceiveReadiness(),
-  ).valueOr:
-    error "Failed to set ContentTopicUnsubscribedEvent listener", error = error
-    quit(QuitFailure)
+  # Each event below can change `online`. An unsubscribe can remove the last
+  # shard with a healthy filter subscription, which no health event reports.
+  self.protocolHealthListener = self.listenForReadiness(EventProtocolHealthChange)
+  self.shardHealthListener = self.listenForReadiness(EventShardTopicHealthChange)
+  self.subscriptionListener = self.listenForReadiness(ContentTopicSubscribedEvent)
+  self.unsubscriptionListener = self.listenForReadiness(ContentTopicUnsubscribedEvent)
 
   # The initial read starts no backfill.
   self.online = self.hasReadyReceivePath()
@@ -448,7 +430,9 @@ proc startRecvService*(self: RecvService, job: persistency.Job) =
 proc stopRecvService*(self: RecvService) {.async.} =
   self.stopping = true
   await MessageSeenEvent.dropListener(self.brokerCtx, self.seenMsgListener)
-  await EventProtocolHealthChange.dropListener(self.brokerCtx, self.relayHealthListener)
+  await EventProtocolHealthChange.dropListener(
+    self.brokerCtx, self.protocolHealthListener
+  )
   await EventShardTopicHealthChange.dropListener(
     self.brokerCtx, self.shardHealthListener
   )
