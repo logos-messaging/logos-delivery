@@ -1,12 +1,14 @@
 {.used.}
 
-import std/[atomics, os, strutils]
+import std/[atomics, os, sequtils, strutils]
 import chronos, results, testutils/unittests
 import brokers/broker_context
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto, extended_peer_record]
 import
   logos_delivery/waku/discovery/external_service_discovery,
   logos_delivery/waku/requests/node_state_requests,
+  logos_delivery/waku/node/peer_manager/peer_manager,
+  logos_delivery/waku/waku_core,
   ../testlib/common,
   ../testlib/wakucore
 
@@ -65,8 +67,10 @@ proc fakeStop(
   fake.started.store(false)
   LdDiscoOk
 
+const FakePeerId = "16Uiu2HAm4gVVMqAzg2gT5cBii3qfaXykUJoB7jyHgAu71RuiELmz"
+
 const FakePeersJson =
-  """[{"peerId":"peer-from-plugin","seqNo":7,""" &
+  """[{"peerId":"""" & FakePeerId & """","seqNo":7,""" &
   """"addrs":["/ip4/1.2.3.4/tcp/60000"],""" &
   """"services":[{"id":"/mix/1.0.0","data":"AQID"}]}]"""
 
@@ -178,7 +182,7 @@ suite "ExternalServiceDiscovery":
       raiseAssert error
     check:
       peers.len == 1
-      peers[0].peerId == "peer-from-plugin"
+      peers[0].peerId == FakePeerId
       peers[0].addrs == @["/ip4/1.2.3.4/tcp/60000"]
       peers[0].seqNo == 7
       peers[0].services.len == 1
@@ -363,4 +367,34 @@ suite "ExternalServiceDiscovery":
     let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 1)).valueOr:
       raiseAssert error
     check peers.len == 1
+    check (await iface.stopDiscovery()).isOk()
+
+  asyncTest "discovered peers are handed to the PeerManager":
+    ## The plugin discovers on its own switch, so nothing else in the node
+    ## sees what it found: the backend has to put the peers in the peer store
+    ## itself, the way the in-process backend does in `processRecords`.
+    ## Without this the lookups would succeed and the node would still never
+    ## dial anyone.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+
+    let peerManager = PeerManager.new(switch = newTestSwitch(), storage = nil)
+    discard GetNodePeerManager.reprovideIt(ctx):
+      ok(peerManager)
+
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+    check (await iface.lookupServicePeers("service:/mix/1.0.0", 1)).isOk()
+
+    let wanted = PeerId.init(FakePeerId).get()
+    let stored = peerManager.switch.peerStore.getPeer(wanted)
+    check:
+      stored.peerId == wanted
+      stored.addrs.mapIt($it) == @["/ip4/1.2.3.4/tcp/60000"]
+      stored.origin == PeerOrigin.Kademlia
+      "/mix/1.0.0" in stored.protocols
+
+    ## The random walk feeds the node too, not just the service lookup.
+    check (await iface.lookupRandom()).isOk()
     check (await iface.stopDiscovery()).isOk()

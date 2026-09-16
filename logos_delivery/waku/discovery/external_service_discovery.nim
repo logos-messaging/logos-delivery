@@ -18,10 +18,13 @@ import chronos, chronicles, results
 import brokers/broker_implement
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/peer_discovery_conversion,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/requests/node_state_requests,
   logos_delivery/waku/discovery/plugin/service_discovery_accessor,
-  logos_delivery/waku/discovery/plugin/service_discovery_worker
+  logos_delivery/waku/discovery/plugin/service_discovery_worker,
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/node/peer_manager/peer_manager
 
 export peer_discovery_interface, service_discovery_accessor
 
@@ -99,6 +102,35 @@ template pluginCall(T: typedesc, op: string, request: untyped): untyped =
           Result[T, string].err(
             "external backend: " & op & " failed: " & getCurrentExceptionMsg()
           )
+
+proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
+  ## Hands discovered peers to the PeerManager, which decides what to dial.
+  ## The in-process backend does this inside `processRecords`, so every lookup
+  ## feeds the node; this backend has to do it here, because the plugin runs
+  ## on its own switch and nothing else sees what it found. The
+  ## `PeersDiscovered` event is observability only and reaches no peer store.
+  ##
+  ## Peers are stored under `PeerOrigin.Kademlia`: the protocol is the same
+  ## kademlia service discovery either way, only its host differs.
+  if peers.len == 0:
+    return
+
+  let peerManager = GetNodePeerManager.request(self.nodeCtx).valueOr:
+    debug "peer manager unreachable, discovered peers dropped",
+      count = peers.len, reason = error
+    return
+
+  for peer in peers:
+    let peerInfo = peer.toRemotePeerInfo().valueOr:
+      debug "discarding discovered peer", reason = error
+      continue
+
+    peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+
+    debug "Peer added via external service discovery",
+      peerId = $peerInfo.peerId,
+      addresses = peerInfo.addrs.mapIt($it),
+      protocols = peerInfo.protocols
 
 proc emitPeers(
     self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]
@@ -264,18 +296,22 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    pluginCall(
+    let peers = ?pluginCall(
       seq[DiscoveredPeer], "lookup", PluginLookup.request(self.workerCtx, key, limit)
     )
+    self.admitPeers(peers)
+    ok(peers)
 
   method lookupRandom(
       self: ExternalServiceDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    pluginCall(
+    let peers = ?pluginCall(
       seq[DiscoveredPeer], "randomLookup", PluginRandomLookup.request(self.workerCtx)
     )
+    self.admitPeers(peers)
+    ok(peers)
 
   method startAdvertising(
       self: ExternalServiceDiscovery, key: string, data: seq[byte]
