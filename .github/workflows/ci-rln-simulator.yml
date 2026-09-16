@@ -197,7 +197,7 @@ jobs:
           done
           # nwaku-1 must reach the "registered + started" marker
           timeout 300 docker logs -f logos-delivery-simulator-nwaku-1 2>&1 \
-            | grep -m1 -E "Segmentation fault|Illegal instruction|Failed to register on-chain|I am a nwaku node" \
+            | grep -m1 -E "Segmentation fault|Illegal instruction|Failed to register on-chain|not found|I am a nwaku node" \
             | tee /tmp/nwaku1.verdict
           grep -q "I am a nwaku node" /tmp/nwaku1.verdict
 
