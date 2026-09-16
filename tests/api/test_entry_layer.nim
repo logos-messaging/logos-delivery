@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[options, net, sequtils]
+import std/[options, net, sequtils, strutils]
 import chronos, testutils/unittests, presto, presto/client as presto_client
 import brokers/broker_context
 import logos_delivery
@@ -111,7 +111,9 @@ suite "LogosDelivery - entry layer selection":
     let client = restClientFor(node)
     let subResp =
       await client.messagingPostSubscriptionsV1(@["/test/1/entry-layer/proto"])
-    check subResp.status == 404 # route not mounted
+    check:
+      subResp.status == 404
+      subResp.data.contains("--entry-layer")
 
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error

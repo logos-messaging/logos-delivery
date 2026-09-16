@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[options, net, sequtils],
+  std/[options, net, sequtils, strutils],
   chronos,
   testutils/unittests,
   presto,
@@ -50,6 +50,24 @@ suite "Messaging REST API":
 
     let subResp = await client.messagingPostSubscriptionsV1(@[contentTopic])
     check subResp.status == 200
+
+    # A malformed content topic or a generation other than 0 answers 400.
+    let badSubResp = await client.messagingPostSubscriptionsV1(@["not-a-content-topic"])
+    check badSubResp.status == 400
+    let badUnsubResp =
+      await client.messagingDeleteSubscriptionsV1(@["not-a-content-topic"])
+    check badUnsubResp.status == 400
+    let badGenResp = await client.messagingPostSubscriptionsV1(@["/1/test/1/gen/proto"])
+    check badGenResp.status == 400
+    let badSendResp = await client.messagingPostMessagesRawV1(
+      MessagingJsonEnvelope(
+        payload: base64.encode("x"),
+        contentTopic: "not-a-content-topic",
+        ephemeral: Opt.none(bool),
+        meta: Opt.none(Base64String),
+      )
+    )
+    check badSendResp.status == 400
 
     let msg = MessagingJsonEnvelope(
       payload: base64.encode("hello rest"),
@@ -162,6 +180,43 @@ suite "Messaging REST API":
     check:
       emptyResp.status == 200
       emptyResp.data.len == 0
+
+    (await node.stop()).isOkOr:
+      raiseAssert "Failed to stop node: " & error
+
+  asyncTest "without autosharding, subscribe, unsubscribe and send answer 503":
+    ## Without a preset or a shard count, content topics resolve to no shard.
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (
+        await LogosDelivery.new(
+          defaultTestWakuNodeConf(
+            entryLayer = EntryLayer.messaging, rest = true, numShards = 0
+          )
+        )
+      ).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "Failed to start node: " & error
+    let client = restClientFor(node)
+
+    let contentTopic = "/test/1/no-autosharding/proto"
+    let subResp = await client.messagingPostSubscriptionsV1(@[contentTopic])
+    let unsubResp = await client.messagingDeleteSubscriptionsV1(@[contentTopic])
+    let sendResp = await client.messagingPostMessagesRawV1(
+      MessagingJsonEnvelope(
+        payload: base64.encode("hello"),
+        contentTopic: contentTopic,
+        ephemeral: Opt.none(bool),
+        meta: Opt.none(Base64String),
+      )
+    )
+    check:
+      subResp.status == 503
+      subResp.data.contains("--num-shards-in-network")
+      unsubResp.status == 503
+      sendResp.status == 503
+      sendResp.data.contains("--num-shards-in-network")
 
     (await node.stop()).isOkOr:
       raiseAssert "Failed to stop node: " & error

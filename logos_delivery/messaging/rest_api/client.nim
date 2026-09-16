@@ -40,6 +40,13 @@ proc messagingPostMessagesV1*(
   rest, endpoint: "/messaging/v1/messages", meth: HttpMethod.MethodPost
 .}
 
+# Returns the body as a string, so a test can read a non-2xx text answer.
+proc messagingPostMessagesRawV1*(
+  body: MessagingPostMessageRequest
+): RestResponse[string] {.
+  rest, endpoint: "/messaging/v1/messages", meth: HttpMethod.MethodPost
+.}
+
 proc messagingGetSendEventsV1*(): RestResponse[seq[SendStatus]] {.
   rest, endpoint: "/messaging/v1/events/send", meth: HttpMethod.MethodGet
 .}

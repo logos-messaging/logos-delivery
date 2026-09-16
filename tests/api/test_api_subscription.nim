@@ -221,8 +221,8 @@ suite "Messaging API, SubscriptionManager":
       await eventManager.teardown()
 
     let live = $MessageSource.Live
-    let countBefore = logos_delivery_recv_messages_total.value([live])
-    let bytesBefore = logos_delivery_recv_message_bytes_total.value([live])
+    let countBefore = logos_delivery_recv_messages.value([live])
+    let bytesBefore = logos_delivery_recv_message_bytes.value([live])
     let payload = "Hello, world!".toBytes()
     discard (await net.publishToMesh(testTopic, payload)).expect("Publish failed")
 
@@ -230,8 +230,8 @@ suite "Messaging API, SubscriptionManager":
     require eventManager.receivedMessages.len == 1
     check eventManager.receivedMessages[0].contentTopic == testTopic
     check eventManager.receivedSources[0] == MessageSource.Live
-    check logos_delivery_recv_messages_total.value([live]) == countBefore + 1
-    check logos_delivery_recv_message_bytes_total.value([live]) ==
+    check logos_delivery_recv_messages.value([live]) == countBefore + 1
+    check logos_delivery_recv_message_bytes.value([live]) ==
       bytesBefore + float64(payload.len)
 
   asyncTest "Subscription API, relay node ignores unsubscribed content topics on same shard":

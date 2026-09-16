@@ -4,9 +4,11 @@ import chronos, chronicles, results, json_serialization, json_serialization/std/
 import presto/[route, common]
 import
   logos_delivery/waku/waku,
+  logos_delivery/waku/api/subscriptions,
   logos_delivery/waku/rest_api/endpoint/serdes,
   logos_delivery/waku/rest_api/endpoint/responses,
   logos_delivery/waku/rest_api/endpoint/rest_serdes,
+  logos_delivery/waku/rest_api/endpoint/builder as rest_server_builder,
   logos_delivery/messaging/messaging_client,
   logos_delivery/messaging/api/subscription,
   logos_delivery/messaging/api/send,
@@ -27,6 +29,23 @@ const ROUTE_MESSAGING_MESSAGESV1* = "/messaging/v1/messages"
 const ROUTE_MESSAGING_EVENTS_SENDV1* = "/messaging/v1/events/send"
 const ROUTE_MESSAGING_EVENTS_SEND_BY_IDV1* = "/messaging/v1/events/send/{requestId}"
 const ROUTE_MESSAGING_EVENTS_RECEIVEDV1* = "/messaging/v1/events/received"
+
+const AutoshardingRequiredMsg =
+  "autosharding is not configured: content-topic subscriptions and sends need --preset or --num-shards-in-network"
+
+proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string] =
+  ## Rejects a content topic that autosharding cannot resolve.
+  for topic in topics:
+    let parsed = NsContentTopic.parse(topic)
+    if parsed.isErr():
+      return err("invalid content topic '" & topic & "': " & $parsed.error)
+    # Autosharding resolves generation 0 only (sharding.getShard).
+    if parsed.get().generation.get(0) != 0:
+      return err(
+        "unsupported content topic generation in '" & topic &
+          "': only generation 0 is supported"
+      )
+  return ok()
 
 proc installEventListeners(brokerCtx: BrokerContext, cache: MessagingEventCache) =
   ## Buffers the MessagingClient events into `cache` so the poll-based REST
@@ -71,6 +90,12 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
   let eventCache = MessagingEventCache.new()
   installEventListeners(client.waku.brokerCtx, eventCache)
 
+  # Without autosharding, content topics resolve to no shard: answer 503.
+  let autoshardingConfigured = client.waku.isAutoshardingConfigured()
+  if not autoshardingConfigured:
+    warn "Messaging REST API mounted without autosharding; subscribe and send will be refused",
+      hint = "set --preset or --num-shards-in-network"
+
   router.api(MethodOptions, ROUTE_MESSAGING_SUBSCRIPTIONSV1) do() -> RestApiResponse:
     return RestApiResponse.ok()
 
@@ -80,6 +105,12 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     ## Subscribes the messaging client to a list of content topics.
     let req: seq[ContentTopic] = decodeRequestBody[seq[ContentTopic]](contentBody).valueOr:
       return error
+
+    validateContentTopics(req).isOkOr:
+      return RestApiResponse.badRequest(error)
+
+    if not autoshardingConfigured:
+      return RestApiResponse.serviceUnavailable(AutoshardingRequiredMsg)
 
     for contentTopic in req:
       (await client.subscribe(contentTopic)).isOkOr:
@@ -95,6 +126,12 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
     ## Unsubscribes the messaging client from a list of content topics.
     let req: seq[ContentTopic] = decodeRequestBody[seq[ContentTopic]](contentBody).valueOr:
       return error
+
+    validateContentTopics(req).isOkOr:
+      return RestApiResponse.badRequest(error)
+
+    if not autoshardingConfigured:
+      return RestApiResponse.serviceUnavailable(AutoshardingRequiredMsg)
 
     for contentTopic in req:
       client.unsubscribe(contentTopic).isOkOr:
@@ -118,6 +155,12 @@ proc installMessagingApiHandlers*(router: var RestRouter, client: MessagingClien
 
     let envelope = req.toMessageEnvelope().valueOr:
       return RestApiResponse.badRequest("Invalid message: " & error)
+
+    validateContentTopics([envelope.contentTopic]).isOkOr:
+      return RestApiResponse.badRequest("Invalid message: " & error)
+
+    if not autoshardingConfigured:
+      return RestApiResponse.serviceUnavailable(AutoshardingRequiredMsg)
 
     let requestId = (await client.send(envelope)).valueOr:
       error "Messaging SEND failed", error = error
@@ -181,4 +224,5 @@ proc mountRestApi*(client: MessagingClient) =
     # (same pattern as the waku REST builder).
     var router = client.waku.restServer.router
     installMessagingApiHandlers(router, client)
+    rest_server_builder.markRestApiInstalled("messaging")
     info "Mounted messaging REST API endpoints"

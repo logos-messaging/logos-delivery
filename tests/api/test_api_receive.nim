@@ -730,8 +730,8 @@ suite "Messaging API, Receive Service (store recovery)":
     # Phase 1: the startup catch-up dials the known Store peer.
     block:
       let history = $MessageSource.History
-      let countBefore = logos_delivery_recv_messages_total.value([history])
-      let bytesBefore = logos_delivery_recv_message_bytes_total.value([history])
+      let countBefore = logos_delivery_recv_messages.value([history])
+      let bytesBefore = logos_delivery_recv_message_bytes.value([history])
       let net = await setupNetwork(ContentTopic("/waku/2/recv-test/proto"))
       defer:
         await net.teardown()
@@ -741,8 +741,8 @@ suite "Messaging API, Receive Service (store recovery)":
       if eventManager.receivedMessages.len > 0:
         check eventManager.receivedMessages[0].payload == net.missedPayload
         check eventManager.receivedSources[0] == MessageSource.History
-      check logos_delivery_recv_messages_total.value([history]) == countBefore + 1
-      check logos_delivery_recv_message_bytes_total.value([history]) ==
+      check logos_delivery_recv_messages.value([history]) == countBefore + 1
+      check logos_delivery_recv_message_bytes.value([history]) ==
         bytesBefore + float64(net.missedPayload.len)
 
     # Phase 2: a Store peer learned after the subscription, by connecting to

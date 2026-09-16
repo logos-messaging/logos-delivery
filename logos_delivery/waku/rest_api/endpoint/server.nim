@@ -84,12 +84,14 @@ proc new*(
 
   let middlewares = [originHandlerMiddleware, restMiddleware]
 
-  ## This must be empty and needed only to confirm original initialization requirements of
-  ## the RestHttpServer now combining old and new middleware approach.
+  ## Forwards a request that matches no route to the error handler, which
+  ## answers 404 with the hint of its root.
   proc defaultProcessCallback(
       rf: RequestFence
   ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
-    discard
+    if rf.isErr() or requestErrorHandler.isNil():
+      return nil # chronos answers the request itself
+    return await requestErrorHandler(RestRequestError.NotFound, rf.get())
 
   server.httpServer = ?HttpServerRef.new(
     address,
