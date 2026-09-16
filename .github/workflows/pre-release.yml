@@ -114,6 +114,13 @@ jobs:
           path: ${{steps.vars.outputs.nwakutools}}
           retention-days: 2
 
+  # Builds the liblogosdelivery packages that the release attaches.
+  release-assets:
+    uses: ./.github/workflows/release-assets.yml
+    with:
+      called: true
+    secrets: inherit
+
   build-docker-image:
     needs: tag-name
     # uses: logos-messaging/logos-delivery/.github/workflows/container-image.yml@master
@@ -148,7 +155,7 @@ jobs:
 
   create-release-candidate:
     runs-on: ubuntu-22.04
-    needs: [ tag-name, build-and-publish ]
+    needs: [ tag-name, build-and-publish, release-assets ]
     permissions:
       contents: write
       actions: read
