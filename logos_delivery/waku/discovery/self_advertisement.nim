@@ -10,7 +10,7 @@
 ##
 ## Which backends take part is decided by what they declare, not by naming
 ## them: a backend receives this only if its `keyKinds` includes `svc`. That is
-## true of both kademlia hosts -- in-process and plugin -- and false of discv5,
+## true of both kademlia hosts -- in-process and external -- and false of discv5,
 ## whose advertising means mutating our own ENR and which rejects `svc:` keys
 ## outright.
 
@@ -66,9 +66,8 @@ proc selfAdvertisementData*(conf: WakuConf, shards: seq[uint16]): seq[byte] =
   ## string used to be included and is not: it is the single largest field, it
   ## is not a selection criterion, and it does not fit the budget.
   ##
-  ## Base64 rather than the raw bytes, even though the plugin ABI carries
-  ## `data` as a length-counted byte array and the in-process backend would
-  ## take binary happily. The plugin-hosted path reaches its provider over
+  ## Base64 rather than the raw bytes, even though the in-process backend
+  ## would take binary happily. The externally hosted path reaches its provider over
   ## logos-core, whose generated client marshals arguments as JSON strings, and
   ## a JSON string must be valid UTF-8 -- a raw record throws
   ## `type_error.316` there and takes the hosting module down with it.
@@ -144,7 +143,7 @@ proc advertiseMix*(
   ## `KademliaDiscoveryConf.servicesToAdvertise`, which is where it used to be
   ## injected at conf time. That reached only the in-process backend -- the conf
   ## object belongs to it, and the two kademlia hosts are mutually exclusive --
-  ## so a node running mix with plugin-hosted discovery advertised nothing and
+  ## so a node running mix with externally hosted discovery advertised nothing and
   ## found no mix peers. Same route as `advertiseSelf`, so both hosts get it.
   ##
   ## Only the service id and the key bytes travel: whether a record is signed

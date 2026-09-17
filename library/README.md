@@ -246,7 +246,8 @@ uint64_t logosdelivery_add_event_listener(
 Event names: `onMessageSent`, `onMessageError`, `onMessagePropagated`,
 `onMessageReceived`, `onConnectionStatusChange`, `onTopicHealthChange`,
 `onConnectionChange`, `onReceivedMessage`, `onChannelMessageReceived`,
-`onChannelMessageSent`, `onChannelMessageError`, `onChannelMessageLost`.
+`onChannelMessageSent`, `onChannelMessageError`, `onChannelMessageLost`,
+`onServiceDiscoveryRequest` (see [External service discovery](#external-service-discovery)).
 
 #### `logosdelivery_remove_event_listener`
 Removes a previously registered listener. Returns `0` on success, `1` if the
@@ -261,6 +262,55 @@ int logosdelivery_remove_event_listener(
 
 **Important:** Callbacks run on a dedicated event thread and should be fast,
 non-blocking, and thread-safe.
+
+### External service discovery
+
+A node configured with `plugin-kad-discovery` does not run kademlia itself: its
+host does (logos-delivery-module on top of the libp2p module). The node asks
+for each discovery operation with an `onServiceDiscoveryRequest` event, and the
+host settles it with `logosdelivery_complete_service_discovery_request`.
+
+Before `start`, a host calls `logosdelivery_get_discovery_requirements` to learn
+whether the node expects it and which DHT bootstrap peers to use:
+`{"externalServiceDiscovery": bool, "bootstrapNodes": ["/dns4/.../p2p/16Uiu..."]}`.
+
+Each request event looks like this:
+
+```json
+{"eventType": "service_discovery_request", "requestId": 7, "verb": "lookup",
+ "key": "svc:/logos/delivery", "limit": 0, "data": "", "record": "",
+ "timeoutMs": 30000}
+```
+
+| verb | uses | success payload |
+|---|---|---|
+| `start`, `stop` | none | ignored |
+| `lookup` | `key`, `limit` (`<= 0`: host default) | peer array, see below |
+| `randomLookup` | none | peer array |
+| `startAdvertising` | `key`, `data` and `record` (base64) | ignored |
+| `stopAdvertising`, `registerInterest`, `unregisterInterest` | `key` | ignored |
+
+`record` is this node's signed extended peer record; publish it as-is, because
+the host's own switch is not this node. The peer array is
+`[{"peerId": "16Uiu...", "seqNo": 1, "addrs": ["/ip4/..."], "services": [{"id": "/mix/1.0.0", "data": "<base64>"}]}]`.
+
+```c
+int logosdelivery_complete_service_discovery_request(
+    void *ctx,
+    LogosDeliveryCompleteServiceDiscoveryRequestReplyFn onReply,
+    void *userData,
+    const LogosdeliveryCompleteServiceDiscoveryRequestReq *req  /* requestId, success, payload */
+);
+```
+
+On failure, set `success` to false and put the error text in `payload`. Rules:
+
+- Never block inside the event callback. Hand the request to your own loop and
+  complete it from there. Completion can come from any thread.
+- Requests can overlap. Match them by `requestId`.
+- The node stops waiting after `timeoutMs`. A later completion is rejected, and
+  so is an unknown id.
+- `start` must be answered, or `logosdelivery_start_node` fails.
 
 ## Building
 

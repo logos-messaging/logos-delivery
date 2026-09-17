@@ -72,9 +72,9 @@ type DnsDiscoveryConf* {.requiresInit.} = object
 type ExternalDiscoveryConf* {.requiresInit.} = object
   ## Kademlia service discovery hosted by an external provider
   ## (logos-libp2p-module via glue in logos-delivery-module) instead of
-  ## in-process. The plugin is registered at runtime by an external entity;
-  ## until then the backend stays inert. The per-request timeout is not
-  ## configured here -- it belongs to the registered plugin.
+  ## in-process. The node sends each discovery verb to that host as an event
+  ## and waits for the host to complete it, so the node fails to start when
+  ## no host answers.
   ##
   ## Lookup intervals are the same knobs the in-process backend uses: the two
   ## are alternative hosts for one protocol, so they are tuned alike.

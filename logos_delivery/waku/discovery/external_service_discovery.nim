@@ -1,29 +1,32 @@
 {.push raises: [].}
 
-## IPeerDiscovery backed by an external service-discovery plugin (today:
+## IPeerDiscovery backed by an external discovery host (today:
 ## logos-libp2p-module, driven by glue in logos-delivery-module).
 ##
 ## Shape-wise this is the twin of the internal `ServiceDiscovery` backend:
 ## fully async verbs plus periodic lookup loops. The difference is only where
-## the work happens — every plugin call is dispatched to the discovery worker
-## thread through `(mt)` request brokers, so a 30 s DHT bootstrap blocks that
-## thread and never the node's event loop.
+## the work happens: every verb is emitted as a `ServiceDiscoveryHostRequest`
+## and awaited until the host settles it through
+## `CompleteServiceDiscoveryRequest`, bounded by `requestTimeout`. The node's
+## loop never blocks on the host, and no thread is involved.
 ##
 ## The one thing this backend does that the internal one does not: it signs
-## this node's own peer record before advertising, because the provider's
-## discovery node is not this node. That is its only libp2p dependency.
+## this node's own peer record before advertising, because the host's
+## discovery node is not this node.
 
-import std/[sequtils, strutils]
+import std/[sequtils, strutils, tables]
 import chronos, chronicles, results
 import brokers/broker_implement
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/peer_discovery_conversion,
+  logos_delivery/waku/discovery/external_discovery_host,
   logos_delivery/waku/discovery/signed_service_record,
-  logos_delivery/waku/requests/node_state_requests,
-  logos_delivery/waku/discovery/plugin/service_discovery_accessor,
-  logos_delivery/waku/discovery/plugin/service_discovery_worker
+  logos_delivery/waku/node/peer_manager,
+  logos_delivery/waku/waku_core/peers,
+  logos_delivery/waku/requests/node_state_requests
 
-export peer_discovery_interface, service_discovery_accessor
+export peer_discovery_interface, external_discovery_host
 
 logScope:
   topics = "waku discovery external"
@@ -32,72 +35,111 @@ const
   ExternalBackendId* = "service-ext"
   DefaultServiceLookupInterval* = chronos.seconds(60)
   DefaultRandomLookupInterval* = chronos.seconds(60)
+  DefaultHostRequestTimeout* = chronos.seconds(30)
+  HostStopTimeout = chronos.seconds(2)
+    ## `stop` also runs inside the FFI destructor, which nim-ffi cancels after
+    ## 10 s and during which it processes no completion at all.
+
+type HostReply = Future[Result[string, string]]
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
-  plugin: Opt[ServiceDiscoveryPlugin]
-    ## Instance state, not a global: registration is served on this node's own
-    ## thread, and the worker gets its own copy at spawn.
-  worker: ServiceDiscoveryWorker
+  stops: uint64
+    ## Bumped by every `stopDiscovery`, so a `start` whose host reply was
+    ## already in when a stop ran still sees that stop.
   nodeCtx: BrokerContext
+    ## Where the host requests are emitted and completed: the node's context,
+    ## which is the one the library bridges onto FFI.
+  requestTimeout: Duration
+  nextRequestId: uint64
+  pending: Table[uint64, HostReply]
   interests: seq[string]
   serviceLookupInterval: Duration
   randomLookupInterval: Duration
   serviceLookupLoop: Future[void]
   randomLookupLoop: Future[void]
 
-proc readyPlugin(
-    self: ExternalServiceDiscovery
-): Result[ServiceDiscoveryPlugin, string] =
-  ## External discovery needs both halves: the node configured for it (which
-  ## is what created this backend) and a registered, fully populated plugin.
-  ## No re-validation: the vtable was validated when it was registered and is
-  ## immutable afterwards, so there is no later moment for it to go partial.
-  let plugin = self.plugin.valueOr:
-    return
-      err("external backend: configured but no service discovery plugin registered")
-  ok(plugin)
+proc hostCall(
+    self: ExternalServiceDiscovery,
+    verb: ServiceDiscoveryVerb,
+    key = "",
+    limit = 0,
+    data: seq[byte] = @[],
+    record: seq[byte] = @[],
+    timeout = ZeroDuration,
+): Future[Result[string, string]] {.async: (raises: []).} =
+  let timeout = if timeout == ZeroDuration: self.requestTimeout else: timeout
+  inc self.nextRequestId
+  let id = self.nextRequestId
+  let reply = HostReply.init("external discovery host call")
+  self.pending[id] = reply
+  defer:
+    self.pending.del(id)
 
-template pluginCall(T: typedesc, op: string, request: untyped): untyped =
-  ## Awaits one (mt) plugin request, bounded by the timeout the plugin
-  ## declared at registration. The worker is not interrupted on timeout —
-  ## the entry point runs to completion there — the caller just stops waiting.
-  ## `T` is the payload type, so every branch stays correctly typed; the
-  ## template yields a value rather than returning, which keeps it usable
-  ## inside the async transform.
-  block:
-    let plugRes = readyPlugin(self)
-    if plugRes.isErr():
-      Result[T, string].err(plugRes.error())
-    else:
-      let plugin = plugRes.get()
-      let fut = request
-      var cancelled = false
-      let answered =
-        try:
-          await fut.withTimeout(plugin.requestTimeout())
-        except CancelledError:
-          cancelled = true
-          false
-      if cancelled:
-        Result[T, string].err("external backend: " & op & " cancelled")
-      elif not answered:
-        Result[T, string].err(
-          "external backend: plugin did not answer " & op & " in time"
-        )
-      else:
-        try:
-          fut.read()
-        except CatchableError:
-          Result[T, string].err(
-            "external backend: " & op & " failed: " & getCurrentExceptionMsg()
-          )
+  ServiceDiscoveryHostRequest.emit(
+    self.nodeCtx,
+    ServiceDiscoveryHostRequest(
+      requestId: id,
+      verb: verb,
+      key: key,
+      limit: limit,
+      data: data,
+      record: record,
+      timeoutMs: timeout.milliseconds,
+    ),
+  )
+
+  let answered =
+    try:
+      await reply.withTimeout(timeout)
+    except CancelledError:
+      return err("external backend: " & $verb & " cancelled")
+  if not answered:
+    return err("external backend: host did not answer " & $verb & " in time")
+
+  try:
+    return reply.read()
+  except CatchableError:
+    return err("external backend: " & $verb & " failed: " & getCurrentExceptionMsg())
+
+proc hostCallVoid(
+    self: ExternalServiceDiscovery,
+    verb: ServiceDiscoveryVerb,
+    key = "",
+    timeout = ZeroDuration,
+): Future[Result[void, string]] {.async: (raises: []).} =
+  discard ?(await self.hostCall(verb, key, timeout = timeout))
+  return ok()
+
+proc hostLookup(
+    self: ExternalServiceDiscovery, verb: ServiceDiscoveryVerb, key = "", limit = 0
+): Future[Result[seq[DiscoveredPeer], string]] {.async: (raises: []).} =
+  let payload = ?(await self.hostCall(verb, key, limit))
+  return parsePeers(payload)
+
+proc failPending(self: ExternalServiceDiscovery, reason: string) =
+  for reply in toSeq(self.pending.values):
+    if not reply.finished():
+      reply.complete(Result[string, string].err(reason))
+
+proc feedPeerManager(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
+  ## The host has no handle on the node, so the peers it found reach the
+  ## PeerManager from here, as the in-process kademlia does for its own.
+  let pm = GetNodePeerManager.request(self.nodeCtx).valueOr:
+    debug "no peer manager to feed external discovery results", reason = error
+    return
+  for peer in peers:
+    let info = peer.toRemotePeerInfo(PeerOrigin.External).valueOr:
+      debug "skipping undialable discovered peer", peerId = peer.peerId, reason = error
+      continue
+    pm.addPeer(info, PeerOrigin.External)
 
 proc emitPeers(
     self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]
 ) =
   if peers.len == 0:
     return
+  self.feedPeerManager(peers)
   PeersDiscovered.emit(
     self.brokerCtx, PeersDiscovered(origin: ExternalBackendId, key: key, peers: peers)
   )
@@ -111,7 +153,9 @@ proc runServiceLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).
     except CancelledError:
       return
 
-    for key in self.interests:
+    # A copy: interests can change while a lookup is awaited.
+    let keys = self.interests
+    for key in keys:
       if not self.running:
         return
       let peers = (await self.lookupServicePeers(key, 0)).valueOr:
@@ -138,44 +182,24 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       T: typedesc[ExternalServiceDiscovery],
       serviceLookupInterval = DefaultServiceLookupInterval,
       randomLookupInterval = DefaultRandomLookupInterval,
+      requestTimeout = DefaultHostRequestTimeout,
   ): ExternalServiceDiscovery =
     let self = ExternalServiceDiscovery(
       nodeCtx: globalBrokerContext(),
-      worker: ServiceDiscoveryWorker.new(),
+      requestTimeout: requestTimeout,
       serviceLookupInterval: serviceLookupInterval,
       randomLookupInterval: randomLookupInterval,
     )
 
-    # Registration stays on the single-thread lane: the vtable is full of
-    # pointer/proc fields, which the (mt) codec rejects, so it is handed to
-    # the worker through the guarded global instead of a broker payload.
-    #
-    # Both verbs are only legal while discovery is stopped. A running backend
-    # has a worker thread calling into the vtable, so swapping or removing it
-    # underneath would change which plugin serves calls already in flight. A
-    # registration outlives stop/start: install once, then start and stop as
-    # often as you like.
-    let nodeCtx = self.nodeCtx
-    discard SetServiceDiscoveryPlugin.reprovideIt(nodeCtx):
-      if self.running:
-        return err(
-          "service discovery plugin: cannot be registered while discovery is " &
-            "running; stop the node first"
-        )
-      ?plugin.validate()
-      self.plugin = Opt.some(plugin)
-      info "service discovery plugin installed",
-        abiVersion = plugin.abiVersion, ctx = $nodeCtx
-      ok()
-
-    discard ClearServiceDiscoveryPlugin.reprovideIt(nodeCtx):
-      if self.running:
-        return err(
-          "service discovery plugin: cannot be cleared while discovery is " &
-            "running; stop the node first"
-        )
-      self.plugin = Opt.none(ServiceDiscoveryPlugin)
-      info "service discovery plugin cleared", ctx = $nodeCtx
+    discard CompleteServiceDiscoveryRequest.reprovideIt(self.nodeCtx):
+      let reply = self.pending.getOrDefault(requestId)
+      if reply.isNil() or reply.finished():
+        return
+          err("external backend: unknown or expired discovery request " & $requestId)
+      if success:
+        reply.complete(Result[string, string].ok(payload))
+      else:
+        reply.complete(Result[string, string].err(payload))
       ok()
 
     self
@@ -198,17 +222,13 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if self.running:
       return ok()
 
-    ## A valid plugin is a hard requirement, checked before anything is
-    ## spawned: external discovery that is configured but has no usable plugin
-    ## is not a degraded node, it is a node with no discovery at all, so it
-    ## must fail loudly rather than come up quietly.
-    let plugin = readyPlugin(self).valueOr:
-      return err(error)
-
-    ## The worker gets the vtable by value, so nothing is shared and there is
-    ## nothing to look up on the far side.
-    ?await self.worker.start(self.nodeCtx, plugin)
-    ?pluginCall(void, "start", PluginStart.request(self.nodeCtx))
+    ## A host that answers `start` is a hard requirement: configured external
+    ## discovery without one is a node with no discovery at all, so it must
+    ## fail loudly rather than come up quietly.
+    let stops = self.stops
+    ?(await self.hostCallVoid(ServiceDiscoveryVerb.start))
+    if self.stops != stops:
+      return err("external backend: discovery stopped while starting")
 
     self.running = true
     if self.serviceLookupLoop.isNil():
@@ -220,6 +240,11 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   method stopDiscovery(
       self: ExternalServiceDiscovery
   ): Future[Result[void, string]] {.async.} =
+    ## Nothing waits for answers to a stopped session: release every caller,
+    ## a `start` still waiting on the host included, now rather than after
+    ## their own timeouts.
+    inc self.stops
+    self.failPending("external backend: discovery stopped")
     if not self.running:
       return ok()
     self.running = false
@@ -231,40 +256,30 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       await self.randomLookupLoop.cancelAndWait()
       self.randomLookupLoop = nil
 
-    ## The plugin is still there: `startDiscovery` required one, and clearing
-    ## is refused while discovery runs, so there is nothing to guard against.
-    let stopRes = pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
-
-    ## The worker exists to serve this discovery session, so it goes with it.
-    ## Its thread hands the (mt) buckets back on the way out, which is what
-    ## lets a later `startDiscovery` spawn a fresh one on the same context.
-    self.worker.stop()
-    stopRes
+    await self.hostCallVoid(
+      ServiceDiscoveryVerb.stop, timeout = min(self.requestTimeout, HostStopTimeout)
+    )
 
   method lookupServicePeers(
       self: ExternalServiceDiscovery, key: string, limit: int
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    pluginCall(
-      seq[DiscoveredPeer], "lookup", PluginLookup.request(self.nodeCtx, key, limit)
-    )
+    await self.hostLookup(ServiceDiscoveryVerb.lookup, key, limit)
 
   method lookupRandom(
       self: ExternalServiceDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    pluginCall(
-      seq[DiscoveredPeer], "randomLookup", PluginRandomLookup.request(self.nodeCtx)
-    )
+    await self.hostLookup(ServiceDiscoveryVerb.randomLookup)
 
   method startAdvertising(
       self: ExternalServiceDiscovery, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
-    ## The plugin's discovery node is not this node: left to itself it would
+    ## The host's discovery node is not this node: left to itself it would
     ## publish its own identity under our service. So sign a record for this
-    ## node listing exactly this service, and let the plugin publish it
+    ## node listing exactly this service, and let the host publish it
     ## verbatim. Identity and key come from the node-state getters, the way
     ## the discv5 backend gets its ENR and key.
     if not key.startsWith(SvcKeyPrefix):
@@ -273,25 +288,22 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     let peerInfo = ?GetNodePeerInfo.request(self.nodeCtx)
     let nodeKey = ?GetNodeKey.request(self.nodeCtx)
     let record = ?signedServiceRecord(peerInfo, nodeKey, serviceId, data)
-    pluginCall(
-      void,
-      "startAdvertising",
-      PluginStartAdvertising.request(self.nodeCtx, key, data, record),
+    discard ?(
+      await self.hostCall(
+        ServiceDiscoveryVerb.startAdvertising, key, data = data, record = record
+      )
     )
+    ok()
 
   method stopAdvertising(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    pluginCall(
-      void, "stopAdvertising", PluginStopAdvertising.request(self.nodeCtx, key)
-    )
+    await self.hostCallVoid(ServiceDiscoveryVerb.stopAdvertising, key)
 
   method registerInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    ?pluginCall(
-      void, "registerInterest", PluginRegisterInterest.request(self.nodeCtx, key)
-    )
+    ?(await self.hostCallVoid(ServiceDiscoveryVerb.registerInterest, key))
     if key notin self.interests:
       self.interests.add(key)
     ok()
@@ -299,21 +311,18 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   method unregisterInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
-    ?pluginCall(
-      void, "unregisterInterest", PluginUnregisterInterest.request(self.nodeCtx, key)
-    )
+    ?(await self.hostCallVoid(ServiceDiscoveryVerb.unregisterInterest, key))
     self.interests.keepItIf(it != key)
     ok()
 
   method addBootstrapEntries(
       self: ExternalServiceDiscovery, entries: seq[string]
   ): Future[Result[void, string]] {.async.} =
-    ## No-op by design. The external provider takes its bootstrap entries when
-    ## it initialises, and libp2p offers no call to add more afterwards, so
-    ## there is no plugin entry point to forward these to. Succeeding rather
-    ## than failing keeps the node's bootstrap wiring uniform across backends:
-    ## the caller has nothing to do differently for this one.
+    ## No-op by design. The host takes its bootstrap entries when it
+    ## initialises (see `logosdelivery_get_discovery_requirements`), and libp2p
+    ## offers no call to add more afterwards. Succeeding rather than failing
+    ## keeps the node's bootstrap wiring uniform across backends.
     if entries.len > 0:
-      debug "external backend takes bootstrap entries at provider init, ignoring",
+      debug "external backend takes bootstrap entries at host init, ignoring",
         count = entries.len
     ok()

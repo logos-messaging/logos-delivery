@@ -82,7 +82,7 @@ BrokerInterface(IPeerDiscovery):
     # Make this node findable under `key`. `data` is the advertised payload,
     # opaque bytes. What is published, and under whose identity, is the
     # backend's business: the in-process host lets libp2p sign a record from
-    # this node's switch; the plugin host signs one itself (its switch is not
+    # this node's switch; the external host path signs one itself (its switch is not
     # this node); discv5 mutates our ENR for shard: keys.
     # (WakuKademlia: addServiceToAdvertise; libp2p-module: discoStartAdvertising)
     proc startAdvertising(

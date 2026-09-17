@@ -47,10 +47,8 @@ BrokerImplement MockDiscovery of IPeerDiscovery:
     ok(@[DiscoveredPeer(peerId: "random-peer")])
 
   method startAdvertising(
-      self: MockDiscovery, key: string, data: seq[byte], record: seq[byte]
+      self: MockDiscovery, key: string, data: seq[byte]
   ): Future[Result[void, string]] {.async.} =
-    if record.len > 0:
-      return err("mock: no pre-signed records")
     self.advertised.add(key)
     ok()
 
@@ -150,8 +148,7 @@ suite "IPeerDiscovery interface":
     let mock = MockDiscovery.create()
     let iface: IPeerDiscovery = mock
 
-    check (await iface.startAdvertising("svc:/mix/1.0.0", @[1'u8, 2], @[])).isOk()
-    check (await iface.startAdvertising("svc:x", @[], @[9'u8])).isErr()
+    check (await iface.startAdvertising("svc:/mix/1.0.0", @[1'u8, 2])).isOk()
     check mock.advertised == @["svc:/mix/1.0.0"]
 
     check (await iface.registerInterest("svc:/mix/1.0.0")).isOk()

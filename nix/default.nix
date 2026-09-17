@@ -183,7 +183,6 @@ pkgs.stdenv.mkDerivation {
     cp library/liblogosdelivery.h        $out/include/
     cp library/liblogosdelivery_kernel.h $out/include/
     cp library/liblogosdelivery_rln.h    $out/include/
-    cp library/logosdelivery_service_discovery.h $out/include/
     cp ${cBindingsDir}/logosdelivery.h   $out/include/generated/
     runHook postInstall
   '';

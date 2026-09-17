@@ -3,10 +3,10 @@
 ## This node's signed extended peer record for one service.
 ##
 ## The in-process kademlia host never needs this: nim-libp2p builds the record
-## from the switch it runs on, which is the delivery node's. The plugin host
+## from the switch it runs on, which is the delivery node's. The external host
 ## runs on libp2p_module's switch, so a record built there would carry
 ## libp2p_module's peer id and could not be dialled as this node. This is the
-## record the plugin publishes instead, signed with this node's key.
+## record the external host publishes instead, signed with this node's key.
 ##
 ## One service per record, by decision: registrars file a record only under
 ## the service key it was REGISTERed with, and lookups read one shelf, so a

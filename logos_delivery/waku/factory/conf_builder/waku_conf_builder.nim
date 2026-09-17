@@ -849,8 +849,8 @@ proc build*(
 
   ## A node that serves nothing has no reason to hold routing state for
   ## others: it consumes discovery rather than providing it. Client mode is a
-  ## mount-time property of the in-process backend; the plugin ABI has no
-  ## equivalent, so a plugin-hosted edge node simply advertises nothing.
+  ## mount-time property of the in-process backend; the external host has no
+  ## equivalent, so an externally hosted edge node simply advertises nothing.
   if kademliaDiscoveryConf.isSome() and not wakuFlags.isServiceNode():
     var kadConf = kademliaDiscoveryConf.get()
     kadConf.clientMode = true

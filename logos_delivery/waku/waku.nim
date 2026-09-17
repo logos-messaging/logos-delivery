@@ -84,8 +84,8 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
     ## (REST builder, ENR/address updates, FFI ops).
   discv5Discovery*: Discv5PeerDiscovery
   externalDiscovery*: ExternalServiceDiscovery
-    ## Present when discovery is delegated to an external provider; the
-    ## library layer installs its host transport.
+    ## Present when discovery is delegated to an external host, reached
+    ## through `ServiceDiscoveryHostRequest` events.
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
@@ -500,13 +500,14 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   ## External service discovery
   if not waku.externalDiscovery.isNil():
-    ## Configured means required. The plugin is registered at runtime, so a
-    ## node can reach start with none installed -- and it would then run
-    ## believing it has discovery while having none at all. Same idempotent
-    ## re-call as discv5 above, to turn the node start path's logged failure
-    ## into a hard one.
-    (await waku.externalDiscovery.startDiscovery()).isOkOr:
-      return err("failed to start external service discovery: " & error)
+    ## Configured means required: a node whose host never answered `start`
+    ## would run believing it has discovery while having none at all. The
+    ## node start path above already tried and logged why; turn that into a
+    ## hard failure without waiting out another host timeout.
+    let extInfo = (await waku.externalDiscovery.backendInfo()).valueOr:
+      return err("failed to query external service discovery: " & error)
+    if not extInfo.running:
+      return err("external service discovery did not start: no discovery host answered")
 
   ## Update waku data that is set dynamically on node start
   try:
