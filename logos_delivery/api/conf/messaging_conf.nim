@@ -27,6 +27,25 @@ type MessagingClientConf* = object
   maxMessageSize* {.name: "max-msg-size".}: Opt[string]
     ## Maximum accepted message size (e.g. "150 KiB").
   entryNodes* {.name: "entry-node".}: Opt[seq[string]]
+
+  ## Peer discovery. Each backend is off or on independently, except that the
+  ## two kademlia hosts are alternatives: see `merge`.
+  discv5Discovery* {.name: "discv5-discovery".}: Opt[bool]
+    ## Node Discovery v5. Independent of the kademlia backends.
+  enableKadDiscovery* {.name: "enable-kad-discovery".}: Opt[bool]
+    ## In-process kademlia service discovery.
+  kadBootstrapNodes* {.name: "kad-bootstrap-node".}: Opt[seq[string]]
+    ## Full multiaddrs (including /p2p/<peerId>) for kademlia bootstrap.
+  pluginKadDiscovery* {.name: "plugin-kad-discovery".}: Opt[bool]
+    ## Kademlia service discovery hosted by a registered plugin instead of
+    ## in-process. Setting this turns `enableKadDiscovery` off.
+  kadRandomLookupIntervalSec* {.name: "kad-random-lookup-interval".}: Opt[uint32]
+    ## Applies to whichever kademlia host is running.
+  kadServiceLookupIntervalSec* {.name: "kad-service-lookup-interval".}: Opt[uint32]
+    ## Applies to whichever kademlia host is running.
+  maxPureLibp2pPeers* {.name: "max-pure-libp2p-peers".}: Opt[int]
+    ## Inbound budget for peers that are not waku nodes but offer a protocol we
+    ## consume (a plugin-hosted kademlia or mix). 0 admits none.
     ## Bootstrap / connectivity nodes (enrtree or multiaddr).
   ethRpcEndpoints* {.name: "rln-relay-eth-client-address".}: Opt[seq[EthRpcUrl]]
     ## Ethereum RPC endpoints (required for RLN validation); multiple for fail-over.
@@ -77,7 +96,9 @@ proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[voi
     conf.relay = true
     conf.filter = true
     conf.lightpush = true
-    conf.discv5Discovery = Opt.some(true)
+    # Opt so an explicit --discv5-discovery=false set before the mode survives.
+    if conf.discv5Discovery.isNone():
+      conf.discv5Discovery = Opt.some(true)
     conf.peerExchange = true
     conf.rendezvous = true
   of LogosDeliveryMode.Edge:
@@ -127,6 +148,21 @@ proc toWakuNodeConf*(
     conf.maxMessageSize = self.maxMessageSize.get()
   if self.entryNodes.isSome():
     conf.entryNodes = self.entryNodes.get()
+
+  if self.discv5Discovery.isSome():
+    conf.discv5Discovery = self.discv5Discovery
+  if self.enableKadDiscovery.isSome():
+    conf.enableKadDiscovery = self.enableKadDiscovery
+  if self.kadBootstrapNodes.isSome():
+    conf.kadBootstrapNodes = self.kadBootstrapNodes.get()
+  if self.pluginKadDiscovery.isSome():
+    conf.pluginKadDiscovery = self.pluginKadDiscovery
+  if self.kadRandomLookupIntervalSec.isSome():
+    conf.kadRandomLookupIntervalSec = self.kadRandomLookupIntervalSec.get()
+  if self.kadServiceLookupIntervalSec.isSome():
+    conf.kadServiceLookupIntervalSec = self.kadServiceLookupIntervalSec.get()
+  if self.maxPureLibp2pPeers.isSome():
+    conf.maxPureLibp2pPeers = self.maxPureLibp2pPeers
   if self.ethRpcEndpoints.isSome():
     conf.ethClientUrls = self.ethRpcEndpoints.get()
   if self.rlnContractAddress.isSome():
@@ -168,6 +204,16 @@ proc merge*(base, overrides: MessagingClientConf): MessagingClientConf =
     when oField is Opt:
       if oField.isSome():
         mField = oField
+
+  ## Asking for the plugin-hosted kademlia turns the in-process one off. They
+  ## are two hosts of one protocol and the node refuses to run both, so
+  ## choosing the plugin has to mean choosing it -- otherwise a preset that
+  ## enables in-process kademlia would collide with the caller's request and
+  ## fail the build. Set explicitly so the preset cannot put it back:
+  ## `checkSetPresetValueToField` leaves an already-set field alone.
+  if m.pluginKadDiscovery == Opt.some(true):
+    m.enableKadDiscovery = Opt.some(false)
+
   return m
 
 proc resolvePreset*(preset: string): ConfResult[MessagingClientConf] =

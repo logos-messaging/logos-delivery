@@ -17,6 +17,7 @@ import
     waku_filter_v2/protocol as filter_protocol,
     api/events/health_events,
     api/events/peer_events,
+    api/events/subscription_events,
     requests/health_requests,
     node/peer_manager,
     node/health_monitor/topic_health,
@@ -102,7 +103,7 @@ proc doRelaySubscribe(
   ## Emit the shard subscription event if we actually subscribed.
   let installed = node.registerRelayHandler(shard, appHandler)
   if installed:
-    node.topicSubscriptionQueue.emit((kind: PubsubSub, topic: shard))
+    ShardSubscribedEvent.emit(node.brokerCtx, ShardSubscribedEvent(topic: shard))
   return installed
 
 proc doRelayUnsubscribe(node: WakuNode, shard: PubsubTopic): bool =
@@ -111,7 +112,7 @@ proc doRelayUnsubscribe(node: WakuNode, shard: PubsubTopic): bool =
   ## Emit the shard unsubscription event if we actually unsubscribed.
   let unsubscribed = node.unregisterRelayHandler(shard)
   if unsubscribed:
-    node.topicSubscriptionQueue.emit((kind: PubsubUnsub, topic: shard))
+    ShardUnsubscribedEvent.emit(node.brokerCtx, ShardUnsubscribedEvent(topic: shard))
   return unsubscribed
 
 proc new*(T: type SubscriptionManager, node: WakuNode): T =

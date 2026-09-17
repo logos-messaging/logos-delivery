@@ -251,6 +251,14 @@ type WakuNodeConf* = object
     name: "ip-colocation-limit"
   .}: int
 
+  # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
+  maxPureLibp2pPeers* {.
+    desc:
+      "Max inbound peers that are not waku nodes but offer a protocol this node consumes (kademlia service discovery, mix). 0 admits none. Default is 0; network presets set 50.",
+    defaultValue: Opt.none(int),
+    name: "max-pure-libp2p-peers"
+  .}: Opt[int]
+
   peerStoreCapacity* {.
     desc: "Maximum stored peers in the peerstore.", name: "peer-store-capacity"
   .}: Opt[int]
@@ -672,6 +680,19 @@ hence would have reachability issues.""",
     name: "kad-service-lookup-interval"
   .}: uint32
 
+  # Plugin-hosted Kademlia discovery
+  # The same service discovery as above, hosted by an externally registered
+  # plugin instead of in-process. Mutually exclusive with the in-process
+  # backend; the lookup intervals above apply to whichever is running.
+  pluginKadDiscovery* {.
+    desc:
+      "Run kademlia service discovery through an externally registered plugin " &
+      "instead of in-process. Turns off in-process kademlia discovery. Default is " &
+      $DefaultPluginKadEnabled & ".",
+    defaultValue: Opt.none(bool),
+    name: "plugin-kad-discovery"
+  .}: Opt[bool]
+
   ## websocket config
   websocketSupport* {.
     desc: "Enable websocket:  true|false",
@@ -1041,6 +1062,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.relayServiceRatio != "":
     b.withRelayServiceRatio(n.relayServiceRatio)
   b.withColocationLimit(n.colocationLimit)
+  if n.maxPureLibp2pPeers.isSome():
+    b.withMaxPureLibp2pPeers(n.maxPureLibp2pPeers.get())
 
   if n.peerStoreCapacity.isSome:
     b.withPeerStoreCapacity(n.peerStoreCapacity.get())
@@ -1183,6 +1206,18 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     )
   if n.kadServiceLookupIntervalSec > 0:
     b.kademliaDiscoveryConf.withServiceLookupInterval(
+      chronos.seconds(n.kadServiceLookupIntervalSec.int64)
+    )
+
+  if n.pluginKadDiscovery.isSome():
+    b.externalDiscoveryConf.withEnabled(n.pluginKadDiscovery.get())
+  ## One pair of interval knobs for both hosts of the same protocol.
+  if n.kadRandomLookupIntervalSec > 0:
+    b.externalDiscoveryConf.withRandomLookupInterval(
+      chronos.seconds(n.kadRandomLookupIntervalSec.int64)
+    )
+  if n.kadServiceLookupIntervalSec > 0:
+    b.externalDiscoveryConf.withServiceLookupInterval(
       chronos.seconds(n.kadServiceLookupIntervalSec.int64)
     )
 

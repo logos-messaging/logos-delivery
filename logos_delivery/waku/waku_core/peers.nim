@@ -40,6 +40,7 @@ type
     Dns
     Kademlia
     Cache # Loaded from persistent peer storage (not a live discovery source)
+    External # Found by a discovery host outside the node (logos-delivery-module)
 
   PeerDirection* = enum
     UnknownDirection

@@ -5,6 +5,7 @@ import brokers/broker_context
 import logos_delivery
 import logos_delivery/api/conf/logos_delivery_conf_json
 import logos_delivery/waku/factory/[waku_conf, networks_config]
+import tools/confutils/cli_args
 import logos_delivery/waku/common/logging
 import ../testlib/wakunodeconf
 
@@ -31,6 +32,14 @@ suite "MessagingClientConf - mode expansion (toWakuNodeConf)":
       kc.peerExchange == true
       kc.discv5Discovery == Opt.some(true)
         # discovery stays on; mode does not force it off
+
+  test "an explicit discv5Discovery=false survives mode expansion":
+    var kc = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    kc.discv5Discovery = Opt.some(false)
+    applyMode(kc, LogosDeliveryMode.Core).isOkOr:
+      raiseAssert error
+    check kc.discv5Discovery == Opt.some(false)
 
 suite "MessagingClientConf - field mapping + transport policy":
   test "set fields are written to their kernel counterparts":
@@ -526,3 +535,17 @@ suite "parseLogosDeliveryConf - flat WakuNodeConf shape (interop compatibility)"
     # not flip to flat; the leftover bare field (relay) then has no structured home and
     # is rejected. Guards against the discriminator silently splitting a mixed object.
     check parseLogosDeliveryConf("""{"messagingOverrides": {}, "relay": true}""").isErr()
+
+suite "MessagingClientConf - pure-libp2p peers budget":
+  test "unset stays unset through mode expansion":
+    # applyMode must not touch it: the kernel default (0) and any network
+    # preset (50) are decided further down the chain.
+    let kc = MessagingClientConf().toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
+        raiseAssert error
+    check kc.maxPureLibp2pPeers.isNone()
+
+  test "set value reaches the kernel conf":
+    let mc = MessagingClientConf(maxPureLibp2pPeers: Opt.some(7))
+    let kc = mc.toWakuNodeConf(LogosDeliveryMode.Core).valueOr:
+      raiseAssert error
+    check kc.maxPureLibp2pPeers == Opt.some(7)

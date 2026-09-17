@@ -1,0 +1,58 @@
+{.push raises: [].}
+
+## Node-state getter brokers.
+##
+## Discovery backends (and other loosely-coupled components) resolve node
+## state through these instead of constructor injection, so their wiring does
+## not depend on initialization order. Providers are installed by the `Waku`
+## factory object as each piece of state becomes available.
+##
+## Sync brokers: these are plain state reads, no suspension needed.
+##
+## In-process, single-thread lane only — several getters return `ref` types
+## (Switch, PeerManager); this pattern is deliberately NOT extended to the
+## FFI/MT lanes.
+
+import chronos, results
+import libp2p/[switch, peerinfo, crypto/crypto]
+import brokers/request_broker
+import
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/waku_enr,
+  logos_delivery/waku/node/peer_manager/peer_manager
+
+export request_broker
+
+RequestBroker(sync):
+  proc getNodeSwitch(): Result[Switch, string]
+
+RequestBroker(sync):
+  proc getNodePeerManager(): Result[PeerManager, string]
+
+RequestBroker(sync):
+  # The switch's own PeerInfo: peer id, announced addresses, private key.
+  # (The external discovery backend signs this node's records with it.)
+  proc getNodePeerInfo(): Result[PeerInfo, string]
+
+RequestBroker(sync):
+  # The node's current ENR (final after setupNode; refreshed on updateEnr).
+  proc getNodeEnr(): Result[enr.Record, string]
+
+RequestBroker(sync):
+  # The node's libp2p private key (discv5 signs its ENR with it).
+  proc getNodeKey(): Result[crypto.PrivateKey, string]
+
+type DiscoveryRequirements* = object
+  ## What a host must set up before starting the node: whether service
+  ## discovery is expected from an external plugin, and the DHT bootstrap
+  ## peers (/p2p/ multiaddrs) resolved from the node's configuration.
+  externalServiceDiscovery*: bool
+  bootstrapNodes*: seq[string]
+
+RequestBroker(sync):
+  proc getDiscoveryRequirements(): Result[DiscoveryRequirements, string]
+
+RequestBroker(sync):
+  # DNS-discovery (or otherwise dynamically obtained) bootstrap peers;
+  # empty until retrieval succeeded.
+  proc getDynamicBootstrapNodes(): Result[seq[RemotePeerInfo], string]

@@ -37,6 +37,7 @@ import
   ../waku_filter_v2,
   ../waku_peer_exchange,
   ../discovery/waku_kademlia,
+  ../discovery/service_discovery,
   ../node/peer_manager,
   ../node/peer_manager/peer_store/waku_peer_storage,
   ../node/peer_manager/peer_store/migrations as peer_store_sqlite_migrations,
@@ -111,6 +112,7 @@ proc initNode(
       conf.endpointConf.natDiscoveryTimeoutMs.int64.milliseconds,
     )
   )
+  builder.withMaxPureLibp2pPeers(conf.maxPureLibp2pPeers)
 
   if conf.maxRelayPeers.isSome():
     let
@@ -184,14 +186,13 @@ proc setupProtocols(
   if conf.kademliaDiscoveryConf.isSome():
     var kadConf = conf.kademliaDiscoveryConf.get()
 
-    if conf.mixConf.isSome():
-      let mixService =
-        ServiceInfo(id: MixProtocolID, data: Opt.some(@(conf.mixConf.get().mixPubKey)))
-      kadConf.servicesToAdvertise.incl(mixService)
-      kadConf.servicesToDiscover.incl(mixService.id)
+    # Mix is no longer injected here: it is advertised at runtime through
+    # IPeerDiscovery (see advertiseMix), so plugin-hosted kademlia gets it too.
 
     node.mountKademlia(kadConf).isOkOr:
       return err("failed to setup service discovery: " & error)
+
+    node.attachDiscovery(ServiceDiscovery.create(node.wakuKademlia))
 
     # Register ServicePeersRequest provider
     ServicePeersRequest.setProvider(

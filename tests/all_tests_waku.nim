@@ -64,8 +64,12 @@ import
   ./test_waku_switch,
   ./test_waku_rendezvous,
   ./test_waku_metadata,
+  ./test_pure_libp2p_peers,
   ./waku_discv5/test_waku_discv5,
-  ./waku_kademlia/test_waku_kademlia
+  ./waku_kademlia/test_waku_kademlia,
+  ./waku_discovery/test_external_service_discovery,
+  ./waku_discovery/test_self_advertisement,
+  ./waku_discovery/test_signed_service_record
 
 # Waku Keystore test suite
 import ./test_waku_keystore_keyfile, ./test_waku_keystore

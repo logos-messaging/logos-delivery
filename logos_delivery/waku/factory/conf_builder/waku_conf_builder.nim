@@ -34,7 +34,8 @@ import
   ./rate_limit_conf_builder,
   ./rln_relay_conf_builder,
   ./mix_conf_builder,
-  ./kademlia_discovery_conf_builder
+  ./kademlia_discovery_conf_builder,
+  ./external_discovery_conf_builder
 
 logScope:
   topics = "waku conf builder"
@@ -122,6 +123,7 @@ type WakuConfBuilder* = object
   quicConf*: QuicConfBuilder
   rateLimitConf*: RateLimitConfBuilder
   kademliaDiscoveryConf*: KademliaDiscoveryConfBuilder
+  externalDiscoveryConf*: ExternalDiscoveryConfBuilder
   # End conf builders
   relay: Opt[bool]
   lightPush: Opt[bool]
@@ -163,6 +165,7 @@ type WakuConfBuilder* = object
   peerStoreCapacity: Opt[int]
   maxConnections: Opt[int]
   colocationLimit: Opt[int]
+  maxPureLibp2pPeers: Opt[int]
 
   agentString: Opt[string]
 
@@ -186,6 +189,7 @@ proc init*(T: type WakuConfBuilder): WakuConfBuilder =
     quicConf: QuicConfBuilder.init(),
     rateLimitConf: RateLimitConfBuilder.init(),
     kademliaDiscoveryConf: KademliaDiscoveryConfBuilder.init(),
+    externalDiscoveryConf: ExternalDiscoveryConfBuilder.init(),
   )
 
 proc withNetworkPresetConf*(
@@ -300,6 +304,9 @@ proc withAgentString*(b: var WakuConfBuilder, agentString: string) =
 
 proc withColocationLimit*(b: var WakuConfBuilder, colocationLimit: int) =
   b.colocationLimit = Opt.some(colocationLimit)
+
+proc withMaxPureLibp2pPeers*(b: var WakuConfBuilder, maxPureLibp2pPeers: int) =
+  b.maxPureLibp2pPeers = Opt.some(maxPureLibp2pPeers)
 
 proc withRelayServiceRatio*(b: var WakuConfBuilder, relayServiceRatio: string) =
   b.relayServiceRatio = Opt.some(relayServiceRatio)
@@ -459,16 +466,25 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
     builder.discv5Conf.bootstrapNodes, networkPresetConf.discv5BootstrapNodes
   )
 
-  checkSetPresetValueToField(
-    builder.kademliaDiscoveryConf.enabled, networkPresetConf.enableKadDiscovery,
-    "Kademlia Discovery was provided alongside a network conf",
-  )
+  ## An explicit plugin request names the host, so the preset's in-process
+  ## default yields to it instead of colliding (the messaging layer resolves
+  ## the same way). An explicit --enable-kad-discovery still collides below.
+  if builder.externalDiscoveryConf.enabled != Opt.some(true):
+    checkSetPresetValueToField(
+      builder.kademliaDiscoveryConf.enabled, networkPresetConf.enableKadDiscovery,
+      "Kademlia Discovery was provided alongside a network conf",
+    )
   checkAddPresetValueToField(
     builder.kademliaDiscoveryConf.bootstrapNodes, networkPresetConf.kadBootstrapNodes
   )
 
   checkSetPresetValueToField(
     builder.mix, networkPresetConf.mix, "Mix was provided alongside a network conf"
+  )
+
+  checkSetPresetValueToField(
+    builder.maxPureLibp2pPeers, networkPresetConf.maxPureLibp2pPeers,
+    "Max pure-libp2p peers was provided alongside a network conf",
   )
 
   # Process entry nodes from network config - classify and distribute
@@ -489,6 +505,16 @@ proc applyNetworkPresetConf(builder: var WakuConfBuilder) =
       # Add static nodes (multiaddrs and those extracted from ENR entries)
       if staticNodesFromEntry.len > 0:
         builder.withStaticNodes(staticNodesFromEntry)
+
+      # Feed multiaddr entry nodes to the Kademlia bootstrap set as well:
+      # kad accepts peerId+multiaddr entries, and on presets whose entry
+      # nodes are plain multiaddrs it would otherwise start with empty
+      # buckets (nothing bridges static connections into the DHT).
+      if staticNodesFromEntry.len > 0:
+        if builder.externalDiscoveryConf.enabled == Opt.some(true):
+          builder.externalDiscoveryConf.bootstrapNodes.add(staticNodesFromEntry)
+        elif networkPresetConf.enableKadDiscovery:
+          builder.kademliaDiscoveryConf.bootstrapNodes.add(staticNodesFromEntry)
     else:
       warn "Failed to process entry nodes from network conf", error = processed.error()
 
@@ -668,8 +694,37 @@ proc build*(
   let rateLimit = builder.rateLimitConf.build().valueOr:
     return err("Rate limits Conf building failed: " & $error)
 
-  let kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
+  ## Under a plugin request, kademlia bootstrap peers describe the plugin's
+  ## DHT; they must not switch the in-process backend on by themselves.
+  if builder.externalDiscoveryConf.enabled == Opt.some(true) and
+      builder.kademliaDiscoveryConf.enabled.isNone():
+    builder.kademliaDiscoveryConf.enabled = Opt.some(false)
+
+  var kademliaDiscoveryConf = builder.kademliaDiscoveryConf.build().valueOr:
     return err("Kademlia Discovery Conf building failed: " & $error)
+
+  let externalDiscoveryConf = builder.externalDiscoveryConf.build(
+    builder.kademliaDiscoveryConf.bootstrapNodes
+  ).valueOr:
+    return err("External Discovery Conf building failed: " & $error)
+
+  ## Internal and external service discovery are the same libp2p protocol,
+  ## one hosted in-process and one behind the plugin -- and the external
+  ## provider brings its own switch and peer store. Running both would put
+  ## this node into the same DHT twice under two identities, advertising the
+  ## same services from each. Discv5 is unaffected: it is a different protocol
+  ## over a different peer set and stays independent of both.
+  ##
+  ## Refused rather than silently resolved, because a network preset can turn
+  ## kademlia on without the operator naming it, so picking a winner here
+  ## would leave them with discovery they did not ask for.
+  if kademliaDiscoveryConf.isSome() and externalDiscoveryConf.isSome():
+    return err(
+      "In-process and plugin-hosted kademlia discovery are mutually exclusive, " &
+        "but both are enabled. Note a network preset may have enabled the " &
+        "in-process one: pass --enable-kad-discovery=false alongside " &
+        "--plugin-kad-discovery to run the plugin instead."
+    )
 
   # End - Build sub-configs
 
@@ -775,6 +830,10 @@ proc build*(
 
   let colocationLimit = builder.colocationLimit.get(DefaultColocationLimit)
 
+  let maxPureLibp2pPeers = builder.maxPureLibp2pPeers.get(0)
+  if maxPureLibp2pPeers < 0:
+    return err("max-pure-libp2p-peers must be 0 or more, got " & $maxPureLibp2pPeers)
+
   # TODO: is there a strategy for experimental features? delete vs promote
   let relayShardedPeerManagement =
     builder.relayShardedPeerManagement.get(DefaultRelayShardedPeerManagement)
@@ -787,6 +846,15 @@ proc build*(
     sync = storeServiceConf.isSome() and storeServiceConf.get().storeSyncConf.isSome,
     mix = mix,
   )
+
+  ## A node that serves nothing has no reason to hold routing state for
+  ## others: it consumes discovery rather than providing it. Client mode is a
+  ## mount-time property of the in-process backend; the external host has no
+  ## equivalent, so an externally hosted edge node simply advertises nothing.
+  if kademliaDiscoveryConf.isSome() and not wakuFlags.isServiceNode():
+    var kadConf = kademliaDiscoveryConf.get()
+    kadConf.clientMode = true
+    kademliaDiscoveryConf = Opt.some(kadConf)
 
   # portsShift is consumed here, WakuConf carries final bind ports.
   p2pTcpPort = resolvePortsShift(p2pTcpPort, portsShift)
@@ -813,6 +881,7 @@ proc build*(
     dnsDiscoveryConf: dnsDiscoveryConf,
     mixConf: mixConf,
     kademliaDiscoveryConf: kademliaDiscoveryConf,
+    externalDiscoveryConf: externalDiscoveryConf,
     # end confs
     nodeKey: nodeKey,
     clusterId: clusterId,
@@ -852,6 +921,7 @@ proc build*(
     maxConnections: maxConnections,
     agentString: agentString,
     colocationLimit: colocationLimit,
+    maxPureLibp2pPeers: maxPureLibp2pPeers,
     maxRelayPeers: builder.maxRelayPeers,
     relayServiceRatio: builder.relayServiceRatio.get(DefaultRelayServiceRatio),
     rateLimit: rateLimit,

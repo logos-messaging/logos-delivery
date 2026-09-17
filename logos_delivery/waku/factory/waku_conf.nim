@@ -34,6 +34,19 @@ export
 # The mapper machinery stays in net/nat_config.
 export nat_strategy
 
+const ServingCapabilities* =
+  [Capabilities.Relay, Capabilities.Store, Capabilities.Filter, Capabilities.Lightpush]
+  ## What makes a node worth discovering. Relay counts: relay-only nodes still
+  ## need to find each other, they just serve the mesh rather than clients.
+
+func isServiceNode*(flags: CapabilitiesBitfield): bool =
+  ## A node offering none of these has nothing to advertise -- it is an edge
+  ## node that only consumes discovery.
+  for cap in ServingCapabilities:
+    if flags.supportsCapability(cap):
+      return true
+  false
+
 logScope:
   topics = "waku conf"
 
@@ -55,6 +68,22 @@ type ProtectedShard* {.requiresInit.} = object
 
 type DnsDiscoveryConf* {.requiresInit.} = object
   enrTreeUrl*: string
+
+type ExternalDiscoveryConf* {.requiresInit.} = object
+  ## Kademlia service discovery hosted by an external provider
+  ## (logos-libp2p-module via glue in logos-delivery-module) instead of
+  ## in-process. The node sends each discovery verb to that host as an event
+  ## and waits for the host to complete it, so the node fails to start when
+  ## no host answers.
+  ##
+  ## Lookup intervals are the same knobs the in-process backend uses: the two
+  ## are alternative hosts for one protocol, so they are tuned alike.
+  serviceLookupInterval*: Duration
+  randomLookupInterval*: Duration
+  bootstrapNodes*: seq[string]
+    ## Peers the provider's DHT bootstraps from, as /p2p/ multiaddrs: the
+    ## preset's entry nodes plus any --kad-bootstrap-node. Handed to the host
+    ## through GetDiscoveryRequirements; the node itself never dials them.
 
 type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32
@@ -126,6 +155,7 @@ type WakuConf* {.requiresInit.} = ref object
   quicConf*: Opt[QuicConf]
   mixConf*: Opt[MixConf]
   kademliaDiscoveryConf*: Opt[KademliaDiscoveryConf]
+  externalDiscoveryConf*: Opt[ExternalDiscoveryConf]
 
   dnsAddrsNameServers*: seq[IpAddress]
   endpointConf*: EndpointConf
@@ -152,6 +182,10 @@ type WakuConf* {.requiresInit.} = ref object
   agentString*: string
 
   colocationLimit*: int
+
+  maxPureLibp2pPeers*: int
+    ## Inbound budget for peers that are not waku nodes but offer a protocol
+    ## this node consumes. 0 admits none.
 
   rateLimit*: ProtocolRateLimitSettings
 

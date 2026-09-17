@@ -62,6 +62,7 @@ import
     api/events/peer_events,
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
+  logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./peer_manager,
@@ -140,13 +141,15 @@ type
     extMultiAddrsOnly: bool
       ## Announce only the configured addresses. Set at construction.
     started*: bool # Indicates that node has started listening
-    topicSubscriptionQueue*: AsyncEventQueue[SubscriptionEvent]
     rateLimitSettings*: ProtocolRateLimitSettings
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
       ## Kernel API Relay appHandlers (if any)
     subscriptionManager*: SubscriptionManager
     wakuMix*: WakuMix
     wakuKademlia*: WakuKademlia
+    discoveries*: seq[IPeerDiscovery]
+      ## Attached IPeerDiscovery backends; started after the node is up,
+      ## stopped on node teardown.
     ports*: BoundPorts
     relayReconnectFut*: Future[void]
 
@@ -180,7 +183,7 @@ proc deduceRelayShard(
     return err("Invalid topic:" & pubsubTopic & " " & $error)
   return ok(shard)
 
-proc getShardsGetter(node: WakuNode, configuredShards: seq[uint16]): GetShards =
+proc getShardsGetter*(node: WakuNode, configuredShards: seq[uint16]): GetShards =
   return proc(): seq[uint16] {.closure, gcsafe, raises: [].} =
     # fetch pubsubTopics subscribed to relay and convert them to shards
     if node.wakuRelay.isNil():
@@ -245,7 +248,6 @@ proc new*(
 
   let brokerCtx = globalBrokerContext()
 
-  let queue = newAsyncEventQueue[SubscriptionEvent](0)
   let node = WakuNode(
     peerManager: peerManager,
     switch: switch,
@@ -255,7 +257,6 @@ proc new*(
     announcedAddresses: netConfig.announcedAddresses,
     configuredAnnounced: netConfig.announcedAddresses,
     extMultiAddrsOnly: netConfig.extMultiAddrsOnly,
-    topicSubscriptionQueue: queue,
     rateLimitSettings: rateLimitSettings,
     ports: BoundPorts.init(),
   )
@@ -401,6 +402,11 @@ proc mountKademlia*(
     return err("failed to mount service discovery: " & error.msg)
 
   return ok()
+
+proc attachDiscovery*(node: WakuNode, discovery: IPeerDiscovery) =
+  ## Attach an IPeerDiscovery backend: started after the node is up
+  ## (node.start or explicitly by the owner), stopped in node.stop.
+  node.discoveries.add(discovery)
 
 ## Waku Sync
 
@@ -651,8 +657,9 @@ proc start*(node: WakuNode) {.async.} =
 
   node.started = true
 
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.start()
+  for discovery in node.discoveries:
+    (await discovery.startDiscovery()).isOkOr:
+      error "failed to start discovery backend", error = error
 
   if not node.wakuFilterClient.isNil():
     node.wakuFilterClient.registerPushHandler(
@@ -678,8 +685,9 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.stopProvidersAndListeners()
 
-  if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.stop()
+  for discovery in node.discoveries:
+    (await discovery.stopDiscovery()).isOkOr:
+      error "failed to stop discovery backend", error = error
 
   ## NOTE: This will dispatch gossipsub stop to the WakuRelay.stop method override
   await node.switch.stop()
