@@ -325,8 +325,7 @@ hence would have reachability issues.""",
   .}: Opt[bool]
 
   rlnDisableValidation* {.
-    desc:
-      "Disable validation RLN proofs of received messages: true|false",
+    desc: "Disable validation RLN proofs of received messages: true|false",
     defaultValue: false,
     name: "rln-disable-validation"
   .}: bool
