@@ -20,7 +20,8 @@ import
 import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/node/peer_manager,
-  logos_delivery/waku/api/events/discovery_events
+  logos_delivery/waku/api/events/discovery_events,
+  logos_delivery/waku/discovery/service_discovery_driver
 
 logScope:
   topics = "waku service discovery"
@@ -31,6 +32,10 @@ const
 
 type WakuKademlia* = ref object
   protocol*: ServiceDiscovery
+    ## The in-process protocol to mount on the switch; nil when a plugin hosts
+    ## discovery.
+  driver: ServiceDiscoveryDriver
+  running: bool
   peerManager: PeerManager
   randomLookupLoop: Future[void]
   serviceLookupLoop: Future[void]
@@ -49,6 +54,9 @@ type KademliaDiscoveryConf* = object
   discoConfig*: ServiceDiscoveryConfig
   clientMode*: bool
   xprPublishing*: bool
+  pluginHosted*: bool
+    ## Discovery runs in a plugin outside the node (`service_discovery_plugin`)
+    ## instead of on this node's switch.
 
 proc extractMixPubKey*(service: ServiceInfo): Opt[Curve25519Key] =
   if service.id != MixProtocolID:
@@ -120,21 +128,11 @@ proc processRecords(
 proc lookupServicePeers*(
     self: WakuKademlia, service: string
 ): Future[Result[seq[RemotePeerInfo], string]] {.async: (raises: []).} =
-  if self.protocol.isNil():
+  if self.driver.lookup.isNil():
     return err("cannot lookup service peers: service discovery not mounted")
 
-  let serviceId = service.hashServiceId()
-
-  let lookupCatch = catch:
-    (await self.protocol.lookup(serviceId))
-
-  let lookupResult = lookupCatch.valueOr:
-    return err("service peer lookup failed: " & error.msg)
-
-  let advertisements = lookupResult.valueOr:
-    return err("service peer lookup failed: " & lookupResult.error)
-
-  let records = advertisements.mapIt(it.data)
+  let records = (await self.driver.lookup(service)).valueOr:
+    return err("service peer lookup failed: " & error)
 
   let discovered = self.processRecords(records, "service lookup")
 
@@ -148,10 +146,7 @@ proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError])
   while true:
     await sleepAsync(self.randomLookupInterval)
 
-    let recordsRes = catch:
-      (await self.protocol.lookupRandom())
-
-    let records = recordsRes.valueOr:
+    let records = (await self.driver.lookupRandom()).valueOr:
       debug "Random lookup failed", error
       continue
 
@@ -223,6 +218,7 @@ proc new*(
 
   let self = WakuKademlia(
     protocol: protocol,
+    driver: nativeDriver(protocol),
     peerManager: peerManager,
     randomLookupInterval: randomLookupInterval,
     serviceLookupInterval: serviceLookupInterval,
@@ -232,9 +228,45 @@ proc new*(
 
   return ok(self)
 
-proc start*(self: WakuKademlia) {.async: (raises: []).} =
+proc new*(
+    T: type WakuKademlia,
+    driver: ServiceDiscoveryDriver,
+    peerManager: PeerManager,
+    servicesToAdvertise: HashSet[ServiceInfo],
+    servicesToDiscover: HashSet[string],
+    randomLookupInterval: Duration = DefaultRandomDiscoveryInterval,
+    serviceLookupInterval: Duration = DefaultServiceDiscoveryInterval,
+): T =
+  ## Discovery driven by `driver` instead of a protocol mounted on this node,
+  ## e.g. a plugin hosted outside the node.
+  WakuKademlia(
+    driver: driver,
+    peerManager: peerManager,
+    randomLookupInterval: randomLookupInterval,
+    serviceLookupInterval: serviceLookupInterval,
+    servicesToDiscover: servicesToDiscover,
+    servicesToAdvertise: servicesToAdvertise,
+  )
+
+proc isRunning*(self: WakuKademlia): bool =
+  self.running
+
+proc start*(self: WakuKademlia): Future[Result[void, string]] {.async: (raises: []).} =
+  if self.running:
+    return ok()
+
+  ?(await self.driver.start())
+
   for serviceId in self.servicesToDiscover:
-    discard self.protocol.registerInterest(serviceId)
+    (await self.driver.registerInterest(serviceId)).isOkOr:
+      warn "Failed to register interest", service = serviceId, error = error
+
+  ## A mounted protocol was handed its services at construction; any other
+  ## driver learns them here.
+  if self.protocol.isNil():
+    for service in self.servicesToAdvertise:
+      (await self.driver.startAdvertising(service)).isOkOr:
+        warn "Failed to advertise service", service = service.id, error = error
 
   if self.randomLookupLoop.isNil():
     self.randomLookupLoop = self.runRandomLookupLoop()
@@ -242,9 +274,13 @@ proc start*(self: WakuKademlia) {.async: (raises: []).} =
   if self.serviceLookupLoop.isNil():
     self.serviceLookupLoop = self.runServiceLookupLoop()
 
+  self.running = true
   info "Kademlia discovery started"
+  return ok()
 
 proc stop*(self: WakuKademlia) {.async: (raises: []).} =
+  self.running = false
+
   if not self.serviceLookupLoop.isNil():
     await self.serviceLookupLoop.cancelAndWait()
     self.serviceLookupLoop = nil
@@ -253,29 +289,39 @@ proc stop*(self: WakuKademlia) {.async: (raises: []).} =
     await self.randomLookupLoop.cancelAndWait()
     self.randomLookupLoop = nil
 
+  (await self.driver.stop()).isOkOr:
+    debug "Kademlia discovery driver did not stop cleanly", error = error
+
   info "Kademlia discovery stopped"
 
-proc addServiceToDiscover*(self: WakuKademlia, service: string) =
+proc addServiceToDiscover*(
+    self: WakuKademlia, service: string
+) {.async: (raises: []).} =
   if not self.servicesToDiscover.containsOrIncl(service):
-    discard self.protocol.registerInterest(service)
+    (await self.driver.registerInterest(service)).isOkOr:
+      warn "Failed to register interest", service, error = error
     debug "Added service to discover", service
 
-proc addServiceToAdvertise*(self: WakuKademlia, service: ServiceInfo) =
+proc addServiceToAdvertise*(
+    self: WakuKademlia, service: ServiceInfo
+) {.async: (raises: []).} =
   if service notin self.servicesToAdvertise:
-    self.protocol.startAdvertising(service).isOkOr:
+    (await self.driver.startAdvertising(service)).isOkOr:
       warn "Failed to advertise service", service = service.id, error = error
       return
     self.servicesToAdvertise.incl(service)
     debug "Added service to advertise", service = service.id
 
-proc removeServiceToDiscover*(self: WakuKademlia, service: string) =
+proc removeServiceToDiscover*(
+    self: WakuKademlia, service: string
+) {.async: (raises: []).} =
   if not self.servicesToDiscover.missingOrExcl(service):
-    self.protocol.unregisterInterest(service)
+    discard await self.driver.unregisterInterest(service)
     debug "Removed service to discover", service
 
 proc removeServiceToAdvertise*(
     self: WakuKademlia, service: ServiceInfo
-) {.async: (raises: [CancelledError]).} =
+) {.async: (raises: []).} =
   if not self.servicesToAdvertise.missingOrExcl(service):
-    await self.protocol.stopAdvertising(service.id)
+    discard await self.driver.stopAdvertising(service.id)
     debug "Removed service to advertise", service = service.id

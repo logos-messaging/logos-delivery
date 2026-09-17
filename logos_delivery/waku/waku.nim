@@ -43,6 +43,7 @@ import
     rest_api/endpoint/builder as rest_server_builder,
     discovery/waku_dnsdisc,
     discovery/waku_discv5,
+    discovery/waku_kademlia,
     discovery/autonat_service,
     requests/health_requests,
     factory/node_factory,
@@ -410,6 +411,11 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   (await startNode(waku.node, waku.conf, waku.dynamicBootstrapNodes)).isOkOr:
     return err("error while calling startNode: " & $error)
+
+  ## A plugin that never answered `start` leaves the node with no discovery at
+  ## all; fail loudly rather than come up quietly without it.
+  if not waku.node.wakuKademlia.isNil() and not waku.node.wakuKademlia.isRunning():
+    return err("kademlia discovery did not start: no discovery plugin answered")
 
   let bound = getPorts(waku.node.switch.peerInfo.listenAddrs).valueOr:
     return err("failed to read bound ports from switch: " & $error)

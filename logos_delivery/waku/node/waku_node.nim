@@ -63,6 +63,7 @@ import
   ],
   logos_delivery/api/events/kernel_events, # MessageSeenEvent
   logos_delivery/waku/discovery/waku_kademlia,
+  logos_delivery/waku/discovery/service_discovery_plugin,
   logos_delivery/waku/net/[bound_ports, net_config],
   ./peer_manager,
   ./health_monitor/health_status,
@@ -385,6 +386,18 @@ proc mountKademlia*(
   if not node.wakuKademlia.isNil():
     return err("WakuKademlia already mounted, skipping")
 
+  if config.pluginHosted:
+    let plugin = ServiceDiscoveryPlugin.new(node.brokerCtx)
+    node.wakuKademlia = WakuKademlia.new(
+      plugin.driver(node.switch.peerInfo),
+      node.peerManager,
+      config.servicesToAdvertise,
+      config.servicesToDiscover,
+      config.randomLookupInterval,
+      config.serviceLookupInterval,
+    )
+    return ok()
+
   let wk = WakuKademlia.new(
     node.switch, node.peerManager, config.bootstrapNodes, config.servicesToAdvertise,
     config.servicesToDiscover, config.randomLookupInterval,
@@ -652,7 +665,8 @@ proc start*(node: WakuNode) {.async.} =
   node.started = true
 
   if not node.wakuKademlia.isNil():
-    await node.wakuKademlia.start()
+    (await node.wakuKademlia.start()).isOkOr:
+      error "failed to start kademlia discovery", error = error
 
   if not node.wakuFilterClient.isNil():
     node.wakuFilterClient.registerPushHandler(

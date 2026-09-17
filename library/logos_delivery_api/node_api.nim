@@ -11,6 +11,7 @@ import
   logos_delivery/api/types,
   logos_delivery/waku/api/events/health_events,
   logos_delivery/waku/api/events/peer_events,
+  logos_delivery/waku/discovery/service_discovery_plugin,
   logos_delivery/api/conf/logos_delivery_conf_json,
   logos_delivery/waku/rln/rln_lez/transport,
   ../declare_lib,
@@ -150,6 +151,25 @@ proc registerFFIEventListeners(self: LogosDelivery): Result[void, string] =
     chronicles.error "ChannelMessageLostEvent.listen failed", err = $error
     return err("ChannelMessageLostEvent.listen failed: " & $error)
 
+  ServiceDiscoveryPluginRequest.listen(
+    self.waku.brokerCtx,
+    proc(event: ServiceDiscoveryPluginRequest) {.async: (raises: []).} =
+      emitEvent("onServiceDiscoveryRequest"):
+        $(
+          %*{
+            "eventType": "service_discovery_request",
+            "requestId": event.requestId,
+            "verb": $event.verb,
+            "serviceId": event.serviceId,
+            "data": $base64.encode(event.data),
+            "record": $base64.encode(event.record),
+            "timeoutMs": event.timeoutMs,
+          }
+        ),
+  ).isOkOr:
+    chronicles.error "ServiceDiscoveryPluginRequest.listen failed", err = $error
+    return err("ServiceDiscoveryPluginRequest.listen failed: " & $error)
+
   return ok()
 
 proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
@@ -167,6 +187,7 @@ proc teardownFFIEventScope(self: LogosDelivery) {.async.} =
   await ChannelMessageSentEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageErrorEvent.dropAllListeners(self.waku.brokerCtx)
   await ChannelMessageLostEvent.dropAllListeners(self.waku.brokerCtx)
+  await ServiceDiscoveryPluginRequest.dropAllListeners(self.waku.brokerCtx)
 
 proc logosdelivery_create_node(
     configJson: string

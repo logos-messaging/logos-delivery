@@ -28,7 +28,7 @@ suite "Waku Kademlia service discovery":
           @[ServiceInfo(id: "/seed/svc/1.0.0", data: Opt.some(newSeq[byte]()))],
       )
     await switch.start()
-    await wk.start()
+    check (await wk.start()).isOk()
 
     await sleepAsync(FUTURE_TIMEOUT)
 
@@ -179,11 +179,8 @@ suite "Waku Kademlia service discovery":
         peerInfo.mixPubKey.isNone()
 
   suite "lookupServicePeers":
-    asyncTest "returns err when protocol is nil":
-      let
-        switch = newTestSwitch()
-        wk = kad_utils.newTestKademlia(switch)
-      wk.protocol = nil
+    asyncTest "returns err when no discovery is mounted":
+      let wk = WakuKademlia()
       let res = await wk.lookupServicePeers("/some/service/1.0.0")
       check:
         res.isErr()
@@ -194,7 +191,7 @@ suite "Waku Kademlia service discovery":
         switch = newTestSwitch()
         wk = kad_utils.newTestKademlia(switch)
       await switch.start()
-      await wk.start()
+      check (await wk.start()).isOk()
 
       let res = await wk.lookupServicePeers("/nonexistent/service/1.0.0")
       check:

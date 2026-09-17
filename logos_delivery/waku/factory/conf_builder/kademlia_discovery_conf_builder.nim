@@ -17,12 +17,16 @@ type KademliaDiscoveryConfBuilder* = object
   bootstrapNodes*: seq[string]
   randomLookupInterval*: Opt[Duration]
   serviceLookupInterval*: Opt[Duration]
+  pluginHosted*: Opt[bool]
 
 proc init*(T: type KademliaDiscoveryConfBuilder): KademliaDiscoveryConfBuilder =
   KademliaDiscoveryConfBuilder()
 
 proc withEnabled*(b: var KademliaDiscoveryConfBuilder, enabled: bool) =
   b.enabled = Opt.some(enabled)
+
+proc withPluginHosted*(b: var KademliaDiscoveryConfBuilder, pluginHosted: bool) =
+  b.pluginHosted = Opt.some(pluginHosted)
 
 proc withBootstrapNodes*(
     b: var KademliaDiscoveryConfBuilder, bootstrapNodes: seq[string]
@@ -45,8 +49,11 @@ proc build*(
   # Explicit disable wins: enabled=false disables regardless of bootstrap nodes.
   if b.enabled == Opt.some(false):
     return ok(Opt.none(KademliaDiscoveryConf))
-  # Otherwise enabled if config-enabled or any bootstrap nodes are provided.
-  if not b.enabled.get(DefaultKadEnabled) and b.bootstrapNodes.len == 0:
+  # Otherwise enabled if config-enabled, plugin-hosted or any bootstrap nodes are
+  # provided.
+  let pluginHosted = b.pluginHosted.get(false)
+  if not b.enabled.get(DefaultKadEnabled) and not pluginHosted and
+      b.bootstrapNodes.len == 0:
     return ok(Opt.none(KademliaDiscoveryConf))
 
   var parsedNodes: seq[(PeerId, seq[MultiAddress])]
@@ -65,6 +72,7 @@ proc build*(
         discoConfig: sd_types.ServiceDiscoveryConfig.new(),
         clientMode: false,
         xprPublishing: true,
+        pluginHosted: pluginHosted,
       )
     )
   )

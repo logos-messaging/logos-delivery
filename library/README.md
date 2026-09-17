@@ -262,6 +262,51 @@ int logosdelivery_remove_event_listener(
 **Important:** Callbacks run on a dedicated event thread and should be fast,
 non-blocking, and thread-safe.
 
+### Plugin-hosted kademlia discovery
+
+With `plugin-kad-discovery`, the node does not run kademlia on its own switch; a
+plugin does (logos-delivery-module on top of the libp2p module). The node asks
+for each operation with an `onServiceDiscoveryRequest` event, and the plugin
+settles it with `logosdelivery_complete_service_discovery_request`. Before
+`start`, `logosdelivery_get_discovery_requirements` tells the plugin whether it
+is expected and which DHT bootstrap peers to use:
+`{"pluginKadDiscovery": bool, "bootstrapNodes": ["/ip4/.../p2p/16Uiu..."]}`.
+
+```json
+{"eventType": "service_discovery_request", "requestId": 7, "verb": "lookup",
+ "serviceId": "/mix/1.0.0", "data": "", "record": "", "timeoutMs": 30000}
+```
+
+| verb | uses | success payload |
+|---|---|---|
+| `start`, `stop` | none | ignored |
+| `lookup` | `serviceId` | peer array, see below |
+| `randomLookup` | none | peer array |
+| `startAdvertising` | `serviceId`, `data` and `record` (base64) | ignored |
+| `stopAdvertising`, `registerInterest`, `unregisterInterest` | `serviceId` | ignored |
+
+`record` is this node's signed extended peer record; publish it as-is, because
+the plugin's switch is not this node. The peer array is
+`[{"peerId": "16Uiu...", "seqNo": 1, "addrs": ["/ip4/..."], "services": [{"id": "/mix/1.0.0", "data": "<base64>"}]}]`.
+
+```c
+int logosdelivery_complete_service_discovery_request(
+    void *ctx,
+    LogosDeliveryCompleteServiceDiscoveryRequestReplyFn onReply,
+    void *userData,
+    const LogosdeliveryCompleteServiceDiscoveryRequestReq *req  /* requestId, success, payload */
+);
+```
+
+On failure, set `success` to false and put the error text in `payload`.
+
+- Never block inside the event callback; complete from your own loop, on any
+  thread.
+- Requests can overlap; match them by `requestId`.
+- After `timeoutMs` the node stops waiting, and a later or unknown completion is
+  rejected.
+- `start` must be answered, or `logosdelivery_start_node` fails.
+
 ## Building
 
 The library follows the same build system as the main Logos Messaging project.

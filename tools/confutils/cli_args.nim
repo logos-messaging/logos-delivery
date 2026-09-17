@@ -654,6 +654,13 @@ hence would have reachability issues.""",
     name: "enable-kad-discovery"
   .}: Opt[bool]
 
+  pluginKadDiscovery* {.
+    desc:
+      "Run kademlia discovery in a plugin hosted outside the node, reached through the onServiceDiscoveryRequest library event, instead of in-process.",
+    defaultValue: Opt.none(bool),
+    name: "plugin-kad-discovery"
+  .}: Opt[bool]
+
   kadBootstrapNodes* {.
     desc:
       "Peer multiaddr for kademlia discovery bootstrap node (must include /p2p/<peerID>). Argument may be repeated.",
@@ -1175,6 +1182,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
 
   if n.enableKadDiscovery.isSome():
     b.kademliaDiscoveryConf.withEnabled(n.enableKadDiscovery.get())
+  if n.pluginKadDiscovery.isSome():
+    b.kademliaDiscoveryConf.withPluginHosted(n.pluginKadDiscovery.get())
   b.kademliaDiscoveryConf.withBootstrapNodes(n.kadBootstrapNodes)
 
   if n.kadRandomLookupIntervalSec > 0:
