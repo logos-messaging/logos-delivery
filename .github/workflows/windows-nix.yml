@@ -1,0 +1,53 @@
+name: ci / windows (nix cross)
+
+# The SECOND Windows job in this repo, and deliberately not a replacement for
+# the first. `windows-build.yml` builds natively in MSYS2 and is what the
+# release artifacts come from; this one cross-compiles the flake's
+# `*-windows-x86_64` packages on an ordinary Linux runner and then RUNS the
+# result on a real windows-latest runner. They cover different things:
+#
+#   * MSYS2 proves the Makefile still works in the environment maintainers use.
+#   * This one proves the *nix* cross target still builds -- the one every
+#     downstream Logos repo consumes, and the only one that produces a
+#     `liblogosdelivery.dll` a module can be packaged with -- and that the PEs
+#     start on Windows with the DLLs the build actually shipped beside them.
+#
+# Everything except the two `with:` blocks below lives once in
+# logos-co/logos-windows-ci: the Nix install and cache, the target-existence
+# guard, the cold-cache refusal, the PE-format and import-closure gates, the
+# artifact hand-off and its round-trip check, the wine pre-filter and the real
+# Windows execution. See its docs/windows-ci.md before changing anything here.
+
+on:
+  pull_request:
+    branches: [master]
+  push:
+    branches: [master]
+
+jobs:
+  windows:
+    uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@v1
+    secrets: inherit
+    with:
+      # The Windows build is published the way zerokit publishes its own: under
+      # the platform that builds it, as packages.x86_64-linux.<name>-windows-x86_64.
+      package-set: packages.x86_64-linux
+
+      # liblogosdelivery is what downstream consumes. logosdeliverynode is here
+      # because it is the only EXECUTABLE this repo cross-builds, and without an
+      # exe the whole Windows leg degrades to compile-only -- which the harness
+      # reports as a coverage gap rather than a pass, correctly.
+      targets: liblogosdelivery-windows-x86_64 logosdeliverynode-windows-x86_64
+
+      smoke-file: .github/smoke/logos-delivery.sh
+
+      # Measured on 2026-09-16, x86_64-linux, into an empty chroot store with
+      # cache.nixos.org + cache.nix.logos.co configured: 26 derivations to
+      # build for these two targets, none of them the Qt/icu/boost/llvm closure
+      # the harness refuses outright. That is this repo's own Nim/Rust work, so
+      # 60 is a tighter ceiling than the harness default of 150.
+      cold-derivation-budget: 60
+
+      # A cold Nim + zerokit cross build on a 4-core GitHub runner. The MSYS2
+      # job next door is the same order of magnitude.
+      timeout-minutes: 120
