@@ -266,6 +266,40 @@ suite "WakuNode":
 
     await allFutures(node1.stop(), node2.stop())
 
+  asyncTest "A QUIC-v1 node address given as a string is parsed and dialed":
+    ## This is the path of a configured entry node or static node. The address
+    ## string goes through parsePeerInfo before the dial.
+    let
+      node1 = newTestWakuNode(generateSecp256k1Key(), quicEnabled = true)
+      node2 = newTestWakuNode(generateSecp256k1Key(), quicEnabled = true)
+
+    await allFutures(node1.start(), node2.start())
+
+    let quicAddrs = node2.switch.peerInfo.addrs.filterIt("/quic-v1" in $it)
+    require quicAddrs.len >= 1
+    let quicNode = $quicAddrs[0] & "/p2p/" & $node2.switch.peerInfo.peerId
+
+    # The peer manager does this parse first. If the parse is not correct, the
+    # peer manager writes "Couldn't parse node info" to the log and does not
+    # dial the node.
+    let parsed = parsePeerInfo(quicNode)
+    if parsed.isErr():
+      checkpoint("parsePeerInfo: " & parsed.error)
+    check parsed.isOk()
+
+    await node1.connectToNodes(@[quicNode], source = "static")
+
+    let conns = node1.switch.connManager.getConnections().getOrDefault(
+        node2.switch.peerInfo.peerId
+      )
+    check conns.len >= 1
+    if conns.len >= 1:
+      let obAddr = conns[0].connection.observedAddr.valueOr:
+        raiseAssert "connection has no observed address"
+      check "/udp/" in $obAddr
+
+    await allFutures(node1.stop(), node2.stop())
+
   asyncTest "Node can use dns4 in announced addresses":
     let
       nodeKey = generateSecp256k1Key()

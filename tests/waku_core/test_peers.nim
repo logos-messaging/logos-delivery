@@ -147,6 +147,55 @@ suite "Waku Core - Peers":
     check:
       parsePeerInfo(address).isErr()
 
+  test "QUIC-v1 peer info parses correctly":
+    ## Given
+    let address =
+      "/ip4/127.0.0.1/udp/61002/quic-v1/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+
+    ## When
+    let remotePeerInfoRes = parsePeerInfo(address)
+    require remotePeerInfoRes.isOk()
+
+    let remotePeerInfo = remotePeerInfoRes.value
+
+    ## Then
+    check:
+      $(remotePeerInfo.peerId) == "16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+      remotePeerInfo.addrs.len == 1
+      $(remotePeerInfo.addrs[0]) == "/ip4/127.0.0.1/udp/61002/quic-v1"
+
+  test "QUIC-v1 peer info parses correctly - ip6":
+    ## Given
+    let address =
+      "/ip6/::1/udp/65112/quic-v1/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+
+    ## When
+    let remotePeerInfoRes = parsePeerInfo(address)
+    require remotePeerInfoRes.isOk()
+
+    let remotePeerInfo = remotePeerInfoRes.value
+
+    ## Then
+    check:
+      $(remotePeerInfo.peerId) == "16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+      $(remotePeerInfo.addrs[0]) == "/ip6/::1/udp/65112/quic-v1"
+
+  test "DNS multiaddrs parsing - dns4 QUIC-v1 peer":
+    ## Given
+    let address =
+      "/dns4/localhost/udp/65033/quic-v1/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+
+    ## When
+    let dns4PeerRes = parsePeerInfo(address)
+    require dns4PeerRes.isOk()
+
+    let dns4Peer = dns4PeerRes.value
+
+    ## Then
+    check:
+      $(dns4Peer.peerId) == "16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+      $(dns4Peer.addrs[0]) == "/dns4/localhost/udp/65033/quic-v1"
+
   test "Peer address list parses a single address":
     ## Given
     let address =
@@ -180,6 +229,23 @@ suite "Waku Core - Peers":
       $(remotePeerInfo.addrs[0][0].tryGet()) == "/ip4/127.0.0.1"
       $(remotePeerInfo.addrs[1][0].tryGet()) == "/ip4/10.0.0.1"
 
+  test "Peer address list keeps a TCP and a QUIC-v1 address of the same peer":
+    ## Given
+    let addresses =
+      "/ip4/127.0.0.1/tcp/65002/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc," &
+      "/ip4/127.0.0.1/udp/65002/quic-v1/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+
+    ## When
+    let remotePeerInfoRes = parsePeerAddrList(addresses)
+    require remotePeerInfoRes.isOk()
+
+    ## Then
+    let remotePeerInfo = remotePeerInfoRes.value
+    check:
+      remotePeerInfo.addrs.len == 2
+      $(remotePeerInfo.addrs[0]) == "/ip4/127.0.0.1/tcp/65002"
+      $(remotePeerInfo.addrs[1]) == "/ip4/127.0.0.1/udp/65002/quic-v1"
+
   test "Peer address list tolerates whitespace and empty entries":
     ## Given
     let addresses =
@@ -207,6 +273,107 @@ suite "Waku Core - Peers":
     check:
       parsePeerAddrList("").isErr()
       parsePeerAddrList(" , ").isErr()
+
+  const RelayId = "16Uiu2HAmCzWcYBCw3xKW8De16X9wtcbQrqD8x7CRRv4xpsFJ4oN8"
+  const TargetId = "16Uiu2HAm2eqzqp6xn32fzgGi8K4BuF88W4Xy6yxsmDcW8h1gj6ie"
+
+  proc circuit(relayLeg: string): string =
+    ## A circuit relay address: the address of the relay, then the circuit and
+    ## the target peer id.
+    relayLeg & "/p2p/" & RelayId & "/p2p-circuit/p2p/" & TargetId
+
+  test "Circuit relay address parses to the target behind a TCP relay":
+    ## Given
+    let address = circuit("/ip4/162.19.247.156/tcp/60010")
+
+    ## When
+    let remotePeerInfoRes = parsePeerInfo(address)
+    require remotePeerInfoRes.isOk()
+
+    let remotePeerInfo = remotePeerInfoRes.value
+
+    ## Then
+    check:
+      $(remotePeerInfo.peerId) == TargetId
+      remotePeerInfo.addrs.len == 1
+      $(remotePeerInfo.addrs[0]) ==
+        "/ip4/162.19.247.156/tcp/60010/p2p/" & RelayId & "/p2p-circuit"
+
+  test "Circuit relay address parses with a QUIC-v1 relay":
+    ## The relay part is a peer address. The node can dial it with each of its
+    ## transports.
+    let address = circuit("/ip4/162.19.247.156/udp/60010/quic-v1")
+
+    let remotePeerInfoRes = parsePeerInfo(address)
+    require remotePeerInfoRes.isOk()
+
+    let remotePeerInfo = remotePeerInfoRes.value
+    check:
+      $(remotePeerInfo.peerId) == TargetId
+      $(remotePeerInfo.addrs[0]) ==
+        "/ip4/162.19.247.156/udp/60010/quic-v1/p2p/" & RelayId & "/p2p-circuit"
+
+  test "Circuit relay address parses with a relay named by DNS":
+    ## Regression: the old pattern accepted only hex digits, colons and dots in
+    ## the relay host. Thus the parser rejected a name with a different letter.
+    let address = circuit("/dns4/relay.example.com/tcp/60010")
+
+    let remotePeerInfoRes = parsePeerInfo(address)
+    require remotePeerInfoRes.isOk()
+
+    let remotePeerInfo = remotePeerInfoRes.value
+    check:
+      $(remotePeerInfo.peerId) == TargetId
+      $(remotePeerInfo.addrs[0]) ==
+        "/dns4/relay.example.com/tcp/60010/p2p/" & RelayId & "/p2p-circuit"
+
+  test "Circuit relay address parses with a WebSocket relay":
+    ## Regression: the old pattern accepted only `/wss/<port>`. A multiaddr has
+    ## the shape `/tcp/<port>/wss`. Thus the parser rejected each WebSocket relay.
+    let address = circuit("/ip4/162.19.247.156/tcp/443/wss")
+
+    let remotePeerInfoRes = parsePeerInfo(address)
+    require remotePeerInfoRes.isOk()
+
+    let remotePeerInfo = remotePeerInfoRes.value
+    check:
+      $(remotePeerInfo.peerId) == TargetId
+      $(remotePeerInfo.addrs[0]) ==
+        "/ip4/162.19.247.156/tcp/443/wss/p2p/" & RelayId & "/p2p-circuit"
+
+  test "Circuit relay address parses with an IPv6 relay":
+    let address = circuit("/ip6/2001:db8::1/tcp/60010")
+
+    let remotePeerInfoRes = parsePeerInfo(address)
+    require remotePeerInfoRes.isOk()
+
+    let remotePeerInfo = remotePeerInfoRes.value
+    check:
+      $(remotePeerInfo.peerId) == TargetId
+      $(remotePeerInfo.addrs[0]) ==
+        "/ip6/2001:db8::1/tcp/60010/p2p/" & RelayId & "/p2p-circuit"
+
+  test "Circuit relay address is rejected when the relay part has no transport":
+    ## The node cannot dial a relay part that has only udp. The parser rejects
+    ## it, as it rejects a plain peer address that has only udp.
+    check parsePeerInfo(circuit("/ip4/162.19.247.156/udp/60010")).isErr()
+
+  test "Circuit relay address is rejected without the relay peer id":
+    let address = "/ip4/162.19.247.156/tcp/60010/p2p-circuit/p2p/" & TargetId
+    check parsePeerInfo(address).isErr()
+
+  test "Circuit relay address is rejected with an incorrect target peer id":
+    let address =
+      "/ip4/162.19.247.156/tcp/60010/p2p/" & RelayId & "/p2p-circuit/p2p/not-a-peer-id"
+    check parsePeerInfo(address).isErr()
+
+  test "Circuit relay address is rejected when the relay peer id is not last in the relay part":
+    ## The relay transport reads the relay peer id from the part before
+    ## /p2p-circuit. If the shape is different, the dial is not possible. Thus
+    ## the parser rejects it.
+    let address =
+      "/ip4/162.19.247.156/p2p/" & RelayId & "/tcp/60010/p2p-circuit/p2p/" & TargetId
+    check parsePeerInfo(address).isErr()
 
   test "ENRs capabilities are filled when creating RemotePeerInfo":
     let
