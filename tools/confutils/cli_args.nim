@@ -17,7 +17,8 @@ import
   libp2p/multicodec,
   nimcrypto/utils,
   secp256k1,
-  json
+  json,
+  mix_rln_spam_protection/module_api
 
 import
   logos_delivery/api/conf/modes,
@@ -650,6 +651,26 @@ hence would have reachability issues.""",
     name: "mixnode"
   .}: seq[MixNodePubInfo]
 
+  mixRlnRegistryId* {.
+    desc:
+      "Shared RLN module registry for Mix per-hop proofs; empty disables the adapter.",
+    defaultValue: "",
+    name: "mix-rln-registry-id"
+  .}: string
+
+  mixRlnIdentifierHex* {.
+    desc: "Mix application RLN identifier (32-byte hex).",
+    defaultValue: "6d69782d726c6e2d7370616d2d70726f74656374696f6e2f763100000000000000",
+    name: "mix-rln-identifier-hex"
+  .}: string
+
+  mixRlnMetadataTopic* {.
+    desc:
+      "Delivery content topic for Mix proof metadata; required with mix-rln-registry-id.",
+    defaultValue: "",
+    name: "mix-rln-metadata-topic"
+  .}: string
+
   # Kademlia Discovery config
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   enableKadDiscovery* {.
@@ -1121,6 +1142,19 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   if n.mix.isSome():
     b.mixConf.withEnabled(n.mix.get())
     b.withMix(n.mix.get())
+  if n.mixRlnRegistryId.len > 0:
+    if n.mixRlnMetadataTopic.len == 0:
+      return err("Mix RLN coordination topic is required")
+    b.mixConf.withMixRln(
+      ModuleRlnConfig(
+        registryId: n.mixRlnRegistryId,
+        rlnIdentifierHex: n.mixRlnIdentifierHex,
+        epochSeconds: 10,
+        maxEpochGap: 3,
+        messageLimit: 100,
+        metadataTopic: n.mixRlnMetadataTopic,
+      )
+    )
   b.mixConf.withMixNodes(n.mixnodes)
   if n.mixkey.isSome():
     b.mixConf.withMixKey(n.mixkey.get())

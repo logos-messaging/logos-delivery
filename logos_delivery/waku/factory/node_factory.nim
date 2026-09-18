@@ -10,10 +10,13 @@ import
   libp2p/crypto/crypto,
   libp2p/crypto/curve25519,
   libp2p/extended_peer_record,
-  libp2p_mix/mix_protocol
+  libp2p_mix/mix_protocol,
+  libp2p_mix/spam_protection,
+  mix_rln_spam_protection/module_api
 
 import
   ./internal_config,
+  ../rln/rln_lez/transport,
   ./networks_config,
   ./waku_conf,
   ./builder,
@@ -177,7 +180,12 @@ proc setupProtocols(
   #mount mix
   if conf.mixConf.isSome():
     let mixConf = conf.mixConf.get()
-    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes)).isOkOr:
+    var protection = Opt.none(SpamProtection)
+    if mixConf.mixRlnConfig.isSome():
+      node.wakuMixRln = ModuleRlnProtection.new(mixConf.mixRlnConfig.get(), rlnMixCall).valueOr:
+        return err("failed to create Mix RLN adapter: " & error)
+      protection = Opt.some(SpamProtection(node.wakuMixRln))
+    (await node.mountMix(conf.clusterId, mixConf.mixKey, mixConf.mixnodes, protection)).isOkOr:
       return err("failed to mount waku mix protocol: " & $error)
 
   # Setup service discovery
