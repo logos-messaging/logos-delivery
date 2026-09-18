@@ -144,7 +144,7 @@ proc parsePeerInfoFromRegularAddr(peer: MultiAddress): Result[RemotePeerInfo, st
           "Error getting p2pPart [" & err & "]"
       )
     of "ip4", "ip6", "dns", "dnsaddr", "dns4", "dns6", "tcp", "ws", "wss", "udp",
-        "quic-v1":
+        "quic-v1", "tls":
       let val = ?addrPart.mapErr(
         proc(err: string): string =
           "Error getting addrPart [" & err & "]"
@@ -179,17 +179,19 @@ proc parsePeerInfoFromCircuitRelayAddr(
   # transports. The wire address is the string that ends at /p2p-circuit.
   const circuit = "/p2p-circuit/p2p/"
   let idx = address.find(circuit)
-  if idx == -1:
+  if idx < 0:
     return err("could not find /p2p-circuit/p2p/ pattern in: " & address)
+  if idx == 0:
+    return err("no relay part before /p2p-circuit/p2p/ in: " & address)
 
-  let relayLeg = address[0 ..< idx]
-  let relayMa = ?MultiAddress.init(relayLeg).mapErr(
+  let relayPart = address[0 ..< idx]
+  let relayMa = ?MultiAddress.init(relayPart).mapErr(
     proc(err: string): string =
-      "could not create multiaddress from: " & relayLeg & " [" & err & "]"
+      "could not create multiaddress from: " & relayPart & " [" & err & "]"
   )
   discard ?parsePeerInfoFromRegularAddr(relayMa).mapErr(
     proc(e: string): string =
-      "relay part of p2p-circuit address " & address & ": " & e
+      "relay part of p2p-circuit address: " & address & ": " & e
   )
   # The relay transport reads the relay peer id from the part before
   # /p2p-circuit. If the shape is different, the dial is not possible.
