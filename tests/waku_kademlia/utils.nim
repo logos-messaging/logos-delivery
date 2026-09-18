@@ -3,6 +3,7 @@
 import std/sets
 import chronos, chronicles, results
 import libp2p/[peerid, multiaddress, switch]
+import libp2p/protocols/service_discovery/types
 import libp2p/extended_peer_record
 import libp2p/protocols/service_discovery/types as sd_types
 import libp2p/crypto/crypto as libp2p_keys
@@ -23,6 +24,7 @@ proc newTestKademlia*(
     serviceLookupInterval: Duration = 100.milliseconds,
     clientMode: bool = false,
     xprPublishing: bool = true,
+    discoConfig: ServiceDiscoveryConfig = ServiceDiscoveryConfig.new(),
 ): WakuKademlia =
   let peerManager = PeerManager.new(switch)
 
@@ -36,6 +38,7 @@ proc newTestKademlia*(
       randomLookupInterval = randomLookupInterval,
       serviceLookupInterval = serviceLookupInterval,
       rng = rng(),
+      discoConfig = discoConfig,
       clientMode = clientMode,
       xprPublishing = xprPublishing,
     )
