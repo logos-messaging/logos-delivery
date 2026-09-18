@@ -426,7 +426,7 @@ suite "Waku Discovery v5":
 
       let waku0 = (await Waku.new(conf)).valueOr:
         raiseAssert error
-      (waitFor waku0.start()).isOkOr:
+      (await waku0.start()).isOkOr:
         raiseAssert error
 
       confBuilder.withNodeKey(crypto.PrivateKey.random(Secp256k1, myRng)[])
@@ -440,7 +440,7 @@ suite "Waku Discovery v5":
 
       let waku1 = (await Waku.new(conf1)).valueOr:
         raiseAssert error
-      (waitFor waku1.start()).isOkOr:
+      (await waku1.start()).isOkOr:
         raiseAssert error
 
       await waku1.node.mountPeerExchange()
@@ -456,7 +456,7 @@ suite "Waku Discovery v5":
 
       let waku2 = (await Waku.new(conf2)).valueOr:
         raiseAssert error
-      (waitFor waku2.start()).isOkOr:
+      (await waku2.start()).isOkOr:
         raiseAssert error
 
       # leave some time for discv5 to act

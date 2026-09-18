@@ -285,7 +285,7 @@ proc setRlnValidator*(
         nullifier = inHex(msgProof.nullifier)
 
       case validationRes
-      of Valid:
+      of MessageValidationResult.Valid:
         trace "Message validity is verified, relaying",
           proof = proof,
           root = root,
@@ -294,7 +294,7 @@ proc setRlnValidator*(
           nullifier = nullifier
         logos_delivery_rln_valid_messages_total.inc(labelValues = [topic])
         return pubsub.ValidationResult.Accept
-      of Invalid:
+      of MessageValidationResult.Invalid:
         trace "Message validity could not be verified, discarding",
           proof = proof,
           root = root,
@@ -302,7 +302,7 @@ proc setRlnValidator*(
           shareY = shareY,
           nullifier = nullifier
         return pubsub.ValidationResult.Reject
-      of Spam:
+      of MessageValidationResult.Spam:
         trace "A spam message is found! yay! discarding:",
           proof = proof,
           root = root,

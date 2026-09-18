@@ -234,7 +234,7 @@ suite "Waku rln relay":
     let manager = cast[RlnEvmGroupManager](rln.groupManager)
     let idCredentials = generateCredentials()
 
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "error returned when calling register: " & error
 
     let epoch1 = rln.getCurrentEpoch()
@@ -254,11 +254,11 @@ suite "Waku rln relay":
       wm4 = WakuMessage(payload: "Invalid message".toBytes(), timestamp: now())
 
     # Append RLN proofs
-    rln.unsafeAppendRLNProof(wm1, epoch1, MessageId(1)).isOkOr:
+    wm1 = (await rln.unsafeAppendRLNProof(wm1, epoch1, MessageId(1))).valueOr:
       raiseAssert $error
-    rln.unsafeAppendRLNProof(wm2, epoch1, MessageId(1)).isOkOr:
+    wm2 = (await rln.unsafeAppendRLNProof(wm2, epoch1, MessageId(1))).valueOr:
       raiseAssert $error
-    rln.unsafeAppendRLNProof(wm3, epoch2, MessageId(3)).isOkOr:
+    wm3 = (await rln.unsafeAppendRLNProof(wm3, epoch2, MessageId(3))).valueOr:
       raiseAssert $error
 
     # Validate messages
@@ -290,7 +290,7 @@ suite "Waku rln relay":
     let manager = cast[RlnEvmGroupManager](rln.groupManager)
     let idCredentials = generateCredentials()
 
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "error returned when calling register: " & error
 
     # usually it's 20 seconds but we set it to 1 for testing purposes which make the test faster
@@ -310,10 +310,10 @@ suite "Waku rln relay":
         timestamp: now(),
       )
 
-    rln.unsafeAppendRLNProof(wm1, epoch, MessageId(1)).isOkOr:
+    wm1 = (await rln.unsafeAppendRLNProof(wm1, epoch, MessageId(1))).valueOr:
       raiseAssert $error
 
-    rln.unsafeAppendRLNProof(wm2, epoch, MessageId(2)).isOkOr:
+    wm2 = (await rln.unsafeAppendRLNProof(wm2, epoch, MessageId(2))).valueOr:
       raiseAssert $error
 
     # validate the first message because it's timestamp is the same as the generated timestamp
@@ -339,7 +339,7 @@ suite "Waku rln relay":
     let manager1 = cast[RlnEvmGroupManager](wakuRlnRelay1.groupManager)
     let idCredentials1 = generateCredentials()
 
-    (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+    (await manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
       assert false, "error returned when calling register: " & error
 
     let index2 = MembershipIndex(6)
@@ -352,7 +352,7 @@ suite "Waku rln relay":
     let manager2 = cast[RlnEvmGroupManager](wakuRlnRelay2.groupManager)
     let idCredentials2 = generateCredentials()
 
-    (waitFor manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:
+    (await manager2.register(idCredentials2, UserMessageLimit(20))).isOkOr:
       assert false, "error returned when calling register: " & error
 
     # get the current epoch time
@@ -366,9 +366,9 @@ suite "Waku rln relay":
       wm2 =
         WakuMessage(payload: "Valid message from sender 2".toBytes(), timestamp: now())
 
-    wakuRlnRelay1.unsafeAppendRLNProof(wm1, epoch, MessageId(1)).isOkOr:
+    wm1 = (await wakuRlnRelay1.unsafeAppendRLNProof(wm1, epoch, MessageId(1))).valueOr:
       raiseAssert $error
-    wakuRlnRelay2.unsafeAppendRLNProof(wm2, epoch, MessageId(1)).isOkOr:
+    wm2 = (await wakuRlnRelay2.unsafeAppendRLNProof(wm2, epoch, MessageId(1))).valueOr:
       raiseAssert $error
 
     let

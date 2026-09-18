@@ -872,7 +872,7 @@ suite "Waku Sync: transfer":
     let hash = computeMessageHash(DefaultPubsubTopic, msg)
     let msgs = @[msg]
 
-    serverDriver = serverDriver.put(DefaultPubsubTopic, msgs)
+    serverDriver = await serverDriver.put(DefaultPubsubTopic, msgs)
 
     # add server info to client want channel
     let want = serverPeerInfo.peerId
@@ -915,8 +915,8 @@ suite "Waku Sync: transfer":
     let hB = computeMessageHash(DefaultPubsubTopic, msgB)
     let hC = computeMessageHash(DefaultPubsubTopic, msgC)
 
-    discard serverDriver.put(DefaultPubsubTopic, @[msgA, msgB, msgC])
-    discard clientDriver.put(DefaultPubsubTopic, @[msgA])
+    discard await serverDriver.put(DefaultPubsubTopic, @[msgA, msgB, msgC])
+    discard await clientDriver.put(DefaultPubsubTopic, @[msgA])
 
     await serverRemoteNeeds.put((clientPeerInfo.peerId, hB))
     await serverRemoteNeeds.put((clientPeerInfo.peerId, hC))

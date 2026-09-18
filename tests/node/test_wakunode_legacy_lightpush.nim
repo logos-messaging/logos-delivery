@@ -117,7 +117,7 @@ suite "RLN Proofs as a Lightpush Service":
     client = newTestWakuNode(clientKey)
 
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupRlnEvm(deployContracts = false)
+    manager = await setupRlnEvm(deployContracts = false)
 
     # mount rln-relay
     # match prod epoch window to reduce test flake
@@ -140,14 +140,14 @@ suite "RLN Proofs as a Lightpush Service":
     let manager1 = cast[RlnEvmGroupManager](server.rln.groupManager)
     let idCredentials1 = generateCredentials()
 
-    (waitFor manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
+    (await manager1.register(idCredentials1, UserMessageLimit(20))).isOkOr:
       assert false, "error returned when calling register: " & error
 
-    let rootUpdated1 = waitFor manager1.updateRoots()
+    let rootUpdated1 = await manager1.updateRoots()
     info "Updated root for node1", rootUpdated1
 
     if rootUpdated1:
-      let proofResult = waitFor manager1.fetchMerkleProofElements()
+      let proofResult = await manager1.fetchMerkleProofElements()
       if proofResult.isErr():
         error "Failed to fetch Merkle proof", error = proofResult.error
       manager1.merkleProofCache = proofResult.get()

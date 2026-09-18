@@ -8,6 +8,7 @@
 include Nat.mk
 include BearSSL.mk
 include Leopard.mk
+include TinyCbor.mk
 
 LINK_PCRE := 0
 FORMAT_MSG := "\\x1B[95mFormatting:\\x1B[39m"
@@ -550,48 +551,56 @@ else
 	$(NIMBLE) --verbose liblogosdelivery$(BUILD_COMMAND) logos_delivery.nimble $(NIMBLE_TASK_FLAGS)
 endif
 
-logosdelivery_example: | build liblogosdelivery
+logosdelivery_example: | build liblogosdelivery tinycbor
 	@echo -e $(BUILD_MSG) "build/$@"
 ifeq ($(detected_OS),Darwin)
 	gcc -o build/$@ \
 		library/examples/logosdelivery_example.c \
 		library/examples/json_utils.c \
 		-I./library \
+		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-L./build \
 		-llogosdelivery \
+		$(TINYCBOR_LIB) \
 		-Wl,-rpath,./build
 else ifeq ($(detected_OS),Linux)
 	gcc -o build/$@ \
 		library/examples/logosdelivery_example.c \
 		library/examples/json_utils.c \
 		-I./library \
+		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-L./build \
 		-llogosdelivery \
+		$(TINYCBOR_LIB) \
 		-Wl,-rpath,'$$ORIGIN'
 else ifeq ($(detected_OS),Windows)
 	gcc -o build/$@.exe \
 		library/examples/logosdelivery_example.c \
 		library/examples/json_utils.c \
 		-I./library \
+		-I"$(TINYCBOR_VENDOR_DIR)" \
 		-L./build \
 		-llogosdelivery \
+		$(TINYCBOR_LIB) \
 		-lws2_32
 endif
 
-cwaku_example: | build liblogosdelivery
+cwaku_example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		cc -o "build/$@" \
 		./examples/cbindings/waku_example.c \
 		./examples/cbindings/base64.c \
-		-llogosdelivery -Lbuild/ \
+		-I"$(TINYCBOR_VENDOR_DIR)" \
+		-llogosdelivery -Lbuild/ $(TINYCBOR_LIB) \
 		-pthread -ldl -lm
 
-cppwaku_example: | build liblogosdelivery
+cppwaku_example: | build liblogosdelivery tinycbor
 	echo -e $(BUILD_MSG) "build/$@" && \
 		g++ -o "build/$@" \
 		./examples/cpp/waku.cpp \
 		./examples/cpp/base64.cpp \
-		-llogosdelivery -Lbuild/ \
+		-I"$(TINYCBOR_VENDOR_DIR)" \
+		-llogosdelivery -Lbuild/ $(TINYCBOR_LIB) \
 		-pthread -ldl -lm
 
 nodejswaku: | build deps

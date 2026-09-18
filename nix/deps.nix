@@ -40,8 +40,8 @@
 
   boringssl = pkgs.fetchgit {
     url = "https://github.com/vacp2p/nim-boringssl";
-    rev = "346429e4cda48e775f2d1eb3ccb8757edf4f3648";
-    sha256 = "0x46sdq75zp84qahwh472qr33xw38adrsp41fksh7xwwd6384fl3";
+    rev = "fbf9c2762241be3f004d45b9a32b7bfd6ea136a8";
+    sha256 = "10lkp39rz21lawb5r93d6w679gdyfgfp7lkcxyg7lm1i2kyp11kl";
     fetchSubmodules = true;
   };
 
@@ -110,8 +110,8 @@
 
   chronos = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-chronos";
-    rev = "0ab802baef6bf16a8e3cc7d8a5c3128ddafadec5";
-    sha256 = "0hlj4jml2vl7hcvg7g33qa8vbhlgv0qhb07b2nsqc2dbp05lyka5";
+    rev = "0de7b335d0ad5557ad5ba71a4b7662f7b201750e";
+    sha256 = "1g2aml18f47qayg8ckl38l6i3dmvxdz2zcjf0gxim9dzzs0kam0m";
     fetchSubmodules = true;
   };
 
@@ -208,8 +208,8 @@
 
   brokers = pkgs.fetchgit {
     url = "https://github.com/NagyZoltanPeter/nim-brokers.git";
-    rev = "19565dd80621e33f6da396ef3fb07c379d55c324";
-    sha256 = "0jnn44pk587ck1l3ghjgy93d32fpxf0bjshri5ksnqjif2b7pdm9";
+    rev = "c370ac112129645dba551cc24eefd9120db8df24";
+    sha256 = "1aqk9znh0sprq4ayfahx1k1ihk6c0zvwkch1fm8v8j8czxmkw1hi";
     fetchSubmodules = true;
   };
 
@@ -222,8 +222,8 @@
 
   leopard = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-leopard";
-    rev = "0478b12df90cbbe531efa69422cff67b5a3a5d93";
-    sha256 = "1lfwsqrdc3nzdc3a2v4fmx2ilqxyipb8v3n08ffcf2zj5nrjgql4";
+    rev = "2e8de41205ea44b6f33b5cad676bab215b36c987";
+    sha256 = "0zkcpbqfn7c14i8sssh594d0ffmb62xcaswwl7j5fs5ssip6q2fk";
     fetchSubmodules = true;
   };
 
@@ -236,8 +236,8 @@
 
   ffi = pkgs.fetchgit {
     url = "https://github.com/logos-messaging/nim-ffi";
-    rev = "07ee8e1d6500762bab290465457a8d23559de546";
-    sha256 = "04q5gmldyxd8jawrnjfws007zpyr4h08ijphp943iypbpblflfmz";
+    rev = "b9c4d26de013bba098e810f70074cbba6c5b4c15";
+    sha256 = "153xv40bj1i12lbdk4anqlhn7gmqdan7fkxndh75199fhw0qqw1x";
     fetchSubmodules = true;
   };
 

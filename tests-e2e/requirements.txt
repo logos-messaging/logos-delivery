@@ -2,6 +2,7 @@ allure-pytest==2.13.2
 allure-python-commons==2.13.2
 attrs==23.1.0
 black==24.3.0
+cbor2==6.1.4
 certifi==2024.7.4
 cfgv==3.4.0
 charset-normalizer==3.3.2

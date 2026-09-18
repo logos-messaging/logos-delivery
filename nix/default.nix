@@ -115,6 +115,10 @@ pkgs.stdenv.mkDerivation {
   # repo root, which has no CMakeLists.txt of its own.
   dontUseCmakeConfigure = true;
 
+  # The generated C helpers include <tinycbor/cbor.h> and call TinyCBOR's
+  # encoder/decoder API. Propagate it from the library package to consumers.
+  propagatedBuildInputs = pkgs.lib.optionals (!buildApp) [ pkgs.tinycbor ];
+
   buildPhase = ''
     export HOME=$TMPDIR
     export XDG_CACHE_HOME=$TMPDIR/.cache
@@ -183,7 +187,17 @@ pkgs.stdenv.mkDerivation {
     cp library/liblogosdelivery.h        $out/include/
     cp library/liblogosdelivery_kernel.h $out/include/
     cp library/liblogosdelivery_rln.h    $out/include/
-    cp ${cBindingsDir}/logosdelivery.h   $out/include/generated/
+
+    # The public header includes the generated binding, which in turn includes
+    # nim-ffi's CBOR helpers. Fail rather than ship an incomplete include tree.
+    for header in logosdelivery.h nim_ffi_cbor.h nim_ffi_prelude.h; do
+      if [ ! -f ${cBindingsDir}/$header ]; then
+        echo "error: genBindings() produced no ${cBindingsDir}/$header." >&2
+        echo "       The installed include/ would not compile. See logos-delivery#4121." >&2
+        exit 1
+      fi
+    done
+    cp ${cBindingsDir}/*.h $out/include/generated/
     runHook postInstall
   '';
 

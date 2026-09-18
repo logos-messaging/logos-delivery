@@ -19,9 +19,10 @@
       inputs.nixpkgs.follows = "nixpkgs";
     };
 
-    # Zerokit v2.0.2; keep rev in sync with the vendor/zerokit submodule.
+    # Zerokit v2.0.2 plus its MinGW rln package (vacp2p/zerokit#439's merge).
+    # Keep rev in sync with the vendor/zerokit submodule.
     zerokit = {
-      url = "github:vacp2p/zerokit/5e64cb8822bee65eed6cf459f95ae72b80c6ba63";
+      url = "github:vacp2p/zerokit/ea80f39be3e7944e4537b5f4726a7c4aabfe0ab5";
       inputs.nixpkgs.follows = "nixpkgs";
     };
   };

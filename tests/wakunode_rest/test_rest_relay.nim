@@ -270,13 +270,13 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
-    let rootUpdated = waitFor manager.updateRoots()
+    let rootUpdated = await manager.updateRoots()
     info "Updated root for node", rootUpdated
 
-    let proofRes = waitFor manager.fetchMerkleProofElements()
+    let proofRes = await manager.fetchMerkleProofElements()
     if proofRes.isErr():
       assert false, "failed to fetch merkle proof: " & proofRes.error
     manager.merkleProofCache = proofRes.get()
@@ -585,13 +585,13 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
-    let rootUpdated = waitFor manager.updateRoots()
+    let rootUpdated = await manager.updateRoots()
     info "Updated root for node", rootUpdated
 
-    let proofRes = waitFor manager.fetchMerkleProofElements()
+    let proofRes = await manager.fetchMerkleProofElements()
     if proofRes.isErr():
       assert false, "failed to fetch merkle proof: " & proofRes.error
     manager.merkleProofCache = proofRes.get()
@@ -654,13 +654,13 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
-    let rootUpdated = waitFor manager.updateRoots()
+    let rootUpdated = await manager.updateRoots()
     info "Updated root for node", rootUpdated
 
-    let proofRes = waitFor manager.fetchMerkleProofElements()
+    let proofRes = await manager.fetchMerkleProofElements()
     if proofRes.isErr():
       assert false, "failed to fetch merkle proof: " & proofRes.error
     manager.merkleProofCache = proofRes.get()
@@ -713,13 +713,13 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
-    let rootUpdated = waitFor manager.updateRoots()
+    let rootUpdated = await manager.updateRoots()
     info "Updated root for node", rootUpdated
 
-    let proofRes = waitFor manager.fetchMerkleProofElements()
+    let proofRes = await manager.fetchMerkleProofElements()
     if proofRes.isErr():
       assert false, "failed to fetch merkle proof: " & proofRes.error
     manager.merkleProofCache = proofRes.get()
@@ -785,13 +785,13 @@ suite "Waku v2 Rest API - Relay":
     let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
 
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register identity credentials" & getCurrentExceptionMsg()
 
-    let rootUpdated = waitFor manager.updateRoots()
+    let rootUpdated = await manager.updateRoots()
     info "Updated root for node", rootUpdated
 
-    let proofRes = waitFor manager.fetchMerkleProofElements()
+    let proofRes = await manager.fetchMerkleProofElements()
     if proofRes.isErr():
       assert false, "failed to fetch merkle proof: " & proofRes.error
     manager.merkleProofCache = proofRes.get()
@@ -861,13 +861,13 @@ suite "Waku v2 Rest API - Relay":
 
     let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register: " & getCurrentExceptionMsg()
 
-    let rootUpdated = waitFor manager.updateRoots()
+    let rootUpdated = await manager.updateRoots()
     info "Updated root", rootUpdated
 
-    let proofRes = waitFor manager.fetchMerkleProofElements()
+    let proofRes = await manager.fetchMerkleProofElements()
     assert proofRes.isOk(), "failed to fetch merkle proof: " & proofRes.error
     let goodCache = proofRes.get()
     manager.merkleProofCache = goodCache
@@ -970,13 +970,13 @@ suite "Waku v2 Rest API - Relay":
 
     let manager = cast[RlnEvmGroupManager](node.rln.groupManager)
     let idCredentials = generateCredentials()
-    (waitFor manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
+    (await manager.register(idCredentials, UserMessageLimit(20))).isOkOr:
       assert false, "Failed to register: " & getCurrentExceptionMsg()
 
-    let rootUpdated = waitFor manager.updateRoots()
+    let rootUpdated = await manager.updateRoots()
     info "Updated root", rootUpdated
 
-    let proofRes = waitFor manager.fetchMerkleProofElements()
+    let proofRes = await manager.fetchMerkleProofElements()
     assert proofRes.isOk(), "failed to fetch merkle proof: " & proofRes.error
     let goodCache = proofRes.get()
     manager.merkleProofCache = goodCache

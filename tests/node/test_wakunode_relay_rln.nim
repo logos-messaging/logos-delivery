@@ -532,8 +532,8 @@ suite "Waku RlnRelay - End to End - OnChain":
       discard await groupManager.init()
       try:
         # Register credentials in the chain
-        waitFor groupManager.register(idCredential1)
-        waitFor groupManager.register(idCredential2)
+        await groupManager.register(idCredential1)
+        await groupManager.register(idCredential2)
       except Exception:
         assert false, "Failed to register credentials: " & getCurrentExceptionMsg()
 
@@ -602,7 +602,7 @@ suite "Waku RlnRelay - End to End - OnChain":
         errorFuture.complete(errMsg)
       try:
         # Register credentials in the chain
-        waitFor groupManager.register(idCredential)
+        await groupManager.register(idCredential)
         assert false, "Should have failed to register credentials given there is 0 gas"
       except Exception:
         assert true
@@ -689,8 +689,8 @@ suite "Waku RlnRelay - End to End - OnChain":
       discard await groupManager.init()
       try:
         # Register credentials in the chain
-        waitFor groupManager.register(idCredential1)
-        waitFor groupManager.register(idCredential2)
+        await groupManager.register(idCredential1)
+        await groupManager.register(idCredential2)
       except Exception:
         assert false, "Failed to register credentials: " & getCurrentExceptionMsg()
 
