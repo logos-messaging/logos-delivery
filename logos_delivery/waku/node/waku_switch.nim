@@ -2,8 +2,10 @@
 {.push raises: [].}
 
 import
+  std/net,
   results,
   chronos,
+  chronos/transports/osnet,
   chronicles,
   eth/keys,
   libp2p/crypto/crypto,
@@ -20,6 +22,41 @@ import ./delivery_dialer
 const MaxConnectionsPerPeer* = 1
 
 const MaxConnections* = 50
+
+logScope:
+  topics = "waku switch"
+
+const
+  ## The destinations a route lookup probes. No traffic is sent.
+  Ipv4Probe = parseIpAddress("8.8.8.8")
+  Ipv6Probe = parseIpAddress("2001:4860:4860::8888")
+  Ipv4Loopback = parseIpAddress("127.0.0.1")
+
+proc primaryInterfaceProvider*(
+    addrFamily: AddressFamily
+): seq[InterfaceAddress] {.gcsafe, raises: [].} =
+  ## One address per IP family for a wildcard bind: the default-route
+  ## interface. IPv4 falls back to loopback, IPv6 to nothing.
+  let probe =
+    case addrFamily
+    of AddressFamily.IPv4:
+      Ipv4Probe
+    of AddressFamily.IPv6:
+      Ipv6Probe
+    else:
+      return @[]
+  let ip =
+    try:
+      getPrimaryIPAddr(probe)
+    except Exception as e:
+      ## getPrimaryIPAddr has a bare Exception effect on Windows.
+      debug "Could not retrieve the primary IP address",
+        family = addrFamily, error = e.msg
+      if addrFamily == AddressFamily.IPv6:
+        return @[]
+      Ipv4Loopback
+  let prefix = if ip.family == IpAddressFamily.IPv4: 32 else: 128
+  @[InterfaceAddress.init(initTAddress(ip, Port(0)), prefix)]
 
 proc withWsTransport*(b: SwitchBuilder): SwitchBuilder =
   b.withTransport(
@@ -141,9 +178,8 @@ proc newWakuSwitch*(
     b = b.withRendezVous()
 
   let switch = b.build()
-  # The upstream wildcard service stays off. Its start mutates the
-  # mapper seq mid-walk. Even fixed it stays off: it expands a wildcard
-  # to every interface, and this node announces one primary-IP address.
-  # The base mapper resolves wildcards instead.
+  # The upstream wildcard service would announce every interface. This node
+  # announces one primary address per family through the provider instead.
+  switch.addressManager.networkInterfaceProvider = primaryInterfaceProvider
   DeliveryDialer.install(switch)
   switch
