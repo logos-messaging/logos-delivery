@@ -22,7 +22,6 @@ Key part is the definition of `parameters`, most notably:
 
 * `IMAGE_TAG` - Tag of the Docker image to push.
 * `IMAGE_NAME` - Name of the Docker image to push.
-* `LOGOSDELIVERY_IMAGE_NAME` - Name under which the same image is also pushed.
 * `NIMFLAGS` - Nim compilation parameters.
 * `GIT_REF` - Git reference to build from (branch, tag, commit...)
 
