@@ -363,6 +363,9 @@ suite "Mix send path - the reply budget":
       res.error.code == LightPushErrorCode.SERVICE_NOT_AVAILABLE
 
 suite "Mix RLN coordination protection":
+  test "the default Mix scope is a 32-byte identifier":
+    check defaultTestWakuNodeConf().mixRlnIdentifierHex.hexToSeqByte().len == 32
+
   asyncTest "shared Mix refuses to start without Relay RLN":
     let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: ModuleRlnProtection())
     let started = await node.startMixRln()

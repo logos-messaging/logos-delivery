@@ -660,7 +660,7 @@ hence would have reachability issues.""",
 
   mixRlnIdentifierHex* {.
     desc: "Mix application RLN identifier (32-byte hex).",
-    defaultValue: "6d69782d726c6e2d7370616d2d70726f74656374696f6e2f763100000000000000",
+    defaultValue: "6d69782d726c6e2d7370616d2d70726f74656374696f6e2f7631000000000000",
     name: "mix-rln-identifier-hex"
   .}: string
 
