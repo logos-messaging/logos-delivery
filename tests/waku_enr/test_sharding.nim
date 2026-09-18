@@ -8,9 +8,16 @@ import
   libp2p/crypto/crypto as libp2p_keys,
   eth/keys as eth_keys
 
+import brokers/broker_context
 import
-  logos_delivery/waku/
-    [waku_enr, discovery/waku_discv5, waku_core, common/enr, net/auto_port],
+  logos_delivery/waku/[
+    waku_enr,
+    discovery/waku_discv5,
+    waku_core,
+    common/enr,
+    net/auto_port,
+    api/events/subscription_events,
+  ],
   ../testlib/wakucore,
   ../waku_discv5/utils,
   ./utils
@@ -49,7 +56,56 @@ suite "Sharding":
       assert emptyRes.value.isNone(), $emptyRes.value
 
   suite "containsShard":
-    asyncTest "update ENR from subscriptions":
+    asyncTest "update ENR shards from shard subscription events":
+      ## Given a started discv5 node
+      let
+        shard1 = "/waku/2/rs/0/1"
+        shard2 = "/waku/2/rs/0/2"
+        privKey = generateSecp256k1Key()
+        extIp = "127.0.0.1"
+        tcpPort = 61502u16
+        udpPort = 9002u16
+
+      let record = newTestEnrRecord(
+        privKey = privKey, extIp = extIp, tcpPort = tcpPort, udpPort = udpPort
+      )
+      let node = newTestDiscv5(
+        privKey = privKey,
+        bindIp = "0.0.0.0",
+        tcpPort = tcpPort,
+        udpPort = udpPort,
+        record = record,
+      )
+
+      let res = await node.start()
+      assert res.isOk(), res.error
+
+      ## When the node reports shard subscriptions
+      let ctx = globalBrokerContext()
+      ShardSubscribedEvent.emit(ctx, ShardSubscribedEvent(topic: shard1))
+      ShardSubscribedEvent.emit(ctx, ShardSubscribedEvent(topic: shard2))
+      await sleepAsync(chronos.milliseconds(50))
+
+      ## Then they are mirrored into the ENR
+      check:
+        node.protocol.localNode.record.containsShard(shard1) == true
+        node.protocol.localNode.record.containsShard(shard2) == true
+
+      ShardUnsubscribedEvent.emit(ctx, ShardUnsubscribedEvent(topic: shard1))
+      await sleepAsync(chronos.milliseconds(50))
+
+      check:
+        node.protocol.localNode.record.containsShard(shard1) == false
+        node.protocol.localNode.record.containsShard(shard2) == true
+
+      ## And once stopped, further events are ignored
+      await node.stop()
+      ShardSubscribedEvent.emit(ctx, ShardSubscribedEvent(topic: shard1))
+      await sleepAsync(chronos.milliseconds(50))
+
+      check node.protocol.localNode.record.containsShard(shard1) == false
+
+    asyncTest "update ENR shards via updateShards":
       ## Given
       let
         shard1 = "/waku/2/rs/0/1"
@@ -59,8 +115,6 @@ suite "Sharding":
         bindIp = "0.0.0.0"
         extIp = "127.0.0.1"
         tcpPort = 61500u16
-
-      let queue = newAsyncEventQueue[SubscriptionEvent](30)
 
       proc attempt(
           p: Port
@@ -76,7 +130,6 @@ suite "Sharding":
               tcpPort = tcpPort,
               udpPort = uint16(p),
               record = record,
-              queue = queue,
             )
           except CatchableError as e:
             return err("could not build discv5 node: " & e.msg)
@@ -87,64 +140,37 @@ suite "Sharding":
       let node = (await tryWithAutoPort[WakuDiscoveryV5](Port(0), attempt)).valueOr:
         raiseAssert "could not start discv5 node: " & error
 
-      proc waitForShards(
-          shards: seq[string], present: bool, timeout = 5.seconds
-      ) {.async.} =
-        ## Waits until the ENR agrees with the emitted subscription events.
-        let deadline = Moment.now() + timeout
-        while Moment.now() < deadline:
-          if shards.allIt(node.protocol.localNode.record.containsShard(it) == present):
-            return
-          await sleepAsync(10.milliseconds)
-        raiseAssert "ENR never reached containsShard == " & $present & " for " & $shards
-
-      proc waitForEnrUpdate(previous: uint64, timeout = 5.seconds) {.async.} =
-        ## Waits for the next ENR revision, for events that leave the shards alone.
-        let deadline = Moment.now() + timeout
-        while Moment.now() < deadline:
-          if node.protocol.localNode.record.seqNum > previous:
-            return
-          await sleepAsync(10.milliseconds)
-        raiseAssert "ENR was never revised past seqNum " & $previous
-
       ## Then
-      queue.emit((kind: PubsubSub, topic: shard1))
-      queue.emit((kind: PubsubSub, topic: shard2))
-      queue.emit((kind: PubsubSub, topic: shard3))
-
-      await waitForShards(@[shard1, shard2, shard3], true)
+      node.updateShards(@[shard1, shard2, shard3], add = true).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == true
         node.protocol.localNode.record.containsShard(shard2) == true
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      let seqNumBeforeResubscribe = node.protocol.localNode.record.seqNum
-
-      queue.emit((kind: PubsubSub, topic: shard1))
-      queue.emit((kind: PubsubSub, topic: shard2))
-      queue.emit((kind: PubsubSub, topic: shard3))
-
-      await waitForEnrUpdate(seqNumBeforeResubscribe)
+      # re-adding already present shards keeps them
+      node.updateShards(@[shard1, shard2, shard3], add = true).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == true
         node.protocol.localNode.record.containsShard(shard2) == true
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      queue.emit((kind: PubsubUnsub, topic: shard1))
-      queue.emit((kind: PubsubUnsub, topic: shard2))
-
-      await waitForShards(@[shard1, shard2], false)
+      node.updateShards(@[shard1, shard2], add = false).isOkOr:
+        raiseAssert error
 
       check:
         node.protocol.localNode.record.containsShard(shard1) == false
         node.protocol.localNode.record.containsShard(shard2) == false
         node.protocol.localNode.record.containsShard(shard3) == true
 
-      ## Cleanup
-      await node.stop()
+      # removing the last remaining shard is refused
+      check node.updateShards(@[shard3], add = false).isErr()
+      check node.protocol.localNode.record.containsShard(shard3) == true
 
+      await node.stop()
 suite "Discovery Mechanisms for Shards":
   test "Index List Representation":
     # Given a valid index list and its representation
