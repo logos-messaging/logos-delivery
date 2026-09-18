@@ -7,7 +7,8 @@ import
   chronicles,
   metrics,
   libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
-  brokers/broker_context
+  brokers/broker_context,
+  libp2p_mix/mix_protocol
 
 import
   logos_delivery/waku/[
@@ -755,6 +756,12 @@ proc getPeerIp(pm: PeerManager, peerId: PeerId): Opt[string] =
 #~~~~~~~~~~~~~~~~~#
 
 proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
+  # Registered standalone Mix peers do not participate in Waku clusters.
+  let peer = pm.switch.peerStore.getPeer(peerId)
+  if peer.mixPubKey.isSome() and pm.switch.peerStore.hasPeer(peerId, MixProtocolID) and
+      not pm.switch.peerStore.hasPeer(peerId, WakuMetadataCodec):
+    return
+
   let res = catch:
     await pm.switch.dial(peerId, WakuMetadataCodec)
 
