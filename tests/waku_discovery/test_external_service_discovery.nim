@@ -1,12 +1,14 @@
 {.used.}
 
-import std/[atomics, strutils]
+import std/[atomics, os, sequtils, strutils]
 import chronos, results, testutils/unittests
 import brokers/broker_context
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto, extended_peer_record]
 import
   logos_delivery/waku/discovery/external_service_discovery,
   logos_delivery/waku/requests/node_state_requests,
+  logos_delivery/waku/node/peer_manager/peer_manager,
+  logos_delivery/waku/waku_core,
   ../testlib/common,
   ../testlib/wakucore
 
@@ -18,6 +20,7 @@ import
 type FakeState = object
   started: Atomic[bool]
   failNext: Atomic[bool]
+  blockLookup: Atomic[bool] ## lookup spins until cleared, like a wedged provider
   freed: Atomic[int]
   lastLimit: Atomic[int64]
   lastDataLen: Atomic[int]
@@ -64,8 +67,10 @@ proc fakeStop(
   fake.started.store(false)
   LdDiscoOk
 
+const FakePeerId = "16Uiu2HAm4gVVMqAzg2gT5cBii3qfaXykUJoB7jyHgAu71RuiELmz"
+
 const FakePeersJson =
-  """[{"peerId":"peer-from-plugin","seqNo":7,""" &
+  """[{"peerId":"""" & FakePeerId & """","seqNo":7,""" &
   """"addrs":["/ip4/1.2.3.4/tcp/60000"],""" &
   """"services":[{"id":"/mix/1.0.0","data":"AQID"}]}]"""
 
@@ -87,6 +92,8 @@ proc fakeLookup(
   if fake.failNext.load():
     setErr(errBuf, errBufLen, "lookup exploded")
     return LdDiscoError
+  while fake.blockLookup.load():
+    sleep(10)
   setKey(key)
   fake.lastLimit.store(limit)
   emitJson(outJson)
@@ -171,17 +178,17 @@ suite "ExternalServiceDiscovery":
 
     ## JSON from the plugin is parsed on the worker and returned as typed
     ## peers, including the base64 service payload.
-    let peers = (await iface.lookupServicePeers("svc:/mix/1.0.0", 5)).valueOr:
+    let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 5)).valueOr:
       raiseAssert error
     check:
       peers.len == 1
-      peers[0].peerId == "peer-from-plugin"
+      peers[0].peerId == FakePeerId
       peers[0].addrs == @["/ip4/1.2.3.4/tcp/60000"]
       peers[0].seqNo == 7
       peers[0].services.len == 1
       peers[0].services[0].id == "/mix/1.0.0"
       peers[0].services[0].data == @[1'u8, 2, 3]
-      lastKey() == "svc:/mix/1.0.0"
+      lastKey() == "service:/mix/1.0.0"
       fake.lastLimit.load() == 5
       fake.freed.load() == 1 # the plugin-owned JSON was handed back
 
@@ -191,7 +198,7 @@ suite "ExternalServiceDiscovery":
     ## Advertising publishes a record the node signs; without the node's
     ## identity the backend refuses rather than letting the plugin publish
     ## its own.
-    check (await iface.startAdvertising("svc:x", @[1'u8, 2])).isErr()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isErr()
     check fake.lastRecordLen.load() == 0
     let nodeKey = generateSecp256k1Key()
     let peerInfo = PeerInfo.new(nodeKey)
@@ -200,13 +207,13 @@ suite "ExternalServiceDiscovery":
       ok(peerInfo)
     discard GetNodeKey.reprovideIt(ctx):
       ok(nodeKey)
-    check (await iface.startAdvertising("svc:x", @[1'u8, 2])).isOk()
+    check (await iface.startAdvertising("service:x", @[1'u8, 2])).isOk()
     check:
-      lastKey() == "svc:x"
+      lastKey() == "service:x"
       fake.lastDataLen.load() == 2
       fake.lastRecordLen.load() > 0
     ## What the plugin got is this node's record, listing exactly this
-    ## service (svc: prefix stripped) with the advertised payload.
+    ## service (service: prefix stripped) with the advertised payload.
     let recordBytes = @(fake.lastRecord)[0 ..< fake.lastRecordLen.load()]
     let record = SignedExtendedPeerRecord.decode(recordBytes).expect("decodes")
     record.checkValid().expect("signed by the node")
@@ -216,10 +223,10 @@ suite "ExternalServiceDiscovery":
       record.data.services.len == 1
       record.data.services[0].id == "x"
       record.data.services[0].data == Opt.some(@[1'u8, 2])
-    check (await iface.startAdvertising("shard:0", @[])).isErr()
+    check (await iface.startAdvertising("topic:/waku/2/rs/0/0", @[])).isErr()
 
-    check (await iface.registerInterest("svc:y")).isOk()
-    check lastKey() == "svc:y"
+    check (await iface.registerInterest("service:y")).isOk()
+    check lastKey() == "service:y"
 
     ## A no-op that still succeeds: the provider took its bootstrap entries at
     ## init and exposes no call to add more.
@@ -245,7 +252,7 @@ suite "ExternalServiceDiscovery":
     check (await backend.startDiscovery()).isOk()
     check fake.started.load()
 
-    let peers = (await backend.lookupServicePeers("svc:/mix/1.0.0", 3)).valueOr:
+    let peers = (await backend.lookupServicePeers("service:/mix/1.0.0", 3)).valueOr:
       raiseAssert error
     check peers.len == 1
 
@@ -332,3 +339,62 @@ suite "ExternalServiceDiscovery":
     check:
       res.isErr()
       "no service discovery plugin registered" in res.error
+
+  asyncTest "stop gives up on a worker stuck in a plugin call; a restart works":
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+
+    ## The verb never returns, so the caller times out (requestTimeoutMs)...
+    fake.blockLookup.store(true)
+    let stuck = iface.lookupServicePeers("service:/mix/1.0.0", 1)
+    ## ...and stop must not hang the loop behind the join: it reports the
+    ## abandoned worker after the grace period instead.
+    let t0 = Moment.now()
+    let stopped = await iface.stopDiscovery()
+    check:
+      stopped.isErr()
+      Moment.now() - t0 < chronos.seconds(20)
+      (await stuck).isErr()
+
+    ## Release the old thread; it exits without touching the registrations
+    ## the next worker installs, so discovery comes back on the same context.
+    fake.blockLookup.store(false)
+    await sleepAsync(chronos.milliseconds(200))
+    check (await iface.startDiscovery()).isOk()
+    let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 1)).valueOr:
+      raiseAssert error
+    check peers.len == 1
+    check (await iface.stopDiscovery()).isOk()
+
+  asyncTest "discovered peers are handed to the PeerManager":
+    ## The plugin discovers on its own switch, so nothing else in the node
+    ## sees what it found: the backend has to put the peers in the peer store
+    ## itself, the way the in-process backend does in `processRecords`.
+    ## Without this the lookups would succeed and the node would still never
+    ## dial anyone.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+
+    let peerManager = PeerManager.new(switch = newTestSwitch(), storage = nil)
+    discard GetNodePeerManager.reprovideIt(ctx):
+      ok(peerManager)
+
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+    check (await iface.lookupServicePeers("service:/mix/1.0.0", 1)).isOk()
+
+    let wanted = PeerId.init(FakePeerId).get()
+    let stored = peerManager.switch.peerStore.getPeer(wanted)
+    check:
+      stored.peerId == wanted
+      stored.addrs.mapIt($it) == @["/ip4/1.2.3.4/tcp/60000"]
+      stored.origin == PeerOrigin.Kademlia
+      "/mix/1.0.0" in stored.protocols
+
+    ## The random walk feeds the node too, not just the service lookup.
+    check (await iface.lookupRandom()).isOk()
+    check (await iface.stopDiscovery()).isOk()
