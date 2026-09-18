@@ -51,7 +51,7 @@ suite "SendService RLN proof attach - RLN mounted":
 
   asyncSetup:
     anvilProc = runAnvil(stateFile = Opt.some(DEFAULT_ANVIL_STATE_PATH))
-    manager = waitFor setupRlnEvm(deployContracts = false)
+    manager = await setupRlnEvm(deployContracts = false)
 
     waku = (await Waku.new(testConf())).expect("Waku.new")
     await waku.node.setRlnValidator(
@@ -65,7 +65,7 @@ suite "SendService RLN proof attach - RLN mounted":
 
     let credentials = generateCredentials()
     (
-      waitFor cast[RlnEvmGroupManager](waku.node.rln.groupManager).register(
+      await cast[RlnEvmGroupManager](waku.node.rln.groupManager).register(
         credentials, UserMessageLimit(20)
       )
     ).isOkOr:

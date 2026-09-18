@@ -40,14 +40,14 @@ proc newFailingArchiveDriver*(): ArchiveDriver =
 
 proc put*(
     driver: ArchiveDriver, pubsubTopic: PubSubTopic, msgList: seq[WakuMessage]
-): ArchiveDriver =
+): Future[ArchiveDriver] {.async.} =
   for msg in msgList:
-    let _ = waitFor driver.put(computeMessageHash(pubsubTopic, msg), pubsubTopic, msg)
+    let _ = await driver.put(computeMessageHash(pubsubTopic, msg), pubsubTopic, msg)
   return driver
 
 proc newArchiveDriverWithMessages*(
     pubsubTopic: PubSubTopic, msgList: seq[WakuMessage]
-): ArchiveDriver =
+): Future[ArchiveDriver] {.async.} =
   var driver = newSqliteArchiveDriver()
-  driver = driver.put(pubsubTopic, msgList)
+  driver = await driver.put(pubsubTopic, msgList)
   return driver

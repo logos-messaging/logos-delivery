@@ -21,7 +21,7 @@ const RequiredNimblePin = "07caee397d628c9e93d81048268365c4c2414a80"
 
 ### Dependencies
 requires "nim == 2.2.6",
-  "chronos >= 4.2.0 & < 4.4.0",
+  "chronos >= 4.4.0 & < 4.5.0",
   "taskpools",
   # Logging & Configuration
   "chronicles",
@@ -70,15 +70,16 @@ requires "nim == 2.2.6",
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
 
-# v0.3.1-rc.0: https://github.com/logos-messaging/nim-ffi/releases/tag/v0.3.1-rc.0
-requires "https://github.com/logos-messaging/nim-ffi#07ee8e1d6500762bab290465457a8d23559de546"
+requires "https://github.com/logos-messaging/nim-ffi#b9c4d26de013bba098e810f70074cbba6c5b4c15"
 
 # No tag at pinning time; revision was 19 commits after v0.3.1-rc.0.
 requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb948b32a4ade1de3b5"
 
-requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
+requires "https://github.com/NagyZoltanPeter/nim-brokers.git#c370ac112129645dba551cc24eefd9120db8df24"
 
 requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b0204093fe202bec477b2dbf824c"
+
+requires "https://github.com/status-im/nim-leopard#2e8de41205ea44b6f33b5cad676bab215b36c987"
 
 # v0.9.0: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.9.0
 # libp2p requires "lsquic >= 0.9.0" by name. The exact numeric constraint
@@ -86,7 +87,7 @@ requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b02040
 # the newest one.
 requires "https://github.com/vacp2p/nim-lsquic#fb293834a3f90368e1f6c57aec2360cf8d840c5a"
 
-requires "https://github.com/vacp2p/nim-boringssl#v0.0.11"
+requires "https://github.com/vacp2p/nim-boringssl#v0.0.13"
 
 # No tag at pinning time; revision was one commit after v0.2.0.
 requires "https://github.com/vacp2p/nim-jwt.git#057ec95eb5af0eea9c49bfe9025b3312c95dc5f2"

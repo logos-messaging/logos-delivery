@@ -72,7 +72,7 @@ suite "Waku Store - End to End - Sorted Archive":
     server = newTestWakuNode(serverKey)
     client = newTestWakuNode(clientKey)
 
-    archiveDriver = newArchiveDriverWithMessages(pubsubTopic, messages)
+    archiveDriver = await newArchiveDriverWithMessages(pubsubTopic, messages)
     let mountArchiveResult = server.mountArchive(archiveDriver)
     assert mountArchiveResult.isOk()
 
@@ -324,7 +324,7 @@ suite "Waku Store - End to End - Sorted Archive":
             message: WakuMessage =
               fakeWakuMessage(@[byte i], ts = ts(timestampOffset, lastMessageTimestamp))
           extraMessages.add(message)
-        discard archiveDriver.put(pubsubTopic, extraMessages)
+        discard await archiveDriver.put(pubsubTopic, extraMessages)
 
         let totalMessages =
           archiveMessages &
@@ -381,7 +381,7 @@ suite "Waku Store - End to End - Sorted Archive":
             message: WakuMessage =
               fakeWakuMessage(@[byte i], ts = ts(timestampOffset, lastMessageTimestamp))
           extraMessages.add(message)
-        discard archiveDriver.put(pubsubTopic, extraMessages)
+        discard await archiveDriver.put(pubsubTopic, extraMessages)
 
         let totalMessages =
           archiveMessages &
@@ -469,7 +469,7 @@ suite "Waku Store - End to End - Sorted Archive":
       asyncTest "Cursor Reusability Across Nodes":
         # Given a different server node with the same archive
         let
-          otherArchiveDriverWithMessages = newArchiveDriverWithMessages(
+          otherArchiveDriverWithMessages = await newArchiveDriverWithMessages(
             pubsubTopic, archiveMessages.mapIt(it.message.get())
           )
           otherServerKey = generateSecp256k1Key()
@@ -568,7 +568,7 @@ suite "Waku Store - End to End - Unsorted Archive":
 
     let
       unsortedArchiveDriverWithMessages =
-        newArchiveDriverWithMessages(pubsubTopic, messages)
+        await newArchiveDriverWithMessages(pubsubTopic, messages)
       mountUnsortedArchiveResult =
         server.mountArchive(unsortedArchiveDriverWithMessages)
 
@@ -785,7 +785,7 @@ suite "Waku Store - End to End - Unsorted Archive without provided Timestamp":
 
     let
       unsortedArchiveDriverWithMessages =
-        newArchiveDriverWithMessages(pubsubTopic, messages)
+        await newArchiveDriverWithMessages(pubsubTopic, messages)
       mountUnsortedArchiveResult =
         server.mountArchive(unsortedArchiveDriverWithMessages)
 
@@ -932,9 +932,9 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
     server = newTestWakuNode(serverKey)
     client = newTestWakuNode(clientKey)
 
-    let archiveDriver = newSqliteArchiveDriver().put(pubsubTopic, messages[0 ..< 6]).put(
-        pubsubTopicB, messages[6 ..< 10]
-      )
+    let archiveDriver = newSqliteArchiveDriver()
+    discard await archiveDriver.put(pubsubTopic, messages[0 ..< 6])
+    discard await archiveDriver.put(pubsubTopicB, messages[6 ..< 10])
     let mountUnsortedArchiveResult = server.mountArchive(archiveDriver)
 
     assert mountUnsortedArchiveResult.isOk()
@@ -1173,7 +1173,7 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
           fakeWakuMessage(@[byte 02], ts = ts(20), ephemeral = true),
         ]
         ephemeralArchiveDriver =
-          newSqliteArchiveDriver().put(pubsubTopic, ephemeralMessages)
+          await newSqliteArchiveDriver().put(pubsubTopic, ephemeralMessages)
 
       # And a server node with the ephemeral archive
       let
@@ -1211,8 +1211,8 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
           fakeWakuMessage(@[byte 05], ts = ts(50), ephemeral = false),
         ]
         mixedArchiveDriver = newSqliteArchiveDriver()
-          .put(pubsubTopic, ephemeralMessages)
-          .put(pubsubTopic, nonEphemeralMessages)
+      discard await mixedArchiveDriver.put(pubsubTopic, ephemeralMessages)
+      discard await mixedArchiveDriver.put(pubsubTopic, nonEphemeralMessages)
 
       # And a server node with the mixed archive
       let
@@ -1277,7 +1277,7 @@ suite "Waku Store - End to End - Archive with Multiple Topics":
       )
 
       let voluminousArchiveDriverWithMessages =
-        newArchiveDriverWithMessages(pubsubTopic, messages)
+        await newArchiveDriverWithMessages(pubsubTopic, messages)
 
       # And a server node with the voluminous archive
       let

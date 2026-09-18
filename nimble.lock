@@ -64,15 +64,15 @@
       }
     },
     "boringssl": {
-      "version": "#v0.0.11",
-      "vcsRevision": "346429e4cda48e775f2d1eb3ccb8757edf4f3648",
+      "version": "#v0.0.13",
+      "vcsRevision": "fbf9c2762241be3f004d45b9a32b7bfd6ea136a8",
       "url": "https://github.com/vacp2p/nim-boringssl",
       "downloadMethod": "git",
       "dependencies": [
         "nim"
       ],
       "checksums": {
-        "sha1": "49acb43d56a26b30587c9758edb34e3c44b63d8f"
+        "sha1": "706b29a12b4462400524c570b953752dfb285d4d"
       }
     },
     "unittest2": {
@@ -197,8 +197,8 @@
       }
     },
     "chronos": {
-      "version": "4.2.5",
-      "vcsRevision": "0ab802baef6bf16a8e3cc7d8a5c3128ddafadec5",
+      "version": "4.4.0",
+      "vcsRevision": "0de7b335d0ad5557ad5ba71a4b7662f7b201750e",
       "url": "https://github.com/status-im/nim-chronos",
       "downloadMethod": "git",
       "dependencies": [
@@ -210,7 +210,7 @@
         "unittest2"
       ],
       "checksums": {
-        "sha1": "5acb420a1aa1193eaf0e130e094ed4a80c095abb"
+        "sha1": "ca63adf451a12da1ac80419bd7f734eae6627c03"
       }
     },
     "libplum": {
@@ -419,8 +419,8 @@
       }
     },
     "brokers": {
-      "version": "#v3.3.0",
-      "vcsRevision": "19565dd80621e33f6da396ef3fb07c379d55c324",
+      "version": "#c370ac112129645dba551cc24eefd9120db8df24",
+      "vcsRevision": "c370ac112129645dba551cc24eefd9120db8df24",
       "url": "https://github.com/NagyZoltanPeter/nim-brokers.git",
       "downloadMethod": "git",
       "dependencies": [
@@ -432,7 +432,7 @@
         "cbor_serialization"
       ],
       "checksums": {
-        "sha1": "2a17814c257c3182ea24726d4be0c46c3d48bbaa"
+        "sha1": "973fca04835f79bf7458b59c625b515a1e46d0cc"
       }
     },
     "stint": {
@@ -451,8 +451,8 @@
       }
     },
     "leopard": {
-      "version": "#0478b12df90cbbe531efa69422cff67b5a3a5d93",
-      "vcsRevision": "0478b12df90cbbe531efa69422cff67b5a3a5d93",
+      "version": "#2e8de41205ea44b6f33b5cad676bab215b36c987",
+      "vcsRevision": "2e8de41205ea44b6f33b5cad676bab215b36c987",
       "url": "https://github.com/status-im/nim-leopard",
       "downloadMethod": "git",
       "dependencies": [
@@ -461,7 +461,7 @@
         "results"
       ],
       "checksums": {
-        "sha1": "9352901ef26dfdc51dfc76c500be05a3c89abb1b"
+        "sha1": "2fc77ade5d088afbb56c555a295f1cf286cebb7d"
       }
     },
     "taskpools": {
@@ -478,19 +478,18 @@
       }
     },
     "ffi": {
-      "version": "#07ee8e1d6500762bab290465457a8d23559de546",
-      "vcsRevision": "07ee8e1d6500762bab290465457a8d23559de546",
+      "version": "#b9c4d26de013bba098e810f70074cbba6c5b4c15",
+      "vcsRevision": "b9c4d26de013bba098e810f70074cbba6c5b4c15",
       "url": "https://github.com/logos-messaging/nim-ffi",
       "downloadMethod": "git",
       "dependencies": [
         "nim",
         "chronos",
         "chronicles",
-        "taskpools",
         "cbor_serialization"
       ],
       "checksums": {
-        "sha1": "a6ac9d68f58fa6b695ec77452396b99367f774c8"
+        "sha1": "30f8c27de133bed963e620808f34e3a34a08d0b3"
       }
     },
     "minilru": {

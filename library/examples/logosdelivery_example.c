@@ -5,7 +5,9 @@
 #include <unistd.h>
 #include <stdlib.h>
 
-static int create_node_ok = -1;
+// Set by on_created, polled by the main thread.
+static volatile int create_node_done = 0;
+static LogosDeliveryCtx *node_ctx = NULL;
 
 // Flags set by event callback, polled by main thread
 static volatile int got_message_sent = 0;
@@ -111,37 +113,25 @@ void event_callback(int ret, const char *msg, size_t len, void *userData) {
     free(eventJson);
 }
 
-// Constructor callback (LogosDeliveryCreateRawFn): reports the terminal result
-// of create_node. `ctxAddr` is the context address as text on success.
-void on_created(int ret, const char *ctxAddr, const char *errMsg, void *userData) {
-    create_node_ok = (ret == RET_OK) ? 1 : 0;
-    if (ret != RET_OK) {
+// Constructor callback (LogosDeliveryCreateFn). On success `ctx` is a handle
+// the caller owns and releases with logosdelivery_ctx_destroy.
+void on_created(int ret, LogosDeliveryCtx *ctx, const char *errMsg, void *userData) {
+    if (ret == RET_OK) {
+        node_ctx = ctx;
+    } else {
         printf("[create_node] Error: %s\n", errMsg ? errMsg : "unknown error");
     }
+    create_node_done = 1;
 }
 
-// Reply callback for the argument-taking calls (subscribe, unsubscribe, send,
-// get_node_info). `reply` is the result on success, `errMsg` on failure.
-void on_reply(int ret, const char *reply, const char *errMsg, void *userData) {
+// Reply callback shared by every logosdelivery_ctx_* call. `reply` is valid
+// only during the call.
+void on_reply(int ret, const char *const *reply, const char *errMsg, void *userData) {
     const char *operation = (const char *)userData;
     if (ret == RET_OK) {
-        printf("[%s] Success: %s\n", operation, reply ? reply : "");
+        printf("[%s] Success: %s\n", operation, reply && *reply ? *reply : "");
     } else {
         printf("[%s] Error: %s\n", operation, errMsg ? errMsg : "unknown error");
-    }
-}
-
-// Raw callback for the no-argument calls (start_node, stop_node,
-// get_available_*). `msg` is `len` bytes and not NUL-terminated.
-void on_scalar(int ret, char *msg, size_t len, void *userData) {
-    const char *operation = (const char *)userData;
-    if (ret == RET_STALE_WARN) {
-        return; // non-terminal progress tick
-    }
-    if (ret == RET_OK) {
-        printf("[%s] Success: %.*s\n", operation, (int)len, msg);
-    } else {
-        printf("[%s] Error: %.*s\n", operation, (int)len, msg);
     }
 }
 
@@ -210,21 +200,17 @@ static int rot_decrypt(void *user_data, const uint8_t *in, size_t in_len,
 // The cipher is given to the channel at creation. nim-ffi has no callback
 // parameter kind, so the callbacks travel as uint64_t; this wrapper keeps
 // the casts in one place. Pass NULLs for an unencrypted channel.
-static int create_channel(void *ctx, const char *channel_id,
+static int create_channel(const LogosDeliveryCtx *ctx, const char *channel_id,
                           const char *content_topic,
                           LogosDeliveryCryptoFn encrypt,
                           LogosDeliveryCryptoFn decrypt,
                           void *crypto_user_data) {
-    LogosdeliveryChannelCreateReq req = {
-        .channelIdStr = channel_id,
-        .contentTopicStr = content_topic,
-        .senderIdStr = "logosdelivery-example",
-        .encryptFn = (uint64_t)(uintptr_t)encrypt,
-        .decryptFn = (uint64_t)(uintptr_t)decrypt,
-        .userData = (uint64_t)(uintptr_t)crypto_user_data,
-    };
-    return logosdelivery_channel_create(ctx, on_reply,
-                                        (void *)"channel_create", &req);
+    return logosdelivery_ctx_channel_create(
+        ctx, channel_id, content_topic,
+        "logosdelivery-example",
+        (uint64_t)(uintptr_t)encrypt, (uint64_t)(uintptr_t)decrypt,
+        (uint64_t)(uintptr_t)crypto_user_data,
+        on_reply, (void *)"channel_create");
 }
 
 int main() {
@@ -241,61 +227,55 @@ int main() {
     "}";
 
     printf("1. Creating node...\n");
-    LogosdeliveryCreateNodeCtorReq createReq = { .configJson = config };
-    void *ctx = logosdelivery_create_node(&createReq, on_created, NULL);
-    if (ctx == NULL) {
-        printf("Failed to create node\n");
-        return 1;
+    logosdelivery_ctx_create(config, on_created, NULL);
+
+    // Creation is asynchronous: the context arrives in on_created.
+    for (int i = 0; i < 100 && !create_node_done; i++) {
+        usleep(100000); // 100ms
     }
-
-    // Wait a bit for the callback
-    sleep(1);
-
-    if (create_node_ok != 1) {
+    if (node_ctx == NULL) {
         printf("Create node failed, stopping example early.\n");
-        logosdelivery_destroy(ctx);
         return 1;
     }
+    LogosDeliveryCtx *ctx = node_ctx;
 
     printf("\n2. Setting up event listeners...\n");
-    logosdelivery_add_event_listener(ctx, "onMessageSent", event_callback, NULL);
-    logosdelivery_add_event_listener(ctx, "onMessagePropagated", event_callback, NULL);
-    logosdelivery_add_event_listener(ctx, "onMessageError", event_callback, NULL);
-    logosdelivery_add_event_listener(ctx, "onChannelMessageReceived", event_callback, NULL);
-    logosdelivery_add_event_listener(ctx, "onChannelMessageSent", event_callback, NULL);
-    logosdelivery_add_event_listener(ctx, "onChannelMessageError", event_callback, NULL);
+    // The listener registry takes the raw context pointer.
+    logosdelivery_add_event_listener(ctx->ptr, "onMessageSent", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx->ptr, "onMessagePropagated", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx->ptr, "onMessageError", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx->ptr, "onChannelMessageReceived", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx->ptr, "onChannelMessageSent", event_callback, NULL);
+    logosdelivery_add_event_listener(ctx->ptr, "onChannelMessageError", event_callback, NULL);
     printf("Event listeners registered for message and channel events\n");
 
     printf("\n3. Starting node...\n");
-    logosdelivery_start_node(ctx, on_scalar, (void *)"start_node");
+    logosdelivery_ctx_start_node(ctx, on_reply, (void *)"start_node");
 
     // Wait for node to start
     sleep(5);
 
     printf("\n4. Subscribing to content topic...\n");
     const char *contentTopic = "/example/1/chat/proto";
-    LogosdeliverySubscribeReq subscribeReq = { .contentTopicStr = contentTopic };
-    logosdelivery_subscribe(ctx, on_reply, (void *)"subscribe", &subscribeReq);
+    logosdelivery_ctx_subscribe(ctx, contentTopic, on_reply, (void *)"subscribe");
 
     // Wait for subscription
     sleep(1);
 
     printf("\n5. Retrieving all possible node info ids...\n");
-    logosdelivery_get_available_node_info_ids(ctx, on_scalar, (void *)"get_available_node_info_ids");
+    logosdelivery_ctx_get_available_node_info_ids(ctx, on_reply, (void *)"get_available_node_info_ids");
 
     printf("\nRetrieving node info for a specific invalid ID...\n");
-    LogosdeliveryGetNodeInfoReq nodeInfoReq = { .nodeInfoId = "WrongNodeInfoId" };
-    logosdelivery_get_node_info(ctx, on_reply, (void *)"get_node_info", &nodeInfoReq);
+    logosdelivery_ctx_get_node_info(ctx, "WrongNodeInfoId", on_reply, (void *)"get_node_info");
 
     printf("\nRetrieving several node info for specific correct IDs...\n");
     const char *nodeInfoIds[] = {"Version", "MyMultiaddresses", "MyENR", "MyPeerId"};
     for (size_t i = 0; i < sizeof(nodeInfoIds) / sizeof(nodeInfoIds[0]); i++) {
-        LogosdeliveryGetNodeInfoReq req = { .nodeInfoId = nodeInfoIds[i] };
-        logosdelivery_get_node_info(ctx, on_reply, (void *)"get_node_info", &req);
+        logosdelivery_ctx_get_node_info(ctx, nodeInfoIds[i], on_reply, (void *)"get_node_info");
     }
 
     printf("\nRetrieving available configs...\n");
-    logosdelivery_get_available_configs(ctx, on_scalar, (void *)"get_available_configs");
+    logosdelivery_ctx_get_available_configs(ctx, on_reply, (void *)"get_available_configs");
 
     printf("\n6. Sending a message...\n");
     printf("Watch for message events (sent, propagated, or error):\n");
@@ -305,8 +285,7 @@ int main() {
         "\"payload\": \"SGVsbG8sIExvZ29zIE1lc3NhZ2luZyE=\","
         "\"ephemeral\": false"
     "}";
-    LogosdeliverySendReq sendReq = { .messageJson = message };
-    logosdelivery_send(ctx, on_reply, (void *)"send", &sendReq);
+    logosdelivery_ctx_send(ctx, message, on_reply, (void *)"send");
 
     // Poll for terminal message events (sent, error, or received) with timeout
     printf("Waiting for message delivery events...\n");
@@ -336,29 +315,26 @@ int main() {
     const char *channels[] = {"#xor", "#rot", "#plain"};
 
     for (size_t i = 0; i < sizeof(channels) / sizeof(channels[0]); i++) {
-        LogosdeliveryChannelSendReq chanSendReq = {
-            .channelIdStr = channels[i],
-            .messageJson = "{\"payload\": \"SGVsbG8sIExvZ29zIE1lc3NhZ2luZyE=\","
-                           "\"ephemeral\": false}",
-        };
-        logosdelivery_channel_send(ctx, on_reply, (void *)"channel_send",
-                                   &chanSendReq);
+        logosdelivery_ctx_channel_send(
+            ctx, channels[i],
+            "{\"payload\": \"SGVsbG8sIExvZ29zIE1lc3NhZ2luZyE=\","
+            "\"ephemeral\": false}",
+            on_reply, (void *)"channel_send");
     }
     sleep(2);
 
     printf("\n8. Unsubscribing from content topic...\n");
-    LogosdeliveryUnsubscribeReq unsubscribeReq = { .contentTopicStr = contentTopic };
-    logosdelivery_unsubscribe(ctx, on_reply, (void *)"unsubscribe", &unsubscribeReq);
+    logosdelivery_ctx_unsubscribe(ctx, contentTopic, on_reply, (void *)"unsubscribe");
 
     sleep(1);
 
     printf("\n9. Stopping node...\n");
-    logosdelivery_stop_node(ctx, on_scalar, (void *)"stop_node");
+    logosdelivery_ctx_stop_node(ctx, on_reply, (void *)"stop_node");
 
     sleep(1);
 
     printf("\n10. Destroying context...\n");
-    logosdelivery_destroy(ctx);
+    logosdelivery_ctx_destroy(ctx);
 
     printf("\n=== Example completed ===\n");
     return 0;

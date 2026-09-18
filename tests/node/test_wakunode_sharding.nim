@@ -739,8 +739,9 @@ suite "Sharding":
               @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopicFull
             )
           ]
-          archiveDriver = newArchiveDriverWithMessages(pubsubTopic, archiveMessages1)
-        discard archiveDriver.put(pubsubTopic, archiveMessages2)
+          archiveDriver =
+            await newArchiveDriverWithMessages(pubsubTopic, archiveMessages1)
+        discard await archiveDriver.put(pubsubTopic, archiveMessages2)
         let mountArchiveResult = server.mountArchive(archiveDriver)
         assertResultOk(mountArchiveResult)
 
@@ -908,8 +909,9 @@ suite "Sharding":
               @[byte 01], ts = ts(10, timeOrigin), contentTopic = contentTopic2
             )
           ]
-          archiveDriver = newArchiveDriverWithMessages(pubsubTopic1, archiveMessages1)
-        discard archiveDriver.put(pubsubTopic2, archiveMessages2)
+          archiveDriver =
+            await newArchiveDriverWithMessages(pubsubTopic1, archiveMessages1)
+        discard await archiveDriver.put(pubsubTopic2, archiveMessages2)
         let mountArchiveResult = server.mountArchive(archiveDriver)
         assertResultOk(mountArchiveResult)
 
@@ -1306,8 +1308,8 @@ suite "Sharding":
         topic2 = "/waku/2/rs/0/2"
         archiveMessages1 = @[fakeWakuMessage(@[byte 00], ts = ts(00, timeOrigin))]
         archiveMessages2 = @[fakeWakuMessage(@[byte 01], ts = ts(10, timeOrigin))]
-        archiveDriver = newArchiveDriverWithMessages(topic1, archiveMessages1)
-      discard archiveDriver.put(topic2, archiveMessages2)
+        archiveDriver = await newArchiveDriverWithMessages(topic1, archiveMessages1)
+      discard await archiveDriver.put(topic2, archiveMessages2)
       let mountArchiveResult = server.mountArchive(archiveDriver)
       assertResultOk(mountArchiveResult)
 

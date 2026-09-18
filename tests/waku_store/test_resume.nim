@@ -70,7 +70,7 @@ suite "Store Resume - End to End":
     server = newTestWakuNode(serverKey, IPv4_any(), Port(0))
     client = newTestWakuNode(clientKey, IPv4_any(), Port(0))
 
-    serverDriver = newArchiveDriverWithMessages(DefaultPubsubTopic, messages)
+    serverDriver = await newArchiveDriverWithMessages(DefaultPubsubTopic, messages)
     clientDriver = newSqliteArchiveDriver()
 
     let mountServerArchiveRes = server.mountArchive(serverDriver)

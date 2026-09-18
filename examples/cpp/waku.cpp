@@ -7,6 +7,7 @@
 #include <fcntl.h>
 #include <stdint.h>
 #include <vector>
+#include <string>
 #include <iostream>
 
 #include <sys/types.h>
@@ -95,13 +96,7 @@ static void parse_args(int argc, char **argv, struct ConfigNode *cfgNode)
 
 void event_handler(const char *msg, size_t len)
 {
-    printf("Receiving event: %s\n", msg);
-}
-
-void handle_error(const char *msg, size_t len)
-{
-    printf("handle_error: %s\n", msg);
-    exit(1);
+    printf("Receiving event: %.*s\n", (int)len, msg);
 }
 
 // FFICallback: the event-listener registry shape.
@@ -117,32 +112,34 @@ auto cify(F &&f)
     };
 }
 
-// LogosDeliveryScalarRawFn: `msg` is a byte run of `len` bytes.
-template <class F>
-auto cifyRaw(F &&f)
-{
-    static F fn = std::forward<F>(f);
-    return [](int callerRet, char *msg, size_t len, void *userData)
-    {
-        last_callback_ret = callerRet;
-        signal_cond();
-        return fn(msg, len);
-    };
-}
-
-// LogosDelivery*ReplyFn (and CreateRawFn, which has the same signature):
-// entry points taking a request struct report failure in its own argument.
+// The reply shape of every logosdelivery_ctx_* call: the reply on success, the
+// failure text otherwise. `fn` runs before the waiting thread is woken, so a
+// value it stores is there when WAKU_CALL returns.
 template <class F>
 auto cifyReply(F &&f)
 {
     static F fn = std::forward<F>(f);
-    return [](int errCode, const char *reply, const char *errMsg, void *userData)
+    return [](int errCode, const char *const *reply, const char *errMsg, void *userData)
     {
         last_callback_ret = errCode;
+        const std::string text = reply != nullptr && *reply != nullptr
+                                     ? std::string(*reply)
+                                     : std::string(errMsg != nullptr ? errMsg : "");
+        fn(text.c_str(), text.size());
         signal_cond();
-        const char *text = reply != nullptr ? reply : (errMsg != nullptr ? errMsg : "");
-        return fn(text, strlen(text));
     };
+}
+
+// LogosDeliveryCreateFn: on success the caller owns `ctx`, and releases it with
+// logosdelivery_ctx_destroy.
+LogosDeliveryCtx *node_ctx = nullptr;
+void on_created(int errCode, LogosDeliveryCtx *ctx, const char *errMsg, void *userData)
+{
+    last_callback_ret = errCode;
+    node_ctx = ctx;
+    std::cout << "logosdelivery_ctx_create feedback: "
+              << (errMsg != nullptr ? errMsg : "ok") << std::endl;
+    signal_cond();
 }
 
 // Beginning of UI program logic
@@ -165,7 +162,7 @@ void show_main_menu()
     printf("\t3.) Publish a message\n");
 }
 
-void handle_user_input(void *ctx)
+void handle_user_input(const LogosDeliveryCtx *ctx)
 {
     char cmd[1024];
     memset(cmd, 0, 1024);
@@ -183,12 +180,11 @@ void handle_user_input(void *ctx)
         char pubsubTopic[128];
         scanf("%127s", pubsubTopic);
 
-        WakuRelaySubscribeReq subscribeReq = {.pubSubTopic = pubsubTopic};
-        WAKU_CALL(waku_relay_subscribe(ctx,
-                                       cifyReply([&](const char *msg, size_t len)
-                                                 { event_handler(msg, len); }),
-                                       nullptr,
-                                       &subscribeReq));
+        WAKU_CALL(logosdelivery_ctx_waku_relay_subscribe(
+            ctx, pubsubTopic,
+            cifyReply([&](const char *msg, size_t len)
+                      { event_handler(msg, len); }),
+            nullptr));
         printf("The subscription went well\n");
 
         show_main_menu();
@@ -201,12 +197,11 @@ void handle_user_input(void *ctx)
         printf("e.g.: /ip4/127.0.0.1/tcp/60001/p2p/16Uiu2HAmVFXtAfSj4EiR7mL2KvL4EE2wztuQgUSBoj2Jx2KeXFLN\n");
         char peerAddr[512];
         scanf("%511s", peerAddr);
-        WakuConnectReq connectReq = {.peerMultiAddr = peerAddr, .timeoutMs = 10000};
-        WAKU_CALL(waku_connect(ctx,
-                               cifyReply([&](const char *msg, size_t len)
-                                         { event_handler(msg, len); }),
-                               nullptr,
-                               &connectReq));
+        WAKU_CALL(logosdelivery_ctx_waku_connect(
+            ctx, peerAddr, 10000,
+            cifyReply([&](const char *msg, size_t len)
+                      { event_handler(msg, len); }),
+            nullptr));
         show_main_menu();
     }
     break;
@@ -221,30 +216,26 @@ void handle_user_input(void *ctx)
         std::vector<char> msgPayload;
         b64_encode(msg, strlen(msg), msgPayload);
 
-        std::string contentTopic;
-        WakuContentTopicReq contentTopicReq = {.appName = "appName",
-                                               .appVersion = 1,
-                                               .contentTopicName = "contentTopicName",
-                                               .encoding = "encoding"};
-        waku_content_topic(ctx,
-                           cifyReply([&contentTopic](const char *msg, size_t len)
-                                     { contentTopic = msg; }),
-                           nullptr,
-                           &contentTopicReq);
+        // Static: cifyReply keeps the first lambda it is given, so the
+        // reference it captures has to outlive this call.
+        static std::string contentTopic;
+        WAKU_CALL(logosdelivery_ctx_waku_content_topic(
+            ctx, "appName", 1, "contentTopicName",
+            "encoding",
+            cifyReply([](const char *msg, size_t len)
+                      { contentTopic.assign(msg, len); }),
+            nullptr));
 
         snprintf(jsonWakuMsg,
                  2048,
                  "{\"payload\":\"%s\",\"contentTopic\":\"%s\"}",
                  msgPayload.data(), contentTopic.c_str());
 
-        WakuRelayPublishReq publishReq = {.pubSubTopic = "/waku/2/rs/16/32",
-                                          .jsonWakuMessage = jsonWakuMsg,
-                                          .timeoutMs = 10000};
-        WAKU_CALL(waku_relay_publish(ctx,
-                                     cifyReply([&](const char *msg, size_t len)
-                                               { event_handler(msg, len); }),
-                                     nullptr,
-                                     &publishReq));
+        WAKU_CALL(logosdelivery_ctx_waku_relay_publish(
+            ctx, "/waku/2/rs/16/32", jsonWakuMsg, 10000,
+            cifyReply([&](const char *msg, size_t len)
+                      { event_handler(msg, len); }),
+            nullptr));
 
         show_main_menu();
     }
@@ -289,57 +280,45 @@ int main(int argc, char **argv)
              cfgNode.host,
              cfgNode.port);
 
-    void *ctx =
-        [&]() {
-            LogosdeliveryCreateNodeCtorReq createReq = {.configJson = jsonConfig};
-            return logosdelivery_create_node(
-                &createReq,
-                cifyReply([](const char *msg, size_t len)
-                          { std::cout << "logosdelivery_create_node feedback: " << msg << std::endl; }),
-                nullptr);
-        }();
+    // Creation is asynchronous, and the context is only handed over once the
+    // node exists: a config that fails to parse on the worker thread leaves
+    // node_ctx null. Bail out cleanly rather than use it.
+    logosdelivery_ctx_create(jsonConfig, on_created, nullptr);
     waitForCallback();
-
-    // Node creation is asynchronous: logosdelivery_create_node returns a non-null
-    // ctx as soon as the request is enqueued, but the config may still fail to
-    // parse on the worker thread. Using ctx after a failed creation dereferences
-    // a nil node inside the library and crashes (SIGSEGV). Bail out cleanly.
+    LogosDeliveryCtx *ctx = node_ctx;
     if (ctx == nullptr || last_callback_ret != RET_OK)
     {
         std::cerr << "Failed to create the node. Aborting." << std::endl;
-        if (ctx != nullptr)
-        {
-            logosdelivery_destroy(ctx);
-        }
+        logosdelivery_ctx_destroy(ctx);
         return 1;
     }
 
     // example on how to retrieve a value from the `libwaku` callback.
     std::string defaultPubsubTopic;
     WAKU_CALL(
-        waku_default_pubsub_topic(
+        logosdelivery_ctx_waku_default_pubsub_topic(
             ctx,
-            cifyRaw([&defaultPubsubTopic](const char *msg, size_t len)
-                    { defaultPubsubTopic = msg; }),
+            cifyReply([&defaultPubsubTopic](const char *msg, size_t len)
+                      { defaultPubsubTopic.assign(msg, len); }),
             nullptr));
 
     std::cout << "Default pubsub topic: " << defaultPubsubTopic << std::endl;
 
-    WAKU_CALL(waku_version(ctx,
-                           cifyRaw([&](const char *msg, size_t len)
-                                   { std::cout << "Git Version: " << msg << std::endl; }),
-                           nullptr));
+    WAKU_CALL(logosdelivery_ctx_waku_version(
+        ctx,
+        cifyReply([&](const char *msg, size_t len)
+                  { std::cout << "Git Version: " << std::string(msg, len) << std::endl; }),
+        nullptr));
 
     printf("Bind addr: %s:%u\n", cfgNode.host, cfgNode.port);
     printf("Waku Relay enabled: %s\n", cfgNode.relay == 1 ? "YES" : "NO");
 
     std::string pubsubTopic;
-    WakuPubsubTopicReq pubsubTopicReq = {.topicName = "example"};
-    WAKU_CALL(waku_pubsub_topic(ctx,
-                                cifyReply([&](const char *msg, size_t len)
-                                          { pubsubTopic = msg; }),
-                                nullptr,
-                                &pubsubTopicReq));
+    WAKU_CALL(logosdelivery_ctx_waku_pubsub_topic(
+        ctx, "example",
+        cifyReply([&](const char *msg, size_t len)
+                  { pubsubTopic.assign(msg, len); }),
+        nullptr));
 
     std::cout << "Custom pubsub topic: " << pubsubTopic << std::endl;
 
@@ -350,26 +329,26 @@ int main(int argc, char **argv)
           "onMessageReceived", "onConnectionStatusChange", "onTopicHealthChange",
           "onConnectionChange", "onReceivedMessage", "onChannelMessageReceived",
           "onChannelMessageSent", "onChannelMessageError"})
-        logosdelivery_add_event_listener(ctx, eventName, onEvent, nullptr);
+        logosdelivery_add_event_listener(ctx->ptr, eventName, onEvent, nullptr);
 
-    WAKU_CALL(logosdelivery_start_node(ctx,
-                         cifyRaw([&](const char *msg, size_t len)
-                                 { event_handler(msg, len); }),
-                         nullptr));
+    WAKU_CALL(logosdelivery_ctx_start_node(
+        ctx,
+        cifyReply([&](const char *msg, size_t len)
+                  { event_handler(msg, len); }),
+        nullptr));
 
-    WakuRelaySubscribeReq defaultSubscribeReq = {
-        .pubSubTopic = defaultPubsubTopic.c_str()};
-    WAKU_CALL(waku_relay_subscribe(ctx,
-                                   cifyReply([&](const char *msg, size_t len)
-                                             { event_handler(msg, len); }),
-                                   nullptr,
-                                   &defaultSubscribeReq));
+    WAKU_CALL(logosdelivery_ctx_waku_relay_subscribe(
+        ctx, defaultPubsubTopic.c_str(),
+        cifyReply([&](const char *msg, size_t len)
+                  { event_handler(msg, len); }),
+        nullptr));
 
     std::string myPeerId;
-    WAKU_CALL(waku_get_my_peerid(ctx,
-                                 cifyRaw([&myPeerId](const char *msg, size_t len)
-                                         { myPeerId = msg; }),
-                                 nullptr));
+    WAKU_CALL(logosdelivery_ctx_waku_get_my_peerid(
+        ctx,
+        cifyReply([&myPeerId](const char *msg, size_t len)
+                  { myPeerId.assign(msg, len); }),
+        nullptr));
 
     std::cout << "My peer id: " << myPeerId << std::endl;
 

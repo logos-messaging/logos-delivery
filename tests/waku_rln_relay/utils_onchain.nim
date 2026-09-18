@@ -327,7 +327,9 @@ proc executeForgeContractDeployScripts*(
   let (outputDeployPriceCalculator, exitCodeDeployPriceCalculator) =
     execForge(forgeCmdPriceCalculator)
   if exitCodeDeployPriceCalculator != 0:
-    return error("Forge command to deploy LinearPriceCalculator contract failed")
+    error "Forge command to deploy LinearPriceCalculator contract failed",
+      output = outputDeployPriceCalculator
+    return err("Forge command to deploy LinearPriceCalculator contract failed")
 
   let priceCalculatorAddressRes =
     getContractAddressFromDeployScriptOutput(outputDeployPriceCalculator)
