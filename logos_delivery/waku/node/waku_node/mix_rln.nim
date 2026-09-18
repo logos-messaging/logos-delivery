@@ -55,6 +55,8 @@ proc startMixRln*(
 ): Future[Result[void, string]] {.async: (raises: [CancelledError]).} =
   if node.wakuMixRln.isNil():
     return ok()
+  if node.rlnLez.isNil() and node.rln.isNil():
+    return err("Mix RLN coordination requires Relay RLN")
   let plugin = node.wakuMixRln
   plugin.setPublishCallback(
     proc(topic: string, data: seq[byte]): Future[Result[void, string]] {.async.} =

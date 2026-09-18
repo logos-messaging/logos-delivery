@@ -4,6 +4,10 @@ import chronos, chronicles, testutils/unittests, results, stew/byteutils
 
 import
   libp2p_mix/curve25519,
+  mix_rln_spam_protection/module_api,
+  logos_delivery/waku/node/waku_node,
+  logos_delivery/waku/net/bound_ports,
+  logos_delivery/waku/node/waku_node/mix_rln,
   libp2p/[peerid, multiaddress],
   libp2p/stream/connection,
   logos_delivery/waku/waku,
@@ -357,3 +361,11 @@ suite "Mix send path - the reply budget":
     check:
       res.isErr()
       res.error.code == LightPushErrorCode.SERVICE_NOT_AVAILABLE
+
+suite "Mix RLN coordination protection":
+  asyncTest "shared Mix refuses to start without Relay RLN":
+    let node = WakuNode(ports: BoundPorts.init(), wakuMixRln: ModuleRlnProtection())
+    let started = await node.startMixRln()
+    check:
+      started.isErr()
+      started.error == "Mix RLN coordination requires Relay RLN"
