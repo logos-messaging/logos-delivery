@@ -802,7 +802,11 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
 
 # called when a peer i) first connects to us ii) disconnects all connections from us
 proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
-  if not pm.wakuMetadata.isNil() and event.kind == PeerEventKind.Joined:
+  # Mix peer records do not include Waku capabilities. Wait for Identify before
+  # deciding whether a registered Mix peer must complete the metadata handshake.
+  let knownMix = pm.switch.peerStore.getPeer(peerId).mixPubKey.isSome()
+  let metadataEvent = if knownMix: PeerEventKind.Identified else: PeerEventKind.Joined
+  if not pm.wakuMetadata.isNil() and event.kind == metadataEvent:
     await pm.refreshPeerMetadata(peerId)
 
   var peerStore = pm.switch.peerStore

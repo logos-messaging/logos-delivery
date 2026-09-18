@@ -28,9 +28,13 @@ suite "Peer Manager":
       clientKey = generateSecp256k1Key()
       clusterId = 1
 
-    proc checkMixConnection(registered, metadata: bool) {.async.} =
-      let server = newTestWakuNode(serverKey, listenAddress, listenPort, clusterId = 2)
-      let client = newTestWakuNode(clientKey, listenAddress, listenPort, clusterId = 1)
+    proc checkMixConnection(registered, metadata: bool, quic = false) {.async.} =
+      let server = newTestWakuNode(
+        serverKey, listenAddress, listenPort, clusterId = 2, quicEnabled = quic
+      )
+      let client = newTestWakuNode(
+        clientKey, listenAddress, listenPort, clusterId = 1, quicEnabled = quic
+      )
       discard client.mountMetadata(1, @[0'u16])
       if metadata:
         discard server.mountMetadata(2, @[0'u16])
@@ -43,6 +47,7 @@ suite "Peer Manager":
       await allFutures(server.start(), client.start())
       try:
         var peer = server.switch.peerInfo.toRemotePeerInfo()
+        peer.protocols = @[] # Peer records supply keys and addresses, before Identify.
         var key: Curve25519Key
         key[0] = 1
         if registered:
@@ -62,6 +67,15 @@ suite "Peer Manager":
 
     asyncTest "registered Mix peer advertising Waku metadata must match cluster":
       await checkMixConnection(true, true)
+
+    asyncTest "registered Mix-only peer stays connected over QUIC":
+      await checkMixConnection(true, false, quic = true)
+
+    asyncTest "unregistered Mix peer still requires metadata over QUIC":
+      await checkMixConnection(false, false, quic = true)
+
+    asyncTest "registered Mix peer must match cluster over QUIC":
+      await checkMixConnection(true, true, quic = true)
 
     asyncTest "light client is not disconnected":
       # Given two nodes with different shardIds
