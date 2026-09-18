@@ -32,7 +32,7 @@ requires "nim == 2.2.6",
   "toml_serialization",
   "faststreams",
   # Networking & P2P
-  "libp2p == 2.3.1",
+  "libp2p == 2.3.3",
   # 0.9.0 is the locked version; an unversioned "eth" resolves to nim-eth HEAD,
   # which no longer ships eth/p2p/discoveryv5/enr.
   "eth == 0.9.0",
@@ -80,11 +80,11 @@ requires "https://github.com/NagyZoltanPeter/nim-brokers.git#v3.3.0"
 
 requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b0204093fe202bec477b2dbf824c"
 
-# v0.8.1: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.8.1
-# libp2p requires "lsquic >= 0.5.4" by name. The exact numeric constraint
+# v0.9.0: https://github.com/vacp2p/nim-lsquic/releases/tag/v0.9.0
+# libp2p requires "lsquic >= 0.9.0" by name. The exact numeric constraint
 # keeps the resolution at the validated release instead of floating to
 # the newest one.
-requires "https://github.com/vacp2p/nim-lsquic#07783b55fb0ee7e9dc2dd9ced11548f84174306e"
+requires "https://github.com/vacp2p/nim-lsquic#fb293834a3f90368e1f6c57aec2360cf8d840c5a"
 
 requires "https://github.com/vacp2p/nim-boringssl#v0.0.11"
 
