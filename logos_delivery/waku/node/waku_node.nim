@@ -24,6 +24,8 @@ import
   libp2p/utils/offsettedseq,
   libp2p_mix,
   libp2p_mix/mix_protocol,
+  libp2p_mix/spam_protection,
+  mix_rln_spam_protection/module_api,
   brokers/broker_context,
   brokers/request_broker
 
@@ -145,6 +147,8 @@ type
     legacyAppHandlers*: Table[PubsubTopic, WakuRelayHandler]
       ## Kernel API Relay appHandlers (if any)
     subscriptionManager*: SubscriptionManager
+    wakuMixRln*: ModuleRlnProtection
+    wakuMixRlnListener*: Opt[MessageSeenEventListener]
     wakuMix*: WakuMix
     wakuKademlia*: WakuKademlia
     ports*: BoundPorts
@@ -356,6 +360,7 @@ proc mountMix*(
     clusterId: uint16,
     mixPrivKey: Curve25519Key,
     mixnodes: seq[MixNodePubInfo],
+    spamProtection: Opt[SpamProtection] = Opt.none(SpamProtection),
 ): Future[Result[void, string]] {.async.} =
   info "Mounting mix protocol", nodeId = node.info #TODO log the config used
 
@@ -367,10 +372,9 @@ proc mountMix*(
   info "local addr", localaddr = localaddrStr
 
   node.wakuMix = WakuMix.new(
-    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes
+    localaddrStr, node.peerManager, clusterId, mixPrivKey, mixnodes, spamProtection
   ).valueOr:
-    error "Waku Mix protocol initialization failed", err = error
-    return
+    return err("Waku Mix protocol initialization failed: " & error)
   #TODO: should we do the below only for exit node? Also, what if multiple protocols use mix?
   node.wakuMix.registerDestReadBehavior(WakuLightPushCodec, readLp(int(-1)))
   let catchRes = catch:

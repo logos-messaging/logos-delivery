@@ -38,6 +38,7 @@ import
     net/net_config,
     node/waku_metrics,
     node/subscription_manager,
+    node/waku_node/mix_rln,
     rest_api/message_cache,
     rest_api/endpoint/server,
     rest_api/endpoint/builder as rest_server_builder,
@@ -387,6 +388,7 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   var startSucceeded = false
   defer:
     if not startSucceeded:
+      await waku.node.stopMixRln()
       waku.closePersistency()
 
   if conf.dnsDiscoveryConf.isSome():
@@ -408,6 +410,12 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
     else:
       waku.dynamicBootstrapNodes = dynamicBootstrapNodesRes.get()
 
+  if not waku.node.wakuMixRln.isNil():
+    try:
+      (await waku.node.startMixRln()).isOkOr:
+        return err(error)
+    except CancelledError:
+      return err("Mix RLN startup cancelled")
   (await startNode(waku.node, waku.conf, waku.dynamicBootstrapNodes)).isOkOr:
     return err("error while calling startNode: " & $error)
 
@@ -548,6 +556,7 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       await waku.wakuDiscv5.stop()
 
     if not waku.node.isNil():
+      await waku.node.stopMixRln()
       await waku.node.stop()
 
     if not waku.dnsRetryLoopHandle.isNil():
