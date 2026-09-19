@@ -26,7 +26,7 @@
 #   V=1               adds --verbosity:1, clears HANDLE_OUTPUT
 #   LOG_LEVEL=INFO    adds -d:chronicles_log_level="INFO"
 #   LOG_LEVEL empty   nothing
-#   DEBUG=0           adds -d:release -d:lto_incremental -d:strip
+#   DEBUG=0           adds -d:release -d:strip
 #   DEBUG unset       adds -d:debug
 #   POSTGRES=1        adds -d:postgres
 #   DEBUG_DISCV5=1    adds -d:debugDiscv5
@@ -260,7 +260,8 @@ reject_flag "an empty LOG_LEVEL is a no-op" \
 # DEBUG is active at 0, not at 1. An unset DEBUG and DEBUG=0 differ.
 # --------------------------------------------------------------------------
 expect_flag "DEBUG=0 selects release"          "-d:release"          DEBUG=0
-expect_flag "DEBUG=0 keeps link-time optimisation" "-d:lto_incremental" DEBUG=0
+# LTO stays off: gcc -flto=auto miscompiles orc output and the nodes segfault.
+reject_flag "DEBUG=0 leaves link-time optimisation off" "-d:lto_incremental" DEBUG=0
 expect_flag "DEBUG=0 strips the binary"        "-d:strip"            DEBUG=0
 expect_flag "an unset DEBUG stays a debug build" "-d:debug"
 reject_flag "an unset DEBUG does not strip"    "-d:strip"
