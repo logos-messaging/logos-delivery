@@ -212,15 +212,18 @@ endif
 # the Alpine node images segfaulted under libp2p traffic until LTO was dropped,
 # while every glibc build stayed clean. Nim already carries a gcc-LTO workaround
 # for related breakage (nim-lang/Nim#21595). Keep LTO where it works.
-# Overridable so check_build_health.sh can exercise both branches.
-MUSL_MARKER ?= $(wildcard /lib/ld-musl-*)
+# Ask the toolchain rather than probing paths: on Alpine cc -dumpmachine reports
+# x86_64-alpine-linux-musl. The loader glob is kept as a fallback for toolchains
+# that do not answer. Overridable so check_build_health.sh can exercise both branches.
+MUSL_TARGET ?= $(findstring musl,$(shell cc -dumpmachine 2>/dev/null))$(wildcard /lib/ld-musl-*)$(wildcard /etc/alpine-release)
 LTO_PARAMS := -d:lto_incremental
-ifneq (,$(MUSL_MARKER))
+ifneq (,$(MUSL_TARGET))
 LTO_PARAMS :=
 endif
 
 # Debug/Release mode
 ifeq ($(DEBUG), 0)
+$(info LTO: $(if $(LTO_PARAMS),enabled,disabled — musl target))
 NIM_PARAMS := $(NIM_PARAMS) -d:release $(LTO_PARAMS) -d:strip
 else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug

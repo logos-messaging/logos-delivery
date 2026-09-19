@@ -264,7 +264,7 @@ expect_flag "DEBUG=0 keeps link-time optimisation" "-d:lto_incremental" DEBUG=0
 # gcc -flto=auto miscompiles orc output against musl; the Alpine node images
 # segfaulted under libp2p traffic until LTO was dropped there.
 reject_flag "musl targets drop link-time optimisation" \
-  "-d:lto_incremental" DEBUG=0 MUSL_MARKER=/lib/ld-musl-x86_64.so.1
+  "-d:lto_incremental" DEBUG=0 MUSL_TARGET=musl
 expect_flag "DEBUG=0 strips the binary"        "-d:strip"            DEBUG=0
 expect_flag "an unset DEBUG stays a debug build" "-d:debug"
 reject_flag "an unset DEBUG does not strip"    "-d:strip"
