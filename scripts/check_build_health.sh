@@ -26,7 +26,7 @@
 #   V=1               adds --verbosity:1, clears HANDLE_OUTPUT
 #   LOG_LEVEL=INFO    adds -d:chronicles_log_level="INFO"
 #   LOG_LEVEL empty   nothing
-#   DEBUG=0           adds -d:release -d:lto_incremental -d:strip
+#   DEBUG=0           adds -d:release -d:strip, plus -d:lto_incremental off musl
 #   DEBUG unset       adds -d:debug
 #   POSTGRES=1        adds -d:postgres
 #   DEBUG_DISCV5=1    adds -d:debugDiscv5
@@ -261,6 +261,10 @@ reject_flag "an empty LOG_LEVEL is a no-op" \
 # --------------------------------------------------------------------------
 expect_flag "DEBUG=0 selects release"          "-d:release"          DEBUG=0
 expect_flag "DEBUG=0 keeps link-time optimisation" "-d:lto_incremental" DEBUG=0
+# gcc -flto=auto miscompiles orc output against musl; the Alpine node images
+# segfaulted under libp2p traffic until LTO was dropped there.
+reject_flag "musl targets drop link-time optimisation" \
+  "-d:lto_incremental" DEBUG=0 MUSL_MARKER=/lib/ld-musl-x86_64.so.1
 expect_flag "DEBUG=0 strips the binary"        "-d:strip"            DEBUG=0
 expect_flag "an unset DEBUG stays a debug build" "-d:debug"
 reject_flag "an unset DEBUG does not strip"    "-d:strip"

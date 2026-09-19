@@ -208,11 +208,20 @@ endif
 # NIM_PARAMS := $(NIM_PARAMS) -d:marchNative
 # endif
 
+# gcc -flto=auto miscompiles the code orc generates when linked against musl:
+# the Alpine node images segfaulted under libp2p traffic until LTO was dropped,
+# while every glibc build stayed clean. Nim already carries a gcc-LTO workaround
+# for related breakage (nim-lang/Nim#21595). Keep LTO where it works.
+# Overridable so check_build_health.sh can exercise both branches.
+MUSL_MARKER ?= $(wildcard /lib/ld-musl-*)
+LTO_PARAMS := -d:lto_incremental
+ifneq (,$(MUSL_MARKER))
+LTO_PARAMS :=
+endif
+
 # Debug/Release mode
 ifeq ($(DEBUG), 0)
-# LTO is off while the orc segfaults are diagnosed: the Alpine image builds with
-# gcc -flto=auto, and its nodes are the only ones crashing. See nim-lang/Nim#21595.
-NIM_PARAMS := $(NIM_PARAMS) -d:release -d:strip
+NIM_PARAMS := $(NIM_PARAMS) -d:release $(LTO_PARAMS) -d:strip
 else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif
