@@ -40,7 +40,7 @@ on:
         default: ""
 
 env:
-  NIM_VERSION: '2.2.6'
+  NIM_VERSION: '2.2.12'
   NIGHTLY_IMAGE: quay.io/wakuorg/nwaku-pr:nightly
 
 jobs:

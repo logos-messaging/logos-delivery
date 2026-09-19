@@ -13,14 +13,14 @@ skipDirs = @["tests", "examples", "apps", "simulations", "metrics"]
 # Nimble installs only the namesake directory; dependents need these too.
 installDirs = @["library", "migrations", "tools"]
 
-const RequiredNimVersion = "2.2.6"
+const RequiredNimVersion = "2.2.12"
   ## This is the nim compiler version that we are working on. Other versions may behave differently.
 const RequiredNimblePin = "07caee397d628c9e93d81048268365c4c2414a80"
   ## The Nimble the build installs, as a git revision or a release version. This
   ## revision matches URL requirements to nimble.lock by URL.
 
 ### Dependencies
-requires "nim == 2.2.6",
+requires "nim == 2.2.12",
   "chronos >= 4.4.0 & < 4.5.0",
   "taskpools",
   # Logging & Configuration
