@@ -12,7 +12,6 @@ proc newTestDiscv5*(
     udpPort: uint16,
     record: waku_enr.Record,
     bootstrapRecords = newSeq[waku_enr.Record](),
-    queue = newAsyncEventQueue[SubscriptionEvent](30),
     peerManager: Opt[PeerManager] = Opt.none(PeerManager),
 ): WakuDiscoveryV5 =
   let config = WakuDiscoveryV5Config(
@@ -23,11 +22,7 @@ proc newTestDiscv5*(
   )
 
   let discv5 = WakuDiscoveryV5.new(
-    rng = rng(),
-    conf = config,
-    record = Opt.some(record),
-    queue = queue,
-    peerManager = peerManager,
+    rng = rng(), conf = config, record = Opt.some(record), peerManager = peerManager
   )
 
   return discv5
