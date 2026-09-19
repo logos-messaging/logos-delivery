@@ -118,7 +118,7 @@ proc buildModule(filePath, params = ""): bool =
     echo "File to build not found: " & filePath
     return false
 
-  exec "nim c --out:build/" & filepath & ".bin --mm:refc " & getMyCPU() & " " & params & getNimParams() &
+  exec "nim c --out:build/" & filepath & ".bin --mm:orc " & getMyCPU() & " " & params & getNimParams() &
     " " & filePath
 
   # exec will raise exception if anything goes wrong
@@ -127,7 +127,7 @@ proc buildModule(filePath, params = ""): bool =
 proc buildBinary(name: string, srcDir = "./", params = "") =
   if not dirExists "build":
     mkDir "build"
-  exec "nim c --out:build/" & name & " --mm:refc " & getMyCPU() & " " & params & getNimParams() & " " &
+  exec "nim c --out:build/" & name & " --mm:orc " & getMyCPU() & " " & params & getNimParams() & " " &
     srcDir & name & ".nim"
 
 ## Emitted by `genBindings()` during the library build, so the header can never
@@ -151,11 +151,11 @@ proc buildLibrary(lib_name: string, srcDir = "./", params = "", `type` = "static
 
   if `type` == "static":
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:staticlib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:staticlib --opt:speed --noMain --mm:orc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
   else:
     exec "nim c" & " --out:build/" & lib_name &
-      " --threads:on --app:lib --opt:speed --noMain --mm:refc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
+      " --threads:on --app:lib --opt:speed --noMain --mm:orc --header -d:metrics --nimMainPrefix:" & mainPrefix & " --skipParentCfg:off -d:discv5_protocol_id=d5waku " &
       libFeatureFlags & cBindingsFlags & getMyCPU() & " " & params & getNimParams() & " " & srcDir & "/" & srcFile
 
 proc buildLibDynamicWindows(libName: string, folderName: string) =
@@ -213,7 +213,7 @@ proc buildMobileAndroid(srcDir = ".", params = "") =
     mkDir outDir
 
   exec "nim c" & " --out:" & outDir &
-    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:refc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
+    "/liblogosdelivery.so --threads:on --app:lib --opt:speed --noMain --mm:orc -d:chronicles_sinks=textlines[dynamic] --header -d:chronosEventEngine=epoll -d:discv5_protocol_id=d5waku --passL:-L" &
     outdir & " --passL:-lrln --passL:-llog --cpu:" & cpu & " --nimMainPrefix:liblogosdelivery --os:android -d:androidNDK " & params &
     getNimParams() & " " & srcDir & "/liblogosdelivery.nim"
 
@@ -270,7 +270,7 @@ proc buildMobileIOS(srcDir = ".", params = "") =
       " --nimcache:" & nimcacheDir &
       " --os:ios --cpu:" & cpu &
       " --app:staticlib --out:" & nimLib &
-      " --noMain --mm:refc" &
+      " --noMain --mm:orc" &
       " --threads:on --opt:size --header" &
       " -d:metrics -d:discv5_protocol_id=d5waku" &
       " --nimMainPrefix:liblogosdelivery --skipParentCfg:off" &

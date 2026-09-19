@@ -84,7 +84,7 @@ let
       --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
       ${nimDefineArgs} \
       --threads:on \
-      --mm:refc \
+      --mm:orc \
       --nimcache:$NIMCACHE \
       --out:${outFile} \
       ${pkgs.lib.concatStringsSep " \\\n      " extraArgs} \
