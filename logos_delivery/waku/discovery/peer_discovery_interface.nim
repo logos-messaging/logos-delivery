@@ -22,6 +22,16 @@ import brokers/[broker_interface, event_broker, request_broker]
 
 export chronos, results, broker_interface, event_broker, request_broker
 
+const
+  SvcKind* = "svc"
+    ## Criteria-key kind for a service id; see `DiscoveryBackendInfo.keyKinds`.
+  SvcKeyPrefix* = SvcKind & ":"
+
+const LogosDeliveryServiceId* = "/logos/delivery"
+  ## The service every participating node advertises itself under, so that
+  ## nodes of this network can find each other independently of which
+  ## protocols they happen to run.
+
 type DiscoveredService* = object
   id*: string ## service id / capability tag
   data*: seq[byte] ## advertised payload, byte-exact (e.g. mix pubkey)
