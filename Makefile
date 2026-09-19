@@ -208,23 +208,15 @@ endif
 # NIM_PARAMS := $(NIM_PARAMS) -d:marchNative
 # endif
 
-# gcc -flto=auto miscompiles the code orc generates when linked against musl:
-# the Alpine node images segfaulted under libp2p traffic until LTO was dropped,
-# while every glibc build stayed clean. Nim already carries a gcc-LTO workaround
-# for related breakage (nim-lang/Nim#21595). Keep LTO where it works.
-# Ask the toolchain rather than probing paths: on Alpine cc -dumpmachine reports
-# x86_64-alpine-linux-musl. The loader glob is kept as a fallback for toolchains
-# that do not answer. Overridable so check_build_health.sh can exercise both branches.
-MUSL_TARGET ?= $(findstring musl,$(shell cc -dumpmachine 2>/dev/null))$(wildcard /lib/ld-musl-*)$(wildcard /etc/alpine-release)
-LTO_PARAMS := -d:lto_incremental
-ifneq (,$(MUSL_TARGET))
-LTO_PARAMS :=
-endif
+# No LTO in release builds. gcc -flto=auto miscompiles the code orc generates:
+# node processes segfaulted under libp2p traffic in the e2e suites until it was
+# dropped, and the same builds are clean without it. Nim already carries a
+# gcc-LTO workaround for related breakage (nim-lang/Nim#21595). Restore this
+# once that interaction is fixed upstream -- it costs release performance.
 
 # Debug/Release mode
 ifeq ($(DEBUG), 0)
-$(info LTO: $(if $(LTO_PARAMS),enabled,disabled — musl target))
-NIM_PARAMS := $(NIM_PARAMS) -d:release $(LTO_PARAMS) -d:strip
+NIM_PARAMS := $(NIM_PARAMS) -d:release -d:strip
 else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif
