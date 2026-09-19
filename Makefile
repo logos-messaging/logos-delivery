@@ -210,7 +210,9 @@ endif
 
 # Debug/Release mode
 ifeq ($(DEBUG), 0)
-NIM_PARAMS := $(NIM_PARAMS) -d:release -d:lto_incremental -d:strip
+# LTO is off while the orc segfaults are diagnosed: the Alpine image builds with
+# gcc -flto=auto, and its nodes are the only ones crashing. See nim-lang/Nim#21595.
+NIM_PARAMS := $(NIM_PARAMS) -d:release -d:strip
 else
 NIM_PARAMS := $(NIM_PARAMS) -d:debug
 endif
