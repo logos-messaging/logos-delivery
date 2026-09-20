@@ -141,22 +141,47 @@ proc emitPeers(
     self.brokerCtx, PeersDiscovered(origin: ExternalBackendId, key: key, peers: peers)
   )
 
+const EagerLookupDelays = [chronos.seconds(2), chronos.seconds(4), chronos.seconds(8)]
+  ## Startup schedule for the first service lookups, before the configured
+  ## interval takes over. The same schedule as the in-process backend.
+
 proc runServiceLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
   ## Mirrors the internal backend: periodically resolves every registered
-  ## interest and publishes what came back.
+  ## interest and publishes what came back. The opening rounds run on the
+  ## eager schedule, so a fresh node does not sit peerless for a whole
+  ## interval before asking anyone.
+  var attempt = 0
   while self.running:
+    let delay =
+      if attempt < EagerLookupDelays.len:
+        EagerLookupDelays[attempt]
+      else:
+        self.serviceLookupInterval
     try:
-      await sleepAsync(self.serviceLookupInterval)
+      await sleepAsync(delay)
     except CancelledError:
       return
 
+    var found = 0
     for key in self.interests:
       if not self.running:
         return
       let peers = (await self.lookupServicePeers(key, 0)).valueOr:
         debug "service lookup failed", key = key, reason = error
         continue
+      found += peers.len
       self.emitPeers(key, peers)
+
+    if attempt < EagerLookupDelays.len:
+      ## One round that found peers ends the eager phase; an empty or failed
+      ## one waits the next, longer delay. A failure counts as empty: both
+      ## mean "nothing yet", and splitting them buys a second retry policy
+      ## for no gain.
+      attempt =
+        if found > 0:
+          EagerLookupDelays.len
+        else:
+          attempt + 1
 
 proc runRandomLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
   while self.running:

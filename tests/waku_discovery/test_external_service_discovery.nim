@@ -398,3 +398,25 @@ suite "ExternalServiceDiscovery":
     ## The random walk feeds the node too, not just the service lookup.
     check (await iface.lookupRandom()).isOk()
     check (await iface.stopDiscovery()).isOk()
+
+  asyncTest "the first service lookup does not wait a whole interval":
+    ## The loop opens on the eager schedule and only then settles into the
+    ## configured interval. With ten minutes configured, a lookup that lands
+    ## within a few seconds can only have come from the eager phase.
+    let backend =
+      ExternalServiceDiscovery.create(serviceLookupInterval = chronos.minutes(10))
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+    check (await iface.registerInterest("service:/logos/delivery")).isOk()
+
+    ## `freed` counts the plugin-owned JSON handed back, so it rises once per
+    ## lookup and not at all for registering an interest.
+    check fake.freed.load() == 0
+
+    await sleepAsync(chronos.seconds(4))
+    check fake.freed.load() >= 1
+
+    check (await iface.stopDiscovery()).isOk()
