@@ -253,8 +253,16 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     self.running = true
     if self.serviceLookupLoop.isNil():
       self.serviceLookupLoop = self.runServiceLookupLoop()
-    if self.randomLookupLoop.isNil():
-      self.randomLookupLoop = self.runRandomLookupLoop()
+
+    ## Same rule as the in-process backend: a zero interval, the default,
+    ## leaves the random walk off. Hosted discovery makes it worse than
+    ## useless -- the records it returns name the plugin's own host, never
+    ## the delivery node it advertises for.
+    if self.randomLookupInterval > ZeroDuration:
+      if self.randomLookupLoop.isNil():
+        self.randomLookupLoop = self.runRandomLookupLoop()
+    else:
+      info "Random kademlia lookups disabled"
     ok()
 
   method stopDiscovery(

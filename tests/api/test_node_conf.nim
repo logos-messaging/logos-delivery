@@ -177,6 +177,9 @@ suite "WakuNodeConf - external discovery":
     check:
       extConf.serviceLookupInterval == DefaultServiceLookupInterval
       extConf.randomLookupInterval == DefaultRandomLookupInterval
+      ## The default is off: a zero interval is what the backends read as
+      ## "do not start the random lookup loop".
+      extConf.randomLookupInterval == ZeroDuration
 
 suite "WakuNodeConf - service discovery exclusivity":
   test "internal and external together are refused":

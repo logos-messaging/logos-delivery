@@ -50,8 +50,8 @@ proc build*(
 
   if serviceInterval <= ZeroDuration:
     return err("Plugin kad discovery service lookup interval must be greater than 0")
-  if randomInterval <= ZeroDuration:
-    return err("Plugin kad discovery random lookup interval must be greater than 0")
+  # A zero random interval is not an error here, it is the default: it turns
+  # the random lookup loop off. See `DefaultRandomLookupInterval`.
 
   var bootstrapNodes: seq[string]
   for nodeStr in sharedBootstrapNodes & b.bootstrapNodes:

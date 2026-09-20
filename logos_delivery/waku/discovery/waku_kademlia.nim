@@ -236,8 +236,14 @@ proc start*(self: WakuKademlia) {.async: (raises: []).} =
   for serviceId in self.servicesToDiscover:
     discard self.protocol.registerInterest(serviceId)
 
-  if self.randomLookupLoop.isNil():
-    self.randomLookupLoop = self.runRandomLookupLoop()
+  ## A zero interval disables the random walk; it is the default. The walk
+  ## returns the self-published records of the DHT peers it meets, so it
+  ## finds delivery nodes only where they run the DHT themselves.
+  if self.randomLookupInterval > ZeroDuration:
+    if self.randomLookupLoop.isNil():
+      self.randomLookupLoop = self.runRandomLookupLoop()
+  else:
+    info "Random kademlia lookups disabled"
 
   if self.serviceLookupLoop.isNil():
     self.serviceLookupLoop = self.runServiceLookupLoop()

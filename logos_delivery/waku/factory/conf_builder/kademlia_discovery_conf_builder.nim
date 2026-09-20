@@ -9,7 +9,13 @@ logScope:
 
 const
   DefaultKadEnabled*: bool = false
-  DefaultRandomLookupInterval* = chronos.seconds(60)
+  DefaultRandomLookupInterval* = ZeroDuration
+    ## Off by default. A random walk retrieves the *self-published* record of
+    ## every DHT peer it meets, so it can only ever return peers that run the
+    ## DHT themselves: under plugin-hosted discovery those are the hosts, not
+    ## the delivery nodes they advertise for. Service lookups are what find
+    ## delivery peers. A positive `--kad-random-lookup-interval` turns the
+    ## loop back on.
   DefaultServiceLookupInterval* = chronos.seconds(60)
 
 type KademliaDiscoveryConfBuilder* = object
