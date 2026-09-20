@@ -77,10 +77,8 @@
             gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
 
-          # libpqPackage: `-d:postgres` is on by default, and Nim binds libpq
-          # with a module-level {.dynlib.} that the runtime resolves before
-          # main(). On Windows that has to be satisfied from the exe's own
-          # directory, so the Windows app targets -- and only they -- carry it.
+          # `-d:postgres` binds libpq before main(), and on Windows that must be
+          # satisfied from the exe's own directory -- so only Windows apps carry it.
           wakucanary = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
@@ -116,11 +114,8 @@
         overlays = [ (import rust-overlay) ];
       };
 
-      # libpq is NOT a link-time dependency: Nim's db_connector reaches libpq
-      # through dynlib/dlopen, which is why the Linux and macOS builds carry no
-      # libpq in buildInputs either. It is exposed as its own package so that
-      # consumers can bundle it beside the plugin -- on Windows, "next to the
-      # image" is the first place the loader looks.
+      # libpq is no link-time dependency (db_connector dlopens it); it is its own
+      # package so consumers can bundle it beside the image, where Windows looks.
       windowsLibpq = pkgs:
         (pkgs.libpq.override {
           # postgres 18 links libcurl for OAuth; curl cross to mingw drags in
@@ -132,9 +127,8 @@
           nativeBuildInputs = builtins.filter
             (d: !(builtins.isAttrs d && (d.name or "") == "make-shell-wrapper-hook"))
             o.nativeBuildInputs;
-          # src/port/pthread_barrier_wait.c includes <pthread.h> unconditionally
-          # via pg_pthread.h. nixpkgs builds mingw-w64 against mcfgthread, which
-          # ships no pthread.h, so winpthreads has to be supplied explicitly.
+          # pg_pthread.h includes <pthread.h> unconditionally, and mingw-w64 here
+          # is built against mcfgthread, so winpthreads must be supplied.
           buildInputs = o.buildInputs ++ [ pkgs.windows.pthreads ];
           # objcopy --only-keep-debug on a PE is not the ELF split this assumes.
           separateDebugInfo = false;

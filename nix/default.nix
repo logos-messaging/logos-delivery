@@ -4,10 +4,8 @@
 , targets              ? []
 , gitVersion           ? "n/a"
 , enablePostgres       ? true
-  # The libpq to ship beside an app target on Windows. NOT named `libpq`:
-  # callPackage auto-fills an argument by that name from `pkgs`, and in the
-  # cross package set `pkgs.libpq` is the un-overridden one that does not build
-  # for mingw -- so a default would be silently replaced by a broken value.
+  # The libpq shipped beside a Windows app. NOT named `libpq`: callPackage would
+  # auto-fill that name from `pkgs`, whose cross libpq does not build for mingw.
 , libpqPackage         ? null
 , enableNimDebugDlOpen ? true
 , chroniclesLogLevel   ? null
@@ -33,14 +31,8 @@ let
       '';
     });
 
-  # Every one of these runs on the BUILDER, so they must come from
-  # buildPackages: in a cross package set `pkgs.git` is a git cross-compiled
-  # FOR Windows, and `pkgs.nim-2_2` is the mingw-hosted nim wrapper, which does
-  # not even evaluate (it wants a Windows bash). `buildPackages.nim-2_2` is the
-  # `x86_64-w64-mingw32-nim` wrapper: it runs on the builder, has os/cpu baked
-  # into its nim.cfg, and takes its backend from $CC at invocation time -- which
-  # the cross stdenv has already set to x86_64-w64-mingw32-gcc.
-  # Identity on every native system.
+  # These run on the BUILDER, so buildPackages: `pkgs.nim-2_2` is the
+  # mingw-hosted wrapper and does not evaluate. Identity on a native system.
   buildTools = with pkgs.buildPackages; [ nim-2_2 git gnumake which cmake ];
 
   # Binary app targets built as executables; anything else builds the FFI library.
@@ -101,21 +93,12 @@ let
   # Mirrors the nimble buildLibrary proc: library targets only, not the apps.
   libDefineArgs = [ "--define:discv5_protocol_id=d5waku" ];
 
-  # Windows splits a shared library in two: the import/static half is a link-time
-  # artifact and belongs in lib/, but the .dll is a RUNTIME artifact and belongs
-  # in bin/ -- that is CMake's own RUNTIME destination, and what openssl,
-  # postgres and every autotools port in this closure already do.
-  #
-  # Following it is not cosmetic. nixpkgs' win-dll-link hook stages a PE's
-  # dependency DLLs automatically, but its fixup only ever walks $prefix/bin, so
-  # a .dll in lib/ ships with none of libgcc_s_seh-1 / libstdc++-6 /
-  # libwinpthread-1 beside it and fails to load on Windows with no diagnostic.
-  # Putting it in bin/ gets that staging for free instead of hand-rolling it.
+  # The .dll belongs in bin/: nixpkgs' win-dll-link hook only stages a PE's
+  # dependency DLLs under $prefix/bin, so one in lib/ cannot load.
   dllDir = if isWindows then "bin" else "lib";
 
-  # The public header includes this generated call surface. Keep the output
-  # absolute because nim-ffi writes it from the compile-time VM; the pinned
-  # version uses build-host path separators when cross-compiling (nim-ffi#168).
+  # The public header includes this generated surface. Keep the path absolute:
+  # nim-ffi writes it from the compile-time VM (nim-ffi#168).
   cBindingsDir = "library/generated";
   cBindingsArgs = [
     "--define:ffiGenBindings"
@@ -125,21 +108,8 @@ let
     "--define:ffiSrcPath=../liblogosdelivery.nim"
   ];
 
-  # Win32 imports the Nim runtime, chronos and a statically linked rln need.
-  # These are exactly the ones the MSYS2 build passes; --allow-multiple-definition
-  # is needed for the same reason it is there (duplicate symbols between the
-  # mingw runtime and the Rust staticlib).
-  # Win32 imports needed by the Nim runtime, chronos and the statically linked
-  # rln -- the same set the MSYS2 build passes, plus:
-  #   -ldbghelp     the Rust staticlib's backtrace support
-  #   -lstdc++      boringssl is C++, but nim drives the link through gcc, not
-  #                 g++, so nothing pulls in the C++ runtime or
-  #                 __gxx_personality_seh0
-  #   -lwinpthread  winpthreads' pthread_time.h inlines clock_gettime as a call
-  #                 to clock_gettime64, which lives in libwinpthread; having the
-  #                 headers on the include path is not enough (lsquic hits this)
-  # --allow-multiple-definition is what the MSYS2 build uses too: the mingw
-  # runtime and the Rust staticlib both define some symbols.
+  # Win32 imports for the Nim runtime, chronos and the static rln: the MSYS2
+  # set, plus dbghelp, stdc++ (boringssl) and winpthread (clock_gettime64).
   windowsLinkFlags =
     "-lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -ldbghelp"
     + " -lwinpthread -lstdc++"
@@ -147,19 +117,15 @@ let
 
   linkArgs =
     if isWindows then
-      # No -lrln here: the repo's own config.nims:8-9 already does
-      # `switch("passL", "rln.lib")` on Windows, matching the Makefile's
-      # LIBRLN_FILE. buildPhase stages the static archive under that name, so
-      # adding -lrln as well would link the same 27 MB archive twice.
+      # No -lrln: config.nims already passes rln.lib on Windows, so adding it
+      # here would link the same 27 MB archive twice.
       windowsLinkFlags
     else
       "-L${zerokitRln}/lib -lrln"
       + lib.optionalString hostPlatform.isLinux " -lstdc++";
 
-  # Shared `nim c` invocation. Callers vary the output, the source file and a
-  # few mode-specific flags (e.g. --app:lib, --noMain, --header); everything
-  # else (paths, defines, threading, gc, nimcache, rln linkage) is constant.
-  # $NAT_TRAV and $NIMCACHE are shell variables defined in buildPhase.
+  # Shared `nim c` invocation; callers vary only the output, source and a few
+  # mode flags. $NAT_TRAV and $NIMCACHE come from buildPhase.
   nimCompile = { outFile, sourceFile, extraArgs ? [] }: ''
     nim c \
       --noNimblePath \
@@ -177,20 +143,13 @@ let
       ${sourceFile}
   '';
 
-  # Both vendored makefiles derive their target from `$(CC) -dumpmachine`
-  # (miniupnpc Makefile:13, libnatpmp Makefile:7) rather than uname, so handing
-  # them the cross compiler is enough to select the MinGW branch. Note that
-  # libnatpmp's MinGW branch then assigns `CC = i686-w64-mingw32-gcc` -- a
-  # command-line CC= overrides that, a CFLAGS-only invocation would not.
+  # Both vendored makefiles take their target from `$(CC) -dumpmachine`, so the
+  # cross compiler selects MinGW; CC= on the command line beats their own CC.
   natMakeVars = lib.optionalString isWindows ''CC="$CC" AR="$AR" RANLIB="$RANLIB"'';
   # -fPIC is meaningless on PE (everything is relocatable) and gcc warns on it.
   natPic = lib.optionalString (!isWindows) " -fPIC";
-  # Both vendored headers resolve their LIBSPEC to __declspec(dllimport) on
-  # _WIN32 unless <LIB>_STATICLIB is defined (miniupnpc_declspec.h:6,
-  # natpmp_declspec.h:4). nim-nat-traversal defines them for the nim-generated
-  # C (miniupnpc.nim:40, natpmp.nim:30) but NOT for the vendored library build,
-  # so each archive ends up calling its OWN symbols through import stubs:
-  # "undefined reference to `__imp_upnpDiscoverDevices'".
+  # Both vendored headers make LIBSPEC __declspec(dllimport) unless
+  # <LIB>_STATICLIB is set, so each archive calls its own symbols through stubs.
   upnpStatic   = lib.optionalString isWindows " -DMINIUPNP_STATICLIB";
   natpmpStatic = lib.optionalString isWindows " -DNATPMP_STATICLIB";
 in
@@ -208,15 +167,12 @@ pkgs.stdenv.mkDerivation {
 
   buildInputs = [ zerokitRln ]
     ++ lib.optionals hostPlatform.isLinux [ pkgs.stdenv.cc.cc.lib ]
-    # nixpkgs builds mingw-w64 against mcfgthread, so pthread.h / libpthread.a
-    # exist nowhere in the default closure; anything carrying a POSIX-threads
-    # assumption (the Rust staticlib, some vendored C) needs this on the path.
+    # nixpkgs builds mingw-w64 against mcfgthread, so nothing in the default
+    # closure provides pthread.h / libpthread.a.
     ++ lib.optionals isWindows [ pkgs.windows.pthreads ];
 
-  # cmake is here only so nim-leopard can build Leopard-RS from its own
-  # CMakeLists during `nim c`. Without this, cmake's setup hook installs
-  # cmakeConfigurePhase as the derivation's configurePhase and fails on the
-  # repo root, which has no CMakeLists.txt of its own.
+  # cmake is here only for nim-leopard's own CMakeLists; without this its setup
+  # hook makes cmakeConfigurePhase the configurePhase and fails on the repo root.
   dontUseCmakeConfigure = true;
 
   # The generated C helpers include <tinycbor/cbor.h> and call TinyCBOR's
@@ -243,28 +199,19 @@ pkgs.stdenv.mkDerivation {
     make -C $NAT_TRAV/vendor/libnatpmp-upstream ${natMakeVars} \
       CFLAGS="-Wall -Os${natPic} -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4${natpmpStatic}" libnatpmp.a
     ${lib.optionalString isWindows ''
-    # nim-nat-traversal expects libminiupnpc.a at the miniupnpc ROOT on Windows
-    # and under build/ everywhere else -- see the "the Makefiles of the miniupnp
-    # library have an inconsistency" comment in nat_traversal/miniupnpc.nim.
-    # That root layout is what Makefile.mingw produces, but Makefile.mingw
-    # generates miniupnpcstrings.h by building and RUNNING a .exe, which a Linux
-    # builder cannot do. So: build with the portable Makefile, then stage the
-    # archive where the Windows branch of the nim wrapper looks for it.
+    # nim-nat-traversal wants libminiupnpc.a at the miniupnpc root on Windows,
+    # but Makefile.mingw has to RUN a .exe: build portable, then stage it there.
     cp $NAT_TRAV/vendor/miniupnp/miniupnpc/build/libminiupnpc.a \
        $NAT_TRAV/vendor/miniupnp/miniupnpc/libminiupnpc.a
 
-    # For --app:staticlib nim shells out to a bare `ar`, and a cross stdenv has
-    # only x86_64-w64-mingw32-ar on PATH: the nixpkgs nim wrapper rewrites
-    # gcc.exe/gcc.linkerexe from $CC/$CXX but never the archiver, and nim
-    # exposes no config key for it. Every archive produced in this phase is for
-    # the target, so shadowing ar with $AR is correct and not merely expedient.
+    # nim shells out to a bare `ar` for --app:staticlib and a cross stdenv has
+    # only x86_64-w64-mingw32-ar; every archive built here is for the target.
     mkdir -p $TMPDIR/arshim
     ln -sf "$(command -v $AR)" $TMPDIR/arshim/ar
     export PATH=$TMPDIR/arshim:$PATH
 
-    # config.nims adds `--passL:rln.lib` on Windows, resolved relative to the
-    # project root. Link rln statically there, exactly as the MSYS2 build does
-    # via LIBRLN_FILE -- so no rln DLL needs to ship alongside.
+    # config.nims adds `--passL:rln.lib` on Windows, relative to the project
+    # root: link rln statically there, as MSYS2 does, so no rln DLL ships.
     cp ${zerokitRln}/lib/librln.a rln.lib
 
     # config.nims picks the MSYS CMake generator from the TARGET OS, which a
@@ -293,12 +240,8 @@ pkgs.stdenv.mkDerivation {
         "--header"
         "--nimMainPrefix:liblogosdelivery"
       ]
-      # A Windows shared library is TWO artifacts: consumers LINK against the
-      # import library and SHIP the .dll. nim emits only the .dll, and CMake's
-      # find_library will not return a bare .dll -- so a consumer silently falls
-      # through to liblogosdelivery.a and tries to link the whole Nim runtime
-      # statically, which then fails on every rln/setjmp symbol. Emitting the
-      # import lib is what makes `-l logosdelivery` mean the DLL.
+      # nim emits only the .dll, and find_library ignores a bare .dll, so a
+      # consumer would fall through to the .a and link the Nim runtime statically.
       ++ lib.optional isWindows
            "--passL:-Wl,--out-implib,build/liblogosdelivery.dll.a"
       ++ libDefineArgs ++ cBindingsArgs;
@@ -324,19 +267,8 @@ pkgs.stdenv.mkDerivation {
     mkdir -p $out/bin $out/lib
     cp build/${appTarget}${exeSuffix} $out/bin/
 ${lib.optionalString (isWindows && libpqPackage != null) ''
-    # `-d:postgres` makes Nim's db_connector bind libpq through a module-level
-    # {.dynlib.}, which the runtime resolves EAGERLY at process start -- so the
-    # app cannot reach main() without it. On Windows a bare-name load searches
-    # the image's own directory first and never the caller's, so "beside the
-    # exe" is the only placement that works for a relocatable output.
-    #
-    # This is invisible to every static check: a dlopen leaves no entry in the
-    # PE import table, so an import-closure gate passes on a binary that cannot
-    # start. It was found by running --version on a real Windows box, where it
-    # failed with `could not load: libpq.dll` before printing anything.
-    #
-    # bin/*.dll rather than libpq.dll alone: libpq imports libssl-3-x64.dll and
-    # libcrypto-3-x64.dll, and those are subject to the same search order.
+    # `-d:postgres` binds libpq through a {.dynlib.} resolved before main(), and
+    # a bare-name load searches the exe's own directory: ship bin/*.dll beside it.
     cp -L ${libpqPackage}/bin/*.dll $out/bin/
     chmod u+w $out/bin/*.dll
 ''}
@@ -375,21 +307,12 @@ ${lib.optionalString isWindows ''
     runHook postInstall
   '';
 
-  # Bundle librln alongside the produced artifact so the output is self-contained.
-  # Use --add-rpath (not --set-rpath) so fixupPhase's stdenv RUNPATH injection
-  # for libstdc++ is preserved.
-  #
-  # Windows needs no path rewriting at all: a PE import table carries DLL BASE
-  # NAMES and the loader searches the image's own directory first, so a plain
-  # copy next to the artifact IS the fixup. rln may also be static-only here,
-  # in which case there is no DLL to copy and the glob is a no-op.
+  # Bundle librln beside the artifact; --add-rpath keeps fixupPhase's own RUNPATH.
+  # On Windows a copy next to the image IS the fixup, and rln may be static-only.
   postInstall =
     lib.optionalString isWindows ''
-      # Nothing to do. rln is linked statically from rln.lib, so no rln DLL
-      # ships; and the PE's own imports (libgcc_s_seh-1, libstdc++-6,
-      # libwinpthread-1) are staged automatically by nixpkgs' win-dll-link
-      # hook, because installPhase put the .dll in $out/bin -- the one
-      # directory that hook's fixup walks. See dllDir above.
+      # Nothing to do: rln links statically, and win-dll-link stages the PE's
+      # own imports because installPhase put the .dll in $out/bin (see dllDir).
       true
     ''
     + lib.optionalString (!isWindows) (
@@ -430,9 +353,8 @@ ${lib.optionalString isWindows ''
       else "logos-delivery shared/static library";
     homepage = "https://github.com/logos-messaging/logos-delivery";
     license  = licenses.mit;
-    # Test Windows FIRST anywhere platforms are branched: under mingw cross
-    # isDarwin and isAarch64 are both false and x86_64 still matches, so a
-    # Unix-shaped list silently claims the target it cannot serve.
+    # Test Windows FIRST when branching on platform: under mingw cross, isDarwin
+    # and isAarch64 are false and x86_64 still matches.
     platforms = platforms.unix ++ platforms.windows;
   };
 }
