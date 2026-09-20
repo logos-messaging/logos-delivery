@@ -279,7 +279,7 @@ proc new*(
     let ext = wakuConf.externalDiscoveryConf
     ok(
       DiscoveryRequirements(
-        externalServiceDiscovery: ext.isSome(),
+        isExternalServiceDiscoveryProvided: ext.isSome(),
         bootstrapNodes:
           if ext.isSome():
             ext.get().bootstrapNodes

@@ -35,6 +35,11 @@ const
   ExternalBackendId* = "service-ext"
   DefaultServiceLookupInterval* = chronos.seconds(60)
   DefaultRandomLookupInterval* = chronos.seconds(60)
+  WorkerStopGraceMargin = chronos.seconds(5)
+    ## Added to the plugin's own declared request timeout when waiting for the
+    ## worker to come back on stop. The declared timeout bounds how long a verb
+    ## may run; this margin covers the hand-back after it returns. A worker
+    ## still inside a call past the sum is abandoned, not waited on further.
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
@@ -316,7 +321,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     let grace = block:
       let p = readyPlugin(self)
       (if p.isOk(): p.get().requestTimeout() else: DefaultPluginRequestTimeout) +
-        chronos.seconds(5)
+        WorkerStopGraceMargin
     let workerRes = await self.worker.stop(grace)
     if workerRes.isErr():
       self.abandonedWorkers.add(self.worker)

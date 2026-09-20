@@ -46,7 +46,7 @@ type DiscoveryRequirements* = object
   ## What a host must set up before starting the node: whether service
   ## discovery is expected from an external plugin, and the DHT bootstrap
   ## peers (/p2p/ multiaddrs) resolved from the node's configuration.
-  externalServiceDiscovery*: bool
+  isExternalServiceDiscoveryProvided*: bool
   bootstrapNodes*: seq[string]
 
 RequestBroker(sync):

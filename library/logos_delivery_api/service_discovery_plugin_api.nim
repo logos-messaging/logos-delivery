@@ -79,7 +79,7 @@ proc logosdelivery_get_discovery_requirements(
   return ok(
     $(
       %*{
-        "externalServiceDiscovery": req.externalServiceDiscovery,
+        "externalServiceDiscovery": req.isExternalServiceDiscoveryProvided,
         "bootstrapNodes": req.bootstrapNodes,
       }
     )

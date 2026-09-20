@@ -53,12 +53,26 @@ proc build*(
   # A zero random interval is not an error here, it is the default: it turns
   # the random lookup loop off. See `DefaultRandomLookupInterval`.
 
+  ## One malformed entry does not sink the rest: a bootstrap list is a set of
+  ## independent hints, and dropping the node because a single one is typed
+  ## wrong costs more than it protects. Losing *all* of them is different --
+  ## the host reads an empty list as "this node is a seed" -- so that stays an
+  ## error rather than a silent change of role.
+  let supplied = sharedBootstrapNodes & b.bootstrapNodes
   var bootstrapNodes: seq[string]
-  for nodeStr in sharedBootstrapNodes & b.bootstrapNodes:
+  for nodeStr in supplied:
     discard parseFullAddress(nodeStr).valueOr:
-      return err("Failed to parse plugin discovery bootstrap node: " & $error)
+      notice "Ignoring unparseable plugin discovery bootstrap node",
+        node = nodeStr, error = $error
+      continue
     if nodeStr notin bootstrapNodes:
       bootstrapNodes.add(nodeStr)
+
+  if supplied.len > 0 and bootstrapNodes.len == 0:
+    return err(
+      "No usable plugin discovery bootstrap node among the " & $supplied.len &
+        " configured"
+    )
 
   return ok(
     Opt.some(
