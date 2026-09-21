@@ -8,9 +8,13 @@ import
   chronos,
   libp2p/switch,
   libp2p/protocols/pubsub/pubsub,
-  libp2p/protocols/pubsub/gossipsub
+  libp2p/protocols/pubsub/gossipsub,
+  libp2p/protocols/pubsub/pubsubpeer,
+  libp2p/protocols/pubsub/rpc/messages
+import brokers/broker_context
 import
   logos_delivery/waku/[waku_core, node/peer_manager, waku_node, waku_relay],
+  logos_delivery/waku/api/events/health_events,
   ../testlib/testutils,
   ../testlib/wakucore,
   ../testlib/wakunode
@@ -20,6 +24,95 @@ template sourceDir(): string =
 
 const KEY_PATH = sourceDir / "resources/test_key.pem"
 const CERT_PATH = sourceDir / "resources/test_cert.pem"
+
+type RelayHealthTest = ref object
+  nodeA, nodeB: WakuNode
+  latestHealth: Opt[TopicHealth]
+  changed: AsyncEvent
+  listener: Opt[EventShardTopicHealthChangeListener]
+
+proc setup(
+    test: RelayHealthTest,
+    configureB: proc(relay: WakuRelay) {.gcsafe, raises: [].} = nil,
+) {.async.} =
+  test.changed = newAsyncEvent()
+  for index in 0 .. 1:
+    # Keep each node's broker events isolated.
+    lockNewGlobalBrokerContext:
+      let node =
+        newTestWakuNode(generateSecp256k1Key(), parseIpAddress("127.0.0.1"), Port(0))
+      if index == 0:
+        test.nodeA = node
+      else:
+        test.nodeB = node
+      (await node.mountRelay()).expect("Failed to mount relay")
+      if index == 1 and not configureB.isNil():
+        configureB(node.wakuRelay)
+      await node.start()
+
+  let onHealth = proc(
+      e: EventShardTopicHealthChange
+  ): Future[void] {.async: (raises: []), gcsafe.} =
+    if e.topic == DefaultPubsubTopic:
+      test.latestHealth = Opt.some(e.health)
+      test.changed.fire()
+  test.listener = Opt.some(
+    EventShardTopicHealthChange.listen(test.nodeA.brokerCtx, onHealth).expect(
+      "Failed to listen for topic health"
+    )
+  )
+
+  proc handler(topic: PubsubTopic, msg: WakuMessage): Future[void] {.async, gcsafe.} =
+    discard
+
+  for node in [test.nodeA, test.nodeB]:
+    node.subscribe((kind: PubsubSub, topic: DefaultPubsubTopic), handler).expect(
+      "Failed to subscribe"
+    )
+  await test.nodeA.connectToNodes(@[test.nodeB.switch.peerInfo.toRemotePeerInfo()])
+
+proc waitForHealth(test: RelayHealthTest, expected: TopicHealth) {.async.} =
+  let deadline = Moment.now() + 10.seconds
+  while test.latestHealth != Opt.some(expected):
+    let remaining = deadline - Moment.now()
+    if remaining <= ZeroDuration or
+        not (await test.changed.wait().withTimeout(remaining)):
+      break
+    test.changed.clear()
+
+  if test.latestHealth != Opt.some(expected):
+    raise newException(
+      AsyncTimeoutError,
+      "Expected topic health " & $expected & "; last reported: " & $test.latestHealth,
+    )
+
+proc close(test: RelayHealthTest) {.async.} =
+  try:
+    if test.listener.isSome():
+      await EventShardTopicHealthChange.dropListener(
+        test.nodeA.brokerCtx, test.listener.get()
+      )
+  finally:
+    var stops: seq[Future[void]]
+    for node in [test.nodeA, test.nodeB]:
+      if not node.isNil():
+        stops.add(node.stop())
+    await allFutures(stops)
+
+proc sendUnsubscribeOnly(test: RelayHealthTest, subscribeField: Opt[bool]) =
+  let peerA = GossipSub(test.nodeB.wakuRelay).peers.getOrDefault(
+      test.nodeA.switch.peerInfo.peerId
+    )
+  doAssert not peerA.isNil(), "Node B has no pubsub peer for node A"
+  # Send directly to avoid an automatic PRUNE.
+  peerA.send(
+    RPCMsg(
+      subscriptions:
+        @[SubOpts(subscribe: subscribeField, topic: Opt.some(DefaultPubsubTopic))]
+    ),
+    anonymize = false,
+    priority = MessagePriority.High,
+  )
 
 suite "WakuNode - Relay":
   asyncTest "Relay protocol is started correctly":
@@ -685,3 +778,71 @@ suite "WakuNode - Relay":
 
     ## Cleanup
     await node.stop()
+
+  asyncTest "topic health follows locally initiated GRAFTs":
+    let test = RelayHealthTest()
+    try:
+      # B accepts GRAFTs but never initiates them.
+      await test.setup(
+        proc(relay: WakuRelay) =
+          relay.parameters.d = 0
+          relay.parameters.dLow = 0
+          relay.parameters.dOut = 0
+      )
+      await test.waitForHealth(TopicHealth.MINIMALLY_HEALTHY)
+      check test.nodeA.wakuRelay.getNumPeersInMesh(DefaultPubsubTopic).get() == 1
+
+      test.nodeB.unsubscribe((kind: PubsubUnsub, topic: DefaultPubsubTopic)).expect(
+        "Node B failed to unsubscribe"
+      )
+      await test.waitForHealth(TopicHealth.UNHEALTHY)
+      check test.nodeA.wakuRelay.getNumPeersInMesh(DefaultPubsubTopic).get() == 0
+    finally:
+      await test.close()
+
+  asyncTest "topic health follows send-stream closure":
+    let test = RelayHealthTest()
+    try:
+      await test.setup()
+      await test.waitForHealth(TopicHealth.MINIMALLY_HEALTHY)
+
+      let peerB = GossipSub(test.nodeA.wakuRelay).peers.getOrDefault(
+          test.nodeB.switch.peerInfo.peerId
+        )
+      doAssert not peerB.isNil() and not peerB.sendStream.isNil(),
+        "Node A has no send stream to node B"
+      await peerB.sendStream.close()
+
+      await test.waitForHealth(TopicHealth.UNHEALTHY)
+      check:
+        test.nodeA.wakuRelay.getNumPeersInMesh(DefaultPubsubTopic).get() == 0
+        test.nodeA.switch.isConnected(test.nodeB.switch.peerInfo.peerId)
+        test.nodeB.switch.isConnected(test.nodeA.switch.peerInfo.peerId)
+    finally:
+      await test.close()
+
+  asyncTest "topic health follows unsubscribe without PRUNE":
+    let test = RelayHealthTest()
+    try:
+      await test.setup()
+      await test.waitForHealth(TopicHealth.MINIMALLY_HEALTHY)
+
+      test.sendUnsubscribeOnly(Opt.some(false))
+
+      await test.waitForHealth(TopicHealth.UNHEALTHY)
+      check test.nodeA.wakuRelay.getNumPeersInMesh(DefaultPubsubTopic).get() == 0
+    finally:
+      await test.close()
+
+  asyncTest "topic health follows unsubscribe with the flag omitted":
+    let test = RelayHealthTest()
+    try:
+      await test.setup()
+      await test.waitForHealth(TopicHealth.MINIMALLY_HEALTHY)
+
+      test.sendUnsubscribeOnly(Opt.none(bool))
+
+      await test.waitForHealth(TopicHealth.UNHEALTHY)
+      check test.nodeA.wakuRelay.getNumPeersInMesh(DefaultPubsubTopic).get() == 0
+    finally:
+      await test.close()

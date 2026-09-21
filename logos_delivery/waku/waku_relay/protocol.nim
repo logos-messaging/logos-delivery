@@ -14,6 +14,7 @@ import
   metrics,
   libp2p/multihash,
   libp2p/protocols/pubsub/gossipsub,
+  libp2p/protocols/pubsub/pubsubpeer,
   libp2p/protocols/pubsub/rpc/messages,
   libp2p/stream/connection,
   libp2p/switch,
@@ -304,10 +305,16 @@ proc initRelayObservers(w: WakuRelay) =
         msgSize.int64, labelValues = [pubsub_topic, "net", "out"]
       )
 
-  proc onRecv(peer: PubSubPeer, msgs: var RPCMsg) =
+  proc onPeerRPCMsg(peer: PubSubPeer, msgs: RPCMsg) =
+    var topicsChanged = false
+
+    for sub in msgs.subscriptions:
+      if sub.topic.isSome() and not sub.isSubscribe:
+        w.topicHealthDirty.incl(sub.topic.get())
+        topicsChanged = true
+
     if msgs.control.isSome():
       let ctrl = msgs.control.get()
-      var topicsChanged = false
 
       for graft in ctrl.graft:
         if graft.topicID.len > 0:
@@ -319,8 +326,11 @@ proc initRelayObservers(w: WakuRelay) =
           w.topicHealthDirty.incl(prune.topicID)
           topicsChanged = true
 
-      if topicsChanged:
-        w.topicHealthUpdateEvent.fire()
+    if topicsChanged:
+      w.topicHealthUpdateEvent.fire()
+
+  proc onRecv(peer: PubSubPeer, msgs: var RPCMsg) =
+    onPeerRPCMsg(peer, msgs)
 
     for msg in msgs.messages:
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
@@ -345,6 +355,8 @@ proc initRelayObservers(w: WakuRelay) =
     )
 
   proc onSend(peer: PubSubPeer, msgs: var RPCMsg) =
+    onPeerRPCMsg(peer, msgs)
+
     for msg in msgs.messages:
       let (msg_id_short, topic, wakuMessage, msgSize) = decodeRpcMessageInfo(peer, msg).valueOr:
         debug "onSend: failed decoding RPC info",
@@ -525,6 +537,14 @@ proc topicsHealthLoop(w: WakuRelay) {.async.} =
 
     # safety cooldown to protect from edge cases
     await sleepAsync(100.milliseconds)
+
+method onPubSubPeerEvent*(
+    w: WakuRelay, peer: PubSubPeer, event: PubSubPeerEvent
+) {.gcsafe.} =
+  procCall GossipSub(w).onPubSubPeerEvent(peer, event)
+  if event.kind == PubSubPeerEventKind.StreamClosed:
+    w.topicHealthCheckAll = true
+    w.topicHealthUpdateEvent.fire()
 
 method start*(w: WakuRelay) {.async: (raises: [CancelledError]).} =
   info "start"
