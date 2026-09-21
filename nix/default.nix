@@ -117,8 +117,8 @@ let
 
   linkArgs =
     if isWindows then
-      # No -lrln: config.nims already passes rln.lib on Windows, so adding it
-      # here would link the same 27 MB archive twice.
+      # No -lrln: config.nims already links $LIBRLN_FILE on Windows, so adding
+      # it here would link the same 27 MB archive twice.
       windowsLinkFlags
     else
       "-L${zerokitRln}/lib -lrln"
@@ -210,15 +210,9 @@ pkgs.stdenv.mkDerivation {
     ln -sf "$(command -v $AR)" $TMPDIR/arshim/ar
     export PATH=$TMPDIR/arshim:$PATH
 
-    # config.nims adds `--passL:rln.lib` on Windows, relative to the project
-    # root: link rln statically there, as MSYS2 does, so no rln DLL ships.
-    cp ${zerokitRln}/lib/librln.a rln.lib
-
-    # config.nims picks the MSYS CMake generator from the TARGET OS, which a
-    # Linux builder does not have; OpenMP is off for the reason given above.
-    substituteInPlace config.nims \
-      --replace-fail '-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release' \
-                     '-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off'
+    # config.nims links rln statically on Windows, as MSYS2 does, from the
+    # archive this variable names -- so no rln DLL ships.
+    export LIBRLN_FILE=${zerokitRln}/lib/librln.a
     ''}
 
     ${if buildApp then ''
