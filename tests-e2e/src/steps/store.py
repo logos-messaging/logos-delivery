@@ -251,6 +251,14 @@ class StepsStore(StepsCommon):
                     ), f"Message hash at index {idx} returned by store doesn't match the computed message hash {expected_hash}. Actual hash: {actual_hash}"
 
     @allure.step
+    def wait_for_published_message_is_stored(self, timeout_duration=30, time_between_retries=1, **kwargs):
+        @retry(stop=stop_after_delay(timeout_duration), wait=wait_fixed(time_between_retries), reraise=True)
+        def check_until_stored():
+            self.check_published_message_is_stored(**kwargs)
+
+        check_until_stored()
+
+    @allure.step
     def check_sent_message_is_stored(
         self,
         expected_hashes,

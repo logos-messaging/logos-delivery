@@ -1,5 +1,4 @@
 import docker
-import os
 from src.env_vars import NETWORK_NAME, PG_PASS, PG_USER
 from src.libs.custom_logger import get_custom_logger
 
@@ -9,16 +8,12 @@ logger = get_custom_logger(__name__)
 def start_postgres():
     pg_env = {"POSTGRES_USER": PG_USER, "POSTGRES_PASSWORD": PG_PASS}
 
-    base_path = os.path.abspath(".")
-    volumes = {os.path.join(base_path, "postgresql"): {"bind": "/var/lib/postgresql/data", "mode": "Z"}}
-
     client = docker.from_env()
 
     postgres_container = client.containers.run(
         "postgres:15.4-alpine3.18",
         name="postgres",
         environment=pg_env,
-        volumes=volumes,
         command="postgres",
         ports={"5432/tcp": ("127.0.0.1", 5432)},
         restart_policy={"Name": "on-failure", "MaximumRetryCount": 5},
@@ -40,5 +35,5 @@ def start_postgres():
 
 def stop_postgres(postgres_container):
     postgres_container.stop()
-    postgres_container.remove()
+    postgres_container.remove(v=True)
     logger.debug("Postgres container stopped and removed.")
