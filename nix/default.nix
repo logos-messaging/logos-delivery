@@ -104,10 +104,11 @@ let
   # The public header includes this generated surface; nim-ffi resolves a
   # relative dir against the compiled source (nim-ffi#177).
   cBindingsDir = "library/generated";
+  cBindingsOutputDir = "generated";
   cBindingsArgs = [
     "--define:ffiGenBindings"
     "--define:targetLang=c"
-    "--define:ffiOutputDir=${cBindingsDir}"
+    "--define:ffiOutputDir=${cBindingsOutputDir}"
     "--define:ffiSrcPath=../liblogosdelivery.nim"
   ];
 
