@@ -19,8 +19,8 @@
 
   nat_traversal = pkgs.fetchgit {
     url = "https://github.com/status-im/nim-nat-traversal";
-    rev = "860e18c37667b5dd005b94c63264560c35d88004";
-    sha256 = "0319k5bbl468phwfnvlrh7725sc80rnf7m9gyj0i3cb5hb9q78bs";
+    rev = "83a4010c72917fd1386880d376392069960e12fb";
+    sha256 = "1pazj80y4xkdnyxv35qqip8cdmv8591m8i2zx03kmj84hid6m4hj";
     fetchSubmodules = true;
   };
 
@@ -236,8 +236,8 @@
 
   ffi = pkgs.fetchgit {
     url = "https://github.com/logos-messaging/nim-ffi";
-    rev = "b9c4d26de013bba098e810f70074cbba6c5b4c15";
-    sha256 = "153xv40bj1i12lbdk4anqlhn7gmqdan7fkxndh75199fhw0qqw1x";
+    rev = "4c1218626bbbf89e19836845b690937cd255c3f0";
+    sha256 = "1vnn8z50584j7mfiahl0n8iid9nj62hw1ghlcd6id7a7p4lqiri4";
     fetchSubmodules = true;
   };
 
