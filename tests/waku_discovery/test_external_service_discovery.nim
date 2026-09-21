@@ -21,6 +21,7 @@ type FakeState = object
   started: Atomic[bool]
   failNext: Atomic[bool]
   blockLookup: Atomic[bool] ## lookup spins until cleared, like a wedged provider
+  startDelayMs: Atomic[int] ## start sleeps this long, like a real bring-up
   freed: Atomic[int]
   lastLimit: Atomic[int64]
   lastDataLen: Atomic[int]
@@ -58,6 +59,9 @@ proc fakeStart(
   if fake.failNext.load():
     setErr(errBuf, errBufLen, "plugin refused to start")
     return LdDiscoError
+  let delay = fake.startDelayMs.load()
+  if delay > 0:
+    sleep(delay)
   fake.started.store(true)
   LdDiscoOk
 
@@ -419,4 +423,24 @@ suite "ExternalServiceDiscovery":
     await sleepAsync(chronos.seconds(4))
     check fake.freed.load() >= 1
 
+    check (await iface.stopDiscovery()).isOk()
+
+  asyncTest "a bring-up slower than the per-verb contract still starts":
+    ## `start` brings a whole backend up, so it gets `PluginStartTimeout`
+    ## rather than the plugin's per-verb timeout -- and, more to the point,
+    ## rather than nim-brokers' 5 s default for the (mt) lane, which is what
+    ## the node would otherwise be held to. A plugin that takes 7 s here is
+    ## standing in for libp2p's own bring-up, which reaches its fixed 10 s
+    ## call budget whenever kademlia bootstraps inside the switch start.
+    let backend = ExternalServiceDiscovery.create()
+    let ctx = globalBrokerContext()
+    check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
+
+    fake.startDelayMs.store(7000)
+
+    let iface: IPeerDiscovery = backend
+    check (await iface.startDiscovery()).isOk()
+    check fake.started.load()
+
+    fake.startDelayMs.store(0)
     check (await iface.stopDiscovery()).isOk()

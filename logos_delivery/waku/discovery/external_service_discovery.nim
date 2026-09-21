@@ -35,6 +35,13 @@ const
   ExternalBackendId* = "service-ext"
   DefaultServiceLookupInterval* = chronos.seconds(60)
   DefaultRandomLookupInterval* = chronos.seconds(60)
+  PluginStartTimeout* = chronos.seconds(20)
+    ## How long the node waits for the plugin's `start`, on both the (mt) lane
+    ## and the call wrapper. Sized for a bring-up rather than a verb: the
+    ## plugin contacts its provider there, and libp2p's own calls are capped
+    ## at a fixed 10 s that the kademlia bootstrap inside its switch start
+    ## regularly reaches. Roughly twice the worst bring-up measured on a
+    ## 37-node fleet, so a slower host or a future provider has room.
   WorkerStopGraceMargin = chronos.seconds(5)
     ## Added to the plugin's own declared request timeout when waiting for the
     ## worker to come back on stop. The declared timeout bounds how long a verb
@@ -73,12 +80,15 @@ proc readyPlugin(
       err("external backend: configured but no service discovery plugin registered")
   ok(plugin)
 
-template pluginCall(T: typedesc, op: string, request: untyped): untyped =
+template pluginCall(
+    T: typedesc, op: string, request: untyped, budget: Duration = ZeroDuration
+): untyped =
   ## Awaits one (mt) plugin request, bounded by the timeout the plugin
-  ## declared at registration. The worker is not interrupted on timeout —
-  ## the entry point runs to completion there — the caller just stops waiting.
-  ## `T` is the payload type, so every branch stays correctly typed; the
-  ## template yields a value rather than returning, which keeps it usable
+  ## declared at registration, or by `budget` when the caller knows the verb
+  ## needs longer than the per-verb contract. The worker is not interrupted on
+  ## timeout — the entry point runs to completion there — the caller just stops
+  ## waiting. `T` is the payload type, so every branch stays correctly typed;
+  ## the template yields a value rather than returning, which keeps it usable
   ## inside the async transform.
   block:
     let plugRes = readyPlugin(self)
@@ -86,11 +96,16 @@ template pluginCall(T: typedesc, op: string, request: untyped): untyped =
       Result[T, string].err(plugRes.error())
     else:
       let plugin = plugRes.get()
+      let deadline =
+        if budget > ZeroDuration:
+          budget
+        else:
+          plugin.requestTimeout()
       let fut = request
       var cancelled = false
       let answered =
         try:
-          await fut.withTimeout(plugin.requestTimeout())
+          await fut.withTimeout(deadline)
         except CancelledError:
           cancelled = true
           false
@@ -278,7 +293,15 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## The worker gets the vtable by value, so nothing is shared and there is
     ## nothing to look up on the far side.
     ?await self.worker.start(self.workerCtx, plugin)
-    ?pluginCall(void, "start", PluginStart.request(self.workerCtx))
+
+    ## `start` is the one verb that brings a whole backend up, so it gets its
+    ## own budget on both fences: nim-brokers' (mt) lane, which otherwise
+    ## enforces its 5 s default and would abandon the worker mid-bring-up, and
+    ## the wrapper below, which otherwise uses the plugin's per-verb contract.
+    ## Every other verb keeps that contract, so a wedged lookup is still
+    ## noticed quickly.
+    PluginStart.setRequestTimeout(PluginStartTimeout)
+    ?pluginCall(void, "start", PluginStart.request(self.workerCtx), PluginStartTimeout)
 
     self.running = true
     if self.serviceLookupLoop.isNil():
