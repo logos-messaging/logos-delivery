@@ -4,12 +4,36 @@
 , targets              ? []
 , gitVersion           ? "n/a"
 , enablePostgres       ? true
+  # The libpq shipped beside a Windows artifact. NOT named `libpq`: callPackage would
+  # auto-fill that name from `pkgs`, whose cross libpq does not build for mingw.
+, libpqPackage         ? null
 , enableNimDebugDlOpen ? true
 , chroniclesLogLevel   ? null
 }:
 
 let
   deps      = import ./deps.nix    { inherit pkgs; };
+
+  inherit (pkgs) lib;
+  hostPlatform = pkgs.stdenv.hostPlatform;
+  isWindows    = hostPlatform.isWindows;
+
+  # nixpkgs' TinyCBOR install target drops the .exe suffix from cbordump when
+  # cross-compiling. Consumers only need the static library and public headers.
+  tinycbor =
+    if !isWindows then pkgs.tinycbor
+    else pkgs.tinycbor.overrideAttrs (old: {
+      makeFlags = (old.makeFlags or []) ++ [ "BUILD_SHARED=0" "BUILD_STATIC=1" ];
+      postPatch = (old.postPatch or "") + ''
+        substituteInPlace Makefile \
+          --replace-fail 'INSTALL_TARGETS += $(bindir)/cbordump' \
+                         '# cbordump is not installed when cross-compiling'
+      '';
+    });
+
+  # These run on the BUILDER, so buildPackages: `pkgs.nim-2_2` is the
+  # mingw-hosted wrapper and does not evaluate. Identity on a native system.
+  buildTools = with pkgs.buildPackages; [ nim-2_2 git gnumake which cmake ];
 
   # Binary app targets built as executables; anything else builds the FFI library.
   appSources = {
@@ -22,20 +46,30 @@ let
   buildApp = appTarget != null;
 
   # Build-specific defines only. Feature defines live in config.nims.
-  nimDefineArgs = pkgs.lib.concatStringsSep " \\\n      " (
+  # nim appends .exe itself on Windows, so the installed name differs from --out.
+  exeSuffix = lib.optionalString isWindows ".exe";
+
+  nimDefineArgs = lib.concatStringsSep " \\\n      " (
        [ "--define:disable_libbacktrace"
          "--define:libp2p_mix_experimental_exit_is_dest"
          "--define:libp2p_quic_support"
          "--define:git_version=${gitVersion}" ]
-    ++ pkgs.lib.optional enablePostgres       "--define:postgres"
-    ++ pkgs.lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
-    ++ pkgs.lib.optional (chroniclesLogLevel != null)
+    ++ lib.optional enablePostgres       "--define:postgres"
+    ++ lib.optional enableNimDebugDlOpen "--define:nimDebugDlOpen"
+    ++ lib.optional (chroniclesLogLevel != null)
          "--define:chronicles_log_level=${toString chroniclesLogLevel}"
   );
 
-  # nat_traversal is excluded from the static pathArgs; it is handled
-  # separately in buildPhase (its bundled C libs must be compiled first).
-  otherDeps = builtins.removeAttrs deps [ "nat_traversal" ];
+  # nat_traversal is handled separately in buildPhase: its bundled C libs must
+  # be compiled before linking, which needs a writable copy of its source tree.
+  copiedDeps = [ "nat_traversal" ];
+  otherDeps = builtins.removeAttrs deps copiedDeps;
+
+  # nixpkgs' MinGW toolchain has no OpenMP runtime to link Leopard-RS against.
+  leopardDefineArgs = lib.optionals isWindows [
+    "--define:LeopardExtraCompilerFlags=-fno-openmp"
+    "--define:LeopardExtraLinkerFlags=-fno-openmp"
+  ];
 
   # Some packages (e.g. regex, unicodedb) put their .nim files under src/
   # while others use the repo root. Pass both so the compiler finds either layout.
@@ -52,72 +86,104 @@ let
         (builtins.attrValues otherDeps));
 
   libExt =
-    if pkgs.stdenv.hostPlatform.isWindows then "dll"
-    else if pkgs.stdenv.hostPlatform.isDarwin then "dylib"
+    if isWindows then "dll"
+    else if hostPlatform.isDarwin then "dylib"
     else "so";
 
   # Mirrors the nimble buildLibrary proc: library targets only, not the apps.
   libDefineArgs = [ "--define:discv5_protocol_id=d5waku" ];
 
-  # Must match the nimble task: library/liblogosdelivery.h includes this path.
-  cBindingsDir = "library/generated";
+  # The .dll belongs in bin/: nixpkgs' win-dll-link hook only stages a PE's
+  # dependency DLLs under $prefix/bin, so one in lib/ cannot load.
+  dllDir = if isWindows then "bin" else "lib";
 
-  # -d:ffiSrcPath is required: without it nim-ffi derives the path via
-  # relativePath, which needs getcwd at compile time and fails to build.
+  # The public header includes this generated surface. Keep the path absolute:
+  # nim-ffi writes it from the compile-time VM (nim-ffi#168).
+  cBindingsDir = "library/generated";
   cBindingsArgs = [
     "--define:ffiGenBindings"
     "--define:targetLang=c"
-    "--define:ffiOutputDir=${cBindingsDir}"
+    "--define:ffiOutputDir=$PWD/${cBindingsDir}"
+    # Avoid compile-time getcwd in nim-ffi's default relative-path derivation.
     "--define:ffiSrcPath=../liblogosdelivery.nim"
   ];
 
-  # Shared `nim c` invocation. Callers vary the output, the source file and a
-  # few mode-specific flags (e.g. --app:lib, --noMain, --header); everything
-  # else (paths, defines, threading, gc, nimcache, rln linkage) is constant.
-  # $NAT_TRAV and $NIMCACHE are shell variables defined in buildPhase.
+  # Win32 imports for the Nim runtime, chronos and the static rln: the MSYS2
+  # set, plus dbghelp, stdc++ (boringssl) and winpthread (clock_gettime64).
+  windowsLinkFlags =
+    "-lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -ldbghelp"
+    + " -lwinpthread -lstdc++";
+
+  linkArgs =
+    if isWindows then
+      # No -lrln: config.nims already links $LIBRLN_FILE on Windows, so adding
+      # it here would link the same 27 MB archive twice.
+      windowsLinkFlags
+    else
+      "-L${zerokitRln}/lib -lrln"
+      + lib.optionalString hostPlatform.isLinux " -lstdc++";
+
+  # Shared `nim c` invocation; callers vary only the output, source and a few
+  # mode flags. $NAT_TRAV and $NIMCACHE come from buildPhase.
   nimCompile = { outFile, sourceFile, extraArgs ? [] }: ''
     nim c \
       --noNimblePath \
       ${pathArgs} \
       --path:$NAT_TRAV \
       --path:$NAT_TRAV/src \
-      --passL:"-L${zerokitRln}/lib -lrln${pkgs.lib.optionalString pkgs.stdenv.isLinux " -lstdc++"}" \
+      --passL:"${linkArgs}" \
       ${nimDefineArgs} \
+      ${lib.concatStringsSep " \\\n      " leopardDefineArgs} \
       --threads:on \
       --mm:refc \
       --nimcache:$NIMCACHE \
       --out:${outFile} \
-      ${pkgs.lib.concatStringsSep " \\\n      " extraArgs} \
+      ${lib.concatStringsSep " \\\n      " extraArgs} \
       ${sourceFile}
   '';
+
+  # Both vendored makefiles take their target from `$(CC) -dumpmachine`, so the
+  # cross compiler selects MinGW; CC= on the command line beats their own CC.
+  natMakeVars = lib.optionalString isWindows ''CC="$CC" AR="$AR" RANLIB="$RANLIB"'';
+  # -fPIC is meaningless on PE (everything is relocatable) and gcc warns on it.
+  natPic = lib.optionalString (!isWindows) " -fPIC";
+  # Both vendored headers make LIBSPEC __declspec(dllimport) unless
+  # <LIB>_STATICLIB is set, so each archive calls its own symbols through stubs.
+  upnpStatic   = lib.optionalString isWindows " -DMINIUPNP_STATICLIB";
+  natpmpStatic = lib.optionalString isWindows " -DNATPMP_STATICLIB";
+
+  installLibpq = destination: lib.optionalString (isWindows && libpqPackage != null) ''
+    # PostgreSQL is loaded before main(), and Windows searches beside the image.
+    cp -L ${libpqPackage}/bin/*.dll ${destination}/
+    chmod u+w ${destination}/*.dll
+  '';
 in
+assert !isWindows || !enablePostgres || libpqPackage != null;
 pkgs.stdenv.mkDerivation {
   pname = if buildApp then appTarget else "liblogosdelivery";
   version = "dev";
 
   inherit src;
 
-  nativeBuildInputs = with pkgs; [
-    nim-2_2
-    git
-    gnumake
-    which
-    # nim-leopard builds the vendored Leopard-RS C++ library at Nim compile time.
-    cmake
-  ] ++ pkgs.lib.optionals pkgs.stdenv.isDarwin [ pkgs.darwin.cctools ];
+  nativeBuildInputs = buildTools
+    ++ lib.optionals hostPlatform.isDarwin [ pkgs.buildPackages.darwin.cctools ]
+    # Only the Windows branch of nim-boringssl has hand-written asm, and it
+    # shells out to `nasm -f win64` from a compile-time macro.
+    ++ lib.optionals isWindows [ pkgs.buildPackages.nasm ];
 
   buildInputs = [ zerokitRln ]
-    ++ pkgs.lib.optionals pkgs.stdenv.isLinux [ pkgs.stdenv.cc.cc.lib ];
+    ++ lib.optionals hostPlatform.isLinux [ pkgs.stdenv.cc.cc.lib ]
+    # nixpkgs builds mingw-w64 against mcfgthread, so nothing in the default
+    # closure provides pthread.h / libpthread.a.
+    ++ lib.optionals isWindows [ pkgs.windows.pthreads ];
 
-  # cmake is here only so nim-leopard can build Leopard-RS from its own
-  # CMakeLists during `nim c`. Without this, cmake's setup hook installs
-  # cmakeConfigurePhase as the derivation's configurePhase and fails on the
-  # repo root, which has no CMakeLists.txt of its own.
+  # cmake is here only for nim-leopard's own CMakeLists; without this its setup
+  # hook makes cmakeConfigurePhase the configurePhase and fails on the repo root.
   dontUseCmakeConfigure = true;
 
   # The generated C helpers include <tinycbor/cbor.h> and call TinyCBOR's
   # encoder/decoder API. Propagate it from the library package to consumers.
-  propagatedBuildInputs = pkgs.lib.optionals (!buildApp) [ pkgs.tinycbor ];
+  propagatedBuildInputs = lib.optionals (!buildApp) [ tinycbor ];
 
   buildPhase = ''
     export HOME=$TMPDIR
@@ -133,11 +199,27 @@ pkgs.stdenv.mkDerivation {
     cp -r ${deps.nat_traversal} $NAT_TRAV
     chmod -R +w $NAT_TRAV
 
-    make -C $NAT_TRAV/vendor/miniupnp/miniupnpc \
-      CFLAGS="-Os -fPIC" build/libminiupnpc.a
+    make -C $NAT_TRAV/vendor/miniupnp/miniupnpc ${natMakeVars} \
+      CFLAGS="-Os${natPic}${upnpStatic}" build/libminiupnpc.a
 
-    make -C $NAT_TRAV/vendor/libnatpmp-upstream \
-      CFLAGS="-Wall -Os -fPIC -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4" libnatpmp.a
+    make -C $NAT_TRAV/vendor/libnatpmp-upstream ${natMakeVars} \
+      CFLAGS="-Wall -Os${natPic} -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4${natpmpStatic}" libnatpmp.a
+    ${lib.optionalString isWindows ''
+    # nim-nat-traversal wants libminiupnpc.a at the miniupnpc root on Windows,
+    # but Makefile.mingw has to RUN a .exe: build portable, then stage it there.
+    cp $NAT_TRAV/vendor/miniupnp/miniupnpc/build/libminiupnpc.a \
+       $NAT_TRAV/vendor/miniupnp/miniupnpc/libminiupnpc.a
+
+    # nim shells out to a bare `ar` for --app:staticlib and a cross stdenv has
+    # only x86_64-w64-mingw32-ar; every archive built here is for the target.
+    mkdir -p $TMPDIR/arshim
+    ln -sf "$(command -v $AR)" $TMPDIR/arshim/ar
+    export PATH=$TMPDIR/arshim:$PATH
+
+    # config.nims links rln statically on Windows, as MSYS2 does, from the
+    # archive this variable names -- so no rln DLL ships.
+    export LIBRLN_FILE=${zerokitRln}/lib/librln.a
+    ''}
 
     ${if buildApp then ''
     echo "== Building ${appTarget} =="
@@ -157,7 +239,12 @@ pkgs.stdenv.mkDerivation {
         "--noMain"
         "--header"
         "--nimMainPrefix:liblogosdelivery"
-      ] ++ libDefineArgs ++ cBindingsArgs;
+      ]
+      # nim emits only the .dll, and find_library ignores a bare .dll, so a
+      # consumer would fall through to the .a and link the Nim runtime statically.
+      ++ lib.optional isWindows
+           "--passL:-Wl,--out-implib,build/liblogosdelivery.dll.a"
+      ++ libDefineArgs ++ cBindingsArgs;
     }}
 
     echo "== Building liblogosdelivery (static) =="
@@ -169,21 +256,33 @@ pkgs.stdenv.mkDerivation {
         "--opt:size"
         "--noMain"
         "--nimMainPrefix:liblogosdelivery"
-      ] ++ libDefineArgs;
+      ] ++ libDefineArgs ++ cBindingsArgs;
     }}
+
     ''}
   '';
 
   installPhase = if buildApp then ''
     runHook preInstall
     mkdir -p $out/bin $out/lib
-    cp build/${appTarget} $out/bin/
+    cp build/${appTarget}${exeSuffix} $out/bin/
+${installLibpq "$out/bin"}
     runHook postInstall
   '' else ''
     runHook preInstall
-    mkdir -p $out/lib $out/include/generated
-    cp build/liblogosdelivery.${libExt} $out/lib/
+    mkdir -p $out/lib $out/include${lib.optionalString isWindows " $out/bin"}
+    cp build/liblogosdelivery.${libExt} $out/${dllDir}/
     cp build/liblogosdelivery.a         $out/lib/
+${lib.optionalString isWindows ''
+    # The import library belongs in lib/ (a link-time input), beside the static
+    # archive; only the .dll is a runtime artifact and lives in bin/.
+    if [ ! -f build/liblogosdelivery.dll.a ]; then
+      echo "error: no import library was produced -- consumers cannot link the DLL" >&2
+      exit 1
+    fi
+    cp build/liblogosdelivery.dll.a $out/lib/
+''}
+${installLibpq "$out/${dllDir}"}
     cp library/liblogosdelivery.h        $out/include/
     cp library/liblogosdelivery_kernel.h $out/include/
     cp library/liblogosdelivery_rln.h    $out/include/
@@ -194,19 +293,27 @@ pkgs.stdenv.mkDerivation {
       if [ ! -f ${cBindingsDir}/$header ]; then
         echo "error: genBindings() produced no ${cBindingsDir}/$header." >&2
         echo "       The installed include/ would not compile. See logos-delivery#4121." >&2
+        echo "       Contents of ${cBindingsDir}:" >&2
+        ls -la ${cBindingsDir} >&2 || true
         exit 1
       fi
     done
+    mkdir -p $out/include/generated
     cp ${cBindingsDir}/*.h $out/include/generated/
     runHook postInstall
   '';
 
-  # Bundle librln alongside the produced artifact so the output is self-contained.
-  # Use --add-rpath (not --set-rpath) so fixupPhase's stdenv RUNPATH injection
-  # for libstdc++ is preserved.
+  # Bundle librln beside the artifact; --add-rpath keeps fixupPhase's own RUNPATH.
+  # On Windows a copy next to the image IS the fixup, and rln may be static-only.
   postInstall =
+    lib.optionalString isWindows ''
+      # Nothing to do: rln links statically, and win-dll-link stages the PE's
+      # own imports because installPhase put the .dll in $out/bin (see dllDir).
+      true
+    ''
+    + lib.optionalString (!isWindows) (
     if buildApp then
-      pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+      lib.optionalString hostPlatform.isDarwin ''
         cp ${zerokitRln}/lib/librln.dylib $out/lib/
         chmod +w $out/lib/librln.dylib $out/bin/${appTarget}
         install_name_tool -id @rpath/librln.dylib $out/lib/librln.dylib
@@ -216,12 +323,12 @@ pkgs.stdenv.mkDerivation {
         fi
         install_name_tool -add_rpath @loader_path/../lib $out/bin/${appTarget}
       ''
-      + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+      + lib.optionalString hostPlatform.isLinux ''
         cp ${zerokitRln}/lib/librln.so $out/lib/
         patchelf --add-rpath '$ORIGIN/../lib' $out/bin/${appTarget}
       ''
     else
-      pkgs.lib.optionalString pkgs.stdenv.isDarwin ''
+      lib.optionalString hostPlatform.isDarwin ''
         cp ${zerokitRln}/lib/librln.dylib $out/lib/
         chmod +w $out/lib/librln.dylib $out/lib/liblogosdelivery.dylib
         install_name_tool -id @rpath/liblogosdelivery.dylib $out/lib/liblogosdelivery.dylib
@@ -230,10 +337,10 @@ pkgs.stdenv.mkDerivation {
         install_name_tool -change "$old" @rpath/librln.dylib $out/lib/liblogosdelivery.dylib
         install_name_tool -add_rpath @loader_path $out/lib/liblogosdelivery.dylib
       ''
-      + pkgs.lib.optionalString pkgs.stdenv.isLinux ''
+      + lib.optionalString hostPlatform.isLinux ''
         cp ${zerokitRln}/lib/librln.so $out/lib/
         patchelf --add-rpath '$ORIGIN' $out/lib/liblogosdelivery.so
-      '';
+      '');
 
   meta = with pkgs.lib; {
     description =
@@ -242,6 +349,8 @@ pkgs.stdenv.mkDerivation {
       else "logos-delivery shared/static library";
     homepage = "https://github.com/logos-messaging/logos-delivery";
     license  = licenses.mit;
-    platforms = platforms.unix;
+    # Test Windows FIRST when branching on platform: under mingw cross, isDarwin
+    # and isAarch64 are false and x86_64 still matches.
+    platforms = platforms.unix ++ platforms.windows;
   };
 }

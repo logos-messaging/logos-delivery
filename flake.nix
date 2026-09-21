@@ -32,7 +32,6 @@
       systems = [
         "x86_64-linux" "aarch64-linux"
         "x86_64-darwin" "aarch64-darwin"
-        "x86_64-windows"
       ];
 
       forAllSystems = nixpkgs.lib.genAttrs systems;
@@ -67,40 +66,101 @@
         inherit system;
         overlays = [ (import rust-overlay) nimbleOverlay ];
       };
-    in {
-      packages = forAllSystems (system:
+
+      # One host platform's packages.
+      packagesFor = { pkgs, zerokitRln, libpqPackage ? null }:
         let
-          pkgs = pkgsFor system;
-
-          zerokitRln = import ./nix/zerokit.nix { inherit zerokit system; };
-
           liblogosdelivery = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
-            inherit zerokitRln;
+            inherit zerokitRln libpqPackage;
             gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
 
+          # `-d:postgres` binds libpq before main(), so each Windows artifact
+          # receives the cross-built runtime through libpqPackage.
           wakucanary = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
             targets = ["wakucanary"];
-            inherit zerokitRln;
+            inherit zerokitRln libpqPackage;
           };
 
           logosdeliverynode = pkgs.callPackage ./nix/default.nix {
             inherit pkgs;
             src = ./.;
             targets = ["logosdeliverynode"];
-            inherit zerokitRln;
+            inherit zerokitRln libpqPackage;
             gitVersion = "v${nimbleVersion}-g${builtins.substring 0 6 shortRev}";
           };
         in {
           inherit liblogosdelivery wakucanary logosdeliverynode;
           # Expose librln so downstream consumers link the exact same build.
           rln = zerokitRln;
-          default = liblogosdelivery;
+        };
+
+      # The Windows build is a MinGW cross build, published the way zerokit
+      # publishes its own (vacp2p/zerokit#438): packages.<build>.<name>-windows-x86_64.
+      windowsPkgsFor = system: import nixpkgs {
+        localSystem = system;
+        crossSystem = {
+          config = "x86_64-w64-mingw32";
+          # msvcrt, matching MSYS2's MINGW64 environment -- so a DLL built
+          # here and one built by the MSYS2 CI job share a C runtime.
+          libc = "msvcrt";
+        };
+        # nimbleOverlay is deliberately absent: nimble is a devShell tool and
+        # a mingw-hosted nimble neither builds nor is ever run.
+        overlays = [ (import rust-overlay) ];
+      };
+
+      # libpq is no link-time dependency (db_connector dlopens it); it is its own
+      # package so consumers can bundle it beside the image, where Windows looks.
+      windowsLibpq = pkgs:
+        (pkgs.libpq.override {
+          # postgres 18 links libcurl for OAuth; curl cross to mingw drags in
+          # ngtcp2 -> nghttp3, whose EXAMPLES include <arpa/inet.h> and fail.
+          curlSupport = false;
+        }).overrideAttrs (o: {
+          # makeWrapper wants a HOST-platform bash (mingw bash does not build)
+          # and nothing in libpq actually calls wrapProgram.
+          nativeBuildInputs = builtins.filter
+            (d: !(builtins.isAttrs d && (d.name or "") == "make-shell-wrapper-hook"))
+            o.nativeBuildInputs;
+          # pg_pthread.h includes <pthread.h> unconditionally, and mingw-w64 here
+          # is built against mcfgthread, so winpthreads must be supplied.
+          buildInputs = o.buildInputs ++ [ pkgs.windows.pthreads ];
+          # objcopy --only-keep-debug on a PE is not the ELF split this assumes.
+          separateDebugInfo = false;
+          meta = o.meta // { platforms = o.meta.platforms ++ lib.platforms.windows; };
+        });
+
+      windowsPackagesFor = system:
+        let
+          pkgs = windowsPkgsFor system;
+          libpq = windowsLibpq pkgs;
+          windowsPackages = packagesFor {
+            inherit pkgs;
+            zerokitRln = import ./nix/zerokit.nix { inherit zerokit system; windows = true; };
+            libpqPackage = libpq;
+          } // { inherit libpq; };
+        in
+        lib.mapAttrs' (name: lib.nameValuePair "${name}-windows-x86_64") windowsPackages;
+    in {
+      packages = forAllSystems (system:
+        let
+          pkgs = pkgsFor system;
+          nativePackages = packagesFor {
+            inherit pkgs;
+            zerokitRln = import ./nix/zerokit.nix { inherit zerokit system; };
+          };
+        in
+        nativePackages // {
+          default = nativePackages.liblogosdelivery;
         }
+        # zerokit builds its MinGW rln only on x86_64-linux, so the Windows
+        # packages live there too.
+        // lib.optionalAttrs (system == "x86_64-linux") (windowsPackagesFor system)
       );
 
       devShells = forAllSystems (system:
