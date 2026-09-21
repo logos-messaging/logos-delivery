@@ -11,12 +11,10 @@ def start_postgres():
     pg_env = {"POSTGRES_USER": PG_USER, "POSTGRES_PASSWORD": PG_PASS}
     image = "postgres:15.4-alpine3.18"
 
-    DockerManager(image).create_network()
+    docker_manager = DockerManager(image)
+    docker_manager.create_network()
+    docker_manager.pull_if_missing(image)
     client = docker.from_env()
-    try:
-        client.images.get(image)
-    except docker.errors.ImageNotFound:
-        client.images.pull(image)
 
     postgres_container = client.containers.create(
         image,

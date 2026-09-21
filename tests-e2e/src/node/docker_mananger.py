@@ -7,7 +7,7 @@ import threading
 import docker
 from src.env_vars import NETWORK_NAME, SUBNET, IP_RANGE, GATEWAY
 from docker.types import IPAMConfig, IPAMPool
-from docker.errors import NotFound, APIError
+from docker.errors import ImageNotFound, NotFound, APIError
 
 logger = get_custom_logger(__name__)
 
@@ -33,6 +33,13 @@ class DockerManager:
         logger.debug(f"Network {network_name} created")
         return network
 
+    def pull_if_missing(self, image_name):
+        try:
+            self._client.images.get(image_name)
+        except ImageNotFound:
+            logger.debug(f"Pulling image {image_name}")
+            self._client.images.pull(image_name)
+
     def start_container(self, image_name, ports, args, log_path, container_ip, volumes, remove_container=True, entrypoint=None):
         cli_args = []
         for key, value in args.items():
@@ -48,20 +55,21 @@ class DockerManager:
         cli_args_str_for_log = " ".join(cli_args)
         entrypoint_for_log = f"--entrypoint {entrypoint} " if entrypoint else ""
         logger.debug(f"docker run -i -t {port_bindings_for_log} {entrypoint_for_log}{image_name} {cli_args_str_for_log}")
-        container = self._client.containers.run(
+        self.pull_if_missing(image_name)
+        container = self._client.containers.create(
             image_name,
             command=cli_args,
             entrypoint=entrypoint,
             ports=port_bindings,
-            detach=True,
-            remove=remove_container,
             auto_remove=remove_container,
             volumes=volumes,
         )
 
+        # Attached before start, so the node already has its waku address when it starts.
         network = self._client.networks.get(NETWORK_NAME)
         logger.debug(f"docker network connect --ip {container_ip} {NETWORK_NAME} {container.id}")
         network.connect(container, ipv4_address=container_ip)
+        container.start()
 
         logger.debug(f"Container started with ID {container.short_id}. Setting up logs at {log_path}")
         log_thread = threading.Thread(target=self._log_container_output, args=(container, log_path))
