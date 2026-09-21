@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[sequtils, strutils, sugar],
+  std/[json, sequtils, strutils, sugar],
   chronicles,
   chronos/timer,
   testutils/unittests,
@@ -30,7 +30,8 @@ import
     waku_store as waku_store,
   ],
   ../testlib/wakucore,
-  ../testlib/wakunode
+  ../testlib/wakunode,
+  ../testlib/rest_requests
 
 logScope:
   topics = "waku node rest store_rest_interface test"
@@ -67,9 +68,9 @@ proc defaultSeed(): seq[WakuMessage] =
   ]
 
 proc init(
-    T: type RestStoreTest, msgs: seq[WakuMessage] = defaultSeed()
+    T: type RestStoreTest, msgs: seq[WakuMessage], driver: ArchiveDriver
 ): Future[RestStoreTest] {.async.} =
-  var t = RestStoreTest(node: testWakuNode(), driver: QueueDriver.new())
+  var t = RestStoreTest(node: testWakuNode(), driver: driver)
   await t.node.start()
 
   t.node.mountArchive(t.driver).isOkOr:
@@ -92,6 +93,11 @@ proc init(
     t.hashes.add(hash)
 
   return t
+
+proc init(
+    T: type RestStoreTest, msgs: seq[WakuMessage] = defaultSeed()
+): Future[RestStoreTest] =
+  RestStoreTest.init(msgs, QueueDriver.new())
 
 proc shutdown(t: RestStoreTest) {.async.} =
   await t.restServer.stop()
@@ -910,7 +916,7 @@ procSuite "Waku Rest API - Store v3":
     await restServer.closeWait()
     await node.stop()
 
-  asyncTest "hashes filter: matching, duplicated and absent hashes each return exactly their messages":
+  asyncTest "hashes filter: matching, duplicated, trailing-comma and absent hashes each return exactly their messages":
     let t = await RestStoreTest.init()
     defer:
       await t.shutdown()
@@ -930,6 +936,11 @@ procSuite "Waku Rest API - Store v3":
       response.status == 200
       response.data.messages.len == 1
       response.data.messages[0].messageHash == secondHash
+
+    response = await t.client.getStoreMessagesV3(hashes = secondHash & ",")
+    check:
+      response.status == 200
+      response.data.messages.mapIt(it.messageHash) == @[secondHash]
 
     let absentHash = computeMessageHash(
         DefaultPubsubTopic, fakeWakuMessage(@[byte 42], ts = 42)
@@ -1078,3 +1089,191 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_TEXT
       response.data.statusDesc.contains("Failed parsing remote peer info")
       response.data.statusDesc.contains("Error encoding `p2p/")
+
+  asyncTest "pageSize: over 100 returns 100, empty returns 20, negative returns 100":
+    let t = await RestStoreTest.init(
+      toSeq(1 .. 101).mapIt(fakeWakuMessage(@[byte(it)], ts = int64(it)))
+    )
+    defer:
+      await t.shutdown()
+
+    var response = await t.client.getStoreMessagesV3(pageSize = "200")
+    check:
+      response.status == 200
+      response.data.messages.len == 100
+
+    response = await t.client.getStoreMessagesV3(pageSize = "")
+    check:
+      response.status == 200
+      response.data.messages.len == 20
+
+    # A negative pageSize wraps to a value over the maximum instead of being rejected.
+    response = await t.client.getStoreMessagesV3(pageSize = "-1")
+    check:
+      response.status == 200
+      response.data.messages.len == 100
+
+  asyncTest "startTime and endTime of zero or less are ignored":
+    let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
+    let allHashes = t.hashes.mapIt(it.toRestStringWakuMessageHash())
+
+    # Unlike a non-numeric time, a time of zero or less is not rejected but ignored.
+    for time in ["0", "-1"]:
+      let startResponse = await t.client.getStoreMessagesV3(startTime = time)
+      let endResponse = await t.client.getStoreMessagesV3(endTime = time)
+      let bothResponse =
+        await t.client.getStoreMessagesV3(startTime = time, endTime = time)
+      check:
+        startResponse.status == 200
+        startResponse.data.messages.mapIt(it.messageHash) == allHashes
+        endResponse.status == 200
+        endResponse.data.messages.mapIt(it.messageHash) == allHashes
+        bothResponse.status == 200
+        bothResponse.data.messages.mapIt(it.messageHash) == allHashes
+
+    let response = await t.client.getStoreMessagesV3(endTime = "1")
+    check:
+      response.status == 200
+      response.data.messages.mapIt(it.messageHash) == allHashes[0 .. 0]
+
+  asyncTest "an unparseable ascending returns the tail page, as ascending=false does":
+    let t = await RestStoreTest.init(
+      @[
+        fakeWakuMessage(@[byte 1], ts = 1),
+        fakeWakuMessage(@[byte 2], ts = 2),
+        fakeWakuMessage(@[byte 3], ts = 3),
+        fakeWakuMessage(@[byte 4], ts = 4),
+        fakeWakuMessage(@[byte 5], ts = 5),
+      ]
+    )
+    defer:
+      await t.shutdown()
+
+    # Unlike includeData, an unparseable ascending is not rejected but read as false.
+    let response =
+      await t.client.getStoreMessagesV3(ascending = "banana", pageSize = "2")
+    check:
+      response.status == 200
+      response.data.messages.mapIt(it.messageHash) ==
+        @[
+          t.hashes[3].toRestStringWakuMessageHash(),
+          t.hashes[4].toRestStringWakuMessageHash(),
+        ]
+
+  asyncTest "an undeclared paginationCursor parameter is ignored, while the same hash passed as cursor returns the messages after it":
+    let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
+    let allHashes = t.hashes.mapIt(it.toRestStringWakuMessageHash())
+
+    let ignored = await issueRequest(
+      t.restServer.getAddress("/store/v3/messages?paginationCursor=" & allHashes[0])
+    )
+    let paged = await issueRequest(
+      t.restServer.getAddress("/store/v3/messages?cursor=" & allHashes[0])
+    )
+    check:
+      ignored.status == 200
+      parseJson(ignored.data)["messages"].getElems().mapIt(it["messageHash"].getStr()) ==
+        allHashes
+      paged.status == 200
+      parseJson(paged.data)["messages"].getElems().mapIt(it["messageHash"].getStr()) ==
+        allHashes[1 .. 2]
+
+  asyncTest "a cursor naming no stored message answers 500 from the self-store node and 200 through a store peer":
+    let db = SqliteDatabase.new(":memory:").expect("valid DB")
+    let t = await RestStoreTest.init(
+      defaultSeed(), SqliteDriver.new(db).expect("valid driver")
+    )
+    defer:
+      await t.shutdown()
+    t.node.mountStoreClient()
+
+    let peerSwitch = newStandardSwitch(Opt.some(generateEcdsaKey()))
+    await peerSwitch.start()
+    defer:
+      await peerSwitch.stop()
+    peerSwitch.mount(t.node.wakuStore)
+
+    let remotePeerInfo = peerSwitch.peerInfo.toRemotePeerInfo()
+    let fullAddr = $remotePeerInfo.addrs[0] & "/p2p/" & $remotePeerInfo.peerId
+    let absentCursor = computeMessageHash(
+        DefaultPubsubTopic, fakeWakuMessage(@[byte 42], ts = 42)
+      )
+      .toRestStringWakuMessageHash()
+
+    var response = await t.client.getStoreMessagesV3(cursor = absentCursor)
+    check:
+      response.status == 500
+      $response.contentType == $MIMETYPE_TEXT
+      response.data.statusDesc.contains("cursor not found")
+
+    # The same archive failure reaches the client as 200 through a store peer.
+    response = await t.client.getStoreMessagesV3(
+      peerAddr = encodeUrl(fullAddr), cursor = absentCursor
+    )
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 300
+      response.data.statusDesc.contains("cursor not found")
+      response.data.messages.len == 0
+
+  asyncTest "a store peer that does not mount store answers 200 with the dial failure in the body":
+    let node = testWakuNode()
+    await node.start()
+    defer:
+      await node.stop()
+
+    let restAddress = parseIpAddress("0.0.0.0")
+    let restServer = WakuRestServerRef.init(restAddress, Port(0)).tryGet()
+    installStoreApiHandlers(restServer.router, node)
+    restServer.start()
+    defer:
+      await restServer.stop()
+      await restServer.closeWait()
+
+    node.mountStoreClient()
+
+    let peerSwitch = newStandardSwitch(Opt.some(generateEcdsaKey()))
+    await peerSwitch.start()
+    defer:
+      await peerSwitch.stop()
+    node.peerManager.addServicePeer(
+      peerSwitch.peerInfo.toRemotePeerInfo(), WakuStoreCodec
+    )
+
+    let client =
+      newRestHttpClient(initTAddress(restAddress, restServer.httpServer.address.port))
+
+    # A failed dial is not reported as an HTTP error.
+    let response =
+      await client.getStoreMessagesV3(pubsubTopic = encodeUrl(DefaultPubsubTopic))
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_JSON
+      response.data.statusCode == 504
+      response.data.statusDesc.startsWith("PEER_DIAL_FAILURE: ")
+      response.data.messages.len == 0
+
+  asyncTest "a request whose headers exceed the limit is rejected with 431":
+    let t = await RestStoreTest.init()
+    defer:
+      await t.shutdown()
+    let maxHeadersSize = RestServerConf.default().maxRequestHeadersSize * 1024
+
+    let underLimit = await issueRequest(
+      t.restServer.getAddress(
+        "/store/v3/messages?pubsubTopic=" & 'a'.repeat(maxHeadersSize - 1024)
+      )
+    )
+    let overLimit = await issueRequest(
+      t.restServer.getAddress(
+        "/store/v3/messages?pubsubTopic=" & 'a'.repeat(maxHeadersSize)
+      )
+    )
+    check:
+      underLimit.status == 200
+      overLimit.status == 431
