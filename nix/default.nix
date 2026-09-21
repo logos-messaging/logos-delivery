@@ -71,6 +71,10 @@ let
     "--define:LeopardExtraLinkerFlags=-fno-openmp"
   ];
 
+  # The POSIX miniupnpc Makefile writes to build/, which is where nim-nat-traversal
+  # looks only when told (status-im/nim-nat-traversal#44).
+  natDefineArgs = lib.optionals isWindows [ "--define:miniupnpcBuildDir=/build" ];
+
   # Some packages (e.g. regex, unicodedb) put their .nim files under src/
   # while others use the repo root. Pass both so the compiler finds either layout.
   # /sds and /segmentation are those packages' nimble srcDir: nix hands us the
@@ -97,14 +101,13 @@ let
   # dependency DLLs under $prefix/bin, so one in lib/ cannot load.
   dllDir = if isWindows then "bin" else "lib";
 
-  # The public header includes this generated surface. Keep the path absolute:
-  # nim-ffi writes it from the compile-time VM (nim-ffi#168).
+  # The public header includes this generated surface; nim-ffi resolves a
+  # relative dir against the compiled source (nim-ffi#177).
   cBindingsDir = "library/generated";
   cBindingsArgs = [
     "--define:ffiGenBindings"
     "--define:targetLang=c"
-    "--define:ffiOutputDir=$PWD/${cBindingsDir}"
-    # Avoid compile-time getcwd in nim-ffi's default relative-path derivation.
+    "--define:ffiOutputDir=${cBindingsDir}"
     "--define:ffiSrcPath=../liblogosdelivery.nim"
   ];
 
@@ -135,6 +138,7 @@ let
       --passL:"${linkArgs}" \
       ${nimDefineArgs} \
       ${lib.concatStringsSep " \\\n      " leopardDefineArgs} \
+      ${lib.concatStringsSep " \\\n      " natDefineArgs} \
       --threads:on \
       --mm:refc \
       --nimcache:$NIMCACHE \
@@ -199,11 +203,6 @@ pkgs.stdenv.mkDerivation {
     make -C $NAT_TRAV/vendor/libnatpmp-upstream ${natMakeVars} \
       CFLAGS="-Wall -Os${natPic} -DENABLE_STRNATPMPERR -DNATPMP_MAX_RETRIES=4${natpmpStatic}" libnatpmp.a
     ${lib.optionalString isWindows ''
-    # nim-nat-traversal wants libminiupnpc.a at the miniupnpc root on Windows,
-    # but Makefile.mingw has to RUN a .exe: build portable, then stage it there.
-    cp $NAT_TRAV/vendor/miniupnp/miniupnpc/build/libminiupnpc.a \
-       $NAT_TRAV/vendor/miniupnp/miniupnpc/libminiupnpc.a
-
     # nim shells out to a bare `ar` for --app:staticlib and a cross stdenv has
     # only x86_64-w64-mingw32-ar; every archive built here is for the target.
     mkdir -p $TMPDIR/arshim
