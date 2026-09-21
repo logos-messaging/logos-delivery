@@ -31,7 +31,8 @@ import
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
-  ../testlib/rest_requests
+  ../testlib/rest_requests,
+  ../waku_archive/archive_utils
 
 logScope:
   topics = "waku node rest store_rest_interface test"
@@ -916,7 +917,7 @@ procSuite "Waku Rest API - Store v3":
     await restServer.closeWait()
     await node.stop()
 
-  asyncTest "hashes filter: matching, duplicated, trailing-comma and absent hashes each return exactly their messages":
+  asyncTest "hashes filter: each hash list returns exactly its messages":
     let t = await RestStoreTest.init()
     defer:
       await t.shutdown()
@@ -928,14 +929,12 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_JSON
       response.data.statusCode == 200
       response.data.statusDesc == "OK"
-      response.data.messages.len == 1
-      response.data.messages[0].messageHash == secondHash
+      response.data.messages.mapIt(it.messageHash) == @[secondHash]
 
     response = await t.client.getStoreMessagesV3(hashes = secondHash & "," & secondHash)
     check:
       response.status == 200
-      response.data.messages.len == 1
-      response.data.messages[0].messageHash == secondHash
+      response.data.messages.mapIt(it.messageHash) == @[secondHash]
 
     response = await t.client.getStoreMessagesV3(hashes = secondHash & ",")
     check:
@@ -1096,25 +1095,27 @@ procSuite "Waku Rest API - Store v3":
     )
     defer:
       await t.shutdown()
+    let allHashes = t.hashes.mapIt(it.toRestStringWakuMessageHash())
 
     var response = await t.client.getStoreMessagesV3(pageSize = "200")
     check:
       response.status == 200
-      response.data.messages.len == 100
+      response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 100]
 
     response = await t.client.getStoreMessagesV3(pageSize = "")
     check:
       response.status == 200
-      response.data.messages.len == 20
+      response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 20]
 
     # A negative pageSize wraps to a value over the maximum instead of being rejected.
     response = await t.client.getStoreMessagesV3(pageSize = "-1")
     check:
       response.status == 200
-      response.data.messages.len == 100
+      response.data.messages.mapIt(it.messageHash) == allHashes[0 ..< 100]
 
   asyncTest "startTime and endTime of zero or less are ignored":
-    let t = await RestStoreTest.init()
+    let t =
+      await RestStoreTest.init(@[fakeWakuMessage(@[byte 0], ts = -5)] & defaultSeed())
     defer:
       await t.shutdown()
     let allHashes = t.hashes.mapIt(it.toRestStringWakuMessageHash())
@@ -1136,7 +1137,7 @@ procSuite "Waku Rest API - Store v3":
     let response = await t.client.getStoreMessagesV3(endTime = "1")
     check:
       response.status == 200
-      response.data.messages.mapIt(it.messageHash) == allHashes[0 .. 0]
+      response.data.messages.mapIt(it.messageHash) == allHashes[0 .. 1]
 
   asyncTest "an unparseable ascending returns the tail page, as ascending=false does":
     let t = await RestStoreTest.init(
@@ -1162,7 +1163,7 @@ procSuite "Waku Rest API - Store v3":
           t.hashes[4].toRestStringWakuMessageHash(),
         ]
 
-  asyncTest "an undeclared paginationCursor parameter is ignored, while the same hash passed as cursor returns the messages after it":
+  asyncTest "an undeclared paginationCursor parameter is ignored":
     let t = await RestStoreTest.init()
     defer:
       await t.shutdown()
@@ -1182,11 +1183,8 @@ procSuite "Waku Rest API - Store v3":
       parseJson(paged.data)["messages"].getElems().mapIt(it["messageHash"].getStr()) ==
         allHashes[1 .. 2]
 
-  asyncTest "a cursor naming no stored message answers 500 from the self-store node and 200 through a store peer":
-    let db = SqliteDatabase.new(":memory:").expect("valid DB")
-    let t = await RestStoreTest.init(
-      defaultSeed(), SqliteDriver.new(db).expect("valid driver")
-    )
+  asyncTest "an absent cursor is answered 500 by the self-store node and 200 through a store peer":
+    let t = await RestStoreTest.init(defaultSeed(), newSqliteArchiveDriver())
     defer:
       await t.shutdown()
     t.node.mountStoreClient()
@@ -1210,7 +1208,6 @@ procSuite "Waku Rest API - Store v3":
       $response.contentType == $MIMETYPE_TEXT
       response.data.statusDesc.contains("cursor not found")
 
-    # The same archive failure reaches the client as 200 through a store peer.
     response = await t.client.getStoreMessagesV3(
       peerAddr = encodeUrl(fullAddr), cursor = absentCursor
     )
@@ -1221,7 +1218,7 @@ procSuite "Waku Rest API - Store v3":
       response.data.statusDesc.contains("cursor not found")
       response.data.messages.len == 0
 
-  asyncTest "a store peer that does not mount store answers 200 with the dial failure in the body":
+  asyncTest "a failed dial to the store peer is answered 200 with statusCode 504":
     let node = testWakuNode()
     await node.start()
     defer:
@@ -1248,7 +1245,6 @@ procSuite "Waku Rest API - Store v3":
     let client =
       newRestHttpClient(initTAddress(restAddress, restServer.httpServer.address.port))
 
-    # A failed dial is not reported as an HTTP error.
     let response =
       await client.getStoreMessagesV3(pubsubTopic = encodeUrl(DefaultPubsubTopic))
     check:
@@ -1258,7 +1254,7 @@ procSuite "Waku Rest API - Store v3":
       response.data.statusDesc.startsWith("PEER_DIAL_FAILURE: ")
       response.data.messages.len == 0
 
-  asyncTest "a request whose headers exceed the limit is rejected with 431":
+  asyncTest "a query string over the request headers size limit is rejected with 431":
     let t = await RestStoreTest.init()
     defer:
       await t.shutdown()

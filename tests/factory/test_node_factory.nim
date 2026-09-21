@@ -91,7 +91,7 @@ suite "Node Factory":
     let node = (await setupNode(conf, relay = Relay.new())).valueOr:
       raiseAssert error
 
-    # Then store queries go to that peer
+    # Then that peer holds the store service slot
     check:
       node.peerManager.serviceSlots[WakuStoreCodec].peerId == storePeerId
 
