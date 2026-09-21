@@ -84,16 +84,6 @@ type ExternalDiscoveryConf* {.requiresInit.} = object
     ## Peers the provider's DHT bootstraps from, as /p2p/ multiaddrs: the
     ## preset's entry nodes plus any --kad-bootstrap-node. Handed to the host
     ## through GetDiscoveryRequirements; the node itself never dials them.
-    ##
-    ## It reads as a duplicate of the other bootstrap lists but is not one, and
-    ## nothing else in WakuConf can stand in for it. `kademliaDiscoveryConf` is
-    ## always None while this conf exists -- the two backends are mutually
-    ## exclusive -- so its parsed set is never built. `staticNodes` carries
-    ## only the preset's entry nodes, never the --kad-bootstrap-node values,
-    ## which for a plugin-hosted node are usually the only ones configured.
-    ## Dropping this field would leave the host with nothing to bootstrap from
-    ## and, since an empty list means "seed", silently promote every member of
-    ## a fleet to a seed.
 
 type StoreSyncConf* {.requiresInit.} = object
   rangeSec*: uint32
