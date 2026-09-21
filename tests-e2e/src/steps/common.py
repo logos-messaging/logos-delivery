@@ -9,6 +9,7 @@ from datetime import timedelta, datetime
 from tenacity import retry, stop_after_delay, wait_fixed
 from src.libs.common import delay, to_base64, wait_until
 from src.libs.custom_logger import get_custom_logger
+from src.node.waku_node import peer_info2id
 
 logger = get_custom_logger(__name__)
 
@@ -44,7 +45,7 @@ class StepsCommon:
         peer_id = peer.get_id()
 
         def peer_subscribed():
-            return peer_id in {p["multiaddr"].rpartition("/p2p/")[2] for p in node.get_relay_peers_on_shard(shard_id)["peers"]}
+            return peer_id in {peer_info2id(p) for p in node.get_relay_peers_on_shard(shard_id)["peers"]}
 
         wait_until(peer_subscribed, timeout_duration, time_between_retries, f"Expected {peer_id} among the relay peers on shard {shard_id}")
 

@@ -1,6 +1,5 @@
 import pytest
 from src.libs.common import to_base64, wait_until
-from src.node.store_response import StoreResponse
 from src.steps.store import StepsStore
 
 
@@ -16,13 +15,14 @@ class TestCursorManyMessages(StepsStore):
 
         def all_messages_stored():
             response_message_hash_list.clear()
-            store_response = StoreResponse({"paginationCursor": "", "pagination_cursor": ""}, self.store_node1)
-            while store_response.pagination_cursor is not None:
-                cursor = store_response.pagination_cursor
+            cursor = None
+            while True:
                 store_response = self.get_messages_from_store(self.store_node1, page_size=100, cursor=cursor)
                 for index in range(len(store_response.messages)):
                     response_message_hash_list.append(store_response.message_hash(index))
-            return len(response_message_hash_list) >= len(expected_message_hash_list)
+                cursor = store_response.pagination_cursor
+                if cursor is None or len(response_message_hash_list) > len(expected_message_hash_list):
+                    return len(response_message_hash_list) >= len(expected_message_hash_list)
 
         wait_until(all_messages_stored, timeout_duration=60, time_between_retries=1, message="Expected 2000 stored messages")
         assert len(expected_message_hash_list) == len(response_message_hash_list), "Message count mismatch"

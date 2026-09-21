@@ -31,10 +31,10 @@ class StepsMetrics:
             assert actual_value >= expected_value, f"Expected value for '{metric_name}' is >= {expected_value}, but got {actual_value}"
 
     @allure.step
-    def wait_for_metric(self, node, metric_name, expected_value, timeout_duration=90):
+    def wait_for_metric(self, node, metric_name, expected_value, timeout_duration=90, exact=False):
         @retry(stop=stop_after_delay(timeout_duration), wait=wait_fixed(1), reraise=True)
         def check_metric_with_retry():
-            self.check_metric(node, metric_name, expected_value)
+            self.check_metric(node, metric_name, expected_value, exact=exact)
 
         check_metric_with_retry()
 

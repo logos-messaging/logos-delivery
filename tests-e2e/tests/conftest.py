@@ -63,7 +63,7 @@ def set_allure_env_variables():
 @pytest.fixture(scope="function", autouse=False)
 def start_postgres_container():
     pg_container = start_postgres()
-    yield
+    yield pg_container
     stop_postgres(pg_container)
 
 
