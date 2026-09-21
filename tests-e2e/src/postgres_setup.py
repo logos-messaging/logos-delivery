@@ -13,6 +13,10 @@ def start_postgres():
 
     DockerManager(image).create_network()
     client = docker.from_env()
+    try:
+        client.images.get(image)
+    except docker.errors.ImageNotFound:
+        client.images.pull(image)
 
     postgres_container = client.containers.create(
         image,
