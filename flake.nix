@@ -114,31 +114,10 @@
         overlays = [ (import rust-overlay) ];
       };
 
-      # libpq is no link-time dependency (db_connector dlopens it); it is its own
-      # package so consumers can bundle it beside the image, where Windows looks.
-      windowsLibpq = pkgs:
-        (pkgs.libpq.override {
-          # postgres 18 links libcurl for OAuth; curl cross to mingw drags in
-          # ngtcp2 -> nghttp3, whose EXAMPLES include <arpa/inet.h> and fail.
-          curlSupport = false;
-        }).overrideAttrs (o: {
-          # makeWrapper wants a HOST-platform bash (mingw bash does not build)
-          # and nothing in libpq actually calls wrapProgram.
-          nativeBuildInputs = builtins.filter
-            (d: !(builtins.isAttrs d && (d.name or "") == "make-shell-wrapper-hook"))
-            o.nativeBuildInputs;
-          # pg_pthread.h includes <pthread.h> unconditionally, and mingw-w64 here
-          # is built against mcfgthread, so winpthreads must be supplied.
-          buildInputs = o.buildInputs ++ [ pkgs.windows.pthreads ];
-          # objcopy --only-keep-debug on a PE is not the ELF split this assumes.
-          separateDebugInfo = false;
-          meta = o.meta // { platforms = o.meta.platforms ++ lib.platforms.windows; };
-        });
-
       windowsPackagesFor = system:
         let
           pkgs = windowsPkgsFor system;
-          libpq = windowsLibpq pkgs;
+          libpq = import ./nix/libpq.nix { inherit pkgs; };
           windowsPackages = packagesFor {
             inherit pkgs;
             zerokitRln = import ./nix/zerokit.nix { inherit zerokit system; windows = true; };
