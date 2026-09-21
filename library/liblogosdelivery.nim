@@ -26,6 +26,7 @@ include
   ./kernel_api/protocols/relay_api,
   ./kernel_api/protocols/store_api,
   ./kernel_api/protocols/lightpush_api,
+  ./kernel_api/protocols/mix_api,
   ./kernel_api/protocols/filter_api,
   ./channels_api/channel_api
 

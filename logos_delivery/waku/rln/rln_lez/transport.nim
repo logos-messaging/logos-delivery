@@ -39,6 +39,10 @@ type
     userData: pointer,
   ) {.cdecl, gcsafe, raises: [].}
 
+  LogosDeliveryMixRlnCallFn = proc(
+    reqId: uint64, methodName, argsJson: cstring, userData: pointer
+  ) {.cdecl, gcsafe, raises: [].}
+
   LogosDeliveryRlnPlugin* = object
     get_membership_state*: LogosDeliveryRlnGetMembershipStateFn
     get_epoch_quota*: LogosDeliveryRlnGetEpochQuotaFn
@@ -50,6 +54,7 @@ type
     signal: ThreadSignalPtr # how the awaiting call gets woken
     resultBuf: cstring # allocShared copy of the host's JSON result; nil until answered
     completed: bool
+    mixRequest: bool
     next: ptr Pending # intrusive in-flight list — no GC memory, cross-thread safe
 
 var
@@ -58,6 +63,8 @@ var
   gUserData: pointer
   gPending: ptr Pending # head of the in-flight request list
   gNextReqId: uint64
+  gMixCall: LogosDeliveryMixRlnCallFn
+  gMixUserData: pointer
   gRegistered: bool # a plugin has been installed
 
 initLock(gLock)
@@ -195,6 +202,59 @@ proc rlnValidateProof*(
   cb(pending.reqId, signalHex.cstring, timestamp, proofJson.cstring, ud)
   return await awaitResult(pending, RlnLocalTimeout)
 
+proc rlnMixCall*(
+    methodName: string, args: JsonNode
+): Future[Result[JsonNode, string]] {.async: (raises: [CancelledError]).} =
+  var cb: LogosDeliveryMixRlnCallFn
+  var ud: pointer
+  let pending = newPending()
+  if pending.isNil:
+    return err("failed to allocate Mix RLN request")
+  withLock gLock:
+    cb = gMixCall
+    if cb.isNil:
+      discard pending.signal.close()
+      deallocShared(pending)
+      return err("Mix RLN module callback not installed")
+    var count = 0
+    var active = gPending
+    while not active.isNil:
+      if active.mixRequest:
+        inc count
+      active = active.next
+    if count >= 64:
+      discard pending.signal.close()
+      deallocShared(pending)
+      return err("Too many pending Mix RLN requests")
+    ud = gMixUserData
+    pending.mixRequest = true
+    linkPending(pending)
+  let encoded = $args
+  cb(pending.reqId, methodName.cstring, encoded.cstring, ud)
+  let timeout =
+    if methodName == "generate_proof": RlnRegistryReadTimeout else: RlnLocalTimeout
+  let raw = (await awaitResult(pending, timeout)).valueOr:
+    return err(error)
+  try:
+    return ok(parseJson(raw))
+  except CatchableError as exc:
+    return err("Invalid Mix RLN reply: " & exc.msg)
+
+proc logosdelivery_mix_rln_set_callback*(
+    callback: LogosDeliveryMixRlnCallFn, userData: pointer
+): cint {.exportc, cdecl, dynlib.} =
+  withLock gLock:
+    gMixCall = callback
+    gMixUserData = userData
+    if callback.isNil:
+      var p = gPending
+      while not p.isNil:
+        if p.mixRequest:
+          p.completed = false
+          discard p.signal.fireSync()
+        p = p.next
+  return 0
+
 # --- C entry points -----------------------------------------------------------
 
 proc logosdelivery_rln_set_plugin*(
@@ -208,8 +268,9 @@ proc logosdelivery_rln_set_plugin*(
       gRegistered = false
       var p = gPending
       while not p.isNil:
-        p.completed = false # signals "module cleared", not a real completion
-        discard p.signal.fireSync()
+        if not p.mixRequest:
+          p.completed = false # signals "module cleared", not a real completion
+          discard p.signal.fireSync()
         p = p.next
     else:
       gPlugin = plugin[]
@@ -232,7 +293,7 @@ proc logosdelivery_rln_response*(
     var p = gPending
     while not p.isNil and p.reqId != reqId:
       p = p.next
-    if p.isNil:
+    if p.isNil or p.completed:
       return 1
     let n = resultJson.len()
     p.resultBuf = cast[cstring](allocShared0(n + 1)) # shared heap: safe on any thread

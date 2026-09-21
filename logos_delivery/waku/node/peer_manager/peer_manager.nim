@@ -7,7 +7,8 @@ import
   chronicles,
   metrics,
   libp2p/[multistream, muxers/muxer, nameresolving/nameresolver, peerstore],
-  brokers/broker_context
+  brokers/broker_context,
+  libp2p_mix/mix_protocol
 
 import
   logos_delivery/waku/[
@@ -755,6 +756,12 @@ proc getPeerIp(pm: PeerManager, peerId: PeerId): Opt[string] =
 #~~~~~~~~~~~~~~~~~#
 
 proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
+  # Registered standalone Mix peers do not participate in Waku clusters.
+  let peer = pm.switch.peerStore.getPeer(peerId)
+  if peer.mixPubKey.isSome() and pm.switch.peerStore.hasPeer(peerId, MixProtocolID) and
+      not pm.switch.peerStore.hasPeer(peerId, WakuMetadataCodec):
+    return
+
   let res = catch:
     await pm.switch.dial(peerId, WakuMetadataCodec)
 
@@ -795,7 +802,11 @@ proc refreshPeerMetadata(pm: PeerManager, peerId: PeerId) {.async.} =
 
 # called when a peer i) first connects to us ii) disconnects all connections from us
 proc onPeerEvent(pm: PeerManager, peerId: PeerId, event: PeerEvent) {.async.} =
-  if not pm.wakuMetadata.isNil() and event.kind == PeerEventKind.Joined:
+  # Mix peer records do not include Waku capabilities. Wait for Identify before
+  # deciding whether a registered Mix peer must complete the metadata handshake.
+  let knownMix = pm.switch.peerStore.getPeer(peerId).mixPubKey.isSome()
+  let metadataEvent = if knownMix: PeerEventKind.Identified else: PeerEventKind.Joined
+  if not pm.wakuMetadata.isNil() and event.kind == metadataEvent:
     await pm.refreshPeerMetadata(peerId)
 
   var peerStore = pm.switch.peerStore
