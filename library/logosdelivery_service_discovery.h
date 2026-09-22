@@ -169,10 +169,11 @@ extern "C"
    * It has to be: the request is served on the node's own thread, and the host
    * calls in from its own. The vtable therefore travels as an address rather
    * than as a value --
-   *   int logosdelivery_set_service_discovery_plugin(
-   *       void *ctx, LogosDeliveryScalarRawFn cb, void *user_data,
-   *       uint64_t pluginPtr);
-   * declared in the generated header. Use the typed wrappers below instead of
+   *   int logosdelivery_ctx_set_service_discovery_plugin(
+   *       const LogosDeliveryCtx *ctx, uint64_t pluginPtr,
+   *       LogosDeliverySetServiceDiscoveryPluginReplyFn on_reply,
+   *       void *user_data);
+   * declared in the generated header. Use the typed wrapper below instead of
    * casting by hand.
    *
    * Lifetime: logos-delivery copies the struct while serving the request, so
@@ -202,28 +203,28 @@ extern "C"
    */
 
   /* Installs (or replaces) the plugin for the node identified by `ctx` (the
-   * handle returned by logosdelivery_create_node). Takes a typed plugin
+   * handle returned by logosdelivery_ctx_create). Takes a typed plugin
    * pointer so the caller never casts. */
   static inline int logosdelivery_install_service_discovery_plugin(
-      void *ctx,
+      const LogosDeliveryCtx *ctx,
       const LdServiceDiscoveryPlugin *plugin,
-      LogosDeliveryScalarRawFn callback,
+      LogosDeliverySetServiceDiscoveryPluginReplyFn on_reply,
       void *user_data)
   {
-    return logosdelivery_set_service_discovery_plugin(
-        ctx, callback, user_data, (uint64_t)(uintptr_t)plugin);
+    return logosdelivery_ctx_set_service_discovery_plugin(
+        ctx, (uint64_t)(uintptr_t)plugin, on_reply, user_data);
   }
 
   /* Removes this node's plugin. Like registration, only while stopped; the
    * node then cannot start again until a new plugin is installed. Other nodes
    * are unaffected. Declared in the generated header as
-   *   int logosdelivery_clear_service_discovery_plugin(
-   *       void *ctx, LogosDeliveryScalarRawFn cb, void *user_data);
+   *   int logosdelivery_ctx_clear_service_discovery_plugin(
+   *       const LogosDeliveryCtx *ctx,
+   *       LogosDeliveryClearServiceDiscoveryPluginReplyFn on_reply,
+   *       void *user_data);
    *
-   * Hosts that hold the LogosDeliveryCtx wrapper rather than a raw handle can
-   * use the generated logosdelivery_ctx_set_service_discovery_plugin /
-   * logosdelivery_ctx_clear_service_discovery_plugin helpers instead; the
-   * former takes the plugin address as a uint64_t. */
+   * Both reply callbacks take (err_code, reply, err_msg, user_data), where
+   * `reply` points at the reply string and is NULL when err_code is not 0. */
 
 #ifdef __cplusplus
 }
