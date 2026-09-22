@@ -169,17 +169,14 @@ jobs:
         make audit-deps
 
     - name: Check Executable
-      env:
-        TARGET: ${{ matrix.target }}
-        OUTPUT: ${{ matrix.output }}
       run: |
-        if [ ! -f "./$OUTPUT" ]; then
-          echo "Build failed: $OUTPUT not found"
+        if [ ! -f "./${{ matrix.output }}" ]; then
+          echo "Build failed: ${{ matrix.output }} not found"
           exit 1
         fi
-        echo "$OUTPUT build successful"
+        echo "${{ matrix.output }} build successful"
 
-        if [ "$TARGET" = logosdeliverynode ]; then
-          cp /mingw64/bin/libpq.dll "$(dirname "$OUTPUT")/"
-          "./$OUTPUT" --version
+        if [ "${{ matrix.target }}" = logosdeliverynode ]; then
+          cp /mingw64/bin/libpq.dll "$(dirname "${{ matrix.output }}")/"
+          "./${{ matrix.output }}" --version
         fi

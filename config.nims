@@ -86,7 +86,7 @@ elif portableBuild:
       "-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off"
     elif defined(windows) and buildOS == "windows":
       "-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release"
-    elif defined(windows):
+    elif defined(windows) and buildOS != "windows":
       # Cross-built: the builder has no MSYS make, and the mingw toolchains we
       # cross with carry no OpenMP runtime for Leopard-RS to link against.
       "-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off"

@@ -134,12 +134,11 @@ proc buildBinary(name: string, srcDir = "./", params = "") =
 ## Emitted by `genBindings()` during the library build, so the header can never
 ## drift from the Nim signatures. Not checked in: it is a build artifact.
 const cBindingsDir = "library/generated"
-const cBindingsOutputDir = "generated"
 
 ## `-d:ffiSrcPath` is required: without it nim-ffi derives the path with
 ## `relativePath`, which needs `getcwd` at compile time and fails to build.
 const cBindingsFlags =
-  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=" & cBindingsOutputDir &
+  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=generated" &
   " -d:ffiSrcPath=../liblogosdelivery.nim "
 
 ## The Makefile does not export NIM_PARAMS, so its defines never reach here.
