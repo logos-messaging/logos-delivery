@@ -28,8 +28,15 @@
  *   - Entry points are blocking calls made from the node's discovery thread,
  *     one at a time per node. They may block for as long as the operation
  *     takes. A vtable shared by several nodes must tolerate concurrent calls.
+ *   - One exception to "one at a time", and it follows from the line above:
+ *     a call that outruns requestTimeoutMs leaves the node waiting no longer,
+ *     and the thread it is on is abandoned rather than interrupted. That call
+ *     is still running, so a later `start` -- and the calls after it, on a new
+ *     thread -- can overlap it. The overlap is bounded: an abandoned thread
+ *     accepts no further work and exits as soon as its current call returns.
  *   - Lifecycle: start, then lookups and advertisements while the node runs,
- *     then stop.
+ *     then stop. A stop whose request lands on an abandoned thread is not
+ *     delivered, so a plugin can see `start` twice with no `stop` between.
  *
  * Results:
  *   - Lookups return a plugin-owned JSON array; an empty array means no peers:

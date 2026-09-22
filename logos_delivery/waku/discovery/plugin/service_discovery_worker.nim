@@ -282,6 +282,21 @@ proc freeFlags(w: ServiceDiscoveryWorker) =
   w.done = nil
   w.abandoned = nil
 
+proc hasExited*(w: ServiceDiscoveryWorker): bool =
+  ## Whether an abandoned thread has since left the plugin and returned.
+  not w.done.isNil() and w.done[].load()
+
+proc reap*(w: ServiceDiscoveryWorker) =
+  ## Joins an abandoned thread that has exited and releases what `stop` left
+  ## behind. Only safe once `hasExited` is true: `done` is set as the thread's
+  ## final statement, so past it nothing touches the flags again. The (mt)
+  ## buckets are deliberately not freed -- a requester of that context may
+  ## still hold a slot, and the successor registered on a fresh context.
+  if w.done.isNil():
+    return
+  joinThread(w.thread)
+  w.freeFlags()
+
 proc start*(
     w: ServiceDiscoveryWorker, ctx: BrokerContext, plugin: ServiceDiscoveryPlugin
 ): Future[Result[void, string]] {.async: (raises: []).} =
@@ -359,10 +374,10 @@ proc stop*(
       # job), so nothing here is touched from another thread.
       w.abandoned[].store(true)
       w.running = false
-      w.shutdown = nil
-      w.ready = nil
-      w.done = nil
-      w.abandoned = nil
+      ## The flags stay reachable, unlike the buckets: the thread's last act
+      ## is to set `done`, and the backend needs to see that to know when the
+      ## thread has left the plugin and its handle can be joined. Freeing them
+      ## here is what would be unsafe, not holding them.
       error "service discovery worker did not stop in time; its thread is abandoned",
         grace = $grace
       return err("service discovery worker did not stop within " & $grace)

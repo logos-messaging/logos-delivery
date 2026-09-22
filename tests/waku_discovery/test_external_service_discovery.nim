@@ -363,14 +363,27 @@ suite "ExternalServiceDiscovery":
       Moment.now() - t0 < chronos.seconds(20)
       (await stuck).isErr()
 
-    ## Release the old thread; it exits without touching the registrations
-    ## the next worker installs, so discovery comes back on the same context.
-    fake.blockLookup.store(false)
-    await sleepAsync(chronos.milliseconds(200))
+    ## The restart happens while the old thread is STILL inside the plugin --
+    ## which is the case that matters, and the one this test used to skip by
+    ## releasing the lookup first. It is allowed: the abandoned thread takes no
+    ## further work, and the ABI documents that its call may overlap a later
+    ## `start`. The successor registers on a fresh context, so it does not
+    ## inherit the old registrations.
+    check backend.abandonedWorkerCount() == 1
     check (await iface.startDiscovery()).isOk()
+
+    ## Only now release the old thread -- the fake blocks every lookup, so a
+    ## verb issued before this would wedge the new worker too.
+    fake.blockLookup.store(false)
     let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 1)).valueOr:
       raiseAssert error
     check peers.len == 1
+
+    ## The old thread has left the plugin by now, so the next restart joins it
+    ## and forgets it rather than leaking its handle and flags.
+    check (await iface.stopDiscovery()).isOk()
+    check (await iface.startDiscovery()).isOk()
+    check backend.abandonedWorkerCount() == 0
     check (await iface.stopDiscovery()).isOk()
 
   asyncTest "discovered peers are handed to the PeerManager":

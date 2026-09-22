@@ -152,6 +152,37 @@ proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
       addresses = peerInfo.addrs.mapIt($it),
       protocols = peerInfo.protocols
 
+proc abandonedWorkerCount*(self: ExternalServiceDiscovery): int =
+  ## Threads a previous `stopDiscovery` gave up on that have not been joined
+  ## yet. Zero in every ordinary life cycle; non-zero says a plugin call
+  ## outran its own declared timeout.
+  self.abandonedWorkers.len
+
+proc reapAbandoned(self: ExternalServiceDiscovery) =
+  ## Joins abandoned threads that have since left the plugin, and forgets them.
+  ##
+  ## Not a gate. An abandoned thread takes no further work and exits as soon as
+  ## its call returns, and the ABI documents that such a call may overlap a
+  ## later `start`; our own plugin is unaffected, since `ensureBackend`
+  ## short-circuits on a bool that is already set by the time a worker can be
+  ## abandoned at all, and logos-core makes the libp2p client safe to share.
+  ## So a restart is allowed to proceed past one -- this only stops the list
+  ## growing, and releases the thread handle and flags `stop` had to leave
+  ## behind.
+  if self.abandonedWorkers.len == 0:
+    return
+  var stillRunning: seq[ServiceDiscoveryWorker]
+  for worker in self.abandonedWorkers:
+    if worker.hasExited():
+      worker.reap()
+    else:
+      stillRunning.add(worker)
+  let reaped = self.abandonedWorkers.len - stillRunning.len
+  if reaped > 0:
+    debug "reaped abandoned discovery workers",
+      reaped = reaped, stillRunning = stillRunning.len
+  self.abandonedWorkers = stillRunning
+
 proc emitPeers(
     self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]
 ) =
@@ -282,6 +313,8 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
   ): Future[Result[void, string]] {.async.} =
     if self.running:
       return ok()
+
+    self.reapAbandoned()
 
     ## A valid plugin is a hard requirement, checked before anything is
     ## spawned: external discovery that is configured but has no usable plugin
