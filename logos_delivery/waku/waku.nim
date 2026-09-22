@@ -356,13 +356,11 @@ proc refreshEnrAddrs*(
     return node.enr.updateEnrAddresses(key, node.enrAddresses(), node.enrBaseline())
 
   let local = wakuDiscv5.protocol.localNode
-  let learned =
-    if local.address.isSome():
-      Opt.some((ip: local.address.get().ip, udp: local.address.get().port))
-    else:
-      Opt.none(DiscoveryEndpoint)
+  ## Not `local.address`: the line below writes it from the record we are
+  ## about to write, so reading it back would feed our own host in as though
+  ## peers had voted for it, and no later address could ever replace it.
   ?local.record.updateEnrAddresses(
-    key, node.enrAddresses(), node.enrBaseline(), learned
+    key, node.enrAddresses(), node.enrBaseline(), node.enrLearnedEndpoint
   )
   node.enr = local.record
   local.address = recordEndpoint(local.record)
@@ -374,8 +372,20 @@ proc reconcileEnrAddrs*(
   ## discv5 writes the host it learned into its own record, with the `tcp`
   ## the record had, and tells nobody. Writing again pairs that host with a
   ## `tcp` that fits it. True when it wrote.
-  if wakuDiscv5.isNil() or wakuDiscv5.protocol.localNode.record == node.enr:
+  if wakuDiscv5.isNil():
     return ok(false)
+  let live = wakuDiscv5.protocol.localNode.record
+  if live == node.enr:
+    return ok(false)
+  ## A shard update also writes the live record, so a differing record is not
+  ## itself evidence. A differing endpoint is: discv5 is the only other writer
+  ## of one.
+  let liveEndpoint = recordEndpoint(live)
+  if liveEndpoint != recordEndpoint(node.enr):
+    node.enrLearnedEndpoint = liveEndpoint.map(
+      proc(a: discv5_node.Address): DiscoveryEndpoint =
+        (ip: a.ip, udp: a.port)
+    )
   ?refreshEnrAddrs(node, key, wakuDiscv5)
   return ok(true)
 

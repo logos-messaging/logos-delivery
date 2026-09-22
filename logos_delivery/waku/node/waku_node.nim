@@ -143,6 +143,10 @@ type
     enrPort: Opt[Port]
       ## What the configuration gives the ENR scalars. None for a wildcard
       ## host or a port the kernel picks.
+    enrLearnedEndpoint*: Opt[DiscoveryEndpoint]
+      ## The endpoint discv5 last learned from its peers. Only a discv5 write
+      ## sets it: the record's own host is not evidence of anything, and
+      ## reading it back would pin the first host the node ever advertised.
     onCommittedAddresses*: proc() {.gcsafe, raises: [].}
       ## Runs after every copy of the committed addresses.
       ## waku.nim uses it to refresh the ENR.
@@ -761,6 +765,7 @@ proc stop*(node: WakuNode) {.async.} =
   node.started = false
   node.baseAnnounced = Opt.none(seq[MultiAddress])
   node.explicitAnnounced = @[]
+  node.enrLearnedEndpoint = Opt.none(DiscoveryEndpoint)
 
 proc isReady*(node: WakuNode): Future[bool] {.async: (raises: [Exception]).} =
   if node.rln == nil:

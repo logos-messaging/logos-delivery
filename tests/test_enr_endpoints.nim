@@ -254,7 +254,7 @@ suite "ENR endpoints":
         udpPort = Opt.some(Port(30303)),
       )
       .isOk()
-    check refreshEnrAddrs(node, key, wd).isOk()
+    check reconcileEnrAddrs(node, key, wd).expect("reconcile") == true
 
     check:
       node.enr.ipOf().get() == [198'u8, 51, 100, 4]
@@ -300,6 +300,135 @@ suite "ENR endpoints":
       )
       .isOk()
     check hosted.hasDialableAddress()
+
+  test "with discv5, a host that goes away goes away and a new one replaces it":
+    ## The refresh writes discv5's cached address from the record it just
+    ## wrote. Reading that back as the learned host pins the first address
+    ## the node ever advertised, so a NAT mapping could never expire or move.
+    let key = generateSecp256k1Key()
+    ## discv5 enabled, so the record carries a `udp`: without one the
+    ## endpoint the refresh writes back is never whole, and the loop this
+    ## guards against cannot form.
+    let node = newTestWakuNode(
+      key,
+      parseIpAddress("0.0.0.0"),
+      Port(0),
+      quicEnabled = false,
+      discv5UdpPort = Opt.some(Port(9912)),
+    )
+
+    let keyBytes = key.getRawBytes().expect("raw")
+    let ethPk = keys.PrivateKey.fromHex(byteutils.toHex(keyBytes)).expect("pk")
+    let proto = discv5_protocol.newProtocol(
+      ethPk,
+      enrIp = Opt.none(IpAddress),
+      enrTcpPort = Opt.none(Port),
+      enrUdpPort = Opt.none(Port),
+      previousRecord = Opt.some(node.enr),
+      bindPort = Port(9912),
+      bindIp = Opt.none(IpAddress),
+    )
+    let wd = WakuDiscoveryV5(protocol: proto)
+    proto.localNode.record = node.enr
+
+    ## A NAT mapping arrives.
+    node.announcedAddresses = @[MultiAddress.init("/ip4/203.0.113.9/tcp/60000").get()]
+    check refreshEnrAddrs(node, key, wd).isOk()
+    check:
+      node.enr.ipOf().get() == [203'u8, 0, 113, 9]
+      node.enr.tcpOf().get() == 60000'u16
+
+    ## It expires.
+    node.announcedAddresses = @[]
+    check refreshEnrAddrs(node, key, wd).isOk()
+    check node.enr.ipOf().isNone()
+
+    ## A new one arrives, on a different host.
+    node.announcedAddresses = @[MultiAddress.init("/ip4/198.51.100.7/tcp/60001").get()]
+    check refreshEnrAddrs(node, key, wd).isOk()
+    check:
+      node.enr.ipOf().get() == [198'u8, 51, 100, 7]
+      node.enr.tcpOf().get() == 60001'u16
+
+  test "a host discv5 learned outranks the announced addresses and survives them":
+    ## The other direction: what peers voted for is stronger evidence than a
+    ## local mapping, so it stays until discv5 itself says otherwise.
+    let key = generateSecp256k1Key()
+    let node =
+      newTestWakuNode(key, parseIpAddress("127.0.0.1"), Port(0), quicEnabled = false)
+
+    let keyBytes = key.getRawBytes().expect("raw")
+    let ethPk = keys.PrivateKey.fromHex(byteutils.toHex(keyBytes)).expect("pk")
+    let proto = discv5_protocol.newProtocol(
+      ethPk,
+      enrIp = Opt.none(IpAddress),
+      enrTcpPort = Opt.none(Port),
+      enrUdpPort = Opt.none(Port),
+      previousRecord = Opt.some(node.enr),
+      bindPort = Port(9914),
+      bindIp = Opt.none(IpAddress),
+    )
+    let wd = WakuDiscoveryV5(protocol: proto)
+    proto.localNode.record = node.enr
+    node.announcedAddresses = @[MultiAddress.init("/ip4/203.0.113.9/tcp/60000").get()]
+
+    check proto.localNode
+      .update(
+        ethPk,
+        ip = Opt.some(parseIpAddress("198.51.100.4")),
+        udpPort = Opt.some(Port(30303)),
+      )
+      .isOk()
+    check reconcileEnrAddrs(node, key, wd).expect("reconcile") == true
+    check node.enr.ipOf().get() == [198'u8, 51, 100, 4]
+
+    ## A later refresh keeps it, though nothing announced is on that host.
+    check refreshEnrAddrs(node, key, wd).isOk()
+    check:
+      node.enr.ipOf().get() == [198'u8, 51, 100, 4]
+      node.enr.udpOf().get() == 30303'u16
+
+  test "a shard update is not mistaken for a host discv5 learned":
+    ## `updateENRShards` writes the live record too. Only a moved endpoint
+    ## means discv5 learned something.
+    let key = generateSecp256k1Key()
+    ## discv5 enabled, so the record carries a `udp`: without one the
+    ## endpoint the refresh writes back is never whole, and the loop this
+    ## guards against cannot form.
+    let node = newTestWakuNode(
+      key,
+      parseIpAddress("0.0.0.0"),
+      Port(0),
+      quicEnabled = false,
+      discv5UdpPort = Opt.some(Port(9915)),
+    )
+
+    let keyBytes = key.getRawBytes().expect("raw")
+    let ethPk = keys.PrivateKey.fromHex(byteutils.toHex(keyBytes)).expect("pk")
+    let proto = discv5_protocol.newProtocol(
+      ethPk,
+      enrIp = Opt.none(IpAddress),
+      enrTcpPort = Opt.none(Port),
+      enrUdpPort = Opt.none(Port),
+      previousRecord = Opt.some(node.enr),
+      bindPort = Port(9915),
+      bindIp = Opt.none(IpAddress),
+    )
+    let wd = WakuDiscoveryV5(protocol: proto)
+    proto.localNode.record = node.enr
+
+    node.announcedAddresses = @[MultiAddress.init("/ip4/203.0.113.9/tcp/60000").get()]
+    check refreshEnrAddrs(node, key, wd).isOk()
+
+    ## A shard-only write, leaving the endpoint where it was.
+    check proto.updateRecord([("rs", @[0'u8, 0, 0])]).isOk()
+    check reconcileEnrAddrs(node, key, wd).expect("reconcile") == true
+    check node.enrLearnedEndpoint.isNone()
+
+    ## So the mapping can still expire.
+    node.announcedAddresses = @[]
+    check refreshEnrAddrs(node, key, wd).isOk()
+    check node.enr.ipOf().isNone()
 
   test "the reconcile loop follows a discv5 record write":
     let key = generateSecp256k1Key()
