@@ -178,7 +178,6 @@ class WakuNode:
         else:
             remove_container = True
 
-        kwargs = self.parse_peer_persistence_config(kwargs)
         kwargs = resolve_sharding_flags(kwargs)
 
         default_args.update(sanitize_docker_flags(kwargs))
@@ -611,21 +610,6 @@ class WakuNode:
             raise NotImplementedError("Not implemented for type other than Nim Waku ")
 
         return rln_args, True, keystore_path
-
-    def parse_peer_persistence_config(self, kwargs):
-        if kwargs.get("peer_persistence") == "true":
-            cwd = os.getcwd()
-            # Please note, as of now, peerdb is stored directly at / which is not shareable between containers.
-            # Volume related code is usable after https://github.com/waku-org/nwaku/issues/2792 would be resolved.
-            self._volumes.extend(
-                [
-                    cwd + "/peerdb" + ":/shared",
-                ]
-            )
-
-            shutil.rmtree(cwd + "/peerdb")
-
-        return kwargs
 
     @property
     def container(self):

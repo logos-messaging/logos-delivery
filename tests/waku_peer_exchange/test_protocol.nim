@@ -152,6 +152,40 @@ suite "Waku Peer Exchange":
         response3.get().peerInfos.anyIt(it.enr == node3.enr.raw) or
           response3.get().peerInfos.anyIt(it.enr == node4.enr.raw)
 
+    asyncTest "Request returns a discovered peer marked CanConnect, not one marked CannotConnect":
+      let
+        node1 = newTestWakuNode(generateSecp256k1Key())
+        node2 = newTestWakuNode(generateSecp256k1Key())
+        node3 = newTestWakuNode(generateSecp256k1Key())
+        node4 = newTestWakuNode(generateSecp256k1Key())
+
+      await allFutures([node1.start(), node2.start(), node3.start(), node4.start()])
+      defer:
+        await allFutures([node1.stop(), node2.stop(), node3.stop(), node4.stop()])
+      await allFutures([node1.mountPeerExchange(), node2.mountPeerExchangeClient()])
+
+      # Given node1 discovered node3 and node4 via Discv5
+      var info3 = node3.peerInfo.toRemotePeerInfo()
+      info3.enr = Opt.some(node3.enr)
+      node1.peerManager.addPeer(info3, PeerOrigin.Discv5)
+      var info4 = node4.peerInfo.toRemotePeerInfo()
+      info4.enr = Opt.some(node4.enr)
+      node1.peerManager.addPeer(info4, PeerOrigin.Discv5)
+
+      # And node3 disconnected gracefully, while connecting to node4 failed
+      node1.peerManager.switch.peerStore[ConnectionBook][info3.peerId] = CanConnect
+      node1.peerManager.switch.peerStore[ConnectionBook][info4.peerId] = CannotConnect
+
+      # When node2 requests two peers from node1
+      let response =
+        await node2.wakuPeerExchangeClient.request(2, node1.peerInfo.toRemotePeerInfo())
+      let returnedEnrs = response.get(PeerExchangeResponse()).peerInfos.mapIt(it.enr)
+
+      # Then only node3 is returned
+      check:
+        response.isOk()
+        returnedEnrs == @[node3.enr.raw]
+
     asyncTest "Request fails gracefully":
       let
         node1 = newTestWakuNode(generateSecp256k1Key())

@@ -1,7 +1,7 @@
 {.used.}
 
 import
-  std/[algorithm, sequtils, sets, tables, net],
+  std/[algorithm, sequtils, sets, strutils, tables, net],
   chronicles,
   chronicles/topics_registry,
   testutils/unittests,
@@ -130,6 +130,37 @@ suite "Waku v2 Rest API - Admin":
         it.protocols.find(WakuPeerExchangeCodec) >= 0 and
           it.multiaddr == constructMultiaddrStr(peerInfo3)
       )
+
+  asyncTest "get peers lists an inbound peer at a port it does not listen on":
+    let
+      primaryIp = $getPrimaryIPAddr()
+      node1TcpAddr =
+        "/ip4/" & primaryIp & "/tcp/" & $node1.boundTcpPort() & "/p2p/" &
+        $peerInfo1.peerId
+      node2ListenAddr =
+        "/ip4/" & primaryIp & "/tcp/" & $node2.boundTcpPort() & "/p2p/" &
+        $peerInfo2.peerId
+
+    let connected =
+      await node2.peerManager.connectPeer(parsePeerInfo(node1TcpAddr).tryGet())
+
+    checkUntilTimeout:
+      node1.peerManager.switch.peerStore.isConnected(peerInfo2.peerId)
+      node1.peerManager.switch.peerStore.peerExists(peerInfo2.peerId)
+
+    let peersResponse = await client.getPeers()
+    let listedAddrs = peersResponse.data.mapIt(it.multiaddr)
+
+    # An inbound peer is listed at the address its connection came from, which nothing listens on.
+    check:
+      connected
+      peersResponse.status == 200
+      listedAddrs.len == 1
+      listedAddrs.allIt(
+        it.startsWith("/ip4/" & primaryIp & "/tcp/") and
+          it.endsWith("/p2p/" & $peerInfo2.peerId)
+      )
+      node2ListenAddr notin listedAddrs
 
   asyncTest "Set wrong peer":
     let nonExistentPeer =

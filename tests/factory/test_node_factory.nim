@@ -6,6 +6,7 @@ import
   testutils/unittests,
   chronos,
   chronos/transports/[stream, datagram, common],
+  metrics,
   metrics/chronos_httpserver,
   libp2p/[crypto/crypto, multiaddress, protocols/connectivity/relay/relay],
   eth/p2p/discoveryv5/enr
@@ -15,12 +16,14 @@ import tools/confutils/cli_args
 import
   tests/testlib/[wakunode, wakucore],
   logos_delivery/waku/[
+    waku_core,
     waku_node,
     waku_store/common,
     net/net_config,
     waku_enr,
     net/auto_port,
     discovery/waku_discv5,
+    node/peer_manager,
     node/waku_metrics,
   ],
   logos_delivery/waku/factory/[
@@ -29,6 +32,12 @@ import
     conf_builder/conf_builder,
     conf_builder/web_socket_conf_builder,
   ]
+
+proc servicePeerGauge(codec, address: string): float64 =
+  try:
+    return logos_delivery_service_peers.value([codec, address])
+  except KeyError:
+    return 0.0
 
 suite "Node Factory":
   asynctest "Set up a node based on default configurations":
@@ -81,9 +90,11 @@ suite "Node Factory":
 
   asynctest "The storenode command line option fills the store service slot":
     # Given the configuration of a binary started with --storenode
-    let storePeerId = PeerId.init(generateSecp256k1Key()).tryGet()
+    let
+      storePeerId = PeerId.init(generateSecp256k1Key()).tryGet()
+      storeAddress = "/ip4/127.0.0.1/tcp/60000"
     var cliConf = defaultWakuNodeConf().get()
-    cliConf.storenode = "/ip4/127.0.0.1/tcp/60000/p2p/" & $storePeerId
+    cliConf.storenode = storeAddress & "/p2p/" & $storePeerId
     let conf = cliConf.toWakuConf().valueOr:
       raiseAssert error
 
@@ -94,6 +105,87 @@ suite "Node Factory":
     # Then that peer holds the store service slot
     check:
       node.peerManager.serviceSlots[WakuStoreCodec].peerId == storePeerId
+      servicePeerGauge(WakuStoreCodec, storeAddress) == 1
+
+  asynctest "The filternode command line option fills the filter service slot":
+    # Given the configuration of a binary started with --filternode
+    let
+      filterPeerId = PeerId.init(generateSecp256k1Key()).tryGet()
+      filterAddress = "/ip4/127.0.0.1/tcp/60000"
+    var cliConf = defaultWakuNodeConf().get()
+    cliConf.filternode = filterAddress & "/p2p/" & $filterPeerId
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then that peer holds the filter service slot
+    check:
+      node.peerManager.serviceSlots[WakuFilterSubscribeCodec].peerId == filterPeerId
+      servicePeerGauge(WakuFilterSubscribeCodec, filterAddress) == 1
+
+  asynctest "The lightpushnode command line option fills the lightpush service slot":
+    # Given the configuration of a binary started with --lightpushnode
+    let
+      lightPushPeerId = PeerId.init(generateSecp256k1Key()).tryGet()
+      lightPushAddress = "/ip4/127.0.0.1/tcp/60000"
+    var cliConf = defaultWakuNodeConf().get()
+    cliConf.lightpushnode = lightPushAddress & "/p2p/" & $lightPushPeerId
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then that peer holds the lightpush service slot
+    check:
+      node.peerManager.serviceSlots[WakuLightPushCodec].peerId == lightPushPeerId
+      servicePeerGauge(WakuLightPushCodec, lightPushAddress) == 1
+
+  asynctest "The peer-exchange-node command line option fills the peer exchange service slot and fetches its peers at start":
+    # Given a peer exchange responder that discovered a peer via Discv5
+    let
+      responder = newTestWakuNode(generateSecp256k1Key())
+      discoveredNode = newTestWakuNode(generateSecp256k1Key())
+    # The node disconnects a peer that does not report its cluster id through the metadata protocol.
+    check:
+      responder.mountMetadata(DefaultClusterId, @[]).isOk()
+      discoveredNode.mountMetadata(DefaultClusterId, @[]).isOk()
+    await allFutures(responder.start(), discoveredNode.start())
+    defer:
+      await allFutures(responder.stop(), discoveredNode.stop())
+    await responder.mountPeerExchange()
+    var discoveredPeer = discoveredNode.peerInfo.toRemotePeerInfo()
+    discoveredPeer.enr = Opt.some(discoveredNode.enr)
+    responder.peerManager.addPeer(discoveredPeer, PeerOrigin.Discv5)
+
+    # And the configuration of a binary started with --peer-exchange-node naming the responder
+    var cliConf = defaultWakuNodeConf().get()
+    cliConf.tcpPort = Port(0)
+    cliConf.peerExchangeNode =
+      "/ip4/127.0.0.1/tcp/" & $responder.boundTcpPort() & "/p2p/" &
+      $responder.peerInfo.peerId
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up and started
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+    let startResult = await startNode(node, conf)
+    defer:
+      await node.stop()
+
+    # Then the responder holds the peer exchange service slot, and the peer it discovered is in the peer store
+    check:
+      startResult.isOk()
+      node.peerManager.serviceSlots[WakuPeerExchangeCodec].peerId ==
+        responder.peerInfo.peerId
+      node.peerManager.switch.peerStore.peers.anyIt(
+        it.peerId == discoveredPeer.peerId and it.origin == PeerExchange
+      )
 
   test "ENR configuration trims multiaddrs until record fits":
     var conf = defaultTestWakuConf()
