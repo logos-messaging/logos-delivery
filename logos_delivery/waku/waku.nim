@@ -95,6 +95,8 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   networkConnLoopHandle: Future[void]
   enrReconcileLoopHandle*: Future[void]
   enrReconcileInterval*: Duration = DefaultEnrReconcileInterval
+  enrReachable: bool = true
+    ## Whether the record last carried a host. Only a change is worth a log.
 
   node*: WakuNode
 
@@ -366,6 +368,21 @@ proc reconcileEnrAddrs*(
   ?refreshEnrAddrs(node, key, wakuDiscv5)
   return ok(true)
 
+proc logEnrReachability(waku: Waku) =
+  ## Without a host the record advertises nothing anyone can dial. That is a
+  ## normal edge-node state, so it is a notice, and only on a change.
+  let typed = waku.node.enr.toTyped().valueOr:
+    return
+  let reachable = typed.ip().isSome() or typed.ip6().isSome()
+  if reachable == waku.enrReachable:
+    return
+  waku.enrReachable = reachable
+  if reachable:
+    notice "ENR now advertises a reachable host", enr = waku.node.enr.toURI()
+  else:
+    notice "ENR carries no reachable host, so peers cannot dial this node. " &
+      "Set --nat, --ext-ip, --dns4-domain-name or --ext-multiaddr to advertise one"
+
 proc enrReconcileLoop(waku: Waku): Future[void] {.async.} =
   while true:
     await sleepAsync(waku.enrReconcileInterval)
@@ -374,6 +391,7 @@ proc enrReconcileLoop(waku: Waku): Future[void] {.async.} =
       continue
     if written:
       info "ENR reconciled with the discv5 record", enr = waku.node.enr.toURI()
+      waku.logEnrReachability()
 
 proc updateWaku(waku: Waku): Future[Result[void, string]] {.async.} =
   (await updateEnr(waku)).isOkOr:
@@ -527,6 +545,8 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
   waku.node.subscriptionManager.subscribeAllAutoshards().isOkOr:
     return err("failed to auto-subscribe autosharding shards: " & $error)
+
+  waku.logEnrReachability()
 
   if not waku.wakuDiscv5.isNil():
     waku.enrReconcileLoopHandle = waku.enrReconcileLoop()
