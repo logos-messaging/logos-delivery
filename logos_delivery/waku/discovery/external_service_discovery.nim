@@ -325,7 +325,16 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
 
     ## The worker gets the vtable by value, so nothing is shared and there is
     ## nothing to look up on the far side.
-    ?await self.worker.start(self.workerCtx, plugin)
+    (await self.worker.start(self.workerCtx, plugin)).isOkOr:
+      ## A worker that gave up still has a thread, and it is holding this
+      ## context's (mt) registrations. Park it for `reapAbandoned` and move to
+      ## a fresh context, exactly as a failed stop does -- otherwise nothing
+      ## ever signals that thread, and the next `startDiscovery` gets ok() from
+      ## a worker that never became ready.
+      self.abandonedWorkers.add(self.worker)
+      self.worker = ServiceDiscoveryWorker.new()
+      self.workerCtx = NewBrokerContext()
+      return err(error)
 
     ## `start` is the one verb that brings a whole backend up, so it gets its
     ## own budget on both fences: nim-brokers' (mt) lane, which otherwise
@@ -380,6 +389,8 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
         WorkerStopGraceMargin
     let workerRes = await self.worker.stop(grace)
     if workerRes.isErr():
+      ## Same handling as a failed start: the thread outlives the object, so
+      ## park it for `reapAbandoned` and leave it the old context.
       self.abandonedWorkers.add(self.worker)
       self.worker = ServiceDiscoveryWorker.new()
       self.workerCtx = NewBrokerContext()

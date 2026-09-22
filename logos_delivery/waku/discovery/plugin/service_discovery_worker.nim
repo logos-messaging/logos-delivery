@@ -52,7 +52,7 @@ type
       ## Set by the thread as its very last act; `stop` waits on it so a join
       ## never blocks the node's loop.
     abandoned: ptr Atomic[bool]
-      ## Set by `stop` when it gave up waiting. The thread then leaves the
+      ## Set when `start` or `stop` gave up on the thread. It then leaves the
       ## (mt) registrations alone: a successor worker has taken them over.
     running: bool
 
@@ -283,8 +283,25 @@ proc freeFlags(w: ServiceDiscoveryWorker) =
   w.abandoned = nil
 
 proc hasExited*(w: ServiceDiscoveryWorker): bool =
-  ## Whether an abandoned thread has since left the plugin and returned.
-  not w.done.isNil() and w.done[].load()
+  ## Whether an abandoned thread has since left the plugin and returned. True
+  ## as well when there is no thread to wait for -- a worker that failed to
+  ## spawn one has nothing to join, and `reap` is a no-op for it -- so the
+  ## caller's list does not keep an entry it can never retire.
+  w.done.isNil() or w.done[].load()
+
+proc abandon(w: ServiceDiscoveryWorker, reason: string): Result[void, string] =
+  ## Gives up on the thread instead of joining it here: signals it, and tells
+  ## it to keep its (mt) buckets on the way out. The caller parks this object
+  ## for `reap` and continues on a fresh context, so the hand-back would free
+  ## a slot a requester of the old context may still be polling.
+  ##
+  ## The flags stay allocated on purpose. The thread's last act is to write
+  ## `done` through them, which is exactly what `hasExited` reads before `reap`
+  ## joins and frees; releasing them here is what would be unsafe.
+  w.shutdown[].store(true)
+  w.abandoned[].store(true)
+  w.running = false
+  err(reason)
 
 proc reap*(w: ServiceDiscoveryWorker) =
   ## Joins an abandoned thread that has exited and releases what `stop` left
@@ -340,9 +357,9 @@ proc start*(
     try:
       await sleepAsync(chronos.milliseconds(20))
     except CancelledError:
-      return err("cancelled while starting service discovery worker")
+      return w.abandon("cancelled while starting service discovery worker")
 
-  err("service discovery worker did not become ready")
+  w.abandon("service discovery worker did not become ready")
 
 proc stop*(
     w: ServiceDiscoveryWorker, grace: Duration
@@ -372,19 +389,13 @@ proc stop*(
       # thread that owns them, and a requester may still hold a slot in them.
       # The successor registers on a fresh context instead (the backend's
       # job), so nothing here is touched from another thread.
-      w.abandoned[].store(true)
-      w.running = false
-      ## The flags stay reachable, unlike the buckets: the thread's last act
-      ## is to set `done`, and the backend needs to see that to know when the
-      ## thread has left the plugin and its handle can be joined. Freeing them
-      ## here is what would be unsafe, not holding them.
       error "service discovery worker did not stop in time; its thread is abandoned",
         grace = $grace
-      return err("service discovery worker did not stop within " & $grace)
+      return w.abandon("service discovery worker did not stop within " & $grace)
     try:
       await sleepAsync(chronos.milliseconds(20))
     except CancelledError:
-      return err("cancelled while stopping service discovery worker")
+      return w.abandon("cancelled while stopping service discovery worker")
 
   joinThread(w.thread)
   w.freeFlags()
