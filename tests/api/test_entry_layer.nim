@@ -1,15 +1,16 @@
 {.used.}
 
-import std/[options, net]
+import std/[options, net, sequtils]
 import chronos, testutils/unittests, presto, presto/client as presto_client
 import brokers/broker_context
 import logos_delivery
 import
   logos_delivery/api/conf/logos_delivery_conf,
   logos_delivery/messaging/rest_api/client as messaging_rest_client,
+  logos_delivery/waku/[common/base64, waku_core, waku_node],
   logos_delivery/waku/rest_api/endpoint/client
 import tools/confutils/cli_args
-import ../testlib/[testasync, wakunodeconf]
+import ../testlib/[rest_requests, testasync, wakucore, wakunode, wakunodeconf]
 
 ## Validates the layer-selection invariant of `LogosDelivery.new(WakuNodeConf)`:
 ## `messagingClient` (and `reliableChannelManager`) are instantiated only for the
@@ -114,3 +115,65 @@ suite "LogosDelivery - entry layer selection":
 
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
+
+suite "LogosDelivery - relay REST API":
+  asyncTest "the configured shard and content topic are served without a REST subscription":
+    let
+      contentTopic = ContentTopic("/toychat/2/huilong/proto")
+      configuredShard = $RelayShard(clusterId: TestClusterId, shardId: 0)
+      contentTopicShard = $RelayShard(clusterId: TestClusterId, shardId: 3)
+
+    var conf = nodeConf(EntryLayer.kernel, rest = true)
+    conf.numShardsInNetwork = 8
+    conf.shards = @[0'u16]
+    conf.contentTopics = @[contentTopic]
+
+    var node: LogosDelivery
+    lockNewGlobalBrokerContext:
+      node = (await LogosDelivery.new(conf)).valueOr:
+        raiseAssert error
+      (await node.start()).isOkOr:
+        raiseAssert "start failed: " & error
+    defer:
+      (await node.stop()).isOkOr:
+        raiseAssert "stop failed: " & error
+
+    var publisher: WakuNode
+    lockNewGlobalBrokerContext:
+      publisher = newTestWakuNode(generateSecp256k1Key())
+      publisher.mountMetadata(TestClusterId, toSeq(0'u16 ..< 8'u16)).isOkOr:
+        raiseAssert error
+      (await publisher.mountRelay()).isOkOr:
+        raiseAssert error
+      await publisher.start()
+    defer:
+      await publisher.stop()
+
+    proc dummyHandler(topic: PubsubTopic, msg: WakuMessage) {.async, gcsafe.} =
+      discard
+
+    for shard in [configuredShard, contentTopicShard]:
+      publisher.subscribe((kind: PubsubSub, topic: shard), dummyHandler).isOkOr:
+        raiseAssert error
+
+    await node.waku.node.connectToNodes(@[publisher.peerInfo.toRemotePeerInfo()])
+    checkUntilTimeout:
+      publisher.hasGossipsubPeer(configuredShard, node.waku.node.peerId)
+      publisher.hasGossipsubPeer(contentTopicShard, node.waku.node.peerId)
+
+    let
+      shardMessage = fakeWakuMessage("on the configured shard")
+      contentTopicMessage =
+        fakeWakuMessage("on the content topic", contentTopic = contentTopic)
+    (await publisher.publish(Opt.some(configuredShard), shardMessage)).isOkOr:
+      raiseAssert error
+    (await publisher.publish(Opt.some(contentTopicShard), contentTopicMessage)).isOkOr:
+      raiseAssert error
+
+    let client = restClientFor(node)
+    let shardMessages = await client.waitForRelayMessages(configuredShard, 1)
+    let contentTopicMessages = await client.waitForRelayAutoMessages(contentTopic, 1)
+    check:
+      shardMessages.mapIt(it.payload) == @[base64.encode(shardMessage.payload)]
+      contentTopicMessages.mapIt(it.payload) ==
+        @[base64.encode(contentTopicMessage.payload)]

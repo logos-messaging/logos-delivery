@@ -226,6 +226,16 @@ suite "Waku external config - Shards":
     let vRes = wakuConf.validate()
     assert vRes.isOk(), $vRes.error
 
+  test "Shard is passed several times":
+    ## Given
+    let cmdLine = @["--shard=0", "--shard=2", "--shard=4"]
+
+    ## When
+    let wakuNodeConf = WakuNodeConf.load(version = "", cmdLine = cmdLine)
+
+    ## Then
+    check wakuNodeConf.shards == @[0'u16, 2, 4]
+
 suite "Waku external config - store retention policy":
   test "Default retention policy":
     ## Given

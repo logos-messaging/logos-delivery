@@ -55,6 +55,24 @@ suite "WakuNodeConf - preset integration":
     check:
       wakuConf.clusterId == 2
 
+  test "Cluster id 2 applies LogosDevConf":
+    ## Given
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.clusterId = Opt.some(2'u16)
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then the logos.dev preset runs on cluster 2 instead of its own cluster 3
+    check:
+      wakuConf.validate().isOk()
+      wakuConf.clusterId == 2
+      wakuConf.shardingConf.kind == AutoSharding
+      wakuConf.shardingConf.numShardsInCluster == 8
+      wakuConf.staticNodes == NetworkPresetConf.LogosDevConf().entryNodes
+
   test "StatusProd preset applies StatusProdConf":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:

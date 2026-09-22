@@ -74,3 +74,18 @@ proc waitForRelayMessages*(
     messages.add(response.data)
     await sleepAsync(50.milliseconds)
   return messages
+
+proc waitForRelayAutoMessages*(
+    client: RestClientRef,
+    contentTopic: ContentTopic,
+    count: int,
+    timeout = FUTURE_TIMEOUT_MEDIUM,
+): Future[seq[RelayWakuMessage]] {.async.} =
+  ## Each GET clears the cache, so the messages of every poll are collected.
+  var messages: seq[RelayWakuMessage]
+  let deadline = Moment.now() + timeout
+  while messages.len < count and Moment.now() < deadline:
+    let response = await client.relayGetAutoMessagesV1(contentTopic)
+    messages.add(response.data)
+    await sleepAsync(50.milliseconds)
+  return messages
