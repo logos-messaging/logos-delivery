@@ -73,6 +73,20 @@ func hasZeroPort*(ma: MultiAddress): bool =
       return true
   return false
 
+const
+  AnyAddressV4 = [0'u8, 0, 0, 0]
+  AnyAddressV6 = default(array[16, uint8])
+  AnyAddressV4Mapped = [0'u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0, 0, 0]
+    ## `::ffff:0.0.0.0`, the IPv4-mapped spelling of the wildcard host.
+
+func isWildcard*(ip: IpAddress): bool =
+  ## The bind-any host, in each of its spellings.
+  case ip.family
+  of IpAddressFamily.IPv4:
+    ip.address_v4 == AnyAddressV4
+  of IpAddressFamily.IPv6:
+    ip.address_v6 == AnyAddressV6 or ip.address_v6 == AnyAddressV4Mapped
+
 proc isWsAddress*(ma: MultiAddress): bool =
   let
     isWs = ma.contains(multiCodec("ws")).get()
@@ -221,16 +235,20 @@ proc init*(
     except CatchableError:
       return err("failed to initialize quic address: " & getCurrentExceptionMsg())
 
+  ## A wildcard host and port 0 are bind-time placeholders, whatever their
+  ## source. The rebuild at start fills them.
+  let enrHost = extIp.get(bindIp)
   let enrIp =
-    if extIp.isSome():
-      extIp
+    if enrHost.isWildcard():
+      Opt.none(IpAddress)
     else:
-      Opt.some(bindIp)
+      Opt.some(enrHost)
+  let enrTcpPort = extPort.get(bindPort)
   let enrPort =
-    if extPort.isSome():
-      extPort
+    if enrTcpPort == Port(0):
+      Opt.none(Port)
     else:
-      Opt.some(bindPort)
+      Opt.some(enrTcpPort)
 
   # Setup external addresses, if available
   var hostExtAddress, wsExtAddress, quicExtAddress = Opt.none(MultiAddress)
@@ -314,8 +332,10 @@ proc init*(
     # https://rfc.vac.dev/spec/31/#many-connection-types
     enrMultiaddrs = deduplicate(
       announcedAddresses.filterIt(
-        it.hasProtocol("dns4") or it.hasProtocol("dns6") or it.hasProtocol("ws") or
+        (
+          it.hasProtocol("dns4") or it.hasProtocol("dns6") or it.hasProtocol("ws") or
           it.hasProtocol("wss") or it.hasProtocol("quic-v1")
+        ) and it.isDialableMA()
       )
     )
 

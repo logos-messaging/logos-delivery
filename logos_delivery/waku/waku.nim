@@ -14,8 +14,8 @@ import
   libp2p/services/hpservice,
   libp2p/peerid,
   libp2p/wire,
-  eth/keys,
   eth/p2p/discoveryv5/enr,
+  eth/p2p/discoveryv5/node as discv5_node,
   presto,
   metrics,
   metrics/chronos_httpserver,
@@ -35,6 +35,7 @@ import
     common/logging,
     node/peer_manager,
     node/health_monitor,
+    node/enr_addresses,
     net/net_config,
     node/waku_metrics,
     node/subscription_manager,
@@ -72,6 +73,9 @@ logScope:
 # Git version in git describe format (defined at compile time)
 const git_version* {.strdefine.} = "n/a"
 
+const DefaultEnrReconcileInterval* = 5.seconds
+  ## nim-eth has no hook on its own record writes, so the node polls.
+
 type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   stateInfo*: WakuStateInfo
   conf*: WakuConf
@@ -89,6 +93,8 @@ type Waku* = ref object ## Implements `KernelApi` (ops in `waku/api/*`).
   dynamicBootstrapNodes*: seq[RemotePeerInfo]
   dnsRetryLoopHandle: Future[void]
   networkConnLoopHandle: Future[void]
+  enrReconcileLoopHandle*: Future[void]
+  enrReconcileInterval*: Duration = DefaultEnrReconcileInterval
 
   node*: WakuNode
 
@@ -312,48 +318,62 @@ proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.
 proc updateEnr(waku: Waku): Future[Result[void, string]] {.async.} =
   let netConf: NetConfig = (await getRunningNetConfig(waku)).valueOr:
     return err("error calling updateNetConfig: " & $error)
-  let record = enrConfiguration(waku.conf, netConf).valueOr:
+  ## discv5 bumped the seed record it was given, and a peer that cached the
+  ## higher number ignores a lower one.
+  var seqNum = waku.node.enr.seqNum
+  if not waku.wakuDiscv5.isNil():
+    seqNum = max(seqNum, waku.wakuDiscv5.protocol.localNode.record.seqNum)
+
+  let record = enrConfiguration(waku.conf, netConf, seqNum + 1).valueOr:
     return err("ENR setup failed: " & error)
 
   if isClusterMismatched(record, waku.conf.clusterId):
     return err("cluster-id mismatch configured shards")
 
   waku.node.enr = record
+  waku.node.updateEnrConfiguredEndpoint(netConf)
 
   return ok()
 
 proc refreshEnrAddrs*(
     node: WakuNode, key: crypto.PrivateKey, wakuDiscv5: WakuDiscoveryV5
 ): Result[void, string] =
-  ## Write the announced addresses into the ENR multiaddrs field.
-  ## With discv5, update its live record and copy the result back.
-  let addrs =
-    node.announcedAddresses.filterIt(it.isCircuitRelayMA()) &
-    node.announcedAddresses.filterIt(not it.isCircuitRelayMA())
+  ## With discv5, update its live record and copy the result back. A host
+  ## discv5 learned from its peers stays the host of the record.
+  if wakuDiscv5.isNil():
+    return node.enr.updateEnrAddresses(key, node.enrAddresses(), node.enrBaseline())
 
-  ## Dropping tail entries only helps when the record is too large.
-  ## An empty set writes an empty field. A key or record failure also
-  ## fails on the empty list and returns err.
-  if not wakuDiscv5.isNil():
-    for retained in countdown(addrs.len, 0):
-      let encoded = multiaddr.encodeMultiaddrs(addrs[0 ..< retained])
-      if wakuDiscv5.protocol.updateRecord([(MultiaddrEnrField, encoded)]).isOk():
-        node.enr = wakuDiscv5.protocol.localNode.record
-        debug "ENR multiaddrs updated", retained = retained, total = addrs.len
-        return ok()
-    return err("failed to update ENR multiaddrs at every prefix")
+  let local = wakuDiscv5.protocol.localNode
+  let learned =
+    if local.address.isSome():
+      Opt.some((ip: local.address.get().ip, udp: local.address.get().port))
+    else:
+      Opt.none(DiscoveryEndpoint)
+  ?local.record.updateEnrAddresses(
+    key, node.enrAddresses(), node.enrBaseline(), learned
+  )
+  node.enr = local.record
+  return ok()
 
-  let keyBytes = key.getRawBytes().valueOr:
-    return err("failed to retrieve raw bytes from waku key: " & $error)
-  let parsedPk = keys.PrivateKey.fromHex(keyBytes.toHex()).valueOr:
-    return err("failed to parse the private key: " & $error)
-  for retained in countdown(addrs.len, 0):
-    let encoded = multiaddr.encodeMultiaddrs(addrs[0 ..< retained])
-    let fields = @[toFieldPair(MultiaddrEnrField, encoded)]
-    if node.enr.update(parsedPk, extraFields = fields).isOk():
-      debug "ENR multiaddrs updated", retained = retained, total = addrs.len
-      return ok()
-  return err("failed to update ENR multiaddrs at every prefix")
+proc reconcileEnrAddrs*(
+    node: WakuNode, key: crypto.PrivateKey, wakuDiscv5: WakuDiscoveryV5
+): Result[bool, string] =
+  ## discv5 writes the host it learned into its own record, with the `tcp`
+  ## the record had, and tells nobody. Writing again pairs that host with a
+  ## `tcp` that fits it. True when it wrote.
+  if wakuDiscv5.isNil() or wakuDiscv5.protocol.localNode.record == node.enr:
+    return ok(false)
+  ?refreshEnrAddrs(node, key, wakuDiscv5)
+  return ok(true)
+
+proc enrReconcileLoop(waku: Waku): Future[void] {.async.} =
+  while true:
+    await sleepAsync(waku.enrReconcileInterval)
+    let written = reconcileEnrAddrs(waku.node, waku.key, waku.wakuDiscv5).valueOr:
+      error "failed to reconcile the ENR with the discv5 record", error = error
+      continue
+    if written:
+      info "ENR reconciled with the discv5 record", enr = waku.node.enr.toURI()
 
 proc updateWaku(waku: Waku): Future[Result[void, string]] {.async.} =
   (await updateEnr(waku)).isOkOr:
@@ -361,8 +381,10 @@ proc updateWaku(waku: Waku): Future[Result[void, string]] {.async.} =
 
   if not waku.wakuDiscv5.isNil():
     ## Copy the startup ENR into the live discv5 record once. Shard updates
-    ## and multiaddr refreshes then update that record in place.
+    ## and multiaddr refreshes then update that record in place. The seed
+    ## also gave discv5 its own address; the rebuild replaces that too.
     waku.wakuDiscv5.protocol.localNode.record = waku.node.enr
+    waku.wakuDiscv5.protocol.localNode.address = Opt.none(discv5_node.Address)
 
   ?refreshEnrAddrs(waku.node, waku.key, waku.wakuDiscv5)
 
@@ -506,6 +528,9 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   waku.node.subscriptionManager.subscribeAllAutoshards().isOkOr:
     return err("failed to auto-subscribe autosharding shards: " & $error)
 
+  if not waku.wakuDiscv5.isNil():
+    waku.enrReconcileLoopHandle = waku.enrReconcileLoop()
+
   ## Announce ourselves on the delivery network. After the shard subscriptions,
   ## not before: an advertisement is only useful if the shards it claims are
   ## the ones we are actually on.
@@ -623,6 +648,9 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
 
     if not waku.dnsRetryLoopHandle.isNil():
       await waku.dnsRetryLoopHandle.cancelAndWait()
+
+    if not waku.enrReconcileLoopHandle.isNil():
+      await waku.enrReconcileLoopHandle.cancelAndWait()
 
     if not waku.healthMonitor.isNil():
       await waku.healthMonitor.stopHealthMonitor()

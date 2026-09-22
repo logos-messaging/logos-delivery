@@ -65,6 +65,7 @@ import
   logos_delivery/waku/discovery/peer_discovery_interface,
   logos_delivery/waku/discovery/waku_kademlia,
   logos_delivery/waku/net/[bound_ports, net_config],
+  ./enr_addresses,
   ./peer_manager,
   ./health_monitor/health_status,
   ./health_monitor/topic_health,
@@ -135,6 +136,13 @@ type
       ## The configured addresses made concrete at start: bound ports
       ## substituted, wildcard hosts rewritten to the primary IP.
       ## The first mapper in the chain answers with this set.
+    explicitAnnounced: seq[MultiAddress]
+      ## The configured addresses with a host the operator chose. A base
+      ## entry that is not here stands in for a wildcard bind host.
+    enrHost: Opt[IpAddress]
+    enrPort: Opt[Port]
+      ## What the configuration gives the ENR scalars. None for a wildcard
+      ## host or a port the kernel picks.
     onCommittedAddresses*: proc() {.gcsafe, raises: [].}
       ## Runs after every copy of the committed addresses.
       ## waku.nim uses it to refresh the ENR.
@@ -223,14 +231,48 @@ proc getWakuPeerRecordGetter(node: WakuNode): GetWakuPeerRecord =
       mixKey = mixKey,
     )
 
+proc enrAddresses*(node: WakuNode): seq[MultiAddress] =
+  ## The announced addresses known from outside: what the operator
+  ## configured, and what a mapper added (a NAT grant, a relay route). Not
+  ## the primary interface, which the node knows only from the inside.
+  let base = node.baseAnnounced.valueOr:
+    return node.announcedAddresses
+  return node.announcedAddresses.filterIt(it in node.explicitAnnounced or it notin base)
+
+proc enrBaseline*(node: WakuNode): EnrBaseline =
+  ## What the scalars say when nothing else decides them. A configured
+  ## external port stays beside its host when the local port differs.
+  if node.enrPort.isSome():
+    return (ip: node.enrHost, tcp: node.enrPort)
+  let ports = getPorts(node.switch.peerInfo.listenAddrs).valueOr:
+    return (ip: node.enrHost, tcp: Opt.none(Port))
+  let bound =
+    if ports.tcpPort.isSome() and ports.tcpPort.get() != Port(0):
+      ports.tcpPort
+    else:
+      Opt.none(Port)
+  return (ip: node.enrHost, tcp: bound)
+
+proc updateEnrConfiguredEndpoint*(node: WakuNode, netConfig: NetConfig) =
+  ## A dns4 name can answer differently at start, so the scalars follow that
+  ## resolution rather than the one from construction.
+  node.enrHost = netConfig.enrIp
+  node.enrPort = netConfig.enrPort
+
 proc copyCommittedAddresses*(node: WakuNode) =
-  ## Copy the committed peerInfo addresses into announcedAddresses
-  ## and run the ENR refresh callback, once start has resolved the addresses.
+  ## Copy the committed peerInfo addresses into announcedAddresses and refresh
+  ## the ENR, once start has resolved the addresses. A `Waku` installs its own
+  ## refresh, which also keeps the live discv5 record.
   if node.baseAnnounced.isNone():
     return
   node.announcedAddresses = node.switch.peerInfo.addrs
   if not node.onCommittedAddresses.isNil():
     node.onCommittedAddresses()
+  else:
+    node.enr.updateEnrAddresses(
+      node.switch.peerInfo.privateKey, node.enrAddresses(), node.enrBaseline()
+    ).isOkOr:
+      error "failed to refresh the ENR addresses", error = error
 
 proc new*(
     T: type WakuNode,
@@ -257,6 +299,8 @@ proc new*(
     announcedAddresses: netConfig.announcedAddresses,
     configuredAnnounced: netConfig.announcedAddresses,
     extMultiAddrsOnly: netConfig.extMultiAddrsOnly,
+    enrHost: netConfig.enrIp,
+    enrPort: netConfig.enrPort,
     rateLimitSettings: rateLimitSettings,
     ports: BoundPorts.init(),
   )
@@ -510,6 +554,12 @@ proc mountRendezvous*(
   except LPError:
     error "Failed to mount wakuRendezvous", error = getCurrentExceptionMsg()
 
+proc hasWildcardHost(ma: MultiAddress): bool =
+  ## A name is a chosen host, so only an IP literal can be a wildcard.
+  let ip = ma.getIp().valueOr:
+    return false
+  return ip.isWildcard()
+
 proc resolveAnnouncedBaseAddresses(node: WakuNode) =
   ## Runs once per start, after the sockets bind.
   ## Here the configured addresses become real: port 0 becomes
@@ -519,10 +569,13 @@ proc resolveAnnouncedBaseAddresses(node: WakuNode) =
     ## announcedAddrs bypasses the mappers. The configured set is final.
     node.baseAnnounced = Opt.some(node.configuredAnnounced)
     node.announcedAddresses = node.configuredAnnounced
+    node.explicitAnnounced = node.configuredAnnounced
     return
 
   let substituted =
     substituteBoundPorts(node.configuredAnnounced, node.switch.peerInfo.listenAddrs)
+  node.explicitAnnounced =
+    substituted.filterIt(not it.hasWildcardHost() and not it.hasZeroPort())
 
   const LoopbackIp = parseIpAddress("127.0.0.1")
   const RewrittenHosts =
@@ -551,7 +604,7 @@ proc resolveAnnouncedBaseAddresses(node: WakuNode) =
   let base = resolved.filterIt(not it.hasZeroPort())
   node.baseAnnounced = Opt.some(base)
   node.announcedAddresses = base
-  info "Announced base resolved", addrs = $base
+  info "Announced base resolved", addrs = $base, explicit = $node.explicitAnnounced
 
 proc startProvidersAndListeners*(node: WakuNode) =
   RequestRelayShard.setProvider(
@@ -715,6 +768,7 @@ proc stop*(node: WakuNode) {.async.} =
 
   node.started = false
   node.baseAnnounced = Opt.none(seq[MultiAddress])
+  node.explicitAnnounced = @[]
 
 proc isReady*(node: WakuNode): Future[bool] {.async: (raises: [Exception]).} =
   if node.rln == nil:

@@ -16,7 +16,11 @@ import ./test_waku
 import ./node/test_all, ./test_wakunode, ./test_waku_switch, ./test_waku_keepalive
 
 # Networking
-import ./test_nat_config, ./test_announced_addresses, ./test_waku_netconfig
+import
+  ./test_nat_config,
+  ./test_announced_addresses,
+  ./test_enr_endpoints,
+  ./test_waku_netconfig
 
 # Peer management
 import
