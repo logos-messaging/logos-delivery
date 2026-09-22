@@ -49,7 +49,6 @@ import
     discovery/autonat_service,
     requests/health_requests,
     requests/node_state_requests,
-    api/events/node_lifecycle_events,
     factory/node_factory,
     factory/internal_config,
     factory/app_callbacks,
@@ -288,10 +287,6 @@ proc new*(
       )
     )
 
-  NodeLifecycleEvent.emit(
-    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Initialized)
-  )
-
   ok(waku)
 
 proc getRunningNetConfig(waku: Waku): Future[Result[NetConfig, string]] {.async.} =
@@ -425,10 +420,6 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if waku.node.started:
     debug "start: waku node already started"
     return ok()
-
-  NodeLifecycleEvent.emit(
-    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Starting)
-  )
 
   info "Retrieve dynamic bootstrap nodes"
   let conf = waku.conf
@@ -605,20 +596,12 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
       )
   waku.healthMonitor.setOverallHealth(HealthStatus.READY)
 
-  NodeLifecycleEvent.emit(
-    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Started)
-  )
-
   startSucceeded = true
   return ok()
 
 proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   if not waku.node.started:
     debug "stop: attempting to stop node that isn't running"
-
-  NodeLifecycleEvent.emit(
-    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Stopping)
-  )
 
   try:
     waku.healthMonitor.setOverallHealth(HealthStatus.SHUTTING_DOWN)
@@ -649,10 +632,6 @@ proc stop*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   except Exception:
     error "Waku stop failed", error = getCurrentExceptionMsg()
     return err("waku stop failed: " & getCurrentExceptionMsg())
-
-  NodeLifecycleEvent.emit(
-    waku.brokerCtx, NodeLifecycleEvent(stage: NodeLifecycleStage.Stopped)
-  )
 
   return ok()
 
