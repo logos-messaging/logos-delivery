@@ -63,7 +63,7 @@ proc rebuild(
   let rebuilt = enr.Record.init(
     record.seqNum + 1, pk, scalars.ip, scalars.tcp, scalars.udp, kept & fields
   ).valueOr:
-    return err($error)
+    return err("failed to rebuild the record: " & $error)
   record = rebuilt
   return ok()
 
