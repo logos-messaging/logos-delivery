@@ -580,3 +580,18 @@ suite "Waku NetConfig":
       MultiAddress.init("/ip4/1.2.3.4/udp/0/quic-v1").get().hasZeroPort()
       not MultiAddress.init("/ip4/1.2.3.4/tcp/60000").get().hasZeroPort()
       not MultiAddress.init("/dns4/x.example.org/tcp/443/wss").get().hasZeroPort()
+
+  test "isConcreteEndpoint rejects only the bind-time placeholders":
+    const CircuitAddr =
+      "/ip4/93.184.216.34/tcp/4001/p2p/" &
+      "16Uiu2HAm7YEh2wwbYNvayrSQe2bdm1aL4FnhCLkvSNaScMxcgt4n/p2p-circuit"
+    check:
+      MultiAddress.init("/ip4/1.2.3.4/tcp/60000").get().isConcreteEndpoint()
+      MultiAddress.init("/ip4/192.168.1.5/tcp/60000").get().isConcreteEndpoint()
+      MultiAddress.init("/dns4/x.example.org/tcp/443/wss").get().isConcreteEndpoint()
+      MultiAddress.init("/ip4/1.2.3.4/udp/60001/quic-v1").get().isConcreteEndpoint()
+      MultiAddress.init(CircuitAddr).get().isConcreteEndpoint()
+      not MultiAddress.init("/ip4/0.0.0.0/tcp/60000").get().isConcreteEndpoint()
+      not MultiAddress.init("/ip6/::/tcp/60000").get().isConcreteEndpoint()
+      not MultiAddress.init("/ip4/1.2.3.4/tcp/0").get().isConcreteEndpoint()
+      not MultiAddress.init("/ip4/0.0.0.0/udp/60001/quic-v1").get().isConcreteEndpoint()

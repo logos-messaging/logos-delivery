@@ -9,6 +9,7 @@ import testutils/unittests, chronos
 import libp2p/[multiaddress, wire]
 import libp2p/crypto/crypto as libp2pcrypto
 import eth/keys, eth/p2p/discoveryv5/enr
+import eth/p2p/discoveryv5/node as discv5_node
 import eth/p2p/discoveryv5/protocol as discv5_protocol
 import stew/byteutils
 import
@@ -17,7 +18,8 @@ import
   ../logos_delivery/waku/node/enr_addresses,
   ../logos_delivery/waku/node/waku_node,
   ../logos_delivery/waku/waku,
-  ../logos_delivery/waku/waku_enr
+  ../logos_delivery/waku/waku_enr,
+  ../logos_delivery/waku/waku_core/peers
 import ./testlib/[common, wakucore, wakunode]
 
 proc tcpOf(record: enr.Record): Opt[uint16] =
@@ -153,7 +155,7 @@ suite "ENR endpoints":
     var record = EnrBuilder.init(key).build().expect("record")
     let learned = Opt.some((ip: parseIpAddress("198.51.100.4"), udp: Port(30303)))
 
-    ## No announced endpoint on the learned host: no tcp beside it.
+    ## No announced endpoint on the learned host and no baseline: no tcp.
     check record
       .updateEnrAddresses(
         key,
@@ -179,6 +181,125 @@ suite "ENR endpoints":
     check:
       record.ipOf().get() == [198'u8, 51, 100, 4]
       record.tcpOf().get() == 60123'u16
+
+  test "a learned host keeps the baseline port when nothing announced matches":
+    ## Discovery is on by default, so this is the common server: bound to the
+    ## wildcard with no --ext-ip, it announces no host of its own, and discv5
+    ## learns one. Dropping tcp here left it undialable over TCP.
+    let key = generateSecp256k1Key()
+    let learned = Opt.some((ip: parseIpAddress("198.51.100.4"), udp: Port(30303)))
+    let baseline = (ip: Opt.none(IpAddress), tcp: Opt.some(Port(60000)))
+
+    ## Nothing announced at all: the bound port stays beside the learned host.
+    var wildcardBound = EnrBuilder.init(key).build().expect("record")
+    check wildcardBound.updateEnrAddresses(key, @[], baseline, learned).isOk()
+    check:
+      wildcardBound.ipOf().get() == [198'u8, 51, 100, 4]
+      wildcardBound.tcpOf().get() == 60000'u16
+
+    ## A dns4 name carries no IP, so it never matches the learned host.
+    var named = EnrBuilder.init(key).build().expect("record")
+    check named
+      .updateEnrAddresses(
+        key,
+        @[MultiAddress.init("/dns4/node.example/tcp/60000").get()],
+        baseline,
+        learned,
+      )
+      .isOk()
+    check:
+      named.ipOf().get() == [198'u8, 51, 100, 4]
+      named.tcpOf().get() == 60000'u16
+
+    ## An --ext-ip the peers do not see: the configured port stays.
+    var mismatched = EnrBuilder.init(key).build().expect("record")
+    check mismatched
+      .updateEnrAddresses(
+        key,
+        @[MultiAddress.init("/ip4/203.0.113.9/tcp/60000").get()],
+        (ip: Opt.some(parseIpAddress("203.0.113.9")), tcp: Opt.some(Port(1234))),
+        learned,
+      )
+      .isOk()
+    check:
+      mismatched.ipOf().get() == [198'u8, 51, 100, 4]
+      mismatched.tcpOf().get() == 1234'u16
+
+  asyncTest "a wildcard-bound node stays dialable once discv5 learns its host":
+    ## End to end over the production refresh, not the writer alone.
+    let key = generateSecp256k1Key()
+    let node =
+      newTestWakuNode(key, parseIpAddress("0.0.0.0"), Port(0), quicEnabled = false)
+    await node.start()
+
+    let keyBytes = key.getRawBytes().expect("raw")
+    let ethPk = keys.PrivateKey.fromHex(byteutils.toHex(keyBytes)).expect("pk")
+    let proto = discv5_protocol.newProtocol(
+      ethPk,
+      enrIp = Opt.none(IpAddress),
+      enrTcpPort = Opt.none(Port),
+      enrUdpPort = Opt.none(Port),
+      previousRecord = Opt.some(node.enr),
+      bindPort = Port(9913),
+      bindIp = Opt.none(IpAddress),
+    )
+    let wd = WakuDiscoveryV5(protocol: proto)
+    proto.localNode.record = node.enr
+
+    let bound = getPorts(node.switch.peerInfo.listenAddrs).expect("bound ports")
+    check proto.localNode
+      .update(
+        ethPk,
+        ip = Opt.some(parseIpAddress("198.51.100.4")),
+        udpPort = Opt.some(Port(30303)),
+      )
+      .isOk()
+    check refreshEnrAddrs(node, key, wd).isOk()
+
+    check:
+      node.enr.ipOf().get() == [198'u8, 51, 100, 4]
+      node.enr.tcpOf().get() == uint16(bound.tcpPort.get())
+      node.enr.toRemotePeerInfo().isOk()
+    await node.stop()
+
+  test "a record is dialable through its multiaddrs field alone":
+    ## The scalars hold one IPv4 host, so a dns4 name or a relay route lives
+    ## only in the multiaddrs field. A record carrying one is still dialable.
+    let key = generateSecp256k1Key()
+    let baseline = (ip: Opt.none(IpAddress), tcp: Opt.none(Port))
+
+    var bare = EnrBuilder.init(key).build().expect("record")
+    check bare.updateEnrAddresses(key, @[], baseline).isOk()
+    check not bare.hasDialableAddress()
+
+    var named = EnrBuilder.init(key).build().expect("record")
+    check named
+      .updateEnrAddresses(
+        key, @[MultiAddress.init("/dns4/node.example/tcp/60000").get()], baseline
+      )
+      .isOk()
+    check named.hasDialableAddress()
+
+    var relayed = EnrBuilder.init(key).build().expect("record")
+    let circuit = MultiAddress
+      .init(
+        "/ip4/198.51.100.7/tcp/60000/p2p/" &
+          "16Uiu2HAmPLe6a5Cu1kHUwKmVXQBQNjhZnToF9Y2AcYiFAAvbZBMc/p2p-circuit"
+      )
+      .get()
+    check relayed.updateEnrAddresses(key, @[circuit], baseline).isOk()
+    check relayed.hasDialableAddress()
+
+    ## The scalars alone are enough, with nothing in the field.
+    var hosted = EnrBuilder.init(key).build().expect("record")
+    check hosted
+      .updateEnrAddresses(
+        key,
+        @[],
+        (ip: Opt.some(parseIpAddress("203.0.113.9")), tcp: Opt.some(Port(60000))),
+      )
+      .isOk()
+    check hosted.hasDialableAddress()
 
   test "the reconcile loop follows a discv5 record write":
     let key = generateSecp256k1Key()
@@ -220,3 +341,37 @@ suite "ENR endpoints":
       node.enr.ipOf().get() == [198'u8, 51, 100, 4]
       node.enr.tcpOf().get() == 60123'u16
       node.enr.udpOf().get() == 30303'u16
+
+  test "the discv5 address follows the endpoint the record advertises":
+    ## discv5 compares the host its peers vote for with this address. Left
+    ## unset, it never matches, and a node with auto-update off warns at
+    ## every vote interval.
+    let key = generateSecp256k1Key()
+    let node =
+      newTestWakuNode(key, parseIpAddress("127.0.0.1"), Port(0), quicEnabled = false)
+    node.announcedAddresses = @[MultiAddress.init("/ip4/198.51.100.4/tcp/60123").get()]
+
+    let keyBytes = key.getRawBytes().expect("raw")
+    let ethPk = keys.PrivateKey.fromHex(byteutils.toHex(keyBytes)).expect("pk")
+    let proto = discv5_protocol.newProtocol(
+      ethPk,
+      enrIp = Opt.none(IpAddress),
+      enrTcpPort = Opt.none(Port),
+      enrUdpPort = Opt.some(Port(9000)),
+      previousRecord = Opt.some(node.enr),
+      bindPort = Port(9000),
+      bindIp = Opt.none(IpAddress),
+    )
+    let wd = WakuDiscoveryV5(protocol: proto)
+
+    ## `updateWaku` drops the address the seed handed discv5.
+    proto.localNode.address = Opt.none(discv5_node.Address)
+
+    check refreshEnrAddrs(node, key, wd).isOk()
+    check:
+      node.enr.ipOf().get() == [198'u8, 51, 100, 4]
+      node.enr.udpOf().get() == 9000'u16
+      proto.localNode.address ==
+        Opt.some(
+          discv5_node.Address(ip: parseIpAddress("198.51.100.4"), port: Port(9000))
+        )

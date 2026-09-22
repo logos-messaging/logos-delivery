@@ -73,19 +73,23 @@ func hasZeroPort*(ma: MultiAddress): bool =
       return true
   return false
 
-const
-  AnyAddressV4 = [0'u8, 0, 0, 0]
-  AnyAddressV6 = default(array[16, uint8])
-  AnyAddressV4Mapped = [0'u8, 0, 0, 0, 0, 0, 0, 0, 0, 0, 0xff, 0xff, 0, 0, 0, 0]
-    ## `::ffff:0.0.0.0`, the IPv4-mapped spelling of the wildcard host.
-
 func isWildcard*(ip: IpAddress): bool =
   ## The bind-any host, in each of its spellings.
-  case ip.family
-  of IpAddressFamily.IPv4:
-    ip.address_v4 == AnyAddressV4
-  of IpAddressFamily.IPv6:
-    ip.address_v6 == AnyAddressV6 or ip.address_v6 == AnyAddressV4Mapped
+  const Wildcards = [
+    static(parseIpAddress("0.0.0.0")),
+    static(parseIpAddress("::")),
+    static(parseIpAddress("::ffff:0.0.0.0")),
+  ]
+  return ip in Wildcards
+
+func isConcreteEndpoint*(ma: MultiAddress): bool =
+  if ma.isCircuitRelayMA():
+    return true
+  if ma.hasZeroPort():
+    return false
+  let ip = ma.getIp().valueOr:
+    return true
+  return not ip.isWildcard()
 
 proc isWsAddress*(ma: MultiAddress): bool =
   let
@@ -335,7 +339,7 @@ proc init*(
         (
           it.hasProtocol("dns4") or it.hasProtocol("dns6") or it.hasProtocol("ws") or
           it.hasProtocol("wss") or it.hasProtocol("quic-v1")
-        ) and it.isDialableMA()
+        ) and it.isConcreteEndpoint()
       )
     )
 

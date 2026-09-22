@@ -554,12 +554,6 @@ proc mountRendezvous*(
   except LPError:
     error "Failed to mount wakuRendezvous", error = getCurrentExceptionMsg()
 
-proc hasWildcardHost(ma: MultiAddress): bool =
-  ## A name is a chosen host, so only an IP literal can be a wildcard.
-  let ip = ma.getIp().valueOr:
-    return false
-  return ip.isWildcard()
-
 proc resolveAnnouncedBaseAddresses(node: WakuNode) =
   ## Runs once per start, after the sockets bind.
   ## Here the configured addresses become real: port 0 becomes
@@ -574,12 +568,10 @@ proc resolveAnnouncedBaseAddresses(node: WakuNode) =
 
   let substituted =
     substituteBoundPorts(node.configuredAnnounced, node.switch.peerInfo.listenAddrs)
-  node.explicitAnnounced =
-    substituted.filterIt(not it.hasWildcardHost() and not it.hasZeroPort())
+  ## A wildcard host and an unresolved port are what libp2p calls undialable.
+  node.explicitAnnounced = substituted.filterIt(it.isConcreteEndpoint())
 
   const LoopbackIp = parseIpAddress("127.0.0.1")
-  const RewrittenHosts =
-    [static(parseIpAddress("0.0.0.0")), static(parseIpAddress("::"))]
   var primaryIp = LoopbackIp
   try:
     primaryIp = getPrimaryIPAddr()
@@ -593,7 +585,7 @@ proc resolveAnnouncedBaseAddresses(node: WakuNode) =
     let ip = address.getIp().valueOr:
       resolved.add(address)
       continue
-    if ip notin RewrittenHosts:
+    if not ip.isWildcard():
       resolved.add(address)
       continue
     let rewritten = address.replaceIp(primaryIp).valueOr:

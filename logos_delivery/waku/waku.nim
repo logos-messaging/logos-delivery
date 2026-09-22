@@ -16,6 +16,7 @@ import
   libp2p/wire,
   eth/p2p/discoveryv5/enr,
   eth/p2p/discoveryv5/node as discv5_node,
+  eth/net/utils,
   presto,
   metrics,
   metrics/chronos_httpserver,
@@ -337,6 +338,15 @@ proc updateEnr(waku: Waku): Future[Result[void, string]] {.async.} =
 
   return ok()
 
+proc recordEndpoint(record: enr.Record): Opt[discv5_node.Address] =
+  ## The discv5 endpoint the record advertises, if it advertises one.
+  let typed = record.toTyped().valueOr:
+    return Opt.none(discv5_node.Address)
+  if typed.ip.isNone() or typed.udp.isNone():
+    return Opt.none(discv5_node.Address)
+  return
+    Opt.some(discv5_node.Address(ip: ipv4(typed.ip.get()), port: Port(typed.udp.get())))
+
 proc refreshEnrAddrs*(
     node: WakuNode, key: crypto.PrivateKey, wakuDiscv5: WakuDiscoveryV5
 ): Result[void, string] =
@@ -355,6 +365,7 @@ proc refreshEnrAddrs*(
     key, node.enrAddresses(), node.enrBaseline(), learned
   )
   node.enr = local.record
+  local.address = recordEndpoint(local.record)
   return ok()
 
 proc reconcileEnrAddrs*(
@@ -369,11 +380,9 @@ proc reconcileEnrAddrs*(
   return ok(true)
 
 proc logEnrReachability(waku: Waku) =
-  ## Without a host the record advertises nothing anyone can dial. That is a
-  ## normal edge-node state, so it is a notice, and only on a change.
-  let typed = waku.node.enr.toTyped().valueOr:
-    return
-  let reachable = typed.ip().isSome() or typed.ip6().isSome()
+  ## Without an address the record advertises nothing anyone can dial. That is
+  ## a normal edge-node state, so it is a notice, and only on a change.
+  let reachable = waku.node.enr.hasDialableAddress()
   if reachable == waku.enrReachable:
     return
   waku.enrReachable = reachable
@@ -525,6 +534,8 @@ proc start*(waku: Waku): Future[Result[void, string]] {.async: (raises: []).} =
   waku.node.onCommittedAddresses = proc() {.gcsafe, raises: [].} =
     refreshEnrAddrs(waku.node, waku.key, waku.wakuDiscv5).isOkOr:
       error "failed to refresh ENR multiaddrs", error = $error
+      return
+    waku.logEnrReachability()
 
   ## External service discovery
   if not waku.externalDiscovery.isNil():

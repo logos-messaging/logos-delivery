@@ -28,7 +28,7 @@ proc tcpEndpoints(addrs: seq[MultiAddress]): seq[TcpEndpoint] =
   ## next to whatever `ip` the record has. IPv6 travels in the field instead.
   var endpoints: seq[TcpEndpoint]
   for ma in addrs:
-    if ma.isCircuitRelayMA() or not ma.isP2pTcpAddress() or not ma.isDialableMA():
+    if ma.isCircuitRelayMA() or not ma.isP2pTcpAddress() or not ma.isConcreteEndpoint():
       continue
     let ip = ma.getIp().valueOr:
       continue
@@ -67,6 +67,15 @@ proc rebuild(
   record = rebuilt
   return ok()
 
+proc hasDialableAddress*(record: enr.Record): bool =
+  let typed = record.toTyped().valueOr:
+    return false
+  if typed.ip().isSome() or typed.ip6().isSome():
+    return true
+  let announced = typed.multiaddrs().valueOr:
+    return false
+  return announced.len > 0
+
 proc updateEnrAddresses*(
     record: var enr.Record,
     key: crypto.PrivateKey,
@@ -79,7 +88,7 @@ proc updateEnrAddresses*(
   let pk = ?key.toEnrKey()
   let typed = record.toTyped().valueOr:
     return err("failed to read the record: " & $error)
-  let usable = addrs.filterIt(it.isDialableMA())
+  let usable = addrs.filterIt(it.isConcreteEndpoint())
   let endpoints = tcpEndpoints(usable)
   let udp =
     if typed.udp.isSome():
@@ -95,7 +104,7 @@ proc updateEnrAddresses*(
         if onHost.len > 0:
           Opt.some(onHost[0].tcp)
         else:
-          Opt.none(Port)
+          baseline.tcp
       (ip: Opt.some(host), tcp: tcp, udp: Opt.some(learned.get().udp))
     elif endpoints.len > 0:
       (ip: Opt.some(endpoints[0].ip), tcp: Opt.some(endpoints[0].tcp), udp: udp)
