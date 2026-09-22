@@ -144,8 +144,8 @@ extern "C"
   /* ------------------------------------------------------ registration -- */
 
   /*
-   * After createNode, logosdelivery_get_discovery_requirements(ctx, cb,
-   * user_data) (generated header) answers with JSON
+   * After createNode, logosdelivery_ctx_get_discovery_requirements(ctx,
+   * on_reply, user_data) (generated header) answers with JSON
    *   {"externalServiceDiscovery": bool, "bootstrapNodes": ["/dns4/.../p2p/..."]}
    * telling the host whether a plugin is expected and which DHT peers the
    * node's configuration, presets included, resolved for it.
