@@ -26,6 +26,9 @@
 #ifndef RET_MISSING_CALLBACK
 #define RET_MISSING_CALLBACK NIMFFI_RET_MISSING_CALLBACK
 #endif
+#ifndef RET_STALE_WARN
+#define RET_STALE_WARN NIMFFI_RET_STALE_WARN
+#endif
 
 #ifdef __cplusplus
 extern "C"
