@@ -208,8 +208,8 @@
 
   brokers = pkgs.fetchgit {
     url = "https://github.com/NagyZoltanPeter/nim-brokers.git";
-    rev = "c370ac112129645dba551cc24eefd9120db8df24";
-    sha256 = "1aqk9znh0sprq4ayfahx1k1ihk6c0zvwkch1fm8v8j8czxmkw1hi";
+    rev = "fd97eb355eee5d14594e0b4599964eff00648ec7";
+    sha256 = "1qg6q7nqbvgr83xwklyv23g77ynpk3v8rr5xdcz8im9bvrfp3c2f";
     fetchSubmodules = true;
   };
 
