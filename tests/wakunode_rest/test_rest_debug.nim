@@ -1,13 +1,15 @@
 {.used.}
 
 import
+  std/sequtils,
   results,
   testutils/unittests,
   presto,
   presto/client as presto_client,
   libp2p/peerinfo,
   libp2p/multiaddress,
-  libp2p/crypto/crypto
+  libp2p/crypto/crypto,
+  eth/p2p/discoveryv5/enr
 import
   logos_delivery/waku/[
     waku_node,
@@ -25,7 +27,7 @@ import
 
 proc testWakuNode(): WakuNode =
   let
-    privkey = crypto.PrivateKey.random(Secp256k1, rng).tryGet()
+    privkey = crypto.PrivateKey.random(Secp256k1, rng()).tryGet()
     bindIp = parseIpAddress("0.0.0.0")
     extIp = parseIpAddress("127.0.0.1")
     port = Port(0)
@@ -57,7 +59,8 @@ suite "Waku v2 REST API - Debug":
       response.status == 200
       $response.contentType == $MIMETYPE_JSON
       response.data.listenAddresses ==
-        @[$node.switch.peerInfo.addrs[^1] & "/p2p/" & $node.switch.peerInfo.peerId]
+        node.switch.peerInfo.addrs.mapIt($it & "/p2p/" & $node.switch.peerInfo.peerId)
+      response.data.enrUri == Opt.some(node.enr.toUri())
 
     await restServer.stop()
     await restServer.closeWait()

@@ -1,6 +1,7 @@
 import
   std/[sets, tables],
   results,
+  chronicles,
   chronos,
   libp2p/switch,
   libp2p/builders,
@@ -83,7 +84,7 @@ proc newTestWakuNode*(
     clusterId = DefaultClusterId,
     subscribeShards = @[DefaultShardId],
 ): WakuNode =
-  logging.setupLog(logging.LogLevel.DEBUG, logging.LogFormat.TEXT)
+  logging.setupLog(enabledLogLevel, logging.LogFormat.TEXT)
 
   # quic won't bind 0.0.0.0 wildcard, use loopback for tests
   let bindIp =

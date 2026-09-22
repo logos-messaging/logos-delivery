@@ -1,11 +1,12 @@
 {.used.}
 
 import
-  std/[sequtils, net],
+  std/[algorithm, sequtils, sets, tables, net],
+  chronicles,
+  chronicles/topics_registry,
   testutils/unittests,
   presto,
   presto/client as presto_client,
-  presto /../ tests/helpers,
   libp2p/crypto/crypto
 
 import
@@ -20,11 +21,15 @@ import
     rest_api/endpoint/admin/types,
     rest_api/endpoint/admin/handlers as admin_rest_interface,
     rest_api/endpoint/admin/client as admin_rest_client,
+    waku_archive,
+    waku_archive/driver/queue_driver,
     waku_relay,
     waku_peer_exchange,
+    waku_store,
   ],
   ../testlib/wakucore,
   ../testlib/wakunode,
+  ../testlib/rest_requests,
   ../testlib/testasync
 
 suite "Waku v2 Rest API - Admin":
@@ -95,33 +100,33 @@ suite "Waku v2 Rest API - Admin":
 
   asyncTest "Set and get remote peers":
     # Connect to nodes 2 and 3 using the Admin API
-    let postRes = await client.postPeers(
+    let postResponse = await client.postPeers(
       @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)]
     )
 
     check:
-      postRes.status == 200
+      postResponse.status == 200
 
     # Verify that newly connected peers are being managed
-    let getRes = await client.getPeers()
+    let peersResponse = await client.getPeers()
 
     check:
-      getRes.status == 200
-      $getRes.contentType == $MIMETYPE_JSON
-      getRes.data.len() == 2
+      peersResponse.status == 200
+      $peersResponse.contentType == $MIMETYPE_JSON
+      peersResponse.data.len() == 2
       # Check peer 2
-      getRes.data.anyIt(
+      peersResponse.data.anyIt(
         it.protocols.find(WakuRelayCodec) >= 0 and
           it.multiaddr == constructMultiaddrStr(peerInfo2)
       )
       # Check peer 3
-      getRes.data.anyIt(
+      peersResponse.data.anyIt(
         it.protocols.find(WakuRelayCodec) >= 0 and
           it.multiaddr == constructMultiaddrStr(peerInfo3)
       )
 
       # Check peer 3
-      getRes.data.anyIt(
+      peersResponse.data.anyIt(
         it.protocols.find(WakuPeerExchangeCodec) >= 0 and
           it.multiaddr == constructMultiaddrStr(peerInfo3)
       )
@@ -129,22 +134,22 @@ suite "Waku v2 Rest API - Admin":
   asyncTest "Set wrong peer":
     let nonExistentPeer =
       "/ip4/0.0.0.0/tcp/10000/p2p/16Uiu2HAm6HZZr7aToTvEBPpiys4UxajCTU97zj5v7RNR2gbniy1D"
-    let postRes = await client.postPeers(@[nonExistentPeer])
+    let postResponse = await client.postPeers(@[nonExistentPeer])
 
     check:
-      postRes.status == 400
-      $postRes.contentType == $MIMETYPE_TEXT
-      postRes.data == "Failed to connect to peer at index: 0 - " & nonExistentPeer
+      postResponse.status == 400
+      $postResponse.contentType == $MIMETYPE_TEXT
+      postResponse.data == "Failed to connect to peer at index: 0 - " & nonExistentPeer
 
     # Verify that newly connected peers are being managed
-    let getRes = await client.getPeers()
+    let peersResponse = await client.getPeers()
 
     check:
-      getRes.status == 200
-      $getRes.contentType == $MIMETYPE_JSON
-      getRes.data.len() == 1
-      getRes.data[0].multiaddr == nonExistentPeer
-      getRes.data[0].connected == CannotConnect
+      peersResponse.status == 200
+      $peersResponse.contentType == $MIMETYPE_JSON
+      peersResponse.data.len() == 1
+      peersResponse.data[0].multiaddr == nonExistentPeer
+      peersResponse.data[0].connected == CannotConnect
 
   asyncTest "Get filter data":
     await allFutures(
@@ -158,50 +163,52 @@ suite "Waku v2 Rest API - Admin":
       pubsubTopicNode3 = PubsubTopic("/waku/2/custom-waku/proto")
 
     let
-      subscribeResponse2 = await node2.wakuFilterClient.subscribe(
+      subscribeResponseNode2 = await node2.wakuFilterClient.subscribe(
         peerInfo1, pubsubTopicNode2, contentFiltersNode2
       )
-      subscribeResponse3 = await node3.wakuFilterClient.subscribe(
+      subscribeResponseNode3 = await node3.wakuFilterClient.subscribe(
         peerInfo1, pubsubTopicNode3, contentFiltersNode3
       )
 
-    assert subscribeResponse2.isOk(), $subscribeResponse2.error
-    assert subscribeResponse3.isOk(), $subscribeResponse3.error
-
-    let getRes = await client.getFilterSubscriptions()
-
     check:
-      getRes.status == 200
-      $getRes.contentType == $MIMETYPE_JSON
-      getRes.data.len() == 2
+      subscribeResponseNode2.isOk()
+      subscribeResponseNode3.isOk()
+
+    let subscriptionsResponse = await client.getFilterSubscriptions()
 
     let
-      peers = @[getRes.data[0].peerId, getRes.data[1].peerId]
-      numCriteria =
-        @[getRes.data[0].filterCriteria.len, getRes.data[1].filterCriteria.len]
+      criteriaNode2 = contentFiltersNode2
+        .mapIt(FilterTopic(pubsubTopic: pubsubTopicNode2, contentTopic: it))
+        .toHashSet()
+      criteriaNode3 = contentFiltersNode3
+        .mapIt(FilterTopic(pubsubTopic: pubsubTopicNode3, contentTopic: it))
+        .toHashSet()
+      subscriptions =
+        subscriptionsResponse.data.mapIt((it.peerId, it.filterCriteria.toHashSet()))
 
     check:
-      $peerInfo2 in peers
-      $peerInfo3 in peers
-      2 in numCriteria
-      3 in numCriteria
+      subscriptionsResponse.status == 200
+      $subscriptionsResponse.contentType == $MIMETYPE_JSON
+      subscriptionsResponse.data.len() == 2
+      ($peerInfo2.peerId, criteriaNode2) in subscriptions
+      ($peerInfo3.peerId, criteriaNode3) in subscriptions
 
   asyncTest "Get filter data - no filter subscribers":
     await node1.mountFilter()
 
-    let getRes = await client.getFilterSubscriptions()
+    let subscriptionsResponse = await client.getFilterSubscriptions()
 
     check:
-      getRes.status == 200
-      $getRes.contentType == $MIMETYPE_JSON
-      getRes.data.len() == 0
+      subscriptionsResponse.status == 200
+      $subscriptionsResponse.contentType == $MIMETYPE_JSON
+      subscriptionsResponse.data.len() == 0
 
   asyncTest "Get filter data - filter not mounted":
-    let getRes = await client.getFilterSubscriptionsFilterNotMounted()
+    let subscriptionsResponse = await client.getFilterSubscriptionsFilterNotMounted()
 
     check:
-      getRes.status == 400
-      getRes.data == "Error: Filter Protocol is not mounted to the node"
+      subscriptionsResponse.status == 400
+      subscriptionsResponse.data == "Error: Filter Protocol is not mounted to the node"
 
   asyncTest "Get peer origin":
     # Adding peers to the Peer Store
@@ -209,127 +216,276 @@ suite "Waku v2 Rest API - Admin":
     node1.peerManager.addPeer(peerInfo3, PeerExchange)
 
     # Connecting to both peers
-    let conn2 = await node1.peerManager.connectPeer(peerInfo2)
-    let conn3 = await node1.peerManager.connectPeer(peerInfo3)
+    let node2Connected = await node1.peerManager.connectPeer(peerInfo2)
+    let node3Connected = await node1.peerManager.connectPeer(peerInfo3)
 
-    var count = 0
-    while count < 20:
+    var attempts = 0
+    while attempts < 20:
       ## Wait ~1s at most for the peer store to update shard info
-      let getRes = await client.getPeers()
-      if getRes.data.allIt(it.shards == @[5.uint16]):
+      let peersResponse = await client.getPeers()
+      if peersResponse.data.allIt(it.shards == @[5.uint16]):
         break
 
-      count.inc()
+      attempts.inc()
       await sleepAsync(50.milliseconds)
 
-    assert count < 20, "Timeout waiting for shards to be updated in peer store"
+    assert attempts < 20, "Timeout waiting for shards to be updated in peer store"
 
     # Check successful connections
     check:
-      conn2 == true
-      conn3 == true
+      node2Connected == true
+      node3Connected == true
 
     # Query peers REST endpoint
-    let getRes = await client.getPeers()
+    let peersResponse = await client.getPeers()
 
     check:
-      getRes.status == 200
-      $getRes.contentType == $MIMETYPE_JSON
-      getRes.data.len() == 2
+      peersResponse.status == 200
+      $peersResponse.contentType == $MIMETYPE_JSON
+      peersResponse.data.len() == 2
       # Check peer 2
-      getRes.data.anyIt(it.origin == Discv5)
+      peersResponse.data.anyIt(it.origin == Discv5)
       # Check peer 3
-      getRes.data.anyIt(it.origin == PeerExchange)
+      peersResponse.data.anyIt(it.origin == PeerExchange)
 
   asyncTest "get peers by id":
     # Connect to nodes 2 and 3 using the Admin API
-    let postRes = await client.postPeers(
+    let postResponse = await client.postPeers(
       @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)]
     )
 
     check:
-      postRes.status == 200
+      postResponse.status == 200
 
-    let getRes = await client.getPeerById($peerInfo2.peerId)
+    let peerResponse = await client.getPeerById($peerInfo2.peerId)
 
     check:
-      getRes.status == 200
-      $getRes.contentType == $MIMETYPE_JSON
-      getRes.data.protocols.find(WakuRelayCodec) >= 0
-      getRes.data.multiaddr == constructMultiaddrStr(peerInfo2)
+      peerResponse.status == 200
+      $peerResponse.contentType == $MIMETYPE_JSON
+      peerResponse.data.protocols.find(WakuRelayCodec) >= 0
+      peerResponse.data.multiaddr == constructMultiaddrStr(peerInfo2)
 
-    ## nim-presto library's RestClient does not support text error case decode if
-    ## the RestResponse expects a JSON with complex type
-    # let getRes2 = await client.getPeerById("bad peer id")
-    let getRes2 = await httpClient(
-      restServer.httpServer.address, MethodGet, "/admin/v1/peer/bad+peer+id", ""
-    )
+    let invalidPeerIdResponse =
+      await issueRequest(restServer.getAddress("/admin/v1/peer/bad+peer+id"))
     check:
-      getRes2.status == 400
-      getRes2.data == "Invalid argument:peerid: incorrect PeerId string"
+      invalidPeerIdResponse.status == 400
+      invalidPeerIdResponse.data == "Invalid argument:peerid: incorrect PeerId string"
+
+    let unknownPeerId = "16Uiu2HAm6HZZr7aToTvEBPpiys4UxajCTU97zj5v7RNR2gbniy1D"
+    let unknownPeerResponse =
+      await issueRequest(restServer.getAddress("/admin/v1/peer/" & unknownPeerId))
+    # The message prints the route parameter, a Result, instead of the peer id.
+    check:
+      unknownPeerResponse.status == 404
+      unknownPeerResponse.data == "Peer with ID ok(" & unknownPeerId & ") not found"
 
   asyncTest "get connected peers":
     # Connect to nodes 2 and 3 using the Admin API
-    let postRes = await client.postPeers(
+    let postResponse = await client.postPeers(
       @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)]
     )
 
     check:
-      postRes.status == 200
+      postResponse.status == 200
 
-    let getRes = await client.getConnectedPeers()
+    # A peer in the store that is not connected
+    let nonExistentPeer =
+      "/ip4/0.0.0.0/tcp/10000/p2p/16Uiu2HAm6HZZr7aToTvEBPpiys4UxajCTU97zj5v7RNR2gbniy1D"
+    let nonExistentPeerResponse = await client.postPeers(@[nonExistentPeer])
+
+    let connectedPeersResponse = await client.getConnectedPeers()
+    let peersResponse = await client.getPeers()
 
     check:
-      getRes.status == 200
-      $getRes.contentType == $MIMETYPE_JSON
-      getRes.data.len() == 2
+      nonExistentPeerResponse.status == 400
+      connectedPeersResponse.status == 200
+      $connectedPeersResponse.contentType == $MIMETYPE_JSON
+      connectedPeersResponse.data.len() == 2
       # Check peer 2
-      getRes.data.anyIt(it.multiaddr == constructMultiaddrStr(peerInfo2))
+      connectedPeersResponse.data.anyIt(
+        it.multiaddr == constructMultiaddrStr(peerInfo2)
+      )
       # Check peer 3
-      getRes.data.anyIt(it.multiaddr == constructMultiaddrStr(peerInfo3))
+      connectedPeersResponse.data.anyIt(
+        it.multiaddr == constructMultiaddrStr(peerInfo3)
+      )
+      peersResponse.data.anyIt(
+        it.multiaddr == nonExistentPeer and it.connected == CannotConnect
+      )
 
-    # Seems shard info is not available in the peer manager
-    # let getRes2 = await client.getConnectedPeersByShard(0)
-    # check:
-    #   getRes2.status == 200
-    #   $getRes2.contentType == $MIMETYPE_JSON
-    #   getRes2.data.len() == 2
+    checkUntilTimeout:
+      node1.peerManager.getPeer(peerInfo2.peerId).getShards() == @[5.uint16]
+      node1.peerManager.getPeer(peerInfo3.peerId).getShards() == @[5.uint16]
 
-    let getRes3 = await client.getConnectedPeersByShard(99)
+    let connectedPeersOnShardResponse = await client.getConnectedPeersByShard(5)
     check:
-      getRes3.status == 200
-      $getRes3.contentType == $MIMETYPE_JSON
-      getRes3.data.len() == 0
+      connectedPeersOnShardResponse.status == 200
+      $connectedPeersOnShardResponse.contentType == $MIMETYPE_JSON
+      connectedPeersOnShardResponse.data.mapIt(it.multiaddr).sorted() ==
+        @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)].sorted()
+
+    let connectedPeersOnOtherShardResponse = await client.getConnectedPeersByShard(99)
+    check:
+      connectedPeersOnOtherShardResponse.status == 200
+      $connectedPeersOnOtherShardResponse.contentType == $MIMETYPE_JSON
+      connectedPeersOnOtherShardResponse.data.len() == 0
 
   asyncTest "get relay peers":
+    # A peer without relay
+    let node4 = newTestWakuNode(generateSecp256k1Key(), getPrimaryIPAddr(), Port(0))
+    check node4.mountMetadata(1, @[0.uint16]).isOk()
+    await node4.start()
+    defer:
+      await node4.stop()
+    let peerInfo4 = node4.peerInfo.toRemotePeerInfo()
+
+    # Connect to nodes 2, 3 and 4 using the Admin API
+    let postResponse = await client.postPeers(
+      @[
+        constructMultiaddrStr(peerInfo2),
+        constructMultiaddrStr(peerInfo3),
+        constructMultiaddrStr(peerInfo4),
+      ]
+    )
+
+    check:
+      postResponse.status == 200
+
+    let pubsubTopic = $RelayShard(clusterId: 1, shardId: 5)
+    checkUntilTimeout:
+      node1.hasGossipsubPeer(pubsubTopic, peerInfo2.peerId)
+      node1.hasGossipsubPeer(pubsubTopic, peerInfo3.peerId)
+
+    let relayPeerMultiaddrs =
+      @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)].sorted()
+    let relayPeersResponse = await client.getRelayPeers()
+
+    check:
+      node1.peerManager.switch.peerStore.isConnected(peerInfo4.peerId)
+      relayPeersResponse.status == 200
+      $relayPeersResponse.contentType == $MIMETYPE_JSON
+      relayPeersResponse.data.mapIt(it.shard) == @[5.uint16]
+      relayPeersResponse.data.mapIt(it.peers.mapIt(it.multiaddr).sorted()) ==
+        @[relayPeerMultiaddrs]
+      relayPeersResponse.data.allIt(it.peers.allIt(it.score.isSome()))
+
+    let relayPeersOnShardResponse = await client.getRelayPeersByShard(5)
+    check:
+      relayPeersOnShardResponse.status == 200
+      $relayPeersOnShardResponse.contentType == $MIMETYPE_JSON
+      relayPeersOnShardResponse.data.shard == 5
+      relayPeersOnShardResponse.data.peers.mapIt(it.multiaddr).sorted() ==
+        relayPeerMultiaddrs
+
+    let relayPeersOnOtherShardResponse = await client.getRelayPeersByShard(99)
+    check:
+      relayPeersOnOtherShardResponse.status == 200
+      $relayPeersOnOtherShardResponse.contentType == $MIMETYPE_JSON
+      relayPeersOnOtherShardResponse.data.peers.len() == 0
+
+  asyncTest "get mesh peers":
     # Connect to nodes 2 and 3 using the Admin API
-    let postRes = await client.postPeers(
+    let postResponse = await client.postPeers(
       @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)]
     )
 
     check:
-      postRes.status == 200
+      postResponse.status == 200
 
-    let getRes = await client.getRelayPeers()
+    let pubsubTopic = $RelayShard(clusterId: 1, shardId: 5)
+    checkUntilTimeout:
+      node1.wakuRelay.hasMeshPeer(pubsubTopic, peerInfo2.peerId)
+      node1.wakuRelay.hasMeshPeer(pubsubTopic, peerInfo3.peerId)
+
+    let meshPeerMultiaddrs =
+      @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)].sorted()
+    let meshPeersOnShardResponse = await client.getMeshPeersByShard(5)
+    let meshPeersResponse = await client.getMeshPeers()
 
     check:
-      getRes.status == 200
-      $getRes.contentType == $MIMETYPE_JSON
-    require getRes.data.len() == 1 # Check peer 2
-    check getRes.data[0].peers.anyIt(it.multiaddr == constructMultiaddrStr(peerInfo2))
-      # Check peer 2
-    check getRes.data[0].peers.anyIt(it.multiaddr == constructMultiaddrStr(peerInfo3))
-      # Check peer 3
+      meshPeersOnShardResponse.status == 200
+      $meshPeersOnShardResponse.contentType == $MIMETYPE_JSON
+      meshPeersOnShardResponse.data.shard == 5
+      meshPeersOnShardResponse.data.peers.mapIt(it.multiaddr).sorted() ==
+        meshPeerMultiaddrs
+      meshPeersOnShardResponse.data.peers.allIt(it.score.isSome())
+      meshPeersResponse.status == 200
+      $meshPeersResponse.contentType == $MIMETYPE_JSON
+      meshPeersResponse.data.mapIt(it.shard) == @[5.uint16]
+      meshPeersResponse.data.mapIt(it.peers.mapIt(it.multiaddr).sorted()) ==
+        @[meshPeerMultiaddrs]
 
-    # Todo: investigate why the test setup missing remote peer's shard info
-    # let getRes2 = await client.getRelayPeersByShard(0)
-    # check:
-    #   getRes2.status == 200
-    #   $getRes2.contentType == $MIMETYPE_JSON
-    #   getRes2.data.peers.len() == 2
+  asyncTest "get peers stats":
+    # Connect to nodes 2 and 3 using the Admin API
+    let postResponse = await client.postPeers(
+      @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)]
+    )
 
-    let getRes3 = await client.getRelayPeersByShard(99)
     check:
-      getRes3.status == 200
-      $getRes3.contentType == $MIMETYPE_JSON
-      getRes3.data.peers.len() == 0
+      postResponse.status == 200
+
+    let pubsubTopic = $RelayShard(clusterId: 1, shardId: 5)
+    checkUntilTimeout:
+      node1.hasGossipsubPeer(pubsubTopic, peerInfo2.peerId)
+      node1.hasGossipsubPeer(pubsubTopic, peerInfo3.peerId)
+
+    let peerStatsResponse = await client.getPeersStats()
+    let peerStats = peerStatsResponse.data
+
+    check:
+      peerStatsResponse.status == 200
+      $peerStatsResponse.contentType == $MIMETYPE_JSON
+      peerStats.getOrDefault("Sum") == {"Total peers": 2}.toOrderedTable()
+      peerStats.getOrDefault("By Connectedness").getOrDefault($Connected) == 2
+      peerStats.getOrDefault("Relay peers") ==
+        {"5": 2, "Total relay peers": 2}.toOrderedTable()
+      peerStats.getOrDefault("By Protocols").getOrDefault(WakuRelayCodec) == 2
+
+  asyncTest "get service peers":
+    check node3.mountArchive(QueueDriver.new()).isOk()
+    await node3.mountStore()
+
+    # Connect to nodes 2 and 3 using the Admin API
+    let postResponse = await client.postPeers(
+      @[constructMultiaddrStr(peerInfo2), constructMultiaddrStr(peerInfo3)]
+    )
+
+    check:
+      postResponse.status == 200
+
+    let servicePeersResponse = await client.getServicePeers()
+
+    check:
+      servicePeersResponse.status == 200
+      $servicePeersResponse.contentType == $MIMETYPE_JSON
+      servicePeersResponse.data.len() == 2
+      servicePeersResponse.data.anyIt(
+        it.protocols.find(WakuRelayCodec) >= 0 and
+          it.multiaddr == constructMultiaddrStr(peerInfo2)
+      )
+      servicePeersResponse.data.anyIt(
+        it.protocols.find(WakuStoreCodec) >= 0 and
+          it.multiaddr == constructMultiaddrStr(peerInfo3)
+      )
+
+  asyncTest "set log level":
+    for level in enabledLogLevel .. LogLevel.FATAL:
+      let logLevelResponse = await issueRequest(
+        restServer.getAddress("/admin/v1/log-level/" & $level), MethodPost
+      )
+      check:
+        logLevelResponse.status == 200
+        topicsMatch(level, []) != 0
+        topicsMatch(pred(level), []) == 0
+
+    for level in LogLevel.TRACE ..< enabledLogLevel:
+      let logLevelResponse = await issueRequest(
+        restServer.getAddress("/admin/v1/log-level/" & $level), MethodPost
+      )
+      check:
+        logLevelResponse.status == 400
+
+    # The log level is process-wide.
+    discard await issueRequest(
+      restServer.getAddress("/admin/v1/log-level/" & $enabledLogLevel), MethodPost
+    )
