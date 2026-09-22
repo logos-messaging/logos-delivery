@@ -66,7 +66,7 @@ method start(self: EagerUpdate, switch: Switch) {.async: (raises: [CancelledErro
 method stop(self: EagerUpdate, switch: Switch) {.async: (raises: [CancelledError]).} =
   discard
 
-suite "Announced addresses":
+procSuite "Announced addresses":
   asyncTest "the resolved base reaches peerInfo and the API projection":
     let node =
       newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))

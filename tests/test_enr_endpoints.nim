@@ -34,7 +34,7 @@ proc ipOf(record: enr.Record): Opt[array[4, byte]] =
 proc multiaddrsOf(record: enr.Record): seq[MultiAddress] =
   record.toTyped().expect("typed").multiaddrs().expect("multiaddrs field")
 
-suite "ENR endpoints":
+procSuite "ENR endpoints":
   test "a wildcard bind host and port 0 are left out before start":
     let node = newTestWakuNode(
       generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0), quicEnabled = false
