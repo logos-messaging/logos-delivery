@@ -51,13 +51,15 @@ suite "SendService - rate-limit scheduling":
     ## The node is never started, so stop is best-effort cleanup.
     discard await waku.stop()
 
-  proc buildTask(id, payload: string): DeliveryTask =
+  proc buildTask(
+      id, payload: string, timestamp: Timestamp = 1_700_000_000_000_000_000
+  ): DeliveryTask =
     ## Built directly rather than via `DeliveryTask.new`, which needs a broker
     ## provider only registered once the node starts.
     let msg = WakuMessage(
       contentTopic: "/test/1/scheduler/proto",
       payload: payload.toBytes(),
-      timestamp: 1_700_000_000_000_000_000,
+      timestamp: timestamp,
     )
     let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
     return DeliveryTask(
@@ -184,3 +186,94 @@ suite "SendService - rate-limit scheduling":
       queued.len == 1
 
     await MessageQueuedEvent.dropAllListeners(waku.brokerCtx)
+
+  proc listenErrors(brokerCtx: BrokerContext, errors: ptr seq[MessageErrorEvent]) =
+    discard MessageErrorEvent
+      .listen(
+        brokerCtx,
+        proc(evt: MessageErrorEvent) {.async: (raises: []).} =
+          errors[].add(evt),
+      )
+      .expect("listen MessageErrorEvent")
+
+  asyncTest "a parked task past the max parked age fails; admitted and fresh ones stay":
+    var epoch = 1'u64
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
+        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+      )
+      .expect("RateLimitManager.new")
+    let processor = FakeSendProcessor(
+      script: @[DeliveryState.NextRoundRetry, DeliveryState.SuccessfullyPropagated]
+    )
+    let service = SendService
+      .new(false, waku, manager, processor, maxParkedAge = chronos.seconds(30))
+      .expect("SendService.new")
+
+    var errors: seq[MessageErrorEvent]
+    listenErrors(waku.brokerCtx, addr errors)
+
+    ## Admitted, still retrying, with a timestamp far older than the limit.
+    let admitted = buildTask("admitted-old", "one")
+    await service.send(admitted)
+    let now = getNowInNanosecondTime()
+    let stale = buildTask("parked-stale", "two", now - 60_000_000_000)
+    let fresh = buildTask("parked-fresh", "three", now)
+    await service.send(stale)
+    await service.send(fresh)
+    check:
+      admitted.firstAdmittedTime.isSome()
+      stale.firstAdmittedTime.isNone()
+      fresh.firstAdmittedTime.isNone()
+
+    service.evaluateAndCleanUp()
+    await sleepAsync(chronos.milliseconds(10))
+    check:
+      stale.state == DeliveryState.FailedToDeliver
+      errors.len == 1
+      errors[0].requestId == stale.requestId
+      admitted.state == DeliveryState.NextRoundRetry
+      fresh.state == DeliveryState.NextRoundRetry
+
+    ## The fresh parked task is still released when the epoch rolls.
+    epoch = 2'u64
+    await service.trySendMessages()
+    check:
+      fresh.firstAdmittedTime.isSome()
+      fresh.state == DeliveryState.SuccessfullyPropagated
+
+    await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
+
+  asyncTest "sends beyond the task cache cap are rejected with an error event":
+    var epoch = 1'u64
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
+        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+      )
+      .expect("RateLimitManager.new")
+    let processor = FakeSendProcessor(script: @[DeliveryState.NextRoundRetry])
+    let service = SendService
+      .new(false, waku, manager, processor, maxTaskCacheSize = 2)
+      .expect("SendService.new")
+
+    var errors: seq[MessageErrorEvent]
+    listenErrors(waku.brokerCtx, addr errors)
+
+    await service.send(buildTask("cap-admitted", "one"))
+    await service.send(buildTask("cap-parked", "two"))
+    check:
+      service.isFull()
+      errors.len == 0
+
+    let rejected = buildTask("cap-rejected", "three")
+    await service.send(rejected)
+    await sleepAsync(chronos.milliseconds(10))
+    check:
+      errors.len == 1
+      errors[0].requestId == rejected.requestId
+      rejected.state == DeliveryState.Entry # never scheduled
+      processor.calls == 1
+
+    await MessageErrorEvent.dropAllListeners(waku.brokerCtx)

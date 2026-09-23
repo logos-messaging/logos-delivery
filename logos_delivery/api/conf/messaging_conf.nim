@@ -86,6 +86,12 @@ type MessagingClientConf* = object
     ## Settable only programmatically: as a nested object with no `{.name.}`
     ## pragma or `parseCmdArg`, it is not reachable from the JSON config or a
     ## CLI flag.
+  maxParkedAgeSec* {.name: "max-parked-age-sec".}: Opt[uint]
+    ## Max age, from the message timestamp, of a send still waiting for
+    ## rate-limit budget before it fails with `MessageErrorEvent` (default 1800).
+  sendQueueCapacity* {.name: "send-queue-capacity".}: Opt[uint]
+    ## Max messages tracked by the send service; sends beyond it are rejected
+    ## (default 1000).
   backfillEnabled* {.name: "backfill-enabled".}: Opt[bool]
     ## Store catch-up of missed messages after a start (default true).
   backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:

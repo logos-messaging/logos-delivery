@@ -109,5 +109,11 @@ proc isDeliveryTimedOut*(self: DeliveryTask, maxTime: timer.Duration): bool =
     self.firstAdmittedTime.isSome() and self.firstPropagatedTime.isNone() and
     self.admissionAge() > maxTime
 
+proc isParkedExpired*(self: DeliveryTask, maxAge: timer.Duration): bool =
+  ## True when a task never admitted (parked for budget) has outlived `maxAge`,
+  ## measured from the message timestamp, so parking cannot grow the backlog
+  ## and deliver arbitrarily late.
+  return self.firstAdmittedTime.isNone() and self.messageAge() > maxAge
+
 proc isEphemeral*(self: DeliveryTask): bool =
   return self.msg.ephemeral
