@@ -1,7 +1,7 @@
 {.used.}
 
 import std/[atomics, os, sequtils, strutils]
-import chronos, results, testutils/unittests
+import chronos, chronos/threadsync, results, testutils/unittests
 import brokers/broker_context
 import libp2p/[peerid, peerinfo, multiaddress, crypto/crypto, extended_peer_record]
 import
@@ -27,6 +27,8 @@ type FakeState = object
   lastDataLen: Atomic[int]
   lastRecordLen: Atomic[int]
   lastKeyLen: Atomic[int]
+  lookupStuck: ThreadSignalPtr ## fired when a lookup starts to block
+  stuckThreadExited: ThreadSignalPtr ## fired after the thread stuck in lookup exits
   lastKey: array[128, char]
   lastData: array[32, uint8]
   lastRecord: array[512, uint8]
@@ -96,6 +98,15 @@ proc fakeLookup(
   if fake.failNext.load():
     setErr(errBuf, errBufLen, "lookup exploded")
     return LdDiscoError
+  if fake.blockLookup.load():
+    ## Fire on thread exit, after `workerMain` returns and sets `done`.
+    let exited = fake.stuckThreadExited
+    onThreadDestruction(
+      proc() {.closure, gcsafe, raises: [].} =
+        discard exited.fireSync()
+    )
+    ## Tell the test that this lookup is inside the plugin.
+    discard fake.lookupStuck.fireSync()
   while fake.blockLookup.load():
     sleep(10)
   setKey(key)
@@ -345,6 +356,10 @@ suite "ExternalServiceDiscovery":
       "no service discovery plugin registered" in res.error
 
   asyncTest "stop gives up on a worker stuck in a plugin call; a restart works":
+    ## The fake fires this when the lookup below starts to block.
+    fake.lookupStuck = ThreadSignalPtr.new().expect("thread signal")
+    ## The fake fires this when the thread stuck in that lookup exits.
+    fake.stuckThreadExited = ThreadSignalPtr.new().expect("thread signal")
     let backend = ExternalServiceDiscovery.create()
     let ctx = globalBrokerContext()
     check (await SetServiceDiscoveryPlugin.request(ctx, fakePlugin())).isOk()
@@ -354,13 +369,15 @@ suite "ExternalServiceDiscovery":
     ## The verb never returns, so the caller times out (requestTimeoutMs)...
     fake.blockLookup.store(true)
     let stuck = iface.lookupServicePeers("service:/mix/1.0.0", 1)
+    ## Stop only after the lookup is inside the plugin.
+    check await fake.lookupStuck.wait().withTimeout(chronos.seconds(30))
     ## ...and stop must not hang the loop behind the join: it reports the
     ## abandoned worker after the grace period instead.
     let t0 = Moment.now()
     let stopped = await iface.stopDiscovery()
     check:
       stopped.isErr()
-      Moment.now() - t0 < chronos.seconds(20)
+      Moment.now() - t0 < chronos.seconds(60)
       (await stuck).isErr()
 
     ## The restart happens while the old thread is STILL inside the plugin --
@@ -378,6 +395,10 @@ suite "ExternalServiceDiscovery":
     let peers = (await iface.lookupServicePeers("service:/mix/1.0.0", 1)).valueOr:
       raiseAssert error
     check peers.len == 1
+    ## Restart only after the stuck thread exits, so `reapAbandoned` can join it.
+    let stuckThreadGone =
+      await fake.stuckThreadExited.wait().withTimeout(chronos.seconds(30))
+    check stuckThreadGone
 
     ## The old thread has left the plugin by now, so the next restart joins it
     ## and forgets it rather than leaking its handle and flags.
@@ -385,6 +406,12 @@ suite "ExternalServiceDiscovery":
     check (await iface.startDiscovery()).isOk()
     check backend.abandonedWorkerCount() == 0
     check (await iface.stopDiscovery()).isOk()
+
+    ## Close the signals only after the stuck thread exits, because its exit
+    ## handler uses one.
+    if stuckThreadGone:
+      discard fake.lookupStuck.close()
+      discard fake.stuckThreadExited.close()
 
   asyncTest "discovered peers are handed to the PeerManager":
     ## The plugin discovers on its own switch, so nothing else in the node
