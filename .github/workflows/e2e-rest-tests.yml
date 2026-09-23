@@ -152,16 +152,23 @@ jobs:
           echo "node image: ${DEFAULT_NWAKU:-pinned default (see src/env_vars.py)}"
           pytest tests/rest -n 4 --dist=loadgroup --reruns 1 --junitxml=log/junit.xml
 
+      # Joins the live logos.dev fleet. Kept off PRs so that they do not depend on it.
+      - name: Run fleet tests
+        id: fleet
+        if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
+        working-directory: tests-e2e
+        run: pytest tests/fleet -n 4 --dist=loadgroup --reruns 1 --junitxml=log/junit-fleet.xml
+
       - name: Report results in the job summary
         uses: dorny/test-reporter@v2
         if: ${{ !cancelled() }}
         with:
           name: rest-e2e
-          path: tests-e2e/log/junit.xml
+          path: tests-e2e/log/junit*.xml
           reporter: python-xunit
 
       - name: Upload logs
-        if: ${{ failure() && steps.tests.outcome == 'failure' }}
+        if: ${{ failure() && (steps.tests.outcome == 'failure' || steps.fleet.outcome == 'failure') }}
         uses: actions/upload-artifact@v4
         with:
           name: rest-e2e-logs-${{ github.event_name }}

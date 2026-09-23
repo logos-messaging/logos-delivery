@@ -97,6 +97,12 @@ CONTENT_TOPICS_SHARD_7 = [
 ]
 
 DEFAULT_CLUSTER_ID = "198"
+
+LOGOS_DEV_PRESET = "logos.dev"
+LOGOS_DEV_CLUSTER_ID = "3"
+LOGOS_DEV_SHARDS = [str(shard) for shard in range(8)]
+WAKU_LIGHTPUSH_CODEC = "/vac/waku/lightpush/3.0.0"
+
 VALID_PUBSUB_TOPICS = [
     f"/waku/2/rs/{DEFAULT_CLUSTER_ID}/0",
     f"/waku/2/rs/{DEFAULT_CLUSTER_ID}/1",
