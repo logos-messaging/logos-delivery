@@ -376,6 +376,9 @@ task rln_db_inspector, "Build the rln db inspector":
 task test, "Build & run Waku tests":
   test "all_tests_waku"
 
+task testwakuext, "Build & run tests of what is built on the Waku protocols":
+  test "all_tests_waku_ext"
+
 task testapp, "Build & run node app tests":
   test "all_tests_app"
 

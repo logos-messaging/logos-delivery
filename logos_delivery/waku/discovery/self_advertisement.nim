@@ -9,9 +9,9 @@
 ## protocol-specific service it happens to run.
 ##
 ## Which backends take part is decided by what they declare, not by naming
-## them: a backend receives this only if its `keyKinds` includes `svc`. That is
+## them: a backend receives this only if its `keyKinds` includes `service`. That is
 ## true of both kademlia hosts -- in-process and plugin -- and false of discv5,
-## whose advertising means mutating our own ENR and which rejects `svc:` keys
+## whose advertising means mutating our own ENR and which rejects `service:` keys
 ## outright.
 
 import std/base64
@@ -25,7 +25,7 @@ import
 logScope:
   topics = "waku discovery advertise"
 
-const SvcKey = SvcKeyPrefix & LogosDeliveryServiceId
+const SvcKey = ServiceKeyPrefix & LogosDeliveryServiceId
 
 const
   AdvertFormatVersion* = 1'u8
@@ -116,7 +116,7 @@ proc advertiseSelf*(
       debug "skipping backend with unreadable info", reason = error
       continue
 
-    if SvcKind notin info.keyKinds:
+    if ServiceKind notin info.keyKinds:
       continue
 
     (await discovery.registerInterest(SvcKey)).isOkOr:
@@ -153,7 +153,7 @@ proc advertiseMix*(
   if conf.mixConf.isNone():
     return
 
-  let key = SvcKeyPrefix & MixProtocolID
+  let key = ServiceKeyPrefix & MixProtocolID
   let data = @(conf.mixConf.get().mixPubKey)
 
   for discovery in discoveries:
@@ -161,7 +161,7 @@ proc advertiseMix*(
       debug "skipping backend with unreadable info", reason = error
       continue
 
-    if SvcKind notin info.keyKinds:
+    if ServiceKind notin info.keyKinds:
       continue
 
     (await discovery.registerInterest(key)).isOkOr:

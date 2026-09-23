@@ -41,6 +41,13 @@ proc maxDeliveryTime*(anonymityLevel: AnonymityLevel): timer.Duration =
   else:
     MaxTimeInCache
 
+const DefaultMaxParkedAge* = chronos.minutes(30)
+  ## Parked tasks never admitted within this age (from the message timestamp)
+  ## are dropped with a `MessageErrorEvent`. Spans a few default RLN epochs.
+
+const DefaultMaxTaskCacheSize* = 1000
+  ## Hard cap on tasks tracked by the send service; further sends are rejected.
+
 const ServiceLoopInterval* = chronos.seconds(1)
   ## Interval at which we check that messages have been properly received by a store node
 
@@ -65,6 +72,12 @@ type SendService* = ref object of RootObj
   lastStoreCheckTime: Moment ## throttles store validation queries to ArchiveTime cadence
   maxDeliveryTime*: timer.Duration
     ## How long an admitted task may keep trying before it is failed.
+  maxParkedAge*: timer.Duration
+    ## How old a never-admitted (parked) task may get before it is failed.
+  maxTaskCacheSize*: int
+  inFlightSends: int
+    ## Sends accepted but not yet in `taskCache`; counted against the cap so
+    ## concurrent sends cannot overshoot it.
 
 proc setupSendProcessorChain(
     waku: Waku, brokerCtx: BrokerContext, anonymityLevel: AnonymityLevel
@@ -114,6 +127,8 @@ proc new*(
     rateLimitManager: RateLimitManager,
     sendProcessor: BaseSendProcessor = nil,
     anonymityLevel: AnonymityLevel = AnonymityLevel.None,
+    maxParkedAge: timer.Duration = DefaultMaxParkedAge,
+    maxTaskCacheSize: int = DefaultMaxTaskCacheSize,
 ): Result[T, string] =
   ## `sendProcessor` overrides the relay/lightpush chain built from `waku`,
   ## letting a caller drive the scheduler against a scripted delivery outcome.
@@ -141,12 +156,17 @@ proc new*(
     checkStoreForMessages: checkStoreForMessages,
     lastStoreCheckTime: Moment.now(),
     maxDeliveryTime: maxDeliveryTime(anonymityLevel),
+    maxParkedAge: maxParkedAge,
+    maxTaskCacheSize: maxTaskCacheSize,
   )
 
   return ok(sendService)
 
 proc addTask(self: SendService, task: DeliveryTask) =
   self.taskCache.addUnique(task)
+
+proc isFull*(self: SendService): bool =
+  return self.taskCache.len + self.inFlightSends >= self.maxTaskCacheSize
 
 proc isStorePeerAvailable*(sendService: SendService): bool =
   return sendService.waku.hasStorePeer()
@@ -248,8 +268,21 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
       task.msgHash.to0xHex(),
       "Unable to send within retry time window",
     )
+  elif task.isParkedExpired(self.maxParkedAge):
+    error "Failed to send message",
+      requestId = task.requestId,
+      msgHash = task.msgHash.to0xHex(),
+      error = "Parked message too old",
+      age = task.messageAge()
+    task.state = DeliveryState.FailedToDeliver
+    MessageErrorEvent.emit(
+      self.brokerCtx,
+      task.requestId,
+      task.msgHash.to0xHex(),
+      "Rate-limit budget not available within max parked age",
+    )
 
-proc evaluateAndCleanUp(self: SendService) =
+proc evaluateAndCleanUp*(self: SendService) =
   self.taskCache.forEach(self.reportTaskResult(it))
   self.taskCache.keepItIf(
     it.state != DeliveryState.SuccessfullyValidated and
@@ -364,6 +397,20 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
 
   debug "SendService.send: processing delivery task",
     requestId = task.requestId, msgHash = task.msgHash.to0xHex()
+
+  if self.isFull():
+    error "Failed to send message",
+      requestId = task.requestId,
+      msgHash = task.msgHash.to0xHex(),
+      error = "Send queue full"
+    MessageErrorEvent.emit(
+      self.brokerCtx, task.requestId, task.msgHash.to0xHex(), "Send queue full"
+    )
+    return
+
+  inc self.inFlightSends
+  defer:
+    dec self.inFlightSends
 
   self.waku.subscribe(task.msg.contentTopic).isOkOr:
     debug "SendService.send: failed to subscribe to content topic",

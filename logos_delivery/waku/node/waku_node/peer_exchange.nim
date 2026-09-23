@@ -75,7 +75,11 @@ proc fetchPeerExchangePeers*(
     for pi in peers:
       var record: enr.Record
       if enr.fromBytes(record, pi.enr):
-        node.peerManager.addPeer(record.toRemotePeerInfo().get, PeerExchange)
+        # A record without a dialable endpoint is legal, and nothing to dial.
+        let peerInfo = record.toRemotePeerInfo().valueOr:
+          debug "Skipping peer exchange record", error = error
+          continue
+        node.peerManager.addPeer(peerInfo, PeerExchange)
         validPeers += 1
     debug "Retrieved peer info via peer exchange protocol",
       validPeers = validPeers, totalPeers = peers.len

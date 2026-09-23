@@ -16,10 +16,13 @@ import ../logos_delivery/waku/discovery/waku_discv5
 import eth/keys, eth/p2p/discoveryv5/enr
 import stew/byteutils
 import
+  ../logos_delivery/waku/net/net_config,
   ../logos_delivery/waku/node/waku_node,
   ../logos_delivery/waku/waku,
   ../logos_delivery/waku/waku_enr
 import ./testlib/[common, wakucore, wakunode]
+
+const LoopbackIp = parseIpAddress("127.0.0.1")
 
 const CircuitAddr =
   "/ip4/93.184.216.34/tcp/4001/p2p/" &
@@ -63,7 +66,7 @@ method start(self: EagerUpdate, switch: Switch) {.async: (raises: [CancelledErro
 method stop(self: EagerUpdate, switch: Switch) {.async: (raises: [CancelledError]).} =
   discard
 
-suite "Announced addresses":
+procSuite "Announced addresses":
   asyncTest "the resolved base reaches peerInfo and the API projection":
     let node =
       newTestWakuNode(generateSecp256k1Key(), parseIpAddress("0.0.0.0"), Port(0))
@@ -99,6 +102,22 @@ suite "Announced addresses":
     await node.start()
     check:
       tricky in node.announcedAddresses
+    await node.stop()
+
+  asyncTest "the ipv4-mapped wildcard is rewritten like the plain one":
+    ## `::ffff:0.0.0.0` is the wildcard host too, so it has to be replaced by
+    ## the primary IP rather than dropped from what the node announces.
+    let mapped = MultiAddress.init("/ip6/::ffff:0.0.0.0/tcp/60123").get()
+    let node = newTestWakuNode(
+      generateSecp256k1Key(),
+      parseIpAddress("127.0.0.1"),
+      Port(0),
+      extMultiAddrs = @[mapped],
+    )
+    await node.start()
+    check:
+      node.announcedAddresses.allIt(not it.getIp().get(LoopbackIp).isWildcard())
+      node.announcedAddresses.anyIt("/tcp/60123" in $it)
     await node.stop()
 
   asyncTest "a circuit route flows through the chain, and removal converges on the next update":

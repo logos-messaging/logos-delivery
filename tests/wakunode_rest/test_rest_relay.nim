@@ -427,7 +427,7 @@ suite "Waku v2 Rest API - Relay":
     await node.start()
     (await node.mountRelay()).isOkOr:
       assert false, "Failed to mount relay"
-    require node.mountAutoSharding(1, 8).isOk
+    check node.mountAutoSharding(1, 8).isOk
 
     var restPort = Port(0)
     let restAddress = parseIpAddress("0.0.0.0")
@@ -460,6 +460,7 @@ suite "Waku v2 Rest API - Relay":
       response.status == 200
       $response.contentType == $MIMETYPE_TEXT
       response.data == "OK"
+      node.wakuRelay.subscribedTopics.toSeq().len == 1
 
     response = await client.relayDeleteAutoSubscriptionsV1(contentTopics)
 
@@ -470,9 +471,23 @@ suite "Waku v2 Rest API - Relay":
       response.data == "OK"
 
     check:
+      not cache.isContentSubscribed(contentTopics[0])
       not cache.isContentSubscribed(contentTopics[1])
       not cache.isContentSubscribed(contentTopics[2])
       not cache.isContentSubscribed(contentTopics[3])
+      cache.isContentSubscribed("/waku/2/default-contentY/proto")
+      node.wakuRelay.subscribedTopics.toSeq().len == 0
+
+    # When unsubscribing from a content topic never subscribed
+    response = await client.relayDeleteAutoSubscriptionsV1(
+      @[ContentTopic("/waku/2/default-contentZ/proto")]
+    )
+
+    # Then
+    check:
+      response.status == 200
+      $response.contentType == $MIMETYPE_TEXT
+      response.data == "OK"
       cache.isContentSubscribed("/waku/2/default-contentY/proto")
 
     await restServer.stop()
@@ -1256,7 +1271,7 @@ suite "Waku v2 Rest API - Relay":
         response.status == 400
         response.data == "Incorrect base64 string"
 
-  asyncTest "Subscribe and unsubscribe with an empty list, a repeated topic and an invalid topic - POST and DELETE /relay/v1/subscriptions":
+  asyncTest "Subscribe and unsubscribe with an empty list, a repeated topic, an invalid topic and a shard of another cluster - POST and DELETE /relay/v1/subscriptions":
     # Given
     let node = testWakuNode()
     (await node.mountRelay()).isOkOr:
@@ -1310,3 +1325,13 @@ suite "Waku v2 Rest API - Relay":
         "Invalid pubsub topic(s): @[\"/test/2/this/is/a/content/topic/1\"]"
       node.wakuRelay.isSubscribed(DefaultPubsubTopic)
       cache.isPubsubSubscribed(DefaultPubsubTopic)
+
+    # When subscribing to a shard of another cluster
+    let otherClusterShard = $RelayShard(clusterId: 199, shardId: 0)
+    let otherClusterPost = await client.relayPostSubscriptionsV1(@[otherClusterShard])
+
+    # Then it is subscribed although the node is on cluster 0
+    check:
+      otherClusterPost.status == 200
+      node.wakuRelay.isSubscribed(otherClusterShard)
+      cache.isPubsubSubscribed(otherClusterShard)

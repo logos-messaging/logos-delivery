@@ -3,7 +3,7 @@
 ## IPeerDiscovery backed by an external service-discovery plugin (today:
 ## logos-libp2p-module, driven by glue in logos-delivery-module).
 ##
-## Shape-wise this is the twin of the internal `ServiceDiscovery` backend:
+## Shape-wise this is the twin of the internal `ServicePeerDiscovery` backend:
 ## fully async verbs plus periodic lookup loops. The difference is only where
 ## the work happens — every plugin call is dispatched to the discovery worker
 ## thread through `(mt)` request brokers, so a 30 s DHT bootstrap blocks that
@@ -18,10 +18,13 @@ import chronos, chronicles, results
 import brokers/broker_implement
 import
   logos_delivery/waku/discovery/peer_discovery_interface,
+  logos_delivery/waku/discovery/peer_discovery_conversion,
   logos_delivery/waku/discovery/signed_service_record,
   logos_delivery/waku/requests/node_state_requests,
   logos_delivery/waku/discovery/plugin/service_discovery_accessor,
-  logos_delivery/waku/discovery/plugin/service_discovery_worker
+  logos_delivery/waku/discovery/plugin/service_discovery_worker,
+  logos_delivery/waku/waku_core,
+  logos_delivery/waku/node/peer_manager/peer_manager
 
 export peer_discovery_interface, service_discovery_accessor
 
@@ -32,6 +35,18 @@ const
   ExternalBackendId* = "service-ext"
   DefaultServiceLookupInterval* = chronos.seconds(60)
   DefaultRandomLookupInterval* = chronos.seconds(60)
+  PluginStartTimeout* = chronos.seconds(20)
+    ## How long the node waits for the plugin's `start`, on both the (mt) lane
+    ## and the call wrapper. Sized for a bring-up rather than a verb: the
+    ## plugin contacts its provider there, and libp2p's own calls are capped
+    ## at a fixed 10 s that the kademlia bootstrap inside its switch start
+    ## regularly reaches. Roughly twice the worst bring-up measured on a
+    ## 37-node fleet, so a slower host or a future provider has room.
+  WorkerStopGraceMargin = chronos.seconds(5)
+    ## Added to the plugin's own declared request timeout when waiting for the
+    ## worker to come back on stop. The declared timeout bounds how long a verb
+    ## may run; this margin covers the hand-back after it returns. A worker
+    ## still inside a call past the sum is abandoned, not waited on further.
 
 type ExternalServiceDiscovery* = ref object of IPeerDiscovery
   running: bool
@@ -39,6 +54,13 @@ type ExternalServiceDiscovery* = ref object of IPeerDiscovery
     ## Instance state, not a global: registration is served on this node's own
     ## thread, and the worker gets its own copy at spawn.
   worker: ServiceDiscoveryWorker
+  workerCtx: BrokerContext
+    ## The context the plugin (mt) brokers live on for the current worker.
+    ## Fresh per worker generation: an abandoned worker keeps its buckets,
+    ## and a bucket owned by another thread cannot be re-registered.
+  abandonedWorkers: seq[ServiceDiscoveryWorker]
+    ## Workers whose thread never came back from a plugin call. Kept alive on
+    ## purpose: the thread still owns the Thread object inside.
   nodeCtx: BrokerContext
   interests: seq[string]
   serviceLookupInterval: Duration
@@ -58,12 +80,15 @@ proc readyPlugin(
       err("external backend: configured but no service discovery plugin registered")
   ok(plugin)
 
-template pluginCall(T: typedesc, op: string, request: untyped): untyped =
+template pluginCall(
+    T: typedesc, op: string, request: untyped, budget: Duration = ZeroDuration
+): untyped =
   ## Awaits one (mt) plugin request, bounded by the timeout the plugin
-  ## declared at registration. The worker is not interrupted on timeout —
-  ## the entry point runs to completion there — the caller just stops waiting.
-  ## `T` is the payload type, so every branch stays correctly typed; the
-  ## template yields a value rather than returning, which keeps it usable
+  ## declared at registration, or by `budget` when the caller knows the verb
+  ## needs longer than the per-verb contract. The worker is not interrupted on
+  ## timeout — the entry point runs to completion there — the caller just stops
+  ## waiting. `T` is the payload type, so every branch stays correctly typed;
+  ## the template yields a value rather than returning, which keeps it usable
   ## inside the async transform.
   block:
     let plugRes = readyPlugin(self)
@@ -71,11 +96,16 @@ template pluginCall(T: typedesc, op: string, request: untyped): untyped =
       Result[T, string].err(plugRes.error())
     else:
       let plugin = plugRes.get()
+      let deadline =
+        if budget > ZeroDuration:
+          budget
+        else:
+          plugin.requestTimeout()
       let fut = request
       var cancelled = false
       let answered =
         try:
-          await fut.withTimeout(plugin.requestTimeout())
+          await fut.withTimeout(deadline)
         except CancelledError:
           cancelled = true
           false
@@ -93,6 +123,66 @@ template pluginCall(T: typedesc, op: string, request: untyped): untyped =
             "external backend: " & op & " failed: " & getCurrentExceptionMsg()
           )
 
+proc admitPeers(self: ExternalServiceDiscovery, peers: seq[DiscoveredPeer]) =
+  ## Hands discovered peers to the PeerManager, which decides what to dial.
+  ## The in-process backend does this inside `processRecords`, so every lookup
+  ## feeds the node; this backend has to do it here, because the plugin runs
+  ## on its own switch and nothing else sees what it found. The
+  ## `PeersDiscovered` event is observability only and reaches no peer store.
+  ##
+  ## Peers are stored under `PeerOrigin.Kademlia`: the protocol is the same
+  ## kademlia service discovery either way, only its host differs.
+  if peers.len == 0:
+    return
+
+  let peerManager = GetNodePeerManager.request(self.nodeCtx).valueOr:
+    debug "peer manager unreachable, discovered peers dropped",
+      count = peers.len, reason = error
+    return
+
+  for peer in peers:
+    let peerInfo = peer.toRemotePeerInfo().valueOr:
+      debug "discarding discovered peer", reason = error
+      continue
+
+    peerManager.addPeer(peerInfo, PeerOrigin.Kademlia)
+
+    debug "Peer added via external service discovery",
+      peerId = $peerInfo.peerId,
+      addresses = peerInfo.addrs.mapIt($it),
+      protocols = peerInfo.protocols
+
+proc abandonedWorkerCount*(self: ExternalServiceDiscovery): int =
+  ## Threads a previous `stopDiscovery` gave up on that have not been joined
+  ## yet. Zero in every ordinary life cycle; non-zero says a plugin call
+  ## outran its own declared timeout.
+  self.abandonedWorkers.len
+
+proc reapAbandoned(self: ExternalServiceDiscovery) =
+  ## Joins abandoned threads that have since left the plugin, and forgets them.
+  ##
+  ## Not a gate. An abandoned thread takes no further work and exits as soon as
+  ## its call returns, and the ABI documents that such a call may overlap a
+  ## later `start`; our own plugin is unaffected, since `ensureBackend`
+  ## short-circuits on a bool that is already set by the time a worker can be
+  ## abandoned at all, and logos-core makes the libp2p client safe to share.
+  ## So a restart is allowed to proceed past one -- this only stops the list
+  ## growing, and releases the thread handle and flags `stop` had to leave
+  ## behind.
+  if self.abandonedWorkers.len == 0:
+    return
+  var stillRunning: seq[ServiceDiscoveryWorker]
+  for worker in self.abandonedWorkers:
+    if worker.hasExited():
+      worker.reap()
+    else:
+      stillRunning.add(worker)
+  let reaped = self.abandonedWorkers.len - stillRunning.len
+  if reaped > 0:
+    debug "reaped abandoned discovery workers",
+      reaped = reaped, stillRunning = stillRunning.len
+  self.abandonedWorkers = stillRunning
+
 proc emitPeers(
     self: ExternalServiceDiscovery, key: string, peers: seq[DiscoveredPeer]
 ) =
@@ -102,22 +192,47 @@ proc emitPeers(
     self.brokerCtx, PeersDiscovered(origin: ExternalBackendId, key: key, peers: peers)
   )
 
+const EagerLookupDelays = [chronos.seconds(2), chronos.seconds(4), chronos.seconds(8)]
+  ## Startup schedule for the first service lookups, before the configured
+  ## interval takes over. The same schedule as the in-process backend.
+
 proc runServiceLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
   ## Mirrors the internal backend: periodically resolves every registered
-  ## interest and publishes what came back.
+  ## interest and publishes what came back. The opening rounds run on the
+  ## eager schedule, so a fresh node does not sit peerless for a whole
+  ## interval before asking anyone.
+  var attempt = 0
   while self.running:
+    let delay =
+      if attempt < EagerLookupDelays.len:
+        EagerLookupDelays[attempt]
+      else:
+        self.serviceLookupInterval
     try:
-      await sleepAsync(self.serviceLookupInterval)
+      await sleepAsync(delay)
     except CancelledError:
       return
 
+    var found = 0
     for key in self.interests:
       if not self.running:
         return
       let peers = (await self.lookupServicePeers(key, 0)).valueOr:
         debug "service lookup failed", key = key, reason = error
         continue
+      found += peers.len
       self.emitPeers(key, peers)
+
+    if attempt < EagerLookupDelays.len:
+      ## One round that found peers ends the eager phase; an empty or failed
+      ## one waits the next, longer delay. A failure counts as empty: both
+      ## mean "nothing yet", and splitting them buys a second retry policy
+      ## for no gain.
+      attempt =
+        if found > 0:
+          EagerLookupDelays.len
+        else:
+          attempt + 1
 
 proc runRandomLookupLoop(self: ExternalServiceDiscovery) {.async: (raises: []).} =
   while self.running:
@@ -142,6 +257,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     let self = ExternalServiceDiscovery(
       nodeCtx: globalBrokerContext(),
       worker: ServiceDiscoveryWorker.new(),
+      workerCtx: NewBrokerContext(),
       serviceLookupInterval: serviceLookupInterval,
       randomLookupInterval: randomLookupInterval,
     )
@@ -187,7 +303,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       DiscoveryBackendInfo(
         id: ExternalBackendId,
         running: self.running,
-        keyKinds: @["svc", "shard", "cap"],
+        keyKinds: @["service", "topic", "cap"],
         boundPorts: @[],
       )
     )
@@ -198,6 +314,8 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     if self.running:
       return ok()
 
+    self.reapAbandoned()
+
     ## A valid plugin is a hard requirement, checked before anything is
     ## spawned: external discovery that is configured but has no usable plugin
     ## is not a degraded node, it is a node with no discovery at all, so it
@@ -207,14 +325,39 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
 
     ## The worker gets the vtable by value, so nothing is shared and there is
     ## nothing to look up on the far side.
-    ?await self.worker.start(self.nodeCtx, plugin)
-    ?pluginCall(void, "start", PluginStart.request(self.nodeCtx))
+    (await self.worker.start(self.workerCtx, plugin)).isOkOr:
+      ## A worker that gave up still has a thread, and it is holding this
+      ## context's (mt) registrations. Park it for `reapAbandoned` and move to
+      ## a fresh context, exactly as a failed stop does -- otherwise nothing
+      ## ever signals that thread, and the next `startDiscovery` gets ok() from
+      ## a worker that never became ready.
+      self.abandonedWorkers.add(self.worker)
+      self.worker = ServiceDiscoveryWorker.new()
+      self.workerCtx = NewBrokerContext()
+      return err(error)
+
+    ## `start` is the one verb that brings a whole backend up, so it gets its
+    ## own budget on both fences: nim-brokers' (mt) lane, which otherwise
+    ## enforces its 5 s default and would abandon the worker mid-bring-up, and
+    ## the wrapper below, which otherwise uses the plugin's per-verb contract.
+    ## Every other verb keeps that contract, so a wedged lookup is still
+    ## noticed quickly.
+    PluginStart.setRequestTimeout(PluginStartTimeout)
+    ?pluginCall(void, "start", PluginStart.request(self.workerCtx), PluginStartTimeout)
 
     self.running = true
     if self.serviceLookupLoop.isNil():
       self.serviceLookupLoop = self.runServiceLookupLoop()
-    if self.randomLookupLoop.isNil():
-      self.randomLookupLoop = self.runRandomLookupLoop()
+
+    ## Same rule as the in-process backend: a zero interval, the default,
+    ## leaves the random walk off. Hosted discovery makes it worse than
+    ## useless -- the records it returns name the plugin's own host, never
+    ## the delivery node it advertises for.
+    if self.randomLookupInterval > ZeroDuration:
+      if self.randomLookupLoop.isNil():
+        self.randomLookupLoop = self.runRandomLookupLoop()
+    else:
+      info "Random kademlia lookups disabled"
     ok()
 
   method stopDiscovery(
@@ -233,31 +376,47 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
 
     ## The plugin is still there: `startDiscovery` required one, and clearing
     ## is refused while discovery runs, so there is nothing to guard against.
-    let stopRes = pluginCall(void, "stop", PluginStop.request(self.nodeCtx))
+    let stopRes = pluginCall(void, "stop", PluginStop.request(self.workerCtx))
 
     ## The worker exists to serve this discovery session, so it goes with it.
     ## Its thread hands the (mt) buckets back on the way out, which is what
     ## lets a later `startDiscovery` spawn a fresh one on the same context.
-    self.worker.stop()
-    stopRes
+    ## The wait is bounded by what the plugin itself declared a verb may take;
+    ## a thread still inside one after that is abandoned and replaced.
+    let grace = block:
+      let p = readyPlugin(self)
+      (if p.isOk(): p.get().requestTimeout() else: DefaultPluginRequestTimeout) +
+        WorkerStopGraceMargin
+    let workerRes = await self.worker.stop(grace)
+    if workerRes.isErr():
+      ## Same handling as a failed start: the thread outlives the object, so
+      ## park it for `reapAbandoned` and leave it the old context.
+      self.abandonedWorkers.add(self.worker)
+      self.worker = ServiceDiscoveryWorker.new()
+      self.workerCtx = NewBrokerContext()
+    if stopRes.isErr(): stopRes else: workerRes
 
   method lookupServicePeers(
       self: ExternalServiceDiscovery, key: string, limit: int
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    pluginCall(
-      seq[DiscoveredPeer], "lookup", PluginLookup.request(self.nodeCtx, key, limit)
+    let peers = ?pluginCall(
+      seq[DiscoveredPeer], "lookup", PluginLookup.request(self.workerCtx, key, limit)
     )
+    self.admitPeers(peers)
+    ok(peers)
 
   method lookupRandom(
       self: ExternalServiceDiscovery
   ): Future[Result[seq[DiscoveredPeer], string]] {.async.} =
     if not self.running:
       return err("external backend: not running")
-    pluginCall(
-      seq[DiscoveredPeer], "randomLookup", PluginRandomLookup.request(self.nodeCtx)
+    let peers = ?pluginCall(
+      seq[DiscoveredPeer], "randomLookup", PluginRandomLookup.request(self.workerCtx)
     )
+    self.admitPeers(peers)
+    ok(peers)
 
   method startAdvertising(
       self: ExternalServiceDiscovery, key: string, data: seq[byte]
@@ -267,30 +426,30 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
     ## node listing exactly this service, and let the plugin publish it
     ## verbatim. Identity and key come from the node-state getters, the way
     ## the discv5 backend gets its ENR and key.
-    if not key.startsWith(SvcKeyPrefix):
-      return err("external backend: only svc: keys can be advertised")
-    let serviceId = key[SvcKeyPrefix.len ..^ 1]
+    if not key.startsWith(ServiceKeyPrefix):
+      return err("external backend: only service: keys can be advertised")
+    let serviceId = key[ServiceKeyPrefix.len ..^ 1]
     let peerInfo = ?GetNodePeerInfo.request(self.nodeCtx)
     let nodeKey = ?GetNodeKey.request(self.nodeCtx)
     let record = ?signedServiceRecord(peerInfo, nodeKey, serviceId, data)
     pluginCall(
       void,
       "startAdvertising",
-      PluginStartAdvertising.request(self.nodeCtx, key, data, record),
+      PluginStartAdvertising.request(self.workerCtx, key, data, record),
     )
 
   method stopAdvertising(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     pluginCall(
-      void, "stopAdvertising", PluginStopAdvertising.request(self.nodeCtx, key)
+      void, "stopAdvertising", PluginStopAdvertising.request(self.workerCtx, key)
     )
 
   method registerInterest(
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     ?pluginCall(
-      void, "registerInterest", PluginRegisterInterest.request(self.nodeCtx, key)
+      void, "registerInterest", PluginRegisterInterest.request(self.workerCtx, key)
     )
     if key notin self.interests:
       self.interests.add(key)
@@ -300,7 +459,7 @@ BrokerImplement ExternalServiceDiscovery of IPeerDiscovery:
       self: ExternalServiceDiscovery, key: string
   ): Future[Result[void, string]] {.async.} =
     ?pluginCall(
-      void, "unregisterInterest", PluginUnregisterInterest.request(self.nodeCtx, key)
+      void, "unregisterInterest", PluginUnregisterInterest.request(self.workerCtx, key)
     )
     self.interests.keepItIf(it != key)
     ok()

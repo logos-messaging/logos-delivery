@@ -77,6 +77,24 @@ suite "WakuNodeConf - preset integration":
     check:
       wakuConf.clusterId == 2
 
+  test "Cluster id 2 applies LogosDevConf":
+    ## Given
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.clusterId = Opt.some(2'u16)
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then the logos.dev preset runs on cluster 2 instead of its own cluster 3
+    check:
+      wakuConf.validate().isOk()
+      wakuConf.clusterId == 2
+      wakuConf.shardingConf.kind == AutoSharding
+      wakuConf.shardingConf.numShardsInCluster == 8
+      wakuConf.staticNodes == NetworkPresetConf.LogosDevConf().entryNodes
+
   test "StatusProd preset applies StatusProdConf":
     ## Given
     var conf = defaultWakuNodeConf().valueOr:
@@ -177,6 +195,9 @@ suite "WakuNodeConf - external discovery":
     check:
       extConf.serviceLookupInterval == DefaultServiceLookupInterval
       extConf.randomLookupInterval == DefaultRandomLookupInterval
+      ## The default is off: a zero interval is what the backends read as
+      ## "do not start the random lookup loop".
+      extConf.randomLookupInterval == ZeroDuration
 
 suite "WakuNodeConf - service discovery exclusivity":
   test "internal and external together are refused":
@@ -192,18 +213,42 @@ suite "WakuNodeConf - service discovery exclusivity":
       res.isErr()
       "mutually exclusive" in res.error
 
-  test "a preset enabling kademlia also collides with external":
-    ## The accidental path: the operator names only --enable-external-discovery
-    ## and the preset supplies kademlia underneath.
+  test "a preset enabling kademlia yields to an explicit plugin request":
+    ## The operator names the plugin; the preset's in-process default steps
+    ## aside, and the preset's entry nodes become the plugin's DHT peers.
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.preset = "logosdev"
     conf.pluginKadDiscovery = Opt.some(true)
 
-    let res = conf.toWakuConf()
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
     check:
-      res.isErr()
-      "enable-kad-discovery=false" in res.error
+      wakuConf.kademliaDiscoveryConf.isNone()
+      wakuConf.externalDiscoveryConf.isSome()
+      wakuConf.externalDiscoveryConf.get().bootstrapNodes ==
+        NetworkPresetConf.LogosDevConf().entryNodes
+
+  test "--kad-bootstrap-node feeds the plugin instead of enabling in-process kademlia":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.pluginKadDiscovery = Opt.some(true)
+    conf.kadBootstrapNodes = @[
+      "/ip4/127.0.0.1/tcp/44001/p2p/16Uiu2HAmTUbnxLGT9JvV6mu9oPyDjqHK4Phs1VDJNUgESgNSkuby"
+    ]
+
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+    check:
+      wakuConf.kademliaDiscoveryConf.isNone()
+      wakuConf.externalDiscoveryConf.get().bootstrapNodes == conf.kadBootstrapNodes
+
+  test "a malformed plugin bootstrap node is refused":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.pluginKadDiscovery = Opt.some(true)
+    conf.kadBootstrapNodes = @["/ip4/127.0.0.1/tcp/44001"]
+    check conf.toWakuConf().isErr()
 
   test "turning kademlia off lets external run under a preset":
     var conf = defaultWakuNodeConf().valueOr:

@@ -18,6 +18,9 @@ proc send*(
   ## id the caller can correlate with `MessageSentEvent` / `MessageErrorEvent`.
   ?self.checkApiAvailability()
 
+  if self.sendService.isFull():
+    return err("Send queue full, retry later")
+
   let isSubbed = self.waku.isSubscribed(envelope.contentTopic).valueOr(false)
   if not isSubbed:
     debug "Auto-subscribing to topic on send", contentTopic = envelope.contentTopic
