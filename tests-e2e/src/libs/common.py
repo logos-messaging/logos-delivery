@@ -2,9 +2,7 @@ import uuid
 from datetime import datetime
 from time import sleep
 from src.libs.custom_logger import get_custom_logger
-import os
 import base64
-import allure
 from tenacity import retry, stop_after_delay, wait_fixed
 
 logger = get_custom_logger(__name__)
@@ -21,11 +19,6 @@ def to_base64(input_data):
         input_bytes = str(input_data).encode()
     base64_encoded = base64.b64encode(input_bytes)
     return base64_encoded.decode()
-
-
-def attach_allure_file(file):
-    logger.debug(f"Attaching file {file}")
-    allure.attach.file(file, name=os.path.basename(file), attachment_type=allure.attachment_type.TEXT)
 
 
 def delay(num_seconds):

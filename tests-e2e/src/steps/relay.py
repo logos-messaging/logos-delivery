@@ -2,7 +2,6 @@ import inspect
 from src.libs.custom_logger import get_custom_logger
 from time import time
 import pytest
-import allure
 from src.libs.common import to_base64, delay, wait_until
 from src.node.waku_message import WakuMessage
 from src.env_vars import (
@@ -73,7 +72,6 @@ class StepsRelay(StepsCommon):
             raise TimeoutError(f"WARM UP FAILED WITH: {ex}")
 
     # Refactor candidate
-    @allure.step
     def setup_first_relay_node(self, **kwargs):
         self.node1 = WakuNode(NODE_1, f"node1_{self.test_id}")
         self.node1.start(relay="true", **kwargs)
@@ -82,7 +80,6 @@ class StepsRelay(StepsCommon):
         self.main_nodes.extend([self.node1])
 
     # Refactor candidate
-    @allure.step
     def setup_second_relay_node(self, **kwargs):
         self.node2 = WakuNode(NODE_2, f"node2_{self.test_id}")
         self.node2.start(
@@ -95,7 +92,6 @@ class StepsRelay(StepsCommon):
 
     # this method should be used only for the tests that use the relay_warm_up fixture
     # otherwise use wait_for_published_message_to_reach_relay_peer
-    @allure.step
     def check_published_message_reaches_relay_peer(self, message=None, pubsub_topic=None, message_propagation_delay=0.1, sender=None, peer_list=None):
         if message is None:
             message = self.create_message()
@@ -123,7 +119,6 @@ class StepsRelay(StepsCommon):
             waku_message.assert_received_message(message)
 
     # we need much bigger timeout in CI because we run tests in parallel there and the machine itself is slower
-    @allure.step
     def wait_for_published_message_to_reach_relay_peer(
         self, timeout_duration=120, time_between_retries=1, pubsub_topic=None, sender=None, peer_list=None
     ):
@@ -134,7 +129,6 @@ class StepsRelay(StepsCommon):
 
         publish_and_check_relay_peer()
 
-    @allure.step
     def wait_for_relay_messages(self, node, count, pubsub_topic=None, timeout_duration=20, time_between_retries=0.5):
         # Each GET returns only the messages received since the previous call, so they are collected across polls.
         if pubsub_topic is None:
@@ -148,18 +142,15 @@ class StepsRelay(StepsCommon):
         wait_until(all_messages_received, timeout_duration, time_between_retries, f"Expected {count} relay messages")
         return messages
 
-    @allure.step
     def ensure_relay_subscriptions_on_nodes(self, node_list, pubsub_topic_list):
         for node in node_list:
             node.set_relay_subscriptions(pubsub_topic_list)
 
-    @allure.step
     @retry(stop=stop_after_delay(120), wait=wait_fixed(1), reraise=True)
     def subscribe_and_publish_with_retry(self, node_list, pubsub_topic_list):
         self.ensure_relay_subscriptions_on_nodes(node_list, pubsub_topic_list)
         self.check_published_message_reaches_relay_peer()
 
-    @allure.step
     def setup_main_nodes(self, **kwargs):
         self.node1 = WakuNode(NODE_1, f"node1_{self.test_id}")
         self.node1.start(relay="true", **kwargs)

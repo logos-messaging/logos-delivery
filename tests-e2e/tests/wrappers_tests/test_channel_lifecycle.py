@@ -1,4 +1,3 @@
-import pytest
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import EventCollector, create_message_bindings, unique_channel_id
 from src.libs.common import delay
@@ -23,7 +22,6 @@ RC04_DISTINCT_CHANNEL_PREFIX = "rc04-distinct-channel"
 CHANNEL_SETTLE_S = 1
 
 
-@pytest.mark.smoke
 class TestChannelLifecycle:
     def test_rc01_create_channel_duplicate_rejected(self, node_config):
         """RC01: create a channel; a duplicate create with the same id is rejected.

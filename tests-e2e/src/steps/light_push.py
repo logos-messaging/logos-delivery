@@ -1,7 +1,6 @@
 import inspect
 from src.libs.custom_logger import get_custom_logger
 import pytest
-import allure
 from src.libs.common import delay
 from src.node.waku_message import WakuMessage
 from src.env_vars import (
@@ -41,7 +40,6 @@ class StepsLightPush(StepsCommon):
         logger.debug(f"Running fixture setup: {inspect.currentframe().f_code.co_name}")
         self.subscribe_to_pubsub_topics_via_relay()
 
-    @allure.step
     def start_receiving_node(self, image, node_index, **kwargs):
         node = WakuNode(image, f"receiving_node{node_index}_{self.test_id}")
         node.start(**kwargs)
@@ -51,7 +49,6 @@ class StepsLightPush(StepsCommon):
         self.multiaddr_list.extend([node.get_multiaddr_with_id()])
         return node
 
-    @allure.step
     def setup_lightpush_node(self, image, node_index, **kwargs):
         node = WakuNode(image, f"lightpush_node{node_index}_{self.test_id}")
         node.start(discv5_bootstrap_node=self.enr_uri, lightpushnode=self.multiaddr_list[0], **kwargs)
@@ -60,24 +57,19 @@ class StepsLightPush(StepsCommon):
         self.add_node_peer(node, self.multiaddr_list)
         return node
 
-    @allure.step
     def setup_first_receiving_node(self, lightpush="true", relay="true", **kwargs):
         self.receiving_node1 = self.start_receiving_node(NODE_1, node_index=1, lightpush=lightpush, relay=relay, **kwargs)
         self.enr_uri = self.receiving_node1.get_enr_uri()
 
-    @allure.step
     def setup_second_receiving_node(self, lightpush, relay, **kwargs):
         self.receiving_node2 = self.start_receiving_node(NODE_1, node_index=2, lightpush=lightpush, relay=relay, **kwargs)
 
-    @allure.step
     def setup_first_lightpush_node(self, lightpush="true", relay="true", **kwargs):
         self.light_push_node1 = self.setup_lightpush_node(NODE_2, node_index=1, lightpush=lightpush, relay=relay, **kwargs)
 
-    @allure.step
     def setup_second_lightpush_node(self, lightpush="true", relay="true", **kwargs):
         self.light_push_node2 = self.setup_lightpush_node(NODE_2, node_index=2, lightpush=lightpush, relay=relay, **kwargs)
 
-    @allure.step
     def subscribe_to_pubsub_topics_via_relay(self, node=None, pubsub_topics=None):
         if pubsub_topics is None:
             pubsub_topics = [self.test_pubsub_topic]
@@ -89,7 +81,6 @@ class StepsLightPush(StepsCommon):
         else:
             node.set_relay_subscriptions(pubsub_topics)
 
-    @allure.step
     def subscribe_to_pubsub_topics_via_filter(self, node, pubsub_topic=None, content_topic=None):
         if pubsub_topic is None:
             pubsub_topic = self.test_pubsub_topic
@@ -98,7 +89,6 @@ class StepsLightPush(StepsCommon):
         subscription = {"requestId": "1", "contentFilters": content_topic, "pubsubTopic": pubsub_topic}
         node.set_filter_subscriptions(subscription)
 
-    @allure.step
     def check_light_pushed_message_reaches_receiving_peer(
         self, pubsub_topic=None, message=None, message_propagation_delay=None, sender=None, peer_list=None
     ):
@@ -125,7 +115,6 @@ class StepsLightPush(StepsCommon):
             waku_message = WakuMessage(test_messages)
             waku_message.assert_received_message(payload["message"])
 
-    @allure.step
     def create_payload(self, pubsub_topic=None, message=None, **kwargs):
         if message is None:
             message = self.create_message()
@@ -135,7 +124,6 @@ class StepsLightPush(StepsCommon):
         payload.update(kwargs)
         return payload
 
-    @allure.step
     @retry(stop=stop_after_delay(120), wait=wait_fixed(1), reraise=True)
     def subscribe_and_light_push_with_retry(self, sender=None):
         self.subscribe_to_pubsub_topics_via_relay()
