@@ -1,7 +1,5 @@
 import inspect
 
-import requests
-
 from src.libs.custom_logger import get_custom_logger
 import pytest
 import allure
@@ -9,7 +7,6 @@ from src.libs.common import delay
 from src.node.store_response import StoreResponse
 from src.node.waku_message import WakuMessage
 from src.env_vars import (
-    ADDITIONAL_NODES,
     NODE_1,
     NODE_2,
 )
@@ -73,32 +70,8 @@ class StepsStore(StepsCommon):
         self.publishing_node2 = self.start_publishing_node(NODE_1, node_index=2, store=store, relay=relay, **kwargs)
 
     @allure.step
-    def setup_additional_publishing_nodes(self, node_list=ADDITIONAL_NODES, **kwargs):
-        if node_list:
-            nodes = [node.strip() for node in node_list.split(",") if node]
-        else:
-            pytest.skip("ADDITIONAL_NODES/node_list is empty, cannot run test")
-        for index, node in enumerate(nodes):
-            self.start_publishing_node(node, node_index=index + 2, store="true", relay="true", **kwargs)
-
-    @allure.step
     def setup_first_store_node(self, store="true", relay="true", **kwargs):
         self.store_node1 = self.setup_store_node(NODE_2, node_index=1, store=store, relay=relay, **kwargs)
-
-    @allure.step
-    def setup_second_store_node(self, store="true", relay="false", **kwargs):
-        self.store_node2 = self.setup_store_node(NODE_2, node_index=2, store=store, relay=relay, **kwargs)
-
-    @allure.step
-    def setup_additional_store_nodes(self, node_list=ADDITIONAL_NODES, **kwargs):
-        if node_list:
-            nodes = [node.strip() for node in node_list.split(",") if node]
-        else:
-            pytest.skip("ADDITIONAL_NODES/node_list is empty, cannot run test")
-        self.additional_store_nodes = []
-        for index, node in enumerate(nodes):
-            node = self.setup_store_node(node, node_index=index + 2, store="true", relay="false", **kwargs)
-            self.additional_store_nodes.append(node)
 
     @allure.step
     def subscribe_to_pubsub_topics_via_relay(self, node=None, pubsub_topics=None):
@@ -136,11 +109,6 @@ class StepsStore(StepsCommon):
             sender.send_light_push_message(payload)
         delay(message_propagation_delay)
         return self.message
-
-    @retry(stop=stop_after_delay(30), wait=wait_fixed(1), reraise=True)
-    @allure.step
-    def get_messages_from_store_with_retry(self, node):
-        return self.get_messages_from_store(node, page_size=5)
 
     @allure.step
     def get_messages_from_store(
@@ -315,15 +283,6 @@ class StepsStore(StepsCommon):
                 assert expected_hash in actual_hashes, f"Expected hash {expected_hash} not found in store. " f"Actual hashes: {actual_hashes}"
 
     @allure.step
-    def check_store_returns_empty_response(self, pubsub_topic=None):
-        if not pubsub_topic:
-            pubsub_topic = self.test_pubsub_topic
-        try:
-            self.check_published_message_is_stored(pubsubTopic=pubsub_topic, page_size=5, ascending="true")
-        except Exception as ex:
-            assert "couldn't find any messages" in str(ex)
-
-    @allure.step
     def create_payload(self, pubsub_topic=None, message=None, **kwargs):
         if message is None:
             message = self.create_message()
@@ -332,59 +291,3 @@ class StepsStore(StepsCommon):
         payload = {"pubsubTopic": pubsub_topic, "message": message}
         payload.update(kwargs)
         return payload
-
-    @allure.step
-    def get_store_messages_with_errors(
-        self,
-        node=None,
-        peer_addr=None,
-        include_data=None,
-        pubsub_topic=None,
-        content_topics=None,
-        start_time=None,
-        end_time=None,
-        hashes=None,
-        cursor=None,
-        page_size=None,
-        ascending="true",
-        store_v="v3",
-        **kwargs,
-    ):
-        """
-        This method calls the original get_store_messages and returns the actual
-        error response from the service, if present.
-        """
-        try:
-            # Call the original get_store_messages method
-            store_response = node.get_store_messages(
-                peer_addr=peer_addr,
-                include_data=include_data,
-                pubsub_topic=pubsub_topic,
-                content_topics=content_topics,
-                start_time=start_time,
-                end_time=end_time,
-                hashes=hashes,
-                cursor=cursor,
-                page_size=page_size,
-                ascending=ascending,
-                store_v=store_v,
-                **kwargs,
-            )
-
-            # Check if the response has a status code >= 400, indicating an error
-            if store_response.status_code >= 400:
-                # Return the status code and the plain text error message directly
-                return {"status_code": store_response.status_code, "error_message": store_response.text}  # Handling plain text response
-
-            # Otherwise, return the successful response as JSON
-            response_json = store_response.json()
-            response_json["status_code"] = store_response.status_code
-            return response_json
-
-        except requests.exceptions.HTTPError as http_err:
-            # Handle HTTP errors separately
-            return {"status_code": http_err.response.status_code, "error_message": http_err.response.text}
-
-        except Exception as e:
-            # Handle unexpected errors and return as 500
-            return {"status_code": 500, "error_message": str(e)}

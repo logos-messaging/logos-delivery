@@ -1,10 +1,9 @@
 import inspect
 from uuid import uuid4
 from src.libs.custom_logger import get_custom_logger
-from time import time
 import pytest
 import allure
-from src.libs.common import to_base64, delay, wait_until
+from src.libs.common import delay, wait_until
 from src.node.waku_message import WakuMessage
 from src.env_vars import NODE_1, NODE_2, ADDITIONAL_NODES
 from src.node.waku_node import WakuNode
@@ -17,10 +16,7 @@ logger = get_custom_logger(__name__)
 
 class StepsFilter(StepsCommon):
     test_pubsub_topic = VALID_PUBSUB_TOPICS[1]
-    second_pubsub_topic = VALID_PUBSUB_TOPICS[2]
-    another_cluster_pubsub_topic = "/waku/2/rs/199/2"
     test_content_topic = "/test/1/waku-filter/proto"
-    second_content_topic = "/test/2/waku-filter/proto"
     test_payload = "Filter works!!"
 
     @pytest.fixture(scope="function", autouse=True)
@@ -46,17 +42,6 @@ class StepsFilter(StepsCommon):
     def subscribe_main_nodes(self):
         logger.debug(f"Running fixture setup: {inspect.currentframe().f_code.co_name}")
         self.wait_for_subscriptions_on_main_nodes([self.test_content_topic])
-
-    @pytest.fixture(scope="function")
-    @retry(stop=stop_after_delay(20), wait=wait_fixed(1), reraise=True)
-    def filter_warm_up(self):
-        try:
-            self.ping_filter_subscriptions("1")
-        except Exception as ex:
-            if "peer has no subscriptions" in str(ex):
-                logger.info("WARM UP successful!!")
-            else:
-                raise TimeoutError(f"WARM UP FAILED WITH: {ex}")
 
     def relay_node_start(self, node):
         self.node1 = WakuNode(node, f"node1_{self.test_id}")
@@ -107,14 +92,6 @@ class StepsFilter(StepsCommon):
             waku_message.assert_received_message(message)
 
     @allure.step
-    def check_publish_without_filter_subscription(self, message=None, pubsub_topic=None, peer_list=None):
-        try:
-            self.check_published_message_reaches_filter_peer(message=message, pubsub_topic=pubsub_topic, peer_list=peer_list)
-            raise AssertionError("Publish with no subscription worked!!!")
-        except Exception as ex:
-            assert "Bad Request" in str(ex) or "Not Found" in str(ex) or "couldn't find any messages" in str(ex)
-
-    @allure.step
     def wait_for_subscriptions_on_main_nodes(self, content_topic_list, pubsub_topic=None):
         if pubsub_topic is None:
             pubsub_topic = self.test_pubsub_topic
@@ -146,52 +123,6 @@ class StepsFilter(StepsCommon):
         if node is None:
             node = self.node2
         return node.set_filter_subscriptions(subscription)
-
-    @allure.step
-    def update_filter_subscription(self, subscription, node=None):
-        if node is None:
-            node = self.node2
-        return node.update_filter_subscriptions(subscription)
-
-    @allure.step
-    def delete_filter_subscription(self, subscription, status=None, node=None):
-        if node is None:
-            node = self.node2
-        delete_sub_response = node.delete_filter_subscriptions(subscription)
-        assert delete_sub_response["requestId"] == subscription["requestId"]
-        if status is None:
-            assert delete_sub_response["statusDesc"] in ["OK"]
-        else:
-            assert status in delete_sub_response["statusDesc"]
-
-    @allure.step
-    def delete_all_filter_subscriptions(self, request_id, node=None):
-        if node is None:
-            node = self.node2
-        delete_sub_response = node.delete_all_filter_subscriptions(request_id)
-        assert delete_sub_response["requestId"] == request_id["requestId"]
-        assert delete_sub_response["statusDesc"] in ["OK"]
-
-    @allure.step
-    def ping_filter_subscriptions(self, request_id, node=None):
-        if node is None:
-            node = self.node2
-        ping_sub_response = node.ping_filter_subscriptions(request_id)
-        assert ping_sub_response["requestId"] == request_id
-        assert ping_sub_response["statusDesc"] in ["OK"]
-
-    def ping_without_filter_subscription(self, node=None):
-        try:
-            self.ping_filter_subscriptions(str(uuid4()), node=node)
-            raise AssertionError("Ping without any subscription worked")
-        except Exception as ex:
-            assert "peer has no subscription" in str(ex) or "ping request failed" in str(ex)
-
-    @allure.step
-    def add_new_relay_subscription(self, pubsub_topics, node=None):
-        if node is None:
-            node = self.node1
-        self.node1.set_relay_subscriptions(pubsub_topics)
 
     @allure.step
     def get_filter_messages(self, content_topic, pubsub_topic=None, node=None):

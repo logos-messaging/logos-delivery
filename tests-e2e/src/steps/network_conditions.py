@@ -17,7 +17,7 @@ class TrafficController:
             raise RuntimeError("Container PID not available (container not running?)")
         return int(pid)
 
-    def _exec(self, node, tc_args: list[str], iface: str = "eth0"):
+    def _exec(self, node, tc_args: list[str]):
         pid = self._pid(node)
 
         cmd = ["sudo", "-n", "nsenter", "-t", str(pid), "-n", "tc"] + tc_args
@@ -29,111 +29,24 @@ class TrafficController:
 
         return res.stdout
 
-    def log_tc_stats(self, node, iface: str = "eth0"):
-        """
-        Log tc statistics for an interface (best-effort).
-        Useful to confirm netem loss/delay counters (sent/dropped/etc.).
-        """
+    def clear(self, node, iface: str):
         try:
-            out = self._exec(node, ["-s", "qdisc", "show", "dev", iface], iface=iface)
-            out = (out or "").strip()
-            if out:
-                logger.debug(f"tc -s qdisc show dev {iface}:\n{out}")
-            else:
-                logger.debug(f"tc -s qdisc show dev {iface}: (no output)")
-        except Exception as e:
-            logger.debug(f"Failed to read tc stats for {iface}: {e}")
-
-    def clear(self, node, iface: str = "eth0"):
-        try:
-            self._exec(node, ["qdisc", "del", "dev", iface, "root"], iface=iface)
+            self._exec(node, ["qdisc", "del", "dev", iface, "root"])
         except RuntimeError as e:
             msg = str(e)
             if "Cannot delete qdisc with handle of zero" in msg or "No such file or directory" in msg:
                 return
             raise
 
-    def add_latency(self, node, ms: int, iface: str = "eth0"):
+    def add_latency(self, node, ms: int, iface: str):
         self.clear(node, iface=iface)
-        self._exec(node, ["qdisc", "add", "dev", iface, "root", "netem", "delay", f"{ms}ms"], iface=iface)
+        self._exec(node, ["qdisc", "add", "dev", iface, "root", "netem", "delay", f"{ms}ms"])
 
-    def add_packet_loss(self, node, percent: float, iface: str = "eth0"):
-        self.clear(node, iface=iface)
-
-        self._exec(
-            node,
-            ["qdisc", "add", "dev", iface, "root", "netem", "loss", f"{percent}%"],
-            iface=iface,
-        )
-        try:
-            stats = self._exec(node, ["-s", "qdisc", "show", "dev", iface], iface=iface)
-            if stats is not None:
-                if isinstance(stats, (bytes, bytearray)):
-                    stats = stats.decode(errors="replace")
-                logger.debug(f"tc -s qdisc show dev {iface}:\n{stats}")
-            else:
-                logger.debug(f"Executed: tc -s qdisc show dev {iface} (no output returned by _exec)")
-        except Exception as e:
-            logger.debug(f"Failed to read tc stats for {iface}: {e}")
-
-    def add_bandwidth(self, node, rate: str, iface: str = "eth0"):
+    def add_bandwidth(self, node, rate: str, iface: str):
         self.clear(node, iface=iface)
         self._exec(
             node,
             ["qdisc", "add", "dev", iface, "root", "tbf", "rate", rate, "burst", "32kbit", "limit", "12500"],
-            iface=iface,
-        )
-
-    def add_packet_loss_correlated(
-        self,
-        node,
-        percent: float,
-        correlation: float,
-        iface: str = "eth0",
-    ):
-        self.clear(node, iface=iface)
-        self._exec(
-            node,
-            [
-                "qdisc",
-                "add",
-                "dev",
-                iface,
-                "root",
-                "netem",
-                "loss",
-                f"{percent}%",
-                f"{correlation}%",
-            ],
-            iface=iface,
-        )
-
-    def add_packet_reordering(
-        self,
-        node,
-        percent: int = 25,
-        correlation: int = 50,
-        delay_ms: int = 10,
-        iface: str = "eth0",
-    ):
-        self.clear(node, iface=iface)
-
-        self._exec(
-            node,
-            [
-                "qdisc",
-                "add",
-                "dev",
-                iface,
-                "root",
-                "netem",
-                "delay",
-                f"{delay_ms}ms",
-                "reorder",
-                f"{percent}%",
-                f"{correlation}%",
-            ],
-            iface=iface,
         )
 
     def _p2p_iface(self, node) -> str:
@@ -172,7 +85,7 @@ class TrafficController:
 
     def dropped_packets_p2p(self, node) -> int:
         iface = self._p2p_iface(node)
-        stats = self._exec(node, ["-s", "qdisc", "show", "dev", iface], iface=iface)
+        stats = self._exec(node, ["-s", "qdisc", "show", "dev", iface])
         counter = re.search(r"dropped (\d+)", stats)
         if not counter:
             raise RuntimeError(f"No packet counters for {iface}: {stats}")
@@ -193,7 +106,7 @@ class TrafficController:
         """
         iface = self._p2p_iface(node)
         self.clear(node, iface=iface)
-        self._exec(node, f"qdisc add dev {iface} root netem loss {percent}%".split(), iface=iface)
+        self._exec(node, f"qdisc add dev {iface} root netem loss {percent}%".split())
 
     def add_latency_p2p_only(self, node, ms: int):
         self.add_latency(node, ms, iface=self._p2p_iface(node))
@@ -211,5 +124,4 @@ class TrafficController:
         self._exec(
             node,
             f"qdisc add dev {iface} root netem loss {percent}% {correlation}%".split(),
-            iface=iface,
         )
