@@ -8,8 +8,10 @@ from src.libs.custom_logger import get_custom_logger
 from src.node.waku_node import WakuNode
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import (
+    STORE_VALIDATION_TIMEOUT_MSG,
     EventCollector,
     assert_event_invariants,
+    assert_no_error,
     create_message_bindings,
     get_node_multiaddr,
     wait_for_connected,
@@ -479,7 +481,8 @@ class TestSendBeforeRelay(StepsStore):
     def test_s23_no_sent_event_when_relay_has_no_store(self, node_config):
         """
         S23: non-ephemeral message, reliability enabled, no store peer ever reachable.
-          - Expected: Ok(RequestId), Propagated event only, no Sent and no terminal error.
+          - Expected: Ok(RequestId), Propagated, no immediate error, then message_error
+            once the store validation window elapses, and no Sent.
         """
         sender_collector = EventCollector()
 
@@ -528,30 +531,33 @@ class TestSendBeforeRelay(StepsStore):
                     f"after relay peer joined. Collected events: {sender_collector.events}"
                 )
 
-                sent_event = wait_for_sent(
+                # The send waits for a store node for the whole validation window.
+                assert_no_error(sender_collector, request_id, "right after propagation")
+
+                error_event = wait_for_error(
                     collector=sender_collector,
                     request_id=request_id,
-                    timeout_s=NO_STORE_OBSERVATION_S,
+                    timeout_s=ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S,
                 )
-                assert sent_event is None, (
-                    f"Unexpected MessageSentEvent within {NO_STORE_OBSERVATION_S}s "
-                    f"when relay peer has store=false.\n"
-                    f"Sent event: {sent_event}\n"
+                assert error_event is not None, (
+                    f"No message_error event within {ERROR_AFTER_CACHE_EXPIRY_TIMEOUT_S}s "
+                    f"after the store validation window when no store peer is reachable.\n"
                     f"Collected events: {sender_collector.events}"
                 )
+                assert error_event.get("error") == STORE_VALIDATION_TIMEOUT_MSG, (
+                    f"Unexpected error message in message_error event.\n"
+                    f"Expected: {STORE_VALIDATION_TIMEOUT_MSG!r}\n"
+                    f"Got:      {error_event.get('error')!r}"
+                )
 
-                # Regression guard: current behavior must NOT convert "no store
-                # reachable" into an immediate terminal error. If a future change
-                # starts emitting one, this assertion will catch it.
-                error_event = wait_for_error(
+                sent_event = wait_for_sent(
                     collector=sender_collector,
                     request_id=request_id,
                     timeout_s=0,
                 )
-                assert error_event is None, (
-                    f"Unexpected terminal error event when no store peer is reachable. "
-                    f"S23 expects silent behavior (Propagated only).\n"
-                    f"Error event: {error_event}\n"
+                assert sent_event is None, (
+                    f"Unexpected MessageSentEvent when no store peer is reachable.\n"
+                    f"Sent event: {sent_event}\n"
                     f"Collected events: {sender_collector.events}"
                 )
 

@@ -10,7 +10,7 @@ import metrics
 import logos_delivery/api/types
 
 declarePublicCounter logos_delivery_send_store_validation_timeout_total,
-  "messages propagated but dropped without store-node validation within the retry window"
+  "messages propagated but failed without store-node validation within the retry window"
 declarePublicCounter logos_delivery_recv_messages_total,
   "messages delivered to the application, live from the network or history from Store",
   ["source"]

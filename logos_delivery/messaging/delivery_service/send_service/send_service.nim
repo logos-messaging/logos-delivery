@@ -74,6 +74,9 @@ type SendService* = ref object of RootObj
     ## How long an admitted task may keep trying before it is failed.
   maxParkedAge*: timer.Duration
     ## How old a never-admitted (parked) task may get before it is failed.
+  maxValidationAge*: timer.Duration
+    ## How long after its first propagation a task may wait for store
+    ## confirmation before it is failed.
   maxTaskCacheSize*: int
   inFlightSends: int
     ## Sends accepted but not yet in `taskCache`; counted against the cap so
@@ -130,6 +133,7 @@ proc new*(
     anonymityLevel: AnonymityLevel = AnonymityLevel.None,
     maxParkedAge: timer.Duration = DefaultMaxParkedAge,
     maxTaskCacheSize: int = DefaultMaxTaskCacheSize,
+    maxValidationAge: timer.Duration = MaxTimeInCache,
 ): Result[T, string] =
   let checkStoreForMessages = preferP2PReliability and waku.isStoreMounted()
 
@@ -144,6 +148,7 @@ proc new*(
     lastStoreCheckTime: Moment.now(),
     maxDeliveryTime: maxDeliveryTime(anonymityLevel),
     maxParkedAge: maxParkedAge,
+    maxValidationAge: maxValidationAge,
     maxTaskCacheSize: maxTaskCacheSize,
   )
 
@@ -241,7 +246,7 @@ proc reportTaskResult(self: SendService, task: DeliveryTask) =
     discard
 
   # Fail a task that passed admission and did not propagate in its window.
-  # Propagated-but-unvalidated tasks are dropped in evaluateAndCleanUp instead.
+  # evaluateAndCleanUp fails propagated tasks that no store node confirms.
   if task.isDeliveryTimedOut(self.maxDeliveryTime):
     error "Failed to send message",
       requestId = task.requestId,
@@ -284,25 +289,26 @@ proc evaluateAndCleanUp*(self: SendService) =
     )
   )
 
-  # Store validation timed out: the message was propagated but never confirmed in a
-  # store node within MaxTimeInCache (measured from first propagation). This path emits
-  # no app event, so the metric counter below is its only durable signal; drop and count.
-  for task in self.taskCache:
-    if task.firstPropagatedTime.isSome() and
-        task.state != DeliveryState.SuccessfullyValidated and
-        task.propagationAge() > MaxTimeInCache:
-      debug "Message propagated but not validated by a store node within time window; stop trying.",
-        requestId = task.requestId,
-        msgHash = task.msgHash.to0xHex(),
-        propagationAge = task.propagationAge()
-      recordStoreValidationTimeout()
-
-  self.taskCache.keepItIf(
-    not (
-      it.firstPropagatedTime.isSome() and it.state != DeliveryState.SuccessfullyValidated and
-      it.propagationAge() > MaxTimeInCache
-    )
+  # Fail propagated tasks that no store node confirmed within maxValidationAge.
+  # Eviction keys on the state set here, so every failed task is reported.
+  let expired = self.taskCache.filterIt(
+    it.firstPropagatedTime.isSome() and it.state != DeliveryState.SuccessfullyValidated and
+      it.propagationAge() > self.maxValidationAge
   )
+  for task in expired:
+    debug "Message propagated but not validated by a store node within time window; stop trying.",
+      requestId = task.requestId,
+      msgHash = task.msgHash.to0xHex(),
+      propagationAge = task.propagationAge()
+    recordStoreValidationTimeout()
+    task.state = DeliveryState.FailedToDeliver
+    task.errorDesc =
+      "Propagated but not confirmed by a store node within the store validation window"
+    MessageErrorEvent.emit(
+      self.brokerCtx, task.requestId, task.msgHash.to0xHex(), task.errorDesc
+    )
+
+  self.taskCache.keepItIf(it.state != DeliveryState.FailedToDeliver)
 
 proc reportTaskQueued(self: SendService, task: DeliveryTask) =
   ## Announces a task parked for epoch budget, once per task. Retry rounds

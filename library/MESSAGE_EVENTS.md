@@ -41,7 +41,7 @@ Emitted when a message has been successfully propagated to neighboring nodes on 
 - `messageHash`: Hash of the message that was propagated
 
 ### 3. message_error
-Emitted when an error occurs during message sending or propagation.
+Emitted when a send fails: rejected, retry window elapsed, parked too long, send queue full, ephemeral dropped near the rate limit, or store validation timed out.
 
 **JSON Structure:**
 ```json

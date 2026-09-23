@@ -317,12 +317,19 @@ suite "SendService - rate-limit scheduling":
       durable.state == DeliveryState.SuccessfullyPropagated
       manager.sentInCurrentEpoch == 3'u64
 
-  proc listenErrors(brokerCtx: BrokerContext, errors: ptr seq[MessageErrorEvent]) =
+  proc listenErrors(
+      brokerCtx: BrokerContext,
+      errors: ptr seq[MessageErrorEvent],
+      seen: AsyncEvent = nil,
+  ) =
     discard MessageErrorEvent
       .listen(
         brokerCtx,
         proc(evt: MessageErrorEvent) {.async: (raises: []).} =
-          errors[].add(evt),
+          errors[].add(evt)
+          if not seen.isNil():
+            seen.fire()
+        ,
       )
       .expect("listen MessageErrorEvent")
 
@@ -407,3 +414,47 @@ suite "SendService - rate-limit scheduling":
       processor.calls == 1
 
     await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
+
+  asyncTest "a propagated task past the validation window fails; a fresh one stays":
+    let manager =
+      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let service = SendService
+      .new(true, waku, manager, processor, maxValidationAge = chronos.seconds(30))
+      .expect("SendService.new")
+
+    var errors: seq[MessageErrorEvent]
+    let errorSeen = newAsyncEvent()
+    listenErrors(waku.brokerCtx, addr errors, errorSeen)
+    defer:
+      await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
+
+    let expired = buildTask("validation-expired", "one")
+    let fresh = buildTask("validation-fresh", "two")
+    await service.send(expired)
+    await service.send(fresh)
+    expired.firstPropagatedTime = Opt.some(Moment.now() - chronos.seconds(60))
+
+    service.evaluateAndCleanUp()
+    check:
+      expired.state == DeliveryState.FailedToDeliver
+      fresh.state == DeliveryState.SuccessfullyPropagated
+      await errorSeen.wait().withTimeout(chronos.seconds(1))
+      errors.len == 1
+    if errors.len == 1:
+      check errors[0].requestId == expired.requestId
+
+  asyncTest "with reliability off a propagated task is evicted without MessageError":
+    let manager =
+      RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
+    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let service = SendService
+      .new(false, waku, manager, processor, maxValidationAge = chronos.seconds(30))
+      .expect("SendService.new")
+
+    let task = buildTask("reliability-off", "one")
+    await service.send(task)
+    task.firstPropagatedTime = Opt.some(Moment.now() - chronos.seconds(60))
+
+    service.evaluateAndCleanUp()
+    check task.state == DeliveryState.SuccessfullyPropagated
