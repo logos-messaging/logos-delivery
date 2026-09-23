@@ -51,13 +51,14 @@ suite "SendService - rate-limit scheduling":
     ## The node is never started, so stop is best-effort cleanup.
     discard await waku.stop()
 
-  proc buildTask(id, payload: string): DeliveryTask =
+  proc buildTask(id, payload: string, ephemeral = false): DeliveryTask =
     ## Built directly rather than via `DeliveryTask.new`, which needs a broker
     ## provider only registered once the node starts.
     let msg = WakuMessage(
       contentTopic: "/test/1/scheduler/proto",
       payload: payload.toBytes(),
       timestamp: 1_700_000_000_000_000_000,
+      ephemeral: ephemeral,
     )
     let pubsubTopic = PubsubTopic("/waku/2/rs/3/0")
     return DeliveryTask(
@@ -184,3 +185,130 @@ suite "SendService - rate-limit scheduling":
       queued.len == 1
 
     await MessageQueuedEvent.dropAllListeners(waku.brokerCtx)
+
+  proc approachedService(
+      epoch: ptr uint64, messagesPerEpoch: uint64, processor: FakeSendProcessor
+  ): (SendService, RateLimitManager) =
+    ## 50% threshold, so half the budget spent is Approached.
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(
+          enabled: true,
+          epochPeriodSec: 600,
+          messagesPerEpoch: messagesPerEpoch,
+          approachedThresholdPercent: 50,
+        ),
+        fixedEpochQuota(epoch, userMessageLimit = 100),
+      )
+      .expect("RateLimitManager.new")
+    let service =
+      SendService.new(false, waku, manager, processor).expect("SendService.new")
+    return (service, manager)
+
+  asyncTest "an ephemeral message is dropped when the quota is approached":
+    var epoch = 1'u64
+    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let (service, manager) = approachedService(addr epoch, 4, processor)
+
+    var errors: seq[MessageErrorEvent]
+    discard MessageErrorEvent
+      .listen(
+        waku.brokerCtx,
+        proc(evt: MessageErrorEvent) {.async: (raises: []).} =
+          errors.add(evt),
+      )
+      .expect("listen MessageErrorEvent")
+    var queued: seq[MessageQueuedEvent]
+    discard MessageQueuedEvent
+      .listen(
+        waku.brokerCtx,
+        proc(evt: MessageQueuedEvent) {.async: (raises: []).} =
+          queued.add(evt),
+      )
+      .expect("listen MessageQueuedEvent")
+
+    await service.send(buildTask("durable-1", "one"))
+    await service.send(buildTask("durable-2", "two"))
+    check manager.quotaState() == QuotaState.Approached
+    let callsBefore = processor.calls
+
+    let eph = buildTask("ephemeral-approached", "eph", ephemeral = true)
+    await service.send(eph)
+    check:
+      eph.state == DeliveryState.FailedToDeliver
+      eph.firstAdmittedTime.isNone() # no slot, so no RLN proof either
+      manager.sentInCurrentEpoch == 2'u64
+      processor.calls == callsBefore
+      queued.len == 0
+      errors.len == 1
+      errors[0].requestId == eph.requestId
+      errors[0].messageHash == eph.msgHash.to0xHex()
+
+    ## Not parked: a later round never hands it to the processor.
+    await service.trySendMessages()
+    check processor.calls == callsBefore
+
+    await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
+    await MessageQueuedEvent.dropAllListeners(waku.brokerCtx)
+
+  asyncTest "an ephemeral message is dropped, not parked, when the quota is exhausted":
+    var epoch = 1'u64
+    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let (service, manager) = approachedService(addr epoch, 1, processor)
+
+    var errors: seq[MessageErrorEvent]
+    discard MessageErrorEvent
+      .listen(
+        waku.brokerCtx,
+        proc(evt: MessageErrorEvent) {.async: (raises: []).} =
+          errors.add(evt),
+      )
+      .expect("listen MessageErrorEvent")
+
+    await service.send(buildTask("durable-spends", "one"))
+    check manager.quotaState() == QuotaState.Exhausted
+    let callsBefore = processor.calls
+
+    let eph = buildTask("ephemeral-exhausted", "eph", ephemeral = true)
+    await service.send(eph)
+    check:
+      eph.state == DeliveryState.FailedToDeliver
+      eph.firstAdmittedTime.isNone()
+      errors.len == 1
+
+    ## Budget refills, but the dropped message stays dropped.
+    epoch = 2'u64
+    await service.trySendMessages()
+    check:
+      processor.calls == callsBefore
+      manager.quotaState() == QuotaState.Normal
+      manager.sentInCurrentEpoch == 0'u64
+
+    await MessageErrorEvent.dropAllListeners(waku.brokerCtx)
+
+  asyncTest "an ephemeral message below the threshold is charged and sent":
+    var epoch = 1'u64
+    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let (service, manager) = approachedService(addr epoch, 4, processor)
+
+    let eph = buildTask("ephemeral-normal", "eph", ephemeral = true)
+    await service.send(eph)
+    check:
+      eph.state == DeliveryState.SuccessfullyPropagated
+      eph.firstAdmittedTime.isSome()
+      manager.sentInCurrentEpoch == 1'u64
+
+  asyncTest "a durable message is still admitted when the quota is approached":
+    var epoch = 1'u64
+    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let (service, manager) = approachedService(addr epoch, 4, processor)
+
+    await service.send(buildTask("durable-a", "a"))
+    await service.send(buildTask("durable-b", "b"))
+    check manager.quotaState() == QuotaState.Approached
+
+    let durable = buildTask("durable-approached", "c")
+    await service.send(durable)
+    check:
+      durable.state == DeliveryState.SuccessfullyPropagated
+      manager.sentInCurrentEpoch == 3'u64
