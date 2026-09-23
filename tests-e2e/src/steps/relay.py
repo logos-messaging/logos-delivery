@@ -3,7 +3,7 @@ from src.libs.custom_logger import get_custom_logger
 from time import time
 import pytest
 import allure
-from src.libs.common import to_base64, delay
+from src.libs.common import to_base64, delay, wait_until
 from src.node.waku_message import WakuMessage
 from src.env_vars import (
     NODE_1,
@@ -152,6 +152,20 @@ class StepsRelay(StepsCommon):
             self.check_published_message_reaches_relay_peer(message, pubsub_topic=pubsub_topic, sender=sender, peer_list=peer_list)
 
         publish_and_check_relay_peer()
+
+    @allure.step
+    def wait_for_relay_messages(self, node, count, pubsub_topic=None, timeout_duration=20, time_between_retries=0.5):
+        # Each GET returns only the messages received since the previous call, so they are collected across polls.
+        if pubsub_topic is None:
+            pubsub_topic = self.test_pubsub_topic
+        messages = []
+
+        def all_messages_received():
+            messages.extend(node.get_relay_messages(pubsub_topic))
+            return len(messages) >= count
+
+        wait_until(all_messages_received, timeout_duration, time_between_retries, f"Expected {count} relay messages")
+        return messages
 
     @allure.step
     def ensure_relay_subscriptions_on_nodes(self, node_list, pubsub_topic_list):

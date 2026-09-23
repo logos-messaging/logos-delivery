@@ -161,7 +161,7 @@ class StepsSharding(StepsRelay):
             waku_message.assert_received_message(message)
 
     @allure.step
-    def wait_for_relay_messages(self, node, count, content_topic=None, pubsub_topic=None, timeout_duration=20, time_between_retries=0.5):
+    def wait_for_relay_messages(self, node, count, pubsub_topic=None, content_topic=None, timeout_duration=20, time_between_retries=0.5):
         # Each GET returns only the messages received since the previous call, so they are collected across polls.
         messages = []
 

@@ -1,3 +1,4 @@
+import re
 import subprocess
 from src.env_vars import NETWORK_NAME
 from src.libs.custom_logger import get_custom_logger
@@ -169,11 +170,18 @@ class TrafficController:
                     return tokens[1]
         raise RuntimeError(f"No interface inside container holds waku IP {waku_ip}")
 
+    def dropped_packets_p2p(self, node) -> int:
+        iface = self._p2p_iface(node)
+        stats = self._exec(node, ["-s", "qdisc", "show", "dev", iface], iface=iface)
+        counter = re.search(r"dropped (\d+)", stats)
+        if not counter:
+            raise RuntimeError(f"No packet counters for {iface}: {stats}")
+        return int(counter.group(1))
+
     def clear_p2p(self, node):
         """
         Remove any tc rule previously installed on the node's waku (libp2p)
-        interface. Paired with add_packet_loss_p2p_only /
-        add_packet_loss_correlated_p2p_only.
+        interface.
         """
         self.clear(node, iface=self._p2p_iface(node))
 
@@ -186,6 +194,12 @@ class TrafficController:
         iface = self._p2p_iface(node)
         self.clear(node, iface=iface)
         self._exec(node, f"qdisc add dev {iface} root netem loss {percent}%".split(), iface=iface)
+
+    def add_latency_p2p_only(self, node, ms: int):
+        self.add_latency(node, ms, iface=self._p2p_iface(node))
+
+    def add_bandwidth_p2p_only(self, node, rate: str):
+        self.add_bandwidth(node, rate, iface=self._p2p_iface(node))
 
     def add_packet_loss_correlated_p2p_only(self, node, percent: float, correlation: float):
         """
