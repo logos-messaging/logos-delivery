@@ -499,7 +499,8 @@ Language: Nim 2.x | License: MIT or Apache 2.0
 - `library/liblogosdelivery.nim` - C bindings entry point
 
 ### Testing Entry Points
-- `tests/all_tests_waku.nim` - All Waku protocol tests
+- `tests/all_tests_waku.nim` - Waku protocol package tests (`logos_delivery/waku/waku_*`)
+- `tests/all_tests_waku_ext.nim` - Tests of what is built on the protocols: node, networking, discovery, REST, RLN, config
 - `tests/all_tests_app.nim` - Node application tests
 - `tests/all_tests_common.nim` - Common utilities tests
 #### in-flight testing

@@ -1,9 +1,14 @@
-## Waku v2
-
-import ./test_waku
+## Waku protocol packages: logos_delivery/waku/waku_*
+##
+## The core types and codecs, ENR, the wire protocols, the archive behind store,
+## and the keystore. What the node builds on top of them is in
+## all_tests_waku_ext: see the note there.
 
 # Waku core test suite
-import ./waku_core/test_all
+import ./waku_core/test_all, ./test_utils_compat
+
+# Waku ENR
+import ./waku_enr/test_all, ./test_waku_enr
 
 # Waku archive test suite
 import
@@ -23,12 +28,6 @@ when defined(linux) and
     defined(postgres):
   import ./waku_archive/test_driver_postgres_query, ./waku_archive/test_driver_postgres
 
-import
-  ./wakunode_rest/test_rest_filter,
-  ./wakunode_rest/test_rest_lightpush,
-  ./wakunode_rest/test_rest_relay,
-  ./wakunode_rest/test_rest_store
-
 # Waku store test suite
 import ./waku_store/test_all
 
@@ -36,54 +35,18 @@ import ./waku_store/test_all
 import ./waku_store_sync/test_all
 
 import
-  ./node/test_all,
-  ./waku_enr/test_all,
   ./waku_filter_v2/test_all,
   ./waku_peer_exchange/test_all,
   ./waku_lightpush_legacy/test_all,
   ./waku_lightpush/test_all,
   ./waku_relay/test_all,
-  ./incentivization/test_all
-
-import
-  # Waku v2 tests
-  ./test_nat_config,
-  ./test_announced_addresses,
-  ./test_wakunode,
-  ./test_peer_store_extended,
-  ./test_message_cache,
-  ./test_utils_compat,
-  ./test_waku_protobufs,
-  ./test_peer_manager,
-  ./test_peer_storage,
-  ./test_waku_keepalive,
-  ./test_waku_enr,
-  ./test_waku_dnsdisc,
   ./test_relay_peer_exchange,
-  ./test_waku_netconfig,
-  ./test_waku_switch,
-  ./test_waku_rendezvous,
   ./test_waku_metadata,
-  ./test_pure_libp2p_peers,
-  ./waku_discv5/test_waku_discv5,
-  ./waku_kademlia/test_waku_kademlia,
-  ./waku_discovery/test_external_service_discovery,
-  ./waku_discovery/test_self_advertisement,
-  ./waku_discovery/test_signed_service_record
+  ./test_waku_protobufs,
+  ./test_waku_rendezvous
 
 # Waku Keystore test suite
 import ./test_waku_keystore_keyfile, ./test_waku_keystore
-
-import ./waku_rln_relay/test_all
-
-# Node Factory
-import ./factory/test_all
-
-# Waku tools tests
-import ./tools/test_all
-
-# Persistency library tests
-import ./persistency/test_all
 
 # The logos_delivery/{api,messaging,channels} suites live in
 # all_tests_logos_delivery: see the note there.

@@ -17,6 +17,7 @@ jobs:
         suite:
           - {name: testcommon-testapp, targets: testcommon testapp}
           - {name: testwaku, targets: testwaku}
+          - {name: testwakuext, targets: testwakuext}
           - {name: testlogosdelivery, targets: testlogosdelivery}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 60
