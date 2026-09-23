@@ -160,6 +160,47 @@ suite "Waku Sync: reconciliation":
       remoteNeeds.contains((serverPeerInfo.peerId, hash2)) == true
       remoteNeeds.contains((serverPeerInfo.peerId, hash3)) == true
 
+  asyncTest "sync 2 nodes empty client full server, relay jitter shifts the time range":
+    server = await newTestWakuRecon(
+      serverSwitch, @[], @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
+    )
+    client = await newTestWakuRecon(
+      clientSwitch,
+      @[],
+      @[],
+      20.seconds,
+      idsChannel,
+      localWants,
+      remoteNeeds,
+      relayJitter = 25.seconds,
+    )
+
+    # The client's time range is [now - 45 s, now - 25 s].
+    let
+      olderMsg = fakeWakuMessage(
+        ts = now() - 60.seconds.nanos, contentTopic = DefaultContentTopic
+      )
+      inRangeMsg = fakeWakuMessage(
+        ts = now() - 35.seconds.nanos, contentTopic = DefaultContentTopic
+      )
+      youngerMsg = fakeWakuMessage(
+        ts = now() - 10.seconds.nanos, contentTopic = DefaultContentTopic
+      )
+      olderHash = computeMessageHash(pubsubTopic = DefaultPubsubTopic, olderMsg)
+      inRangeHash = computeMessageHash(pubsubTopic = DefaultPubsubTopic, inRangeMsg)
+      youngerHash = computeMessageHash(pubsubTopic = DefaultPubsubTopic, youngerMsg)
+
+    server.messageIngress(olderHash, DefaultPubsubTopic, olderMsg)
+    server.messageIngress(inRangeHash, DefaultPubsubTopic, inRangeMsg)
+    server.messageIngress(youngerHash, DefaultPubsubTopic, youngerMsg)
+
+    let res = await client.storeSynchronization(Opt.some(serverPeerInfo))
+
+    check:
+      res.isOk()
+      remoteNeeds.len == 1
+      remoteNeeds.contains((clientPeerInfo.peerId, inRangeHash)) == true
+
   asyncTest "sync 2 nodes different hashes":
     server = await newTestWakuRecon(
       serverSwitch, @[], @[], DefaultSyncRange, idsChannel, localWants, remoteNeeds
@@ -896,6 +937,43 @@ suite "Waku Sync: transfer":
 
     check:
       response.messages.len > 0
+
+  asyncTest "transfer a 100 KiB message but not a message encoded at the default limit":
+    let
+      maxSize = int(DefaultMaxWakuMessageSize)
+      largeMsg = fakeWakuMessage(payload = newSeq[byte](100 * 1024))
+      encodingOverhead =
+        fakeWakuMessage(payload = newSeq[byte](maxSize)).encode().buffer.len - maxSize
+      atLimitMsg = fakeWakuMessage(payload = newSeq[byte](maxSize - encodingOverhead))
+      laterMsg = fakeWakuMessage()
+      largeHash = computeMessageHash(DefaultPubsubTopic, largeMsg)
+      atLimitHash = computeMessageHash(DefaultPubsubTopic, atLimitMsg)
+      laterHash = computeMessageHash(DefaultPubsubTopic, laterMsg)
+
+    serverDriver =
+      await serverDriver.put(DefaultPubsubTopic, @[largeMsg, atLimitMsg, laterMsg])
+    await clientLocalWants.put(serverPeerInfo.peerId)
+
+    await serverRemoteNeeds.put((clientPeerInfo.peerId, largeHash))
+    checkUntilTimeout:
+      await clientArchive.holdsMessages(@[largeHash])
+
+    await serverRemoteNeeds.put((clientPeerInfo.peerId, atLimitHash))
+
+    # The receiver ends the session at the message it cannot read, and whatever the
+    # sender writes before it notices is lost with that session.
+    let deadline = Moment.now() + 10.seconds
+    while Moment.now() < deadline and not await clientArchive.holdsMessages(
+      @[laterHash]
+    )
+    :
+      await serverRemoteNeeds.put((clientPeerInfo.peerId, laterHash))
+      await sleepAsync(100.milliseconds)
+
+    check:
+      atLimitMsg.encode().buffer.len == maxSize
+      await clientArchive.holdsMessages(@[laterHash])
+      not await clientArchive.holdsMessages(@[atLimitHash])
 
   ## Disabled until we impl. DOS protection again
   #[ asyncTest "Check the exact missing messages are received":

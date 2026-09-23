@@ -1,7 +1,6 @@
 {.used.}
 
-import
-  results, std/sequtils, testutils/unittests, chronos, metrics, libp2p/crypto/crypto
+import results, std/sequtils, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -14,17 +13,6 @@ import
   ],
   ../waku_archive/archive_utils,
   ../testlib/wakucore
-
-proc insertCount(source: string): float64 =
-  ## `value(labelValues = ...)` ignores the label selector in metrics 0.2.1 and
-  ## answers with whichever child was created first, so the series has to be
-  ## read by name. Counters are registered with the '_total' suffix.
-  try:
-    return logos_delivery_archive_inserts.valueByName(
-      "logos_delivery_archive_inserts_total", [source]
-    )
-  except ValueError:
-    return 0.0
 
 suite "Waku Archive - message handling":
   test "it should archive a valid and non-ephemeral message":

@@ -315,6 +315,20 @@ suite "Waku external config - store retention policy":
     check res.isErr()
     check res.error.contains("duplicated retention policy type")
 
+suite "Waku external config - store sync":
+  test "Store sync without store builds no store service":
+    ## Given
+    var conf = defaultWakuNodeConf().get()
+    conf.store = false
+    conf.storeSync = true
+
+    ## When
+    let wakuConf = conf.toWakuConf().valueOr:
+      raiseAssert error
+
+    ## Then the configuration builds, and store sync is silently not configured
+    check wakuConf.storeServiceConf.isNone()
+
 suite "Waku external config - http url parsing":
   test "Basic HTTP URLs without authentication":
     check string(parseCmdArg(EthRpcUrl, "https://example.com/path")) ==

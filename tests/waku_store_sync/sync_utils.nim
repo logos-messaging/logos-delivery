@@ -28,6 +28,7 @@ proc newTestWakuRecon*(
     idsRx: AsyncQueue[(SyncID, PubsubTopic, ContentTopic)],
     wantsTx: AsyncQueue[PeerId],
     needsTx: AsyncQueue[(PeerId, WakuMessageHash)],
+    relayJitter: timer.Duration = 0.seconds,
 ): Future[SyncReconciliation] {.async.} =
   let peerManager = PeerManager.new(switch)
 
@@ -37,7 +38,7 @@ proc newTestWakuRecon*(
     peerManager = peerManager,
     wakuArchive = nil,
     syncRange = syncRange,
-    relayJitter = 0.seconds,
+    relayJitter = relayJitter,
     idsRx = idsRx,
     localWantsTx = wantsTx,
     remoteNeedsTx = needsTx,

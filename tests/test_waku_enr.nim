@@ -105,7 +105,9 @@ suite "Waku ENR -  Capabilities bitfield":
 
       ## When
       var builder = EnrBuilder.init(enrPrivKey, seqNum = enrSeqNum)
-      builder.withWakuCapabilities(Capabilities.Relay, Capabilities.Store)
+      builder.withWakuCapabilities(
+        Capabilities.Relay, Capabilities.Store, Capabilities.Sync
+      )
 
       let recordRes = builder.build()
 
@@ -115,9 +117,10 @@ suite "Waku ENR -  Capabilities bitfield":
 
       let codecs = record.getCapabilitiesCodecs()
       check:
-        codecs.len == 2
+        codecs.len == 3
         codecs.contains(WakuRelayCodec)
         codecs.contains(WakuStoreCodec)
+        codecs.contains(WakuReconciliationCodec)
 
   test "check capabilities on a non-waku node record":
     ## Given

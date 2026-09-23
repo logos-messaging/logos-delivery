@@ -12,7 +12,8 @@ import
   logos_delivery/waku/factory/waku_conf,
   logos_delivery/waku/factory/conf_builder/conf_builder,
   logos_delivery/waku/factory/networks_config,
-  logos_delivery/waku/common/utils/parse_size_units
+  logos_delivery/waku/common/utils/parse_size_units,
+  logos_delivery/waku/waku_enr/capabilities
 
 suite "Waku Conf - build with cluster conf":
   test "ext-multiaddr-only fails conf build without ext-multiaddrs":
@@ -363,6 +364,29 @@ suite "Waku Conf - node key":
     assert utils.toHex(conf.nodeKey.getRawBytes().get()) ==
       utils.toHex(nodeKey.getRawBytes().get()),
       "Passed node key isn't in config:" & $nodeKey & $conf.nodeKey
+
+suite "Waku Conf - store sync":
+  test "Store sync sets the Sync capability":
+    ## Setup
+    var builder = WakuConfBuilder.init()
+    builder.withClusterId(1)
+
+    ## Given
+    builder.storeServiceConf.withEnabled(true)
+    builder.storeServiceConf.withDbUrl("sqlite://store.sqlite3")
+    builder.storeServiceConf.storeSyncConf.withEnabled(true)
+    builder.storeServiceConf.storeSyncConf.withRangeSec(3600)
+    builder.storeServiceConf.storeSyncConf.withIntervalSec(300)
+    builder.storeServiceConf.storeSyncConf.withRelayJitterSec(20)
+
+    ## When
+    let conf = builder.build().valueOr:
+      raiseAssert error
+
+    ## Then
+    check:
+      conf.wakuFlags.supportsCapability(Capabilities.Store)
+      conf.wakuFlags.supportsCapability(Capabilities.Sync)
 
 suite "Waku Conf - extMultiaddrs":
   test "Valid multiaddresses are passed and accepted":

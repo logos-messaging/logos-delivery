@@ -107,6 +107,28 @@ suite "Node Factory":
       node.peerManager.serviceSlots[WakuStoreCodec].peerId == storePeerId
       servicePeerGauge(WakuStoreCodec, storeAddress) == 1
 
+  asynctest "The storenode command line option fills the store sync service slots":
+    # Given the configuration of a binary started with --store, --store-sync and --storenode
+    let
+      storePeerId = PeerId.init(generateSecp256k1Key()).tryGet()
+      storeAddress = "/ip4/127.0.0.1/tcp/60000"
+    var cliConf = defaultWakuNodeConf().get()
+    cliConf.store = true
+    cliConf.storeMessageDbUrl = "sqlite://store.sqlite3"
+    cliConf.storeSync = true
+    cliConf.storenode = storeAddress & "/p2p/" & $storePeerId
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then that peer holds the reconciliation and transfer service slots
+    check:
+      node.peerManager.serviceSlots[WakuReconciliationCodec].peerId == storePeerId
+      node.peerManager.serviceSlots[WakuTransferCodec].peerId == storePeerId
+
   asynctest "The filternode command line option fills the filter service slot":
     # Given the configuration of a binary started with --filternode
     let
