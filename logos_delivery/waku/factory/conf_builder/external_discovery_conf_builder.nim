@@ -1,4 +1,5 @@
 import chronicles, results, chronos
+import libp2p/peerinfo
 import logos_delivery/waku/factory/waku_conf
 import ./kademlia_discovery_conf_builder
 
@@ -14,6 +15,8 @@ type ExternalDiscoveryConfBuilder* = object
   enabled*: Opt[bool]
   serviceLookupInterval*: Opt[Duration]
   randomLookupInterval*: Opt[Duration]
+  bootstrapNodes*: seq[string]
+    ## /p2p/ multiaddrs collected where the preset's entry nodes are processed.
 
 proc init*(T: type ExternalDiscoveryConfBuilder): ExternalDiscoveryConfBuilder =
   ExternalDiscoveryConfBuilder()
@@ -32,8 +35,10 @@ proc withRandomLookupInterval*(
   b.randomLookupInterval = Opt.some(interval)
 
 proc build*(
-    b: ExternalDiscoveryConfBuilder
+    b: ExternalDiscoveryConfBuilder, sharedBootstrapNodes: seq[string] = @[]
 ): Result[Opt[ExternalDiscoveryConf], string] =
+  ## `sharedBootstrapNodes` are the kademlia bootstrap peers (CLI and preset),
+  ## which name DHT peers regardless of which host runs the protocol.
   # Unlike the in-process backend, nothing here can imply intent: the plugin
   # arrives at runtime and carries no config, and no network preset can name
   # it. Only the explicit flag enables it.
@@ -45,13 +50,36 @@ proc build*(
 
   if serviceInterval <= ZeroDuration:
     return err("Plugin kad discovery service lookup interval must be greater than 0")
-  if randomInterval <= ZeroDuration:
-    return err("Plugin kad discovery random lookup interval must be greater than 0")
+  # A zero random interval is not an error here, it is the default: it turns
+  # the random lookup loop off. See `DefaultRandomLookupInterval`.
+
+  ## One malformed entry does not sink the rest: a bootstrap list is a set of
+  ## independent hints, and dropping the node because a single one is typed
+  ## wrong costs more than it protects. Losing *all* of them is different --
+  ## the host reads an empty list as "this node is a seed" -- so that stays an
+  ## error rather than a silent change of role.
+  let supplied = sharedBootstrapNodes & b.bootstrapNodes
+  var bootstrapNodes: seq[string]
+  for nodeStr in supplied:
+    discard parseFullAddress(nodeStr).valueOr:
+      notice "Ignoring unparseable plugin discovery bootstrap node",
+        node = nodeStr, error = $error
+      continue
+    if nodeStr notin bootstrapNodes:
+      bootstrapNodes.add(nodeStr)
+
+  if supplied.len > 0 and bootstrapNodes.len == 0:
+    return err(
+      "No usable plugin discovery bootstrap node among the " & $supplied.len &
+        " configured"
+    )
 
   return ok(
     Opt.some(
       ExternalDiscoveryConf(
-        serviceLookupInterval: serviceInterval, randomLookupInterval: randomInterval
+        serviceLookupInterval: serviceInterval,
+        randomLookupInterval: randomInterval,
+        bootstrapNodes: bootstrapNodes,
       )
     )
   )

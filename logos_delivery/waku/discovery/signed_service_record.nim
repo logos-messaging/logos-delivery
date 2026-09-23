@@ -8,9 +8,10 @@
 ## libp2p_module's peer id and could not be dialled as this node. This is the
 ## record the plugin publishes instead, signed with this node's key.
 ##
-## One service per record, by decision: registrars file a record only under
+## One serviceId per record, by decision: registrars file a record only under
 ## the service key it was REGISTERed with, and lookups read one shelf, so a
-## record listing other services gains nothing (`delivery_record_plan.md`).
+## record listing other service_ids gains nothing (`delivery_record_plan.md`).
+## Like mixing `/logos/delivery` with `/mix/1.0.0` in a sindle XPR.
 
 import results
 import libp2p/[peerinfo, crypto/crypto, extended_peer_record, signed_envelope]

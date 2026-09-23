@@ -23,6 +23,10 @@ type MessagingClient* = ref object
   persistencyJob*: persistency.Job
   started*: bool
 
+const
+  MaxParkedAgeSecLimit = 7'u * 24 * 3600
+  SendQueueCapacityLimit = 1_000_000'u
+
 proc rlnQuotaProvider(waku: Waku): QuotaProvider =
   ## Sources the rate limit manager's epoch and limit from RLN. The closure
   ## queries `waku` on each admission, so a node whose RLN mounts after
@@ -51,10 +55,23 @@ proc new*(
   let rateLimitManager = ?RateLimitManager.new(
     conf.rateLimit.get(DefaultRateLimitConfig), rlnQuotaProvider(waku)
   )
+  let maxParkedAgeSec = conf.maxParkedAgeSec.get(uint(DefaultMaxParkedAge.seconds()))
+  if maxParkedAgeSec notin 1'u .. MaxParkedAgeSecLimit:
+    return err("maxParkedAgeSec must be between 1 and " & $MaxParkedAgeSecLimit)
+  let sendQueueCapacity = conf.sendQueueCapacity.get(uint(DefaultMaxTaskCacheSize))
+  if sendQueueCapacity notin 1'u .. SendQueueCapacityLimit:
+    return err("sendQueueCapacity must be between 1 and " & $SendQueueCapacityLimit)
   let sendProcessor = setupSendProcessorChain(waku, anonymityLevel).valueOr:
     return err("failed to setup SendProcessorChain: " & error)
-  let sendService =
-    ?SendService.new(reliability, waku, rateLimitManager, sendProcessor, anonymityLevel)
+  let sendService = ?SendService.new(
+    reliability,
+    waku,
+    rateLimitManager,
+    sendProcessor,
+    anonymityLevel = anonymityLevel,
+    maxParkedAge = seconds(int64(maxParkedAgeSec)),
+    maxTaskCacheSize = int(sendQueueCapacity),
+  )
   let backfill = ?BackfillState.init(conf)
   let recvService = RecvService.new(waku, backfill)
 

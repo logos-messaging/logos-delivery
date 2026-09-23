@@ -91,6 +91,10 @@ proc poolFilter*(
   if cluster.isSome() and enr.isClusterMismatched(cluster.get()):
     trace "peer has mismatching cluster"
     return err("peer has mismatching cluster")
+  ## A record with no dialable endpoint is nothing to hand on.
+  if enr.toRemotePeerInfo().isErr():
+    trace "peer has no dialable endpoint"
+    return err("peer has no dialable endpoint")
   return ok()
 
 proc poolFilter*(cluster: Opt[uint16], peer: RemotePeerInfo): Result[void, string] =

@@ -41,7 +41,7 @@ var anvilStarted: bool = false
 var baselineSnapshotId: string
 var fundedPrivateKey: string
 
-suite "Onchain group manager":
+procSuite "Onchain group manager":
   var manager {.threadVar.}: RlnEvmGroupManager
 
   setup:
