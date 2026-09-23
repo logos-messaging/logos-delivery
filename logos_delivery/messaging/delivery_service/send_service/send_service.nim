@@ -301,8 +301,22 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
   ## draws a nonce. The slot is charged at most once per task lifetime
   ## (`firstAdmittedTime`); the proof attach is retried each round until it
   ## sticks, then short-circuits, so a task charged but not yet proven never
-  ## ships bare. Returns false while the task must stay parked for a later round.
+  ## ships bare. Returns false while the task must stay parked for a later round,
+  ## or once it is dropped (`FailedToDeliver`).
   if task.firstAdmittedTime.isNone():
+    # Ephemeral traffic is shed rather than queued so it cannot eat into the
+    # budget left for durable messages.
+    if task.isEphemeral():
+      let quotaState = self.rateLimitManager.quotaState()
+      if quotaState != QuotaState.Normal:
+        debug "Dropping ephemeral message, rate-limit quota not normal",
+          requestId = task.requestId,
+          msgHash = task.msgHash.to0xHex(),
+          quotaState = quotaState
+        task.state = DeliveryState.FailedToDeliver
+        task.errorDesc = "Ephemeral message dropped: rate limit " & $quotaState
+        return false
+
     (await self.rateLimitManager.admit(task.msg.payload)).isOkOr:
       debug "Over rate-limit budget, task waits for the epoch to roll",
         requestId = task.requestId, msgHash = task.msgHash.to0xHex()
@@ -356,6 +370,9 @@ proc send*(self: SendService, task: DeliveryTask) {.async.} =
       contentTopic = task.msg.contentTopic, error = error
 
   if not (await self.admitAndProve(task)):
+    if task.state == DeliveryState.FailedToDeliver:
+      self.reportTaskResult(task)
+      return
     debug "SendService.send: parking task for a later round",
       requestId = task.requestId, msgHash = task.msgHash.to0xHex()
     task.state = DeliveryState.NextRoundRetry
