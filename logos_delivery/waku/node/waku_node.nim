@@ -235,26 +235,34 @@ proc getWakuPeerRecordGetter(node: WakuNode): GetWakuPeerRecord =
       mixKey = mixKey,
     )
 
-proc onLearnedHost(node: WakuNode, ma: MultiAddress): bool =
-  ## A resolved interface address on the host discv5 has confirmed from
-  ## outside. Its own transport port is what a peer needs: the port discv5
-  ## learned is discv5's own.
+proc onLearnedHost(node: WakuNode, ma: MultiAddress): Opt[MultiAddress] =
+  ## A stand-in for the wildcard bind host, moved onto the host discv5
+  ## confirmed from outside. Each entry keeps its own transport port: the
+  ## port discv5 learned is discv5's own, and the scalars already pair that
+  ## host with the bound TCP port on the same assumption.
   let learned = node.enrLearnedEndpoint.valueOr:
-    return false
-  let ip = ma.getIp().valueOr:
-    return false
-  return ip == learned.ip and ma.isConcreteEndpoint()
+    return Opt.none(MultiAddress)
+  if not ma.isConcreteEndpoint():
+    return Opt.none(MultiAddress)
+  return ma.replaceIp(learned.ip).optValue()
 
 proc enrAddresses*(node: WakuNode): seq[MultiAddress] =
   ## The announced addresses known from outside: what the operator
-  ## configured, what a mapper added (a NAT grant, a relay route), and what
-  ## sits on a host discv5 confirmed. Not the primary interface otherwise,
-  ## which the node knows only from the inside.
+  ## configured, what a mapper added (a NAT grant, a relay route), and, once
+  ## discv5 confirms a host, the bound endpoints moved onto it. The primary
+  ## interface on its own is not carried: the node knows it only from the
+  ## inside.
   let base = node.baseAnnounced.valueOr:
     return node.announcedAddresses
-  return node.announcedAddresses.filterIt(
-    it in node.explicitAnnounced or it notin base or node.onLearnedHost(it)
-  )
+  var addrs = newSeq[MultiAddress](0)
+  for ma in node.announcedAddresses:
+    if ma in node.explicitAnnounced or ma notin base:
+      addrs.add(ma)
+      continue
+    node.onLearnedHost(ma).withValue(moved):
+      if moved notin addrs:
+        addrs.add(moved)
+  return addrs
 
 proc enrBaseline*(node: WakuNode): EnrBaseline =
   ## What the scalars say when nothing else decides them. A configured

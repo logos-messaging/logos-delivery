@@ -530,6 +530,53 @@ procSuite "ENR endpoints":
       node.enr.udpOf().get() == 30303'u16
     await node.stop()
 
+  asyncTest "the bound endpoints move onto a host discv5 learned behind a NAT":
+    ## The interface holds a private address and discv5 reports a different,
+    ## public one. The scalars already pair that host with the bound TCP
+    ## port, so the other transports travel with it on the same terms.
+    let key = generateSecp256k1Key()
+    let node = newTestWakuNode(
+      key,
+      parseIpAddress("0.0.0.0"),
+      Port(0),
+      quicEnabled = false,
+      discv5UdpPort = Opt.some(Port(9918)),
+    )
+    await node.start()
+
+    require node.announcedAddresses.len == 1
+    let bound = node.announcedAddresses[0]
+    let boundPort = initTAddress(bound).expect("bound endpoint").port
+
+    let keyBytes = key.getRawBytes().expect("raw")
+    let ethPk = keys.PrivateKey.fromHex(byteutils.toHex(keyBytes)).expect("pk")
+    let proto = discv5_protocol.newProtocol(
+      ethPk,
+      enrIp = Opt.none(IpAddress),
+      enrTcpPort = Opt.none(Port),
+      enrUdpPort = Opt.none(Port),
+      previousRecord = Opt.some(node.enr),
+      bindPort = Port(9918),
+      bindIp = Opt.none(IpAddress),
+    )
+    let wd = WakuDiscoveryV5(protocol: proto)
+    proto.localNode.record = node.enr
+
+    let public = parseIpAddress("198.51.100.7")
+    check proto.localNode
+      .update(ethPk, ip = Opt.some(public), udpPort = Opt.some(Port(30303)))
+      .isOk()
+    check reconcileEnrAddrs(node, key, wd).expect("reconcile") == true
+
+    let carried = node.enr.multiaddrsOf()
+    check:
+      carried.len == 1
+      carried[0].getIp().expect("host") == public
+      initTAddress(carried[0]).expect("endpoint").port == boundPort
+      node.enr.ipOf().get() == [198'u8, 51, 100, 7]
+      node.enr.toRemotePeerInfo().isOk()
+    await node.stop()
+
   test "the reconcile loop follows a discv5 record write":
     let key = generateSecp256k1Key()
     let node =
