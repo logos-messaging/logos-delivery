@@ -7,7 +7,7 @@ import threading
 import docker
 from src.env_vars import NETWORK_NAME, SUBNET, IP_RANGE, GATEWAY
 from docker.types import IPAMConfig, IPAMPool
-from docker.errors import ImageNotFound, NotFound, APIError
+from docker.errors import ImageNotFound, APIError
 
 logger = get_custom_logger(__name__)
 
@@ -123,14 +123,6 @@ class DockerManager:
         ext_ip = ".".join(base_ip_fragments + [str(random.randint(0, 255)) for _ in range(2)])
         logger.debug(f"Generated random external IP {ext_ip}")
         return ext_ip
-
-    def is_container_running(self, container):
-        try:
-            refreshed_container = self._client.containers.get(container.id)
-            return refreshed_container.status == "running"
-        except NotFound:
-            logger.error(f"Container with ID {container.id} not found")
-            return False
 
     @property
     def image(self):

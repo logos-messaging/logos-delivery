@@ -10,10 +10,6 @@ from tenacity import retry, stop_after_delay, wait_fixed
 logger = get_custom_logger(__name__)
 
 
-def bytes_to_hex(byte_array):
-    return "".join(format(byte, "02x") for byte in byte_array)
-
-
 def to_base64(input_data):
     if isinstance(input_data, str):
         input_bytes = input_data.encode()
@@ -25,18 +21,6 @@ def to_base64(input_data):
         input_bytes = str(input_data).encode()
     base64_encoded = base64.b64encode(input_bytes)
     return base64_encoded.decode()
-
-
-def to_hex(input_data):
-    if isinstance(input_data, str):
-        input_bytes = input_data.encode()
-    elif isinstance(input_data, int):
-        input_bytes = str(input_data).encode()
-    elif isinstance(input_data, bytes):
-        input_bytes = input_data
-    else:
-        input_bytes = str(input_data).encode()
-    return "0x" + input_bytes.hex()
 
 
 def attach_allure_file(file):

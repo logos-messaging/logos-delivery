@@ -1,6 +1,6 @@
 from dataclasses import dataclass, field
 from marshmallow_dataclass import class_schema
-from typing import Optional, Union
+from typing import Optional
 import math
 import allure
 

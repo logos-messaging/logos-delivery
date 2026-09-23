@@ -1,12 +1,10 @@
 import inspect
 from src.libs.custom_logger import get_custom_logger
-from time import time
 import pytest
 import allure
-from src.libs.common import to_base64, delay
+from src.libs.common import delay
 from src.node.waku_message import WakuMessage
 from src.env_vars import (
-    ADDITIONAL_NODES,
     NODE_1,
     NODE_2,
 )
@@ -23,7 +21,6 @@ class StepsLightPush(StepsCommon):
     test_pubsub_topic = VALID_PUBSUB_TOPICS[0]
     test_payload = "Light push works!!"
     default_message_propagation_delay = 0.1
-    num_shards_in_network = 8
 
     @pytest.fixture(scope="function", autouse=True)
     def light_push_setup(self):
@@ -73,32 +70,12 @@ class StepsLightPush(StepsCommon):
         self.receiving_node2 = self.start_receiving_node(NODE_1, node_index=2, lightpush=lightpush, relay=relay, **kwargs)
 
     @allure.step
-    def setup_additional_receiving_nodes(self, node_list=ADDITIONAL_NODES, **kwargs):
-        if node_list:
-            nodes = [node.strip() for node in node_list.split(",") if node]
-        else:
-            pytest.skip("ADDITIONAL_NODES/node_list is empty, cannot run test")
-        for index, node in enumerate(nodes):
-            self.start_receiving_node(node, node_index=index + 2, lightpush="true", relay="true", pubsub_topic=self.test_pubsub_topic, **kwargs)
-
-    @allure.step
     def setup_first_lightpush_node(self, lightpush="true", relay="true", **kwargs):
         self.light_push_node1 = self.setup_lightpush_node(NODE_2, node_index=1, lightpush=lightpush, relay=relay, **kwargs)
 
     @allure.step
     def setup_second_lightpush_node(self, lightpush="true", relay="true", **kwargs):
         self.light_push_node2 = self.setup_lightpush_node(NODE_2, node_index=2, lightpush=lightpush, relay=relay, **kwargs)
-
-    @allure.step
-    def setup_additional_lightpush_nodes(self, node_list=ADDITIONAL_NODES, **kwargs):
-        if node_list:
-            nodes = [node.strip() for node in node_list.split(",") if node]
-        else:
-            pytest.skip("ADDITIONAL_NODES/node_list is empty, cannot run test")
-        self.additional_lightpush_nodes = []
-        for index, node in enumerate(nodes):
-            node = self.setup_lightpush_node(node, node_index=index + 2, lightpush="true", relay="true", **kwargs)
-            self.additional_lightpush_nodes.append(node)
 
     @allure.step
     def subscribe_to_pubsub_topics_via_relay(self, node=None, pubsub_topics=None):

@@ -93,17 +93,6 @@ class StepsRelay(StepsCommon):
         self.add_node_peer(self.node2, [self.multiaddr_with_id])
         self.main_nodes.extend([self.node2])
 
-    @allure.step
-    def setup_third_relay_node(self, **kwargs):
-        self.node3 = WakuNode(NODE_1, f"node3_{self.test_id}")
-        self.node3.start(
-            relay="true",
-            discv5_bootstrap_node=self.enr_uri,
-            **kwargs,
-        )
-        self.add_node_peer(self.node3, [self.multiaddr_with_id])
-        self.optional_nodes.extend([self.node3])
-
     # this method should be used only for the tests that use the relay_warm_up fixture
     # otherwise use wait_for_published_message_to_reach_relay_peer
     @allure.step
@@ -132,14 +121,6 @@ class StepsRelay(StepsCommon):
             )
             waku_message = WakuMessage(test_messages)
             waku_message.assert_received_message(message)
-
-    @allure.step
-    def check_publish_without_relay_subscription(self, pubsub_topic):
-        try:
-            self.node1.send_relay_message(self.create_message(), pubsub_topic)
-            raise AssertionError("Publish with no subscription worked!!!")
-        except Exception as ex:
-            assert "Bad Request" in str(ex) or "Internal Server Error" in str(ex)
 
     # we need much bigger timeout in CI because we run tests in parallel there and the machine itself is slower
     @allure.step
@@ -173,11 +154,6 @@ class StepsRelay(StepsCommon):
             node.set_relay_subscriptions(pubsub_topic_list)
 
     @allure.step
-    def delete_relay_subscriptions_on_nodes(self, node_list, pubsub_topic_list):
-        for node in node_list:
-            node.delete_relay_subscriptions(pubsub_topic_list)
-
-    @allure.step
     @retry(stop=stop_after_delay(120), wait=wait_fixed(1), reraise=True)
     def subscribe_and_publish_with_retry(self, node_list, pubsub_topic_list):
         self.ensure_relay_subscriptions_on_nodes(node_list, pubsub_topic_list)
@@ -193,15 +169,3 @@ class StepsRelay(StepsCommon):
         self.node2.start(relay="true", discv5_bootstrap_node=self.enr_uri, **kwargs)
         self.add_node_peer(self.node2, [self.multiaddr_with_id])
         self.main_nodes.extend([self.node1, self.node2])
-
-    @allure.step
-    def setup_optional_nodes(self, **kwargs):
-        if ADDITIONAL_NODES:
-            nodes = [node.strip() for node in ADDITIONAL_NODES.split(",")]
-        else:
-            pytest.skip("ADDITIONAL_NODES is empty, cannot run test")
-        for index, node in enumerate(nodes):
-            node = WakuNode(node, f"node{index + 3}_{self.test_id}")
-            node.start(relay="true", discv5_bootstrap_node=self.enr_uri, **kwargs)
-            self.add_node_peer(node, [self.multiaddr_with_id])
-            self.optional_nodes.append(node)

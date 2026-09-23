@@ -1,11 +1,9 @@
 import base64
 import hashlib
 import inspect
-from time import time
 from time import time_ns
 import allure
 import pytest
-from datetime import timedelta, datetime
 from tenacity import retry, stop_after_delay, wait_fixed
 from src.libs.common import delay, to_base64, wait_until
 from src.libs.custom_logger import get_custom_logger
@@ -81,21 +79,3 @@ class StepsCommon:
             return "0x" + hash_bytes.hex()
         else:
             return base64.b64encode(hash_bytes).decode("utf-8")
-
-    def get_time_list_pass(self):
-        ts_pass = [
-            {"description": "3 sec Past", "value": int((datetime.now() - timedelta(seconds=3)).timestamp() * 1e9)},
-            {"description": "1 sec Past", "value": int((datetime.now() - timedelta(seconds=1)).timestamp() * 1e9)},
-            {"description": "0.1 sec Past", "value": int((datetime.now() - timedelta(seconds=0.1)).timestamp() * 1e9)},
-            {"description": "0.1 sec Future", "value": int((datetime.now() + timedelta(seconds=0.1)).timestamp() * 1e9)},
-            {"description": "2 sec Future", "value": int((datetime.now() + timedelta(seconds=2)).timestamp() * 1e9)},
-            {"description": "10 sec Future", "value": int((datetime.now() + timedelta(seconds=10)).timestamp() * 1e9)},
-        ]
-        return ts_pass
-
-    def get_time_list_fail(self):
-        ts_fail = [
-            {"description": "20 sec Past", "value": int((datetime.now() - timedelta(seconds=20)).timestamp() * 1e9)},
-            {"description": "40 sec Future", "value": int((datetime.now() + timedelta(seconds=40)).timestamp() * 1e9)},
-        ]
-        return ts_fail
