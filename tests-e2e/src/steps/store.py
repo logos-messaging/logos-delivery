@@ -2,7 +2,6 @@ import inspect
 
 from src.libs.custom_logger import get_custom_logger
 import pytest
-import allure
 from src.libs.common import delay
 from src.node.store_response import StoreResponse
 from src.node.waku_message import WakuMessage
@@ -38,7 +37,6 @@ class StepsStore(StepsCommon):
         self.setup_first_store_node(store="true", relay="true")
         self.subscribe_to_pubsub_topics_via_relay(node=self.main_publishing_nodes)
 
-    @allure.step
     def start_publishing_node(self, image, node_index, **kwargs):
         node = WakuNode(image, f"publishing_node{node_index}_{self.test_id}")
         node.start(**kwargs)
@@ -50,7 +48,6 @@ class StepsStore(StepsCommon):
         self.multiaddr_list.extend([node.get_multiaddr_with_id()])
         return node
 
-    @allure.step
     def setup_store_node(self, image, node_index, **kwargs):
         node = WakuNode(image, f"store_node{node_index}_{self.test_id}")
         node.start(discv5_bootstrap_node=self.enr_uri, storenode=self.multiaddr_list[0], **kwargs)
@@ -60,20 +57,16 @@ class StepsStore(StepsCommon):
         self.add_node_peer(node, self.multiaddr_list)
         return node
 
-    @allure.step
     def setup_first_publishing_node(self, store="true", relay="true", **kwargs):
         self.publishing_node1 = self.start_publishing_node(NODE_1, node_index=1, store=store, relay=relay, **kwargs)
         self.enr_uri = self.publishing_node1.get_enr_uri()
 
-    @allure.step
     def setup_second_publishing_node(self, store, relay, **kwargs):
         self.publishing_node2 = self.start_publishing_node(NODE_1, node_index=2, store=store, relay=relay, **kwargs)
 
-    @allure.step
     def setup_first_store_node(self, store="true", relay="true", **kwargs):
         self.store_node1 = self.setup_store_node(NODE_2, node_index=1, store=store, relay=relay, **kwargs)
 
-    @allure.step
     def subscribe_to_pubsub_topics_via_relay(self, node=None, pubsub_topics=None):
         if pubsub_topics is None:
             pubsub_topics = [self.test_pubsub_topic]
@@ -85,7 +78,6 @@ class StepsStore(StepsCommon):
         else:
             node.set_relay_subscriptions(pubsub_topics)
 
-    @allure.step
     def subscribe_to_pubsub_topics_via_filter(self, node, pubsub_topic=None, content_topic=None):
         if pubsub_topic is None:
             pubsub_topic = self.test_pubsub_topic
@@ -94,7 +86,6 @@ class StepsStore(StepsCommon):
         subscription = {"requestId": "1", "contentFilters": content_topic, "pubsubTopic": pubsub_topic}
         node.set_filter_subscriptions(subscription)
 
-    @allure.step
     def publish_message(self, via="relay", pubsub_topic=None, message=None, message_propagation_delay=0.2, sender=None):
         self.message = self.create_message() if message is None else message
         if pubsub_topic is None:
@@ -110,7 +101,6 @@ class StepsStore(StepsCommon):
         delay(message_propagation_delay)
         return self.message
 
-    @allure.step
     def get_messages_from_store(
         self,
         node=None,
@@ -149,7 +139,6 @@ class StepsStore(StepsCommon):
         assert store_response.status_desc, "Status desc is missing"
         return store_response
 
-    @allure.step
     def check_published_message_is_stored(
         self,
         store_node=None,
@@ -218,7 +207,6 @@ class StepsStore(StepsCommon):
                         expected_hash == actual_hash
                     ), f"Message hash at index {idx} returned by store doesn't match the computed message hash {expected_hash}. Actual hash: {actual_hash}"
 
-    @allure.step
     def wait_for_published_message_is_stored(self, timeout_duration=30, time_between_retries=1, **kwargs):
         @retry(stop=stop_after_delay(timeout_duration), wait=wait_fixed(time_between_retries), reraise=True)
         def check_until_stored():
@@ -226,7 +214,6 @@ class StepsStore(StepsCommon):
 
         check_until_stored()
 
-    @allure.step
     def check_sent_message_is_stored(
         self,
         expected_hashes,
@@ -282,7 +269,6 @@ class StepsStore(StepsCommon):
             for expected_hash in expected_hashes:
                 assert expected_hash in actual_hashes, f"Expected hash {expected_hash} not found in store. " f"Actual hashes: {actual_hashes}"
 
-    @allure.step
     def create_payload(self, pubsub_topic=None, message=None, **kwargs):
         if message is None:
             message = self.create_message()

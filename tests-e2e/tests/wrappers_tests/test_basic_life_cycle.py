@@ -1,8 +1,6 @@
-import pytest
 from src.node.wrappers_manager import WrapperManager
 
 
-@pytest.mark.smoke
 class TestLogosDeliveryLifecycle:
     def _create_start_node(self, node_config):
         result = WrapperManager.create_and_start(config=node_config)

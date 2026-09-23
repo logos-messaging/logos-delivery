@@ -1,5 +1,3 @@
-import pytest
-
 from src.env_vars import NODE_1, NODE_2
 from src.node.waku_node import WakuNode
 from src.steps.filter import StepsFilter
@@ -19,7 +17,6 @@ class TestDiscv5(StepsRelay, StepsFilter, StepsStore, StepsLightPush):
     def wait_for_light_pushed_message_to_reach_receiving_peer(self):
         self.check_light_pushed_message_reaches_receiving_peer(peer_list=[self.receiving_node1, self.receiving_node2])
 
-    @pytest.mark.smoke
     def test_relay(self):
         self.node1 = self.running_a_node(NODE_1, "node1", relay="true")
         self.node2 = self.running_a_node(NODE_2, "node2", relay="true", discv5_bootstrap_node=self.node1.get_enr_uri())
@@ -27,7 +24,6 @@ class TestDiscv5(StepsRelay, StepsFilter, StepsStore, StepsLightPush):
         self.ensure_relay_subscriptions_on_nodes(self.main_nodes, [self.test_pubsub_topic])
         self.wait_for_published_message_to_reach_relay_peer()
 
-    @pytest.mark.smoke
     def test_filter(self):
         self.node1 = self.running_a_node(NODE_1, "node1", relay="true", filter="true")
         self.node2 = self.running_a_node(
@@ -37,7 +33,6 @@ class TestDiscv5(StepsRelay, StepsFilter, StepsStore, StepsLightPush):
         self.wait_for_subscriptions_on_main_nodes([self.test_content_topic])
         self.check_published_message_reaches_filter_peer()
 
-    @pytest.mark.smoke
     def test_lightpush(self):
         self.receiving_node1 = self.running_a_node(NODE_1, "receiving_node1", lightpush="true", relay="true")
         self.receiving_node2 = self.running_a_node(

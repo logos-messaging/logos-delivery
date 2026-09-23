@@ -2,7 +2,6 @@ import inspect
 from uuid import uuid4
 from src.libs.custom_logger import get_custom_logger
 import pytest
-import allure
 from src.libs.common import delay, wait_until
 from src.node.waku_message import WakuMessage
 from src.env_vars import NODE_1, NODE_2, ADDITIONAL_NODES
@@ -62,7 +61,6 @@ class StepsFilter(StepsCommon):
             self.add_node_peer(node, [self.multiaddr_with_id])
             self.optional_nodes.append(node)
 
-    @allure.step
     def check_published_message_reaches_filter_peer(
         self, message=None, pubsub_topic=None, message_propagation_delay=0.1, sender=None, peer_list=None
     ):
@@ -91,7 +89,6 @@ class StepsFilter(StepsCommon):
             waku_message = WakuMessage(test_messages)
             waku_message.assert_received_message(message)
 
-    @allure.step
     def wait_for_subscriptions_on_main_nodes(self, content_topic_list, pubsub_topic=None):
         if pubsub_topic is None:
             pubsub_topic = self.test_pubsub_topic
@@ -103,7 +100,6 @@ class StepsFilter(StepsCommon):
         assert filter_sub_response["requestId"] == request_id
         assert filter_sub_response["statusDesc"] in ["OK"]
 
-    @allure.step
     def subscribe_optional_filter_nodes(self, content_topic_list, pubsub_topic=None):
         if pubsub_topic is None:
             pubsub_topic = self.test_pubsub_topic
@@ -114,17 +110,14 @@ class StepsFilter(StepsCommon):
             )
 
     @retry(stop=stop_after_delay(60), wait=wait_fixed(1), reraise=True)
-    @allure.step
     def create_filter_subscription_with_retry(self, subscription, node=None):
         return self.create_filter_subscription(subscription, node)
 
-    @allure.step
     def create_filter_subscription(self, subscription, node=None):
         if node is None:
             node = self.node2
         return node.set_filter_subscriptions(subscription)
 
-    @allure.step
     def get_filter_messages(self, content_topic, pubsub_topic=None, node=None):
         if node is None:
             node = self.node2
@@ -133,7 +126,6 @@ class StepsFilter(StepsCommon):
         else:
             raise NotImplementedError("Not implemented for this node type")
 
-    @allure.step
     def wait_for_filter_messages(self, content_topic, count, pubsub_topic=None, node=None, timeout_duration=20, time_between_retries=0.5):
         # Each GET returns only the messages received since the previous call, so they are collected across polls.
         messages = []
