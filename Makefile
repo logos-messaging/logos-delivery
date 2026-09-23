@@ -118,6 +118,7 @@ test:
 ifeq ($(strip $(test_file)),)
 	$(MAKE) testcommon
 	$(MAKE) testwaku
+	$(MAKE) testwakuext
 	$(MAKE) testlogosdelivery
 else
 	$(MAKE) compile-test TEST_FILE="$(test_file)" TEST_NAME="$(call test_name)"
@@ -304,11 +305,17 @@ testcommon: | build-deps build
 ##########
 ## Waku ##
 ##########
-.PHONY: testwaku testlogosdelivery logosdeliverynode testapp example2 chat2 chat2bridge liteprotocoltester
+.PHONY: testwaku testwakuext testlogosdelivery logosdeliverynode testapp example2 chat2 chat2bridge liteprotocoltester
 
 testwaku: | build-deps build rln-deps librln
 	echo -e $(BUILD_MSG) "build/$@" && \
 		$(NIMBLE) test $(NIMBLE_TASK_FLAGS)
+
+# Split out of testwaku for the same refc cap as testlogosdelivery below. See
+# tests/all_tests_waku_ext.nim.
+testwakuext: | build-deps build rln-deps librln
+	echo -e $(BUILD_MSG) "build/$@" && \
+		$(NIMBLE) testwakuext $(NIMBLE_TASK_FLAGS)
 
 # Split out of testwaku: refc caps a binary at 3500 GC-traced globals and the
 # combined suite had reached it. See tests/all_tests_logos_delivery.nim.
