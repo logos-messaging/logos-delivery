@@ -129,19 +129,29 @@ suite "MessagingClientConf - merge (override wins)":
       mc.clusterId == Opt.some(2'u16) # override wins
       mc.maxMessageSize == Opt.some("1MB") # base preserved
 
-  test "a rateLimit override propagates through merge":
-    ## Regression: rateLimit must be `Opt` so `merge` copies it; as a plain
-    ## object it was always taken from base, leaving the field unreachable.
-    let overrides = MessagingClientConf(
-      rateLimit: Opt.some(
-        RateLimitConfig(enabled: true, epochPeriodSec: 30, messagesPerEpoch: 5)
-      )
+  test "rate-limit fields override independently through merge":
+    let base = MessagingClientConf(
+      rateLimitEnabled: Opt.some(true),
+      rateLimitEpochPeriodSec: Opt.some(30'u64),
+      rateLimitMessagesPerEpoch: Opt.some(5'u64),
     )
-    let mc = merge(MessagingClientConf(), overrides)
+    let overrides = MessagingClientConf(rateLimitMessagesPerEpoch: Opt.some(9'u64))
+    let rl = merge(base, overrides).rateLimitConfig()
     check:
-      mc.rateLimit == overrides.rateLimit
-      mc.rateLimit.get().enabled
-      mc.rateLimit.get().messagesPerEpoch == 5
+      rl.enabled # base preserved
+      rl.epochPeriodSec == 30 # base preserved
+      rl.messagesPerEpoch == 9 # override wins
+
+suite "MessagingClientConf - rate-limit config":
+  test "unset rate-limit fields fall back to DefaultRateLimitConfig":
+    check MessagingClientConf().rateLimitConfig() == DefaultRateLimitConfig
+
+  test "each set rate-limit field replaces only its default":
+    let rl = MessagingClientConf(rateLimitEnabled: Opt.some(true)).rateLimitConfig()
+    check:
+      rl.enabled
+      rl.epochPeriodSec == DefaultRateLimitConfig.epochPeriodSec
+      rl.messagesPerEpoch == DefaultRateLimitConfig.messagesPerEpoch
 
 suite "parseLogosDeliveryConf - JSON parsing":
   test "empty object resolves to a full Core node conf":
@@ -235,6 +245,47 @@ suite "parseLogosDeliveryConf - JSON parsing":
     check:
       channels.rateLimitEnabled == Opt.some(true)
       channels.sdsMaxRetransmissions == Opt.some(9)
+
+  test "rate-limit overrides are settable by field name":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"rateLimitEnabled": true,
+           "rateLimitEpochPeriodSec": 30, "rateLimitMessagesPerEpoch": 5}}"""
+    ).valueOr:
+      raiseAssert error
+    require lc.messagingConf.isSome()
+    check lc.messagingConf.get().rateLimitConfig() ==
+      RateLimitConfig(enabled: true, epochPeriodSec: 30, messagesPerEpoch: 5)
+
+  test "rate-limit overrides are settable by CLI switch name":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"rate-limit-enabled": true,
+           "rate-limit-epoch-sec": 30, "rate-limit-messages-per-epoch": 5}}"""
+    ).valueOr:
+      raiseAssert error
+    require lc.messagingConf.isSome()
+    let mc = lc.messagingConf.get()
+    check:
+      mc.rateLimitEnabled == Opt.some(true)
+      mc.rateLimitEpochPeriodSec == Opt.some(30'u64)
+      mc.rateLimitMessagesPerEpoch == Opt.some(5'u64)
+
+  test "a partial rate-limit override leaves the rest at the defaults":
+    let lc = parseLogosDeliveryConf(
+      """{"messagingOverrides": {"rate-limit-messages-per-epoch": 5}}"""
+    ).valueOr:
+      raiseAssert error
+    require lc.messagingConf.isSome()
+    let rl = lc.messagingConf.get().rateLimitConfig()
+    check:
+      not rl.enabled
+      rl.epochPeriodSec == DefaultRateLimitConfig.epochPeriodSec
+      rl.messagesPerEpoch == 5
+
+  test "an invalid rate-limit value is rejected":
+    check parseLogosDeliveryConf(
+      """{"messagingOverrides": {"rate-limit-epoch-sec": "soon"}}"""
+    )
+      .isErr()
 
   test "invalid mode is rejected (Core or Edge only)":
     check parseLogosDeliveryConf("""{"mode": "bogus"}""").isErr()

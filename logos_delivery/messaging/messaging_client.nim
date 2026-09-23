@@ -48,9 +48,8 @@ proc new*(
   ## for transport while exposing its own send/recv API.
   let reliability = conf.reliabilityEnabled.get(DefaultP2pReliability)
   let anonymityLevel = conf.anonymityLevel.get(AnonymityLevel.None)
-  let rateLimitManager = ?RateLimitManager.new(
-    conf.rateLimit.get(DefaultRateLimitConfig), rlnQuotaProvider(waku)
-  )
+  let rateLimitManager =
+    ?RateLimitManager.new(conf.rateLimitConfig(), rlnQuotaProvider(waku))
   let sendService = ?SendService.new(
     reliability, waku, rateLimitManager, anonymityLevel = anonymityLevel
   )

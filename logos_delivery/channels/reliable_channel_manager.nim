@@ -35,7 +35,7 @@ proc new*(
   if conf.rateLimitEnabled.isSome() or conf.rateLimitEpochPeriodSec.isSome() or
       conf.rateLimitMessagesPerEpoch.isSome():
     warn "channel-level rate-limit config is deprecated and ignored; " &
-      "rate limiting moved to the messaging client (MessagingClientConf.rateLimit)"
+      "rate limiting moved to the messaging client (MessagingClientConf.rateLimitEnabled et al.)"
 
   return ok(
     T(
