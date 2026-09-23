@@ -14,7 +14,7 @@ from src.node.wrapper_helpers import (
     wait_for_error,
 )
 from src.test_data import DEFAULT_CLUSTER_ID
-from tests.wrappers_tests.conftest import build_node_config
+from tests.c_abi.conftest import build_node_config
 
 
 PROPAGATED_TIMEOUT_S = 30.0

@@ -130,8 +130,8 @@ jobs:
       - name: Audit installed deps
         run: make audit-deps
 
-      # Publish the freshly built shared library so the e2e-api-tests workflow
-      # can run the wrapper suite against it without rebuilding. Only the Linux
+      # Publish the freshly built shared library so the e2e-c-abi-tests workflow
+      # can run the C ABI suite against it without rebuilding. Only the Linux
       # build is uploaded since those jobs run on ubuntu-22.04.
       - name: Upload liblogosdelivery.so
         if: matrix.os == 'ubuntu-22.04'
@@ -301,24 +301,24 @@ jobs:
     with:
       artifact_fallback: true
 
-  # Send API E2E tests run the in-repo tests-e2e/ wrapper suite against the
+  # C ABI E2E tests run the in-repo tests-e2e/ C ABI suite against the
   # liblogosdelivery.so built by the `build` job (downloaded as the
   # `liblogosdelivery` artifact).
-  send-api-e2e-tests:
+  c-abi-e2e-tests:
     needs: [changes, build]
     if: ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.e2e == 'true' }}
-    uses: ./.github/workflows/e2e-api-tests.yml
+    uses: ./.github/workflows/e2e-c-abi-tests.yml
     with:
       subset: non-docker
     secrets: inherit
 
   # Docker subset; an empty node_image falls back to DEFAULT_NWAKU (fork PRs lack the quay secrets).
-  send-api-e2e-docker-tests:
+  c-abi-e2e-docker-tests:
     needs: [changes, build, build-docker-image]
     if: >-
       ${{ needs.changes.outputs.all == 'true' || needs.changes.outputs.e2e == 'true'
       || needs.changes.outputs.docker == 'true' }}
-    uses: ./.github/workflows/e2e-api-tests.yml
+    uses: ./.github/workflows/e2e-c-abi-tests.yml
     with:
       subset: docker
       node_image: ${{ needs.build-docker-image.outputs.image }}
@@ -399,8 +399,8 @@ jobs:
       - build-ios
       - tests
       - build-docker-image
-      - send-api-e2e-tests
-      - send-api-e2e-docker-tests
+      - c-abi-e2e-tests
+      - c-abi-e2e-docker-tests
       - rest-e2e-tests
       - nix
       - lint

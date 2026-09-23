@@ -1,8 +1,8 @@
 """S01 helpers: invoke send() against an invalid handle in an isolated process.
 
 Run via:
-    python -m tests.wrappers_tests.helpers.send_invalid_handle nil       <marker>
-    python -m tests.wrappers_tests.helpers.send_invalid_handle destroyed <marker>
+    python -m tests.c_abi.helpers.send_invalid_handle nil       <marker>
+    python -m tests.c_abi.helpers.send_invalid_handle destroyed <marker>
 
 Prints a single line to stdout starting with <marker>, followed by a JSON
 payload describing the outcome. Runs in its own process so that a missing
@@ -24,7 +24,7 @@ from pathlib import Path
 
 def _ensure_bindings_on_path() -> None:
     # The wrapper module lives outside the project tree, under vendor/.
-    # Helper file is at <root>/tests/wrappers_tests/helpers/<this>.py.
+    # Helper file is at <root>/tests/c_abi/helpers/<this>.py.
     project_root = Path(__file__).resolve().parents[3]
     bindings_path = project_root / "vendor" / "logos-delivery-python-bindings" / "waku"
     if str(bindings_path) not in sys.path:
@@ -58,7 +58,7 @@ def _run_nil_handle(marker: str) -> None:
 def _run_destroyed_handle(marker: str) -> None:
     from src.node.wrappers_manager import WrapperManager
     from src.node.wrapper_helpers import EventCollector, create_message_bindings
-    from tests.wrappers_tests.conftest import build_node_config
+    from tests.c_abi.conftest import build_node_config
 
     collector = EventCollector()
 

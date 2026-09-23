@@ -423,7 +423,7 @@ class TestChannelDelivery:
         rides out after T_req, a hash in [repairTMin, repairTMax) = [30s, 300s)
         that logos-delivery does not expose, so it cannot be driven from an E2E
         test. That path is RC10 — see test_rc10_missing_dependency_is_parked
-        below and tests/wrappers_tests/test_channel_repair.py.
+        below and tests/c_abi/test_channel_repair.py.
         """
         channel_id = unique_channel_id(RC09_CHANNEL_PREFIX)
         m1, m2 = "rc09 sent while B is away", "rc09 sent after B joins"

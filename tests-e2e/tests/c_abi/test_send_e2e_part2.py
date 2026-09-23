@@ -14,7 +14,7 @@ from src.node.wrapper_helpers import (
     wait_for_sent,
     wait_for_error,
 )
-from tests.wrappers_tests.conftest import build_node_config
+from tests.c_abi.conftest import build_node_config
 
 logger = get_custom_logger(__name__)
 

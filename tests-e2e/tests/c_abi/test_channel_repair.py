@@ -13,7 +13,7 @@ from src.libs.common import delay, to_base64
 from src.node.subprocess_node import ChannelSenderProcess
 from src.node.wrappers_manager import WrapperManager
 from src.node.wrapper_helpers import EventCollector, create_message_bindings, get_node_multiaddr, unique_channel_id
-from tests.wrappers_tests.test_channel_delivery import (
+from tests.c_abi.test_channel_delivery import (
     CHANNEL_RECEIVED_EVENT,
     DELIVERY_TIMEOUT_S,
     MESH_SETTLE_S,

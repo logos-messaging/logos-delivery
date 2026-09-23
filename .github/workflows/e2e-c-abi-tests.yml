@@ -1,10 +1,10 @@
-name: e2e-api-tests
+name: e2e-c-abi-tests
 
 on:
   workflow_call:
     inputs:
       subset:
-        description: "Which wrapper subset to run: 'non-docker' or 'docker'."
+        description: "Which C ABI subset to run: 'non-docker' or 'docker'."
         type: string
         required: false
         default: "non-docker"
@@ -20,10 +20,10 @@ on:
         default: ""
 
 jobs:
-  api-e2e:
+  c-abi-e2e:
     runs-on: ubuntu-22.04
     timeout-minutes: 45
-    name: api-e2e
+    name: c-abi-e2e
     env:
       NODE_1: ${{ inputs.node_image }}
       NODE_2: ${{ inputs.node_image }}
@@ -60,8 +60,8 @@ jobs:
       - name: Install Python deps
         run: pip install -r tests-e2e/requirements.txt
 
-      - name: Run API/e2e tests (${{ inputs.subset }} subset)
+      - name: Run C ABI e2e tests (${{ inputs.subset }} subset)
         working-directory: tests-e2e
         run: |
           echo "docker peer image: ${NODE_2:-public default (DEFAULT_NWAKU)}"
-          pytest tests/wrappers_tests -m "${{ inputs.subset == 'docker' && 'docker_required' || 'not docker_required and not slow' }}" --reruns 2
+          pytest tests/c_abi -m "${{ inputs.subset == 'docker' && 'docker_required' || 'not docker_required and not slow' }}" --reruns 2

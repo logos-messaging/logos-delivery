@@ -12,7 +12,7 @@ from src.node.wrapper_helpers import (
     get_node_tcp_port,
     wait_for_propagated,
 )
-from tests.wrappers_tests.conftest import build_node_config, free_port
+from tests.c_abi.conftest import build_node_config, free_port
 
 logger = get_custom_logger(__name__)
 
