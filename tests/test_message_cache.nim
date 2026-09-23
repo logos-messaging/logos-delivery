@@ -1,6 +1,6 @@
 {.used.}
 
-import std/[sets, random], results, stew/byteutils, testutils/unittests
+import std/[sets, random, sequtils], results, stew/byteutils, testutils/unittests
 import
   logos_delivery/waku/waku_core,
   logos_delivery/waku/rest_api/message_cache,
@@ -165,6 +165,23 @@ suite "MessageCache":
     check:
       getRes.isOk
       getRes.get() == @[fakeMessage]
+
+  test "get messages of content topics sharing a pubsub topic":
+    ## Given
+    let contentTopics = @["ContentTopic0", "ContentTopic1", "ContentTopic2"]
+    for contentTopic in contentTopics:
+      cache.contentSubscribe(contentTopic)
+
+    let testMessages = contentTopics.mapIt(fakeWakuMessage(contentTopic = it))
+    for msg in testMessages:
+      cache.addMessage(testPubsubTopic, msg)
+
+    ## When
+    let messages = contentTopics.mapIt(cache.getAutoMessages(it, clear = true).get(@[]))
+
+    ## Then
+    check:
+      messages == testMessages.mapIt(@[it])
 
   test "add same message twice":
     cache.pubsubSubscribe(testPubsubTopic)

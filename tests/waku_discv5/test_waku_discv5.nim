@@ -418,6 +418,9 @@ suite "Waku Discovery v5":
       let myRng = libp2p_keys.newRng()
       var confBuilder = defaultTestWakuConfBuilder()
 
+      ## A wildcard bind host is not in the ENR, so there would be nothing
+      ## to bootstrap from.
+      confBuilder.withP2pListenAddress(parseIpAddress("127.0.0.1"))
       confBuilder.withNodeKey(libp2p_keys.PrivateKey.random(Secp256k1, myRng)[])
       confBuilder.discv5Conf.withEnabled(true)
       confBuilder.discv5Conf.withUdpPort(Port(0))

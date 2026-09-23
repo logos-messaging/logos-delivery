@@ -85,6 +85,12 @@ type MessagingClientConf* = object
     ## Rate-limit epoch length, in seconds.
   rateLimitMessagesPerEpoch* {.name: "rate-limit-messages-per-epoch".}: Opt[uint64]
     ## Messages admitted per rate-limit epoch.
+  maxParkedAgeSec* {.name: "max-parked-age-sec".}: Opt[uint]
+    ## Max age, from the message timestamp, of a send still waiting for
+    ## rate-limit budget before it fails with `MessageErrorEvent` (default 1800).
+  sendQueueCapacity* {.name: "send-queue-capacity".}: Opt[uint]
+    ## Max messages tracked by the send service; sends beyond it are rejected
+    ## (default 1000).
   backfillEnabled* {.name: "backfill-enabled".}: Opt[bool]
     ## Store catch-up of missed messages after a start (default true).
   backfillRequestTimeoutSeconds* {.name: "backfill-request-timeout-seconds".}:
@@ -97,12 +103,7 @@ proc applyMode*(conf: var WakuNodeConf, mode: LogosDeliveryMode): ConfResult[voi
     conf.relay = true
     conf.filter = true
     conf.lightpush = true
-    # Only when the operator has not spoken. The other fields here are plain
-    # bools with no "unset" to respect, but discv5Discovery is an Opt precisely
-    # so an explicit choice can be told apart from a default -- and overwriting
-    # it made `--discv5-discovery=false` silently ineffective on every path that
-    # applies a mode (logosdeliverynode did; wakunode2, which never calls this,
-    # honoured the flag).
+    # Opt so an explicit --discv5-discovery=false set before the mode survives.
     if conf.discv5Discovery.isNone():
       conf.discv5Discovery = Opt.some(true)
     conf.peerExchange = true

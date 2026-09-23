@@ -162,12 +162,27 @@ proc runRandomLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError])
 
     debug "Random lookup complete", found = discovered.len
 
+const EagerLookupDelays = [chronos.seconds(2), chronos.seconds(4), chronos.seconds(8)]
+  ## Startup schedule for the first service lookups, before the configured
+  ## interval takes over. A service routing table is usable a second or three
+  ## after its interest is registered -- libp2p bootstraps it as soon as the
+  ## table is created -- so a loop that slept a full interval first would
+  ## leave a fresh node with no peers for that long, a minute at the default,
+  ## even though every lookup it eventually makes comes back populated on the
+  ## first try.
+
 proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]).} =
   debug "Periodic service lookup started",
     interval = $self.serviceLookupInterval, services = self.servicesToDiscover
 
+  var attempt = 0
   while true:
-    await sleepAsync(self.serviceLookupInterval)
+    let delay =
+      if attempt < EagerLookupDelays.len:
+        EagerLookupDelays[attempt]
+      else:
+        self.serviceLookupInterval
+    await sleepAsync(delay)
 
     let futs = self.servicesToDiscover.mapIt(self.lookupServicePeers(it))
 
@@ -191,6 +206,15 @@ proc runServiceLookupLoop(self: WakuKademlia) {.async: (raises: [CancelledError]
 
     if discovered.len > 0:
       PeersDiscoveredEvent.emit(peers = discovered)
+
+    if attempt < EagerLookupDelays.len:
+      ## One round that found peers ends the eager phase; an empty or failed
+      ## one waits the next, longer delay.
+      attempt =
+        if discovered.len > 0:
+          EagerLookupDelays.len
+        else:
+          attempt + 1
 
 proc new*(
     T: type WakuKademlia,
@@ -236,8 +260,14 @@ proc start*(self: WakuKademlia) {.async: (raises: []).} =
   for serviceId in self.servicesToDiscover:
     discard self.protocol.registerInterest(serviceId)
 
-  if self.randomLookupLoop.isNil():
-    self.randomLookupLoop = self.runRandomLookupLoop()
+  ## A zero interval disables the random walk; it is the default. The walk
+  ## returns the self-published records of the DHT peers it meets, so it
+  ## finds delivery nodes only where they run the DHT themselves.
+  if self.randomLookupInterval > ZeroDuration:
+    if self.randomLookupLoop.isNil():
+      self.randomLookupLoop = self.runRandomLookupLoop()
+  else:
+    info "Random kademlia lookups disabled"
 
   if self.serviceLookupLoop.isNil():
     self.serviceLookupLoop = self.runServiceLookupLoop()

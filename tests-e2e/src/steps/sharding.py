@@ -4,7 +4,7 @@ from src.libs.custom_logger import get_custom_logger
 from time import time
 import pytest
 import allure
-from src.libs.common import to_base64, delay
+from src.libs.common import to_base64, delay, wait_until
 from src.node.waku_message import WakuMessage
 from src.env_vars import (
     DEFAULT_NWAKU,
@@ -153,14 +153,24 @@ class StepsSharding(StepsRelay):
             peer_list = self.main_nodes + self.optional_nodes
 
         self.relay_message(sender, message, pubsub_topic)
-        delay(0.1)
         for index, peer in enumerate(peer_list):
             logger.debug(f"Checking that peer NODE_{index + 1}:{peer.image} can find the published message")
-            get_messages_response = self.retrieve_relay_message(peer, content_topic, pubsub_topic)
-            assert get_messages_response, f"Peer NODE_{index + 1}:{peer.image} couldn't find any messages"
+            get_messages_response = self.wait_for_relay_messages(peer, 1, content_topic=content_topic, pubsub_topic=pubsub_topic)
             assert len(get_messages_response) == 1, f"Expected 1 message but got {len(get_messages_response)}"
             waku_message = WakuMessage(get_messages_response)
             waku_message.assert_received_message(message)
+
+    @allure.step
+    def wait_for_relay_messages(self, node, count, content_topic=None, pubsub_topic=None, timeout_duration=20, time_between_retries=0.5):
+        # Each GET returns only the messages received since the previous call, so they are collected across polls.
+        messages = []
+
+        def all_messages_received():
+            messages.extend(self.retrieve_relay_message(node, content_topic, pubsub_topic))
+            return len(messages) >= count
+
+        wait_until(all_messages_received, timeout_duration, time_between_retries, f"Expected {count} relay messages")
+        return messages
 
     @allure.step
     def get_filter_messages(self, content_topic, pubsub_topic=None, node=None):

@@ -381,12 +381,54 @@ suite "Waku NetConfig":
         wsFlag(wssEnabled)
       )
 
-  asyncTest "ENR is set with bindIp/Port if no extIp/Port are provided":
-    let conf = defaultTestWakuConf()
+  asyncTest "ENR is set with a concrete bindIp/Port if no extIp/Port are provided":
+    let netConfigRes =
+      NetConfig.init(bindIp = parseIpAddress("1.2.3.4"), bindPort = Port(60000))
 
+    assert netConfigRes.isOk(), $netConfigRes.error
+
+    let netConfig = netConfigRes.get()
+
+    check:
+      netConfig.enrIp.get() == parseIpAddress("1.2.3.4")
+      netConfig.enrPort.get() == Port(60000)
+
+  asyncTest "ENR omits a wildcard bind host, in each of its spellings":
+    for host in ["0.0.0.0", "::", "::ffff:0.0.0.0"]:
+      let netConfigRes =
+        NetConfig.init(bindIp = parseIpAddress(host), bindPort = Port(60000))
+
+      assert netConfigRes.isOk(), $netConfigRes.error
+
+      check:
+        netConfigRes.get().enrIp.isNone()
+        netConfigRes.get().enrPort.get() == Port(60000)
+
+  asyncTest "ENR omits port 0, from the bind config and from the ext-ip config":
+    let bindOnly =
+      NetConfig.init(bindIp = parseIpAddress("1.2.3.4"), bindPort = Port(0))
+    assert bindOnly.isOk(), $bindOnly.error
+
+    let withExtIp = NetConfig.init(
+      bindIp = parseIpAddress("0.0.0.0"),
+      bindPort = Port(0),
+      extIp = Opt.some(parseIpAddress("1.2.3.4")),
+      extPort = Opt.some(Port(0)),
+    )
+    assert withExtIp.isOk(), $withExtIp.error
+
+    check:
+      bindOnly.get().enrIp.get() == parseIpAddress("1.2.3.4")
+      bindOnly.get().enrPort.isNone()
+      withExtIp.get().enrIp.get() == parseIpAddress("1.2.3.4")
+      withExtIp.get().enrPort.isNone()
+
+  asyncTest "ENR multiaddrs leave out the entries a peer cannot dial":
     let netConfigRes = NetConfig.init(
-      bindIp = conf.endpointConf.p2pListenAddress,
-      bindPort = conf.endpointConf.p2pTcpPort,
+      bindIp = parseIpAddress("0.0.0.0"),
+      bindPort = Port(60000),
+      quicBindPort = Opt.some(Port(60001)),
+      quicEnabled = true,
     )
 
     assert netConfigRes.isOk(), $netConfigRes.error
@@ -394,8 +436,8 @@ suite "Waku NetConfig":
     let netConfig = netConfigRes.get()
 
     check:
-      netConfig.enrIp.get() == conf.endpointConf.p2pListenAddress
-      netConfig.enrPort.get() == conf.endpointConf.p2pTcpPort
+      netConfig.announcedAddresses.anyIt(it.isQuicAddress())
+      netConfig.enrMultiaddrs.len == 0
 
   asyncTest "ENR is set with extIp/Port if provided":
     let
@@ -538,3 +580,18 @@ suite "Waku NetConfig":
       MultiAddress.init("/ip4/1.2.3.4/udp/0/quic-v1").get().hasZeroPort()
       not MultiAddress.init("/ip4/1.2.3.4/tcp/60000").get().hasZeroPort()
       not MultiAddress.init("/dns4/x.example.org/tcp/443/wss").get().hasZeroPort()
+
+  test "isConcreteEndpoint rejects only the bind-time placeholders":
+    const CircuitAddr =
+      "/ip4/93.184.216.34/tcp/4001/p2p/" &
+      "16Uiu2HAm7YEh2wwbYNvayrSQe2bdm1aL4FnhCLkvSNaScMxcgt4n/p2p-circuit"
+    check:
+      MultiAddress.init("/ip4/1.2.3.4/tcp/60000").get().isConcreteEndpoint()
+      MultiAddress.init("/ip4/192.168.1.5/tcp/60000").get().isConcreteEndpoint()
+      MultiAddress.init("/dns4/x.example.org/tcp/443/wss").get().isConcreteEndpoint()
+      MultiAddress.init("/ip4/1.2.3.4/udp/60001/quic-v1").get().isConcreteEndpoint()
+      MultiAddress.init(CircuitAddr).get().isConcreteEndpoint()
+      not MultiAddress.init("/ip4/0.0.0.0/tcp/60000").get().isConcreteEndpoint()
+      not MultiAddress.init("/ip6/::/tcp/60000").get().isConcreteEndpoint()
+      not MultiAddress.init("/ip4/1.2.3.4/tcp/0").get().isConcreteEndpoint()
+      not MultiAddress.init("/ip4/0.0.0.0/udp/60001/quic-v1").get().isConcreteEndpoint()

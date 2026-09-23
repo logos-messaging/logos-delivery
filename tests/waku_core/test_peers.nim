@@ -10,7 +10,7 @@ import
   confutils/toml/std/net
 import logos_delivery/waku/[waku_core, waku_enr], ../testlib/wakucore
 
-suite "Waku Core - Peers":
+procSuite "Waku Core - Peers":
   test "Peer info parses correctly":
     ## Given
     let address =

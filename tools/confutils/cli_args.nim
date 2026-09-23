@@ -675,8 +675,9 @@ hence would have reachability issues.""",
   .}: seq[string]
 
   kadRandomLookupIntervalSec* {.
-    desc: "Interval seconds between random kademlia lookups.",
-    defaultValue: 60,
+    desc:
+      "Interval seconds between random kademlia lookups. 0 (the default) disables them.",
+    defaultValue: 0,
     name: "kad-random-lookup-interval"
   .}: uint32
 
