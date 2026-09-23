@@ -309,7 +309,7 @@ proc admitAndProve(self: SendService, task: DeliveryTask): Future[bool] {.async.
     if task.isEphemeral():
       let quotaState = self.rateLimitManager.quotaState()
       if quotaState != QuotaState.Normal:
-        debug "Dropping ephemeral message, rate-limit quota not normal",
+        debug "Dropping ephemeral message as we are approaching rate-limit quota",
           requestId = task.requestId,
           msgHash = task.msgHash.to0xHex(),
           quotaState = quotaState
