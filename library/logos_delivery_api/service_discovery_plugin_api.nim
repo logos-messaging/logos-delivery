@@ -1,4 +1,4 @@
-import std/[json, macros, os]
+import std/[json, macros, os, strutils]
 import chronos, chronicles, results, ffi
 import
   logos_delivery,
@@ -46,8 +46,14 @@ macro emitAbiLayoutGuards(T: typedesc, cname: static string, header: static stri
     nnkPragma.newTree(nnkExprColonExpr.newTree(ident"emit", newLit(text))),
   )
 
-const PluginHeader =
-  currentSourcePath().parentDir().parentDir() / "logosdelivery_service_discovery.h"
+# Absolute, and forward-slashed on purpose. Nim's `/` and `parentDir` join with
+# `DirSep`, which is `\\` whenever the TARGET is Windows -- including a cross
+# build, where the compiler doing the reading is a Linux mingw-gcc that treats
+# `\\` as an ordinary character and cannot find the file. Forward slashes are
+# accepted by gcc, mingw and MSVC alike.
+const PluginHeader = (
+  currentSourcePath().parentDir().parentDir() & "/logosdelivery_service_discovery.h"
+).replace('\\', '/')
 
 emitAbiLayoutGuards(ServiceDiscoveryPlugin, "LdServiceDiscoveryPlugin", PluginHeader)
 
