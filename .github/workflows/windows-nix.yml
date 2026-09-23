@@ -1,0 +1,42 @@
+name: ci / windows (nix cross)
+
+# Cross-builds the flake's *-windows-x86_64 packages on Linux and runs them on a
+# real Windows runner; everything but the `with:` blocks is in logos-windows-ci.
+
+on:
+  pull_request:
+    branches: [master]
+  merge_group:
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.head_ref || github.run_id }}
+  cancel-in-progress: true
+
+permissions:
+  contents: read
+  pull-requests: read
+
+jobs:
+  windows:
+    uses: logos-co/logos-windows-ci/.github/workflows/windows-ci.yml@793b2e4b57e8fb2e4b2c06211fa931904de962a1
+    # The pinned workflow consumes optional Attic secrets without declaring
+    # named workflow_call secrets, so inheritance is its only valid interface.
+    secrets: inherit
+    with:
+      # The Windows build is published the way zerokit publishes its own: under
+      # the platform that builds it, as packages.x86_64-linux.<name>-windows-x86_64.
+      package-set: packages.x86_64-linux
+
+      # liblogosdelivery is what downstream consumes; logosdeliverynode is the
+      # only executable here, without which the leg degrades to compile-only.
+      targets: liblogosdelivery-windows-x86_64 logosdeliverynode-windows-x86_64
+
+      smoke-file: .github/smoke/logos-delivery.sh
+
+      # Measured 2026-09-16 into an empty store: 26 derivations for these two
+      # targets, all this repo's own Nim/Rust work; 60 is tighter than the 150.
+      cold-derivation-budget: 60
+
+      # A cold Nim + zerokit cross build on a 4-core GitHub runner. The MSYS2
+      # job next door is the same order of magnitude.
+      timeout-minutes: 120

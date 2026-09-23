@@ -2,7 +2,7 @@
 
 import
   results,
-  std/[net, sequtils, strutils],
+  std/[net, sequtils, strutils, tables],
   testutils/unittests,
   chronos,
   chronos/transports/[stream, datagram, common],
@@ -16,6 +16,7 @@ import
   tests/testlib/[wakunode, wakucore],
   logos_delivery/waku/[
     waku_node,
+    waku_store/common,
     net/net_config,
     waku_enr,
     net/auto_port,
@@ -77,6 +78,22 @@ suite "Node Factory":
       filterLimit == Opt.some((volume: 100, period: 1.seconds))
       lightPushLimit == Opt.some((volume: 5, period: 1.seconds))
       peerExchangeLimit == Opt.some((volume: 5, period: 1.seconds))
+
+  asynctest "The storenode command line option fills the store service slot":
+    # Given the configuration of a binary started with --storenode
+    let storePeerId = PeerId.init(generateSecp256k1Key()).tryGet()
+    var cliConf = defaultWakuNodeConf().get()
+    cliConf.storenode = "/ip4/127.0.0.1/tcp/60000/p2p/" & $storePeerId
+    let conf = cliConf.toWakuConf().valueOr:
+      raiseAssert error
+
+    # When the node is set up
+    let node = (await setupNode(conf, relay = Relay.new())).valueOr:
+      raiseAssert error
+
+    # Then that peer holds the store service slot
+    check:
+      node.peerManager.serviceSlots[WakuStoreCodec].peerId == storePeerId
 
   test "ENR configuration trims multiaddrs until record fits":
     var conf = defaultTestWakuConf()

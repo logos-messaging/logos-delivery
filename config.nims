@@ -6,9 +6,10 @@ else:
   switch("nimcache", "nimcache/debug/$projectName")
 
 if defined(windows):
-  if not defined(disable_rln):
-    switch("passL", "rln.lib")
-  switch("define", "postgres=false")
+  if buildOS != "windows" and not defined(disable_rln):
+    # Cross builds do not go through Makefile's librln target, so take the
+    # archive from their environment. Native MSYS2 builds already pass it.
+    switch("passL", getEnv("LIBRLN_FILE", "rln.lib"))
 
   # disable timestamps in Windows PE headers - https://wiki.debian.org/ReproducibleBuilds/TimestampsInPEBinaries
   switch("passL", "-Wl,--no-insert-timestamp")
@@ -83,8 +84,12 @@ elif portableBuild:
   let leopardCmakeBase =
     if defined(macosx):
       "-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off"
-    elif defined(windows):
+    elif defined(windows) and buildOS == "windows":
       "-G\"MSYS Makefiles\" -DCMAKE_BUILD_TYPE=Release"
+    elif defined(windows) and buildOS != "windows":
+      # Cross-built: the builder has no MSYS make, and the mingw toolchains we
+      # cross with carry no OpenMP runtime for Leopard-RS to link against.
+      "-DCMAKE_BUILD_TYPE=Release -DENABLE_OPENMP=off"
     else:
       "-DCMAKE_BUILD_TYPE=Release"
 

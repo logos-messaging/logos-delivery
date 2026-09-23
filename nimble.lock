@@ -27,7 +27,7 @@
     },
     "nat_traversal": {
       "version": "0.0.1",
-      "vcsRevision": "860e18c37667b5dd005b94c63264560c35d88004",
+      "vcsRevision": "83a4010c72917fd1386880d376392069960e12fb",
       "url": "https://github.com/status-im/nim-nat-traversal",
       "downloadMethod": "git",
       "dependencies": [
@@ -35,7 +35,7 @@
         "results"
       ],
       "checksums": {
-        "sha1": "1a376d3e710590ef2c48748a546369755f0a7c97"
+        "sha1": "d36e7e9289896a9754933b2efcd57fe78c573009"
       }
     },
     "unicodedb": {
@@ -419,8 +419,8 @@
       }
     },
     "brokers": {
-      "version": "#c370ac112129645dba551cc24eefd9120db8df24",
-      "vcsRevision": "c370ac112129645dba551cc24eefd9120db8df24",
+      "version": "#fd97eb355eee5d14594e0b4599964eff00648ec7",
+      "vcsRevision": "fd97eb355eee5d14594e0b4599964eff00648ec7",
       "url": "https://github.com/NagyZoltanPeter/nim-brokers.git",
       "downloadMethod": "git",
       "dependencies": [
@@ -432,7 +432,7 @@
         "cbor_serialization"
       ],
       "checksums": {
-        "sha1": "973fca04835f79bf7458b59c625b515a1e46d0cc"
+        "sha1": "65f36b4f6d9a5db2139712ff948e5d075c390d49"
       }
     },
     "stint": {
@@ -478,8 +478,8 @@
       }
     },
     "ffi": {
-      "version": "#b9c4d26de013bba098e810f70074cbba6c5b4c15",
-      "vcsRevision": "b9c4d26de013bba098e810f70074cbba6c5b4c15",
+      "version": "#4c1218626bbbf89e19836845b690937cd255c3f0",
+      "vcsRevision": "4c1218626bbbf89e19836845b690937cd255c3f0",
       "url": "https://github.com/logos-messaging/nim-ffi",
       "downloadMethod": "git",
       "dependencies": [
@@ -489,7 +489,7 @@
         "cbor_serialization"
       ],
       "checksums": {
-        "sha1": "30f8c27de133bed963e620808f34e3a34a08d0b3"
+        "sha1": "ed2abe9a655532b35885ab3cc785c504574bb819"
       }
     },
     "minilru": {

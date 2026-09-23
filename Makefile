@@ -89,6 +89,9 @@ ifeq ($(detected_OS),Windows)
   NIM_PARAMS += --passL:"-L$(MINGW_PATH)/lib"
   LIBS = -lws2_32 -lbcrypt -liphlpapi -luserenv -lntdll -lpq
   NIM_PARAMS += $(foreach lib,$(LIBS),--passL:"$(lib)")
+  # GNU ld scans static archives left-to-right. librln is appended later by the
+  # librln target, so repeat its Windows dependencies after that archive.
+  RLN_TRAILING_LIBS = $(LIBS)
   NIM_PARAMS += --passL:"-Wl,--allow-multiple-definition"
   export PATH := /c/msys64/usr/bin:/c/msys64/mingw64/bin:/c/msys64/usr/lib:/c/msys64/mingw64/lib:$(PATH)
 endif
@@ -281,7 +284,7 @@ $(LIBRLN_FILE):
 		bash scripts/build_rln.sh $(LIBRLN_BUILDDIR) $(LIBRLN_VERSION) $(LIBRLN_FILE)
 
 librln: | $(LIBRLN_FILE)
-	$(eval NIM_PARAMS += --passL:$(LIBRLN_FILE) --passL:-lm)
+	$(eval NIM_PARAMS += --passL:$(LIBRLN_FILE) --passL:-lm $(foreach lib,$(RLN_TRAILING_LIBS),--passL:"$(lib)"))
 
 clean-librln:
 	cargo clean --manifest-path vendor/zerokit/rln/Cargo.toml

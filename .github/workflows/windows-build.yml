@@ -170,9 +170,13 @@ jobs:
 
     - name: Check Executable
       run: |
-        if [ -f "./${{ matrix.output }}" ]; then
-          echo "${{ matrix.output }} build successful"
-        else
+        if [ ! -f "./${{ matrix.output }}" ]; then
           echo "Build failed: ${{ matrix.output }} not found"
           exit 1
+        fi
+        echo "${{ matrix.output }} build successful"
+
+        if [ "${{ matrix.target }}" = logosdeliverynode ]; then
+          cp /mingw64/bin/libpq.dll "$(dirname "${{ matrix.output }}")/"
+          "./${{ matrix.output }}" --version
         fi

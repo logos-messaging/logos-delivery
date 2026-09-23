@@ -70,12 +70,13 @@ requires "nim == 2.2.6",
 # For commit-pinned releases, the preceding link records the associated
 # upstream release tag at the time the revision was selected.
 
-requires "https://github.com/logos-messaging/nim-ffi#b9c4d26de013bba098e810f70074cbba6c5b4c15"
+requires "https://github.com/logos-messaging/nim-ffi#4c1218626bbbf89e19836845b690937cd255c3f0"
 
 # No tag at pinning time; revision was 19 commits after v0.3.1-rc.0.
 requires "https://github.com/logos-messaging/nim-sds.git#b12f5ee07c5b764303b51fb948b32a4ade1de3b5"
 
-requires "https://github.com/NagyZoltanPeter/nim-brokers.git#c370ac112129645dba551cc24eefd9120db8df24"
+# v3.4.0: https://github.com/NagyZoltanPeter/nim-brokers/releases/tag/v3.4.0
+requires "https://github.com/NagyZoltanPeter/nim-brokers.git#fd97eb355eee5d14594e0b4599964eff00648ec7"
 
 requires "https://github.com/logos-messaging/nim-segmentation#0593ef7c9267b0204093fe202bec477b2dbf824c"
 
@@ -137,7 +138,7 @@ const cBindingsDir = "library/generated"
 ## `-d:ffiSrcPath` is required: without it nim-ffi derives the path with
 ## `relativePath`, which needs `getcwd` at compile time and fails to build.
 const cBindingsFlags =
-  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=" & cBindingsDir &
+  " -d:ffiGenBindings -d:targetLang=c -d:ffiOutputDir=generated" &
   " -d:ffiSrcPath=../liblogosdelivery.nim "
 
 ## The Makefile does not export NIM_PARAMS, so its defines never reach here.

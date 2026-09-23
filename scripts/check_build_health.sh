@@ -274,6 +274,19 @@ expect_flag "DEBUG_DISCV5=1 enables discv5 tracing"  "-d:debugDiscv5" DEBUG_DISC
 expect_flag "DEBUG_SYMBOLS=1 emits native symbols"   "--debugger:native" DEBUG_SYMBOLS=1
 reject_flag "DEBUG_SYMBOLS unset leaves them out"    "--debugger:native"
 
+# The MSYS2 build appends the static Rust RLN archive from the librln target.
+# Its Windows imports must follow the archive because GNU ld scans left-to-right.
+rln_link=$(printf 'include Makefile\n_health_probe: librln\n\t@echo "$(NIM_PARAMS)"\n' \
+  | make -s -f - detected_OS=Windows LIBRLN_FILE=Makefile _health_probe 2>/dev/null)
+rln_trailing=${rln_link#*--passL:Makefile}
+case "${rln_trailing}" in
+  *--passL:-lws2_32*--passL:-luserenv*--passL:-lntdll*)
+    ok "Windows system libraries follow the RLN archive" ;;
+  *)
+    no "Windows system libraries follow the RLN archive" \
+      "actual: ${rln_link:-<no NIM_PARAMS>}" ;;
+esac
+
 # --------------------------------------------------------------------------
 # `make test <file> [name]` passes the file and the name as extra goals, which
 # the catch-all absorbs. Every other unknown target must fail, or a stale

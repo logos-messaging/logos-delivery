@@ -1,6 +1,7 @@
 {.used.}
 
 import
+  std/strutils,
   results,
   testutils/unittests,
   libp2p/multiaddress,
@@ -196,6 +197,29 @@ suite "Waku Core - Peers":
       $(dns4Peer.peerId) == "16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
       $(dns4Peer.addrs[0]) == "/dns4/localhost/udp/65033/quic-v1"
 
+  test "Secure WebSocket peer info keeps the tls part":
+    ## The WebSocket transport uses the tls component to select TLS.
+    ## Removing it produces a plaintext WebSocket address.
+    let address =
+      "/dns4/localhost/tcp/443/tls/ws/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+
+    let peerRes = parsePeerInfo(address)
+    check peerRes.isOk()
+
+    let peer = peerRes.get(RemotePeerInfo())
+    check:
+      $(peer.peerId) == "16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+      peer.addrs == @[MultiAddress.init("/dns4/localhost/tcp/443/tls/ws").get()]
+
+  test "TLS without WebSocket is rejected, not accepted as TCP":
+    ## TCP/TLS without WebSocket does not match a supported transport.
+    ## Dropping tls incorrectly makes the address match plain TCP.
+    let address =
+      "/dns4/localhost/tcp/443/tls/p2p/16Uuu2HBmAcHvhLqQKwSSbX6BG5JLWUDRcaLVrehUVqpw7fz1hbYc"
+
+    let res = parsePeerInfo(address)
+    check res.errorOr("accepted") == "invalid multiaddress: no supported transport found"
+
   test "Peer address list parses a single address":
     ## Given
     let address =
@@ -277,10 +301,10 @@ suite "Waku Core - Peers":
   const RelayId = "16Uiu2HAmCzWcYBCw3xKW8De16X9wtcbQrqD8x7CRRv4xpsFJ4oN8"
   const TargetId = "16Uiu2HAm2eqzqp6xn32fzgGi8K4BuF88W4Xy6yxsmDcW8h1gj6ie"
 
-  proc circuit(relayLeg: string): string =
+  proc circuit(relayPart: string): string =
     ## A circuit relay address: the address of the relay, then the circuit and
     ## the target peer id.
-    relayLeg & "/p2p/" & RelayId & "/p2p-circuit/p2p/" & TargetId
+    relayPart & "/p2p/" & RelayId & "/p2p-circuit/p2p/" & TargetId
 
   test "Circuit relay address parses to the target behind a TCP relay":
     ## Given
@@ -354,13 +378,21 @@ suite "Waku Core - Peers":
         "/ip6/2001:db8::1/tcp/60010/p2p/" & RelayId & "/p2p-circuit"
 
   test "Circuit relay address is rejected when the relay part has no transport":
-    ## The node cannot dial a relay part that has only udp. The parser rejects
-    ## it, as it rejects a plain peer address that has only udp.
-    check parsePeerInfo(circuit("/ip4/162.19.247.156/udp/60010")).isErr()
+    ## UDP without QUIC is unsupported. The error prefix includes the complete
+    ## circuit-relay address between colon separators.
+    let address = circuit("/ip4/162.19.247.156/udp/60010")
+    let error = parsePeerInfo(address).errorOr("accepted")
+    check error.startsWith("relay part of p2p-circuit address: " & address & ": ")
 
   test "Circuit relay address is rejected without the relay peer id":
     let address = "/ip4/162.19.247.156/tcp/60010/p2p-circuit/p2p/" & TargetId
     check parsePeerInfo(address).isErr()
+
+  test "Circuit relay address is rejected when nothing comes before the circuit":
+    ## Reject an empty relay prefix before constructing its multiaddress.
+    let address = "/p2p-circuit/p2p/" & TargetId
+    let error = parsePeerInfo(address).errorOr("accepted")
+    check error == "no relay part before /p2p-circuit/p2p/ in: " & address
 
   test "Circuit relay address is rejected with an incorrect target peer id":
     let address =

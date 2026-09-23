@@ -65,6 +65,22 @@ suite "Waku Archive - message handling":
     check:
       (waitFor driver.getMessagesCount()).tryGet() == 2
 
+  test "it should not archive the same message twice":
+    ## Setup
+    let driver = newSqliteArchiveDriver()
+    let archive = newWakuArchive(driver)
+
+    ## Given
+    let message = fakeWakuMessage(ts = now())
+
+    ## When
+    waitFor archive.handleMessage(DefaultPubsubTopic, message)
+    waitFor archive.handleMessage(DefaultPubsubTopic, message)
+
+    ## Then
+    check:
+      (waitFor driver.getMessagesCount()).tryGet() == 1
+
   test "it should not archive a message with no sender timestamp":
     ## Setup
     let driver = newSqliteArchiveDriver()
@@ -416,6 +432,35 @@ procSuite "Waku Archive - find messages":
       pages[0] == msgListA[0 .. 3]
       pages[1] == msgListA[4 .. 7]
       pages[2] == msgListA[8 .. 9]
+
+  test "handle query with forward pagination ending on a full page":
+    ## Given
+    let req =
+      ArchiveQuery(includeData: true, pageSize: 5, direction: PagingDirection.FORWARD)
+
+    ## When
+    var nextReq = req
+
+    var pages = newSeq[seq[WakuMessage]](2)
+    var cursors = newSeq[Opt[ArchiveCursor]](2)
+
+    for i in 0 ..< 2:
+      let res = waitFor archiveA.findMessages(nextReq)
+      check res.isOk()
+
+      let response = res.tryGet()
+      pages[i] = response.messages
+      cursors[i] = response.cursor
+      nextReq.cursor = cursors[i]
+
+    ## Then
+    check:
+      cursors[0] == Opt.some(computeMessageHash(DefaultPubsubTopic, msgListA[4]))
+      cursors[1] == Opt.none(ArchiveCursor)
+
+    check:
+      pages[0] == msgListA[0 .. 4]
+      pages[1] == msgListA[5 .. 9]
 
   test "handle query with backward pagination":
     ## Given

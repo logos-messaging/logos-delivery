@@ -1,26 +1,26 @@
 import docker
-import os
 from src.env_vars import NETWORK_NAME, PG_PASS, PG_USER
+from src.libs.common import wait_until
 from src.libs.custom_logger import get_custom_logger
+from src.node.docker_mananger import DockerManager
 
 logger = get_custom_logger(__name__)
 
 
 def start_postgres():
     pg_env = {"POSTGRES_USER": PG_USER, "POSTGRES_PASSWORD": PG_PASS}
+    image = "postgres:15.4-alpine3.18"
 
-    base_path = os.path.abspath(".")
-    volumes = {os.path.join(base_path, "postgresql"): {"bind": "/var/lib/postgresql/data", "mode": "Z"}}
-
+    docker_manager = DockerManager(image)
+    docker_manager.create_network()
+    docker_manager.pull_if_missing(image)
     client = docker.from_env()
 
-    postgres_container = client.containers.run(
-        "postgres:15.4-alpine3.18",
+    postgres_container = client.containers.create(
+        image,
         name="postgres",
         environment=pg_env,
-        volumes=volumes,
         command="postgres",
-        ports={"5432/tcp": ("127.0.0.1", 5432)},
         restart_policy={"Name": "on-failure", "MaximumRetryCount": 5},
         healthcheck={
             "Test": ["CMD-SHELL", "pg_isready -U postgres -d postgres"],
@@ -29,16 +29,32 @@ def start_postgres():
             "Retries": 5,
             "StartPeriod": 80000000000,  # 80 seconds in nanoseconds
         },
-        detach=True,
         network_mode=NETWORK_NAME,
     )
+
+    try:
+        postgres_container.start()
+        # The server that initialises the database listens on the Unix socket only, so only the final server answers over TCP.
+        wait_until(
+            lambda: postgres_container.exec_run(["pg_isready", "-h", "127.0.0.1", "-U", PG_USER]).exit_code == 0,
+            timeout_duration=30,
+            message="Postgres did not accept connections",
+        )
+    except Exception:
+        stop_postgres(postgres_container)
+        raise
 
     logger.debug("Postgres container started")
 
     return postgres_container
 
 
+def get_message_count(postgres_container):
+    result = postgres_container.exec_run(["psql", "-U", PG_USER, "-tAc", "SELECT count(*) FROM messages"])
+    assert result.exit_code == 0, f"Could not count the stored messages: {result.output.decode()}"
+    return int(result.output.decode().strip())
+
+
 def stop_postgres(postgres_container):
-    postgres_container.stop()
-    postgres_container.remove()
+    postgres_container.remove(v=True, force=True)
     logger.debug("Postgres container stopped and removed.")
