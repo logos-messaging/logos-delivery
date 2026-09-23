@@ -102,9 +102,7 @@ proc new*(
     spamProtection = spamProtection,
     delayStrategy = Opt.some(
       if spamProtection.isSome():
-        DelayStrategy(
-          SpamProtectionDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng())
-        )
+        DelayStrategy(SpamProtectionDelayStrategy.new(rng = crypto.newRng()))
       else:
         DelayStrategy(
           ExponentialDelayStrategy.new(meanDelay = 50'u16, rng = crypto.newRng())
