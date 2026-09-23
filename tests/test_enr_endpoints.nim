@@ -430,6 +430,106 @@ procSuite "ENR endpoints":
     check refreshEnrAddrs(node, key, wd).isOk()
     check node.enr.ipOf().isNone()
 
+  test "a refresh between discv5 writes keeps what discv5 learned":
+    ## A commit can land before the reconcile tick. Rebuilding from the
+    ## cached endpoint then overwrites the live record, and the next
+    ## reconcile sees two equal records and never notices what was lost.
+    let key = generateSecp256k1Key()
+    let node = newTestWakuNode(
+      key,
+      parseIpAddress("0.0.0.0"),
+      Port(0),
+      quicEnabled = false,
+      discv5UdpPort = Opt.some(Port(9916)),
+    )
+
+    let keyBytes = key.getRawBytes().expect("raw")
+    let ethPk = keys.PrivateKey.fromHex(byteutils.toHex(keyBytes)).expect("pk")
+    let proto = discv5_protocol.newProtocol(
+      ethPk,
+      enrIp = Opt.none(IpAddress),
+      enrTcpPort = Opt.none(Port),
+      enrUdpPort = Opt.none(Port),
+      previousRecord = Opt.some(node.enr),
+      bindPort = Port(9916),
+      bindIp = Opt.none(IpAddress),
+    )
+    let wd = WakuDiscoveryV5(protocol: proto)
+    proto.localNode.record = node.enr
+
+    node.announcedAddresses = @[MultiAddress.init("/ip4/203.0.113.9/tcp/60000").get()]
+    check refreshEnrAddrs(node, key, wd).isOk()
+    check node.enr.ipOf().get() == [203'u8, 0, 113, 9]
+
+    ## discv5 learns a host and writes its own record.
+    check proto.localNode
+      .update(
+        ethPk,
+        ip = Opt.some(parseIpAddress("198.51.100.4")),
+        udpPort = Opt.some(Port(30303)),
+      )
+      .isOk()
+
+    ## A mapping changes and commits before the reconcile tick.
+    node.announcedAddresses = @[MultiAddress.init("/ip4/203.0.113.9/tcp/60001").get()]
+    check refreshEnrAddrs(node, key, wd).isOk()
+
+    check:
+      node.enr.ipOf().get() == [198'u8, 51, 100, 4]
+      node.enr.udpOf().get() == 30303'u16
+      node.enr == proto.localNode.record
+
+  asyncTest "an address on a host discv5 confirmed reaches the record":
+    ## A server with its public address on the interface, bound to the
+    ## wildcard: the resolved base is not operator intent, so it is withheld
+    ## until discv5 confirms that host from outside. The filter is the same
+    ## for every transport, so a QUIC entry on that host travels with it.
+    let key = generateSecp256k1Key()
+    let node = newTestWakuNode(
+      key,
+      parseIpAddress("0.0.0.0"),
+      Port(0),
+      quicEnabled = false,
+      discv5UdpPort = Opt.some(Port(9917)),
+    )
+    await node.start()
+
+    require node.announcedAddresses.len == 1
+    let resolved = node.announcedAddresses[0]
+    let host = resolved.getIp().expect("resolved host")
+
+    ## Known only from the inside, so nothing is carried yet.
+    check:
+      node.enrAddresses().len == 0
+      node.enr.multiaddrsOf().len == 0
+
+    let keyBytes = key.getRawBytes().expect("raw")
+    let ethPk = keys.PrivateKey.fromHex(byteutils.toHex(keyBytes)).expect("pk")
+    let proto = discv5_protocol.newProtocol(
+      ethPk,
+      enrIp = Opt.none(IpAddress),
+      enrTcpPort = Opt.none(Port),
+      enrUdpPort = Opt.none(Port),
+      previousRecord = Opt.some(node.enr),
+      bindPort = Port(9917),
+      bindIp = Opt.none(IpAddress),
+    )
+    let wd = WakuDiscoveryV5(protocol: proto)
+    proto.localNode.record = node.enr
+
+    check proto.localNode
+      .update(ethPk, ip = Opt.some(host), udpPort = Opt.some(Port(30303)))
+      .isOk()
+    check reconcileEnrAddrs(node, key, wd).expect("reconcile") == true
+
+    ## Confirmed from outside, so it is carried, with its own transport port
+    ## and not the one discv5 learned.
+    check:
+      node.enrAddresses() == @[resolved]
+      node.enr.multiaddrsOf() == @[resolved]
+      node.enr.udpOf().get() == 30303'u16
+    await node.stop()
+
   test "the reconcile loop follows a discv5 record write":
     let key = generateSecp256k1Key()
     let node =
@@ -476,8 +576,13 @@ procSuite "ENR endpoints":
     ## unset, it never matches, and a node with auto-update off warns at
     ## every vote interval.
     let key = generateSecp256k1Key()
-    let node =
-      newTestWakuNode(key, parseIpAddress("127.0.0.1"), Port(0), quicEnabled = false)
+    let node = newTestWakuNode(
+      key,
+      parseIpAddress("127.0.0.1"),
+      Port(0),
+      quicEnabled = false,
+      discv5UdpPort = Opt.some(Port(9000)),
+    )
     node.announcedAddresses = @[MultiAddress.init("/ip4/198.51.100.4/tcp/60123").get()]
 
     let keyBytes = key.getRawBytes().expect("raw")
@@ -493,7 +598,9 @@ procSuite "ENR endpoints":
     )
     let wd = WakuDiscoveryV5(protocol: proto)
 
-    ## `updateWaku` drops the address the seed handed discv5.
+    ## `updateWaku` seeds the live record and drops the address that came
+    ## with it.
+    proto.localNode.record = node.enr
     proto.localNode.address = Opt.none(discv5_node.Address)
 
     check refreshEnrAddrs(node, key, wd).isOk()

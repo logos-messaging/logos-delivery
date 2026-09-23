@@ -347,6 +347,22 @@ proc recordEndpoint(record: enr.Record): Opt[discv5_node.Address] =
   return
     Opt.some(discv5_node.Address(ip: ipv4(typed.ip.get()), port: Port(typed.udp.get())))
 
+proc captureLearnedEndpoint(node: WakuNode, wakuDiscv5: WakuDiscoveryV5) =
+  ## discv5 writes the host it learned into its own record and tells nobody.
+  ## Every write that can replace that record reads it first, or the update
+  ## is gone before the next reconcile tick can see it. A shard update also
+  ## writes the record, so only a moved endpoint counts as learning.
+  let live = wakuDiscv5.protocol.localNode.record
+  if live == node.enr:
+    return
+  let liveEndpoint = recordEndpoint(live)
+  if liveEndpoint == recordEndpoint(node.enr):
+    return
+  node.enrLearnedEndpoint = liveEndpoint.map(
+    proc(a: discv5_node.Address): DiscoveryEndpoint =
+      (ip: a.ip, udp: a.port)
+  )
+
 proc refreshEnrAddrs*(
     node: WakuNode, key: crypto.PrivateKey, wakuDiscv5: WakuDiscoveryV5
 ): Result[void, string] =
@@ -354,6 +370,8 @@ proc refreshEnrAddrs*(
   ## discv5 learned from its peers stays the host of the record.
   if wakuDiscv5.isNil():
     return node.enr.updateEnrAddresses(key, node.enrAddresses(), node.enrBaseline())
+
+  node.captureLearnedEndpoint(wakuDiscv5)
 
   let local = wakuDiscv5.protocol.localNode
   ## Not `local.address`: the line below writes it from the record we are
@@ -372,20 +390,8 @@ proc reconcileEnrAddrs*(
   ## discv5 writes the host it learned into its own record, with the `tcp`
   ## the record had, and tells nobody. Writing again pairs that host with a
   ## `tcp` that fits it. True when it wrote.
-  if wakuDiscv5.isNil():
+  if wakuDiscv5.isNil() or wakuDiscv5.protocol.localNode.record == node.enr:
     return ok(false)
-  let live = wakuDiscv5.protocol.localNode.record
-  if live == node.enr:
-    return ok(false)
-  ## A shard update also writes the live record, so a differing record is not
-  ## itself evidence. A differing endpoint is: discv5 is the only other writer
-  ## of one.
-  let liveEndpoint = recordEndpoint(live)
-  if liveEndpoint != recordEndpoint(node.enr):
-    node.enrLearnedEndpoint = liveEndpoint.map(
-      proc(a: discv5_node.Address): DiscoveryEndpoint =
-        (ip: a.ip, udp: a.port)
-    )
   ?refreshEnrAddrs(node, key, wakuDiscv5)
   return ok(true)
 
@@ -422,6 +428,8 @@ proc updateWaku(waku: Waku): Future[Result[void, string]] {.async.} =
     ## also gave discv5 its own address; the rebuild replaces that too.
     waku.wakuDiscv5.protocol.localNode.record = waku.node.enr
     waku.wakuDiscv5.protocol.localNode.address = Opt.none(discv5_node.Address)
+    ## Seeding is not learning: from here on, a record that moved is discv5's.
+    waku.node.enrLearnedEndpoint = Opt.none(DiscoveryEndpoint)
 
   ?refreshEnrAddrs(waku.node, waku.key, waku.wakuDiscv5)
 

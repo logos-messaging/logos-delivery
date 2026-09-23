@@ -235,13 +235,26 @@ proc getWakuPeerRecordGetter(node: WakuNode): GetWakuPeerRecord =
       mixKey = mixKey,
     )
 
+proc onLearnedHost(node: WakuNode, ma: MultiAddress): bool =
+  ## A resolved interface address on the host discv5 has confirmed from
+  ## outside. Its own transport port is what a peer needs: the port discv5
+  ## learned is discv5's own.
+  let learned = node.enrLearnedEndpoint.valueOr:
+    return false
+  let ip = ma.getIp().valueOr:
+    return false
+  return ip == learned.ip and ma.isConcreteEndpoint()
+
 proc enrAddresses*(node: WakuNode): seq[MultiAddress] =
   ## The announced addresses known from outside: what the operator
-  ## configured, and what a mapper added (a NAT grant, a relay route). Not
-  ## the primary interface, which the node knows only from the inside.
+  ## configured, what a mapper added (a NAT grant, a relay route), and what
+  ## sits on a host discv5 confirmed. Not the primary interface otherwise,
+  ## which the node knows only from the inside.
   let base = node.baseAnnounced.valueOr:
     return node.announcedAddresses
-  return node.announcedAddresses.filterIt(it in node.explicitAnnounced or it notin base)
+  return node.announcedAddresses.filterIt(
+    it in node.explicitAnnounced or it notin base or node.onLearnedHost(it)
+  )
 
 proc enrBaseline*(node: WakuNode): EnrBaseline =
   ## What the scalars say when nothing else decides them. A configured
