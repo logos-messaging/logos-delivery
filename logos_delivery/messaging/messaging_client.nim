@@ -51,9 +51,10 @@ proc new*(
   let rateLimitManager = ?RateLimitManager.new(
     conf.rateLimit.get(DefaultRateLimitConfig), rlnQuotaProvider(waku)
   )
-  let sendService = ?SendService.new(
-    reliability, waku, rateLimitManager, anonymityLevel = anonymityLevel
-  )
+  let sendProcessor = setupSendProcessorChain(waku, anonymityLevel).valueOr:
+    return err("failed to setup SendProcessorChain: " & error)
+  let sendService =
+    ?SendService.new(reliability, waku, rateLimitManager, sendProcessor, anonymityLevel)
   let backfill = ?BackfillState.init(conf)
   let recvService = RecvService.new(waku, backfill)
 
