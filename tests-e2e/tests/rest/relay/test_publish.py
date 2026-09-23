@@ -6,6 +6,11 @@ from src.steps.relay import StepsRelay
 
 @pytest.mark.usefixtures("setup_main_relay_nodes", "subscribe_main_relay_nodes", "relay_warm_up")
 class TestRelayPublish(StepsRelay):
+    def test_publish_after_node1_restarts(self):
+        self.check_published_message_reaches_relay_peer()
+        self.node1.restart()
+        self.subscribe_and_publish_with_retry(self.main_nodes, [self.test_pubsub_topic])
+
     def test_publish_after_node2_restarts(self):
         self.check_published_message_reaches_relay_peer()
         self.node2.restart()
