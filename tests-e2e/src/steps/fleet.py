@@ -1,4 +1,5 @@
 import inspect
+from concurrent.futures import ThreadPoolExecutor
 from uuid import uuid4
 import allure
 import pytest
@@ -7,7 +8,7 @@ from src.libs.common import wait_until
 from src.libs.custom_logger import get_custom_logger
 from src.node.waku_node import WakuNode
 from src.steps.common import StepsCommon
-from src.test_data import LOGOS_DEV_CLUSTER_ID, LOGOS_DEV_PRESET, LOGOS_DEV_SHARDS, WAKU_LIGHTPUSH_CODEC
+from src.test_data import FLEET_PRESET, FLEET_SHARDS
 
 logger = get_custom_logger(__name__)
 
@@ -24,12 +25,12 @@ class StepsFleet(StepsCommon):
     @allure.step
     def start_fleet_node(self, node_name, relay):
         node = WakuNode(NODE_1, f"{node_name}_{self.test_id}")
-        # A logos.dev node takes about a minute to start, and serves only /health until it has.
+        # With Kademlia discovery on, the node serves only /health for minutes, until its service discovery has started.
         node.start(
             wait_for_node_sec=120,
-            preset=LOGOS_DEV_PRESET,
-            cluster_id=LOGOS_DEV_CLUSTER_ID,
-            shard=LOGOS_DEV_SHARDS,
+            preset=FLEET_PRESET,
+            enable_kad_discovery="false",
+            shard=FLEET_SHARDS,
             relay=relay,
             filter="false",
             lightpush="false",
@@ -47,19 +48,33 @@ class StepsFleet(StepsCommon):
         return self.start_fleet_node(node_name, relay="false")
 
     @allure.step
+    def start_fleet_nodes(self, *starts):
+        with ThreadPoolExecutor(max_workers=len(starts)) as pool:
+            futures = [pool.submit(start, node_name) for start, node_name in starts]
+            return [future.result() for future in futures]
+
+    @allure.step
+    def subscribe_through_fleet(self, receiver, timeout_duration=120):
+        subscription = {"requestId": "1", "contentFilters": [self.test_content_topic]}
+        wait_until(lambda: receiver.set_filter_subscriptions(subscription), timeout_duration, 1)
+
+    @allure.step
     def light_push_through_fleet(self, sender, message, timeout_duration=120):
-        # Pushed once: a resent message is already seen by the relay and rejected.
-        wait_until(
-            lambda: any(WAKU_LIGHTPUSH_CODEC in peer["protocols"] for peer in sender.get_peers()),
-            timeout_duration,
-            1,
-            "No fleet lightpush peer",
-        )
-        sender.send_light_push_message({"message": message})
+        def push():
+            try:
+                return sender.send_light_push_message({"message": message})
+            except Exception as ex:
+                # An earlier attempt published the message, so the resend is rejected as already seen.
+                if "already-seen" in str(ex):
+                    return True
+                raise
+
+        wait_until(push, timeout_duration, 1)
 
     @allure.step
     def relay_publish_through_fleet(self, sender, message, timeout_duration=120):
-        wait_until(lambda: sender.send_relay_auto_message(message), timeout_duration, 1, "The relay node had no fleet peer to publish to")
+        wait_until(lambda: sender.get_relay_peers_on_shard(FLEET_SHARDS[0])["peers"], timeout_duration, 1)
+        wait_until(lambda: sender.send_relay_auto_message(message), timeout_duration, 1)
 
     @allure.step
     def wait_for_fleet_store_messages(self, node, count, timeout_duration=60, time_between_retries=1):

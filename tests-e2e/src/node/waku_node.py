@@ -146,6 +146,10 @@ class WakuNode:
             # "filter-subscription-timeout": "600",
         }
 
+        if "preset" in kwargs:
+            # The preset sets the cluster, and a cluster id passed with it can replace the preset.
+            del default_args["cluster-id"]
+
         store_sync = kwargs.pop("store_sync", "false").lower() == "true"
         store_sync_range = kwargs.pop("store_sync_range", None)
         store_sync_interval = kwargs.pop("store_sync_interval", None)

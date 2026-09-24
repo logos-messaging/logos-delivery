@@ -3,11 +3,10 @@ from src.steps.fleet import StepsFleet
 from src.steps.sharding import StepsSharding
 
 
-class TestLogosDevFleet(StepsFleet, StepsFilter, StepsSharding):
+class TestFleetMessageDelivery(StepsFleet, StepsFilter, StepsSharding):
     def test_lightpushed_message_reaches_filter_client(self):
-        sender = self.start_fleet_light_client("sender")
-        receiver = self.start_fleet_light_client("receiver")
-        self.create_filter_subscription_with_retry({"requestId": "1", "contentFilters": [self.test_content_topic]}, node=receiver)
+        sender, receiver = self.start_fleet_nodes((self.start_fleet_light_client, "sender"), (self.start_fleet_light_client, "receiver"))
+        self.subscribe_through_fleet(receiver)
 
         message = self.create_message()
         self.light_push_through_fleet(sender, message)
@@ -16,8 +15,7 @@ class TestLogosDevFleet(StepsFleet, StepsFilter, StepsSharding):
         assert [m["payload"] for m in received] == [message["payload"]]
 
     def test_lightpushed_message_is_stored(self):
-        sender = self.start_fleet_light_client("sender")
-        querier = self.start_fleet_light_client("querier")
+        sender, querier = self.start_fleet_nodes((self.start_fleet_light_client, "sender"), (self.start_fleet_light_client, "querier"))
 
         message = self.create_message()
         self.light_push_through_fleet(sender, message)
@@ -26,9 +24,8 @@ class TestLogosDevFleet(StepsFleet, StepsFilter, StepsSharding):
         assert [m["message"]["payload"] for m in stored] == [message["payload"]]
 
     def test_relayed_message_reaches_filter_client(self):
-        publisher = self.start_fleet_relay_node("publisher")
-        receiver = self.start_fleet_light_client("receiver")
-        self.create_filter_subscription_with_retry({"requestId": "1", "contentFilters": [self.test_content_topic]}, node=receiver)
+        publisher, receiver = self.start_fleet_nodes((self.start_fleet_relay_node, "publisher"), (self.start_fleet_light_client, "receiver"))
+        self.subscribe_through_fleet(receiver)
 
         message = self.create_message()
         self.relay_publish_through_fleet(publisher, message)
@@ -37,8 +34,7 @@ class TestLogosDevFleet(StepsFleet, StepsFilter, StepsSharding):
         assert [m["payload"] for m in received] == [message["payload"]]
 
     def test_lightpushed_message_reaches_relay_node(self):
-        receiver = self.start_fleet_relay_node("receiver")
-        sender = self.start_fleet_light_client("sender")
+        receiver, sender = self.start_fleet_nodes((self.start_fleet_relay_node, "receiver"), (self.start_fleet_light_client, "sender"))
 
         message = self.create_message()
         self.light_push_through_fleet(sender, message)

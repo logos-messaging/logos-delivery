@@ -152,7 +152,7 @@ jobs:
           echo "node image: ${DEFAULT_NWAKU:-pinned default (see src/env_vars.py)}"
           pytest tests/rest -n 4 --dist=loadgroup --reruns 1 --junitxml=log/junit.xml
 
-      # Joins the live logos.dev fleet. Kept off PRs so that they do not depend on it.
+      # Joins a live fleet. Kept off PRs so that they do not depend on it.
       - name: Run fleet tests
         id: fleet
         if: ${{ !cancelled() && (github.event_name == 'schedule' || github.event_name == 'workflow_dispatch') }}
