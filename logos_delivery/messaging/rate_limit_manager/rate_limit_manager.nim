@@ -8,13 +8,19 @@
 ## Module's `EpochQuota` via a `QuotaProvider`; otherwise a wall-clock window
 ## and locally counted admissions against the configured cap stand in. Parking and
 ## retrying over-budget messages is the send service's job — this module only
-## answers whether one more transmission fits the current epoch.
+## answers whether one more transmission fits the current epoch, and how close
+## the epoch is to running out (`quotaState`).
 
 import results, chronos
 
 import ./rate_limit_config, ./quota_source
 
 export rate_limit_config, quota_source
+
+type QuotaState* {.pure.} = enum
+  Normal ## Below the approached threshold.
+  Approached ## At or past the threshold, with budget left.
+  Exhausted ## No budget left this epoch.
 
 type RateLimitManager* = ref object
   config*: RateLimitConfig
@@ -29,10 +35,13 @@ proc new*(
     config: RateLimitConfig,
     quotaProvider: QuotaProvider = nil,
 ): Result[T, string] =
-  ## Rejects an enabled config with a zero epoch period: the wall-clock
-  ## fallback derives the epoch as `unixTime div epochPeriodSec`.
+  ## Rejects an enabled config with a zero epoch period (the wall-clock
+  ## fallback derives the epoch as `unixTime div epochPeriodSec`) or with an
+  ## approached threshold above 100%.
   if config.enabled and config.epochPeriodSec == 0:
     return err("rate limit config: epochPeriodSec must be positive when enabled")
+  if config.enabled and config.approachedThresholdPercent > 100:
+    return err("rate limit config: approachedThresholdPercent must be at most 100")
 
   return ok(
     T(
@@ -50,14 +59,11 @@ proc currentQuota(
     return Opt.none(EpochQuota)
   return await self.quotaProvider()
 
-proc admit*(
-    self: RateLimitManager, msg: seq[byte]
-): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
-  ## Charges one message against the current epoch's limit, rolling the window
-  ## first when the epoch has advanced. A disabled config admits everything.
-  if not self.config.enabled:
-    return ok()
-
+proc refreshEpoch(
+    self: RateLimitManager
+): Future[(uint64, Opt[EpochQuota])] {.async: (raises: []).} =
+  ## Rolls the window when the epoch has advanced and returns the epoch's limit
+  ## together with RLN's budget snapshot, if any.
   let quota = await self.currentQuota()
 
   let epochIndex =
@@ -77,6 +83,49 @@ proc admit*(
   if quota.isSome():
     limit = min(limit, quota.get().rateLimit)
 
+  return (limit, quota)
+
+proc approachedAt(self: RateLimitManager, limit: uint64): uint64 =
+  ## Sent count at which the quota is approached: ceil(limit * percent / 100),
+  ## split so large RLN limits cannot overflow.
+  let percent =
+    if self.config.approachedThresholdPercent == 0:
+      DefaultApproachedThresholdPercent
+    else:
+      self.config.approachedThresholdPercent
+  return (limit div 100) * percent + ((limit mod 100) * percent + 99) div 100
+
+proc spent(self: RateLimitManager, quota: Opt[EpochQuota]): uint64 =
+  ## Budget used this epoch: the local count, or RLN's view when it has seen
+  ## more (message ids drawn outside this manager).
+  if quota.isNone():
+    return self.sentInCurrentEpoch
+  let q = quota.get()
+  return max(self.sentInCurrentEpoch, q.rateLimit - min(q.remaining, q.rateLimit))
+
+proc quotaState*(self: RateLimitManager): Future[QuotaState] {.async: (raises: []).} =
+  ## Where the current epoch's budget stands. A disabled config is always
+  ## `Normal`.
+  if not self.config.enabled:
+    return QuotaState.Normal
+
+  let (limit, quota) = await self.refreshEpoch()
+  let spent = self.spent(quota)
+  if spent >= limit or (quota.isSome() and quota.get().remaining == 0):
+    return QuotaState.Exhausted
+  if spent >= self.approachedAt(limit):
+    return QuotaState.Approached
+  return QuotaState.Normal
+
+proc admit*(
+    self: RateLimitManager, msg: seq[byte]
+): Future[Result[void, RateLimitError]] {.async: (raises: []).} =
+  ## Charges one message against the current epoch's limit, rolling the window
+  ## first when the epoch has advanced. A disabled config admits everything.
+  if not self.config.enabled:
+    return ok()
+
+  let (limit, quota) = await self.refreshEpoch()
   if self.sentInCurrentEpoch >= limit or (quota.isSome() and quota.get().remaining == 0):
     return err(RateLimitError.OverBudget)
 
