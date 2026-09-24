@@ -43,8 +43,16 @@ method sendImpl*(self: MixSendProcessor, task: DeliveryTask): Future[void] {.asy
     return
 
   if not self.waku.mixReady():
-    debug "Mix not ready", requestId = task.requestId, msgHash = task.msgHash.to0xHex()
-    task.state = DeliveryState.NextRoundRetry
+    debug "Mix not ready",
+      requestId = task.requestId,
+      msgHash = task.msgHash.to0xHex(),
+      fallbackAllowed = self.fallbackAllowed
+    if self.fallbackAllowed:
+      task.state = DeliveryState.FallbackRetry
+    else:
+      task.state = DeliveryState.FailedToDeliver
+      task.errorDesc = "Mix is not available"
+      task.deliveryTime = Moment.now()
     return
 
   task.tryCount.inc()
