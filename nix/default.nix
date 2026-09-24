@@ -157,11 +157,19 @@ let
   upnpStatic   = lib.optionalString isWindows " -DMINIUPNP_STATICLIB";
   natpmpStatic = lib.optionalString isWindows " -DNATPMP_STATICLIB";
 
-  installLibpq = destination: lib.optionalString (isWindows && libpqPackage != null) ''
-    # PostgreSQL is loaded before main(), and Windows searches beside the image.
-    cp -L ${libpqPackage}/bin/*.dll ${destination}/
-    chmod u+w ${destination}/*.dll
-  '';
+  libpqRuntime = if libpqPackage != null then libpqPackage else pkgs.libpq;
+  installLibpq = destination: lib.optionalString enablePostgres (
+    if isWindows then ''
+      # PostgreSQL is loaded before main(), and Windows searches beside the image.
+      cp -L ${libpqRuntime}/bin/*.dll ${destination}/
+      chmod u+w ${destination}/*.dll
+    '' else if hostPlatform.isDarwin then ''
+      cp -L ${libpqRuntime}/lib/libpq*.dylib $out/lib/
+      chmod u+w $out/lib/libpq*.dylib
+    '' else ''
+      cp -L ${libpqRuntime}/lib/libpq.so* $out/lib/
+      chmod u+w $out/lib/libpq.so*
+    '');
 in
 assert !isWindows || !enablePostgres || libpqPackage != null;
 pkgs.stdenv.mkDerivation {
