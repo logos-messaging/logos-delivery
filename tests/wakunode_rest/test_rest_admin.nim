@@ -489,4 +489,3 @@ suite "Waku v2 Rest API - Admin":
     discard await issueRequest(
       restServer.getAddress("/admin/v1/log-level/" & $enabledLogLevel), MethodPost
     )
- 
