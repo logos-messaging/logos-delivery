@@ -258,17 +258,24 @@ suite "parseLogosDeliveryConf - JSON parsing":
   test "rate-limit overrides are settable by field name":
     let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"rateLimitEnabled": true,
-           "rateLimitEpochPeriodSec": 30, "rateLimitMessagesPerEpoch": 5}}"""
+           "rateLimitEpochPeriodSec": 30, "rateLimitMessagesPerEpoch": 5,
+           "rateLimitApproachedThresholdPercent": 60}}"""
     ).valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
     check lc.messagingConf.get().rateLimitConfig() ==
-      RateLimitConfig(enabled: true, epochPeriodSec: 30, messagesPerEpoch: 5)
+      RateLimitConfig(
+        enabled: true,
+        epochPeriodSec: 30,
+        messagesPerEpoch: 5,
+        approachedThresholdPercent: 60,
+      )
 
   test "rate-limit overrides are settable by CLI switch name":
     let lc = parseLogosDeliveryConf(
       """{"messagingOverrides": {"rate-limit-enabled": true,
-           "rate-limit-epoch-sec": 30, "rate-limit-messages-per-epoch": 5}}"""
+           "rate-limit-epoch-sec": 30, "rate-limit-messages-per-epoch": 5,
+           "rate-limit-approached-threshold-percent": 60}}"""
     ).valueOr:
       raiseAssert error
     require lc.messagingConf.isSome()
@@ -277,6 +284,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
       mc.rateLimitEnabled == Opt.some(true)
       mc.rateLimitEpochPeriodSec == Opt.some(30'u64)
       mc.rateLimitMessagesPerEpoch == Opt.some(5'u64)
+      mc.rateLimitApproachedThresholdPercent == Opt.some(60'u64)
 
   test "a partial rate-limit override leaves the rest at the defaults":
     let lc = parseLogosDeliveryConf(
@@ -289,6 +297,7 @@ suite "parseLogosDeliveryConf - JSON parsing":
       not rl.enabled
       rl.epochPeriodSec == DefaultRateLimitConfig.epochPeriodSec
       rl.messagesPerEpoch == 5
+      rl.approachedThresholdPercent == DefaultRateLimitConfig.approachedThresholdPercent
 
   test "an invalid rate-limit value is rejected":
     check parseLogosDeliveryConf(

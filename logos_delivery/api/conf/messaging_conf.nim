@@ -85,6 +85,11 @@ type MessagingClientConf* = object
     ## Rate-limit epoch length, in seconds.
   rateLimitMessagesPerEpoch* {.name: "rate-limit-messages-per-epoch".}: Opt[uint64]
     ## Messages admitted per rate-limit epoch.
+  rateLimitApproachedThresholdPercent* {.
+    name: "rate-limit-approached-threshold-percent"
+  .}: Opt[uint64]
+    ## Share of the epoch budget, in percent, at which the quota counts as
+    ## approached (default 80).
   maxParkedAgeSec* {.name: "max-parked-age-sec".}: Opt[uint]
     ## Max age, from the message timestamp, of a send still waiting for
     ## rate-limit budget before it fails with `MessageErrorEvent` (default 1800).
@@ -215,6 +220,9 @@ proc rateLimitConfig*(self: MessagingClientConf): RateLimitConfig =
       self.rateLimitEpochPeriodSec.get(DefaultRateLimitConfig.epochPeriodSec),
     messagesPerEpoch:
       self.rateLimitMessagesPerEpoch.get(DefaultRateLimitConfig.messagesPerEpoch),
+    approachedThresholdPercent: self.rateLimitApproachedThresholdPercent.get(
+      DefaultRateLimitConfig.approachedThresholdPercent
+    ),
   )
 
 proc merge*(base, overrides: MessagingClientConf): MessagingClientConf =
