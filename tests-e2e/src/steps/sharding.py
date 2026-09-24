@@ -163,6 +163,8 @@ class StepsSharding(StepsRelay):
     @allure.step
     def wait_for_relay_messages(self, node, count, pubsub_topic=None, content_topic=None, timeout_duration=20, time_between_retries=0.5):
         # Each GET returns only the messages received since the previous call, so they are collected across polls.
+        if content_topic is None and pubsub_topic is None:
+            pubsub_topic = self.test_pubsub_topic
         messages = []
 
         def all_messages_received():
