@@ -46,17 +46,6 @@ proc relayPushHandler*(self: Waku): PushMessageHandler =
   ## proof is attached by the messaging layer via `attachRlnProof`.
   return getRelayPushHandler(self.node.wakuRelay)
 
-proc currentRlnEpochQuota*(self: Waku): Opt[tuple[epochIndex, messageLimit: uint64]] =
-  ## RLN's current epoch index and user message limit, read together so the
-  ## pair cannot straddle an epoch boundary.
-  if self.node.rln.isNil():
-    return Opt.none(tuple[epochIndex, messageLimit: uint64])
-
-  let limit = self.node.rln.groupManager.userMessageLimit.valueOr:
-    return Opt.none(tuple[epochIndex, messageLimit: uint64])
-
-  return Opt.some((fromEpoch(self.node.rln.getCurrentEpoch()), uint64(limit)))
-
 proc attachRlnProof*(
     self: Waku, message: WakuMessage
 ): Future[Result[WakuMessage, string]] {.async.} =

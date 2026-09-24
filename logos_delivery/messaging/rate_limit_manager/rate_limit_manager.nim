@@ -1,11 +1,12 @@
 ## Rate Limit Manager for the Messaging API.
 ##
-## Rate-limits message transmissions against the per-epoch user message limit,
-## rejecting admission once the epoch's budget is spent. The epoch rolling
-## over refills the budget.
+## Rate-limits message transmissions against the per-epoch budget, rejecting
+## admission once the epoch's budget is spent. The epoch rolling over refills
+## the budget.
 ##
-## The epoch and limit come from a `QuotaProvider` when RLN is mounted;
-## otherwise a wall-clock window and the configured limit stand in. Parking and
+## When RLN is mounted, the epoch and the remaining budget come from the RLN
+## Module's `EpochQuota` via a `QuotaProvider`; otherwise a wall-clock window
+## and locally counted admissions against the configured cap stand in. Parking and
 ## retrying over-budget messages is the send service's job — this module only
 ## answers whether one more transmission fits the current epoch.
 
@@ -42,10 +43,12 @@ proc new*(
     )
   )
 
-proc currentQuota(self: RateLimitManager): Opt[EpochQuota] =
+proc currentQuota(
+    self: RateLimitManager
+): Future[Opt[EpochQuota]] {.async: (raises: []).} =
   if self.quotaProvider.isNil():
     return Opt.none(EpochQuota)
-  return self.quotaProvider()
+  return await self.quotaProvider()
 
 proc admit*(
     self: RateLimitManager, msg: seq[byte]
@@ -55,7 +58,7 @@ proc admit*(
   if not self.config.enabled:
     return ok()
 
-  let quota = self.currentQuota()
+  let quota = await self.currentQuota()
 
   let epochIndex =
     if quota.isSome():
@@ -63,17 +66,18 @@ proc admit*(
     else:
       wallClockEpochIndex(self.config.epochPeriodSec)
 
-  # RLN can only tighten the configured cap, never widen it: exceeding RLN's
-  # limit would fail later at proof generation.
-  var limit = self.config.messagesPerEpoch
-  if quota.isSome() and quota.get().userMessageLimit < limit:
-    limit = quota.get().userMessageLimit
-
   if epochIndex != self.currentEpochIndex:
     self.currentEpochIndex = epochIndex
     self.sentInCurrentEpoch = 0
 
-  if self.sentInCurrentEpoch >= limit:
+  # RLN's remaining budget is authoritative: it also sees message ids spent
+  # outside this manager. The local count still covers admissions whose proof
+  # has not drawn a message id yet, so it is capped by RLN's rate limit too.
+  var limit = self.config.messagesPerEpoch
+  if quota.isSome():
+    limit = min(limit, quota.get().rateLimit)
+
+  if self.sentInCurrentEpoch >= limit or (quota.isSome() and quota.get().remaining == 0):
     return err(RateLimitError.OverBudget)
 
   self.sentInCurrentEpoch.inc()

@@ -35,11 +35,16 @@ proc testConf(): WakuConf =
   defaultTestWakuNodeConf().toWakuConf().valueOr:
     raiseAssert error
 
-proc fixedEpochQuota(epoch: ptr uint64, userMessageLimit: uint64): QuotaProvider =
-  ## Quota pinned to whatever `epoch` holds, so a test rolls the epoch by
-  ## writing through the pointer.
-  return proc(): Opt[EpochQuota] {.gcsafe, raises: [].} =
-    return Opt.some(EpochQuota(epochIndex: epoch[], userMessageLimit: userMessageLimit))
+proc fixedEpochQuota(
+    epoch: ptr uint64, rateLimit: uint64, remaining: ptr uint64 = nil
+): QuotaProvider =
+  ## Quota pinned to whatever `epoch` (and `remaining`, when given) holds, so a
+  ## test rolls the epoch or spends RLN budget by writing through the pointer.
+  ## Without `remaining` the epoch's budget is reported untouched.
+  return proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+    let left = if remaining.isNil(): rateLimit else: remaining[]
+    return
+      Opt.some(EpochQuota(epochIndex: epoch[], rateLimit: rateLimit, remaining: left))
 
 suite "SendService - rate-limit scheduling":
   var waku {.threadvar.}: Waku
@@ -77,7 +82,7 @@ suite "SendService - rate-limit scheduling":
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 3),
-        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+        fixedEpochQuota(addr epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(
@@ -106,7 +111,7 @@ suite "SendService - rate-limit scheduling":
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+        fixedEpochQuota(addr epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
@@ -141,13 +146,47 @@ suite "SendService - rate-limit scheduling":
       second.firstAdmittedTime.isSome()
       second.state == DeliveryState.SuccessfullyPropagated
 
+  asyncTest "RLN's remaining budget parks a send until the epoch rolls":
+    ## The local cap has room, but RLN reports the epoch's budget spent, so the
+    ## task parks; the roll refills RLN's budget and releases it.
+    var epoch = 1'u64
+    var remaining = 0'u64
+    let manager = RateLimitManager
+      .new(
+        RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 10),
+        fixedEpochQuota(addr epoch, rateLimit = 10, addr remaining),
+      )
+      .expect("RateLimitManager.new")
+    let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
+    let service =
+      SendService.new(false, waku, manager, processor).expect("SendService.new")
+
+    let task = buildTask("rln-spent", "one")
+    await service.send(task)
+    check:
+      task.state == DeliveryState.NextRoundRetry
+      task.firstAdmittedTime.isNone()
+      processor.calls == 0
+
+    await service.trySendMessages()
+    check:
+      task.firstAdmittedTime.isNone()
+      processor.calls == 0
+
+    epoch = 2'u64
+    remaining = 10'u64
+    await service.trySendMessages()
+    check:
+      task.firstAdmittedTime.isSome()
+      task.state == DeliveryState.SuccessfullyPropagated
+
   asyncTest "a task parked for budget reports itself queued, exactly once":
     ## The park branch is re-entered every retry round; the event must not be.
     var epoch = 1'u64
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+        fixedEpochQuota(addr epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.SuccessfullyPropagated])
@@ -201,7 +240,7 @@ suite "SendService - rate-limit scheduling":
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+        fixedEpochQuota(addr epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(
@@ -250,7 +289,7 @@ suite "SendService - rate-limit scheduling":
     let manager = RateLimitManager
       .new(
         RateLimitConfig(enabled: true, epochPeriodSec: 600, messagesPerEpoch: 1),
-        fixedEpochQuota(addr epoch, userMessageLimit = 100),
+        fixedEpochQuota(addr epoch, rateLimit = 100),
       )
       .expect("RateLimitManager.new")
     let processor = FakeSendProcessor(script: @[DeliveryState.NextRoundRetry])

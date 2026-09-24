@@ -8,7 +8,9 @@ import std/times
 import results, chronos
 
 import logos_delivery/waku/waku
-import logos_delivery/waku/[node/waku_node, rln, rln/protocol_types, rln/nonce_manager]
+import
+  logos_delivery/waku/
+    [node/waku_node, rln, rln/rln_evm/protocol_types, rln/rln_evm/nonce_manager]
 import logos_delivery/waku/rln/rln_lez/types as rln_api_types
 
 export rln_api_types
