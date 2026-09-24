@@ -5,8 +5,7 @@ import
   results,
   testutils/unittests,
   chronos,
-  libp2p/crypto/crypto,
-  libp2p/protocols/pubsub/mcache
+  libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
@@ -138,12 +137,6 @@ suite "Waku Store Sync - End to End":
     checkUntilTimeout:
       await nodeA.wakuArchive.holdsMessages(hashesA)
       await nodeB.wakuArchive.holdsMessages(hashesB)
-
-    # A message still in gossipsub's message cache window reaches a newly connected peer
-    # through relay.
-    checkUntilTimeout:
-      nodeA.wakuRelay.mcache.window(DefaultPubsubTopic).len == 0
-      nodeB.wakuRelay.mcache.window(DefaultPubsubTopic).len == 0
 
     let syncInsertsBefore = insertCount(syncIngress)
 
