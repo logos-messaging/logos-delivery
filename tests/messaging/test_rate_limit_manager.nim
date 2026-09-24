@@ -288,3 +288,32 @@ suite "RateLimitManager - quota state":
     check (await rl.quotaState()) == QuotaState.Exhausted
     epoch = 3
     check (await rl.quotaState()) == QuotaState.Normal
+
+  asyncTest "RLN usage is measured against RLN's limit, not the local cap":
+    ## Local cap 10, nothing admitted locally; RLN 100 with 90 left. Both
+    ## budgets have room, so the state stays Normal and admission goes on.
+    var remaining = 90'u64
+    let rl = RateLimitManager
+      .new(
+        RateLimitConfig(
+          enabled: true,
+          epochPeriodSec: 600,
+          messagesPerEpoch: 10,
+          approachedThresholdPercent: 80,
+        ),
+        proc(): Future[Opt[EpochQuota]] {.async: (raises: []), gcsafe.} =
+          return
+            Opt.some(EpochQuota(epochIndex: 4, rateLimit: 100, remaining: remaining)),
+      )
+      .expect("RateLimitManager.new")
+    check:
+      (await rl.quotaState()) == QuotaState.Normal
+      (await rl.admit("a".toBytes())).isOk()
+
+    ## RLN past its own threshold (80 of 100 used) is Approached even though
+    ## the local count is still low.
+    remaining = 20
+    check (await rl.quotaState()) == QuotaState.Approached
+
+    remaining = 0
+    check (await rl.quotaState()) == QuotaState.Exhausted

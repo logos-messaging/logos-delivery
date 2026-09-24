@@ -95,27 +95,27 @@ proc approachedAt(self: RateLimitManager, limit: uint64): uint64 =
       self.config.approachedThresholdPercent
   return (limit div 100) * percent + ((limit mod 100) * percent + 99) div 100
 
-proc spent(self: RateLimitManager, quota: Opt[EpochQuota]): uint64 =
-  ## Budget used this epoch: the local count, or RLN's view when it has seen
-  ## more (message ids drawn outside this manager).
-  if quota.isNone():
-    return self.sentInCurrentEpoch
-  let q = quota.get()
-  return max(self.sentInCurrentEpoch, q.rateLimit - min(q.remaining, q.rateLimit))
+proc stateOf(self: RateLimitManager, used, limit: uint64): QuotaState =
+  if used >= limit:
+    return QuotaState.Exhausted
+  if used >= self.approachedAt(limit):
+    return QuotaState.Approached
+  return QuotaState.Normal
 
 proc quotaState*(self: RateLimitManager): Future[QuotaState] {.async: (raises: []).} =
-  ## Where the current epoch's budget stands. A disabled config is always
-  ## `Normal`.
+  ## Where the current epoch's budget stands: the tighter of the local count
+  ## against the local cap and RLN's consumption against RLN's own limit. A
+  ## disabled config is always `Normal`.
   if not self.config.enabled:
     return QuotaState.Normal
 
   let (limit, quota) = await self.refreshEpoch()
-  let spent = self.spent(quota)
-  if spent >= limit or (quota.isSome() and quota.get().remaining == 0):
-    return QuotaState.Exhausted
-  if spent >= self.approachedAt(limit):
-    return QuotaState.Approached
-  return QuotaState.Normal
+  var state = self.stateOf(self.sentInCurrentEpoch, limit)
+  if quota.isSome():
+    let q = quota.get()
+    let rlnUsed = q.rateLimit - min(q.remaining, q.rateLimit)
+    state = max(state, self.stateOf(rlnUsed, q.rateLimit))
+  return state
 
 proc admit*(
     self: RateLimitManager, msg: seq[byte]
