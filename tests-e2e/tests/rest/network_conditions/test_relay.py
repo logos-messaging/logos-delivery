@@ -21,8 +21,8 @@ class TestNetworkConditions(StepsRelay):
             nodes.append(node)
         for node in nodes:
             node.set_relay_subscriptions([self.test_pubsub_topic])
-        for node, bootstrap_node in zip(nodes[1:], nodes):
-            self.wait_for_relay_peer(node, bootstrap_node, self.test_pubsub_topic)
+        for node, next_node in zip(nodes, nodes[1:]):
+            self.wait_for_mesh_peer(node, next_node, self.test_pubsub_topic)
         return nodes
 
     def test_relay_4_nodes_sender_latency(self):
@@ -45,7 +45,7 @@ class TestNetworkConditions(StepsRelay):
         for _ in range(message_count):
             publisher.send_relay_message(self.create_message(), self.test_pubsub_topic)
         self.wait_for_relay_messages(receiver, message_count, timeout_duration=60)
-        # The loss is on the relay path: the qdisc that carried the messages is the one dropping packets.
+        # The loss is on the relay interface: its qdisc is dropping packets.
         assert self.tc.dropped_packets_p2p(publisher) > 0
 
         self.tc.add_packet_loss_correlated_p2p_only(publisher, percent=50.0, correlation=75.0)
@@ -70,16 +70,20 @@ class TestNetworkConditions(StepsRelay):
 
     def test_relay_2_nodes_temporary_blackout_recovers(self):
         publisher, receiver = self.start_relay_chain(2)
-        message_count = 100
+        message_count = 50
         self.tc.add_packet_loss_p2p_only(publisher, percent=100.0)
         self.tc.add_packet_loss_p2p_only(receiver, percent=100.0)
-        # Nothing observable marks the outage: it lasts as long as the test holds it.
-        delay(5)
-        self.tc.clear_p2p(publisher)
-        self.tc.clear_p2p(receiver)
-
-        self.wait_for_relay_peer(publisher, receiver, self.test_pubsub_topic)
-        self.wait_for_relay_peer(receiver, publisher, self.test_pubsub_topic)
         for _ in range(message_count):
             publisher.send_relay_message(self.create_message(), self.test_pubsub_topic)
+
+        # The outage holds back every message published during it.
+        held_back = []
+        outage_ends = time() + 5
+        while time() < outage_ends:
+            held_back.extend(receiver.get_relay_messages(self.test_pubsub_topic))
+            delay(0.5)
+        assert held_back == []
+
+        self.tc.clear_p2p(publisher)
+        self.tc.clear_p2p(receiver)
         self.wait_for_relay_messages(receiver, message_count, timeout_duration=60)

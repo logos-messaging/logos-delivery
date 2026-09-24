@@ -50,6 +50,16 @@ class StepsCommon:
         wait_until(peer_subscribed, timeout_duration, time_between_retries, f"Expected {peer_id} among the relay peers on shard {shard_id}")
 
     @allure.step
+    def wait_for_mesh_peer(self, node, peer, pubsub_topic, timeout_duration=30, time_between_retries=1):
+        shard_id = pubsub_topic.split("/")[-1]
+        peer_id = peer.get_id()
+
+        def peer_in_mesh():
+            return peer_id in {peer_info2id(p) for p in node.get_mesh_peers_on_shard(shard_id)["peers"]}
+
+        wait_until(peer_in_mesh, timeout_duration, time_between_retries, f"Expected {peer_id} among the mesh peers on shard {shard_id}")
+
+    @allure.step
     def create_message(self, **kwargs):
         ts_ns = time_ns()
         ts_ns = int(f"{ts_ns:019d}")
