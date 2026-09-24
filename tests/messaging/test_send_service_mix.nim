@@ -149,15 +149,14 @@ suite "SendService - anonymity level":
     let manager =
       RateLimitManager.new(DefaultRateLimitConfig).expect("RateLimitManager.new")
 
-    let plainService = SendService
-      .new(false, waku, manager, anonymityLevel = AnonymityLevel.None)
-      .expect("SendService.new")
-    let mixOnlyService = SendService
-      .new(false, waku, manager, anonymityLevel = AnonymityLevel.Required)
-      .expect("SendService.new")
-    let bestEffortService = SendService
-      .new(false, waku, manager, anonymityLevel = AnonymityLevel.Preferred)
-      .expect("SendService.new")
+    proc serviceFor(level: AnonymityLevel): SendService =
+      let chain = setupSendProcessorChain(waku, level).expect("send processor chain")
+      return
+        SendService.new(false, waku, manager, chain, level).expect("SendService.new")
+
+    let plainService = serviceFor(AnonymityLevel.None)
+    let mixOnlyService = serviceFor(AnonymityLevel.Required)
+    let bestEffortService = serviceFor(AnonymityLevel.Preferred)
 
     check:
       plainService.maxDeliveryTime == MaxTimeInCache

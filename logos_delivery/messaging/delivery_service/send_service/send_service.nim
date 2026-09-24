@@ -79,9 +79,10 @@ type SendService* = ref object of RootObj
     ## Sends accepted but not yet in `taskCache`; counted against the cap so
     ## concurrent sends cannot overshoot it.
 
-proc setupSendProcessorChain(
-    waku: Waku, brokerCtx: BrokerContext, anonymityLevel: AnonymityLevel
+proc setupSendProcessorChain*(
+    waku: Waku, anonymityLevel: AnonymityLevel
 ): Result[BaseSendProcessor, string] =
+  let brokerCtx = waku.brokerCtx
   let isRelayAvail = waku.hasRelay()
   let isLightPushAvail = waku.hasLightpush()
 
@@ -125,32 +126,18 @@ proc new*(
     preferP2PReliability: bool,
     waku: Waku,
     rateLimitManager: RateLimitManager,
-    sendProcessor: BaseSendProcessor = nil,
+    sendProcessor: BaseSendProcessor,
     anonymityLevel: AnonymityLevel = AnonymityLevel.None,
     maxParkedAge: timer.Duration = DefaultMaxParkedAge,
     maxTaskCacheSize: int = DefaultMaxTaskCacheSize,
 ): Result[T, string] =
-  ## `sendProcessor` overrides the relay/lightpush chain built from `waku`,
-  ## letting a caller drive the scheduler against a scripted delivery outcome.
-  if not waku.hasRelay() and not waku.hasLightpush():
-    return err(
-      "Could not create SendService. wakuRelay or wakuLightpushClient should be set"
-    )
-
   let checkStoreForMessages = preferP2PReliability and waku.isStoreMounted()
-
-  let sendProcessorChain =
-    if sendProcessor.isNil():
-      setupSendProcessorChain(waku, waku.brokerCtx, anonymityLevel).valueOr:
-        return err("failed to setup SendProcessorChain: " & $error)
-    else:
-      sendProcessor
 
   let sendService = SendService(
     brokerCtx: waku.brokerCtx,
     taskCache: newSeq[DeliveryTask](),
     serviceLoopHandle: nil,
-    sendProcessor: sendProcessorChain,
+    sendProcessor: sendProcessor,
     rateLimitManager: rateLimitManager,
     waku: waku,
     checkStoreForMessages: checkStoreForMessages,

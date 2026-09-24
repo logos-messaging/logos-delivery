@@ -79,13 +79,12 @@ type MessagingClientConf* = object
     ## Process log format (TEXT or JSON); applied by the kernel on node creation.
   nodeKey* {.name: "nodekey".}: Opt[crypto.PrivateKey]
     ## P2P node private key (64-char hex): stable identity / peerId across restarts.
-  rateLimit*: Opt[RateLimitConfig]
-    ## Per-epoch message rate limit enforced by the send service; unset falls
-    ## back to `DefaultRateLimitConfig` (rate limiting disabled).
-    ##
-    ## Settable only programmatically: as a nested object with no `{.name.}`
-    ## pragma or `parseCmdArg`, it is not reachable from the JSON config or a
-    ## CLI flag.
+  rateLimitEnabled* {.name: "rate-limit-enabled".}: Opt[bool]
+    ## Enforce the per-epoch send rate limit (default false).
+  rateLimitEpochPeriodSec* {.name: "rate-limit-epoch-sec".}: Opt[uint64]
+    ## Rate-limit epoch length, in seconds.
+  rateLimitMessagesPerEpoch* {.name: "rate-limit-messages-per-epoch".}: Opt[uint64]
+    ## Messages admitted per rate-limit epoch.
   maxParkedAgeSec* {.name: "max-parked-age-sec".}: Opt[uint]
     ## Max age, from the message timestamp, of a send still waiting for
     ## rate-limit budget before it fails with `MessageErrorEvent` (default 1800).
@@ -207,6 +206,16 @@ proc toWakuNodeConf*(
   conf.quicSupport = self.quicSupport.get(false)
 
   return ok(conf)
+
+proc rateLimitConfig*(self: MessagingClientConf): RateLimitConfig =
+  ## Unset fields fall back to `DefaultRateLimitConfig`.
+  return RateLimitConfig(
+    enabled: self.rateLimitEnabled.get(DefaultRateLimitConfig.enabled),
+    epochPeriodSec:
+      self.rateLimitEpochPeriodSec.get(DefaultRateLimitConfig.epochPeriodSec),
+    messagesPerEpoch:
+      self.rateLimitMessagesPerEpoch.get(DefaultRateLimitConfig.messagesPerEpoch),
+  )
 
 proc merge*(base, overrides: MessagingClientConf): MessagingClientConf =
   var m = base

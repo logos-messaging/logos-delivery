@@ -52,19 +52,21 @@ proc new*(
   ## for transport while exposing its own send/recv API.
   let reliability = conf.reliabilityEnabled.get(DefaultP2pReliability)
   let anonymityLevel = conf.anonymityLevel.get(AnonymityLevel.None)
-  let rateLimitManager = ?RateLimitManager.new(
-    conf.rateLimit.get(DefaultRateLimitConfig), rlnQuotaProvider(waku)
-  )
+  let rateLimitManager =
+    ?RateLimitManager.new(conf.rateLimitConfig(), rlnQuotaProvider(waku))
   let maxParkedAgeSec = conf.maxParkedAgeSec.get(uint(DefaultMaxParkedAge.seconds()))
   if maxParkedAgeSec notin 1'u .. MaxParkedAgeSecLimit:
     return err("maxParkedAgeSec must be between 1 and " & $MaxParkedAgeSecLimit)
   let sendQueueCapacity = conf.sendQueueCapacity.get(uint(DefaultMaxTaskCacheSize))
   if sendQueueCapacity notin 1'u .. SendQueueCapacityLimit:
     return err("sendQueueCapacity must be between 1 and " & $SendQueueCapacityLimit)
+  let sendProcessor = setupSendProcessorChain(waku, anonymityLevel).valueOr:
+    return err("failed to setup SendProcessorChain: " & error)
   let sendService = ?SendService.new(
     reliability,
     waku,
     rateLimitManager,
+    sendProcessor,
     anonymityLevel = anonymityLevel,
     maxParkedAge = seconds(int64(maxParkedAgeSec)),
     maxTaskCacheSize = int(sendQueueCapacity),
