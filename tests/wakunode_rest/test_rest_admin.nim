@@ -170,9 +170,8 @@ suite "Waku v2 Rest API - Admin":
         peerInfo1, pubsubTopicNode3, contentFiltersNode3
       )
 
-    check:
-      subscribeResponse2.isOk()
-      subscribeResponse3.isOk()
+    assert subscribeResponse2.isOk(), $subscribeResponse2.error
+    assert subscribeResponse3.isOk(), $subscribeResponse3.error
 
     let getRes = await client.getFilterSubscriptions()
 
@@ -478,7 +477,16 @@ suite "Waku v2 Rest API - Admin":
       check:
         logLevelResponse.status == 400
 
-    # The log level is process-wide.
+    let invalidLogLevelResponse = await issueRequest(
+      restServer.getAddress("/admin/v1/log-level/random"), MethodPost
+    )
+    check:
+      invalidLogLevelResponse.status == 400
+      invalidLogLevelResponse.data ==
+        "Invalid log-level: random. Please specify one of TRACE, DEBUG, INFO, NOTICE, WARN, ERROR or FATAL"
+
+    # Restore the log level for the tests that follow.
     discard await issueRequest(
       restServer.getAddress("/admin/v1/log-level/" & $enabledLogLevel), MethodPost
     )
+ 
