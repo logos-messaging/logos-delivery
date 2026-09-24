@@ -1,7 +1,7 @@
 import pytest
 from time import time
 from src.env_vars import NODE_1, NODE_2
-from src.libs.common import delay, to_base64
+from src.libs.common import delay, to_base64, wait_until
 from src.node.waku_node import WakuNode
 from src.steps.network_conditions import TrafficController
 from src.steps.relay import StepsRelay
@@ -51,8 +51,10 @@ class TestNetworkConditions(StepsRelay):
         self.tc.add_packet_loss_correlated_p2p_only(publisher, percent=50.0, correlation=75.0)
         for _ in range(message_count):
             publisher.send_relay_message(self.create_message(), self.test_pubsub_topic)
+        wait_until(lambda: self.tc.dropped_packets_p2p(publisher) > 0, message="Expected dropped packets on the relay interface")
+        # Burst loss can hold retransmissions back past any deadline, so it is lifted before collecting.
+        self.tc.clear_p2p(publisher)
         self.wait_for_relay_messages(receiver, message_count, timeout_duration=60)
-        assert self.tc.dropped_packets_p2p(publisher) > 0
 
     def test_relay_2_nodes_low_bandwidth_reliability(self):
         publisher, receiver = self.start_relay_chain(2)
