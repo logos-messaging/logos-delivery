@@ -8,7 +8,8 @@ import
   logos_delivery/waku/node/waku_node/relay,
   logos_delivery/waku/api/publish,
   logos_delivery/waku/api/rln as rln_api,
-  logos_delivery/waku/factory/waku_conf
+  logos_delivery/waku/factory/waku_conf,
+  logos_delivery/waku/rln/rln_lez/[rln_lez, transport]
 import
   ../testlib/[testasync, wakunodeconf],
   ../waku_rln_relay/utils_onchain,
@@ -28,6 +29,17 @@ proc testMessage(): WakuMessage =
 proc nowSec(): uint64 =
   uint64(getTime().toUnix())
 
+const LezQuotaReply =
+  """{"error":null,"success":true,"value":{"epoch_index":42,"rate_limit":100,"remaining":7}}"""
+
+proc lezGetQuota(
+    reqId: uint64, timestamp: uint64, userData: pointer
+) {.cdecl, gcsafe, raises: [].} =
+  {.cast(gcsafe), cast(raises: []).}:
+    discard logosdelivery_rln_response(reqId, LezQuotaReply.cstring)
+
+var lezPlugin = LogosDeliveryRlnPlugin(get_epoch_quota: lezGetQuota)
+
 suite "SendService RLN proof attach":
   asyncTest "passes the message through unproven when RLN is not mounted":
     ## The default (no-RLN) configuration must be unaffected: no proof is
@@ -46,6 +58,20 @@ suite "SendService RLN proof attach":
     ## The rate limit manager reads the failure as "use the local fallback".
     let waku = (await Waku.new(testConf())).expect("Waku.new")
     check (await waku.rlnEpochQuota(MembershipScope(), nowSec())).isErr()
+
+  asyncTest "rlnEpochQuota reads the RLN plugin's budget when it is mounted":
+    let waku = (await Waku.new(testConf())).expect("Waku.new")
+    check logosdelivery_rln_set_plugin(addr lezPlugin, nil) == 0
+    defer:
+      discard logosdelivery_rln_set_plugin(nil, nil)
+    waku.node.rlnLez = RlnLez.init()
+
+    let quota = (await waku.rlnEpochQuota(MembershipScope(), nowSec())).valueOr:
+      raiseAssert error
+    check:
+      quota.epochIndex == 42
+      quota.rateLimit == 100
+      quota.remaining == 7
 
 suite "SendService RLN proof attach - RLN mounted":
   var
