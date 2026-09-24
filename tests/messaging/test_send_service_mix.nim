@@ -621,6 +621,8 @@ suite "Mix send path - exit peer selection":
         raiseAssert "expected a mix-capable exit to be selected"
       seen.incl(selected.peerId)
     check seen.len == 3
+    # With no configured node, a topic the scan cannot filter on is "no exit".
+    check waku.selectMixLightpushPeer(PubsubTopic("/not/a/shard")).isNone()
 
   asyncTest "two mix-capable exits are both selected over repeated draws":
     ## A permutation that always moves the first candidate off the front, as
@@ -669,6 +671,62 @@ suite "Mix send path - exit peer selection":
     let selected = waku.selectMixLightpushPeer(shard).valueOr:
       raiseAssert "the slotted lightpush node should be offered as a mix exit"
     check selected.peerId == peerId
+
+  asyncTest "the configured lightpush node is one exit among many, not the exit":
+    ## The configured peer is one candidate: it serves as the exit before identify
+    ## fills its books, and shares the draw once discovery finds other exits.
+    let slottedId = PeerId.init(generateSecp256k1Key()).tryGet()
+    let slottedAddr = MultiAddress.init("/ip4/127.0.0.1/tcp/60500").tryGet()
+    let slottedKeys = generateKeyPair().expect("mix key pair")
+    waku.node.peerManager.addServicePeer(
+      RemotePeerInfo.init(slottedId, @[slottedAddr]), WakuLightPushCodec
+    )
+    waku.node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        slottedId, @[slottedAddr], mixPubKey = Opt.some(slottedKeys.publicKey)
+      )
+    )
+    # Its books carry no protocol and no shard; the slot alone makes it the exit.
+    check waku.selectMixLightpushPeer(shard).get().peerId == slottedId
+    # A topic that is not a shard still gives the slotted peer.
+    check waku.selectMixLightpushPeer(PubsubTopic("/not/a/shard")).get().peerId ==
+      slottedId
+
+    var expected: HashSet[PeerId]
+    expected.incl(slottedId)
+    for _ in 0 ..< 2:
+      expected.incl(addLightpushPeer(mixCapable = true))
+
+    var seen: HashSet[PeerId]
+    for _ in 0 ..< 100:
+      seen.incl(waku.selectMixLightpushPeer(shard).get().peerId)
+
+    # Three candidates, a hundred draws: a uniform draw misses one with
+    # probability below 1e-17, and a pin would return one of them every time.
+    check seen == expected
+
+    # With its books filled, the slotted peer passes the scan, and the slot must
+    # not add it again. A set cannot see a double entry, so count the draws.
+    waku.node.peerManager.addPeer(
+      RemotePeerInfo.init(
+        slottedId,
+        @[slottedAddr],
+        protocols = @[WakuLightPushCodec],
+        shards = @[0'u16],
+        mixPubKey = Opt.some(slottedKeys.publicKey),
+      )
+    )
+    waku.node.peerManager.switch.peerStore.setShardInfo(slottedId, @[0'u16])
+
+    var slottedDraws = 0
+    for _ in 0 ..< 1200:
+      if waku.selectMixLightpushPeer(shard).get().peerId == slottedId:
+        slottedDraws.inc()
+
+    # 1/3 of 1200 is 400 (sd 16) and 1/2 is 600 (sd 17); the threshold sits
+    # about six standard deviations from either mean, so a fair draw fails this
+    # about once in 10^9 runs and a doubled candidate passes it as rarely.
+    check slottedDraws < 500
 
 ## A stub for `MixEntryConnection` of `libp2p_mix`. `write` completes, `readOnce`
 ## waits for the reply future, and `closeImpl` cancels the closure that fills it.

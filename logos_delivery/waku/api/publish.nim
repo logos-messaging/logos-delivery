@@ -126,26 +126,32 @@ proc lightpushPeerAvailable*(self: Waku, shard: PubsubTopic): bool =
 proc selectMixLightpushPeer*(self: Waku, shard: PubsubTopic): Opt[RemotePeerInfo] =
   ## Selects a lightpush service peer for `shard` that mix can route to. With
   ## `exit_is_dest` the server is the last node of the sphinx path, so the mix
-  ## pool must hold a `MixPubInfo` for it. The selection reads the service slot
-  ## first, then draws one usable pool member uniformly.
+  ## pool must hold a `MixPubInfo` for it. The exit is a uniform draw from the
+  ## usable exits and the configured lightpush peer, which skips the protocol and
+  ## shard checks, as in `peerManager.selectPeer`: identify may not have run yet.
   let peerStore = self.node.peerManager.switch.peerStore
   let pool = MixNodePool.new(peerStore)
 
-  let slotted = self.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
-  if not slotted.isNil() and pool.get(slotted.peerId).isSome():
-    return Opt.some(peerStore.getPeer(slotted.peerId))
-
-  let shardInfo = RelayShard.parse(shard).valueOr:
-    return Opt.none(RemotePeerInfo)
-
+  # A topic that is not a shard gives the scan nothing to filter on, so skip the
+  # scan; the service slot below can still give an exit.
   var exits: seq[PeerId]
-  for peerId in pool.peerIds():
-    if not peerStore[ProtoBook][peerId].contains(WakuLightPushCodec):
-      continue
-    if not peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
-      continue
-    if pool.get(peerId).isSome():
-      exits.add(peerId)
+  let parsed = RelayShard.parse(shard)
+  if parsed.isOk():
+    let shardInfo = parsed.get()
+    for peerId in pool.peerIds():
+      if not peerStore[ProtoBook][peerId].contains(WakuLightPushCodec):
+        continue
+      if not peerStore.hasShard(peerId, shardInfo.clusterId, shardInfo.shardId):
+        continue
+      if pool.get(peerId).isSome():
+        exits.add(peerId)
+
+  # The configured peer joins the draw, once: in the list already if it passed
+  # the checks above, added here if the books do not carry them yet.
+  let slotted = self.node.peerManager.serviceSlots.getOrDefault(WakuLightPushCodec)
+  if not slotted.isNil() and slotted.peerId notin exits and
+      pool.get(slotted.peerId).isSome():
+    exits.add(slotted.peerId)
 
   # The exit choice must not be predictable, so draw it from the node's CSPRNG,
   # as the mix delay strategy and the mix library's hop selection do. `pickOne`
