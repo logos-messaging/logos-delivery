@@ -1,11 +1,6 @@
 {.used.}
 
-import
-  std/[net, sequtils],
-  results,
-  testutils/unittests,
-  chronos,
-  libp2p/crypto/crypto
+import std/[net, sequtils], results, testutils/unittests, chronos, libp2p/crypto/crypto
 
 import
   logos_delivery/waku/[
