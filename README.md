@@ -53,9 +53,6 @@ make logosdeliverynode NIMFLAGS="-d:chronicles_colors:none -d:disableMarchNative
 # Run with DNS bootstrapping
 ./build/logosdeliverynode --dns-discovery-url=DNS_BOOTSTRAP_NODE_URL
 
-# Run with the QUIC transport disabled (it is on by default)
-./build/logosdeliverynode --quic-support=false
-
 # See available command line options
 ./build/logosdeliverynode --help
 ```
