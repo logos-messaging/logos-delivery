@@ -414,60 +414,50 @@ suite "WakuNodeConf - edge nodes and kademlia client mode":
       c.wakuFlags.isServiceNode()
       not c.kademliaDiscoveryConf.get().clientMode
 
-suite "QUIC port defaults":
-  proc quicPortOf(conf: WakuNodeConf): Port =
+suite "Listen, TCP and QUIC ports":
+  proc portsOf(conf: WakuNodeConf): (Port, Port) =
     let wakuConf = conf.toWakuConf().valueOr:
       raiseAssert error
-    return wakuConf.quicConf.get().port
+    return (wakuConf.endpointConf.p2pTcpPort, wakuConf.quicConf.get().port)
 
-  test "an unset quic port follows the tcp port":
+  test "tcp and quic share the default listen port":
+    let conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    check conf.portsOf() == (DefaultListenPort, DefaultListenPort)
+
+  test "listen-port sets both tcp and quic":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    check conf.quicPortOf() == conf.tcpPort
-    conf.tcpPort = Port(30304)
-    check conf.quicPortOf() == Port(30304)
-
-  test "an explicit quic port wins over the tcp port":
-    var conf = defaultWakuNodeConf().valueOr:
-      raiseAssert error
-    conf.tcpPort = Port(30304)
-    conf.quicPort = Opt.some(Port(40404))
-    check conf.quicPortOf() == Port(40404)
-
-  test "ports-shift moves a defaulted quic port with the tcp port":
-    var conf = defaultWakuNodeConf().valueOr:
-      raiseAssert error
-    conf.tcpPort = Port(30304)
-    conf.portsShift = 2
-    check conf.quicPortOf() == Port(30306)
-
-  test "a json tcpPort of 0 auto-assigns quic too, and quicPort parses":
-    let auto = parseLogosDeliveryConf("""{"tcpPort": 0}""").valueOr:
-      raiseAssert error
-    check WakuNodeConf(auto.kernelConf).quicPortOf() == Port(0)
-
-    let explicit = parseLogosDeliveryConf("""{"tcpPort": 0, "quicPort": 40404}""").valueOr:
-      raiseAssert error
-    check WakuNodeConf(explicit.kernelConf).quicPortOf() == Port(40404)
-
-  test "listen-port sets the tcp and quic ports and wins over tcp-port":
-    var conf = defaultWakuNodeConf().valueOr:
-      raiseAssert error
-    conf.tcpPort = Port(30304)
     conf.listenPort = Opt.some(Port(40404))
-    let wakuConf = conf.toWakuConf().valueOr:
-      raiseAssert error
-    check:
-      wakuConf.endpointConf.p2pTcpPort == Port(40404)
-      wakuConf.quicConf.get().port == Port(40404)
+    check conf.portsOf() == (Port(40404), Port(40404))
 
-  test "an explicit quic port wins over listen-port":
+  test "tcp-port overrides tcp only":
+    var conf = defaultWakuNodeConf().valueOr:
+      raiseAssert error
+    conf.tcpPort = Opt.some(Port(30304))
+    check conf.portsOf() == (Port(30304), DefaultListenPort)
+    conf.listenPort = Opt.some(Port(40404))
+    check conf.portsOf() == (Port(30304), Port(40404))
+
+  test "quic-port overrides quic only":
     var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
     conf.listenPort = Opt.some(Port(40404))
     conf.quicPort = Opt.some(Port(50505))
-    let wakuConf = conf.toWakuConf().valueOr:
+    check conf.portsOf() == (Port(40404), Port(50505))
+
+  test "ports-shift moves both tcp and quic":
+    var conf = defaultWakuNodeConf().valueOr:
       raiseAssert error
-    check:
-      wakuConf.endpointConf.p2pTcpPort == Port(40404)
-      wakuConf.quicConf.get().port == Port(50505)
+    conf.listenPort = Opt.some(Port(30304))
+    conf.portsShift = 2
+    check conf.portsOf() == (Port(30306), Port(30306))
+
+  test "json listenPort, tcpPort and quicPort parse":
+    let auto = parseLogosDeliveryConf("""{"listenPort": 0}""").valueOr:
+      raiseAssert error
+    check WakuNodeConf(auto.kernelConf).portsOf() == (Port(0), Port(0))
+
+    let split = parseLogosDeliveryConf("""{"tcpPort": 30304, "quicPort": 40404}""").valueOr:
+      raiseAssert error
+    check WakuNodeConf(split.kernelConf).portsOf() == (Port(30304), Port(40404))

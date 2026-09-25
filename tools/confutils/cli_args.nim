@@ -53,6 +53,7 @@ const
   DefaultCLIPeerExchange* = true
   DefaultCLIRendezvous* = true
   DefaultCLINat* = "any"
+  DefaultListenPort* = Port(60000)
 
 type ConfResult*[T] = Result[T, string]
 
@@ -200,16 +201,17 @@ type WakuNodeConf* = object
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   listenPort* {.
     desc:
-      "Listening port for LibP2P: TCP, and QUIC over UDP. Takes precedence over --tcp-port. Default is --tcp-port.",
+      "Listening port for LibP2P, shared by TCP and QUIC (over UDP). --tcp-port and --quic-port override it per transport. Default is 60000.",
     defaultValue: Opt.none(Port),
     name: "listen-port"
   .}: Opt[Port]
 
+  # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   tcpPort* {.
-    desc: "TCP listening port. Kept for backward compatibility, prefer --listen-port.",
-    defaultValue: 60000,
+    desc: "TCP listening port. Default is --listen-port.",
+    defaultValue: Opt.none(Port),
     name: "tcp-port"
-  .}: Port
+  .}: Opt[Port]
 
   portsShift* {.
     desc: "Add a shift to all port numbers.", defaultValue: 0, name: "ports-shift"
@@ -747,8 +749,7 @@ hence would have reachability issues.""",
 
   # Opt-typed; desc states the default since the CLI can't auto-show it for Opt.none().
   quicPort* {.
-    desc:
-      "QUIC (UDP) listening port. Default is the TCP port (--listen-port or --tcp-port).",
+    desc: "QUIC (UDP) listening port. Default is --listen-port.",
     defaultValue: Opt.none(Port),
     name: "quic-port"
   .}: Opt[Port]
@@ -1057,7 +1058,8 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
     b.withNodeKey(n.nodeKey.get())
 
   b.withP2pListenAddress(n.listenAddress)
-  b.withP2pTcpPort(n.listenPort.get(n.tcpPort))
+  let listenPort = n.listenPort.get(DefaultListenPort)
+  b.withP2pTcpPort(n.tcpPort.get(listenPort))
   b.withPortsShift(n.portsShift)
   ## Library code builds WakuNodeConf directly and zero means unset there.
   ## An explicit --nat-discovery-timeout-ms=0 selects the default.
@@ -1193,8 +1195,7 @@ proc toWakuConf*(n: WakuNodeConf): ConfResult[WakuConf] =
   b.webSocketConf.withCertPath(n.websocketSecureCertPath)
 
   b.quicConf.withEnabled(n.quicSupport)
-  if n.quicPort.isSome():
-    b.quicConf.withQuicPort(n.quicPort.get())
+  b.quicConf.withQuicPort(n.quicPort.get(listenPort))
 
   if n.rateLimits.len > 0:
     b.rateLimitConf.withRateLimits(n.rateLimits)
