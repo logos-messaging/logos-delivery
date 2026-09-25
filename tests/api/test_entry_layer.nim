@@ -115,6 +115,18 @@ suite "LogosDelivery - entry layer selection":
       subResp.status == 404
       subResp.data.contains("--entry-layer")
 
+    let withQuery =
+      await issueRequest(node.waku.restServer.getAddress("/messaging?x=1"))
+    check:
+      withQuery.status == 404
+      withQuery.data.contains("--entry-layer")
+
+    # presto rejects a path with more than 64 segments
+    let tooDeep = await issueRequest(
+      node.waku.restServer.getAddress("/messaging" & "/x".repeat(70))
+    )
+    check tooDeep.status == 400
+
     (await node.stop()).isOkOr:
       raiseAssert "stop failed: " & error
 

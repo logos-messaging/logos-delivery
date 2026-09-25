@@ -84,14 +84,20 @@ proc new*(
 
   let middlewares = [originHandlerMiddleware, restMiddleware]
 
-  ## Forwards a request that matches no route to the error handler, which
-  ## answers 404 with the hint of its root.
+  ## Forwards a request that presto did not route to the error handler: 400 for
+  ## a path that fails to parse, 404 with the hint of its root for any other.
   proc defaultProcessCallback(
       rf: RequestFence
   ): Future[HttpResponseRef] {.async: (raises: [CancelledError]).} =
     if rf.isErr() or requestErrorHandler.isNil():
       return nil # chronos answers the request itself
-    return await requestErrorHandler(RestRequestError.NotFound, rf.get())
+    let request = rf.get()
+    let error =
+      if SegmentedPath.init(request.meth, request.uri.path).isErr():
+        RestRequestError.Invalid
+      else:
+        RestRequestError.NotFound
+    return await requestErrorHandler(error, request)
 
   server.httpServer = ?HttpServerRef.new(
     address,

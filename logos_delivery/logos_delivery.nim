@@ -201,7 +201,7 @@ proc start*(self: LogosDelivery): Future[Result[void, string]] {.async.} =
   else:
     # On a kernel-only node, /messaging answers 404 with the --entry-layer hint.
     rest_server_builder.markRestApiNotInstalled(
-      "messaging",
+      rest_server_builder.RestRootMessaging,
       "/messaging endpoints are not available. Please check your configuration: --entry-layer=messaging or --entry-layer=channels",
     )
 

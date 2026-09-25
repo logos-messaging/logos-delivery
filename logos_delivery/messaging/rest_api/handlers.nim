@@ -38,11 +38,11 @@ proc validateContentTopics(topics: openArray[ContentTopic]): Result[void, string
   for topic in topics:
     let parsed = NsContentTopic.parse(topic)
     if parsed.isErr():
-      return err("invalid content topic '" & topic & "': " & $parsed.error)
+      return err("invalid content topic: '" & topic & "': " & $parsed.error)
     # Autosharding resolves generation 0 only (sharding.getShard).
     if parsed.get().generation.get(0) != 0:
       return err(
-        "unsupported content topic generation in '" & topic &
+        "unsupported content topic generation in: '" & topic &
           "': only generation 0 is supported"
       )
   return ok()
@@ -224,5 +224,5 @@ proc mountRestApi*(client: MessagingClient) =
     # (same pattern as the waku REST builder).
     var router = client.waku.restServer.router
     installMessagingApiHandlers(router, client)
-    rest_server_builder.markRestApiInstalled("messaging")
+    rest_server_builder.markRestApiInstalled(rest_server_builder.RestRootMessaging)
     info "Mounted messaging REST API endpoints"
